@@ -48,7 +48,17 @@ const discussion = (limits: Partial<DiscussionLimits> = {}) => new CourseDiscuss
 /** A published free course with one lesson, and enrolments for ME and PEER. */
 async function course(slug = 'risk-basics') {
   const records = new CourseRecords(sql, { maxSections: 5, maxItems: 5 });
-  const made = await records.create({ slug, title: `TEST ${slug}`, summary: null, thumbnailUrl: null, pricing: 'free', price: null, priceAsset: null, operatorId: STAFF, now: NOW });
+  const made = await records.create({
+    slug,
+    title: `TEST ${slug}`,
+    summary: null,
+    thumbnailUrl: null,
+    pricing: 'free',
+    price: null,
+    priceAsset: null,
+    operatorId: STAFF,
+    now: NOW,
+  });
   const detail = await records.saveOutline({
     courseId: made.id,
     revision: 1,
@@ -56,7 +66,14 @@ async function course(slug = 'risk-basics') {
     operatorId: STAFF,
     now: NOW,
   });
-  await records.setState({ courseId: made.id, to: 'published', revision: detail.course.revision, reason: 'TEST', operatorId: STAFF, now: NOW });
+  await records.setState({
+    courseId: made.id,
+    to: 'published',
+    revision: detail.course.revision,
+    reason: 'TEST',
+    operatorId: STAFF,
+    now: NOW,
+  });
   for (const user of [ME, PEER])
     await sql`INSERT INTO academy.course_enrolments (course_id, user_id, track, enrolled_at) VALUES (${made.id}, ${user}, 'audit', ${NOW})`;
   return made;
@@ -81,11 +98,38 @@ describe('course discussion', () => {
   it('lists General with pinned topics first, whatever their position, and an empty General', async () => {
     const c = await course();
     const d = discussion();
-    await d.saveTopic({ courseId: c.id, slug: 'week-one', title: 'Week one', pinned: false, position: 1, reason: 'TEST', operatorId: STAFF, now: NOW });
-    await d.saveTopic({ courseId: c.id, slug: 'read-first', title: 'Read first', pinned: true, position: 9, reason: 'TEST', operatorId: STAFF, now: NOW });
+    await d.saveTopic({
+      courseId: c.id,
+      slug: 'week-one',
+      title: 'Week one',
+      pinned: false,
+      position: 1,
+      reason: 'TEST',
+      operatorId: STAFF,
+      now: NOW,
+    });
+    await d.saveTopic({
+      courseId: c.id,
+      slug: 'read-first',
+      title: 'Read first',
+      pinned: true,
+      position: 9,
+      reason: 'TEST',
+      operatorId: STAFF,
+      now: NOW,
+    });
     const slugs = async () => (await d.topics({ userId: ME, courseSlug: 'risk-basics' })).topics.map((t) => t.slug);
     expect(await slugs()).toEqual(['read-first', 'general', 'week-one']);
-    await d.saveTopic({ courseId: c.id, slug: 'week-one', title: 'Week one', pinned: false, position: 0, reason: 'TEST', operatorId: STAFF, now: NOW });
+    await d.saveTopic({
+      courseId: c.id,
+      slug: 'week-one',
+      title: 'Week one',
+      pinned: false,
+      position: 0,
+      reason: 'TEST',
+      operatorId: STAFF,
+      now: NOW,
+    });
     expect((await slugs())[0]).toBe('read-first');
     expect(await d.posts({ userId: ME, courseSlug: 'risk-basics', topicSlug: 'general', limit: 50 })).toEqual([]);
     expect(await sql`SELECT count(*)::int AS n FROM academy.discussion_topic_events`).toEqual([{ n: 3 }]);
@@ -112,7 +156,9 @@ describe('course discussion', () => {
     await expect(Promise.all([post(d, { clientRequestId: 'post:2' }), post(d, { clientRequestId: 'post:2' })])).resolves.toHaveLength(2);
     expect(await sql`SELECT count(*)::int AS n FROM academy.discussion_posts`).toEqual([{ n: 2 }]);
 
-    await expect(post(discussion({ postMaxChars: null }), { clientRequestId: 'post:3' })).rejects.toMatchObject({ code: 'academy.post_limit_unset' });
+    await expect(post(discussion({ postMaxChars: null }), { clientRequestId: 'post:3' })).rejects.toMatchObject({
+      code: 'academy.post_limit_unset',
+    });
     await expect(post(d, { clientRequestId: 'post:3', body: 'x'.repeat(101) })).rejects.toMatchObject({ code: 'academy.post_too_long' });
     const pdf = { contentType: 'application/pdf', base64: Buffer.from('%PDF-1.4\n').toString('base64') };
     await expect(post(d, { clientRequestId: 'post:3', image: pdf })).rejects.toMatchObject({ code: 'academy.attachment_type_refused' });
@@ -140,11 +186,22 @@ describe('course discussion', () => {
     const d = discussion();
     const q = await post(d);
     const a = await d.reply({ postId: q.id, body: 'TEST One percent.', anonymous: false, clientRequestId: 'r:1', userId: PEER, now: NOW });
-    const b = await d.reply({ postId: q.id, body: 'TEST A fixed amount.', anonymous: false, clientRequestId: 'r:2', userId: PEER, now: new Date(NOW.getTime() + 1000) });
+    const b = await d.reply({
+      postId: q.id,
+      body: 'TEST A fixed amount.',
+      anonymous: false,
+      clientRequestId: 'r:2',
+      userId: PEER,
+      now: new Date(NOW.getTime() + 1000),
+    });
     // A retried reply is the same reply.
-    expect((await d.reply({ postId: q.id, body: 'TEST A fixed amount.', anonymous: false, clientRequestId: 'r:2', userId: PEER, now: NOW })).id).toBe(b.id);
+    expect(
+      (await d.reply({ postId: q.id, body: 'TEST A fixed amount.', anonymous: false, clientRequestId: 'r:2', userId: PEER, now: NOW })).id,
+    ).toBe(b.id);
     await expect(d.accept({ userId: PEER, postId: q.id, replyId: a.id })).rejects.toMatchObject({ code: 'academy.permission_denied' });
-    await expect(d.reply({ postId: a.id, body: 'TEST nested', anonymous: false, clientRequestId: 'r:3', userId: ME, now: NOW })).rejects.toMatchObject({
+    await expect(
+      d.reply({ postId: a.id, body: 'TEST nested', anonymous: false, clientRequestId: 'r:3', userId: ME, now: NOW }),
+    ).rejects.toMatchObject({
       code: 'academy.post_not_found',
     });
     await d.accept({ userId: ME, postId: q.id, replyId: b.id });

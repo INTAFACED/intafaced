@@ -2797,7 +2797,9 @@ export function createAcademyRouter(
     createDiscussionPost: scopedProcedure('academy:write', { module: 'academy' })
       .input(academyCreateDiscussionPostInputSchema)
       .output(academyDiscussionPostSchema)
-      .mutation(({ input, ctx }) => guard(() => academy.discussion.createPost({ ...input, userId: ctx.principal!.userId, now: new Date() }))),
+      .mutation(({ input, ctx }) =>
+        guard(() => academy.discussion.createPost({ ...input, userId: ctx.principal!.userId, now: new Date() })),
+      ),
 
     /** AC-rooms-01: reply to a post (one level). */
     replyDiscussionPost: scopedProcedure('academy:write', { module: 'academy' })

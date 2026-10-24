@@ -98,14 +98,21 @@ const replyView = (row: PostRow, readerId: string, acceptedId: string | null): A
 /** Pure: the decoded image, or the typed refusal for one the owner's limit or the type check does not allow. */
 export function checkDiscussionImage(image: { contentType: string; base64: string }, maxBytes: number | null): Buffer {
   if (!IMAGE_TYPES.includes(image.contentType) || !FILE_SIGNATURES[image.contentType])
-    throw new AcademyError(`academy.attachment_type_refused ${image.contentType} is not an image a post takes`, 'academy.attachment_type_refused');
+    throw new AcademyError(
+      `academy.attachment_type_refused ${image.contentType} is not an image a post takes`,
+      'academy.attachment_type_refused',
+    );
   if (maxBytes === null) throw new AcademyError('academy.attachment_limit_unset', 'academy.attachment_limit_unset');
   const bytes = Buffer.from(image.base64, 'base64');
-  if (bytes.byteLength === 0) throw new AcademyError('academy.attachment_type_refused the image is empty', 'academy.attachment_type_refused');
+  if (bytes.byteLength === 0)
+    throw new AcademyError('academy.attachment_type_refused the image is empty', 'academy.attachment_type_refused');
   if (bytes.byteLength > maxBytes)
     throw new AcademyError(`academy.attachment_too_large bytes=${bytes.byteLength} max=${maxBytes}`, 'academy.attachment_too_large');
   if (!signatureMatches(bytes.subarray(0, 16), FILE_SIGNATURES[image.contentType]!))
-    throw new AcademyError(`academy.attachment_type_refused declared ${image.contentType} but the content is not`, 'academy.attachment_type_refused');
+    throw new AcademyError(
+      `academy.attachment_type_refused declared ${image.contentType} but the content is not`,
+      'academy.attachment_type_refused',
+    );
   return bytes;
 }
 
@@ -135,7 +142,8 @@ export class CourseDiscussion {
       SELECT EXISTS (SELECT 1 FROM academy.course_enrolments
         WHERE course_id = ${courseId} AND user_id = ${userId} AND left_at IS NULL) AS enrolled
     `;
-    if (!row?.enrolled) throw new AcademyError('academy.enrolment_required enrol in this course to join its discussion', 'academy.enrolment_required');
+    if (!row?.enrolled)
+      throw new AcademyError('academy.enrolment_required enrol in this course to join its discussion', 'academy.enrolment_required');
   }
 
   private async enrolledCourse(db: Db, slug: string, userId: string): Promise<CourseRow> {
@@ -150,7 +158,11 @@ export class CourseDiscussion {
     if (!row) throw new AcademyError(`academy.topic_not_found topic=${topicSlug}`, 'academy.topic_not_found');
   }
 
-  private rows(db: Db, readerId: string, where: { id?: string; parent?: string; topic?: { courseId: string; slug: string; limit: number } }) {
+  private rows(
+    db: Db,
+    readerId: string,
+    where: { id?: string; parent?: string; topic?: { courseId: string; slug: string; limit: number } },
+  ) {
     return db<PostRow[]>`
       SELECT p.id, p.course_id, p.topic_slug, p.parent_id, p.kind, p.title, p.body, p.author_id, p.anonymous, p.image_type,
              p.accepted_reply_id, p.created_at,
@@ -206,9 +218,19 @@ export class CourseDiscussion {
     const postsIn = (slug: string) => counts.find((c) => c.topic_slug === slug)?.posts ?? 0;
     const topics: (AcademyDiscussionTopic & { at: number })[] = [
       { slug: ACADEMY_DISCUSSION_GENERAL_TOPIC, title: GENERAL_TITLE, pinned: false, position: 0, general: true, posts: 0, at: 0 },
-      ...rows.map((r) => ({ slug: r.slug, title: r.title, pinned: r.pinned, position: r.position, general: false, posts: 0, at: r.created_at.getTime() })),
+      ...rows.map((r) => ({
+        slug: r.slug,
+        title: r.title,
+        pinned: r.pinned,
+        position: r.position,
+        general: false,
+        posts: 0,
+        at: r.created_at.getTime(),
+      })),
     ];
-    topics.sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.position - b.position || Number(b.general) - Number(a.general) || a.at - b.at);
+    topics.sort(
+      (a, b) => Number(b.pinned) - Number(a.pinned) || a.position - b.position || Number(b.general) - Number(a.general) || a.at - b.at,
+    );
     return {
       course: { courseId: course.id, slug: course.slug, title: course.title },
       topics: topics.map(({ at: _at, ...t }) => ({ ...t, posts: postsIn(t.slug) })),
@@ -314,7 +336,8 @@ export class CourseDiscussion {
     const post = await this.entry(this.sql, input.postId, input.userId);
     if (post.parent_id !== null) throw new AcademyError(`academy.post_not_found post=${input.postId}`, 'academy.post_not_found');
     if (input.on)
-      await this.sql`INSERT INTO academy.discussion_follows (post_id, user_id, created_at) VALUES (${post.id}, ${input.userId}, ${input.now}) ON CONFLICT DO NOTHING`;
+      await this
+        .sql`INSERT INTO academy.discussion_follows (post_id, user_id, created_at) VALUES (${post.id}, ${input.userId}, ${input.now}) ON CONFLICT DO NOTHING`;
     else await this.sql`DELETE FROM academy.discussion_follows WHERE post_id = ${post.id} AND user_id = ${input.userId}`;
     return { postId: post.id, on: input.on };
   }
@@ -323,9 +346,12 @@ export class CourseDiscussion {
   async like(input: { userId: string; postId: string; on: boolean; now: Date }): Promise<{ postId: string; on: boolean; likes: number }> {
     const entry = await this.entry(this.sql, input.postId, input.userId);
     if (input.on)
-      await this.sql`INSERT INTO academy.discussion_likes (post_id, user_id, created_at) VALUES (${entry.id}, ${input.userId}, ${input.now}) ON CONFLICT DO NOTHING`;
+      await this
+        .sql`INSERT INTO academy.discussion_likes (post_id, user_id, created_at) VALUES (${entry.id}, ${input.userId}, ${input.now}) ON CONFLICT DO NOTHING`;
     else await this.sql`DELETE FROM academy.discussion_likes WHERE post_id = ${entry.id} AND user_id = ${input.userId}`;
-    const [count] = await this.sql<{ likes: number }[]>`SELECT count(*)::int AS likes FROM academy.discussion_likes WHERE post_id = ${entry.id}`;
+    const [count] = await this.sql<
+      { likes: number }[]
+    >`SELECT count(*)::int AS likes FROM academy.discussion_likes WHERE post_id = ${entry.id}`;
     return { postId: entry.id, on: input.on, likes: count!.likes };
   }
 
@@ -359,7 +385,13 @@ export class CourseDiscussion {
     const replies = await this.sql<PostRow[]>`
       SELECT * FROM academy.discussion_posts WHERE parent_id = ${postId} ORDER BY created_at, id
     `;
-    const entry = (row: PostRow) => ({ id: row.id, authorId: row.author_id, anonymous: row.anonymous, body: row.body, createdAt: row.created_at });
+    const entry = (row: PostRow) => ({
+      id: row.id,
+      authorId: row.author_id,
+      anonymous: row.anonymous,
+      body: row.body,
+      createdAt: row.created_at,
+    });
     return {
       post: { ...entry(post), courseId: post.course_id, topicSlug: post.topic_slug, kind: post.kind!, title: post.title! },
       replies: replies.map(entry),

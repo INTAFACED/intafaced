@@ -1022,7 +1022,8 @@ const es: Record<keyof typeof en, string> = {
   refGradeNotFound: 'Esa entrega no tiene nota que marcar como leída. Esta página volvió a leer tu nota.',
   refPostLimitUnset: 'Publicar está desactivado: Academy no ha fijado la longitud de una publicación. No se publicó nada.',
   refPostTooLong: 'Esta publicación es más larga de lo que Academy permite. Acórtala; no se publicó nada.',
-  refAttachmentLimitUnset: 'Las imágenes están desactivadas: Academy no ha fijado el tamaño de una imagen. Publica sin la imagen o quítala.',
+  refAttachmentLimitUnset:
+    'Las imágenes están desactivadas: Academy no ha fijado el tamaño de una imagen. Publica sin la imagen o quítala.',
   refAttachmentTooLarge: 'Esta imagen es más grande de lo que Academy permite. No se publicó nada.',
   refAttachmentTypeRefused: 'Solo se puede adjuntar una imagen a una publicación. No se publicó nada.',
   refPostNotFound: 'No hay ninguna publicación en esta dirección en un curso en el que estés inscrito.',
@@ -1683,7 +1684,8 @@ const fr: Record<keyof typeof en, string> = {
   discussionAnonymousHint: 'Vos camarades ne voient aucun nom. L’équipe du cours peut toujours voir qui l’a écrite.',
   discussionPost: 'Publier',
   discussionPosted: 'Publié.',
-  discussionUncertain: 'La réponse a été perdue. Cette page a relu la discussion : si votre publication n’apparaît pas, publiez-la à nouveau.',
+  discussionUncertain:
+    'La réponse a été perdue. Cette page a relu la discussion : si votre publication n’apparaît pas, publiez-la à nouveau.',
   discussionEnrolRequired: 'Inscrivez-vous à ce cours pour rejoindre sa discussion.',
   discussionYou: 'Vous',
   discussionYouAnonymous: 'Vous, publié anonymement',

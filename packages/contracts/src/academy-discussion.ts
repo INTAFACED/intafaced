@@ -134,7 +134,10 @@ export const academyCreateDiscussionPostInputSchema = z
     title: z.string().trim().min(1).max(200),
     body,
     anonymous: z.boolean(),
-    image: z.object({ contentType: z.string().min(1).max(200), base64: z.string().min(1).max(2_000_000) }).strict().nullable(),
+    image: z
+      .object({ contentType: z.string().min(1).max(200), base64: z.string().min(1).max(2_000_000) })
+      .strict()
+      .nullable(),
     clientRequestId: requestId,
   })
   .strict();
@@ -161,7 +164,12 @@ const staffEntry = z.object({
   createdAt: z.coerce.date(),
 });
 export const academyStaffDiscussionThreadSchema = z.object({
-  post: staffEntry.extend({ courseId: z.string().guid(), topicSlug: z.string(), kind: z.enum(ACADEMY_DISCUSSION_POST_KINDS), title: z.string() }),
+  post: staffEntry.extend({
+    courseId: z.string().guid(),
+    topicSlug: z.string(),
+    kind: z.enum(ACADEMY_DISCUSSION_POST_KINDS),
+    title: z.string(),
+  }),
   replies: z.array(staffEntry),
 });
 export type AcademyStaffDiscussionThread = z.infer<typeof academyStaffDiscussionThreadSchema>;
