@@ -272,6 +272,12 @@ for (const n of TEST_DEPOSIT_NETWORKS) {
   assert.ok(!networkRowMatches({ ...published, confirmationsRequired: null }, n));
   assert.ok(!networkRowMatches(null, n));
 }
+// The TEST networks ask for as many confirmations as the stack's svc-pay credits at, so the room's count and the credit agree.
+{
+  const { default: payService } = await import('./local-stack-services/pay.mjs');
+  const payEnv = payService({ c: () => ({}), secrets: {}, dbUrl: () => '', urlOf: () => '', PORTS: {} }).env();
+  for (const n of TEST_DEPOSIT_NETWORKS) assert.equal(String(n.confirmationsRequired), payEnv.PAY_MIN_CONFIRMATIONS, n.networkId);
+}
 assert.equal(TEST_DEPOSIT_TERMS.length, 4);
 for (const t of TEST_DEPOSIT_TERMS) {
   const network = TEST_DEPOSIT_NETWORKS.find((n) => n.networkId === t.networkId);
