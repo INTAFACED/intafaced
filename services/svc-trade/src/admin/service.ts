@@ -51,7 +51,7 @@ import {
   type RiskLimitsInput,
   type RiskVersion,
 } from './risk.js';
-import { parseFeeScheduleJson, FeeScheduleError } from '../spot/fee-schedule.js';
+import { assertMakerRebatesPayable, parseFeeScheduleJson, FeeScheduleError } from '../spot/fee-schedule.js';
 import { priceBandView, sqlPriceBandStore, type PriceBandView } from '../futures/dynamic-price-band.js';
 import { feeScheduleHistory, latestFeeScheduleVersion, type FeeScheduleVersionRow } from '../spot/fee-schedule-store.js';
 import { readMarketStatusHistory } from './status-history.js';
@@ -399,6 +399,7 @@ export class TradeOpsAdmin {
     try {
       const parsed = parseFeeScheduleJson(JSON.stringify({ ...input.schedule, published: true, version: 'proposal' }));
       if (parsed.published !== true) throw new TradeOpsError('trade.fee_schedule_blank', 'the proposed schedule is not published');
+      assertMakerRebatesPayable(parsed);
     } catch (err) {
       if (err instanceof FeeScheduleError) throw new TradeOpsError(err.code, err.message);
       throw err;

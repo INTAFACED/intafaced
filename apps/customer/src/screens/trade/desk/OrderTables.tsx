@@ -429,6 +429,9 @@ export function FillsTable({
     // The sentence in Activity never rounds a fill: it shows the amount's own digits (up to 8). The desk keeps the lot's.
     const amount = fmtAmount(fill.amount, { places: activity ? 8 : precision.lotOf(fill.symbol) });
     const quote = quoteOf(fill.symbol);
+    const zeroFee = fillZeroFee(fill);
+    const rate = fillFeeRate(fill);
+    const rebate = fillRebate(fill);
     return (
       <tr key={fill.id} data-fill={fill.id} data-of={of ?? undefined} className={of ? 'dk-fill-part' : undefined}>
         <td className="if-num">{dayTime(fill.timestamp, timeZone)}</td>
@@ -453,19 +456,14 @@ export function FillsTable({
           {fmtAmount(fill.cost, { places: quotePlaces(quote), fixed: true })} <span className="dk-unit">{quote}</span>
         </td>
         {activity ? null : <td>{roleWord(fillRole(fill), t)}</td>}
-        <td className="dk-num if-num" data-fee={fillZeroFee(fill) ? 'zero' : undefined}>
-          {fillZeroFee(fill) ? t('Zero fee') : fill.fee ? `${fmtAmount(fill.fee.cost, { places: 8 })} ${fill.fee.currency}` : '—'}
-          {!activity && !fillZeroFee(fill) && fillFeeRate(fill) ? (
-            <span className="dk-unit"> {fmtPct(fillFeeRate(fill)!, { signed: false })}</span>
-          ) : null}
-          {fillRebate(fill) ? (
-            <span className="dk-rebate" data-rebate={fillRebate(fill)!.cost}>
+        <td className="dk-num if-num" data-fee={zeroFee ? 'zero' : undefined}>
+          {zeroFee ? t('Zero fee') : fill.fee ? `${fmtAmount(fill.fee.cost, { places: 8 })} ${fill.fee.currency}` : '—'}
+          {!activity && !zeroFee && rate ? <span className="dk-unit"> {fmtPct(rate, { signed: false })}</span> : null}
+          {rebate ? (
+            <span className="dk-rebate" data-rebate={rebate.cost}>
               {' '}
-              {t('Rebate {amount} {asset}', {
-                amount: fmtAmount(fillRebate(fill)!.cost, { places: 8 }),
-                asset: fillRebate(fill)!.currency,
-              })}
-              {activity ? null : <span className="dk-unit"> {fmtPct(fillRebate(fill)!.rate, { signed: false })}</span>}
+              {t('Rebate {amount} {asset}', { amount: fmtAmount(rebate.cost, { places: 8 }), asset: rebate.currency })}
+              {activity ? null : <span className="dk-unit"> {fmtPct(rebate.rate, { signed: false })}</span>}
             </span>
           ) : null}
         </td>
@@ -525,8 +523,12 @@ export function FillsTable({
                   <td className="dk-num if-num">
                     {fmtAmount(group.cost, { places: quotePlaces(quote), fixed: true })} <span className="dk-unit">{quote}</span>
                   </td>
-                  <td className="dk-num if-num">
-                    {group.fee ? `${fmtAmount(group.fee.cost, { places: 8 })} ${group.fee.currency}` : '—'}
+                  <td className="dk-num if-num" data-fee={fillZeroFee(group) ? 'zero' : undefined}>
+                    {fillZeroFee(group)
+                      ? t('Zero fee')
+                      : group.fee
+                        ? `${fmtAmount(group.fee.cost, { places: 8 })} ${group.fee.currency}`
+                        : '—'}
                     {group.rebate ? (
                       <span className="dk-rebate">
                         {' '}

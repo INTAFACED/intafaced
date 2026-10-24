@@ -769,7 +769,12 @@ function SideForm({
                 ? t('Rebate maker', { rate: fmtPct(rebateRate(live.preview)!, { signed: false }) })
                 : t('Fee maker', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
               : priced && tif === 'GTC'
-                ? t('Fee up to', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
+                ? rebateRate(live.preview, true) !== null
+                  ? t('Fee up to rebate', {
+                      rate: fmtPct(feeRate(live.preview)!, { signed: false }),
+                      rebate: fmtPct(rebateRate(live.preview, true)!, { signed: false }),
+                    })
+                  : t('Fee up to', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
                 : t('Fee taker', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
             : t('Fee unknown')}
         </span>

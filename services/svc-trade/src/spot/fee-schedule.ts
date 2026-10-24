@@ -241,17 +241,39 @@ function parseRowsBlock(obj: Record<string, unknown>): {
       effectiveAt: typeof row.effectiveAt === 'string' ? row.effectiveAt : null,
     };
   });
-  for (const row of rows) {
-    if (row.makerRebateBps === null || row.makerRebateBps === 0) continue;
-    const at = `rows ${row.pairGroup}/${row.tierId}`;
-    if (row.zeroFee || row.makerBps !== 0) throw blank(`${at}: a maker rebate needs makerBps "0" on a row that is not zeroFee`);
-    // The rebate comes out of the taker's fee on the same fill, and the taker may sit on any tier of the group.
-    const lowestTaker = Math.min(...rows.filter((other) => other.pairGroup === row.pairGroup).map((other) => other.takerBps));
-    if (row.makerRebateBps >= lowestTaker) {
-      throw blank(`${at}: a maker rebate must be below every taker rate in its pair group (lowest ${lowestTaker})`);
-    }
-  }
   return { rows, pairGroups, defaultPairGroup };
+}
+
+/**
+ * Why `row`'s maker rebate cannot be paid, or null when it can (or it publishes none). The rebate comes out of the
+ * taker's fee on the same fill, so the row's maker fee must be 0, and the taker may sit on any tier of the group.
+ */
+function unpayableRebate(rows: readonly FeeScheduleRow[], row: FeeScheduleRow): string | null {
+  if (row.makerRebateBps === null || row.makerRebateBps === 0) return null;
+  if (row.zeroFee || row.makerBps !== 0) return 'a maker rebate needs makerBps "0" on a row that is not zeroFee';
+  const lowestTaker = Math.min(...rows.filter((other) => other.pairGroup === row.pairGroup).map((other) => other.takerBps));
+  if (row.makerRebateBps >= lowestTaker) return `a maker rebate must be below every taker rate in its pair group (lowest ${lowestTaker})`;
+  return null;
+}
+
+/**
+ * The write doors (the boot env and `admin.fees.set`) refuse a schedule with a rebate no fill could pay, or one on the
+ * flat schedule, which pays none. Reads of a stored version do not: an older version stays readable, and its rebate
+ * reads as none (`makerRebateBpsFor`), so its orders keep settling.
+ */
+export function assertMakerRebatesPayable(schedule: OwnerFeeSchedule): void {
+  if (schedule.published !== true) return;
+  const blank = (message: string) => new FeeScheduleError(`${TRADE_FEE_SCHEDULE_ENV}.${message}`, 'trade.fee_schedule_blank');
+  if (!schedule.rows) {
+    if (schedule.makerRebateBps !== null && schedule.makerRebateBps > 0) {
+      throw blank('makerRebateBps: the flat schedule pays no maker rebate; publish rows with a rebate row instead');
+    }
+    return;
+  }
+  for (const row of schedule.rows) {
+    const why = unpayableRebate(schedule.rows, row);
+    if (why) throw blank(`rows ${row.pairGroup}/${row.tierId}: ${why}`);
+  }
 }
 
 function parsePerpetualRates(raw: unknown): { makerBps: number; takerBps: number } | null {
@@ -328,12 +350,17 @@ export function previewFeeBps(schedule: OwnerFeeSchedule, role: 'maker' | 'taker
 export type FeeProduct = 'spot' | 'perpetual';
 
 /**
- * The maker rebate a spot fill's maker earns on its row, in bps of what the maker paid; 0 when the row publishes none.
- * Only a rows schedule pays one: the flat schedule's `makerRebateBps` was never paid and the public schedule marks it.
+ * The maker rebate a spot fill's maker earns on its row, in bps of what the maker paid; 0 when the row publishes none
+ * or one no fill could pay (`assertMakerRebatesPayable`). Only a rows schedule pays one.
  */
 export function makerRebateBpsFor(schedule: OwnerFeeSchedule, selector: FeeSelector): number {
   if (schedule.published !== true || !schedule.rows) return 0;
-  return resolveFeeRow(schedule, selector)?.makerRebateBps ?? 0;
+  const row = resolveFeeRow(schedule, selector);
+  return row ? paidRebateBps(schedule.rows, row) : 0;
+}
+
+function paidRebateBps(rows: readonly FeeScheduleRow[], row: FeeScheduleRow): number {
+  return unpayableRebate(rows, row) === null ? (row.makerRebateBps ?? 0) : 0;
 }
 
 /**
@@ -395,10 +422,9 @@ export interface PublicFeeRow {
   readonly minFee?: string | null;
   /**
    * Set when an order on this row is refused although the row is published: a minimum fee that no ledger recipe can
-   * post (`resolveFeeRow`), or the flat schedule's rebate, which is never paid. A page shows the row as not available,
-   * never as a rate anyone pays.
+   * post (`resolveFeeRow`). A page shows the row as not available, never as a rate anyone pays.
    */
-  readonly refusal?: 'trade.rebate_recipe_unavailable' | 'trade.min_fee_recipe_unavailable';
+  readonly refusal?: 'trade.min_fee_recipe_unavailable';
 }
 
 /** The code `resolveFeeRow` refuses a published row with, or undefined when the row can be charged. */
@@ -443,10 +469,8 @@ export function publicFeeSchedule(
               zeroFee: false,
               makerBps: schedule.makerBps,
               takerBps: schedule.takerBps,
-              makerRebateBps: schedule.makerRebateBps,
-              ...(schedule.makerRebateBps !== null && schedule.makerRebateBps > 0
-                ? { refusal: 'trade.rebate_recipe_unavailable' as const }
-                : {}),
+              // The flat schedule pays no rebate, so it publishes none.
+              makerRebateBps: null,
             },
           ],
         },
@@ -465,7 +489,10 @@ export function publicFeeSchedule(
       .rows!.filter((row) => row.pairGroup === pairGroup)
       .map((row) => {
         const refusal = rowRefusal(row);
-        const { tierId, zeroFee, makerBps, takerBps, makerRebateBps, minFee } = row;
+        const { tierId, zeroFee, makerBps, takerBps, minFee } = row;
+        // The rebate a fill on this row pays: one no fill could pay publishes as none, never as a rate.
+        const paid = paidRebateBps(schedule.rows!, row);
+        const makerRebateBps = paid > 0 ? paid : row.makerRebateBps === null ? null : 0;
         return { tierId, zeroFee, makerBps, takerBps, makerRebateBps, minFee, ...(refusal ? { refusal } : {}) };
       }),
   }));

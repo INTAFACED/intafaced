@@ -7,6 +7,7 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { parseFeeScheduleJson } from './fee-schedule.js';
 import { fillLegIdFor } from './ids.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from './testing.js';
 
@@ -256,5 +257,36 @@ describe('svc-trade fill-sequence-conflict (H8a PG-hard)', () => {
     // the ledger key `trade.fill:<fillId>` returns the original transaction.
     expect(secondRows?.n).toBe(firstRows?.n);
     expect(secondPosts).toBe(firstPosts);
+  });
+
+  it('the SAME match whose stored maker rebate differs from the one its placement now gives is refused by name, and pays nothing more', async () => {
+    trade = new TradeService(sql, ledger, matching, perks, bus, {
+      feeSchedule: parseFeeScheduleJson(
+        JSON.stringify({
+          published: true,
+          version: 'rebate',
+          defaultPairGroup: 'all',
+          rows: [{ pairGroup: 'all', tierId: 'regular', zeroFee: false, makerBps: '0', takerBps: '20', makerRebateBps: '5', minFee: null }],
+        }),
+      ),
+      marketLifecycle: READY_MARKET_LIFECYCLE,
+      spotEnabled: true,
+      marketSlippageCapBps: 200,
+    });
+    const { makerId, takerId } = await restingPair();
+    const settle = () =>
+      trade.settleFillEvent({ marketId: btcusdt.id, makerOrderId: makerId, takerOrderId: takerId, price: '100', qty: '1', sequence: SEQ });
+    await settle();
+    const rebates = () => ledger.journal().filter((tx) => tx.reason === 'trade.fill.rebate').length;
+    expect(rebates()).toBe(1);
+
+    // The stored rebate no longer matches what the placement's versions give.
+    await sql`UPDATE trade.fills SET rebate_bps = 4, rebate_amount = ${'0.04'}::numeric WHERE liquidity = 'maker'`;
+    await expect(settle()).rejects.toSatisfy(
+      (err: unknown) =>
+        err instanceof TradeError && err.code === 'trade.fill_sequence_conflict' && /another maker rebate/.test(err.message),
+      'expected the rebate mismatch named as such, not as a reused engine sequence',
+    );
+    expect(rebates()).toBe(1);
   });
 });

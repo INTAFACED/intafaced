@@ -1,6 +1,7 @@
 import { mulBps, parseAmount } from '@intafaced/ledger-client';
 import { describe, expect, it } from 'vitest';
 import {
+  assertMakerRebatesPayable,
   FeeScheduleError,
   fundedMakerRebateBps,
   makerRebateBpsFor,
@@ -100,17 +101,26 @@ describe('fee schedule rows', () => {
     expect(refusal(() => ratesForFill(s, 0, 0, 'spot', { symbol: 'BTC/USDT' }))).toBe('trade.min_fee_recipe_unavailable');
   });
 
-  it('a maker rebate row needs maker fee 0 and a rebate below every taker rate in its group, or the schedule refuses', () => {
+  it('a maker rebate row needs maker fee 0 and a rebate below every taker rate in its group, or the write doors refuse', () => {
     const rebate = { makerBps: '0', makerRebateBps: '2' };
-    expect(refusal(() => schedule([row({ makerRebateBps: '2' })]))).toBe('trade.fee_schedule_blank');
-    expect(refusal(() => schedule([row({ ...rebate, takerBps: '2' })]))).toBe('trade.fee_schedule_blank');
-    // A VIP taker at 2 bps in the same group could not fund a 2 bps rebate.
-    expect(refusal(() => schedule([row(rebate), row({ tierId: 'vip-1', makerBps: '0', takerBps: '2' })]))).toBe('trade.fee_schedule_blank');
-    expect(
-      refusal(() =>
-        schedule([row(), row({ pairGroup: 'zero', zeroFee: true, makerBps: undefined, takerBps: undefined, makerRebateBps: '1' })]),
-      ),
-    ).toBe('trade.fee_schedule_blank');
+    const unpayable = [
+      [row({ makerRebateBps: '2' })],
+      [row({ ...rebate, takerBps: '2' })],
+      // A VIP taker at 2 bps in the same group could not fund a 2 bps rebate.
+      [row(rebate), row({ tierId: 'vip-1', makerBps: '0', takerBps: '2' })],
+      [row(), row({ pairGroup: 'zero', zeroFee: true, makerBps: undefined, takerBps: undefined, makerRebateBps: '1' })],
+    ];
+    for (const rows of unpayable) {
+      const bad = rows.find((r) => 'makerRebateBps' in r)!;
+      const symbol = bad.pairGroup === 'zero' ? 'ETH/USDT' : 'BTC/USDT';
+      const s = published(schedule(rows, bad.pairGroup === 'zero' ? { pairGroups: { [symbol]: 'zero' } } : {}));
+      expect(refusal(() => assertMakerRebatesPayable(s))).toBe('trade.fee_schedule_blank');
+      // A stored version stays readable, so its orders keep settling, and its rebate reads as none, never as a rate.
+      expect(makerRebateBpsFor(s, { symbol })).toBe(0);
+      const group = publicFeeSchedule(s, [symbol]).groups.find((g) => g.pairGroup === bad.pairGroup)!;
+      expect(group.rows.find((r) => r.tierId === 'regular')).toMatchObject({ makerRebateBps: 0 });
+    }
+    expect(() => assertMakerRebatesPayable(published(schedule([row(rebate)])))).not.toThrow();
   });
 
   it('a published rebate is charged, not refused: the maker pays 0 and earns the rebate, held below this fill taker rate', () => {
@@ -128,12 +138,16 @@ describe('fee schedule rows', () => {
     expect(publicFeeSchedule(s, ['BTC/USDT']).groups[0]!.rows[0]).not.toHaveProperty('refusal');
   });
 
-  it('the flat schedule pays no rebate and marks the one it publishes', () => {
+  it('the flat schedule pays no rebate: the write doors refuse one, and a read publishes none', () => {
     const flat = published(
       parseFeeScheduleJson(JSON.stringify({ published: true, version: 'f', makerBps: '10', takerBps: '20', makerRebateBps: '2' })),
     );
+    expect(refusal(() => assertMakerRebatesPayable(flat))).toBe('trade.fee_schedule_blank');
     expect(makerRebateBpsFor(flat, { symbol: 'BTC/USDT' })).toBe(0);
-    expect(publicFeeSchedule(flat, ['BTC/USDT']).groups[0]!.rows[0]).toMatchObject({ refusal: 'trade.rebate_recipe_unavailable' });
+    const [only] = publicFeeSchedule(flat, ['BTC/USDT']).groups[0]!.rows;
+    // Its rates are charged, so the row is not refused: only the rebate is absent.
+    expect(only).toMatchObject({ makerBps: 10, takerBps: 20, makerRebateBps: null });
+    expect(only).not.toHaveProperty('refusal');
   });
 
   it('rows replace the flat rates, need the default group regular row, and reject duplicates', () => {

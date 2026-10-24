@@ -14,6 +14,7 @@ import { verifyServiceHeaders } from '@intafaced/contracts';
 import { MemoryLedger, houseFees, orderHoldAccount, parseAmount as amt, userAvailable } from '@intafaced/ledger-client';
 import { describeMoneyDoor, type MoneyDoorScenario } from '@intafaced/ledger-client/testing/saga';
 import { createLedgerClient } from '../ledger-client.js';
+import type { AffiliateFeeLeg } from './affiliate-accrue.js';
 import { parseFeeScheduleJson } from './fee-schedule.js';
 import { principalFor, StubMatching } from './testing.js';
 import { orderIdFor } from './ids.js';
@@ -65,6 +66,9 @@ const database = () => {
 const MAKER_ID = orderIdFor(BOB, MARKET_ID, 'saga-rebate-maker');
 const TAKER_ID = orderIdFor(ALICE, MARKET_ID, 'saga-rebate-taker');
 let matching = new StubMatching();
+/** Every fee leg the fill reported to affiliates, across this scenario's replays. */
+let affiliateLegs: AffiliateFeeLeg[] = [];
+const affiliateAccrue = { accrueTradeFee: async (leg: AffiliateFeeLeg) => void affiliateLegs.push(leg) };
 
 const settleRebateFill: MoneyDoorScenario = {
   name: 'svc-trade fill on a rebate row (tradeFill, then tradeFillMakerRebate)',
@@ -72,6 +76,7 @@ const settleRebateFill: MoneyDoorScenario = {
   verify: verifyServiceHeaders,
   async setup(ledger) {
     matching = new StubMatching();
+    affiliateLegs = [];
     await resetAndListMarket(database(), ledger, matching);
     await fund(ledger, BOB, 'BTC', '5');
     await fund(ledger, ALICE, 'USDT', '1000');
@@ -97,7 +102,9 @@ const settleRebateFill: MoneyDoorScenario = {
     const realFetch = globalThis.fetch;
     globalThis.fetch = fetchImpl;
     try {
-      const trade = tradeOver(database(), createLedgerClient('http://ledger.test', SECRET), matching, REBATE_SCHEDULE);
+      const trade = tradeOver(database(), createLedgerClient('http://ledger.test', SECRET), matching, REBATE_SCHEDULE, {
+        affiliateAccrue,
+      });
       await trade.settleFillEvent({
         marketId: MARKET_ID,
         makerOrderId: MAKER_ID,
@@ -134,6 +141,12 @@ const settleRebateFill: MoneyDoorScenario = {
       ['taker', amt('0.002'), null, null, null],
     ]);
     expect(ledger.totalsByAsset()).toEqual({ BTC: '0', USDT: '0' });
+    // Affiliates share what the house kept of the taker fee (0.002 - 0.001 BTC), never the part paid back as a rebate.
+    // The maker paid no fee, so it reports none.
+    expect(affiliateLegs.length).toBeGreaterThan(0);
+    for (const leg of affiliateLegs) {
+      expect(leg).toMatchObject({ userId: ALICE, feeAmount: amt('0.001'), feeAsset: 'BTC', feeEventId: expect.stringMatching(/:taker$/) });
+    }
   },
 };
 

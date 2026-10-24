@@ -10,8 +10,13 @@ export function fillRebate(fill: Pick<Trade, 'rebate'>): { cost: string; currenc
   return fill.rebate ?? null;
 }
 
-/** A fee the service stated as exactly nothing: "Zero fee", not "0.00000000". A fill with a rebate also pays none. */
-export function fillZeroFee(fill: Pick<Trade, 'fee'>): boolean {
+/**
+ * A fee the service stated as exactly nothing: "Zero fee", not "0.00000000". A fill with a rebate also pays none. Takes a
+ * fill, or an order's fills together.
+ */
+export function fillZeroFee(
+  fill: Pick<Trade, 'fee'> | { readonly fee: { readonly cost: string; readonly currency: string } | null },
+): boolean {
   return fill.fee !== null && /^0+(\.0+)?$/.test(fill.fee.cost);
 }
 

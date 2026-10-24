@@ -66,9 +66,12 @@ export function feeRate(preview: Pick<Preview, 'feeBps'> | null): string | null 
   return preview && preview.feeBps !== null ? bpsToRatio(preview.feeBps) : null;
 }
 
-/** The maker rebate rate (a ratio) a resting order earns, from the preview; null when it earns none or it is not known. */
-export function rebateRate(preview: Pick<Preview, 'feeRole' | 'makerRebateBps'> | null): string | null {
-  if (!preview || preview.feeRole !== 'maker' || !preview.makerRebateBps) return null;
+/**
+ * The maker rebate rate (a ratio) a resting order earns, from the preview; null when it earns none or it is not known.
+ * `mayRest`: an order the check prices as a taker that may still rest (a GTC limit) earns it on what rests.
+ */
+export function rebateRate(preview: Pick<Preview, 'feeRole' | 'makerRebateBps'> | null, mayRest = false): string | null {
+  if (!preview || (preview.feeRole !== 'maker' && !mayRest) || !preview.makerRebateBps) return null;
   return bpsToRatio(preview.makerRebateBps);
 }
 

@@ -188,6 +188,7 @@ const messages = {
   'Amount up one step': 'Raise the amount one step',
   'Amount down one step': 'Lower the amount one step',
   'Fee up to': 'Fee up to {rate}',
+  'Fee up to rebate': 'Fee up to {rate} · rebate {rebate} on what rests',
   'Fee unknown': 'Fee —',
   'Short of funds hint': 'Not enough {asset}',
   'Send again': 'Send the same order again',

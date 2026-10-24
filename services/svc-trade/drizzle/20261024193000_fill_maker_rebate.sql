@@ -15,4 +15,6 @@ ALTER TABLE "trade"."fills"
   ADD CONSTRAINT "fills_maker_rebate_ck" CHECK (
     ("rebate_bps" IS NULL AND "rebate_amount" IS NULL AND "rebate_asset" IS NULL)
     OR ("liquidity" = 'maker' AND "fee_amount" = 0 AND "rebate_bps" > 0 AND "rebate_amount" > 0 AND "rebate_asset" IS NOT NULL)
-  );
+  ) NOT VALID;
+-- NOT VALID: every row before this migration has the three columns null, which the check accepts, so there is nothing
+-- to scan for, and the lock the ALTER takes is not held through a scan of the whole fills table. New rows are checked.

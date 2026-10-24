@@ -23,6 +23,8 @@ describe('fillRebate and fillZeroFee', () => {
     expect(fillZeroFee({ fee: { cost: '0.000', currency: 'USDT', rate: null } })).toBe(true);
     expect(fillZeroFee({ fee: { cost: '0.0001', currency: 'USDT', rate: '0.001' } })).toBe(false);
     expect(fillZeroFee({ fee: null })).toBe(false);
+    // An order's fills together (the trade history's group row), which carry no rate.
+    expect(fillZeroFee({ fee: { cost: '0', currency: 'USDC' } })).toBe(true);
   });
 });
 

@@ -370,16 +370,27 @@ export async function insertFillLeg(
     parseAmount(existing.quote_amount) === leg.quoteAmount &&
     parseAmount(existing.fee_amount) === leg.feeAmount &&
     existing.fee_asset === leg.feeAsset &&
-    (existing.rebate_bps === null || existing.rebate_bps === undefined ? null : Number(existing.rebate_bps)) === (rebate?.bps ?? null) &&
-    (existing.rebate_amount ? parseAmount(existing.rebate_amount) : null) === (rebate?.amount ?? null) &&
-    (existing.rebate_asset ?? null) === (rebate?.asset ?? null) &&
     (existing.session_id ?? null) === attribution.sessionId &&
     (existing.api_key_id ?? null) === attribution.apiKeyId;
+  const sameRebate =
+    (existing.rebate_bps === null || existing.rebate_bps === undefined ? null : Number(existing.rebate_bps)) === (rebate?.bps ?? null) &&
+    (existing.rebate_amount ? parseAmount(existing.rebate_amount) : null) === (rebate?.amount ?? null) &&
+    (existing.rebate_asset ?? null) === (rebate?.asset ?? null);
 
   // The ordinary case: this match already settled. The ledger post that
   // follows is keyed on `trade.fill:<fillId>` and returns the original
   // transaction, so continuing is a no-op rather than a second movement.
-  if (same) return;
+  if (same && sameRebate) return;
+  // The same match, but the rebate the placement versions give now is not the one stored: a fee schedule version
+  // under a placed order changed. The stored rebate stands; settling with another would be refused by the ledger.
+  if (same) {
+    throw new TradeError(
+      `fill sequence ${leg.sequence} on ${leg.symbol} (${leg.role}) is stored with another maker rebate than its ` +
+        `placement's fee schedule versions now give (stored ${existing.rebate_bps ?? 'none'} bps, now ${rebate?.bps ?? 'none'} bps). ` +
+        `A stored fee schedule version changed after this order was placed.`,
+      'trade.fill_sequence_conflict',
+    );
+  }
 
   /**
    * A DIFFERENT trade already owns this sequence.
@@ -751,24 +762,18 @@ export async function settleFill(svc: PublishingService, market: Market, fill: E
     );
   }
 
-  await svc.notifyAffiliateAccrue({
+  // Affiliates share what the house kept: a rebate is paid out of the taker's fee, in that fee's own asset.
+  const affiliateFees = {
     fillId: fillIdFor(market.id, fill.sequence),
     makerUserId: maker.userId,
     takerUserId: taker.userId,
     makerFee,
-    takerFee,
+    takerFee: paidRebate ? takerFee - paidRebate.amount : takerFee,
     makerFeeAsset: takerBuys ? market.quoteAsset : market.baseAsset,
     takerFeeAsset: takerBuys ? market.baseAsset : market.quoteAsset,
-  });
-  await svc.notifyAffiliatePayout({
-    fillId: fillIdFor(market.id, fill.sequence),
-    makerUserId: maker.userId,
-    takerUserId: taker.userId,
-    makerFee,
-    takerFee,
-    makerFeeAsset: takerBuys ? market.quoteAsset : market.baseAsset,
-    takerFeeAsset: takerBuys ? market.baseAsset : market.quoteAsset,
-  });
+  };
+  await svc.notifyAffiliateAccrue(affiliateFees);
+  await svc.notifyAffiliatePayout(affiliateFees);
 
   // User-visible fill + order snapshots for private WS (not money — ledger already moved).
   for (const leg of legs) {
