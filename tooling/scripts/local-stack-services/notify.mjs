@@ -9,6 +9,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     IDENTITY_URL: urlOf('identity'),
     TRADE_URL: urlOf('trade'),
     MATCHING_URL: urlOf('matching'),
+    // Notices for P2P merchants: notify asks p2p whether the reader is an active merchant.
+    P2P_URL: urlOf('p2p'),
     // In-app inbox only. No email, push or SMS gateway exists locally, so those channels refuse honestly.
     NOTIFY_REQUIRED_CHANNELS: 'none',
     // Required, no default. LOCAL TEST values: attempts only matter for out-of-app delivery (none here);

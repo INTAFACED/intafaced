@@ -18,6 +18,17 @@ export const CATEGORY_ID = NOTICE_CATEGORY_ID;
 export const CATEGORY_NAME_MAX = 60;
 export const CATEGORIES_REASON_MAX = STATUS_PAGE_REASON_MAX;
 
+/** Who an announcement is for: everyone on the public board, or P2P merchants alone, signed in. */
+export const AUDIENCES = ['everyone', 'p2p-merchants'] as const;
+export type Audience = (typeof AUDIENCES)[number];
+const isAudience = (v: unknown): v is Audience => typeof v === 'string' && (AUDIENCES as readonly string[]).includes(v);
+
+/** One audience as svc-notify lists it (`notify.noticeAudiences`): whether its membership can be read there. */
+export interface AudienceOption {
+  readonly id: Audience;
+  readonly available: boolean;
+}
+
 export interface Announcement {
   readonly id: string;
   readonly kind: string;
@@ -27,6 +38,7 @@ export interface Announcement {
   readonly publishedAt: string | null;
   readonly version: number;
   readonly category: NoticeCategory | null;
+  readonly audience: Audience;
   readonly authorId: string;
   readonly createdAt: string;
 }
@@ -41,6 +53,7 @@ export interface NoticeCategories {
 export interface NoticesDeskView {
   readonly announcements: Part<readonly Announcement[]>;
   readonly categories: Part<NoticeCategories>;
+  readonly audiences: Part<readonly AudienceOption[]>;
   readonly approvals: Part<readonly PublishApproval[]>;
   readonly me: string;
   readonly asOf: string;
@@ -75,6 +88,9 @@ export function readAnnouncements(raw: unknown): Announcement[] | null {
       return null;
     const category = readCategory(n.category);
     if (category === undefined) return null;
+    // A row from before audiences is for everyone; an audience this console does not know is not read as any.
+    const audience = n.audience === undefined ? 'everyone' : n.audience;
+    if (!isAudience(audience)) return null;
     out.push({
       id: n.id,
       kind: n.kind,
@@ -84,9 +100,21 @@ export function readAnnouncements(raw: unknown): Announcement[] | null {
       publishedAt: n.publishedAt,
       version: n.version as number,
       category,
+      audience,
       authorId: n.authorId,
       createdAt: n.createdAt,
     });
+  }
+  return out;
+}
+
+/** `notify.noticeAudiences`, read whole or not at all. */
+export function readAudiences(raw: unknown): AudienceOption[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out: AudienceOption[] = [];
+  for (const a of raw) {
+    if (!isRecord(a) || !isAudience(a.id) || typeof a.available !== 'boolean') return null;
+    out.push({ id: a.id, available: a.available });
   }
   return out;
 }
@@ -139,6 +167,7 @@ export interface AnnouncementDraftInput {
   readonly title: string;
   readonly body: string;
   readonly category: string | null;
+  readonly audience: Audience;
 }
 
 /** Checked before it leaves the browser; svc-notify checks it again, the category against the list as it stands. */
@@ -146,5 +175,6 @@ export function checkAnnouncementDraft(input: AnnouncementDraftInput): { ok: tru
   if (input.title.trim() === '' || input.title.trim().length > 200) return { ok: false, why: 'The title is 1 to 200 characters.' };
   if (input.body.trim() === '' || input.body.trim().length > 8000) return { ok: false, why: 'The message is 1 to 8000 characters.' };
   if (input.category !== null && !CATEGORY_ID.test(input.category)) return { ok: false, why: 'Choose a category from the list.' };
+  if (!isAudience(input.audience)) return { ok: false, why: 'Choose everyone or P2P merchants.' };
   return { ok: true };
 }

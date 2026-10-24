@@ -254,6 +254,18 @@ still spends an identity four-eyes approval (`notify.notice.publish`) and the ap
   `status.category_unknown`. It is stored with its name as listed then, bound by the publish approval's payload hash,
   held by the published-row trigger, and carried on every notice read as `category` (`null` for none), so renaming a
   category later leaves published notices as they were filed. The founders file announcements at `/notify/notices`.
+- Notice audiences (P-trade-orders-23 merchant notices, migration 0034): an announcement is for `everyone` unless the
+  draft names a member audience (`audience: 'p2p-merchants'`); any other kind, or an unknown audience, is
+  `notify.notice_audience_invalid`, and the table checks the same. The audience is bound by the publish approval's payload
+  hash (added only when it is not `everyone`, so every earlier hash is unchanged) and held by the published-row trigger.
+  A members' notice is on no public read (`notify.notices`, `notify.notice`, `notify.announcement`, `/v1/notices`), is
+  never mailed to status subscribers, and cannot be re-sent to them. `notify.noticeAudiences` (public) lists the
+  audiences and whether each one's membership can be read here. `notify.memberNotices` (`notify:read`, `{ limit }`)
+  answers the signed-in account's open announcements for the audiences it is in, newest first, or `[]`. Membership is
+  asked of its owner at read time: P2P merchants are the accounts svc-p2p's signed `GET /internal/reputation/:userId`
+  answers `merchant: true` for (a frozen, withdrawn or rejected merchant reads `false`, and `null`, no programme wired, is
+  not a member). With `P2P_URL` unset, or svc-p2p not answering, the read refuses `notify.notice_audience_unavailable`
+  rather than guess.
 
 ### Status badge (SP-status-05)
 
@@ -843,6 +855,7 @@ is actually open.
 | `NOTIFY_VERIFY_CODE_PEPPER`             | —       | Required. Blank refuses `notify.verify_code_pepper_unset` — no default. HMAC key for confirmation codes.                                                            |
 | `TRADE_URL`                             | —       | Unset ⇒ alert marks stay dark. Set ⇒ public ticker mark source (live wiring).                                                                                       |
 | `MATCHING_URL`                          | —       | Unset ⇒ venue halt unwired (not allFine, not invented halt). Set ⇒ consume GET /markets. Never POST /halt-all.                                                      |
+| `P2P_URL`                               | —       | Unset ⇒ the `p2p-merchants` notice audience is unavailable and `notify.memberNotices` refuses. Set ⇒ signed GET /internal/reputation/:userId on svc-p2p.            |
 | `NOTIFY_INCIDENT_SILENCE`               | `false` | Latch: matching-open is not allFine until `NOTIFY_INCIDENT_ALL_CLEAR`.                                                                                              |
 | `NOTIFY_INCIDENT_ALL_CLEAR`             | `false` | Explicit recovered. Halt / unavailable matching still refuse allFine.                                                                                               |
 | `NOTIFY_INBOX_PAGE_SIZE`                | —       | 1–100. Served by `notify.inboxPolicy`; blank reports `notify.list_limit_unset` — never invent 20.                                                                   |

@@ -71,6 +71,7 @@ import {
   NOTICES_LIST_LIMIT_MAX,
   STATUS_COMPONENT_PATTERN,
 } from './notices/board.js';
+import { NOTICE_AUDIENCES } from './notices/audiences.js';
 import { CHANGELOG_AREAS } from './notices/changelog.js';
 import { OpsConfigError } from './ops-config/four-eyes.js';
 import { RECIPIENT_STATES, RecipientHealthError } from './recipient-health.js';
@@ -431,6 +432,7 @@ const noticeWireOutput = z.object({
   phase: z.enum(INCIDENT_PHASES).nullable(),
   changelog: changelogOutput.nullable(),
   category: noticeCategorySchema.nullable(),
+  audience: z.enum(NOTICE_AUDIENCES),
 });
 
 const noticeAsset = z.string().regex(NOTICE_ASSET_PATTERN);
@@ -1179,6 +1181,31 @@ export function createNotifyRouter(
           }
         }),
 
+      /**
+       * Who a notice can be for: `everyone` (the public board) and each member audience, with whether its membership can
+       * be read here. `p2p-merchants` is unavailable while P2P_URL is unset.
+       */
+      noticeAudiences: publicProcedure.output(z.array(z.object({ id: z.enum(NOTICE_AUDIENCES), available: z.boolean() }))).query(() => {
+        if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notices_unavailable' });
+        return [...notify.notices.audiences()];
+      }),
+
+      /**
+       * Open announcements for the member audiences the signed-in account is in (P2P merchants), newest first. Not one of
+       * them: an empty list. Membership that cannot be read refuses `notify.notice_audience_unavailable`.
+       */
+      memberNotices: scopedProcedure('notify:read', { module: 'notify' })
+        .input(z.object({ limit: z.number().int().min(1) }))
+        .output(z.array(noticeWireOutput))
+        .query(async ({ ctx, input }) => {
+          if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notices_unavailable' });
+          try {
+            return [...(await notify.notices.memberNotices(ctx.principal.userId, input))];
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
       notice: publicProcedure
         .input(z.object({ id: z.string().guid() }))
         .output(noticeWireOutput)
@@ -1310,6 +1337,8 @@ export function createNotifyRouter(
               .optional(),
             /** One id from the founders' category list (statusPage.configure noticeCategories). */
             category: z.string().regex(NOTICE_CATEGORY_ID).nullable().optional(),
+            /** Announcements only: a member audience instead of everyone. */
+            audience: z.enum(NOTICE_AUDIENCES).nullable().optional(),
             clientRequestId: z.string().min(1).max(128),
           }),
         )

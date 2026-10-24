@@ -3,6 +3,7 @@ import { test, expect } from '@playwright/test';
 import { api, fromUnits, fund, journeyState, tool, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN } from './identity-factors.mjs';
+import { draftNotice, openNotices, publishNotice, publishedNotices } from './notices.mjs';
 import { METHOD, browserHoldsPasskey, p2p, readyTaker, refusalCode, restorePasskey, testInstrument, testPasskey } from './p2p.mjs';
 
 // J-p2p-02, in the running app (docs/roadmap/journeys.json): I sell crypto, confirm the money arrived outside, and
@@ -105,9 +106,30 @@ test('J-p2p-02 #1 a notice to P2P merchants reaches P2P merchants only', async (
   const state = journey();
   // The founders' notice desk names who a notice is for; "P2P merchants" is one audience, and this seller is not one.
   const s = await api(state.seller);
-  const audiences = await s.get('/api/notify/trpc/notices.audiences');
-  expect(audiences.status, 'notify has no notice audiences yet (P-trade-orders-23 merchant notices)').toBe(200);
-  expect(audiences.body.result.data.map((a) => a.id)).toContain('p2p-merchants');
+  const audiences = await s.get('/api/notify/trpc/notify.noticeAudiences');
+  expect(audiences.status, 'notify has no notice audiences (P-trade-orders-23 merchant notices)').toBe(200);
+  expect(audiences.body.result.data).toContainEqual({ id: 'p2p-merchants', available: true });
+  // Two founders publish an announcement for P2P merchants, open for a few minutes.
+  const key = `j-p2p-02-merchants-${state.tradeId}`;
+  const title = `LOCAL TEST notice for P2P merchants ${state.tradeId.slice(0, 8)}`;
+  const draft = await draftNotice({
+    kind: 'announcement',
+    title,
+    body: 'LOCAL TEST for P2P merchants only.',
+    minutes: 5,
+    key,
+    audience: 'p2p-merchants',
+  });
+  const published = await publishNotice(draft, key);
+  expect(published).toMatchObject({ status: 'published', audience: 'p2p-merchants' });
+  // Not on the public board, not as the current announcement, and not to a trader who is not a merchant.
+  expect((await publishedNotices()).map((n) => n.id)).not.toContain(published.id);
+  expect((await openNotices()).announcement?.id).not.toBe(published.id);
+  const mine = await s.get(`/api/notify/trpc/notify.memberNotices?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
+  expect(mine.status, 'notify has no signed-in read of member notices').toBe(200);
+  expect(mine.body.result.data.map((n) => n.id)).not.toContain(published.id);
+  // A merchant reading it signed in is proven in svc-notify's tests against svc-p2p's merchant answer; this stack has
+  // no approved P2P merchant (10 earned trades and a two-founder decision), so the room's merchant view is the next slice.
 });
 
 test('J-p2p-02 #2 the seller opens the order: the buyer by handle, the exact quantity and amount, and the release deadline', async ({

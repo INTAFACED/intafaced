@@ -21,14 +21,28 @@ const data = (res, what) => {
 };
 
 /**
- * svc-notify's payload hash: id, kind, title, body and version, plus the incident status fields when the draft set any.
- * No scope or changelog fields (no journey here drafts those).
+ * svc-notify's payload hash: id, kind, title, body and version, plus the incident status fields when the draft set any,
+ * the category when it names one and the audience when it is not everyone. No scope, changelog or reminder fields (no
+ * journey here drafts those).
  */
 const payloadHash = (row) => {
   const status = row.statusFields;
   const withStatus = status && (status.impact || status.components.length > 0 || status.parentId || status.resolves) ? { status } : {};
+  const withCategory = row.category ? { category: row.category } : {};
+  const withAudience = row.audience && row.audience !== 'everyone' ? { audience: row.audience } : {};
   return `sha256:${createHash('sha256')
-    .update(JSON.stringify({ id: row.id, kind: row.kind, title: row.title, body: row.body, version: row.version, ...withStatus }))
+    .update(
+      JSON.stringify({
+        id: row.id,
+        kind: row.kind,
+        title: row.title,
+        body: row.body,
+        version: row.version,
+        ...withStatus,
+        ...withCategory,
+        ...withAudience,
+      }),
+    )
     .digest('hex')}`;
 };
 
@@ -49,6 +63,7 @@ export async function draftNotice({
   startsAt = null,
   endsAt = null,
   category = null,
+  audience = null,
 }) {
   if (endsAt === null && !(minutes > 0)) throw new Error('draftNotice needs `minutes` or an `endsAt`');
   const { ctx, pair } = await founders();
@@ -67,6 +82,7 @@ export async function draftNotice({
       ...(parentId ? { parentId } : {}),
       ...(resolves ? { resolves } : {}),
       ...(category ? { category } : {}),
+      ...(audience ? { audience } : {}),
       clientRequestId: `journey:notice-draft:${key}`,
     },
     await pair.a.tradeOpsToken(),
