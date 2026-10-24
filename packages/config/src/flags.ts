@@ -288,6 +288,8 @@ export const FLAG_REGISTRY: readonly FlagDef[] = [
   def('tax.export', 'tax', 'V', 'Per-jurisdiction lot export packs (FIFO/LIFO/HIFO, caller-selected)', NOT_ENFORCED),
   // Sandbox isolate. Live halt is the edge kill of module `quant`; flag is rollout plan.
   def('quant.sandbox', 'quant', 'V', 'Sandboxed strategy runtime (TypeScript and Python)', NOT_ENFORCED),
+  // Campaign catalogue and participations. Live halt is the edge kill of module `campaigns`; flag is rollout plan.
+  def('campaigns.catalogue', 'campaigns', null, 'Campaign catalogue, participations and the operator desk', NOT_ENFORCED),
 ];
 
 export const FLAG_KEYS = FLAG_REGISTRY.map((f) => f.key);

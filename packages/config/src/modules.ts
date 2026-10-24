@@ -54,6 +54,7 @@ export const MODULE_IDS = [
   'support',
   'tax',
   'quant',
+  'campaigns',
   'edge',
   // Protocol Plane (v1.1 §17.5)
   'chain',
@@ -112,6 +113,10 @@ export const MODULES: Readonly<Record<ModuleId, ModuleDef>> = {
   tax: { id: 'tax', service: 'svc-tax', planes: ['fiat'], phase: '5', custodial: false },
   // Strategy sandbox. Paper book only — no ledger, no second money book.
   quant: { id: 'quant', service: 'svc-quant', planes: ['fiat'], phase: '5', custodial: false },
+  // Campaigns, tasks, vouchers and reward intents. Holds no balance: a budget is a
+  // limit, and a reward pays through the ledger's reward recipe under this
+  // service's own grant.
+  campaigns: { id: 'campaigns', service: 'svc-campaigns', planes: ['fiat'], phase: '5', custodial: false },
 
   // Protocol Plane — never custodial. custody-scan asserts this stays true.
   chain: { id: 'chain', service: 'svc-chain', planes: ['protocol'], phase: '4P', custodial: false },

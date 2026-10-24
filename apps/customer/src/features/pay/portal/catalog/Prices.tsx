@@ -1,0 +1,328 @@
+import { useState } from 'react';
+import { Button } from '@intafaced/ui';
+import type { MerchantPrice, MerchantProduct, PriceCreateInput } from '@intafaced/contracts/merchant-catalog';
+import { Field } from '../../ui-kit';
+import { PaySection } from '../../components';
+import type { PortalApi } from '../api';
+import { MoreFooter, PortalFailure, PortalLoading, SelectField } from '../components';
+import { DateTime } from '../ui/DateTime';
+import { EntityList } from '../ui/EntityList';
+import { formatMoney } from '../ui/format';
+import { MoneyText } from '../ui/MoneyText';
+import { useServerList } from '../ui/useServerList';
+import { useBodyRequestId } from '../payments/invoice-model';
+import { refusalText } from '../refusal';
+import { catalogCopy as c } from './copy';
+import { blankPrice, priceBody, priceProblem, type PriceDraft } from './model';
+import { useMayAddProducts } from './access';
+
+/**
+ * A product's prices (J-merchant-03 step 3, M-catalogue-02): the list with its default, Add price, Set as default, and a
+ * check of an amount a customer would enter on a customer-chosen price. Writing needs the role and a verified business,
+ * as adding a product does; everyone on the team reads.
+ */
+export function ProductPrices({ portal, product }: { portal: PortalApi; product: MerchantProduct }) {
+  const { t } = c.useCopy();
+  const may = useMayAddProducts();
+  const writable = may.allowed && product.status === 'active';
+  const list = useServerList(
+    (f, cursor, signal) => portal.prices(f.productId, cursor, signal),
+    { productId: product.id },
+    (p: MerchantPrice) => p.id,
+  );
+  const [adding, setAdding] = useState(false);
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const [moving, setMoving] = useState<string | null>(null);
+
+  async function makeDefault(price: MerchantPrice) {
+    setMoving(price.id);
+    setNote(null);
+    try {
+      const result = await portal.setDefaultPrice({ productId: product.id, priceId: price.id });
+      if (result.ok) {
+        setNote({ ok: true, text: t('priceDefaultMoved') });
+        list.reload();
+      } else setNote({ ok: false, text: result.message });
+    } finally {
+      setMoving(null);
+    }
+  }
+
+  const prices = list.state.status === 'ready' ? list.state.items : [];
+  const chosen = prices.filter((p) => p.kind === 'customer_chosen' && p.status === 'active');
+  return (
+    <PaySection title={t('pricesTitle')} description={t('pricesPurpose')}>
+      <div className="stack">
+        {writable && !adding && (
+          <div className="pp-actions">
+            <Button variant="primary" onClick={() => setAdding(true)}>
+              {t('addPrice')}
+            </Button>
+          </div>
+        )}
+        {adding && (
+          <PriceForm
+            portal={portal}
+            productId={product.id}
+            onCancel={() => setAdding(false)}
+            onSaved={() => {
+              setAdding(false);
+              setNote({ ok: true, text: t('priceAdded') });
+              list.reload();
+            }}
+          />
+        )}
+        {note && (
+          <p className={note.ok ? 'pp-confirmed' : 'pp-callout'} role={note.ok ? 'status' : 'alert'}>
+            {note.text}
+          </p>
+        )}
+        {list.state.status === 'loading' && <PortalLoading />}
+        {list.state.status === 'failed' && <PortalFailure result={list.state.failure} retry={() => list.reload()} />}
+        {list.state.status === 'ready' &&
+          (prices.length === 0 && !list.state.hasMore ? (
+            <p className="muted">{t(writable ? 'pricesEmpty' : 'pricesEmptyReadOnly')}</p>
+          ) : (
+            <>
+              <EntityList
+                label={t('pricesLabel')}
+                rows={prices}
+                rowKey={(row) => row.id}
+                columns={[
+                  { header: t('colPrice'), cell: (row) => <PriceText price={row} /> },
+                  { header: t('colBilling'), cell: (row) => t(`billing_${row.billing}`) },
+                  {
+                    header: t('colDefault'),
+                    cell: (row) =>
+                      row.isDefault ? (
+                        <strong>{t('defaultMark')}</strong>
+                      ) : writable && row.status === 'active' ? (
+                        <Button variant="secondary" disabled={moving !== null} onClick={() => void makeDefault(row)}>
+                          {t('setDefault')}
+                        </Button>
+                      ) : (
+                        <span className="muted">—</span>
+                      ),
+                  },
+                  { header: t('colStatus'), cell: (row) => t(`status_${row.status}`) },
+                  { header: t('colAdded'), cell: (row) => <DateTime value={row.createdAt} /> },
+                ]}
+                card={(row) => ({
+                  title: <PriceText price={row} />,
+                  time: <DateTime value={row.createdAt} />,
+                  status: row.isDefault ? t('defaultMark') : t(`billing_${row.billing}`),
+                })}
+              />
+              <MoreFooter state={list.state} onMore={list.loadMore} />
+            </>
+          ))}
+        {chosen.length > 0 && <AmountCheck portal={portal} prices={chosen} />}
+      </div>
+    </PaySection>
+  );
+}
+
+/** A price as one line: the fixed amount, or the range a customer chooses in. */
+function PriceText({ price }: { price: MerchantPrice }) {
+  const { t } = c.useCopy();
+  if (price.kind === 'fixed' && price.amount) return <MoneyText value={price.amount} asset={price.assetId} />;
+  return (
+    <span className="numeric">
+      {t('priceChosenRange', {
+        min: moneyWords(price.minAmount ?? '', price.assetId),
+        max: moneyWords(price.maxAmount ?? '', price.assetId),
+      })}
+    </span>
+  );
+}
+
+const moneyWords = (value: string, asset: string) => `${formatMoney(value, asset, { exact: true })} ${asset}`;
+
+function PriceForm({
+  portal,
+  productId,
+  onCancel,
+  onSaved,
+}: {
+  portal: PortalApi;
+  productId: string;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const { t } = c.useCopy();
+  const [draft, setDraft] = useState<PriceDraft>(blankPrice);
+  const [busy, setBusy] = useState(false);
+  const [refused, setRefused] = useState<string | null>(null);
+  const [shown, setShown] = useState(false);
+  const set = <K extends keyof PriceDraft>(key: K, value: PriceDraft[K]) => setDraft((d) => ({ ...d, [key]: value }));
+  const body = priceBody(draft, productId);
+  // One request id per body, as for a product: a retry after a lost answer is the same price, any change a new one.
+  const request = useBodyRequestId(`catalog:price-new:${productId}`, body);
+  const problem = priceProblem(draft);
+
+  async function save() {
+    setShown(true);
+    if (problem) return;
+    setBusy(true);
+    setRefused(null);
+    try {
+      request.sent();
+      const result = await portal.createPrice({ ...body, requestId: request.id } as PriceCreateInput);
+      if (result.ok) {
+        request.renew();
+        onSaved();
+      } else setRefused(result.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const error = (key: NonNullable<ReturnType<typeof priceProblem>>) => (shown && problem === key ? t(key) : undefined);
+  return (
+    <div className="form-stack pp-form" role="group" aria-label={t('addPrice')}>
+      <SelectField
+        label={t('billing')}
+        value={draft.billing}
+        onChange={(value) =>
+          setDraft((d) => ({ ...d, billing: value as PriceDraft['billing'], kind: value === 'monthly' ? 'fixed' : d.kind }))
+        }
+        options={[
+          ['one_time', t('billing_one_time')],
+          ['monthly', t('billing_monthly')],
+        ]}
+      />
+      {draft.billing === 'one_time' && (
+        <SelectField
+          label={t('priceKind')}
+          hint={t('priceKindHint')}
+          value={draft.kind}
+          onChange={(value) => set('kind', value as PriceDraft['kind'])}
+          options={[
+            ['fixed', t('kind_fixed')],
+            ['customer_chosen', t('kind_customer_chosen')],
+          ]}
+        />
+      )}
+      {draft.kind === 'fixed' ? (
+        <Field
+          label={t('amount')}
+          hint={t('amountHint')}
+          inputMode="decimal"
+          value={draft.amount}
+          onChange={(e) => set('amount', e.target.value)}
+          error={error('amountInvalid')}
+        />
+      ) : (
+        <>
+          <Field
+            label={t('minAmount')}
+            inputMode="decimal"
+            value={draft.minAmount}
+            onChange={(e) => set('minAmount', e.target.value)}
+            error={error('boundsInvalid')}
+          />
+          <Field
+            label={t('maxAmount')}
+            hint={t('maxAmountHint')}
+            inputMode="decimal"
+            value={draft.maxAmount}
+            onChange={(e) => set('maxAmount', e.target.value)}
+          />
+        </>
+      )}
+      <Field
+        label={t('asset')}
+        hint={t('assetHint')}
+        value={draft.assetId}
+        maxLength={16}
+        autoCapitalize="characters"
+        onChange={(e) => set('assetId', e.target.value.toUpperCase())}
+        error={error('assetInvalid')}
+      />
+      {refused && (
+        <p className="pp-callout" role="alert">
+          {refused}
+        </p>
+      )}
+      <div className="pp-actions">
+        <Button variant="primary" disabled={busy} onClick={() => void save()}>
+          {busy ? t('saving') : t('savePrice')}
+        </Button>
+        <Button variant="secondary" disabled={busy} onClick={onCancel}>
+          {t('cancel')}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** What a customer-chosen price takes: an amount checked against the business's minimum and maximum by the service. */
+function AmountCheck({ portal, prices }: { portal: PortalApi; prices: readonly MerchantPrice[] }) {
+  const { t } = c.useCopy();
+  const [priceId, setPriceId] = useState(prices[0]!.id);
+  const [amount, setAmount] = useState('');
+  const [answer, setAnswer] = useState<{ ok: true; amount: string; assetId: string } | { ok: false; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const current = prices.find((p) => p.id === priceId) ?? prices[0]!;
+
+  async function check() {
+    setBusy(true);
+    setAnswer(null);
+    try {
+      const result = await portal.quotePrice({ priceId: current.id, amount: amount.trim() });
+      setAnswer(
+        result.ok ? { ok: true, amount: result.data.amount, assetId: result.data.assetId } : { ok: false, text: refusalText(result) },
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="form-stack pp-form" role="group" aria-label={t('checkTitle')}>
+      <h3>{t('checkTitle')}</h3>
+      <p className="muted">{t('checkPurpose')}</p>
+      {prices.length > 1 && (
+        <SelectField
+          label={t('checkPrice')}
+          value={current.id}
+          onChange={(id) => {
+            setPriceId(id);
+            setAnswer(null);
+          }}
+          options={prices.map(
+            (p) =>
+              [
+                p.id,
+                t('priceChosenRange', { min: moneyWords(p.minAmount ?? '', p.assetId), max: moneyWords(p.maxAmount ?? '', p.assetId) }),
+              ] as const,
+          )}
+        />
+      )}
+      <Field
+        label={t('checkAmount')}
+        inputMode="decimal"
+        value={amount}
+        onChange={(e) => {
+          setAmount(e.target.value);
+          setAnswer(null);
+        }}
+      />
+      <div className="pp-actions">
+        <Button variant="secondary" disabled={busy || !amount.trim()} onClick={() => void check()}>
+          {t('checkButton')}
+        </Button>
+      </div>
+      {answer &&
+        (answer.ok ? (
+          <p className="pp-confirmed" role="status">
+            {t('checkAccepted', { amount: moneyWords(answer.amount, answer.assetId) })}
+          </p>
+        ) : (
+          <p className="pp-callout" role="alert">
+            {answer.text}
+          </p>
+        ))}
+    </div>
+  );
+}

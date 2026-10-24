@@ -33,8 +33,12 @@ const sellerClient = async (state) => p2p(await api(state.seller), await restore
 
 /** A new 10 USDT order on the seller's ad, taken and marked paid by the buyer. */
 async function paidOrder(state) {
-  const b = await readyTaker(await api(state.buyer), state.buyer, await restorePasskey(state.buyerPasskey));
+  const passkey = await restorePasskey(state.buyerPasskey);
+  const b = await readyTaker(await api(state.buyer), state.buyer, passkey);
   const trade = await b.mutate('trades.take', { offerId: state.offerId, tradeId: randomUUID(), amount: AD.min, method: METHOD });
+  // A passkey's counter only goes up: keep how far it went, so the next order's confirmation is not read as a replay.
+  state.buyerPasskey = passkey.saved();
+  run.write({ buyerPasskey: state.buyerPasskey });
   await b.mutate('trades.markFiatSent', { tradeId: trade.id });
   return trade.id;
 }
@@ -177,7 +181,9 @@ test('J-p2p-02 #2 selling into a buy ad from a balance that falls short refuses 
   expect((await (await api(state.seller)).balances()).USDT?.free ?? '0').toBe(free);
 });
 
-test('J-p2p-02 #3 a payment within tolerance lets the order go on; one outside it cannot be forced to release and offers a dispute', async () => {
+test('J-p2p-02 #3 a payment within tolerance lets the order go on; one outside it cannot be forced to release and offers a dispute', async ({
+  page,
+}) => {
   const state = journey();
   const s = await sellerClient(state);
   const tradeId = await paidOrder(state);
@@ -185,10 +191,25 @@ test('J-p2p-02 #3 a payment within tolerance lets the order go on; one outside i
   const within = await s.raw.mutate('trades.reportMismatch', { tradeId, kind: 'under', amountReceived: '9.19' });
   expect(within.status, 'svc-p2p has no amount-mismatch report yet (P-trade-orders-20)').toBe(200);
   expect(within.body.result.data).toMatchObject({ classification: expect.any(String) });
+  expect((await s.query('trades.get', { tradeId })).status).toBe('fiat_sent');
+
+  // Another order: only 5 EUR arrived. The seller says so on the order page.
   const other = await paidOrder(state);
-  const outside = await s.mutate('trades.reportMismatch', { tradeId: other, kind: 'under', amountReceived: '5' });
-  expect(outside.classification).not.toBe('within_tolerance');
-  expect((await s.query('trades.get', { tradeId: other })).status).toBe('fiat_sent');
+  await signIn(page, state.seller);
+  await page.goto(`/uc/order?tradeId=${other}`);
+  const report = page.getByTestId('order-mismatch');
+  await report.getByText('The amount in my bank is different').click();
+  await report.getByLabel('Less than the order').check();
+  await report.getByLabel('Amount received (EUR)').fill('5');
+  await report.getByRole('button', { name: 'Report the amount' }).click();
+  const result = page.getByTestId('order-mismatch-result');
+  await expect(result).toContainText('You reported 5 EUR received of 9.2 EUR.');
+  await expect(result).toContainText('You do not have to release.');
+  const order = await s.query('trades.get', { tradeId: other });
+  expect(order.mismatch?.classification).not.toBe('within_tolerance');
+  expect(order.status).toBe('fiat_sent');
+  // The way on is a dispute, on the same page.
+  await expect(page.getByRole('button', { name: 'Open dispute' })).toBeVisible();
 });
 
 test('J-p2p-02 #4 with no payment validation rail the order says the bank rail is switched off, and nothing is released', async () => {

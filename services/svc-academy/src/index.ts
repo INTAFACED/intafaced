@@ -135,6 +135,7 @@ const academy = new AcademyService(
     uploadMaxBytes: env.ACADEMY_UPLOAD_MAX_BYTES,
     topicsListLimit: env.ACADEMY_TOPICS_LIST_LIMIT,
     graderLeaseSeconds: env.ACADEMY_GRADER_LEASE_SECONDS,
+    certIssueSweepSeconds: env.ACADEMY_CERT_ISSUE_SWEEP_SECONDS,
     uploadVideoTypes: env.ACADEMY_UPLOAD_VIDEO_TYPES,
     uploadHandoutTypes: env.ACADEMY_UPLOAD_HANDOUT_TYPES,
     videoWatchThresholdSeconds: env.ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS,
@@ -228,11 +229,36 @@ await app.register(fastifyTRPCPlugin, {
 });
 
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
+
+/**
+ * AC-certificates-02: the issue sweep issues delayed certificates once due. One sweep at a time: a slow one is never
+ * stacked under the next. Blank interval, no sweep, and delayed issue rules refuse `academy.cert_sweep_unset`.
+ */
+let sweeping: Promise<void> | null = null;
+const certSweep =
+  env.ACADEMY_CERT_ISSUE_SWEEP_SECONDS === undefined
+    ? null
+    : setInterval(() => {
+        if (sweeping) return;
+        sweeping = academy
+          .issueDueCertificates()
+          .then(
+            () => undefined,
+            (err: unknown) => app.log.error({ err }, 'certificate issue sweep failed; the next one retries'),
+          )
+          .finally(() => {
+            sweeping = null;
+          });
+      }, env.ACADEMY_CERT_ISSUE_SWEEP_SECONDS * 1000);
+certSweep?.unref();
 app.log.info({ port: env.HTTP_PORT, stream: stream.id, xp: certXp.id, trpc: true }, 'svc-academy ready');
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
+      if (certSweep) clearInterval(certSweep);
+      // A sweep under way finishes before the pool closes, so no issue is cut off between its grant and its cleanup.
+      await sweeping;
       await app.close();
       await bus?.close();
       await sql.end({ timeout: 5 });

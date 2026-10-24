@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { academyCertIssueSchema } from '@intafaced/contracts/academy-certificates';
 
 /**
  * Academy learning-management logic. Pure functions only: everything here is derived from what
@@ -30,8 +31,19 @@ export const lessonSummary = z.object({
 export type LessonSummary = z.infer<typeof lessonSummary>;
 export const lessonCatalogue = z.array(lessonSummary).max(200);
 
-export const certDefinition = z.object({ id: ref, title: ref, requiredItemSlugs: z.array(ref) });
+export const certDefinition = z.object({
+  id: ref,
+  title: ref,
+  requiredItemSlugs: z.array(ref),
+});
 export type CertDefinition = z.infer<typeof certDefinition>;
+/** One learning path with its published certificate, or Academy's refusal for a path with no published design. */
+export const certPathRow = z.object({
+  path: z.enum(academyPaths),
+  certId: ref.nullable(),
+  refusal: z.literal('academy.certificate_unpublished').nullable(),
+});
+export type CertPathRow = z.infer<typeof certPathRow>;
 export const certProgressRow = z.object({
   userId: z.string().guid(),
   certId: ref,
@@ -43,6 +55,8 @@ export const certProgressRow = z.object({
   complete: z.boolean(),
   granted: z.boolean(),
   grantIdempotencyKey: ref.nullable(),
+  /** How the certificate is issued (AC-certificates-02); absent from an older service, read as the learner claiming it. */
+  issue: academyCertIssueSchema.optional(),
 });
 export type CertProgressRow = z.infer<typeof certProgressRow>;
 /** The code anyone can paste into the public check: 32 lowercase hex characters, the same rule the service applies. */
@@ -230,11 +244,12 @@ export function rememberLastLesson(owner: string | null | undefined, slug: strin
   }
 }
 
-export type CertificateState = 'earned' | 'ready' | 'in-progress' | 'not-started';
+export type CertificateState = 'earned' | 'ready' | 'issuing' | 'in-progress' | 'not-started';
 
 export function certificateState(progress: CertProgressRow | undefined, grant: CertGrant | undefined): CertificateState {
   if (grant || progress?.granted) return 'earned';
   if (!progress) return 'not-started';
+  if (progress.complete && progress.issue?.issuesAt) return 'issuing';
   if (progress.complete) return 'ready';
   return progress.completedCount > 0 ? 'in-progress' : 'not-started';
 }
@@ -307,6 +322,13 @@ export function parseVerifyReference(raw: string): { ok: true; certId: string } 
   return match ? { ok: true, certId: match[2]! } : { ok: false };
 }
 
+/** The wait of a delayed issue rule in its largest whole unit: days, hours, or minutes. */
+export function issueWait(delayMinutes: number): { unit: 'waitDays' | 'waitHours' | 'waitMinutes'; n: number } {
+  if (delayMinutes % 1440 === 0) return { unit: 'waitDays', n: delayMinutes / 1440 };
+  if (delayMinutes % 60 === 0) return { unit: 'waitHours', n: delayMinutes / 60 };
+  return { unit: 'waitMinutes', n: delayMinutes };
+}
+
 export function formatDay(iso: string, locale: string): string {
   const date = new Date(iso);
   if (!Number.isFinite(date.getTime())) return iso;
@@ -359,12 +381,15 @@ export type AcademyRoute =
   | { kind: 'progress' }
   | { kind: 'reader'; slug: string | undefined }
   | { kind: 'course'; slug: string | undefined }
-  | { kind: 'assignment'; slug: string | undefined; itemId: string | undefined };
+  | { kind: 'assignment'; slug: string | undefined; itemId: string | undefined }
+  | { kind: 'verify'; code: string | undefined };
 /** The public course page (AC-catalogue-03). Until courses are rows a course is one curriculum path. */
 export const academyCourseHref = (slug: string) => `/academy/learning/course/${encodeURIComponent(slug)}`;
 /** An assignment's page in a course staff made (AC-assignments-01). */
 export const academyAssignmentHref = (slug: string, itemId: string) =>
   `${academyCourseHref(slug)}/assignment/${encodeURIComponent(itemId)}`;
+/** The public check of one certificate (AC-certificates-01): the link a learner shares. Open to anyone, signed in or not. */
+export const academyVerifyHref = (code: string) => `/academy/certificates/verify/${encodeURIComponent(code)}`;
 /** Sign in from a course page and come back to its plain address: a private link's `#key=` never rides in a URL. */
 export const academyCourseSignInHref = (slug: string) => `/login?redirect=${encodeURIComponent(academyCourseHref(slug))}`;
 const decoded = (segment: string) => {
@@ -381,6 +406,7 @@ export function academyRoute(pathname: string): AcademyRoute {
   if (segment === 'learning' && part === 'course' && child === 'assignment')
     return { kind: 'assignment', slug: course ? decoded(course) : undefined, itemId: itemId ? decoded(itemId) : undefined };
   if (segment === 'learning' && part === 'course') return { kind: 'course', slug: course ? decoded(course) : undefined };
+  if (segment === 'certificates' && part === 'verify') return { kind: 'verify', code: course ? decoded(course) : undefined };
   const tab = academyTabs.find(([, slug]) => slug === segment);
   if (tab) return { kind: 'tab', tab: tab[0] };
   if (segment === 'progress') return { kind: 'progress' };

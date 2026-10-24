@@ -93,14 +93,19 @@ import type {
   AcademySetCourseTopicsInput,
   AcademySetItemCaptionsInput,
   AcademyUpdateCourseInput,
+  AcademyCertIssue,
+  AcademyCertIssueRule,
+  AcademySetCertIssueRuleInput,
 } from '@intafaced/contracts';
+import { CertIssueRules, issueDueAt } from './certs/issue-rules.js';
 import { normaliseHolderName } from './certs/holder-name.js';
-import { PROGRAMME_SLUGS } from './curriculum/programmes.js';
+import { PROGRAMME_SLUGS, type ProgrammeSlug } from './curriculum/programmes.js';
 import {
   alreadyGrantedAfterInsert,
   CertError,
   certIdempotencyKey,
   decideGrant,
+  assessmentRequirementSlug,
   decideItemComplete,
   progressReport,
   type CertDefinition,
@@ -318,9 +323,19 @@ export interface AcademyServiceOptions {
   videoSaveEverySeconds?: number;
   /** Test seam. Production is the owner catalog, which is foundations-v1 only. */
   certCatalog?: readonly CertDefinition[];
+  /**
+   * AC-certificates-02: owner-set seconds between issue sweeps (`ACADEMY_CERT_ISSUE_SWEEP_SECONDS`). Undefined: no sweep
+   * runs, so a delayed issue rule refuses `academy.cert_sweep_unset`.
+   */
+  certIssueSweepSeconds?: number;
   /** Test seam. Production is empty: no owner-published scored assessment. */
   assessmentCatalog?: readonly AssessmentDefinition[];
 }
+
+const MANUAL_ISSUE: AcademyCertIssue = { mode: 'manual', delayMinutes: null, issuesAt: null };
+
+/** Rows one pass of the issue sweep reads: a batch size of an internal loop that drains until nothing is due, not a list a person reads. */
+const CERT_ISSUE_SWEEP_BATCH = 100;
 
 export class AcademyService {
   private readonly customer: AcademyCustomerStore;
@@ -339,6 +354,7 @@ export class AcademyService {
   private readonly courseStarts: CourseStarts;
   private readonly plannerStore: PlannerStore;
   private readonly videoTracks: VideoTracks;
+  private readonly issueRules: CertIssueRules;
 
   constructor(
     private readonly sql: Sql,
@@ -385,6 +401,7 @@ export class AcademyService {
     this.courseStarts = new CourseStarts(sql);
     this.plannerStore = new PlannerStore(sql, this.options.plannerTodoLimit ?? null);
     this.videoTracks = new VideoTracks(sql);
+    this.issueRules = new CertIssueRules(sql);
     const assessments = this.options.assessmentCatalog ?? ASSESSMENT_CATALOG;
     this.assessments = new AssessmentRepository(sql, assessments);
     if (this.options.certCatalog) {
@@ -1767,6 +1784,14 @@ export class AcademyService {
     return [...this.certs()];
   }
 
+  /** AC-certificates-01: each learning path's published certificate, or the refusal for a path with none. */
+  certPaths(): Array<{ path: ProgrammeSlug; certId: string | null; refusal: 'academy.certificate_unpublished' | null }> {
+    return PROGRAMME_SLUGS.map((path) => {
+      const cert = certificateForPath(path, this.certs());
+      return { path, certId: cert?.id ?? null, refusal: cert ? null : 'academy.certificate_unpublished' };
+    });
+  }
+
   async enrollCertPath(input: { userId: string; pathSlug: string }): Promise<EnrollmentRecord> {
     this.refuseUnpublishedPath(input.pathSlug);
     const row = await this.customer.enrollCertPath({
@@ -2505,7 +2530,9 @@ export class AcademyService {
       (rule === 'score' && (await this.assessments.passedSlugs(input.userId, now)).has(slug)) ||
       (rule === 'watch' && (await this.watchedItems(input.userId, new Map([[slug, video!]]))).has(slug));
     if (!met) throw new AcademyError(`academy.completion_rule_unmet rule=${rule}`, 'academy.completion_rule_unmet');
-    return this.recordCompletion(input.userId, slug, now);
+    const record = await this.recordCompletion(input.userId, slug, now);
+    await this.settleCertificatesNeeding(input.userId, slug, now);
+    return record;
   }
 
   /** Records one completion and its history row; a concurrent completion of the same item returns that one. */
@@ -2552,7 +2579,7 @@ export class AcademyService {
     const clientRequestId = input.clientRequestId.trim();
     const completedAt = new Date(input.completedAt);
     const now = input.now ?? new Date();
-    return transaction(this.sql, async (tx) => {
+    const undone = await transaction(this.sql, async (tx) => {
       // completed_at may carry microseconds (rows from before this change used now()); the caller saw it in milliseconds.
       // The request id first, so two Undos sharing one id on different items take turns and the second reads the first.
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${input.userId}:${clientRequestId}:undo-request`}, 0))`;
@@ -2580,6 +2607,9 @@ export class AcademyService {
       `;
       return { userId: input.userId, itemSlug: slug, undoneAt: now.toISOString() };
     });
+    // A delayed certificate waiting on this item stops waiting; completing again starts a new wait.
+    if (undone.undoneAt !== null) await this.settleCertificatesNeeding(input.userId, slug, now);
+    return undone;
   }
 
   private async currentCompletion(sql: Sql, userId: string, slug: string): Promise<ItemCompletionRecord | null> {
@@ -2653,6 +2683,110 @@ export class AcademyService {
     };
   }
 
+  /** AC-certificates-02: staff set how one published certificate is issued (admin door, reason required). */
+  async setCertIssueRule(input: AcademySetCertIssueRuleInput & { operatorId: string; now?: Date }): Promise<AcademyCertIssueRule> {
+    if (!this.certDefinition(input.certId)) {
+      this.refuseUnpublishedPath(input.certId);
+      throw new AcademyError('Unknown certification', 'academy.cert_not_found');
+    }
+    return this.issueRules.setRule({
+      ...input,
+      now: input.now ?? new Date(),
+      sweepRunning: this.options.certIssueSweepSeconds !== undefined,
+    });
+  }
+
+  /** The stored issue rule of one certificate, or null when staff have set none. */
+  certIssueRule(certId: string): Promise<AcademyCertIssueRule | null> {
+    return this.issueRules.rule(certId);
+  }
+
+  /**
+   * AC-certificates-02: how the learner's certificate stands under its issue rule, writing nothing but the wait.
+   * `manual` (or no rule) issues nothing by itself: the learner claims it, and any wait left from an earlier delayed rule
+   * is dropped. `automatic` is due once every requirement is met. `delayed` records the wait the first time the learner
+   * stands complete, due the owner's delay after the later of their last lesson completion and the rule's own revision
+   * (a rule set after someone finished starts their wait then); a certificate with an assessment requirement counts from
+   * now, since a pass is settled when it happens. A learner no longer complete (an Undo) drops the wait.
+   */
+  private async issueStanding(
+    userId: string,
+    cert: CertDefinition,
+    progress: ProgressReport,
+    now: Date,
+  ): Promise<{ issue: AcademyCertIssue; due: boolean }> {
+    const rule = await this.issueRules.rule(cert.id);
+    if (!rule || rule.mode === 'manual' || progress.granted || !progress.complete) {
+      await this.issueRules.dropPending(userId, cert.id);
+      return {
+        issue: rule && rule.mode !== 'manual' ? { mode: rule.mode, delayMinutes: rule.delayMinutes, issuesAt: null } : MANUAL_ISSUE,
+        due: false,
+      };
+    }
+    const view: AcademyCertIssue = { mode: rule.mode, delayMinutes: rule.delayMinutes, issuesAt: null };
+    if (rule.mode === 'automatic') return { issue: view, due: true };
+    const hasAssessment = cert.requiredItemSlugs.some((slug) => assessmentRequirementSlug(slug) !== null);
+    const lessons = [...(await this.completionTimes(userId, cert.requiredItemSlugs)).values()].map((at) => at.getTime());
+    const completeAt = new Date(Math.max(rule.updatedAt.getTime(), ...(hasAssessment ? [now.getTime()] : lessons)));
+    const dueAt = await this.issueRules.ensurePending(userId, cert.id, issueDueAt(completeAt, rule.delayMinutes!), now);
+    return dueAt.getTime() > now.getTime() ? { issue: { ...view, issuesAt: dueAt }, due: false } : { issue: view, due: true };
+  }
+
+  /** Issues the learner's certificate when its rule says it is due, and answers how it is issued. Safe to repeat. */
+  private async settleCertIssue(userId: string, cert: CertDefinition, now: Date, progress?: ProgressReport): Promise<AcademyCertIssue> {
+    const standing = await this.issueStanding(userId, cert, progress ?? (await this.progressOf(userId, cert)), now);
+    if (standing.due) {
+      await this.grantCert({ userId, certId: cert.id, byRule: true, now });
+      await this.issueRules.dropPending(userId, cert.id);
+    }
+    return standing.issue;
+  }
+
+  /**
+   * After a completion, an Undo or an assessment result: settles every certificate that needs this requirement (a lesson
+   * slug, or `assessment:<slug>`). What happened is already recorded and stays so whatever happens here; a certificate
+   * this step could not issue is issued by the learner's next read or the sweep.
+   */
+  private async settleCertificatesNeeding(userId: string, requirement: string, now: Date): Promise<void> {
+    for (const cert of this.certs().filter((row) => row.requiredItemSlugs.includes(requirement))) {
+      try {
+        await this.settleCertIssue(userId, cert, now);
+      } catch (err) {
+        console.error({ err, certId: cert.id }, 'certificate issue failed; the next read or sweep retries it');
+      }
+    }
+  }
+
+  /**
+   * The issue sweep: issues every delayed certificate due by `now`, in batches until none is left, and answers how many
+   * it settled. One learner's failure is logged and left for the next sweep; it never stops the others.
+   */
+  async issueDueCertificates(now: Date = new Date()): Promise<number> {
+    let settled = 0;
+    const seen = new Set<string>();
+    for (;;) {
+      const due = await this.issueRules.due(now, CERT_ISSUE_SWEEP_BATCH);
+      // Every settled row leaves the table; a row read twice in one sweep would mean it stayed, so stop rather than spin.
+      if (due.some((row) => seen.has(`${row.userId}:${row.certId}`))) return settled;
+      let failed = false;
+      for (const row of due) {
+        seen.add(`${row.userId}:${row.certId}`);
+        const cert = this.certDefinition(row.certId);
+        try {
+          if (cert) await this.settleCertIssue(row.userId, cert, now);
+          else await this.issueRules.dropPending(row.userId, row.certId);
+          settled += 1;
+        } catch (err) {
+          failed = true;
+          console.error({ err, certId: row.certId }, 'certificate issue sweep: one certificate failed; the next sweep retries it');
+        }
+      }
+      // A full batch may have more behind it. After a failure the rest waits for the next sweep, so a row that keeps
+      // failing never spins this loop.
+      if (due.length < CERT_ISSUE_SWEEP_BATCH || failed) return settled;
+    }
+  }
+
   /**
    * Stage-2 — what the XP plane is doing, for the ops surface and /ready.
    * Reads the publisher; writes nothing, awards nothing.
@@ -2693,10 +2827,22 @@ export class AcademyService {
   async grantCert(input: {
     userId: string;
     certId: string;
+    /** Set when the certificate's issue rule issues it, not the learner's own claim. */
+    byRule?: boolean;
+    now?: Date;
   }): Promise<{ grant: CertGrantRecord & { publicId: string }; alreadyGranted: boolean; xp: CertXpEmitResult; perks: CertPerkOutcome }> {
-    assertNoCertPerkMoneyAttachment(input);
+    const { byRule = false, now = new Date(), ...claim } = input;
+    assertNoCertPerkMoneyAttachment(claim);
     const cert = this.certDefinition(input.certId);
     if (!cert) this.refuseUnpublishedPath(input.certId);
+    if (!byRule && cert) {
+      // A delayed certificate is issued when its wait ends; claiming it sooner refuses with the time it is due. Once due,
+      // the learner's claim is the issue, answered as a first grant.
+      const standing = await this.issueStanding(input.userId, cert, await this.progressOf(input.userId, cert), now);
+      if (standing.issue.issuesAt !== null) {
+        throw new AcademyError(`academy.cert_not_due issuesAt=${standing.issue.issuesAt.toISOString()}`, 'academy.cert_not_due');
+      }
+    }
     const completed = await this.completedSlugs(input.userId);
     const passed = await this.assessments.passedSlugs(input.userId);
     const existing = await this.existingGrant(input.userId, input.certId);
@@ -2775,9 +2921,33 @@ export class AcademyService {
     }));
   }
 
-  async certProgress(input: { userId: string; certId: string }): Promise<ProgressReport> {
+  /**
+   * The caller's progress toward one certificate, with how it is issued. A certificate its rule says is due is issued
+   * here first: the recovery path for an issue the completion did not finish (the process stopped between the two).
+   */
+  async certProgress(input: { userId: string; certId: string; now?: Date }): Promise<ProgressReport & { issue: AcademyCertIssue }> {
     const cert = this.certDefinition(input.certId);
-    if (!cert) this.refuseUnpublishedPath(input.certId);
+    if (!cert) {
+      this.refuseUnpublishedPath(input.certId);
+      throw new AcademyError('Unknown certification', 'academy.cert_not_found');
+    }
+    const now = input.now ?? new Date();
+    const progress = await this.progressOf(input.userId, cert);
+    const standing = await this.issueStanding(input.userId, cert, progress, now);
+    if (!standing.due) return { ...progress, issue: standing.issue };
+    try {
+      await this.grantCert({ userId: input.userId, certId: cert.id, byRule: true, now });
+      await this.issueRules.dropPending(input.userId, cert.id);
+    } catch (err) {
+      // The read still answers; the certificate stays ready and the sweep or the next read issues it.
+      console.error({ err, certId: cert.id }, 'certificate issue on a progress read failed');
+      return { ...progress, issue: standing.issue };
+    }
+    return { ...(await this.progressOf(input.userId, cert)), issue: standing.issue };
+  }
+
+  private async progressOf(userId: string, cert: CertDefinition): Promise<ProgressReport> {
+    const input = { userId, certId: cert.id };
     const completed = await this.completedSlugs(input.userId);
     const passed = await this.assessments.passedSlugs(input.userId);
     const existing = await this.existingGrant(input.userId, input.certId);
@@ -2815,14 +2985,16 @@ export class AcademyService {
     };
   }
 
-  submitAssessment(input: {
+  async submitAssessment(input: {
     userId: string;
     slug: string;
     answers: readonly { questionId: string; choiceId: string }[];
     clientAttemptId: string;
     now?: Date;
   }): Promise<AttemptRow> {
-    return this.assessments.submit(input);
+    const row = await this.assessments.submit(input);
+    await this.settleCertificatesNeeding(input.userId, `assessment:${input.slug}`, input.now ?? new Date());
+    return row;
   }
 
   assessmentAttempts(userId: string, slug: string): Promise<VisibleAttemptRow[]> {
@@ -2842,8 +3014,10 @@ export class AcademyService {
     return this.assessments.answer(input);
   }
 
-  finishQuizAttempt(input: { userId: string; attemptId: string; now?: Date }): Promise<AcademyQuizAttempt> {
-    return this.assessments.finish(input);
+  async finishQuizAttempt(input: { userId: string; attemptId: string; now?: Date }): Promise<AcademyQuizAttempt> {
+    const attempt = await this.assessments.finish(input);
+    await this.settleCertificatesNeeding(input.userId, `assessment:${attempt.slug}`, input.now ?? new Date());
+    return attempt;
   }
 
   reviewQuizAttempt(input: { userId: string; attemptId: string; now?: Date }): Promise<AcademyQuizReview> {

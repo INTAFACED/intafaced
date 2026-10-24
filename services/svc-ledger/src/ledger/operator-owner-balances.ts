@@ -40,7 +40,7 @@ export const OWNER_BALANCES_READ_ACTION = 'owner_balances.read' as const;
  * a page of the ledger desk's transaction list or account address search (0028).
  */
 export type OperatorAccessAction =
-  typeof OWNER_BALANCES_READ_ACTION | 'transaction.read' | 'trace.read' | 'transactions.list' | 'accounts.search';
+  typeof OWNER_BALANCES_READ_ACTION | 'transaction.read' | 'trace.read' | 'transactions.list' | 'accounts.search' | 'account_metadata.read';
 
 export interface OperatorAccessEntry {
   readonly actorId: string;

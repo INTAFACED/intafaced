@@ -82,6 +82,15 @@ export const SCOPES = [
   // picks, a price they enter for a lot). Never a ledger write.
   'tax:write',
 
+  // Campaigns (svc-campaigns). `:read` is the catalogue and the caller's own
+  // participations; `:write` joins or subscribes the caller to a campaign. The
+  // operator desk (create, transition, publish) is `campaigns:ops`, a
+  // module-local ops scope like `market:ops`: running a promotion and halting a
+  // module are different authorities.
+  'campaigns:read',
+  'campaigns:write',
+  'campaigns:ops',
+
   // Ops business systems (CRM / team / revenue / projects). Non-custodial.
   'ops:read',
   'ops:write',
@@ -169,6 +178,7 @@ export const INTERACTIVE_ONLY_SCOPES: readonly Scope[] = [
   'admin:compliance',
   'support:ops',
   'market:ops',
+  'campaigns:ops',
 ];
 
 /** Scopes `auth.stepUpPay` may add, and only those. */
@@ -301,6 +311,12 @@ const SESSION_SCOPE_LIST = [
   // scope; inventPayroll refuses by name.
   'ops:read',
   'ops:write',
+  // Campaigns catalogue and the caller's own participations. Non-custodial and
+  // `minTier: 'none'`: joining a campaign moves no value (a reward pays later
+  // through the ledger's reward recipe, under the campaigns service's own
+  // grant). Issued with the service that mounts it, svc-campaigns.
+  'campaigns:read',
+  'campaigns:write',
   // UNSTUBBED. These read 'svc-market not built' until this commit, and the
   // reason given there was the right one: "a scope for a router that cannot be
   // called is noise in every token in the platform; these get issued by the PR
@@ -359,6 +375,7 @@ export const FOUNDER_SESSION_SCOPE_ALLOWLIST = [
   'admin:compliance',
   'market:ops',
   'support:ops',
+  'campaigns:ops',
 ] as const satisfies readonly Scope[];
 
 /** Same set. Kept so the key-delegation refusal has one name. */
@@ -479,6 +496,11 @@ export const WITHHELD_FROM_SESSION: Readonly<Record<Exclude<Scope, SessionScope>
   // also approve their own application is not an applicant, and svc-market has no
   // criterion to decide with — a human supplies the decision (§8 "mine alone").
   'market:ops': 'Operator scope — vetting a vendor application is a human decision',
+
+  // Campaign operator actions (create, transition, publish). Users get
+  // campaigns:read/write on session; running a promotion is staff-only, and a
+  // publish that moves value also needs a second person.
+  'campaigns:ops': 'Operator scope — running a campaign is a staff action',
 
   // Operator scopes. Not in SESSION_SCOPES. The allowlist in
   // FOUNDER_SESSION_SCOPE_ALLOWLIST is added only when the lead configures it,

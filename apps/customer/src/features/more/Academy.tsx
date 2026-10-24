@@ -12,7 +12,7 @@ import { AcademyProgrammes } from './AcademyProgrammes';
 import { AcademyVideos } from './AcademyVideos';
 import { AcademyRefusal } from './AcademyLmsParts';
 import { AcademyPublic } from './AcademyPublic';
-import { CertificateShelf } from './AcademyCertificates';
+import { CertificateShelf, CertificateVerifyPage } from './AcademyCertificates';
 import {
   AcademyLearning,
   certificateDefinitions,
@@ -50,6 +50,8 @@ export function AcademyRoom({
   }, [redirect]);
   const { userId, restoring } = useSession();
   if (redirect) return null;
+  // A shared certificate link opens the same public check for everyone, signed in or not.
+  if (route.kind === 'verify') return <CertificateVerifyPage code={route.code} />;
   // A visitor with no account gets the signed-out Academy; while the boot refresh is still answering, nothing is guessed.
   if (!userId) return restoring ? <Loading /> : <AcademyPublic route={route} />;
   return <Academy route={route} slug={route.kind === 'reader' ? route.slug : slug} initialPath={initialPath} />;

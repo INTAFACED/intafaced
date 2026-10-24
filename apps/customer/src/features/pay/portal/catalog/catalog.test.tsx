@@ -13,7 +13,17 @@ import type { PortalApi } from '../api';
 import { parsePortalRoute } from '../routes';
 import { ProductCreate } from './Products';
 import { productImageUploadInputSchema } from '@intafaced/contracts/merchant-catalog';
-import { blankProduct, checkImage, draftProblem, imageRequestId, productBody, sizeText } from './model';
+import {
+  blankPrice,
+  blankProduct,
+  checkImage,
+  draftProblem,
+  imageRequestId,
+  priceBody,
+  priceProblem,
+  productBody,
+  sizeText,
+} from './model';
 
 // TEST data only: nobody here is real.
 const MERCHANT = '11111111-1111-4111-8111-111111111111';
@@ -104,5 +114,32 @@ describe('product catalogue (J-merchant-03 steps 1 and 2)', () => {
     expect(await imageRequestId(new Blob([new Uint8Array([1, 2, 3])]))).toBe(one);
     expect(await imageRequestId(new Blob([new Uint8Array([1, 2, 4])]))).not.toBe(one);
     expect(productImageUploadInputSchema.safeParse({ requestId: one, contentType: 'image/png', dataBase64: 'AQID' }).success).toBe(true);
+  });
+
+  it('checks a price before it is sent, and sends a monthly price as a fixed amount', () => {
+    const fixed = { ...blankPrice, amount: '20', assetId: 'USDC' };
+    expect(priceProblem(fixed)).toBeNull();
+    expect(priceProblem({ ...fixed, amount: '0' })).toBe('amountInvalid');
+    expect(priceProblem({ ...fixed, amount: '1e3' })).toBe('amountInvalid');
+    expect(priceProblem({ ...fixed, assetId: 'usdc' })).toBe('assetInvalid');
+    const chosen = { ...blankPrice, kind: 'customer_chosen' as const, minAmount: '5', maxAmount: '100', assetId: 'USDC' };
+    expect(priceProblem(chosen)).toBeNull();
+    expect(priceProblem({ ...chosen, maxAmount: '4.99' })).toBe('boundsInvalid');
+    expect(priceProblem({ ...chosen, maxAmount: '' })).toBe('boundsInvalid');
+    expect(priceBody(chosen, 'p1')).toEqual({
+      productId: 'p1',
+      billing: 'one_time',
+      kind: 'customer_chosen',
+      assetId: 'USDC',
+      minAmount: '5',
+      maxAmount: '100',
+    });
+    expect(priceBody({ ...chosen, billing: 'monthly', amount: '9' }, 'p1')).toEqual({
+      productId: 'p1',
+      billing: 'monthly',
+      kind: 'fixed',
+      assetId: 'USDC',
+      amount: '9',
+    });
   });
 });
