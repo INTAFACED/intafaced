@@ -46,13 +46,19 @@ export const FEE_REVENUE_PATHS = {
     kind: 'recipe',
     recipe: 'tradeFill',
     feeModule: 'trade',
-    note: 'Maker/taker bps on fill → houseFees(trade). A maker rebate is paid out of the same fill taker fee; the house keeps the rest.',
+    note: 'Maker/taker bps on fill → houseFees(trade).',
   },
   'trade.spot.fill_fee_correction': {
     kind: 'recipe',
     recipe: 'tradeFillFeeCorrection',
     feeModule: 'trade',
     note: 'Excess posted fill fee returns from houseFees(trade) under a new key. The original trade.fill stays.',
+  },
+  'trade.spot.fill_maker_rebate': {
+    kind: 'recipe',
+    recipe: 'tradeFillMakerRebate',
+    feeModule: 'trade',
+    note: 'A maker rebate leaves houseFees(trade) in the asset the maker paid, below the same fill taker fee. The trade.fill stays.',
   },
   'trade.spot.mm_maker_fill_fee': {
     kind: 'recipe',
@@ -238,6 +244,7 @@ export type FeeRevenuePathId = keyof typeof FEE_REVENUE_PATHS;
 export const RECIPES_TOUCHING_HOUSE_FEES = [
   'tradeFill',
   'tradeFillFeeCorrection',
+  'tradeFillMakerRebate',
   'marketMakerMakerFill',
   'futuresInsuranceTopup',
   'futuresMarginRelease',

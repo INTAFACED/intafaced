@@ -317,8 +317,8 @@ describe('recipe-gate', () => {
     accept(recipes.tradeFill({ ...fill, makerFeeBps: 10, takerFeeBps: 0 }));
     accept(recipes.tradeFill({ ...fill, makerFeeBps: 0, takerFeeBps: 10 }));
     accept(recipes.tradeFill({ ...fill, makerFeeBps: 10, takerFeeBps: 10 }));
-    accept(recipes.tradeFill({ ...fill, makerFeeBps: 0, takerFeeBps: 10, makerRebateBps: 5 }));
-    accept(recipes.tradeFill({ ...fill, takerSide: 'sell', makerFeeBps: 0, takerFeeBps: 20, makerRebateBps: 3 }));
+    accept(recipes.tradeFillMakerRebate({ ...fill, makerFeeBps: 0, takerFeeBps: 10, makerRebateBps: 5 }));
+    accept(recipes.tradeFillMakerRebate({ ...fill, takerSide: 'sell', makerFeeBps: 0, takerFeeBps: 20, makerRebateBps: 3 }));
     accept(recipes.marketMakerMakerFill({ ...fill, makerFeeBps: 10, takerFeeBps: 0 }));
     accept(
       recipes.merchantSettlement({
@@ -493,18 +493,23 @@ describe('recipe-gate', () => {
       }),
     );
 
+    // A rebate leaves house trade fees only: the same two legs from another house account are not a recipe.
+    const rebate = toWire(recipes.tradeFillMakerRebate({ ...fill, makerFeeBps: 0, takerFeeBps: 10, makerRebateBps: 5 }));
+    const fromInsurance = {
+      ...rebate,
+      entries: rebate.entries.map((e) =>
+        e.account.ownerType === 'house' ? { ...e, account: { ...e.account, ownerId: 'insurance-fund' } } : e,
+      ),
+    };
+    expect(() => assertKnownRecipePost(fromInsurance)).toThrow(expect.objectContaining({ code: RECIPE_REQUIRED_CODE }));
+    // Nor is a rebate inside the fill itself.
+    expect(() => assertKnownRecipePost({ ...rebate, reason: 'trade.fill' })).toThrow(
+      expect.objectContaining({ code: RECIPE_REQUIRED_CODE }),
+    );
+
     const bare = toWire(recipes.tradeFill({ ...fill, makerFeeBps: 0, takerFeeBps: 0 }));
     const last = bare.entries[bare.entries.length - 1];
     expect(() => assertKnownRecipePost({ ...bare, entries: [...bare.entries, last!] })).toThrow(
-      expect.objectContaining({ code: RECIPE_REQUIRED_CODE }),
-    );
-    // A rebate fill without its house leg is not a recipe: the rebate is always funded from a fee the house took.
-    const rebate = toWire(recipes.tradeFill({ ...fill, makerFeeBps: 0, takerFeeBps: 10, makerRebateBps: 5 }));
-    const noHouse = rebate.entries.filter((e) => e.account.ownerType !== 'house');
-    expect(() => assertKnownRecipePost({ ...rebate, entries: noHouse })).toThrow(expect.objectContaining({ code: RECIPE_REQUIRED_CODE }));
-    // Nor is a second rebate leg.
-    const rebateLast = rebate.entries[rebate.entries.length - 1];
-    expect(() => assertKnownRecipePost({ ...rebate, entries: [...rebate.entries, rebateLast!] })).toThrow(
       expect.objectContaining({ code: RECIPE_REQUIRED_CODE }),
     );
     const liquidated = toWire(

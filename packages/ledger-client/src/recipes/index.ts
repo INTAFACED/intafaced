@@ -23,6 +23,7 @@ import { staffHoldConfirm, staffHoldPlace, staffHoldRelease } from './staff-hold
 import { marketListingFee, marketPremiumPlacement, marketPurchase } from './market.js';
 import { fxConversion, fxConversionHold, fxConversionLateFill, fxConversionRelease, fxConversionReverse } from './conversion.js';
 import { tradeFillFeeCorrection } from './fill-correction.js';
+import { tradeFillMakerRebate } from './fill-rebate.js';
 import {
   assertEscrowDisputeRuling,
   assertEscrowRefundResolution,
@@ -55,6 +56,7 @@ import {
 export type { EscrowDisputeRuling } from './escrow-dispute-law.js';
 export { NATURAL_PERSON_ID, isNaturalPersonId, assertEscrowDisputeRuling, assertEscrowRefundResolution } from './escrow-dispute-law.js';
 export { refusePostedFillPriceEdit, tradeFillFeeCorrection, type TradeFillFeeCorrectionInput } from './fill-correction.js';
+export { makerRebateFor, tradeFillMakerRebate, type MakerRebate, type TradeFillMakerRebateInput } from './fill-rebate.js';
 
 /**
  * LEDGER RECIPES (§4.2).
@@ -279,14 +281,6 @@ export interface TradeFillInput {
   takerSide: 'buy' | 'sell';
   makerFeeBps: number;
   takerFeeBps: number;
-  /**
-   * Maker rebate in bps of what the maker paid (SP-fees-vip-01). Absent or 0 = none.
-   *
-   * It is paid out of this fill's own taker fee, in the same asset, so the house never pays more than this fill
-   * brought in: it needs `makerFeeBps` 0 and less than `takerFeeBps`. It rounds down and the taker fee rounds up, so
-   * the house always keeps a positive leg and the post keeps a shape the ledger's recipe gate can tell apart.
-   */
-  makerRebateBps?: number;
 }
 
 /**
@@ -315,18 +309,6 @@ export function tradeFill(input: TradeFillInput): PostRequest {
 
   const takerReceives = sub(makerPaysAmount, takerFee);
   const makerReceives = sub(takerPaysAmount, makerFee);
-
-  // A rebate is a positive leg to the maker, never a negative fee, and it comes out of the taker fee the house takes
-  // on this same fill. A rebate the fill's own taker fee cannot cover refuses here, before anything posts.
-  const makerRebateBps = input.makerRebateBps ?? 0;
-  const makerRebate = mulBps(makerPaysAmount, makerRebateBps, 'floor');
-  if (makerRebateBps > 0) {
-    if (input.makerFeeBps !== 0) throw new InvalidEntryError('A maker rebate needs a maker fee of 0 bps');
-    if (makerRebateBps >= input.takerFeeBps || makerRebate >= takerFee) {
-      throw new InvalidEntryError('A maker rebate must be below the taker fee on the same fill');
-    }
-  }
-  const houseTakerFee = sub(takerFee, makerRebate);
 
   // `<= 0n`, not `< 0n`. A fee LARGER than the receivable was caught here; a fee
   // exactly EQUAL to it was not, and it emits a zero-amount entry that
@@ -361,8 +343,7 @@ export function tradeFill(input: TradeFillInput): PostRequest {
     // Asset the maker paid: out of THIS ORDER's hold, into taker available + house fees.
     credit(orderHoldAccount(input.makerId, makerPaysAsset, input.makerOrderId), makerPaysAmount),
     debit(userAvailable(input.takerId, makerPaysAsset), takerReceives),
-    ...(houseTakerFee > 0n ? [debit(houseFees('trade', makerPaysAsset), houseTakerFee)] : []),
-    ...(makerRebate > 0n ? [debit(userAvailable(input.makerId, makerPaysAsset), makerRebate)] : []),
+    ...(takerFee > 0n ? [debit(houseFees('trade', makerPaysAsset), takerFee)] : []),
   ];
 
   return {
@@ -376,7 +357,6 @@ export function tradeFill(input: TradeFillInput): PostRequest {
       takerFeeBps: input.takerFeeBps,
       makerOrderId: input.makerOrderId,
       takerOrderId: input.takerOrderId,
-      ...(makerRebateBps > 0 ? { makerRebateBps, makerRebateAsset: makerPaysAsset, makerRebate: makerRebate.toString() } : {}),
     },
     entries,
   };
@@ -1347,6 +1327,7 @@ export const recipes = {
   withdrawReverse,
   tradeFill,
   tradeFillFeeCorrection,
+  tradeFillMakerRebate,
   orderHold,
   orderHoldRelease,
   orderHoldAmend,

@@ -858,8 +858,6 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
   const posts: Array<{ name: RecipeName; post: PostRequest }> = [
     { name: 'tradeFill', post: recipes.tradeFill({ ...fill, makerFeeBps: 10, takerFeeBps: 0 }) },
     { name: 'tradeFill', post: recipes.tradeFill({ ...fill, makerFeeBps: 0, takerFeeBps: 10 }) },
-    // Maker rebate out of the same fill's taker fee: the house leg stays and the maker's rebate leg follows it.
-    { name: 'tradeFill', post: recipes.tradeFill({ ...fill, makerFeeBps: 0, takerFeeBps: 10, makerRebateBps: 5 }) },
     { name: 'marketMakerMakerFill', post: recipes.marketMakerMakerFill({ ...fill, makerFeeBps: 10, takerFeeBps: 0 }) },
     { name: 'marketMakerMakerFill', post: recipes.marketMakerMakerFill({ ...fill, makerFeeBps: 0, takerFeeBps: 10 }) },
     { name: 'marketMakerMakerFill', post: recipes.marketMakerMakerFill({ ...fill, makerFeeBps: 10, takerFeeBps: 10 }) },
@@ -904,6 +902,10 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
         assetId: 'USDT',
         difference: AMT,
       }),
+    },
+    {
+      name: 'tradeFillMakerRebate',
+      post: recipes.tradeFillMakerRebate({ ...fill, fillId: 'f-rebate', makerFeeBps: 0, takerFeeBps: 10, makerRebateBps: 5 }),
     },
     {
       name: 'deposit',

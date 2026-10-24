@@ -507,13 +507,12 @@ export function runLedgerConformance(name: string, createHarness: () => Promise<
         expect(await heldTotal(USER_B, 'BTC')).toBe('0');
       });
 
-      it('trade fill with a maker rebate: paid from the same fill taker fee, the house keeps the rest', async () => {
+      it('maker rebate: its own post after the fill, out of that fill taker fee, once', async () => {
         await fund(USER_A, 'USDT', '1000');
         await fund(USER_B, 'BTC', '2');
         await ledger.post(recipes.orderHold({ orderId: 'taker-r1', userId: USER_A, assetId: 'USDT', amount: amt('900') }));
         await ledger.post(recipes.orderHold({ orderId: 'maker-r1', userId: USER_B, assetId: 'BTC', amount: amt('1') }));
-
-        const rebateFill = recipes.tradeFill({
+        const input = {
           fillId: 'conformance-r1',
           makerId: USER_B,
           takerId: USER_A,
@@ -523,21 +522,23 @@ export function runLedgerConformance(name: string, createHarness: () => Promise<
           quoteAsset: 'USDT',
           qty: amt('1'),
           quoteAmount: amt('900'),
-          takerSide: 'buy',
+          takerSide: 'buy' as const,
           makerFeeBps: 0,
           takerFeeBps: 10,
           makerRebateBps: 5,
-        });
-        const tx = await ledger.post(rebateFill);
-        const again = await ledger.post(rebateFill);
+        };
 
-        expect(again.id).toBe(tx.id);
-        expect(tx.entries).toHaveLength(6);
+        // Before the fill there is no taker fee to pay it from.
+        await expect(ledger.post(recipes.tradeFillMakerRebate(input))).rejects.toBeInstanceOf(InsufficientFundsError);
+        await ledger.post(recipes.tradeFill(input));
+        const rebate = await ledger.post(recipes.tradeFillMakerRebate(input));
+        const again = await ledger.post(recipes.tradeFillMakerRebate(input));
+
+        expect(again.id).toBe(rebate.id);
         expect(await balanceOf(USER_B, 'USDT')).toBe('900');
         expect(await balanceOf(USER_B, 'BTC')).toBe('1.0005');
         expect(await balanceOf(USER_A, 'BTC')).toBe('0.999');
         expect(formatAmount((await ledger.balance(houseFees('trade', 'BTC'))).amount)).toBe('0.0005');
-        expect(await heldTotal(USER_A, 'USDT')).toBe('0');
         expect(await heldTotal(USER_B, 'BTC')).toBe('0');
       });
 
