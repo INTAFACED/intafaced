@@ -102,6 +102,10 @@ export interface PayoutRailPort {
     readonly assetId: string;
     readonly toCurrency: string;
     readonly recipientId: string;
+    /** The rate lock the customer confirmed, and its figures: the partner pays exactly this or refuses. */
+    readonly quoteId: string;
+    readonly rate: string;
+    readonly receiveAmount: string;
   }): Promise<PayoutAnswer>;
 }
 
