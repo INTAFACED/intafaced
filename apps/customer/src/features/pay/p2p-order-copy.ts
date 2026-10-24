@@ -48,6 +48,11 @@ const en = {
   serviceFee: 'Service fee',
   serviceFeeValue: 'Not on the order record this page reads. It is taken from the released amount.',
   releasePending: 'Release recorded. The ledger payout isn’t confirmed.',
+  paidChecklist: 'Before you mark it paid',
+  paidCheckAmount: 'I paid {amount} {currency}, the exact amount of this order',
+  paidCheckOwnAccount: 'I paid from an account in my own name',
+  paidCheckDetails: 'I paid to the payment details shown on this order',
+  paidChecklistIncomplete: 'Tick each line to mark the payment sent.',
 } as const;
 const es = {
   seller: 'Eres el vendedor',
@@ -99,6 +104,11 @@ const es = {
   serviceFee: 'Comisión del servicio',
   serviceFeeValue: 'No figura en el registro del pedido que lee esta página. Se descuenta del importe liberado.',
   releasePending: 'Liberación registrada. El pago en el libro mayor no está confirmado.',
+  paidChecklist: 'Antes de marcarlo como pagado',
+  paidCheckAmount: 'Pagué {amount} {currency}, el importe exacto de este pedido',
+  paidCheckOwnAccount: 'Pagué desde una cuenta a mi nombre',
+  paidCheckDetails: 'Pagué a los datos de pago que muestra este pedido',
+  paidChecklistIncomplete: 'Marca cada línea para indicar el pago como enviado.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   seller: 'Vous êtes le vendeur',
@@ -150,5 +160,10 @@ const fr = {
   serviceFee: 'Frais de service',
   serviceFeeValue: 'Absents du dossier de la commande lu par cette page. Ils sont prélevés sur le montant libéré.',
   releasePending: 'Libération enregistrée. Le paiement dans le grand livre n’est pas confirmé.',
+  paidChecklist: 'Avant de le marquer comme payé',
+  paidCheckAmount: 'J’ai payé {amount} {currency}, le montant exact de cette commande',
+  paidCheckOwnAccount: 'J’ai payé depuis un compte à mon nom',
+  paidCheckDetails: 'J’ai payé aux informations de paiement affichées sur cette commande',
+  paidChecklistIncomplete: 'Cochez chaque ligne pour marquer le paiement comme envoyé.',
 } satisfies Record<keyof typeof en, string>;
 export const orderCopy = defineCopy('pay.p2p.order', en, { es, fr });

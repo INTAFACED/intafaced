@@ -2196,15 +2196,26 @@ export class P2pService {
              WHERE id = ${tradeId} AND status = ${trade.status}
             RETURNING *
           `;
+          // The outbox row: the seller's notice is owed from this commit, whatever happens to the process next.
+          await tx`
+            INSERT INTO p2p.fiat_sent_notices (trade_id, buyer_id, seller_id, marked_at)
+            VALUES (${tradeId}, ${trade.buyerId}, ${trade.sellerId}, ${now})
+            ON CONFLICT (trade_id) DO NOTHING
+          `;
           return toTrade(rows[0]!);
         },
         { isolation: 'read committed', maxAttempts: 5 },
       ),
     );
-    // The notice is owed from the commit above (`fiat_sent_notice_at` is still null). Handing it to the bus here is
+    // The notice is owed from the commit above (its outbox row has no `handed_at` yet). Handing it to the bus here is
     // the fast path; if this process dies first, or the bus is down, the sweep hands it over on its next tick.
     try {
-      await this.handOverFiatSentNotice(marked);
+      await this.handOverFiatSentNotice({
+        tradeId: marked.id,
+        buyerId: marked.buyerId,
+        sellerId: marked.sellerId,
+        markedAt: marked.fiatSentAt!,
+      });
     } catch (err) {
       recordSwallowed('p2p.trade_fiat_sent.publish', err);
     }
@@ -2216,22 +2227,15 @@ export class P2pService {
    * marked paid once), then the stamp says the notice left. A crash between the two only means one more hand-over,
    * which the bus and svc-notify both drop.
    */
-  private async handOverFiatSentNotice(trade: Pick<TradeRecord, 'id' | 'buyerId' | 'sellerId' | 'fiatSentAt'>): Promise<void> {
-    // Every fiat_sent row carries the time it was marked (the same UPDATE sets both); never stamp a guessed one.
-    if (!trade.fiatSentAt) throw new Error(`p2p: trade ${trade.id} is fiat_sent without fiat_sent_at`);
+  private async handOverFiatSentNotice(notice: { tradeId: string; buyerId: string; sellerId: string; markedAt: Date }): Promise<void> {
     await this.bus.publish(
       'p2pTradeFiatSent',
-      {
-        tradeId: trade.id,
-        buyerId: trade.buyerId,
-        sellerId: trade.sellerId,
-        markedAt: trade.fiatSentAt.toISOString(),
-      },
-      { idempotencyKey: `p2p.trade_fiat.sent:${trade.id}` },
+      { tradeId: notice.tradeId, buyerId: notice.buyerId, sellerId: notice.sellerId, markedAt: notice.markedAt.toISOString() },
+      { idempotencyKey: `p2p.trade_fiat.sent:${notice.tradeId}` },
     );
     await this.sql`
-      UPDATE p2p.p2p_trades SET fiat_sent_notice_at = now()
-       WHERE id = ${trade.id} AND fiat_sent_notice_at IS NULL
+      UPDATE p2p.fiat_sent_notices SET handed_at = now()
+       WHERE trade_id = ${notice.tradeId} AND handed_at IS NULL
     `;
   }
 
@@ -2242,20 +2246,27 @@ export class P2pService {
    */
   async sweepFiatSentNotices(limit?: number): Promise<{ sent: number; failures: SweepFailure[] }> {
     const lim = assertSweepSettlementsLimit(limit);
-    const owed = await this.sql<Array<{ id: string; buyer_id: string; seller_id: string; fiat_sent_at: Date | null }>>`
-      SELECT id, buyer_id, seller_id, fiat_sent_at FROM p2p.p2p_trades
-       WHERE status = 'fiat_sent' AND fiat_sent_notice_at IS NULL
-       ORDER BY fiat_sent_at ASC
+    const owed = await this.sql<Array<{ trade_id: string; buyer_id: string; seller_id: string; marked_at: Date }>>`
+      SELECT n.trade_id, n.buyer_id, n.seller_id, n.marked_at
+        FROM p2p.fiat_sent_notices n
+        JOIN p2p.p2p_trades t ON t.id = n.trade_id
+       WHERE n.handed_at IS NULL AND t.status = 'fiat_sent'
+       ORDER BY n.marked_at ASC
        LIMIT ${lim}
     `;
     let sent = 0;
     const failures: SweepFailure[] = [];
     for (const row of owed) {
       try {
-        await this.handOverFiatSentNotice({ id: row.id, buyerId: row.buyer_id, sellerId: row.seller_id, fiatSentAt: row.fiat_sent_at });
+        await this.handOverFiatSentNotice({
+          tradeId: row.trade_id,
+          buyerId: row.buyer_id,
+          sellerId: row.seller_id,
+          markedAt: row.marked_at,
+        });
         sent++;
       } catch (err) {
-        failures.push(describeFailure(row.id, 'fiat_sent', err));
+        failures.push(describeFailure(row.trade_id, 'fiat_sent', err));
       }
     }
     return { sent, failures };

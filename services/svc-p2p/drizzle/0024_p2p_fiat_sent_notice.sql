@@ -1,15 +1,18 @@
--- P-trade-orders-23 / J-p2p-01 #7: the buyer-paid notice to the seller is owed from the moment the trade
--- moves to fiat_sent, in the same row and the same transaction. `fiat_sent_notice_at` says when
--- `p2p.trade_fiat.sent` was handed to the bus; while it is null on a fiat_sent trade the notice is
--- still owed and the sweep hands it over again (the bus dedupes on the trade id). No balance is stored here.
+-- P-trade-orders-23 / J-p2p-01 #7: the buyer-paid notice to the seller, as an outbox row. markFiatSent
+-- inserts it in the same transaction that moves the trade to fiat_sent, so the notice is owed from the
+-- commit. `handed_at` says when `p2p.trade_fiat.sent` reached the bus; while it is null the sweep hands
+-- it over again (the bus and svc-notify both dedupe on the trade id). No balance is stored here.
 -- Reversal: 0024_p2p_fiat_sent_notice.down.sql
-ALTER TABLE "p2p"."p2p_trades" ADD COLUMN IF NOT EXISTS "fiat_sent_notice_at" timestamptz;
+CREATE TABLE IF NOT EXISTS "p2p"."fiat_sent_notices" (
+  "trade_id" uuid PRIMARY KEY REFERENCES "p2p"."p2p_trades" ("id"),
+  "buyer_id" text NOT NULL,
+  "seller_id" text NOT NULL,
+  "marked_at" timestamptz NOT NULL,
+  "handed_at" timestamptz,
+  CONSTRAINT "fiat_sent_notices_parties_ck" CHECK ("buyer_id" <> "seller_id"),
+  CONSTRAINT "fiat_sent_notices_order_ck" CHECK ("handed_at" IS NULL OR "handed_at" >= "marked_at")
+);
 
--- Trades that were marked paid before this column existed are not owed a notice now: the seller has
--- long since seen the order, and a late "check the payment" notice would mislead.
-UPDATE "p2p"."p2p_trades" SET "fiat_sent_notice_at" = "fiat_sent_at"
- WHERE "fiat_sent_at" IS NOT NULL AND "fiat_sent_notice_at" IS NULL;
-
-CREATE INDEX IF NOT EXISTS "p2p_trades_fiat_sent_notice_owed_idx"
-  ON "p2p"."p2p_trades" ("fiat_sent_at")
-  WHERE "status" = 'fiat_sent' AND "fiat_sent_notice_at" IS NULL;
+CREATE INDEX IF NOT EXISTS "fiat_sent_notices_owed_idx"
+  ON "p2p"."fiat_sent_notices" ("marked_at")
+  WHERE "handed_at" IS NULL;

@@ -17,6 +17,7 @@ import {
   MutationResult,
 } from './components';
 import { id, type Trade, type TradeDestination } from './schemas';
+import { displayAmount } from '../../shared/money';
 import { useP2PView, type P2PView } from './p2p-view';
 import { P2POffers } from './P2POffers';
 import { P2POrder } from './P2POrder';
@@ -323,7 +324,7 @@ export function OrderPaymentDetails({ trade, pay, userId }: { trade: Trade; pay:
     </PaySection>
   );
 }
-function OrderActions({
+export function OrderActions({
   trade,
   pay,
   userId,
@@ -339,8 +340,11 @@ function OrderActions({
   onOutcome: (result: ApiResult<Trade>) => void;
 }) {
   const [reason, setReason] = useState('');
+  // J-p2p-01 #7: the buyer confirms three facts about the outside payment before the order says it was paid.
+  const [paidChecks, setPaidChecks] = useState({ amount: false, ownAccount: false, details: false });
   const { Copy, t } = orderCopy.useCopy();
   if (locked) return null;
+  const paidReady = paidChecks.amount && paidChecks.ownAccount && paidChecks.details;
   const reviewValues: [string, ReactNode][] = [
     [payCopy.t('order'), <span lang="zxx">{trade.id}</span>],
     [payCopy.t('you'), trade.sellerId === userId ? payCopy.t('seller') : payCopy.t('buyer')],
@@ -369,8 +373,29 @@ function OrderActions({
                     [payCopy.t('paymentMethod'), <span lang="zxx">{trade.method}</span>],
                   ]}
                 />
+                <fieldset className="p2p-check-list" data-testid="order-paid-checklist">
+                  <legend>{t('paidChecklist')}</legend>
+                  {(
+                    [
+                      ['amount', t('paidCheckAmount', { amount: displayAmount(trade.fiatAmount), currency: trade.fiatCurrency })],
+                      ['ownAccount', t('paidCheckOwnAccount')],
+                      ['details', t('paidCheckDetails')],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <label key={key}>
+                      <input
+                        type="checkbox"
+                        checked={paidChecks[key]}
+                        onChange={(event) => setPaidChecks((current) => ({ ...current, [key]: event.target.checked }))}
+                      />
+                      <span>{label}</span>
+                    </label>
+                  ))}
+                </fieldset>
               </div>
             }
+            ready={paidReady}
+            notReadyReason={t('paidChecklistIncomplete')}
             perform={(current) => perform('markFiatSent', current)}
             onConfirmed={reload}
             disabled={locked}

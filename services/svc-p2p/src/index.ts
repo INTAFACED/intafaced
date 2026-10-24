@@ -339,7 +339,10 @@ async function sweep(): Promise<void> {
       app.log.error({ ...f, sweep: 'settlement' }, 'p2p settlement failed — a decision is committed and the value is late');
     }
     for (const f of notices.failures) {
-      app.log.error({ ...f, sweep: 'fiat_sent_notice' }, 'p2p buyer-paid notice could not be handed to the bus — the seller is not told yet');
+      app.log.error(
+        { ...f, sweep: 'fiat_sent_notice' },
+        'p2p buyer-paid notice could not be handed to the bus — the seller is not told yet',
+      );
     }
     for (const f of swept.failures) {
       app.log.error({ ...f, sweep: 'timeout' }, 'p2p timeout sweep could not act on a trade');

@@ -636,3 +636,43 @@ test('J-p2p-01 #6 the payment details name the seller’s account holder and num
     details: { account_holder: state.seller.handle, iban: TEST_IBAN },
   });
 });
+
+test('J-p2p-01 #7 the buyer ticks the checklist and marks paid; the order moves to Paid with the release countdown, and the seller is told once', async ({
+  page,
+}) => {
+  const state = journey();
+  const seller = await api(state.seller);
+  await signIn(page, state.buyer);
+  await page.goto(`/uc/order?tradeId=${state.tradeId}`);
+  const order = page.getByRole('main');
+
+  // The fiat moves outside INTAFACED. The buyer then reports it, confirming what they did.
+  await order.getByRole('button', { name: 'Mark payment sent' }).click();
+  const review = page.getByRole('dialog');
+  const checklist = review.getByTestId('order-paid-checklist');
+  await expect(checklist).toContainText('the exact amount of this order');
+  await expect(checklist).toContainText('I paid from an account in my own name');
+  await expect(checklist).toContainText('I paid to the payment details shown on this order');
+  const confirm = review.getByRole('button', { name: 'Mark payment sent' });
+  await expect(confirm).toBeDisabled();
+  await expect(review).toContainText('Tick each line to mark the payment sent.');
+  for (const box of await checklist.getByRole('checkbox').all()) await box.check();
+  await expect(confirm).toBeEnabled();
+  await confirm.click();
+  await expect(review).toHaveCount(0);
+
+  // Paid, and the clock now runs on the seller's release.
+  await expect(order).toContainText('Payment marked sent');
+  const path = order.getByTestId('escrow-path');
+  await expect(path).toContainText('Waiting for the seller to release');
+  await expect(path).toContainText(/\d+ h \d+ min left/);
+  expect((await p2p(seller).query('trades.get', { tradeId: state.tradeId })).status).toBe('fiat_sent');
+
+  // The seller gets exactly one "the buyer marked it paid" notice for this order.
+  const notices = async () => {
+    const res = await seller.get(`/api/notify/trpc/notify.list?input=${encodeURIComponent(JSON.stringify({ limit: 100 }))}`);
+    expect(res.status).toBe(200);
+    return res.body.result.data.items.filter((n) => n.kind === 'p2p.trade.fiat_sent' && n.params?.tradeId === state.tradeId);
+  };
+  await expect.poll(async () => (await notices()).length, { timeout: 30_000 }).toBe(1);
+});
