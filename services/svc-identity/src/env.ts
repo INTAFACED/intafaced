@@ -227,6 +227,13 @@ const schema = serviceEnvSchema
        */
       IDENTITY_ACCOUNT_TIERS: z.string().optional(),
       /**
+       * Owner setting: whole days a closed, unarchived customer record stays without a change or a new session before identity
+       * proposes it for archive (J-ops-console-04 #10). NO DEFAULT. Blank: no proposal is made and the console says the
+       * period is not set. A proposal is only that: a person archives each one with a second approver. Parsed at start by
+       * `parseDormancyDays`; malformed stops the service.
+       */
+      IDENTITY_DORMANCY_DAYS: z.string().optional(),
+      /**
        * Owner setting: how long after sign-up a person may still attach a referrer through a link, in whole seconds
        * (CM-referral-01, J-campaigns-05 #4-#5). NO DEFAULT. Blank refuses every link attach (`referral.attach_window_unset`);
        * past it, `referral.attach_window_closed`. Parsed at start by `parseAttachWindowSeconds`; malformed stops the service.

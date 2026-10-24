@@ -12,6 +12,8 @@ import {
   type LotMethod,
   type MissingBasis,
 } from './pnl-model';
+import { pnlOverTimeSchema, type PnlOverTime } from './pnl-time-model';
+import { BANK_VALUE_HISTORY_UNAVAILABLE, VALUE_PRICES_DOWN, bankValueOverTimeSchema, type BankValueOverTime } from './value-time-model';
 
 const LOT_BOOK_INTERVAL = 60_000;
 
@@ -20,6 +22,12 @@ export type LotBookAsk = LotMethod | 'saved' | null;
 
 const bookKey = (userId: string, ask: LotMethod | 'saved') => `tax-lot-book:${userId}:${ask}`;
 const missingKey = (userId: string, ask: LotMethod | 'saved') => `tax-missing-basis:${userId}:${ask}`;
+/** Every over-time read asked for in this tab, so a saved choice or price reads each of them again. */
+const pnlKeys = new Set<string>();
+const PNL_KEYS_KEPT = 8;
+const refreshPnl = (env: ReturnType<typeof useDataEnv>) => {
+  for (const key of pnlKeys) env.poller.refresh(key);
+};
 const askInput = (ask: LotMethod | 'saved') => (ask === 'saved' ? {} : { method: ask });
 
 /** `null`: nothing is asked (the service refuses it too), and the screen says so. */
@@ -62,6 +70,64 @@ export function useMissingBasis(method: LotBookAsk): Loadable<MissingBasis> {
   );
 }
 
+/**
+ * `tax.pnlOverTime`: the cumulative result over a range and its breakdown, under the saved choices. `null`: nothing to
+ * ask (the room says why).
+ */
+export function usePnlOverTime(ask: { from: string; to?: string; utcOffsetMinutes: number } | null): Loadable<PnlOverTime> {
+  const env = useDataEnv();
+  const from = ask?.from;
+  const to = ask?.to;
+  const offset = ask?.utcOffsetMinutes;
+  return useSource(
+    useMemo(() => {
+      if (from === undefined || offset === undefined) return constantSource<PnlOverTime>({ status: 'empty' });
+      if (!env.userId) return constantSource<PnlOverTime>({ status: 'refused', code: 'auth.required' });
+      const key = `tax-pnl-over-time:${env.userId}:${from}:${to ?? 'now'}:${offset}`;
+      // The newest few ranges only: an older one is read again when it is opened again.
+      pnlKeys.delete(key);
+      pnlKeys.add(key);
+      if (pnlKeys.size > PNL_KEYS_KEPT) pnlKeys.delete(pnlKeys.values().next().value!);
+      const input = { from, ...(to === undefined ? {} : { to }), utcOffsetMinutes: offset };
+      return env.poller.source<PnlOverTime>(key, (signal) => env.api.query('tax', 'pnlOverTime', input, pnlOverTimeSchema, { signal }), {
+        intervalMs: LOT_BOOK_INTERVAL,
+      });
+    }, [env, from, to, offset]),
+  );
+}
+
+/** The bank's own answers that it cannot read now: they arrive as a 503, which the poller would read as a broken link. */
+const VALUE_DOWN = [VALUE_PRICES_DOWN, BANK_VALUE_HISTORY_UNAVAILABLE];
+/** A range that ended before now cannot change but by a late posting, so it is read again rarely. */
+const PAST_RANGE_INTERVAL = 15 * 60_000;
+
+/**
+ * `bank.portfolio.valueOverTime`: what the caller's main account and Spaces were worth over a range, and the
+ * change-in-value bridge. `null`: nothing to ask (the room says why).
+ */
+export function useValueOverTime(ask: { from: string; to?: string } | null): Loadable<BankValueOverTime> {
+  const env = useDataEnv();
+  const from = ask?.from;
+  const to = ask?.to;
+  return useSource(
+    useMemo(() => {
+      if (from === undefined) return constantSource<BankValueOverTime>({ status: 'empty' });
+      if (!env.userId) return constantSource<BankValueOverTime>({ status: 'refused', code: 'auth.required' });
+      const input = { from, ...(to === undefined ? {} : { to }) };
+      return env.poller.source<BankValueOverTime>(
+        `bank-value-over-time:${env.userId}:${from}:${to ?? 'now'}`,
+        async (signal) => {
+          const result = await env.api.query('bank', 'portfolio.valueOverTime', input, bankValueOverTimeSchema, { signal });
+          if (result.ok) return result;
+          const down = VALUE_DOWN.find((code) => result.code === code || result.message.includes(code));
+          return down ? { ok: false, reason: result.reason, code: down, status: 409 } : result;
+        },
+        { intervalMs: to !== undefined && Date.parse(to) <= Date.now() ? PAST_RANGE_INTERVAL : LOT_BOOK_INTERVAL },
+      );
+    }, [env, from, to]),
+  );
+}
+
 /** `unsure`: the write may have been stored (a timeout or a server error after sending); the book is read again either way. */
 export type BasisOutcome = { ok: true } | { ok: false; code: string; unsure: boolean };
 
@@ -82,6 +148,7 @@ export function useBasisOverride(): {
         env.poller.refresh(bookKey(env.userId, each));
         env.poller.refresh(missingKey(env.userId, each));
       }
+      refreshPnl(env);
     };
     const done = (result: { ok: true } | { ok: false; code?: string; reason: string }): BasisOutcome => {
       if (!result.ok) {
@@ -121,6 +188,7 @@ export function useSaveLotChoice(): (choice: LotChoice) => Promise<BasisOutcome>
           env.poller.refresh(bookKey(env.userId, each));
           env.poller.refresh(missingKey(env.userId, each));
         }
+        refreshPnl(env);
       }
       return result.ok ? { ok: true } : { ok: false, code: result.code ?? result.reason, unsure };
     },

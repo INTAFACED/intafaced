@@ -18,6 +18,10 @@ describe('order kind in the tables', () => {
     expect(canEdit({ ...plain, exit: { kind: 'bracket_exit', takeProfit: '110', stopLoss: '90', stopLossLimit: '91' } })).toBe(false);
     expect(canEdit({ ...plain, exit: null })).toBe(true);
   });
+  it('an OTO buy waiting for its fill cannot be edited (a replacement would drop its close); its close can', () => {
+    expect(canEdit({ ...plain, linked: { role: 'entry', closePrice: '110', closeOrderId: null } })).toBe(false);
+    expect(canEdit({ ...plain, linked: { role: 'close', entryOrderId: 'o-1' } })).toBe(true);
+  });
   it('names the kind of an exit order', () => {
     expect(exitKindKey('oco')).toBe('Order type oco');
     expect(exitKindKey('bracket_exit')).toBe('Order type bracket exit');

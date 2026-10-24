@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useResource } from '../../../shared/resource';
 import { EmptyState } from '../ui-kit';
+import type { ApiResult } from '../../../shared/api';
 import { PayDetails, PayFailure, PayState } from '../components';
 import type { PersonalPayApi } from '../pay-api';
-import { id } from '../schemas';
+import { id, type Offer } from '../schemas';
 import { p2pDepth } from './p2p-depth-copy';
 import {
   checkOfferForm,
@@ -17,13 +18,15 @@ import {
 import { settlementCopy } from './settlement-copy';
 import { P2PReason } from './P2PDepth';
 import { Button } from '@intafaced/ui';
+import { AdvertiserTermsSheet, LevelLimits, OfferReceipt, OfferSummary, SellAvailability, postInput } from './p2p-post';
+import { postCopy } from './p2p-post-copy';
 import './p2p-depth.css';
 
 /**
  * Create offer (/uc/ad/create) and edit offer (/uc/ad/update?offerId=…).
- * The whole form works: fields, exact-decimal checks, a list of what changed from the live offer. Saving is off, with
- * the reason on screen: the service refuses live offers until payment details can be stored safely, and it has no call
- * to change a published offer. Nothing typed here is saved or sent.
+ * Create (P-ads-merchant-01): the form, a summary of every field, the advertiser terms when they are not yet accepted,
+ * then one ad, posted under a business key made once per form so a second press or a retry answers the same ad. Edit
+ * keeps its exact-decimal checks and the list of what changed; saving an edit is off, with the reason on screen.
  */
 export function OfferForm({
   pay,
@@ -55,16 +58,155 @@ export function OfferForm({
       </div>
     );
   return (
-    <div className="p2p-form" lang={languageFor('formCreateTitle')} dir={directionFor('formCreateTitle')} data-testid="offer-form">
-      <P2PReason title={mode === 'edit' ? t('formOffEditTitle') : t('formOffCreateTitle')}>
-        {mode === 'edit' ? t('formOffEditBody') : t('formOffCreateBody')}
-      </P2PReason>
+    <div className="p2p-form" lang={languageFor('formCreateTitle')} dir={directionFor('formCreateTitle')}>
       {mode === 'create' ? (
-        <Fields pay={pay} baseline={emptyOffer()} mode="create" />
+        <CreateOffer pay={pay} userId={userId} />
       ) : (
-        <EditLive pay={pay} userId={userId} offerId={offerId!.toLowerCase()} />
+        <div data-testid="offer-form">
+          <P2PReason title={t('formOffEditTitle')}>{t('formOffEditBody')}</P2PReason>
+          <EditLive pay={pay} userId={userId} offerId={offerId!.toLowerCase()} />
+        </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The ad this form posts: its id is chosen once per form, and the post's key is that id, so every press and retry of
+ * this ad names the same ad and a new form names a new one.
+ */
+const newAd = () => {
+  const offerId = crypto.randomUUID();
+  return { offerId, key: `p2p:offer-create:${offerId}` };
+};
+
+type Stage = { kind: 'form' } | { kind: 'summary' } | { kind: 'posted'; offer: Offer };
+
+/** P-ads-merchant-01: fill the form, check the summary, accept the advertiser terms if asked, post once. */
+function CreateOffer({ pay, userId }: { pay: PersonalPayApi; userId: string | null }) {
+  const { t } = postCopy.useCopy();
+  const [values, setValues] = useState<OfferFormValues>(emptyOffer);
+  const [stage, setStage] = useState<Stage>({ kind: 'form' });
+  const [ad, setAd] = useState(newAd);
+  const terms = useResource((signal) => pay.advertiserTerms(signal), `pay:p2p-advertiser-terms:${userId}`);
+  const methods = useResource((signal) => pay.methods(signal), 'pay:registered-methods');
+  const health = useResource((signal) => pay.health(signal), 'pay:p2p-health');
+  // The version last seen or accepted, so a Post pressed while the terms are re-read still sends it.
+  const [knownVersion, setKnownVersion] = useState<string | null>(null);
+  const [sheet, setSheet] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [failure, setFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null);
+  const [posting, setPosting] = useState(false);
+  // A double tap sends one post: the second press finds this set before React has re-rendered the button.
+  const inFlight = useRef(false);
+  const version = terms.resource.status === 'ready' ? terms.resource.data.version : knownVersion;
+  const keyOff = health.resource.status === 'ready' && health.resource.data.instrumentKeyProvider !== 'local-test';
+  const acceptedNote =
+    terms.resource.status === 'ready'
+      ? terms.resource.data.acceptedAt
+        ? t('termsAccepted', { version: terms.resource.data.version })
+        : t('termsNeeded', { version: terms.resource.data.version })
+      : terms.resource.status === 'failed'
+        ? terms.resource.failure.code === 'p2p.config_unset'
+          ? t('termsUnset')
+          : t('termsFailed')
+        : null;
+  const input = postInput(values);
+  const registered = methods.resource.status === 'ready' ? methods.resource.data : [];
+  const labels = input.methods.map((method) => registered.find((row) => row.methodId === method)?.label ?? method);
+  const post = async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setPosting(true);
+    setFailure(null);
+    // No published version to send yet (still loading, unreadable or unset): read it again; the note says which.
+    if (!version) {
+      inFlight.current = false;
+      setPosting(false);
+      terms.reload();
+      return;
+    }
+    const termsVersion = version;
+    const result = await pay.postOffer({ ...input, offerId: ad.offerId }, ad.key, termsVersion);
+    inFlight.current = false;
+    setPosting(false);
+    if (result.ok) {
+      setStage({ kind: 'posted', offer: result.data });
+      return;
+    }
+    if (result.code === 'p2p.terms_not_accepted') {
+      setSheet(termsVersion);
+      return;
+    }
+    if (result.code === 'p2p.terms_version_stale') {
+      const fresh = await pay.advertiserTerms();
+      terms.reload();
+      if (fresh.ok) {
+        setKnownVersion(fresh.data.version);
+        setNote(t('termsStale', { version: fresh.data.version }));
+        setSheet(fresh.data.version);
+        return;
+      }
+    }
+    setFailure(result);
+  };
+  if (stage.kind === 'posted')
+    return (
+      <OfferReceipt
+        offer={stage.offer}
+        onAnother={() => {
+          setValues(emptyOffer());
+          setAd(newAd());
+          setNote(null);
+          setStage({ kind: 'form' });
+        }}
+      />
+    );
+  return (
+    <>
+      {stage.kind === 'form' ? (
+        <div data-testid="offer-form">
+          {keyOff ? <P2PReason title={t('keyOffTitle')}>{t('keyOff')}</P2PReason> : null}
+          {acceptedNote ? <p className="muted">{acceptedNote}</p> : null}
+          <Fields
+            pay={pay}
+            baseline={values}
+            mode="create"
+            onReview={(reviewed) => {
+              setValues(reviewed);
+              setFailure(null);
+              setStage({ kind: 'summary' });
+            }}
+          />
+        </div>
+      ) : (
+        <OfferSummary
+          input={input}
+          methodLabels={labels}
+          termsNote={note ?? acceptedNote}
+          failure={failure}
+          posting={posting}
+          onConfirm={() => void post()}
+          onBack={() => {
+            setFailure(null);
+            setStage({ kind: 'form' });
+          }}
+        />
+      )}
+      {sheet ? (
+        <AdvertiserTermsSheet
+          pay={pay}
+          version={sheet}
+          onClose={() => setSheet(null)}
+          onAccepted={(accepted) => {
+            setKnownVersion(accepted);
+            setSheet(null);
+            setNote(t('termsNowAccepted', { version: accepted }));
+            terms.reload();
+          }}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -112,7 +254,18 @@ const FIELD_LABEL = {
   terms: 'fieldTerms',
 } as const satisfies Record<OfferFormField, string>;
 
-function Fields({ pay, baseline, mode }: { pay: PersonalPayApi; baseline: OfferFormValues; mode: 'create' | 'edit' }) {
+function Fields({
+  pay,
+  baseline,
+  mode,
+  onReview,
+}: {
+  pay: PersonalPayApi;
+  baseline: OfferFormValues;
+  mode: 'create' | 'edit';
+  /** Create only: the complete form goes to the summary. */
+  onReview?: (values: OfferFormValues) => void;
+}) {
   const { t } = p2pDepth.useCopy();
   const [values, setValues] = useState<OfferFormValues>(baseline);
   const fiat = useResource((signal) => pay.fiat(signal), 'pay:fiat');
@@ -159,7 +312,14 @@ function Fields({ pay, baseline, mode }: { pay: PersonalPayApi; baseline: OfferF
     </label>
   );
   return (
-    <form className="form-stack" noValidate onSubmit={(event) => event.preventDefault()}>
+    <form
+      className="form-stack"
+      noValidate
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (complete && onReview) onReview(values);
+      }}
+    >
       <fieldset className="p2p-form">
         <div>
           <span className="p2p-legend">{t('sideLabel')}</span>
@@ -232,6 +392,10 @@ function Fields({ pay, baseline, mode }: { pay: PersonalPayApi; baseline: OfferF
           {text('maxAmount', t('fieldMax'), { mode: 'decimal' })}
         </div>
         {text('totalAmount', t('fieldTotal'), { mode: 'decimal' })}
+        {mode === 'create' && values.side === 'sell' && !problems.asset ? (
+          <SellAvailability pay={pay} asset={values.asset.trim().toUpperCase()} />
+        ) : null}
+        {mode === 'create' ? <LevelLimits pay={pay} side={values.side} /> : null}
         <div>
           <span className="p2p-legend">{t('fieldMethods')}</span>
           {methods.resource.status === 'loading' ? <p className="muted">{t('methodsLoading')}</p> : null}
@@ -299,7 +463,7 @@ function Fields({ pay, baseline, mode }: { pay: PersonalPayApi; baseline: OfferF
           ]}
         />
       ) : null}
-      <Button type="submit" variant="primary" disabled data-testid="offer-submit">
+      <Button type="submit" variant="primary" disabled={!complete || !onReview} data-testid="offer-submit">
         {complete ? (mode === 'edit' ? t('formSave') : t('formReview')) : t('formIncomplete')}
       </Button>
     </form>

@@ -63,3 +63,16 @@ describe('typed codes are found inside the wrapped sentences the edge and ledger
     expect(isKnownCode(null)).toBe(false);
   });
 });
+
+describe('svc-pay deposit address freeze refusals', () => {
+  it('reads the code svc-pay puts first, and names the refusal in words', () => {
+    expect(codeInText('deposit_freeze.freeze_changed: the freeze changed since it was read; reload and ask again')).toBe(
+      'deposit_freeze.freeze_changed',
+    );
+    expect(codeInText('see deposit_freeze.freeze_changed: later')).toBeNull();
+    expect(explainRefusal('deposit_freeze.not_frozen', 409, false)).toMatchObject({
+      title: 'This deposit address is not frozen',
+      changed: 'no',
+    });
+  });
+});

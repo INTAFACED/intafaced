@@ -261,7 +261,8 @@ describe('svc-p2p take limits (P-trade-orders-03, P-disputes-security-15)', () =
       priceType: 'fixed',
       price: parseAmount('0.92'),
       minAmt: parseAmount('10'),
-      maxAmt: parseAmount('50'),
+      // 30 x 0.92 = 27.6 EUR fits the basic level's 30 per order, as a buy ad must at post (P-ads-merchant-02).
+      maxAmt: parseAmount('30'),
       totalAmt: parseAmount('100'),
       methods: ['sepa'],
       terms: 'TEST terms',

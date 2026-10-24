@@ -311,8 +311,7 @@ const OWN_COIN_RETURNS: ReadonlySet<string> = new Set([
   // An overcharged trading fee given back: coins the customer already had.
   'trade.fill.fee.correction',
 ]);
-/** A withdrawal the rail failed, put back on available. Its coins are the customer's own coming back. */
-/** Order hold reads run this many at a time. */
+/** Hold reads (an order's, a withdrawal's) run this many at a time. */
 const HOLD_WALK_PARALLEL = 8;
 /** A technical read bound, not a business limit: 200 pages of 200 entries per scope. Past it the book says it is incomplete. */
 const TRADE_FILL_PAGE_CEILING = 200;

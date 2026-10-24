@@ -8,7 +8,8 @@
  * timestamp on the signed-in principal and no existing identity event, so a
  * published duration cannot be applied and is not invented as 24 hours.
  */
-import { add, compare, formatAmount, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client';
+import { add, compare, formatAmount, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client';
+import { quantiseFiat } from './pricing.js';
 
 export const VERIFICATION_TIERS = ['none', 'basic', 'full', 'institutional'] as const;
 export type VerificationTier = (typeof VERIFICATION_TIERS)[number];
@@ -124,6 +125,45 @@ export function verificationBuyRefusal(
   if (compare(input.fiatAmount, caps.orderMax) > 0) return 'p2p.verification_order_max';
   if (compare(add(input.dailyUsed, input.fiatAmount), caps.dailyMax) > 0) return 'p2p.verification_daily_limit';
   if (compare(add(input.lifetimeUsed, input.fiatAmount), caps.lifetimeMax) > 0) return 'p2p.verification_lifetime_limit';
+  return null;
+}
+
+export type BuyAdRangeRefusal = Exclude<LimitRefusal, 'p2p.verification_daily_limit' | 'p2p.verification_lifetime_limit'>;
+
+const AMOUNT_REFUSALS: ReadonlySet<LimitRefusal> = new Set([
+  'p2p.verification_order_min',
+  'p2p.verification_order_max',
+  'p2p.verification_daily_limit',
+  'p2p.verification_lifetime_limit',
+]);
+
+/**
+ * P-ads-merchant-02. Whether a buy ad's per-order range fits its maker's verification level. On a buy ad the maker is
+ * the buyer, and every take is capped by the maker's level (the tier stored at create), so an ad whose range reaches
+ * past that level promises orders no take could fill. It asks `verificationBuyRefusal` about the smallest and the
+ * largest order, priced as a take prices them (`quote`: half-up, then the currency's smallest unit), so the post
+ * refuses exactly what every take of that order would.
+ *
+ * The table, the level and the currency refuse every take alike, so they refuse any buy ad. Only a fixed price has a
+ * fiat range to check: a floating ad has none until a take resolves it, and the take checks it then. A sell ad is
+ * capped by each taker's own level at take, not by its maker's. `null` when no table is published, as at take.
+ */
+export function buyAdRangeRefusal(
+  config: VerificationLimitConfig,
+  input: { tier: string | undefined; fiatCurrency: string; priceType: 'fixed' | 'float'; price: Amount; minAmt: Amount; maxAmt: Amount },
+): { code: BuyAdRangeRefusal; caps?: TierCaps; currency?: string } | null {
+  if (config.status === 'absent') return null;
+  const at = (fiatAmount: Amount) =>
+    verificationBuyRefusal(config, { tier: input.tier, fiatCurrency: input.fiatCurrency, fiatAmount, dailyUsed: ZERO, lifetimeUsed: ZERO });
+  const general = at(ZERO);
+  if (general && !AMOUNT_REFUSALS.has(general)) return { code: general as BuyAdRangeRefusal };
+  if (config.status !== 'active' || input.priceType !== 'fixed' || !isVerificationTier(input.tier)) return null;
+  for (const amount of [input.minAmt, input.maxAmt]) {
+    const code = at(quantiseFiat(mul(amount, input.price, 'half-up'), input.fiatCurrency));
+    if (code === 'p2p.verification_order_min' || code === 'p2p.verification_order_max') {
+      return { code, caps: config.tiers[input.tier], currency: config.currency };
+    }
+  }
   return null;
 }
 

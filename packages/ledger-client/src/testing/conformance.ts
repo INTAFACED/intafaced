@@ -507,6 +507,41 @@ export function runLedgerConformance(name: string, createHarness: () => Promise<
         expect(await heldTotal(USER_B, 'BTC')).toBe('0');
       });
 
+      it('maker rebate: its own post after the fill, out of that fill taker fee, once', async () => {
+        await fund(USER_A, 'USDT', '1000');
+        await fund(USER_B, 'BTC', '2');
+        await ledger.post(recipes.orderHold({ orderId: 'taker-r1', userId: USER_A, assetId: 'USDT', amount: amt('900') }));
+        await ledger.post(recipes.orderHold({ orderId: 'maker-r1', userId: USER_B, assetId: 'BTC', amount: amt('1') }));
+        const input = {
+          fillId: 'conformance-r1',
+          makerId: USER_B,
+          takerId: USER_A,
+          makerOrderId: 'maker-r1',
+          takerOrderId: 'taker-r1',
+          baseAsset: 'BTC',
+          quoteAsset: 'USDT',
+          qty: amt('1'),
+          quoteAmount: amt('900'),
+          takerSide: 'buy' as const,
+          makerFeeBps: 0,
+          takerFeeBps: 10,
+          makerRebateBps: 5,
+        };
+
+        // Before the fill there is no taker fee to pay it from.
+        await expect(ledger.post(recipes.tradeFillMakerRebate(input))).rejects.toBeInstanceOf(InsufficientFundsError);
+        await ledger.post(recipes.tradeFill(input));
+        const rebate = await ledger.post(recipes.tradeFillMakerRebate(input));
+        const again = await ledger.post(recipes.tradeFillMakerRebate(input));
+
+        expect(again.id).toBe(rebate.id);
+        expect(await balanceOf(USER_B, 'USDT')).toBe('900');
+        expect(await balanceOf(USER_B, 'BTC')).toBe('1.0005');
+        expect(await balanceOf(USER_A, 'BTC')).toBe('0.999');
+        expect(formatAmount((await ledger.balance(houseFees('trade', 'BTC'))).amount)).toBe('0.0005');
+        expect(await heldTotal(USER_B, 'BTC')).toBe('0');
+      });
+
       it('p2p escrow: lock → release strands nothing', async () => {
         await fund(USER_A, 'USDT', '500');
         await ledger.post(recipes.escrowLock({ tradeId: 'c-t1', sellerId: USER_A, buyerId: USER_B, assetId: 'USDT', amount: amt('500') }));

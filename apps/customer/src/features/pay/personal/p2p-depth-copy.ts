@@ -234,9 +234,6 @@ const en = {
   problemNonInstantEdit: 'This ad was posted without accepting methods that are not instant. Post a new ad to offer one.',
   formReview: 'Review offer',
   formSave: 'Save changes',
-  formOffCreateTitle: 'Publishing from this form is off',
-  formOffCreateBody:
-    'This form can’t publish: a new offer needs its payment details encrypted by a key service, and this form has no connection to one. Offers already on the board, including your own, were published outside this form (on a test stack, by its test setup). What you type here is not saved or sent.',
   formOffEditTitle: 'Editing a published offer is off',
   formOffEditBody:
     'The service can’t change an offer after it is published. You can pause or close it from My offers. What you type here is not saved or sent.',
@@ -531,9 +528,6 @@ const es = {
   problemNonInstantEdit: 'Este anuncio se publicó sin aceptar métodos no instantáneos. Publica un anuncio nuevo para ofrecer uno.',
   formReview: 'Revisar oferta',
   formSave: 'Guardar cambios',
-  formOffCreateTitle: 'Publicar desde este formulario está desactivado',
-  formOffCreateBody:
-    'Este formulario no puede publicar: una oferta nueva necesita que sus datos de pago se cifren con un servicio de claves, y este formulario no tiene conexión con ninguno. Las ofertas que ya están en el tablón, incluidas las tuyas, se publicaron fuera de este formulario (en un entorno de prueba, por su configuración de prueba). Lo que escribas aquí no se guarda ni se envía.',
   formOffEditTitle: 'La edición de una oferta publicada está desactivada',
   formOffEditBody:
     'El servicio no puede cambiar una oferta ya publicada. Puedes pausarla o cerrarla desde Mis ofertas. Lo que escribas aquí no se guarda ni se envía.',
@@ -833,9 +827,6 @@ const fr = {
     'Cette annonce a été publiée sans accepter les moyens non instantanés. Publiez une nouvelle annonce pour en proposer un.',
   formReview: 'Vérifier l’offre',
   formSave: 'Enregistrer les modifications',
-  formOffCreateTitle: 'La publication depuis ce formulaire est désactivée',
-  formOffCreateBody:
-    'Ce formulaire ne peut pas publier : une nouvelle offre exige que ses coordonnées de paiement soient chiffrées par un service de clés, et ce formulaire n’y est pas relié. Les offres déjà affichées, y compris les vôtres, ont été publiées hors de ce formulaire (sur un environnement de test, par sa configuration de test). Ce que vous saisissez ici n’est ni enregistré ni envoyé.',
   formOffEditTitle: 'La modification d’une offre publiée est désactivée',
   formOffEditBody:
     'Le service ne peut pas modifier une offre une fois publiée. Vous pouvez la mettre en pause ou la fermer depuis Mes offres. Ce que vous saisissez ici n’est ni enregistré ni envoyé.',

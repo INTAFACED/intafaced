@@ -134,6 +134,23 @@ const messages = {
   'Exit note bracket resting':
     'The {asset} buy rests on the book at your entry price. It stays only while you are logged in and is cancelled for you before your login runs out. There is no stop loss while it is partly filled; the exits are placed shortly after the buy ends.',
   'Bracket sell off': 'A bracket starts with a buy. To put exits on {asset} you hold, use the OCO tab.',
+  'Oto sell off': 'An OTO starts with a buy. To sell {asset} you hold at a price, use the Limit tab.',
+  'Close price': 'Close price',
+  'Enter a close price': 'Enter a close price.',
+  'Close price must be a whole number of steps': 'The close price must be a whole number of {tick} {asset} steps.',
+  'Close above entry': 'The close price must be above the entry price, or the close would sell for less than the buy paid.',
+  'Exit note oto':
+    'Buy {asset} at your entry price. The moment the buy has finished filling, one sell order at your close price is placed for the {asset} it received after fees. A buy resting on the book stays only while you are logged in and is cancelled for you before your login runs out; whatever part of it filled still gets its close. Cancel the buy before anything fills and no close is placed.',
+  'Review close price': 'Close price',
+  'Review exit note oto':
+    'The sell at your close price is placed once the buy has finished filling, for the {asset} it received after fees. While the buy is partly filled, nothing is sold. A resting buy is cancelled for you before your login runs out, and a buy cancelled part-filled gets its close shortly after. If the buy is cancelled with nothing filled, no sell is placed.',
+  'Order type oto': 'OTO',
+  'Order type oto close': 'OTO close',
+  'Oto close waiting': 'Closes at {price} {quote} once filled',
+  'Oto close placed': 'Close at {price} {quote} placed',
+  'Oto close of': 'Closes the OTO buy',
+  'Oto entry link label': 'Open the OTO buy this sells for',
+  'Oto close link label': 'Open the close order this buy placed',
   'Stop loss limit': 'Stop-loss limit',
   'Review stop loss limit': 'Stop-loss limit',
   'Resting bracket refused title': 'This resting buy can’t be placed',

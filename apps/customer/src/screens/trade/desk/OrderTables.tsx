@@ -80,6 +80,37 @@ export function ExitLegs({ order, tick }: { order: Pick<Order, 'exit'>; tick: st
   );
 }
 
+/**
+ * An OTO buy names its close (waiting for the fill, or placed, with a link to it); the close links back to its buy.
+ * Nothing on any other order.
+ */
+export function OtoLink({ order, tick, quote }: { order: Pick<Order, 'linked'>; tick: string | undefined; quote: string }) {
+  const { t } = deskCopy.useCopy();
+  const link = order.linked;
+  if (!link) return null;
+  if (link.role === 'close')
+    return (
+      <a
+        className="dk-tag dk-oto-link"
+        href={`/trade/orders/${encodeURIComponent(link.entryOrderId)}`}
+        aria-label={t('Oto entry link label')}
+      >
+        {t('Oto close of')}
+      </a>
+    );
+  const price = fmtPrice(link.closePrice, tick);
+  if (link.closeOrderId === null) return <span className="dk-tag dk-oto-link if-num">{t('Oto close waiting', { price, quote })}</span>;
+  return (
+    <a
+      className="dk-tag dk-oto-link if-num"
+      href={`/trade/orders/${encodeURIComponent(link.closeOrderId)}`}
+      aria-label={t('Oto close link label')}
+    >
+      {t('Oto close placed', { price, quote })}
+    </a>
+  );
+}
+
 export function orderStatus(order: Order, t: ReturnType<typeof deskCopy.useCopy>['t']) {
   if (order.status === 'open') {
     const partly = order.filled !== '0' && order.remaining !== '0';
@@ -185,6 +216,7 @@ export const quoteOf = (symbol: string): string => symbol.split('/')[1] ?? '';
 /** The words for an order's type; a type the screen has no words for shows as the service named it, never blank. */
 function typeWordOf(order: Order, t: ReturnType<typeof deskCopy.useCopy>['t'], precision: Precision): string {
   if (order.exit) return t(exitKindKey(order.exit.kind));
+  if (order.linked) return t(order.linked.role === 'entry' ? 'Order type oto' : 'Order type oto close');
   if (order.type === 'limit') return t('Order type limit');
   if (order.type === 'market') return t('Order type market');
   if (order.type === 'stop_limit' || order.type === 'stop')
@@ -279,6 +311,7 @@ export function OrdersTable({
                 {typeWordOf(order, t, precision)}
                 <OrderTag order={order} />
                 <ExitLegs order={order} tick={precision.tickOf(order.symbol)} />
+                <OtoLink order={order} tick={precision.tickOf(order.symbol)} quote={quoteOf(order.symbol)} />
                 {withAction && lastPriceOf ? (
                   <PendingStop order={order} tick={precision.tickOf(order.symbol)} last={lastPriceOf(order.symbol)} />
                 ) : null}

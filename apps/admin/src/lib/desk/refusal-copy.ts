@@ -197,6 +197,26 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'Identity checked the approval against this account, its current version and the reason, and they differ, or the approval was made or signed by someone it does not accept for this account. Nothing was changed and the approval was not used.',
     next: 'Read the account again and make a new request.',
   },
+  'deposit_freeze.address_unknown': {
+    title: 'That is not one of this account’s deposit addresses',
+    body: 'svc-pay found no deposit address of this account on that network matching it. Nothing was changed.',
+    next: 'Read the account’s deposit addresses again and pick the row from there.',
+  },
+  'deposit_freeze.already_frozen': {
+    title: 'This deposit address is already frozen',
+    body: 'svc-pay already holds an open freeze on this address, so nothing new was placed. Deposits to it stay on hold.',
+    next: 'Read the deposit addresses again to see the freeze, who placed it and why.',
+  },
+  'deposit_freeze.not_frozen': {
+    title: 'This deposit address is not frozen',
+    body: 'svc-pay holds no open freeze on this address, so there was nothing to lift. Nothing was changed and the approval was not used.',
+    next: 'Read the deposit addresses again: if an earlier run went through and its answer was lost, the freeze is already lifted.',
+  },
+  'deposit_freeze.freeze_changed': {
+    title: 'The freeze changed since it was read',
+    body: 'The approval is for one freeze, and the address now has a different one (it was lifted and placed again), or someone lifted it first. Nothing was changed.',
+    next: 'Read the deposit addresses again and make a new request for the freeze that is open now.',
+  },
   restriction_approval_consumed: {
     title: 'That approval was already used',
     body: 'An approval runs once. Nothing was changed by this attempt.',
@@ -291,6 +311,41 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     title: 'You cannot move your own account',
     body: 'A founder does not change the tier of their own account. Nothing was changed.',
     next: 'The other founder can make the request.',
+  },
+  'identity.account_archived': {
+    title: 'This customer record is archived',
+    body: 'Identity keeps an archived record read-only: it cannot be frozen, unfrozen, reopened or archived again. Nothing was changed and any approval was not used.',
+    next: 'Nothing to do here: an archive is not undone from the console.',
+  },
+  'identity.archive_blocked_open_account': {
+    title: 'The account is still open',
+    body: 'Identity archives only a closed account. Nothing was changed and the approval was not used.',
+    next: 'Close the account first (Close or reopen), then ask again at the new control version.',
+  },
+  'identity.archive_requires_approver': {
+    title: 'Archiving needs a second person',
+    body: 'Identity archives a customer record only with an approval a different person signed. Nothing was changed.',
+    next: 'Make the request, send the packet to the other founder, and run it once they approve.',
+  },
+  'identity.archive_approval_mismatch': {
+    title: 'That approval is not for this archive',
+    body: 'Identity checked the approval against this account, its current version, the reason code and the reason, and they differ, or the approval was made or signed by someone it does not accept for this account. Nothing was changed and the approval was not used.',
+    next: 'Read the account again and make a new request.',
+  },
+  'identity.archive_approval_consumed': {
+    title: 'That approval was already used',
+    body: 'Identity spends an archive approval once. Nothing more was changed.',
+    next: 'Read the account again; if it is not archived, make a new request.',
+  },
+  'identity.archive_founder_forbidden': {
+    title: 'A founder record cannot be archived here',
+    body: 'Identity refuses to archive either founder record from the console. Nothing was changed.',
+    next: 'Nothing to do here.',
+  },
+  'identity.archive_self_forbidden': {
+    title: 'You cannot archive your own record',
+    body: 'Identity refuses an archive of the signed-in founder’s own record. Nothing was changed.',
+    next: 'Nothing to do here.',
   },
   'identity.tier_account_closed': {
     title: 'The account is closed',
@@ -1198,5 +1253,8 @@ export function codeInText(text: string | null | undefined): string | null {
   if (!text) return null;
   for (const match of text.matchAll(/\[(action_approval\.[a-z_]+)\]/g)) if (isKnownCode(match[1])) return match[1];
   for (const match of text.matchAll(/\b(action_approval\.[a-z_]+)\b/g)) if (isKnownCode(match[1])) return match[1];
+  // svc-pay's deposit address freezes put their code first: `deposit_freeze.not_frozen: …`.
+  const freeze = /^(deposit_freeze\.[a-z_]+):/.exec(text)?.[1];
+  if (freeze && isKnownCode(freeze)) return freeze;
   return null;
 }

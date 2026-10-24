@@ -50,6 +50,7 @@ import type { MerchantEvent, MerchantRecord, MerchantService } from './merchant-
 import { BlockRfqError, type BlockRfqService } from './block-rfq.js';
 import type { ReviewRecord } from './reviews.js';
 import { refuseLiveOffersUntilOwnerKms } from './instrument-kms.js';
+import { AdvertiserTermsError } from './advertiser-terms.js';
 import { instrumentKeyHealth } from './instrument-key-provider.js';
 
 export type P2pRouterOptions = {
@@ -479,6 +480,13 @@ function toTrpcError(err: unknown): TRPCError {
   // Confirm the order again: nothing was reserved or locked. Unverifiable is the deployment's, not the person's.
   if (err instanceof TakeStepUpError) {
     const code = err.code === 'p2p.step_up_unverifiable' ? 'PRECONDITION_FAILED' : 'FORBIDDEN';
+    return new TRPCError({ code, message: err.message, cause: err });
+  }
+
+  // P-ads-merchant-01: accept the terms (the form opens them), read the current version, or the owner has not published one.
+  if (err instanceof AdvertiserTermsError) {
+    const code =
+      err.code === 'p2p.terms_not_accepted' ? 'FORBIDDEN' : err.code === 'p2p.terms_version_stale' ? 'CONFLICT' : 'PRECONDITION_FAILED';
     return new TRPCError({ code, message: err.message, cause: err });
   }
 
@@ -1209,6 +1217,11 @@ export function createP2pRouter(
               offerId: z.string().guid().optional(),
               /** Client-chosen key. Required together with offerId: at least one. */
               idempotencyKey: z.string().min(8).max(128).optional(),
+              /**
+               * P-ads-merchant-01: the advertiser terms version the form showed. Optional for a merchant key, which
+               * posts under the terms its person accepted; when sent, it must be the published version.
+               */
+              advertiserTermsVersion: z.string().min(1).max(64).optional(),
             })
             .refine((value) => value.offerId !== undefined || value.idempotencyKey !== undefined, {
               message: 'p2p.idempotency_key_required',
@@ -1236,8 +1249,24 @@ export function createP2pRouter(
                 ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
                 makerTier: ctx.principal.tier,
                 ...(input.acceptsNonInstant === undefined ? {} : { acceptsNonInstant: input.acceptsNonInstant }),
+                ...(input.advertiserTermsVersion === undefined ? {} : { advertiserTermsVersion: input.advertiserTermsVersion }),
               }),
             );
+          }),
+        ),
+
+      /**
+       * P-ads-merchant-01: the caller's own free balance of a coin, which a new sell ad's total may not exceed. The
+       * same ledger read the post check makes. Nothing is reserved at post.
+       */
+      sellBalance: merchantApiProcedure('p2p:read')
+        .input(z.object({ asset: z.string().min(1).max(16) }))
+        .output(z.object({ asset: z.string(), available: z.string() }))
+        .query(async ({ ctx, input }) =>
+          guard(async () => {
+            // A wallet balance is the person's to read: an API key's P2P scope covers ads and orders, not balances.
+            if (ctx.principal.kid) throw new TRPCError({ code: 'FORBIDDEN', message: 'Your free balance is read signed in only.' });
+            return { asset: input.asset, available: formatAmount(await p2p.sellBalance(requireUser(ctx), input.asset)) };
           }),
         ),
 
@@ -3352,6 +3381,36 @@ export function createP2pRouter(
               rateLimitPlane: 'edge' as const,
               disputeResolution: 'interactive_human_only' as const,
             };
+          }),
+        ),
+
+      /**
+       * P-ads-merchant-01. The advertiser terms: the owner-published version and when the caller accepted it, or null.
+       * A blank version refuses `p2p.config_unset` naming the setting.
+       */
+      advertiserTerms: merchantApiProcedure('p2p:read')
+        .output(z.object({ version: z.string(), acceptedAt: z.string().nullable() }))
+        .query(async ({ ctx }) =>
+          guard(async () => {
+            const terms = await p2p.advertiserTermsState(requireUser(ctx));
+            return { version: terms.version, acceptedAt: terms.acceptedAt?.toISOString() ?? null };
+          }),
+        ),
+
+      /**
+       * Accept exactly the version shown; any other refuses `p2p.terms_version_stale`. Accepting again returns the
+       * first acceptance. A person's own act: an API key, or a service holding a forwarded principal, cannot do it.
+       */
+      acceptAdvertiserTerms: scopedProcedure('p2p:write', { module: 'p2p', person: true })
+        .input(z.object({ version: z.string().min(1).max(64) }))
+        .output(z.object({ version: z.string(), acceptedAt: z.string() }))
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => {
+            if (ctx.principal.kid) {
+              throw new TRPCError({ code: 'FORBIDDEN', message: 'Accepting the advertiser terms is interactive only.' });
+            }
+            const accepted = await p2p.acceptAdvertiserTerms(requireUser(ctx), input.version);
+            return { version: accepted.version, acceptedAt: accepted.acceptedAt.toISOString() };
           }),
         ),
 

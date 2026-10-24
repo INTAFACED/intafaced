@@ -25,6 +25,7 @@ import {
 } from './deposits/deposit-service.js';
 import { listSupportedAssets, withdrawNetworksFrom, type AssetRegistryReads, type SupportedAssetView } from './assets/supported-assets.js';
 import { AutoInvestService, type AutoInvestServiceOptions } from './auto-invest/auto-invest-service.js';
+import { IncomeSorterService } from './sorter/income-sorter.js';
 import { BusinessService } from './business/business-service.js';
 import { unconfiguredBusinessDirectory, type BusinessDirectoryPort, type BusinessLookupLimiter } from './business/business-directory.js';
 import { PortfolioService, type PortfolioServiceOptions } from './portfolio/portfolio-service.js';
@@ -69,6 +70,8 @@ export interface BankServices {
   readonly spaces: SpaceService;
   readonly transfers: TransferService;
   readonly personalPay: PersonalPayService;
+  /** BK-pots-03: payments from other people split across the person's own spaces. */
+  readonly sorter: IncomeSorterService;
   readonly earn: EarnService;
   readonly analytics: SpendAnalytics;
   readonly portfolio: PortfolioService;
@@ -193,6 +196,8 @@ export interface BankServiceOptions {
   spaceLimit?: string | undefined;
   /** Owner-set hours an early pot unlock waits (`BANK_SPACE_UNLOCK_WAIT_HOURS`). No default: blank refuses the ask. */
   spaceUnlockWaitHours?: string | undefined;
+  /** Owner-set smallest payment the income sorter splits (`BANK_INCOME_SORTER_MIN_CREDIT`). No default: blank refuses a sorter. */
+  incomeSorterMinCredit?: string | undefined;
   /**
    * Auto-invest wiring: optional convert port for DCA.
    *
@@ -260,10 +265,12 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     unlockWaitHours: () => options.spaceUnlockWaitHours,
   });
   const transfers = new TransferService(sql, ledger, spaces, { editCutoffMinutes: options.scheduleEditCutoffMinutes });
+  const sorter = new IncomeSorterService(sql, ledger, spaces, { minCredit: () => options.incomeSorterMinCredit });
   const personalPay = new PersonalPayService(sql, ledger, transfers, spaces, {
     handles: options.handles,
     notices: options.requestNotices,
     transferNotices: options.transferNotices,
+    onCreditPosted: (credit) => sorter.sortCredit(credit),
   });
   const assetPauses = new AssetPauseService(sql);
   // The supply pause lives in the deposit path so auto-invest cannot go around it.
@@ -361,6 +368,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
 
   return {
     spaces,
+    sorter,
     transfers,
     personalPay,
     earn,

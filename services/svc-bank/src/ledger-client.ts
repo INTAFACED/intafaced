@@ -7,7 +7,16 @@ import {
   type HttpLedgerOptions,
   type LedgerClient,
 } from '@intafaced/ledger-client';
-import { assetsListOutputSchema, serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import {
+  assetsListOutputSchema,
+  ledgerHoldingsHistoryInputSchema,
+  ledgerHoldingsHistorySchema,
+  serviceCallSigner,
+  type LedgerHoldingsHistory,
+  type LedgerHoldingsHistoryInput,
+  type ServiceAuthMode,
+  type ServiceSigner,
+} from '@intafaced/contracts';
 import type { HistoryRange, LedgerEntryRecord, LedgerHistory } from './analytics/ledger-history.js';
 import type { LedgerHistoryPages, LedgerPageRequest } from './activity/activity-service.js';
 import type { WithdrawNetworkSource } from './ramps/withdraw-networks.js';
@@ -201,6 +210,26 @@ export function createLedgerAssetRegistry(
     async listed() {
       const answer = await call<unknown>('/trpc/assetsList', {});
       return assetsListOutputSchema.parse(answer).assets;
+    },
+  };
+}
+
+/** svc-ledger `holdingsHistory`, read only: one owner's holdings now and its movements since `from`, in one snapshot. */
+export interface LedgerHoldingsHistoryReads {
+  holdingsHistory(input: LedgerHoldingsHistoryInput): Promise<LedgerHoldingsHistory>;
+}
+
+/**
+ * svc-ledger's holdings history door (`/trpc/holdingsHistory`, svc-bank only). History budget: it scans the owner's entries
+ * since `from`. The answer is parsed with the door's own wire schema, so a row that does not fit is refused here, and a
+ * refusal (a window the ledger cannot answer, or too many rows) keeps the ledger's code.
+ */
+export function createLedgerHoldingsHistory(baseUrl: string, internalSecret: string, s2s?: LedgerS2s): LedgerHoldingsHistoryReads {
+  const call = createLedgerTransport({ ...sharedOptions(baseUrl, internalSecret, s2s), ...HISTORY_BUDGET });
+  return {
+    async holdingsHistory(input) {
+      const answer = await call<unknown>('/trpc/holdingsHistory', ledgerHoldingsHistoryInputSchema.parse(input));
+      return ledgerHoldingsHistorySchema.parse(answer);
     },
   };
 }

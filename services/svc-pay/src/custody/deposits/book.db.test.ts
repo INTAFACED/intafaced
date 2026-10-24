@@ -573,6 +573,29 @@ describe('custody deposit record (real Postgres)', () => {
       expect(logs.some((l) => l.extra?.alert === true)).toBe(true);
     });
 
+    it('a reversal still unsure after several rounds raises an alert; before that it only logs', async () => {
+      const unsure = new CustodyDepositBook({
+        sql: db.sql,
+        postDeposit: (input) => engines().postCustodyDeposit(input),
+        reverseDeposit: async () => ({ state: 'unsure' }),
+        registries: { listRoutableNetworks: async () => networks },
+        log: (msg, extra) => logs.push({ msg, extra }),
+      });
+      await unsure.receive(seen());
+      logs.length = 0;
+      await unsure.reverse(reorg());
+      expect(logs.some((l) => l.extra?.alert === true)).toBe(false);
+      // Started 22 minutes ago, last tried 8 minutes ago: the next round is still unsure, and now it is an alert.
+      await db.sql`UPDATE pay.custody_deposits SET reversal_started_at = now() - make_interval(mins => 22) WHERE reversal_started_at IS NOT NULL`;
+      await attemptedAgo(8);
+      await unsure.settleOpen();
+      expect(logs.filter((l) => l.extra?.alert === true).map((l) => l.msg)).toEqual([
+        'custody deposit reversal still unsure after several rounds: check the ledger by its key',
+      ]);
+      expect(await row()).toMatchObject({ status: 'needs_review', reason: 'chain_reorg' });
+      expect(reversals()).toHaveLength(0);
+    });
+
     it('a retried post that did commit is found by the read-back after the bound and flipped once', async () => {
       const b = reorging();
       await b.receive(seen());

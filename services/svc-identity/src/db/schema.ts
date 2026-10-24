@@ -74,6 +74,9 @@ export const users = identity.table(
     closedReason: text('closed_reason'),
     /** Closed while staff-frozen (0068): a reopen returns it frozen. */
     closedFromFrozen: boolean('closed_from_frozen').notNull().default(false),
+    /** Staff archive of a closed account (J-ops-console-04 #10): set once with its reason code, never cleared. */
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    archiveReason: text('archive_reason'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

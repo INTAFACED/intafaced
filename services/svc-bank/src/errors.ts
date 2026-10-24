@@ -154,6 +154,14 @@ export type BankErrorCode =
    * sum that quietly omitted the coins it could not price would be a wrong number.
    */
   | 'bank.prices_unavailable'
+  /** `portfolio.valueOverTime`: the range must start before it ends, and before now (or is shorter than one chart step). */
+  | 'bank.value_range_invalid'
+  /** `portfolio.valueOverTime`: the range starts too long ago for one candle read to price it. */
+  | 'bank.value_range_too_long'
+  /** `portfolio.valueOverTime`: more ledger movements in the range than one answer carries. */
+  | 'bank.value_history_too_large'
+  /** `portfolio.valueOverTime`: svc-ledger's holdings history could not be read (or is not wired). Nothing is guessed. */
+  | 'bank.value_history_unavailable'
   /**
    * `portfolio.summary` was asked to show values in a currency other than USD or BTC. The platform has no FX rate source
    * (the rate source is an owner value and stays blank), so the call refuses by name and keeps no guess.
@@ -801,6 +809,18 @@ export type BankErrorCode =
   | 'bank.space_unlock_rule_unset'
   /** An early unlock was asked for, or withdrawn, on a pot that is not locked now (BK-pots-02). */
   | 'bank.space_not_locked'
+  /** The owner has not published when incoming payments are sorted (`BANK_INCOME_SORTER_MIN_CREDIT`), so no sorter is made (BK-pots-03). */
+  | 'bank.sorter_terms_unset'
+  /** A sorter that cannot be: no spaces or too many, a space twice, a share outside 1 to 10000 basis points, shares over 100%, or the account itself (BK-pots-03). */
+  | 'bank.sorter_invalid'
+  /** The account already sorts this asset; cancel that sorter first (BK-pots-03). */
+  | 'bank.sorter_exists'
+  /** The sorter id is already taken by a sorter on different terms (BK-pots-03). */
+  | 'bank.sorter_conflict'
+  /** No such sorter of the caller's; another person's reads the same (BK-pots-03). */
+  | 'bank.sorter_not_found'
+  /** One split of a sorted credit failed without a typed code (BK-pots-03). */
+  | 'bank.sorter_split_failed'
   /** The profile a bank call names is not one the caller holds: an unknown or closed business, or one they are not a member of. */
   | 'bank.profile_not_held'
   /** A business profile has no company account of its own in this build, so there is no company terms, currency or detail to show. */

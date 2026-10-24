@@ -13,6 +13,12 @@ import {
   accountClosureHistoryInputSchema,
   accountClosureStateSchema,
   accountClosureResultSchema,
+  accountArchiveInputSchema,
+  accountArchiveLookupInputSchema,
+  accountArchiveHistoryInputSchema,
+  accountArchiveStateSchema,
+  accountArchiveResultSchema,
+  accountArchiveProposalsSchema,
   accountTierListSchema,
   accountTierMoveInputSchema,
   accountTierLookupInputSchema,
@@ -51,6 +57,10 @@ export type FounderControlsPort = Pick<
   | 'closure'
   | 'closureState'
   | 'closureHistory'
+  | 'archive'
+  | 'archiveState'
+  | 'archiveHistory'
+  | 'archiveProposals'
   | 'tiers'
   | 'tierMove'
   | 'tierState'
@@ -147,6 +157,23 @@ export function createFounderControlsRouter(controls: FounderControlsPort) {
         .input(accountClosureHistoryInputSchema)
         .output(z.array(accountClosureResultSchema))
         .query(({ ctx, input }) => controlCall(() => controls.closureHistory(ctx, input))),
+      // Archive of a closed customer record (J-ops-console-04 #10): four-eyes, irreversible, and the dormancy proposals.
+      archive: protectedProcedure
+        .input(accountArchiveInputSchema)
+        .output(accountArchiveResultSchema)
+        .mutation(({ ctx, input }) => controlCall(() => controls.archive(ctx, input))),
+      archiveState: protectedProcedure
+        .input(accountArchiveLookupInputSchema)
+        .output(accountArchiveStateSchema.nullable())
+        .query(({ ctx, input }) => controlCall(() => controls.archiveState(ctx, input))),
+      archiveHistory: protectedProcedure
+        .input(accountArchiveHistoryInputSchema)
+        .output(z.array(accountArchiveResultSchema))
+        .query(({ ctx, input }) => controlCall(() => controls.archiveHistory(ctx, input))),
+      archiveProposals: protectedProcedure
+        .input(z.object({}).strict())
+        .output(accountArchiveProposalsSchema)
+        .query(({ ctx }) => controlCall(() => controls.archiveProposals(ctx))),
       // Account product tiers (J-ops-console-04 #11): the owner's tier list, and a move a second live founder approved.
       tiers: protectedProcedure
         .input(z.object({}).strict())

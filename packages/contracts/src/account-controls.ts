@@ -98,6 +98,7 @@ export const accountControlResultSchema = z
           'restriction_no_four_eyes',
           'restriction_approval_mismatch',
           'restriction_approval_consumed',
+          'identity.account_archived',
         ]),
         current: accountControlStateSchema.nullable(),
       })
@@ -236,6 +237,7 @@ export const accountClosureResultSchema = z
           'identity.close_approval_consumed',
           'identity.close_blocked',
           'identity.close_check_unavailable',
+          'identity.account_archived',
         ]),
         current: accountClosureStateSchema.nullable(),
         blockers: z.array(closureBlockerSchema).max(50).optional(),
@@ -276,6 +278,136 @@ export const accountClosureResultSchema = z
     }
   });
 export type AccountClosureResult = z.infer<typeof accountClosureResultSchema>;
+
+/**
+ * Archive of one customer record (J-ops-console-04 #10), svc-identity only. Irreversible and four-eyes: the actor runs it
+ * with an `identity.account_archive` approval the other founder gave, bound to the account, the reason code, the reason and
+ * `expectedVersion`. Only a closed account can be archived (`identity.archive_blocked_open_account` while it is open).
+ * Archived, the record is read-only: freeze, unfreeze and reopen refuse `identity.account_archived`. The reason codes are a starting list for the owner and counsel to settle.
+ */
+export const accountArchiveReasonCodes = ['dormant', 'customer_request', 'duplicate', 'other'] as const;
+export const accountArchiveReasonCodeSchema = z.enum(accountArchiveReasonCodes);
+export type AccountArchiveReasonCode = z.infer<typeof accountArchiveReasonCodeSchema>;
+
+export const accountArchiveInputSchema = z
+  .object({
+    requestId: id,
+    userId: id,
+    reasonCode: accountArchiveReasonCodeSchema,
+    reason: closureReason,
+    expectedVersion: version,
+    approvalId: z.string().trim().min(1).max(128).optional(),
+  })
+  .strict();
+export type AccountArchiveInput = z.infer<typeof accountArchiveInputSchema>;
+
+export const accountArchiveStateSchema = z
+  .object({
+    userId: id,
+    version,
+    status: z.enum(['active', 'frozen', 'closed']),
+    archivedAt: timestamp.nullable(),
+    archiveReasonCode: accountArchiveReasonCodeSchema.nullable(),
+  })
+  .strict()
+  .refine((state) => (state.archivedAt === null) === (state.archiveReasonCode === null), 'An archive carries its reason code')
+  .refine((state) => state.archivedAt === null || state.status === 'closed', 'Only a closed account is archived');
+export type AccountArchiveState = z.infer<typeof accountArchiveStateSchema>;
+
+export const accountArchiveLookupInputSchema = z.object({ userId: id }).strict();
+export const accountArchiveHistoryInputSchema = z.object({ userId: id, limit: z.number().int().min(1).max(200) }).strict();
+
+const archiveAuditFields = {
+  auditId: id,
+  requestId: id,
+  userId: id,
+  reasonCode: accountArchiveReasonCodeSchema,
+  reason: closureReason,
+  occurredAt: timestamp,
+};
+
+export const accountArchiveResultSchema = z
+  .discriminatedUnion('outcome', [
+    z
+      .object({
+        ...archiveAuditFields,
+        outcome: z.literal('changed'),
+        changed: z.literal(true),
+        actorUserId: id,
+        approverUserId: id,
+        before: accountArchiveStateSchema,
+        after: accountArchiveStateSchema,
+      })
+      .strict(),
+    z
+      .object({
+        ...archiveAuditFields,
+        outcome: z.literal('refused'),
+        changed: z.literal(false),
+        actorUserId: id.nullable(),
+        code: z.enum([
+          'operator.denied',
+          'mfa.required',
+          'target.not_found',
+          'request.conflict',
+          'identity.archive_founder_forbidden',
+          'identity.archive_self_forbidden',
+          'identity.archive_blocked_open_account',
+          'identity.account_archived',
+          'identity.archive_requires_approver',
+          'identity.archive_approval_mismatch',
+          'identity.archive_approval_consumed',
+        ]),
+        current: accountArchiveStateSchema.nullable(),
+      })
+      .strict(),
+    z
+      .object({
+        ...archiveAuditFields,
+        outcome: z.literal('conflict'),
+        changed: z.literal(false),
+        actorUserId: id,
+        code: z.literal('restriction.version_conflict'),
+        current: accountArchiveStateSchema,
+      })
+      .strict(),
+  ])
+  .superRefine((result, ctx) => {
+    if (result.outcome === 'refused' && (result.code === 'operator.denied' || result.code === 'mfa.required') && result.current !== null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['current'], message: 'Unauthorized attempts cannot disclose target state' });
+    }
+    const states = 'before' in result ? [result.before, result.after] : result.current === null ? [] : [result.current];
+    if (states.some((state) => state.userId !== result.userId)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['userId'], message: 'State belongs to a different account' });
+    }
+    if (result.outcome === 'changed') {
+      const coherent =
+        result.before.archivedAt === null &&
+        result.after.archivedAt !== null &&
+        result.after.archiveReasonCode === result.reasonCode &&
+        version.safeParse(result.before.version).success &&
+        version.safeParse(result.after.version).success &&
+        BigInt(result.after.version) === BigInt(result.before.version) + 1n &&
+        result.approverUserId !== result.actorUserId;
+      if (!coherent) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['after'], message: 'Outcome and archive state disagree' });
+    }
+  });
+export type AccountArchiveResult = z.infer<typeof accountArchiveResultSchema>;
+
+/**
+ * Customers identity proposes for archive (J-ops-console-04 #10): closed, not archived, and with no change and no new
+ * session for the owner's dormancy period. Only a proposal: a person archives each one with a second approver. The period
+ * ships blank: `dormancyDays` null means no proposal is made and the console says the period is not set.
+ */
+export const accountArchiveProposalsSchema = z
+  .object({
+    dormancyDays: z.number().int().min(1).max(36500).nullable(),
+    proposals: z.array(z.object({ userId: id, lastActivityAt: timestamp }).strict()).max(200),
+    asOf: timestamp,
+  })
+  .strict()
+  .refine((list) => list.dormancyDays !== null || list.proposals.length === 0, 'No proposal without a dormancy period');
+export type AccountArchiveProposals = z.infer<typeof accountArchiveProposalsSchema>;
 
 /**
  * Account product tiers (J-ops-console-04 #11). Identity keeps which tier an account is on; the tiers and their terms are

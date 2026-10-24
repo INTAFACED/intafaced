@@ -11,8 +11,11 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // signed calls verify the account and say paid, as a partner would). Every figure is checked against a hand count from
 // the ledger balances, the price entered and the public candles, never against the lot book itself. The fee each fill
 // took is worked out from the balances too: the buy's is what did not arrive, which gives the rate, and the sale's is that
-// rate on what it grossed. Steps 4 to 7 (the chart, the breakdown, the change-in-value bridge and value over time) are
-// not built yet.
+// rate on what it grossed. Steps 4 and 5 read the line over time and its breakdown against the same hand count: nothing
+// was held before step 1, so the line starts at zero, and every split adds up to the change exactly. Steps 6 and 7 read
+// what the money was worth over the same day: the bridge from the start to now adds up exactly, each leg matches the hand
+// count within the day's own candle prices, and a holding with no market (TEST XAU, funded last) leaves the line missing,
+// never zero.
 const J = 'J-portfolio-05';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ONE = toUnits('1');
@@ -148,19 +151,27 @@ async function bank() {
       if (!res.ok) throw new Error(`${procedure} refused: ${res.status}`);
       return body.result.data;
     },
+    /** { asset: { free, used, total } } from the ledger, as decimal strings. */
+    balances: async () => {
+      const res = await fetch(`${EDGE}/api/v1/account/balance`, { headers: { origin: ORIGIN, authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error(`balance read refused: ${res.status}`);
+      return (await res.json()).balances;
+    },
   };
 }
 
-/** What `qty` BTC was worth at each of the moments it may have been posted at: the close of the last one-minute candle that
- * started at or before it (the price-at-time rule), from the public candles. */
-async function valuesAt(qty, moments) {
-  const since = Math.floor(Math.min(...moments) / 60_000) * 60_000 - 3_600_000;
+/** What `qty` BTC was worth at each moment it may have been posted at, between `from` and `to`: the close of each
+ * one-minute candle that started in that window, and of the last one before it (the price-at-time rule), from the public
+ * candles. Read again each step: a candle still open when the coins left closes later at a different price. */
+async function valuesAt(qty, [from, to]) {
+  const since = Math.floor(from / 60_000) * 60_000 - 3_600_000;
   const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1m&since=${since}&limit=720`, {
     headers: { origin: ORIGIN },
   });
   expect(res.status).toBe(200);
   const candles = await res.json();
-  const closes = moments.map((t) => candles.filter((c) => c[0] <= t).at(-1)?.[4]).filter(Boolean);
+  const before = candles.filter((c) => c[0] <= from).at(-1);
+  const closes = [...(before ? [before] : []), ...candles.filter((c) => c[0] > from && c[0] <= to)].map((c) => c[4]);
   expect(closes.length).toBeGreaterThan(0);
   return [...new Set(closes)].map((close) => times(qty, toUnits(close)));
 }
@@ -194,13 +205,13 @@ async function snapshot(page, view) {
     });
 }
 
-/** The hand count, from what step 1 recorded. */
-function handCount() {
+/** The hand count, from what step 1 recorded and the candles now. */
+async function handCount() {
   const s = state();
   const saleResult = toUnits(s.proceeds) - toUnits(s.cost);
   const depositCost = times(toUnits('0.001'), toUnits(PRICE));
   // The withdrawal's value is one of the candidate prices around its moment; each gives one realised figure.
-  const withdrawals = s.withdrawn.map(toUnits);
+  const withdrawals = await valuesAt(toUnits('0.001'), s.left);
   return {
     saleResult,
     depositCost,
@@ -266,16 +277,15 @@ test(`${J} #1 switches between all time, realised, unrealised, last transaction 
   await page.getByRole('button', { name: 'Cash out', exact: true }).click();
   await confirmItsMe(page);
   await expect(page.getByTestId('cash-out-sent')).toContainText('Your cash-out is on its way');
-  const leftBy = Date.now();
   const [taken] = await (await bank()).query('cashOut.requests', { limit: 10 });
   expect(taken).toMatchObject({ amount: '0.001', assetId: 'BTC', status: 'processing' });
   expect(await partner('paid', { cashOutId: taken.requestId })).toMatchObject({ status: 'completed' });
-  const withdrawn = await valuesAt(toUnits('0.001'), [leftFrom, leftBy]);
-  run.write({ withdrawn: withdrawn.map(fromUnits) });
+  // From the tap to the partner's paid call: the coins left the balance somewhere in it.
+  run.write({ left: [leftFrom, Date.now()] });
 
   // The book, read by hand: the sale is what arrived less what the buy cost; the withdrawal moved out 0.001 of the
   // deposit (FIFO: the bought lot was used up) at its value when it left, less the price entered for it.
-  const hand = handCount();
+  const hand = await handCount();
   await pnl(page, '?asset=BTC');
   const sales = page.getByRole('region', { name: 'Sales' }).locator('tr[data-sale]');
   await expect(sales).toHaveCount(2);
@@ -324,7 +334,7 @@ test(`${J} #1 switches between all time, realised, unrealised, last transaction 
 
 test(`${J} #2 turns "include transfers" off: the deposit and the withdrawal stop counting as gain or loss`, async ({ page }) => {
   test.setTimeout(240_000);
-  const hand = handCount();
+  const hand = await handCount();
   await signInWithCode(page);
   await pnl(page, '?asset=BTC');
   const transfers = page.getByRole('region', { name: 'Deposits and withdrawals' });
@@ -378,15 +388,22 @@ test(`${J} #2 turns "include transfers" off: the deposit and the withdrawal stop
 /** A decimal shown on screen, with any grouping commas, back to units. */
 const shownUnits = (text) => toUnits(text.replaceAll(',', ''));
 
+/** The sale's fee and the buy's fee in dollars, by hand from the balances (see #3). */
+function feesByHand() {
+  const s = state();
+  const bps = BigInt(s.bps);
+  const saleFee = (toUnits(s.proceeds) * bps) / (10_000n - bps);
+  const buyFeeUsd = (toUnits(s.buyFee) * toUnits(s.cost)) / toUnits('0.01');
+  return { bps, saleFee, buyFeeUsd };
+}
+
 test(`${J} #3 reads a sale's fee: inside the realised result, and on its own line`, async ({ page }) => {
   test.setTimeout(180_000);
   const s = state();
-  const hand = handCount();
+  const hand = await handCount();
   // By hand: the sale received its gross less the fee, and the fee is the rate on the gross, so fee = net * bps / (10000 - bps).
-  const bps = BigInt(s.bps);
-  const saleFee = (toUnits(s.proceeds) * bps) / (10_000n - bps);
   // The buy's fee in dollars: its share of what was paid (fee / what the buy grossed in BTC, 0.01).
-  const buyFeeUsd = (toUnits(s.buyFee) * toUnits(s.cost)) / toUnits('0.01');
+  const { bps, saleFee, buyFeeUsd } = feesByHand();
   await signInWithCode(page);
   await pnl(page, '?asset=BTC');
   const sales = page.getByRole('region', { name: 'Sales' });
@@ -417,4 +434,284 @@ test(`${J} #3 reads a sale's fee: inside the realised result, and on its own lin
   );
   expect(near(dollars(await fees.innerText()), saleFee + buyFeeUsd)).toBe(true);
   await expect(page.locator('[data-figure="realised"]')).toHaveText(realised.view);
+});
+
+/** The over-time card for a range, once its line is drawn. */
+async function overTime(page, query) {
+  await page.goto(`/money/pnl${query}`);
+  const card = page.getByRole('region', { name: 'Profit and loss over time' });
+  await expect(card).toBeVisible();
+  await expect(card.locator('svg[data-chart="pnl-cumulative"]')).toBeVisible({ timeout: 30_000 });
+  return card;
+}
+
+/** Every point behind the line, the period and the breakdown rows, read in one go so a re-read cannot land between them. */
+function readOverTime(page) {
+  return page
+    .locator('main')
+    .first()
+    .evaluate((main) => ({
+      interval: main.querySelector('[data-interval]')?.getAttribute('data-interval') ?? null,
+      points: [...main.querySelectorAll('tr[data-point]')].map((row) => ({
+        at: row.getAttribute('data-point'),
+        usd: row.getAttribute('data-usd'),
+        realized: row.getAttribute('data-realized'),
+      })),
+      missing: Number(main.querySelector('[data-label="pnl-missing"]')?.getAttribute('data-count') ?? '0'),
+      period: main.querySelector('[data-figure="period"]')?.getAttribute('data-usd') ?? null,
+      by: main.querySelector('[data-breakdown]')?.getAttribute('data-breakdown') ?? null,
+      rows: [...main.querySelectorAll('[data-breakdown] tbody tr')].map((row) => ({
+        key: row.getAttribute('data-key'),
+        usd: row.getAttribute('data-usd'),
+        label: row.querySelector('th')?.textContent?.trim() ?? '',
+      })),
+      fees: main.querySelector('[data-figure="period-fees"]')?.textContent?.trim() ?? null,
+    }));
+}
+
+const sumUnits = (rows) => rows.reduce((sum, row) => sum + toUnits(row.usd), 0n);
+
+test(`${J} #4 draws the cumulative result over a range: from zero before the first trade to the realised result now`, async ({ page }) => {
+  test.setTimeout(240_000);
+  const hand = await handCount();
+  await signInWithCode(page);
+  let card = await overTime(page, '');
+  await expect(card.getByRole('button', { name: '1M', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await card.getByRole('group', { name: 'Range' }).getByRole('button', { name: '1D', exact: true }).click();
+  await expect(page).toHaveURL(/range=1D/);
+  card = await overTime(page, '?range=1D');
+  await expect(card.getByRole('button', { name: '1D', exact: true })).toHaveAttribute('aria-pressed', 'true');
+
+  const day = await readOverTime(page);
+  // A day at one point every 5 minutes, each on a candle edge between the two ends.
+  expect(day.interval).toBe('5m');
+  expect(day.points.length).toBeGreaterThan(280);
+  const times = day.points.map((p) => Date.parse(p.at));
+  for (let i = 1; i < times.length; i += 1) expect(times[i]).toBeGreaterThan(times[i - 1]);
+  for (const at of times.slice(1, -1)) expect(at % 300_000).toBe(0);
+  // The account was opened in step 1, inside this day: nothing was held at the start, so the line starts at zero.
+  expect(toUnits(day.points[0].usd)).toBe(0n);
+  // Now: the realised part is the sale and the withdrawal, by hand.
+  const last = day.points.at(-1);
+  expect(last.usd).not.toBe('missing');
+  expect(hand.realised.some((r) => near(toUnits(last.realized), r, toUnits('0.0001')))).toBe(true);
+  // A point with no figure is a gap named under the line, never a zero.
+  expect(day.missing).toBe(day.points.filter((p) => p.usd === 'missing').length);
+
+  // A range of whole days, picked by date: today, from the customer's own midnight.
+  const today = await page.evaluate(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    const pad = (n) => String(n).padStart(2, '0');
+    return { day: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, midnight: d.toISOString() };
+  });
+  const dates = card.getByRole('form', { name: 'Pick your own dates' });
+  await dates.getByLabel('From').fill(today.day);
+  await dates.getByLabel('To').fill(today.day);
+  await dates.getByRole('button', { name: 'Show these dates' }).click();
+  await expect(page).toHaveURL(new RegExp(`from=${today.day}&to=${today.day}`));
+  card = page.getByRole('region', { name: 'Profit and loss over time' });
+  await expect(card.locator('svg[data-chart="pnl-cumulative"]')).toBeVisible({ timeout: 30_000 });
+  await expect(card.getByRole('button', { name: '1D', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  const custom = await readOverTime(page);
+  expect(custom.points[0].at).toBe(today.midnight);
+  expect(hand.realised.some((r) => near(toUnits(custom.points.at(-1).realized), r, toUnits('0.0001')))).toBe(true);
+
+  // The link keeps the range, and a link that makes no sense is refused in words.
+  await page.reload();
+  await expect(page.getByRole('form', { name: 'Pick your own dates' }).getByLabel('From')).toHaveValue(today.day);
+  await page.goto('/money/pnl?from=2026-10-20&to=2026-10-01');
+  await expect(page.getByRole('region', { name: 'Profit and loss over time' })).toContainText('This range can’t be read.');
+});
+
+test(`${J} #5 splits the change by coin, market and day: every split adds up to it, and matches the hand count`, async ({ page }) => {
+  test.setTimeout(240_000);
+  const hand = await handCount();
+  const { saleFee, buyFeeUsd } = feesByHand();
+  await signInWithCode(page);
+  await overTime(page, '?range=1D');
+  const breakdown = page.getByRole('region', { name: 'Where it came from' });
+  await expect(breakdown).toBeVisible();
+
+  // By coin: BTC is the only position (dollar coins are not one), and it is the whole change.
+  const byCoin = await readOverTime(page);
+  expect(byCoin.by).toBe('asset');
+  expect(toUnits(byCoin.period)).toBe(toUnits(byCoin.points.at(-1).usd) - toUnits(byCoin.points[0].usd));
+  expect(byCoin.rows.map((r) => r.key)).toEqual(['BTC']);
+  expect(sumUnits(byCoin.rows)).toBe(toUnits(byCoin.period));
+
+  // By market: the sale on BTC/USDT, the withdrawal (moved out at its value, less the price entered), and the price
+  // move on the coins still held; together the change.
+  await breakdown.getByRole('group', { name: 'Split the change' }).getByRole('button', { name: 'By market' }).click();
+  await expect(page).toHaveURL(/by=market/);
+  await expect(breakdown.locator('[data-breakdown="market"]')).toBeVisible();
+  const byMarket = await readOverTime(page);
+  const row = (key) => byMarket.rows.find((r) => r.key === key);
+  expect(near(toUnits(row('BTC/USDT').usd), hand.saleResult, toUnits('0.0001'))).toBe(true);
+  expect(hand.withdrawals.some((w) => near(toUnits(row('moved:BTC').usd), w - hand.depositCost, toUnits('0.0001')))).toBe(true);
+  expect(row('moved:BTC').label).toBe('BTC moved out');
+  expect(row('held').label).toBe('Price move on coins still held');
+  expect(sumUnits(byMarket.rows)).toBe(toUnits(byMarket.period));
+  // The fees of both trades are inside the change, and said to be.
+  expect(byMarket.fees).toMatch(/^Trading fees already inside this change: \$[\d.,]+$/);
+  expect(near(dollars(byMarket.fees), saleFee + buyFeeUsd)).toBe(true);
+
+  // By day, at the customer's midnights: the days add up to the change too.
+  await breakdown.getByRole('button', { name: 'By day' }).click();
+  await expect(breakdown.locator('[data-breakdown="day"]')).toBeVisible();
+  const byDay = await readOverTime(page);
+  expect(byDay.rows.length).toBeGreaterThan(0);
+  for (const r of byDay.rows) expect(r.key).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  expect(sumUnits(byDay.rows)).toBe(toUnits(byDay.period));
+  await expect(breakdown).toContainText('Days start at midnight in your time zone');
+
+  // The breakdown follows the saved transfers setting: off, only the sale counts and nothing open moves.
+  const toggle = page.getByRole('switch', { name: 'Count deposits and withdrawals' });
+  await expect(toggle).toBeChecked();
+  await toggle.click();
+  await expect(toggle).not.toBeChecked();
+  await breakdown.getByRole('button', { name: 'By market' }).click();
+  await expect.poll(async () => (await readOverTime(page)).rows.map((r) => r.key).join(','), { timeout: 30_000 }).toBe('BTC/USDT,held');
+  const off = await readOverTime(page);
+  expect(toUnits(off.rows.find((r) => r.key === 'held').usd)).toBe(0n);
+  expect(near(toUnits(off.period), hand.saleResult, toUnits('0.0001'))).toBe(true);
+  expect(sumUnits(off.rows)).toBe(toUnits(off.period));
+  await toggle.click();
+  await expect(toggle).toBeChecked();
+  await expect.poll(async () => (await readOverTime(page)).rows.some((r) => r.key === 'moved:BTC'), { timeout: 30_000 }).toBe(true);
+});
+
+/** The value line's points and the bridge's lines, read in one go. */
+function readValue(page) {
+  return page
+    .locator('main')
+    .first()
+    .evaluate((main) => ({
+      interval: main.querySelector('[data-value-interval]')?.getAttribute('data-value-interval') ?? null,
+      points: [...main.querySelectorAll('tr[data-value-point]')].map((row) => ({
+        at: row.getAttribute('data-value-point'),
+        usd: row.getAttribute('data-usd'),
+      })),
+      missing: Number(main.querySelector('[data-label="value-missing"]')?.getAttribute('data-count') ?? '0'),
+      missingCoins: [...main.querySelectorAll('[data-label="value-missing"] li')].map((li) => li.getAttribute('data-asset')),
+      legs: Object.fromEntries(
+        [...main.querySelectorAll('[data-bridge="value"] tr[data-leg]')].map((row) => [
+          row.getAttribute('data-leg'),
+          row.getAttribute('data-usd'),
+        ]),
+      ),
+      shown: Object.fromEntries(
+        [...main.querySelectorAll('[data-bridge="value"] tr[data-leg]')].map((row) => [
+          row.getAttribute('data-leg'),
+          row.querySelector('td')?.textContent?.trim() ?? '',
+        ]),
+      ),
+      bridgeMissing: main.querySelector('[data-label="bridge-missing"]')?.textContent?.trim() ?? null,
+    }));
+}
+
+/** The lowest and highest BTC/USDT 5-minute close since `from`, from the public candles: the band any price the bridge
+ * used for BTC in this range must lie in. */
+async function btcBand(from) {
+  const since = Math.floor(Date.parse(from) / 300_000) * 300_000 - 300_000;
+  const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=5m&since=${since}&limit=720`, {
+    headers: { origin: ORIGIN },
+  });
+  expect(res.status).toBe(200);
+  const closes = (await res.json()).map((c) => toUnits(c[4]));
+  expect(closes.length).toBeGreaterThan(0);
+  return { lo: closes.reduce((a, b) => (b < a ? b : a)), hi: closes.reduce((a, b) => (b > a ? b : a)) };
+}
+
+/** `usd` is `qty` BTC at some price inside the band (to the cent each side). */
+const inBand = (usdUnits, qty, band) => usdUnits >= times(qty, band.lo) - CENT && usdUnits <= times(qty, band.hi) + CENT;
+
+async function valueCards(page, query) {
+  await page.goto(`/money/pnl${query}`);
+  const card = page.getByRole('region', { name: 'What your money was worth' });
+  await expect(card).toBeVisible();
+  await expect(card.locator('svg[data-chart="value-over-time"]')).toBeVisible({ timeout: 30_000 });
+  await expect(card.locator('[data-value-interval]')).toHaveCount(1);
+  return card;
+}
+
+test(`${J} #6 bridges the change in value: start, deposits, withdrawals, fees, market move and end add up exactly`, async ({ page }) => {
+  test.setTimeout(240_000);
+  const { saleFee, buyFeeUsd } = feesByHand();
+  await signInWithCode(page);
+  await valueCards(page, '?range=1D');
+  const bridge = page.getByRole('region', { name: 'Change in value' });
+  await expect(bridge).toBeVisible();
+  await expect(bridge.locator('tr[data-leg]')).toHaveCount(7);
+
+  const v = await readValue(page);
+  const leg = (name) => {
+    expect(v.legs[name], `bridge line ${name}`).toMatch(/^-?\d+(\.\d+)?$/);
+    return toUnits(v.legs[name]);
+  };
+  // Exactly: start + deposits − withdrawals − fees + other money + market move = end.
+  expect(leg('opening') + leg('deposits') - leg('withdrawals') - leg('fees') + leg('otherFlows') + leg('marketMove')).toBe(leg('closing'));
+  // The ends are the line's own ends: nothing was held at the start of the day (the account was opened in step 1).
+  expect(leg('opening')).toBe(0n);
+  expect(toUnits(v.points[0].usd)).toBe(leg('opening'));
+  expect(toUnits(v.points.at(-1).usd)).toBe(leg('closing'));
+
+  // By hand, inside the day's BTC prices: deposits are the TEST 1000 USDT and the 0.003 BTC; the withdrawal is 0.001 BTC.
+  const band = await btcBand(v.points[0].at);
+  expect(inBand(leg('deposits') - toUnits('1000'), toUnits('0.003'), band)).toBe(true);
+  expect(inBand(leg('withdrawals'), toUnits('0.001'), band)).toBe(true);
+  // The fees are both trades' fees, valued then (the buy's was taken in BTC).
+  expect(near(leg('fees'), saleFee + buyFeeUsd, toUnits('0.05'))).toBe(true);
+  // Nothing else came in or went out.
+  expect(leg('otherFlows')).toBe(0n);
+  // The end is what is held now: the USDT, and the BTC at a price inside the band.
+  const balances = await (await bank()).balances();
+  expect(inBand(leg('closing') - total(balances, 'USDT'), total(balances, 'BTC'), band)).toBe(true);
+
+  // On screen, a withdrawal and a fee read as what they take away; the market move carries its sign.
+  expect(v.shown.withdrawals).toBe(usd(-leg('withdrawals'), true));
+  expect(v.shown.fees).toBe(usd(-leg('fees'), true));
+  expect(v.shown.marketMove).toBe(usd(leg('marketMove'), true));
+  expect(v.shown.closing).toBe(usd(leg('closing')));
+  await expect(bridge).toContainText('Moves between your own accounts cancel out.');
+});
+
+test(`${J} #7 draws what the money was worth over time: a moment with no price is missing, never zero`, async ({ page }) => {
+  test.setTimeout(240_000);
+  const { who } = state();
+  await signInWithCode(page);
+  const card = await valueCards(page, '?range=1D');
+  const before = await readValue(page);
+  // A day at one point every 5 minutes, ordered, on candle edges, every one known: BTC and USDT both have prices.
+  expect(before.interval).toBe('5m');
+  expect(before.points.length).toBeGreaterThan(280);
+  const times = before.points.map((p) => Date.parse(p.at));
+  for (let i = 1; i < times.length; i += 1) expect(times[i]).toBeGreaterThan(times[i - 1]);
+  for (const at of times.slice(1, -1)) expect(at % 300_000).toBe(0);
+  expect(before.points.every((p) => p.usd !== 'missing')).toBe(true);
+  expect(before.missing).toBe(0);
+  // Each moment is never below zero and the line ends at what is held now.
+  for (const p of before.points) expect(toUnits(p.usd) >= 0n).toBe(true);
+
+  // TEST XAU arrives, which has no market here: from then on the moment cannot be priced, so it is missing and named, never zero.
+  expect(fund(who.email, 'XAU', '1').tx).toBeTruthy();
+  await page.reload();
+  await expect(card.locator('svg[data-chart="value-over-time"]')).toBeVisible({ timeout: 30_000 });
+  await expect.poll(async () => (await readValue(page)).points.at(-1)?.usd, { timeout: 90_000 }).toBe('missing');
+  const after = await readValue(page);
+  expect(after.missing).toBe(after.points.filter((p) => p.usd === 'missing').length);
+  expect(after.missing).toBeGreaterThan(0);
+  expect(after.missingCoins).toEqual(['XAU']);
+  await expect(card.locator('[data-label="value-missing"]')).toContainText('no price for XAU at that time');
+  // The moments before it arrived keep their figures; none of the missing ones is a zero.
+  const firstMissing = after.points.findIndex((p) => p.usd === 'missing');
+  expect(firstMissing).toBeGreaterThan(0);
+  expect(after.points.slice(0, firstMissing).every((p) => /^\d/.test(p.usd))).toBe(true);
+  expect(after.points.slice(firstMissing).every((p) => p.usd === 'missing')).toBe(true);
+  // The bridge to now is not known, and says which coin.
+  await expect(page.getByRole('region', { name: 'Change in value' }).locator('tr[data-leg="closing"]')).toHaveAttribute(
+    'data-usd',
+    'unknown',
+  );
+  expect(after.bridgeMissing).toBe('Not known, because there is no price at that time for: XAU.');
 });

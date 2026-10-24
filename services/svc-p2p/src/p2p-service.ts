@@ -11,9 +11,11 @@ import {
   parseAmount,
   recipes,
   div,
+  mul,
   mulBps,
   sub,
   tradeEscrowAccount,
+  userAvailable,
   type Amount,
   type LedgerClient,
 } from '@intafaced/ledger-client';
@@ -97,6 +99,7 @@ import {
   type ReferencePriceSource,
 } from './pricing.js';
 import {
+  buyAdRangeRefusal,
   isVerificationTier,
   remaining,
   verificationBuyRefusal,
@@ -154,6 +157,13 @@ import {
   type MismatchReport,
 } from './amount-mismatch.js';
 import { railMismatch, type PaymentRail, type RailMismatch } from './rail-validate.js';
+import {
+  ADVERTISER_TERMS_SETTING,
+  AdvertiserTermsError,
+  type AdvertiserTerms,
+  type AdvertiserTermsAcceptance,
+  type AdvertiserTermsState,
+} from './advertiser-terms.js';
 
 /**
  * svc-p2p — PEER-TO-PEER TRADING WITH ESCROW (§6.2).
@@ -375,14 +385,28 @@ export const isNaturalPersonId = (id: string | null | undefined): boolean => typ
 
 /** The seller's own figures on a refused lock: what is free now and how much more the order needs. */
 function shortBalance(err: InsufficientFundsError, asset: string): P2pError {
-  const free = parseAmount(err.availableBalance);
+  return shortOf(parseAmount(err.availableBalance), parseAmount(err.requested), asset, 'this order; nothing was held');
+}
+
+/** `p2p.insufficient_balance` with the free amount and the shortfall, the figures the room shows. */
+/** What a buy ad's per-order range is checked on against its maker's verification level (P-ads-merchant-02). */
+interface BuyAdRange {
+  tier: string | undefined;
+  fiatCurrency: string;
+  priceType: PriceType;
+  price: Amount;
+  minAmt: Amount;
+  maxAmt: Amount;
+}
+
+function shortOf(free: Amount, requested: Amount, asset: string, what: string): P2pError {
   const available = formatAmount(free);
-  const shortBy = formatAmount(sub(parseAmount(err.requested), free));
-  return new P2pError(
-    `Your free ${asset} balance is ${available}, ${shortBy} short of this order; nothing was held`,
-    'p2p.insufficient_balance',
-    { until: null, available, shortBy },
-  );
+  const shortBy = formatAmount(sub(requested, free));
+  return new P2pError(`Your free ${asset} balance is ${available}, ${shortBy} short of ${what}`, 'p2p.insufficient_balance', {
+    until: null,
+    available,
+    shortBy,
+  });
 }
 
 export class P2pError extends Error {
@@ -759,6 +783,17 @@ export interface P2pServiceOptions {
    * every validation refuses `rail.bank`. Tests pass a TEST rail.
    */
   paymentRail?: PaymentRail | null;
+  /**
+   * P-ads-merchant-01. The advertiser terms every new ad needs accepted, or omitted for a service built without them
+   * (tests). `index.ts` always passes them, where a blank version refuses every post `p2p.config_unset`.
+   */
+  advertiserTerms?: AdvertiserTerms;
+  /**
+   * P-ads-merchant-01. Check a new sell ad's total against the maker's free balance of its coin, read from the ledger.
+   * Advisory: nothing is reserved at post, the escrow locks at take. `index.ts` turns it on; tests built without it
+   * leave posting as it was.
+   */
+  sellBalanceAtPost?: boolean;
 }
 
 /**
@@ -1190,6 +1225,8 @@ export class P2pService {
   private readonly reminders: ReminderPolicy;
   private readonly mismatchToleranceBps: number | null;
   private readonly paymentRail: PaymentRail | null;
+  private readonly advertiserTerms: AdvertiserTerms | undefined;
+  private readonly sellBalanceAtPost: boolean;
   private tradingEnabled: boolean;
 
   /**
@@ -1229,6 +1266,32 @@ export class P2pService {
     this.reminders = options.reminders ?? { waitSeconds: null, max: null };
     this.mismatchToleranceBps = options.mismatchToleranceBps ?? null;
     this.paymentRail = options.paymentRail ?? null;
+    this.advertiserTerms = options.advertiserTerms;
+    this.sellBalanceAtPost = options.sellBalanceAtPost === true;
+  }
+
+  /** P-ads-merchant-01: the advertiser terms version to accept and the caller's acceptance, or `p2p.config_unset`. */
+  advertiserTermsState(userId: string): Promise<AdvertiserTermsState> {
+    return this.requireAdvertiserTerms().state(userId);
+  }
+
+  /** P-ads-merchant-01: accept exactly the published advertiser terms version. Accepting again returns the first. */
+  acceptAdvertiserTerms(userId: string, version: string): Promise<AdvertiserTermsAcceptance> {
+    return this.requireAdvertiserTerms().accept(userId, version);
+  }
+
+  private requireAdvertiserTerms(): AdvertiserTerms {
+    if (!this.advertiserTerms)
+      throw new AdvertiserTermsError(`${ADVERTISER_TERMS_SETTING} is not wired, so no ad can be posted`, 'p2p.config_unset');
+    return this.advertiserTerms;
+  }
+
+  /**
+   * P-ads-merchant-01: the caller's free balance of `asset`, as the ledger holds it, which a new sell ad's total may
+   * not exceed. The same read the post check makes, so the form and the refusal agree.
+   */
+  async sellBalance(userId: string, asset: string): Promise<Amount> {
+    return (await this.ledger.balance(userAvailable(userId, asset))).amount;
   }
 
   /**
@@ -1574,6 +1637,65 @@ export class P2pService {
 
   // ── Offers (§6.2) ──────────────────────────────────────────────────────────
 
+  /**
+   * P-ads-merchant-01. What a new ad needs from its maker that the offer itself cannot show: the published advertiser
+   * terms accepted (and, from the form, the version it showed), and for a sell ad a free balance of the coin that
+   * covers the total. The balance check is advisory, at post only: nothing is reserved, the escrow locks per order at
+   * take. A retry of a create that already published (same key, or with no key the same offer id) skips both, so a
+   * lost reply always returns the ad; the transaction below then answers it as a replay.
+   */
+  private async assertPostable(
+    makerId: string,
+    side: 'buy' | 'sell',
+    asset: string,
+    totalAmt: Amount,
+    retry: { idempotencyKey: string | undefined; offerId: string | undefined },
+    shownTermsVersion: string | undefined,
+    buyRange?: BuyAdRange,
+  ): Promise<void> {
+    const checkBalance = this.sellBalanceAtPost && side === 'sell';
+    if (!this.advertiserTerms && !checkBalance && !buyRange) return;
+    if (retry.idempotencyKey) {
+      const published = await this.sql<{ subject_id: string | null }[]>`
+        SELECT subject_id FROM p2p.write_keys
+         WHERE actor_id = ${makerId} AND scope = 'offer.create' AND idempotency_key = ${retry.idempotencyKey}`;
+      if (published[0]?.subject_id) return;
+    } else if (retry.offerId) {
+      const published = await this.sql<{ id: string }[]>`
+        SELECT id FROM p2p.offers WHERE id = ${retry.offerId} AND maker_id = ${makerId}`;
+      if (published[0]) return;
+    }
+    if (buyRange) this.assertBuyAdRange(buyRange);
+    const [, free] = await Promise.all([
+      this.advertiserTerms?.assertAccepted(makerId, shownTermsVersion),
+      checkBalance ? this.sellBalance(makerId, asset) : null,
+    ]);
+    if (free !== null && compare(totalAmt, free) > 0) throw shortOf(free, totalAmt, asset, "this ad's total; nothing was posted");
+  }
+
+  /**
+   * P-ads-merchant-02. A buy ad's per-order range must fit the maker's verification level, the cap every take of it
+   * meets (`buyAdRangeRefusal`). The refusal carries the level's per-order band, so the form can say what fits.
+   */
+  private assertBuyAdRange(input: BuyAdRange): void {
+    const refusal = buyAdRangeRefusal(this.verificationLimits, input);
+    if (!refusal) return;
+    const { code, caps, currency } = refusal;
+    const band =
+      caps && currency ? { until: null, min: formatAmount(caps.orderMin), max: formatAmount(caps.orderMax), currency } : undefined;
+    const message =
+      code === 'p2p.verification_limits_invalid'
+        ? 'Verification-level trading limits are not a complete decimal table'
+        : code === 'p2p.verification_level_unwired'
+          ? 'The signed-in verification level is missing, so the published cap cannot be applied to this buy ad'
+          : code === 'p2p.verification_limit_currency'
+            ? `This buy ad is in ${input.fiatCurrency}, which is not the published limit currency, and no rate is invented`
+            : code === 'p2p.verification_order_max'
+              ? "This buy ad's per-order maximum is above your verification level's per-order maximum"
+              : "This buy ad's per-order minimum is below your verification level's per-order minimum";
+    throw new P2pError(message, code, band);
+  }
+
   async createOffer(input: {
     makerId: string;
     side: 'buy' | 'sell';
@@ -1593,6 +1715,8 @@ export class P2pService {
     makerTier?: string;
     /** P-disputes-security-09: the seller's consent to non-instant methods. Absent is no consent. */
     acceptsNonInstant?: boolean;
+    /** P-ads-merchant-01: the advertiser terms version the form showed, which must be the published one. */
+    advertiserTermsVersion?: string;
   }): Promise<OfferRecord> {
     this.assertTradingEnabled();
     this.assertSellNotLocked(input.side === 'sell');
@@ -1681,6 +1805,24 @@ export class P2pService {
     const clientOfferId = input.offerId;
     const idempotencyKey = input.idempotencyKey?.trim() || undefined;
     const makerTier = isVerificationTier(input.makerTier) ? input.makerTier : null;
+    await this.assertPostable(
+      input.makerId,
+      input.side,
+      input.asset,
+      totalAmt,
+      { idempotencyKey, offerId: clientOfferId },
+      input.advertiserTermsVersion,
+      input.side === 'buy'
+        ? {
+            tier: input.makerTier,
+            fiatCurrency,
+            priceType: input.priceType,
+            price: input.price,
+            minAmt: input.minAmt,
+            maxAmt: input.maxAmt,
+          }
+        : undefined,
+    );
     const createHashValue = requestHash([
       input.makerId,
       input.side,
@@ -4244,6 +4386,14 @@ export class P2pService {
       }
     }
 
+    const freeBeforeLock =
+      this.sellBalanceAtPost &&
+      previewForLock.side === 'sell' &&
+      input.totalAmt !== undefined &&
+      compare(input.totalAmt, previewForLock.totalAmt) > 0
+        ? await this.sellBalance(previewForLock.makerId, previewForLock.asset)
+        : null;
+
     try {
       const written = await transaction(this.sql, async (tx) => {
         const claim = await claimWriteKey(tx, {
@@ -4277,6 +4427,29 @@ export class P2pService {
           throw new P2pError('p2p.offer_update_empty', 'p2p.offer_update_empty');
         }
         const remainingAmt = sub(totalAmt, filled);
+        // P-ads-merchant-02: an edit that widens a buy ad's per-order range must leave it inside the level its takes are
+        // capped by (the tier stored at create). Narrowing is always allowed, so an ad listed before the table was
+        // published or tightened can be brought down step by step.
+        const widens =
+          compare(mul(maxAmt, price, 'half-up'), mul(offer.maxAmt, offer.price, 'half-up')) > 0 ||
+          compare(mul(minAmt, price, 'half-up'), mul(offer.minAmt, offer.price, 'half-up')) < 0;
+        if (offer.side === 'buy' && widens) {
+          this.assertBuyAdRange({
+            tier: offer.makerTier ?? undefined,
+            fiatCurrency: offer.fiatCurrency,
+            priceType: offer.priceType,
+            price,
+            minAmt,
+            maxAmt,
+          });
+        }
+        // A sell ad that now offers more than before is checked against the free balance, as a new one is at post. The
+        // balance is read before the row lock when the edit raises the total; only a concurrent edit reads it here.
+        if (this.sellBalanceAtPost && offer.side === 'sell' && compare(remainingAmt, offer.remainingAmt) > 0) {
+          const free = freeBeforeLock ?? (await this.sellBalance(offer.makerId, offer.asset));
+          if (compare(remainingAmt, free) > 0)
+            throw shortOf(free, remainingAmt, offer.asset, "this ad's remaining amount; nothing was changed");
+        }
         if (input.maxAmt !== undefined) {
           const standing = this.merchantStatusOf ? await this.merchantStatusOf(input.makerId) : null;
           const verdict = checkOfferLimit({ status: standing, maxAmt, asset: offer.asset, policy: this.offerLimits });

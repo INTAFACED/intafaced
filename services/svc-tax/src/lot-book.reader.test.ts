@@ -136,6 +136,8 @@ describe('tax.lotBook', () => {
         counted: 'all',
         // The fee was taken from the 300 received: it is already inside the result, and shown on its own.
         fee: { status: 'known', assetId: 'USDT', amount: '1.5', usd: '1.5' },
+        // Where it was sold: the coin sold over the coin received.
+        market: 'BTC/USDT',
         method: 'FIFO',
         methodSource: 'default',
         pickedLotId: null,

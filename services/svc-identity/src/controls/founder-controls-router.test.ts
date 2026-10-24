@@ -67,6 +67,18 @@ function fixture() {
     async closureHistory() {
       return [];
     },
+    async archive() {
+      throw new Error('not used here');
+    },
+    async archiveState() {
+      return null;
+    },
+    async archiveHistory() {
+      return [];
+    },
+    async archiveProposals() {
+      return { dormancyDays: null, proposals: [], asOf: new Date().toISOString() };
+    },
     async tiers() {
       return { configured: false, code: 'identity.account_tiers_unset' };
     },

@@ -84,6 +84,7 @@ import type { OrderHold } from './spot/order-holds.js';
 import type { EdgeTrust } from './edge-trust.js';
 import { carryPlacementBody, schemaBodyOf } from './spot/placement-extras.js';
 import { readBracketFromBody } from './spot/bracket-place.js';
+import type { OrderLink } from './spot/order-links.js';
 import { readOcoFromBody } from './spot/oco-place.js';
 import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from './spot/matching-client.js';
 
@@ -200,6 +201,8 @@ export interface PrivateRestDeps {
   stopMarketCapBps?: (marketId: string) => Promise<number | null>;
   /** The stored legs for OCO parents (and bracket exits), by order id; absent when the store is not wired. */
   ocoExits?: (orderIds: readonly string[]) => Promise<ReadonlyMap<string, OcoExitLegs>>;
+  /** How OTO entries and their closes name each other, by order id; absent when not wired, and then no order is linked. */
+  orderLinks?: (orderIds: readonly string[]) => Promise<ReadonlyMap<string, OrderLink>>;
   /** What each live order still holds, by order id; absent when not wired, and then no order carries a hold. */
   orderHolds?: (orders: readonly OrderRecord[]) => Promise<ReadonlyMap<string, OrderHold>>;
   /**
@@ -606,14 +609,23 @@ async function withStopTriggers(deps: PrivateRestDeps, orders: readonly OrderRec
 
 export type OcoExitLegs = { readonly takeProfit: string; readonly stopLoss: string; readonly stopLossLimit: string | null };
 
-/** An OCO parent (or a bracket's exit) carries its linked legs on the wire as `exit`; every other order is untouched. */
+/**
+ * An OCO parent (or a bracket's exit) carries its linked legs on the wire as `exit`, and an OTO entry or its close
+ * carries `linked`; every other order is untouched.
+ */
 async function withOcoExit(deps: PrivateRestDeps, orders: readonly OrderRecord[]) {
-  const legs = deps.ocoExits && orders.length > 0 ? await deps.ocoExits(orders.map((o) => o.id)) : null;
+  const ids = orders.map((o) => o.id);
+  const [legs, links] = await Promise.all([
+    deps.ocoExits && orders.length > 0 ? deps.ocoExits(ids) : null,
+    deps.orderLinks && orders.length > 0 ? deps.orderLinks(ids) : null,
+  ]);
   return <W extends object>(order: OrderRecord, wire: W): W => {
     const found = legs?.get(order.id);
-    if (!found) return wire;
+    const link = links?.get(order.id);
+    const linked = link ? { ...wire, linked: link } : wire;
+    if (!found) return linked;
     const kind = /^bracket:.+:exit$/.test(order.clientOrderId ?? '') ? 'bracket_exit' : 'oco';
-    return { ...wire, exit: { kind, ...found } };
+    return { ...linked, exit: { kind, ...found } };
   };
 }
 
@@ -992,7 +1004,7 @@ function refuseExitLegs(body: unknown, allowOco = false): void {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return;
   const rec = body as Record<string, unknown>;
   if (!allowOco && readBracketFromBody(rec) !== null) {
-    throw new TradeError('bracket orders are available on the create-order route only', 'trade.order_type_unsupported');
+    throw new TradeError('bracket and OTO orders are available on the create-order route only', 'trade.order_type_unsupported');
   }
   if (!allowOco && readOcoFromBody(rec) !== null) {
     throw new TradeError('OCO orders are available on the create-order route only', 'trade.order_type_unsupported');
@@ -2915,7 +2927,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const stored = deps.icebergDisplay ? await deps.icebergDisplay.read(order.id) : displayQty;
       const market = await deps.marketById(order.marketId);
       const symbol = market?.symbol ?? parsed.data.symbol;
-      const wire = presentCcxtOrder(order, symbol);
+      // An OTO entry answers with its attached close, as every read of it does.
+      const wire = (await withOcoExit(deps, [order]))(order, presentCcxtOrder(order, symbol));
       if (stopTrigger) return reply.code(201).send({ ...wire, type: stopKind, stopPrice: stopTrigger, triggered: null });
       return reply.code(201).send(stored ? { ...wire, displayQty: stored } : wire);
     } catch (err) {

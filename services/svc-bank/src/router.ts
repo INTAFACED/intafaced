@@ -40,6 +40,7 @@ import { createLoansRouter } from './router/loans.router.js';
 import { createCardsRouter } from './router/cards.router.js';
 import { createOpsRouter } from './router/ops.router.js';
 import { createAutoInvestRouter } from './router/auto-invest.router.js';
+import { createSorterRouter } from './sorter/sorter.router.js';
 import { createRampsRouter } from './router/ramps.router.js';
 import { createBusinessRouter } from './router/business.router.js';
 
@@ -356,6 +357,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     calendar: createCalendarRouter(bank, guard),
     /** BK-acct-10: the payment reminder rule; money-moving rules refuse `bank.rule_terms_unset`. */
     rules: createRulesRouter(bank, guard),
+    /** BK-pots-03: the income sorter; blank owner terms refuse `bank.sorter_terms_unset`. */
+    sorter: createSorterRouter(bank, guard),
     limits: createLimitsRouter(limitRequests, guard),
     ops,
   });

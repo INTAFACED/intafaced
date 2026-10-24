@@ -36,6 +36,11 @@
       "value": "24",
       "note": "TEST hours an early unlock of a locked space waits before it opens (J-bank-07 #2); not an owner decision."
     },
+    "BANK_INCOME_SORTER_MIN_CREDIT": {
+      "service": "bank",
+      "value": "1",
+      "note": "TEST smallest payment from another person that the income sorter splits (J-bank-07 #4); not an owner decision."
+    },
     "BANK_ACCOUNT_DETAILS_CURRENCIES": {
       "service": "bank",
       "value": "EUR,GBP,USD",

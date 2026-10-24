@@ -10,6 +10,7 @@ import {
   publicProcedure,
   retryAfterSecondsOf,
   accountStateOf,
+  deviceAuthorisationOf,
   secondStepOf,
   conflictProfile,
   router,
@@ -363,5 +364,40 @@ describe('errorFormatter secondStep (I-signin-sessions-10)', () => {
     expect(secondStepOf(mfa({ totp: false, passkey: { ...passkey, userVerification: 'sometimes' } }))?.passkey).not.toHaveProperty(
       'userVerification',
     );
+  });
+});
+
+describe('errorFormatter deviceAuthorisation recovery count (I-signin-sessions-12)', () => {
+  const waiting = {
+    flowId: '0b0e6f3c-8f6a-4c1d-9a7e-2f1b3c4d5e6f',
+    secret: 's'.repeat(43),
+    expiresAt: '2026-10-24T18:00:00.000Z',
+    mailed: true,
+  };
+  const refusal = (deviceAuthorisation: unknown) =>
+    new FakeAuthError('auth.device_authorisation_required', { deviceAuthorisation } as never);
+
+  it('reaches the client with the waiting sign-in when its second step spent a recovery code', async () => {
+    const app = router({
+      spent: publicProcedure.query(() => {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'x', cause: refusal({ ...waiting, recoveryCodesLeft: 0 }) });
+      }),
+    });
+    const res = await fetchRequestHandler({
+      endpoint: '/trpc',
+      req: new Request('http://localhost/trpc/spent'),
+      router: app,
+      createContext: () => ({}) as Context,
+    });
+    const data = ((await res.json()) as { error: { data: Record<string, unknown> } }).error.data;
+    expect(data.deviceAuthorisation).toEqual({ ...waiting, recoveryCodesLeft: 0 });
+  });
+
+  it('carries no count when none was given, and drops one that is not a whole number of codes', () => {
+    expect(deviceAuthorisationOf(refusal(waiting))).toEqual(waiting);
+    expect(deviceAuthorisationOf(refusal({ ...waiting, recoveryCodesLeft: 4 }))).toEqual({ ...waiting, recoveryCodesLeft: 4 });
+    for (const bad of [-1, 1.5, '3', null, Number.NaN]) {
+      expect(deviceAuthorisationOf(refusal({ ...waiting, recoveryCodesLeft: bad }))).toEqual(waiting);
+    }
   });
 });

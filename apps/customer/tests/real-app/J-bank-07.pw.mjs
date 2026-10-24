@@ -12,9 +12,13 @@ import { signIn, signUp, verify } from './desk.mjs';
 // The stack publishes a TEST space limit and a TEST early-unlock wait of 24 hours (tooling/profiles/test-owner-values/
 // bank.json). The stack has no timer for the standing-order runner: this file runs it with the job door's own signed
 // call, as a scheduler would. The stack's card issuer is the simulator, so the card payment arrives through the bank's
-// four-eyes ops doors that stand in for the issuer's webhook, approved by the stack's two TEST founders.
+// four-eyes ops doors that stand in for the issuer's webhook, approved by the stack's two TEST founders. Step 4
+// (BK-pots-03): an income sorter made on the Spaces page; one over 100% is refused by name, and a TEST 100 payment from
+// a second TEST person splits 60 and 40 into two spaces, once. The stack publishes a TEST smallest sorted payment.
 const J = 'J-bank-07';
 const POT = 'Holiday TEST';
+const BILLS = 'Bills TEST';
+const SAVINGS = 'Rainy day TEST';
 const WAIT_HOURS = 24;
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
@@ -42,6 +46,8 @@ async function bank(who) {
     return { ok: true, data: body.result.data };
   };
   return {
+    /** The signed-in person's user id, as identity answered the sign-in. */
+    userId: login.result.data.userId,
     query: (procedure, input) =>
       fetch(`${EDGE}/api/bank/trpc/${procedure}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`, {
         headers,
@@ -383,4 +389,84 @@ test(`${J} #3 money flows into the space on its own: a standing order and a card
   expect(amounts.filter((cells) => cells[4] === '5')).toHaveLength(1);
   expect(amounts.filter((cells) => cells[4] === '0.7')).toHaveLength(1);
   await expect(statement.getByRole('status')).toContainText(`${lines.length} lines`);
+});
+
+test(`${J} #4 sets an income sorter: one over 100% is refused, and a TEST 100 payment from another person splits 60 and 40, once`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const who = person();
+  const api = await bank(who);
+  // A second TEST person who pays, holding TEST 100 USDT.
+  const payer = await signUp(page, 'jb07p');
+  await verify(page, payer);
+  expect(fund(payer.email, 'USDT', '100').tx).toBeTruthy();
+  // Two spaces for the split, made through the person's own API (making a space in the app is step 1's).
+  for (const name of [BILLS, SAVINGS]) {
+    const made = await api.mutate('spaces.create', { assetId: 'USDT', name });
+    expect(made.ok, JSON.stringify(made.body ?? {}).slice(0, 300)).toBe(true);
+  }
+  const rows = await spaces(who);
+  const bills = named(rows, BILLS);
+  const savings = named(rows, SAVINGS);
+
+  // The bank itself refuses a sorter over 100%, by name, and keeps nothing.
+  const over = await api.mutate('sorter.create', {
+    sorterId: randomUUID(),
+    assetId: 'USDT',
+    legs: [
+      { spaceId: bills.id, shareBp: 6000 },
+      { spaceId: savings.id, shareBp: 5000 },
+    ],
+  });
+  expect(over).toMatchObject({ ok: false, code: 'bank.sorter_invalid' });
+
+  await signIn(page, who);
+  await page.goto('/bank/spaces');
+  const sorter = page.getByTestId('income-sorter');
+  await expect(sorter.getByTestId('income-sorter-terms')).toHaveAttribute('data-state', 'set');
+  await expect(sorter).toContainText('No payments are sorted.');
+
+  // The page names a split over 100% before anything is sent; at 60 and 40 the bank confirms the sorter.
+  await sorter.getByRole('button', { name: 'Sort USDT payments' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel(`${BILLS}: percent`).fill('60');
+  await dialog.getByLabel(`${SAVINGS}: percent`).fill('50');
+  await dialog.getByRole('button', { name: 'Review' }).click();
+  await expect(dialog).toContainText('The shares add up to 110%, more than 100%.');
+  await dialog.getByLabel(`${SAVINGS}: percent`).fill('40');
+  await dialog.getByRole('button', { name: 'Review' }).click();
+  await confirm(dialog);
+  await close(page);
+  const card = sorter.getByTestId('income-sorter-card');
+  await expect(card).toHaveCount(1);
+  await expect(card).toContainText(`60% into ${BILLS}`);
+  await expect(card).toContainText(`40% into ${SAVINGS}`);
+  await expect(card).toContainText('Nothing has been sorted so far.');
+
+  // The payer sends TEST 100 to this person. The split happens with the payment.
+  const before = await spaces(who);
+  const payerApi = await bank(payer);
+  const from = main((await payerApi.query('spaces.list', { limit: 50 })).data);
+  const transferId = `jb07-${randomUUID()}`;
+  const paid = await payerApi.mutate('transfers.toUser', { transferId, fromSpaceId: from.id, toUserId: api.userId, amount: '100' });
+  expect(paid.ok, JSON.stringify(paid.body ?? {}).slice(0, 300)).toBe(true);
+  // The same payment sent again, and a sweep of the sorter's job, move nothing more.
+  const again = await payerApi.mutate('transfers.toUser', { transferId, fromSpaceId: from.id, toUserId: api.userId, amount: '100' });
+  expect(again.ok && again.data.ledgerTxId).toBe(paid.data.ledgerTxId);
+  await job('run-income-sorter', { limit: 50 });
+
+  const after = await spaces(who);
+  expect(toUnits(named(after, BILLS).balance)).toBe(toUnits(named(before, BILLS).balance) + toUnits('60'));
+  expect(toUnits(named(after, SAVINGS).balance)).toBe(toUnits(named(before, SAVINGS).balance) + toUnits('40'));
+  expect(toUnits(main(after).balance)).toBe(toUnits(main(before).balance));
+
+  // The page shows the payment and both splits, moved, once.
+  await page.reload();
+  const run = card.getByTestId('income-sorter-run');
+  await expect(run).toHaveCount(1);
+  await expect(run).toHaveAttribute('data-credit', paid.data.ledgerTxId);
+  await expect(run).toContainText('100 USDT received');
+  await expect(run).toContainText(`60 USDT into ${BILLS}: moved`);
+  await expect(run).toContainText(`40 USDT into ${SAVINGS}: moved`);
 });

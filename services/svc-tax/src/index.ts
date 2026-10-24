@@ -42,6 +42,8 @@ function openBasisPool(databaseUrl: string | undefined, poolMax: number | undefi
 }
 
 const basisSql = openBasisPool(env.DATABASE_URL, env.DATABASE_POOL_MAX);
+// svc-trade's public market data: a coin's price at a moment, and its candles over a window.
+const trade = env.TRADE_URL === undefined ? undefined : createTradePrices(env.TRADE_URL);
 const tax = new TaxService({
   mapRaw: env.TAX_JURISDICTION_MAP_JSON,
   reads: createTaxLedgerReads(
@@ -53,7 +55,7 @@ const tax = new TaxService({
   indexer: indexerStatusFromUrl(env.INDEXER_URL),
   historyYears: env.TAX_HISTORY_YEARS,
   ...(env.TAX_DEPOSIT_BASIS === undefined ? {} : { depositBasis: env.TAX_DEPOSIT_BASIS }),
-  ...(env.TRADE_URL === undefined ? {} : { prices: createTradePrices(env.TRADE_URL) }),
+  ...(trade === undefined ? {} : { prices: trade, closes: trade }),
   ...(basisSql === undefined ? {} : { basis: createPgBasisStore(basisSql), choices: createPgChoiceStore(basisSql) }),
   ...(env.BANK_URL === undefined
     ? {}

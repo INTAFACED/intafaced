@@ -13,7 +13,18 @@ function blankTerms(tier: AccountTier) {
  * the tier the account is on, and a move onto another tier as a two-founder request (you propose, the other founder
  * approves on their own console, you run it). A tier with a blank term cannot be chosen, and identity refuses it too.
  */
-export function AccountTierPanel({ userId, founderId, onChanged }: { userId: string; founderId: string; onChanged: () => void }) {
+export function AccountTierPanel({
+  userId,
+  founderId,
+  onChanged,
+  readOnly = null,
+}: {
+  userId: string;
+  founderId: string;
+  onChanged: () => void;
+  /** Why nothing here may change (an archived record), or null. */
+  readOnly?: string | null;
+}) {
   const [list, setList] = useState<AccountTierList | null>(null);
   /** undefined while reading or unreadable, null when identity has no such account. */
   const [state, setState] = useState<AccountTierState | null | undefined>(undefined);
@@ -51,17 +62,19 @@ export function AccountTierPanel({ userId, founderId, onChanged }: { userId: str
   const tiers = list?.configured ? list.tiers : [];
   const chosen = tiers.find((tier) => tier.id === tierId);
   const current = state?.tierId ? tiers.find((tier) => tier.id === state.tierId) : undefined;
-  const blocked = !list
-    ? null
-    : !list.configured
-      ? 'The owner has not published the account tiers (IDENTITY_ACCOUNT_TIERS), so no account can be moved (identity.account_tiers_unset).'
-      : userId.toLowerCase() === founderId.toLowerCase()
-        ? 'You cannot move your own account; the other founder can (identity.tier_self_forbidden).'
-        : chosen && blankTerms(chosen).length > 0
-          ? `Tier ${chosen.name} has blank terms (${blankTerms(chosen)
-              .map((key) => TIER_TERM_LABEL[key].toLowerCase())
-              .join(', ')}), so it cannot be assigned (identity.tier_terms_unset).`
-          : null;
+  const blocked = readOnly
+    ? readOnly
+    : !list
+      ? null
+      : !list.configured
+        ? 'The owner has not published the account tiers (IDENTITY_ACCOUNT_TIERS), so no account can be moved (identity.account_tiers_unset).'
+        : userId.toLowerCase() === founderId.toLowerCase()
+          ? 'You cannot move your own account; the other founder can (identity.tier_self_forbidden).'
+          : chosen && blankTerms(chosen).length > 0
+            ? `Tier ${chosen.name} has blank terms (${blankTerms(chosen)
+                .map((key) => TIER_TERM_LABEL[key].toLowerCase())
+                .join(', ')}), so it cannot be assigned (identity.tier_terms_unset).`
+            : null;
 
   return (
     <div className="adm-control-card" data-testid="account-tier">
@@ -121,7 +134,7 @@ export function AccountTierPanel({ userId, founderId, onChanged }: { userId: str
           {list.configured && (
             <label className="adm-field">
               Move to tier
-              <select value={tierId} onChange={(event) => setTierId(event.target.value)}>
+              <select value={tierId} disabled={readOnly !== null} onChange={(event) => setTierId(event.target.value)}>
                 <option value="">Choose a tier</option>
                 {list.tiers
                   .filter((tier) => tier.id !== state.tierId)

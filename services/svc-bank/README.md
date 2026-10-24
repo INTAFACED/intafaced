@@ -172,6 +172,17 @@ The procedures exist and are mounted. With `BANK_CARD_ISSUER=none` (the default)
 
 `ops.runAutoInvest` (`admin:treasury`) and `POST /internal/jobs/run-auto-invest` fire due **threshold / DCA** rules. Card round-ups fire on `ops.cardCapture`, not the runner. Kill switch: `AUTO_INVEST_ENABLED` — same code `bank.auto_invest_disabled` on HTTP, tRPC runner, **and the capture hook**. Sovereign allowance plane is not here — P-plane is `protocol.smart-accounts` (Shehzad). No APY is invented; the destination is an existing earn pool. DCA converts run as a standing instruction: bank calls svc-trade `standing.quote` / `standing.execute` as an authenticated svc-bank (body-bound service call, user and rule id in the signed body, no minted customer principal). The trade door is off until `TRADE_STANDING_INSTRUCTION_ENABLED`; while off, a DCA run refuses `bank.auto_invest_rate_unset`.
 
+### `sorter` — **income sorter (BK-pots-03). Instructions only; blank terms refuse.**
+
+| Procedure       | Scope        | What it does                                                                                                                                                                                                            |
+| --------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sorter.list`   | `bank:read`  | The bank's terms (`BANK_INCOME_SORTER_MIN_CREDIT`, or `not_set` with `bank.sorter_terms_unset`) and the caller's live sorters, one per asset at most, each space named and marked `archived` when it was archived since |
+| `sorter.runs`   | `bank:read`  | What each sorted payment came to under one of the caller's sorters: every split's amount and `pending`, `settled` or `rejected` with its code                                                                           |
+| `sorter.create` | `bank:write` | Shares in whole basis points into the caller's own live named spaces of one asset, at most 10000 in all (`bank.sorter_invalid`); the rest stays in the account. One live sorter per asset (`bank.sorter_exists`)        |
+| `sorter.cancel` | `bank:write` | Stop sorting. Payments already sorted stay where they went                                                                                                                                                              |
+
+A payment from another person (`transfers.toUser`, a paid request) is sorted right after it posts, and `POST /internal/jobs/run-income-sorter` sweeps any posted payment the send never sorted and any split whose outcome was unknown. Each split is an own-space `bankTransfer` keyed `sorter:<sorter>:<payment ledger tx>` with the split's position, so a payment is split once whichever path drives it. A refused split (an empty account, an archived space) moves nothing and stays refused. While an earlier post of a split is younger than the ledger's in-flight bound (`POST_IN_FLIGHT_BOUND_SECONDS`), an absent key proves nothing, so the split is neither posted again nor refused until a later sweep.
+
 ### `business` — **maker/checker with ledger holds. Not full bank-biz.**
 
 | Procedure                      | Scope                  | What it does                                                                                                                                                                                |
@@ -252,6 +263,7 @@ HTTP, for the external scheduler (service credentials required; each money job h
 | `POST /internal/jobs/recover-loan-repayments` | re-drive unknown repayments/releases; also ticked in-process     |
 | `POST /internal/jobs/resume-pending-earn`     | crash recovery for pending earn deposits; also ticked in-process |
 | `POST /internal/jobs/run-auto-invest`         | auto-invest threshold sweeps / due DCA                           |
+| `POST /internal/jobs/run-income-sorter`       | income sorter: unsorted payments and splits left pending         |
 
 Plus `/health` and `/ready`. Card settlement resume is tRPC-only (`ops.cardResumeSettlement`) — no HTTP twin yet.
 

@@ -29,10 +29,13 @@ export function AccountClosure({
   founderId,
   onChanged,
   onState,
+  readOnly = null,
 }: {
   userId: string;
   founderId: string;
   onChanged: () => void;
+  /** Why nothing here may change (an archived record), or null. */
+  readOnly?: string | null;
   /** The closure state as read, null when identity has no such account, undefined while it could not be read. */
   onState?: (state: AccountClosureState | null | undefined) => void;
 }) {
@@ -91,7 +94,11 @@ export function AccountClosure({
             <>
               <label className="adm-field">
                 Reason code
-                <select value={reasonCode} onChange={(event) => setReasonCode(event.target.value as AccountCloseReasonCode | '')}>
+                <select
+                  value={reasonCode}
+                  disabled={readOnly !== null}
+                  onChange={(event) => setReasonCode(event.target.value as AccountCloseReasonCode | '')}
+                >
                   <option value="">Choose a reason code</option>
                   {CLOSE_REASON_CODES.map((code) => (
                     <option key={code} value={code}>
@@ -104,7 +111,7 @@ export function AccountClosure({
                 key={`close:${userId}:${state.version}`}
                 endpoint="/api/accounts/closure"
                 userId={founderId}
-                blockedReason={null}
+                blockedReason={readOnly}
                 formHold={reasonCode === '' ? 'Choose a reason code first.' : null}
                 action={{
                   heading: 'Close this account',
@@ -131,12 +138,13 @@ export function AccountClosure({
               endpoint="/api/accounts/closure"
               userId={founderId}
               blockedReason={
-                state.reopenable
+                readOnly ??
+                (state.reopenable
                   ? null
-                  : 'Identity reopens only an account the customer closed. This one was closed by staff for another reason, so it stays closed (identity.reopen_not_allowed).'
+                  : 'Identity reopens only an account the customer closed. This one was closed by staff for another reason, so it stays closed (identity.reopen_not_allowed).')
               }
               action={
-                state.reopenable
+                state.reopenable && readOnly === null
                   ? {
                       heading: 'Reopen this account',
                       submitLabel: 'Ask a second founder to approve reopening the account',

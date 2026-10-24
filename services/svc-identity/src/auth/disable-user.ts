@@ -13,7 +13,7 @@ import type { ActionApprovalService } from './action-approval-service.js';
 export class DisableUserError extends Error {
   constructor(
     message: string,
-    readonly code: 'auth.user_id_missing' | 'auth.not_found' | PrivilegedDualControlError['code'],
+    readonly code: 'auth.user_id_missing' | 'auth.not_found' | 'identity.account_archived' | PrivilegedDualControlError['code'],
   ) {
     super(message);
     this.name = 'DisableUserError';
@@ -35,6 +35,9 @@ export async function disableUser(
   approvals: Pick<ActionApprovalService, 'consume'>,
 ): Promise<{ userId: string; status: 'frozen'; keysRevoked: number }> {
   const named = requireDisableUserId(namedUserId);
+  // An archived record stays closed for good: refuse before the approval is spent.
+  const [archived] = await sql<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${named} AND archived_at IS NOT NULL LIMIT 1`;
+  if (archived) throw new DisableUserError('The customer record is archived and stays read-only', 'identity.account_archived');
   try {
     await requirePrivilegedDualControl(approvals, { ...cmd, targetId: cmd.targetId || 'identity.disable_user', fields: { userId: named } });
   } catch (err) {
@@ -50,7 +53,7 @@ export async function disableUser(
     throw new DisableUserError('User not found', 'auth.not_found');
   }
   await sql`
-    UPDATE users SET status = 'frozen', updated_at = now() WHERE id = ${named}
+    UPDATE users SET status = 'frozen', updated_at = now() WHERE id = ${named} AND archived_at IS NULL
   `;
   // A frozen account must not keep live seats: refresh rotation and the session
   // door honour a live session, so revoke sessions with the keys. Passkeys stay on the account; the

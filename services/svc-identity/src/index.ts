@@ -62,6 +62,7 @@ import { createDisableUserRouter } from './disable-user-router.js';
 import { FounderControls, parseFounderPair } from './controls/founder-controls.js';
 import { createFounderControlsRouter } from './controls/founder-controls-router.js';
 import { parseAccountTiers } from './controls/account-tiers.js';
+import { parseDormancyDays } from './controls/account-archive.js';
 import { createOperatorOpsRouter } from './ops/ops-router.js';
 import { SocialSignin } from './social/social-signin.js';
 import { createPreferencesRouter } from './preferences/preferences-router.js';
@@ -534,6 +535,7 @@ const p2pClosureCheck = httpClosureChecker({
   ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-p2p' } } : {}),
 });
 founderControls.useAccountTiers(parseAccountTiers(env.IDENTITY_ACCOUNT_TIERS));
+founderControls.useDormancyDays(parseDormancyDays(env.IDENTITY_DORMANCY_DAYS));
 // A staff close (J-ops-console-04 #7) runs the same checks as a customer closure before the approval is spent.
 founderControls.useClosureChecks(async (input) => {
   const results = await Promise.all([bankClosureCheck.check(input), tradeClosureCheck.check(input), p2pClosureCheck.check(input)]);

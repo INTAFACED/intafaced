@@ -277,6 +277,8 @@ export const p2pHealthSchema = z.object({
   offerLimitsConfigured: z.boolean(),
   offerLimitsPosture: z.enum(['unset', 'unlimited', 'configured']),
   instrumentKmsConfigured: z.literal(false),
+  /** `local-test` is the test stack's seal; anything else refuses new ads until the owner's key service is wired. */
+  instrumentKeyProvider: z.enum(['none', 'local-test']).optional(),
 });
 export const disputeSchema = z.object({
   id,
@@ -373,6 +375,32 @@ export type P2PEligibility = z.infer<typeof p2pEligibilitySchema>;
 /** `risk.notice` / `risk.accept`: the owner-published notice version and when this person accepted it. */
 export const p2pRiskNoticeSchema = z.object({ version: z.string(), acceptedAt: z.string().nullable() });
 export type P2PRiskNotice = z.infer<typeof p2pRiskNoticeSchema>;
+/** P-ads-merchant-01: the caller's free balance of one coin, as svc-p2p reads it from the ledger. */
+export const p2pSellBalanceSchema = z.object({ asset: z.string(), available: amount });
+/** P-ads-merchant-02 (`limits.verification`): the per-order band the caller's verification level allows, in one fiat. */
+export const p2pLevelLimitsSchema = z.object({
+  tier: z.enum(['none', 'basic', 'full', 'institutional']),
+  currency: z.string(),
+  orderMin: amount,
+  orderMax: amount,
+});
+export type P2PLevelLimits = z.infer<typeof p2pLevelLimitsSchema>;
+/** P-ads-merchant-01: what the post-an-ad form sends to `offers.create`, besides its key and the terms version. */
+export type PostOfferInput = {
+  side: 'buy' | 'sell';
+  asset: string;
+  fiatCurrency: string;
+  priceType: 'fixed' | 'float';
+  price: string;
+  minAmount: string;
+  maxAmount: string;
+  totalAmount?: string;
+  methods: string[];
+  terms?: string;
+  acceptsNonInstant?: boolean;
+  /** The ad's own id, chosen once per form; the post's key names it too. */
+  offerId?: string;
+};
 export const p2pApiAccessSchema = z.object({
   eligible: z.boolean(),
   credential: z.enum(['session', 'api_key']),

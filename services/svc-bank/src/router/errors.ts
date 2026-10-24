@@ -71,6 +71,10 @@ export function publicDoorWireMessage(err: BankError): string {
     err.code === 'bank.pool_underfunded' ||
     err.code === 'bank.mark_missing' ||
     err.code === 'bank.prices_unavailable' ||
+    err.code === 'bank.value_range_invalid' ||
+    err.code === 'bank.value_range_too_long' ||
+    err.code === 'bank.value_history_too_large' ||
+    err.code === 'bank.value_history_unavailable' ||
     err.code === 'bank.earn_principal_mismatch' ||
     err.code === 'bank.loan_seizure_cross_asset' ||
     err.code === 'bank.loan_health_price_unset' ||
@@ -426,6 +430,12 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.space_change_invalid': 'BAD_REQUEST',
   'bank.space_unlock_rule_unset': 'PRECONDITION_FAILED',
   'bank.space_not_locked': 'CONFLICT',
+  'bank.sorter_terms_unset': 'PRECONDITION_FAILED',
+  'bank.sorter_invalid': 'BAD_REQUEST',
+  'bank.sorter_exists': 'CONFLICT',
+  'bank.sorter_conflict': 'CONFLICT',
+  'bank.sorter_not_found': 'NOT_FOUND',
+  'bank.sorter_split_failed': 'CONFLICT',
   'bank.company_account_unwired': 'PRECONDITION_FAILED',
   'bank.loan_fee_unset': 'PRECONDITION_FAILED',
   'bank.loan_fee_unsupported': 'PRECONDITION_FAILED',
@@ -480,6 +490,10 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   // svc-trade's prices could not be read. A retry later may work; the
   // caller sent nothing wrong.
   'bank.prices_unavailable': 'SERVICE_UNAVAILABLE',
+  'bank.value_history_unavailable': 'SERVICE_UNAVAILABLE',
+  'bank.value_range_invalid': 'BAD_REQUEST',
+  'bank.value_range_too_long': 'BAD_REQUEST',
+  'bank.value_history_too_large': 'BAD_REQUEST',
   'bank.statement_unavailable': 'SERVICE_UNAVAILABLE',
   'bank.ops_audit_unavailable': 'SERVICE_UNAVAILABLE',
   'bank.account_details_unavailable': 'SERVICE_UNAVAILABLE',

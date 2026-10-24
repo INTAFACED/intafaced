@@ -904,6 +904,10 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       }),
     },
     {
+      name: 'tradeFillMakerRebate',
+      post: recipes.tradeFillMakerRebate({ ...fill, fillId: 'f-rebate', makerFeeBps: 0, takerFeeBps: 10, makerRebateBps: 5 }),
+    },
+    {
       name: 'deposit',
       post: recipes.deposit({
         userId: U,

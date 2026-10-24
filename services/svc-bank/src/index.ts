@@ -29,6 +29,7 @@ import { payoutFailedBody, payoutPaidBody, payoutReturnedBody, payoutVerifyBody,
 import { directDebitSchemeFor } from './direct-debits/scheme.js';
 import { ddRunBody, ddSimCollectionBody, ddSimMandateBody } from './direct-debits/job-bodies.js';
 import { scheduledNoticesBody } from './rules/job-bodies.js';
+import { incomeSorterBody } from './sorter/income-sorter.js';
 import { rampProgrammeFor } from './ramps/rails.js';
 import { eventMarginCallSink } from './loans/margin-call-publisher.js';
 import { createIdentityPartyHandles } from './transfers/party-handles.js';
@@ -40,7 +41,14 @@ import { eventPersonalTransferNotices } from './transfers/transfer-notices.js';
 import { eventScheduledNotices } from './rules/scheduled-notices.js';
 import { tickerPriceSource } from './loans/prices.js';
 import { httpTickerSource } from './portfolio/portfolio-service.js';
-import { createLedgerAssetRegistry, createLedgerClient, createLedgerHistory, createLedgerHistoryPages } from './ledger-client.js';
+import { httpCloseSeries } from './portfolio/candles.js';
+import {
+  createLedgerAssetRegistry,
+  createLedgerClient,
+  createLedgerHistory,
+  createLedgerHistoryPages,
+  createLedgerHoldingsHistory,
+} from './ledger-client.js';
 import { createAffiliateAccrueClient } from './affiliate-accrue.js';
 import { createAffiliatePayoutClient } from './affiliate-payout.js';
 import { createBankRouter, type BankRouter } from './router.js';
@@ -234,6 +242,9 @@ const bank = createBankServices(sql, ledger, history, {
     tickers: httpTickerSource({ baseUrl: env.TRADE_URL }),
     // The entries behind a balance: svc-ledger `historyPage`, read only.
     pages: createLedgerHistoryPages(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s),
+    // Value over time: svc-ledger `holdingsHistory` and svc-trade's public candles, both read only.
+    history: createLedgerHoldingsHistory(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s),
+    closes: httpCloseSeries({ baseUrl: env.TRADE_URL }),
   },
   autoInvest: {
     enabled: env.AUTO_INVEST_ENABLED,
@@ -274,6 +285,7 @@ const bank = createBankServices(sql, ledger, history, {
   accountCurrencies: env.BANK_ACCOUNT_CURRENCIES,
   spaceLimit: env.BANK_SPACE_LIMIT,
   spaceUnlockWaitHours: env.BANK_SPACE_UNLOCK_WAIT_HOURS,
+  incomeSorterMinCredit: env.BANK_INCOME_SORTER_MIN_CREDIT,
   /** Account details and the eligibility statement: owner-published lists, no banking partner wired (`rail.bank`). */
   accountDetails: {
     currencies: env.BANK_ACCOUNT_DETAILS_CURRENCIES,
@@ -683,6 +695,12 @@ jobDoor('/internal/jobs/dd-sim/collection', ddSimCollectionBody, (b) => bank.dir
  * a pass that runs twice tells nobody twice.
  */
 jobDoor('/internal/jobs/run-scheduled-notices', scheduledNoticesBody, (b) => bank.scheduledNotices.run({ limit: b.limit }));
+/**
+ * Income sorter sweep (BK-pots-03): sort posted payments that reached an account with a live sorter but were never
+ * sorted (the send crashed after its post), then drive every split whose outcome was unknown. Same keys as the send's
+ * own sort, so a pass that runs twice moves nothing twice.
+ */
+jobDoor('/internal/jobs/run-income-sorter', incomeSorterBody, (b) => bank.sorter.sweep(b.limit));
 app.post('/internal/jobs/run-due-direct-debits', async (req, reply) => {
   if (!requireService(req)) return reply.code(401).send({ error: 'service credentials required', code: 'bank.unauthenticated' });
   if (!env.BANK_DD_COLLECTIONS_ENABLED) {

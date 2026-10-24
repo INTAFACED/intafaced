@@ -56,6 +56,11 @@ export const IDENTITY_UNFREEZE_ACTION_TYPE = 'identity.account_unfreeze';
 export const IDENTITY_CLOSE_ACTION_TYPE = 'identity.account_close';
 export const IDENTITY_REOPEN_ACTION_TYPE = 'identity.account_reopen';
 /**
+ * Staff archive of one closed customer record (J-ops-console-04 #10). Founder-level: it cannot be undone, so the approver
+ * is the other founder, never any operator; identity also re-checks at consumption that the approver is a live founder.
+ */
+export const IDENTITY_ARCHIVE_ACTION_TYPE = 'identity.account_archive';
+/**
  * Moving one account onto another product tier (J-ops-console-04 #11). Founder-level: a tier carries fees and limits, so
  * it sits with the fee and limit policy types below; identity also re-checks at consumption that the approver is a live founder.
  */
@@ -74,6 +79,7 @@ export const FOUNDER_ACTION_TYPES: readonly string[] = [
   'identity.change_fee_tier',
   'identity.change_limit',
   IDENTITY_TIER_MOVE_ACTION_TYPE,
+  IDENTITY_ARCHIVE_ACTION_TYPE,
   'affiliates.payout',
   'identity.auth_key_rotate',
   'identity.auth_key_remove_old',

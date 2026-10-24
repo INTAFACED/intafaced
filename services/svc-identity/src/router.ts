@@ -507,6 +507,8 @@ const sessionOutput = z.object({
   userId: z.string().guid(),
   /** A device key just trusted, for a native or API client only (a browser gets the `ifc_dk` cookie instead). */
   deviceKey: z.string().optional(),
+  /** Present only when this sign-in's second step spent a recovery code: how many codes the account has left. */
+  recoveryCodesLeft: z.number().int().min(0).optional(),
 });
 
 /** The tiers a user can ask for. `none` is the absence of a record, not a request. */
@@ -819,7 +821,7 @@ export function createIdentityRouter(
 
   const sessionWire = (
     ctx: { refreshCookie?: RefreshCookieBag | null },
-    session: { accessToken: string; refreshToken: string; expiresAt: Date; userId: string; deviceKey?: string },
+    session: { accessToken: string; refreshToken: string; expiresAt: Date; userId: string; deviceKey?: string; recoveryCodesLeft?: number },
   ) => {
     const bag = ctx.refreshCookie;
     bag?.issue(session.refreshToken, auth.refreshLifetimeSeconds());
@@ -828,6 +830,7 @@ export function createIdentityRouter(
       accessToken: session.accessToken,
       expiresAt: session.expiresAt.toISOString(),
       userId: session.userId,
+      ...(session.recoveryCodesLeft !== undefined ? { recoveryCodesLeft: session.recoveryCodesLeft } : {}),
     };
     if (bag?.browser) return wire;
     // A native or API client keeps its device key itself and presents it as `deviceKey` on sign-in.
