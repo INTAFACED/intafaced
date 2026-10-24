@@ -598,7 +598,9 @@ function LotRows({
               </td>
               <td className="money-num" data-col="cost">
                 {lot.costUsd === null ? <span>{t('Cost unknown')}</span> : <Amount value={usd(lot.costUsd, copy)} hidden={hidden} />}
-                {lot.basisSource === 'customer-entered' ? <CustomerEntered lotId={lot.id} copy={copy} onRemove={onRemove} /> : null}
+                {lot.basisSource === 'customer-entered' ? (
+                  <CustomerEntered lotId={lot.basisLotId ?? lot.id} copy={copy} onRemove={onRemove} />
+                ) : null}
               </td>
               <td className="money-num" data-col="cost-left">
                 {lot.remainingCostUsd === null ? (

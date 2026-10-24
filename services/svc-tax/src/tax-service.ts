@@ -307,6 +307,7 @@ export class TaxService {
       inflows,
       moves: own.moves,
       spaces: own.spaces,
+      ...(own.spaceHeld ? { spaceHeld: own.spaceHeld } : {}),
       now: this.now(),
       ...(overridePricePerUnit ? { overridePricePerUnit } : {}),
     });
@@ -333,12 +334,22 @@ export class TaxService {
     mainInflows: readonly InflowLine[],
     mainOutflows: readonly AccountLine[],
     residuals: Set<string>,
-  ): Promise<{ spaces: BookSpaces; moves: OwnMove[]; mainInflows: InflowLine[]; spaceInflows: SpaceInflow[]; truncated: boolean }> {
+  ): Promise<{
+    spaces: BookSpaces;
+    moves: OwnMove[];
+    mainInflows: InflowLine[];
+    spaceInflows: SpaceInflow[];
+    truncated: boolean;
+    spaceHeld?: Map<string, Map<string, Amount>>;
+  }> {
     const none = { moves: [], mainInflows: [...mainInflows], spaceInflows: [], truncated: false };
     if (spaces.status === 'unavailable') residuals.add(TAX_OWN_SPACES_UNAVAILABLE);
     if (spaces.status !== 'read' || spaces.list.length === 0) return { spaces, ...none };
     const readHistory = this.reads.spaceHistory;
-    if (!readHistory) return { spaces: { status: 'unavailable', code: TAX_OWN_SPACES_UNAVAILABLE }, ...none };
+    if (!readHistory) {
+      residuals.add(TAX_OWN_SPACES_UNAVAILABLE);
+      return { spaces: { status: 'unavailable', code: TAX_OWN_SPACES_UNAVAILABLE }, ...none };
+    }
     let history;
     try {
       history = await readHistory.call(
@@ -349,7 +360,20 @@ export class TaxService {
       residuals.add(TAX_OWN_SPACES_UNAVAILABLE);
       return { spaces: { status: 'unavailable', code: TAX_OWN_SPACES_UNAVAILABLE }, ...none };
     }
-    return { spaces, ...pairOwnMoves({ mainInflows, mainOutflows, spaceLines: history.lines }), truncated: history.truncated };
+    // What each space holds now, from its own lines: the book checks the space's lots against it.
+    const spaceHeld = new Map<string, Map<string, Amount>>();
+    for (const line of history.lines) {
+      const held = spaceHeld.get(line.spaceId) ?? new Map<string, Amount>();
+      held.set(line.assetId, (held.get(line.assetId) ?? 0n) + (line.direction === 'debit' ? line.amount : -line.amount));
+      spaceHeld.set(line.spaceId, held);
+    }
+    for (const space of spaces.list) if (!spaceHeld.has(space.spaceId)) spaceHeld.set(space.spaceId, new Map());
+    return {
+      spaces,
+      ...pairOwnMoves({ mainInflows, mainOutflows, spaceLines: history.lines }),
+      truncated: history.truncated,
+      spaceHeld,
+    };
   }
 
   private bookChoices(saved: CostBasisChoices): BookChoices {

@@ -169,8 +169,14 @@ export function pickableLots(book: LotBookAnswer, sale: LotBookSale): LotBookLot
   const usedFromHere = new Set(
     book.sales.filter((s) => s.assetId === sale.assetId && s.disposedAt >= sale.disposedAt).flatMap((s) => s.matches.map((m) => m.lotId)),
   );
+  // A sale is a trade on the main account: a lot in a space, or one carried back to main after the sale, is not one it can use.
   return book.lots.filter(
-    (lot) => lot.assetId === sale.assetId && lot.acquiredAt <= sale.disposedAt && (lot.remaining !== '0' || usedFromHere.has(lot.id)),
+    (lot) =>
+      lot.assetId === sale.assetId &&
+      lot.spaceId === undefined &&
+      lot.acquiredAt <= sale.disposedAt &&
+      (lot.carriedFrom === undefined || lot.carriedFrom.movedAt <= sale.disposedAt) &&
+      (lot.remaining !== '0' || usedFromHere.has(lot.id)),
   );
 }
 

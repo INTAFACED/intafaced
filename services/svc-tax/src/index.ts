@@ -55,7 +55,9 @@ const tax = new TaxService({
   ...(env.TAX_DEPOSIT_BASIS === undefined ? {} : { depositBasis: env.TAX_DEPOSIT_BASIS }),
   ...(env.TRADE_URL === undefined ? {} : { prices: createTradePrices(env.TRADE_URL) }),
   ...(basisSql === undefined ? {} : { basis: createPgBasisStore(basisSql), choices: createPgChoiceStore(basisSql) }),
-  ...(env.BANK_URL === undefined ? {} : { spaces: createBankOwnSpacesClient({ bankUrl: env.BANK_URL, secret: env.INTERNAL_SERVICE_SECRET }) }),
+  ...(env.BANK_URL === undefined
+    ? {}
+    : { spaces: createBankOwnSpacesClient({ bankUrl: env.BANK_URL, secret: env.INTERNAL_SERVICE_SECRET }) }),
 });
 
 const appRouter = createTaxRouter(tax);

@@ -172,6 +172,9 @@ describe('lots', () => {
     expect(lotAccountFromQuery(`?account=${SPACE}`, lotAccounts(spaced, 'ETH'))).toBe(SPACE);
     expect(lotAccountFromQuery('?account=nope', lotAccounts(spaced, 'ETH'))).toBe('all');
     expect(spaceOf(spaced, SPACE)).toEqual({ name: 'Cold TEST', archived: true });
+    // A sale on the main account cannot pick a lot that sits in a space.
+    const sale = { assetId: 'ETH', disposedAt: '2026-10-22T10:00:00.000Z', matches: [] } as unknown as LotBookSale;
+    expect(pickableLots(spaced, sale).map((l) => l.id)).toEqual(['lot:a:ETH', 'lot:c:ETH']);
     expect(spaceOf(book({ spaces: { status: 'unavailable', code: 'tax.own_spaces_unavailable' } }), SPACE)).toBeNull();
   });
 

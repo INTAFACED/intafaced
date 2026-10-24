@@ -15,9 +15,10 @@ import { TAX_COST_BASIS_UNAVAILABLE, TAX_LOT_PICK_UNUSABLE, TAX_LOT_UNDERFLOW } 
  * average unchanged. The lots list still shows which arrivals are left, oldest first, each at that average.
  *
  * OWN-ACCOUNT CARRY (LB-6). Lots sit in the customer's main account or in one of their spaces. A move between two of the
- * customer's own accounts in one transaction is not a sale and not a new arrival: it takes open lots from the account it left,
- * oldest first, and each part it takes becomes a lot in the account it reached with the same acquired date, source and share
- * of basis (`carriedFrom` names the lot it came from). Sales are trades, and trades happen in the main account, so a sale
+ * customer's own accounts in one transaction is not a sale and not a new arrival: it takes the open lots the method in force
+ * would draw on next (under AVERAGE, quantity oldest first at the average cost, which leaves the average unchanged), and each
+ * part it takes becomes a lot in the account it reached with the same acquired date, source and share of basis (`carriedFrom`
+ * names the lot it came from). Sales are trades, and trades happen in the main account, so a sale
  * draws on main-account lots only. A move with too few open coins behind it carries what there is; the rest arrives with
  * no basis, named.
  */
@@ -143,6 +144,8 @@ export interface EngineLot {
   readonly valuedAt: ValuedAt | null;
   /** The arrival's cost came from a price the customer entered. Absent otherwise. */
   readonly customerEntered?: true;
+  /** The lot id that price is stored under, when it is another lot's (a carried lot keeps the price of the lot it left). */
+  readonly priceLotId?: string;
   /** The space the lot sits in; null: the main account. */
   readonly space: string | null;
   /** Present when the lot was carried in by a move between the customer's own accounts. */
@@ -164,10 +167,12 @@ export function lotIdOf(acquireTxId: string, assetId: string): string {
 }
 
 interface OpenLot {
-  readonly lot: Omit<EngineLot, 'remaining' | 'remainingCostUsd' | 'customerEntered'>;
+  readonly lot: Omit<EngineLot, 'remaining' | 'remainingCostUsd' | 'customerEntered' | 'priceLotId'>;
   remaining: Amount;
   remainingCost: Amount | null;
   customerEntered: boolean;
+  /** The lot id the customer's price is stored under, when this lot's cost came from exactly one such price. */
+  priceLotId: string | null;
 }
 
 /** total * take / qty, floored at the ledger's places; the whole when all is taken. */
@@ -231,7 +236,16 @@ export function runLotEngine(
     };
     for (const m of list) {
       if (m.side === 'move') {
-        all.push(...carry(m, openAt(m.from), openAt(m.to), nextId, overridePricePerUnit));
+        // A move uses the method a sale at that moment would (a pick is for a sale, so none applies to a move).
+        const { method } = ruleOf({
+          side: 'dispose',
+          txId: m.txId,
+          postedAt: m.postedAt,
+          assetId: m.assetId,
+          qty: m.qty,
+          proceedsUsd: null,
+        });
+        all.push(...carry(m, method, openAt(m.from), openAt(m.to), nextId, residuals, overridePricePerUnit));
         continue;
       }
       if (m.side === 'acquire') {
@@ -256,6 +270,7 @@ export function runLotEngine(
           remaining: m.qty,
           remainingCost: costUsd,
           customerEntered: entered,
+          priceLotId: entered ? id : null,
         };
         openAt(m.space).push(entry);
         all.push(entry);
@@ -269,6 +284,9 @@ export function runLotEngine(
         remaining: entry.remaining,
         remainingCostUsd: entry.remaining === 0n ? 0n : entry.remainingCost,
         ...(entry.customerEntered ? { customerEntered: true as const } : {}),
+        ...(entry.customerEntered && entry.priceLotId !== null && entry.priceLotId !== entry.lot.id
+          ? { priceLotId: entry.priceLotId }
+          : {}),
       });
       if (entry.remaining > 0n && entry.remainingCost === null) residuals.add(TAX_COST_BASIS_UNAVAILABLE);
     }
@@ -288,9 +306,11 @@ const SIDE_ORDER: Record<EngineMovement['side'], number> = { acquire: 0, move: 1
  */
 function carry(
   m: EngineMove,
+  method: EngineMethod,
   from: OpenLot[],
   to: OpenLot[],
   nextId: (base: string) => string,
+  residuals: Set<string>,
   overridePricePerUnit?: ReadonlyMap<string, Amount>,
 ): OpenLot[] {
   const made: OpenLot[] = [];
@@ -302,15 +322,37 @@ function carry(
     to.splice(at, 0, entry);
     made.push(entry);
   };
+  // AVERAGE: what moves goes at the account's average cost per coin, and what stays keeps that average, so a move changes no
+  // later figure. The other methods move the lots the method would draw on next.
+  const pool = method === 'AVERAGE' ? averagePoolOf(from) : null;
+  let unranked = false;
+  let taken = 0n;
   while (remaining > 0n && from.length > 0) {
-    const lot = from[0]!;
+    let idx = method === 'LIFO' ? from.length - 1 : method === 'HIFO' ? pick(from, 'HIFO') : 0;
+    if (idx === null) {
+      // HIFO cannot rank a lot with no basis: which coins moved is not known, so neither is the cost of any of them.
+      unranked = true;
+      residuals.add(TAX_COST_BASIS_UNAVAILABLE);
+      idx = 0;
+    }
+    const lot = from[idx]!;
     const take = remaining < lot.remaining ? remaining : lot.remaining;
     const id = nextId(`${lot.lot.id}>${m.txId}`);
+    const own = unranked
+      ? null
+      : pool !== null
+        ? pool.cost === null
+          ? null
+          : share(pool.cost, pool.qty, take)
+        : lot.remainingCost === null
+          ? null
+          : share(lot.remainingCost, lot.remaining, take);
     // A carried part with no basis takes a price the customer entered for it, the same as any lot with no cost.
-    const price = lot.remainingCost === null ? overridePricePerUnit?.get(id) : undefined;
+    const price = own === null ? overridePricePerUnit?.get(id) : undefined;
     const entered = price !== undefined && price > 0n;
-    const cost = entered ? mul(price, take) : lot.remainingCost === null ? null : share(lot.remainingCost, lot.remaining, take);
+    const cost = entered ? mul(price, take) : own;
     const valuedAt = lot.lot.valuedAt === null ? null : { ...lot.lot.valuedAt, usd: share(lot.lot.valuedAt.usd, lot.lot.qty, take) };
+    const inherited = !entered && own !== null && (lot.customerEntered || (pool?.entered ?? false));
     arrive({
       lot: {
         ...lot.lot,
@@ -323,13 +365,17 @@ function carry(
       },
       remaining: take,
       remainingCost: cost,
-      customerEntered: entered || (lot.customerEntered && cost !== null),
+      customerEntered: entered || inherited,
+      priceLotId: entered ? id : inherited && pool === null ? lot.priceLotId : null,
     });
-    lot.remainingCost = lot.remainingCost === null || entered || cost === null ? null : lot.remainingCost - cost;
+    if (own !== null) taken += own;
+    if (pool === null) lot.remainingCost = lot.remainingCost === null || own === null ? null : lot.remainingCost - own;
     lot.remaining -= take;
     remaining -= take;
-    if (lot.remaining === 0n) from.shift();
+    if (lot.remaining === 0n) from.splice(idx, 1);
   }
+  if (pool !== null) restateAtAverage(from, pool, taken);
+  if (unranked) for (const lot of from) lot.remainingCost = null;
   if (remaining > 0n) {
     const id = nextId(lotIdOf(m.txId, m.assetId));
     const price = overridePricePerUnit?.get(id);
@@ -351,9 +397,40 @@ function carry(
       remaining,
       remainingCost: cost,
       customerEntered: entered,
+      priceLotId: entered ? id : null,
     });
   }
   return made;
+}
+
+/** One cost per coin for the whole open quantity; null when any open lot has no basis. */
+function averagePoolOf(open: readonly OpenLot[]): { qty: Amount; cost: Amount | null; entered: boolean } {
+  let qty = 0n;
+  let cost: Amount | null = 0n;
+  for (const lot of open) {
+    qty += lot.remaining;
+    cost = cost === null || lot.remainingCost === null ? null : cost + lot.remainingCost;
+  }
+  return { qty, cost, entered: cost !== null && open.some((lot) => lot.customerEntered) };
+}
+
+/**
+ * The average is unchanged by what left: every lot still open is restated at that cost per coin. The pool's cost left is
+ * exactly what it had less what was taken, so the rounding remainder goes to the last lot and nothing drifts.
+ */
+function restateAtAverage(open: readonly OpenLot[], pool: { qty: Amount; cost: Amount | null; entered: boolean }, taken: Amount): void {
+  if (pool.cost === null) {
+    for (const lot of open) lot.remainingCost = null;
+    return;
+  }
+  const total = pool.cost;
+  let left = total - taken;
+  open.forEach((lot, i) => {
+    const part = i === open.length - 1 ? left : share(total, pool.qty, lot.remaining);
+    lot.remainingCost = part;
+    if (pool.entered) lot.customerEntered = true;
+    left -= part;
+  });
 }
 
 function dispose(m: EngineDispose, open: OpenLot[], rule: SaleRule, residuals: Set<string>): EngineSale {
@@ -371,17 +448,8 @@ function dispose(m: EngineDispose, open: OpenLot[], rule: SaleRule, residuals: S
   let unranked = false;
 
   // AVERAGE: one cost per coin for the whole open quantity, fixed for this sale.
-  let averagePool: { qty: Amount; cost: Amount | null } | null = null;
-  if (method === 'AVERAGE') {
-    let qty = 0n;
-    let cost: Amount | null = 0n;
-    for (const lot of open) {
-      qty += lot.remaining;
-      cost = cost === null || lot.remainingCost === null ? null : cost + lot.remainingCost;
-    }
-    averagePool = { qty, cost };
-  }
-  const poolEntered = averagePool !== null && averagePool.cost !== null && open.some((lot) => lot.customerEntered);
+  const averagePool = method === 'AVERAGE' ? averagePoolOf(open) : null;
+  const poolEntered = averagePool?.entered ?? false;
 
   while (remaining > 0n && open.length > 0) {
     const pickedAt = picked === null ? -1 : open.indexOf(picked);
@@ -426,21 +494,11 @@ function dispose(m: EngineDispose, open: OpenLot[], rule: SaleRule, residuals: S
     if (lot.remaining === 0n) open.splice(idx, 1);
   }
   if (averagePool !== null) {
-    // The average is unchanged by a sale: every lot still open is restated at that cost per coin. The pool's cost left is
-    // exactly what it had less what this sale took, so the rounding remainder goes to the last lot and nothing drifts.
-    if (averagePool.cost === null) {
-      for (const lot of open) lot.remainingCost = null;
-    } else {
-      const taken = matches.reduce((sum, x) => sum + (x.costUsd ?? 0n), 0n);
-      let left = averagePool.cost - taken;
-      const pool = { qty: averagePool.qty, cost: averagePool.cost };
-      open.forEach((lot, i) => {
-        const part = i === open.length - 1 ? left : share(pool.cost, pool.qty, lot.remaining);
-        lot.remainingCost = part;
-        if (poolEntered) lot.customerEntered = true;
-        left -= part;
-      });
-    }
+    restateAtAverage(
+      open,
+      averagePool,
+      matches.reduce((sum, x) => sum + (x.costUsd ?? 0n), 0n),
+    );
   }
   if (unranked) for (const lot of open) lot.remainingCost = null;
   if (remaining > 0n && open.length === 0) residuals.add(TAX_LOT_UNDERFLOW);

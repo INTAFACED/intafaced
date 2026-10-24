@@ -56,7 +56,10 @@ export interface SourceOptions {
 export interface Poller {
   /** Same key + interval returns the same object, so it is safe in `useMemo`. */
   source<T>(key: string, fetcher: Fetcher<T>, options: SourceOptions): Source<T>;
-  /** Fetch now (budget permitting) for a key that has subscribers. */
+  /**
+   * Fetch now (budget permitting) for a key that has subscribers. A read already in flight started before whatever asked for
+   * the refresh (a save), so it may answer with the old state: it is dropped and a new read starts.
+   */
   refresh(key: string): void;
   /** Count a request made outside the scheduler (orders, one-off reads). */
   recordExternalRequest(count?: number): void;
@@ -348,7 +351,10 @@ export function createPoller(options: PollerOptions = {}): Poller {
     },
     refresh(key) {
       const entry = entries.get(key);
-      if (entry) run(entry);
+      if (!entry) return;
+      entry.inflight?.abort();
+      entry.inflight = null;
+      run(entry);
     },
     recordExternalRequest(count = 1) {
       budget.record(now(), count);

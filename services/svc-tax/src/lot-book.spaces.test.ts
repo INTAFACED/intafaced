@@ -28,7 +28,7 @@ const entry = (e: Partial<Entry> & Pick<Entry, 'txId' | 'direction' | 'amount' |
   ...e,
 });
 
-function ledger() {
+function ledger(opts: { sentOn?: boolean } = {}) {
   const asked: Array<Record<string, unknown>> = [];
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const path = new URL(String(input)).pathname;
@@ -49,7 +49,24 @@ function ledger() {
     } else if (body.kind === 'hold' && body.purpose === 'order:o1') {
       result = { entries: [entry({ txId: 'buy', direction: 'credit', amount: '100', assetId: 'USDT' })], nextCursor: null };
     } else if (body.ownerType === 'subaccount' && body.ownerId === SPACE && body.kind === 'available') {
-      result = { entries: [entry({ ...moved, direction: 'debit' })], nextCursor: null };
+      result = {
+        entries: [
+          ...(opts.sentOn
+            ? [
+                entry({
+                  txId: 'gift',
+                  reason: 'bank.transfer.manual',
+                  direction: 'credit',
+                  amount: '1',
+                  assetId: 'BTC',
+                  postedAt: '2026-10-07T00:00:00.000Z',
+                }),
+              ]
+            : []),
+          entry({ ...moved, direction: 'debit' }),
+        ],
+        nextCursor: null,
+      };
     }
     return new Response(JSON.stringify(result), { status: 200, headers: { 'content-type': 'application/json' } });
   }) as typeof fetch;
@@ -102,6 +119,14 @@ describe('tax.lotBook own-account carry', () => {
     expect(book.residuals).toEqual([]);
     // The space is read by its own scope, which svc-bank named; nothing else is asked about.
     expect(asked.filter((c) => c.ownerType === 'subaccount').map((c) => c.ownerId)).toEqual([SPACE]);
+  });
+
+  it('coins sent from the space to someone else leave its lots unreconciled: their cost left is unknown, not a guess', async () => {
+    ledger({ sentOn: true });
+    const book = await service(read).lotBook({ userId: USER });
+    const inSpace = book.lots.find((lot) => lot.spaceId === SPACE)!;
+    expect([inSpace.remaining, inSpace.remainingCostUsd, inSpace.costUsd]).toEqual(['1', null, '100']);
+    expect(book.residuals).toContain(TAX_LOT_BOOK_UNRECONCILED);
   });
 
   it('with no answer from the bank the move is not followed, and the book says so instead of guessing', async () => {

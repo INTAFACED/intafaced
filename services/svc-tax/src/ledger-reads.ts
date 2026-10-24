@@ -161,13 +161,10 @@ export function createTaxLedgerReads(
           (e) => e.direction === 'debit' && !FILL_REASONS.has(e.reason) && !OWN_COIN_RETURNS.has(e.reason),
         );
         const outsideInflows = new Set(arrivals.map((e) => e.assetId));
-        const inflows: InflowLine[] = arrivals.map((e) => ({
-          txId: e.txId,
-          postedAt: new Date(e.postedAt),
-          assetId: e.assetId,
-          amount: parseAmount(e.amount),
-          reason: e.reason,
-        }));
+        const inflows: InflowLine[] = arrivals.map((e) => {
+          const { direction: _direction, ...line } = lineOf(e);
+          return line;
+        });
         const outflows: AccountLine[] = availableEntries.filter((e) => e.direction === 'credit' && !FILL_REASONS.has(e.reason)).map(lineOf);
         const orderIds = [...new Set(received.map((e) => e.orderId).filter((id): id is string => typeof id === 'string' && id !== ''))];
         // Keyed by order AND transaction: a self-trade moves two of the same user's orders in one transaction.
@@ -201,10 +198,18 @@ export function createTaxLedgerReads(
       try {
         let truncated = false;
         const lines: Array<AccountLine & { spaceId: string }> = [];
-        for (const spaceId of spaceIds) {
-          const got = await walkScope({ ownerType: 'subaccount', ownerId: spaceId, kind: 'available' });
-          if (got.truncated) truncated = true;
-          for (const e of got.entries) lines.push({ ...lineOf(e), spaceId });
+        // A few spaces at a time, like the hold reads.
+        for (let i = 0; i < spaceIds.length; i += HOLD_WALK_PARALLEL) {
+          const pages = await Promise.all(
+            spaceIds.slice(i, i + HOLD_WALK_PARALLEL).map(async (spaceId) => ({
+              spaceId,
+              got: await walkScope({ ownerType: 'subaccount', ownerId: spaceId, kind: 'available' }),
+            })),
+          );
+          for (const { spaceId, got } of pages) {
+            if (got.truncated) truncated = true;
+            for (const e of got.entries) lines.push({ ...lineOf(e), spaceId });
+          }
         }
         return { lines, truncated };
       } catch (err) {

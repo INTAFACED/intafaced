@@ -192,3 +192,50 @@ describe('runLotEngine own-account carry (LB-6)', () => {
     expect([s(carried.costUsd), carried.customerEntered, carried.source]).toEqual(['50', true, 'deposit']);
   });
 });
+
+describe('runLotEngine own-account carry follows the method in force', () => {
+  const SPACE = '33333333-3333-4333-8333-333333333333';
+  const move = (txId: string, day: number, qty: string): EngineMovement => ({
+    side: 'move',
+    txId,
+    postedAt: at(day),
+    assetId: 'BTC',
+    qty: amt(qty),
+    from: null,
+    to: SPACE,
+  });
+  // TEST: 1 BTC at 100, 1 BTC at 300 (average 200), move 1 to the space, then sell 1 on main for 500.
+  const history = [buy('b1', 1, '1', '100'), buy('b2', 2, '1', '300'), move('mv', 3, '1'), sell('s1', 4, '1', '500')];
+
+  it('AVERAGE: the move goes at the average and leaves it, so the later sale costs the same as with no move', () => {
+    const moved = runLotEngine(history, 'AVERAGE');
+    const unmoved = runLotEngine([buy('b1', 1, '1', '100'), buy('b2', 2, '1', '300'), sell('s1', 4, '1', '500')], 'AVERAGE');
+    expect(s(moved.sales[0]!.costUsd)).toBe('200');
+    expect(s(moved.sales[0]!.costUsd)).toBe(s(unmoved.sales[0]!.costUsd));
+    expect(moved.lots.filter((l) => l.space === SPACE).map((l) => [l.carriedFrom?.lotId, s(l.costUsd)])).toEqual([
+      [lotIdOf('b1', 'BTC'), '200'],
+    ]);
+  });
+
+  it('LIFO moves the newest lot, FIFO the oldest', () => {
+    const lifo = runLotEngine(history, 'LIFO');
+    expect(lifo.lots.filter((l) => l.space === SPACE).map((l) => [l.carriedFrom?.lotId, s(l.costUsd)])).toEqual([
+      [lotIdOf('b2', 'BTC'), '300'],
+    ]);
+    expect(s(lifo.sales[0]!.costUsd)).toBe('100');
+    const fifo = runLotEngine(history, 'FIFO');
+    expect(fifo.lots.filter((l) => l.space === SPACE).map((l) => l.carriedFrom?.lotId)).toEqual([lotIdOf('b1', 'BTC')]);
+    expect(s(fifo.sales[0]!.costUsd)).toBe('300');
+  });
+
+  it('a carried part keeps the price the customer entered on the lot it left, and names where that price is stored', () => {
+    const run = runLotEngine(
+      [buy('d1', 1, '1', null, 'deposit'), move('mv', 2, '0.4')],
+      'FIFO',
+      new Map([[lotIdOf('d1', 'BTC'), amt('50')]]),
+    );
+    const carried = run.lots.find((l) => l.space === SPACE)!;
+    expect([s(carried.costUsd), carried.customerEntered, carried.priceLotId]).toEqual(['20', true, lotIdOf('d1', 'BTC')]);
+    expect(run.lots.find((l) => l.id === lotIdOf('d1', 'BTC'))!.priceLotId).toBeUndefined();
+  });
+});

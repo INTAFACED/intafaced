@@ -93,6 +93,8 @@ export const lotBookLotSchema = z.object({
   basisSource: z.literal('customer-entered').optional(),
   /** Present when the lot sits in one of the customer's named spaces (listed in `spaces`); absent: the main account. */
   spaceId: z.string().optional(),
+  /** Present when the customer-entered cost is a price stored under another lot (the one this lot was carried from). */
+  basisLotId: z.string().optional(),
   /** Present when the lot was moved here from another of the customer's own accounts, keeping its date and basis. */
   carriedFrom: z.object({ lotId: z.string(), txId: z.string(), movedAt: z.string() }).optional(),
 });
