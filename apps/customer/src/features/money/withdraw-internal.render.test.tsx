@@ -86,7 +86,8 @@ function setValue(input: HTMLInputElement, value: string) {
 }
 const input = (label: string) =>
   [...document.querySelectorAll('label.field')].find((l) => l.querySelector('span')?.textContent === label)!.querySelector('input')!;
-const button = (name: string) => [...document.querySelectorAll('button')].find((b) => b.textContent === name) as HTMLButtonElement | undefined;
+const button = (name: string) =>
+  [...document.querySelectorAll('button')].find((b) => b.textContent === name) as HTMLButtonElement | undefined;
 const click = async (name: string) => act(async () => void button(name)!.click());
 
 async function fill(address: string, amount: string) {
@@ -104,7 +105,13 @@ describe('Withdraw to another INTAFACED account', () => {
     query.mockResolvedValue({ ok: true, data: { kind: 'internal' } });
     mutate.mockResolvedValue(sent);
     await fill(FRIEND, '10');
-    expect(query).toHaveBeenCalledWith('pay', 'withdrawal.destination', { destination: { kind: 'crypto', ref: FRIEND } }, expect.anything(), expect.anything());
+    expect(query).toHaveBeenCalledWith(
+      'pay',
+      'withdrawal.destination',
+      { destination: { kind: 'crypto', ref: FRIEND } },
+      expect.anything(),
+      expect.anything(),
+    );
     const note = document.querySelector('[data-testid="withdraw-destination"]')!;
     expect(note.getAttribute('data-kind')).toBe('internal');
     expect(note.textContent).toContain('It arrives at once, with no network fee.');
@@ -121,7 +128,7 @@ describe('Withdraw to another INTAFACED account', () => {
     expect(options).toEqual({ bearer: 'TEST-token' });
     const outcome = document.querySelector('[data-testid="withdraw-outcome"]')!;
     expect(outcome.textContent).toContain('10 USDT reached the other account at once, with no fee.');
-    expect(outcome.querySelector('a')!.getAttribute('href')).toBe(`/uc/withdraw/${ID}`);
+    expect(outcome.querySelector('a')!.getAttribute('href')).toBe(`/uc/withdraw?withdrawalId=${ID}`);
   });
 
   it('keeps the reference when the answer is lost, so confirming again finishes the same withdrawal', async () => {

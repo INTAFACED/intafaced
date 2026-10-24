@@ -259,8 +259,10 @@ test(`${J} #3 withdraws to a friend's address on the platform: told it settles i
   expect((await friendUsdt()) - friendBefore).toBe(toUnits('10'));
   expect(before - (await available(page))).toBe(toUnits('10'));
   await page.goto(detail);
-  await expect(page.getByText('Settled').first()).toBeVisible();
-  await expect(page.getByText('Inside INTAFACED, no network').first()).toBeVisible();
+  const status = page.getByTestId('withdrawal-status');
+  await expect(status).toHaveAttribute('data-status', 'settled');
+  await expect(status).toHaveText('Sent');
+  await expect(page.locator('.withdrawal-facts')).toContainText('Inside INTAFACED, no network');
 });
 
 test(`${J} #4 withdraws to their own address on the platform: refused as a send to yourself, and nothing moves`, async ({ page }) => {
@@ -308,7 +310,9 @@ test(`${J} #4 withdraws to their own address on the platform: refused as a send 
     });
     const body = await res.json();
     expect(res.status, JSON.stringify(body).slice(0, 300)).toBe(400);
-    expect(body?.error?.data?.intafacedCode ?? body?.error?.data?.cause?.code ?? body?.error?.message).toContain('pay.withdrawal_self_send');
+    expect(body?.error?.data?.intafacedCode ?? body?.error?.data?.cause?.code ?? body?.error?.message).toContain(
+      'pay.withdrawal_self_send',
+    );
   }
   expect(await friendUsdt()).toBe(friendBefore);
   expect(await available(page)).toBe(before);

@@ -267,7 +267,7 @@ export function WithdrawForm() {
           <div className="bd-address" role="status" data-testid="withdraw-outcome" data-status={sent.status}>
             <strong>{t('sDoneTitle')}</strong>
             <p>{t('sDone', { amount: shown(sent.amount), asset: sent.assetId })}</p>
-            <a className="text-link" href={`/uc/withdraw/${sent.id}`}>
+            <a className="text-link" href={`/uc/withdraw?withdrawalId=${sent.id}`}>
               {t('sOpen')}
             </a>
           </div>
