@@ -28,8 +28,13 @@ export function paymentLinkCreateFingerprint(input: {
   currency: string | null;
   expiresAt: string;
   maxUses: number | null;
+  /**
+   * Present only when the caller sent a confirmation. Omitted keeps the
+   * fingerprint of links created before confirmation existed.
+   */
+  confirmation?: string;
 }): string {
-  return fingerprintRequest('POST', 'merchant.createLink', {
+  const body: Record<string, unknown> = {
     merchantId: input.merchantId.toLowerCase(),
     label: input.label,
     profileId: input.profileId === null ? null : input.profileId.toLowerCase(),
@@ -37,7 +42,9 @@ export function paymentLinkCreateFingerprint(input: {
     currency: input.currency,
     expiresAt: input.expiresAt,
     maxUses: input.maxUses,
-  });
+  };
+  if (input.confirmation !== undefined) body.confirmation = input.confirmation;
+  return fingerprintRequest('POST', 'merchant.createLink', body);
 }
 
 /**

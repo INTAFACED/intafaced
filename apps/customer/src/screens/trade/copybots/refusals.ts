@@ -41,7 +41,10 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'Profit-based fees aren’t allowed',
     body: 'Leaders are paid from the trading fee, never from your profit.',
   },
-  'trade.copy_ranking_forbidden': { title: 'Ranking by profit isn’t allowed', body: 'Leaders aren’t ranked by how much they earned.' },
+  'trade.copy_ranking_forbidden': {
+    title: 'Rankings aren’t offered',
+    body: 'Leaders aren’t ranked by how much they earned, so there are no top lists or trending boards. Every listed leader is shown in the order they were listed.',
+  },
   'trade.copy_settle_refused': { title: 'Fee share was not settled', body: 'Nothing was charged beyond the normal trading fee.' },
   'trade.copy_leader_fill_not_found': { title: 'That leader trade wasn’t found', body: 'It may be too old, or it isn’t one you can copy.' },
   'trade.copy_auto_mirror_place_socket': {
@@ -134,6 +137,22 @@ const COPY: Readonly<Record<string, Words>> = {
   'trade.copy_leader_state_reason_unset': {
     title: 'A reason is required',
     body: 'Nothing was changed.',
+  },
+  'trade.copy_leader_mode_invalid': {
+    title: 'That market type isn’t one we list',
+    body: 'Choose Futures, Spot, Bots or Signal.',
+  },
+  'trade.copy_leader_search_invalid': {
+    title: 'That search is too long',
+    body: 'Search with 80 characters or fewer.',
+  },
+  'trade.copy_leader_trades_limit_unset': {
+    title: 'This lead’s trades can’t be shown',
+    body: 'The page size wasn’t sent. Refresh the page.',
+  },
+  'trade.copy_leader_trades_cursor_invalid': {
+    title: 'That page of trades has changed',
+    body: 'Go back to the first page.',
   },
   'trade.copy_disclosure_unpublished': {
     title: 'The risk disclosure isn’t set',

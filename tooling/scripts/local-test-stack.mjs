@@ -1742,7 +1742,12 @@ async function runCli() {
   else if (cmd === '__serve-invitation') serveCustomer(PORTS.invitation, SITES.invitation);
   else if (cmd === '__serve-admin') await serveAdmin();
   else if (cmd === '__serve-video-store')
-    serveVideoStore({ host: HOST, port: PORTS['video-store'], secretKey: process.env.LOCAL_VIDEO_STORE_SECRET ?? '' });
+    serveVideoStore({
+      host: HOST,
+      port: PORTS['video-store'],
+      secretKey: process.env.LOCAL_VIDEO_STORE_SECRET ?? '',
+      uploadsDir: path.join(STATE, 'video-store-uploads'),
+    });
   else if (cmd === 'start' && rest[0] === 'customer-dist')
     cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
   else if (cmd === 'start') await cmdStart(rest);

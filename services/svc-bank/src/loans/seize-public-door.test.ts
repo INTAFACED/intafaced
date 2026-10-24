@@ -34,6 +34,7 @@ import { createBankRouter, type BankRouter } from '../router.js';
 import { marketMakerVenue } from './loan-service.js';
 import { fixedPriceSource } from './prices.js';
 import { DEFAULT_LIQUIDATION_POLICY } from './risk.js';
+import { bankRouterSource } from '../router/router-source.js';
 
 const SECRET = 'bank-loan-seize-missing-mark-secret-32b';
 const BORROWER = '11111111-1111-4111-8111-111111111111';
@@ -70,7 +71,7 @@ describe('seize pins marksFor before the ledger post', () => {
   });
 
   it('operator door is ops.seizeLoan, not a user liquidate', () => {
-    const src = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    const src = bankRouterSource();
     expect(src).toMatch(/seizeLoan: scopedProcedure\('admin:treasury'/);
     expect(src).toMatch(/bank\.loans\.seize/);
   });

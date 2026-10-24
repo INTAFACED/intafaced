@@ -17,6 +17,10 @@ export type CopyLeaderRecordKind = (typeof COPY_LEADER_RECORD_KINDS)[number];
 export const COPY_LEADER_LISTING_STATES = ['unlisted', 'listed', 'suspended', 'delisted'] as const;
 export type CopyLeaderListingState = (typeof COPY_LEADER_LISTING_STATES)[number];
 
+/** The market a leader trades in. The copy room's tabs filter the directory by it on the server. */
+export const COPY_LEADER_MARKET_MODES = ['spot', 'futures', 'bot', 'signal'] as const;
+export type CopyLeaderMarketMode = (typeof COPY_LEADER_MARKET_MODES)[number];
+
 export const COPY_LEADER_CUSTOMER_STATUSES = ['listed', 'suspended', 'delisted', 'unknown'] as const;
 export type CopyLeaderCustomerStatus = (typeof COPY_LEADER_CUSTOMER_STATUSES)[number];
 
@@ -29,6 +33,7 @@ export const LEADER_DIRECTORY_PAGE_KEYS = ['leaders', 'nextCursor'] as const;
 export const LEADER_DIRECTORY_ROW_KEYS = [
   'leaderRef',
   'displayName',
+  'marketMode',
   'recordKind',
   'tenureStart',
   'assets',
@@ -43,7 +48,10 @@ export const LEADER_DIRECTORY_ROW_KEYS = [
   'leaderShareBps',
 ] as const;
 
-const RANKING_KEYS = ['sort', 'order', 'orderBy', 'return', 'profit', 'copiers', 'rank'] as const;
+const RANKING_KEYS = ['sort', 'order', 'orderBy', 'return', 'profit', 'copiers', 'rank', 'category', 'trending'] as const;
+
+/** Longest name search the directory accepts. */
+export const LEADER_SEARCH_MAX = 80;
 
 export type Held<T, Reason extends string> =
   { readonly value: T; readonly reason: null } | { readonly value: null; readonly reason: Reason };
@@ -51,6 +59,7 @@ export type Held<T, Reason extends string> =
 export type LeaderDirectoryRow = {
   readonly leaderRef: string;
   readonly displayName: string;
+  readonly marketMode: CopyLeaderMarketMode;
   readonly recordKind: CopyLeaderRecordKind;
   readonly tenureStart: string | null;
   readonly assets: readonly string[];
@@ -75,6 +84,7 @@ export type StoredLeaderListing = {
   readonly leaderUserId: string;
   readonly state: CopyLeaderListingState;
   readonly displayName: string;
+  readonly marketMode: CopyLeaderMarketMode;
   readonly recordKind: CopyLeaderRecordKind;
   readonly tenureStart: Date | null;
   readonly assets: readonly string[];
@@ -96,6 +106,8 @@ export type UpsertLeaderListingInput = {
   readonly clientRequestId?: string;
   readonly leaderUserId?: string;
   readonly displayName?: string;
+  /** Omitted keeps the listing's mode; a new listing without one is a spot leader, the only mode copy places. */
+  readonly marketMode?: string;
   readonly recordKind?: string;
   readonly state?: string;
   readonly tenureStart?: string | null;
@@ -113,6 +125,8 @@ export type UpsertLeaderListingInput = {
 export type NormalisedListingWrite = {
   readonly leaderUserId: string;
   readonly displayName: string;
+  /** Null keeps the stored mode (spot for a new listing). */
+  readonly marketMode: CopyLeaderMarketMode | null;
   readonly recordKind: CopyLeaderRecordKind;
   readonly state: CopyLeaderListingState;
   readonly tenureStart: Date | null;
@@ -141,6 +155,29 @@ export function refuseLeaderDirectoryRanking(input: object | null | undefined): 
   for (const key of RANKING_KEYS) {
     if (record[key] !== undefined && record[key] !== null) refuseCopyLeaderRanking();
   }
+}
+
+/**
+ * The directory filter a person may send: one market mode and a name fragment. Blank text means no search.
+ * Anything that is not a known mode, or text longer than LEADER_SEARCH_MAX, refuses rather than lists everyone.
+ */
+export function normaliseLeaderSearch(input: { readonly marketMode?: string | null; readonly q?: string | null }): {
+  readonly marketMode: CopyLeaderMarketMode | null;
+  readonly nameLike: string | null;
+} {
+  let marketMode: CopyLeaderMarketMode | null = null;
+  if (input.marketMode !== undefined && input.marketMode !== null) {
+    const mode = input.marketMode.trim();
+    if (!(COPY_LEADER_MARKET_MODES as readonly string[]).includes(mode)) {
+      throw new CopyError('marketMode is not a copy market mode', 'trade.copy_leader_mode_invalid');
+    }
+    marketMode = mode as CopyLeaderMarketMode;
+  }
+  const text = input.q?.trim() ?? '';
+  if (text.length > LEADER_SEARCH_MAX) {
+    throw new CopyError(`A leader search is at most ${LEADER_SEARCH_MAX} characters`, 'trade.copy_leader_search_invalid');
+  }
+  return { marketMode, nameLike: text ? text : null };
 }
 
 export function customerStatus(state: CopyLeaderListingState | null | undefined): CopyLeaderCustomerStatus {
@@ -211,6 +248,14 @@ export function normaliseListingWrite(input: UpsertLeaderListingInput): Normalis
   if (!(COPY_LEADER_RECORD_KINDS as readonly string[]).includes(recordKind)) {
     throw new CopyError('recordKind is unset', 'trade.copy_leader_record_blank');
   }
+  let marketMode: CopyLeaderMarketMode | null = null;
+  if (input.marketMode !== undefined) {
+    const mode = input.marketMode.trim();
+    if (!(COPY_LEADER_MARKET_MODES as readonly string[]).includes(mode)) {
+      throw new CopyError('marketMode is not a copy market mode', 'trade.copy_leader_mode_invalid');
+    }
+    marketMode = mode as CopyLeaderMarketMode;
+  }
   const state = input.state ?? 'unlisted';
   if (!(COPY_LEADER_LISTING_STATES as readonly string[]).includes(state)) {
     throw new CopyError('state is not a listing state', 'trade.copy_leader_state_invalid');
@@ -237,6 +282,7 @@ export function normaliseListingWrite(input: UpsertLeaderListingInput): Normalis
   return {
     leaderUserId,
     displayName,
+    marketMode,
     recordKind: recordKind as CopyLeaderRecordKind,
     state: state as CopyLeaderListingState,
     tenureStart: optionalTime(input.tenureStart, 'tenureStart'),
@@ -264,6 +310,7 @@ export function presentLeaderRow(listing: StoredLeaderListing, copiersCount: num
   const row: LeaderDirectoryRow = {
     leaderRef: listing.leaderRef,
     displayName: listing.displayName,
+    marketMode: listing.marketMode,
     recordKind: listing.recordKind,
     tenureStart: listing.tenureStart ? listing.tenureStart.toISOString() : null,
     assets: [...listing.assets],
@@ -319,6 +366,7 @@ export function listingContentKey(
   row: Pick<
     StoredLeaderListing,
     | 'displayName'
+    | 'marketMode'
     | 'recordKind'
     | 'tenureStart'
     | 'assets'
@@ -333,6 +381,7 @@ export function listingContentKey(
 ): string {
   return JSON.stringify({
     displayName: row.displayName,
+    marketMode: row.marketMode,
     recordKind: row.recordKind,
     tenureStart: row.tenureStart?.toISOString() ?? null,
     assets: row.assets,

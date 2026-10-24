@@ -14,6 +14,7 @@ vi.mock('../../features/session/session', () => ({
     userId: USER,
     session: { accessToken: 'x', expiresAt: '2099-01-01T00:00:00Z', userId: USER },
     api: { canWrite: () => true, query: () => new Promise(() => {}), mutate: () => new Promise(() => {}) },
+    profiles: { status: 'ready', businesses: [], active: 'personal', business: null, notice: null, reload: () => {} },
   }),
 }));
 import { BillsCard } from './BillsCard';

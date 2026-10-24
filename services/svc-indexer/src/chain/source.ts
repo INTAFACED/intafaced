@@ -115,6 +115,11 @@ export interface ChainBlock {
    * (memory/null sources); never a partially filled object.
    */
   readonly header?: ChainBlockHeader;
+  /**
+   * D-explorer-02 transactions. Absent when the source does not read them.
+   * An empty array means the block was read and holds no transactions.
+   */
+  readonly transactions?: readonly ChainTx[];
 }
 
 export interface ChainBlockHeader {
@@ -125,6 +130,36 @@ export interface ChainBlockHeader {
   readonly miner: string;
   readonly txCount: number;
   readonly size: number;
+}
+
+/** One log on an indexed transaction. Topics and data stay hex; nothing is decoded here. */
+export interface ChainTxLog {
+  readonly logIndex: number;
+  readonly address: string;
+  readonly topics: readonly string[];
+  readonly data: string;
+}
+
+/**
+ * One transaction as the block walk read it. Amounts are wei bigints.
+ * `gasPriceWei` / `gasConsumed` / `revertReason` / `to` / `createdContract`
+ * are null when the node did not report them — never a stand-in zero.
+ */
+export interface ChainTx {
+  readonly hash: string;
+  readonly index: number;
+  readonly from: string;
+  readonly to: string | null;
+  readonly valueWei: bigint;
+  readonly nonce: number;
+  readonly gasLimit: bigint;
+  readonly gasPriceWei: bigint | null;
+  readonly gasConsumed: bigint | null;
+  readonly status: 'success' | 'failed';
+  readonly revertReason: string | null;
+  readonly input: string;
+  readonly createdContract: string | null;
+  readonly logs: readonly ChainTxLog[];
 }
 
 export interface ChainSource {
@@ -266,6 +301,64 @@ export function assertValidBlock(block: ChainBlock): void {
         nonNegativeAmountOf(event.entryPrice, 'position entry price');
         assertAddress(event.account, 'position account');
         break;
+    }
+  }
+
+  if (block.transactions) assertChainTxs(block.transactions, block.height);
+}
+
+const HEX_DATA = /^0x(?:[0-9a-fA-F]{2})*$/;
+const TOPIC_RE = /^0x[0-9a-fA-F]{64}$/;
+
+function assertNonNegativeWei(value: bigint, what: string): void {
+  if (typeof value !== 'bigint' || value < 0n) {
+    throw new ChainDataError(`${what} must be a non-negative wei bigint`, 'indexer.bad_amount');
+  }
+}
+
+function assertChainTxs(transactions: readonly ChainTx[], height: number): void {
+  const hashes = new Set<string>();
+  const indexes = new Set<number>();
+  for (const tx of transactions) {
+    assertBlockHash(tx.hash, 'tx hash');
+    if (hashes.has(tx.hash)) throw new ChainDataError(`duplicate tx hash ${tx.hash} in block ${height}`, 'indexer.duplicate_tx');
+    hashes.add(tx.hash);
+    if (!Number.isSafeInteger(tx.index) || tx.index < 0) {
+      throw new ChainDataError(`tx index must be a non-negative integer, got ${tx.index}`, 'indexer.bad_tx_index');
+    }
+    if (indexes.has(tx.index)) throw new ChainDataError(`duplicate tx index ${tx.index} in block ${height}`, 'indexer.duplicate_tx');
+    indexes.add(tx.index);
+    assertAddress(tx.from, 'tx from');
+    if (tx.to !== null) assertAddress(tx.to, 'tx to');
+    assertNonNegativeWei(tx.valueWei, 'tx value');
+    if (!Number.isSafeInteger(tx.nonce) || tx.nonce < 0) {
+      throw new ChainDataError(`tx nonce must be a non-negative integer, got ${tx.nonce}`, 'indexer.bad_nonce');
+    }
+    assertNonNegativeWei(tx.gasLimit, 'tx gas limit');
+    if (tx.gasPriceWei !== null) assertNonNegativeWei(tx.gasPriceWei, 'tx gas price');
+    if (tx.gasConsumed !== null) assertNonNegativeWei(tx.gasConsumed, 'tx gas consumed');
+    if (tx.status !== 'success' && tx.status !== 'failed') {
+      throw new ChainDataError(`tx status must be success or failed, got ${tx.status}`, 'indexer.bad_tx_status');
+    }
+    if (tx.status === 'success' && tx.revertReason !== null) {
+      throw new ChainDataError(`successful tx ${tx.hash} cannot carry a revert reason`, 'indexer.bad_tx_status');
+    }
+    if (!HEX_DATA.test(tx.input)) throw new ChainDataError(`tx input is not hex`, 'indexer.bad_tx_input');
+    if (tx.createdContract !== null) assertAddress(tx.createdContract, 'created contract');
+    const logIndexes = new Set<number>();
+    for (const log of tx.logs) {
+      if (!Number.isSafeInteger(log.logIndex) || log.logIndex < 0) {
+        throw new ChainDataError(`tx log index must be a non-negative integer`, 'indexer.bad_log_index');
+      }
+      if (logIndexes.has(log.logIndex)) {
+        throw new ChainDataError(`duplicate logIndex ${log.logIndex} on tx ${tx.hash}`, 'indexer.duplicate_log_index');
+      }
+      logIndexes.add(log.logIndex);
+      assertAddress(log.address, 'tx log address');
+      for (const topic of log.topics) {
+        if (!TOPIC_RE.test(topic)) throw new ChainDataError(`tx log topic is not 32 bytes`, 'indexer.bad_log_topic');
+      }
+      if (!HEX_DATA.test(log.data)) throw new ChainDataError(`tx log data is not hex`, 'indexer.bad_log_data');
     }
   }
 }

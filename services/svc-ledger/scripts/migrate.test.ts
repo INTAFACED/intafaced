@@ -36,6 +36,9 @@ async function fixture(run: (sql: postgres.Sql, dir: string) => Promise<void>) {
 const migrate = (sql: postgres.Sql, dir: string, down = false) =>
   runMigrations(sql as unknown as MigrateClient, { migrationsDir: dir, down });
 
+/** CREATE/DROP DATABASE on a busy shared test server can sit past Vitest's 5s default. The proof itself is unchanged. */
+const proof = (name: string, run: () => Promise<void>) => it(name, run, 20_000);
+
 async function files(dir: string, entries: Record<string, string>) {
   await Promise.all(Object.entries(entries).map(([name, body]) => writeFile(join(dir, name), body)));
 }
@@ -46,7 +49,7 @@ async function realFiles(dir: string, predicate: (name: string) => boolean = () 
 }
 
 describe('actual ledger migration runner on native PostgreSQL', () => {
-  it('serializes concurrent bootstrap and commits one DDL effect with its tracking row', async () =>
+  proof('serializes concurrent bootstrap and commits one DDL effect with its tracking row', async () =>
     fixture(async (sql, dir) => {
       await files(dir, {
         '0001_probe.sql': 'CREATE TABLE ledger.probe(n integer); INSERT INTO ledger.probe VALUES (1); SELECT pg_sleep(0.03);',
@@ -58,9 +61,10 @@ describe('actual ledger migration runner on native PostgreSQL', () => {
       await migrate(sql, dir, true);
       expect((await sql`SELECT to_regclass('ledger.probe') AS name`)[0]?.name).toBeNull();
       expect(await sql`SELECT * FROM ledger.__migrations`).toHaveLength(0);
-    }));
+    }),
+  );
 
-  it('rolls back actual up DDL when the tracking insert refuses', async () =>
+  proof('rolls back actual up DDL when the tracking insert refuses', async () =>
     fixture(async (sql, dir) => {
       await migrate(sql, dir);
       await sql.unsafe(
@@ -70,9 +74,10 @@ describe('actual ledger migration runner on native PostgreSQL', () => {
       await expect(migrate(sql, dir)).rejects.toThrow('tracking refusal');
       expect((await sql`SELECT to_regclass('ledger.probe') AS name`)[0]?.name).toBeNull();
       expect(await sql`SELECT * FROM ledger.__migrations`).toHaveLength(0);
-    }));
+    }),
+  );
 
-  it('rolls back all actual down DDL and tracking deletion together', async () =>
+  proof('rolls back all actual down DDL and tracking deletion together', async () =>
     fixture(async (sql, dir) => {
       await files(dir, {
         '0001_a.sql': 'CREATE TABLE ledger.a(n integer);',
@@ -87,9 +92,10 @@ describe('actual ledger migration runner on native PostgreSQL', () => {
       await expect(migrate(sql, dir, true)).rejects.toThrow('tracking refusal');
       expect((await sql`SELECT to_regclass('ledger.a') AS a, to_regclass('ledger.b') AS b`)[0]).toMatchObject({ a: 'a', b: 'b' });
       expect(await sql`SELECT * FROM ledger.__migrations`).toHaveLength(2);
-    }));
+    }),
+  );
 
-  it('ignores unapplied down files and refuses a missing applied reversal before DDL', async () =>
+  proof('ignores unapplied down files and refuses a missing applied reversal before DDL', async () =>
     fixture(async (sql, dir) => {
       await files(dir, { '0001_a.sql': 'CREATE TABLE ledger.a(n integer);', '0001_a.down.sql': 'DROP TABLE ledger.a;' });
       await migrate(sql, dir);
@@ -99,9 +105,10 @@ describe('actual ledger migration runner on native PostgreSQL', () => {
       await rm(join(dir, '0001_a.down.sql'));
       await expect(migrate(sql, dir, true)).rejects.toThrow('missing 0001_a.down.sql');
       expect((await sql`SELECT to_regclass('ledger.a') AS a`)[0]?.a).toBe('a');
-    }));
+    }),
+  );
 
-  it('preserves posted business history and all tracking rows before any reversal', async () =>
+  proof('preserves posted business history and all tracking rows before any reversal', async () =>
     fixture(async (sql, dir) => {
       await realFiles(dir);
       await migrate(sql, dir);
@@ -120,9 +127,10 @@ describe('actual ledger migration runner on native PostgreSQL', () => {
       await expect(migrate(sql, dir, true)).rejects.toThrow('ledger.ledger_tx is not empty');
       expect(await sql`SELECT name FROM ledger.__migrations ORDER BY name`).toEqual(before);
       expect(await sql`SELECT * FROM ledger.ledger_tx`).toHaveLength(1);
-    }));
+    }),
+  );
 
-  it('preserves a known genesis snapshot anchor and atomically refuses its direct down', async () =>
+  proof('preserves a known genesis snapshot anchor and atomically refuses its direct down', async () =>
     fixture(async (sql, dir) => {
       await realFiles(dir);
       await migrate(sql, dir);
@@ -137,9 +145,10 @@ describe('actual ledger migration runner on native PostgreSQL', () => {
       expect(await sql`SELECT name FROM ledger.__migrations ORDER BY name`).toEqual(before);
       expect((await sql`SELECT chain_tip_seq::text AS seq FROM ledger.balance_snapshots`)[0]?.seq).toBe('0');
       expect((await sql`SELECT to_regclass('ledger.ledger_freeze_outbox') AS name`)[0]?.name).toBe('ledger_freeze_outbox');
-    }));
+    }),
+  );
 
-  it('refuses malformed freeze intents at the database and preserves published switch history on down', async () =>
+  proof('refuses malformed freeze intents at the database and preserves published switch history on down', async () =>
     fixture(async (sql, dir) => {
       await realFiles(dir);
       await migrate(sql, dir);
@@ -154,9 +163,10 @@ describe('actual ledger migration runner on native PostgreSQL', () => {
       await expect(migrate(sql, dir, true)).rejects.toThrow('recorded ledgerFreezeUpdated');
       expect(await sql`SELECT name FROM ledger.__migrations ORDER BY name`).toEqual(before);
       expect(await sql`SELECT * FROM ledger.ledger_freeze_outbox`).toHaveLength(1);
-    }));
+    }),
+  );
 
-  it('refuses a populated old0013 nested-array outbox upgrade without marking0019 or rewriting evidence', async () =>
+  proof('refuses a populated old0013 nested-array outbox upgrade without marking0019 or rewriting evidence', async () =>
     fixture(async (sql, dir) => {
       await realFiles(dir, (name) => Number(name.slice(0, 4)) <= 13);
       await migrate(sql, dir);
@@ -185,9 +195,10 @@ describe('actual ledger migration runner on native PostgreSQL', () => {
           await sql`SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid = 'ledger.ledger_tx_outbox'::regclass AND conname = 'ledger_tx_outbox_amount_string_ck'`
         )[0]?.definition,
       ).toBe(before?.definition);
-    }));
+    }),
+  );
 
-  it('refuses the historical 0007 invented-purpose backfill before writing any purpose', async () =>
+  proof('refuses the historical 0007 invented-purpose backfill before writing any purpose', async () =>
     fixture(async (sql, dir) => {
       await realFiles(dir, (name) => name < '0007');
       await migrate(sql, dir);
@@ -196,5 +207,6 @@ describe('actual ledger migration runner on native PostgreSQL', () => {
       await expect(migrate(sql, dir)).rejects.toThrow('refusing invented legacy purpose');
       expect((await sql`SELECT purpose FROM ledger.accounts`)[0]?.purpose).toBe('');
       expect(await sql`SELECT name FROM ledger.__migrations WHERE name = '0007_purposed_lock_kinds.sql'`).toHaveLength(0);
-    }));
+    }),
+  );
 });

@@ -1,6 +1,15 @@
 import { z } from 'zod';
 import { baseEnvSchema, edgeEnvSchema, httpEnvSchema, loadEnv, otelEnvSchema } from '@intafaced/config';
 import { externalVenueConfigSchema } from './quote/external-venue.js';
+import {
+  dexOrderDomainField,
+  dexOrderKeeperIntervalField,
+  dexOrderMinSizeField,
+  dexOrderOracleMaxAgeField,
+  dexOrderRestrictedTokensField,
+  dexOrderSlippageField,
+  dexOrderWarnTokensField,
+} from './order/trigger-settings.js';
 
 /**
  * svc-dex environment.
@@ -177,6 +186,47 @@ const schema = baseEnvSchema
           }
           return result.data;
         }),
+
+      /**
+       * Minimum amountIn for a price-trigger order, as a decimal string.
+       * NO DEFAULT. Blank refuses `dex.order.min_size_unset`.
+       */
+      DEX_ORDER_MIN_SIZE: dexOrderMinSizeField.optional(),
+      /**
+       * Restricted token addresses as a JSON array.
+       * NO DEFAULT. Blank refuses `dex.order.restricted_list_unset`. An explicit empty array restricts nothing.
+       */
+      DEX_ORDER_RESTRICTED_TOKENS: dexOrderRestrictedTokensField.optional(),
+      /**
+       * Warn-tier token addresses as a JSON array.
+       * NO DEFAULT. Blank refuses `dex.order.warn_list_unset`. An explicit empty array warns on nothing.
+       */
+      DEX_ORDER_WARN_TOKENS: dexOrderWarnTokensField.optional(),
+      /**
+       * Default slippage for a price-trigger order, in basis points.
+       * NO DEFAULT. Blank refuses `dex.order.slippage_unset`.
+       */
+      DEX_ORDER_SLIPPAGE_BPS: dexOrderSlippageField.optional(),
+      /**
+       * Maximum age of a trigger price, in milliseconds.
+       * NO DEFAULT. Blank refuses `dex.order.oracle_max_age_unset` on a fill.
+       */
+      DEX_ORDER_ORACLE_MAX_AGE_MS: dexOrderOracleMaxAgeField.optional(),
+      /**
+       * How often the price-trigger keeper wakes, in milliseconds.
+       * NO DEFAULT. Blank does not start the keeper.
+       */
+      DEX_ORDER_KEEPER_INTERVAL_MS: dexOrderKeeperIntervalField.optional(),
+      /**
+       * EIP-712 domain for a price-trigger order: JSON name, version, chainId, verifyingContract.
+       * NO DEFAULT. Blank refuses `dex.order.domain_unset`. An unchecked signature is not stored.
+       */
+      DEX_ORDER_DOMAIN: dexOrderDomainField.optional(),
+      /**
+       * Directory for dex.orders and dex.order_attempts. Not a balance.
+       * Blank uses the system temp directory intafaced-svc-dex-orders so a restart can read the same rows.
+       */
+      DEX_ORDER_STORE_DIR: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().min(1).optional()),
     }),
   )
   .superRefine((parsed, ctx) => {

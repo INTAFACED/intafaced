@@ -15,7 +15,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
-import { amount, createdAt, tstz } from '@intafaced/db';
+import { amount, createdAt, tstz, updatedAt } from '@intafaced/db';
 
 /**
  * THE BALANCE GRAPH (§4.2).
@@ -646,6 +646,140 @@ export const assetEdits = ledger.table(
     unique('asset_edits_approval_uq').on(t.approvalId),
     unique('asset_edits_asset_revision_uq').on(t.assetId, t.revision),
     check('asset_edits_distinct_pair_ck', sql`${t.requesterId} <> ${t.approverId}`),
+  ],
+);
+
+/**
+ * Operator reconciliation controls (0027, OPS-reconciliation-01). The three built-in
+ * rows are seeded by the migration. Deletes are refused by trigger, which this
+ * description does not emit; schema-drift compares columns, checks and indexes.
+ */
+export const reconciliationControls = ledger.table(
+  'reconciliation_controls',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    builtin: boolean('builtin').notNull().default(false),
+    builtinKey: text('builtin_key'),
+    template: text('template').notNull(),
+    checkKind: text('check_kind'),
+    state: text('state').notNull().default('draft'),
+    explanation: text('explanation').notNull().default(''),
+    labels: jsonb('labels')
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    schedule: jsonb('schedule'),
+    severity: text('severity'),
+    period: text('period'),
+    tolerance: jsonb('tolerance'),
+    margin: text('margin'),
+    accountSet: jsonb('account_set').notNull(),
+    threshold: jsonb('threshold'),
+    version: integer('version').notNull().default(1),
+    definedBy: text('defined_by').notNull(),
+    definedReason: text('defined_reason').notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('reconciliation_controls_builtin_key_uq')
+      .on(t.builtinKey)
+      .where(sql`builtin_key IS NOT NULL`),
+    check('reconciliation_controls_template_ck', sql`template IN ('ledger_invariant', 'outside_balance', 'threshold', 'source_parity')`),
+    check('reconciliation_controls_state_ck', sql`state IN ('draft', 'active')`),
+    check(
+      'reconciliation_controls_check_kind_ck',
+      sql`check_kind IS NULL OR check_kind IN ('replay', 'chain', 'netting', 'replay_and_netting')`,
+    ),
+    check('reconciliation_controls_severity_ck', sql`severity IS NULL OR severity IN ('info', 'warning', 'critical')`),
+    check('reconciliation_controls_period_ck', sql`period IS NULL OR period IN ('hour', 'day', 'iso_week', 'month')`),
+    check('reconciliation_controls_builtin_key_ck', sql`builtin = false OR builtin_key IS NOT NULL`),
+    check('reconciliation_controls_builtin_active_ck', sql`builtin = false OR state = 'active'`),
+    check('reconciliation_controls_explanation_ck', sql`length(explanation) <= 2000`),
+    check('reconciliation_controls_labels_ck', sql`jsonb_typeof(labels) = 'array'`),
+    check('reconciliation_controls_account_set_ck', sql`jsonb_typeof(account_set) = 'object'`),
+    check('reconciliation_controls_tolerance_ck', sql`tolerance IS NULL OR jsonb_typeof(tolerance) = 'object'`),
+    check('reconciliation_controls_schedule_ck', sql`schedule IS NULL OR jsonb_typeof(schedule) = 'object'`),
+    check('reconciliation_controls_threshold_ck', sql`threshold IS NULL OR jsonb_typeof(threshold) = 'object'`),
+    check('reconciliation_controls_margin_ck', sql`margin IS NULL OR margin ~ '^[0-9]+([.][0-9]{1,18})?$'`),
+    check('reconciliation_controls_version_ck', sql`version >= 1`),
+    check('reconciliation_controls_defined_by_ck', sql`length(defined_by) > 0`),
+    check('reconciliation_controls_defined_reason_ck', sql`length(defined_reason) >= 12`),
+  ],
+);
+
+export const reconciliationControlAudit = ledger.table(
+  'reconciliation_control_audit',
+  {
+    id: bigserial('id', { mode: 'bigint' }).primaryKey(),
+    controlId: uuid('control_id').notNull(),
+    actorId: text('actor_id').notNull(),
+    reason: text('reason').notNull(),
+    action: text('action').notNull(),
+    requestId: text('request_id'),
+    detail: jsonb('detail').notNull(),
+    recordedAt: timestamp('recorded_at', { withTimezone: true, mode: 'date' })
+      .default(sql`clock_timestamp()`)
+      .notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.controlId],
+      foreignColumns: [reconciliationControls.id],
+      name: 'reconciliation_control_audit_control_id_fkey',
+    }),
+    index('reconciliation_control_audit_control_idx').on(t.controlId, t.recordedAt),
+    check('reconciliation_control_audit_actor_ck', sql`length(actor_id) > 0`),
+    check('reconciliation_control_audit_reason_ck', sql`length(reason) > 0`),
+    check('reconciliation_control_audit_action_ck', sql`action IN ('define', 'update', 'run')`),
+    check('reconciliation_control_audit_detail_ck', sql`jsonb_typeof(detail) = 'object'`),
+  ],
+);
+
+export const reconciliationControlRuns = ledger.table(
+  'reconciliation_control_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    controlId: uuid('control_id').notNull(),
+    operationId: text('operation_id'),
+    fingerprint: text('fingerprint').notNull(),
+    status: text('status').notNull(),
+    phase: text('phase').notNull().default(''),
+    errorCode: text('error_code').notNull().default(''),
+    asOf: timestamp('as_of', { withTimezone: true, mode: 'date' }).notNull(),
+    readAt: timestamp('read_at', { withTimezone: true, mode: 'date' }).notNull(),
+    margin: text('margin').notNull(),
+    sources: jsonb('sources').notNull(),
+    evidence: jsonb('evidence')
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    outsideSide: text('outside_side').notNull(),
+    periodStart: timestamp('period_start', { withTimezone: true, mode: 'date' }).notNull(),
+    periodEnd: timestamp('period_end', { withTimezone: true, mode: 'date' }).notNull(),
+    actorId: text('actor_id').notNull(),
+    reason: text('reason').notNull(),
+    startedAt: timestamp('started_at', { withTimezone: true, mode: 'date' })
+      .default(sql`clock_timestamp()`)
+      .notNull(),
+    finishedAt: timestamp('finished_at', { withTimezone: true, mode: 'date' }),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.controlId],
+      foreignColumns: [reconciliationControls.id],
+      name: 'reconciliation_control_runs_control_id_fkey',
+    }),
+    uniqueIndex('reconciliation_control_runs_operation_uq')
+      .on(t.operationId)
+      .where(sql`operation_id IS NOT NULL`),
+    index('reconciliation_control_runs_control_idx').on(t.controlId, t.periodStart),
+    check('reconciliation_control_runs_status_ck', sql`status IN ('started', 'PASS', 'FAIL', 'ERROR', 'UNSET')`),
+    check('reconciliation_control_runs_margin_ck', sql`margin = 'unset' OR margin ~ '^[0-9]+([.][0-9]{1,18})?$'`),
+    check('reconciliation_control_runs_outside_ck', sql`outside_side IN ('unset', 'snapshot', 'unavailable', 'not_applicable')`),
+    check('reconciliation_control_runs_sources_ck', sql`jsonb_typeof(sources) = 'object'`),
+    check('reconciliation_control_runs_evidence_ck', sql`jsonb_typeof(evidence) = 'object'`),
+    check('reconciliation_control_runs_actor_ck', sql`length(actor_id) > 0`),
+    check('reconciliation_control_runs_reason_ck', sql`length(reason) >= 12`),
+    check('reconciliation_control_runs_fingerprint_ck', sql`length(fingerprint) > 0`),
   ],
 );
 

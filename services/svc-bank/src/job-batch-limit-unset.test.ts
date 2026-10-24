@@ -11,6 +11,7 @@ import {
   assertLoanRiskSweepLimit,
   assertTransferDueLimit,
 } from './job-batch-limit.js';
+import { bankRouterSource } from './router/router-source.js';
 
 /**
  * Job batch size is refuse-closed when unset.
@@ -131,7 +132,7 @@ describe('svc-bank resumePending/accrueAll limit unset refuse', () => {
   });
 
   it('tRPC all-book accrueLoanInterest passes input.limit — no invented 1000', () => {
-    const router = readFileSync(join(ROOT, 'services/svc-bank/src/router.ts'), 'utf8');
+    const router = bankRouterSource();
     const accrue = router.slice(router.indexOf('accrueLoanInterest: jobProcedure'), router.indexOf('runRiskSweep: jobProcedure'));
     expect(accrue).toContain('bank.loans.accrueAll(at, input.limit)');
     expect(accrue).not.toMatch(/accrueAll\(at\)/);
@@ -213,7 +214,7 @@ describe('svc-bank leftover job-batch unset refuse (200/500)', () => {
   });
 
   it('tRPC job twins pass input.limit — omit does not invent 200/500', () => {
-    const router = readFileSync(join(ROOT, 'services/svc-bank/src/router.ts'), 'utf8');
+    const router = bankRouterSource();
     const due = router.slice(router.indexOf('runDueTransfers: jobProcedure'), router.indexOf('runAutoInvest: jobProcedure'));
     expect(due).toContain('runDueTransfers({ limit: input.limit })');
     expect(due).not.toMatch(/input\.limit === undefined \? \{\}/);

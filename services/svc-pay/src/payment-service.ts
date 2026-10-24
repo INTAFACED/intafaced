@@ -1,5 +1,12 @@
 import { checkoutUrlFor, paymentLinkCreateFingerprint, paymentLinkCreateKey } from './payment-link-create.js';
 import {
+  confirmationFingerprint,
+  parseInactiveMessage,
+  parseLinkConfirmation,
+  paymentLinkEmbedSnippet,
+  type LinkConfirmation,
+} from './payment-link-share.js';
+import {
   type BookedCaptureCompletion,
   type CaptureReconcileInput,
   type CaptureReconcileMode,
@@ -170,11 +177,17 @@ export type PayErrorCode =
   | 'pay.payment_link_list_limit_unset'
   | 'pay.profile_not_found'
   | 'pay.link_not_found'
+  /** The link is off and the merchant stored a sentence for the payer. */
+  | 'pay.link_inactive'
   | 'pay.link_expired'
   /** The link's `maxUses` has been reached. Never resolved by retrying. */
   | 'pay.link_exhausted'
   /** A merchant asked for a link that never expires, or one past the lifetime cap. */
   | 'pay.link_expiry_invalid'
+  /** Confirmation message or redirect was blank. Nothing was stored. */
+  | 'pay.link_confirmation_unset'
+  /** Confirmation redirect was not an https address. Nothing was stored. */
+  | 'pay.link_redirect_not_https'
   /** Owner `PAY_LINK_DEFAULT_TTL_DAYS` unpublished. Blank env is not 30. */
   | 'pay.link_ttl_unset'
   /** Owner `PAY_LINK_MAX_TTL_DAYS` unpublished. Blank env is not 365. */
@@ -998,6 +1011,8 @@ export interface CheckoutSessionView {
    * learn a rail's shape to produce.
    */
   readonly instruction: { readonly reference: string; readonly amount: string; readonly currency: string } | null;
+  readonly confirmationMessage?: string | null;
+  readonly confirmationUrl?: string | null;
 }
 
 interface LinkRow {
@@ -1012,6 +1027,7 @@ interface LinkRow {
   max_uses: number | null;
   uses: number;
   checkout_config: Record<string, unknown> | null;
+  inactive_message: string | null;
 }
 
 interface CheckoutSessionRow {
@@ -1550,6 +1566,8 @@ export class PayService {
      * Blank or over 255 characters is `pay.idempotency_required`.
      */
     idempotencyKey?: string;
+    /** After payment. Omit to leave it unset. Blank and non-https refuse before a row exists. */
+    confirmation?: LinkConfirmation;
   }): Promise<{
     id: string;
     token: string;
@@ -1568,8 +1586,19 @@ export class PayService {
       throw new PayError(`maxUses must be a positive integer, got ${input.maxUses}`, 'pay.invalid_amount');
     }
 
+    const share = parseLinkConfirmation(input.confirmation);
+    if (!share.ok) {
+      throw new PayError(
+        share.code === 'pay.link_redirect_not_https'
+          ? 'A confirmation redirect must be an https address. Nothing was stored.'
+          : 'A confirmation message cannot be blank. Nothing was stored.',
+        share.code,
+      );
+    }
+
     // The body the caller named. Computed before the claim so a retry matches
-    // even when the stored expiry was capped.
+    // even when the stored expiry was capped. Confirmation is part of the body
+    // only when the caller sent one, so an older key still replays.
     const fingerprint = key.key
       ? paymentLinkCreateFingerprint({
           merchantId: input.merchantId,
@@ -1579,6 +1608,7 @@ export class PayService {
           currency: input.currency ?? null,
           expiresAt: input.expiresAt === undefined ? 'default' : input.expiresAt === null ? 'null' : input.expiresAt.toISOString(),
           maxUses: input.maxUses ?? null,
+          ...(input.confirmation !== undefined ? { confirmation: confirmationFingerprint(share.message, share.url) } : {}),
         })
       : null;
 
@@ -1589,7 +1619,12 @@ export class PayService {
       this.assertMerchantActive(await this.getMerchant(input.merchantId));
       const expiresAt = this.linkExpiryFor(input.expiresAt);
       await this.assertLinkProfile(this.sql, input.merchantId, input.profileId);
-      return this.insertPaymentLink(this.sql, { ...input, expiresAt });
+      return this.insertPaymentLink(this.sql, {
+        ...input,
+        expiresAt,
+        confirmationMessage: share.message,
+        confirmationUrl: share.url,
+      });
     }
 
     const idempotencyKey = key.key;
@@ -1625,7 +1660,12 @@ export class PayService {
       // After eligibility, before the link row. A throw here rolls the claim back.
       const expiresAt = this.linkExpiryFor(input.expiresAt);
       await this.assertLinkProfile(tx, input.merchantId, input.profileId);
-      const created = await this.insertPaymentLink(tx, { ...input, expiresAt });
+      const created = await this.insertPaymentLink(tx, {
+        ...input,
+        expiresAt,
+        confirmationMessage: share.message,
+        confirmationUrl: share.url,
+      });
       const pointed = await tx`
         UPDATE pay.payment_link_create_idempotency
            SET link_id = ${created.id}
@@ -1673,6 +1713,8 @@ export class PayService {
       currency?: string;
       expiresAt: Date;
       maxUses?: number;
+      confirmationMessage?: string | null;
+      confirmationUrl?: string | null;
     },
   ): Promise<{
     id: string;
@@ -1690,7 +1732,8 @@ export class PayService {
     const prefix = token.slice(0, 10);
     const rows = await sql<Array<{ id: string }>>`
       INSERT INTO pay.payment_links (
-        merchant_id, profile_id, token_hash, token_prefix, checkout_token, label, amount, currency, expires_at, max_uses
+        merchant_id, profile_id, token_hash, token_prefix, checkout_token, label, amount, currency, expires_at, max_uses,
+        confirmation_message, confirmation_url
       ) VALUES (
         ${input.merchantId},
         ${input.profileId ?? null},
@@ -1701,7 +1744,9 @@ export class PayService {
         ${input.amount === undefined ? null : formatAmount(input.amount)}::numeric,
         ${input.currency ?? null},
         ${input.expiresAt},
-        ${input.maxUses ?? null}
+        ${input.maxUses ?? null},
+        ${input.confirmationMessage ?? null},
+        ${input.confirmationUrl ?? null}
       )
       RETURNING id
     `;
@@ -1843,24 +1888,30 @@ export class PayService {
     const rows = options.forUpdate
       ? await sql<LinkRow[]>`
           SELECT l.id, l.merchant_id, l.profile_id, l.label, l.amount::text, l.currency,
-                 l.active, l.expires_at, l.max_uses, l.uses, NULL::jsonb AS checkout_config
+                 l.active, l.expires_at, l.max_uses, l.uses, NULL::jsonb AS checkout_config,
+                 l.inactive_message
             FROM pay.payment_links l
            WHERE l.token_hash = ${tokenHash}
            FOR UPDATE
         `
       : await sql<LinkRow[]>`
           SELECT l.id, l.merchant_id, l.profile_id, l.label, l.amount::text, l.currency,
-                 l.active, l.expires_at, l.max_uses, l.uses, p.checkout_config
+                 l.active, l.expires_at, l.max_uses, l.uses, p.checkout_config,
+                 l.inactive_message
             FROM pay.payment_links l
             LEFT JOIN pay.payment_profiles p ON p.id = l.profile_id
            WHERE l.token_hash = ${tokenHash}
         `;
 
     const row = rows[0];
-    // A deactivated link is reported as NOT FOUND, not as revoked. Whoever holds
-    // this URL is anonymous, and confirming that a token was once real tells
-    // them the merchant exists and that the link was worth something.
-    if (!row || !row.active) throw new PayError('payment link not found', 'pay.link_not_found');
+    // No row, or a deactivated link with no stored message, stays "not found".
+    // A message the merchant stored is the answer the holder of this token sees.
+    if (!row) throw new PayError('payment link not found', 'pay.link_not_found');
+    if (!row.active) {
+      const message = row.inactive_message?.trim() ?? '';
+      if (!message) throw new PayError('payment link not found', 'pay.link_not_found');
+      throw new PayError(message, 'pay.link_inactive');
+    }
     if (row.expires_at && row.expires_at.getTime() < this.now().getTime()) {
       throw new PayError('payment link expired', 'pay.link_expired');
     }
@@ -1906,6 +1957,10 @@ export class PayService {
       token: string | null;
       /** Null when `token` is null. Path only — no invented host. */
       checkoutUrl: string | null;
+      inactiveMessage: string | null;
+      confirmationMessage: string | null;
+      confirmationUrl: string | null;
+      embedSnippet: string | null;
     }>;
     nextCursor: string | null;
   }> {
@@ -1929,9 +1984,13 @@ export class PayService {
         uses: number;
         created_at: Date;
         created_at_cursor: string;
+        inactive_message: string | null;
+        confirmation_message: string | null;
+        confirmation_url: string | null;
       }>
     >`
       SELECT id, token_prefix, checkout_token, label, amount::text, currency, active, expires_at, max_uses, uses, created_at,
+             inactive_message, confirmation_message, confirmation_url,
              to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
         FROM pay.payment_links
        WHERE merchant_id = ${merchantId}
@@ -1980,6 +2039,10 @@ export class PayService {
     createdAt: string;
     token: string | null;
     checkoutUrl: string | null;
+    inactiveMessage: string | null;
+    confirmationMessage: string | null;
+    confirmationUrl: string | null;
+    embedSnippet: string | null;
   }> {
     await this.getMerchant(merchantId);
     const rows = await this.sql<
@@ -1995,9 +2058,13 @@ export class PayService {
         max_uses: number | null;
         uses: number;
         created_at: Date;
+        inactive_message: string | null;
+        confirmation_message: string | null;
+        confirmation_url: string | null;
       }>
     >`
-      SELECT id, token_prefix, checkout_token, label, amount::text, currency, active, expires_at, max_uses, uses, created_at
+      SELECT id, token_prefix, checkout_token, label, amount::text, currency, active, expires_at, max_uses, uses, created_at,
+             inactive_message, confirmation_message, confirmation_url
         FROM pay.payment_links
        WHERE id = ${linkId}
          AND merchant_id = ${merchantId}
@@ -2019,6 +2086,9 @@ export class PayService {
     max_uses: number | null;
     uses: number;
     created_at: Date;
+    inactive_message: string | null;
+    confirmation_message: string | null;
+    confirmation_url: string | null;
   }): {
     id: string;
     prefix: string;
@@ -2032,8 +2102,13 @@ export class PayService {
     createdAt: string;
     token: string | null;
     checkoutUrl: string | null;
+    inactiveMessage: string | null;
+    confirmationMessage: string | null;
+    confirmationUrl: string | null;
+    embedSnippet: string | null;
   } {
     const token = r.checkout_token;
+    const checkoutUrl = token ? this.checkoutUrl(token) : null;
     return {
       id: r.id,
       prefix: r.token_prefix,
@@ -2046,7 +2121,16 @@ export class PayService {
       uses: Number(r.uses),
       createdAt: r.created_at.toISOString(),
       token,
-      checkoutUrl: token ? this.checkoutUrl(token) : null,
+      checkoutUrl,
+      inactiveMessage: r.inactive_message,
+      confirmationMessage: r.confirmation_message,
+      confirmationUrl: r.confirmation_url,
+      embedSnippet: paymentLinkEmbedSnippet({
+        checkoutUrl,
+        amount: r.amount,
+        currency: r.currency,
+        label: r.label,
+      }),
     };
   }
 
@@ -2062,11 +2146,16 @@ export class PayService {
    * Revocation stops NEW payers; the ones already committed are still owed a
    * working payment.
    */
-  async deactivatePaymentLink(merchantId: string, linkId: string): Promise<{ deactivated: boolean }> {
+  async deactivatePaymentLink(merchantId: string, linkId: string, message?: string): Promise<{ deactivated: boolean }> {
     await this.getMerchant(merchantId);
+    const parsed = parseInactiveMessage(message);
+    if (!parsed.ok) {
+      throw new PayError('A deactivation message is too long. Nothing was changed.', parsed.code);
+    }
     const result = await this.sql`
       UPDATE pay.payment_links
-         SET active = false
+         SET active = false,
+             inactive_message = ${parsed.message}
        WHERE id = ${linkId} AND merchant_id = ${merchantId} AND active = true
     `;
     return { deactivated: result.count > 0 };
@@ -2290,9 +2379,12 @@ export class PayService {
    */
   async getCheckoutSession(sessionToken: string): Promise<CheckoutSessionView> {
     const tokenHash = createHash('sha256').update(sessionToken).digest('hex');
-    const rows = await this.sql<Array<CheckoutSessionRow & { label: string }>>`
+    const rows = await this.sql<
+      Array<CheckoutSessionRow & { label: string; confirmation_message: string | null; confirmation_url: string | null }>
+    >`
       SELECT s.id, s.link_id, s.merchant_id, s.payment_id, s.amount::text, s.currency,
-             s.rail_adapter, s.instruction, s.status, s.expires_at, l.label
+             s.rail_adapter, s.instruction, s.status, s.expires_at, l.label,
+             l.confirmation_message, l.confirmation_url
         FROM pay.checkout_sessions s
         JOIN pay.payment_links l ON l.id = s.link_id
        WHERE s.token_hash = ${tokenHash}
@@ -2302,7 +2394,12 @@ export class PayService {
 
     const method = this.checkoutRails.find((r) => r.railId === row.rail_adapter)?.method ?? 'crypto';
 
-    if (row.status !== 'open') return toCheckoutSessionView(row, row.label, method);
+    if (row.status !== 'open') {
+      return toCheckoutSessionView(row, row.label, method, {
+        message: row.confirmation_message,
+        url: row.confirmation_url,
+      });
+    }
 
     if (row.expires_at.getTime() <= this.now().getTime()) {
       // Lazily projected, and also swept by `expireCheckoutSessions`. Both, so
@@ -2900,7 +2997,12 @@ export class PayService {
  * rather than passed through from anywhere, so a page can never render a number
  * that differs from the one the payment was created for.
  */
-function toCheckoutSessionView(row: CheckoutSessionRow, label: string, method: string): CheckoutSessionView {
+function toCheckoutSessionView(
+  row: CheckoutSessionRow,
+  label: string,
+  method: string,
+  confirmation?: { message: string | null; url: string | null },
+): CheckoutSessionView {
   const reference = typeof row.instruction?.reference === 'string' ? row.instruction.reference : null;
   return {
     id: row.id,
@@ -2911,6 +3013,8 @@ function toCheckoutSessionView(row: CheckoutSessionRow, label: string, method: s
     method,
     expiresAt: row.expires_at.toISOString(),
     instruction: reference ? { reference, amount: formatAmount(parseAmount(row.amount)), currency: row.currency } : null,
+    confirmationMessage: confirmation?.message ?? null,
+    confirmationUrl: confirmation?.url ?? null,
   };
 }
 

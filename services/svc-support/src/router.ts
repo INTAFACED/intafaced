@@ -29,6 +29,11 @@ import {
   supportTicketPropertiesSchema,
   supportTicketSchema,
   supportTicketStatusSchema,
+  supportViewCountsSchema,
+  supportViewDeleteInputSchema,
+  supportViewListSchema,
+  supportViewSaveInputSchema,
+  supportViewSchema,
 } from '@intafaced/contracts';
 import { MemoryContactBook, type ContactBook } from './contact-channels.js';
 import { contactProcedures } from './contact-router.js';
@@ -113,6 +118,10 @@ function mapError(err: unknown): never {
       err.code === 'support.assign.not_queueable' ||
       err.code === 'support.attachments_unconfigured' ||
       err.code === 'support.bulk_cap_unset' ||
+      err.code === 'support.view_cap_unset' ||
+      err.code === 'support.view_cap_reached' ||
+      err.code === 'support.filter_invalid' ||
+      err.code === 'support.sort_invalid' ||
       err.code === 'support.merge_not_allowed' ||
       err.code === 'support.merge_same_ticket' ||
       err.code === 'support.rate_status_refused' ||
@@ -132,11 +141,17 @@ function mapError(err: unknown): never {
     if (err.code === 'support.feedback_rate_exceeded') {
       throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message });
     }
-    if (err.code === 'support.not_lead' || err.code === 'support.not_staff' || err.code === 'support.release.not_assignee') {
+    if (
+      err.code === 'support.not_lead' ||
+      err.code === 'support.not_staff' ||
+      err.code === 'support.release.not_assignee' ||
+      err.code === 'support.view_not_owner'
+    ) {
       throw new TRPCError({ code: 'FORBIDDEN', message });
     }
     if (
       err.code === 'support.idempotency_conflict' ||
+      err.code === 'support.view_revision_stale' ||
       err.code === 'support.group_member_duplicate' ||
       err.code === 'support.group_name_taken'
     ) {
@@ -262,6 +277,11 @@ export function createSupportRouter(
              * explicitly when that is the page you want.
              */
             limit: z.number().int().positive().max(500).optional(),
+            /** Loose on purpose: a bad field is `support.filter_invalid`, not a schema error. */
+            filter: z.unknown().optional(),
+            sort: z.unknown().nullable().optional(),
+            /** Subject, body or requester id. Blank is not a search. */
+            q: z.string().max(200).optional(),
           })
           .optional(),
       )
@@ -269,10 +289,18 @@ export function createSupportRouter(
       .query(async ({ ctx, input }) => {
         try {
           requireSupportOps(ctx.principal!);
-          if (scope && (await scope.deskIsRestricted())) {
-            return await scope.listAllTicketsInScope({ limit: input?.limit, viewerId: ctx.principal!.userId });
+          const asked = input?.filter !== undefined || (input?.sort !== undefined && input.sort !== null) || Boolean(input?.q?.trim());
+          if (!asked) {
+            if (scope && (await scope.deskIsRestricted())) {
+              return await scope.listAllTicketsInScope({ limit: input?.limit, viewerId: ctx.principal!.userId });
+            }
+            return await support.listAllTickets({ limit: input?.limit });
           }
-          return await support.listAllTickets({ limit: input?.limit });
+          const query = { limit: input?.limit, filter: input?.filter, sort: input?.sort, q: input?.q };
+          if (scope && (await scope.deskIsRestricted())) {
+            return await scope.listAllTicketsInScope({ ...query, viewerId: ctx.principal!.userId });
+          }
+          return await support.listAllTickets(query);
         } catch (err) {
           mapError(err);
         }
@@ -622,6 +650,9 @@ export function createSupportRouter(
             limit: z.number().int().positive().max(500).optional(),
             /** Only tickets carrying this label. */
             label: z.string().max(200).optional(),
+            filter: z.unknown().optional(),
+            sort: z.unknown().nullable().optional(),
+            q: z.string().max(200).optional(),
           })
           .optional(),
       )
@@ -629,15 +660,25 @@ export function createSupportRouter(
       .query(async ({ ctx, input }) => {
         try {
           requireSupportOps(ctx.principal!);
-          const q = input?.label
+          const asked = input?.filter !== undefined || (input?.sort !== undefined && input.sort !== null) || Boolean(input?.q?.trim());
+          const q = asked
             ? await support.listOperatorQueue({
-                limit: input.limit,
-                label: input.label,
-                viewerId: scope && (await scope.deskIsRestricted()) ? ctx.principal!.userId : undefined,
+                limit: input?.limit,
+                ...(input?.label !== undefined ? { label: input.label } : {}),
+                filter: input?.filter,
+                sort: input?.sort,
+                q: input?.q,
+                ...(scope && (await scope.deskIsRestricted()) ? { viewerId: ctx.principal!.userId } : {}),
               })
-            : scope && (await scope.deskIsRestricted())
-              ? await support.listOperatorQueue({ limit: input?.limit, viewerId: ctx.principal!.userId })
-              : await support.listOperatorQueue({ limit: input?.limit });
+            : input?.label
+              ? await support.listOperatorQueue({
+                  limit: input.limit,
+                  label: input.label,
+                  viewerId: scope && (await scope.deskIsRestricted()) ? ctx.principal!.userId : undefined,
+                })
+              : scope && (await scope.deskIsRestricted())
+                ? await support.listOperatorQueue({ limit: input?.limit, viewerId: ctx.principal!.userId })
+                : await support.listOperatorQueue({ limit: input?.limit });
           if (q.status === 'empty') return q;
           return { status: 'ok' as const, entries: [...q.entries] };
         } catch (err) {
@@ -940,6 +981,8 @@ export function createSupportRouter(
           helpful: z.boolean(),
           /** Present only when this vote opened a request. */
           ticketId: z.string().guid().optional(),
+          /** True when this account had already voted on this version; the first vote stands. */
+          earlier: z.literal(true).optional(),
         }),
       )
       .mutation(async ({ ctx, input }) => {
@@ -1267,6 +1310,55 @@ export function createSupportRouter(
         try {
           requireSupportOps(ctx.principal!);
           return await support.mergeTickets({ operatorId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** Saved filters this operator may open, and whether the owner has set a cap. */
+    viewsList: scopedProcedure('support:ops')
+      .output(supportViewListSchema)
+      .query(async ({ ctx }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.listDeskViews(ctx.principal!.userId);
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** Create or replace one view. Keyed by the caller's id, the name and the revision they read. */
+    viewsSave: scopedProcedure('support:ops')
+      .input(supportViewSaveInputSchema)
+      .output(supportViewSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.saveDeskView({ actorId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    viewsDelete: scopedProcedure('support:ops')
+      .input(supportViewDeleteInputSchema)
+      .output(supportViewSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.deleteDeskView({ actorId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** One count per visible view. It counts every match the caller may see, not the page. */
+    viewsCounts: scopedProcedure('support:ops')
+      .output(supportViewCountsSchema)
+      .query(async ({ ctx }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return { counts: await support.deskViewCounts(ctx.principal!.userId) };
         } catch (err) {
           mapError(err);
         }

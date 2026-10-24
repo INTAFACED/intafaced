@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { isSerializationFailure, transaction } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
 import {
   blueprintProfileSchema,
@@ -8,13 +8,16 @@ import {
   type BlueprintExport,
   type BlueprintProfile,
   type BlueprintRecord,
+  type CardOpener,
   type CardRender,
+  type CardShare,
   type CardSize,
   type CrewRole,
   type EraseReceipt,
   type MentorMatch,
   type OnboardInput,
   type OnboardOutput,
+  type OpenerKind,
   type Placement,
   type Visibility,
 } from '@intafaced/contracts';
@@ -78,7 +81,11 @@ export class BlueprintError extends Error {
       | 'blueprint.invalid_profile'
       | 'blueprint.crew_capacity_unset'
       | 'blueprint.mentor_shortlist_unset'
-      | 'blueprint.season_unset',
+      | 'blueprint.season_unset'
+      | 'blueprint.share_limit_unset'
+      | 'blueprint.share_limit_reached'
+      | 'blueprint.opens_list_limit_unset'
+      | 'blueprint.open_log_unavailable',
   ) {
     super(message);
     this.name = 'BlueprintError';
@@ -115,6 +122,30 @@ export function publishedSeason(value: number | undefined): number {
   return value;
 }
 
+/** Active shares one account may hold (MC-blueprint-01). Blank refuses. 0 is a deliberate cap. Never invent a count. */
+export function publishedSharesPerOwner(value: number | undefined): number {
+  if (value === undefined || typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    throw new BlueprintError(
+      'BLUEPRINT_SHARES_PER_OWNER is unset — owner must publish a share limit (never invent one)',
+      'blueprint.share_limit_unset',
+    );
+  }
+  return value;
+}
+
+/** How many opener rows one read returns (MC-blueprint-01). Blank refuses. 0 is a deliberate empty page. Never invent a page size. */
+export function publishedOpensListLimit(value: number | undefined): number {
+  if (value === undefined || typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    throw new BlueprintError(
+      'BLUEPRINT_OPENS_LIST_LIMIT is unset — owner must publish an openers list limit (never invent one)',
+      'blueprint.opens_list_limit_unset',
+    );
+  }
+  return value;
+}
+
+const CARD_NOT_FOUND = 'No Blueprint to render a card for — run the Blueprint session first';
+
 /**
  * Derived crew id at one step of a start-fresh placement.
  *
@@ -133,6 +164,10 @@ export interface BlueprintServiceOptions {
   crewCapacity?: number;
   mentorShortlistSize?: number;
   season?: number;
+  /** Active shares per account (MC-blueprint-01). Unset refuses create. */
+  sharesPerOwner?: number;
+  /** Opener rows returned for one share (MC-blueprint-01). Unset refuses the list. */
+  opensListLimit?: number;
 }
 
 interface BlueprintRow {
@@ -150,6 +185,8 @@ export class BlueprintService implements BlueprintContract {
   private readonly crewCapacity: number | undefined;
   private readonly mentorShortlistSize: number | undefined;
   private readonly season: number | undefined;
+  private readonly sharesPerOwner: number | undefined;
+  private readonly opensListLimit: number | undefined;
 
   constructor(
     private readonly sql: Sql,
@@ -167,6 +204,8 @@ export class BlueprintService implements BlueprintContract {
     this.crewCapacity = options.crewCapacity;
     this.mentorShortlistSize = options.mentorShortlistSize;
     this.season = options.season;
+    this.sharesPerOwner = options.sharesPerOwner;
+    this.opensListLimit = options.opensListLimit;
   }
 
   // ── Onboarding (§7.1 flow) ─────────────────────────────────────────────────
@@ -641,11 +680,28 @@ export class BlueprintService implements BlueprintContract {
    * hitting `cardOf` cannot stamp `card_asset_url`. Denied and missing throw
    * the same `blueprint.not_found` — a private row is not enumerable.
    *
+   * A `shareId` (MC-blueprint-01) names one share. The revoked check, the
+   * open-log write and the card render commit together, with no cached card.
+   * The share stays `FOR UPDATE` through the render. After the card is
+   * composed, `revoked_at` is read again under that lock. If it is revoked,
+   * this throws `blueprint.not_found` and the transaction rolls back, so no
+   * new open row remains. A revoke that commits first is the same
+   * `blueprint.not_found`. The share's stored size is the card that is returned.
+   *
    * This is still authenticated. It is not a public unfurl URL (those need a
    * revocable token + object storage — ops.social-promotion / Class X).
    */
-  async cardFor(input: { viewerId: string; subjectUserId: string; size: CardSize }): Promise<CardRender> {
+  async cardFor(input: { viewerId: string; subjectUserId?: string; size: CardSize; shareId?: string }): Promise<CardRender> {
     return withBlueprintSpan('blueprint.cardFor', { stage: 'card', userId: input.viewerId }, async (span) => {
+      if (input.shareId) {
+        const render = await this.openThroughShare(input.viewerId, input.shareId, input.subjectUserId);
+        setBlueprintSpanAttribute(span, 'cardRaster', render.raster.status);
+        return render;
+      }
+
+      if (!input.subjectUserId) {
+        throw new BlueprintError(CARD_NOT_FOUND, 'blueprint.not_found');
+      }
       if (input.viewerId === input.subjectUserId) {
         return this.card({ userId: input.viewerId, size: input.size });
       }
@@ -654,6 +710,129 @@ export class BlueprintService implements BlueprintContract {
       const render = await this.renderCard(blueprint, input.size);
       setBlueprintSpanAttribute(span, 'cardRaster', render.raster.status);
       return render;
+    });
+  }
+
+  /**
+   * One active share per (owner, size). A repeat returns that share, so a lost
+   * reply cannot create a second. A revoked size may be shared again.
+   * Open-log retention has no refusal code in MC-blueprint-01 and no sweep:
+   * rows stay until erase. This does not invent a window.
+   */
+  async createShare(input: { userId: string; size: CardSize }): Promise<CardShare> {
+    const limit = publishedSharesPerOwner(this.sharesPerOwner);
+    return withBlueprintSpan('blueprint.shares.create', { stage: 'share', userId: input.userId }, async () =>
+      transaction(this.sql, async (tx) => {
+        const owner = await tx<Array<{ id: string }>>`
+          SELECT id FROM blueprint.blueprints WHERE user_id = ${input.userId} FOR UPDATE
+        `;
+        if (!owner[0]) throw new BlueprintError(CARD_NOT_FOUND, 'blueprint.not_found');
+
+        const existing = await tx<ShareRow[]>`
+          SELECT id, owner_user_id, size, created_at, revoked_at
+            FROM blueprint.card_shares
+           WHERE owner_user_id = ${input.userId} AND size = ${input.size} AND revoked_at IS NULL
+        `;
+        const already = existing[0];
+        if (already) return this.toCardShare(tx, already);
+
+        const active = await tx<Array<{ n: number }>>`
+          SELECT count(*)::int AS n
+            FROM blueprint.card_shares
+           WHERE owner_user_id = ${input.userId} AND revoked_at IS NULL
+        `;
+        if ((active[0]?.n ?? 0) >= limit) {
+          throw new BlueprintError(
+            'No active share slot is left under the published shares-per-owner limit',
+            'blueprint.share_limit_reached',
+          );
+        }
+
+        const inserted = await tx<ShareRow[]>`
+          INSERT INTO blueprint.card_shares (owner_user_id, size)
+          VALUES (${input.userId}, ${input.size})
+          RETURNING id, owner_user_id, size, created_at, revoked_at
+        `;
+        const row = inserted[0];
+        if (!row) {
+          throw new BlueprintError('The share could not be recorded', 'blueprint.share_limit_reached');
+        }
+        return this.toCardShare(tx, row);
+      }),
+    );
+  }
+
+  async listShares(input: { userId: string }): Promise<CardShare[]> {
+    return withBlueprintSpan('blueprint.shares.list', { stage: 'share', userId: input.userId }, async () => {
+      const rows = await this.sql<ShareRow[]>`
+        SELECT id, owner_user_id, size, created_at, revoked_at
+          FROM blueprint.card_shares
+         WHERE owner_user_id = ${input.userId}
+         ORDER BY created_at DESC, id DESC
+      `;
+      const listed: CardShare[] = [];
+      for (const row of rows) listed.push(await this.toCardShare(this.sql, row));
+      return listed;
+    });
+  }
+
+  /** Revoking a revoked share returns the stored row. Someone else's share is not found. */
+  async revokeShare(input: { userId: string; shareId: string }): Promise<CardShare> {
+    return withBlueprintSpan('blueprint.shares.revoke', { stage: 'share', userId: input.userId }, async () =>
+      transaction(this.sql, async (tx) => {
+        const updated = await tx<ShareRow[]>`
+          UPDATE blueprint.card_shares
+             SET revoked_at = now()
+           WHERE id = ${input.shareId} AND owner_user_id = ${input.userId} AND revoked_at IS NULL
+          RETURNING id, owner_user_id, size, created_at, revoked_at
+        `;
+        const fresh = updated[0];
+        if (fresh) return this.toCardShare(tx, fresh);
+
+        const stored = await tx<ShareRow[]>`
+          SELECT id, owner_user_id, size, created_at, revoked_at
+            FROM blueprint.card_shares
+           WHERE id = ${input.shareId} AND owner_user_id = ${input.userId}
+        `;
+        const row = stored[0];
+        if (!row) throw new BlueprintError(CARD_NOT_FOUND, 'blueprint.not_found');
+        return this.toCardShare(tx, row);
+      }),
+    );
+  }
+
+  /**
+   * Opener rows for the owner's own share. Newest first. No account id.
+   * A blank list limit refuses before any read. A share the caller does not
+   * own is the same not-found as a share that does not exist.
+   */
+  async shareOpeners(input: { userId: string; shareId: string }): Promise<CardOpener[]> {
+    const limit = publishedOpensListLimit(this.opensListLimit);
+    return withBlueprintSpan('blueprint.shares.openers', { stage: 'share', userId: input.userId }, async () => {
+      const owned = await this.sql<Array<{ id: string }>>`
+        SELECT id FROM blueprint.card_shares WHERE id = ${input.shareId} AND owner_user_id = ${input.userId}
+      `;
+      if (!owned[0]) throw new BlueprintError(CARD_NOT_FOUND, 'blueprint.not_found');
+      if (limit === 0) return [];
+      const rows = await this.sql<OpenerRow[]>`
+        SELECT CASE
+                 WHEN EXISTS (
+                   SELECT 1
+                     FROM blueprint.crew_members viewer
+                     JOIN blueprint.crew_members owner_member ON owner_member.crew_id = viewer.crew_id
+                    WHERE viewer.user_id = o.viewer_user_id
+                      AND owner_member.user_id = ${input.userId}
+                 ) THEN 'crew member'
+                 ELSE 'signed-in account'
+               END AS kind,
+               o.first_opened, o.last_opened, o.open_count
+          FROM blueprint.card_opens o
+          JOIN blueprint.card_shares s ON s.id = o.share_id
+         WHERE s.id = ${input.shareId} AND s.owner_user_id = ${input.userId}
+         ORDER BY o.last_opened DESC, o.first_opened DESC
+         LIMIT ${limit}
+      `;
+      return rows.map(toOpener);
     });
   }
 
@@ -683,15 +862,16 @@ export class BlueprintService implements BlueprintContract {
    * Split out of `card()` so `export()` can carry the same artifact without
    * inheriting the side effect. `export` is a tRPC `.query()` — retried,
    * prefetched, and cached by any sane client — and a read path that persists a
-   * column on every call is a write path wearing a read's clothes. `card()` is
-   * the one place `card_asset_url` is written, because it is the one call a
-   * caller makes *in order to* get an asset.
+   * column on every call is a write path wearing a read's clothes. `card()` writes
+   * `card_asset_url`, and so does an owner's read of their own share (a real
+   * portrait render only, inside that share transaction). A stranger's read does not.
    */
-  private async renderCard(blueprint: BlueprintRecord, size: CardSize): Promise<CardRender> {
+  private async renderCard(blueprint: BlueprintRecord, size: CardSize, sql?: Sql): Promise<CardRender> {
+    const db = sql ?? this.sql;
     // The crew name is the only thing on the card this service does not already
     // hold in the profile. Absent rows mean "unplaced", which is a real state
     // the card renders honestly rather than a reason to fail.
-    const placed = await this.sql<Array<{ name: string; season: number }>>`
+    const placed = await db<Array<{ name: string; season: number }>>`
       SELECT c.name, c.season
         FROM blueprint.crew_members m
         JOIN blueprint.crews c ON c.id = m.crew_id
@@ -838,6 +1018,8 @@ export class BlueprintService implements BlueprintContract {
         })),
         mentorMatches: asStudent.map(toMentorMatch),
         mentoringOthers: asMentor.map(toMentorMatch),
+        shares: await this.sharesForExport(input.userId),
+        cardsOpened: await this.opensForExport(input.userId),
       };
     });
   }
@@ -890,6 +1072,18 @@ export class BlueprintService implements BlueprintContract {
           `;
           const crewIds = touchedCrews.map((r) => r.crew_id);
 
+          const cardOpens = await tx<Array<{ share_id: string }>>`
+            DELETE FROM blueprint.card_opens AS o
+             USING blueprint.card_shares AS s
+             WHERE o.share_id = s.id
+               AND (o.viewer_user_id = ${input.userId} OR s.owner_user_id = ${input.userId})
+            RETURNING o.share_id
+          `;
+
+          const shares = await tx<Array<{ id: string }>>`
+            DELETE FROM blueprint.card_shares WHERE owner_user_id = ${input.userId} RETURNING id
+          `;
+
           const mentorMatches = await tx<Array<{ id: string }>>`
             DELETE FROM blueprint.mentor_matches
              WHERE student_id = ${input.userId} OR mentor_id = ${input.userId}
@@ -929,6 +1123,8 @@ export class BlueprintService implements BlueprintContract {
               matchRuns: matchRuns.length,
               mentorMatches: mentorMatches.length,
               emptiedCrews,
+              shares: shares.length,
+              cardOpens: cardOpens.length,
             },
           };
         },
@@ -954,6 +1150,185 @@ export class BlueprintService implements BlueprintContract {
 
       return { userId: input.userId, erasedAt, removed: outcome.removed };
     });
+  }
+
+  /**
+   * The share and the Blueprint behind it, or `not_found` for a missing,
+   * revoked, other-subject or invisible card. `lock` takes the share row FOR
+   * UPDATE for the rest of the transaction.
+   */
+  private async shareCard(
+    tx: Sql,
+    viewerId: string,
+    shareId: string,
+    subjectUserId: string | undefined,
+    lock: boolean,
+  ): Promise<{ share: ShareRow; blueprint: BlueprintRecord }> {
+    const shares = await tx<ShareRow[]>`
+      SELECT id, owner_user_id, size, created_at, revoked_at
+        FROM blueprint.card_shares
+       WHERE id = ${shareId}
+       ${lock ? tx`FOR UPDATE` : tx``}
+    `;
+    const share = shares[0];
+    if (!share || share.revoked_at !== null) throw new BlueprintError(CARD_NOT_FOUND, 'blueprint.not_found');
+    if (subjectUserId !== undefined && subjectUserId !== share.owner_user_id) {
+      throw new BlueprintError(CARD_NOT_FOUND, 'blueprint.not_found');
+    }
+
+    const rows = await tx<BlueprintRow[]>`
+      SELECT id, user_id, engine_version, profile, card_asset_url, visibility, mentor_available, created_at
+        FROM blueprint.blueprints
+       WHERE user_id = ${share.owner_user_id}
+    `;
+    const row = rows[0];
+    if (!row) throw new BlueprintError(CARD_NOT_FOUND, 'blueprint.not_found');
+    const blueprint = toBlueprintRecord(row);
+
+    let sameCrew = false;
+    if (viewerId !== share.owner_user_id && blueprint.visibility === 'crew') {
+      const same = await tx<Array<{ ok: number }>>`
+        SELECT 1 AS ok
+          FROM blueprint.crew_members a
+          JOIN blueprint.crew_members b ON a.crew_id = b.crew_id
+         WHERE a.user_id = ${viewerId} AND b.user_id = ${share.owner_user_id}
+         LIMIT 1
+      `;
+      sameCrew = Boolean(same[0]);
+    }
+    if (
+      !mayViewCard({
+        viewerId,
+        subjectUserId: share.owner_user_id,
+        visibility: blueprint.visibility,
+        sameCrew,
+      })
+    ) {
+      throw new BlueprintError(CARD_NOT_FOUND, 'blueprint.not_found');
+    }
+
+    return { share, blueprint };
+  }
+
+  /**
+   * Render the card from an unlocked read, then lock the share, check it again
+   * and record the open in one transaction. The rasterizer has a ten-second
+   * budget, so it runs before the lock: holding the share row through it would
+   * queue every other opener and the owner's revoke behind it. revoked_at is
+   * read again after the open is written. If it is revoked, the transaction
+   * rolls back and the card is not returned. The owner is not an opener of
+   * their own share. A failed open write aborts the transaction, so the card is
+   * not returned.
+   */
+  private async openThroughShare(viewerId: string, shareId: string, subjectUserId: string | undefined): Promise<CardRender> {
+    const read = await this.shareCard(this.sql, viewerId, shareId, subjectUserId, false);
+    const render = await this.renderCard(read.blueprint, read.share.size);
+    return transaction(this.sql, async (tx) => {
+      const { share, blueprint } = await this.shareCard(tx, viewerId, shareId, subjectUserId, true);
+      if (viewerId !== share.owner_user_id) {
+        try {
+          const written = await tx<Array<{ share_id: string }>>`
+            INSERT INTO blueprint.card_opens (share_id, viewer_user_id, first_opened, last_opened, open_count)
+            VALUES (${share.id}, ${viewerId}, now(), now(), 1)
+            ON CONFLICT (share_id, viewer_user_id)
+            DO UPDATE SET last_opened = now(), open_count = blueprint.card_opens.open_count + 1
+            RETURNING share_id
+          `;
+          if (!written[0]) {
+            throw new BlueprintError('The open could not be recorded, so the card was not returned', 'blueprint.open_log_unavailable');
+          }
+        } catch (err) {
+          if (err instanceof BlueprintError || isSerializationFailure(err)) throw err;
+          throw new BlueprintError('The open could not be recorded, so the card was not returned', 'blueprint.open_log_unavailable');
+        }
+      }
+
+      const again = await tx<Array<{ revoked_at: Date | null }>>`
+        SELECT revoked_at
+          FROM blueprint.card_shares
+         WHERE id = ${share.id}
+         FOR UPDATE
+      `;
+      if (!again[0] || again[0].revoked_at !== null) throw new BlueprintError(CARD_NOT_FOUND, 'blueprint.not_found');
+
+      if (viewerId === share.owner_user_id && render.raster.status === 'rendered' && share.size === 'portrait') {
+        await tx`
+          UPDATE blueprint.blueprints SET card_asset_url = ${render.raster.url}, updated_at = now()
+           WHERE user_id = ${blueprint.userId}
+        `;
+      }
+
+      return render;
+    });
+  }
+
+  private async toCardShare(sql: Sql, row: ShareRow): Promise<CardShare> {
+    const counts = await sql<Array<{ n: number }>>`
+      SELECT COALESCE(SUM(open_count), 0)::int AS n FROM blueprint.card_opens WHERE share_id = ${row.id}
+    `;
+    return {
+      id: row.id,
+      size: row.size,
+      createdAt: row.created_at.toISOString(),
+      revokedAt: row.revoked_at ? row.revoked_at.toISOString() : null,
+      state: row.revoked_at ? 'revoked' : 'active',
+      openCount: counts[0]?.n ?? 0,
+    };
+  }
+
+  /** The caller's own opens of other accounts' shares, newest first. */
+  private async opensForExport(userId: string): Promise<BlueprintExport['cardsOpened']> {
+    const rows = await this.sql<Array<{ share_id: string; first_opened: Date; last_opened: Date; open_count: number }>>`
+      SELECT share_id, first_opened, last_opened, open_count
+        FROM blueprint.card_opens
+       WHERE viewer_user_id = ${userId}
+       ORDER BY last_opened DESC, share_id
+    `;
+    return rows.map((row) => ({
+      shareId: row.share_id,
+      firstOpened: row.first_opened.toISOString(),
+      lastOpened: row.last_opened.toISOString(),
+      openCount: row.open_count,
+    }));
+  }
+
+  /** Owner export of shares. Opener rows have no account id (MC-blueprint-01). */
+  private async sharesForExport(userId: string): Promise<BlueprintExport['shares']> {
+    const shareRows = await this.sql<ShareRow[]>`
+      SELECT id, owner_user_id, size, created_at, revoked_at
+        FROM blueprint.card_shares
+       WHERE owner_user_id = ${userId}
+       ORDER BY created_at DESC, id DESC
+    `;
+    if (shareRows.length === 0) return [];
+    const ids = shareRows.map((share) => share.id);
+    const openers = await this.sql<Array<OpenerRow & { share_id: string }>>`
+      SELECT o.share_id,
+             CASE
+               WHEN EXISTS (
+                 SELECT 1
+                   FROM blueprint.crew_members viewer
+                   JOIN blueprint.crew_members owner_member ON owner_member.crew_id = viewer.crew_id
+                  WHERE viewer.user_id = o.viewer_user_id
+                    AND owner_member.user_id = ${userId}
+               ) THEN 'crew member'
+               ELSE 'signed-in account'
+             END AS kind,
+             o.first_opened, o.last_opened, o.open_count
+        FROM blueprint.card_opens o
+       WHERE o.share_id = ANY(${ids}::uuid[])
+       ORDER BY o.last_opened DESC, o.first_opened DESC
+    `;
+    return Promise.all(
+      shareRows.map(async (share) => {
+        const rows = openers.filter((opener) => opener.share_id === share.id);
+        const counted = await this.toCardShare(this.sql, share);
+        return {
+          ...counted,
+          openers: rows.map(toOpener),
+        };
+      }),
+    );
   }
 
   /**
@@ -1034,6 +1409,30 @@ export class BlueprintService implements BlueprintContract {
       { idempotencyKey: `blueprint.placed:${placement.crewId}:${userId}:${blueprint.id}` },
     );
   }
+}
+
+interface ShareRow {
+  id: string;
+  owner_user_id: string;
+  size: CardSize;
+  created_at: Date;
+  revoked_at: Date | null;
+}
+
+interface OpenerRow {
+  kind: OpenerKind;
+  first_opened: Date;
+  last_opened: Date;
+  open_count: number;
+}
+
+function toOpener(row: OpenerRow): CardOpener {
+  return {
+    kind: row.kind,
+    firstOpened: row.first_opened.toISOString(),
+    lastOpened: row.last_opened.toISOString(),
+    openCount: row.open_count,
+  };
 }
 
 function toBlueprintRecord(row: BlueprintRow): BlueprintRecord {

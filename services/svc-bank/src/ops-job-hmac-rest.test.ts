@@ -20,6 +20,7 @@ import {
 } from '@intafaced/contracts';
 import { createBankRouter, type BankRouter } from './router.js';
 import type { BankServices } from './bank-service.js';
+import { bankRouterSource } from './router/router-source.js';
 
 const EDGE_SECRET = 'a-bank-ops-job-hmac-rest-edge-secret-32';
 const SERVICE_SECRET = 'a'.repeat(32);
@@ -147,7 +148,7 @@ async function post(
 
 describe('ops job tRPC HMAC as svc-bank (HTTP)', () => {
   it('job doors are HMAC as svc-bank, not admin:treasury; index verifies service headers', () => {
-    const src = readFileSync(join(DIR, 'router.ts'), 'utf8');
+    const src = bankRouterSource();
     expect(src).toMatch(/jobProcedure/);
     expect(src).toMatch(/requireBankJobService/);
     for (const job of JOBS) {

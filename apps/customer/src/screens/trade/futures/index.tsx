@@ -170,7 +170,7 @@ export default function FuturesScreen({ search }: ScreenProps) {
         </TabsPanel>
         <TabsPanel value="orders">
           <OrdersTab open={openOrders} all={allOrders} onChanged={refresh} />
-          <TriggersTable triggers={triggers} entries={entries} onChanged={refresh} />
+          <TriggersTable triggers={triggers} entries={entries} positions={positions} onChanged={refresh} />
         </TabsPanel>
         <TabsPanel value="history">
           <HistoryTab closed={closed} />

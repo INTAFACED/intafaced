@@ -189,6 +189,10 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     title: 'Sending abroad is switched off',
     body: 'Sending abroad needs a payout partner and published settings, and this build has neither. Nothing was sent.',
   },
+  globalNoPayout: {
+    title: 'No payout partner for this destination',
+    body: 'Money sent here needs a payout partner, and none is connected for this destination. Nothing was sent, and the send is kept in your history.',
+  },
   globalNoRate: {
     title: 'No exchange rate is available',
     body: 'We never guess a rate, so there is no quote and nothing was sent. Try again later.',
@@ -210,6 +214,8 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     body: 'The account or bank code is not in a shape we can use. We only check the format, not the bank. Nothing was saved.',
   },
   globalPayoutRefused: { title: 'The payment was refused', body: 'The receiving side refused it. Nothing was taken from your balance.' },
+  globalQuoteNeeded: { title: 'This send needs a locked rate', body: 'Get a quote, then confirm the send while its rate is locked.' },
+  globalQuoteOther: { title: 'That quote is not for this send', body: 'Get a fresh quote for this send and confirm again.' },
   globalCorridorUnknown: {
     title: 'We do not send there',
     body: 'That country, currency and delivery method are not on the list. Choose one from the list.',

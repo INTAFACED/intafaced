@@ -17,6 +17,10 @@ import {
 } from './quote/hide-list.js';
 import { withRouteSpan } from './tracing.js';
 import { limitOrderProcedure } from './order/limit-order.js';
+import { triggerDepsFrom, triggerOrderRouter } from './order/trigger-order.js';
+import type { TriggerSettings } from './order/trigger-settings.js';
+import type { FillPort, PricePort } from './order/trigger-ports.js';
+import type { OrderBook } from './order/order-book.js';
 
 /**
  * svc-dex — the Protocol Plane's front door (§17.5).
@@ -44,6 +48,10 @@ import { limitOrderProcedure } from './order/limit-order.js';
  * svc-identity, or store a session. A blank price, size, or window refuses.
  * A complete order still refuses `dex.order.not_placed`: this service holds
  * no vault and calls no one.
+ *
+ * `order.createTrigger` is the price-trigger book (D-limit-dca-02). It stores
+ * the resting order in this process only. The keeper does not broadcast: the
+ * shipped fill port is unwired, and a blank owner bound refuses.
  *
  * ═══════════════════════════════════════════════════════════════════════════
  * `quote` USED TO BE A CALCULATOR. IT IS NOW A QUOTE.
@@ -181,6 +189,16 @@ export interface DexRouterDeps {
   readonly ammVenueWired?: boolean;
   /** True only if `DEX_EXTERNAL_VENUES` has a row. Shipped default is false. */
   readonly externalVenueWired?: boolean;
+  /**
+   * Price-trigger book. Omitted settings are unset (the order path refuses).
+   * Omitted ports are unwired: no feed and no chain call.
+   */
+  readonly triggerOrders?: {
+    readonly settings?: TriggerSettings;
+    readonly price?: PricePort;
+    readonly fill?: FillPort;
+    readonly book?: OrderBook;
+  };
 }
 
 /**
@@ -202,6 +220,13 @@ function toTrpcError(err: QuoteRefusedError): TRPCError {
 }
 
 export function createDexRouter(deps: DexRouterDeps) {
+  const trigger = triggerDepsFrom({
+    settings: deps.triggerOrders?.settings,
+    price: deps.triggerOrders?.price,
+    fill: deps.triggerOrders?.fill,
+    book: deps.triggerOrders?.book,
+    now: deps.now,
+  });
   return router({
     health: publicProcedure
       .output(
@@ -319,6 +344,12 @@ export function createDexRouter(deps: DexRouterDeps) {
      * Edge forwarded. See `order/limit-order.ts` — this does not place it.
      */
     limitOrder: limitOrderProcedure(deps.now ? { now: deps.now } : {}),
+
+    /**
+     * Resting price-trigger orders. `limitOrder` still refuses placement.
+     * See `order/trigger-order.ts`.
+     */
+    order: triggerOrderRouter(trigger),
   });
 }
 

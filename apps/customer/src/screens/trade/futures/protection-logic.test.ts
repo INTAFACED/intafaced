@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import type { Position } from '@intafaced/exchange-contract/schemas';
 import type { ConditionalOrder } from './api';
-import { coverage, entryLegProblem, estimatedResult, isLive, legsOf, partProblem, priceProblem, sideOfMark } from './protection-logic';
+import {
+  coverage,
+  entryLegProblem,
+  estimatedResult,
+  failedOutcome,
+  isLive,
+  legsOf,
+  partProblem,
+  priceProblem,
+  sideOfMark,
+} from './protection-logic';
 
 // TEST figures only: nothing here is a real balance or price.
 const position: Position = {
@@ -130,5 +140,37 @@ describe('a take profit and stop loss typed on the ticket', () => {
     expect(entryLegProblem('short', 'stop_loss', '101', '100')).toBeNull();
     // No mark known: only the number is checked, and the service judges the side.
     expect(entryLegProblem('short', 'stop_loss', '1', null)).toBeNull();
+  });
+});
+
+describe('failedOutcome', () => {
+  const failed = (over: Partial<ConditionalOrder>) =>
+    leg({ status: 'failed', failureReason: 'trade.futures_reduce_only_exceeds_position', ...over });
+
+  it('says nothing was closed, no close order reached the book, and the position is open now at its size and side', () => {
+    expect(failedOutcome(failed({ closedQuantity: null }), [position])).toEqual({
+      closed: null,
+      closeOrder: null,
+      position: { state: 'open', contracts: position.contracts, side: 'long' },
+    });
+    expect(failedOutcome(failed({ closedQuantity: '0' }), [position]).closed).toBeNull();
+  });
+
+  it('gives what its finished attempts closed, the close order that reached the book, and a position no longer open', () => {
+    expect(failedOutcome(failed({ closedQuantity: '0.2', closeOrderId: 'o9' }), [])).toEqual({
+      closed: '0.2',
+      closeOrder: 'o9',
+      position: { state: 'gone' },
+    });
+    expect(failedOutcome(failed({}), [{ ...position, status: 'closed' }]).position).toEqual({ state: 'gone' });
+  });
+
+  it('never calls a position being closed open, and never ties an order with no position to one', () => {
+    expect(failedOutcome(failed({}), [{ ...position, status: 'closing' }]).position).toMatchObject({ state: 'closing' });
+    expect(failedOutcome(failed({ positionId: null }), [{ ...position, id: null }]).position).toEqual({ state: 'gone' });
+  });
+
+  it('does not guess the position while the positions cannot be read', () => {
+    expect(failedOutcome(failed({}), null).position).toBe('unknown');
   });
 });

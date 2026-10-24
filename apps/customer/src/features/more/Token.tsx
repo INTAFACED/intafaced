@@ -1,5 +1,5 @@
 import { t as copyText, Text } from './copy';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
 import { useResource, type Resource } from '../../shared/resource';
@@ -12,6 +12,14 @@ import { Details, Limit, Read, Select, TextArea, presentActionFailure, useAction
 import { governanceCopy as G } from './token-governance-copy';
 import './token-governance.css';
 const uuid = z.string().guid();
+/** The service stores `gov:proposal:<space>:<author>:<n>`; older rows keep their uuid. */
+const proposalIdSchema = z.union([
+  uuid,
+  z
+    .string()
+    .max(512)
+    .regex(/^gov:proposal:[^:\s]+:[^:\s]+:[1-9]\d*$/),
+]);
 const stakeSchema = z.object({
   id: uuid,
   userId: uuid,
@@ -22,13 +30,15 @@ const stakeSchema = z.object({
   status: z.enum(['pending', 'active', 'unstaking', 'closed']),
 });
 const proposalSchema = z.object({
-  id: uuid,
+  id: proposalIdSchema,
   kind: z.enum(['listing', 'fee_param', 'curriculum', 'grant']),
   body: z.record(z.string(), z.unknown()),
   status: z.enum(['draft', 'open', 'passed', 'rejected', 'executed', 'cancelled']),
   opensAt: z.string(),
   closesAt: z.string(),
   createdAt: z.string(),
+  title: z.string().nullable().optional(),
+  authorId: z.string().nullable().optional(),
 });
 const tally = z.object({
   forWeight: decimalSchema,
@@ -46,7 +56,7 @@ const choiceSchema = z.enum(['for', 'against', 'abstain']);
 type VoteChoice = z.infer<typeof choiceSchema>;
 const voteSchema = z.object({
   id: uuid,
-  proposalId: uuid,
+  proposalId: proposalIdSchema,
   userId: uuid,
   weight: decimalSchema.refine((value) => {
     try {
@@ -62,7 +72,7 @@ const ballotSchema = z
   .object({
     markerId: uuid,
     actor: uuid,
-    proposalId: uuid,
+    proposalId: proposalIdSchema,
     choice: choiceSchema,
     status: z.enum(['unknown', 'recorded', 'refused']),
     receipt: voteSchema.optional(),
@@ -82,7 +92,7 @@ function selectedFor(actor: string | null) {
   if (!actor) return '';
   try {
     const value = localStorage.getItem(selectionKey(actor));
-    return uuid.safeParse(value).success ? value! : '';
+    return proposalIdSchema.safeParse(value).success ? value! : '';
   } catch {
     return '';
   }
@@ -138,7 +148,7 @@ function useOriginalProposal(actor: string | null) {
     saved: state.actor !== actor || state.saved,
     revision: state.actor === actor ? state.revision : 0,
     choose(id: string) {
-      if (!actor || !uuid.safeParse(id).success) return;
+      if (!actor || !proposalIdSchema.safeParse(id).success) return;
       let saved = true;
       try {
         localStorage.setItem(selectionKey(actor), id);
@@ -149,11 +159,15 @@ function useOriginalProposal(actor: string | null) {
     },
   };
 }
+function authoredTitle(p: z.infer<typeof proposalSchema>) {
+  if (p.title?.trim()) return p.title;
+  return typeof p.body.title === 'string' && p.body.title.trim() ? p.body.title : null;
+}
 function proposalTitle(p: z.infer<typeof proposalSchema>) {
-  return typeof p.body.title === 'string' && p.body.title.trim() ? p.body.title : G.t(p.kind);
+  return authoredTitle(p) ?? G.t(p.kind);
 }
 function titleLanguage(p: z.infer<typeof proposalSchema>) {
-  return typeof p.body.title === 'string' && p.body.title.trim() ? 'und' : currentPreferences().language;
+  return authoredTitle(p) ? 'und' : currentPreferences().language;
 }
 function activeWindow(p: z.infer<typeof governanceProposal>, now: number) {
   return p.status === 'open' && Date.parse(p.opensAt) <= now && now < Date.parse(p.closesAt);
@@ -214,6 +228,9 @@ export function Token() {
     [opens, setOpens] = useState(''),
     [closes, setCloses] = useState(''),
     [validation, setValidation] = useState('');
+  // The same create request keeps its handle until the service confirms it, so submitting it again after an unknown
+  // outcome returns the stored proposal instead of opening a second one. Changed content is a new request.
+  const createAttempt = useRef<{ request: string; handle: string } | null>(null);
   const access = useResource(
       (signal) =>
         api.query('token', 'accessOf', undefined, z.object({ staked: decimalSchema, tier: z.string(), feeDiscountBps: z.number().int() }), {
@@ -459,12 +476,18 @@ export function Token() {
                     setValidation(copyText('token.the.closing.date.must.be.after.the'));
                     return;
                   }
-                  const proposalId = crypto.randomUUID();
+                  const author = userId;
+                  const opensAt = opens ? new Date(opens).toISOString() : undefined,
+                    closesAt = closes ? new Date(closes).toISOString() : undefined;
+                  const terms = proposalTerms(body);
+                  const request = JSON.stringify([author, kind, terms, opensAt ?? null, closesAt ?? null]);
+                  if (createAttempt.current?.request !== request) createAttempt.current = { request, handle: crypto.randomUUID() };
+                  const handle = createAttempt.current.handle;
                   action.stage({
                     title: copyText('token.review.proposal'),
                     confirm: copyText('token.submit.proposal'),
                     success: copyText('token.proposal.created'),
-                    reference: proposalId,
+                    reference: handle,
                     content: (
                       <Details
                         items={[
@@ -482,13 +505,23 @@ export function Token() {
                         {
                           kind,
                           body,
-                          proposalId,
-                          ...(opens ? { opensAt: new Date(opens).toISOString() } : {}),
-                          ...(closes ? { closesAt: new Date(closes).toISOString() } : {}),
+                          handle,
+                          ...(opensAt ? { opensAt } : {}),
+                          ...(closesAt ? { closesAt } : {}),
                         },
-                        proposalSchema.refine((proposal) => proposal.id === proposalId),
+                        proposalSchema.refine(
+                          (proposal) =>
+                            proposal.kind === kind &&
+                            proposal.authorId === author &&
+                            proposalTerms(proposal.body) === terms &&
+                            (!opensAt || Date.parse(proposal.opensAt) === Date.parse(opensAt)) &&
+                            (!closesAt || Date.parse(proposal.closesAt) === Date.parse(closesAt)),
+                        ),
                       ),
-                    done: proposals.reload,
+                    done: () => {
+                      if (createAttempt.current?.handle === handle) createAttempt.current = null;
+                      proposals.reload();
+                    },
                   });
                 }}
               >

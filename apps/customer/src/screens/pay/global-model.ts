@@ -11,6 +11,8 @@ export const corridorSchema = z.object({
   minAmount: amount.nullable(),
   maxAmount: amount.nullable(),
   cutOffTime: z.string().nullable(),
+  /** The delivery methods a payout partner pays out on: a send on any other is refused, with nothing taken. */
+  payoutMethods: z.array(z.string()),
 });
 export const recipientSchema = z.object({
   id: z.string(),
@@ -29,6 +31,10 @@ export const validationSchema = z.object({
   bicLookup: z.object({ status: z.string() }).passthrough(),
 });
 export const quoteSchema = z.object({
+  /** The rate lock: a send confirmed on it before `validUntil` is paid at exactly these figures. */
+  quoteId: z.string(),
+  /** The service's clock as the lock was taken: the lock lasts `validUntil - lockedAt`, whatever this device's clock says. */
+  lockedAt: z.string(),
   rate: amount,
   fee: amount,
   feeAsset: z.string(),
@@ -55,6 +61,7 @@ export const sendSchema = z.object({
   quoteReceive: z.string().nullable(),
   quoteValidUntil: z.string().nullable(),
   quoteEta: z.string().nullable(),
+  quoteId: z.string().nullable(),
   ledgerTxId: z.string().nullable(),
   cancelledBy: z.enum(['customer', 'auto']).nullable(),
   returnRef: z.string().nullable(),
@@ -92,7 +99,7 @@ export type GlobalHold = z.infer<typeof holdSchema>;
 export type GlobalReceipt = z.infer<typeof receiptSchema>;
 
 /** One row of the destination list: a country and currency with one delivery method. */
-export type Destination = { key: string; country: string; currency: string; method: string; corridor: Corridor };
+export type Destination = { key: string; country: string; currency: string; method: string; paysOut: boolean; corridor: Corridor };
 export function destinationsFrom(corridors: readonly Corridor[]): Destination[] {
   return corridors.flatMap((corridor) =>
     corridor.deliveryMethods.map((method) => ({
@@ -100,6 +107,7 @@ export function destinationsFrom(corridors: readonly Corridor[]): Destination[] 
       country: corridor.country,
       currency: corridor.currency,
       method,
+      paysOut: corridor.payoutMethods.includes(method),
       corridor,
     })),
   );
@@ -141,6 +149,8 @@ export type SendDraft = {
   country: string;
   deliveryMethod: string;
   compliance: Readonly<Record<string, string>>;
+  /** The rate lock the person confirmed. */
+  quoteId: string;
 };
 
 /** The body of `global.send`, with the value forms the confirmation was bound to. */
@@ -155,6 +165,7 @@ export function sendInput(draft: SendDraft, stepUpApprovalId: string) {
     country: draft.country,
     deliveryMethod: draft.deliveryMethod,
     ...(compliance ? { compliance } : {}),
+    quoteId: draft.quoteId,
     stepUpApprovalId,
   };
 }
@@ -176,8 +187,24 @@ export function sendStepUpRequest(draft: SendDraft) {
       country: draft.country,
       deliveryMethod: draft.deliveryMethod,
       compliance: canonicalCompliance(draft.compliance),
+      quoteId: draft.quoteId,
     },
   };
+}
+
+/**
+ * When a rate lock ends on this device's clock: the lock's own length (`validUntil - lockedAt`, both the service's
+ * clock) counted from when the quote was asked for, so a device clock that is wrong neither ends it early nor keeps it
+ * late. NaN when either time cannot be read, which reads as run out.
+ */
+export const lockDeadline = (quote: Pick<GlobalQuote, 'validUntil' | 'lockedAt'>, askedAt: number): number =>
+  askedAt + (Date.parse(quote.validUntil) - Date.parse(quote.lockedAt));
+
+/** What is left of a rate lock at `now`, as m:ss, or null once it has run out (or cannot be read). */
+export function lockLeft(deadline: number, now: number): string | null {
+  const left = Math.ceil((deadline - now) / 1000);
+  if (!Number.isFinite(left) || left <= 0) return null;
+  return `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
 }
 
 /** True for a plain decimal above zero: the only amounts this form sends. */

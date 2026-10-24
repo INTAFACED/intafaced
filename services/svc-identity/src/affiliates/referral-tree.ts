@@ -30,7 +30,8 @@ export type ReferralErrorCode =
   | 'referral.rebind_not_found'
   | 'referral.rebind_not_open'
   | 'referral.rebind_stale'
-  | 'referral.rebind_interested';
+  | 'referral.rebind_interested'
+  | 'referral.lapse_period_unset';
 
 export class ReferralError extends Error {
   constructor(

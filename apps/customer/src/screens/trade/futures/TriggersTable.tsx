@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { Position } from '@intafaced/exchange-contract/schemas';
 import { Amount, Badge, Button, EmptyState, StatusTag, Table, type StatusKind, type TableColumn } from '@intafaced/ui';
 import { fmtAmount } from '../../../data/format';
 import type { Loadable } from '../../../data/types';
@@ -18,16 +19,20 @@ import { triggersCopy } from './triggers-copy';
 export function TriggersTable({
   triggers,
   entries,
+  positions,
   onChanged,
 }: {
   triggers: Loadable<ConditionalOrder[]>;
   entries: Loadable<EntryProtection[]>;
+  /** The open positions, so a failed order can say where its position stands now. */
+  positions: Loadable<Position[]>;
   onChanged: () => void;
 }) {
   const { t } = triggersCopy.useCopy();
   const { timeZone } = usePreferences();
   const writer = useFuturesWriter(onChanged);
   const [cancelling, setCancelling] = useState<string | null>(null);
+  const open = positions.status === 'ready' ? positions.data : positions.status === 'empty' ? [] : null;
 
   // Under the same device guard as every other trade write: nothing goes out while an earlier answer is unknown.
   const cancel = async (order: ConditionalOrder) => {
@@ -66,7 +71,7 @@ export function TriggersTable({
       header: t('Col detail'),
       cell: (o) => (
         <span className="flex flex-col text-xs">
-          <TriggerFacts order={o} />
+          <TriggerFacts order={o} positions={open} />
         </span>
       ),
     },

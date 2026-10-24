@@ -1161,6 +1161,20 @@ export const coreOpsAlertResolved = defineEvent(
   'A platform alert instance returned to normal. Carries the ruleId, instance and epoch of the opened event it closes. Its own business key is ops:alert:resolved:<ruleId>:<instance>:<epoch>, so the bus never drops it as a duplicate of the open.',
 );
 
+export const coreOpsAlertPolicyUpdated = defineEvent(
+  'core-ops',
+  'alert_policy',
+  'updated',
+  1,
+  z.object({
+    version: z.number().int().min(1),
+    /** The signed individual operator. Never a shared credential. */
+    actor: z.string().min(1),
+    changedAt: z.string().datetime({ offset: true }),
+  }),
+  'A platform alert routing tree was saved. Business key ops:alert-policy:<version>. The tree itself is the durable row.',
+);
+
 // ── core-ops: on-call alert groups (OPS-oncall-01) ───────────────────────────
 
 /** An alert group id as svc-ops stores it. Acknowledge, resolve and silence are idempotent on ops:alert-group:<group>:<action>:<n>. */
@@ -1350,6 +1364,7 @@ export const EVENT_CATALOG = {
   coreOpsAlertRuleUpdated,
   coreOpsAlertOpened,
   coreOpsAlertResolved,
+  coreOpsAlertPolicyUpdated,
   coreOpsAlertGroupOpened,
   coreOpsAlertGroupUpdated,
   coreOpsAlertGroupResolved,
@@ -1647,6 +1662,20 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'svc-ops publishes it from the alert evaluator (OPS-alerts-01, next PR). The state is a durable row; the routing consumer that notifies staff is OPS-alerts-02, so there is no subscriber yet.',
+  },
+  {
+    event: 'coreOpsAlertPolicyUpdated',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'svc-ops writes it to ops.alert_outbox in the same transaction as the routing tree (OPS-alerts-02), like the other alert events. No relay drains that outbox onto the bus yet; the tree is the durable row the desk reads.',
+  },
+  {
+    event: 'coreOpsAlertPolicyUpdated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'svc-ops writes the routing tree and this outbox row in one transaction (OPS-alerts-02). Nothing subscribes: the desk reads the stored tree. A later notifier can replay ops:alert-policy:<version>.',
   },
   {
     event: 'coreOpsAlertResolved',
@@ -1993,13 +2022,6 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'svc-notify writes the dispute-status notice in the PP-send-request-18 svc-notify PR, idempotent by event id. No publisher exists yet, so no user is promised a receipt by this event today.',
-  },
-  {
-    event: 'p2pTradeFiatSent',
-    missing: 'publisher',
-    class: 'A',
-    reason:
-      "Declared by the P-trade-orders-23 events PR. svc-p2p publishes it through its outbox in the same transaction as the state change (svc-p2p PR, next). svc-notify (notify-p2p-trade-fiat-sent) is waiting on it for the seller's buyer-paid notice.",
   },
   {
     event: 'p2pChatMessageSent',

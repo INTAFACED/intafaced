@@ -32,8 +32,9 @@
  *   8. the two operators who register what a P2P payment method needs in a market (svc-p2p ships its method registry
  *      empty and refuses every payment method, and so every P2P ad, while it is). It runs after 3, because svc-p2p
  *      refuses an operator who has no verified tier.
- *   9. time passing for one TEST journey account (`age`): its sign-up time moves back, so a journey can show a window
- *      measured from sign-up closed (J-campaigns-05 #5, the referral attach window) without waiting for it.
+ *   9. time passing for one TEST journey account (`age`): its sign-up time, referral relationship, latest fee event and
+ *      ended relationships move back, so a journey can show a window measured from sign-up closed (J-campaigns-05 #5, the referral attach
+ *      window) or a relationship past the inactivity period (#7) without waiting for it.
  * Every record it writes is labelled "LOCAL TEST — not a real approval" and carries one of the markers
  * below, so a production check can recognise and refuse them (see MARKERS).
  *
@@ -327,16 +328,26 @@ export function listAccountsAndTiers(secrets) {
   return { users, approved, pending };
 }
 
-/** Moves one journey account's sign-up time `seconds` into the past. Only `@local-test.invalid` accounts. */
+/**
+ * Moves one journey account's sign-up time, referral relationship, latest fee event and ended relationships `seconds`
+ * into the past. Only `@local-test.invalid` accounts.
+ */
 export function ageAccount(secrets, handle, seconds) {
   if (!/^[a-z0-9_]{3,32}$/i.test(handle ?? '') || !/^[1-9]\d{0,8}$/.test(String(seconds ?? '')))
     throw new Error('usage: local-test-gates.mjs age <handle> <seconds>');
+  // One statement, so the account never ends up half-aged: sign-up, referral relationship, latest fee event and any
+  // ended relationship all move back together.
+  const by = `make_interval(secs => ${Number(seconds)})`;
   const rows = psqlRead(
     secrets,
     'svc_identity',
-    `UPDATE identity.users SET created_at = created_at - make_interval(secs => ${Number(seconds)})
-      WHERE handle = '${handle}' AND email LIKE '%@local-test.invalid' RETURNING created_at::text`,
-  ).filter(([line]) => !/^UPDATE \d+$/.test(line));
+    `WITH me AS (UPDATE identity.users SET created_at = created_at - ${by}
+                 WHERE handle = '${handle}' AND email LIKE '%@local-test.invalid' RETURNING id, created_at),
+       edge AS (UPDATE identity.referral_edges SET attributed_at = attributed_at - ${by} WHERE user_id IN (SELECT id FROM me) RETURNING 1),
+       fee AS (UPDATE identity.referral_activity SET last_fee_at = last_fee_at - ${by} WHERE user_id IN (SELECT id FROM me) RETURNING 1),
+       ended AS (UPDATE identity.referral_lapses SET lapsed_at = lapsed_at - ${by} WHERE user_id IN (SELECT id FROM me) RETURNING 1)
+     SELECT created_at::text FROM me`,
+  );
   if (rows.length !== 1) throw new Error(`no LOCAL TEST journey account with handle ${handle}`);
   return rows[0][0];
 }
@@ -791,14 +802,45 @@ export async function setBookHalt(ctx, symbol, halted) {
 // ── 2c. Supported assets and networks (two-person approval) ─────────────────
 
 /**
+ * Decimal places the local stack publishes for one asset. Read from the labelled TEST profile.
+ * Blank is not a place count: publishing refuses rather than inventing one.
+ */
+function labelledTestPrecision(assetId) {
+  const dir = path.join(REPO, 'tooling', 'profiles', 'test-owner-values');
+  const key = `LEDGER_ASSET_PRECISION_${assetId}`;
+  let text = '';
+  if (fs.existsSync(dir)) {
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.endsWith('.json')) continue;
+      const profile = readJson(path.join(dir, name), null);
+      const raw = profile?.values?.[key]?.value;
+      if (typeof raw === 'string' && raw.trim() !== '') {
+        text = raw.trim();
+        break;
+      }
+    }
+  }
+  if (text === '') {
+    throw new Error(`TEST precision for ${assetId} is blank in tooling/profiles/test-owner-values/`);
+  }
+  if (!/^(0|[1-9]\d*)$/.test(text)) {
+    throw new Error(`TEST precision for ${assetId} is not an integer in tooling/profiles/test-owner-values/`);
+  }
+  const places = Number(text);
+  if (places > 18) throw new Error(`TEST precision for ${assetId} is above 18`);
+  return places;
+}
+
+/**
  * LOCAL TEST registry rows: not owner values. The ledger's asset registry starts blank (W-balances-05), and with no
  * published row the address book offers no asset and refuses every save. Both networks are EVM chains, the only
- * address form the address book checks today.
+ * address form the address book checks today. USDT's places are the labelled TEST value, not a count chosen here.
  */
 export const TEST_ASSET_ROWS = ['USDT', 'USDC'].map((id) => ({
   id,
   kind: 'crypto',
-  precision: 6,
+  // USDT places are the labelled TEST value. USDC keeps the row this file already published.
+  precision: id === 'USDT' ? labelledTestPrecision('USDT') : 6,
   networks: [
     { networkId: 'ethereum', label: 'TEST Ethereum' },
     { networkId: 'base', label: 'TEST Base' },

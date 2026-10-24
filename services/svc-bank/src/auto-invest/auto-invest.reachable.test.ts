@@ -11,6 +11,7 @@ import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { BankError } from '../errors.js';
 import type { ConvertPort } from './auto-invest-service.js';
 import { tradeConvertPort } from './trade-convert-port.js';
+import { bankRouterSource } from '../router/router-source.js';
 
 /**
  * CAN INDEX WIRE CONVERT? (bank.auto-invest — same missing-wiring shape as cards)
@@ -93,7 +94,7 @@ describe('index.ts boot-wires autoInvest.convert (cards/ramps shape)', () => {
   it('live job path is tradeConvertPort convert.quote — not a bank mid', () => {
     const serviceSrc = readFileSync(join(here, 'auto-invest-service.ts'), 'utf8');
     const portSrc = readFileSync(join(here, 'trade-convert-port.ts'), 'utf8');
-    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    const routerSrc = bankRouterSource();
     expect(indexSrc).toMatch(/\/internal\/jobs\/run-auto-invest/);
     expect(indexSrc).toMatch(/bank\.autoInvest\.runDue/);
     expect(routerSrc).toMatch(/runAutoInvest:/);

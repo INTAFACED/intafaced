@@ -29,6 +29,7 @@ import { MemoryLedger, parseAmount as amt, recipes } from '@intafaced/ledger-cli
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { createBankServices } from '../bank-service.js';
 import { createBankRouter, type BankRouter } from '../router.js';
+import { bankRouterSource } from '../router/router-source.js';
 
 const SECRET = 'bank-business-propose-retry-id-secret';
 const MAKER = '11111111-1111-4111-8111-111111111111';
@@ -59,7 +60,7 @@ describe('proposeTransfer pins a required caller clientId and does not mint', ()
   });
 
   it('public door requires clientId so omit is not a second movement', () => {
-    const src = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    const src = bankRouterSource();
     const doorAt = src.indexOf("proposeTransfer: scopedProcedure('bank:write'");
     const nextAt = src.indexOf('approve: scopedProcedure', doorAt);
     const body = src.slice(doorAt, nextAt === -1 ? doorAt + 1800 : nextAt);

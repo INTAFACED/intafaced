@@ -56,6 +56,13 @@ import {
   academyAssistantDraftInputSchema,
   academyDecideDraftInputSchema,
   academyImportLessonResultSchema,
+  academyItemMediaSchema,
+  academyMediaIntentInputSchema,
+  academyMediaIntentSchema,
+  academyConfirmMediaInputSchema,
+  academyMediaSchema,
+  academySetItemCaptionsInputSchema,
+  academySetItemCaptionsResultSchema,
 } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError } from './dual-control.js';
@@ -866,16 +873,23 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.courses_list_limit_unset':
     case 'academy.outline_limits_unset':
     case 'academy.import_limit_unset':
+    case 'academy.upload_limits_unset':
+    case 'academy.item_video_missing':
+    case 'academy.upload_incomplete':
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
 
     case 'academy.outline_too_large':
     case 'academy.item_has_no_lesson':
     case 'academy.import_too_large':
     case 'academy.lesson_blocks_invalid':
+    case 'academy.upload_too_large':
+    case 'academy.upload_type_refused':
+    case 'academy.file_type_mismatch':
       return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
 
     case 'academy.lesson_revision_unknown':
     case 'academy.draft_not_found':
+    case 'academy.media_not_found':
       return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
 
     case 'academy.prerequisite_cycle':
@@ -2879,6 +2893,30 @@ export function createAcademyRouter(
         .input(academyImportLessonInputSchema)
         .output(academyImportLessonResultSchema)
         .mutation(({ input, ctx }) => guard(() => academy.importLesson({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-videos-02: one item's uploads, caption languages and the owner's upload limits. */
+      itemMedia: scopedProcedure('admin:read', { module: 'academy' })
+        .input(z.object({ itemId: z.string().guid() }).strict())
+        .output(academyItemMediaSchema)
+        .query(({ input }) => guard(() => academy.itemMedia(input.itemId))),
+
+      /** AC-videos-02: a declared file checked against the owner's limits, and a signed upload address for its bytes. */
+      mediaUploadIntent: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyMediaIntentInputSchema)
+        .output(academyMediaIntentSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.mediaUploadIntent({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-videos-02: the stored file read back; a size or type other than declared refuses. */
+      confirmMedia: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyConfirmMediaInputSchema)
+        .output(academyMediaSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.confirmMedia({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-videos-02: one language's SRT or WebVTT file; the first malformed line comes back and nothing is stored. */
+      setItemCaptions: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySetItemCaptionsInputSchema)
+        .output(academySetItemCaptionsResultSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.setItemCaptions({ ...input, operatorId: ctx.principal!.userId }))),
 
       /** AC-course-structure-04: a template draft from the course's structure; the model path refuses `owner.decision`. */
       assistantDraft: scopedProcedure('admin:write', { module: 'academy' })

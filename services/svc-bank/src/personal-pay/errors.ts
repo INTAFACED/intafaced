@@ -230,10 +230,37 @@ export function personalPayError(code: string, detail?: string): PersonalPayErro
         PSP_BLOCKER,
       );
     case 'bank.global_quote_expired':
-      return new PersonalPayError('The provider quote is no longer valid. Nothing was posted.', code, 'PRECONDITION_FAILED', PSP_BLOCKER);
+      return new PersonalPayError(
+        'The rate lock ran out before this send was confirmed. Get a new quote. Nothing was posted.',
+        code,
+        'PRECONDITION_FAILED',
+      );
+    case 'bank.global_quote_required':
+      return new PersonalPayError(
+        'A send is paid at a locked rate: get a quote and confirm the send on it. Nothing was posted.',
+        code,
+        'PRECONDITION_FAILED',
+      );
+    case 'bank.global_quote_not_found':
+      return new PersonalPayError('No such quote.', code, 'NOT_FOUND');
+    case 'bank.global_quote_mismatch':
+      return new PersonalPayError(
+        'That quote was for another amount, asset or currency. Get a quote for this send. Nothing was posted.',
+        code,
+        'BAD_REQUEST',
+      );
+    case 'bank.global_quote_used':
+      return new PersonalPayError('That quote already paid a send. Get a new quote for another send.', code, 'CONFLICT');
     case 'bank.global_payout_unset':
       return new PersonalPayError(
         'Global send is socket.psp-partners — a payout partner and money-transmission permission, not inventable code. Nothing was posted.',
+        code,
+        'PRECONDITION_FAILED',
+        PSP_BLOCKER,
+      );
+    case 'bank.global_payout_uncovered':
+      return new PersonalPayError(
+        'No payout partner pays out to this destination: socket.psp-partners. Nothing was posted.',
         code,
         'PRECONDITION_FAILED',
         PSP_BLOCKER,

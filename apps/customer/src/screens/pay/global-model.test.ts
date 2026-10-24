@@ -8,6 +8,8 @@ import {
   compareAmounts,
   destinationsFrom,
   hasLeft,
+  lockDeadline,
+  lockLeft,
   progressOf,
   proofProblem,
   recipientKey,
@@ -26,6 +28,7 @@ const corridor: Corridor = {
   minAmount: '10',
   maxAmount: '1000.5',
   cutOffTime: '16:00',
+  payoutMethods: ['bank'],
 };
 const draft: SendDraft = {
   idempotencyKey: 'global-send:abc-123',
@@ -37,11 +40,14 @@ const draft: SendDraft = {
   country: 'DE',
   deliveryMethod: 'bank',
   compliance: {},
+  quoteId: '33333333-3333-4333-8333-333333333333',
 };
 
 describe('destinations', () => {
   it('lists one row per delivery method, from the published corridors only', () => {
     expect(destinationsFrom([corridor]).map((row) => row.key)).toEqual(['DE|EUR|bank', 'DE|EUR|wallet']);
+    // Only the methods a payout partner covers are paid out; the rest are listed and say so.
+    expect(destinationsFrom([corridor]).map((row) => row.paysOut)).toEqual([true, false]);
     expect(destinationsFrom([])).toEqual([]);
   });
 });
@@ -75,9 +81,22 @@ describe('the confirmation is bound to exactly the send', () => {
     const begin = sendStepUpRequest(withFields);
     expect(begin).toMatchObject({ scope: 'bank.step_up.global.send', purpose: 'global.send', amount: '25.50', target: draft.recipientId });
     expect(Object.keys(begin.fields).sort()).toEqual(
-      ['amount', 'assetId', 'compliance', 'country', 'deliveryMethod', 'fromSpaceId', 'idempotencyKey', 'recipientId', 'toCurrency'].sort(),
+      [
+        'amount',
+        'assetId',
+        'compliance',
+        'country',
+        'deliveryMethod',
+        'fromSpaceId',
+        'idempotencyKey',
+        'quoteId',
+        'recipientId',
+        'toCurrency',
+      ].sort(),
     );
     const send = sendInput(withFields, 'approval-1');
+    // The rate lock the person confirmed is bound and sent as the same string.
+    expect(begin.fields.quoteId).toBe(send.quoteId);
     expect(send.compliance).toEqual({ purpose: 'family', sourceOfFunds: 'salary' });
     expect(JSON.stringify(send.compliance)).toBe(begin.fields.compliance);
     expect(sendInput(draft, 'approval-1')).not.toHaveProperty('compliance');
@@ -85,8 +104,37 @@ describe('the confirmation is bound to exactly the send', () => {
   });
   it('sends nothing but the service’s fields', () => {
     expect(Object.keys(sendInput(draft, 'a')).sort()).toEqual(
-      ['amount', 'country', 'deliveryMethod', 'fromSpaceId', 'idempotencyKey', 'recipientId', 'stepUpApprovalId', 'toCurrency'].sort(),
+      [
+        'amount',
+        'country',
+        'deliveryMethod',
+        'fromSpaceId',
+        'idempotencyKey',
+        'quoteId',
+        'recipientId',
+        'stepUpApprovalId',
+        'toCurrency',
+      ].sort(),
     );
+  });
+});
+
+describe('the rate lock', () => {
+  it('counts down what is left as m:ss and says nothing once it has run out', () => {
+    const at = Date.parse('2026-10-23T12:00:00.000Z');
+    expect(lockLeft(at + 300_000, at)).toBe('5:00');
+    expect(lockLeft(at + 9_500, at)).toBe('0:10');
+    expect(lockLeft(at, at)).toBeNull();
+    expect(lockLeft(at - 60_000, at)).toBeNull();
+    expect(lockLeft(Number.NaN, at)).toBeNull();
+  });
+  it('times the lock by its own length from when it was asked for, not by this device’s clock', () => {
+    const quote = { lockedAt: '2026-10-23T12:00:00.000Z', validUntil: '2026-10-23T12:05:00.000Z' };
+    // A device clock an hour off still gets the full five minutes.
+    const asked = Date.parse('2026-10-23T13:00:00.000Z');
+    expect(lockDeadline(quote, asked)).toBe(asked + 300_000);
+    expect(lockLeft(lockDeadline(quote, asked), asked + 1_000)).toBe('4:59');
+    expect(lockLeft(lockDeadline({ ...quote, lockedAt: 'not a time' }, asked), asked)).toBeNull();
   });
 });
 
@@ -128,6 +176,10 @@ describe('refusals', () => {
       'bank.global_send_not_cancellable',
       'bank.receipt_not_ready',
       'bank.receipt_signing_unset',
+      'bank.global_quote_required',
+      'bank.global_quote_not_found',
+      'bank.global_quote_mismatch',
+      'bank.global_quote_used',
     ];
     for (const code of codes) {
       const words = refusalCopy(code);
