@@ -1092,6 +1092,8 @@ export function createIdentityRouter(
             email: z.string().email(),
             password: z.string().min(12).max(200),
             region: z.string().length(2).optional(),
+            /** A native or API client's own device key, trusted with the new account (a browser's comes in `ifc_dk`). */
+            deviceKey: z.string().min(16).max(128).optional(),
             /**
              * Optional referrer at signup. Same law as `affiliates.attribute`
              * (self/cycle/depth/unknown refuse loud). Blank = no edge.
@@ -1116,7 +1118,7 @@ export function createIdentityRouter(
             const session = await auth.register({
               ...registerInput,
               ip: requestIpAls.getStore(),
-              deviceKey: presentedDeviceKey(ctx, undefined),
+              deviceKey: presentedDeviceKey(ctx, registerInput.deviceKey),
             });
             if (referrerId) {
               await requireReferral().attribute({ userId: session.userId, referrerId });
@@ -1242,12 +1244,17 @@ export function createIdentityRouter(
             handle: z.string().regex(/^[a-zA-Z0-9_]{3,32}$/, 'handle must be 3-32 letters, numbers or underscores'),
             email: z.string().email(),
             password: z.string().min(12).max(200),
+            deviceKey: z.string().min(16).max(128).optional(),
           }),
         )
         .output(sessionOutput)
         .mutation(async ({ input, ctx }) => {
           try {
-            const session = await auth.registerFounder({ ...input, ip: requestIpAls.getStore() }, founderInvites, founderNow());
+            const session = await auth.registerFounder(
+              { ...input, ip: requestIpAls.getStore(), deviceKey: presentedDeviceKey(ctx, input.deviceKey) },
+              founderInvites,
+              founderNow(),
+            );
             return sessionWire(ctx, session);
           } catch (err) {
             throw toTrpcError(err);

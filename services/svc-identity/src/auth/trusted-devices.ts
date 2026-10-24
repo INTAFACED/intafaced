@@ -316,7 +316,14 @@ export async function approveWithCode(deps: TrustedDeviceDeps, input: { flowId: 
   const now = deps.now();
   const max = intIn(deps.policy.maxAttempts, 1, MAX_ATTEMPTS_CEILING);
   const subjectKey = deps.subjectKey;
+  const ttl = intIn(deps.policy.flowTtlSeconds, 1, MAX_FLOW_TTL_SECONDS);
   const outcome = await deps.sql.begin(async (tx) => {
+    // The account's lock first (the same one openAuthorisation takes), then the flow: the wrong codes counted below
+    // cannot move under this guess.
+    const [owner] = await tx<Array<{ user_id: string }>>`
+      SELECT user_id FROM device_authorisations WHERE flow_id = ${input.flowId}
+    `;
+    if (owner) await tx`SELECT pg_advisory_xact_lock(hashtext(${`new-device:${owner.user_id}`}))`;
     const row = await waiting(tx, input.flowId);
     if (!holdsSecret(row, input.secret)) return invalid();
     if (row.completed_at) throw new TrustedDeviceError('This sign-in request was already used.', 'auth.device_authorisation_used');
@@ -326,15 +333,27 @@ export async function approveWithCode(deps: TrustedDeviceDeps, input: { flowId: 
     }
     if (!row.code_hash || max === undefined || !subjectKey) return 'wrong' as const;
     if (row.status === 'locked' || row.attempts >= max) return 'locked' as const;
+    // Wrong codes count against the account across all its waiting requests in the window, not per request: requests
+    // opened side by side before any guess cannot each spend a fresh allowance.
+    const since = new Date(now.getTime() - (ttl ?? MAX_FLOW_TTL_SECONDS) * 1000);
+    const [spent] = await tx<Array<{ wrong: number }>>`
+      SELECT coalesce(sum(attempts), 0)::int AS wrong
+      FROM auth_flows WHERE kind = 'new_device' AND user_id = ${row.user_id} AND created_at > ${since}
+    `;
+    if ((spent?.wrong ?? 0) >= max) {
+      await tx`UPDATE auth_flows SET status = 'locked' WHERE id = ${input.flowId}`;
+      return 'locked' as const;
+    }
     if (sameHex(row.code_hash, codeHash(subjectKey, input.flowId, input.code.trim()))) {
       await tx`UPDATE device_authorisations SET approved_at = ${now} WHERE flow_id = ${input.flowId}`;
       return 'approved' as const;
     }
     const attempts = row.attempts + 1;
+    const lock = attempts >= max || (spent?.wrong ?? 0) + 1 >= max;
     await tx`
-      UPDATE auth_flows SET attempts = ${attempts}, status = ${attempts >= max ? 'locked' : row.status} WHERE id = ${input.flowId}
+      UPDATE auth_flows SET attempts = ${attempts}, status = ${lock ? 'locked' : row.status} WHERE id = ${input.flowId}
     `;
-    return attempts >= max ? ('locked' as const) : ('wrong' as const);
+    return lock ? ('locked' as const) : ('wrong' as const);
   });
   if (outcome === 'locked') {
     throw new TrustedDeviceError('Too many wrong codes. Sign in again for a new one.', 'auth.too_many_attempts');

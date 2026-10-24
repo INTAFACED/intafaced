@@ -189,6 +189,21 @@ if (!available) {
       expect(await count(`SELECT count(*)::int AS n FROM sessions WHERE user_id = '${who.userId}'`)).toBe(1);
     });
 
+    it('counts wrong codes against the account, so requests opened side by side share one allowance', async () => {
+      const who = await account();
+      const flows = [await newDevice(who), await newDevice(who), await newDevice(who)];
+      const codes = codesTo(who.email);
+      const wrongFor = (i: number) => (codes[i] === '000000' ? '111111' : '000000');
+      const guess = async (i: number, code: string) =>
+        (await refused(auth.deviceApprove({ flowId: flows[i]!.flowId, secret: flows[i]!.secret, code }))).code;
+      expect(await guess(0, wrongFor(0))).toBe('auth.code_invalid');
+      expect(await guess(1, wrongFor(1))).toBe('auth.code_invalid');
+      expect(await guess(2, wrongFor(2))).toBe('auth.too_many_attempts');
+      // The allowance is spent: even the first request's right code is refused, and nothing signed in.
+      expect(await guess(0, codes[0]!)).toBe('auth.too_many_attempts');
+      expect(await count(`SELECT count(*)::int AS n FROM sessions WHERE user_id = '${who.userId}'`)).toBe(1);
+    });
+
     it('expires with the owner lifetime', async () => {
       const who = await account();
       const waiting = await newDevice(who);
