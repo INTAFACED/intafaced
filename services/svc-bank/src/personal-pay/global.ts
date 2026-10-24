@@ -936,6 +936,12 @@ export class GlobalSendService {
     }
     if (this.ports.fx.status() !== 'live') return this.definite(row, 'bank.global_fx_unset');
     if (this.ports.payout.status() !== 'live') return this.definite(row, 'bank.global_payout_unset');
+    if (
+      this.ports.payout.covers &&
+      !this.ports.payout.covers({ country: row.country, currency: row.to_currency, deliveryMethod: row.delivery_method })
+    ) {
+      return this.definite(row, 'bank.global_payout_unset');
+    }
     const decision = this.ports.travelRule.decision();
     if (!decision || !decision.decidedBy.trim() || !Array.isArray(decision.requiredFields)) {
       return this.definite(row, 'bank.global_travel_rule_undecided');

@@ -189,6 +189,10 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     title: 'Sending abroad is switched off',
     body: 'Sending abroad needs a payout partner and published settings, and this build has neither. Nothing was sent.',
   },
+  globalNoPayout: {
+    title: 'No payout partner for this destination',
+    body: 'Money sent here needs a payout partner, and none is connected for it. Nothing was sent, and the send is kept in your history with this reason.',
+  },
   globalNoRate: {
     title: 'No exchange rate is available',
     body: 'We never guess a rate, so there is no quote and nothing was sent. Try again later.',
