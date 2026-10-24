@@ -126,6 +126,7 @@ function appWith(input: {
   spotEnabled?: boolean;
   feeSchedule?: OwnerFeeSchedule;
   slippageCapBps?: number | null;
+  stopMarketCapBps?: SpotOrderPreviewRestDeps['stopMarketCapBps'];
   feeDiscountBps?: (userId: string) => Promise<number>;
   stopLimitEnabled?: boolean;
   matchingHalt?: (marketId: string) => Promise<{ market: boolean; venue: boolean }>;
@@ -167,6 +168,7 @@ function appWith(input: {
     futuresEnabled: false,
     optionsSettlementLawStamped: false,
     slippageCapBps: input.slippageCapBps === undefined ? 200 : input.slippageCapBps,
+    ...(input.stopMarketCapBps ? { stopMarketCapBps: input.stopMarketCapBps } : {}),
     feeSchedule: input.feeSchedule ?? PUBLISHED_FEE_SCHEDULE,
     ...(input.feeDiscountBps ? { feeDiscountBps: input.feeDiscountBps } : {}),
     ...(input.matchingHalt ? { matchingHalt: input.matchingHalt } : {}),
@@ -437,6 +439,20 @@ describe('POST /api/v1/orders/preview', () => {
     const unset = await blank.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload: stop });
     expect(unset.json().refusals.map((row: { code: string }) => row.code)).toContain('trade.protection_unset');
     await blank.close();
+    // The market's own cap (the operator's, as placement reads it) wins over the env cap.
+    const reads: string[] = [];
+    const perMarket = appWith({
+      stopLimitEnabled: true,
+      slippageCapBps: 50,
+      stopMarketCapBps: async (marketId) => {
+        reads.push(marketId);
+        return 100;
+      },
+    }).app;
+    const own = await perMarket.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload: stop });
+    expect(own.json()).toMatchObject({ price: '101', orderable: true });
+    expect(reads).toEqual([MARKET.id]);
+    await perMarket.close();
   });
 
   it('previews a stop-limit when the trigger store is wired: hold sized to the limit price, trigger echoed', async () => {

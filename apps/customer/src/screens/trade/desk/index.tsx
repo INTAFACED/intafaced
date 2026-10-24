@@ -74,7 +74,11 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
   const reference = useMemo<Reference | null>(() => (bookData ? { bestBid, bestAsk } : null), [bookData !== null, bestBid, bestAsk]); // eslint-disable-line react-hooks/exhaustive-deps
   const referenceFresh = bookData !== null && now - bookData.timestamp < STALE_BOOK_MS;
   const symbol = market.symbol;
-  const lastPrice = ticker.status === 'ready' ? ticker.data.last : null;
+  // Only a stop waiting in Open orders shows the last price, so the bottom strip re-renders on a print only then.
+  const waitingStop =
+    openOrders.status === 'ready' &&
+    openOrders.data.some((order) => (order.type === 'stop' || order.type === 'stop_limit') && order.triggered === null);
+  const lastPrice = waitingStop && ticker.status === 'ready' ? ticker.data.last : null;
   const status = useMemo(() => <FeedStatus symbol={symbol} />, [symbol]);
   const toggleFavorite = useCallback(() => toggle(symbol), [toggle, symbol]);
   const picker = useMemo(() => <PairPicker selected={symbol} />, [symbol]);

@@ -1,4 +1,4 @@
-import { memo, useState } from 'react';
+import { memo, useCallback, useState } from 'react';
 import type { Trade } from '@intafaced/exchange-contract/schemas';
 import type { BalanceEntry } from '../../../data/derive';
 import { useSession } from '../../../features/session/session';
@@ -54,6 +54,7 @@ export const BottomTabs = memo(function BottomTabs({
   const closed = useClosedOrders(tab === 'history');
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>(NO_HISTORY_FILTER);
   const precision = precisionOf(markets, market);
+  const lastPriceOf = useCallback((symbol: string) => (symbol === market.symbol ? lastPrice : null), [market.symbol, lastPrice]);
   const showAll = !isHiddenPath('/money/activity');
   // The edit dialog is hosted here, above the lists: a replacement removes the old row (and may empty the list), and the
   // answer must stay on screen either way.
@@ -79,7 +80,7 @@ export const BottomTabs = memo(function BottomTabs({
       onChanged={refresh}
       desk
       onEdit={setEditing}
-      lastPriceOf={(symbol) => (symbol === market.symbol ? lastPrice : null)}
+      lastPriceOf={lastPriceOf}
       {...(withAction ? { selected, onSelect } : {})}
     />
   );

@@ -132,6 +132,11 @@ export interface SpotOrderPreviewRestDeps {
   optionsSettlementLawStamped: boolean;
   /** Null/unset → market-buy preview refuses `trade.slippage_cap_unset`. */
   slippageCapBps: number | null;
+  /**
+   * The cap a stop-market on this market is placed at (the operator's per-market cap, else the env cap), the same one
+   * placement reads. Absent: the env cap above.
+   */
+  stopMarketCapBps?: (marketId: string) => Promise<number | null>;
   /** PTX-M21 owner fee/rebate schedule. Unpublished → typed refuse, never invent bps. */
   feeSchedule: OwnerFeeSchedule;
   /** The schedule in force now (a later approved version, else `feeSchedule`). Absent: `feeSchedule` as booted. */
@@ -416,7 +421,8 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
         }
         if (isStopMarket && stopTrigger !== null && priceWire === null) {
           try {
-            priceWire = formatAmount(stopMarketLimit(market, side, stopTrigger, deps.slippageCapBps));
+            const cap = deps.stopMarketCapBps ? await deps.stopMarketCapBps(market.id) : deps.slippageCapBps;
+            priceWire = formatAmount(stopMarketLimit(market, side, stopTrigger, cap));
           } catch (error) {
             pushError(refusals, error, 'stopPrice');
           }

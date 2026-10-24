@@ -1591,7 +1591,7 @@ export class TradeService {
       untilMs?: number;
       side?: 'buy' | 'sell';
       status?: 'filled' | 'cancelled' | 'rejected' | 'expired';
-      type?: 'market' | 'limit' | 'stop_limit';
+      type?: 'market' | 'limit' | 'stop_limit' | 'stop';
       before?: string;
     },
   ): Promise<OrderRecord[]> {

@@ -40,15 +40,21 @@ export function stopMarketLimit(
     throw new TradeError('a stop-market requires a positive stopPrice', 'trade.missing_stop_price');
   }
   const slip = mulBps(stop, cap, 'floor');
+  let limit: Amount;
   if (side === 'buy') {
     const capped = stop + slip;
-    return capped - (capped % market.tickSize);
+    limit = capped - (capped % market.tickSize);
+  } else {
+    const floored = stop - slip;
+    const remainder = floored % market.tickSize;
+    limit = remainder === 0n ? floored : floored + (market.tickSize - remainder);
   }
-  const floored = stop - slip;
-  const remainder = floored % market.tickSize;
-  const limit = remainder === 0n ? floored : floored + (market.tickSize - remainder);
-  if (limit <= 0n) {
-    throw new TradeError(`${market.symbol} stop-market floor would be non-positive; place a stop-limit instead`, 'trade.protection_unset');
+  // Under one price step of room the stop would rest at its own trigger price and never chase the market it promises.
+  if (limit === stop || limit <= 0n) {
+    throw new TradeError(
+      `${market.symbol}: at this stop price the protection cap is less than one price step, so a stop-market would have no room to trade; place a stop-limit instead`,
+      'trade.invalid_price',
+    );
   }
   return limit;
 }

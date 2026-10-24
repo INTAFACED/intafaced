@@ -525,6 +525,7 @@ const messages = {
   'History filter type market': 'Market',
   'History filter type limit': 'Limit',
   'History filter type stop_limit': 'Stop-limit',
+  'History filter type stop': 'Stop-market',
   'History filter status closed': 'Filled',
   'History filter status canceled': 'Cancelled',
   'History filter status rejected': 'Rejected',

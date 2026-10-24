@@ -187,10 +187,11 @@ export interface PrivateRestDeps {
   /** Stop triggers of stop-limit orders. Absent: stop-limit is refused (fail closed). */
   stopTriggers?: StopTriggerStore;
   /**
-   * The owner protection cap a stop-market is placed at (`TRADE_MARKET_SLIPPAGE_CAP_BPS`): its limit is the stop plus
-   * (buy) or minus (sell) this many basis points. Blank refuses a stop-market `trade.protection_unset`.
+   * The protection cap a stop-market on this market is placed at, the one its market orders are bounded by (the
+   * operator's per-market cap, else `TRADE_MARKET_SLIPPAGE_CAP_BPS`): its limit is the stop plus (buy) or minus (sell)
+   * this many basis points. Absent or null refuses a stop-market `trade.protection_unset`.
    */
-  stopMarketCapBps?: number | null;
+  stopMarketCapBps?: (marketId: string) => Promise<number | null>;
   /** The stored legs for OCO parents (and bracket exits), by order id; absent when the store is not wired. */
   ocoExits?: (orderIds: readonly string[]) => Promise<ReadonlyMap<string, OcoExitLegs>>;
   /** What each live order still holds, by order id; absent when not wired, and then no order carries a hold. */
@@ -575,7 +576,8 @@ async function stopMarketOf(deps: PrivateRestDeps, body: unknown): Promise<{ bod
   if (body === null || typeof body !== 'object' || Array.isArray(body) || (body as { type?: unknown }).type !== 'stop') return null;
   const symbol = (body as { symbol?: unknown }).symbol;
   const market = typeof symbol === 'string' ? await deps.marketBySymbol(symbol) : null;
-  const out = stopMarketBody(body, market, deps.stopMarketCapBps);
+  const cap = market && deps.stopMarketCapBps ? await deps.stopMarketCapBps(market.id) : null;
+  const out = stopMarketBody(body, market, cap);
   return out.kind === 'stop' ? { body: out.body } : null;
 }
 
@@ -866,8 +868,8 @@ const CLOSED_STATUS_WORDS: Record<string, 'filled' | 'cancelled' | 'rejected' | 
 };
 
 /** Optional `side` and `status` filters of orders/closed; CCXT status words, anything else is a 400. */
-export type ClosedOrderType = 'market' | 'limit' | 'stop_limit';
-const CLOSED_ORDER_TYPES: readonly string[] = ['market', 'limit', 'stop_limit'];
+export type ClosedOrderType = 'market' | 'limit' | 'stop_limit' | 'stop';
+const CLOSED_ORDER_TYPES: readonly string[] = ['market', 'limit', 'stop_limit', 'stop'];
 
 export function parseClosedFilters(query: {
   side?: unknown;
@@ -879,7 +881,7 @@ export function parseClosedFilters(query: {
   const out: { side?: 'buy' | 'sell'; status?: 'filled' | 'cancelled' | 'rejected' | 'expired'; type?: ClosedOrderType } = {};
   if (query.type !== undefined && query.type !== '') {
     if (typeof query.type !== 'string' || !CLOSED_ORDER_TYPES.includes(query.type)) {
-      return { ok: false, message: 'type must be market, limit or stop_limit' };
+      return { ok: false, message: 'type must be market, limit, stop_limit or stop' };
     }
     out.type = query.type as ClosedOrderType;
   }
@@ -3119,7 +3121,6 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
 
     let input: PlaceOrderInput;
-    let stopTrigger: string | null = null;
     try {
       refuseOptionsOnReplacement(parsed.data);
       if (hasSpentExpiry(parsed.data, (deps.now ?? (() => new Date()))())) {
@@ -3135,6 +3136,26 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         throw new TradeError('a trailing stop cannot be set on an order replacement', 'trade.order_type_unsupported');
       }
       const stopReplacement = parsed.data.type === 'stop_limit' && deps.stopTriggers !== undefined;
+      if (deps.stopTriggers) {
+        // Only a stop's trigger is changed this way, and only into the same kind of stop. A resting limit swapped for a
+        // dormant stop, or a stop for a live limit at its protection price, is a different order: cancel and place it.
+        const originalId = req.params.id;
+        const originalStop = (await deps.stopTriggers.readMany([originalId])).has(originalId);
+        const originalKind: StopKind | null = !originalStop
+          ? null
+          : (await deps.stopTriggers.readStopMarkets([originalId])).has(originalId)
+            ? 'stop'
+            : 'stop_limit';
+        const replacementKind: StopKind | null = stopReplacement ? stopKind : null;
+        if (originalKind !== replacementKind) {
+          throw new TradeError(
+            originalKind === null
+              ? 'only a stop can be replaced by a stop; place the stop as a new order'
+              : `a ${originalKind === 'stop' ? 'stop-market' : 'stop-limit'} is replaced only by one with a new trigger; cancel it and place the new order`,
+            TRADE_STOP_TRIGGER_INVALID,
+          );
+        }
+      }
       input = carryPlacement(mapCreateOrderBody(parsed.data, { allowStopLimit: stopReplacement }), rawBody);
       if (stopReplacement && deps.stopTriggers) {
         const market = await deps.marketBySymbol(parsed.data.symbol);
@@ -3143,8 +3164,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         assertStopTrigger(trigger, market.tickSize);
         // Written before the original is cancelled: the replacement must never reach the engine without its trigger.
         const replacementId = orderIdFor(principal.userId, market.id, replacementClientOrderId(parsed.data.clientOrderId));
-        stopTrigger = await deps.stopTriggers.remember(replacementId, principal.userId, formatAmount(trigger), stopKind);
-        if (stopTrigger !== formatAmount(trigger)) {
+        const stored = await deps.stopTriggers.remember(replacementId, principal.userId, formatAmount(trigger), stopKind);
+        if (stored !== formatAmount(trigger)) {
           throw new TradeError('this replacement key was already used with a different stopPrice', TRADE_STOP_TRIGGER_INVALID);
         }
       }
@@ -3158,15 +3179,19 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const outcome = await deps.replaceOrder(principal, req.params.id, input);
       const originalMarket = await deps.marketById(outcome.original.marketId);
       const replacementMarket = outcome.replacement === null ? originalMarket : await deps.marketById(outcome.replacement.marketId);
-      return reply
-        .code(200)
-        .send(
-          presentReplaceOutcome(
-            outcome,
-            originalMarket?.symbol ?? outcome.original.marketId,
-            replacementMarket?.symbol ?? outcome.replacement?.marketId ?? outcome.original.marketId,
-          ),
-        );
+      const presented = presentReplaceOutcome(
+        outcome,
+        originalMarket?.symbol ?? outcome.original.marketId,
+        replacementMarket?.symbol ?? outcome.replacement?.marketId ?? outcome.original.marketId,
+      );
+      // Both stops answer as the stops they are (kind, trigger, whether it fired), as every other read of them does.
+      const asStop = await withStopTriggers(deps, outcome.replacement ? [outcome.original, outcome.replacement] : [outcome.original]);
+      return reply.code(200).send({
+        ...presented,
+        original: asStop(outcome.original, presented.original),
+        replacement:
+          outcome.replacement && presented.replacement ? asStop(outcome.replacement, presented.replacement) : presented.replacement,
+      });
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;

@@ -21,7 +21,7 @@ type State =
 
 const SIDES = ['buy', 'sell'] as const;
 const STATES = ['closed', 'canceled', 'rejected', 'expired'] as const;
-const TYPES = ['market', 'limit', 'stop_limit'] as const;
+const TYPES = ['market', 'limit', 'stop_limit', 'stop'] as const;
 
 /** The service's typed refusals of a filter, which the page says in its own words. */
 const FILTER_CODES: Record<string, 'filter' | 'from' | 'to' | 'range' | 'cursor'> = {
@@ -188,7 +188,7 @@ export function OrderHistoryRoom({ path }: { path: string }) {
             label={t('filterType')}
             value={params.type}
             choices={TYPES}
-            words={{ market: t('typeMarket'), limit: t('typeLimit'), stop_limit: t('typeStopLimit') }}
+            words={{ market: t('typeMarket'), limit: t('typeLimit'), stop_limit: t('typeStopLimit'), stop: t('typeStopMarket') }}
             onPick={(type) => setParams({ ...params, type })}
             t={t}
           />

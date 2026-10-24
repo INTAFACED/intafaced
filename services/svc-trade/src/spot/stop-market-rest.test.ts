@@ -46,6 +46,7 @@ const STOP = { symbol: 'BTC/USDT', type: 'stop', side: 'sell', amount: '1', stop
 
 async function build(opts: { triggers?: StopTriggerStore | null; cap?: number | null } = {}) {
   const seen: PlaceOrderInput[] = [];
+  const capReads: string[] = [];
   const replaced: Array<{ id: string; input: PlaceOrderInput }> = [];
   const stored = new Map<string, ReturnType<typeof fakeOrder>>();
   const triggers = opts.triggers === null ? undefined : (opts.triggers ?? memoryStopTrigger());
@@ -54,7 +55,10 @@ async function build(opts: { triggers?: StopTriggerStore | null; cap?: number | 
     edgeSecret: SECRET,
     serviceName: 'svc-trade',
     stopTriggers: triggers,
-    stopMarketCapBps: opts.cap === undefined ? CAP : opts.cap,
+    stopMarketCapBps: async (marketId: string) => {
+      capReads.push(marketId);
+      return opts.cap === undefined ? CAP : opts.cap;
+    },
     marketBySymbol: async (symbol: string) => (symbol === 'BTC/USDT' ? market : null),
     marketById: async (id: string) => (id === market.id ? market : null),
     placeOrder: async (p: Principal, input: PlaceOrderInput) => {
@@ -96,7 +100,7 @@ async function build(opts: { triggers?: StopTriggerStore | null; cap?: number | 
   } as unknown as PrivateRestDeps;
   registerPrivateRest(app, deps);
   await app.ready();
-  return { app, seen, replaced, triggers, stored };
+  return { app, seen, replaced, triggers, stored, capReads };
 }
 
 const post = (app: Awaited<ReturnType<typeof build>>['app'], payload: Record<string, unknown>, url = '/api/v1/orders') =>
@@ -112,15 +116,24 @@ describe('stop-market protection price', () => {
     expect(stopMarketLimit(tick, 'sell', parseAmount('100.03'), 33)).toBe(parseAmount('99.7'));
   });
 
-  it('refuses a blank or out-of-range cap; at the largest cap a sell floor stays above zero', () => {
+  it('refuses a blank or out-of-range cap', () => {
     const tick = { symbol: 'BTC/USDT', tickSize: parseAmount('0.01') };
     for (const cap of [null, undefined, 0, 5001, 1.5]) {
       expect(() => stopMarketLimit(tick, 'sell', parseAmount('100'), cap)).toThrow(
         expect.objectContaining({ code: 'trade.protection_unset' }),
       );
     }
-    expect(() => stopMarketLimit(tick, 'sell', parseAmount('0.01'), 5000)).not.toThrow();
-    expect(() => stopMarketLimit({ symbol: 'X', tickSize: parseAmount('1') }, 'sell', parseAmount('1'), 5000)).not.toThrow();
+    expect(stopMarketLimit(tick, 'sell', parseAmount('0.02'), 5000)).toBe(parseAmount('0.01'));
+  });
+
+  it('refuses a stop where the cap is under one price step: it would rest at its own trigger and never trade', () => {
+    const tick = { symbol: 'BTC/USDT', tickSize: parseAmount('0.01') };
+    for (const side of ['buy', 'sell'] as const) {
+      expect(() => stopMarketLimit(tick, side, parseAmount('1'), 50)).toThrow(expect.objectContaining({ code: 'trade.invalid_price' }));
+    }
+    expect(() => stopMarketLimit({ symbol: 'X', tickSize: parseAmount('1') }, 'sell', parseAmount('1'), 5000)).toThrow(
+      expect.objectContaining({ code: 'trade.invalid_price' }),
+    );
   });
 
   it('leaves every other body untouched', () => {
@@ -132,9 +145,11 @@ describe('stop-market protection price', () => {
 
 describe('stop-market placement', () => {
   it('places the stop-limit at the sell floor, stores the trigger as a stop-market, and answers as one', async () => {
-    const { app, seen, triggers } = await build();
+    const { app, seen, triggers, capReads } = await build();
     const res = await post(app, STOP);
     expect(res.statusCode).toBe(201);
+    // The cap is the one in force on this market (the operator's, else the env cap), read per placement.
+    expect(capReads).toEqual([market.id]);
     expect(res.json()).toMatchObject({ type: 'stop', stopPrice: '100', price: '99.5', triggered: null });
     expect(seen[0]).toMatchObject({ type: 'limit', price: parseAmount('99.5'), tif: 'GTC' });
     expect((seen[0] as { stopPx?: bigint }).stopPx).toBe(parseAmount('100'));
@@ -219,6 +234,9 @@ describe('changing a stop trigger by replacement', () => {
     expect(await triggers!.readStopMarkets([replacementId])).toEqual(new Set([replacementId]));
     const get = await app.inject({ method: 'GET', url: `/api/v1/orders/${replacementId}`, headers: signed(ALICE) });
     expect(get.json()).toMatchObject({ type: 'stop', stopPrice: '90' });
+    // The replace answer names both as the stops they are, not as bare limits at their protection prices.
+    expect(res.json().replacement).toMatchObject({ id: replacementId, type: 'stop', stopPrice: '90', triggered: null });
+    expect(res.json().original).toMatchObject({ id: placed.id, type: 'stop', stopPrice: '100' });
     await app.close();
   });
 
@@ -245,6 +263,31 @@ describe('changing a stop trigger by replacement', () => {
     const again = await post(app, { ...STOP, stopPrice: '91', clientOrderId: 'sm-1-r1' }, `/api/v1/orders/${placed.id}/replace`);
     expect(again.json().intafacedCode).toBe('trade.stop_trigger_invalid');
     expect(replaced).toHaveLength(1);
+    await app.close();
+  });
+
+  it('replaces only a stop by the same kind of stop, before anything is touched', async () => {
+    const { app, replaced } = await build();
+    const limit = (
+      await post(app, { symbol: 'BTC/USDT', type: 'limit', side: 'sell', amount: '1', price: '120', clientOrderId: 'l-1' })
+    ).json();
+    const stopMarket = (await post(app, STOP)).json();
+    const stopLimit = (await post(app, { ...STOP, type: 'stop_limit', price: '95', clientOrderId: 'sl-1' })).json();
+    const cases: Array<[string, Record<string, unknown>]> = [
+      // A resting limit swapped for a dormant stop.
+      [limit.id, { ...STOP, clientOrderId: 'l-1-r1' }],
+      // A stop swapped for a live limit at its protection price.
+      [stopMarket.id, { symbol: 'BTC/USDT', type: 'limit', side: 'sell', amount: '1', price: '99.5', clientOrderId: 'sm-1-r1' }],
+      // One stop kind swapped for the other.
+      [stopMarket.id, { ...STOP, type: 'stop_limit', price: '89', stopPrice: '90', clientOrderId: 'sm-1-r2' }],
+      [stopLimit.id, { ...STOP, stopPrice: '96', clientOrderId: 'sl-1-r1' }],
+    ];
+    for (const [id, body] of cases) {
+      const res = await post(app, body, `/api/v1/orders/${id}/replace`);
+      expect(res.statusCode, JSON.stringify(body)).toBe(400);
+      expect(res.json().intafacedCode).toBe('trade.stop_trigger_invalid');
+    }
+    expect(replaced).toHaveLength(0);
     await app.close();
   });
 });

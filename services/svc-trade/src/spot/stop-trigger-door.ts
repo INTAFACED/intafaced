@@ -7,8 +7,6 @@ export const TRADE_STOP_TRIGGER_INVALID = 'trade.stop_trigger_invalid' as const;
 
 /** Order types a spot caller may place. One list feeds the order mapper and `GET /api/v1/capabilities`. */
 export const SPOT_ORDER_TYPES = ['market', 'limit', 'stop_limit'] as const;
-/** What a caller may place beside those: a stop-market (`stop`) rests as the stop-limit at its protection price. */
-export const SPOT_PLACE_TYPES = [...SPOT_ORDER_TYPES, 'stop'] as const;
 
 /** When a stop fired, from matching.order.triggered: the reference it watches and the price that reached the stop. */
 export interface FiredTrigger {
