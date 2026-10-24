@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -13,7 +13,14 @@ import { describe, expect, it } from 'vitest';
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
-const paySrc = readFileSync(join(here, 'payment-service.ts'), 'utf8');
+// PayService is payment-service.ts plus its area files in payment-service/.
+const paySrc = [
+  readFileSync(join(here, 'payment-service.ts'), 'utf8'),
+  ...readdirSync(join(here, 'payment-service'))
+    .filter((f) => f.endsWith('.ts'))
+    .sort()
+    .map((f) => readFileSync(join(here, 'payment-service', f), 'utf8')),
+].join('\n');
 const routerSrc = readFileSync(join(here, 'router.ts'), 'utf8');
 const socketSrc = readFileSync(join(here, 'fraud/chargeback-ledger-socket.ts'), 'utf8');
 const ledgerSrc = readFileSync(join(here, 'chargeback-ledger.ts'), 'utf8');

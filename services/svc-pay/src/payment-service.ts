@@ -128,6 +128,14 @@ import { readPayoutLifecycle as readPayoutLifecycleProjection } from './portal-r
 import { listMerchantRefunds, locateRefundMerchant, readMerchantRefund } from './portal-reads/refunds.js';
 import { listMerchantStatement } from './portal-reads/statement.js';
 import { MAX_FEE_BPS } from './fee-bps-bound.js';
+import * as merchants from './payment-service/merchants.js';
+import * as paymentReads from './payment-service/payment-reads.js';
+import * as lifecycle from './payment-service/lifecycle.js';
+import * as refunds from './payment-service/refunds.js';
+import * as webhooks from './payment-service/webhooks.js';
+import * as settlement from './payment-service/settlement.js';
+import * as payouts from './payment-service/payouts.js';
+import * as chargebacks from './payment-service/chargebacks.js';
 
 /**
  * svc-pay — THE PAYMENTS CORE (§6.1).
@@ -549,7 +557,7 @@ export class PayError extends Error {
 }
 
 /** Stale, probe-failed, or marked-down. Throws before a hold or a rail send. Absent rails are not this case. */
-function refuseUnusableRail(adapter: RailAdapter, now: Date): void {
+export function refuseUnusableRail(adapter: RailAdapter, now: Date): void {
   const reason = railBlockingReason(adapter, now);
   if (!reason) return;
   throw new PayError(`Rail "${adapter.id}" is not usable (${reason}). No value moved.`, 'pay.rail_failed', {
@@ -1148,7 +1156,7 @@ interface CheckoutSessionRow {
   expires_at: Date;
 }
 
-interface PaymentRow {
+export interface PaymentRow {
   id: string;
   merchant_id: string;
   profile_id: string | null;
@@ -1161,7 +1169,7 @@ interface PaymentRow {
   created_at: Date;
 }
 
-interface MerchantRow {
+export interface MerchantRow {
   id: string;
   user_id: string;
   mode: MerchantRecord['mode'];
@@ -1173,7 +1181,7 @@ interface MerchantRow {
   settlement_prefs: Record<string, unknown>;
 }
 
-interface SettlementRow {
+export interface SettlementRow {
   id: string;
   merchant_id: string;
   window: string;
@@ -1187,7 +1195,7 @@ interface SettlementRow {
   status: SettlementStatus;
 }
 
-interface SettlementDetailRow extends SettlementRow {
+export interface SettlementDetailRow extends SettlementRow {
   created_at: Date;
   sent_at: Date | null;
   settled_at: Date | null;
@@ -1196,7 +1204,7 @@ interface SettlementDetailRow extends SettlementRow {
   created_at_cursor: string;
 }
 
-function listFilters(input: { search?: string; assetId?: string; from?: string; to?: string; cursor?: string }): ListFilters {
+export function listFilters(input: { search?: string; assetId?: string; from?: string; to?: string; cursor?: string }): ListFilters {
   try {
     return parseListFilters(input);
   } catch (err) {
@@ -1232,7 +1240,7 @@ const TRANSITIONS: Readonly<Record<PaymentStatus, readonly PaymentStatus[]>> = {
 export const DEFAULT_CHECKOUT_RAILS: readonly CheckoutRail[] = [{ railId: 'crypto-native', method: 'crypto' }];
 
 /** Hold keys for one payout attempt. The legacy key is a pre-cutover user hold. */
-function payoutHoldKeys(settlementId: string, attempt: number): { legacy: string; proceeds: string } {
+export function payoutHoldKeys(settlementId: string, attempt: number): { legacy: string; proceeds: string } {
   const withdrawalId = `${settlementId}:${attempt}`;
   return {
     legacy: `withdraw.hold:${withdrawalId}`,
@@ -1245,7 +1253,7 @@ function payoutHoldKeys(settlementId: string, attempt: number): { legacy: string
  * withdrawal hold. Finishing it uses that trio. A new attempt uses proceeds.
  * Posting the proceeds trio on top of the legacy hold would pay twice.
  */
-function legacyUserPayoutPlan(
+export function legacyUserPayoutPlan(
   userId: string,
   assetId: string,
   amount: Amount,
@@ -1279,8 +1287,8 @@ function checkoutRailsAreUnsetPsp(checkoutRails: readonly CheckoutRail[], rails:
 }
 
 export class PayService {
-  private readonly defaultFeeBps: number | null;
-  private readonly valueMovement: ValueMovementPolicy;
+  readonly defaultFeeBps: number | null;
+  readonly valueMovement: ValueMovementPolicy;
   private readonly publicCheckoutMovement: ValueMovementPolicy;
   private readonly checkoutRails: readonly CheckoutRail[];
   private readonly checkoutRiskBand: string | undefined;
@@ -1290,34 +1298,34 @@ export class PayService {
   private readonly linkMaxTtlDays: number | null;
   private readonly checkoutPublicBasePath: string;
   private readonly maxOpenSessionsPerLink: number | null;
-  private readonly now: () => Date;
-  private readonly custodyDeposits: CustodyDepositReceiver | undefined;
+  readonly now: () => Date;
+  readonly custodyDeposits: CustodyDepositReceiver | undefined;
   private readonly afterPaymentEvent:
     | ((event: {
         type: 'payment.authorized' | 'payment.captured' | 'payment.refunded' | 'payment.failed';
         payment: PaymentView;
       }) => void | Promise<void>)
     | undefined;
-  private readonly afterSettlementMerchantLock: (() => void | Promise<void>) | undefined;
-  private readonly beforeSettlementPostMerchantLock: (() => void | Promise<void>) | undefined;
-  private readonly affiliateAccrue: AffiliateAccruePort;
-  private readonly affiliatePayout: AffiliatePayoutPort;
-  private readonly payoutDestinations: MerchantPayoutDestinations;
-  private readonly identityOperationAdmission: IdentityPayoutAdmissionPort | undefined;
-  private readonly identityAuthorityGuard: OwnerIdentityAuthorityPort | undefined;
-  private readonly afterPayoutAdmission: (() => void | Promise<void>) | undefined;
-  private readonly guards: PayGuards;
-  private readonly haltStore: PayHaltStore | undefined;
-  private readonly disputeCases: DisputeCaseStore;
-  private readonly chargebackOutcomeSlots: number;
-  private chargebackOutcomeHeld: number;
-  private readonly chargebackOutcomeWaiters: Array<() => void>;
-  private readonly chargebackOutcomeTails: Map<string, Promise<void>>;
+  readonly afterSettlementMerchantLock: (() => void | Promise<void>) | undefined;
+  readonly beforeSettlementPostMerchantLock: (() => void | Promise<void>) | undefined;
+  readonly affiliateAccrue: AffiliateAccruePort;
+  readonly affiliatePayout: AffiliatePayoutPort;
+  readonly payoutDestinations: MerchantPayoutDestinations;
+  readonly identityOperationAdmission: IdentityPayoutAdmissionPort | undefined;
+  readonly identityAuthorityGuard: OwnerIdentityAuthorityPort | undefined;
+  readonly afterPayoutAdmission: (() => void | Promise<void>) | undefined;
+  readonly guards: PayGuards;
+  readonly haltStore: PayHaltStore | undefined;
+  readonly disputeCases: DisputeCaseStore;
+  readonly chargebackOutcomeSlots: number;
+  chargebackOutcomeHeld: number;
+  readonly chargebackOutcomeWaiters: Array<() => void>;
+  readonly chargebackOutcomeTails: Map<string, Promise<void>>;
 
   constructor(
-    private readonly sql: Sql,
-    private readonly ledger: LedgerClient,
-    private readonly rails: RailRegistry,
+    readonly sql: Sql,
+    readonly ledger: LedgerClient,
+    readonly rails: RailRegistry,
     options: PayServiceOptions = {},
   ) {
     this.defaultFeeBps = options.defaultFeeBps ?? null;
@@ -1411,15 +1419,10 @@ export class PayService {
   }
 
   /** Fire-and-forget outbound notify — never throws into the money path. */
-  private notifyPaymentEvent(
-    type: 'payment.authorized' | 'payment.captured' | 'payment.refunded' | 'payment.failed',
-    payment: PaymentView,
-  ): void {
+  notifyPaymentEvent(type: 'payment.authorized' | 'payment.captured' | 'payment.refunded' | 'payment.failed', payment: PaymentView): void {
     if (!this.afterPaymentEvent) return;
     void Promise.resolve(this.afterPaymentEvent({ type, payment })).catch(() => undefined);
   }
-
-  // ── Merchants ──────────────────────────────────────────────────────────────
 
   async createMerchant(input: {
     userId: string;
@@ -1434,130 +1437,25 @@ export class PayService {
     displayName?: string | null;
     legalName?: string | null;
   }): Promise<MerchantRecord> {
-    assertFeeBps(input.pricing.feeBps);
-    // The router already refuses a bad explicit name; this guards every other caller of the service.
-    for (const [field, value] of [
-      ['displayName', input.displayName],
-      ['legalName', input.legalName],
-    ] as const) {
-      if (value != null && cleanMerchantName(value) === null) {
-        throw new PayError(`${field} must be 1–${MERCHANT_NAME_MAX} characters with no control characters`, 'pay.merchant_name_invalid');
-      }
-    }
-    const names = resolveMerchantNames(input);
-
-    // Keyed on the user: onboarding is retried more than almost anything else
-    // in a payments product, and a second merchant row for one account makes
-    // "settle this account's takings" ambiguous forever after.
-    await this.sql`
-      INSERT INTO pay.merchants (user_id, mode, tier, kyb_status, status, pricing, settlement_prefs, display_name, legal_name)
-      VALUES (
-        ${input.userId}, ${input.mode ?? 'gateway'}, ${input.tier ?? 0}, ${input.kybStatus ?? 'none'},
-        ${input.status ?? 'active'}, ${this.sql.json(input.pricing as never)},
-        ${this.sql.json((input.settlementPrefs ?? {}) as never)},
-        ${names.displayName}, ${names.legalName}
-      )
-      ON CONFLICT (user_id) DO NOTHING
-    `;
-
-    const rows = await this.sql<Array<MerchantRow & { parent_merchant_id: string | null }>>`
-      SELECT id, user_id, parent_merchant_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
-        FROM pay.merchants WHERE user_id = ${input.userId}
-    `;
-    const row = rows[0];
-    if (!row) throw new PayError(`Merchant for user ${input.userId} not found after insert`, 'pay.merchant_not_found');
-    if (row.parent_merchant_id) {
-      throw new PayError(
-        'This account already belongs to another merchant. Opening an account does not adopt that row.',
-        'pay.merchant_parent_present',
-      );
-    }
-    return toMerchant(row);
+    return merchants.createMerchant(this, input);
   }
 
   async getMerchant(merchantId: string, connection: Sql = this.sql): Promise<MerchantRecord> {
-    const rows = await connection<MerchantRow[]>`
-      SELECT id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
-        FROM pay.merchants WHERE id = ${merchantId}
-    `;
-    const row = rows[0];
-    if (!row) throw new PayError(`Merchant ${merchantId} not found`, 'pay.merchant_not_found');
-    return toMerchant(row);
+    return merchants.getMerchant(this, merchantId, connection);
   }
 
-  /** Serialize eligibility reads with KYB/status writers in the money-door transaction. */
-  private async lockMerchantEligibility(sql: Sql, merchantId: string): Promise<MerchantRecord> {
-    const rows = await sql<MerchantRow[]>`
-      SELECT id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
-        FROM pay.merchants WHERE id = ${merchantId} FOR SHARE
-    `;
-    const row = rows[0];
-    if (!row) throw new PayError(`Merchant ${merchantId} not found`, 'pay.merchant_not_found');
-    return toMerchant(row);
+  async lockMerchantEligibility(sql: Sql, merchantId: string): Promise<MerchantRecord> {
+    return merchants.lockMerchantEligibility(this, sql, merchantId);
   }
 
   async getMerchantByUserId(userId: string): Promise<MerchantRecord | null> {
-    const rows = await this.sql<MerchantRow[]>`
-      SELECT id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
-        FROM pay.merchants WHERE user_id = ${userId}
-    `;
-    const row = rows[0];
-    return row ? toMerchant(row) : null;
+    return merchants.getMerchantByUserId(this, userId);
   }
 
-  /**
-   * KYB stub — merchant submits a dossier reference. Moves `none|rejected → pending`.
-   * Does NOT invent a partner decision. Digital KYB / KYB vendors are `pay.psp`.
-   * Records the change in `merchant_kyb_events` in the same transaction, so the portal's
-   * verification history shows it.
-   */
   async submitKyb(input: { merchantId: string; kybRef: string; actor: KybActor }): Promise<MerchantRecord> {
-    const ref = input.kybRef.trim();
-    if (!ref || ref.length > 128) {
-      throw new PayError('kybRef must be 1–128 characters', 'pay.kyb_invalid');
-    }
-    return transaction(this.sql, async (tx) => {
-      const rows = await tx<MerchantRow[]>`
-        SELECT id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
-          FROM pay.merchants WHERE id = ${input.merchantId} FOR UPDATE
-      `;
-      const row = rows[0];
-      if (!row) throw new PayError(`Merchant ${input.merchantId} not found`, 'pay.merchant_not_found');
-      const merchant = toMerchant(row);
-      if (merchant.kybStatus === 'pending' || merchant.kybStatus === 'approved') {
-        throw new PayError(`Merchant KYB is already ${merchant.kybStatus}`, 'pay.kyb_invalid', {
-          kybStatus: merchant.kybStatus,
-        });
-      }
-      const [updated] = await tx<MerchantRow[]>`
-        UPDATE pay.merchants
-           SET kyb_status = 'pending', kyb_ref = ${ref}, updated_at = now()
-         WHERE id = ${input.merchantId}
-           AND kyb_status IN ('none'::pay.kyb_status, 'rejected'::pay.kyb_status)
-         RETURNING id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
-      `;
-      if (!updated) {
-        throw new PayError(`Merchant KYB is already ${merchant.kybStatus}`, 'pay.kyb_invalid', {
-          kybStatus: merchant.kybStatus,
-        });
-      }
-      await recordKybEvent(tx, {
-        merchantId: input.merchantId,
-        from: merchant.kybStatus,
-        to: 'pending',
-        kybRef: ref,
-        reason: 'Verification reference sent',
-        actor: input.actor,
-      });
-      return toMerchant(updated);
-    });
+    return merchants.submitKyb(this, input);
   }
 
-  /**
-   * Operator digital-KYB decide (`pay.psp`). Works under live-only.
-   * Writes `merchants.kyb_status` pending → approved|rejected.
-   * Does not invent a vendor webhook, fee bps, or `pay:*` scopes (Layer A).
-   */
   async decideKyb(input: {
     merchantId: string;
     decision: 'approved' | 'rejected';
@@ -1570,96 +1468,23 @@ export class PayService {
     beforeWrite?: () => Promise<void>;
     actor: KybActor;
   }): Promise<MerchantRecord> {
-    return this.writeKybDecision(input.merchantId, input.decision, input.actor, kybDecisionReason(input.decision), {
-      identityHash: input.identityHash,
-      beforeWrite: input.beforeWrite,
-    });
+    return merchants.decideKyb(this, input);
   }
 
-  /**
-   * KYB stub decide — sandbox/dev path only under `allow-sandbox` valueMovement.
-   * Under live-only this refuses: use `merchant.decideKyb` (operator `admin:compliance`).
-   * Never invents an external KYB vendor response.
-   */
   async decideKybStub(input: { merchantId: string; decision: 'approved' | 'rejected'; actor: KybActor }): Promise<MerchantRecord> {
-    if (this.valueMovement === 'live-only') {
-      throw new PayError(
-        'KYB decide stub is disabled under live-only; use merchant.decideKyb (operator admin:compliance) or kyb.decide',
-        'pay.kyb_operator_required',
-      );
-    }
-    // Says what it was: the merchant's own sandbox decision, not a review, so the history never reads it as one.
-    const reason = input.decision === 'approved' ? 'Approved through the sandbox stub, not reviewed' : 'Rejected through the sandbox stub';
-    return this.writeKybDecision(input.merchantId, input.decision, input.actor, reason);
+    return merchants.decideKybStub(this, input);
   }
 
-  private async writeKybDecision(
+  async writeKybDecision(
     merchantId: string,
     decision: 'approved' | 'rejected',
     actor: KybActor,
     reason: string,
     binding?: { identityHash: string; beforeWrite?: () => Promise<void> },
   ): Promise<MerchantRecord> {
-    return transaction(this.sql, async (tx) => {
-      const rows = await tx<MerchantRow[]>`
-        SELECT id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
-          FROM pay.merchants WHERE id = ${merchantId} FOR UPDATE
-      `;
-      const row = rows[0];
-      if (!row) throw new PayError(`Merchant ${merchantId} not found`, 'pay.merchant_not_found');
-      const merchant = toMerchant(row);
-      if (merchant.kybStatus !== 'pending') {
-        throw new PayError(`Merchant KYB must be pending to decide (is ${merchant.kybStatus})`, 'pay.kyb_invalid', {
-          kybStatus: merchant.kybStatus,
-        });
-      }
-      if (binding) {
-        const live = await loadKybDecisionBinding(tx, merchantId);
-        if (!live || !binding.identityHash || !kybBindingMatches(live, { identityHash: binding.identityHash })) {
-          throw new PayError('KYB decision was reviewed against a different merchant identity', 'pay.kyb_identity_changed');
-        }
-        if (binding.beforeWrite) await binding.beforeWrite();
-      }
-      const [updated] = await tx<MerchantRow[]>`
-        UPDATE pay.merchants
-           SET kyb_status = ${decision}, updated_at = now()
-         WHERE id = ${merchantId}
-           AND kyb_status = 'pending'::pay.kyb_status
-         RETURNING id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
-      `;
-      if (!updated) {
-        throw new PayError(`Merchant KYB must be pending to decide (is ${merchant.kybStatus})`, 'pay.kyb_invalid', {
-          kybStatus: merchant.kybStatus,
-        });
-      }
-      await recordKybEvent(tx, {
-        merchantId,
-        from: merchant.kybStatus,
-        to: decision,
-        kybRef: merchant.kybRef,
-        reason,
-        actor,
-      });
-      return toMerchant(updated);
-    });
+    return merchants.writeKybDecision(this, merchantId, decision, actor, reason, binding);
   }
 
-  /**
-   * Merchant payment list — durable status projection for the acquiring surface.
-   * Status is whatever `payments.status` currently projects from `payment_events`.
-   *
-   * Pages are keyset-ordered by `(created_at, id)` descending. Search matches the
-   * payment id, the rail reference, the customer reference, or the merchant
-   * reference (`metadata.reference` on the created event). It does not match a
-   * name, an email, or any other metadata key. The fee snapshot and failure
-   * are the stored rows, or null.
-   *
-   * `summary` counts every row of the filter, not this page. `linkId` keeps
-   * payments whose checkout session names that link. The seek uses
-   * `checkout_sessions_link_status_idx` (`link_id`, `status`). A link that is
-   * missing or belongs to another merchant matches no session of this merchant,
-   * so the page is empty. That is not an error.
-   */
   async listPayments(input: {
     merchantId: string;
     status?: PaymentStatus;
@@ -1679,157 +1504,25 @@ export class PayService {
      */
     railMode?: 'sandbox';
   }): Promise<PaymentPage> {
-    await this.getMerchant(input.merchantId);
-    const limit = assertPaymentListLimit(input.limit);
-    const filters = listFilters(input);
-    this.assertListStatus(input.status, ['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed']);
-    const min = boundAmount(input.amountMin);
-    const max = boundAmount(input.amountMax);
-    if (min.kind === 'invalid' || max.kind === 'invalid') {
-      throw new PayError('Payment amount filter is blank or not a decimal string', 'pay.list_amount_invalid');
-    }
-    if (min.kind === 'amount' && max.kind === 'amount' && min.scaled > max.scaled) {
-      throw new PayError('Payment amount filter starts above its end', 'pay.list_amount_range_invalid');
-    }
-    const amountMin = min.kind === 'amount' ? min.canonical : '0';
-    const amountMax = max.kind === 'amount' ? max.canonical : '0';
-    const hasMin = min.kind === 'amount';
-    const hasMax = max.kind === 'amount';
-    const cursorAt = filters.cursor?.createdAtCursor ?? null;
-    const cursorId = filters.cursor?.id ?? null;
-    const sandboxOnly = input.railMode === 'sandbox';
-    const linkId = input.linkId ?? null;
-    const linkFilter =
-      linkId === null
-        ? this.sql``
-        : this.sql`AND p.id IN (
-             SELECT s.payment_id
-               FROM pay.checkout_sessions s
-              WHERE s.link_id = ${linkId}
-                AND s.merchant_id = ${input.merchantId}
-                AND s.payment_id IS NOT NULL
-           )`;
-    const match = this.sql`
-      p.merchant_id = ${input.merchantId}
-      ${linkFilter}
-      AND (${sandboxOnly}::boolean = false OR right(p.rail_adapter, 8) = '-sandbox')
-      AND (${input.status ?? null}::text IS NULL OR p.status::text = ${input.status ?? null})
-      AND (${filters.assetId}::text IS NULL OR p.currency = ${filters.assetId})
-      AND (${filters.from}::timestamptz IS NULL OR p.created_at >= ${filters.from})
-      AND (${filters.to}::timestamptz IS NULL OR p.created_at < ${filters.to})
-      AND (${hasMin}::boolean = false OR p.amount >= ${amountMin}::numeric)
-      AND (${hasMax}::boolean = false OR p.amount <= ${amountMax}::numeric)
-      AND (
-        ${filters.search}::text IS NULL
-        OR p.id::text = lower(${filters.search})
-        OR p.rail_ref = ${filters.search}
-        OR EXISTS (
-          SELECT 1 FROM pay.payment_events e
-           WHERE e.payment_id = p.id
-             AND e.event = 'created'
-             AND (
-               e.payload->>'customerRef' = ${filters.search}
-               OR e.payload->'metadata'->>'reference' = ${filters.search}
-             )
-        )
-      )
-    `;
-    const rows = await this.sql<Array<PaymentRow & { created_at_cursor: string }>>`
-      SELECT p.id, p.merchant_id, p.profile_id, p.amount::text, p.currency, p.method, p.rail_adapter, p.rail_ref, p.status, p.created_at,
-             to_char(p.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
-        FROM pay.payments p
-       WHERE ${match}
-         AND (
-           ${cursorAt}::timestamptz IS NULL
-           OR (p.created_at, p.id) < (${cursorAt}::timestamptz, ${cursorId}::uuid)
-         )
-       ORDER BY p.created_at DESC, p.id DESC
-       LIMIT ${limit + 1}
-    `;
-    const [totals] = await this.sql<Array<{ matched: string; succeeded: string; failed: string }>>`
-      SELECT count(*)::text AS matched,
-             count(*) FILTER (WHERE p.status::text IN ('captured', 'settled', 'refunded', 'disputed'))::text AS succeeded,
-             count(*) FILTER (WHERE p.status::text = 'failed')::text AS failed
-        FROM pay.payments p
-       WHERE ${match}
-    `;
-    let summary: PaymentListSummary;
-    try {
-      summary = paymentListSummaryFromText(totals?.matched ?? '', totals?.succeeded ?? '', totals?.failed ?? '');
-    } catch {
-      throw new PayError('Payment list totals could not be read', 'pay.list_summary_unreadable');
-    }
-    const pageRows = rows.slice(0, limit);
-    const items: PaymentRead[] = [];
-    const views: PaymentView[] = [];
-    for (const row of pageRows) views.push(await this.view(this.sql, row));
-    const facts = await this.paymentFactsFor(views.map((v) => v.id));
-    for (const view of views) {
-      const fact = facts.get(view.id);
-      items.push({ ...view, pricingSnapshot: fact?.pricingSnapshot ?? null, failure: fact?.failure ?? null });
-    }
-    const last = pageRows[pageRows.length - 1];
-    const nextCursor = rows.length > limit && last ? encodeListCursor(last.created_at_cursor, last.id) : null;
-    return { items, nextCursor, summary };
+    return paymentReads.listPayments(this, input);
   }
 
-  /**
-   * Rail tries for one payment, oldest first. Each `rail.authorize` event is
-   * one try. An event that is not a readable rail result is left out, not
-   * invented. A payment that has not been sent to a rail has an empty list.
-   * The caller has already checked ownership.
-   */
   async listPaymentAttempts(paymentId: string): Promise<PaymentAttemptView[]> {
-    const rows = await this.sql<Array<{ id: string; payload: unknown; ts: Date }>>`
-      SELECT id, payload, ts
-        FROM pay.payment_events
-       WHERE payment_id = ${paymentId} AND event = 'rail.authorize'
-       ORDER BY seq ASC
-    `;
-    const attempts: PaymentAttemptView[] = [];
-    for (const row of rows) {
-      const attempt = attemptFromRailAuthorize(row);
-      if (attempt) attempts.push(attempt);
-    }
-    return attempts;
+    return paymentReads.listPaymentAttempts(this, paymentId);
   }
 
-  /** Stored snapshot and safe failure for one payment. Null when nothing was recorded. */
   async paymentFacts(paymentId: string): Promise<{ pricingSnapshot: StoredPricingSnapshot | null; failure: MerchantFailure | null }> {
-    const facts = await this.paymentFactsFor([paymentId]);
-    return facts.get(paymentId) ?? { pricingSnapshot: null, failure: null };
+    return paymentReads.paymentFacts(this, paymentId);
   }
 
-  private async paymentFactsFor(
+  async paymentFactsFor(
     ids: string[],
   ): Promise<Map<string, { pricingSnapshot: StoredPricingSnapshot | null; failure: MerchantFailure | null }>> {
-    const out = new Map<string, { pricingSnapshot: StoredPricingSnapshot | null; failure: MerchantFailure | null }>();
-    if (ids.length === 0) return out;
-    const [snapshots, failures] = await Promise.all([
-      readPricingSnapshots(this.sql, 'payment', ids),
-      this.sql<Array<{ payment_id: string; payload: Record<string, unknown> }>>`
-        SELECT DISTINCT ON (payment_id) payment_id, payload
-          FROM pay.payment_events
-         WHERE payment_id = ANY(${this.sql.array(ids)}::uuid[]) AND event = 'failed'
-         ORDER BY payment_id, seq DESC
-      `,
-    ]);
-    const failureById = new Map<string, MerchantFailure>();
-    for (const row of failures) {
-      const code = typeof row.payload?.failureCode === 'string' ? row.payload.failureCode : null;
-      const failure = safeFailure(code);
-      if (failure) failureById.set(row.payment_id, failure);
-    }
-    for (const id of ids) {
-      out.set(id, { pricingSnapshot: snapshots.get(id) ?? null, failure: failureById.get(id) ?? null });
-    }
-    return out;
+    return paymentReads.paymentFactsFor(this, ids);
   }
 
-  private assertListStatus(status: string | undefined, allowed: readonly string[]): void {
-    if (status !== undefined && !allowed.includes(status)) {
-      throw new PayError('List status filter is not a known status', 'pay.validation_failed');
-    }
+  assertListStatus(status: string | undefined, allowed: readonly string[]): void {
+    return paymentReads.assertListStatus(this, status, allowed);
   }
 
   async createProfile(input: {
@@ -2779,16 +2472,6 @@ export class PayService {
     return { expired: result.count };
   }
 
-  // ── Payment lifecycle ──────────────────────────────────────────────────────
-
-  /**
-   * `created`. Nothing has been asked of a rail yet and no value has moved.
-   *
-   * The rail is chosen by the caller in this PR. Smart routing — geo, method,
-   * amount band, risk score, live approval rates — is its own tracker feature
-   * and slots in exactly here, choosing `railAdapter`, with nothing else in
-   * this file changing.
-   */
   async createPayment(input: {
     requestId?: string;
     identityAuthority?: import('@intafaced/contracts').IdentityOperationIntent['authority'];
@@ -2808,325 +2491,32 @@ export class PayService {
      */
     keyEnv?: 'live' | 'sandbox';
   }): Promise<PaymentView> {
-    if (input.amount <= 0n) throw new PayError('Payment amount must be positive', 'pay.invalid_amount');
-
-    // A sandbox key on a live rail is refused here, before the rail lookup, the
-    // guard, admission, and the insert. REST already resolves that key onto
-    // card-sandbox. This method does not reroute: a blank or unknown rail is
-    // not a sandbox rail, and naming a live rail must not create a row.
-    if (input.keyEnv === 'sandbox' && !isSandboxRailId(input.railAdapter)) {
-      throw new PayError(
-        'A sandbox API key cannot create a payment on a live rail. NOTHING WAS ATTEMPTED.',
-        'pay.sandbox_live_account_refused',
-        { railAdapter: input.railAdapter },
-      );
-    }
-
-    // Resolved now so an unknown or incapable rail fails before a payment row
-    // exists, rather than at authorize time with a buyer watching.
-    this.rails.require(input.railAdapter, 'authorize');
-
-    if (input.profileId) {
-      const profiles = await this.sql<Array<{ id: string }>>`
-        SELECT id FROM pay.payment_profiles
-         WHERE id = ${input.profileId} AND merchant_id = ${input.merchantId}
-      `;
-      if (!profiles[0]) throw new PayError('payment profile not found for merchant', 'pay.profile_not_found');
-    }
-
-    const paymentId = input.requestId?.toLowerCase() ?? randomUUID();
-    if (input.requestId) await this.existingPaymentCreation(this.sql, input, paymentId);
-    return this.admitPaymentOperation(
-      {
-        paymentId,
-        merchantId: input.merchantId,
-        kind: 'payment.create',
-        authority: input.identityAuthority,
-        payload: paymentCreationPayload(input, paymentId),
-      },
-      async (tx, admitted) => {
-        // Merchant lock and the guard already ran in admitPaymentOperation.
-        const existing = await this.existingPaymentCreation(tx, input, paymentId);
-        if (existing) return existing;
-        const row = await insertPayment(tx, { ...input, id: paymentId, sandbox: input.keyEnv === 'sandbox' });
-        return { ...toPayment(row), capturedAmount: 0n, refundedAmount: 0n };
-      },
-    );
+    return lifecycle.createPayment(this, input);
   }
 
-  private async admitPaymentOperation<T>(input: PreparedPaymentOperation, effect: (tx: Sql, admitted: boolean) => Promise<T>): Promise<T> {
-    try {
-      return await withPaymentAdmission(
-        this.sql,
-        this.identityOperationAdmission,
-        input,
-        async (tx) => this.assertMerchantActive(await this.lockMerchantEligibility(tx, input.merchantId)),
-        // Seam: runs inside the effect transaction on both the identity and the
-        // no-identity path, so no admission skips it, and at ONE point in the lock
-        // order on both (seams/guards.ts): merchant row, guard, payment row. With
-        // identity on, the wrapper has already taken the merchant lock; without
-        // it, take the same lock here, before the guard.
-        async (tx, admitted) => {
-          if (!admitted) this.assertMerchantActive(await this.lockMerchantEligibility(tx, input.merchantId));
-          await this.guards.beforePaymentAdmit({
-            tx,
-            kind: input.kind,
-            paymentId: input.paymentId,
-            merchantId: input.merchantId,
-            payload: input.payload,
-            replay: await this.classifyPaymentAdmission(tx, input),
-          });
-          return effect(tx, admitted);
-        },
-        this.identityAuthorityGuard,
-      );
-    } catch (error) {
-      if (error instanceof PayoutAdmissionError) throw new PayError(error.message, error.code);
-      throw error;
-    }
-  }
-  /**
-   * Fresh, replay or recovery for a payment admission, from durable state, read
-   * without locking the payment row (the guard runs before it is locked).
-   *   create     the payment row exists: an idempotent repeat.
-   *   authorize  already authorized or beyond: an idempotent repeat.
-   *   capture    already captured or beyond: an idempotent repeat; still
-   *              `authorized` but the ledger already holds the capture key: a
-   *              recovery (the post landed, the projection did not).
-   * A rail capture whose ledger post rolled back leaves no trace and is `fresh`.
-   */
-  private async classifyPaymentAdmission(tx: Sql, input: PreparedPaymentOperation): Promise<GuardReplay> {
-    const rows = await tx<Array<{ status: PaymentStatus }>>`SELECT status FROM pay.payments WHERE id=${input.paymentId}`;
-    const status = rows[0]?.status;
-    if (!status) return FRESH;
-    if (input.kind === 'payment.create') return { kind: 'replay', reason: 'payment_exists' };
-    const beyondCapture = status === 'captured' || status === 'settled' || status === 'refunded';
-    if (input.kind === 'payment.authorize') {
-      return beyondCapture || status === 'authorized' ? { kind: 'replay', reason: 'already_authorized' } : FRESH;
-    }
-    if (beyondCapture) return { kind: 'replay', reason: 'already_captured' };
-    if (status === 'authorized' && (await this.ledger.getTxByKey(`payment.capture:${input.paymentId.toLowerCase()}`)))
-      return { kind: 'recovery', reason: 'ledger_already_booked' };
-    return FRESH;
+  async admitPaymentOperation<T>(input: PreparedPaymentOperation, effect: (tx: Sql, admitted: boolean) => Promise<T>): Promise<T> {
+    return lifecycle.admitPaymentOperation(this, input, effect);
   }
 
-  private async existingPaymentCreation(
+  async classifyPaymentAdmission(tx: Sql, input: PreparedPaymentOperation): Promise<GuardReplay> {
+    return lifecycle.classifyPaymentAdmission(this, tx, input);
+  }
+
+  async existingPaymentCreation(
     tx: Sql,
     input: Parameters<PayService['createPayment']>[0],
     paymentId: string,
   ): Promise<PaymentView | null> {
-    const existing = await tx`SELECT id FROM pay.payments WHERE id=${paymentId}`;
-    if (!existing[0]) return null;
-    const current = await readPayment(tx, paymentId);
-    const [created] = await tx`SELECT payload FROM pay.payment_events WHERE payment_id=${paymentId} AND event='created' LIMIT 1`;
-    const expected = {
-      amount: formatAmount(input.amount),
-      assetId: input.assetId,
-      method: input.method,
-      railAdapter: input.railAdapter,
-      customerRef: input.customerRef ?? null,
-      instrument: input.instrument ?? null,
-      metadata: input.metadata ?? {},
-      ...(input.keyEnv === 'sandbox' ? { sandbox: true } : {}),
-    };
-    if (
-      current.merchant_id !== input.merchantId.toLowerCase() ||
-      current.profile_id !== (input.profileId?.toLowerCase() ?? null) ||
-      !created ||
-      stable(created.payload) !== stable(expected)
-    )
-      throw new PayError('Creation request differs from the original payment', 'pay.identity_admission_conflict');
-    return this.view(tx, current);
+    return lifecycle.existingPaymentCreation(this, tx, input, paymentId);
   }
 
-  /**
-   * `created → authorized`.
-   *
-   * No value moves here on any rail. A card authorization is a promise; a
-   * crypto "authorization" is a confirmed transfer that is already ours but is
-   * not booked until capture. Either way the ledger is untouched, which is why
-   * this method can be retried freely.
-   */
   async authorize(
     paymentId: string,
     options: { identityAuthority?: import('@intafaced/contracts').IdentityOperationIntent['authority'] } = {},
   ): Promise<PaymentView> {
-    return withMoneySpan('pay.authorize', { operation: 'authorize', paymentId }, async () => {
-      const original = await readPayment(this.sql, paymentId);
-      if (['authorized', 'captured', 'settled'].includes(original.status)) return this.getPayment(paymentId);
-      // Checkout commits a prepared row with its create marker before asking
-      // identity. A cancelled creation must never become a usable instruction.
-      if (this.identityOperationAdmission) {
-        const prepared = await this
-          .sql`SELECT payload FROM pay.payment_admissions WHERE business_id=${`payment.create:${paymentId.toLowerCase()}`}`;
-        if (prepared[0])
-          await this.admitPaymentOperation(
-            {
-              paymentId,
-              merchantId: original.merchant_id,
-              kind: 'payment.create',
-              payload: prepared[0].payload as Record<string, unknown>,
-            },
-            async (tx) => this.view(tx, await readPayment(tx, paymentId)),
-          );
-      }
-      const outcome = await this.admitPaymentOperation(
-        {
-          paymentId,
-          merchantId: original.merchant_id,
-          kind: 'payment.authorize',
-          authority: options.identityAuthority,
-          payload: {
-            paymentId,
-            merchantId: original.merchant_id,
-            amount: formatAmount(parseAmount(original.amount)),
-            assetId: original.currency,
-            railId: original.rail_adapter,
-            method: original.method,
-            instrument: (await instrumentFor(this.sql, paymentId)) ?? null,
-          },
-        },
-        async (tx, admitted) => {
-          const observed = await readPayment(tx, paymentId);
-
-          // Idempotent: an authorization that already happened is not an error.
-          if (observed.status === 'authorized' || observed.status === 'captured' || observed.status === 'settled') {
-            return { declined: false as const, view: await this.view(tx, observed) };
-          }
-
-          // Global money lock order: merchant eligibility (taken in
-          // admitPaymentOperation, before the guard), then payment. Settlement
-          // freezes use the same order. Re-check the payment after both locks: it
-          // may have completed while this operation waited on a cutoff/settlement.
-          const row = await lockPayment(tx, paymentId);
-          if (row.status === 'authorized' || row.status === 'captured' || row.status === 'settled') {
-            return { declined: false as const, view: await this.view(tx, row) };
-          }
-          assertTransition(row, 'authorized');
-          if (
-            admitted &&
-            (parseAmount(row.amount) !== parseAmount(original.amount) ||
-              row.currency !== original.currency ||
-              row.rail_adapter !== original.rail_adapter)
-          )
-            throw new PayError('Authorization payload changed after admission', 'pay.identity_admission_conflict');
-
-          // A flagged payment on a live rail never reaches the rail. createPayment
-          // refuses the same pair first. This catches a row inserted without that
-          // check. Nothing is posted and authorize is not called.
-          if ((await this.paymentIsSandbox(tx, row.id)) && !isSandboxRailId(row.rail_adapter)) {
-            throw new PayError(
-              'A sandbox API key cannot create a payment on a live rail. NOTHING WAS ATTEMPTED.',
-              'pay.sandbox_live_account_refused',
-              { railAdapter: row.rail_adapter },
-            );
-          }
-
-          const adapter = this.rails.require(row.rail_adapter, 'authorize');
-          refuseUnusableRail(adapter, this.now());
-
-          const intent: PaymentIntent = {
-            paymentId: row.id,
-            merchantId: row.merchant_id,
-            amount: parseAmount(row.amount),
-            assetId: row.currency,
-            method: row.method,
-            instrument: await instrumentFor(tx, row.id),
-          };
-
-          const result = await withRailSpan(adapter.id, 'authorize', async () => adapter.authorize(intent));
-          // Health flipped between the gate above and this call, or the adapter
-          // clock and this service's clock disagree. That is not a decline: the
-          // rail never looked at the payment. Throw inside the transaction so
-          // it rolls back, the row stays `created`, and no event is kept.
-          if (!result.ok && isRailHealthBlockingCode(result.failureCode ?? '')) {
-            const failureCode = railReasonCode(result.failureCode ?? '');
-            throw new PayError(
-              `Rail "${adapter.id}" is not usable (${result.failureReason ?? failureCode}). No value moved.`,
-              'pay.rail_failed',
-              { failureCode },
-            );
-          }
-          await appendEvent(tx, row.id, 'rail.authorize', railPayload(result));
-
-          if (!result.ok) {
-            await appendEvent(tx, row.id, 'failed', {
-              failureCode: result.failureCode ?? 'rail.failed',
-              failureReason: result.failureReason ?? null,
-            });
-            await tx`UPDATE pay.payments SET status = 'failed', updated_at = now() WHERE id = ${row.id}`;
-            // Recorded, then thrown OUTSIDE the transaction. Throwing from in
-            // here would roll back the very rows that say the payment failed,
-            // and the next call would ask a rail that has already declined.
-            return { declined: true as const, result, view: await this.view(tx, { ...row, status: 'failed' }) };
-          }
-
-          if (result.status === 'pending') {
-            // The rail has taken the request but not completed it — on
-            // crypto-native, the payer has not sent yet or is not deep enough.
-            // The payment stays `created`: nothing has been authorized, and
-            // saying otherwise is how a merchant ships against a transfer that
-            // is still reorganisable.
-            await tx`
-              UPDATE pay.payments SET rail_ref = ${result.railRef || null}, updated_at = now() WHERE id = ${row.id}
-            `;
-            await appendEvent(tx, row.id, 'rail.pending', railPayload(result));
-            return { declined: false as const, view: await this.view(tx, { ...row, rail_ref: result.railRef || null }) };
-          }
-
-          // What the rail authorized is what was agreed — it may exceed what was
-          // asked (a payer who overpays on-chain has still sent the funds, and
-          // they are at an address we control). Booking the smaller number would
-          // strand the difference.
-          await tx`
-            UPDATE pay.payments
-               SET status = 'authorized', rail_ref = ${result.railRef},
-                   amount = ${formatAmount(result.amount)}::numeric, updated_at = now()
-             WHERE id = ${row.id}
-          `;
-          await appendEvent(tx, row.id, 'authorized', { amount: formatAmount(result.amount), railRef: result.railRef });
-
-          return {
-            declined: false as const,
-            view: await this.view(tx, {
-              ...row,
-              status: 'authorized',
-              rail_ref: result.railRef,
-              amount: formatAmount(result.amount),
-            }),
-          };
-        },
-      );
-
-      if (outcome.declined) {
-        throw new PayError(outcome.result.failureReason ?? 'Rail declined the authorization', 'pay.rail_declined', {
-          failureCode: outcome.result.failureCode,
-        });
-      }
-
-      if (outcome.view.status === 'authorized') {
-        this.notifyPaymentEvent('payment.authorized', outcome.view);
-      } else if (outcome.view.status === 'failed') {
-        this.notifyPaymentEvent('payment.failed', outcome.view);
-      }
-      return outcome.view;
-    });
+    return lifecycle.authorize(this, paymentId, options);
   }
 
-  /**
-   * `authorized → captured`. THE INBOUND MONEY PATH.
-   *
-   * The rail moves first and the ledger books second: we only book value we
-   * know has arrived.
-   *
-   * IF THIS CRASHES BETWEEN THE TWO, whose funds are stranded? Nobody's, but
-   * they are in the wrong place for a while — captured at the rail, not yet in
-   * the merchant's clearing account. The payment is still `authorized`, the
-   * adapter's `capture` is idempotent, and `payment.capture:<paymentId>` means
-   * the ledger post cannot double. Re-running this method finishes the job and
-   * the merchant is made whole. That is the entire reason both halves are keyed
-   * on the payment rather than on the attempt.
-   */
   async capture(
     paymentId: string,
     options: {
@@ -3136,734 +2526,48 @@ export class PayService {
       keyEnv?: 'sandbox';
     } = {},
   ): Promise<PaymentView> {
-    const original = await readPayment(this.sql, paymentId);
-    if (['captured', 'settled'].includes(original.status)) return this.getPayment(paymentId);
-    return withMoneySpan('pay.capture', { operation: 'capture', paymentId }, async (span) =>
-      this.admitPaymentOperation(
-        {
-          paymentId,
-          merchantId: original.merchant_id,
-          kind: 'payment.capture',
-          authority: options.identityAuthority,
-          payload: {
-            paymentId,
-            merchantId: original.merchant_id,
-            amount: formatAmount(parseAmount(original.amount)),
-            requestedAmount: options.amount === undefined ? null : formatAmount(options.amount),
-            assetId: original.currency,
-            railId: original.rail_adapter,
-            railRef: original.rail_ref,
-          },
-        },
-        async (tx, admitted) => {
-          const observed = await readPayment(tx, paymentId);
-
-          if (observed.status === 'captured' || observed.status === 'settled') return this.view(tx, observed);
-
-          // Merchant → payment is the single svc-pay money lock order. The shared
-          // merchant lock (taken in admitPaymentOperation, before the guard)
-          // intentionally spans the rail + ledger calls below: if released
-          // earlier, a cutoff could commit after this check but before the
-          // irreversible capture, recreating the stale-eligibility race.
-          const row = await lockPayment(tx, paymentId);
-          if (row.status === 'captured' || row.status === 'settled') return this.view(tx, row);
-          assertTransition(row, 'captured');
-          if (
-            admitted &&
-            (parseAmount(row.amount) !== parseAmount(original.amount) ||
-              row.currency !== original.currency ||
-              row.rail_adapter !== original.rail_adapter ||
-              row.rail_ref !== original.rail_ref)
-          )
-            throw new PayError('Capture payload changed after admission', 'pay.identity_admission_conflict');
-
-          const authorized = parseAmount(row.amount);
-
-          if (options.amount !== undefined) {
-            if (options.amount > authorized) {
-              throw new PayError(
-                `Cannot capture ${formatAmount(options.amount)} against an authorization of ${formatAmount(authorized)}`,
-                'pay.capture_exceeds_authorized',
-                { authorized: formatAmount(authorized), requested: formatAmount(options.amount) },
-              );
-            }
-            if (options.amount < authorized) {
-              // §6.1's interface is `capture(ref: string)` — there is nowhere to
-              // put a partial amount. Refusing is honest; capturing the full
-              // authorization while telling the caller we captured less is not.
-              throw new PayError(
-                'Partial capture is not expressible through the RailAdapter interface (§6.1) — refund the difference instead',
-                'pay.partial_capture_unsupported',
-                { authorized: formatAmount(authorized), requested: formatAmount(options.amount) },
-              );
-            }
-          }
-
-          if (!row.rail_ref) {
-            throw new PayError(`Payment ${row.id} has no rail reference to capture`, 'pay.invalid_transition');
-          }
-
-          // Before the rail and before the ledger. A sandbox key's capture
-          // recipe debits live clearing; refusing here posts nothing.
-          this.refuseSandboxLive(
-            options.keyEnv === 'sandbox' || (await this.paymentIsSandbox(tx, row.id)),
-            recipes.paymentCapture({
-              paymentId: row.id,
-              merchantId: row.merchant_id,
-              assetId: row.currency,
-              amount: authorized,
-              rail: row.rail_adapter,
-              railRef: row.rail_ref,
-            }),
-          );
-
-          const adapter = this.rails.require(row.rail_adapter, 'capture');
-          refuseUnusableRail(adapter, this.now());
-          const railRef = row.rail_ref;
-
-          const result = await withRailSpan(adapter.id, 'capture', async () => adapter.capture(railRef));
-          await appendEvent(tx, row.id, 'rail.capture', railPayload(result));
-
-          if (!result.ok) {
-            // NOT marked failed. An authorization whose capture failed is still
-            // an authorization, and a retry is the normal response. Marking it
-            // failed here would abandon a buyer's held funds on a transient
-            // acquirer error.
-            throw new PayError(result.failureReason ?? 'Rail failed to capture', 'pay.rail_failed', {
-              failureCode: result.failureCode,
-            });
-          }
-
-          if (result.amount !== authorized || result.assetId !== row.currency) {
-            // The rail captured something other than what we authorized. Book
-            // neither number: one of the two systems is wrong and guessing which
-            // is how a discrepancy becomes a loss.
-            throw new PayError(
-              `Rail captured ${formatAmount(result.amount)} against an authorization of ${formatAmount(authorized)}`,
-              'pay.rail_amount_mismatch',
-              { authorized: formatAmount(authorized), captured: formatAmount(result.amount) },
-            );
-          }
-
-          const posted = await postPayLedger(
-            this.ledger,
-            recipes.paymentCapture({
-              paymentId: row.id,
-              merchantId: row.merchant_id,
-              assetId: row.currency,
-              amount: result.amount,
-              rail: adapter.id,
-              railRef: result.railRef,
-            }),
-          );
-
-          // The reconciler calls this same function and does not post again.
-          const view = await this.finishBookedCapture(tx, row, {
-            ledgerTxId: posted.id,
-            amount: result.amount,
-            railRef: result.railRef,
-          });
-          span.setAttribute('intafaced.amount', formatAmount(result.amount));
-          return view;
-        },
-      ).then((view) => {
-        if (view.status === 'captured') this.notifyPaymentEvent('payment.captured', view);
-        return view;
-      }),
-    );
+    return lifecycle.capture(this, paymentId, options);
   }
 
-  /**
-   * What a capture does after the ledger post has succeeded: count intake, append
-   * the captured event, project the status, close the checkout. No ledger post.
-   * `capture` calls it after `postPayLedger`. The authorized-capture reconciler
-   * calls it when that key is already on the book.
-   */
-  private async finishBookedCapture(tx: Sql, row: PaymentRow, booked: BookedCaptureCompletion): Promise<PaymentView> {
-    await this.guards.afterPaymentCaptureBooked({
-      tx,
-      paymentId: row.id,
-      merchantId: row.merchant_id,
-      assetId: row.currency,
-      amount: booked.amount,
-      // Live capture omits this: the guard clock is the booking time. The reconciler
-      // passes the ledger postedAt so the cap period is the booking, not the run.
-      ...(booked.postedAt ? { at: booked.postedAt } : {}),
-    });
-    await appendEvent(tx, row.id, 'captured', {
-      amount: formatAmount(booked.amount),
-      railRef: booked.railRef,
-      ledgerTxId: booked.ledgerTxId,
-    });
-    await tx`UPDATE pay.payments SET status = 'captured', updated_at = now() WHERE id = ${row.id}`;
-    // Same transaction as the capture. A hosted checkout that says "paid" out of
-    // step with the book is the failure this feature exists to avoid.
-    await completeCheckoutSession(tx, row.id);
-    return this.view(tx, { ...row, status: 'captured' });
+  async finishBookedCapture(tx: Sql, row: PaymentRow, booked: BookedCaptureCompletion): Promise<PaymentView> {
+    return lifecycle.finishBookedCapture(this, tx, row, booked);
   }
 
-  /**
-   * Finish `authorized` payments whose ledger capture key already exists.
-   * Does not post. `mode: 'off'` throws and reads nothing.
-   */
   async reconcileAuthorizedCaptures(input: CaptureReconcileInput, mode: CaptureReconcileMode): Promise<CaptureReconcileReport> {
-    try {
-      return await runCaptureReconcile(
-        {
-          sql: this.sql,
-          ledger: this.ledger,
-          lockMerchant: async (tx, merchantId) => {
-            await this.lockMerchantEligibility(tx, merchantId);
-          },
-          complete: (tx, row, booked) => this.finishBookedCapture(tx, row as PaymentRow, booked),
-          onReconciled: (view) => {
-            if (view.status === 'captured') this.notifyPaymentEvent('payment.captured', view as PaymentView);
-          },
-        },
-        input,
-        mode,
-      );
-    } catch (error) {
-      if (error instanceof CaptureReconcileError) throw new PayError(error.message, error.code);
-      throw error;
-    }
+    return lifecycle.reconcileAuthorizedCaptures(this, input, mode);
   }
 
-  /**
-   * Refund, in full or in part. THE OUTBOUND MONEY PATH.
-   *
-   * Merchant refund of a captured payment through ledger-client
-   * (`recipes.paymentRefund`). Refuse `pay.nothing_captured` if nothing was
-   * captured — before the ledger posts. No PSP. No invented dest (crypto
-   * returns to the payer).
-   *
-   * The ledger moves FIRST, in its own committed transaction, and only then is
-   * the rail asked to send money out. That order is the whole design:
-   *
-   *   · The merchant must be shown to have the money before any of it leaves.
-   *     A post-settlement refund the merchant cannot cover fails here, at the
-   *     ledger, before anything irreversible happens.
-   *
-   *   · IF THIS CRASHES AFTER THE LEDGER POST AND BEFORE THE RAIL CALL, nothing
-   *     is stranded: the book is already correct — the merchant is debited and
-   *     the value sits at the rail boundary, which is exactly what "we owe this
-   *     to a buyer" means. A `refund.posted` event with no `refunded` sibling is
-   *     the marker an operator reconciles from.
-   *
-   *   · IF THE RAIL THEN REFUSES, the ledger post is reversed and the merchant
-   *     gets their money back in the same call.
-   *
-   * A retry of a refund id that is already in flight is REFUSED rather than
-   * re-sent. The rail receives the durable `refundId` (M226-02) so live crypto
-   * can journal the outbound chain send under a stable key; "send it again and
-   * hope" is how one refund becomes two.
-   */
   async refund(paymentId: string, amount: Amount, options: { refundId?: string; keyEnv?: 'sandbox' } = {}): Promise<PaymentView> {
-    return withMoneySpan('pay.refund', { operation: 'refund', paymentId, amount: formatAmount(amount) }, async () =>
-      this.refundInner(paymentId, amount, options),
-    );
+    return refunds.refund(this, paymentId, amount, options);
   }
 
-  private async refundInner(paymentId: string, amount: Amount, options: { refundId?: string; keyEnv?: 'sandbox' }): Promise<PaymentView> {
-    if (amount <= 0n) throw new PayError('Refund amount must be positive', 'pay.invalid_amount');
-
-    // ── Phase 1: debit the merchant, and commit the fact that we are about to
-    // send money out. Nothing external is called inside this transaction.
-    const prepared = await transaction(
-      this.sql,
-      async (tx) => {
-        // Seam: first thing in the transaction, before the payment row lock (a
-        // guard's own locks must rank before it; seams/guards.ts) and before any
-        // write, so a refusal rolls back to nothing. Reads the payment unlocked
-        // for its merchant, asset and whether this refund id already completed.
-        const peek = await readPayment(tx, paymentId);
-        const completed =
-          options.refundId !== undefined &&
-          (
-            await tx`
-              SELECT 1 FROM pay.payment_events
-               WHERE payment_id = ${peek.id} AND event = 'refunded' AND payload->>'refundId' = ${options.refundId}
-               LIMIT 1
-            `
-          ).length > 0;
-        await this.guards.beforeRefund({
-          tx,
-          paymentId: peek.id,
-          merchantId: peek.merchant_id,
-          assetId: peek.currency,
-          amount,
-          refundId: options.refundId,
-          replay: completed ? { kind: 'replay', reason: 'refund_already_completed' } : FRESH,
-        });
-        const row = await lockPayment(tx, paymentId);
-
-        if (row.status !== 'captured' && row.status !== 'settled') {
-          throw new PayError(`Payment ${row.id} has nothing captured (status ${row.status}) — refund refused`, 'pay.nothing_captured', {
-            paymentId: row.id,
-            status: row.status,
-          });
-        }
-
-        // Pre-settlement only: a pending settlement freeze has claimed this
-        // payment's clearing. Refunding from clearing under a frozen gross is
-        // how another payment's capture funds the window (or the post sticks
-        // forever on insufficient clearing). After the window posts the status
-        // is `settled` and the refund draws on available instead — allowed.
-        if (row.status === 'captured') {
-          const pendingSettlement = await tx<Array<{ settlement_id: string }>>`
-            SELECT e.payload->>'settlementId' AS settlement_id
-              FROM pay.payment_events e
-              JOIN pay.settlements s ON s.id = (e.payload->>'settlementId')::uuid
-             WHERE e.payment_id = ${row.id}
-               AND e.event = 'settlement.included'
-               AND s.status = 'pending'
-             LIMIT 1
-          `;
-          if (pendingSettlement[0]) {
-            throw new PayError(
-              `Payment ${row.id} is frozen in pending settlement ${pendingSettlement[0].settlement_id} — wait for the window to post, then refund from the merchant balance`,
-              'pay.settlement_in_flight',
-              { settlementId: pendingSettlement[0].settlement_id, paymentId: row.id },
-            );
-          }
-        }
-
-        const totals = await totalsFor(tx, row.id);
-        if (totals.captured <= 0n) {
-          throw new PayError(`Payment ${row.id} has nothing captured — refund refused`, 'pay.nothing_captured', { paymentId: row.id });
-        }
-
-        // A COMPLETED `refundId` IS A REPLAY, NOT A SECOND REFUND.
-        //
-        // `refundId` is a business key — it is what
-        // `payment.refund:<paymentId>:<refundId>` makes the ledger idempotent
-        // on. The ledger would therefore already dedupe a repeat and move
-        // nothing, but the EVENT LOG would not:
-        // `totalsFor` sums every `refunded` row, so appending a second one for
-        // the same business key leaves the book correct and the PROJECTION
-        // wrong — `refundedAmount` doubles, and refundable shrinks by a refund
-        // that never happened. That desync is worse to unpick than a refusal.
-        //
-        // So a caller who repeats a completed refund id gets the payment as it
-        // stands, having moved and recorded nothing. This is the same rule the
-        // authorize path already states as "an authorization that already
-        // happened is not an error", and it is what makes it safe for
-        // `public-rest.ts` to derive this id from the caller's Idempotency-Key.
-        //
-        // Checked BEFORE the refundable comparison deliberately: after a FULL
-        // refund the refundable balance is zero, so the refusal would otherwise
-        // win and report `pay.refund_exceeds_captured` for what is actually a
-        // retry of a refund that already succeeded.
-        //
-        // Only for an EXPLICIT id. The `${paymentId}:${sequence + 1}` default is
-        // a fresh ordinal by construction and can never be a replay of itself.
-        if (options.refundId !== undefined) {
-          // A COMPLETED refundId is one business event with ONE amount.
-          // Same id + same amount → replay (no second movement / event).
-          // Same id + different amount → conflict: silent 200 with the old
-          // amount would teach the merchant their second request succeeded.
-          const alreadyDone = await tx<Array<{ amount: string | null }>>`
-            SELECT payload->>'amount' AS amount
-              FROM pay.payment_events
-             WHERE payment_id = ${row.id}
-               AND event = 'refunded'
-               AND payload->>'refundId' = ${options.refundId}
-             LIMIT 1
-          `;
-          if (alreadyDone[0]) {
-            const prior = alreadyDone[0].amount;
-            if (prior !== null && prior !== formatAmount(amount)) {
-              throw new PayError(
-                `Refund id ${options.refundId} already completed for ${prior}; requested ${formatAmount(amount)} — use a new refundId for a different amount`,
-                'pay.refund_id_conflict',
-                {
-                  refundId: options.refundId,
-                  paymentId: row.id,
-                  completedAmount: prior,
-                  requested: formatAmount(amount),
-                },
-              );
-            }
-            return { replay: true as const, view: await this.view(tx, row) };
-          }
-
-          // Spent after reverse: ledger key will no-op; rail may still pay.
-          // A genuine re-attempt needs a new refundId (public REST: new
-          // Idempotency-Key → new restRefundId).
-          const spent = await tx<Array<{ n: string }>>`
-            SELECT COUNT(*)::text AS n
-              FROM pay.payment_events
-             WHERE payment_id = ${row.id}
-               AND event = 'refund.reversed'
-               AND payload->>'refundId' = ${options.refundId}
-          `;
-          if (Number.parseInt(spent[0]?.n ?? '0', 10) > 0) {
-            throw new PayError(
-              `Refund id ${options.refundId} was already used and reversed — supply a new refundId for a genuine re-attempt`,
-              'pay.refund_id_spent',
-              { refundId: options.refundId, paymentId: row.id },
-            );
-          }
-        }
-
-        const refundable = totals.captured - totals.refunded;
-        if (amount > refundable) {
-          throw new PayError(
-            `Refundable balance is ${formatAmount(refundable)}, requested ${formatAmount(amount)}`,
-            'pay.refund_exceeds_captured',
-            { refundable: formatAmount(refundable), requested: formatAmount(amount) },
-          );
-        }
-
-        const inFlight = await tx<Array<{ refund_id: string; amount: string | null; source: string | null }>>`
-          SELECT p.payload->>'refundId' AS refund_id, p.payload->>'amount' AS amount, p.payload->>'source' AS source
-            FROM pay.payment_events p
-           WHERE p.payment_id = ${row.id} AND p.event = 'refund.posted'
-             AND NOT EXISTS (
-               SELECT 1 FROM pay.payment_events d
-                WHERE d.payment_id = p.payment_id
-                  AND d.event IN ('refunded', 'refund.reversed')
-                  AND d.payload->>'refundId' = p.payload->>'refundId'
-             )
-        `;
-        if (inFlight.length > 0) {
-          const pending = inFlight[0]!;
-          // The same explicit refund id, asked again, is the retry of a refund whose rail reply was lost. The ledger
-          // already moved and says so (`refund.posted`), so book nothing: resume at the rail with the same id. Only a
-          // rail that answers a repeated id with its first result may be asked again; on any other this stays in flight
-          // for someone to reconcile, because asking it again could pay twice.
-          const resumable =
-            options.refundId !== undefined &&
-            inFlight.length === 1 &&
-            pending.refund_id === options.refundId &&
-            this.rails.require(row.rail_adapter, 'refund').refundIsIdempotentByRefundId === true;
-          if (!resumable) {
-            throw new PayError(
-              `Refund ${pending.refund_id} is already in flight — reconcile it against the rail before refunding again`,
-              'pay.refund_in_flight',
-              { refundId: pending.refund_id },
-            );
-          }
-          if (pending.amount !== formatAmount(amount)) {
-            throw new PayError(
-              `Refund id ${pending.refund_id} is in flight for ${pending.amount}; requested ${formatAmount(amount)} — use a new refundId for a different amount`,
-              'pay.refund_id_conflict',
-              { refundId: pending.refund_id, paymentId: row.id, inFlightAmount: pending.amount, requested: formatAmount(amount) },
-            );
-          }
-          const resumedMerchant = await this.getMerchant(row.merchant_id);
-          const resumedSource = pending.source === 'settled' ? ('settled' as const) : ('clearing' as const);
-          return {
-            replay: false as const,
-            row,
-            refundId: pending.refund_id,
-            source: resumedSource,
-            settledPot:
-              resumedSource === 'settled' ? await this.settledPotForPayment(tx, row.id, resumedMerchant.userId) : ('proceeds' as const),
-            merchant: resumedMerchant,
-            captured: totals.captured,
-            refunded: totals.refunded,
-          };
-        }
-
-        // BEFORE THE LEDGER MOVES, not at the rail call in Phase 2. This
-        // transaction is about to debit the merchant and commit "a refund is on
-        // its way out"; refusing after that leaves a `refund.posted` event with
-        // no rail behind it, which is the `pay.refund_in_flight` state — and that
-        // state deliberately blocks every further refund on the payment until an
-        // operator reconciles it. A refusal that was knowable here must not cost
-        // the merchant that.
-        const refundRail = this.rails.require(row.rail_adapter, 'refund');
-        assertRailMayMoveValue(refundRail, 'refund', this.valueMovement);
-        refuseUnusableRail(refundRail, this.now());
-
-        const sequence = await countEvents(tx, row.id, 'refund.posted');
-        const refundId = options.refundId ?? `${row.id}:${sequence + 1}`;
-        const merchant = await this.getMerchant(row.merchant_id);
-        let source = row.status === 'settled' ? ('settled' as const) : ('clearing' as const);
-        let settledPot: 'proceeds' | 'user' =
-          source === 'settled' ? await this.settledPotForPayment(tx, row.id, merchant.userId) : 'proceeds';
-        const refundRequest = (from: 'clearing' | 'settled', pot: 'proceeds' | 'user') =>
-          recipes.paymentRefund({
-            refundId,
-            paymentId: row.id,
-            merchantId: row.merchant_id,
-            merchantUserId: merchant.userId,
-            assetId: row.currency,
-            amount,
-            rail: row.rail_adapter,
-            source: from,
-            ...(from === 'settled' && pot === 'user' ? { settledPot: 'user' as const } : {}),
-          });
-
-        let posted: LedgerTx;
-        this.refuseSandboxLive(
-          options.keyEnv === 'sandbox' || (await this.paymentIsSandbox(tx, row.id)),
-          refundRequest(source, settledPot),
-        );
-        try {
-          posted = await postPayLedger(this.ledger, refundRequest(source, settledPot));
-        } catch (error) {
-          // `source` is derived from the payment's CURRENT status, but the ledger key
-          // `payment.refund:<paymentId>:<refundId>` does not contain it and it decides which account is debited. If an
-          // earlier attempt booked this refund and its reply was lost (timeout, deadline, unreadable acknowledgement) the
-          // transaction rolled back with no `refund.posted`; the payment may have settled since, so this attempt asks for
-          // the other account. The ledger then answers with the ORIGINAL booking (or refuses the key) and every retry
-          // would fail, while a new refundId would debit the merchant twice. Recover only that case: the booked
-          // transaction is read back, checked leg by leg, and its own source is adopted.
-          const recovered = await this.recoverBookedRefund(error, {
-            key: refundRequest(source, settledPot).idempotencyKey,
-            paymentId: row.id,
-            refundId,
-            merchantId: row.merchant_id,
-            merchantUserId: merchant.userId,
-            assetId: row.currency,
-            rail: row.rail_adapter,
-            amount,
-          });
-          if (!recovered) throw error;
-          posted = recovered.tx;
-          source = recovered.source;
-          settledPot = recovered.settledPot;
-        }
-
-        await appendEvent(tx, row.id, 'refund.posted', {
-          refundId,
-          amount: formatAmount(amount),
-          source,
-          ledgerTxId: posted.id,
-        });
-
-        return {
-          replay: false as const,
-          row,
-          refundId,
-          source,
-          settledPot,
-          merchant,
-          captured: totals.captured,
-          refunded: totals.refunded,
-        };
-      },
-      { isolation: 'read committed', maxAttempts: 5 },
-    );
-
-    // A repeat of a completed refund id. Nothing moved, nothing was appended,
-    // and no rail was asked — the payment is returned exactly as it stands.
-    if (prepared.replay) return prepared.view;
-
-    // ── Phase 2: send it. The book already says this money is on its way out.
-    const adapter = this.rails.require(prepared.row.rail_adapter, 'refund');
-    const railRef = prepared.row.rail_ref!;
-    let result: RailResult;
-    try {
-      result = await withRailSpan(adapter.id, 'refund', async () => adapter.refund(railRef, amount, { refundId: prepared.refundId }));
-    } catch (error) {
-      // The book already says the refund is on its way out. Counting may halt
-      // later payouts. It does not reverse, replay, or replace this throw.
-      await this.accountRailOutcome({
-        kind: 'throw',
-        target: { level: 'merchant', merchantId: prepared.row.merchant_id },
-        railId: prepared.row.rail_adapter,
-      });
-      throw error;
-    }
-
-    // ── Phase 3: record what the rail did, and reverse the ledger if it refused.
-    const settled = await transaction(
-      this.sql,
-      async (tx) => {
-        const row = await lockPayment(tx, paymentId);
-        // A resumed refund can reach here twice (two retries of the same id). The first to commit decides; the other
-        // records nothing and answers with the same outcome.
-        const decided = await tx<Array<{ event: string }>>`
-          SELECT event FROM pay.payment_events
-           WHERE payment_id = ${row.id} AND event IN ('refunded', 'refund.reversed')
-             AND payload->>'refundId' = ${prepared.refundId}
-           LIMIT 1
-        `;
-        if (decided[0]) return { ok: decided[0].event === 'refunded', view: await this.view(tx, row) };
-        await appendEvent(tx, row.id, 'rail.refund', { ...railPayload(result), refundId: prepared.refundId });
-
-        const refundInput = {
-          refundId: prepared.refundId,
-          paymentId: row.id,
-          merchantId: row.merchant_id,
-          merchantUserId: prepared.merchant.userId,
-          assetId: row.currency,
-          amount,
-          rail: row.rail_adapter,
-          source: prepared.source,
-          ...(prepared.source === 'settled' && prepared.settledPot === 'user' ? { settledPot: 'user' as const } : {}),
-        };
-
-        if (!result.ok) {
-          // Put the merchant's money back. Its own business key, so a retry of
-          // the reversal finds the reversal rather than the refund.
-          this.refuseSandboxLive(await this.paymentIsSandbox(tx, row.id), recipes.paymentRefundReverse(refundInput));
-          await postPayLedger(this.ledger, recipes.paymentRefundReverse(refundInput));
-          await appendEvent(tx, row.id, 'refund.reversed', {
-            refundId: prepared.refundId,
-            amount: formatAmount(amount),
-            failureCode: result.failureCode ?? 'rail.failed',
-          });
-          // Recorded, then thrown OUTSIDE this transaction. Throwing here would
-          // roll back the very event that says the reversal happened, and the
-          // next refund attempt would see a refund still in flight.
-          return { ok: false as const, view: await this.view(tx, row) };
-        }
-
-        await appendEvent(tx, row.id, 'refunded', {
-          refundId: prepared.refundId,
-          amount: formatAmount(amount),
-          source: prepared.source,
-          railRef: result.railRef,
-        });
-
-        if (prepared.refunded + amount >= prepared.captured) {
-          await tx`UPDATE pay.payments SET status = 'refunded', updated_at = now() WHERE id = ${row.id}`;
-          return { ok: true as const, view: await this.view(tx, { ...row, status: 'refunded' }) };
-        }
-
-        // Partially refunded. The status stays where it was: the merchant is
-        // still owed the remainder, and a settlement sweep must still see it.
-        return { ok: true as const, view: await this.view(tx, row) };
-      },
-      { isolation: 'read committed', maxAttempts: 5 },
-    );
-
-    if (!settled.ok) {
-      await this.accountRailOutcome({
-        kind: 'failure',
-        target: { level: 'merchant', merchantId: prepared.row.merchant_id },
-        railId: prepared.row.rail_adapter,
-        failureCode: result.failureCode,
-        eventKey: `refund:${prepared.row.id}:${prepared.refundId}`,
-      });
-      throw new PayError(result.failureReason ?? 'Rail refused the refund', 'pay.rail_failed', {
-        failureCode: result.failureCode,
-        refundId: prepared.refundId,
-      });
-    }
-
-    await this.accountRailOutcome({
-      kind: 'success',
-      target: { level: 'merchant', merchantId: prepared.row.merchant_id },
-      railId: prepared.row.rail_adapter,
-    });
-    this.notifyPaymentEvent('payment.refunded', settled.view);
-    return settled.view;
+  async refundInner(paymentId: string, amount: Amount, options: { refundId?: string; keyEnv?: 'sandbox' }): Promise<PaymentView> {
+    return refunds.refundInner(this, paymentId, amount, options);
   }
 
-  /**
-   * The pot a settled payment's own settlement post debited.
-   * No settled event, or a post that is neither legacy nor proceeds, refuses.
-   */
-  private async settledPotForPayment(sql: Sql, paymentId: string, merchantUserId: string): Promise<'proceeds' | 'user'> {
-    const rows = await sql<Array<{ settlement_id: string | null }>>`
-      SELECT payload->>'settlementId' AS settlement_id
-        FROM pay.payment_events
-       WHERE payment_id = ${paymentId} AND event = 'settled'
-       ORDER BY seq DESC
-       LIMIT 1
-    `;
-    const settlementId = rows[0]?.settlement_id;
-    if (!settlementId) {
-      throw new PayError(`Payment ${paymentId} has no settlement post to draw a settled refund from`, 'pay.settlement_book_unrecognised', {
-        paymentId,
-      });
-    }
-    const settlement = await this.getSettlement(settlementId, sql);
-    const book = await readSettlementBook(this.ledger, {
-      merchantId: settlement.merchantId,
-      merchantUserId,
-      window: settlement.window,
-      assetId: settlement.assetId,
-    });
-    if (book === 'legacy') return 'user';
-    if (book === 'proceeds') return 'proceeds';
-    throw new PayError(`Payment ${paymentId} settlement book is not recognised`, 'pay.settlement_book_unrecognised', {
-      paymentId,
-      settlementId,
-    });
+  async settledPotForPayment(sql: Sql, paymentId: string, merchantUserId: string): Promise<'proceeds' | 'user'> {
+    return refunds.settledPotForPayment(this, sql, paymentId, merchantUserId);
   }
 
-  /**
-   * The pot a chargeback's settled leg uses.
-   *
-   * A `settled` event means this payment's own settlement post already chose
-   * the pot. Current status does not: `markDisputed` runs before the opening
-   * on the operator route, and a stored-plan replay, a won return, and a lost
-   * close must name the same pot or they post a different body under the
-   * dispute key. No settled event means the money is still in clearing, and
-   * the settled leg (if any) is proceeds.
-   */
-  private async chargebackSettledPot(paymentId: string, merchantUserId: string): Promise<'proceeds' | 'user'> {
-    const settled = await this.sql<Array<{ ok: number }>>`
-      SELECT 1 AS ok FROM pay.payment_events
-       WHERE payment_id = ${paymentId} AND event = 'settled'
-       LIMIT 1
-    `;
-    if (settled.length === 0) return 'proceeds';
-    return this.settledPotForPayment(this.sql, paymentId, merchantUserId);
+  async chargebackSettledPot(paymentId: string, merchantUserId: string): Promise<'proceeds' | 'user'> {
+    return refunds.chargebackSettledPot(this, paymentId, merchantUserId);
   }
 
-  /**
-   * The book a payout may draw. Absent or unrecognised refuses before any
-   * admission row exists, so treasury exposure does not keep a pending payout
-   * the rail will never be asked to send.
-   */
-  /**
-   * A payment stays `disputed` after a lost or accepted case, so the status alone cannot tell an open
-   * dispute from a closed one. Only an open or contested case (or a disputed payment with no case row
-   * yet) can still hand money back.
-   */
-  private async hasUnresolvedDispute(sql: Sql, merchantId: string, assetId: string): Promise<boolean> {
-    const disputed = await sql<Array<{ id: string }>>`
-      SELECT id FROM pay.payments
-       WHERE merchant_id = ${merchantId}::uuid AND currency = ${assetId} AND status = 'disputed'
-    `;
-    for (const { id } of disputed) {
-      const cases = await this.disputeCases.listForPayment(id);
-      if (cases.length === 0 || cases.some((c) => c.status === 'open' || c.status === 'contested')) return true;
-    }
-    return false;
+  async hasUnresolvedDispute(sql: Sql, merchantId: string, assetId: string): Promise<boolean> {
+    return refunds.hasUnresolvedDispute(this, sql, merchantId, assetId);
   }
 
-  private async recognisedPayoutBook(input: {
+  async recognisedPayoutBook(input: {
     settlementId: string;
     merchantId: string;
     merchantUserId: string;
     window: string;
     assetId: string;
   }): Promise<'legacy' | 'proceeds'> {
-    const settlementTx = await this.ledger.getTxByKey(settlementIdempotencyKey(input.merchantId, input.window, input.assetId));
-    if (!settlementTx) {
-      throw new PayError(`Settlement ${input.settlementId} has no settlement post`, 'pay.settlement_book_unrecognised', {
-        settlementId: input.settlementId,
-      });
-    }
-    const book = await classifySettlementTx(this.ledger, settlementTx, {
-      merchantId: input.merchantId,
-      merchantUserId: input.merchantUserId,
-      assetId: input.assetId,
-    });
-    if (book === 'legacy' || book === 'proceeds') return book;
-    throw new PayError(`Settlement ${input.settlementId} ledger post is not a recognised settlement`, 'pay.settlement_book_unrecognised', {
-      settlementId: input.settlementId,
-    });
+    return refunds.recognisedPayoutBook(this, input);
   }
 
-  /**
-   * A refund whose first attempt was booked by svc-ledger but never acknowledged to us (see the phase-1 call).
-   *
-   * Returns the booked transaction and the source it was booked from, when `error` is a receipt mismatch or an
-   * idempotency refusal AND the ledger really holds this refund key with exactly the two legs `paymentRefund` books:
-   * the merchant account (clearing, proceeds, or the pre-cutover user available) credited and the rail boundary debited,
-   * in this asset. A booking for a different amount is a refund id reused for another refund (`pay.refund_id_conflict`).
-   * Anything else, including nothing booked, returns null so the caller rethrows the original error.
-   */
-  private async recoverBookedRefund(
+  async recoverBookedRefund(
     error: unknown,
     input: {
       key: string;
@@ -3876,386 +2580,21 @@ export class PayService {
       amount: Amount;
     },
   ): Promise<{ tx: LedgerTx; source: 'clearing' | 'settled'; settledPot: 'proceeds' | 'user' } | null> {
-    if (!(error instanceof LedgerError) || (error.code !== 'pay.ledger_receipt_mismatch' && error.code !== 'ledger.idempotency_conflict')) {
-      return null;
-    }
-    const booked = await this.ledger.getTxByKey(input.key);
-    if (!booked || booked.module !== 'pay' || booked.reason !== 'payment.refunded' || booked.entries.length !== 2) return null;
-    const credit = booked.entries.find((e) => e.direction === 'credit');
-    const debit = booked.entries.find((e) => e.direction === 'debit');
-    if (!credit || !debit || credit.assetId !== input.assetId || debit.assetId !== input.assetId || credit.amount !== debit.amount)
-      return null;
-
-    const boundary = (await this.ledger.balance(railBoundary(input.rail, input.assetId))).accountId;
-    if (!boundary || debit.accountId !== boundary) return null;
-    const clearing = (await this.ledger.balance(merchantClearing(input.merchantId, input.assetId))).accountId;
-    const proceeds = (await this.ledger.balance(merchantProceeds(input.merchantId, input.assetId))).accountId;
-    const personal = (await this.ledger.balance(userAvailable(input.merchantUserId, input.assetId))).accountId;
-    const settledPot: 'proceeds' | 'user' = personal !== '' && credit.accountId === personal ? 'user' : 'proceeds';
-    const source =
-      credit.accountId === clearing
-        ? ('clearing' as const)
-        : credit.accountId === proceeds || settledPot === 'user'
-          ? ('settled' as const)
-          : null;
-    if (!source) return null;
-
-    if (credit.amount !== input.amount) {
-      throw new PayError(
-        `Refund id ${input.refundId} is already booked for ${formatAmount(credit.amount)}; requested ${formatAmount(input.amount)} — use a new refundId for a different amount`,
-        'pay.refund_id_conflict',
-        {
-          refundId: input.refundId,
-          paymentId: input.paymentId,
-          completedAmount: formatAmount(credit.amount),
-          requested: formatAmount(input.amount),
-        },
-      );
-    }
-    return { tx: booked, source, settledPot: source === 'settled' ? settledPot : 'proceeds' };
+    return refunds.recoverBookedRefund(this, error, input);
   }
 
-  // ── Webhooks ───────────────────────────────────────────────────────────────
-
-  /**
-   * Handle an inbound webhook.
-   *
-   * A PSP webhook WILL be delivered twice. The second delivery must change
-   * NOTHING, and that is guaranteed at the database level rather than in this
-   * method: `payment_events.rail_event_id` is unique, the insert is
-   * `ON CONFLICT DO NOTHING`, and a delivery that inserts no row returns
-   * `duplicate: true` without going near a rail or the ledger.
-   *
-   * THE EFFECT IS APPLIED BEFORE THE DEDUPE MARKER IS WRITTEN, not after. Write
-   * the marker first and a crash in between leaves a delivery permanently
-   * recorded as seen and never acted on — a captured payment nobody ever books.
-   * This way the worst case is that a redelivery re-applies an effect that is
-   * already idempotent on the payment id, which costs a wasted call and
-   * changes nothing.
-   */
   async handleWebhook(railId: string, request: RailWebhookRequest): Promise<WebhookOutcome> {
-    const adapter = this.rails.require(railId, 'webhook');
-
-    const event = adapter.verifyWebhook(request);
-    if (!event) {
-      // Deliberately uninformative to the caller. A verification endpoint that
-      // explains WHY it rejected something is an oracle for forging the next
-      // attempt.
-      throw new PayError('Webhook signature verification failed', 'pay.webhook_invalid', { railId });
-    }
-
-    return withMoneySpan('pay.webhook', { operation: 'webhook', rail: railId, railRef: event.railRef }, async () =>
-      this.applyWebhook(adapter, event),
-    );
+    return webhooks.handleWebhook(this, railId, request);
   }
 
-  private async applyWebhook(adapter: RailAdapter, event: RailEvent): Promise<WebhookOutcome> {
-    const rows = await this.sql<PaymentRow[]>`
-      SELECT id, merchant_id, profile_id, amount, currency, method, rail_adapter, rail_ref, status, created_at
-        FROM pay.payments WHERE rail_adapter = ${adapter.id} AND rail_ref = ${event.railRef}
-    `;
-    const payment = rows[0];
-
-    if (!payment) {
-      // An inbound to a customer deposit address has no payment. The deposit record books it (once, by chain position);
-      // anything else stays unmatched below.
-      const chain = event.chain;
-      if (this.custodyDeposits && event.type === 'captured' && chain && event.amount !== undefined && event.assetId) {
-        const received = await this.custodyDeposits.receive({
-          address: event.railRef,
-          txHash: chain.txHash,
-          outputIndex: chain.logIndex,
-          assetId: event.assetId,
-          amount: event.amount,
-          confirmations: chain.confirmations,
-        });
-        if (received.state === 'recorded') {
-          return { railId: adapter.id, eventId: event.eventId, type: event.type, duplicate: false, paymentId: null, applied: true };
-        }
-      }
-      // A verified event about a payment we have no record of. Rejecting is
-      // right — inventing a payment row from a webhook is how a rail's bug
-      // becomes our liability — but it is also an operator signal, not a
-      // client error.
-      throw new PayError(`No payment for ${adapter.id} reference ${event.railRef}`, 'pay.webhook_unmatched', {
-        railId: adapter.id,
-        railRef: event.railRef,
-        eventId: event.eventId,
-      });
-    }
-
-    // Namespaced by rail. Two rails can and will use the same event id string,
-    // and an unqualified collision would silently mark a genuine delivery a
-    // duplicate — a captured payment nobody ever books.
-    const deliveryKey = `${adapter.id}:${event.eventId}`;
-
-    // The fast path, and the one the test "a webhook delivered twice changes
-    // nothing" exercises: a delivery we have already recorded stops here,
-    // before any rail call and before the ledger.
-    const seen = await this.sql<Array<{ id: string }>>`
-      SELECT id FROM pay.payment_events WHERE rail_event_id = ${deliveryKey}
-    `;
-    if (seen.length > 0) {
-      return { railId: adapter.id, eventId: event.eventId, type: event.type, duplicate: true, paymentId: payment.id, applied: false };
-    }
-
-    // The effect. Every one of these is idempotent on the payment id, which is
-    // what makes it safe to apply before the marker is written — and safe for
-    // two concurrent deliveries of the same event to race here.
-    let applied = false;
-    switch (event.type) {
-      case 'authorized':
-        if (payment.status === 'created') {
-          await this.authorize(payment.id);
-          applied = true;
-        }
-        break;
-      case 'captured':
-        if (payment.status === 'authorized') {
-          await this.capture(payment.id);
-          applied = true;
-        } else if (payment.status === 'created') {
-          // Some rails announce authorization and capture in one delivery.
-          await this.authorize(payment.id);
-          await this.capture(payment.id);
-          applied = true;
-        }
-        break;
-      case 'failed':
-        if (payment.status === 'created' || payment.status === 'authorized') {
-          await this.markFailed(payment.id, event.failureCode ?? 'rail.failed');
-          applied = true;
-        }
-        break;
-      case 'refunded':
-      case 'payout.completed':
-        // Recorded, not acted on. A refund we did not initiate, or a payout the
-        // rail is confirming, both need a human decision — acting on either
-        // automatically would move money on a rail's say-so alone.
-        break;
-      case 'dispute.opened': {
-        // Post the opening recipe via ledger-client, or named refuse. Never claim
-        // posted without a tx id. An unfunded shortfall is a named refuse: the
-        // dispute is still recorded and a later lost or closed delivery can book it.
-        const disputeId = event.disputeId?.trim();
-        if (disputeId) {
-          const amount = event.amount === undefined ? payment.amount : formatAmount(event.amount);
-          const assetId = event.assetId ?? payment.currency;
-          await this.withChargebackOutcomeLock(disputeId, async () => {
-            const current = await this.disputeCases.get(disputeId);
-            // A late open must not debit a dispute that already closed.
-            if (current && isTerminalDisputeStatus(current.status)) {
-              applied = true;
-              return;
-            }
-            const wire = await this.postChargebackOpenOrRefuse({
-              disputeId,
-              paymentId: payment.id,
-              merchantId: payment.merchant_id,
-              amount,
-              assetId,
-            });
-            const mark = {
-              disputeId,
-              reasonCode: event.reasonCode ?? null,
-              ledgerWire: wire.ledgerPost ? ('posted' as const) : ('refused' as const),
-              ledgerTxId: wire.ledgerPost?.txId ?? null,
-            };
-            // The status read at the top of this delivery can be stale: another dispute's win may restore the payment
-            // meanwhile. Read it fresh here, and again once the case row exists (see restoreAfterWonDispute).
-            const marked = await this.markDisputedIfLive(payment.id, mark);
-            await this.disputeCases.open({
-              disputeId,
-              paymentId: payment.id,
-              merchantId: payment.merchant_id,
-              amount,
-              assetId,
-              reasonCode: event.reasonCode ?? null,
-              paymentMarkedDisputed: marked,
-              ledgerPost: wire.ledgerPost,
-              ledgerRefuse: wire.ledgerRefuse,
-            });
-            await this.markDisputedIfLive(payment.id, mark);
-            await recordRailDisputeDeadline(this.sql, {
-              merchantId: payment.merchant_id,
-              disputeId,
-              evidenceDueBy: event.evidenceDueBy ?? null,
-              railEventId: deliveryKey,
-            });
-            applied = true;
-          });
-        }
-        break;
-      }
-      case 'dispute.won':
-      case 'dispute.lost':
-      case 'dispute.closed': {
-        // Lost and closed finalise the opening debit (clearing, then merchant
-        // balance, then the recipe's shortfall). Won reverses a debit that was
-        // already booked. A ledger error throws before the case moves.
-        const disputeId = event.disputeId?.trim();
-        if (disputeId) {
-          const outcome: RailResolutionOutcome = event.type === 'dispute.won' ? 'won' : event.type === 'dispute.lost' ? 'lost' : 'closed';
-          const amountExplicit = event.amount !== undefined;
-          const assetId = event.assetId ?? payment.currency;
-          try {
-            await this.withChargebackOutcomeLock(disputeId, async () => {
-              const current = await this.disputeCases.get(disputeId);
-              const amount = event.amount !== undefined ? formatAmount(event.amount) : current ? current.amount : payment.amount;
-              if (current && isTerminalDisputeStatus(current.status) && railOutcomeConflicts(current.status, outcome)) {
-                await recordDisputeOutcomeConflict(this.sql, {
-                  merchantId: payment.merchant_id,
-                  disputeId,
-                  railEventId: deliveryKey,
-                  railId: adapter.id,
-                  storedStatus: current.status,
-                  outcome,
-                });
-              } else {
-                let booked: ChargebackLedgerEffect;
-                try {
-                  booked = await this.bookDisputeResolution({
-                    disputeId,
-                    paymentId: payment.id,
-                    merchantId: payment.merchant_id,
-                    amount,
-                    assetId,
-                    outcome,
-                    amountExplicit,
-                  });
-                } catch (err) {
-                  if (!(err instanceof PayError) || err.code !== 'pay.chargeback_plan_conflict') throw err;
-                  await this.recordChargebackPlanConflict({
-                    merchantId: payment.merchant_id,
-                    disputeId,
-                    paymentId: payment.id,
-                    amount,
-                    assetId,
-                    reasonCode: event.reasonCode ?? null,
-                    railEventId: deliveryKey,
-                    railId: adapter.id,
-                    storedStatus: current?.status ?? 'open',
-                    outcome,
-                    evidenceDueBy: event.evidenceDueBy ?? null,
-                  });
-                  applied = true;
-                  return;
-                }
-                if (!current) {
-                  const txId = booked.openingTxId ?? booked.shortfallTxId ?? booked.wonTxId ?? booked.recoveredTxId;
-                  await this.disputeCases.open({
-                    disputeId,
-                    paymentId: payment.id,
-                    merchantId: payment.merchant_id,
-                    amount,
-                    assetId,
-                    reasonCode: event.reasonCode ?? null,
-                    paymentMarkedDisputed: false,
-                    ...(txId
-                      ? { ledgerPost: { txId } }
-                      : { ledgerRefuse: refuseChargebackNothingToReverse({ disputeId, paymentId: payment.id }) }),
-                  });
-                }
-                if (payment.status === 'settled' || payment.status === 'captured') {
-                  await this.markDisputed(payment.id, {
-                    disputeId,
-                    reasonCode: event.reasonCode ?? null,
-                    ledgerWire: booked.openingTxId || booked.shortfallTxId ? 'posted' : 'refused',
-                    ledgerTxId: booked.openingTxId ?? booked.shortfallTxId,
-                  });
-                }
-                await this.disputeCases.applyRailResolution({
-                  disputeId,
-                  railEventId: deliveryKey,
-                  outcome,
-                });
-                if (outcome === 'won') await this.restoreAfterWonDispute(payment.id, disputeId);
-              }
-              await recordRailDisputeDeadline(this.sql, {
-                merchantId: payment.merchant_id,
-                disputeId,
-                evidenceDueBy: event.evidenceDueBy ?? null,
-                railEventId: deliveryKey,
-              });
-              applied = true;
-            });
-          } catch (err) {
-            // A closed case stays closed. A different later outcome is recorded
-            // for founders and this delivery still succeeds, so the rail does
-            // not retry a refusal it cannot repair. A ledger refusal is not that
-            // case: it propagates and the dispute row stays where it was.
-            if (!(err instanceof DisputeCaseError) || err.code !== 'pay.dispute_closed') throw err;
-            const current = await this.disputeCases.get(disputeId);
-            if (!current || !isTerminalDisputeStatus(current.status)) throw err;
-            if (railOutcomeConflicts(current.status, outcome)) {
-              await recordDisputeOutcomeConflict(this.sql, {
-                merchantId: payment.merchant_id,
-                disputeId,
-                railEventId: deliveryKey,
-                railId: adapter.id,
-                storedStatus: current.status,
-                outcome,
-              });
-            }
-            applied = true;
-          }
-        }
-        break;
-      }
-    }
-
-    // The dedupe marker, written last. `ON CONFLICT DO NOTHING` because two
-    // concurrent deliveries of one event both get here; the loser reports the
-    // duplicate and neither has done anything twice.
-    const claimed = await this.sql<Array<{ id: string }>>`
-      INSERT INTO pay.payment_events (payment_id, event, payload, rail_event_id)
-      VALUES (
-        ${payment.id}, ${`webhook.${event.type}`},
-        ${this.sql.json({
-          type: event.type,
-          railRef: event.railRef,
-          amount: event.amount === undefined ? null : formatAmount(event.amount),
-          assetId: event.assetId ?? null,
-          occurredAt: event.occurredAt.toISOString(),
-          failureCode: event.failureCode ?? null,
-        } as never)},
-        ${deliveryKey}
-      )
-      ON CONFLICT ("rail_event_id") WHERE "rail_event_id" IS NOT NULL DO NOTHING
-      RETURNING id
-    `;
-
-    return {
-      railId: adapter.id,
-      eventId: event.eventId,
-      type: event.type,
-      duplicate: claimed.length === 0,
-      paymentId: payment.id,
-      applied,
-    };
+  async applyWebhook(adapter: RailAdapter, event: RailEvent): Promise<WebhookOutcome> {
+    return webhooks.applyWebhook(this, adapter, event);
   }
 
-  private async markFailed(paymentId: string, failureCode: string): Promise<void> {
-    const view = await transaction(
-      this.sql,
-      async (tx) => {
-        const row = await lockPayment(tx, paymentId);
-        if (row.status !== 'created' && row.status !== 'authorized') return null;
-        await appendEvent(tx, row.id, 'failed', { failureCode });
-        await tx`UPDATE pay.payments SET status = 'failed', updated_at = now() WHERE id = ${row.id}`;
-        return this.view(tx, { ...row, status: 'failed' });
-      },
-      { isolation: 'read committed', maxAttempts: 5 },
-    );
-    if (view) this.notifyPaymentEvent('payment.failed', view);
+  async markFailed(paymentId: string, failureCode: string): Promise<void> {
+    return webhooks.markFailed(this, paymentId, failureCode);
   }
 
-  /**
-   * D26-P1-P5 — make `captured|settled → disputed` reachable so settlement
-   * cannot freeze a payment whose clearing already left via the opening recipe.
-   *
-   * Status only. Money moves in `openChargeback` / is named-refused there.
-   */
   async markDisputed(
     paymentId: string,
     meta: {
@@ -4265,104 +2604,17 @@ export class PayService {
       ledgerTxId?: string | null;
     },
   ): Promise<PaymentView> {
-    const ledgerWire = meta.ledgerWire ?? 'refused';
-    return transaction(
-      this.sql,
-      async (tx) => {
-        const row = await lockPayment(tx, paymentId);
-        // A redelivery already marked this payment. Status stays disputed so
-        // the chargeback post can still run; a second event would not move money.
-        if (row.status === 'disputed') return this.view(tx, row);
-        assertTransition(row, 'disputed');
-        await appendEvent(tx, row.id, 'disputed', {
-          disputeId: meta.disputeId,
-          reasonCode: meta.reasonCode ?? null,
-          ledgerWire,
-          ledgerTxId: meta.ledgerTxId ?? null,
-          ledgerSocket: ledgerWire === 'posted' ? null : 'socket.pay-chargeback-ledger-wire',
-        });
-        await tx`UPDATE pay.payments SET status = 'disputed', updated_at = now() WHERE id = ${row.id}`;
-        return this.view(tx, { ...row, status: 'disputed' });
-      },
-      { isolation: 'read committed', maxAttempts: 5 },
-    );
+    return webhooks.markDisputed(this, paymentId, meta);
   }
 
-  /** `markDisputed` only when the payment is live right now (captured or settled). True when this call moved it. */
-  private async markDisputedIfLive(paymentId: string, meta: Parameters<PayService['markDisputed']>[1]): Promise<boolean> {
-    const [row] = await this.sql<Array<{ status: PaymentStatus }>>`SELECT status FROM pay.payments WHERE id = ${paymentId}`;
-    if (!row || (row.status !== 'captured' && row.status !== 'settled')) return false;
-    try {
-      await this.markDisputed(paymentId, meta);
-      return true;
-    } catch (err) {
-      if (err instanceof PayError && err.code === 'pay.invalid_transition') return false;
-      throw err;
-    }
+  async markDisputedIfLive(paymentId: string, meta: Parameters<PayService['markDisputed']>[1]): Promise<boolean> {
+    return webhooks.markDisputedIfLive(this, paymentId, meta);
   }
 
-  /**
-   * A won dispute handed the money back (`reverseChargeback`), so a payment that
-   * `markDisputed` froze must not stay terminal: it returns to `settled` when a
-   * window already paid it, else to `captured` so a window can take it.
-   *
-   * Only when every case on the payment is won. An open case still has its
-   * opening debit on the book; a lost or accepted one kept the money away.
-   */
-  private async restoreAfterWonDispute(paymentId: string, disputeId: string): Promise<void> {
-    // Read the cases before the transaction: the caller already holds a pooled connection for the dispute lock, and
-    // a read on the pool from inside a transaction would need a third one.
-    const allWon = async () => {
-      const cases = await this.disputeCases.listForPayment(paymentId);
-      return cases.length > 0 && cases.every((c) => c.status === 'won');
-    };
-    if (!(await allWon())) return;
-    const restored = await transaction(
-      this.sql,
-      async (tx) => {
-        const row = await lockPayment(tx, paymentId);
-        if (row.status !== 'disputed') return false;
-        const settled = await tx<Array<{ ok: number }>>`
-          SELECT 1 AS ok FROM pay.payment_events WHERE payment_id = ${paymentId} AND event = 'settled' LIMIT 1
-        `;
-        const next: PaymentStatus = settled.length > 0 ? 'settled' : 'captured';
-        assertTransition(row, next);
-        await appendEvent(tx, row.id, 'dispute.restored', { disputeId, status: next });
-        await tx`UPDATE pay.payments SET status = ${next}, updated_at = now() WHERE id = ${row.id}`;
-        return true;
-      },
-      { isolation: 'read committed', maxAttempts: 5 },
-    );
-    // A dispute opened while this ran saw the payment still disputed and did not mark it again. Mark it now.
-    if (restored && !(await allWon())) await this.markDisputed(paymentId, { disputeId });
+  async restoreAfterWonDispute(paymentId: string, disputeId: string): Promise<void> {
+    return webhooks.restoreAfterWonDispute(this, paymentId, disputeId);
   }
 
-  // ── Settlement (§6.1) ──────────────────────────────────────────────────────
-
-  /**
-   * Settle a window: merchant net posts to their ledger account — "the same
-   * balance graph they trade and spend from — the doc's promise, kept".
-   *
-   * Two phases, because the alternative silently loses money:
-   *
-   *   1. Freeze. The payment set is fixed by appending `settlement.included` to
-   *      each payment, and gross/fees/net are computed and stored `pending`.
-   *   2. Post. The ledger transaction uses the FROZEN numbers.
-   *
-   * If it were one phase, a crash between posting and committing would leave a
-   * ledger transaction keyed `settlement:<merchant>:<window>:<asset>` for one
-   * gross while a retry — now including a payment that landed in the meantime —
-   * computed a different gross, posted it, and got the ORIGINAL transaction
-   * back from the idempotency check. The database would then record a
-   * settlement the ledger never made. Freezing first makes the retry
-   * arithmetically identical.
-   *
-   * MERCHANT STATUS. Only an `active` merchant freezes a new window or posts
-   * one. `createPayment` and public checkout already refuse non-active; until
-   * this gate, a suspended merchant could still settle captured volume and take
-   * it out via `payoutSettlement` — suspension that stopped inbound only.
-   * Re-reading an already-posted settlement is still fine (no value moves).
-   */
   async settleWindow(input: {
     merchantId: string;
     /** Window label, e.g. '2026-07-27'. Half the business key. */
@@ -4374,528 +2626,44 @@ export class PayService {
     /** A sandbox key cannot freeze or post a live settlement. */
     keyEnv?: 'sandbox';
   }): Promise<SettlementRecord> {
-    if (input.keyEnv === 'sandbox') {
-      // The amounts name the recipe's accounts. They are not posted.
-      this.refuseSandboxLive(
-        true,
-        recipes.merchantSettlement({
-          merchantId: input.merchantId,
-          merchantUserId: input.merchantId,
-          window: input.window,
-          assetId: input.assetId,
-          gross: 2n,
-          fee: 1n,
-        }),
-      );
-    }
-    return withMoneySpan(
-      'pay.settleWindow',
-      { operation: 'settlement', merchantId: input.merchantId, window: input.window, assetId: input.assetId },
-      async (span) => {
-        // A window that already exists is a re-run: still `pending` means frozen
-        // and not yet posted (a ledger post may have landed), anything else is a
-        // pure repeat. A window that does not exist yet is fresh work.
-        const [prior] = await this.sql<Array<{ status: SettlementStatus }>>`
-          SELECT status FROM pay.settlements
-           WHERE merchant_id = ${input.merchantId} AND "window" = ${input.window} AND asset_id = ${input.assetId}
-        `;
-        const rerun: GuardReplay = !prior
-          ? FRESH
-          : prior.status === 'pending'
-            ? { kind: 'recovery', reason: 'window_frozen_not_posted' }
-            : { kind: 'replay', reason: 'window_already_frozen' };
-        await this.guards.beforeSettlementRun({
-          sql: this.sql,
-          phase: 'prepare',
-          merchantId: input.merchantId,
-          assetId: input.assetId,
-          window: input.window,
-          replay: rerun,
-        });
-        const prepared = await this.prepareSettlement(input);
-        if (prepared.status !== 'pending') return prepared;
-        try {
-          return await this.postPendingSettlement(prepared.id, prior ? rerun : FRESH, span);
-        } catch (err) {
-          // A payment in the frozen set was disputed after the freeze, so the post can never succeed. Free the
-          // window now (heal first, no ledger value moves) so its other payments reach a later window without
-          // an operator, then still refuse this run.
-          if (err instanceof PayError && err.code === 'pay.settlement_desynced') {
-            await this.releasePendingSettlement({
-              settlementId: prepared.id,
-              reason: 'automatic: the frozen set no longer matches live captured minus refunded',
-            });
-          }
-          throw err;
-        }
-      },
-    );
+    return settlement.settleWindow(this, input);
   }
 
-  /**
-   * Phase 2 of settle — post ledger + project, keyed by settlement id.
-   * Used by settleWindow and by release heal (which must not re-parse window
-   * labels — custom windows need from/to that release does not have).
-   */
-  private async postPendingSettlement(
+  async postPendingSettlement(
     settlementId: string,
     replay: GuardReplay,
     span?: { setAttribute: (k: string, v: string | number) => void },
   ): Promise<SettlementRecord> {
-    const head = await this.sql<SettlementRow[]>`
-      SELECT id, merchant_id, "window", asset_id, gross, fees, net, payout_method, payout_ref, payout_attempts, status
-        FROM pay.settlements WHERE id = ${settlementId}
-    `;
-    const current = head[0];
-    if (!current) throw new PayError(`Settlement ${settlementId} not found`, 'pay.settlement_not_found');
-    if (current.status !== 'pending') return toSettlement(current);
-    await this.guards.beforeSettlementRun({
-      sql: this.sql,
-      phase: 'post',
-      merchantId: current.merchant_id,
-      assetId: current.asset_id,
-      window: current.window,
-      settlementId: current.id,
-      replay,
-    });
-
-    // The unlocked merchant read is not the credit gate. Eligibility is locked
-    // below, on this transaction, before the ledger post.
-    let merchantUserId: string | undefined;
-    const posted = await transaction(
-      this.sql,
-      async (tx) => {
-        const rows = await tx<SettlementRow[]>`
-          SELECT id, merchant_id, "window", asset_id, gross, fees, net, payout_method, payout_ref, payout_attempts, status
-            FROM pay.settlements WHERE id = ${settlementId} FOR UPDATE
-        `;
-        const row = rows[0]!;
-        if (row.status !== 'pending') return toSettlement(row);
-
-        // Merchant eligibility, then payment rows — the same order as capture.
-        // A suspend that commits before this lock must not credit available
-        // or mark the window posted. Frozen gross, fees, and net stay as frozen.
-        await this.beforeSettlementPostMerchantLock?.();
-        const merchant = await this.lockMerchantEligibility(tx, row.merchant_id);
-        this.assertMerchantActive(merchant);
-        merchantUserId = merchant.userId;
-
-        const gross = parseAmount(row.gross);
-        const fees = parseAmount(row.fees);
-
-        const included = await tx<Array<{ payment_id: string }>>`
-          SELECT payment_id FROM pay.payment_events
-           WHERE event = 'settlement.included' AND payload->>'settlementId' = ${row.id}
-           ORDER BY payment_id
-        `;
-
-        const settlementPost = recipes.merchantSettlement({
-          merchantId: row.merchant_id,
-          merchantUserId: merchant.userId,
-          window: row.window,
-          assetId: row.asset_id,
-          gross,
-          fee: fees,
-        });
-        // A settlement the ledger already booked (the app transaction rolled back after the post) is adopted below, not
-        // rechecked: a dispute opened since then must not turn an already-paid window into a refusal that release can re-pay.
-        // Otherwise re-check live nets under payment row locks before the ledger moves. The freeze promised these numbers;
-        // if a concurrent path (or an operator) changed captured/refunded, posting the frozen gross would take someone
-        // else's clearing.
-        const existing = await this.ledger.getTxByKey(settlementPost.idempotencyKey);
-        if (!existing) {
-          let liveGross = 0n;
-          for (const { payment_id } of included) {
-            const locked = await lockPayment(tx, payment_id);
-            // A dispute opened after the freeze took this payment's clearing back through the opening post, so its
-            // captured amount no longer sits in the pool. Counting it would post other payments' money to the merchant.
-            if (locked.status === 'disputed') continue;
-            const totals = await totalsFor(tx, payment_id);
-            const net = totals.captured - totals.refunded;
-            if (net > 0n) liveGross += net;
-          }
-          if (liveGross !== gross) {
-            throw new PayError(
-              `Settlement ${row.id} frozen gross ${formatAmount(gross)} no longer matches live captured−refunded ${formatAmount(liveGross)} — refusing to post`,
-              'pay.settlement_desynced',
-              {
-                settlementId: row.id,
-                frozenGross: formatAmount(gross),
-                liveGross: formatAmount(liveGross),
-              },
-            );
-          }
-        }
-
-        if (await this.settlementIncludesSandbox(tx, row.id)) this.refuseSandboxLive(true, settlementPost);
-        const bookInput = {
-          merchantId: row.merchant_id,
-          merchantUserId: merchant.userId,
-          assetId: row.asset_id,
-        };
-        // A window posted before proceeds existed already holds this key, debiting
-        // userAvailable. Posting the proceeds body would conflict. Adopt that
-        // transaction: the ledger post is the legacy mark, and this row becomes posted.
-        if (!existing) {
-          await postPayLedger(this.ledger, settlementPost);
-        } else {
-          const book = await classifySettlementTx(this.ledger, existing, bookInput);
-          if (book === 'proceeds') {
-            await postPayLedger(this.ledger, settlementPost);
-          } else if (book === 'legacy') {
-            if (!(await legacyPostMatchesFrozen(this.ledger, existing, { ...bookInput, gross, fee: fees }))) {
-              throw new PayError(
-                `Settlement ${row.id} already has a personal-balance post that does not match the frozen window`,
-                'pay.settlement_ledger_conflict',
-                { settlementId: row.id },
-              );
-            }
-          } else {
-            throw new PayError(`Settlement ${row.id} ledger post is not a recognised settlement`, 'pay.settlement_book_unrecognised', {
-              settlementId: row.id,
-            });
-          }
-        }
-
-        await tx`
-          UPDATE pay.settlements
-             SET status = 'posted', payout_method = 'ledger', settled_at = COALESCE(settled_at, now()), updated_at = now()
-           WHERE id = ${row.id}
-        `;
-
-        for (const { payment_id } of included) {
-          await appendEvent(tx, payment_id, 'settled', {
-            settlementId: row.id,
-            window: row.window,
-            assetId: row.asset_id,
-          });
-          await tx`
-            UPDATE pay.payments SET status = 'settled', updated_at = now()
-             WHERE id = ${payment_id} AND status = 'captured'
-          `;
-        }
-
-        span?.setAttribute('intafaced.amount', formatAmount(parseAmount(row.net)));
-        span?.setAttribute('intafaced.payments', included.length);
-        return toSettlement({ ...row, status: 'posted', payout_method: 'ledger' });
-      },
-      { isolation: 'read committed', maxAttempts: 5 },
-    );
-    // Already posted by a concurrent winner: no credit happened here. Accrue
-    // still wants the merchant user id, and that read is not a credit gate.
-    const userId = merchantUserId ?? (await this.getMerchant(posted.merchantId)).userId;
-    await this.notifyPayAffiliateAccrue(posted, userId);
-    await this.notifyPayAffiliatePayout(posted, userId);
-    return posted;
+    return settlement.postPendingSettlement(this, settlementId, replay, span);
   }
 
-  /** Best-effort; never throws. Settlement already committed. */
-  private async notifyPayAffiliateAccrue(posted: SettlementRecord, merchantUserId: string): Promise<void> {
-    if (posted.status !== 'posted') return;
-    await fireAffiliateAccrue(
-      this.affiliateAccrue,
-      affiliateLegAfterPaySettlement({
-        settlementId: posted.id,
-        merchantUserId,
-        feeAmount: posted.fees,
-        feeAsset: posted.assetId,
-      }),
-    );
+  async notifyPayAffiliateAccrue(posted: SettlementRecord, merchantUserId: string): Promise<void> {
+    return settlement.notifyPayAffiliateAccrue(this, posted, merchantUserId);
   }
 
-  /** Best-effort payout after accrue; never throws. Settlement already committed. */
-  private async notifyPayAffiliatePayout(posted: SettlementRecord, merchantUserId: string): Promise<void> {
-    if (posted.status !== 'posted') return;
-    await fireAffiliatePayout(
-      this.affiliatePayout,
-      affiliateLegAfterPaySettlement({
-        settlementId: posted.id,
-        merchantUserId,
-        feeAmount: posted.fees,
-        feeAsset: posted.assetId,
-      }),
-    );
+  async notifyPayAffiliatePayout(posted: SettlementRecord, merchantUserId: string): Promise<void> {
+    return settlement.notifyPayAffiliatePayout(this, posted, merchantUserId);
   }
 
-  /**
-   * Phase 1: freeze the set and the numbers. No external call, no value moved.
-   *
-   * Returning an already-frozen row is allowed for a non-active merchant (the
-   * freeze already happened). Creating a NEW freeze is not — that would lock
-   * more payments into a settlement a suspended operator can then try to post.
-   */
-  private async prepareSettlement(input: {
+  async prepareSettlement(input: {
     merchantId: string;
     window: string;
     assetId: string;
     from?: Date;
     to?: Date;
   }): Promise<SettlementRecord> {
-    const { from, to } = windowBounds(input.window, input.from, input.to);
-    const merchant = await this.getMerchant(input.merchantId);
-    const feeBps = merchant.pricing.feeBps !== undefined ? merchant.pricing.feeBps : publishedDefaultFeeBps(this.defaultFeeBps);
-
-    return transaction(
-      this.sql,
-      async (tx) => {
-        // Lock the merchant, not the settlement row (which may not exist yet).
-        // Two settlement runs for one merchant must queue, or both would select
-        // the same unsettled payments and freeze them into two settlements.
-        // Re-read status under the lock so a suspend that races the getMerchant
-        // above cannot slip a freeze through.
-        const locked = await tx<Array<{ status: MerchantRecord['status']; kyb_status: MerchantRecord['kybStatus'] }>>`
-          SELECT status, kyb_status FROM pay.merchants WHERE id = ${input.merchantId} FOR UPDATE
-        `;
-        const lockedRow = locked[0];
-        if (!lockedRow) {
-          throw new PayError(`Merchant ${input.merchantId} not found`, 'pay.merchant_not_found');
-        }
-        await this.afterSettlementMerchantLock?.();
-
-        const existing = await tx<SettlementRow[]>`
-          SELECT id, merchant_id, "window", asset_id, gross, fees, net, payout_method, payout_ref, payout_attempts, status
-            FROM pay.settlements
-           WHERE merchant_id = ${input.merchantId} AND "window" = ${input.window} AND asset_id = ${input.assetId}
-        `;
-        if (existing[0]) return toSettlement(existing[0]);
-
-        if (lockedRow.status !== 'active') {
-          throw new PayError(`Merchant ${input.merchantId} is ${lockedRow.status}`, 'pay.merchant_inactive');
-        }
-        const kybRefuse = merchantKybMoneyGateRefusal({
-          merchantId: input.merchantId,
-          status: lockedRow.status,
-          kybStatus: lockedRow.kyb_status,
-          valueMovement: this.valueMovement,
-        });
-        if (kybRefuse) {
-          throw new PayError(kybRefuse.message, kybRefuse.code, kybRefuse.detail);
-        }
-
-        // Candidate ids only first — lock each payment FOR UPDATE before reading
-        // totals so a concurrent pre-settlement refund cannot drain clearing
-        // after we freeze a gross that still included that payment.
-        const candidateIds = await tx<Array<{ id: string }>>`
-          SELECT p.id
-            FROM pay.payments p
-           WHERE p.merchant_id = ${input.merchantId}
-             AND p.currency = ${input.assetId}
-             AND p.status = 'captured'
-             AND NOT EXISTS (
-               -- Frozen into a settlement that has not been released. A released
-               -- inclusion (ops path after desync) is eligible for a later window.
-               SELECT 1 FROM pay.payment_events s
-                WHERE s.payment_id = p.id AND s.event = 'settlement.included'
-                  AND NOT EXISTS (
-                    SELECT 1 FROM pay.payment_events r
-                     WHERE r.payment_id = s.payment_id
-                       AND r.event = 'settlement.released'
-                       AND r.payload->>'settlementId' = s.payload->>'settlementId'
-                  )
-             )
-             AND (
-               EXISTS (
-                 SELECT 1 FROM pay.payment_events c
-                  WHERE c.payment_id = p.id AND c.event = 'captured' AND c.ts >= ${from} AND c.ts < ${to}
-               )
-               -- A payment returned by a won dispute or freed by a released window is overdue, so it joins any
-               -- window that ends after it came back. Its capture time sits in a window that has already closed.
-               OR EXISTS (
-                 SELECT 1 FROM pay.payment_events c
-                  WHERE c.payment_id = p.id AND c.event IN ('dispute.restored', 'settlement.released') AND c.ts < ${to}
-               )
-             )
-             AND NOT EXISTS (
-               SELECT 1 FROM pay.payment_events sb
-                WHERE sb.payment_id = p.id AND sb.event = 'created' AND sb.payload->>'sandbox' = 'true'
-             )
-           ORDER BY p.id
-           FOR UPDATE OF p
-        `;
-
-        let gross = 0n;
-        const included: string[] = [];
-        const includedNet = new Map<string, Amount>();
-        for (const { id: paymentId } of candidateIds) {
-          // Skip payments with an open refund.posted — their clearing is already
-          // leaving (or about to leave). Including them freezes a gross the
-          // pool no longer holds.
-          const openRefund = await tx<Array<{ refund_id: string }>>`
-            SELECT p.payload->>'refundId' AS refund_id
-              FROM pay.payment_events p
-             WHERE p.payment_id = ${paymentId} AND p.event = 'refund.posted'
-               AND NOT EXISTS (
-                 SELECT 1 FROM pay.payment_events d
-                  WHERE d.payment_id = p.payment_id
-                    AND d.event IN ('refunded', 'refund.reversed')
-                    AND d.payload->>'refundId' = p.payload->>'refundId'
-               )
-             LIMIT 1
-          `;
-          if (openRefund.length > 0) continue;
-
-          const totals = await totalsFor(tx, paymentId);
-          const net = totals.captured - totals.refunded;
-          if (net <= 0n) continue; // Fully refunded inside the window — nothing to settle.
-          gross += net;
-          included.push(paymentId);
-          includedNet.set(paymentId, net);
-        }
-
-        if (gross <= 0n) {
-          throw new PayError(
-            `Nothing to settle for merchant ${input.merchantId} in ${input.window} (${input.assetId})`,
-            'pay.nothing_to_settle',
-          );
-        }
-
-        // Fees round `ceil` — the house never pays a rounding unit on a merchant's
-        // behalf, and the merchant is never short by one either, because net is
-        // derived by subtraction rather than computed independently.
-        const fees = mulBps(gross, feeBps, 'ceil');
-        const net = gross - fees;
-        if (net <= 0n) {
-          throw new PayError(
-            `Fee of ${formatAmount(fees)} consumes the whole ${formatAmount(gross)} window — check merchant pricing`,
-            'pay.fee_exceeds_gross',
-            { gross: formatAmount(gross), fees: formatAmount(fees), feeBps },
-          );
-        }
-
-        const inserted = await tx<SettlementRow[]>`
-          INSERT INTO pay.settlements (merchant_id, "window", asset_id, gross, fees, net, status)
-          VALUES (
-            ${input.merchantId}, ${input.window}, ${input.assetId},
-            ${formatAmount(gross)}::numeric, ${formatAmount(fees)}::numeric, ${formatAmount(net)}::numeric, 'pending'
-          )
-          RETURNING id, merchant_id, "window", asset_id, gross, fees, net, payout_method, payout_ref, payout_attempts, status
-        `;
-        const row = inserted[0]!;
-
-        for (const paymentId of included) {
-          await appendEvent(tx, paymentId, 'settlement.included', {
-            settlementId: row.id,
-            window: input.window,
-            assetId: input.assetId,
-            // Captured minus refunded at freeze. The line read uses this, not the
-            // payment's face amount, so the lines sum to the frozen gross.
-            amount: formatAmount(includedNet.get(paymentId)!),
-          });
-        }
-
-        return toSettlement(row);
-      },
-      { isolation: 'read committed', maxAttempts: 5 },
-    );
+    return settlement.prepareSettlement(this, input);
   }
 
-  /**
-   * G3 — release a stuck `pending` settlement so its payments can re-enter a
-   * later window.
-   *
-   * After freeze, if post can never succeed (desync), payments stay marked
-   * `settlement.included` forever and no later freeze can pick them up. This is
-   * the honest ops path: mark the window `failed`, append `settlement.released`
-   * per included payment, move no ledger value.
-   *
-   * HEAL BEFORE RELEASE. Dual-book lag (ledger `merchantSettlement` posted, SQL
-   * txn rolled back) leaves the row `pending` while the merchant is already
-   * credited. Releasing then would free payments into a later window and
-   * double-credit under a new settlement key. Prefer `settleWindow` re-run —
-   * which is idempotent on `settlement:<merchant>:<window>:<asset>` — and only
-   * release when that re-run refuses as desynced (post truly cannot succeed).
-   *
-   * Only `pending` windows. Posted/paid_out/failed refuse (failed is idempotent).
-   */
   async releasePendingSettlement(input: {
     settlementId: string;
     /** Free-text ops reason (journaled; required so silent cancels are impossible). */
     reason: string;
   }): Promise<SettlementRecord> {
-    const reason = input.reason?.trim() ?? '';
-    if (!reason) {
-      throw new PayError('releasePendingSettlement requires a non-empty reason', 'pay.invalid_transition');
-    }
-
-    const head = await this.sql<SettlementRow[]>`
-      SELECT id, merchant_id, "window", asset_id, gross, fees, net, payout_method, payout_ref, payout_attempts, status
-        FROM pay.settlements WHERE id = ${input.settlementId}
-    `;
-    const current = head[0];
-    if (!current) throw new PayError(`Settlement ${input.settlementId} not found`, 'pay.settlement_not_found');
-    if (current.status === 'failed') return toSettlement(current);
-    if (current.status !== 'pending') {
-      throw new PayError(
-        `Settlement ${current.id} is ${current.status}; only a pending settlement can be released`,
-        'pay.settlement_not_pending',
-        { settlementId: current.id, status: current.status },
-      );
-    }
-
-    // Prefer heal by settlement id (not settleWindow — custom window labels need
-    // from/to that release does not carry). Ledger re-post is idempotent on
-    // settlement:<merchant>:<window>:<asset>; projection catches up. Only
-    // desync falls through to release.
-    try {
-      const healed = await this.postPendingSettlement(current.id, { kind: 'recovery', reason: 'window_frozen_not_posted' });
-      if (healed.status !== 'pending') return healed;
-    } catch (err) {
-      if (!(err instanceof PayError) || err.code !== 'pay.settlement_desynced') {
-        throw err;
-      }
-    }
-
-    return transaction(
-      this.sql,
-      async (tx) => {
-        const rows = await tx<SettlementRow[]>`
-          SELECT id, merchant_id, "window", asset_id, gross, fees, net, payout_method, payout_ref, payout_attempts, status
-            FROM pay.settlements WHERE id = ${input.settlementId} FOR UPDATE
-        `;
-        const row = rows[0];
-        if (!row) throw new PayError(`Settlement ${input.settlementId} not found`, 'pay.settlement_not_found');
-        if (row.status === 'failed') return toSettlement(row);
-        if (row.status !== 'pending') {
-          // Healed under us, or concurrent post finished.
-          return toSettlement(row);
-        }
-
-        const included = await tx<Array<{ payment_id: string }>>`
-          SELECT payment_id FROM pay.payment_events
-           WHERE event = 'settlement.included' AND payload->>'settlementId' = ${row.id}
-           ORDER BY payment_id
-        `;
-
-        for (const { payment_id } of included) {
-          await appendEvent(tx, payment_id, 'settlement.released', {
-            settlementId: row.id,
-            window: row.window,
-            assetId: row.asset_id,
-            reason,
-          });
-        }
-
-        await tx`
-          UPDATE pay.settlements
-             SET status = 'failed',
-                 failed_at = now(),
-                 failure_code = 'pay.settlement_released',
-                 updated_at = now()
-           WHERE id = ${row.id}
-        `;
-
-        return toSettlement({ ...row, status: 'failed' });
-      },
-      { isolation: 'read committed', maxAttempts: 5 },
-    );
+    return settlement.releasePendingSettlement(this, input);
   }
 
-  /**
-   * Record a rail-health outcome after the money result is durable. A throw here
-   * is logged and counted. It does not change a paid_out result or a refusal.
-   * Adapter throws count. Destination and customer refusals do not.
-   */
-  private async accountRailOutcome(input: {
+  async accountRailOutcome(input: {
     kind: 'failure' | 'success' | 'throw';
     target: PayHaltTarget;
     railId: string;
@@ -4903,46 +2671,9 @@ export class PayService {
     eventKey?: string;
     connection?: Sql;
   }): Promise<void> {
-    if (!this.haltStore) return;
-    if (input.target.level !== 'merchant' && input.target.level !== 'user') return;
-    const sourceKey = payoutRailSourceKey(input.railId);
-    try {
-      if (input.kind === 'success') {
-        await this.haltStore.recordSuccess('payout', input.target, sourceKey, input.connection);
-        return;
-      }
-      if (input.kind === 'failure' && !isRailHealthFailureCode(input.failureCode)) return;
-      await this.haltStore.recordFailure('payout', input.target, sourceKey, input.connection, input.eventKey);
-    } catch (error) {
-      noteAutoTripAccountError({
-        op: input.kind === 'success' ? 'recordSuccess' : 'recordFailure',
-        scope: 'payout',
-        target: targetKey(input.target),
-        sourceKey,
-        name: error instanceof Error ? error.name : 'unknown',
-      });
-    }
+    return settlement.accountRailOutcome(this, input);
   }
 
-  /**
-   * Pay a settled window out of the book, to a bank or a chain (§6.1 "payout to
-   * bank/crypto via adapter `payout`").
-   *
-   * Holds, settles, and reverses `merchantProceeds`. A personal withdrawal is
-   * not this exit. There is no state in which the merchant's money is neither
-   * in proceeds, nor in the proceeds payout hold, nor gone with a rail
-   * reference against it. An attempt already held on the owner's user account
-   * finishes on that hold so a second proceeds hold is not posted.
-   *
-   * IF THIS CRASHES between the hold and the dispatch marker, the funds are
-   * in the proceeds payout hold and no rail call was journalled. Re-running
-   * is an undispatched resume: a first refusal may still reverse.
-   * The marker commits after the hold and before the rail, and it stores the
-   * provider idempotency key. A resume that already has that marker treats
-   * any refusal or error as unknown: the hold stays, `payout_attempts` stays,
-   * and only `reconcileDispatchedPayout` may reverse or finalise, after it
-   * queries that same key.
-   */
   async payoutSettlement(input: {
     settlementId: string;
     railId: string;
@@ -4951,534 +2682,21 @@ export class PayService {
     /** A sandbox key cannot enter a live payout. */
     keyEnv?: 'sandbox';
   }): Promise<SettlementRecord> {
-    if (input.destination !== undefined) {
-      throw new PayError('A payout cannot name a destination', 'pay.payout_destination_not_allowed');
-    }
-    return withMoneySpan(
-      'pay.payoutSettlement',
-      { operation: 'payout', settlementId: input.settlementId, rail: input.railId },
-      async () => {
-        return withPayoutLock(this.sql, input.settlementId, async (connection) => {
-          let settlement = await this.getSettlement(input.settlementId, connection);
-          let admission = await loadPayoutAdmission(connection, settlement.id, settlement.payoutAttempts);
-          if (admission) {
-            if (
-              admission.rail_id !== input.railId ||
-              parseAmount(admission.net) !== settlement.net ||
-              admission.asset_id !== settlement.assetId ||
-              admission.window !== settlement.window ||
-              admission.merchant_id !== settlement.merchantId
-            ) {
-              throw new PayError('Recovery parameters differ from the admitted payout', 'pay.payout_recovery_conflict');
-            }
-          }
-          // An admission that already existed when this call began is a resumed
-          // payout; one this call creates cannot have a hold on the ledger yet.
-          const resumedAdmission = admission !== null;
-          if (settlement.status === 'paid_out') return settlement;
-          if (settlement.status !== 'posted' && settlement.status !== 'failed')
-            throw new PayError('Settlement is not payable', 'pay.invalid_transition');
-          if (settlement.status === 'failed') {
-            // A window released before it posted has no proceeds behind it; only a failed payout may retry.
-            const [released] = await connection`
-              SELECT 1 FROM pay.settlements WHERE id = ${settlement.id} AND failure_code = 'pay.settlement_released'
-            `;
-            if (released) throw new PayError('Settlement was released before it posted; nothing to pay out', 'pay.settlement_released');
-          }
-          if (input.keyEnv === 'sandbox' || (await this.settlementIncludesSandbox(connection, settlement.id))) {
-            // Before the admission and before the hold. Both payout books name a live account.
-            this.refuseSandboxLive(
-              true,
-              recipes.merchantProceedsPayoutSettle({
-                merchantId: settlement.merchantId,
-                assetId: settlement.assetId,
-                amount: settlement.net,
-                rail: input.railId,
-                withdrawalId: `${settlement.id}:${settlement.payoutAttempts}`,
-              }),
-            );
-          }
-          const adapter = this.rails.require(admission?.rail_id ?? input.railId, 'payout');
-          assertRailMayMoveValue(adapter, 'payout', this.valueMovement);
-          refuseUnusableRail(adapter, this.now());
-          // Classified before the admission exists. An unrecognised book must
-          // refuse without a pending exposure row. A resumed admission already
-          // has that row; its book is read below, once, for the plan.
-          let payoutBook: 'legacy' | 'proceeds' | undefined;
-          if (!admission) {
-            // A resumed admission finishes under the net it was admitted with.
-            // A fresh payout for a reserved merchant is refused before any admission:
-            // a percentage already on the merchant (tier, or an override written before
-            // set_reserve refused) must not leave as the full net. No recipe can hold
-            // the reserved part, so nothing is admitted and no hold is posted.
-            await assertPayoutReserveWired(connection, settlement.merchantId);
-            const held = payoutHoldKeys(settlement.id, settlement.payoutAttempts);
-            if ((await this.ledger.getTxByKey(held.legacy)) || (await this.ledger.getTxByKey(held.proceeds)))
-              throw new PayError('Original payout owner record is missing', 'pay.payout_admission_missing');
-            const merchant = await this.getMerchant(settlement.merchantId, connection);
-            payoutBook = await this.recognisedPayoutBook({
-              settlementId: settlement.id,
-              merchantId: merchant.id,
-              merchantUserId: merchant.userId,
-              window: settlement.window,
-              assetId: settlement.assetId,
-            });
-            if (payoutBook === 'proceeds') {
-              // Refunds drawn on the proceeds after the settlement posted leave the frozen net larger than
-              // the balance behind it. The merchant is owed the net less those refunds, so a fresh payout
-              // is cut down to the balance before any admission exists: an admitted payout is immutable,
-              // and its hold could never post. Gross falls with net; the fee is not returned on a refund.
-              const available = (await this.ledger.balance(merchantProceeds(merchant.id, settlement.assetId))).amount;
-              if (available < settlement.net) {
-                // A refund or a chargeback that may still be reversed (a refund the rail refuses, a won
-                // dispute) would put its money back after the cut and strand it.
-                const inFlight = await connection`
-                  SELECT 1
-                    FROM pay.payments p
-                    JOIN pay.payment_events r ON r.payment_id = p.id AND r.event = 'refund.posted'
-                   WHERE p.merchant_id = ${settlement.merchantId}::uuid
-                     AND p.currency = ${settlement.assetId}
-                     AND NOT EXISTS (
-                       SELECT 1 FROM pay.payment_events d
-                        WHERE d.payment_id = p.id AND d.event IN ('refunded', 'refund.reversed')
-                          AND d.payload->>'refundId' = r.payload->>'refundId'
-                     )
-                   LIMIT 1
-                `;
-                if (inFlight[0] || (await this.hasUnresolvedDispute(connection, settlement.merchantId, settlement.assetId))) {
-                  throw new PayError(
-                    `Settlement ${settlement.id} cannot be paid out while a refund or dispute for this merchant is unresolved`,
-                    'pay.refund_in_flight',
-                    { settlementId: settlement.id },
-                  );
-                }
-                if (available <= 0n) {
-                  throw new PayError(
-                    `Settlement ${settlement.id} has nothing left to pay out (refunds drew on its proceeds)`,
-                    'pay.settlement_exceeds_proceeds',
-                    { settlementId: settlement.id },
-                  );
-                }
-                await connection`
-                  UPDATE pay.settlements
-                     SET net = ${formatAmount(available)}::numeric,
-                         gross = fees + ${formatAmount(available)}::numeric,
-                         updated_at = now()
-                   WHERE id = ${settlement.id}::uuid AND status IN ('posted', 'failed')
-                     AND payout_attempts = ${settlement.payoutAttempts}
-                `;
-                settlement = await this.getSettlement(settlement.id, connection);
-              }
-            }
-            const destination = await this.resolvePayoutDestination(adapter.id, merchant.id, connection);
-            admission = await insertPayoutAdmission(
-              connection,
-              {
-                settlement_id: settlement.id,
-                merchant_id: merchant.id,
-                merchant_user_id: merchant.userId,
-                attempt: settlement.payoutAttempts,
-                business_id: settlement.payoutAttempts === 0 ? settlement.id : `${settlement.id}:${settlement.payoutAttempts}`,
-                net: formatAmount(settlement.net),
-                asset_id: settlement.assetId,
-                rail_id: adapter.id,
-                destination_kind: destination.kind,
-                destination_ref: destination.ref,
-                window: settlement.window,
-              },
-              async (tx) => {
-                this.assertMerchantActive(await this.lockMerchantEligibility(tx, merchant.id));
-                const held = payoutHoldKeys(settlement.id, settlement.payoutAttempts);
-                if ((await this.ledger.getTxByKey(held.legacy)) || (await this.ledger.getTxByKey(held.proceeds)))
-                  throw new PayError(
-                    'Unrecorded payout requires attributed recovery; hold alone cannot establish original destination',
-                    'pay.payout_admission_missing',
-                  );
-                const locked = await tx`SELECT status,payout_attempts FROM pay.settlements WHERE id=${settlement.id} FOR UPDATE`;
-                if (
-                  !locked[0] ||
-                  !['posted', 'failed'].includes(String(locked[0].status)) ||
-                  Number(locked[0].payout_attempts) !== settlement.payoutAttempts
-                )
-                  throw new PayError('Settlement changed before admission', 'pay.payout_recovery_conflict');
-                await this.guards.beforePayoutAdmit({
-                  tx,
-                  settlementId: settlement.id,
-                  merchantId: merchant.id,
-                  assetId: settlement.assetId,
-                  amount: settlement.net,
-                  railId: adapter.id,
-                  destination: { kind: destination.kind, ref: destination.ref },
-                  attempt: settlement.payoutAttempts,
-                  replay: FRESH,
-                });
-              },
-              this.identityOperationAdmission,
-              input.identityAuthority,
-              this.identityAuthorityGuard,
-            );
-            await this.afterPayoutAdmission?.();
-          }
-          try {
-            await finalizePayoutIdentity(
-              connection,
-              admission,
-              async (tx) => this.assertMerchantActive(await this.lockMerchantEligibility(tx, admission!.merchant_id)),
-              this.identityOperationAdmission,
-              this.identityAuthorityGuard,
-            );
-          } catch (error) {
-            if (error instanceof PayoutAdmissionError) throw new PayError(error.message, error.code);
-            throw error;
-          }
-          const proceedsPlan = settlementLedgerPlan({
-            settlementId: admission.settlement_id,
-            payoutAttempt: admission.attempt,
-            merchantId: admission.merchant_id,
-            assetId: admission.asset_id,
-            amount: parseAmount(admission.net),
-            railId: admission.rail_id,
-            destinationKind: admission.destination_kind,
-          });
-          // The settlement's own post decides the pot. A pre-cutover window
-          // debited userAvailable, so its payout is the personal withdraw trio.
-          // A proceeds window never pays from that hold. Fresh calls already
-          // classified above; a resumed admission classifies here, still before
-          // any new hold.
-          const book =
-            payoutBook ??
-            (await this.recognisedPayoutBook({
-              settlementId: admission.settlement_id,
-              merchantId: admission.merchant_id,
-              merchantUserId: admission.merchant_user_id,
-              window: admission.window,
-              assetId: admission.asset_id,
-            }));
-          const plan =
-            book === 'legacy'
-              ? legacyUserPayoutPlan(
-                  admission.merchant_user_id,
-                  admission.asset_id,
-                  parseAmount(admission.net),
-                  admission.rail_id,
-                  proceedsPlan.withdrawalId,
-                  proceedsPlan.destinationKind,
-                )
-              : proceedsPlan;
-          const outcomes = await connection`SELECT kind,payload FROM pay.payout_outcomes WHERE admission_id=${admission.id}`;
-          let accepted = outcomes.find((outcome) => outcome.kind === 'rail_accepted')?.payload as { railRef: string } | undefined;
-          let refused = outcomes.find((outcome) => outcome.kind === 'rail_refused')?.payload as
-            { failureReason: string; failureCode: string } | undefined;
-          const dispatched = outcomes.find((outcome) => outcome.kind === 'dispatched');
-          // Read before this call inserts its own marker. A row already there
-          // is an earlier dispatch, same rule as a user withdrawal's firstDispatch.
-          const priorDispatched = dispatched !== undefined;
-          // Only a rail call made on this attempt feeds auto-trip. A stored
-          // outcome is bookkeeping for a call that already counted, or didn't.
-          let freshRail: 'accepted' | 'refused' | null = null;
-          if (!refused && !accepted) {
-            const instruction = {
-              settlementId: admission.business_id,
-              merchantId: admission.merchant_id,
-              amount: parseAmount(admission.net),
-              assetId: admission.asset_id,
-              window: admission.window,
-              destination: { kind: admission.destination_kind, ref: admission.destination_ref },
-            };
-            const idempotencyKey = payoutRailKey(adapter, instruction);
-            if (!idempotencyKey) {
-              throw new PayError('Payout rail does not name an idempotency key; refusing before the hold', 'pay.rail_outcome_unknown', {
-                settlementId: admission.settlement_id,
-              });
-            }
-            const storedKey = readDispatchedKey(dispatched?.payload);
-            if (priorDispatched && storedKey !== idempotencyKey) {
-              throw new PayError('Dispatched payout key does not match the rail key; hold kept', 'pay.rail_outcome_unknown', {
-                settlementId: admission.settlement_id,
-                idempotencyKey: storedKey,
-                state: 'dispatched',
-              });
-            }
-            // Seam: before any hold is posted or rail asked, including crash
-            // recovery. Recovery means the hold is already on the ledger (value in
-            // flight); an admitted payout that has moved nothing yet is `fresh`,
-            // so a halt still stops it.
-            const holdBooked = resumedAdmission && (await this.ledger.getTxByKey(plan.hold.idempotencyKey)) !== null;
-            await this.guards.beforePayoutExecute({
-              sql: connection,
-              settlementId: admission.settlement_id,
-              merchantId: admission.merchant_id,
-              assetId: admission.asset_id,
-              amount: parseAmount(admission.net),
-              railId: admission.rail_id,
-              destination: { kind: admission.destination_kind, ref: admission.destination_ref },
-              attempt: admission.attempt,
-              replay: holdBooked ? { kind: 'recovery', reason: 'payout_hold_booked' } : FRESH,
-            });
-            await postPayLedger(this.ledger, plan.hold);
-            // The ledger hold is already durable. This transaction commits the
-            // marker, including that hold's key, before the rail is asked.
-            if (!priorDispatched) {
-              await payoutTransaction(connection, async (tx) => {
-                await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission!.id},'dispatched',${tx.json(dispatchedMarker(idempotencyKey, plan.hold.idempotencyKey))}) ON CONFLICT DO NOTHING`;
-              });
-            }
-            const unknownDispatch = (message: string) =>
-              new PayError(message, 'pay.rail_outcome_unknown', {
-                settlementId: admission!.settlement_id,
-                idempotencyKey,
-                state: 'dispatched',
-              });
-            let result: Awaited<ReturnType<typeof adapter.payout>>;
-            try {
-              result = await withRailSpan(adapter.id, 'payout', () => adapter.payout(instruction));
-            } catch (error) {
-              // The hold is already on the ledger. Counting may halt the next
-              // payout. It does not reverse this one or replace the throw.
-              await this.accountRailOutcome({
-                kind: 'throw',
-                target: { level: 'merchant', merchantId: admission.merchant_id },
-                railId: admission.rail_id,
-                connection,
-              });
-              if (priorDispatched) throw unknownDispatch('Earlier payout dispatch is unknown; original hold remains');
-              throw error;
-            }
-            if (!result.ok) {
-              if (priorDispatched) {
-                await this.accountRailOutcome({
-                  kind: 'throw',
-                  target: { level: 'merchant', merchantId: admission.merchant_id },
-                  railId: admission.rail_id,
-                  connection,
-                });
-                throw unknownDispatch('Earlier payout dispatch is unknown; a later refusal is not proof the rail did not send');
-              }
-              freshRail = 'refused';
-              refused = { failureReason: result.failureReason ?? 'Rail refused', failureCode: result.failureCode ?? 'rail.failed' };
-              await connection`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission.id},'rail_refused',${connection.json(refused)})`;
-            } else {
-              if (result.amount !== parseAmount(admission.net) || result.assetId !== admission.asset_id) {
-                if (priorDispatched) throw unknownDispatch('Earlier payout dispatch is unknown; rail answer does not match the hold');
-                throw new PayError('Payout rail amount or asset differs', 'pay.rail_amount_mismatch');
-              }
-              freshRail = 'accepted';
-              accepted = { railRef: result.railRef };
-              await connection`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission.id},'rail_accepted',${connection.json(accepted)})`;
-            }
-          }
-          if (!accepted) {
-            await postPayLedger(this.ledger, plan.reverse);
-            await payoutTransaction(connection, async (tx) => {
-              await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission!.id},'reversed','{}') ON CONFLICT DO NOTHING`;
-              await tx`UPDATE pay.settlements SET status='failed',payout_attempts=${admission!.attempt + 1},failed_at=now(),failure_code=${(safeFailure(refused?.failureCode ?? 'rail.failed') ?? { code: 'pay.failed' }).code},updated_at=now() WHERE id=${settlement.id}`;
-            });
-            // After the refusal is durable. Accounting must not unwind the
-            // reverse or replace pay.rail_failed: the book already shows the payout failed.
-            if (freshRail === 'refused') {
-              await this.accountRailOutcome({
-                kind: 'failure',
-                target: { level: 'merchant', merchantId: admission.merchant_id },
-                railId: admission.rail_id,
-                failureCode: refused?.failureCode,
-                eventKey: `payout:${admission.settlement_id}:${admission.attempt}`,
-                connection,
-              });
-            }
-            throw new PayError(refused?.failureReason ?? 'Rail refused payout', 'pay.rail_failed', { failureCode: refused?.failureCode });
-          }
-          await postPayLedger(this.ledger, plan.settle);
-          await payoutTransaction(connection, async (tx) => {
-            await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission!.id},'settled','{}') ON CONFLICT DO NOTHING`;
-            await tx`UPDATE pay.settlements SET status='paid_out',payout_method=${admission!.rail_id},payout_ref=${accepted!.railRef},sent_at=COALESCE(sent_at, now()),failed_at=NULL,failure_code=NULL,updated_at=now() WHERE id=${settlement.id}`;
-          });
-          if (freshRail === 'accepted') {
-            await this.accountRailOutcome({
-              kind: 'success',
-              target: { level: 'merchant', merchantId: admission.merchant_id },
-              railId: admission.rail_id,
-              connection,
-            });
-          }
-          return { ...settlement, status: 'paid_out' as const, payoutMethod: admission.rail_id, payoutRef: accepted.railRef };
-        });
-      },
-    ).catch(async (error) => {
-      // The payout lock, its reserved connection and the admission transaction are all gone here.
-      await settleGuardRefusal(error);
-      if (error instanceof PayoutAdmissionError) throw new PayError(error.message, error.code);
-      throw error;
-    });
+    return payouts.payoutSettlement(this, input);
   }
 
-  /**
-   * Ask the rail about a dispatched payout's original key, then reverse once
-   * or finalise once. A rail with no status query leaves the hold where it is.
-   */
   async reconcileDispatchedPayout(settlementId: string): Promise<SettlementRecord> {
-    return withMoneySpan('pay.reconcileDispatchedPayout', { operation: 'payout', settlementId }, async () => {
-      return withPayoutLock(this.sql, settlementId, async (connection) => {
-        const settlement = await this.getSettlement(settlementId, connection);
-        if (settlement.status === 'paid_out') return settlement;
-        const admission = await loadPayoutAdmission(connection, settlement.id, settlement.payoutAttempts);
-        if (!admission) {
-          if (settlement.status === 'failed') return settlement;
-          throw new PayError('Payout has no admission to reconcile', 'pay.invalid_transition');
-        }
-        const outcomes = await connection`SELECT kind,payload FROM pay.payout_outcomes WHERE admission_id=${admission.id}`;
-        const accepted = outcomes.find((outcome) => outcome.kind === 'rail_accepted')?.payload as { railRef: string } | undefined;
-        const reversed = outcomes.some((outcome) => outcome.kind === 'reversed');
-        const settled = outcomes.some((outcome) => outcome.kind === 'settled');
-        if (reversed || settlement.status === 'failed') return this.getSettlement(settlementId, connection);
-        const proceedsPlan = settlementLedgerPlan({
-          settlementId: admission.settlement_id,
-          payoutAttempt: admission.attempt,
-          merchantId: admission.merchant_id,
-          assetId: admission.asset_id,
-          amount: parseAmount(admission.net),
-          railId: admission.rail_id,
-          destinationKind: admission.destination_kind,
-        });
-        const book = await this.recognisedPayoutBook({
-          settlementId: admission.settlement_id,
-          merchantId: admission.merchant_id,
-          merchantUserId: admission.merchant_user_id,
-          window: admission.window,
-          assetId: admission.asset_id,
-        });
-        const plan =
-          book === 'legacy'
-            ? legacyUserPayoutPlan(
-                admission.merchant_user_id,
-                admission.asset_id,
-                parseAmount(admission.net),
-                admission.rail_id,
-                proceedsPlan.withdrawalId,
-                proceedsPlan.destinationKind,
-              )
-            : proceedsPlan;
-        let railRef = accepted?.railRef;
-        if (!railRef) {
-          const dispatched = outcomes.find((outcome) => outcome.kind === 'dispatched');
-          const idempotencyKey = readDispatchedKey(dispatched?.payload);
-          if (!dispatched || !idempotencyKey) {
-            throw new PayError('Payout was not dispatched; there is no original key to query', 'pay.invalid_transition');
-          }
-          const adapter = this.rails.require(admission.rail_id, 'payout');
-          if (typeof adapter.queryPayout !== 'function') {
-            throw new PayError('Payout rail has no status query; dispatched hold stays', 'pay.rail_outcome_unknown', {
-              settlementId,
-              idempotencyKey,
-              state: 'dispatched',
-            });
-          }
-          let queried: Awaited<ReturnType<NonNullable<typeof adapter.queryPayout>>>;
-          try {
-            queried = await adapter.queryPayout(idempotencyKey);
-          } catch {
-            throw new PayError('Payout rail status query failed; dispatched hold stays', 'pay.rail_outcome_unknown', {
-              settlementId,
-              idempotencyKey,
-              state: 'dispatched',
-            });
-          }
-          if (queried.status === 'unknown') {
-            throw new PayError('Payout rail cannot say whether the original key was sent; hold stays', 'pay.rail_outcome_unknown', {
-              settlementId,
-              idempotencyKey,
-              state: 'dispatched',
-            });
-          }
-          if (queried.status === 'not_sent') {
-            const failureCode = 'rail.not_sent';
-            const failureReason = 'Rail status query confirmed the original key was not sent';
-            await postPayLedger(this.ledger, plan.reverse);
-            await payoutTransaction(connection, async (tx) => {
-              await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission.id},'rail_refused',${tx.json({ failureReason, failureCode })}) ON CONFLICT DO NOTHING`;
-              await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission.id},'reversed','{}') ON CONFLICT DO NOTHING`;
-              await tx`UPDATE pay.settlements SET status='failed',payout_attempts=${admission.attempt + 1},failed_at=now(),failure_code=${(safeFailure(failureCode) ?? { code: 'pay.failed' }).code},updated_at=now() WHERE id=${settlement.id}`;
-            });
-            await this.accountRailOutcome({
-              kind: 'failure',
-              target: { level: 'merchant', merchantId: admission.merchant_id },
-              railId: admission.rail_id,
-              failureCode,
-              eventKey: `payout:${admission.settlement_id}:${admission.attempt}`,
-              connection,
-            });
-            return this.getSettlement(settlementId, connection);
-          }
-          if (
-            (queried.amount !== null && queried.amount !== parseAmount(admission.net)) ||
-            (queried.assetId !== null && queried.assetId !== admission.asset_id) ||
-            !queried.railRef.trim()
-          ) {
-            throw new PayError('Payout rail status does not match the held payout', 'pay.rail_amount_mismatch', {
-              settlementId,
-              idempotencyKey,
-              state: 'dispatched',
-            });
-          }
-          railRef = queried.railRef;
-          await connection`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission.id},'rail_accepted',${connection.json({ railRef })})`;
-        }
-        if (settled) return this.getSettlement(settlementId, connection);
-        await postPayLedger(this.ledger, plan.settle);
-        await payoutTransaction(connection, async (tx) => {
-          await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission.id},'settled','{}') ON CONFLICT DO NOTHING`;
-          await tx`UPDATE pay.settlements SET status='paid_out',payout_method=${admission.rail_id},payout_ref=${railRef!},sent_at=COALESCE(sent_at, now()),failed_at=NULL,failure_code=NULL,updated_at=now() WHERE id=${settlement.id}`;
-        });
-        await this.accountRailOutcome({
-          kind: 'success',
-          target: { level: 'merchant', merchantId: admission.merchant_id },
-          railId: admission.rail_id,
-          connection,
-        });
-        return {
-          ...(await this.getSettlement(settlementId, connection)),
-          status: 'paid_out' as const,
-          payoutMethod: admission.rail_id,
-          payoutRef: railRef,
-        };
-      });
-    });
+    return payouts.reconcileDispatchedPayout(this, settlementId);
   }
 
-  /**
-   * The stored verified destination for this rail. An offered destination is
-   * refused before this runs. Unverified rows (saved by payouts before D-142)
-   * are not payable. Does not write. Does not invent a PSP.
-   */
-  private async resolvePayoutDestination(railId: string, merchantId: string, connection?: Sql): Promise<{ kind: string; ref: string }> {
-    try {
-      const stored = await this.payoutDestinations.require({ merchantId, railId, connection });
-      assertPayoutDestinationKind(railId, stored);
-      return stored;
-    } catch (err) {
-      if (err instanceof PayoutDestinationMissingError) {
-        throw new PayError(err.message, 'pay.payout_destination_missing', { merchantId, railId });
-      }
-      if (err instanceof DestinationKindError) {
-        throw new PayError(err.message, err.code);
-      }
-      throw err;
-    }
+  async resolvePayoutDestination(railId: string, merchantId: string, connection?: Sql): Promise<{ kind: string; ref: string }> {
+    return payouts.resolvePayoutDestination(this, railId, merchantId, connection);
   }
 
   async getSettlement(settlementId: string, connection: Sql = this.sql): Promise<SettlementRecord> {
-    const rows = await connection<SettlementRow[]>`
-      SELECT id, merchant_id, "window", asset_id, gross, fees, net, payout_method, payout_ref, payout_attempts, status
-        FROM pay.settlements WHERE id = ${settlementId}
-    `;
-    const row = rows[0];
-    if (!row) throw new PayError(`Settlement ${settlementId} not found`, 'pay.settlement_not_found');
-    return toSettlement(row);
+    return payouts.getSettlement(this, settlementId, connection);
   }
 
-  /**
-   * Merchant fleet list — settlements already stored; this only reads them.
-   * No freeze, no post, no payout. Caller fences merchant ownership / area.
-   */
   async listSettlements(input: {
     merchantId: string;
     status?: SettlementStatus;
@@ -5489,183 +2707,37 @@ export class PayService {
     from?: string;
     to?: string;
   }): Promise<SettlementPage> {
-    await this.getMerchant(input.merchantId);
-    const limit = assertSettlementListLimit(input.limit);
-    const filters = listFilters(input);
-    this.assertListStatus(input.status, ['pending', 'posted', 'paid_out', 'failed']);
-    const cursorAt = filters.cursor?.createdAtCursor ?? null;
-    const cursorId = filters.cursor?.id ?? null;
-    const rows = await this.sql<Array<SettlementDetailRow>>`
-      SELECT id, merchant_id, "window", asset_id, gross, fees, net,
-             payout_method, payout_ref, payout_attempts, status,
-             created_at, sent_at, settled_at, failed_at, failure_code,
-             to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
-        FROM pay.settlements
-       WHERE merchant_id = ${input.merchantId}
-         AND (${input.status ?? null}::text IS NULL OR status::text = ${input.status ?? null})
-         AND (${filters.assetId}::text IS NULL OR asset_id = ${filters.assetId})
-         AND (${filters.from}::timestamptz IS NULL OR created_at >= ${filters.from})
-         AND (${filters.to}::timestamptz IS NULL OR created_at < ${filters.to})
-         AND (
-           ${filters.search}::text IS NULL
-           OR id::text = lower(${filters.search})
-           OR "window" = ${filters.search}
-           OR payout_ref = ${filters.search}
-         )
-         AND (
-           ${cursorAt}::timestamptz IS NULL
-           OR (created_at, id) < (${cursorAt}::timestamptz, ${cursorId}::uuid)
-         )
-       ORDER BY created_at DESC, id DESC
-       LIMIT ${limit + 1}
-    `;
-    return this.settlementPage(rows, limit);
+    return payouts.listSettlements(this, input);
   }
 
-  /** One settlement with the timestamps, failure and pricing snapshot stored for it. */
   async readSettlement(settlementId: string): Promise<SettlementRead> {
-    const rows = await this.sql<SettlementDetailRow[]>`
-      SELECT id, merchant_id, "window", asset_id, gross, fees, net,
-             payout_method, payout_ref, payout_attempts, status,
-             created_at, sent_at, settled_at, failed_at, failure_code,
-             to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
-        FROM pay.settlements WHERE id = ${settlementId}
-    `;
-    const row = rows[0];
-    if (!row) throw new PayError(`Settlement ${settlementId} not found`, 'pay.settlement_not_found');
-    const page = await this.settlementPage([row], 1);
-    return page.items[0]!;
+    return payouts.readSettlement(this, settlementId);
   }
 
-  /**
-   * Payments frozen into this settlement, oldest first, paged by `(created_at, id)`.
-   * The amount is the net written on `settlement.included` at freeze. A payment's
-   * face amount does not sum to the gross once a capture or refund was partial.
-   * An included event from before that field returns a null amount and a flag.
-   */
   async listSettlementLines(input: { settlementId: string; limit?: number; cursor?: string }): Promise<SettlementLinePage> {
-    const limit = assertSettlementListLimit(input.limit);
-    const filters = listFilters({ cursor: input.cursor });
-    const cursorAt = filters.cursor?.createdAtCursor ?? null;
-    const cursorId = filters.cursor?.id ?? null;
-    const rows = await this.sql<
-      Array<{ id: string; included_amount: string | null; currency: string; created_at: Date; created_at_cursor: string }>
-    >`
-      SELECT id, included_amount, currency, created_at, created_at_cursor FROM (
-        SELECT DISTINCT ON (p.id) p.id, e.payload->>'amount' AS included_amount, p.currency, p.created_at,
-               to_char(p.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
-          FROM pay.payment_events e
-          JOIN pay.payments p ON p.id = e.payment_id
-          JOIN pay.settlements s ON s.id = ${input.settlementId}::uuid
-         WHERE e.event = 'settlement.included'
-           AND e.payload->>'settlementId' = s.id::text
-           AND p.merchant_id = s.merchant_id
-         ORDER BY p.id, e.seq
-      ) lines
-       WHERE (
-         ${cursorAt}::timestamptz IS NULL
-         OR (created_at, id) > (${cursorAt}::timestamptz, ${cursorId}::uuid)
-       )
-       ORDER BY created_at ASC, id ASC
-       LIMIT ${limit + 1}
-    `;
-    const pageRows = rows.slice(0, limit);
-    const last = pageRows[pageRows.length - 1];
-    return {
-      items: pageRows.map((row) => {
-        const included = readIncludedAmount(row.included_amount);
-        return {
-          paymentId: row.id,
-          amount: included.amount,
-          assetId: row.currency,
-          createdAt: row.created_at,
-          includedAmountKnown: included.includedAmountKnown,
-        };
-      }),
-      nextCursor: rows.length > limit && last ? encodeListCursor(last.created_at_cursor, last.id) : null,
-    };
+    return payouts.listSettlementLines(this, input);
   }
 
-  private async settlementPage(rows: SettlementDetailRow[], limit: number): Promise<SettlementPage> {
-    const pageRows = rows.slice(0, limit);
-    const snapshots = await readPricingSnapshots(
-      this.sql,
-      'settlement',
-      pageRows.map((row) => row.id),
-    );
-    const items = pageRows.map((row) => {
-      const failed = row.status === 'failed';
-      return {
-        ...toSettlement(row),
-        createdAt: row.created_at,
-        sentAt: row.sent_at,
-        settledAt: row.settled_at,
-        failedAt: failed ? row.failed_at : null,
-        failure: failed ? safeFailure(row.failure_code) : null,
-        pricingSnapshot: snapshots.get(row.id) ?? null,
-      };
-    });
-    const last = pageRows[pageRows.length - 1];
-    return {
-      items,
-      nextCursor: rows.length > limit && last ? encodeListCursor(last.created_at_cursor, last.id) : null,
-    };
+  async settlementPage(rows: SettlementDetailRow[], limit: number): Promise<SettlementPage> {
+    return payouts.settlementPage(this, rows, limit);
   }
-
-  // ── Reads ──────────────────────────────────────────────────────────────────
 
   async getPayment(paymentId: string): Promise<PaymentView> {
-    const rows = await this.sql<PaymentRow[]>`
-      SELECT id, merchant_id, profile_id, amount, currency, method, rail_adapter, rail_ref, status, created_at
-        FROM pay.payments WHERE id = ${paymentId}
-    `;
-    const row = rows[0];
-    if (!row) throw new PayError(`Payment ${paymentId} not found`, 'pay.payment_not_found');
-    return this.view(this.sql, row);
+    return paymentReads.getPayment(this, paymentId);
   }
 
-  /** The append-only state history for one payment, oldest first (§6.1). Page size is owner-published — omit is not 50. */
   async history(paymentId: string, requestedLimit?: number): Promise<PaymentEventRecord[]> {
-    const limit = assertPaymentHistoryLimit(requestedLimit);
-    const rows = await this.sql<
-      Array<{ id: string; event: string; payload: Record<string, unknown>; rail_event_id: string | null; ts: Date }>
-    >`
-      SELECT id, event, payload, rail_event_id, ts
-        FROM pay.payment_events WHERE payment_id = ${paymentId} ORDER BY seq ASC
-       LIMIT ${limit}
-    `;
-    return rows.map((r) => ({ id: r.id, event: r.event, payload: r.payload, railEventId: r.rail_event_id, ts: r.ts }));
+    return paymentReads.history(this, paymentId, requestedLimit);
   }
 
-  /**
-   * What svc-pay currently owes a merchant but has not settled.
-   *
-   * Read from the LEDGER, not from these tables. Doctrine §0.6 means the
-   * clearing account is the answer, and asking the ledger keeps the two
-   * independent — which is the entire property a reconciliation job needs.
-   */
   async clearingBalance(merchantId: string, assetId: string): Promise<Amount> {
-    return (await this.ledger.balance(merchantClearing(merchantId, assetId))).amount;
+    return paymentReads.clearingBalance(this, merchantId, assetId);
   }
 
-  /**
-   * Settled net this merchant can pay out: `merchantProceeds(merchantId)`.
-   *
-   * Not the owner's trading balance. That stays `userAvailable`. Windows
-   * settled before this account existed credited the personal balance, and a
-   * replay of that key does not move the money. Summing proceeds under-counts
-   * that history; the shortfall is still on the personal account.
-   */
   async merchantBalance(merchantId: string, assetId: string): Promise<Amount> {
-    await this.getMerchant(merchantId);
-    return (await this.ledger.balance(merchantProceeds(merchantId, assetId))).amount;
+    return paymentReads.merchantBalance(this, merchantId, assetId);
   }
 
-  /**
-   * Post the opening debit: clearing first, then the settled merchant pot,
-   * then `chargebackShortfall` for what those two cannot cover. The recipe
-   * owns the legs. No fee is added.
-   */
   async openChargeback(input: {
     disputeId: string;
     paymentId: string;
@@ -5675,283 +2747,28 @@ export class PayService {
     /** A sandbox key cannot open a chargeback against live pots. */
     keyEnv?: 'sandbox';
   }): Promise<{ txId: string; openingTxId: string | null; shortfallTxId: string | null }> {
-    const payment = await this.getPayment(input.paymentId);
-    const merchant = await this.getMerchant(input.merchantId);
-    if (payment.merchantId !== input.merchantId) throw new PayError('Payment does not belong to merchant', 'pay.payment_not_found');
-    if (payment.assetId !== input.assetId) throw new PayError('Chargeback asset does not match payment', 'pay.invalid_amount');
-    const amount = parseAmount(input.amount);
-    if (amount <= 0n) throw new PayError('Chargeback amount must be positive', 'pay.invalid_amount');
-    if (input.keyEnv === 'sandbox' || (await this.paymentIsSandbox(this.sql, input.paymentId))) {
-      // Opening, shortfall, won, and recovery all name a live pot. Refuse before any of them post.
-      this.refuseSandboxLive(
-        true,
-        sandboxChargebackOpeningProbe({
-          disputeId: input.disputeId,
-          paymentId: input.paymentId,
-          merchantId: input.merchantId,
-          merchantUserId: merchant.userId,
-          assetId: input.assetId,
-          rail: payment.railAdapter,
-          fromClearing: amount,
-          fromMerchantBalance: 0n,
-        }),
-      );
-    }
-    // A payment that never captured holds no funds to take back. Clearing is pooled per merchant, so charging it
-    // back would debit other payments' money.
-    if (payment.status === 'created' || payment.status === 'authorized' || payment.status === 'failed') {
-      throw new PayError('Payment has no captured funds to charge back', 'pay.invalid_amount');
-    }
-    // The split is frozen per dispute the first time it is computed. It depends on LIVE clearing and merchant
-    // balances, and the opening recipe's key is the dispute id: a redelivery after a crash (post committed, delivery
-    // marker not yet written) would otherwise re-split from balances the first post already moved, and book the same key
-    // with different amounts. Replays post the stored plan.
-    const settledPot = await this.chargebackSettledPot(payment.id, merchant.userId);
-    const compute = async () => {
-      const clearing = await this.clearingBalance(input.merchantId, input.assetId);
-      const available =
-        settledPot === 'user'
-          ? (await this.ledger.balance(userAvailable(merchant.userId, input.assetId))).amount
-          : await this.merchantBalance(input.merchantId, input.assetId);
-      const fromClearing = clearing < amount ? clearing : amount;
-      const rest = amount - fromClearing;
-      const fromMerchantBalance = rest < available ? rest : available;
-      const shortfall = rest - fromMerchantBalance;
-      if (shortfall > 0n) {
-        const fund = (await this.ledger.balance(insuranceFund(input.assetId))).amount;
-        if (fund < shortfall) {
-          throw new PayError('Insurance fund cannot cover the chargeback shortfall', 'pay.chargeback_shortfall_unfunded', {
-            disputeId: input.disputeId,
-            shortfall: formatAmount(shortfall),
-            fund: formatAmount(fund),
-          });
-        }
-      }
-      return { fromClearing, fromMerchantBalance, shortfall };
-    };
-    // At most one re-plan: a STORED plan that the ledger refuses for funds is stale (money moved since it was planned and
-    // nothing was booked under the key), so it is retired and the split recomputed from live balances once. A plan computed
-    // in this very call that is still refused is a real shortfall: retire it and let the caller see the refusal.
-    for (let attempt = 0; ; attempt += 1) {
-      const plan = await this.chargebackSplit(input.paymentId, input.disputeId, amount, settledPot, compute);
-      const request: ChargebackPostInput = {
-        disputeId: input.disputeId,
-        paymentId: input.paymentId,
-        merchantId: input.merchantId,
-        merchantUserId: merchant.userId,
-        assetId: input.assetId,
-        rail: payment.railAdapter,
-        fromClearing: plan.fromClearing,
-        fromMerchantBalance: plan.fromMerchantBalance,
-        ...(plan.settledPot === 'user' ? { settledPot: 'user' as const } : {}),
-      };
-      const shortfallRequest: ChargebackShortfallPostInput = {
-        disputeId: input.disputeId,
-        paymentId: input.paymentId,
-        merchantId: input.merchantId,
-        assetId: input.assetId,
-        rail: payment.railAdapter,
-        amount: plan.shortfall,
-      };
-      const covered = plan.fromClearing + plan.fromMerchantBalance;
-      try {
-        if (plan.shortfall > 0n) {
-          const shortfallBooked = await this.chargebackBookedTx(chargebackKeys(input.disputeId).shortfall);
-          if (!shortfallBooked) {
-            const fund = (await this.ledger.balance(insuranceFund(input.assetId))).amount;
-            if (fund < plan.shortfall) {
-              const openingKey = covered > 0n ? disputeOpeningKey(request) : chargebackKeys(input.disputeId).open;
-              const openingBooked = covered > 0n ? await this.chargebackBookedTx(openingKey) : null;
-              if (!openingBooked) {
-                await this.voidChargebackPlan(input.paymentId, input.disputeId, plan.planSeq, openingKey);
-                if (plan.replayed && attempt === 0) continue;
-              }
-              await this.throwUnfundedChargebackShortfall({
-                paymentId: input.paymentId,
-                disputeId: input.disputeId,
-                openingTxId: openingBooked?.id ?? null,
-                shortfall: formatAmount(plan.shortfall),
-                fund: formatAmount(fund),
-              });
-            }
-          }
-        }
-        let openingTxId: string | null = null;
-        if (covered > 0n) {
-          const posted = await postDisputeOpening(this.ledger, request);
-          openingTxId = posted.txId;
-        }
-        // A concurrent delivery whose post was refused for funds may have voided this plan just before this post landed.
-        await this.ensureChargebackPlanLive(input.paymentId, input.disputeId, plan);
-        let shortfallTxId: string | null = null;
-        if (plan.shortfall > 0n) {
-          shortfallTxId = (await postDisputeShortfall(this.ledger, shortfallRequest)).txId;
-        }
-        const txId = openingTxId ?? shortfallTxId;
-        if (!txId) throw new PayError('Chargeback amount must be positive', 'pay.invalid_amount');
-        await this.recordChargebackLedgerEffect(input.paymentId, input.disputeId, {
-          openingTxId,
-          shortfallTxId,
-          wonTxId: null,
-          recoveredTxId: null,
-        });
-        return { txId, openingTxId, shortfallTxId };
-      } catch (e) {
-        // Insufficient funds proves the refused post did not commit under its key: both ledger engines resolve the
-        // idempotency key before they validate the body, so a key that had committed would have returned its transaction.
-        // An opening that did commit, with the shortfall still refused, is recorded above. Any other failure (a 5xx,
-        // a timeout, an unknown outcome) may have committed: keep the plan and replay it.
-        if (e instanceof PayError) throw e;
-        if (!isInsufficientFunds(e)) throw e;
-        const openingKey = covered > 0n ? disputeOpeningKey(request) : chargebackKeys(input.disputeId).open;
-        const openingBooked = covered > 0n ? await this.chargebackBookedTx(openingKey) : null;
-        if (openingBooked && plan.shortfall > 0n) {
-          await this.throwUnfundedChargebackShortfall({
-            paymentId: input.paymentId,
-            disputeId: input.disputeId,
-            openingTxId: openingBooked.id,
-          });
-        }
-        const booked = await this.voidChargebackPlan(input.paymentId, input.disputeId, plan.planSeq, openingKey);
-        // Another delivery booked this very plan while ours was being refused: the book already has the opening.
-        if (booked) {
-          const shortfallTxId = plan.shortfall > 0n ? (await postDisputeShortfall(this.ledger, shortfallRequest)).txId : null;
-          await this.recordChargebackLedgerEffect(input.paymentId, input.disputeId, {
-            openingTxId: booked.id,
-            shortfallTxId,
-            wonTxId: null,
-            recoveredTxId: null,
-          });
-          return { txId: booked.id, openingTxId: booked.id, shortfallTxId };
-        }
-        if (plan.replayed && attempt === 0) continue;
-        throw e;
-      }
-    }
+    return chargebacks.openChargeback(this, input);
   }
 
-  /**
-   * The clearing-first split for one dispute, computed once and stored as a `chargeback.opening_planned` event (append-only,
-   * no money moves). A plan that already exists wins: same amount replays it, a different amount is a conflict.
-   * `replayed` says the plan was already stored, not computed by this call.
-   * The balance reads (network) happen outside any transaction; only the insert-once is serialised, per dispute.
-   */
-  private async chargebackSplit(
+  async chargebackSplit(
     paymentId: string,
     disputeId: string,
     amount: Amount,
     settledPot: 'proceeds' | 'user',
     compute: () => Promise<{ fromClearing: Amount; fromMerchantBalance: Amount; shortfall: Amount }>,
   ): Promise<ChargebackSplit> {
-    const decode = (planned: ChargebackPlan, replayed: boolean): ChargebackSplit => {
-      if (parseAmount(planned.amount) !== amount) {
-        throw new PayError(`Dispute ${disputeId} already planned its opening for a different amount`, 'pay.chargeback_plan_conflict', {
-          disputeId,
-        });
-      }
-      const pot = planned.settledPot === 'user' || planned.settledPot === 'proceeds' ? planned.settledPot : settledPot;
-      return {
-        fromClearing: parseAmount(planned.fromClearing),
-        fromMerchantBalance: parseAmount(planned.fromMerchantBalance),
-        shortfall: planned.shortfall === undefined ? 0n : parseAmount(planned.shortfall),
-        settledPot: pot,
-        planSeq: planned.seq,
-        amount: planned.amount,
-        replayed,
-      };
-    };
-
-    const existing = await readLivePlan(this.sql, paymentId, disputeId);
-    if (existing) return decode(existing, true);
-
-    // Pot reads sit outside the lock. Another delivery can commit the plan and post before
-    // `compute` runs, so the pots this split would use are already empty. That is the booked
-    // opening, not a shortfall: replay the stored plan. A real shortfall has no plan to replay.
-    let split: { fromClearing: Amount; fromMerchantBalance: Amount; shortfall: Amount };
-    try {
-      split = await compute();
-    } catch (e) {
-      // Empty pots after another delivery already posted are not a shortfall.
-      // A real unfunded shortfall has no plan to replay.
-      const racedCode = e instanceof PayError && (e.code === 'pay.invalid_amount' || e.code === 'pay.chargeback_shortfall_unfunded');
-      if (!racedCode) throw e;
-      const raced = await readLivePlan(this.sql, paymentId, disputeId);
-      if (raced) return decode(raced, true);
-      throw e;
-    }
-    const { plan, created } = await transaction(this.sql, async (tx) => {
-      await tx`SELECT pg_advisory_xact_lock(hashtext(${`pay.chargeback.plan:${disputeId}`}))`;
-      const winner = await readLivePlan(tx, paymentId, disputeId);
-      if (winner) return { plan: winner, created: false };
-      const payload = {
-        amount: formatAmount(amount),
-        fromClearing: formatAmount(split.fromClearing),
-        fromMerchantBalance: formatAmount(split.fromMerchantBalance),
-        shortfall: formatAmount(split.shortfall),
-        settledPot,
-      };
-      const [row] = await tx<Array<{ seq: string }>>`
-        INSERT INTO pay.payment_events (payment_id, event, payload)
-        VALUES (${paymentId}, 'chargeback.opening_planned', ${tx.json({ disputeId, ...payload } as never)})
-        RETURNING seq
-      `;
-      return { plan: { ...payload, seq: String(row!.seq) }, created: true };
-    });
-    return decode(plan, !created);
+    return chargebacks.chargebackSplit(this, paymentId, disputeId, amount, settledPot, compute);
   }
 
-  /**
-   * Retire one plan (append-only: a `chargeback.opening_plan_voided` event, nothing is deleted). Only the plan the caller
-   * posted is voided, and only if it is still the live one: a plan another delivery made after an earlier void is left alone.
-   * Under the lock the ledger is asked whether the dispute key is booked after all (another delivery posted the same plan while
-   * ours was refused); if so nothing is voided and that transaction is returned.
-   */
-  private async voidChargebackPlan(
-    paymentId: string,
-    disputeId: string,
-    planSeq: string,
-    idempotencyKey: string,
-  ): Promise<{ id: string } | null> {
-    return transaction(this.sql, async (tx) => {
-      await tx`SELECT pg_advisory_xact_lock(hashtext(${`pay.chargeback.plan:${disputeId}`}))`;
-      // The lookup only detects ANOTHER delivery's booking of this same plan. It goes over svc-ledger's txByKey door in
-      // production (#4696), and a failed lookup must not stop the void: our own refusal for funds already proves our post
-      // booked nothing, and a plan wrongly voided here is restored by `ensureChargebackPlanLive` once the other post returns.
-      const booked = await this.ledger.getTxByKey(idempotencyKey).catch(() => null);
-      if (booked) return booked;
-      const live = await readLivePlan(tx, paymentId, disputeId);
-      if (!live || live.seq !== planSeq) return null;
-      await appendEvent(tx, paymentId, 'chargeback.opening_plan_voided', { disputeId, planSeq });
-      return null;
-    });
+  async voidChargebackPlan(paymentId: string, disputeId: string, planSeq: string, idempotencyKey: string): Promise<{ id: string } | null> {
+    return chargebacks.voidChargebackPlan(this, paymentId, disputeId, planSeq, idempotencyKey);
   }
 
-  /**
-   * After a successful post: if the plan that was just booked is no longer the live one (a concurrent void landed between the
-   * ledger commit and now), append it again so the stored plan matches the book. Takes the same per-dispute lock as the void.
-   */
-  private async ensureChargebackPlanLive(paymentId: string, disputeId: string, plan: ChargebackSplit): Promise<void> {
-    await transaction(this.sql, async (tx) => {
-      await tx`SELECT pg_advisory_xact_lock(hashtext(${`pay.chargeback.plan:${disputeId}`}))`;
-      const live = await readLivePlan(tx, paymentId, disputeId);
-      if (live?.seq === plan.planSeq) return;
-      await appendEvent(tx, paymentId, 'chargeback.opening_planned', {
-        disputeId,
-        amount: plan.amount,
-        fromClearing: formatAmount(plan.fromClearing),
-        fromMerchantBalance: formatAmount(plan.fromMerchantBalance),
-        shortfall: formatAmount(plan.shortfall),
-        settledPot: plan.settledPot,
-      });
-    });
+  async ensureChargebackPlanLive(paymentId: string, disputeId: string, plan: ChargebackSplit): Promise<void> {
+    return chargebacks.ensureChargebackPlanLive(this, paymentId, disputeId, plan);
   }
 
-  /**
-   * Lost and closed finalise the opening debit. Won reverses only a debit
-   * that is already on the book. A ledger error is a typed refusal and does
-   * not move the dispute row (the caller posts the case after this returns).
-   */
-  private async bookDisputeResolution(input: {
+  async bookDisputeResolution(input: {
     disputeId: string;
     paymentId: string;
     merchantId: string;
@@ -5961,22 +2778,10 @@ export class PayService {
     /** True when the rail event named an amount. Absent means return the stored plan in full. */
     amountExplicit?: boolean;
   }): Promise<ChargebackLedgerEffect> {
-    try {
-      if (input.outcome === 'won') return await this.reverseChargeback(input);
-      const posted = await this.openChargeback(input);
-      return chargebackLedgerEffect({
-        openingTxId: posted.openingTxId,
-        shortfallTxId: posted.shortfallTxId,
-        wonTxId: null,
-        recoveredTxId: null,
-      });
-    } catch (e) {
-      throw this.chargebackLedgerRefusal(e);
-    }
+    return chargebacks.bookDisputeResolution(this, input);
   }
 
-  /** Return booked chargeback value. A missing opening is not a credit. */
-  private async reverseChargeback(input: {
+  async reverseChargeback(input: {
     disputeId: string;
     paymentId: string;
     merchantId: string;
@@ -5984,222 +2789,60 @@ export class PayService {
     assetId: string;
     amountExplicit?: boolean;
   }): Promise<ChargebackLedgerEffect> {
-    if (await this.paymentIsSandbox(this.sql, input.paymentId)) {
-      const flagged = await this.getPayment(input.paymentId);
-      this.refuseSandboxLive(
-        true,
-        sandboxChargebackWonProbe({
-          disputeId: input.disputeId,
-          paymentId: input.paymentId,
-          merchantId: input.merchantId,
-          merchantUserId: input.merchantId,
-          assetId: input.assetId,
-          rail: flagged.railAdapter,
-          fromClearing: 1n,
-          fromMerchantBalance: 0n,
-        }),
-      );
-    }
-    const payment = await this.getPayment(input.paymentId);
-    const merchant = await this.getMerchant(input.merchantId);
-    const plan = await readLivePlan(this.sql, input.paymentId, input.disputeId);
-    if (input.amountExplicit && plan && parseAmount(input.amount) !== parseAmount(plan.amount)) {
-      throw new PayError(`Dispute ${input.disputeId} won for a different amount than its opening plan`, 'pay.chargeback_plan_conflict', {
-        disputeId: input.disputeId,
-      });
-    }
-    const keys = chargebackKeys(input.disputeId);
-    const openingTx = await this.chargebackBookedTx(keys.open);
-    const shortfallTx = await this.chargebackBookedTx(keys.shortfall);
-    if (!plan || (!openingTx && !shortfallTx)) {
-      const none = chargebackLedgerEffect({ openingTxId: null, shortfallTxId: null, wonTxId: null, recoveredTxId: null });
-      await this.recordChargebackLedgerEffect(input.paymentId, input.disputeId, none);
-      return none;
-    }
-    const settledPot =
-      plan.settledPot === 'user' || plan.settledPot === 'proceeds'
-        ? plan.settledPot
-        : await this.chargebackSettledPot(payment.id, merchant.userId);
-    const fromClearing = parseAmount(plan.fromClearing);
-    const fromMerchantBalance = parseAmount(plan.fromMerchantBalance);
-    const shortfall = plan.shortfall === undefined ? 0n : parseAmount(plan.shortfall);
-    const legs: ChargebackPostInput = {
-      disputeId: input.disputeId,
-      paymentId: input.paymentId,
-      merchantId: input.merchantId,
-      merchantUserId: merchant.userId,
-      assetId: input.assetId,
-      rail: payment.railAdapter,
-      fromClearing,
-      fromMerchantBalance,
-      ...(settledPot === 'user' ? { settledPot: 'user' as const } : {}),
-    };
-    const shortfallLeg: ChargebackShortfallPostInput = {
-      disputeId: input.disputeId,
-      paymentId: input.paymentId,
-      merchantId: input.merchantId,
-      assetId: input.assetId,
-      rail: payment.railAdapter,
-      amount: shortfall,
-    };
-    // The fund is repaid before the merchant is. Each key replays the original.
-    let recoveredTxId: string | null = null;
-    if (shortfall > 0n && shortfallTx) {
-      recoveredTxId = (await postDisputeShortfallRecovered(this.ledger, shortfallLeg)).txId;
-    }
-    let wonTxId: string | null = null;
-    if (fromClearing + fromMerchantBalance > 0n && openingTx) {
-      wonTxId = (await postDisputeWon(this.ledger, legs)).txId;
-    }
-    const effect = chargebackLedgerEffect({
-      openingTxId: openingTx?.id ?? null,
-      shortfallTxId: shortfallTx?.id ?? null,
-      wonTxId,
-      recoveredTxId,
-    });
-    await this.recordChargebackLedgerEffect(input.paymentId, input.disputeId, effect);
-    return effect;
+    return chargebacks.reverseChargeback(this, input);
   }
 
-  private chargebackLedgerRefusal(e: unknown): PayError {
-    if (e instanceof PayError) return e;
-    const ledgerCode = e instanceof LedgerError ? e.code : undefined;
-    const message = e instanceof Error ? e.message : 'Chargeback ledger post failed';
-    return new PayError(message, 'pay.chargeback_ledger_failed', ledgerCode ? { ledgerCode } : undefined);
+  chargebackLedgerRefusal(e: unknown): PayError {
+    return chargebacks.chargebackLedgerRefusal(this, e);
   }
 
-  /**
-   * The fund cannot cover the shortfall. When the opening is already booked, record that
-   * transaction before throwing so the case is not told that nothing moved.
-   */
-  private async throwUnfundedChargebackShortfall(input: {
+  async throwUnfundedChargebackShortfall(input: {
     paymentId: string;
     disputeId: string;
     openingTxId: string | null;
     shortfall?: string;
     fund?: string;
   }): Promise<never> {
-    const detail: Record<string, unknown> = { disputeId: input.disputeId };
-    if (input.shortfall !== undefined) detail.shortfall = input.shortfall;
-    if (input.fund !== undefined) detail.fund = input.fund;
-    if (input.openingTxId) {
-      await this.recordChargebackLedgerEffect(input.paymentId, input.disputeId, {
-        openingTxId: input.openingTxId,
-        shortfallTxId: null,
-        wonTxId: null,
-        recoveredTxId: null,
-      });
-      detail.openingTxId = input.openingTxId;
-    }
-    throw new PayError('Insurance fund cannot cover the chargeback shortfall', 'pay.chargeback_shortfall_unfunded', detail);
+    return chargebacks.throwUnfundedChargebackShortfall(this, input);
   }
 
-  private async recordChargebackLedgerEffect(
+  async recordChargebackLedgerEffect(
     paymentId: string,
     disputeId: string,
     effect: Parameters<typeof chargebackLedgerEffect>[0],
   ): Promise<void> {
-    await appendEvent(this.sql, paymentId, CHARGEBACK_LEDGER_EFFECT_EVENT, {
-      disputeId,
-      ...chargebackLedgerEffect(effect),
-    });
+    return chargebacks.recordChargebackLedgerEffect(this, paymentId, disputeId, effect);
   }
 
-  /**
-   * One outcome at a time per dispute. A second delivery of the same dispute waits in this
-   * process and holds no connection. Distinct disputes share a slot count that stays below
-   * the pool, so the lock connection is never the last one. The Postgres advisory lock still
-   * serialises other processes. Taken before `pay.chargeback.plan:<disputeId>`, which the
-   * booking transactions acquire on their own connection. Those transactions never take this key.
-   */
-  private async withChargebackOutcomeLock<T>(disputeId: string, fn: () => Promise<T>): Promise<T> {
-    return this.enqueueChargebackOutcome(disputeId, () => this.withChargebackOutcomeSlot(() => this.lockChargebackOutcome(disputeId, fn)));
+  async withChargebackOutcomeLock<T>(disputeId: string, fn: () => Promise<T>): Promise<T> {
+    return chargebacks.withChargebackOutcomeLock(this, disputeId, fn);
   }
 
-  /** Same-dispute deliveries queue here. The tail is dropped once it settles and nothing newer replaced it. */
-  private enqueueChargebackOutcome<T>(disputeId: string, run: () => Promise<T>): Promise<T> {
-    const previous = this.chargebackOutcomeTails.get(disputeId) ?? Promise.resolve();
-    const gate = previous.then(
-      () => undefined,
-      () => undefined,
-    );
-    const result = gate.then(run);
-    const tail = result.then(
-      () => undefined,
-      () => undefined,
-    );
-    this.chargebackOutcomeTails.set(disputeId, tail);
-    void tail.finally(() => {
-      if (this.chargebackOutcomeTails.get(disputeId) === tail) this.chargebackOutcomeTails.delete(disputeId);
-    });
-    return result;
+  enqueueChargebackOutcome<T>(disputeId: string, run: () => Promise<T>): Promise<T> {
+    return chargebacks.enqueueChargebackOutcome(this, disputeId, run);
   }
 
-  /** Waiting for a slot holds no connection. */
-  private async withChargebackOutcomeSlot<T>(run: () => Promise<T>): Promise<T> {
-    await this.acquireChargebackOutcomeSlot();
-    try {
-      return await run();
-    } finally {
-      this.releaseChargebackOutcomeSlot();
-    }
+  async withChargebackOutcomeSlot<T>(run: () => Promise<T>): Promise<T> {
+    return chargebacks.withChargebackOutcomeSlot(this, run);
   }
 
-  private acquireChargebackOutcomeSlot(): Promise<void> {
-    if (this.chargebackOutcomeHeld < this.chargebackOutcomeSlots) {
-      this.chargebackOutcomeHeld += 1;
-      return Promise.resolve();
-    }
-    return new Promise((resolve) => {
-      this.chargebackOutcomeWaiters.push(() => resolve());
-    });
+  acquireChargebackOutcomeSlot(): Promise<void> {
+    return chargebacks.acquireChargebackOutcomeSlot(this);
   }
 
-  private releaseChargebackOutcomeSlot(): void {
-    const next = this.chargebackOutcomeWaiters.shift();
-    if (next) {
-      next();
-      return;
-    }
-    this.chargebackOutcomeHeld -= 1;
+  releaseChargebackOutcomeSlot(): void {
+    return chargebacks.releaseChargebackOutcomeSlot(this);
   }
 
-  private async lockChargebackOutcome<T>(disputeId: string, fn: () => Promise<T>): Promise<T> {
-    try {
-      return await transaction(
-        this.sql,
-        async (tx) => {
-          await tx`SET LOCAL lock_timeout = '2s'`;
-          await tx`SELECT pg_advisory_xact_lock(hashtext(${`pay.chargeback.outcome:${disputeId}`}))`;
-          return fn();
-        },
-        { isolation: 'read committed', maxAttempts: 1 },
-      );
-    } catch (err) {
-      if (postgresErrorCode(err) === '55P03') {
-        throw new PayError('Chargeback outcome lock is busy; nothing was posted', 'pay.chargeback_outcome_busy', { disputeId });
-      }
-      throw err;
-    }
+  async lockChargebackOutcome<T>(disputeId: string, fn: () => Promise<T>): Promise<T> {
+    return chargebacks.lockChargebackOutcome(this, disputeId, fn);
   }
 
-  /**
-   * Not-found is null. A transport or validation error is `pay.chargeback_ledger_failed`,
-   * never "not booked", so a plan is not voided and a won credit is not skipped.
-   */
-  private async chargebackBookedTx(key: string): Promise<LedgerTx | null> {
-    try {
-      return await this.ledger.getTxByKey(key);
-    } catch (e) {
-      throw this.chargebackLedgerRefusal(e);
-    }
+  async chargebackBookedTx(key: string): Promise<LedgerTx | null> {
+    return chargebacks.chargebackBookedTx(this, key);
   }
 
-  /**
-   * The rail named an amount the stored plan does not match. Post nothing, leave the case
-   * where it is, and record the conflict so this delivery is not retried forever.
-   */
-  private async recordChargebackPlanConflict(input: {
+  async recordChargebackPlanConflict(input: {
     merchantId: string;
     disputeId: string;
     paymentId: string;
@@ -6212,77 +2855,20 @@ export class PayService {
     outcome: RailResolutionOutcome;
     evidenceDueBy: Date | null;
   }): Promise<void> {
-    await recordDisputeOutcomeConflict(this.sql, {
-      merchantId: input.merchantId,
-      disputeId: input.disputeId,
-      railEventId: input.railEventId,
-      railId: input.railId,
-      storedStatus: input.storedStatus,
-      outcome: input.outcome,
-      reason: 'the rail amount does not match the opening already planned for this dispute; no value moved',
-    });
-    const current = await this.disputeCases.get(input.disputeId);
-    if (!current) {
-      await this.disputeCases.open({
-        disputeId: input.disputeId,
-        paymentId: input.paymentId,
-        merchantId: input.merchantId,
-        amount: input.amount,
-        assetId: input.assetId,
-        reasonCode: input.reasonCode,
-        paymentMarkedDisputed: false,
-        ledgerRefuse: refuseChargebackPlanConflict({ disputeId: input.disputeId, paymentId: input.paymentId }),
-      });
-    }
-    await recordRailDisputeDeadline(this.sql, {
-      merchantId: input.merchantId,
-      disputeId: input.disputeId,
-      evidenceDueBy: input.evidenceDueBy,
-      railEventId: input.railEventId,
-    });
+    return chargebacks.recordChargebackPlanConflict(this, input);
   }
 
-  /**
-   * Webhook door: post the opening recipe or named refuse. An unfunded shortfall
-   * is a named refuse so the dispute is recorded; a later lost or closed delivery
-   * books it once the fund can cover. A funds refusal of the opening post itself
-   * is still the named uncovered refuse.
-   */
-  private async postChargebackOpenOrRefuse(input: {
+  async postChargebackOpenOrRefuse(input: {
     disputeId: string;
     paymentId: string;
     merchantId: string;
     amount: string;
     assetId: string;
   }): Promise<{ ledgerPost?: { txId: string }; ledgerRefuse?: ChargebackLedgerRefuse }> {
-    try {
-      return { ledgerPost: await this.openChargeback(input) };
-    } catch (e) {
-      if ((e instanceof PayError && e.code === 'pay.invalid_amount') || e instanceof InvalidEntryError || isInsufficientFunds(e)) {
-        return { ledgerRefuse: refuseChargebackUncovered({ disputeId: input.disputeId, paymentId: input.paymentId }) };
-      }
-      // A redelivery that names another amount cannot be fixed by redelivering: record the case and name the conflict.
-      if (e instanceof PayError && e.code === 'pay.chargeback_plan_conflict') {
-        return { ledgerRefuse: refuseChargebackPlanConflict({ disputeId: input.disputeId, paymentId: input.paymentId }) };
-      }
-      if (e instanceof PayError && e.code === 'pay.chargeback_shortfall_unfunded') {
-        const openingTxId = openingTxIdFromDetail(e.detail);
-        if (openingTxId) {
-          return {
-            ledgerPost: { txId: openingTxId },
-            ledgerRefuse: refuseChargebackOpeningPostedShortfallUnfunded({
-              disputeId: input.disputeId,
-              paymentId: input.paymentId,
-            }),
-          };
-        }
-        return { ledgerRefuse: refuseChargebackShortfallUnfunded({ disputeId: input.disputeId, paymentId: input.paymentId }) };
-      }
-      throw e;
-    }
+    return chargebacks.postChargebackOpenOrRefuse(this, input);
   }
 
-  private async view(sql: Sql, row: PaymentRow): Promise<PaymentView> {
+  async view(sql: Sql, row: PaymentRow): Promise<PaymentView> {
     const totals = await totalsFor(sql, row.id);
     return { ...toPayment(row), capturedAmount: totals.captured, refundedAmount: totals.refunded };
   }
@@ -6297,7 +2883,7 @@ export class PayService {
    * Layer B also reads `kybStatus`: `rejected` never pays; `live-only` requires
    * approved KYB (`pay.kyb_required`). Does not invent `pay:*` scopes.
    */
-  private assertMerchantActive(merchant: MerchantRecord): void {
+  assertMerchantActive(merchant: MerchantRecord): void {
     if (merchant.status !== 'active') {
       throw new PayError(`Merchant ${merchant.id} is ${merchant.status}`, 'pay.merchant_inactive');
     }
@@ -6353,7 +2939,7 @@ export class PayService {
    * Sandbox flag from the created event. Absent is not sandbox. The event is
    * insert-only, so a later call cannot clear it.
    */
-  private async paymentIsSandbox(sql: Sql, paymentId: string): Promise<boolean> {
+  async paymentIsSandbox(sql: Sql, paymentId: string): Promise<boolean> {
     const rows = await sql<Array<{ sandbox: string | null }>>`
       SELECT payload->>'sandbox' AS sandbox
         FROM pay.payment_events
@@ -6364,7 +2950,7 @@ export class PayService {
   }
 
   /** True when a frozen window contains a payment created with a sandbox key. */
-  private async settlementIncludesSandbox(sql: Sql, settlementId: string): Promise<boolean> {
+  async settlementIncludesSandbox(sql: Sql, settlementId: string): Promise<boolean> {
     const rows = await sql<Array<{ ok: number }>>`
       SELECT 1 AS ok
         FROM pay.payment_events inc
@@ -6379,7 +2965,7 @@ export class PayService {
   }
 
   /** Refuse before `ledger.post` when a sandbox flag would touch a live account. */
-  private refuseSandboxLive(sandbox: boolean, request: PostRequest): void {
+  refuseSandboxLive(sandbox: boolean, request: PostRequest): void {
     if (!sandbox) return;
     const live = liveAccountsIn(request);
     if (live.length === 0) return;
@@ -6409,7 +2995,7 @@ export class PayService {
  * two slightly different ways is how one of them ends up missing a field the
  * settlement sweep or a dispute later depends on.
  */
-function paymentCreationPayload(input: Parameters<PayService['createPayment']>[0], paymentId: string): Record<string, unknown> {
+export function paymentCreationPayload(input: Parameters<PayService['createPayment']>[0], paymentId: string): Record<string, unknown> {
   return {
     paymentId,
     merchantId: input.merchantId.toLowerCase(),
@@ -6424,7 +3010,7 @@ function paymentCreationPayload(input: Parameters<PayService['createPayment']>[0
     ...(input.keyEnv === 'sandbox' ? { sandbox: true } : {}),
   };
 }
-async function insertPayment(
+export async function insertPayment(
   tx: Sql,
   input: {
     id?: string;
@@ -6496,7 +3082,7 @@ async function insertPayment(
  * both are booked. `payment_links.uses` then reads 2 and the next open is
  * refused. The service says so rather than implying a hard cap it cannot keep.
  */
-async function completeCheckoutSession(tx: Sql, paymentId: string): Promise<void> {
+export async function completeCheckoutSession(tx: Sql, paymentId: string): Promise<void> {
   const closed = await tx<Array<{ link_id: string }>>`
     UPDATE pay.checkout_sessions
        SET status = 'completed', updated_at = now()
@@ -6529,7 +3115,7 @@ function toCheckoutSessionView(row: CheckoutSessionRow, label: string, method: s
   };
 }
 
-async function readPayment(tx: Sql, paymentId: string): Promise<PaymentRow> {
+export async function readPayment(tx: Sql, paymentId: string): Promise<PaymentRow> {
   const rows = await tx<PaymentRow[]>`
     SELECT id, merchant_id, profile_id, amount, currency, method, rail_adapter, rail_ref, status, created_at
       FROM pay.payments WHERE id = ${paymentId}
@@ -6539,7 +3125,7 @@ async function readPayment(tx: Sql, paymentId: string): Promise<PaymentRow> {
   return row;
 }
 
-async function lockPayment(tx: Sql, paymentId: string): Promise<PaymentRow> {
+export async function lockPayment(tx: Sql, paymentId: string): Promise<PaymentRow> {
   const rows = await tx<PaymentRow[]>`
     SELECT id, merchant_id, profile_id, amount, currency, method, rail_adapter, rail_ref, status, created_at
       FROM pay.payments WHERE id = ${paymentId} FOR UPDATE
@@ -6549,7 +3135,7 @@ async function lockPayment(tx: Sql, paymentId: string): Promise<PaymentRow> {
   return row;
 }
 
-function assertTransition(row: PaymentRow, next: PaymentStatus): void {
+export function assertTransition(row: PaymentRow, next: PaymentStatus): void {
   if (!TRANSITIONS[row.status].includes(next)) {
     throw new PayError(`Payment ${row.id} cannot go from ${row.status} to ${next}`, 'pay.invalid_transition', {
       from: row.status,
@@ -6565,7 +3151,7 @@ function assertTransition(row: PaymentRow, next: PaymentStatus): void {
  * second source of truth for money, and the day it disagrees with the event log
  * is the day nobody can say which one was right.
  */
-function readIncludedAmount(raw: string | null): { amount: Amount | null; includedAmountKnown: boolean } {
+export function readIncludedAmount(raw: string | null): { amount: Amount | null; includedAmountKnown: boolean } {
   if (raw == null || raw.trim() === '') return { amount: null, includedAmountKnown: false };
   try {
     return { amount: parseAmount(raw), includedAmountKnown: true };
@@ -6574,7 +3160,7 @@ function readIncludedAmount(raw: string | null): { amount: Amount | null; includ
   }
 }
 
-async function totalsFor(sql: Sql, paymentId: string): Promise<{ captured: Amount; refunded: Amount }> {
+export async function totalsFor(sql: Sql, paymentId: string): Promise<{ captured: Amount; refunded: Amount }> {
   const rows = await sql<Array<{ captured: string; refunded: string }>>`
     SELECT
       COALESCE(SUM(CASE WHEN event = 'captured' THEN (payload->>'amount')::numeric END), 0) AS captured,
@@ -6585,7 +3171,7 @@ async function totalsFor(sql: Sql, paymentId: string): Promise<{ captured: Amoun
   return { captured: parseAmount(row?.captured ?? '0'), refunded: parseAmount(row?.refunded ?? '0') };
 }
 
-async function countEvents(sql: Sql, paymentId: string, event: string): Promise<number> {
+export async function countEvents(sql: Sql, paymentId: string, event: string): Promise<number> {
   const rows = await sql<Array<{ n: string }>>`
     SELECT COUNT(*)::text AS n FROM pay.payment_events WHERE payment_id = ${paymentId} AND event = ${event}
   `;
@@ -6593,7 +3179,7 @@ async function countEvents(sql: Sql, paymentId: string, event: string): Promise<
 }
 
 /** The ledger refused for want of funds: the HTTP client rebuilds the subclass, but any LedgerError carrying the code counts. */
-function isInsufficientFunds(e: unknown): boolean {
+export function isInsufficientFunds(e: unknown): boolean {
   return e instanceof InsufficientFundsError || (e instanceof LedgerError && e.code === 'ledger.insufficient_funds');
 }
 
@@ -6606,18 +3192,18 @@ function chargebackOutcomeSlotCount(slots: number | undefined): number {
   return value;
 }
 
-function postgresErrorCode(err: unknown): string | undefined {
+export function postgresErrorCode(err: unknown): string | undefined {
   if (!err || typeof err !== 'object') return undefined;
   const code = (err as { code?: unknown }).code;
   return typeof code === 'string' ? code : undefined;
 }
 
-function openingTxIdFromDetail(detail: Record<string, unknown> | undefined): string | null {
+export function openingTxIdFromDetail(detail: Record<string, unknown> | undefined): string | null {
   const id = detail?.openingTxId;
   return typeof id === 'string' && id.trim().length > 0 ? id : null;
 }
 
-type ChargebackSplit = {
+export type ChargebackSplit = {
   fromClearing: Amount;
   fromMerchantBalance: Amount;
   shortfall: Amount;
@@ -6627,7 +3213,7 @@ type ChargebackSplit = {
   replayed: boolean;
 };
 
-type ChargebackPlan = {
+export type ChargebackPlan = {
   amount: string;
   fromClearing: string;
   fromMerchantBalance: string;
@@ -6640,7 +3226,7 @@ type ChargebackPlan = {
  * The dispute's live opening plan: the latest `chargeback.opening_planned` that no later `chargeback.opening_plan_voided`
  * retired. A void applies to the plans before it; a plan made after a void is live.
  */
-async function readLivePlan(sql: Sql, paymentId: string, disputeId: string): Promise<ChargebackPlan | null> {
+export async function readLivePlan(sql: Sql, paymentId: string, disputeId: string): Promise<ChargebackPlan | null> {
   const rows = await sql<Array<{ seq: string; event: string; payload: Omit<ChargebackPlan, 'seq'> }>>`
     SELECT seq, event, payload FROM pay.payment_events
      WHERE payment_id = ${paymentId}
@@ -6655,7 +3241,7 @@ async function readLivePlan(sql: Sql, paymentId: string, disputeId: string): Pro
   return live;
 }
 
-async function appendEvent(sql: Sql, paymentId: string, event: string, payload: Record<string, unknown>): Promise<void> {
+export async function appendEvent(sql: Sql, paymentId: string, event: string, payload: Record<string, unknown>): Promise<void> {
   await sql`
     INSERT INTO pay.payment_events (payment_id, event, payload)
     VALUES (${paymentId}, ${event}, ${sql.json(payload as never)})
@@ -6663,7 +3249,7 @@ async function appendEvent(sql: Sql, paymentId: string, event: string, payload: 
 }
 
 /** The instrument the payment was created with, read back off the `created` event. */
-async function instrumentFor(sql: Sql, paymentId: string): Promise<PaymentIntent['instrument']> {
+export async function instrumentFor(sql: Sql, paymentId: string): Promise<PaymentIntent['instrument']> {
   const rows = await sql<Array<{ payload: Record<string, unknown> }>>`
     SELECT payload FROM pay.payment_events WHERE payment_id = ${paymentId} AND event = 'created' LIMIT 1
   `;
@@ -6678,7 +3264,7 @@ async function instrumentFor(sql: Sql, paymentId: string): Promise<PaymentIntent
   };
 }
 
-function railPayload(result: RailResult): Record<string, unknown> {
+export function railPayload(result: RailResult): Record<string, unknown> {
   return {
     ok: result.ok,
     status: result.status,
@@ -6703,7 +3289,7 @@ export interface KybActor {
 }
 
 /** One `merchant_kyb_events` row, written inside the transaction that moved `kyb_status`. */
-async function recordKybEvent(
+export async function recordKybEvent(
   tx: Sql,
   e: {
     merchantId: string;
@@ -6719,10 +3305,10 @@ async function recordKybEvent(
     VALUES (${e.merchantId}, ${e.from}::pay.kyb_status, ${e.to}::pay.kyb_status, ${e.kybRef}, ${e.reason}, ${e.actor.id}, ${e.actor.scope})`;
 }
 
-const kybDecisionReason = (decision: 'approved' | 'rejected') =>
+export const kybDecisionReason = (decision: 'approved' | 'rejected') =>
   decision === 'approved' ? 'Verification approved' : 'Verification rejected';
 
-function toMerchant(row: MerchantRow): MerchantRecord {
+export function toMerchant(row: MerchantRow): MerchantRecord {
   let feeBps: number | null;
   try {
     feeBps = normalizeStoredFeeBps(row.pricing);
@@ -6745,7 +3331,7 @@ function toMerchant(row: MerchantRow): MerchantRecord {
   };
 }
 
-function toPayment(row: PaymentRow): PaymentRecord {
+export function toPayment(row: PaymentRow): PaymentRecord {
   return {
     id: row.id,
     merchantId: row.merchant_id,
@@ -6760,7 +3346,7 @@ function toPayment(row: PaymentRow): PaymentRecord {
   };
 }
 
-function toSettlement(row: SettlementRow): SettlementRecord {
+export function toSettlement(row: SettlementRow): SettlementRecord {
   return {
     id: row.id,
     merchantId: row.merchant_id,
@@ -6776,7 +3362,7 @@ function toSettlement(row: SettlementRow): SettlementRecord {
   };
 }
 
-function assertFeeBps(feeBps: number): void {
+export function assertFeeBps(feeBps: number): void {
   if (!Number.isInteger(feeBps) || feeBps < 0 || feeBps > MAX_FEE_BPS) {
     throw new PayError(`Fee must be an integer between 0 and ${MAX_FEE_BPS} bps, got ${feeBps}`, 'pay.merchant_pricing_invalid');
   }
@@ -6789,7 +3375,7 @@ function assertFeeBps(feeBps: number): void {
  * real UTC calendar day (2026-02-31) refuses — it is not rolled through Date
  * and not frozen under the original window key.
  */
-function windowBounds(window: string, from?: Date, to?: Date): { from: Date; to: Date } {
+export function windowBounds(window: string, from?: Date, to?: Date): { from: Date; to: Date } {
   if (from && to) return { from, to };
   if (from || to) {
     throw new PayError(`Window "${window}" was given only one of from/to; pass both bounds or neither`, 'pay.invalid_window');

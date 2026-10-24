@@ -121,7 +121,8 @@ describe('createAffiliateAccrueClient', () => {
 describe('postPendingSettlement wires accrue after ledger post (D26-P1-O2)', () => {
   it('fires accrue after merchantSettlement, not before', () => {
     const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, 'payment-service.ts'), 'utf8');
+    // postPendingSettlement lives in payment-service/settlement.ts since the split by area.
+    const src = readFileSync(join(here, 'payment-service', 'settlement.ts'), 'utf8');
     expect(src).toMatch(/notifyPayAffiliateAccrue/);
     expect(src).toMatch(/recipes\.merchantSettlement/);
     expect(src.indexOf('recipes.merchantSettlement')).toBeLessThan(src.indexOf('notifyPayAffiliateAccrue'));

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -9,7 +9,16 @@ import { describe, expect, it } from 'vitest';
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
-const paymentService = readFileSync(join(here, 'payment-service.ts'), 'utf8');
+const paymentServiceClass = readFileSync(join(here, 'payment-service.ts'), 'utf8');
+const webhooks = readFileSync(join(here, 'payment-service', 'webhooks.ts'), 'utf8');
+// PayService is payment-service.ts plus its area files in payment-service/.
+const paymentService = [
+  paymentServiceClass,
+  ...readdirSync(join(here, 'payment-service'))
+    .filter((f) => f.endsWith('.ts'))
+    .sort()
+    .map((f) => readFileSync(join(here, 'payment-service', f), 'utf8')),
+].join('\n');
 const railAdapter = readFileSync(join(here, 'rails/rail-adapter.ts'), 'utf8');
 
 function stripComments(src: string): string {
@@ -21,7 +30,7 @@ describe('W6 honesty residuals', () => {
     // Live acquiring must require approved KYB via merchantKybMoneyGateRefusal.
     // Pin the call so a silent remove is deliberate — Layer A grant issuance
     // stays refuse-closed in @intafaced/auth (never auto-grant here).
-    const m = paymentService.match(/private assertMerchantActive\([^)]*\)[^{]*\{([\s\S]*?)\n  \}/);
+    const m = paymentServiceClass.match(/\n  assertMerchantActive\([^)]*\)[^{]*\{([\s\S]*?)\n  \}/);
     expect(m, 'assertMerchantActive missing').toBeTruthy();
     const captured = m?.[1];
     expect(captured, 'assertMerchantActive body missing').toEqual(expect.any(String));
@@ -34,7 +43,7 @@ describe('W6 honesty residuals', () => {
 
   it('applyWebhook dispute.opened posts via openChargeback or named refuse; voided still absent', () => {
     expect(railAdapter).toMatch(/dispute\.|'voided'|\"voided\"/);
-    const apply = paymentService.match(/async applyWebhook\([\s\S]*?\n  \}/);
+    const apply = webhooks.match(/export async function applyWebhook\([\s\S]*?\n\}/);
     expect(apply, 'applyWebhook missing').toBeTruthy();
     const applySrc = apply?.[0];
     expect(applySrc, 'applyWebhook source missing').toEqual(expect.any(String));
