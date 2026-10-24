@@ -1,21 +1,27 @@
 import { z } from 'zod';
 import { parseAmount, formatAmount } from '@intafaced/money-math';
 
-export const decimalSchema = z.string().refine((value) => {
-  try {
-    return parseAmount(value) >= 0n;
-  } catch {
-    return false;
-  }
-}, 'Expected an unsigned exact decimal string');
-export const signedDecimalSchema = z.string().refine((value) => {
-  try {
-    parseAmount(value);
-    return true;
-  } catch {
-    return false;
-  }
-}, 'Expected an exact decimal string');
+export const decimalSchema = z.string().refine(
+  (value) => {
+    try {
+      return parseAmount(value) >= 0n;
+    } catch {
+      return false;
+    }
+  },
+  { error: 'Expected an unsigned exact decimal string', abort: true },
+);
+export const signedDecimalSchema = z.string().refine(
+  (value) => {
+    try {
+      parseAmount(value);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  { error: 'Expected an exact decimal string', abort: true },
+);
 export { parseAmount, formatAmount };
 
 export function displayAmount(value: string | null | undefined, places?: number): string {

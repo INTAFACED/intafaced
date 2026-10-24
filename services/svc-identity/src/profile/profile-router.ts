@@ -132,7 +132,7 @@ export function createProfileRouter(profile: ProfileService | undefined, antiPhi
             .object({
               // Wide wire bounds only; the service checks the real shape and answers identity.anti_phishing_invalid.
               code: z.string().max(256),
-              stepUpApprovalId: z.string().uuid(),
+              stepUpApprovalId: z.string().guid(),
               clientRequestId: z.string().max(256),
             })
             .strict(),

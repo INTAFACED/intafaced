@@ -20,8 +20,8 @@ import {
 import { tokenHoldingsCopy } from './token-holdings-copy';
 
 const stakeRowSchema = z.object({
-  id: z.string().uuid(),
-  userId: z.string().uuid(),
+  id: z.string().guid(),
+  userId: z.string().guid(),
   amount: z.string(),
   tier: z.enum(['flex', 'm3', 'm12']),
   startedAt: z.string(),

@@ -206,7 +206,7 @@ type Guard = <T>(fn: () => Promise<T>) => Promise<T>;
 
 const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amount must be an unsigned decimal string (max 18dp)');
 const requestOut = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   assetId: z.string(),
   kind: z.enum(['per_transfer', 'daily']),
   requested: amountString,
@@ -225,7 +225,7 @@ export function createLimitsRouter(service: () => LimitRequestService, guard: Gu
       .input(
         z
           .object({
-            requestId: z.string().uuid(),
+            requestId: z.string().guid(),
             assetId: z.string().min(1).max(16),
             kind: z.enum(['per_transfer', 'daily']),
             requested: amountString,
@@ -247,7 +247,7 @@ export function createLimitsRouter(service: () => LimitRequestService, guard: Gu
 export function limitRequestQueueProcedure(service: () => LimitRequestService, guard: Guard) {
   return scopedProcedure('admin:compliance')
     .input(z.object({ limit: z.number().int().min(1).max(200).optional() }).strict())
-    .output(z.array(requestOut.extend({ userId: z.string().uuid() })))
+    .output(z.array(requestOut.extend({ userId: z.string().guid() })))
     .query(({ input }) => guard(() => service().queue(input.limit)));
 }
 
@@ -256,7 +256,7 @@ export function decideLimitRequestProcedure(service: () => LimitRequestService, 
     .input(
       z
         .object({
-          requestId: z.string().uuid(),
+          requestId: z.string().guid(),
           decision: z.enum(['approve', 'decline']),
           granted: amountString.optional(),
           note: z.string().max(500),

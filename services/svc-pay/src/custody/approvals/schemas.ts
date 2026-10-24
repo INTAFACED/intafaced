@@ -4,7 +4,7 @@ import { z } from 'zod';
  * Wire shapes for custody approval tasks (W-custody-ops-06). Every input object is `.strict()`. No field has a default: a
  * blank one is a parse error. The upper bounds are input safety, not product values.
  */
-const id = z.string().uuid();
+const id = z.string().guid();
 const limit = z.number().int().min(1).max(200);
 const clientRef = z.string().min(1).max(64);
 const title = z.string().min(1).max(200);

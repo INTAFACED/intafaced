@@ -140,7 +140,7 @@ export async function createArchiveReceiver(config: { sql: Sql; key: Buffer; sec
   });
   server.post('/current', async (request, reply) => {
     const parsed = z
-      .object({ nonce: z.string().uuid() })
+      .object({ nonce: z.string().guid() })
       .strict()
       .safeParse(
         (() => {

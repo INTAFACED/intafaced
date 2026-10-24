@@ -173,6 +173,8 @@ export function createSettingsMock(ctx) {
           });
           return ok(route, { id: MERCHANT_ID, kybStatus: 'pending', kybRef: input.kybRef });
         case 'merchant.setPayoutDestination':
+          if (!ctx.stepUp?.spendDestinationApproval(input.stepUpApprovalId, input))
+            return refuse(route, 403, 'pay.destination_step_up_required');
           state.destination = { kind: input.kind, ref: input.ref, railId: input.railId };
           return ok(route, state.destination);
         case 'merchantOps.kyb.current':
