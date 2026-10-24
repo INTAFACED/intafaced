@@ -105,6 +105,8 @@ tRPC, mounted at `/trpc`, reached through svc-edge at `/api/academy` (port 4016)
 | `admin.publishLesson`            | `admin:write`   | Learners see this revision until the next publish; a `lesson` course event with the reason                                                                                                                                        |
 | `admin.duplicateItem`            | `admin:write`   | A draft course's item and its newest lesson copied right after it, not live; no learner record is copied                                                                                                                          |
 | `admin.importLesson`             | `admin:write`   | An `intafaced.lesson.v1` file as a new revision; over `ACADEMY_LESSON_IMPORT_MAX_BYTES` refuses `import_too_large` before parsing (blank: `import_limit_unset`); a bad or unknown block answers with a report and creates nothing |
+| `admin.assistantDraft`           | `admin:write`   | A template draft of a lesson from the course's own structure, keyed `draft:<item>:<revision>:template` (the section list shows 50 titles, then "and N more"); `path: 'model'` refuses `owner.decision` (no provider chosen)       |
+| `admin.decideDraft`              | `admin:write`   | A person accepts the draft (a new `assisted` revision; learners keep the published one) or discards it; refuses `draft_not_found`                                                                                                 |
 
 ### Curriculum
 

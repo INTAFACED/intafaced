@@ -323,3 +323,42 @@ test(`${J} #5 a lesson file over the size limit is refused before it is read; an
   await expect(page.getByTestId('lesson-live-revision')).toHaveText('Revision 2');
   await page.context().close();
 });
+
+test(`${J} #6 Draft with no model provider gives the template draft and an owner-decision notice; nothing goes live until accepted`, async ({
+  browser,
+}) => {
+  if (!courseUrl) throw new Error(`${J}: #2 left no course, so this step has nothing to draft`);
+  const page = await console_(browser);
+  await page.goto(courseUrl);
+  await page.getByRole('link', { name: 'Write Section 1 item 2', exact: true }).click();
+  await page.waitForURL(/\/items\/[0-9a-f-]{36}$/);
+  const outcome = page.getByTestId('course-desk-outcome');
+  const revisions = page.getByTestId('lesson-revisions').locator('li');
+  const before = await revisions.count();
+  const liveRevision = page.getByTestId('lesson-live-revision');
+  const liveBefore = await liveRevision.innerText();
+
+  // The model path: no provider is chosen, so it waits for the owner, by name, and nothing is drafted.
+  await page.getByRole('button', { name: 'Draft with a model' }).click();
+  await expect(outcome).toHaveAttribute('data-code', 'owner.decision');
+  await expect(outcome).toContainText('Waiting for an owner decision');
+  await expect(page.getByTestId('lesson-draft')).toHaveText('No draft is waiting.');
+
+  // The template path: headings from the course's own structure, shown as a draft that is not live.
+  await page.getByRole('button', { name: 'Draft from the template' }).click();
+  await expect(outcome).toContainText('Done: draft ready to review');
+  const draft = page.getByTestId('lesson-draft');
+  await expect(draft).toContainText('Draft, not live');
+  await expect(draft).toContainText('# TEST Position size');
+  await expect(draft).toContainText(`in “${TITLE}”`);
+  await expect(revisions).toHaveCount(before);
+  await expect(liveRevision).toHaveText(liveBefore);
+
+  // Accepting is the person's step: a new revision by them; learners still see the published one.
+  await page.getByRole('button', { name: 'Accept draft' }).click();
+  await expect(outcome).toContainText('Done: draft decided');
+  await expect(page.getByTestId(`lesson-revision-${before + 1}`)).toContainText(`Revision ${before + 1}: accepted from an assistant draft`);
+  await expect(page.getByTestId('lesson-draft')).toHaveText('No draft is waiting.');
+  await expect(liveRevision).toHaveText(liveBefore);
+  await page.context().close();
+});

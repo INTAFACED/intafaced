@@ -55,6 +55,12 @@ const TOKEN_ERROR_CODES = [
   'token.delegation_delegatee_invalid',
   'token.delegation_unavailable',
   'token.treasury_figure_unreadable',
+  'token.proposer_rule_unset',
+  'token.proposal_limit_unset',
+  'token.proposal_limit_reached',
+  'token.proposal_not_editable',
+  'token.proposal_title_invalid',
+  'token.proposal_handle_invalid',
 ] as const satisfies readonly TokenError['code'][];
 
 type Missing = Exclude<TokenError['code'], (typeof TOKEN_ERROR_CODES)[number]>;
