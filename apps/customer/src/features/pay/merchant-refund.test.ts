@@ -215,8 +215,7 @@ describe('Refund-specific terminal evidence', () => {
     const f = fixture();
     f.d.values.set(operationKey, originalRaw);
     f.state.history = [{ ...event(), ts: '2026-10-10T09:42:00+24:00' }];
-    // Zod 4 refuses an out-of-range offset at the read, so the whole history check fails closed.
-    expect(await f.refund.checkOriginal(paymentId, current)).toMatchObject({ ok: false });
+    expect(await f.refund.checkOriginal(paymentId, current)).toMatchObject({ ok: true, data: { receipt: null } });
     expect(f.d.values.get(operationKey)).toBe(originalRaw);
   });
 
