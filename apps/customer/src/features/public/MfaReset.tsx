@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { z } from 'zod';
+import { mfaResetViewSchema, type MfaResetView } from '@intafaced/contracts/identity';
 import { Button, Failure, Field } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
 import { useSession } from '../session/session';
@@ -7,17 +7,7 @@ import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { mfaResetCopy } from './mfa-reset-copy';
 
-/** `mfaReset.start` and `mfaReset.confirm` answers (svc-identity mfa-reset-router.ts). */
-export const mfaResetViewSchema = z.discriminatedUnion('state', [
-  z.object({ state: z.literal('code_sent'), resetId: z.string().guid(), email: z.string(), codeExpiresAt: z.string() }),
-  z.object({
-    state: z.literal('waiting'),
-    resetId: z.string().guid(),
-    completesAt: z.string(),
-    told: z.object({ email: z.string(), sms: z.literal('vendor.sms').nullable() }),
-  }),
-]);
-type View = z.infer<typeof mfaResetViewSchema>;
+type View = MfaResetView;
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 
 const WORDED = [

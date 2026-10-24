@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { z } from 'zod';
+import { mfaResetCancelSchema as cancelSchema, mfaResetStatusSchema } from '@intafaced/contracts/identity';
 import { useSession } from '../session/session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
@@ -7,11 +7,6 @@ import { Button, Failure, Loading } from '../../shared/ui';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { mfaResetWaitingCopy as copy } from './mfa-reset-waiting-copy';
-
-export const mfaResetStatusSchema = z.object({
-  waiting: z.object({ resetId: z.string(), waitingSince: z.string(), completesAt: z.string() }).nullable(),
-});
-const cancelSchema = z.object({ cancelled: z.boolean() });
 
 /**
  * A waiting reset of the second step, in Security (I-signin-sessions-12, J-identity-05 #3): when it ends and a way to

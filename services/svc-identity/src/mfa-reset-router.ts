@@ -1,19 +1,11 @@
 import { z } from 'zod';
 import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { mfaResetCancelSchema, mfaResetStatusSchema, mfaResetViewSchema } from '@intafaced/contracts/identity';
 import type { AuthService } from './auth/auth-service.js';
 import { MfaResetError } from './auth/mfa-reset.js';
 import { SecurityStepUpError, toSecurityStepUpTrpc } from './auth/security-step-up.js';
 import { toTrpcError } from './router.js';
 import { userCopy } from './user-copy.js';
-
-const told = z.object({ email: z.string(), sms: z.literal('vendor.sms').nullable() }).strict();
-const viewSchema = z.discriminatedUnion('state', [
-  z.object({ state: z.literal('code_sent'), resetId: z.string().guid(), email: z.string(), codeExpiresAt: z.string() }).strict(),
-  z.object({ state: z.literal('waiting'), resetId: z.string().guid(), completesAt: z.string(), told }).strict(),
-]);
-const statusSchema = z
-  .object({ waiting: z.object({ resetId: z.string().guid(), waitingSince: z.string(), completesAt: z.string() }).strict().nullable() })
-  .strict();
 
 /**
  * A blank setting or switched-off mail is 412, a wrong or spent code 401, a lockout 429 with its seconds; a delegated
@@ -49,7 +41,7 @@ export function createMfaResetRouter(auth: AuthService) {
     mfaReset: router({
       start: publicProcedure
         .input(z.object({ identifier: z.string().min(1).max(320), password: z.string().min(1).max(200) }).strict())
-        .output(viewSchema)
+        .output(mfaResetViewSchema)
         .mutation(async ({ input }) => {
           try {
             return await auth.mfaResetStart(input);
@@ -59,7 +51,7 @@ export function createMfaResetRouter(auth: AuthService) {
         }),
       confirm: publicProcedure
         .input(z.object({ resetId: z.string().guid(), code: z.string().min(1).max(16) }).strict())
-        .output(viewSchema)
+        .output(mfaResetViewSchema)
         .mutation(async ({ input }) => {
           try {
             return await auth.mfaResetConfirm(input);
@@ -68,7 +60,7 @@ export function createMfaResetRouter(auth: AuthService) {
           }
         }),
       status: scopedProcedure('identity:read')
-        .output(statusSchema)
+        .output(mfaResetStatusSchema)
         .query(async ({ ctx }) => {
           try {
             return { waiting: await auth.mfaResetStatus(ctx.principal.userId) };
@@ -78,7 +70,7 @@ export function createMfaResetRouter(auth: AuthService) {
         }),
       cancel: scopedProcedure('identity:write')
         .input(z.object({}).strict().optional())
-        .output(z.object({ cancelled: z.boolean() }).strict())
+        .output(mfaResetCancelSchema)
         .mutation(async ({ ctx }) => {
           try {
             refuseDelegated(ctx.principal);

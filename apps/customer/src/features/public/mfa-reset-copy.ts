@@ -23,7 +23,7 @@ const messages = {
   back: 'Back to sign in',
   support: 'Write to Support',
   'identity.mfa_reset_unconfigured':
-    'Resetting the second step on your own is not available yet: its waiting time is not set. Write to Support and a person will help you get back in.',
+    'Resetting the second step on your own is switched off: its waiting time is not set. Write to Support and a person will help you get back in.',
   'identity.mfa_reset_no_proved_address':
     'This account has no proved email address to send the code to. Write to Support and a person will help you get back in.',
   'identity.mfa_reset_not_enrolled': 'This account has no authenticator app to reset. Go back and sign in with your password.',
