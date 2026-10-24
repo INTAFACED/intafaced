@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { JetStreamEventBus } from '@intafaced/events';
 import { s2sFromEnv } from '@intafaced/contracts';
-import { env, idempotencyConflictMode } from './env.js';
+import { clockSkewBoundMs, env, idempotencyConflictMode } from './env.js';
 import { ledgerPostgresOptions } from './db/connection-options.js';
 import { LedgerService } from './service.js';
 import { createLedgerRouter } from './router.js';
@@ -53,6 +53,7 @@ const ledger = new LedgerService(sql, bus, {
   postingEnabled: env.LEDGER_POSTING_ENABLED,
   idempotencyConflict: idempotencyConflictMode,
   reconcileStatementTimeoutMs: env.LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS,
+  clockSkewBoundMs,
 });
 
 // Before the first request, never after: a frozen database stays frozen, and

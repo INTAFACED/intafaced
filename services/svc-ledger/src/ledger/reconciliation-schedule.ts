@@ -4,15 +4,15 @@
  * A margin is a decimal number of seconds. Blank is unset. Typed `0` is zero.
  */
 
-import { parseAmount } from '@intafaced/ledger-client';
+import { SCALE, parseAmount } from '@intafaced/ledger-client';
 import type { ReconciliationSchedule } from '@intafaced/contracts/ledger-reconciliation';
 import { OPS_CONTROL_MARGIN_UNSET, LEDGER_RECONCILE_ASOF_INVALID } from '@intafaced/contracts/ledger-reconciliation';
 import { ReconciliationControlError } from './reconciliation-control-error.js';
 
 export type ReconciliationPeriod = 'hour' | 'day' | 'iso_week' | 'month';
 
-const SCALE = 10n ** 18n;
-const MS_DIVISOR = 10n ** 15n;
+/** A margin is a decimal number of seconds; one millisecond is a thousandth of the ledger scale. */
+const MS_DIVISOR = SCALE / 1000n;
 const MAX_MARGIN_SECONDS = 366n * 24n * 60n * 60n;
 
 export function periodForSchedule(schedule: ReconciliationSchedule): ReconciliationPeriod {

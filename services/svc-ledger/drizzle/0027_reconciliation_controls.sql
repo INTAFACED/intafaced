@@ -1,5 +1,6 @@
 -- svc-ledger · operator reconciliation controls (OPS-reconciliation-01)
 -- Reversal: 0027_reconciliation_controls.down.sql
+-- intafaced:destructive names TRUNCATE only in the guard triggers that refuse it; nothing is dropped, deleted or truncated.
 --
 -- Beside the three built-in proofs. Operator rows are draft until a tolerance,
 -- schedule and severity are stored. The three built-in rows cannot be deleted.

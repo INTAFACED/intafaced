@@ -9,7 +9,7 @@ import Fastify from 'fastify';
 import { afterAll, describe, expect, it } from 'vitest';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import { actionApprovalSchema, type Context } from '@intafaced/contracts';
-import { createTestDb, postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db/testing';
+import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db/testing';
 import {
   OPS_CONTROL_MARGIN_UNSET,
   OPS_CONTROL_POLICY_UNSET,
@@ -33,7 +33,9 @@ import {
 } from './reconciliation-controls.js';
 import type { LedgerService } from '../service.js';
 
-const URL = process.env.TEST_DATABASE_URL?.trim() || 'postgres://test:test@127.0.0.1:55432/intafaced_test';
+// PG-hard: no skip. A run without a database fails instead of reporting a silent absence.
+const URL = process.env.TEST_DATABASE_URL?.trim();
+if (!URL) throw new Error('TEST_DATABASE_URL is required for the reconciliation-controls postgres proof');
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzleDir = join(here, '..', '..', 'drizzle');
 const migrations = readdirSync(drizzleDir)
@@ -58,13 +60,7 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
   return { principal: await verifyAccessToken(token, authConfig), service: null, region: 'DE', requestId: 'req-recon-1' };
 }
 
-const available = await postgresAvailable(URL);
-
-if (!available) {
-  describe.skip('reconciliation controls (postgres unavailable)', () => {
-    it('skipped', () => undefined);
-  });
-} else {
+{
   const db: TestDb = await createTestDb({ service: 'ledger', url: URL, migrations });
   const actor = { actorId: ACTOR, requestId: 'req-recon-1' };
   const approvals = stubApprovalConsumer('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
@@ -284,8 +280,31 @@ if (!available) {
     ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
   });
 
-  it('inserts the run when identity already consumed this operation id', async () => {
-    const defined = await defineReconciliationControl(db.sql, actor, {
+  const replayingIdentity = (attested: boolean, seen: { requestId?: string }): ActionApprovalConsumer => ({
+    async consume(input) {
+      seen.requestId = input.requestId;
+      return actionApprovalSchema.parse({
+        approvalId: input.approvalId,
+        operationId: input.operationId,
+        payloadHash: input.payloadHash,
+        targetService: input.targetService,
+        targetId: input.targetId,
+        expectedVersion: input.expectedVersion,
+        actionType: 'ledger.reconciliation_control.run',
+        requesterId: 'founder-a',
+        approverId: 'founder-b',
+        policyVersion: 'v1',
+        createdAt: '2026-09-09T12:00:00.000Z',
+        expiresAt: '2026-09-09T12:10:00.000Z',
+        status: 'CONSUMED',
+        consumption: 'already_consumed_by_this_request',
+        ...(attested ? { requesterIsFounder: true, approverIsFounder: true } : {}),
+      });
+    },
+  });
+
+  const replayControl = () =>
+    defineReconciliationControl(db.sql, actor, {
       template: 'threshold',
       accountSet: { mode: 'query', assetId: 'USDT' },
       schedule: { cadence: 'daily', hour: 0, minute: 0 },
@@ -296,42 +315,39 @@ if (!available) {
       reason: REASON,
       activate: true,
     });
+
+  it('inserts the run when identity replays an attested consume of this operation id', async () => {
+    const defined = await replayControl();
     const operationId = nextOp();
-    let requestId: string | undefined;
-    const replay: ActionApprovalConsumer = {
-      async consume(input) {
-        requestId = input.requestId;
-        return actionApprovalSchema.parse({
-          approvalId: input.approvalId,
-          operationId: input.operationId,
-          payloadHash: input.payloadHash,
-          targetService: input.targetService,
-          targetId: input.targetId,
-          expectedVersion: input.expectedVersion,
-          actionType: 'ledger.reconciliation_control.run',
-          requesterId: 'founder-a',
-          approverId: 'founder-b',
-          policyVersion: 'v1',
-          createdAt: '2026-09-09T12:00:00.000Z',
-          expiresAt: '2026-09-09T12:10:00.000Z',
-          status: 'CONSUMED',
-          consumption: 'already_consumed_by_this_request',
-        });
-      },
-    };
-    const run = await runReconciliationControl(db.sql, replay, actor, {
+    const seen: { requestId?: string } = {};
+    const run = await runReconciliationControl(db.sql, replayingIdentity(true, seen), actor, {
       controlId: defined.id,
       reason: REASON,
       approvalId: 'appr-replay',
       operationId,
     });
-    expect(requestId).toBe(operationId);
+    expect(seen.requestId).toBe(operationId);
     expect(run.status).not.toBe('started');
     const stored = await db.sql<Array<{ status: string }>>`
       SELECT status FROM reconciliation_control_runs WHERE operation_id = ${operationId}
     `;
     expect(stored).toHaveLength(1);
     expect(stored[0]!.status).toBe(run.status);
+  });
+
+  it('refuses a replayed consume without the founder attestation and stores no run', async () => {
+    const defined = await replayControl();
+    const operationId = nextOp();
+    await expect(
+      runReconciliationControl(db.sql, replayingIdentity(false, {}), actor, {
+        controlId: defined.id,
+        reason: REASON,
+        approvalId: 'appr-replay-unattested',
+        operationId,
+      }),
+    ).rejects.toMatchObject({ code: 'action_approval.not_founders' });
+    const stored = await db.sql`SELECT 1 FROM reconciliation_control_runs WHERE operation_id = ${operationId}`;
+    expect(stored).toHaveLength(0);
   });
 
   it('finishes a started run as ERROR when evaluate throws, and a later retry stays on that row', async () => {

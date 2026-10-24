@@ -1,5 +1,7 @@
 import 'server-only';
 import {
+  academyAssistantDraftInputSchema,
+  academyDecideDraftInputSchema,
   academyDuplicateItemInputSchema,
   academyImportLessonInputSchema,
   academyImportLessonResultSchema,
@@ -73,6 +75,18 @@ const OPS = {
     procedure: 'admin.publishLesson',
     what: 'published to learners',
     why: 'Which revision goes to learners, and why? Say why in up to 500 characters.',
+  },
+  draft: {
+    schema: academyAssistantDraftInputSchema,
+    procedure: 'admin.assistantDraft',
+    what: 'draft ready to review',
+    why: 'Which lesson, read at which revision, and which path: the template or a model?',
+  },
+  decide: {
+    schema: academyDecideDraftInputSchema,
+    procedure: 'admin.decideDraft',
+    what: 'draft decided',
+    why: 'Which draft, and accept or discard?',
   },
   duplicate: {
     schema: academyDuplicateItemInputSchema,

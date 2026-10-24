@@ -109,7 +109,17 @@ describe('the global-send stand-in (TEST only)', () => {
   it('pays nobody: the payout is acknowledged with a TEST reference keyed by the send, on its own rail boundary', async () => {
     const ports = globalSimPorts(catalogue);
     expect(ports.payout.railId()).toBe(GLOBAL_SIM_RAIL);
-    const input = { sendId: 's-1', idempotencyKey: 'k-12345678', amount: '1', assetId: 'USDT', toCurrency: 'EUR', recipientId: 'r-1' };
+    const input = {
+      sendId: 's-1',
+      idempotencyKey: 'k-12345678',
+      amount: '1',
+      assetId: 'USDT',
+      toCurrency: 'EUR',
+      recipientId: 'r-1',
+      quoteId: 'q-1',
+      rate: '2',
+      receiveAmount: '2',
+    };
     expect(await ports.payout.submit(input)).toEqual({ ok: true, providerRef: 'TEST-s-1', status: 'sent' });
     expect(await ports.payout.submit(input)).toEqual({ ok: true, providerRef: 'TEST-s-1', status: 'sent' });
   });

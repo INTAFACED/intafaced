@@ -13,6 +13,8 @@
 import { randomUUID } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
 import type {
+  AcademyAssistantDraftInput,
+  AcademyDecideDraftInput,
   AcademyDuplicateItemInput,
   AcademyImportLessonInput,
   AcademyImportLessonResult,
@@ -27,11 +29,14 @@ import {
   ACADEMY_LESSON_BLOCK_TYPES,
   ACADEMY_LESSON_FORMAT,
   academyLessonBlockSchema,
+  academyLessonBlocksSchema,
 } from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
 import type { CourseRecords } from './courses.js';
 
 const REVISIONS_SHOWN = 50;
+/** Titles are at most 120 characters, so 50 of them keep the section block far under the 20,000-character block limit. */
+const NEIGHBOURS_SHOWN = 50;
 
 type ItemRow = {
   id: string;
@@ -50,7 +55,7 @@ type ItemRow = {
 
 type RevisionRow = {
   revision: number;
-  source: 'saved' | 'reverted' | 'duplicated' | 'imported';
+  source: 'saved' | 'reverted' | 'duplicated' | 'imported' | 'assisted';
   from_revision: number | null;
   from_item_id: string | null;
   blocks: AcademyLessonBlock[];
@@ -71,6 +76,60 @@ const canonical = (value: unknown): string =>
 const sameBlocks = (a: readonly AcademyLessonBlock[], b: readonly AcademyLessonBlock[]) => canonical(a) === canonical(b);
 
 type Problem = { block: number | null; problem: string };
+
+type DraftRow = {
+  item_id: string;
+  based_on_revision: number;
+  kind: 'template';
+  blocks: AcademyLessonBlock[];
+  state: 'open' | 'accepted' | 'discarded';
+  created_by: string;
+  created_at: Date;
+};
+
+/**
+ * The template draft: the lesson's place in the course and headings for a person to fill in. It is built only from the
+ * course's own structure and states nothing as fact; no provider is involved.
+ */
+export function templateDraft(input: {
+  courseTitle: string;
+  sectionTitle: string;
+  itemTitle: string;
+  neighbours: string[];
+}): AcademyLessonBlock[] {
+  const blocks: AcademyLessonBlock[] = [
+    { type: 'text', markdown: `# ${input.itemTitle}\n\nPart of “${input.sectionTitle}” in “${input.courseTitle}”.` },
+    { type: 'text', markdown: '## What you will be able to do\n\n(Write the one thing a learner can do after this lesson.)' },
+    { type: 'text', markdown: '## The idea\n\n(Explain the idea in your own words, with one example.)' },
+    { type: 'text', markdown: '## Try it\n\n(Write one short practice step.)' },
+  ];
+  if (input.neighbours.length > 0) {
+    const shown = input.neighbours.slice(0, NEIGHBOURS_SHOWN).map((t) => `- ${t}`);
+    const more = input.neighbours.length - NEIGHBOURS_SHOWN;
+    if (more > 0) shown.push(`- and ${more} more`);
+    blocks.push({ type: 'text', markdown: `## In this section\n\n${shown.join('\n')}` });
+  }
+  return blocks;
+}
+
+/** Every stored lesson must read back: blocks are checked against the wire schema before they are written. */
+function checkBlocks(blocks: readonly AcademyLessonBlock[]): void {
+  const parsed = academyLessonBlocksSchema.safeParse(blocks);
+  if (!parsed.success)
+    throw new AcademyError(
+      `the lesson blocks do not fit the lesson format: ${parsed.error.issues[0]?.message ?? 'invalid'}`,
+      'academy.lesson_blocks_invalid',
+    );
+}
+
+/** The model-backed path waits for the owner to choose a provider: the allowlisted `owner.decision` refusal. */
+export class OwnerDecisionError extends Error {
+  readonly code = 'owner.decision' as const;
+  constructor(message: string) {
+    super(message);
+    this.name = 'OwnerDecisionError';
+  }
+}
 
 /**
  * A lesson file, parsed as data only: `{ "format": "intafaced.lesson.v1", "blocks": [...] }`. Every problem is named
@@ -254,13 +313,86 @@ export class LessonRecords {
     });
   }
 
+  /**
+   * A draft from the template, keyed `draft:<item>:<revision>:template`: a repeat answers with the stored draft. The
+   * model path refuses `owner.decision`, since no provider is chosen (the owner setting `assistant_provider` is pending).
+   */
+  async assistantDraft(input: AcademyAssistantDraftInput & { operatorId: string; now: Date }): Promise<AcademyLesson> {
+    if (input.path === 'model')
+      throw new OwnerDecisionError('drafting with a model waits for the owner to choose a provider; the template draft works without one');
+    return this.sql.begin(async (tx) => {
+      const item = await this.lockItem(tx, input.itemId);
+      const newest = await this.newest(tx, item.id);
+      if ((newest?.revision ?? 0) !== input.revision)
+        throw new AcademyError(`lesson is at revision ${newest?.revision ?? 0}, not ${input.revision}`, 'academy.revision_stale');
+      const [place] = await tx<Array<{ section_title: string; course_title: string; neighbours: string[] }>>`
+        SELECT s.title AS section_title, c.title AS course_title,
+          ARRAY(SELECT o.title FROM academy.course_items o WHERE o.section_id = s.id AND o.id <> ${item.id} AND o.kind <> 'subheader'
+                ORDER BY o.position) AS neighbours
+        FROM academy.course_sections s JOIN academy.courses c ON c.id = s.course_id WHERE s.id = ${item.section_id}
+      `;
+      const blocks = templateDraft({
+        courseTitle: place!.course_title,
+        sectionTitle: place!.section_title,
+        itemTitle: item.title,
+        neighbours: place!.neighbours,
+      });
+      checkBlocks(blocks);
+      await tx`
+        INSERT INTO academy.lesson_drafts (item_id, based_on_revision, kind, blocks, state, created_by, created_at)
+        VALUES (${item.id}, ${input.revision}, 'template', ${tx.json(blocks as never)}, 'open', ${input.operatorId}, ${input.now})
+        -- A repeat keeps the open draft; a discarded one is drafted again. An accepted one is past (the revision moved on).
+        ON CONFLICT (item_id, based_on_revision, kind) DO UPDATE SET
+          blocks = excluded.blocks, state = 'open', created_by = excluded.created_by, created_at = excluded.created_at,
+          decided_by = NULL, decided_at = NULL
+        WHERE academy.lesson_drafts.state = 'discarded'
+      `;
+      return this.read(tx, item.id);
+    });
+  }
+
+  /**
+   * A person accepts the open draft (a new lesson revision with them as the actor; learners keep the published one) or
+   * discards it. Deciding a draft already decided the same way answers with the lesson; the other way is refused.
+   */
+  async decideDraft(input: AcademyDecideDraftInput & { operatorId: string; now: Date }): Promise<AcademyLesson> {
+    return this.sql.begin(async (tx) => {
+      const item = await this.lockItem(tx, input.itemId);
+      const [draft] = await tx<DraftRow[]>`
+        SELECT * FROM academy.lesson_drafts
+        WHERE item_id = ${item.id} AND based_on_revision = ${input.basedOnRevision} AND kind = ${input.kind}
+      `;
+      if (!draft) throw new AcademyError('no such draft for this lesson', 'academy.draft_not_found');
+      const done = input.decision === 'accept' ? 'accepted' : 'discarded';
+      if (draft.state === done) return this.read(tx, item.id);
+      if (draft.state !== 'open') throw new AcademyError(`the draft was already ${draft.state}`, 'academy.draft_not_found');
+      let accepted: number | null = null;
+      if (input.decision === 'accept') {
+        const newest = await this.newest(tx, item.id);
+        if ((newest?.revision ?? 0) !== draft.based_on_revision)
+          throw new AcademyError(
+            `the lesson moved on to revision ${newest?.revision ?? 0} since the draft was made`,
+            'academy.revision_stale',
+          );
+        accepted = draft.based_on_revision + 1;
+        await this.insert(tx, item.id, accepted, 'assisted', null, null, draft.blocks, input.operatorId, input.now);
+      }
+      await tx`
+        UPDATE academy.lesson_drafts SET state = ${done}, decided_by = ${input.operatorId}, decided_at = ${input.now},
+          accepted_revision = ${accepted}
+        WHERE item_id = ${item.id} AND based_on_revision = ${input.basedOnRevision} AND kind = ${input.kind}
+      `;
+      return this.read(tx, item.id);
+    });
+  }
+
   async get(itemId: string): Promise<AcademyLesson> {
     return this.read(this.sql, itemId);
   }
 
   /** The newest revisions, and the live one even when it is older than those, so the editor always shows it. */
   private async read(sql: Sql | TransactionSql, itemId: string): Promise<AcademyLesson> {
-    const [[row], revisions] = await Promise.all([
+    const [[row], revisions, [draft]] = await Promise.all([
       sql<Array<ItemRow & { course_title: string; lesson_revision: number | null }>>`
         SELECT i.*, c.state AS course_state, c.revision AS course_revision, c.title AS course_title,
           (SELECT max(r.revision) FROM academy.lesson_revisions r WHERE r.item_id = i.id) AS lesson_revision
@@ -272,6 +404,12 @@ export class LessonRecords {
         (SELECT r.* FROM academy.lesson_revisions r JOIN academy.course_items i ON i.id = r.item_id AND i.live_revision = r.revision
           WHERE r.item_id = ${itemId})
         ORDER BY revision DESC
+      `,
+      sql<DraftRow[]>`
+        -- Only a draft of the newest revision can still be accepted; an older open draft is not offered.
+        SELECT * FROM academy.lesson_drafts d WHERE d.item_id = ${itemId} AND d.state = 'open'
+          AND d.based_on_revision = COALESCE((SELECT max(r.revision) FROM academy.lesson_revisions r WHERE r.item_id = d.item_id), 0)
+        ORDER BY d.created_at DESC LIMIT 1
       `,
     ]);
     if (!row) throw new AcademyError('no outline item with that id', 'academy.outline_item_unknown');
@@ -290,6 +428,15 @@ export class LessonRecords {
         liveRevision: row.live_revision,
       },
       importMaxBytes: this.importMaxBytes,
+      draft: draft
+        ? {
+            basedOnRevision: draft.based_on_revision,
+            kind: draft.kind,
+            blocks: draft.blocks,
+            createdBy: draft.created_by,
+            createdAt: draft.created_at.toISOString(),
+          }
+        : null,
       revisions: revisions.map((r) => ({
         revision: r.revision,
         source: r.source,
@@ -333,6 +480,7 @@ export class LessonRecords {
     actor: string,
     at: Date,
   ): Promise<void> {
+    checkBlocks(blocks);
     await tx`
       INSERT INTO academy.lesson_revisions (item_id, revision, source, from_revision, from_item_id, blocks, actor, at)
       VALUES (${itemId}, ${revision}, ${source}, ${fromRevision}, ${fromItemId}, ${tx.json(blocks as never)}, ${actor}, ${at})

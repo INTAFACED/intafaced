@@ -300,6 +300,8 @@ export function ReviewedAction<T>({
   disabledReason,
   variant = 'secondary',
   stepUp,
+  ready = true,
+  notReadyReason,
 }: {
   title: string;
   description: string;
@@ -315,17 +317,21 @@ export function ReviewedAction<T>({
    * same `perform` runs once more, so the same request id goes out. See `portal/access/step-up-store.ts`.
    */
   stepUp?: MoneyKind;
+  /** The review's own confirm stays off until the person has done what the review asks (a checklist, for example). */
+  ready?: boolean;
+  notReadyReason?: string;
 }) {
   const [opened, setOpened] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ApiResult<T> | null>(null);
   const inFlight = useRef(false);
   const asking = useRef(false);
-  const lifetime = useRef({ mounted: true, opened, disabled, review: 0 });
+  const lifetime = useRef({ mounted: true, opened, disabled, ready, review: 0 });
   const reviewId = lifetime.current.review;
   useLayoutEffect(() => {
     lifetime.current.opened = opened;
     lifetime.current.disabled = disabled;
+    lifetime.current.ready = ready;
   });
   useLayoutEffect(() => {
     lifetime.current.mounted = true;
@@ -335,7 +341,7 @@ export function ReviewedAction<T>({
   }, []);
   const currentReview = () => lifetime.current.mounted && lifetime.current.opened && lifetime.current.review === reviewId;
   async function confirm() {
-    if (inFlight.current || !currentReview() || lifetime.current.disabled) return;
+    if (inFlight.current || !currentReview() || lifetime.current.disabled || !lifetime.current.ready) return;
     inFlight.current = true;
     setBusy(true);
     try {
@@ -407,9 +413,10 @@ export function ReviewedAction<T>({
             {review}
             {stepUp && <StepUpNote kind={stepUp} />}
             <MutationResult result={result} title={title} refreshed={Boolean(onConfirmed)} />
+            {!ready && notReadyReason ? <p className="muted">{notReadyReason}</p> : null}
             <Button
               variant={variant}
-              disabled={busy || Boolean(result && !result.ok && result.reason === 'uncertain')}
+              disabled={!ready || busy || Boolean(result && !result.ok && result.reason === 'uncertain')}
               onClick={() => void confirm()}
             >
               {busy ? payCopy.t('waitingForConfirmation') : title}
