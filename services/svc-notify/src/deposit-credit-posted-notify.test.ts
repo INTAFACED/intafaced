@@ -47,7 +47,7 @@ describe('deposit credited notices (W-deposit-09, J-wallet-02 #7)', () => {
         txHash: credited.txHash,
         ledgerTxId: credited.ledgerTxId,
       },
-      href: '/uc/recharge',
+      href: '/uc/recharge?asset=USDT&network=ethereum',
       sourceSubject: payDepositCreditPosted.subject,
       sourceIdempotencyKey: credited.depositId,
     });
@@ -64,7 +64,23 @@ describe('deposit credited notices (W-deposit-09, J-wallet-02 #7)', () => {
     expect((await notify.list({ userId: ALICE, limit: 10, unreadOnly: false })).items).toHaveLength(2);
   });
 
-  it('refuses a payload that is not a credit, and writes nothing', async () => {
+  it('stays in the inbox: no email, SMS or push for a credited deposit', async () => {
+    const asked: Array<Parameters<NotifyService['create']>[0]> = [];
+    class Watching extends NotifyService {
+      override async create(input: Parameters<NotifyService['create']>[0]): Promise<CreateResult> {
+        asked.push(input);
+        return super.create(input);
+      }
+    }
+    const bus = await wired(new Watching(new MemoryNotifyStore(), { fanoutEnabled: true }));
+
+    await bus.publish('payDepositCreditPosted', credited);
+
+    expect(asked).toHaveLength(1);
+    expect(asked[0]!.outOfApp).toBe(false);
+  });
+
+  it('a payload that is not a credit never reaches the inbox (the bus refuses it at publish)', async () => {
     const notify = new NotifyService(new MemoryNotifyStore(), { fanoutEnabled: true });
     const bus = await wired(notify);
 

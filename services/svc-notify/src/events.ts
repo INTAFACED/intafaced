@@ -791,10 +791,13 @@ export async function subscribeNotificationEvents(
             txHash: payload.txHash,
             ledgerTxId: payload.ledgerTxId,
           },
-          href: '/uc/recharge',
+          // The deposit room on the asset and network that were credited, where its record is.
+          href: `/uc/recharge?asset=${encodeURIComponent(payload.assetId)}&network=${encodeURIComponent(payload.networkId)}`,
           severity: 'info',
           sourceSubject: payDepositCreditPosted.subject,
           sourceIdempotencyKey: payload.depositId,
+          // Inbox only, as the deposit notice has always been: a credit is not worth an email, SMS or push each time.
+          outOfApp: false,
         }),
       );
     }),

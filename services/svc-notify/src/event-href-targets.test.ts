@@ -28,6 +28,7 @@ const LIVE_ROOMS = [
   '/money/activity?tab=transfers',
   '/bank/transfers',
   '/uc/recharge',
+  '/uc/recharge?asset=:id&network=:id',
 ];
 
 /** Detail rows IA-SPEC 2.3, 2.4, 2.6 and 2.9 give to bank, cex-spot, pay and agents. The app falls back to the nearest list room until they exist. */
