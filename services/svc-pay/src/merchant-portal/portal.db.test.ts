@@ -1252,7 +1252,8 @@ describe('merchant portal procedures', () => {
     expect(progress.business.done).toBe(true);
     expect(progress.destination.present).toBe(true);
     expect(progress.blocking).toEqual(['documents_pending_vendor', 'terms_not_configured']);
-    const text = JSON.stringify(progress);
+    // norm() blanks the random ids first, so a uuid that happens to hold '1111' or 'abcd' can neither pass nor fail these checks.
+    const text = norm(JSON.stringify(progress));
     expect(text).not.toContain(destRef);
     expect(text).toContain('1111');
     const parent = await asTree(parentUser).merchant.onboarding.progress({ merchantId: grandId });
@@ -1262,7 +1263,7 @@ describe('merchant portal procedures', () => {
     const mid = await asTree(childUser).merchant.onboarding.progress({ merchantId: grandId });
     expect(mid.destination.present).toBe(true);
     expect(mid.destination.destinations).toEqual([]);
-    const hidden = JSON.stringify(mid);
+    const hidden = norm(JSON.stringify(mid));
     expect(hidden).not.toContain(GRAND_DEST);
     expect(hidden).not.toContain('abcd');
   });
