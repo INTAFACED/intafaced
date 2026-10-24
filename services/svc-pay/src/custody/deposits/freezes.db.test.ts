@@ -434,9 +434,9 @@ describe('deposit address freezes (real Postgres)', () => {
       depositFreezes: { sql: db.sql, approvals, book: book() },
     });
     const caller = ns.createCaller({ principal: null, service: null, region: 'DE', requestId: 'r' });
-    await expect(caller.founderAdmin.depositFreezes.history({ userId: ALICE })).rejects.toThrow();
+    await expect(caller.founderAdmin.depositFreezes!.history({ userId: ALICE })).rejects.toThrow();
     await expect(
-      caller.founderAdmin.depositFreezes.freeze({ userId: ALICE, networkId: 'ethereum', address: ADDRESS, reason: 'compliance' }),
+      caller.founderAdmin.depositFreezes!.freeze({ userId: ALICE, networkId: 'ethereum', address: ADDRESS, reason: 'compliance' }),
     ).rejects.toThrow();
     expect(await db.sql`SELECT 1 FROM pay.custody_deposit_address_freezes`).toHaveLength(0);
   });

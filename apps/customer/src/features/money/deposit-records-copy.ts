@@ -45,7 +45,7 @@ const en = {
   reason_address_expired:
     'Sent to one of your deposit addresses after it expired. The funds are safe and wait for support to release them to you.',
   reason_address_frozen:
-    'This deposit address is on hold for a compliance review, so the deposit is not credited yet. It stays recorded here; when the review ends, it is checked again like any deposit, and never credited twice.',
+    'This deposit address is on hold for a compliance review, so the deposit is held and not credited. It stays recorded here; when the review ends, it is checked again like any deposit, and never credited twice.',
 } as const;
 
 const es = {
@@ -92,7 +92,7 @@ const es = {
   reason_address_expired:
     'Se envió a una de tus direcciones de depósito después de que caducara. Los fondos están a salvo y esperan a que soporte te los libere.',
   reason_address_frozen:
-    'Esta dirección de depósito está en espera por una revisión de cumplimiento, así que el depósito aún no se acredita. Queda registrado aquí; al terminar la revisión se comprueba de nuevo como cualquier depósito, y nunca se acredita dos veces.',
+    'Esta dirección de depósito está en espera por una revisión de cumplimiento, así que el depósito queda retenido y no se acredita. Queda registrado aquí; al terminar la revisión se comprueba de nuevo como cualquier depósito, y nunca se acredita dos veces.',
 } satisfies Record<keyof typeof en, string>;
 
 const fr = {
@@ -140,7 +140,7 @@ const fr = {
   reason_address_expired:
     'Envoyé à l’une de vos adresses de dépôt après son expiration. Les fonds sont en sécurité et attendent que le support vous les libère.',
   reason_address_frozen:
-    'Cette adresse de dépôt est en attente d’un contrôle de conformité, le dépôt n’est donc pas encore crédité. Il reste enregistré ici ; à la fin du contrôle, il est vérifié à nouveau comme tout dépôt, et jamais crédité deux fois.',
+    'Cette adresse de dépôt est en attente d’un contrôle de conformité, le dépôt est donc retenu et non crédité. Il reste enregistré ici ; à la fin du contrôle, il est vérifié à nouveau comme tout dépôt, et jamais crédité deux fois.',
 } satisfies Record<keyof typeof en, string>;
 
 export const depositRecordsCopy = defineCopy('customer.bank.deposit.records', en, { es, fr });
