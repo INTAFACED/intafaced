@@ -3,6 +3,23 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ValidatePayment } from './p2p-validate';
+
+// The real confirmation needs a session; this one approves at once and records what it was asked to confirm.
+const asked: unknown[] = [];
+vi.mock('../money/StepUpConfirm', () => ({
+  StepUpConfirm: ({ request, onApproved }: { request: () => unknown; onApproved: (id: string | null) => void }) => (
+    <button
+      type="button"
+      onClick={() => {
+        asked.push(request());
+        onApproved('approval-1');
+      }}
+    >
+      Confirm it’s you
+    </button>
+  ),
+}));
+const noWindow = async () => ({ ok: true as const, data: { confirmedUntil: null } });
 import type { PersonalPayApi } from './pay-api';
 import type { Trade } from './schemas';
 
@@ -50,17 +67,36 @@ async function render(node: React.ReactNode) {
   return host;
 }
 const button = () => [...host.querySelectorAll('button')].find((b) => b.textContent === 'Check the payment with the bank')!;
+const confirm = () => [...host.querySelectorAll('button')].find((b) => b.textContent === 'Confirm it’s you')!;
 
 describe('Check the payment with the bank (J-p2p-02 #4)', () => {
   it('stays off and names the switched-off rail, the uncovered method, or an unread order', async () => {
-    await render(<ValidatePayment trade={trade('rail.bank')} pay={{} as PersonalPayApi} onChecked={() => {}} />);
+    await render(
+      <ValidatePayment
+        trade={trade('rail.bank')}
+        pay={{ releaseStepUpWindow: noWindow } as unknown as PersonalPayApi}
+        onChecked={() => {}}
+      />,
+    );
     expect(button().disabled).toBe(true);
     expect(host.textContent).toContain('Payment validation needs a bank rail. It is switched off in this build');
     act(() => root?.unmount());
-    await render(<ValidatePayment trade={trade('p2p.method_not_rail_validated')} pay={{} as PersonalPayApi} onChecked={() => {}} />);
+    await render(
+      <ValidatePayment
+        trade={trade('p2p.method_not_rail_validated')}
+        pay={{ releaseStepUpWindow: noWindow } as unknown as PersonalPayApi}
+        onChecked={() => {}}
+      />,
+    );
     expect(host.textContent).toContain('does not check test-bank-transfer payments');
     act(() => root?.unmount());
-    await render(<ValidatePayment trade={{ ...trade(), paymentValidation: undefined }} pay={{} as PersonalPayApi} onChecked={() => {}} />);
+    await render(
+      <ValidatePayment
+        trade={{ ...trade(), paymentValidation: undefined }}
+        pay={{ releaseStepUpWindow: noWindow } as unknown as PersonalPayApi}
+        onChecked={() => {}}
+      />,
+    );
     expect(button().disabled).toBe(true);
     expect(host.textContent).toContain('could not read whether the bank rail can check this order');
   });
@@ -71,13 +107,26 @@ describe('Check the payment with the bank (J-p2p-02 #4)', () => {
       .mockResolvedValueOnce({ ok: true, data: { outcome: 'pending', trade: trade() } })
       .mockResolvedValueOnce({ ok: true, data: { outcome: 'released', trade: trade() } });
     const onChecked = vi.fn();
-    await render(<ValidatePayment trade={trade()} pay={{ validatePayment } as unknown as PersonalPayApi} onChecked={onChecked} />);
+    await render(
+      <ValidatePayment
+        trade={trade()}
+        pay={{ validatePayment, releaseStepUpWindow: noWindow } as unknown as PersonalPayApi}
+        onChecked={onChecked}
+      />,
+    );
+    // Off until the seller confirms it is them, as for a release by hand.
+    expect(button().disabled).toBe(true);
+    await act(async () => confirm().click());
+    expect(asked.at(-1)).toMatchObject({ scope: 'p2p.step_up.trades.confirmReceived', target: trade().id });
     expect(button().disabled).toBe(false);
     await act(async () => button().click());
+    expect(validatePayment).toHaveBeenLastCalledWith(trade().id, 'approval-1');
     expect(host.textContent).toContain('The bank shows no payment for this order.');
     expect(onChecked).not.toHaveBeenCalled();
+    // The confirmation is spent: the next check asks again.
+    expect(button().disabled).toBe(true);
+    await act(async () => confirm().click());
     await act(async () => button().click());
-    expect(host.textContent).toContain('The bank confirmed the payment');
     expect(onChecked).toHaveBeenCalledTimes(1);
   });
 
@@ -89,7 +138,14 @@ describe('Check the payment with the bank (J-p2p-02 #4)', () => {
       code: 'p2p.rail_mismatch',
       status: 409,
     }));
-    await render(<ValidatePayment trade={trade()} pay={{ validatePayment } as unknown as PersonalPayApi} onChecked={() => {}} />);
+    await render(
+      <ValidatePayment
+        trade={trade()}
+        pay={{ validatePayment, releaseStepUpWindow: noWindow } as unknown as PersonalPayApi}
+        onChecked={() => {}}
+      />,
+    );
+    await act(async () => confirm().click());
     await act(async () => button().click());
     expect(host.textContent).toContain('so nothing was released');
     expect(host.textContent).not.toContain('service text');

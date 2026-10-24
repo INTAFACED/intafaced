@@ -5,7 +5,9 @@ const en = {
   railOff: 'Payment validation needs a bank rail. It is switched off in this build, so check your own bank and release by hand.',
   methodOff: 'The bank rail does not check {method} payments, so check your own bank and release by hand.',
   pending: 'The bank shows no payment for this order. Check again later, or release by hand once you see it.',
-  released: 'The bank confirmed the payment and the coins were released to the buyer.',
+  confirmWhy: 'Confirm it is you: if the bank shows the payment, the coins go to the buyer at once.',
+  confirmAgain: 'Nothing was checked or released. Confirm it is you again, then check.',
+  confirmUnchecked: 'Your confirmation could not be checked, so nothing was checked or released. Try again shortly.',
   mismatch: 'What arrived does not match this order exactly, so nothing was released. Settle it with the buyer, or open a dispute below.',
   unread: 'This page could not read whether the bank rail can check this order. Refresh the order.',
 } as const;
@@ -15,7 +17,9 @@ const es = {
   railOff: 'La validación de pagos necesita un canal bancario. Está desactivado en esta versión, así que revisa tu banco y libera a mano.',
   methodOff: 'El canal bancario no comprueba pagos por {method}, así que revisa tu banco y libera a mano.',
   pending: 'El banco no muestra ningún pago para este pedido. Vuelve a comprobarlo más tarde o libera a mano cuando lo veas.',
-  released: 'El banco confirmó el pago y las monedas se liberaron al comprador.',
+  confirmWhy: 'Confirma que eres tú: si el banco muestra el pago, las monedas van al comprador al instante.',
+  confirmAgain: 'No se comprobó ni se liberó nada. Vuelve a confirmar que eres tú y comprueba.',
+  confirmUnchecked: 'No se pudo comprobar tu confirmación, así que no se comprobó ni se liberó nada. Inténtalo de nuevo en breve.',
   mismatch:
     'Lo que llegó no coincide exactamente con este pedido, así que no se liberó nada. Resuélvelo con el comprador o abre una disputa abajo.',
   unread: 'Esta página no pudo leer si el canal bancario puede comprobar este pedido. Actualiza el pedido.',
@@ -27,7 +31,9 @@ const fr = {
     'La validation des paiements nécessite un canal bancaire. Il est désactivé dans cette version : vérifiez votre banque et libérez à la main.',
   methodOff: 'Le canal bancaire ne vérifie pas les paiements {method} : vérifiez votre banque et libérez à la main.',
   pending: 'La banque n’affiche aucun paiement pour cette commande. Vérifiez plus tard, ou libérez à la main quand vous le voyez.',
-  released: 'La banque a confirmé le paiement et les jetons ont été libérés pour l’acheteur.',
+  confirmWhy: 'Confirmez que c’est vous : si la banque montre le paiement, les jetons vont aussitôt à l’acheteur.',
+  confirmAgain: 'Rien n’a été vérifié ni libéré. Confirmez de nouveau que c’est vous, puis vérifiez.',
+  confirmUnchecked: 'Votre confirmation n’a pas pu être vérifiée, rien n’a donc été vérifié ni libéré. Réessayez dans un instant.',
   mismatch:
     'Ce qui est arrivé ne correspond pas exactement à cette commande, rien n’a donc été libéré. Réglez-le avec l’acheteur, ou ouvrez un litige ci-dessous.',
   unread: 'Cette page n’a pas pu lire si le canal bancaire peut vérifier cette commande. Actualisez la commande.',

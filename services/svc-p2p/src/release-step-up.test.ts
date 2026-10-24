@@ -355,6 +355,50 @@ describe('svc-p2p release confirmation (P-trade-orders-07, -16)', () => {
     expect((await c.trades.confirmReceived({ tradeId: third, stepUpApprovalId: id.mint(third) })).status).toBe('released');
   });
 
+  it('a check by the bank rail that can release asks for the same confirmation; a switched-off rail refuses first', async () => {
+    const off = await paidOrder();
+    const id = identity();
+    // No rail: the service's own refusal, before any confirmation is asked for.
+    await expect(
+      caller(createReleaseStepUp({ sql, approvals: id.consumer })).trades.validatePayment({ tradeId: off }),
+    ).rejects.toMatchObject({
+      cause: { code: 'rail.bank' },
+    });
+    expect(id.calls).toHaveLength(0);
+    await stillHeld(off);
+
+    // A TEST rail that sees this order's exact payment.
+    p2p = new P2pService(sql, ledger, new MemoryEventBus('svc-p2p'), {
+      instruments,
+      feeBps: 100,
+      deadlines: {
+        escrowSeconds: 120,
+        paymentSeconds: 900,
+        releaseSeconds: 1800,
+        disputeSeconds: 604_800,
+        escalationRecheckSeconds: 3_600,
+      },
+      paymentRail: {
+        methods: new Set(['sepa']),
+        confirmation: async (order) => ({
+          confirmationId: `TEST-${order.tradeId}`,
+          currency: 'EUR',
+          amount: parseAmount('10'),
+          reference: order.tradeId.toUpperCase(),
+        }),
+      },
+    });
+    const c = caller(createReleaseStepUp({ sql, approvals: id.consumer }));
+    await expect(c.trades.validatePayment({ tradeId: off })).rejects.toMatchObject({ cause: { code: 'auth.step_up_required' } });
+    await stillHeld(off);
+    const result = await c.trades.validatePayment({ tradeId: off, stepUpApprovalId: id.mint(off) });
+    expect(result).toMatchObject({ outcome: 'released', trade: { status: 'released' } });
+    expect(releases()).toHaveLength(1);
+    // A second check answers the same released order and posts nothing.
+    expect((await c.trades.validatePayment({ tradeId: off })).outcome).toBe('released');
+    expect(releases()).toHaveLength(1);
+  });
+
   it('a take’s confirmation window never covers a release', async () => {
     const tradeId = await paidOrder();
     // The seller's session confirmed a take a moment ago: that record is the take's, not the release's.

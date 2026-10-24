@@ -1564,14 +1564,33 @@ export function createP2pRouter(
        * P-trade-orders-11 / J-p2p-02 #4: the seller of a paid order has the bank rail check the payment. An exact match
        * releases once (`released`); nothing arrived yet answers `pending`. Refuses `rail.bank` while no rail is wired,
        * `p2p.method_not_rail_validated` for a method the rail does not cover, and `p2p.rail_mismatch` (an exception row
-       * for a person, no release) when what arrived differs. No step-up: it releases only on the rail's own proof that
-       * the seller was paid.
+       * for a person, no release) when what arrived differs. A check that can release asks for the same confirmation
+       * as a release by hand (P-trade-orders-07), so the rail never becomes a release door without a fresh factor.
        */
       validatePayment: merchantApiProcedure('p2p:write')
-        .input(z.object({ tradeId: z.string().guid() }))
+        .input(
+          z.object({
+            tradeId: z.string().guid(),
+            /** P-trade-orders-07: identity's single-use confirmation of this release, or the session's release window. */
+            stepUpApprovalId: z.string().min(1).max(128).optional(),
+          }),
+        )
         .output(z.object({ outcome: z.enum(['released', 'pending']), trade: tradeOutput }))
         .mutation(async ({ ctx, input }) =>
           guard(async () => {
+            const current = await p2p.getTrade(input.tradeId);
+            if (current.buyerId !== ctx.principal.userId && current.sellerId !== ctx.principal.userId) {
+              throw unknownTrade(input.tradeId);
+            }
+            // Only a check that could release is confirmed: a switched-off rail, the buyer or another state gets the
+            // service's own refusal first, and nothing moves.
+            if (
+              current.sellerId === ctx.principal.userId &&
+              current.status === 'fiat_sent' &&
+              p2p.paymentValidationBlocker(current) === null
+            ) {
+              await releaseStepUp.assertConfirmed(stepUpCaller(ctx.principal), input.tradeId, input.stepUpApprovalId);
+            }
             const result = await p2p.validatePayment(input.tradeId, ctx.principal.userId);
             return { outcome: result.outcome, trade: toTradeOut(result.trade) };
           }),

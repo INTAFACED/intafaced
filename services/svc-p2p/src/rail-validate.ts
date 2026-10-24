@@ -29,6 +29,14 @@ export interface PaymentRail {
 /** Why a confirmation does not release: each is left for a person. */
 export type RailMismatch = 'currency' | 'amount' | 'reference';
 
+/**
+ * A bank renders a reference its own way: upper case, without the dashes. Only letters and digits are compared; a
+ * shortened reference is the adapter's to resolve to its order before it answers.
+ */
+export function normaliseReference(reference: string): string {
+  return reference.toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
 /** Exact match only: no tolerance, no rounding, the order's own reference. */
 export function railMismatch(
   order: { fiatCurrency: string; fiatAmount: Amount; reference: string },
@@ -36,6 +44,6 @@ export function railMismatch(
 ): RailMismatch | null {
   if (confirmation.currency !== order.fiatCurrency) return 'currency';
   if (confirmation.amount !== order.fiatAmount) return 'amount';
-  if (confirmation.reference !== order.reference) return 'reference';
+  if (normaliseReference(confirmation.reference) !== normaliseReference(order.reference)) return 'reference';
   return null;
 }

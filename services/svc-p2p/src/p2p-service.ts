@@ -2707,48 +2707,53 @@ export class P2pService {
     tradeId: string,
     actorId: string,
   ): Promise<{ outcome: 'released'; trade: TradeRecord } | { outcome: 'pending'; trade: TradeRecord }> {
-    return withMoneySpan('p2p.validatePayment', { operation: 'escrow.release', tradeId }, async () => {
+    const trade = await withSpan('p2p.validatePayment', async () => {
       const trade = await this.getTrade(tradeId);
       if (trade.buyerId !== actorId && trade.sellerId !== actorId) throw unknownTrade(tradeId);
       if (trade.sellerId !== actorId) {
         throw new P2pError('Only the seller, who receives the payment, can have it checked', 'p2p.not_the_seller');
       }
-      const blocker = this.paymentValidationBlocker(trade);
-      if (blocker === 'rail.bank')
-        throw new P2pError('Payment validation needs a bank rail. It is switched off in this build', 'rail.bank');
-      if (blocker) throw new P2pError(`The bank rail does not validate ${trade.method} payments`, 'p2p.method_not_rail_validated');
-      // A second press after the release answers the same released order.
-      if (trade.status === 'released' && trade.resolution === 'released') return { outcome: 'released', trade };
-      if (trade.status !== 'fiat_sent') {
-        throw new TradeStateError(
-          `Trade ${tradeId} is ${trade.status}: a payment is checked once the buyer marked it paid`,
-          isTerminal(trade.status) ? 'p2p.trade_terminal' : 'p2p.invalid_transition',
-          trade.status,
-          'fiat_sent',
-        );
-      }
-      const confirmation = await this.paymentRail!.confirmation({
-        tradeId,
-        sellerId: trade.sellerId,
-        method: trade.method,
-        reference: tradeId,
-      });
-      if (!confirmation) return { outcome: 'pending', trade };
-      const mismatch = railMismatch({ fiatCurrency: trade.fiatCurrency, fiatAmount: trade.fiatAmount, reference: tradeId }, confirmation);
-      if (mismatch) {
-        await this.recordRailException(trade, confirmation, mismatch);
-        throw new P2pError(`The bank rail's payment does not match this order (${mismatch}); a person will check it`, 'p2p.rail_mismatch');
-      }
-      assertReleasePostable(trade.amount, trade.feeBps);
+      return trade;
+    });
+    // A second press after the release answers the same released order, whatever the rail does since.
+    if (trade.status === 'released' && trade.resolution === 'released') return { outcome: 'released', trade };
+    const blocker = this.paymentValidationBlocker(trade);
+    if (blocker === 'rail.bank') throw new P2pError('Payment validation needs a bank rail. It is switched off in this build', 'rail.bank');
+    if (blocker) throw new P2pError(`The bank rail does not validate ${trade.method} payments`, 'p2p.method_not_rail_validated');
+    if (trade.status === 'disputed') {
+      throw new P2pError('A disputed trade is resolved by a moderator, not by the bank rail', 'p2p.dispute_already_open');
+    }
+    if (trade.status !== 'fiat_sent') {
+      throw new TradeStateError(
+        `Trade ${tradeId} is ${trade.status}: a payment is checked once the buyer marked it paid`,
+        isTerminal(trade.status) ? 'p2p.trade_terminal' : 'p2p.invalid_transition',
+        trade.status,
+        'fiat_sent',
+      );
+    }
+    const confirmation = await this.paymentRail!.confirmation({
+      tradeId,
+      sellerId: trade.sellerId,
+      method: trade.method,
+      reference: tradeId,
+    });
+    if (!confirmation) return { outcome: 'pending', trade };
+    const mismatch = railMismatch({ fiatCurrency: trade.fiatCurrency, fiatAmount: trade.fiatAmount, reference: tradeId }, confirmation);
+    if (mismatch) {
+      await this.recordRailException(trade, confirmation, mismatch);
+      throw new P2pError(`The bank rail's payment does not match this order (${mismatch}); nothing was released`, 'p2p.rail_mismatch');
+    }
+    return withMoneySpan('p2p.release', { operation: 'escrow.release', tradeId }, async () => {
       try {
-        await this.recordDecision({ tradeId, to: 'released', resolution: 'released', reason: 'rail.validated', expectStatus: 'fiat_sent' });
+        return { outcome: 'released' as const, trade: await this.releaseForSeller(trade, 'rail.validated', 'fiat_sent') };
       } catch (err) {
-        // The seller released by hand between the read and this decision: one release, already decided.
-        const now = await this.getTrade(tradeId);
-        if (now.resolution === 'released') return { outcome: 'released', trade: await this.settle(tradeId) };
+        // The seller released by hand between the read and this decision: that one release stands.
+        if (err instanceof TradeStateError && err.code === 'p2p.trade_terminal') {
+          const now = await this.getTrade(tradeId);
+          if (now.status === 'released' && now.resolution === 'released') return { outcome: 'released' as const, trade: now };
+        }
         throw err;
       }
-      return { outcome: 'released', trade: await this.settle(tradeId) };
     });
   }
 
@@ -2764,7 +2769,7 @@ export class P2pService {
       VALUES (${confirmation.confirmationId}, ${trade.id}, ${reason}, ${trade.fiatCurrency},
               ${formatAmount(trade.fiatAmount)}::numeric, ${confirmation.currency},
               ${formatAmount(confirmation.amount)}::numeric, ${confirmation.reference}, now())
-      ON CONFLICT (confirmation_id) DO NOTHING
+      ON CONFLICT (trade_id, confirmation_id) DO NOTHING
     `;
   }
 
@@ -2778,19 +2783,37 @@ export class P2pService {
       if (trade.sellerId !== actorId) {
         throw new P2pError('Only the seller can confirm the fiat was received', 'p2p.not_the_seller');
       }
-      // Same legible refuse as cancel: a disputed escrow terminates only on a
-      // human ruling. Without this, the seller hits the DB trigger as a raw
-      // check_violation instead of `p2p.dispute_already_open` — money still
-      // safe, but the API lied about which path failed.
-      if (trade.status === 'disputed') {
-        throw new P2pError('A disputed trade is resolved by a moderator, not by the seller confirming receipt', 'p2p.dispute_already_open');
-      }
-      // Defense in depth: take already refuses unpostable dust, but a trade row
-      // could predate the gate or arrive via a future writer.
-      assertReleasePostable(trade.amount, trade.feeBps);
-      await this.recordDecision({ tradeId, to: 'released', resolution: 'released', reason: 'seller.confirmed' });
-      return this.settle(tradeId);
+      return this.releaseForSeller(trade, 'seller.confirmed');
     });
+  }
+
+  /**
+   * The seller's release, by hand or on the bank rail's proof: one decide-then-post, so two at once post once (the
+   * loser of the row lock is refused `p2p.trade_terminal` and posts nothing).
+   */
+  private async releaseForSeller(
+    trade: TradeRecord,
+    reason: 'seller.confirmed' | 'rail.validated',
+    expectStatus?: TradeStatus,
+  ): Promise<TradeRecord> {
+    // Same legible refuse as cancel: a disputed escrow terminates only on a
+    // human ruling. Without this, the seller hits the DB trigger as a raw
+    // check_violation instead of `p2p.dispute_already_open` — money still
+    // safe, but the API lied about which path failed.
+    if (trade.status === 'disputed') {
+      throw new P2pError('A disputed trade is resolved by a moderator, not by the seller confirming receipt', 'p2p.dispute_already_open');
+    }
+    // Defense in depth: take already refuses unpostable dust, but a trade row
+    // could predate the gate or arrive via a future writer.
+    assertReleasePostable(trade.amount, trade.feeBps);
+    await this.recordDecision({
+      tradeId: trade.id,
+      to: 'released',
+      resolution: 'released',
+      reason,
+      ...(expectStatus ? { expectStatus } : {}),
+    });
+    return this.settle(trade.id);
   }
 
   /**
