@@ -111,6 +111,13 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'identity.support_recovery_unconfigured': 'Recovery links are not available yet. Their lifetime is not published.',
   'identity.support_recovery_link_invalid':
     'This recovery link does not work: it was already used, it expired, or the case was closed. Write to Support again.',
+  'identity.death_notice_not_found': 'There is no such death notice or account.',
+  'identity.death_notice_self': 'You cannot record or decide a death notice for your own account.',
+  'identity.death_notice_account_closed': 'This account is closed, so a death notice cannot be recorded or confirmed for it.',
+  'identity.death_notice_case_reused': 'That case reference was already recorded for this account with another reporter or other evidence.',
+  'identity.death_notice_not_open': 'This notice was already decided.',
+  'identity.death_notice_already_confirmed': 'Another death notice for this account is already confirmed.',
+  'identity.death_notice_approval_required': 'A second person must approve this notice before it is confirmed.',
   'identity.close_blocked': 'Something on this account is still open. Clear it, then try again.',
   'identity.close_check_unavailable': 'We could not confirm that nothing is still open. Try again later.',
   'identity.close_nothing_open': 'There is no open closure request to cancel.',
