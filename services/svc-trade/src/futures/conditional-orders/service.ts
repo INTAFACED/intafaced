@@ -105,6 +105,84 @@ export interface ProtectionInput {
   readonly clientRequestId: unknown;
 }
 
+/** What an opening order asked to be protected with, as the trader sent it. */
+export interface EntryProtectionInput {
+  readonly symbol: string;
+  readonly side: 'buy' | 'sell';
+  readonly reduceOnly: boolean;
+  readonly clientOrderId: string;
+  readonly takeProfit?: unknown;
+  readonly stopLoss?: unknown;
+}
+
+export type EntryProtectionStatus = 'waiting' | 'armed' | 'done' | 'not_filled' | 'no_position' | 'not_placed';
+
+/** How long a recorded entry protection waits for its order to appear before it is closed `not_placed`. */
+const ENTRY_ORDER_WAIT_MS = 120_000;
+
+/**
+ * An entry protection leg's client id: one pair per position the order's fills land in, and a fresh generation of the
+ * pair on that position for fills that settle after a leg of the last pair fired (`entry:<position>:<order>:<n>:tp`).
+ */
+function entryLegId(positionId: string, clientOrderId: string, generation: number, leg: 'tp' | 'sl'): string {
+  return generation === 0 ? `entry:${positionId}:${clientOrderId}:${leg}` : `entry:${positionId}:${clientOrderId}:${generation}:${leg}`;
+}
+
+export interface EntryProtectionView {
+  readonly id: string;
+  readonly symbol: string;
+  /** The opening order's client id and side. */
+  readonly clientOrderId: string;
+  readonly side: 'buy' | 'sell';
+  readonly takeProfit: string | null;
+  readonly stopLoss: string | null;
+  readonly status: EntryProtectionStatus;
+  /** The order's settled fills the job has dealt with (armed legs for them, or found nothing open to protect). */
+  readonly armedQuantity: string;
+  /** The newest legs' own client ids, once armed (`entry:<position>:<order>:tp` and `:sl`, or `:<n>:tp` after a fired pair). */
+  readonly takeProfitClientOrderId: string | null;
+  readonly stopLossClientOrderId: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+interface EntryRow {
+  id: string;
+  user_id: string;
+  market_id: string;
+  symbol: string;
+  client_order_id: string;
+  side: 'buy' | 'sell';
+  take_profit: string | null;
+  stop_loss: string | null;
+  request_hash: string;
+  status: EntryProtectionStatus;
+  armed_quantity: string;
+  position_id: string | null;
+  earlier_quantity: string;
+  generation: number;
+  created_at: Date;
+  updated_at: Date;
+}
+
+function presentEntry(row: EntryRow): EntryProtectionView {
+  const pos = row.position_id;
+  return {
+    id: row.id,
+    symbol: row.symbol,
+    clientOrderId: row.client_order_id,
+    side: row.side,
+    takeProfit: money(row.take_profit),
+    stopLoss: money(row.stop_loss),
+    status: row.status,
+    armedQuantity: formatAmount(parseAmount(row.armed_quantity)),
+    takeProfitClientOrderId: pos != null && row.take_profit != null ? entryLegId(pos, row.client_order_id, row.generation, 'tp') : null,
+    stopLossClientOrderId: pos != null && row.stop_loss != null ? entryLegId(pos, row.client_order_id, row.generation, 'sl') : null,
+    createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
+  };
+}
+
 const TRIGGER_OFF =
   'conditional orders cannot be armed: the trigger job is off (TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED / TRADE_FUTURES_CONDITIONAL_JOBS_INTERVAL_MS)';
 
@@ -124,6 +202,8 @@ export interface ConditionalOrderDeps {
   readonly placeReduce?: ((input: ReduceOnInstruction, instructionId: string) => Promise<ReducePlaced>) | null;
   /** How many finished orders (filled, cancelled, failed) the list carries, newest first. Default 100. */
   readonly listFinishedLimit?: number;
+  /** How long an entry protection waits for its order to appear. Default two minutes. */
+  readonly entryOrderWaitMs?: number;
 }
 
 /**
@@ -917,11 +997,303 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
     }
   }
 
+  /**
+   * Records the protection an opening order asks for, before the order is placed, so an order is never live with its
+   * protection unrecorded: prices above zero, on the right side of the mark for the position the order opens or adds
+   * to, and the trigger job on. Null when it asks for none. The row is keyed by the order's own client id, so the same
+   * request sent again finds it (and is not checked against today's mark again) and a different one is refused before
+   * anything is placed. A row whose order never appears is closed `not_placed` by the job, and reopened if the same
+   * request is sent again.
+   */
+  async function recordEntryProtection(userId: string, raw: EntryProtectionInput): Promise<EntryProtectionView | null> {
+    const takeProfit = optionalPrice('takeProfit', raw.takeProfit);
+    const stopLoss = optionalPrice('stopLoss', raw.stopLoss);
+    if (takeProfit == null && stopLoss == null) return null;
+    if (raw.reduceOnly) {
+      throw new FuturesError(
+        'a take profit or stop loss is attached to an opening order; a reduce-only order closes, so it takes none',
+        'trade.entry_protection_reduce_only',
+        400,
+      );
+    }
+    const [market] = await sql<{ id: string; symbol: string; kind: string }[]>`
+      SELECT id, symbol, kind FROM trade.markets WHERE symbol = ${raw.symbol}
+    `;
+    if (!market) throw new FuturesError('market not found', 'trade.market_not_found', 404);
+    if (market.kind !== 'futures') {
+      throw new FuturesError('market is not a futures market', 'trade.conditional_market_not_futures', 400);
+    }
+    const hash = requestHash({
+      entry: raw.clientOrderId,
+      side: raw.side,
+      takeProfit: takeProfit == null ? '' : formatAmount(takeProfit),
+      stopLoss: stopLoss == null ? '' : formatAmount(stopLoss),
+    });
+    const conflict = () => new FuturesError('this clientOrderId names a different order', 'trade.client_order_id_conflict', 409);
+    const read = async () => {
+      const [row] = await sql<EntryRow[]>`
+        SELECT e.*, m.symbol FROM trade.futures_entry_protection e JOIN trade.markets m ON m.id = e.market_id
+        WHERE e.user_id = ${userId} AND e.market_id = ${market.id} AND e.client_order_id = ${raw.clientOrderId}
+      `;
+      return row;
+    };
+    const prior = await read();
+    if (prior) {
+      if (prior.request_hash !== hash) throw conflict();
+      if (prior.status !== 'not_placed') return presentEntry(prior);
+      // Sent again after the job found no order: the order is placed now, so the protection waits for it again.
+      await sql`
+        UPDATE trade.futures_entry_protection SET status = 'waiting', updated_at = now()
+        WHERE id = ${prior.id} AND status = 'not_placed'
+      `;
+      const again = await read();
+      if (!again) throw conflict();
+      return presentEntry(again);
+    }
+    // An order already placed under this id without protection is a different request: protection is not added to it.
+    const [placed] = await sql<{ id: string }[]>`
+      SELECT id FROM trade.futures_orders
+      WHERE user_id = ${userId} AND market_id = ${market.id} AND client_order_id = ${raw.clientOrderId}
+    `;
+    if (placed) throw conflict();
+    if (!deps.triggerScheduled) throw new FuturesError(TRIGGER_OFF, 'trade.conditional_trigger_off', 503);
+    const markRaw = await deps.publishedMark(market.id, market.symbol);
+    if (markRaw == null) {
+      throw new FuturesError('published mark is missing — protection is not priced from an invented mark', 'trade.mark_missing', 409);
+    }
+    const mark = parseAmount(markRaw);
+    const positionSide = raw.side === 'buy' ? 'long' : 'short';
+    if (takeProfit != null && !priceOnProtectionSide({ positionSide, leg: 'take_profit', mark, price: takeProfit })) {
+      throw new FuturesError('takeProfit is on the wrong side of the mark', 'trade.protection_wrong_side', 400);
+    }
+    if (stopLoss != null && !priceOnProtectionSide({ positionSide, leg: 'stop_loss', mark, price: stopLoss })) {
+      throw new FuturesError('stopLoss is on the wrong side of the mark', 'trade.protection_wrong_side', 400);
+    }
+    await sql`
+      INSERT INTO trade.futures_entry_protection (
+        id, user_id, market_id, client_order_id, side, take_profit, stop_loss, request_hash
+      ) VALUES (
+        ${randomUUID()}, ${userId}, ${market.id}, ${raw.clientOrderId}, ${raw.side},
+        ${takeProfit == null ? null : formatAmount(takeProfit)},
+        ${stopLoss == null ? null : formatAmount(stopLoss)},
+        ${hash}
+      )
+      ON CONFLICT (user_id, market_id, client_order_id) DO NOTHING
+    `;
+    // Two different requests under one id at once: one row wins, and the other is refused before it is placed.
+    const row = await read();
+    if (!row || row.request_hash !== hash) throw conflict();
+    return presentEntry(row);
+  }
+
+  /** The account's entry protections: every one still waiting or armed, and the newest finished ones. */
+  async function listEntryProtection(userId: string): Promise<EntryProtectionView[]> {
+    const finished = deps.listFinishedLimit ?? LIST_FINISHED_LIMIT;
+    const rows = await sql<EntryRow[]>`
+      (SELECT e.*, m.symbol FROM trade.futures_entry_protection e JOIN trade.markets m ON m.id = e.market_id
+        WHERE e.user_id = ${userId} AND e.status IN ('waiting', 'armed'))
+      UNION ALL
+      (SELECT e.*, m.symbol FROM trade.futures_entry_protection e JOIN trade.markets m ON m.id = e.market_id
+        WHERE e.user_id = ${userId} AND e.status NOT IN ('waiting', 'armed')
+        ORDER BY e.created_at DESC, e.id DESC LIMIT ${finished})
+    `;
+    return rows.sort((a, b) => b.created_at.getTime() - a.created_at.getTime() || b.id.localeCompare(a.id)).map(presentEntry);
+  }
+
+  /**
+   * Arms each waiting entry protection on what its order has filled, and grows armed legs as more fills settle. Only
+   * rows with something to do are worked: the order has settled more than the row has dealt with, it is over, or it
+   * never appeared. One row that throws does not stop the others; the first error is thrown at the end.
+   */
+  async function armEntryProtection(): Promise<void> {
+    const waitSeconds = (deps.entryOrderWaitMs ?? ENTRY_ORDER_WAIT_MS) / 1000;
+    const due = await sql<{ id: string }[]>`
+      SELECT e.id FROM trade.futures_entry_protection e
+      LEFT JOIN trade.futures_orders o
+        ON o.user_id = e.user_id AND o.market_id = e.market_id AND o.client_order_id = e.client_order_id
+      WHERE e.status IN ('waiting', 'armed')
+        AND (
+          (o.id IS NULL AND e.updated_at < now() - make_interval(secs => ${waitSeconds}))
+          OR o.filled_qty > e.armed_quantity
+          OR o.status IN ('filled', 'refused', 'rejected', 'cancelled')
+        )
+      ORDER BY e.created_at, e.id
+    `;
+    let failure: unknown = null;
+    for (const { id } of due) {
+      try {
+        await armEntry(id);
+      } catch (err) {
+        failure ??= err;
+      }
+    }
+    if (failure !== null) throw failure;
+  }
+
+  /**
+   * One entry protection. The legs are a linked part pair on the position the order's fills are in
+   * (`entry:<position>:<order>:tp` and `:sl`), sized to the fills that position holds from this order and never above
+   * the position. When that position closes and the order fills on into a new one, a new pair is armed there for the
+   * new fills. When a leg of the pair fired (filled, failed, or was cancelled as its sibling filled) and nothing of it
+   * is still armed, fills that settle after it get a fresh generation of the pair on the same position: the trader
+   * asked for this order's fills to be protected. Legs the trader replaced or cancelled are left alone. The entry row is locked, so one worker sizes it at a time, and the position row is locked as a
+   * protection replace locks it. Nothing is final while the order can still fill.
+   */
+  async function armEntry(id: string): Promise<void> {
+    const waitSeconds = (deps.entryOrderWaitMs ?? ENTRY_ORDER_WAIT_MS) / 1000;
+    await sql.begin(async (tx) => {
+      await tx.unsafe(`SET LOCAL lock_timeout = ${LOCK_TIMEOUT_MS}`);
+      const [entry] = await tx<(EntryRow & { overdue: boolean })[]>`
+        SELECT e.*, m.symbol, e.updated_at < now() - make_interval(secs => ${waitSeconds}) AS overdue
+        FROM trade.futures_entry_protection e JOIN trade.markets m ON m.id = e.market_id
+        WHERE e.id = ${id} AND e.status IN ('waiting', 'armed')
+        FOR UPDATE OF e
+      `;
+      if (!entry) return;
+      const [order] = await tx<{ status: string; qty: string; filled_qty: string; engine_filled_qty: string | null }[]>`
+        SELECT status, qty, filled_qty, engine_filled_qty FROM trade.futures_orders
+        WHERE user_id = ${entry.user_id} AND market_id = ${entry.market_id} AND client_order_id = ${entry.client_order_id}
+      `;
+      if (!order) {
+        // Recorded before the order is placed: no order long after that means it was refused or never sent.
+        if (entry.overdue) {
+          await tx`
+            UPDATE trade.futures_entry_protection SET status = 'not_placed', updated_at = now() WHERE id = ${entry.id}
+          `;
+        }
+        return;
+      }
+      const settled = parseAmount(order.filled_qty);
+      const engine =
+        order.status === 'filled' ? parseAmount(order.qty) : order.engine_filled_qty == null ? null : parseAmount(order.engine_filled_qty);
+      // Over: nothing more will fill. A cancelled order is over once every fill the engine made has settled.
+      const over =
+        order.status === 'filled' ||
+        order.status === 'refused' ||
+        order.status === 'rejected' ||
+        (order.status === 'cancelled' && engine != null && settled >= engine);
+      const dealt = parseAmount(entry.armed_quantity);
+      const finalStatus = (): EntryProtectionStatus => (entry.position_id != null ? 'done' : settled === 0n ? 'not_filled' : 'no_position');
+      const save = async (fields: {
+        status: EntryProtectionStatus;
+        dealt: Amount;
+        positionId: string | null;
+        earlier: Amount;
+        generation?: number;
+      }) => {
+        await tx`
+          UPDATE trade.futures_entry_protection
+          SET status = ${fields.status}, armed_quantity = ${formatAmount(fields.dealt)}, position_id = ${fields.positionId},
+              earlier_quantity = ${formatAmount(fields.earlier)}, generation = ${fields.generation ?? entry.generation},
+              updated_at = now()
+          WHERE id = ${entry.id}
+        `;
+      };
+      const earlierNow = parseAmount(entry.earlier_quantity);
+      if (settled <= dealt) {
+        if (over) await save({ status: finalStatus(), dealt, positionId: entry.position_id, earlier: earlierNow });
+        return;
+      }
+      const positionSide = entry.side === 'buy' ? 'long' : 'short';
+      const [pos] = await tx<{ id: string; size: string }[]>`
+        SELECT id, size FROM trade.positions
+        WHERE user_id = ${entry.user_id} AND market_id = ${entry.market_id} AND side = ${positionSide} AND status = 'open'
+        FOR UPDATE
+      `;
+      if (!pos) {
+        // Nothing open on the order's side: it was closed meanwhile, or the fills only reduced the other side. These
+        // fills are dealt with; later ones are armed wherever they land, and the row stays live while the order works.
+        await save({ status: over ? finalStatus() : entry.status, dealt: settled, positionId: entry.position_id, earlier: earlierNow });
+        return;
+      }
+      const legIds = (generation: number) => ({
+        tp: entryLegId(pos.id, entry.client_order_id, generation, 'tp'),
+        sl: entryLegId(pos.id, entry.client_order_id, generation, 'sl'),
+      });
+      const legRows = (ids: { tp: string; sl: string }) => tx<
+        { client_order_id: string; status: string; cancel_reason: string | null; request_hash: string }[]
+      >`
+        SELECT client_order_id, status, cancel_reason, request_hash FROM trade.futures_conditional_orders
+        WHERE user_id = ${entry.user_id} AND client_order_id IN (${ids.tp}, ${ids.sl})
+      `;
+      // Fills dealt with before this position (on one since closed, or with none open) are not this position's.
+      let earlier = entry.position_id === pos.id ? earlierNow : dealt;
+      let generation = entry.generation;
+      let ids = legIds(generation);
+      let existing = await legRows(ids);
+      if (entry.position_id === pos.id) {
+        // The pair on this position fired and nothing of it is armed: it covered the fills dealt with so far, and the
+        // fills since then get a fresh pair of their own, sized from those fills alone.
+        const fired = existing.some(
+          (r) => r.status === 'filled' || r.status === 'failed' || (r.status === 'cancelled' && r.cancel_reason === 'linked'),
+        );
+        const live = existing.some((r) => r.status === 'armed' || r.status === 'triggered');
+        // A leg the trader replaced or cancelled was their choice: no fresh pair is armed over it.
+        const traders = existing.some(
+          (r) => r.status === 'cancelled' && (r.cancel_reason === 'cancelled' || r.cancel_reason === 'replaced'),
+        );
+        if (fired && !live && !traders) {
+          generation += 1;
+          earlier = dealt;
+          ids = legIds(generation);
+          existing = await legRows(ids);
+        }
+      }
+      const size = parseAmount(pos.size);
+      const ours = settled - earlier;
+      const quantity = ours < size ? ours : size;
+      const side = closingSide(positionSide);
+      const legs: Array<{ attachment: AttachmentLeg; kind: ConditionalKind; price: string | null; clientOrderId: string }> = [
+        { attachment: 'take_profit', kind: 'take_profit', price: entry.take_profit, clientOrderId: ids.tp },
+        { attachment: 'stop_loss', kind: 'stop_market', price: entry.stop_loss, clientOrderId: ids.sl },
+      ];
+      for (const leg of legs) {
+        if (leg.price == null) continue;
+        const found = existing.find((r) => r.client_order_id === leg.clientOrderId);
+        if (!found) {
+          await insertOrder(tx, {
+            userId: entry.user_id,
+            marketId: entry.market_id,
+            symbol: entry.symbol,
+            positionId: pos.id,
+            clientOrderId: leg.clientOrderId,
+            kind: leg.kind,
+            side,
+            quantity,
+            triggerPrice: parseAmount(leg.price),
+            limitPrice: null,
+            trailingDistance: null,
+            trailExtreme: null,
+            attachment: leg.attachment,
+            partLeg: true,
+            requestHash: entry.request_hash,
+          });
+        } else if (found.status === 'armed' && found.request_hash === entry.request_hash) {
+          // More of the order filled: a leg still armed grows to cover it. A leg the trader replaced, or that fired,
+          // is left as it is.
+          await tx`
+            UPDATE trade.futures_conditional_orders
+            SET quantity = ${formatAmount(quantity)}, updated_at = now()
+            WHERE user_id = ${entry.user_id} AND client_order_id = ${leg.clientOrderId} AND status = 'armed'
+              AND quantity < ${formatAmount(quantity)}::numeric
+          `;
+        }
+      }
+      await save({ status: over ? 'done' : 'armed', dealt: settled, positionId: pos.id, earlier, generation });
+    });
+  }
+
   async function evaluate(input: { enabled: boolean }): Promise<{ fired: number }> {
     if (input.enabled !== true) return { fired: 0 };
     // One row that cannot be worked must not stop every other trader's orders: each row's error is kept, the tick
     // carries on, and the first error is thrown at the end for the job to report.
     let failure: unknown = null;
+    // Entry protections first, so a leg armed on this tick's fills is judged on this tick's mark.
+    try {
+      await armEntryProtection();
+    } catch (err) {
+      failure ??= err;
+    }
     const work = async (row: OrderRow) => {
       try {
         await executeClaimed(row);
@@ -1037,7 +1409,17 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
     });
   }
 
-  return { create, list, get, cancel, replaceProtection, evaluate, placeResting };
+  return {
+    create,
+    list,
+    get,
+    cancel,
+    replaceProtection,
+    recordEntryProtection,
+    listEntryProtection,
+    evaluate,
+    placeResting,
+  };
 }
 
 export type ConditionalOrderService = ReturnType<typeof createConditionalOrderService>;
