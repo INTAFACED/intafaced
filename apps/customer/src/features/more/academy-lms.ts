@@ -31,6 +31,20 @@ export const lessonSummary = z.object({
 export type LessonSummary = z.infer<typeof lessonSummary>;
 export const lessonCatalogue = z.array(lessonSummary).max(200);
 
+/** The XP Academy publishes to the rank ladder per certificate (`certXpPlane`). Only the fields the sheet reads. */
+export const certXpPlaneRow = z.object({
+  emitEnabled: z.boolean(),
+  policies: z.array(z.object({ certId: ref, xpDelta: z.number().int().safe() })),
+});
+export type CertXpPlaneRow = z.infer<typeof certXpPlaneRow>;
+
+/** What a certificate did to the holder's rank: the published XP it added, the XP it is worth while publishing is off, or none. */
+export function certificateXp(plane: CertXpPlaneRow, certId: string): { kind: 'added' | 'off'; xp: number } | { kind: 'none' } {
+  const policy = plane.policies.find((row) => row.certId === certId);
+  if (!policy || policy.xpDelta <= 0) return { kind: 'none' };
+  return { kind: plane.emitEnabled ? 'added' : 'off', xp: policy.xpDelta };
+}
+
 export const certDefinition = z.object({
   id: ref,
   title: ref,

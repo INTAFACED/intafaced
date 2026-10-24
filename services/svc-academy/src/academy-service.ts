@@ -95,6 +95,7 @@ import type {
   AcademyUpdateCourseInput,
   AcademyCertIssue,
   AcademyCertIssueRule,
+  AcademyCertRevocation,
   AcademySetCertIssueRuleInput,
 } from '@intafaced/contracts';
 import { CertIssueRules, issueDueAt } from './certs/issue-rules.js';
@@ -2693,6 +2694,59 @@ export class AcademyService {
       ...input,
       now: input.now ?? new Date(),
       sweepRunning: this.options.certIssueSweepSeconds !== undefined,
+    });
+  }
+
+  /**
+   * AC-certificates-03: staff revoke one issued certificate by its public code, once two people approved it (the router
+   * consumes the approval first). The grant turns `revoked` and one revocation record names both people, the reason and
+   * the time. A repeat answers with the first record and writes nothing; an unknown code is `academy.cert_not_found`.
+   */
+  async revokeCert(input: {
+    publicId: string;
+    reason: string;
+    operatorId: string;
+    approverId: string;
+    now?: Date;
+  }): Promise<AcademyCertRevocation> {
+    const reason = input.reason.trim();
+    if (!isPublicId(input.publicId)) throw new AcademyError('Certificate not found', 'academy.cert_not_found');
+    if (reason.length === 0 || reason.length > 500) throw new AcademyError('A revoke needs a reason', 'academy.cert_invalid');
+    const now = input.now ?? new Date();
+    type Row = {
+      public_id: string;
+      cert_id: string;
+      revoked_by: string;
+      approved_by: string;
+      reason: string;
+      revoked_at: Date;
+    };
+    const toRecord = (r: Row): AcademyCertRevocation => ({
+      publicId: r.public_id,
+      certId: r.cert_id,
+      revokedBy: r.revoked_by,
+      approvedBy: r.approved_by,
+      reason: r.reason,
+      revokedAt: r.revoked_at,
+    });
+    return transaction(this.sql, async (tx) => {
+      const grants = await tx<Array<{ user_id: string; cert_id: string; status: string }>>`
+        SELECT user_id, cert_id, status FROM academy.cert_grants WHERE public_id = ${input.publicId} FOR UPDATE
+      `;
+      const grant = grants[0];
+      if (!grant) throw new AcademyError('Certificate not found', 'academy.cert_not_found');
+      const existing = await tx<Row[]>`
+        SELECT public_id, cert_id, revoked_by, approved_by, reason, revoked_at
+          FROM academy.cert_revocations WHERE public_id = ${input.publicId}
+      `;
+      if (existing[0]) return toRecord(existing[0]);
+      await tx`UPDATE academy.cert_grants SET status = 'revoked' WHERE public_id = ${input.publicId}`;
+      const rows = await tx<Row[]>`
+        INSERT INTO academy.cert_revocations (public_id, user_id, cert_id, revoked_by, approved_by, reason, revoked_at)
+        VALUES (${input.publicId}, ${grant.user_id}, ${grant.cert_id}, ${input.operatorId}, ${input.approverId}, ${reason}, ${now})
+        RETURNING public_id, cert_id, revoked_by, approved_by, reason, revoked_at
+      `;
+      return toRecord(rows[0]!);
     });
   }
 

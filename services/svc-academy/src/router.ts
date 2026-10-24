@@ -24,6 +24,8 @@ import {
   academyCertIssueRuleSchema,
   academyCertIssueSchema,
   academyCertIdSchema,
+  academyCertRevocationSchema,
+  academyRevokeCertInputSchema,
   academyItemVideoSchema,
   academySetItemVideoInputSchema,
   academySetVideoTracksInputSchema,
@@ -3232,6 +3234,23 @@ export function createAcademyRouter(
         .input(academySetCertIssueRuleInputSchema)
         .output(academyCertIssueRuleSchema)
         .mutation(({ input, ctx }) => guard(() => academy.setCertIssueRule({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /**
+       * AC-certificates-03: revoke one issued certificate by its public code, under two-person approval
+       * (`academy.cert.revoke`, payload `{publicId, reason}`). The public check then says revoked.
+       */
+      revokeCert: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyRevokeCertInputSchema)
+        .output(academyCertRevocationSchema)
+        .mutation(({ input, ctx }) =>
+          guard(async () => {
+            const approverId = await consumeOperatorApproval(ctx.principal, approvals, input, 'academy.cert.revoke', {
+              publicId: input.publicId,
+              reason: input.reason,
+            });
+            return academy.revokeCert({ publicId: input.publicId, reason: input.reason, operatorId: ctx.principal!.userId, approverId });
+          }),
+        ),
 
       /** AC-certificates-02: one certificate's stored issue rule, or null when staff have set none (the learner claims it). */
       certIssueRule: scopedProcedure('admin:read', { module: 'academy' })

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ACADEMY_RESERVED_TAB_SLUGS } from '@intafaced/contracts';
 import {
+  certificateXp,
   academyVerifyHref,
   issueWait,
   buildTracking,
@@ -369,5 +370,17 @@ describe('certificate issue and verify links (AC-certificates-01/02)', () => {
     expect(academyRoute(academyVerifyHref(code))).toEqual({ kind: 'verify', code });
     expect(academyRoute('/academy/certificates/verify')).toEqual({ kind: 'verify', code: undefined });
     expect(academyRoute('/academy/certificates')).toEqual({ kind: 'tab', tab: 'Certificates' });
+  });
+});
+
+describe('certificateXp', () => {
+  const plane = { emitEnabled: true, policies: [{ certId: 'foundations-v1', xpDelta: 100 }] };
+  it('says the published XP was added, or what it is worth while publishing is off, or none', () => {
+    expect(certificateXp(plane, 'foundations-v1')).toEqual({ kind: 'added', xp: 100 });
+    expect(certificateXp({ ...plane, emitEnabled: false }, 'foundations-v1')).toEqual({ kind: 'off', xp: 100 });
+    expect(certificateXp(plane, 'markets-v1')).toEqual({ kind: 'none' });
+    expect(certificateXp({ emitEnabled: true, policies: [{ certId: 'foundations-v1', xpDelta: 0 }] }, 'foundations-v1')).toEqual({
+      kind: 'none',
+    });
   });
 });
