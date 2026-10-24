@@ -1,5 +1,21 @@
 import type { Sql } from 'postgres';
 import { recordOperatorAccess, type OperatorAccessEntry } from './ledger/operator-owner-balances.js';
+import type { LookupActor } from './ledger/operator-lookup.js';
+import {
+  listOperatorTransactions,
+  operatorAccountSearch,
+  operatorTxList,
+  readBookingRecord,
+  readOperatorStats,
+  searchOperatorAccounts,
+  type BookingRecord,
+  type DeskReader,
+  type OperatorAccountSearchInput,
+  type OperatorAccountSearchOutput,
+  type OperatorStatsOutput,
+  type OperatorTxListInput,
+  type OperatorTxListOutput,
+} from './ledger/operator-desk.js';
 import { toWriteBlockError } from './ledger/write-block.js';
 import { assessClockSkew, readDatabaseNow, sampleClocks, type ClockSkewView } from './ledger/clock-skew.js';
 import {
@@ -207,6 +223,36 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
 
   getTxByKey(idempotencyKey: string): Promise<LedgerTx | null> {
     return this.engine.getTxByKey(idempotencyKey);
+  }
+
+  /** The booking record beside one transaction (OPS-ledger-desk-01). A read; callers record the lookup first. */
+  readBookingRecord(txId: string): Promise<BookingRecord | null> {
+    return readBookingRecord(this.sql, txId);
+  }
+
+  /**
+   * The ledger desk's list and address search (OPS-ledger-desk-01). Each writes its access row before it reads and
+   * refuses when it cannot, here, so every door that serves them inherits the record. Reads; same no-span reasoning.
+   */
+  deskTransactions(actor: LookupActor, input: OperatorTxListInput): Promise<OperatorTxListOutput> {
+    return operatorTxList(this.deskReader(), actor, input);
+  }
+
+  deskAccounts(actor: LookupActor, input: OperatorAccountSearchInput): Promise<OperatorAccountSearchOutput> {
+    return operatorAccountSearch(this.deskReader(), actor, input);
+  }
+
+  private deskReader(): DeskReader {
+    return {
+      recordOperatorAccess: (entry) => this.recordOperatorAccess(entry),
+      readTransactionPage: (input) => listOperatorTransactions(this.sql, input),
+      readAccountPage: (input) => searchOperatorAccounts(this.sql, input),
+    };
+  }
+
+  /** The book's counts. Names no one, so no access row. */
+  readOperatorStats(): Promise<OperatorStatsOutput> {
+    return readOperatorStats(this.sql);
   }
 
   journal(limit?: number, afterSeq?: bigint): Promise<LedgerTx[]> {

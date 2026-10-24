@@ -35,8 +35,12 @@ export type OperatorOwnerBalancesOutput = z.infer<typeof operatorOwnerBalancesOu
 
 export const OWNER_BALANCES_READ_ACTION = 'owner_balances.read' as const;
 
-/** What an access row records: an owner's balances (0024), or one transaction looked up by id or business key (0026). */
-export type OperatorAccessAction = typeof OWNER_BALANCES_READ_ACTION | 'transaction.read' | 'trace.read';
+/**
+ * What an access row records: an owner's balances (0024), one transaction looked up by id or business key (0026), or
+ * a page of the ledger desk's transaction list or account address search (0028).
+ */
+export type OperatorAccessAction =
+  typeof OWNER_BALANCES_READ_ACTION | 'transaction.read' | 'trace.read' | 'transactions.list' | 'accounts.search';
 
 export interface OperatorAccessEntry {
   readonly actorId: string;

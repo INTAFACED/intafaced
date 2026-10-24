@@ -18,7 +18,20 @@ import { DualControlError } from './ledger/dual-control.js';
 import { ActionApprovalConsumeError, consumeLedgerApproval, type ActionApprovalConsumer } from './ledger/action-approval-consume.js';
 import { LOOKUP_UNRECORDED, LookupUnrecordedError, requireLookupAuthority, type LookupActor } from './ledger/operator-lookup.js';
 import { TraceInconsistentError, operatorTraceInputSchema, operatorTraceOutputSchema, traceBusinessKey } from './ledger/operator-trace.js';
-import { LEDGER_TX_NOT_FOUND, operatorTxGet, operatorTxGetInputSchema, operatorTxGetOutputSchema } from './ledger/operator-tx-get.js';
+import {
+  BookingRecordMissingError,
+  LEDGER_TX_NOT_FOUND,
+  operatorTxGet,
+  operatorTxGetInputSchema,
+  operatorTxGetOutputSchema,
+} from './ledger/operator-tx-get.js';
+import {
+  operatorAccountSearchInputSchema,
+  operatorAccountSearchOutputSchema,
+  operatorStatsOutputSchema,
+  operatorTxListInputSchema,
+  operatorTxListOutputSchema,
+} from './ledger/operator-desk.js';
 import { SKEW_BOUND_UNSET, WRITES_BLOCKED_CLOCK_SKEW } from './ledger/clock-skew.js';
 import { ReconciliationControlError } from './ledger/reconciliation-control-error.js';
 import {
@@ -405,10 +418,14 @@ export function registerOperatorHttp(
         if (err instanceof LedgerError && err.code === LEDGER_TX_NOT_FOUND) {
           return reply.code(404).send({ message: 'No transaction has that id.', code: LEDGER_TX_NOT_FOUND });
         }
-        if (err instanceof TraceInconsistentError) {
+        if (err instanceof TraceInconsistentError || err instanceof BookingRecordMissingError) {
           // The book's own integrity, not the operator's request: a server fault, as the tRPC procedure reports it.
-          app.log.error({ err, actor: operator.userId }, 'operator trace: the book answered a transaction booked under another key');
-          return reply.code(500).send({ message: 'The book answered a transaction booked under another key.', code: err.code });
+          app.log.error({ err, actor: operator.userId }, 'operator lookup: the book answered a transaction it cannot account for');
+          const message =
+            err instanceof TraceInconsistentError
+              ? 'The book answered a transaction booked under another key.'
+              : 'The book answered a transaction with no row in its log.';
+          return reply.code(500).send({ message, code: err.code });
         }
         app.log.error({ err, actor: operator.userId }, 'operator lookup failed after it was recorded');
         return reply.code(503).send({ message: 'The ledger could not answer this lookup. Try again.', code: LOOKUP_UNAVAILABLE });
@@ -434,6 +451,50 @@ export function registerOperatorHttp(
       invalid: 'A business key is 1 to 512 characters.',
       read: (actor, input) => traceBusinessKey(ledger, actor, input),
       output: operatorTraceOutputSchema,
+    }),
+  );
+
+  /**
+   * The ledger desk's browsing reads (OPS-ledger-desk-01): the transaction list by asset and time with a cursor and the
+   * ledger's own total, the account address search with volumes, and the book's counts. Same authority as the lookups;
+   * the list and the search write their access row first, inside `LedgerService` (`operator-desk.ts`); the counts name
+   * no one.
+   */
+  const queryOf = (req: OperatorRequest, keys: readonly string[]): Record<string, unknown> => {
+    const query = (req.query ?? {}) as Record<string, unknown>;
+    return Object.fromEntries(keys.filter((k) => query[k] !== undefined && query[k] !== '').map((k) => [k, query[k]]));
+  };
+
+  app.get(
+    '/operator/transactions',
+    lookup({
+      input: (req) => queryOf(req, ['assetId', 'from', 'to', 'before']),
+      inputSchema: operatorTxListInputSchema,
+      invalid: 'An asset is 1 to 32 characters, times are ISO 8601 with from before to, and the cursor is the one a page answered.',
+      read: (actor, input) => ledger.deskTransactions(actor, input),
+      output: operatorTxListOutputSchema,
+    }),
+  );
+
+  app.get(
+    '/operator/accounts',
+    lookup({
+      input: (req) => queryOf(req, ['prefix', 'after']),
+      inputSchema: operatorAccountSearchInputSchema,
+      invalid: 'An address prefix is an owner type, a colon, and the first 1 to 128 characters of the owner id.',
+      read: (actor, input) => ledger.deskAccounts(actor, input),
+      output: operatorAccountSearchOutputSchema,
+    }),
+  );
+
+  app.get(
+    '/operator/stats',
+    lookup({
+      input: () => ({}),
+      inputSchema: z.object({}).strict(),
+      invalid: 'The counts take no input.',
+      read: () => ledger.readOperatorStats(),
+      output: operatorStatsOutputSchema,
     }),
   );
 

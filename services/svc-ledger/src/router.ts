@@ -56,7 +56,13 @@ import {
 import { isWriteBlockCode } from './ledger/write-block.js';
 import { operatorTraceInputSchema, operatorTraceOutputSchema, traceBusinessKey, TraceInconsistentError } from './ledger/operator-trace.js';
 import { LookupUnrecordedError, requireLookupAuthority } from './ledger/operator-lookup.js';
-import { LEDGER_TX_NOT_FOUND, operatorTxGet, operatorTxGetInputSchema, operatorTxGetOutputSchema } from './ledger/operator-tx-get.js';
+import {
+  BookingRecordMissingError,
+  LEDGER_TX_NOT_FOUND,
+  operatorTxGet,
+  operatorTxGetInputSchema,
+  operatorTxGetOutputSchema,
+} from './ledger/operator-tx-get.js';
 import { ReconciliationControlError } from './ledger/reconciliation-control-error.js';
 import {
   defineReconciliationControl,
@@ -537,7 +543,7 @@ export function createLedgerRouter(
         try {
           return await traceBusinessKey(ledger, { actorId: ctx.principal.userId, requestId: ctx.requestId ?? null }, input);
         } catch (err) {
-          if (err instanceof TraceInconsistentError || err instanceof LookupUnrecordedError) {
+          if (err instanceof TraceInconsistentError || err instanceof BookingRecordMissingError || err instanceof LookupUnrecordedError) {
             throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err.code, cause: err });
           }
           throw toTrpcError(err);
@@ -558,7 +564,7 @@ export function createLedgerRouter(
           if (err instanceof LedgerError && err.code === LEDGER_TX_NOT_FOUND) {
             throw new TRPCError({ code: 'NOT_FOUND', message: err.code, cause: err });
           }
-          if (err instanceof LookupUnrecordedError) {
+          if (err instanceof LookupUnrecordedError || err instanceof BookingRecordMissingError) {
             throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err.code, cause: err });
           }
           throw toTrpcError(err);

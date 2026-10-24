@@ -47,6 +47,8 @@ async function seeded(opts: { failAccess?: boolean; failRead?: boolean; lie?: bo
       if (opts.failRead) throw new Error('connection terminated: secret-host:5432');
       return opts.lie ? book.getTx(tx.id) : book.getTxByKey(key);
     },
+    readBookingRecord: async (id: string) =>
+      id === tx.id ? { seq: '1', bookedAt: tx.postedAt.toISOString(), reference: tx.id, event: null } : null,
   } as unknown as LedgerService;
   const app: FastifyInstance = Fastify({ logger: false });
   registerOperatorHttp(app, ledger, tokens, stubApprovalConsumer(CONFIRM));
