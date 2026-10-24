@@ -4,6 +4,16 @@ export interface Options {
   readonly databaseUrl: string;
 }
 
+/**
+ * How long dropping a run's own TEST database may take once its connection is open (database.ts). DROP DATABASE waits
+ * for a forced checkpoint, which on a busy shared test server (a CI shard dropping many databases) is slow.
+ */
+export const CLEANUP_DROP_MS = 9_000;
+/** The cleanup connection's own connect wait, inside the cleanup budget. */
+export const CLEANUP_CONNECT_S = 3;
+/** The CLI watchdog's margin past the deadline: startup (module import), the cleanup connect and the drop. */
+export const WATCHDOG_MARGIN_MS = 5_000 + CLEANUP_CONNECT_S * 1000 + CLEANUP_DROP_MS;
+
 /** Cancels SQL clients on expiry; checks surround every effect, including cleanup-bound setup. */
 export class Deadline {
   private readonly expiresAt: number;
