@@ -39,6 +39,7 @@ const payoutRequest: ActionDef = { id: 'payout.request', need: { kind: 'money', 
 const payoutSend: ActionDef = { id: 'payout.send', need: { kind: 'money', money: 'payout', act: 'send' } };
 const subscriptionManage: ActionDef = { id: 'subscription.manage', need: { kind: 'owner', activeAccount: true } };
 const linkCreate: ActionDef = { id: 'link.create', need: { kind: 'owner', activeAccount: true } };
+const productManage: ActionDef = { id: 'product.manage', need: { kind: 'permission', permission: 'products.manage' } };
 
 const EXTRA: Partial<Record<(typeof MERCHANT_PORTAL_ROOMS)[number], readonly ActionDef[]>> = {
   subscriptions: [subscriptionManage],
@@ -69,6 +70,9 @@ const EXTRA: Partial<Record<(typeof MERCHANT_PORTAL_ROOMS)[number], readonly Act
   approvals: [{ id: 'payout.approve', need: { kind: 'permission', permission: 'payout.approve' } }],
   'payout-new': [payoutRequest, payoutSend],
   'checkout-settings': [{ id: 'checkout.save', need: { kind: 'owner', activeAccount: false } }],
+  products: [productManage],
+  'product-new': [productManage],
+  product: [productManage],
 };
 
 export interface RoomAccessContext {

@@ -29,5 +29,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     PAY_KYB_APPLICATION_DUE_DAYS: '30',
     // LOCAL-TEST scanner for information-request files: infected only when a file carries the EICAR test string. svc-pay refuses it outside APP_ENV dev or test.
     PAY_KYB_MALWARE_SCANNER: 'local-test-eicar',
+    // LOCAL-TEST value (tooling/profiles/test-owner-values/pay.json): the largest product image, 500 KB.
+    PAY_PRODUCT_IMAGE_MAX_BYTES: '500000',
   }),
 });

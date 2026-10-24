@@ -131,6 +131,7 @@ import { registerCaptureReconcileRoutes } from './capture-reconcile-routes.js';
 import { setCaptureReconcileLogger } from './capture-reconcile.js';
 import { loadTeamEmailInviteLimit } from './merchant-ops/team-email.js';
 import { loadWebhookRetryLimit } from './merchant-ops/webhooks.js';
+import { readProductImageRule } from './catalog/image-rules.js';
 import { registerMerchantEmailInviteRoutes } from './merchant-ops/team-email-claim-routes.js';
 import { claimEmailTeamInvites } from './merchant-ops/team-email-claim.js';
 
@@ -633,6 +634,7 @@ export const appRouter = mergeRouters(
     receiptPlaces: createReceiptAssetPlaces(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey),
     depositSettings: { sql, approvals: actionApprovals },
     categoryPolicy: { sql, approvals: actionApprovals },
+    catalog: { sql, imageRule: readProductImageRule(process.env) },
     limits: { sql, approvals: actionApprovals },
     custody: {
       sql,

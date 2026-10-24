@@ -185,6 +185,10 @@
     "./business-category": {
       "types": "./dist/business-category.d.ts",
       "default": "./dist/business-category.js"
+    },
+    "./merchant-catalog": {
+      "types": "./dist/merchant-catalog.d.ts",
+      "default": "./dist/merchant-catalog.js"
     }
   },
   "scripts": {

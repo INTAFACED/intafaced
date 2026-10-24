@@ -15,6 +15,7 @@ import { createMoneyMock } from './money/mock.mjs';
 import { createPaymentsMock } from './payments/mock.mjs';
 import { createSettingsMock } from './settings/mock.mjs';
 import { createSettingsBMock } from './settings/b-mock.mjs';
+import { createCatalogMock } from './catalog/mock.mjs';
 import { createStepUpMock, TEST_TOTP_CODE } from './mock/stepup.mjs';
 
 export { USER_ID, TEST_TOTP_CODE };
@@ -56,6 +57,7 @@ export function createPortalMock(
     createWritesMock(ctx),
     createSettingsBMock(ctx),
     createSettingsMock(ctx),
+    createCatalogMock(ctx),
   ];
 
   // A reload or a typed address starts the app again with nothing in memory, and the app asks the identity service to

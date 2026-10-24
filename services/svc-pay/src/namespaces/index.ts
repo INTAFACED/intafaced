@@ -10,6 +10,7 @@ import type { FounderAuthority } from '../founder-authority.js';
 import type { MetricsRuntime } from '../metrics/index.js';
 import type { RegistriesMountDeps } from '../registries/index.js';
 import type { CategoryPolicyMountDeps } from '../onboarding-policy/category-router.js';
+import { createMerchantCatalogRouter, type CatalogMountDeps } from '../catalog/router.js';
 import type { DepositSettingsMountDeps } from '../custody/deposits/settings.js';
 import type { CustodyMountDeps } from '../custody/router.js';
 import type { PurchaseHoldMountDeps } from '../withdrawals/purchase-holds/router.js';
@@ -61,6 +62,8 @@ export function createPayNamespaces(deps: {
   metrics?: MetricsRuntime;
   registries?: RegistriesMountDeps;
   categoryPolicy?: CategoryPolicyMountDeps;
+  /** The product catalogue (M-catalogue-01). Absent: every merchantCatalog procedure refuses. */
+  catalog?: CatalogMountDeps;
   depositSettings?: DepositSettingsMountDeps;
   limits?: WithdrawalLimitsMountDeps;
   custody?: CustodyMountDeps;
@@ -137,6 +140,7 @@ export function createPayNamespaces(deps: {
     createConversionRouter(deps.conversion),
     createPayHaltsRouter(deps.founderAuthority, deps.payHalts),
     createMerchantOpsRouter(opsDeps), // W15: merchantOps.*  (founderAdmin.ops.* is mounted via createFounderAdminRouter above)
+    createMerchantCatalogRouter(deps.catalog), // M-catalogue-01: merchantCatalog.*
     // W10: b2bRamp.* refuses while pay.b2b_ramp is off, including a direct caller.
     createB2bRampRouter({ founderAuthority: deps.founderAuthority, sql: deps.sql }),
     // M-plat-org-10: receipt preview and send. Email switches mount on the portal `merchant` router.

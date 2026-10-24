@@ -19,7 +19,11 @@ export const BUSINESS_CATEGORY_CLASSES = ['permissionless', 'restricted', 'prohi
 export const businessCategoryClassSchema = z.enum(BUSINESS_CATEGORY_CLASSES);
 export type BusinessCategoryClass = z.infer<typeof businessCategoryClassSchema>;
 
-/** The one rail a permissionless or restricted business may take payments on. */
+/**
+ * The one rail a permissionless or restricted business may take payments on. Source: the RC-merchant-08 spec (merchant
+ * recon of 2026-10-20), "permissionless (crypto-native only)" and "a restricted category removes card rails from rail
+ * selection". The rail registry holds `crypto-native` and `card-sandbox` only, so both classes come to this one rail.
+ */
 export const CATEGORY_CRYPTO_ONLY_RAIL = 'crypto-native';
 
 export const businessCategoryKeySchema = z.string().regex(/^[a-z][a-z0-9-]{1,62}$/, 'lowercase letters, digits and hyphens');

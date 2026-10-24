@@ -26,6 +26,8 @@ const PERMISSIONS = [
   'payouts.read',
   'webhooks.read',
   'webhooks.manage',
+  'products.read',
+  'products.manage',
 ];
 const READS = [
   'team.read',
@@ -41,12 +43,13 @@ const READS = [
   'profile.read',
   'activity.read',
   'payouts.read',
+  'products.read',
 ];
 const HELD = {
   owner: PERMISSIONS,
   admin: PERMISSIONS,
   finance: [...READS, 'disputes.respond', 'invoices.write', 'exports.create', 'notifications.manage', 'payout.request', 'payout.approve'],
-  developer: [...READS, 'exports.create', 'webhooks.read', 'webhooks.manage'],
+  developer: [...READS, 'exports.create', 'webhooks.read', 'webhooks.manage', 'products.manage'],
   viewer: READS,
 };
 /** One flag per permission, as the service sends them. */
@@ -69,6 +72,7 @@ const AREA_OF = {
   payout: 'money_out',
   payouts: 'money_out',
   webhooks: 'developer',
+  products: 'payments',
 };
 const AREAS = ['payments', 'money_out', 'team', 'developer', 'reports', 'risk', 'account'];
 const REQUIRES = {
@@ -81,12 +85,13 @@ const REQUIRES = {
   'payout.request': ['payouts.read'],
   'payout.approve': ['payouts.read'],
   'webhooks.manage': ['webhooks.read'],
+  'products.manage': ['products.read'],
 };
 const ROLE_DESCRIPTION = {
   owner: 'TEST stand-in. The person who opened the merchant account. Can do everything.',
   admin: 'TEST stand-in. Can do everything the owner can, including managing the team.',
   finance: 'TEST stand-in. Reads, disputes, invoices, exports, notification settings and payouts.',
-  developer: 'TEST stand-in. Reads, exports and webhooks.',
+  developer: 'TEST stand-in. Reads, exports, webhooks and products.',
   viewer: 'TEST stand-in. Reads only.',
 };
 const isRead = (key) => key.endsWith('.read');

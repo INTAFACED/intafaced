@@ -63,6 +63,9 @@ export const MERCHANT_PORTAL_ROOMS = [
   'settings-security',
   'activity',
   'invoice-new',
+  'products',
+  'product-new',
+  'product',
 ] as const;
 
 export const merchantPortalRoomSchema = z.enum(MERCHANT_PORTAL_ROOMS);

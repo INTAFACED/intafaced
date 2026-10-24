@@ -203,6 +203,8 @@ const en = {
   perm_payouts_read: 'See payouts',
   perm_webhooks_read: 'See webhooks',
   perm_webhooks_manage: 'Manage webhooks',
+  perm_products_read: 'See products',
+  perm_products_manage: 'Add and change products',
   permUnknown: 'A permission this page has no name for yet ({key})',
   roleCan_owner: 'Everything, including managing the team and admins.',
   teamHistoryTitle: 'Team history',
