@@ -44,6 +44,12 @@ export const publicAuthCopy = defineCopy(
     needCode: 'Your password is right. Enter it again with the six-digit code from your authenticator app, or with a recovery code.',
     codeMismatch:
       'That code did not work. Every code works only once, and an app code changes every 30 seconds. Enter your password again with a new code.',
+    needPasskey: 'Your password is right. Now confirm with one of your passkeys.',
+    needCodeOrPasskey:
+      'Your password is right. Confirm with one of your passkeys, or enter your password again with the six-digit code from your authenticator app or a recovery code.',
+    usePasskeyStep: 'Use your passkey',
+    passkeyStepStopped: 'The passkey did not answer. Try again, or enter your password again.',
+    passkeyMismatch: 'That passkey is not one this account signs in with. Enter your password again, then use one of your own passkeys.',
   } as const,
   {
     es: {

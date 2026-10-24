@@ -19,7 +19,7 @@ import { ActionApprovalError } from './action-approval-service.js';
 import { AuthError } from './auth-service.js';
 
 /**
- * The 13 security scopes of ENGINE STP-3, the security lock's unlock request (W-withdraw-09) and approving a new device
+ * The 13 security scopes of ENGINE STP-3, binding passkeys to purposes and the passkey second step (I-signin-sessions-10), the security lock's unlock request (W-withdraw-09) and approving a new device
  * from a trusted session (I-signin-sessions-07). Close account, contact
  * changes and payments have their own guards.
  */
@@ -27,6 +27,8 @@ export const SECURITY_STEP_UP_SCOPES = [
   'identity.step_up.passkey_add',
   'identity.step_up.passkey_remove',
   'identity.step_up.passkey_rename',
+  'identity.step_up.passkey_purposes',
+  'identity.step_up.passkey_second_step',
   'identity.step_up.totp_replace',
   'identity.step_up.totp_disable',
   'identity.step_up.recovery_codes_regenerate',

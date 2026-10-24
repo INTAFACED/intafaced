@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { ROOT, mailedLines, signUpInBrowser } from './stack.mjs';
-import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, nextCode, virtualAuthenticator } from './identity-factors.mjs';
+import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, forgetSession, nextCode, virtualAuthenticator } from './identity-factors.mjs';
 
 // J-identity-04, in the running app (docs/roadmap/journeys.json): I turn on two-factor sign-in and check my Security
 // centre. Tests titled "J-identity-04 #<n>" prove a whole step; the others prove part of one and say which.
@@ -352,4 +352,97 @@ test(`${J} #6 "my codes do not work" names a clock that is out by seconds, or sa
   await expect(help.getByRole('status')).toHaveText(/This device’s clock is (89|90|91) seconds ahead of ours\./);
   await expect(help.getByRole('button', { name: 'Replace', exact: true })).toHaveCount(0);
   await skewed.close();
+});
+
+/** The passkeys a virtual authenticator holds, by their base64url ids. */
+async function heldPasskeys({ cdp, authenticatorId }) {
+  const { credentials } = await cdp.send('WebAuthn.getCredentials', { authenticatorId });
+  return credentials.map((c) => Buffer.from(c.credentialId, 'base64').toString('base64url'));
+}
+
+test(`${J} #4 sets a passkey as the second step and keeps one for signing in: another person's passkey is refused, and the kept passkey is the only one offered`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const device = await virtualAuthenticator(page);
+
+  // Someone else signs up on this browser first and adds a passkey, which stays on the same authenticator.
+  const other = person('po');
+  await signUpInBrowser(page, other);
+  await addPasskey(page);
+  const [theirs] = await heldPasskeys(device);
+  await forgetSession(page);
+
+  // This person adds a passkey on the device, then asks for it after the password.
+  const who = person('ps');
+  await signUpInBrowser(page, who);
+  await addPasskey(page);
+  const mine = (await heldPasskeys(device)).find((id) => id !== theirs);
+  const names = page.locator('.security__passkey-names');
+  const second = names.getByRole('group', { name: 'A passkey after your password' });
+  await expect(second).toContainText('Off: your password signs you in');
+  await second.getByRole('button', { name: 'Ask for a passkey' }).click();
+  await second.getByRole('button', { name: 'Save with a passkey' }).click();
+  await expect(names.getByRole('status')).toHaveText('Saved how you sign in.');
+  await expect(second).toContainText('On: signing in with your password also asks for one of your passkeys.');
+
+  // A second passkey, a security key, kept for signing in only.
+  const key = await virtualAuthenticator(page, 'usb');
+  await page.getByRole('button', { name: 'Add passkey' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Add passkey' }).click();
+  await page.locator('.failure').getByRole('button', { name: 'Confirm it is you' }).click();
+  await page
+    .getByRole('dialog', { name: /confirm it’s you/i })
+    .getByRole('button', { name: 'Use a passkey' })
+    .click();
+  await expect(names.locator('.security__row')).toHaveCount(2);
+  const [kept] = await heldPasskeys(key);
+  const securityKey = names.locator('.security__row', { hasText: 'Security key' });
+  await expect(securityKey).toContainText('Used for: every action');
+  await securityKey.getByRole('button', { name: /^Choose what passkey/ }).click();
+  await securityKey.getByLabel('Signing in').check();
+  await securityKey.getByRole('button', { name: 'Save with a passkey' }).click();
+  await expect(names.getByRole('status')).toHaveText('Saved what this passkey is for.');
+  await expect(securityKey).toContainText('Used for: Signing in');
+  await expect(names.locator('.security__row', { hasText: 'This device' })).toContainText('Used for: every action');
+  await forgetSession(page);
+
+  async function password() {
+    await page.goto('/login');
+    await page.fill('input[name=identifier]', who.email);
+    await page.fill('input[name=password]', who.password);
+    const answer = page.waitForResponse((res) => res.url().includes('/api/identity/trpc/auth.login'));
+    await page.getByRole('button', { name: /^sign in$/i }).click();
+    const body = await (await answer).json();
+    await expect(page.getByRole('alert')).toContainText('Your password is right. Now confirm with one of your passkeys.');
+    return body.error.data.secondStep;
+  }
+
+  // The password is not enough now. The kept passkey is the only one offered; the device's own passkey is not.
+  const offered = await password();
+  expect(offered.totp).toBe(false);
+  expect(offered.passkey.allowCredentials.map((c) => c.id)).toEqual([kept]);
+  expect(mine).toBeDefined();
+
+  // A browser that offers the other person's passkey instead gets it refused, and nothing signs in.
+  await page.route('**/api/identity/trpc/auth.login**', async (route) => {
+    const res = await route.fetch();
+    const body = await res.json();
+    body.error.data.secondStep.passkey.allowCredentials = [{ type: 'public-key', id: theirs }];
+    await route.fulfill({ response: res, json: body });
+  });
+  await password();
+  await page.getByRole('button', { name: 'Use your passkey' }).click();
+  await expect(page.getByRole('alert')).toContainText('That passkey is not one this account signs in with.');
+  await expect(page).toHaveURL(/\/login/);
+  await page.unroute('**/api/identity/trpc/auth.login**');
+
+  // The person's own kept passkey signs them in.
+  await password();
+  await page.getByRole('button', { name: 'Use your passkey' }).click();
+  await page.waitForURL((url) => url.pathname !== '/login');
+  await page.goto('/uc/safe');
+  await expect(page.locator('.security__passkey-names')).toContainText(
+    'On: signing in with your password also asks for one of your passkeys.',
+  );
 });

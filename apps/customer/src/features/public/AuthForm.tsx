@@ -10,7 +10,7 @@ import { useAccountViewStatus } from '../account/ViewSync';
 import { savePreferences } from '../../shared/preferences';
 import { passwordIssue } from '../../shared/password';
 import { useSession, sessionSchema, type Session } from '../session/session';
-import { signInWithPasskey } from '../session/webauthn';
+import { signAssertion, signInWithPasskey } from '../session/webauthn';
 import { useLocation, navigate } from '../../app/location';
 import { findRoom, roomTitle } from '../../app/navigation';
 import { publicAuthContext, publicAuthHref } from './auth-context';
@@ -58,6 +58,8 @@ export function AuthForm({ register }: { register: boolean }) {
     [totp, setTotp] = useState(''),
     [region, setRegion] = useState('');
   const [missingPasskeyIdentifier, setMissingPasskeyIdentifier] = useState(false);
+  // The passkey asked for after the password did not answer (cancelled or unavailable); the challenge stays usable.
+  const [passkeyStopped, setPasskeyStopped] = useState(false);
   const [problem, setProblem] = useState<Problem | null>(null),
     [journal, setJournal] = useState(readAuth);
   const [selectedRef, setSelectedRef] = useState<string | null>(journal.records.at(-1)?.localRef ?? null);
@@ -215,6 +217,7 @@ export function AuthForm({ register }: { register: boolean }) {
     setPending(true);
     setProblem(null);
     setResult(null);
+    setPasskeyStopped(false);
     const stage = { record: null as AuthRecord | null };
     const save = (kind: AuthKind) => {
       if (!same(original)) return false;
@@ -308,6 +311,54 @@ export function AuthForm({ register }: { register: boolean }) {
       }
     }
   }
+  /**
+   * The second step by passkey (I-signin-sessions-10): the service answered the password with a single-use challenge
+   * for this account's sign-in passkeys. The browser signs it and the answer opens the session; a passkey of another
+   * account is refused and the password is asked for again.
+   */
+  async function passkeySecondStep(options: NonNullable<NonNullable<Extract<ApiResult<Session>, { ok: false }>['secondStep']>['passkey']>) {
+    if (!sameRender() || (running.current && same(running.current)) || pending || restoring) return;
+    const original: Original = {
+      api,
+      owner: userId,
+      context,
+      url: renderedContext.url,
+      generation: renderedContext.generation,
+      destination,
+      invite: inviteToken,
+      target: inviteToken ? 'invite' : findRoom(destination.split(/[?#]/)[0] ?? '/money')!.path,
+    };
+    const controller = new AbortController();
+    abort.current = controller;
+    running.current = original;
+    setPending(true);
+    setPasskeyStopped(false);
+    try {
+      const assertion = await signAssertion(options, controller.signal);
+      if (!same(original)) return;
+      if (!assertion.ok) {
+        setPasskeyStopped(true);
+        return;
+      }
+      let answer = await original.api.mutate('identity', 'auth.loginSecondStepPasskey', { credential: assertion.data }, sessionSchema, {
+        signal: controller.signal,
+      });
+      if (!same(original)) return;
+      if (answer.ok && !validAuthSession(answer.data)) answer = authoredRefusal('uncertain', { key: 'unverifiedWrite' });
+      setPassword('');
+      setTotp('');
+      if (answer.ok) {
+        commit(answer.data);
+        navigate(original.invite ? `/invite?token=${encodeURIComponent(original.invite)}` : original.destination, true);
+      } else {
+        setResult(answer);
+      }
+    } finally {
+      if (running.current === original) running.current = null;
+      if (abort.current === controller) abort.current = null;
+      if (same(original)) setPending(false);
+    }
+  }
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!sameRender()) return;
@@ -320,14 +371,21 @@ export function AuthForm({ register }: { register: boolean }) {
       ? result.deviceAuthorisation
       : undefined;
   // The second step's own words, only for a definite answer on this page.
-  const secondStep =
-    result && !result.ok && result.reason !== 'uncertain'
-      ? result.code === 'auth.mfa_required'
-        ? ('needCode' as const)
-        : result.code === 'auth.mfa_invalid'
-          ? ('codeMismatch' as const)
+  const definite = result && !result.ok && result.reason !== 'uncertain' ? result : null;
+  const passkeyOptions = definite?.code === 'auth.mfa_required' ? (definite.secondStep?.passkey ?? null) : null;
+  const secondStep = definite
+    ? definite.code === 'auth.mfa_required'
+      ? passkeyOptions
+        ? definite.secondStep?.totp
+          ? ('needCodeOrPasskey' as const)
+          : ('needPasskey' as const)
+        : ('needCode' as const)
+      : definite.code === 'auth.mfa_invalid'
+        ? ('codeMismatch' as const)
+        : definite.code === 'auth.webauthn_invalid'
+          ? ('passkeyMismatch' as const)
           : null
-      : null;
+    : null;
   return (
     <section className="auth-layout" lang={publicLanguageFor('SIGN IN')}>
       <div className="auth-story">
@@ -571,9 +629,15 @@ export function AuthForm({ register }: { register: boolean }) {
                     </p>
                   ) : secondStep ? (
                     // The second step, on the page that asks for it. A wrong code and a used one read the same.
-                    <p className="failure" role="alert" lang={languageFor(secondStep)}>
-                      {t(secondStep)}
-                    </p>
+                    <div className="failure" role="alert">
+                      <p lang={languageFor(secondStep)}>{t(secondStep)}</p>
+                      {passkeyOptions && (
+                        <Button variant="secondary" disabled={pending} onClick={() => void passkeySecondStep(passkeyOptions)}>
+                          {t('usePasskeyStep')}
+                        </Button>
+                      )}
+                      {passkeyOptions && passkeyStopped && <p lang={languageFor('passkeyStepStopped')}>{t('passkeyStepStopped')}</p>}
+                    </div>
                   ) : result.code === 'auth.account_frozen' && result.reason !== 'uncertain' && result.accountState ? (
                     // Sent only after the password verified: name the state and the one way forward.
                     <div className="failure" role="alert">

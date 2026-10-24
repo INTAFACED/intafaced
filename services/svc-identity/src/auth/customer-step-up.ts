@@ -33,6 +33,7 @@ import {
 import { newApprovalIds } from './action-approval-store.js';
 import { AuthError, type AuthService } from './auth-service.js';
 import { SqlCustomerStepUpStore, type CustomerStepUpRow } from './customer-step-up-store.js';
+import { stepUpPurposeOf } from './passkey-purposes.js';
 import { generateChallenge, type AuthenticationOptionsJSON, type AuthenticationResponseJSON } from './webauthn.js';
 
 /** Begins per user inside the window. A person retrying a sheet fits; a spray does not. */
@@ -101,7 +102,7 @@ export class CustomerStepUpService {
   ): Promise<StepUpBeginResult> {
     const bound = bindCustomerStepUp(principal.userId, input);
     if (!bound.ok) refuse(bound.code);
-    const material = await this.auth.customerStepUpMaterial(principal.userId);
+    const material = await this.auth.customerStepUpMaterial(principal.userId, stepUpPurposeOf(bound.scope));
     const now = this.clock();
     const challengeId = randomUUID();
     const webauthnChallenge = material.credentials.length > 0 ? generateChallenge() : null;
@@ -163,6 +164,7 @@ export class CustomerStepUpService {
     await this.auth.proveFreshFactor({
       userId: principal.userId,
       sessionId: principal.sessionId,
+      purpose: stepUpPurposeOf(preview.scope),
       ...(input.totpCode ? { totpCode: input.totpCode } : {}),
       ...(input.webauthn && preview.webauthnChallenge ? { webauthn: input.webauthn, webauthnChallenge: preview.webauthnChallenge } : {}),
     });
