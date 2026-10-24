@@ -447,3 +447,95 @@ test(`${J} #6 the mark crosses a trigger: armed, triggered, filled through a red
   ]);
   expect(orders.filter((o) => (o.clientOrderId ?? '').startsWith(`cond:${other.id}`))).toEqual([]);
 });
+
+test(`${J} #7 a fired stop fails: the reason in words and what happened to the position`, async ({ page }) => {
+  test.setTimeout(240_000);
+  const me = await api(account());
+  // #6 closed the position: a new one, and a reduce-only sell resting 3% above the mark for all of it. A take profit
+  // or stop loss that fires then has nothing left to close, which the service refuses rather than over-closing.
+  const position = await openPosition(me);
+  const size = position.contracts;
+  const mark = await markOf(me);
+  const resting = await me.post('/api/v1/futures/orders', {
+    symbol: SYMBOL,
+    side: 'sell',
+    type: 'limit',
+    price: away(mark, 300),
+    amount: size,
+    reduceOnly: true,
+    marginMode: 'isolated',
+    clientOrderId: `${J}-cover-${Date.now()}`,
+  });
+  expect(resting.status, JSON.stringify(resting.body)).toBeLessThan(300);
+  expect(resting.body).toMatchObject({ status: 'open', reduceOnly: true });
+  const restingId = resting.body.orderId ?? resting.body.id;
+
+  await desk(page);
+  const dialog = await protection(page);
+  for (let attempt = 0; ; attempt += 1) {
+    const now = await markOf(me);
+    await dialog.getByLabel(/Take-profit trigger/).fill(fromUnits(now + (now * 3n) / 10_000n + 10n ** 18n).split('.')[0]);
+    await dialog.getByLabel(/Stop-loss trigger/).fill(fromUnits(now - (now * 3n) / 10_000n - 10n ** 18n).split('.')[0]);
+    const sent = page.waitForResponse((r) => r.url().includes(`/positions/${position.id}/protection`) && r.request().method() === 'PUT');
+    await dialog.getByRole('button', { name: 'Save' }).click();
+    const answer = await sent;
+    if (answer.status() === 200) break;
+    expect((await answer.json()).error).toBe('trade.protection_wrong_side');
+    expect(attempt).toBeLessThan(4);
+  }
+
+  // The walk crosses one leg. It fires and fails: the dialog says why and where the position stands.
+  const current = dialog.getByRole('region', { name: 'On this position now' });
+  const failedLeg = current.locator('[data-status="failed"]');
+  await expect(failedLeg.first()).toBeVisible({ timeout: 180_000 });
+  const why = 'It fired, but your other close orders already cover the whole position, so it had nothing left to close.';
+  const where = `Nothing was closed by it. Now the position is open: Long ${size}.`;
+  await expect(failedLeg.first()).toContainText('Failed');
+  await expect(failedLeg.first()).toContainText(why);
+  await expect(failedLeg.first()).toContainText(where);
+
+  // The Orders tab keeps the same record.
+  await dialog.getByRole('button', { name: 'Close dialog' }).first().click();
+  await page.getByRole('tab', { name: 'Orders' }).click();
+  const row = page
+    .getByRole('region', { name: 'Take-profit, stop-loss and stop orders' })
+    .getByRole('row')
+    .filter({ hasText: why })
+    .first();
+  await expect(row).toContainText('Failed');
+  await expect(row).toContainText(where);
+
+  // Through the API: failed by name, nothing closed, the position as it was, and no close order placed for it.
+  const failed = (await legs(me, position.id)).find((o) => o.status === 'failed');
+  expect(failed).toMatchObject({ failureReason: 'trade.futures_reduce_only_exceeds_position' });
+  expect(failed.closedQuantity ?? '0').toMatch(/^0(\.0+)?$/);
+  const after = (await me.get('/api/v1/positions')).body.find((p) => p.id === position.id);
+  expect(after).toMatchObject({ status: 'open', contracts: size });
+  const { body } = await me.get('/api/v1/futures/orders?scope=all&limit=50');
+  const orders = body.orders ?? body;
+  expect(orders.filter((o) => (o.clientOrderId ?? '').startsWith(`cond:${failed.id}`) && !/^0(\.0+)?$/.test(o.filledQty ?? '0'))).toEqual(
+    [],
+  );
+
+  // Back to nothing open for the next step: any leg still armed comes off first (so it cannot fire once the cover is
+  // gone), then the resting sell, then a reduce-only close.
+  for (const leg of (await legs(me, position.id)).filter((o) => o.status === 'armed')) {
+    expect((await me.delete(`/api/v1/futures/conditional-orders/${leg.id}`)).status).toBe(200);
+  }
+  expect((await me.delete(`/api/v1/futures/orders/${restingId}`)).status).toBe(200);
+  const close = await me.post('/api/v1/futures/orders', {
+    symbol: SYMBOL,
+    side: 'sell',
+    type: 'market',
+    amount: size,
+    reduceOnly: true,
+    marginMode: 'isolated',
+    clientOrderId: `${J}-close-7-${Date.now()}`,
+  });
+  expect(close.status, JSON.stringify(close.body)).toBeLessThan(300);
+  await until(
+    async () => (await me.get('/api/v1/positions')).body.filter((p) => p.id === position.id && p.status === 'open'),
+    (open) => open.length === 0,
+    'no open position after the close',
+  );
+});
