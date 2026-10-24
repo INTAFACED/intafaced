@@ -7,5 +7,9 @@ export default ({ c, secrets, dbUrl, PORTS }) => ({
   env: () => ({
     ...c('svc-campaigns', PORTS.campaigns),
     DATABASE_URL: dbUrl('svc_campaigns', secrets),
+    // LOCAL TEST only, the labelled value in tooling/profiles/test-owner-values/campaigns.json: the platform time zone the
+    // campaign windows and calendar are read in. Production stays blank and every campaign activation and join refuses
+    // campaigns.timezone_unset until the owner sets it. J-campaigns-01 makes its TEST campaigns through the founders.
+    CAMPAIGNS_PLATFORM_TIME_ZONE: 'UTC',
   }),
 });

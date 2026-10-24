@@ -764,6 +764,7 @@ export const rooms: readonly Room[] = [
     area: 'more',
     hidden: true,
   },
+  { path: '/campaigns/:campaignId', title: 'Campaign', description: 'One published campaign', door: 'More', area: 'more', hidden: true },
   { path: '/academy/:slug', title: 'Academy reader', description: 'Read a learning path', door: 'More', area: 'more', hidden: true },
   {
     path: '/market/strategy',
@@ -791,6 +792,7 @@ export const rooms: readonly Room[] = [
       ['support', 'Support', 'Tickets and published answers'],
       ['campaigns', 'Activities', 'Signed-in campaigns'],
       ['campaigns/drops', 'Drop room', 'Your waitlist place, season and limited drops'],
+      ['campaigns/mine', 'My campaigns', 'The campaigns you joined'],
     ] as const
   ).map(([slug, title, description]) => ({
     path: `/${slug}`,

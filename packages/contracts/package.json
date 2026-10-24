@@ -201,6 +201,10 @@
     "./campaigns-drops": {
       "types": "./dist/campaigns-drops.d.ts",
       "default": "./dist/campaigns-drops.js"
+    },
+    "./campaigns-catalogue": {
+      "types": "./dist/campaigns-catalogue.d.ts",
+      "default": "./dist/campaigns-catalogue.js"
     }
   },
   "scripts": {

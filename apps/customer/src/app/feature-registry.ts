@@ -541,6 +541,8 @@ export const features: readonly Feature[] = [
       '/blueprint/*',
       '/campaigns',
       '/campaigns/drops',
+      '/campaigns/mine',
+      '/campaigns/:campaignId',
       '/uc/innovation/myorders',
     ],
     status: 'blocked',
