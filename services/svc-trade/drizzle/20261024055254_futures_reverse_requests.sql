@@ -1,5 +1,5 @@
 -- One-tap reverse of a futures position (J-derivatives-03 step 9, D-account-03).
--- Reversal: 0108_futures_reverse_requests.down.sql
+-- Reversal: 20261024055254_futures_reverse_requests.down.sql
 --
 -- One row per reverse: the trader's request id, the position it reverses, and the two legs it places through the
 -- book under the request's own keys, `rv:c:<request>` (reduce-only, the whole size) and `rv:o:<request>` (the other
