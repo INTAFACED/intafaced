@@ -108,8 +108,8 @@
     },
     "IDENTITY_NEW_DEVICE_CHECK": {
       "service": "identity",
-      "value": "off",
-      "note": "The new-device check stays off on the stack until the journey helpers sign in through it; then this turns on (J-identity-02 #5)."
+      "value": "on",
+      "note": "TEST: the new-device check is on for the stack (J-identity-02 #5). Journeys, stack scripts and Try it sign in as one TEST browser key (tooling/scripts/local-test-device.mjs), so only a journey that means to use a new browser is asked."
     },
     "IDENTITY_NEW_DEVICE_TTL_SECONDS": {
       "service": "identity",

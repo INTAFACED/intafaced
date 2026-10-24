@@ -318,7 +318,7 @@ test(`${J} #4 sees each direct debit with what it collects next, blocks one, and
   const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
     method: 'POST',
     headers: { origin: ORIGIN, 'content-type': 'application/json' },
-    body: JSON.stringify({ identifier: who.email, password: who.password }),
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
   }).then((r) => r.json());
   const owner = login?.result?.data?.userId;
   expect(owner).toBeTruthy();
