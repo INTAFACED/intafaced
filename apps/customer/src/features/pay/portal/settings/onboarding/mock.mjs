@@ -159,6 +159,14 @@ export function createApplicationMock(ctx) {
             scanner: { status: 'not_connected', notConnected: 'vendor.malware_scan' },
           });
         }
+        case 'merchant.category.get': {
+          if (input.merchantId !== MERCHANT_ID) return refuse(route, 404, 'pay.merchant_not_found');
+          // INTAFACED has published no business categories in the stand-in: no rule set.
+          return ok(route, { merchantId: MERCHANT_ID, policy: { tableVersion: 0, categories: [] }, chosen: null, locked: false });
+        }
+        case 'merchant.category.choose':
+          // Nothing to choose from while no rule is set, the same refusal svc-pay gives.
+          return refuse(route, 412, 'pay.business_category_policy_unset');
         case 'kyb.documents.checklist': {
           const app = state.kybApplication;
           if (!app || app.id !== input.applicationId) return refuse(route, 404, 'pay.kyb_application_not_found');

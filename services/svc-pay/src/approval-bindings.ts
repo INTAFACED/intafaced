@@ -163,3 +163,16 @@ export function withdrawalLimitChangeFields(input: {
     reason: input.reason,
   };
 }
+
+/** The action a second founder's approval must be issued for when a business category is added or changed (RC-merchant-08). */
+export const PAY_BUSINESS_CATEGORY_CHANGE = 'pay.business_category_change';
+
+/** `after` is the category's terms as one canonical string (key, label, class, reserve, extra documents). */
+export function businessCategoryChangeFields(input: {
+  key: string;
+  expectedVersion: string;
+  after: string;
+  reason: string;
+}): Record<string, string> {
+  return { key: input.key, expectedVersion: input.expectedVersion, after: input.after, reason: input.reason };
+}

@@ -34,6 +34,7 @@ import {
 } from './routing/decide.js';
 import { RoutingInputError } from './routing-inputs.js';
 import { merchantKybMoneyGateRefusal } from './merchant-kyb-money-gate.js';
+import { assertCategoryAllows, categoryRails, checkoutCategoryRule } from './onboarding-policy/category.js';
 import { assertOnlyPayoutDestinations, type MerchantPayoutDestinations } from './merchant-payout-destination.js';
 import { encodeListCursor } from './list-page.js';
 import { type PaymentAttemptView } from './payments/attempts.js';
@@ -168,6 +169,13 @@ export type PayErrorCode =
    * Distinct from scope issuance (Layer A); never invents `pay:*`.
    */
   | 'pay.kyb_required'
+  /** RC-merchant-08: the business's category is prohibited; no payment or checkout session is opened. */
+  | 'pay.category_prohibited'
+  | 'pay.category_not_chosen'
+  /** RC-merchant-08: the business's category is restricted and its reserve terms are blank. */
+  | 'pay.reserve_terms_unset'
+  /** RC-merchant-08: the business's category takes payments on the crypto-native rail only. */
+  | 'pay.category_rail_refused'
   | 'pay.payment_not_found'
   /** payment.list page size unpublished. Blank is not 50. */
   | 'pay.payment_list_limit_unset'
@@ -1291,7 +1299,11 @@ export class PayService {
   }
 
   /** D26-P1-P3 — geo/method/risk rail pick. Payer never names a rail id. */
-  private selectCheckoutRail(input: { geoCountry?: string; method?: string; riskBand?: string }) {
+  private selectCheckoutRail(
+    input: { geoCountry?: string; method?: string; riskBand?: string },
+    /** RC-merchant-08: the rails the business's category allows; omitted, no category limit. */
+    onlyRails?: readonly string[],
+  ) {
     // BEFORE smart routing. An empty list used to surface as
     // `pay.routing_input_missing` (no unique method) — that names the payer's
     // form, not the operator gap. Unset PSP used to surface as
@@ -1315,6 +1327,7 @@ export class PayService {
         rails: this.rails,
         policy: this.publicCheckoutMovement,
         now: this.now(),
+        ...(onlyRails ? { onlyRails } : {}),
       });
     } catch (e) {
       if (e instanceof RoutingInputError) {
@@ -1328,6 +1341,16 @@ export class PayService {
         if (posture.length > 0 && other.length === 0) {
           const reason = posture[0]!.reason as 'sandbox' | 'absent' | 'unhealthy';
           throw new PublicCheckoutUnavailable(posture[0]!.railId, reason);
+        }
+        if (onlyRails && e.considered.some((c) => c.reason === 'category-restricted')) {
+          throw new PayError(
+            `This business takes payments on ${onlyRails.join(', ')} only, and none of those can take this one`,
+            'pay.category_rail_refused',
+            {
+              allowed: onlyRails,
+              considered: e.considered,
+            },
+          );
         }
         throw new PayError(e.message, 'pay.routing_no_rail', { considered: e.considered });
       }
@@ -2225,12 +2248,21 @@ export class PayService {
     // Step 0. Before anything exists. Smart routing (D26-P1-P3) replaces
     // preference-only selection. Blank geo/method/risk refuses rather than invent.
     // A payer still cannot name a rail adapter.
-    const decision = this.selectCheckoutRail({
-      geoCountry: input.geoCountry,
-      method: input.method,
-      riskBand: input.riskBand,
-    });
+    // RC-merchant-08: the business's category decides which rails are candidates at all (a prohibited one opens
+    // nothing). This read is a hint for routing only; the admission guard below re-checks inside the transaction.
+    const categoryRule = await checkoutCategoryRule(this.sql, input.linkToken);
+    if (categoryRule?.class === 'prohibited') assertCategoryAllows(categoryRule, null);
+    const decision = this.selectCheckoutRail(
+      {
+        geoCountry: input.geoCountry,
+        method: input.method,
+        riskBand: input.riskBand,
+      },
+      categoryRails(categoryRule) ?? undefined,
+    );
     const adapter = decision.adapter;
+    // Blank reserve terms (and any rule the routing hint did not cover) refuse by name before any row.
+    assertCategoryAllows(categoryRule, adapter.id);
     const method = this.checkoutRails.find((r) => r.railId === adapter.id)!.method;
 
     const opened = await transaction(

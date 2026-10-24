@@ -22,6 +22,7 @@ export const MERCHANT_SECTIONS = [
     label: 'Wallet routes',
     match: (p: string) => p.startsWith('/merchants/registries/wallet-routes'),
   },
+  { href: '/merchants/categories', label: 'Categories', match: (p: string) => p.startsWith('/merchants/categories') },
   { href: '/merchants/treasury', label: 'Treasury and halts', match: (p: string) => p.startsWith('/merchants/treasury') },
 ] as const;
 

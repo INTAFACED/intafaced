@@ -111,6 +111,8 @@ const migrations = [
   // createPaymentLink writes the confirmation columns. Null when the caller omitted them.
   '0132_pay_payment_link_share.sql',
   '0089_pay_payout_dispatched_outcome.sql',
+  // createPayment and openCheckoutSession read the business's category (RC-merchant-08). Empty here: nothing refused.
+  '20261024084448_pay_business_categories.sql',
 ].map((f) => readFileSync(join(here, '..', 'drizzle', f), 'utf8'));
 
 const SECRET = 'svc-pay-test-secret-at-least-32-characters';

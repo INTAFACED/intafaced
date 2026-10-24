@@ -63,6 +63,7 @@ import { readMerchantDrilldown } from './merchant-drilldown.js';
 import { guarded } from './control-errors.js';
 import { createDepositSettingsRouter, type DepositSettingsMountDeps } from '../custody/deposits/settings.js';
 import { createRegistriesRouter, type RegistriesMountDeps } from '../registries/index.js';
+import { createCategoryPolicyRouter, type CategoryPolicyMountDeps } from '../onboarding-policy/category-router.js';
 import { createCustodyRouter, type CustodyMountDeps } from '../custody/router.js';
 import { createPurchaseHoldRouter, type PurchaseHoldMountDeps } from '../withdrawals/purchase-holds/router.js';
 import { createWithdrawalQuoteRouter, type WithdrawalQuoteMountDeps } from '../withdrawals/quotes/router.js';
@@ -98,6 +99,8 @@ export interface FounderAdminMounts {
   metrics?: MetricsRuntime;
   /** W16: editable venue, network and wallet-route registries. Mounted only when supplied. */
   registries?: RegistriesMountDeps;
+  /** RC-merchant-08: the business category table (`founderAdmin.categoryPolicy.*`). Mounted only when supplied. */
+  categoryPolicy?: CategoryPolicyMountDeps;
   /** W-deposit-04: the owner's customer deposit settings. Mounted only when supplied. */
   depositSettings?: DepositSettingsMountDeps;
   /** W-withdraw-05: owner-set withdrawal limits (`founderAdmin.limits.*`). Mounted only when supplied. */
@@ -172,6 +175,7 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
   const {
     metrics,
     registries,
+    categoryPolicy,
     depositSettings,
     limits,
     custody,
@@ -202,6 +206,8 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
     founderAdmin: router({
       // W16: editable venue, network and wallet-route registries (src/registries). Mounted only when its deps are supplied.
       ...(registries ? { registries: createRegistriesRouter({ founderAuthority, ...registries }) } : {}),
+      // RC-merchant-08: business categories (src/onboarding-policy). Mounted only when its deps are supplied.
+      ...(categoryPolicy ? { categoryPolicy: createCategoryPolicyRouter({ founderAuthority, ...categoryPolicy }) } : {}),
       ...(depositSettings ? { depositSettings: createDepositSettingsRouter({ founderAuthority, ...depositSettings }) } : {}),
       // W-withdraw-05: owner-set withdrawal limits per KYC tier and asset (src/limits). Mounted only when its deps are supplied.
       ...(limits ? { limits: createWithdrawalLimitsRouter({ founderAuthority, ...limits }) } : {}),

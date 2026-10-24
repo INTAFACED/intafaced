@@ -124,6 +124,38 @@ describe('selectSmartCheckoutRail — geo/method/risk product path', () => {
     expect(crypto).toEqual({ railId: 'crypto-native', outcome: 'skipped', reason: 'method-mismatch' });
   });
 
+  it('RC-merchant-08: a category limit skips every other rail, so a card payment finds no rail and crypto-native still works', () => {
+    const profiles = withDeclaredRates(REFERENCE_RAIL_ROUTING_PROFILES, { 'card-sandbox': '0.88', 'crypto-native': '0.91' });
+    let refusal: unknown;
+    try {
+      selectSmartCheckoutRail({
+        inputs: { geoCountry: 'US', method: 'card', riskBand: 'low' },
+        preference,
+        profiles,
+        rails: registry(),
+        policy: 'allow-sandbox',
+        onlyRails: ['crypto-native'],
+      });
+    } catch (err) {
+      refusal = err;
+    }
+    expect(refusal).toBeInstanceOf(SmartRoutingNoRailError);
+    expect((refusal as SmartRoutingNoRailError).considered).toContainEqual({
+      railId: 'card-sandbox',
+      outcome: 'skipped',
+      reason: 'category-restricted',
+    });
+    const crypto = selectSmartCheckoutRail({
+      inputs: { geoCountry: 'DE', method: 'crypto', riskBand: 'external:ok' },
+      preference,
+      profiles,
+      rails: registry(),
+      policy: 'allow-sandbox',
+      onlyRails: ['crypto-native'],
+    });
+    expect(crypto.chosenRailId).toBe('crypto-native');
+  });
+
   it('skips a rail whose geo allowlist does not include the payer country', () => {
     const profiles: RailRoutingProfile[] = [{ railId: 'card-sandbox', methods: ['card'], countries: ['FR', 'US'], riskBands: ['low'] }];
     try {

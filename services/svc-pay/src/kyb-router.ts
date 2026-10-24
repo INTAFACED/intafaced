@@ -126,7 +126,9 @@ function toTrpcError(err: unknown): unknown {
       err.code === 'pay.kyb_doc_key_unset' ||
       err.code === 'pay.kyb_document_unreadable' ||
       err.code === 'pay.kyb_scan_unconfigured' ||
-      err.code === 'pay.kyb_scan_failed'
+      err.code === 'pay.kyb_scan_failed' ||
+      err.code === 'pay.category_not_chosen' ||
+      err.code === 'pay.category_prohibited'
     ) {
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
     }

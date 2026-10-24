@@ -8,6 +8,7 @@ import type { Sql } from 'postgres';
 import { kybBindingMatches, loadKybDecisionBinding } from '../kyb-decision-binding.js';
 import { transaction } from '@intafaced/db';
 import { cleanMerchantName, MERCHANT_NAME_MAX, resolveMerchantNames } from '../merchant-names.js';
+import { assertCategoryApprovable } from '../onboarding-policy/category.js';
 import type { KybActor, MerchantRecord, MerchantRow, PayService, PayServiceInternal } from '../payment-service.js';
 import { PayError, assertFeeBps, kybDecisionReason, recordKybEvent, toMerchant } from './internal.js';
 
@@ -217,6 +218,8 @@ export async function writeKybDecision(
         kybStatus: merchant.kybStatus,
       });
     }
+    // RC-merchant-08: refused before the founder approval is consumed, so a fixed choice can be approved again.
+    if (decision === 'approved') await assertCategoryApprovable(tx, merchantId);
     if (binding) {
       const live = await loadKybDecisionBinding(tx, merchantId);
       if (!live || !binding.identityHash || !kybBindingMatches(live, { identityHash: binding.identityHash })) {

@@ -1245,13 +1245,14 @@ describe('merchant portal procedures', () => {
     expect((await as(user).merchant.businessProfile.get({ merchantId })).legalName).toBe('Reviewed Shop Ltd');
   });
 
-  it('reports onboarding blockers without a document vendor, a terms version, or a raw destination', async () => {
+  it('reports onboarding blockers without a document vendor, a terms version, a category table, or a raw destination', async () => {
     const progress = await as(viewer).merchant.onboarding.progress({ merchantId: merchantA });
     expect(progress.documents).toEqual({ state: 'pending_vendor' });
     expect(progress.terms).toEqual({ state: 'not_configured' });
     expect(progress.business.done).toBe(true);
     expect(progress.destination.present).toBe(true);
-    expect(progress.blocking).toEqual(['documents_pending_vendor', 'terms_not_configured']);
+    // The business category table is empty here, so no business can go live (RC-merchant-08).
+    expect(progress.blocking).toEqual(['documents_pending_vendor', 'terms_not_configured', 'category_policy_unset']);
     // norm() blanks the random ids first, so a uuid that happens to hold '1111' or 'abcd' can neither pass nor fail these checks.
     const text = norm(JSON.stringify(progress));
     expect(text).not.toContain(destRef);

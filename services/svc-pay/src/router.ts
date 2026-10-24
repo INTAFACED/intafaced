@@ -2651,6 +2651,10 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.kyb_operator_required':
       case 'pay.kyb_required':
       case 'pay.wallet_forbidden':
+      case 'pay.category_prohibited':
+      case 'pay.reserve_terms_unset':
+      case 'pay.category_rail_refused':
+      case 'pay.category_not_chosen':
         return 'FORBIDDEN' as const;
       case 'pay.kyb_invalid':
       case 'pay.kyb_identity_changed':

@@ -4,6 +4,7 @@ import { type PortalTools } from '../api-tools';
 import type { DestinationProof } from '../access/destination-step-up';
 import { accountApi } from './account/account-api';
 import { applicationApi } from './onboarding/application-api';
+import { categoryApi } from './onboarding/category-api';
 import { requestsApi } from './onboarding/requests-api';
 
 const baseSettingsApi = ({ query, mutate, list, confirmDestinationStepUp }: PortalTools) => ({
@@ -76,4 +77,5 @@ export const settingsApi = (tools: PortalTools) => ({
   ...accountApi(tools),
   ...applicationApi(tools),
   ...requestsApi(tools),
+  ...categoryApi(tools),
 });

@@ -4,6 +4,7 @@
  * Moved out of `payment-service.ts` as it was (owner decision 2026-10-23): `PayService` keeps one method per
  * function here, which passes itself as `svc`.
  */
+import { assertCategoryAllows, merchantCategoryRule } from '../onboarding-policy/category.js';
 import { postPayLedger } from '../ledger-receipt.js';
 import {
   CaptureReconcileError,
@@ -97,7 +98,15 @@ export async function createPayment(
   }
 
   const paymentId = input.requestId?.toLowerCase() ?? randomUUID();
-  if (input.requestId) await svc.existingPaymentCreation(svc.sql, input, paymentId);
+  const prior = input.requestId ? await svc.existingPaymentCreation(svc.sql, input, paymentId) : null;
+  // RC-merchant-08: new intake only. A prohibited category, a restricted one with blank reserve terms, and a rail the
+  // category does not allow are refused by name before any row. A retry of a payment that exists is not new intake.
+  // The guard slot re-checks inside the admission transaction.
+  if (!prior) {
+    assertCategoryAllows(await merchantCategoryRule(svc.sql, input.merchantId), input.railAdapter, {
+      sandboxKey: input.keyEnv === 'sandbox',
+    });
+  }
   return svc.admitPaymentOperation(
     {
       paymentId,

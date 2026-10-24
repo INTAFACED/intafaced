@@ -1,6 +1,8 @@
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { kybBindingMatches, loadKybDecisionBinding, type KybDecisionBinding } from './kyb-decision-binding.js';
+import { assertCategoryApprovable } from './onboarding-policy/category.js';
+import { PayError } from './payment-service/internal.js';
 
 /**
  * DIGITAL KYB — THE LIVE OPERATOR PATH (`pay.psp`).
@@ -245,6 +247,15 @@ export class KybService {
         const live = await loadKybDecisionBinding(tx, input.merchantId);
         if (!live || !input.identityHash || !kybBindingMatches(live, { identityHash: input.identityHash })) {
           throw new KybError('KYB decision was reviewed against a different merchant identity', 'pay.kyb_identity_changed');
+        }
+        // RC-merchant-08: refused before the founder approval is consumed, so a fixed choice can be approved again.
+        if (input.decision === 'approved') {
+          try {
+            await assertCategoryApprovable(tx, input.merchantId);
+          } catch (err) {
+            if (err instanceof PayError) throw new KybError(err.message, err.code, err.detail);
+            throw err;
+          }
         }
         if (input.beforeWrite) await input.beforeWrite();
 
