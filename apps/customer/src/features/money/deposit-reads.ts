@@ -119,6 +119,7 @@ export const DEPOSIT_STATUSES = [
   'below_minimum',
   'held_for_screening',
   'held_for_release',
+  'on_hold',
   'rejected',
   'reversed',
   'needs_review',
@@ -133,6 +134,7 @@ export const DEPOSIT_REASONS = [
   'chain_reorg',
   'reversal_unfunded',
   'address_expired',
+  'address_frozen',
 ] as const;
 
 export const depositPendingSchema = z.object({

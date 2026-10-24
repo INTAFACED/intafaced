@@ -13,6 +13,8 @@ import type { DeskRequest } from './approval-packet';
 
 /** The verb svc-identity binds a waitlist wave release to (`waitlist.waves.release`). */
 export const WAVE_RELEASE_TARGET = 'waitlist.wave.release';
+/** svc-pay's action type for lifting a deposit address freeze (`DEPOSIT_ADDRESS_UNFREEZE_ACTION`). */
+export const DEPOSIT_ADDRESS_UNFREEZE = 'pay.deposit_address_unfreeze';
 /** The verb svc-identity binds a KYC document read to (`kyc.getDocument`). */
 export const KYC_DOCUMENT_GET = 'kyc.doc.get';
 
@@ -32,6 +34,7 @@ export const KYC_DOCUMENT_GET = 'kyc.doc.get';
  *     waitlist wave release `identityActionPayloadHash('waitlist.wave.release', { wave, size })`;
  *     account unfreeze `identityUnfreezePayloadHash` = `identityActionPayloadHash(userId, { reason })`
  *     (`{ targetId, ...fields }`: the first key is `targetId`)
+ *   - svc-pay deposit address unfreeze `payActionPayloadHash('pay.deposit_address_unfreeze', { freezeId, userId, networkId, address, reason })`
  *   - svc-bank card freeze `bankActionPayloadHash('bank.ops.setCardStatus', { cardId, status })` (sorted fields, nested under `fields`;
  *     the reason is NOT in this hash)
  * Both are `sha256(JSON.stringify({ actionType, ...fields }))` with fields in the order shown. Key order is part
@@ -91,6 +94,15 @@ export function payloadHashFor(request: DeskRequest): string {
       return sha('academy.ambassador.unfreeze', { userId: request.userId });
     case 'identity.account.unfreeze':
       return shaIdentity(request.userId, { reason: request.reason });
+    // svc-pay `payActionPayloadHash('pay.deposit_address_unfreeze', unfreezeApprovalFields(...))`: ids and address lower-cased.
+    case 'pay.deposit_address.unfreeze':
+      return sha(DEPOSIT_ADDRESS_UNFREEZE, {
+        freezeId: request.freezeId.toLowerCase(),
+        userId: request.userId,
+        networkId: request.networkId,
+        address: request.address.toLowerCase(),
+        reason: request.reason,
+      });
     // svc-identity `identityClosurePayloadHash`: { targetId, action, reasonCode (close only), reason }, in this order.
     case 'identity.account.close':
       return shaIdentity(request.userId, { action: 'close', reasonCode: request.reasonCode, reason: request.reason });
@@ -309,6 +321,16 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         actionType: WAVE_RELEASE_TARGET,
         targetService: 'svc-identity',
         targetId: WAVE_RELEASE_TARGET,
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    // svc-pay consumes against its own verb as the target id, at version 1 (`consumePayApproval`). The freeze id is in the hash.
+    case 'pay.deposit_address.unfreeze':
+      return {
+        actionType: DEPOSIT_ADDRESS_UNFREEZE,
+        targetService: 'svc-pay',
+        targetId: DEPOSIT_ADDRESS_UNFREEZE,
         expectedVersion: '1',
         payloadHash,
         policyVersion: 'v1',

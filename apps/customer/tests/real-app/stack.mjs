@@ -163,6 +163,8 @@ export async function api(who) {
       body: body ? JSON.stringify(body) : undefined,
     }).then(json);
   return {
+    /** The account's user id, as identity answered the sign-in. */
+    userId: login.body.result.data.userId,
     get: (route) => call('GET', route),
     post: (route, body) => call('POST', route, body),
     patch: (route, body) => call('PATCH', route, body),

@@ -71,6 +71,15 @@ export type DeskRequest =
   | { readonly kind: 'campaigns.waitlist.wave_release'; readonly wave: string; readonly size: string }
   /** Lift a staff freeze on one account (svc-identity `accountControls.change`, restore). `version` is the identity control version read. */
   | { readonly kind: 'identity.account.unfreeze'; readonly userId: string; readonly reason: string; readonly version: string }
+  /** Lift a compliance freeze on one customer deposit address (svc-pay `founderAdmin.depositFreezes.unfreeze`). `freezeId` is the open freeze read. */
+  | {
+      readonly kind: 'pay.deposit_address.unfreeze';
+      readonly userId: string;
+      readonly networkId: string;
+      readonly address: string;
+      readonly freezeId: string;
+      readonly reason: string;
+    }
   /** Staff close and reopen of one account (J-ops-console-04 #7). A close carries a reason code from identity's list. */
   | {
       readonly kind: 'identity.account.close';
@@ -152,9 +161,12 @@ const POOL_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const REASON_CODE = /^[A-Za-z0-9._:-]{1,64}$/;
 /** A market symbol as the service keys it: no surrounding space, no lower case, so one market has one target id. */
 const MARKET_SYMBOL = /^[A-Z0-9][A-Z0-9._/-]{0,63}$/;
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 /** svc-ops' staff hold number: one global sequence. */
 const HOLD_NO = /^[1-9][0-9]{0,18}$/;
+/** svc-pay's network id and deposit address shapes (`custody/deposits/freezes.ts`), and the platform's user and freeze ids. */
+export const NETWORK_ID = /^[A-Za-z0-9_-]{1,32}$/;
+export const DEPOSIT_ADDRESS = /^\S{1,256}$/;
 /** svc-ledger's control version. A margin is the contract's decimal (`reconciliationDecimalSchema`). */
 const CONTROL_VERSION = /^[1-9]\d{0,15}$/;
 
@@ -258,6 +270,21 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (typeof raw.userId !== 'string' || !UUID.test(raw.userId) || !validReason(raw.reason)) return null;
     if (typeof raw.version !== 'string' || !/^(?:0|[1-9]\d{0,39})$/.test(raw.version)) return null;
     return { kind: 'identity.account.unfreeze', userId: raw.userId, reason: raw.reason, version: raw.version };
+  }
+  if (raw.kind === 'pay.deposit_address.unfreeze') {
+    if (keys !== 'address,freezeId,kind,networkId,reason,userId') return null;
+    if (typeof raw.userId !== 'string' || !UUID.test(raw.userId) || !validReason(raw.reason)) return null;
+    if (typeof raw.freezeId !== 'string' || !UUID.test(raw.freezeId)) return null;
+    if (typeof raw.networkId !== 'string' || !NETWORK_ID.test(raw.networkId)) return null;
+    if (typeof raw.address !== 'string' || !DEPOSIT_ADDRESS.test(raw.address)) return null;
+    return {
+      kind: 'pay.deposit_address.unfreeze',
+      userId: raw.userId,
+      networkId: raw.networkId,
+      address: raw.address,
+      freezeId: raw.freezeId,
+      reason: raw.reason,
+    };
   }
   if (raw.kind === 'identity.account.close') {
     if (keys !== 'kind,reason,reasonCode,userId,version') return null;
@@ -513,6 +540,8 @@ export function confirmPhrase(request: DeskRequest): string {
       return `RELEASE WAVE ${request.wave}`;
     case 'identity.account.unfreeze':
       return `UNFREEZE ACCOUNT ${request.userId.slice(0, 8)}`;
+    case 'pay.deposit_address.unfreeze':
+      return `UNFREEZE ADDRESS ${request.address.slice(0, 10)}`;
     case 'identity.account.close':
       return `CLOSE ACCOUNT ${request.userId.slice(0, 8)}`;
     case 'identity.account.reopen':
@@ -589,6 +618,8 @@ export function describeRequest(request: DeskRequest): string {
       return `Release waitlist wave ${request.wave}: the ${request.size} people highest in the queue (most friends invited, then who joined first) are invited, once. A release is a record, not an account: nobody is signed up and nothing moves value. The invitation email is not connected, so each person sees it on their waitlist page.`;
     case 'identity.account.unfreeze':
       return `Lift the staff freeze on account ${request.userId} ("${request.reason}"): its owner can sign in again. Sessions, API keys and sub-accounts revoked by the freeze stay revoked. Identity applies it only if the account is still at control version ${request.version}.`;
+    case 'pay.deposit_address.unfreeze':
+      return `Lift the compliance freeze on deposit address ${request.address} (${request.networkId}) of account ${request.userId} ("${request.reason}"). Deposits held by the freeze are judged again, and each one that has its confirmations is credited once, under the same key as any deposit. svc-pay lifts it only if freeze ${request.freezeId.slice(0, 8)} is still the open one, and refuses the founder who approved it as the one who runs it.`;
     case 'identity.account.close':
       return `Close account ${request.userId} (reason code ${request.reasonCode.replace(/_/g, ' ')}: "${request.reason}"). Its owner is signed out and cannot sign in; sessions, API keys and sub-accounts are revoked. Identity refuses while the account still has open products or balances, and applies it only if the account is still at control version ${request.version}. ${request.reasonCode === 'customer_request' ? 'Closed at the customer’s request, it can be reopened later.' : 'Closed for this reason, it cannot be reopened.'}`;
     case 'identity.account.reopen':

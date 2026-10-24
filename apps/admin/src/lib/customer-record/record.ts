@@ -69,6 +69,69 @@ function allowlistRead(id: string, title: string, procedure: string, note: strin
   };
 }
 
+const FREEZE_HISTORY_LIMIT = 50;
+
+/** The account's deposit addresses with any compliance freeze (W-compliance-notices-03). Open a row to freeze or lift it. */
+function depositAddresses(userId: string): ReadSpec {
+  return {
+    id: 'money.deposit-addresses',
+    title: 'Deposit addresses',
+    note: 'Every deposit address svc-pay issued to this account, and whether compliance froze it. A deposit to a frozen address that is not credited yet is on hold and is never credited until a second founder lifts the freeze. Open a row to freeze it, or to ask for the lift.',
+    module: 'pay',
+    plainName: 'svc-pay’s deposit addresses',
+    procedure: 'founderAdmin.depositFreezes.addresses',
+    input: { userId },
+    shape: 'list',
+    idKey: 'id',
+    columns: [
+      col('assetId', 'Coin', 'text'),
+      col('networkId', 'Network', 'text'),
+      col('address', 'Address', 'text'),
+      col('frozen', 'Frozen', 'bool'),
+      col('held', 'Deposits on hold', 'int'),
+      col('freezeReason', 'Why frozen', 'text', { nullable: true }),
+      col('frozenAt', 'Frozen at', 'time', { nullable: true }),
+      col('frozenBy', 'Frozen by', 'text', { nullable: true, detail: true }),
+      col('expiresAt', 'Expires', 'time', { nullable: true, detail: true }),
+      col('freezeId', 'Freeze id', 'text', { nullable: true, detail: true }),
+      col('userId', 'Account id', 'text', { detail: true }),
+    ],
+    rowAction: 'pay.deposit_address',
+    emptyText: 'svc-pay has issued no deposit address to this account: it has never opened Deposit for a coin.',
+    forbiddenText: 'svc-pay did not accept your founder session for this read (deposit address freezes are for enabled founders).',
+  };
+}
+
+/** Every freeze placed on the account's deposit addresses, open and lifted, newest first, with who froze, approved and lifted it. */
+function depositFreezeHistory(userId: string): ReadSpec {
+  return {
+    id: 'money.deposit-freezes',
+    title: 'Deposit address freezes',
+    note: 'Every compliance freeze on this account’s deposit addresses, newest first: who placed it and why, and for a lifted one who lifted it, which founder approved, and why.',
+    module: 'pay',
+    plainName: 'svc-pay’s deposit address freezes',
+    procedure: 'founderAdmin.depositFreezes.history',
+    input: { userId, limit: FREEZE_HISTORY_LIMIT },
+    shape: 'list',
+    idKey: 'id',
+    page: FREEZE_HISTORY_LIMIT,
+    columns: [
+      col('frozenAt', 'Frozen at', 'time'),
+      col('networkId', 'Network', 'text'),
+      col('address', 'Address', 'text'),
+      col('reason', 'Why frozen', 'text'),
+      col('frozenBy', 'Frozen by', 'text'),
+      col('unfrozenAt', 'Lifted at', 'time', { nullable: true }),
+      col('unfrozenBy', 'Lifted by', 'text', { nullable: true }),
+      col('unfreezeApprover', 'Approved by', 'text', { nullable: true }),
+      col('unfreezeReason', 'Why lifted', 'text', { nullable: true, detail: true }),
+      col('id', 'Freeze id', 'text', { detail: true }),
+    ],
+    emptyText: 'No deposit address of this account has ever been frozen.',
+    forbiddenText: 'svc-pay did not accept your founder session for this read (deposit address freezes are for enabled founders).',
+  };
+}
+
 export interface CustomerTabPlan {
   readonly reads: readonly ReadSpec[];
   /** What this tab cannot show for one account, and why. */
@@ -82,12 +145,12 @@ export function tabPlan(tab: CustomerTab, userId: string): CustomerTabPlan {
   switch (tab) {
     case 'money':
       return {
-        reads: [{ ...BANK_CUSTOMER_BALANCES, input: { userId } }],
+        reads: [{ ...BANK_CUSTOMER_BALANCES, input: { userId } }, depositAddresses(userId), depositFreezeHistory(userId)],
         unwired: [
           un(
             'money.deposits',
-            'Deposits and withdrawals for this account',
-            'svc-pay has no operator read that lists one customer’s deposits or withdrawals. The entries behind each coin are on the Bank desk’s customer balances.',
+            'Each deposit and withdrawal of this account',
+            'svc-pay has no operator read that lists one customer’s deposits or withdrawals one by one. How many deposits a freeze holds is on Deposit addresses; the entries behind each coin are on the Bank desk’s customer balances.',
           ),
         ],
       };

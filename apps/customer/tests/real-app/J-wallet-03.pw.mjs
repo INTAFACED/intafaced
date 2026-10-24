@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { ADMIN, founderSignIn } from './admin.mjs';
 import { api, journeyState, tool, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
@@ -6,9 +7,9 @@ import { signIn, signUp, verify } from './desk.mjs';
 // titled "J-wallet-03 #<n>". The stack's chain is in memory: a TEST transfer reaches svc-pay's own chain webhook signed
 // with the stack's secret (local-test-stack.mjs chain-deposit), and the TEST chain takes it back the same way, as a watcher
 // reports a reorg (local-test-stack.mjs chain-reorg). Every balance is read back from the ledger through the person's own
-// API.
+// API. Compliance freezes and lifts a deposit address on the founder console, with the stack's two TEST founders (#4).
 // Not here yet: #1-#3 (the travel-rule declaration and its review need the owner's threshold and the counterparty
-// exchange) and #4 (freezing a deposit address).
+// exchange).
 const J = 'J-wallet-03';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ASSET = 'USDT';
@@ -59,6 +60,115 @@ async function openDeposit(page) {
   // A pointer left on the top bar keeps its hover menu open over the page; move it off, as a person would.
   await page.mouse.move(0, 600);
 }
+
+/** The person opens Deposit for TEST USDT on TEST Ethereum and reads their address. */
+async function showAddress(page) {
+  await openDeposit(page);
+  await assetPicker(page).selectOption(ASSET);
+  await page.getByRole('combobox', { name: 'Network', exact: true }).selectOption({ label: NETWORK });
+  await page.getByRole('checkbox', { name: `I will send only ${ASSET} on ${NETWORK}.` }).check();
+  await page.getByRole('button', { name: 'Show my deposit address' }).click();
+  return (await page.getByTestId('deposit-address').locator('strong.numeric').innerText()).trim();
+}
+
+/** A founder's console on the customer's Money tab, with the row of `address` open. Returns that row's detail. */
+async function openAddressRow(page, userId, address) {
+  await page.goto(`${ADMIN}/accounts/${userId}?tab=money`, { waitUntil: 'load' });
+  const list = page.getByTestId('read-money.deposit-addresses');
+  await expect(list.getByRole('table')).toBeVisible({ timeout: 60_000 });
+  await list.locator('tbody > tr', { hasText: address }).getByRole('button', { name: 'Open' }).click();
+  return list.getByTestId('row-detail');
+}
+
+test(`${J} #4 compliance freezes the deposit address: the confirming deposit shows on hold and is not credited; after a second person unfreezes it, one credit`, async ({
+  page,
+  browser,
+}, testInfo) => {
+  test.setTimeout(300_000);
+  const who = await signUp(page, 'w3f');
+  await verify(page, who);
+  await signIn(page, who);
+  const address = await showAddress(page);
+  const mine = await clients(who);
+  const { userId } = await api(who);
+  const label = `jw03f-${who.handle}-30-r${testInfo.retry}`;
+
+  // TEST 30 USDT is on its way: 2 of 6 confirmations.
+  const tx = chainDeposit(address, '30', 2, label);
+  await page.reload();
+  await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'confirming');
+
+  // Founder A freezes the address with a reason: the deposit goes on hold at once.
+  const a = await (await browser.newContext()).newPage();
+  const b = await (await browser.newContext()).newPage();
+  const founderA = await founderSignIn(a, 'a');
+  const founderB = await founderSignIn(b, 'b');
+  try {
+    let detail = await openAddressRow(a, userId, address);
+    const freeze = detail.getByTestId('deposit-address-freeze');
+    await freeze.getByLabel(/^Why/).fill(`LOCAL TEST compliance review of the source ${who.handle}`);
+    await freeze.getByRole('button', { name: 'Freeze this address' }).click();
+    await expect(detail.getByTestId('deposit-address-freeze-reply')).toContainText(
+      '1 deposit on the way to it is on hold and not credited',
+      {
+        timeout: 60_000,
+      },
+    );
+
+    // The chain reaches full depth: still on hold, in words, and nothing is credited.
+    chainDeposit(address, '30', 6, label);
+    await page.reload();
+    await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'on_hold');
+    await expect(recordRow(page, tx)).toContainText('On hold');
+    await expect(recordRow(page, tx)).toContainText('This deposit address is on hold for a compliance review');
+    expect(await mine.usdt()).toBe(0n);
+
+    // Founder A asks to lift it. Alone, A cannot approve, and a run before anyone approved changes nothing.
+    detail = await openAddressRow(a, userId, address);
+    await expect(detail).toContainText('Deposits on hold');
+    const deskA = detail.getByTestId('control-desk');
+    const phrase = `UNFREEZE ADDRESS ${address.slice(0, 10)}`;
+    await deskA.getByLabel(/^Why/).fill(`LOCAL TEST source cleared by compliance ${who.handle}`);
+    await deskA.getByLabel(/to confirm$/).fill(phrase);
+    await deskA.getByRole('button', { name: 'Ask a second founder to approve lifting the freeze' }).click();
+    await expect(deskA.getByTestId('packet-made')).toBeVisible({ timeout: 60_000 });
+    const packet = (await deskA.getByLabel('Request packet').inputValue()).trim();
+    await deskA.getByLabel(/to approve or run it$/).fill(phrase);
+    await expect(deskA.getByRole('button', { name: 'Approve this request' })).toBeDisabled();
+    await deskA.getByRole('button', { name: 'Run the approved request' }).click();
+    await expect(deskA.getByTestId('step-reply')).toHaveAttribute('data-tone', /danger|warn/, { timeout: 60_000 });
+    expect(await mine.usdt()).toBe(0n);
+
+    // Founder B, on their own console, reads the same request and approves it.
+    const detailB = await openAddressRow(b, userId, address);
+    const deskB = detailB.getByTestId('control-desk');
+    await deskB.getByLabel('Request packet').fill(packet);
+    await expect(deskB.getByTestId('packet-summary')).toContainText(`Lift the compliance freeze on deposit address ${address}`);
+    await deskB.getByLabel(/to approve or run it$/).fill(phrase);
+    await deskB.getByRole('button', { name: 'Approve this request' }).click();
+    await expect(deskB.getByTestId('step-reply')).toContainText('Approved.', { timeout: 60_000 });
+
+    // A runs it: the held deposit is credited once, and the balance moves by 30 once.
+    await deskA.getByLabel(/to approve or run it$/).fill(phrase);
+    await deskA.getByRole('button', { name: 'Run the approved request' }).click();
+    await expect(deskA.getByTestId('step-reply')).toContainText('1 held deposit was credited once', { timeout: 60_000 });
+    expect(await mine.usdt()).toBe(toUnits('30'));
+    await page.reload();
+    await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'credited');
+
+    // The history names who froze, who lifted and who approved; the spent approval lifts nothing again.
+    await a.goto(`${ADMIN}/accounts/${userId}?tab=money`, { waitUntil: 'load' });
+    const history = a.getByTestId('read-money.deposit-freezes').locator('tbody > tr', { hasText: address });
+    await expect(history).toHaveCount(1, { timeout: 60_000 });
+    await expect(history).toContainText(founderA.userId.slice(0, 8));
+    await expect(history).toContainText(founderB.userId.slice(0, 8));
+    chainDeposit(address, '30', 9, label);
+    expect(await mine.usdt()).toBe(toUnits('30'));
+  } finally {
+    await a.context().close();
+    await b.context().close();
+  }
+});
 
 test(`${J} #5 a credited deposit the chain takes back is reversed once and the balance drops by the amount once; if it was already spent, it is sent to review and the balance never goes below zero`, async ({
   page,

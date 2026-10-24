@@ -30,6 +30,7 @@ const en = {
   status_below_minimum: 'Below minimum',
   status_held_for_screening: 'Held for review',
   status_held_for_release: 'Held for release',
+  status_on_hold: 'On hold',
   status_rejected: 'Rejected',
   status_reversed: 'Reversed',
   status_needs_review: 'Needs review',
@@ -43,6 +44,8 @@ const en = {
   reason_reversal_unfunded: 'The network rewrote this deposit, but the funds are already spent, so support is reviewing it.',
   reason_address_expired:
     'Sent to one of your deposit addresses after it expired. The funds are safe and wait for support to release them to you.',
+  reason_address_frozen:
+    'This deposit address is on hold for a compliance review, so the deposit is held and not credited. It stays recorded here; when the review ends, it is checked again like any deposit, and never credited twice.',
 } as const;
 
 const es = {
@@ -75,6 +78,7 @@ const es = {
   status_below_minimum: 'Bajo el mínimo',
   status_held_for_screening: 'En revisión',
   status_held_for_release: 'Retenido hasta su liberación',
+  status_on_hold: 'En espera',
   status_rejected: 'Rechazado',
   status_reversed: 'Revertido',
   status_needs_review: 'Requiere revisión',
@@ -87,6 +91,8 @@ const es = {
   reason_reversal_unfunded: 'La red reescribió este depósito, pero los fondos ya se gastaron, así que soporte lo está revisando.',
   reason_address_expired:
     'Se envió a una de tus direcciones de depósito después de que caducara. Los fondos están a salvo y esperan a que soporte te los libere.',
+  reason_address_frozen:
+    'Esta dirección de depósito está en espera por una revisión de cumplimiento, así que el depósito queda retenido y no se acredita. Queda registrado aquí; al terminar la revisión se comprueba de nuevo como cualquier depósito, y nunca se acredita dos veces.',
 } satisfies Record<keyof typeof en, string>;
 
 const fr = {
@@ -119,6 +125,7 @@ const fr = {
   status_below_minimum: 'Sous le minimum',
   status_held_for_screening: 'En examen',
   status_held_for_release: 'Retenu jusqu’à libération',
+  status_on_hold: 'En attente',
   status_rejected: 'Rejeté',
   status_reversed: 'Annulé',
   status_needs_review: 'À examiner',
@@ -132,6 +139,8 @@ const fr = {
   reason_reversal_unfunded: 'Le réseau a réécrit ce dépôt, mais les fonds sont déjà dépensés ; le support l’examine.',
   reason_address_expired:
     'Envoyé à l’une de vos adresses de dépôt après son expiration. Les fonds sont en sécurité et attendent que le support vous les libère.',
+  reason_address_frozen:
+    'Cette adresse de dépôt est en attente d’un contrôle de conformité, le dépôt est donc retenu et non crédité. Il reste enregistré ici ; à la fin du contrôle, il est vérifié à nouveau comme tout dépôt, et jamais crédité deux fois.',
 } satisfies Record<keyof typeof en, string>;
 
 export const depositRecordsCopy = defineCopy('customer.bank.deposit.records', en, { es, fr });

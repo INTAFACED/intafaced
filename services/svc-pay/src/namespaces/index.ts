@@ -12,6 +12,7 @@ import type { RegistriesMountDeps } from '../registries/index.js';
 import type { CategoryPolicyMountDeps } from '../onboarding-policy/category-router.js';
 import { createMerchantCatalogRouter, type CatalogMountDeps } from '../catalog/router.js';
 import type { DepositSettingsMountDeps } from '../custody/deposits/settings.js';
+import type { DepositFreezesMountDeps } from '../custody/deposits/freezes.js';
 import type { CustodyMountDeps } from '../custody/router.js';
 import type { PurchaseHoldMountDeps } from '../withdrawals/purchase-holds/router.js';
 import type { WithdrawalQuoteMountDeps } from '../withdrawals/quotes/router.js';
@@ -65,6 +66,7 @@ export function createPayNamespaces(deps: {
   /** The product catalogue (M-catalogue-01). Absent: every merchantCatalog procedure refuses. */
   catalog?: CatalogMountDeps;
   depositSettings?: DepositSettingsMountDeps;
+  depositFreezes?: DepositFreezesMountDeps;
   limits?: WithdrawalLimitsMountDeps;
   custody?: CustodyMountDeps;
   purchaseHolds?: PurchaseHoldMountDeps;
@@ -119,6 +121,7 @@ export function createPayNamespaces(deps: {
       registries: deps.registries,
       categoryPolicy: deps.categoryPolicy,
       depositSettings: deps.depositSettings,
+      depositFreezes: deps.depositFreezes,
       limits: deps.limits,
       custody: deps.custody,
       purchaseHolds: deps.purchaseHolds,
