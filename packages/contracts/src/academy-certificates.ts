@@ -64,12 +64,13 @@ export const academyRevokeCertInputSchema = z
   .strict();
 export type AcademyRevokeCertInput = z.infer<typeof academyRevokeCertInputSchema>;
 
-/** One revocation as Academy recorded it: which certificate, who proposed and approved it, why and when. */
+/** One revocation as Academy recorded it: which certificate, who proposed, approved and carried it out, why and when. */
 export const academyCertRevocationSchema = z.object({
   publicId: z.string(),
-  certId: academyCertIdSchema,
-  revokedBy: z.string().guid(),
+  certId: z.string(),
+  proposedBy: z.string(),
   approvedBy: z.string(),
+  revokedBy: z.string(),
   reason: z.string(),
   revokedAt: z.coerce.date(),
 });

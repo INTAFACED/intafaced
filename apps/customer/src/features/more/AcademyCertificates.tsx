@@ -157,6 +157,7 @@ function CertificateCardView({ card, lessons, onView }: { card: CertificateCard;
         </p>
       )}
       {!card.grant && <IssueLine progress={card.progress} />}
+      {card.state === 'revoked' && <p data-testid="certificate-revoked">{t('revokedNote')}</p>}
       <div className="academy-learning-actions">
         {card.state === 'earned' && (
           <Button variant="secondary" onClick={onView}>
@@ -302,7 +303,9 @@ function CertificateXp({ certId }: { certId: string }) {
   const xp = certificateXp(plane.resource.data, certId);
   return (
     <p data-testid="certificate-xp">
-      {xp.kind === 'none' ? t('certXpNone') : t(xp.kind === 'added' ? 'certXpAdded' : 'certXpOff', { xp: xp.xp })}{' '}
+      <span data-testid="certificate-xp-text">
+        {xp.kind === 'none' ? t('certXpNone') : t(xp.kind === 'worth' ? 'certXpWorth' : 'certXpOff', { xp: xp.xp })}
+      </span>{' '}
       <a className="academy-learning-link" href="/account">
         {t('seeRank')}
       </a>

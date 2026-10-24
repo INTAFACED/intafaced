@@ -266,6 +266,7 @@ export type AcademyErrorCode =
   | 'academy.cert_sweep_unset'
   /** AC-certificates-02: the certificate is issued when its delay ends; the message carries `issuesAt=<time>`. */
   | 'academy.cert_not_due'
+  | 'academy.cert_revoked'
   /** No newest hand-in with that id on the assignment, or no grade on it to read. */
   | 'academy.submission_not_found'
   /** AC-videos-02: the owner has not set the upload size limit or the accepted video or handout types. */
@@ -447,6 +448,7 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.cert_delay_unset',
   'academy.cert_sweep_unset',
   'academy.cert_not_due',
+  'academy.cert_revoked',
   'academy.submission_not_found',
   'academy.upload_limits_unset',
   'academy.upload_too_large',

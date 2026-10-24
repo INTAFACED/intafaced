@@ -30,6 +30,7 @@ const sql = db.sql;
 const USER = '11111111-1111-4111-8111-111111111111';
 const OPERATOR = '44444444-4444-4444-8444-444444444444';
 const CERT = FOUNDATIONS_V1.id;
+const PROPOSER = '66666666-6666-4666-8666-666666666666';
 const APPROVER = '55555555-5555-4555-8555-555555555555';
 const T0 = new Date('2026-10-24T12:00:00.000Z');
 
@@ -54,7 +55,7 @@ async function issued(academy: AcademyService): Promise<string> {
 }
 
 const revoke = (academy: AcademyService, publicId: string, reason = 'TEST revoked in error') =>
-  academy.revokeCert({ publicId, reason, operatorId: OPERATOR, approverId: APPROVER, now: T0 });
+  academy.revokeCert({ publicId, reason, proposedBy: PROPOSER, approvedBy: APPROVER, operatorId: OPERATOR, now: T0 });
 
 afterAll(async () => {
   await db.drop();
@@ -73,29 +74,33 @@ describe('certificate revocation', () => {
     expect(first).toEqual({
       publicId,
       certId: CERT,
-      revokedBy: OPERATOR,
+      proposedBy: PROPOSER,
       approvedBy: APPROVER,
+      revokedBy: OPERATOR,
       reason: 'TEST revoked in error',
       revokedAt: T0,
     });
     expect((await academy.certVerify(publicId)).status).toBe('revoked');
     // A repeat (a lost reply, a second click) answers with the first record and writes nothing.
     expect(await revoke(academy, publicId, 'TEST another reason')).toEqual(first);
+    expect(await academy.certRevocation(publicId)).toEqual(first);
     expect(await sql`SELECT 1 FROM academy.cert_revocations`).toHaveLength(1);
   });
 
-  it('a revoked certificate cannot be claimed again', async () => {
+  it('a revoked certificate cannot be claimed again, and the holder sees it revoked', async () => {
     const academy = service();
     const publicId = await issued(academy);
+    expect(await academy.certRevocation(publicId)).toBeNull();
     await revoke(academy, publicId);
-    const again = await academy.grantCert({ userId: USER, certId: CERT });
-    expect(again.alreadyGranted).toBe(true);
+    await expect(academy.grantCert({ userId: USER, certId: CERT })).rejects.toMatchObject({ code: 'academy.cert_revoked' });
     expect((await academy.certVerify(publicId)).status).toBe('revoked');
+    expect((await academy.myCertGrants(USER, 10))[0]).toMatchObject({ publicId, status: 'revoked' });
   });
 
   it('refuses an unknown or malformed code and a blank reason, writing nothing', async () => {
     const academy = service();
     const publicId = await issued(academy);
+    await expect(academy.certRevocation('0'.repeat(32))).rejects.toMatchObject({ code: 'academy.cert_not_found' });
     await expect(revoke(academy, '0'.repeat(32))).rejects.toMatchObject({ code: 'academy.cert_not_found' });
     await expect(revoke(academy, 'not-a-code')).rejects.toMatchObject({ code: 'academy.cert_not_found' });
     await expect(revoke(academy, publicId, '   ')).rejects.toMatchObject({ code: 'academy.cert_invalid' });

@@ -253,9 +253,9 @@ test(`${J} #5 after the certificate my rank shows the XP the owner published for
   await page.goto('/academy/certificates');
   await certCard(page).getByRole('button', { name: 'View certificate', exact: true }).click();
   const xp = page.locator(`[data-certificate-sheet="${CERT}"]`).getByTestId('certificate-xp');
-  await expect(xp).toContainText(
+  await expect(xp.getByTestId('certificate-xp-text')).toHaveText(
     policy
-      ? `This certificate added ${policy.xpDelta} XP to your rank. Perks come with your rank, not with the certificate.`
+      ? `This certificate is worth ${policy.xpDelta} XP on your rank. Perks come with your rank, not with the certificate.`
       : 'This certificate carries no XP: no XP value is published for it, so your rank and perks did not change.',
   );
   await xp.getByRole('link', { name: 'See your rank', exact: true }).click();

@@ -54,6 +54,7 @@ const stateKeys = {
   earned: 'stateEarned',
   ready: 'stateReady',
   issuing: 'stateIssuing',
+  revoked: 'stateRevoked',
   'in-progress': 'stateInProgress',
   'not-started': 'stateNotStarted',
 } as const;

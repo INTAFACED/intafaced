@@ -135,6 +135,7 @@ export type RefusalKey =
   | 'refAssessmentUnpublished'
   | 'refPassMarkUnset'
   | 'refCertNotDue'
+  | 'refCertRevoked'
   | 'refAssessmentInvalid'
   | 'refAttemptLimit'
   | 'refAttemptCooldown'
@@ -206,6 +207,8 @@ export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): R
       return 'refCertUnpublished';
     case 'academy.cert_not_due':
       return 'refCertNotDue';
+    case 'academy.cert_revoked':
+      return 'refCertRevoked';
     case 'academy.verify_rate_limited':
       return 'refVerifyRateLimited';
     case 'academy.verify_rate_unset':

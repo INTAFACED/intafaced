@@ -338,6 +338,26 @@ const MANUAL_ISSUE: AcademyCertIssue = { mode: 'manual', delayMinutes: null, iss
 /** Rows one pass of the issue sweep reads: a batch size of an internal loop that drains until nothing is due, not a list a person reads. */
 const CERT_ISSUE_SWEEP_BATCH = 100;
 
+const REVOCATION_COLUMNS = ['public_id', 'cert_id', 'proposed_by', 'approved_by', 'revoked_by', 'reason', 'revoked_at'] as const;
+type RevocationRow = {
+  public_id: string;
+  cert_id: string;
+  proposed_by: string;
+  approved_by: string;
+  revoked_by: string;
+  reason: string;
+  revoked_at: Date;
+};
+const revocationRecord = (r: RevocationRow): AcademyCertRevocation => ({
+  publicId: r.public_id,
+  certId: r.cert_id,
+  proposedBy: r.proposed_by,
+  approvedBy: r.approved_by,
+  revokedBy: r.revoked_by,
+  reason: r.reason,
+  revokedAt: r.revoked_at,
+});
+
 export class AcademyService {
   private readonly customer: AcademyCustomerStore;
   private readonly assessments: AssessmentRepository;
@@ -2668,10 +2688,15 @@ export class AcademyService {
     return new Set(rows.map((r) => r.item_slug));
   }
 
-  private async existingGrant(userId: string, certId: string): Promise<(CertGrantRecord & { publicId: string }) | null> {
+  private async existingGrant(
+    userId: string,
+    certId: string,
+  ): Promise<(CertGrantRecord & { publicId: string; status: 'valid' | 'revoked' }) | null> {
     const key = certIdempotencyKey(userId, certId);
-    const rows = await this.sql<Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; public_id: string }>>`
-      SELECT user_id, cert_id, granted_at, idempotency_key, public_id FROM academy.cert_grants
+    const rows = await this.sql<
+      Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; public_id: string; status: string }>
+    >`
+      SELECT user_id, cert_id, granted_at, idempotency_key, public_id, status FROM academy.cert_grants
        WHERE user_id = ${userId} AND cert_id = ${certId}
     `;
     if (!rows[0]) return null;
@@ -2681,6 +2706,7 @@ export class AcademyService {
       grantedAt: rows[0].granted_at,
       idempotencyKey: rows[0].idempotency_key ?? key,
       publicId: rows[0].public_id,
+      status: rows[0].status === 'revoked' ? 'revoked' : 'valid',
     };
   }
 
@@ -2698,55 +2724,50 @@ export class AcademyService {
   }
 
   /**
+   * AC-certificates-03: the revocation recorded for one issued certificate, or null while it stands. An unknown code is
+   * `academy.cert_not_found`. The router reads this before spending a two-person approval, so a repeat or a typo costs
+   * nobody's approval.
+   */
+  async certRevocation(publicId: string, tx: Sql = this.sql): Promise<AcademyCertRevocation | null> {
+    if (!isPublicId(publicId)) throw new AcademyError('Certificate not found', 'academy.cert_not_found');
+    const grants = await tx`SELECT 1 FROM academy.cert_grants WHERE public_id = ${publicId}`;
+    if (grants.length === 0) throw new AcademyError('Certificate not found', 'academy.cert_not_found');
+    const rows = await tx<RevocationRow[]>`
+      SELECT ${tx(REVOCATION_COLUMNS)} FROM academy.cert_revocations WHERE public_id = ${publicId}
+    `;
+    return rows[0] ? revocationRecord(rows[0]) : null;
+  }
+
+  /**
    * AC-certificates-03: staff revoke one issued certificate by its public code, once two people approved it (the router
-   * consumes the approval first). The grant turns `revoked` and one revocation record names both people, the reason and
-   * the time. A repeat answers with the first record and writes nothing; an unknown code is `academy.cert_not_found`.
+   * consumes identity's approval and passes who proposed and who approved it). The grant turns `revoked` and one record
+   * names them, the operator who carried it out, the reason and the time. A repeat answers with the first record and
+   * writes nothing; an unknown code is `academy.cert_not_found`.
    */
   async revokeCert(input: {
     publicId: string;
     reason: string;
+    proposedBy: string;
+    approvedBy: string;
     operatorId: string;
-    approverId: string;
     now?: Date;
   }): Promise<AcademyCertRevocation> {
     const reason = input.reason.trim();
-    if (!isPublicId(input.publicId)) throw new AcademyError('Certificate not found', 'academy.cert_not_found');
     if (reason.length === 0 || reason.length > 500) throw new AcademyError('A revoke needs a reason', 'academy.cert_invalid');
-    const now = input.now ?? new Date();
-    type Row = {
-      public_id: string;
-      cert_id: string;
-      revoked_by: string;
-      approved_by: string;
-      reason: string;
-      revoked_at: Date;
-    };
-    const toRecord = (r: Row): AcademyCertRevocation => ({
-      publicId: r.public_id,
-      certId: r.cert_id,
-      revokedBy: r.revoked_by,
-      approvedBy: r.approved_by,
-      reason: r.reason,
-      revokedAt: r.revoked_at,
-    });
     return transaction(this.sql, async (tx) => {
-      const grants = await tx<Array<{ user_id: string; cert_id: string; status: string }>>`
-        SELECT user_id, cert_id, status FROM academy.cert_grants WHERE public_id = ${input.publicId} FOR UPDATE
+      await tx`SELECT 1 FROM academy.cert_grants WHERE public_id = ${input.publicId} FOR UPDATE`;
+      const recorded = await this.certRevocation(input.publicId, tx);
+      if (recorded) return recorded;
+      const [grant] = await tx<Array<{ user_id: string; cert_id: string }>>`
+        UPDATE academy.cert_grants SET status = 'revoked' WHERE public_id = ${input.publicId} RETURNING user_id, cert_id
       `;
-      const grant = grants[0];
-      if (!grant) throw new AcademyError('Certificate not found', 'academy.cert_not_found');
-      const existing = await tx<Row[]>`
-        SELECT public_id, cert_id, revoked_by, approved_by, reason, revoked_at
-          FROM academy.cert_revocations WHERE public_id = ${input.publicId}
+      const rows = await tx<RevocationRow[]>`
+        INSERT INTO academy.cert_revocations (public_id, user_id, cert_id, proposed_by, approved_by, revoked_by, reason, revoked_at)
+        VALUES (${input.publicId}, ${grant!.user_id}, ${grant!.cert_id}, ${input.proposedBy}, ${input.approvedBy},
+                ${input.operatorId}, ${reason}, ${input.now ?? new Date()})
+        RETURNING ${tx(REVOCATION_COLUMNS)}
       `;
-      if (existing[0]) return toRecord(existing[0]);
-      await tx`UPDATE academy.cert_grants SET status = 'revoked' WHERE public_id = ${input.publicId}`;
-      const rows = await tx<Row[]>`
-        INSERT INTO academy.cert_revocations (public_id, user_id, cert_id, revoked_by, approved_by, reason, revoked_at)
-        VALUES (${input.publicId}, ${grant.user_id}, ${grant.cert_id}, ${input.operatorId}, ${input.approverId}, ${reason}, ${now})
-        RETURNING public_id, cert_id, revoked_by, approved_by, reason, revoked_at
-      `;
-      return toRecord(rows[0]!);
+      return revocationRecord(rows[0]!);
     });
   }
 
@@ -2900,6 +2921,8 @@ export class AcademyService {
     const completed = await this.completedSlugs(input.userId);
     const passed = await this.assessments.passedSlugs(input.userId);
     const existing = await this.existingGrant(input.userId, input.certId);
+    // A revoked certificate stays revoked: claiming it again answers the typed refusal and publishes nothing.
+    if (existing?.status === 'revoked') throw new AcademyError(`academy.cert_revoked cert=${input.certId}`, 'academy.cert_revoked');
     let decision: { grant: CertGrantRecord; alreadyGranted: boolean };
     try {
       decision = decideGrant({
@@ -2958,10 +2981,15 @@ export class AcademyService {
     };
   }
 
-  async myCertGrants(userId: string, requested?: number): Promise<Array<CertGrantRecord & { publicId: string }>> {
+  async myCertGrants(
+    userId: string,
+    requested?: number,
+  ): Promise<Array<CertGrantRecord & { publicId: string; status: 'valid' | 'revoked' }>> {
     const limit = assertMyCertsListLimit(requested);
-    const rows = await this.sql<Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; public_id: string }>>`
-      SELECT user_id, cert_id, granted_at, idempotency_key, public_id FROM academy.cert_grants
+    const rows = await this.sql<
+      Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; public_id: string; status: string }>
+    >`
+      SELECT user_id, cert_id, granted_at, idempotency_key, public_id, status FROM academy.cert_grants
        WHERE user_id = ${userId}
        ORDER BY granted_at DESC
        LIMIT ${limit}
@@ -2972,6 +3000,7 @@ export class AcademyService {
       grantedAt: r.granted_at,
       idempotencyKey: r.idempotency_key,
       publicId: r.public_id,
+      status: r.status === 'revoked' ? ('revoked' as const) : ('valid' as const),
     }));
   }
 

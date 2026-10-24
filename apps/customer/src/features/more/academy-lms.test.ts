@@ -376,11 +376,25 @@ describe('certificate issue and verify links (AC-certificates-01/02)', () => {
 describe('certificateXp', () => {
   const plane = { emitEnabled: true, policies: [{ certId: 'foundations-v1', xpDelta: 100 }] };
   it('says the published XP was added, or what it is worth while publishing is off, or none', () => {
-    expect(certificateXp(plane, 'foundations-v1')).toEqual({ kind: 'added', xp: 100 });
+    expect(certificateXp(plane, 'foundations-v1')).toEqual({ kind: 'worth', xp: 100 });
     expect(certificateXp({ ...plane, emitEnabled: false }, 'foundations-v1')).toEqual({ kind: 'off', xp: 100 });
     expect(certificateXp(plane, 'markets-v1')).toEqual({ kind: 'none' });
     expect(certificateXp({ emitEnabled: true, policies: [{ certId: 'foundations-v1', xpDelta: 0 }] }, 'foundations-v1')).toEqual({
       kind: 'none',
     });
+  });
+});
+
+describe('a revoked certificate', () => {
+  it('is revoked, not earned, and has no printable sheet', () => {
+    const grant = {
+      userId: '11111111-1111-4111-8111-111111111111',
+      certId: 'foundations-v1',
+      grantedAt: '2026-10-24T12:00:00.000Z',
+      idempotencyKey: 'cert:11111111-1111-4111-8111-111111111111:foundations-v1',
+      status: 'revoked' as const,
+    };
+    expect(certificateState(undefined, grant)).toBe('revoked');
+    expect(certificateState(undefined, { ...grant, status: 'valid' })).toBe('earned');
   });
 });
