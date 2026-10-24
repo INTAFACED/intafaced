@@ -14,8 +14,15 @@ import {
   spaceOf,
   methodFromQuery,
   pickableLots,
+  pnlFigures,
   pnlView,
+  saleFeesUsd,
+  viewFromQuery,
+  PNL_VIEWS,
   type AssetPnl,
+  type PnlFigure,
+  type PnlFigures,
+  type PnlViewName,
   type LotBook,
   type LotBookLot,
   type LotBookSale,
@@ -85,6 +92,34 @@ const RESIDUAL_COPY: Record<
   'tax.price_at_time_unavailable': 'Residual price at time',
 };
 
+const VIEW_COPY: Record<PnlViewName, 'View all' | 'View realised' | 'View unrealised' | 'View last' | 'View day'> = {
+  all: 'View all',
+  realised: 'View realised',
+  unrealised: 'View unrealised',
+  last: 'View last',
+  day: 'View day',
+};
+
+const VIEW_RULE: Record<PnlViewName, 'View all rule' | 'View realised rule' | 'View unrealised rule' | 'View last rule' | 'View day rule'> =
+  {
+    all: 'View all rule',
+    realised: 'View realised rule',
+    unrealised: 'View unrealised rule',
+    last: 'View last rule',
+    day: 'View day rule',
+  };
+
+/** Why a view has no number, in the screen's words. */
+const FIGURE_COPY: Record<
+  Exclude<PnlFigure, { kind: 'value' }>['reason'],
+  'Figure cost unknown' | 'Figure no price' | 'Figure no trades' | 'Figure no open lots'
+> = {
+  cost_unknown: 'Figure cost unknown',
+  no_price: 'Figure no price',
+  no_trades: 'Figure no trades',
+  no_open_lots: 'Figure no open lots',
+};
+
 /** True when the choice was saved. */
 type Save = (choice: LotChoice) => Promise<boolean>;
 
@@ -140,6 +175,125 @@ function MethodSwitch({ method, onChange, copy }: { method: LotMethod | null; on
   );
 }
 
+function FigureText({ figure, hidden, copy }: { figure: PnlFigure; hidden: boolean; copy: Copy }) {
+  return figure.kind === 'value' ? (
+    <Amount value={fmtUsd(figure.usd, { showPlus: true })} hidden={hidden} />
+  ) : (
+    <span data-reason={figure.reason}>{copy.t(FIGURE_COPY[figure.reason])}</span>
+  );
+}
+
+/**
+ * The five ways to read the result (J-portfolio-05 #1): the switch is in the link (`?view=`), so a copied or reloaded
+ * link shows the same view. Every view counts what the book counts, so the transfers setting below applies to all of them.
+ */
+function ViewCard({
+  figures,
+  view,
+  search,
+  saleFees,
+  hidden,
+  copy,
+}: {
+  figures: PnlFigures;
+  view: PnlViewName;
+  search: string;
+  saleFees: string | null;
+  hidden: boolean;
+  copy: Copy;
+}) {
+  const { t } = copy;
+  const { timeZone } = usePreferences();
+  const choose = (next: PnlViewName) => {
+    const params = new URLSearchParams(search);
+    if (next === 'all') params.delete('view');
+    else params.set('view', next);
+    const query = params.toString();
+    navigate(`/money/pnl${query === '' ? '' : `?${query}`}`, true);
+  };
+  const figure = view === 'last' ? figures.last.figure : figures[view];
+  const trade = figures.last.trade;
+  return (
+    <section className="money-card" aria-label={t('Result view')}>
+      <header className="money-card__head">
+        <h2>{t('Result view')}</h2>
+      </header>
+      <div className="money-alloc__switch" role="group" aria-label={t('Show the result as')}>
+        {PNL_VIEWS.map((option) => (
+          <button key={option} type="button" className="money-alloc__opt" aria-pressed={view === option} onClick={() => choose(option)}>
+            {t(VIEW_COPY[option])}
+          </button>
+        ))}
+      </div>
+      <p className="money-total" data-figure="view" data-view={view}>
+        <FigureText figure={figure} hidden={hidden} copy={copy} />
+      </p>
+      {view === 'last' && trade !== null ? (
+        <p className="money-note" data-label="last-trade" data-kind={trade.kind}>
+          {t(trade.kind === 'sale' ? 'Last sale line' : 'Last buy line', { asset: trade.assetId, time: stamp(trade.at, timeZone) })}
+        </p>
+      ) : null}
+      {view === 'realised' || view === 'all' ? (
+        <p className="money-note" data-figure="sale-fees">
+          {saleFees === null ? (
+            t('Sale fees unknown')
+          ) : (
+            <>
+              {t('Sale fees in result')} <Amount value={fmtUsd(saleFees)} hidden={hidden} />
+            </>
+          )}
+        </p>
+      ) : null}
+      <p className="money-note">{t(VIEW_RULE[view])}</p>
+    </section>
+  );
+}
+
+/**
+ * Whether deposits and withdrawals count (J-portfolio-05 #2). A saved setting, like the matching choices: nothing moves.
+ * Off, a deposit's lot and a withdrawal stay listed but leave every figure.
+ */
+function TransfersCard({
+  book,
+  save,
+  busy,
+  message,
+  copy,
+}: {
+  book: LotBook;
+  save: Save | null;
+  busy: boolean;
+  message: string;
+  copy: Copy;
+}) {
+  const { t } = copy;
+  const on = book.includeTransfers;
+  return (
+    <section className="money-card" aria-label={t('Transfers in results')}>
+      <header className="money-card__head">
+        <h2>{t('Transfers in results')}</h2>
+      </header>
+      <label className="money-note">
+        <input
+          type="checkbox"
+          role="switch"
+          checked={on}
+          disabled={save === null || busy}
+          onChange={(event) => void save?.({ procedure: 'setIncludeTransfers', input: { include: event.target.checked } })}
+        />{' '}
+        {t('Include transfers')}
+      </label>
+      <p className="money-note">{t(on ? 'Transfers on rule' : 'Transfers off rule')}</p>
+      {save === null && !book.preview ? (
+        <p className="money-note">{t(book.choices.status === 'unavailable' ? 'Choices unreadable' : 'Choices not saved here')}</p>
+      ) : null}
+      <p className="money-note" role="status">
+        {message}
+      </p>
+    </section>
+  );
+}
+
 function AssetRows({ assets, hidden, copy }: { assets: readonly AssetPnl[]; hidden: boolean; copy: Copy }) {
   const { t } = copy;
   return (
@@ -175,6 +329,12 @@ function AssetRows({ assets, hidden, copy }: { assets: readonly AssetPnl[]; hidd
                 {a.asset}
                 {a.otherQty !== '0' ? (
                   <span className="money-note"> {t('Other quantity', { qty: fmtAmount(a.otherQty), asset: a.asset })}</span>
+                ) : null}
+                {a.uncountedQty !== '0' ? (
+                  <span className="money-note" data-label="not-counted">
+                    {' '}
+                    {t('Uncounted quantity', { qty: fmtAmount(a.uncountedQty), asset: a.asset })}
+                  </span>
                 ) : null}
               </th>
               <td className="money-num">
@@ -248,14 +408,29 @@ function SaleRows({
               <th scope="col" className="money-num">
                 {t('Result')}
               </th>
+              <th scope="col" className="money-num">
+                {t('Fee column')}
+              </th>
               <th scope="col">{t('Matched by')}</th>
             </tr>
           </thead>
           <tbody>
             {book.sales.map((sale) => (
               <tr key={`${sale.txId}:${sale.assetId}`} data-sale={sale.txId}>
-                <th scope="row">
+                <th scope="row" data-kind={sale.kind} data-counted={sale.counted}>
                   {sale.assetId} <span className="money-note">{stamp(sale.disposedAt, timeZone)}</span>
+                  {sale.kind === 'moved_out' ? (
+                    <span className="money-note" data-label="moved-out">
+                      {' '}
+                      {t('Moved out')}
+                    </span>
+                  ) : null}
+                  {sale.counted !== 'all' ? (
+                    <span className="money-note" data-label="not-counted">
+                      {' '}
+                      {t(sale.counted === 'none' ? 'Not counted' : 'Partly counted')}
+                    </span>
+                  ) : null}
                 </th>
                 <td className="money-num">
                   <Amount value={fmtAmount(sale.qty)} hidden={hidden} />
@@ -287,6 +462,9 @@ function SaleRows({
                       ))
                     : null}
                 </td>
+                <td className="money-num" data-col="fee">
+                  <SaleFee sale={sale} hidden={hidden} copy={copy} />
+                </td>
                 <td data-col="method">
                   <span data-method={sale.method}>{t(METHOD_COPY[sale.method])}</span>{' '}
                   <span className="money-note">{t(METHOD_SOURCE_COPY[sale.methodSource])}</span>
@@ -304,6 +482,28 @@ function SaleRows({
         </table>
       )}
     </section>
+  );
+}
+
+/**
+ * What the fill that made a sale took as its fee, in the coin it was taken in, and in dollars when known (J-portfolio-05
+ * #3). The fee came off what the sale received, so it is already inside the result beside it. A withdrawal is not a fill.
+ */
+function SaleFee({ sale, hidden, copy }: { sale: LotBookSale; hidden: boolean; copy: Copy }) {
+  const { t } = copy;
+  const fee = sale.fee;
+  if (fee === undefined) return <span>{t('Fee none')}</span>;
+  if (fee.status === 'unknown') return <span data-fee="unknown">{t('Fee unknown')}</span>;
+  return (
+    <span data-fee="known">
+      <Amount value={t('Fee in coin', { amount: fmtAmount(fee.amount), asset: fee.assetId })} hidden={hidden} />
+      {fee.usd !== null ? (
+        <span className="money-note">
+          {' '}
+          <Amount value={fmtUsd(fee.usd)} hidden={hidden} />
+        </span>
+      ) : null}
+    </span>
   );
 }
 
@@ -580,7 +780,15 @@ function LotRows({
           {lots.map((lot) => (
             <tr key={lot.id} data-lot={lot.id} data-source={lot.source}>
               <th scope="row">{stamp(lot.acquiredAt, timeZone)}</th>
-              <td data-col="source">{t(SOURCE_COPY[lot.source])}</td>
+              <td data-col="source">
+                {t(SOURCE_COPY[lot.source])}
+                {lot.counted ? null : (
+                  <span className="money-note" data-label="not-counted">
+                    {' '}
+                    {t('Not counted')}
+                  </span>
+                )}
+              </td>
               <td data-col="account" data-space={lot.spaceId ?? 'main'}>
                 {accountName(lot.spaceId)}
                 {lot.carriedFrom !== undefined ? (
@@ -688,11 +896,14 @@ export default function Pnl({ search = '' }: { search?: string }) {
     return result;
   };
   const saver = useChoiceSaver(copy);
+  const transfers = useChoiceSaver(copy);
+  const viewName = useMemo(() => viewFromQuery(search), [search]);
   // The switch shows the method on screen: the previewed one, else the account's saved (or default) method.
   const method = ask !== 'saved' ? ask : book.status === 'ready' ? book.data.method : null;
   const portfolio = useMoneyPortfolio();
   const rows = portfolio.status === 'ready' ? portfolio.data.rows : null;
   const view = useMemo(() => (book.status === 'ready' ? pnlView(book.data, rows) : null), [book, rows]);
+  const figures = useMemo(() => (book.status === 'ready' ? pnlFigures(book.data, rows, Date.now()) : null), [book, rows]);
 
   let body;
   if (book.status === 'loading') {
@@ -788,6 +999,15 @@ export default function Pnl({ search = '' }: { search?: string }) {
             </p>
           </div>
         </div>
+        <p className="money-note" data-figure="fees">
+          {t('Trading fees')}{' '}
+          {data.feesUsd === null ? t('Trading fees unknown') : <Amount value={fmtUsd(data.feesUsd)} hidden={hideBalances} />}{' '}
+          {t('Trading fees rule')}
+        </p>
+        {figures ? (
+          <ViewCard figures={figures} view={viewName} search={search} saleFees={saleFeesUsd(data)} hidden={hideBalances} copy={copy} />
+        ) : null}
+        <TransfersCard book={data} save={canChoose ? transfers.save : null} busy={transfers.busy} message={transfers.message} copy={copy} />
         {reasons.length > 0 ? (
           <ul className="money-note" aria-label={t('Why some figures are not known')}>
             {[...new Set(reasons)].map((key) => (

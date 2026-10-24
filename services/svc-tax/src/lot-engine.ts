@@ -21,6 +21,9 @@ import { TAX_COST_BASIS_UNAVAILABLE, TAX_LOT_PICK_UNUSABLE, TAX_LOT_UNDERFLOW } 
  * names the lot it came from). Sales are trades, and trades happen in the main account, so a sale
  * draws on main-account lots only. A move with too few open coins behind it carries what there is; the rest arrives with
  * no basis, named.
+ *
+ * MOVED OUT (LB-4). A withdrawal to outside is a disposal from the main account like a sale, matched by the method in force,
+ * with the value when it left as its proceeds. It is not a sale: the lot book says whether it counts.
  */
 
 export const ENGINE_METHODS = ['FIFO', 'LIFO', 'HIFO', 'AVERAGE'] as const;
@@ -63,6 +66,8 @@ export interface EngineDispose {
   readonly assetId: string;
   readonly qty: Amount;
   readonly proceedsUsd: Amount | null;
+  /** `moved_out`: a withdrawal to outside, drawn by the method in force (a lot pick is for a sale only). Absent: a sale. */
+  readonly kind?: 'sale' | 'moved_out';
 }
 
 /** A move of the customer's own coins between two of their accounts in one transaction. Null: the main account. */
@@ -112,6 +117,7 @@ export type MethodSource = 'preview' | 'day' | 'asset' | 'account' | 'default';
 export type SaleRules = EngineMethod | ((sale: EngineDispose) => SaleRule);
 
 export interface EngineSale {
+  readonly kind: 'sale' | 'moved_out';
   readonly rule: SaleRule;
   /** The picked lot, when it was open at the sale and so was used; null when there was no pick or it could not be used. */
   readonly pickedLotId: string | null;
@@ -276,7 +282,9 @@ export function runLotEngine(
         all.push(entry);
         continue;
       }
-      sales.push(dispose(m, openAt(null), ruleOf(m), residuals));
+      const rule = ruleOf(m);
+      // A withdrawal draws by the method in force; a lot picked for a sale does not apply to it.
+      sales.push(dispose(m, openAt(null), m.kind === 'moved_out' ? { method: rule.method, source: rule.source } : rule, residuals));
     }
     for (const entry of all) {
       lots.push({
@@ -515,6 +523,7 @@ function dispose(m: EngineDispose, open: OpenLot[], rule: SaleRule, residuals: S
   };
   const costUsd = covered ? sum((x) => x.costUsd) : null;
   return {
+    kind: m.kind ?? 'sale',
     rule,
     pickedLotId: picked === null ? null : picked.lot.id,
     assetId: m.assetId,

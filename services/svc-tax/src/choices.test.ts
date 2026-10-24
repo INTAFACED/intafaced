@@ -140,6 +140,7 @@ describe('the lot book applies what the customer saved', () => {
       assetMethods: [{ assetId: 'BTC', method: 'AVERAGE' }],
       days: [],
       picks: [],
+      includeTransfers: null,
     });
     // A preview shows one method for everything and changes nothing saved.
     const preview = await tax.lotBook({ userId: USER, method: 'HIFO' });

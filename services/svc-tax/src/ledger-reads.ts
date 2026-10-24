@@ -41,6 +41,8 @@ export interface TradeFills {
   readonly inflows?: readonly InflowLine[];
   /** What left the available balance other than by a fill (a hold, a withdrawal, a move to a space), one per ledger line. */
   readonly outflows?: readonly AccountLine[];
+  /** Withdrawals the rail failed and the ledger put back on the available balance (`withdraw.reversed`), one per line. */
+  readonly withdrawalReturns?: readonly AccountLine[];
 }
 
 /** One line on one of the customer's accounts. */
@@ -166,6 +168,9 @@ export function createTaxLedgerReads(
           return line;
         });
         const outflows: AccountLine[] = availableEntries.filter((e) => e.direction === 'credit' && !FILL_REASONS.has(e.reason)).map(lineOf);
+        const withdrawalReturns: AccountLine[] = availableEntries
+          .filter((e) => e.direction === 'debit' && e.reason === WITHDRAW_REVERSED)
+          .map(lineOf);
         const orderIds = [...new Set(received.map((e) => e.orderId).filter((id): id is string => typeof id === 'string' && id !== ''))];
         // Keyed by order AND transaction: a self-trade moves two of the same user's orders in one transaction.
         const paidByLeg = new Map<string, { assetId: string; amount: Amount }>();
@@ -186,8 +191,10 @@ export function createTaxLedgerReads(
           postedAt: new Date(e.postedAt),
           received: { assetId: e.assetId, amount: parseAmount(e.amount) },
           paid: (typeof e.orderId === 'string' && paidByLeg.get(`${e.orderId}|${e.txId}`)) || null,
+          // The ledger names the fee taken from this line (0 when none); a ledger that does not send it leaves it unknown.
+          fee: typeof e.fee === 'string' ? parseAmount(e.fee) : null,
         }));
-        return { fills, truncated, outsideInflows, inflows, outflows };
+        return { fills, truncated, outsideInflows, inflows, outflows, withdrawalReturns };
       } catch (err) {
         if (err instanceof TaxError) throw err;
         throw new TaxError(TAX_LEDGER_HISTORY_UNAVAILABLE, err instanceof Error ? err.message : 'ledger history read failed');
@@ -247,6 +254,8 @@ interface PageEntry {
   postedAt: string;
   assetId: string;
   orderId?: string | null;
+  /** On the customer's receiving line of a fill: the fee taken from it. */
+  fee?: string | null;
 }
 
 function lineOf(e: PageEntry): AccountLine {
@@ -276,6 +285,8 @@ const OWN_COIN_RETURNS: ReadonlySet<string> = new Set([
   // An overcharged trading fee given back: coins the customer already had.
   'trade.fill.fee.correction',
 ]);
+/** A withdrawal the rail failed, put back on available. Its coins are the customer's own coming back. */
+const WITHDRAW_REVERSED = 'withdraw.reversed';
 /** Order hold reads run this many at a time. */
 const HOLD_WALK_PARALLEL = 8;
 /** A technical read bound, not a business limit: 200 pages of 200 entries per scope. Past it the book says it is incomplete. */

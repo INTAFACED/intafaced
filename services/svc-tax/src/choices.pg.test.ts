@@ -19,11 +19,13 @@ const available = adminUrl ? await postgresAvailable(adminUrl) : false;
 const drizzleDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'drizzle');
 const up = readFileSync(join(drizzleDir, '20261024110000_cost_basis_choices.sql'), 'utf8');
 const down = readFileSync(join(drizzleDir, '20261024110000_cost_basis_choices.down.sql'), 'utf8');
+const settingsUp = readFileSync(join(drizzleDir, '20261024150000_pnl_settings.sql'), 'utf8');
+const settingsDown = readFileSync(join(drizzleDir, '20261024150000_pnl_settings.down.sql'), 'utf8');
 
 const ADA = '11111111-1111-4111-8111-111111111111';
 const BO = '22222222-2222-4222-8222-222222222222';
 
-const db = available && adminUrl ? await createTestDatabase({ url: adminUrl, service: 'tax', migrations: [up] }) : null;
+const db = available && adminUrl ? await createTestDatabase({ url: adminUrl, service: 'tax', migrations: [up, settingsUp] }) : null;
 
 if (!db) {
   describe.skip('tax cost-basis choices (Postgres unavailable)', () => {
@@ -71,6 +73,20 @@ if (!db) {
       expect((await store.read(BO)).accountMethod).toBe('HIFO');
     });
 
+    it('saves, replaces and clears whether transfers count, for the caller only', async () => {
+      const store = createPgChoiceStore(db!.sql);
+      expect((await store.read(ADA)).includeTransfers).toBeNull();
+      await store.setIncludeTransfers(ADA, false);
+      await store.setIncludeTransfers(ADA, false); // the same save twice is one row
+      expect((await store.read(ADA)).includeTransfers).toBe(false);
+      expect((await store.read(BO)).includeTransfers).toBeNull();
+      await store.setIncludeTransfers(ADA, true);
+      expect((await store.read(ADA)).includeTransfers).toBe(true);
+      expect(await db!.sql`SELECT count(*)::int AS n FROM tax.pnl_settings WHERE user_id = ${ADA}`).toEqual([{ n: 1 }]);
+      await store.setIncludeTransfers(ADA, null);
+      expect((await store.read(ADA)).includeTransfers).toBeNull();
+    });
+
     it('refuses a method the book does not offer at the table, not only at the door', async () => {
       await expect(db!.sql`INSERT INTO tax.method_choices (user_id, asset_id, method) VALUES (${ADA}, '*', 'LOFO')`).rejects.toThrow(
         /method_choices_method_ck/,
@@ -81,13 +97,18 @@ if (!db) {
     });
 
     it('the migration reverses cleanly and applies again', async () => {
+      await db!.sql.unsafe(settingsDown);
       await db!.sql.unsafe(down);
       expect(await db!.sql`SELECT to_regclass('tax.method_choices') AS t`).toEqual([{ t: null }]);
+      expect(await db!.sql`SELECT to_regclass('tax.pnl_settings') AS t`).toEqual([{ t: null }]);
       await db!.sql.unsafe(up);
       await db!.sql.unsafe(up); // re-runnable
+      await db!.sql.unsafe(settingsUp);
+      await db!.sql.unsafe(settingsUp);
       const store = createPgChoiceStore(db!.sql);
       await store.setMethod(ADA, null, 'FIFO');
-      expect((await store.read(ADA)).accountMethod).toBe('FIFO');
+      await store.setIncludeTransfers(ADA, false);
+      expect(await store.read(ADA)).toMatchObject({ accountMethod: 'FIFO', includeTransfers: false });
     });
   });
 }

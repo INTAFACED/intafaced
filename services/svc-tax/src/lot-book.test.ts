@@ -26,6 +26,9 @@ describe('buildLotBook', () => {
     const book = buildLotBook({ fills, held: held({ BTC: '1', USDT: '300' }), method: 'FIFO', truncated: false });
     expect(book.sales).toEqual([
       {
+        kind: 'sale',
+        counted: 'all',
+        fee: { status: 'unknown' },
         method: 'FIFO',
         methodSource: 'default',
         pickedLotId: null,
@@ -37,11 +40,17 @@ describe('buildLotBook', () => {
         proceedsUsd: '300',
         costUsd: '100',
         realizedUsd: '200',
-        matches: [{ lotId: 'lot:t1:BTC', qty: '1', costUsd: '100', proceedsUsd: '300', realizedUsd: '200' }],
+        matches: [{ lotId: 'lot:t1:BTC', qty: '1', costUsd: '100', proceedsUsd: '300', realizedUsd: '200', counted: true }],
       },
     ]);
     expect(book.realizedUsd).toBe('200');
-    expect(book.assets.find((a) => a.assetId === 'BTC')).toEqual({ assetId: 'BTC', openQty: '1', openCostUsd: '200', held: '1' });
+    expect(book.assets.find((a) => a.assetId === 'BTC')).toEqual({
+      assetId: 'BTC',
+      openQty: '1',
+      openCostUsd: '200',
+      held: '1',
+      uncountedQty: '0',
+    });
     expect(book.indicator).toBe('indicator_not_tax_advice');
     expect(book.residuals).toEqual([]);
   });

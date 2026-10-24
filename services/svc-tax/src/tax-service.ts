@@ -36,9 +36,11 @@ import {
   type Inflow,
   type LotBook,
   type ManualPosition,
+  type Withdrawal,
 } from './lot-book.js';
 import type { BankOwnSpacesPort } from '@intafaced/contracts';
 import { pairOwnMoves, type OwnMove, type SpaceInflow } from './own-moves.js';
+import { outsideWithdrawals, WITHDRAWAL_HOLD_PREFIX } from './withdrawals.js';
 import { NO_CHOICES, saleRules, type ChoiceStore, type CostBasisChoices } from './choices.js';
 import { isLotMethod, runLots, type LotMethod, type LotMovement } from './lots.js';
 import { isEngineMethod, type EngineMethod, type ValuedAt } from './lot-engine.js';
@@ -269,7 +271,14 @@ export class TaxService {
 
   private async bookWith(userId: string, preview: EngineMethod | null, saved: CostBasisChoices, choices: BookChoices): Promise<LotBook> {
     const method = preview ?? saved.accountMethod ?? DEFAULT_LOT_BOOK_METHOD;
-    const shared = { method, rules: saleRules(saved, DEFAULT_LOT_BOOK_METHOD, preview), preview: preview !== null, choices };
+    const shared = {
+      method,
+      rules: saleRules(saved, DEFAULT_LOT_BOOK_METHOD, preview),
+      preview: preview !== null,
+      choices,
+      // A preview changes the method only; whether transfers count stays the customer's choice.
+      includeTransfers: saved.includeTransfers ?? true,
+    };
     const readFills = this.reads.tradeFills;
     if (!readFills) throw new TaxError(TAX_LEDGER_UNWIRED, 'the ledger fill reader is not attached — tax does not invent a book');
     const [balances, filled, active, spaces] = await Promise.all([
@@ -279,7 +288,10 @@ export class TaxService {
       this.ownSpaces(userId),
     ]);
     const held = new Map<string, Amount>();
+    // Coins held for a withdrawal are on their way out: the book counts them gone from the moment they were held.
+    const followsWithdrawals = filled.inflows !== undefined;
     for (const row of balances) {
+      if (followsWithdrawals && row.account.kind === 'hold' && (row.account.purpose ?? '').startsWith(WITHDRAWAL_HOLD_PREFIX)) continue;
       if (row.amount > 0n) held.set(row.account.assetId, (held.get(row.account.assetId) ?? 0n) + row.amount);
     }
     const overridePricePerUnit = pricesOf(active);
@@ -299,6 +311,7 @@ export class TaxService {
     const extra = new Set<string>();
     const own = await this.ownMoves(spaces, filled.inflows, filled.outflows ?? [], extra);
     const inflows = await this.valueInflows([...own.mainInflows, ...own.spaceInflows], extra);
+    const withdrawals = await this.valueWithdrawals(outsideWithdrawals(filled.outflows ?? [], filled.withdrawalReturns ?? []), extra);
     const book = buildLotBook({
       ...shared,
       fills: filled.fills,
@@ -306,6 +319,7 @@ export class TaxService {
       truncated: filled.truncated || own.truncated,
       inflows,
       moves: own.moves,
+      withdrawals,
       spaces: own.spaces,
       ...(own.spaceHeld ? { spaceHeld: own.spaceHeld } : {}),
       now: this.now(),
@@ -384,7 +398,13 @@ export class TaxService {
       assetMethods: [...saved.assetMethods].sort(([a], [b]) => a.localeCompare(b)).map(([assetId, m]) => ({ assetId, method: m })),
       days: saved.days.map((d) => ({ day: d.day, assetId: d.assetId, method: d.method })),
       picks: saved.picks.map((p) => ({ saleTxId: p.saleTxId, assetId: p.assetId, lotId: p.lotId })),
+      includeTransfers: saved.includeTransfers,
     };
+  }
+
+  /** Whether the caller's deposits, transfers in and withdrawals count in their figures; null clears it. Settings only. */
+  async setIncludeTransfers(input: { userId: string; include: boolean | null }): Promise<void> {
+    await this.choiceStoreOrRefuse().setIncludeTransfers(input.userId, input.include);
   }
 
   /** The caller's method for the whole account (`assetId` null) or one coin; null clears it. Settings only. */
@@ -523,6 +543,25 @@ export class TaxService {
           costUsd: this.depositBasis === 'market' && valuedAt !== null ? valuedAt.usd : null,
           valuedAt,
           ...(line.spaceId === undefined ? {} : { spaceId: line.spaceId }),
+        };
+      }),
+    );
+  }
+
+  /** Each withdrawal, valued when it left: quantity times the coin's price at that moment, or null when none was found. */
+  private async valueWithdrawals(lines: readonly AccountLine[], residuals: Set<string>): Promise<Withdrawal[]> {
+    const coins = lines.filter((line) => !PAR_ASSETS.has(line.assetId.toUpperCase()));
+    return Promise.all(
+      coins.map(async (line): Promise<Withdrawal> => {
+        // A failed market data read is the same as no price: the value stays unknown and is named.
+        const price = this.prices ? await this.prices.priceAt(line.assetId, line.postedAt).catch(() => null) : null;
+        if (price === null) residuals.add(TAX_PRICE_AT_TIME_UNAVAILABLE);
+        return {
+          txId: line.txId,
+          postedAt: line.postedAt,
+          assetId: line.assetId,
+          amount: line.amount,
+          valueUsd: price === null ? null : mul(line.amount, price.price),
         };
       }),
     );

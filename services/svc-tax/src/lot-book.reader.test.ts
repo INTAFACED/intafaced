@@ -49,6 +49,7 @@ type Entry = {
   postedAt: string;
   assetId: string;
   orderId: string | null;
+  fee?: string | null;
 };
 const entry = (e: Partial<Entry> & Pick<Entry, 'txId' | 'direction' | 'amount' | 'assetId'>): Entry => ({
   reason: 'trade.fill',
@@ -82,6 +83,8 @@ function ledger(opts: { endless?: boolean; coinDeposit?: boolean } = {}) {
                     assetId: 'USDT',
                     orderId: 'o2',
                     postedAt: '2026-10-03T00:00:00.000Z',
+                    // The ledger names the fee this sale's receiving line paid; the buy's line (below) carries none.
+                    fee: '1.5',
                   }),
                   entry({ txId: 'noise', reason: 'deposit', direction: 'debit', amount: '500', assetId: 'USDT' }),
                   entry({ txId: 'released', reason: 'order.hold.released', direction: 'debit', amount: '2', assetId: 'SOL' }),
@@ -129,6 +132,10 @@ describe('tax.lotBook', () => {
     expect(book.realizedUsd).toBe('200');
     expect(book.sales).toEqual([
       {
+        kind: 'sale',
+        counted: 'all',
+        // The fee was taken from the 300 received: it is already inside the result, and shown on its own.
+        fee: { status: 'known', assetId: 'USDT', amount: '1.5', usd: '1.5' },
         method: 'FIFO',
         methodSource: 'default',
         pickedLotId: null,
@@ -140,9 +147,13 @@ describe('tax.lotBook', () => {
         proceedsUsd: '300',
         costUsd: '100',
         realizedUsd: '200',
-        matches: [{ lotId: 'lot:buy:BTC', qty: '1', costUsd: '100', proceedsUsd: '300', realizedUsd: '200' }],
+        matches: [{ lotId: 'lot:buy:BTC', qty: '1', costUsd: '100', proceedsUsd: '300', realizedUsd: '200', counted: true }],
       },
     ]);
+    // A ledger line with no fee field leaves that fill's fee unknown, so the total is unknown too, never a guess.
+    expect(book.lots.find((lot) => lot.id === 'lot:buy:BTC')?.fee).toEqual({ status: 'unknown' });
+    expect(book.feesUsd).toBeNull();
+    expect(book.includeTransfers).toBe(true);
     expect(book.residuals).toEqual([]);
     // Self-only: every read is scoped to the caller, never to input.
     for (const call of asked.filter((c) => c.path === '/trpc/historyPage' || c.path === '/trpc/balances')) {

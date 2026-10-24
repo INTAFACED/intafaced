@@ -102,11 +102,13 @@ export function useBasisOverride(): {
 export type LotChoice =
   | { procedure: 'setLotMethod'; input: { assetId: string | null; method: LotMethod | null } }
   | { procedure: 'setDayMethod'; input: { day: string; assetId: string | null; method: LotMethod | null } }
-  | { procedure: 'pickSaleLot'; input: { saleTxId: string; assetId: string; lotId: string | null } };
+  | { procedure: 'pickSaleLot'; input: { saleTxId: string; assetId: string; lotId: string | null } }
+  | { procedure: 'setIncludeTransfers'; input: { include: boolean | null } };
 
 /**
  * Saves one cost-basis choice, then reads the saved book and its missing list again. Settings only: nothing moves. An
- * `uncertain` answer may have been stored, so the book is read again for it too.
+ * `uncertain` answer may have been stored, so the book is read again for it too. Whether transfers count changes the book
+ * under every method, so that one reads every method's book again.
  */
 export function useSaveLotChoice(): (choice: LotChoice) => Promise<BasisOutcome> {
   const env = useDataEnv();
@@ -115,8 +117,10 @@ export function useSaveLotChoice(): (choice: LotChoice) => Promise<BasisOutcome>
       const result = await env.api.mutate('tax', choice.procedure, choice.input, lotChoiceSavedSchema);
       const unsure = !result.ok && result.reason === 'uncertain';
       if ((result.ok || unsure) && env.userId) {
-        env.poller.refresh(bookKey(env.userId, 'saved'));
-        env.poller.refresh(missingKey(env.userId, 'saved'));
+        for (const each of choice.procedure === 'setIncludeTransfers' ? [...LOT_METHODS, 'saved' as const] : ['saved' as const]) {
+          env.poller.refresh(bookKey(env.userId, each));
+          env.poller.refresh(missingKey(env.userId, each));
+        }
       }
       return result.ok ? { ok: true } : { ok: false, code: result.code ?? result.reason, unsure };
     },

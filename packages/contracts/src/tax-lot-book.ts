@@ -43,6 +43,15 @@ export const pickSaleLotInputSchema = z
   .object({ saleTxId: z.string().min(1).max(200), assetId: lotAssetIdSchema, lotId: z.string().min(1).max(300).nullable() })
   .strict();
 
+/**
+ * `tax.setIncludeTransfers`: whether coins that came in from outside (a deposit, a transfer in) and coins sent out (a
+ * withdrawal) count in the profit and loss. `include` null clears the choice, and the product default (they count) applies.
+ */
+export const setIncludeTransfersInputSchema = z.object({ include: z.boolean().nullable() }).strict();
+
+/** Counted unless the customer turned transfers off: then a lot from a deposit or a transfer in is left out, and so is a withdrawal. */
+export const LOT_TRANSFER_SOURCES = ['deposit', 'transfer_in'] as const;
+
 export const lotChoiceSavedSchema = z.object({ saved: z.literal(true) });
 
 /** Where a sale's method came from, most specific first. `preview`: one method asked for every sale. */
@@ -55,6 +64,8 @@ export const lotBookChoicesSchema = z.discriminatedUnion('status', [
     assetMethods: z.array(z.object({ assetId: z.string(), method: lotBookMethodSchema })),
     days: z.array(z.object({ day: z.string(), assetId: z.string().nullable(), method: lotBookMethodSchema })),
     picks: z.array(z.object({ saleTxId: z.string(), assetId: z.string(), lotId: z.string() })),
+    /** Null: not chosen, and transfers count (the product default). */
+    includeTransfers: z.boolean().nullable(),
   }),
   /** No settings store: nothing can be saved and the product default applies. */
   z.object({ status: z.literal('unwired'), code: z.literal('tax.basis_store_unwired') }),
@@ -73,6 +84,16 @@ export const lotBookValuedAtSchema = z.object({
   /** Start of that candle (ISO time). */
   candleAt: z.string().nullable(),
 });
+
+/**
+ * The trading fee a fill took from what the customer received. Already inside the figures: a buy's fee leaves fewer coins
+ * for the same cost, a sale's fee leaves less money for the same coins. `usd` is its dollar value at the fill's own price;
+ * null when the fill has no dollar side. `unknown`: the ledger did not say what the fee was.
+ */
+export const lotBookFeeSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('known'), assetId: z.string(), amount: z.string(), usd: z.string().nullable() }),
+  z.object({ status: z.literal('unknown') }),
+]);
 
 export const lotBookLotSchema = z.object({
   /** `lot:<acquireTxId>:<assetId>`: the same history gives the same id. */
@@ -97,6 +118,10 @@ export const lotBookLotSchema = z.object({
   basisLotId: z.string().optional(),
   /** Present when the lot was moved here from another of the customer's own accounts, keeping its date and basis. */
   carriedFrom: z.object({ lotId: z.string(), txId: z.string(), movedAt: z.string() }).optional(),
+  /** False when transfers are left out and this lot came from a deposit or a transfer in: listed, never in a figure. */
+  counted: z.boolean(),
+  /** The fee the buy took, on a lot bought on the exchange (not on a part carried between the customer's own accounts). */
+  fee: lotBookFeeSchema.optional(),
 });
 
 /** The customer's named spaces whose lots the book follows, or why it could not ask which spaces are theirs. */
@@ -119,9 +144,17 @@ export const lotBookMatchSchema = z.object({
   realizedUsd: z.string().nullable(),
   /** Present only when this part's cost is a price the customer entered. */
   basisSource: z.literal('customer-entered').optional(),
+  /** False when this part is left out of the figures (transfers left out, and the lot or the withdrawal is one). */
+  counted: z.boolean(),
 });
 
 export const lotBookSaleSchema = z.object({
+  /** `sale`: a trade. `moved_out`: a withdrawal, valued at the price when it left (counted only while transfers count). */
+  kind: z.enum(['sale', 'moved_out']),
+  /** Which part of it the figures count: all, some (some lots it drew on are left out), or none. */
+  counted: z.enum(['all', 'part', 'none']),
+  /** The fee taken from what this sale received; absent on a withdrawal. */
+  fee: lotBookFeeSchema.optional(),
   /** The method this sale was matched by, and where that came from. */
   method: lotBookMethodSchema,
   methodSource: z.enum(LOT_METHOD_SOURCES),
@@ -142,9 +175,12 @@ export const lotBookSaleSchema = z.object({
 
 export const lotBookAssetSchema = z.object({
   assetId: z.string(),
+  /** Open quantity in the main account that the figures count. */
   openQty: z.string(),
   openCostUsd: z.string().nullable(),
   held: z.string(),
+  /** Open quantity in the main account left out of the figures (from transfers, while transfers are left out). */
+  uncountedQty: z.string(),
 });
 
 export const lotBookSchema = z.object({
@@ -157,6 +193,10 @@ export const lotBookSchema = z.object({
   sales: z.array(lotBookSaleSchema),
   lots: z.array(lotBookLotSchema),
   realizedUsd: z.string().nullable(),
+  /** Whether deposits, transfers in and withdrawals count in these figures: the customer's choice, else true. */
+  includeTransfers: z.boolean(),
+  /** Every trading fee, in dollars at each fill's price; null when any fee or its dollar value is not known. */
+  feesUsd: z.string().nullable(),
   termRule: z.object({ status: z.literal('unset'), code: z.literal('tax.term_rule_unset') }),
   residuals: z.array(z.string()),
   /** Absent from a book built without asking about spaces. */
@@ -225,4 +265,5 @@ export type LotBookLot = z.infer<typeof lotBookLotSchema>;
 export type LotBookSale = z.infer<typeof lotBookSaleSchema>;
 export type LotBookChoices = z.infer<typeof lotBookChoicesSchema>;
 export type LotBookSpaces = z.infer<typeof lotBookSpacesSchema>;
+export type LotBookFee = z.infer<typeof lotBookFeeSchema>;
 export type LotMethodSource = (typeof LOT_METHOD_SOURCES)[number];
