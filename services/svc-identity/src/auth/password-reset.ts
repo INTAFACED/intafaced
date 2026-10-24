@@ -236,7 +236,7 @@ export async function requestHandleRecovery(deps: PasswordResetDeps, input: { em
 
 /**
  * Retries of a password-changed notice whose send threw: the first waits `MAIL_RETRY_FIRST_WAIT_MS`, each next one twice
- * as long, and after `MAIL_RETRY_CAP` failed sends (about four hours) the row stays `unknown` like any other failed mail
+ * as long, and after `MAIL_RETRY_CAP` failed sends (about two hours from the first) the row stays `unknown` like any other failed mail
  * and the relay logs that it gave up. An engineering bound on retrying an outage, not an owner setting or a live
  * magnitude: it decides only how long a free notice is retried.
  */
@@ -313,17 +313,20 @@ export async function relayMailOutbox(
   return out;
 }
 
+/** One statement, so a crash cannot count a failed send without putting the notice back for its next try. */
 async function retryNotice(deps: PasswordResetDeps, id: string): Promise<void> {
   const [row] = await deps.sql<Array<{ failed_sends: number }>>`
-    UPDATE mail_outbox SET failed_sends = failed_sends + 1 WHERE id = ${id} RETURNING failed_sends
+    UPDATE mail_outbox
+    SET failed_sends = failed_sends + 1,
+      status = CASE WHEN failed_sends + 1 < ${MAIL_RETRY_CAP} THEN 'pending' ELSE status END,
+      next_attempt_at = CASE WHEN failed_sends + 1 < ${MAIL_RETRY_CAP}
+        THEN ${deps.now()}::timestamptz + make_interval(secs => ${MAIL_RETRY_FIRST_WAIT_MS / 1000} * power(2, failed_sends))
+        ELSE next_attempt_at END
+    WHERE id = ${id}
+    RETURNING failed_sends
   `;
   const failed = row?.failed_sends ?? MAIL_RETRY_CAP;
-  if (failed >= MAIL_RETRY_CAP) {
-    deps.log.warn({ jobId: id, failedSends: failed }, 'auth.password_changed_notice_abandoned');
-    return;
-  }
-  const due = new Date(deps.now().getTime() + MAIL_RETRY_FIRST_WAIT_MS * 2 ** (failed - 1));
-  await deps.sql`UPDATE mail_outbox SET status = 'pending', next_attempt_at = ${due} WHERE id = ${id}`;
+  if (failed >= MAIL_RETRY_CAP) deps.log.warn({ jobId: id, failedSends: failed }, 'auth.password_changed_notice_abandoned');
 }
 
 async function stillOwnAddress(sql: Sql, userId: string, recipient: string): Promise<boolean> {
