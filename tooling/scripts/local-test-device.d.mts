@@ -14,3 +14,12 @@ export declare function localTestDeviceState(hosts?: string[]): {
   }>;
   origins: never[];
 };
+export declare function localTestAdminDeviceCookie(adminUrl: string): {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  httpOnly: boolean;
+  secure: boolean;
+  sameSite: 'Strict';
+};
