@@ -912,6 +912,22 @@ app.get<{ Params: { userId: string } }>('/internal/account/:userId', async (req,
 });
 
 /**
+ * Who an account is for a campaign's participation rules (CM-eligibility-rules-01), `campaignParticipantSchema`:
+ * account type, region, status and KYC tier. svc-campaigns reads it per check and keeps no copy. Service credentials
+ * only. Unknown user → 404, which the caller refuses on, never reads as eligible.
+ */
+app.get<{ Params: { userId: string } }>('/internal/campaign-participant/:userId', async (req, reply) => {
+  if (serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service === null) {
+    return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
+  }
+  const participant = await auth.campaignParticipant(req.params.userId);
+  if (!participant) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  return participant;
+});
+
+/**
  * Whether a user's current email is proved (RC-identity-01), `emailProofSchema`. svc-trade reads it per order and
  * refuses a new custodial order while it is `missing`. Service credentials only; no address in the answer.
  * Unknown user → 404, which the caller refuses on.

@@ -68,6 +68,26 @@ export const emailProofSchema = z
 export type EmailProof = z.infer<typeof emailProofSchema>;
 
 /**
+ * Who an account is, for a campaign's participation rules (CM-eligibility-rules-01, J-campaigns-01 #4-#5): the account
+ * type chosen at sign-up, the region identity holds (ISO 3166 alpha-2, null when none is recorded), the freeze/close
+ * status and the KYC tier. svc-campaigns reads it per check from `GET /internal/campaign-participant/:userId` (service
+ * credentials) and keeps no copy. No name, email or document is in it.
+ */
+export const campaignParticipantSchema = z
+  .object({
+    userId: z.string().guid(),
+    accountType: z.enum(['individual', 'business']),
+    region: z
+      .string()
+      .regex(/^[A-Z]{2}$/)
+      .nullable(),
+    status: z.enum(['active', 'frozen', 'closed']),
+    kycTier: kycTierSchema,
+  })
+  .strict();
+export type CampaignParticipant = z.infer<typeof campaignParticipantSchema>;
+
+/**
  * CUSTOMER SECURITY LOCK (W-withdraw-09, wallet-withdraw-015). The account owner's own switch that stops withdrawals and
  * changes to withdrawal addresses, the password and verification until they unlock it. Locking applies at once; unlocking
  * is a request that takes effect only after the owner-set wait, and a repeated request never moves that time earlier.
