@@ -18,7 +18,7 @@ import {
 import { settlementCopy } from './settlement-copy';
 import { P2PReason } from './P2PDepth';
 import { Button } from '@intafaced/ui';
-import { AdvertiserTermsSheet, OfferReceipt, OfferSummary, SellAvailability, postInput } from './p2p-post';
+import { AdvertiserTermsSheet, LevelLimits, OfferReceipt, OfferSummary, SellAvailability, postInput } from './p2p-post';
 import { postCopy } from './p2p-post-copy';
 import './p2p-depth.css';
 
@@ -395,6 +395,7 @@ function Fields({
         {mode === 'create' && values.side === 'sell' && !problems.asset ? (
           <SellAvailability pay={pay} asset={values.asset.trim().toUpperCase()} />
         ) : null}
+        {mode === 'create' ? <LevelLimits pay={pay} side={values.side} /> : null}
         <div>
           <span className="p2p-legend">{t('fieldMethods')}</span>
           {methods.resource.status === 'loading' ? <p className="muted">{t('methodsLoading')}</p> : null}

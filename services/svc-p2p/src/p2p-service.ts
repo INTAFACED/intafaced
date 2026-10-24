@@ -98,6 +98,7 @@ import {
   type ReferencePriceSource,
 } from './pricing.js';
 import {
+  buyAdRangeRefusal,
   isVerificationTier,
   remaining,
   verificationBuyRefusal,
@@ -1659,6 +1660,36 @@ export class P2pService {
     if (free !== null && compare(totalAmt, free) > 0) throw shortOf(free, totalAmt, asset, "this ad's total; nothing was posted");
   }
 
+  /**
+   * P-ads-merchant-02. A buy ad's per-order range must fit the maker's verification level, the cap every take of it
+   * meets (`buyAdRangeRefusal`). The refusal carries the level's per-order band, so the form can say what fits.
+   */
+  private assertBuyAdRange(input: {
+    tier: string | undefined;
+    fiatCurrency: string;
+    priceType: PriceType;
+    price: Amount;
+    minAmt: Amount;
+    maxAmt: Amount;
+  }): void {
+    const refusal = buyAdRangeRefusal(this.verificationLimits, input);
+    if (!refusal) return;
+    const { code, caps, currency } = refusal;
+    const band =
+      caps && currency ? { until: null, min: formatAmount(caps.orderMin), max: formatAmount(caps.orderMax), currency } : undefined;
+    const message =
+      code === 'p2p.verification_limits_invalid'
+        ? 'Verification-level trading limits are not a complete decimal table'
+        : code === 'p2p.verification_level_unwired'
+          ? 'The signed-in verification level is missing, so the published cap cannot be applied to this buy ad'
+          : code === 'p2p.verification_limit_currency'
+            ? `This buy ad is in ${input.fiatCurrency}, which is not the published limit currency, and no rate is invented`
+            : code === 'p2p.verification_order_max'
+              ? "This buy ad's per-order maximum is above your verification level's per-order maximum"
+              : "This buy ad's per-order minimum is below your verification level's per-order minimum";
+    throw new P2pError(message, code, band);
+  }
+
   async createOffer(input: {
     makerId: string;
     side: 'buy' | 'sell';
@@ -1763,6 +1794,16 @@ export class P2pService {
     const standing = this.merchantStatusOf ? await this.merchantStatusOf(input.makerId) : null;
     const verdict = checkOfferLimit({ status: standing, maxAmt: input.maxAmt, asset: input.asset, policy: this.offerLimits });
     if (!verdict.withinLimit) throw new P2pError(verdict.reason, 'p2p.offer_limit_exceeded');
+    if (input.side === 'buy') {
+      this.assertBuyAdRange({
+        tier: input.makerTier,
+        fiatCurrency,
+        priceType: input.priceType,
+        price: input.price,
+        minAmt: input.minAmt,
+        maxAmt: input.maxAmt,
+      });
+    }
 
     const totalAmt = input.totalAmt ?? input.maxAmt;
     const clientOfferId = input.offerId;
@@ -4372,6 +4413,23 @@ export class P2pService {
           throw new P2pError('p2p.offer_update_empty', 'p2p.offer_update_empty');
         }
         const remainingAmt = sub(totalAmt, filled);
+        // P-ads-merchant-02: an edited buy ad still fits the level its takes are capped by (the tier stored at create).
+        if (offer.side === 'buy' && (input.price !== undefined || input.minAmt !== undefined || input.maxAmt !== undefined)) {
+          this.assertBuyAdRange({
+            tier: offer.makerTier ?? undefined,
+            fiatCurrency: offer.fiatCurrency,
+            priceType: offer.priceType,
+            price,
+            minAmt,
+            maxAmt,
+          });
+        }
+        // A sell ad that now offers more than before is checked against the free balance, as a new one is at post.
+        if (this.sellBalanceAtPost && offer.side === 'sell' && compare(remainingAmt, offer.remainingAmt) > 0) {
+          const free = await this.sellBalance(offer.makerId, offer.asset);
+          if (compare(remainingAmt, free) > 0)
+            throw shortOf(free, remainingAmt, offer.asset, "this ad's remaining amount; nothing was changed");
+        }
         if (input.maxAmt !== undefined) {
           const standing = this.merchantStatusOf ? await this.merchantStatusOf(input.makerId) : null;
           const verdict = checkOfferLimit({ status: standing, maxAmt, asset: offer.asset, policy: this.offerLimits });

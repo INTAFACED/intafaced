@@ -377,6 +377,14 @@ export const p2pRiskNoticeSchema = z.object({ version: z.string(), acceptedAt: z
 export type P2PRiskNotice = z.infer<typeof p2pRiskNoticeSchema>;
 /** P-ads-merchant-01: the caller's free balance of one coin, as svc-p2p reads it from the ledger. */
 export const p2pSellBalanceSchema = z.object({ asset: z.string(), available: amount });
+/** P-ads-merchant-02 (`limits.verification`): the per-order band the caller's verification level allows, in one fiat. */
+export const p2pLevelLimitsSchema = z.object({
+  tier: z.enum(['none', 'basic', 'full', 'institutional']),
+  currency: z.string(),
+  orderMin: amount,
+  orderMax: amount,
+});
+export type P2PLevelLimits = z.infer<typeof p2pLevelLimitsSchema>;
 /** P-ads-merchant-01: what the post-an-ad form sends to `offers.create`, besides its key and the terms version. */
 export type PostOfferInput = {
   side: 'buy' | 'sell';

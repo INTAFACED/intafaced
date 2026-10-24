@@ -27,9 +27,51 @@ export function SellAvailability({ pay, asset }: { pay: PersonalPayApi; asset: s
         <p className="muted">{t('availableLoading')}</p>
       )}
       <small className="muted">{t('availableHint')}</small>
+      <small className="muted">{t('availableShared')}</small>
     </div>
   );
 }
+
+/**
+ * P-ads-merchant-02: the per-order band for this person's verification level. A buy ad's orders must fit it (every
+ * take of a buy ad meets the maker's level); a sell ad's buyers each meet their own level when they take.
+ */
+export function LevelLimits({ pay, side }: { pay: PersonalPayApi; side: 'buy' | 'sell' }) {
+  const { t } = postCopy.useCopy();
+  const limits = useResource((signal) => pay.levelLimits(signal), 'pay:p2p-level-limits');
+  const resource = limits.resource;
+  return (
+    <div className="stack" data-testid="offer-level-limits">
+      {resource.status === 'ready' ? (
+        <>
+          <p>
+            {t('levelLimits', {
+              level: t(LEVEL_LABEL[resource.data.tier]),
+              min: displayAmount(resource.data.orderMin),
+              max: displayAmount(resource.data.orderMax),
+              currency: resource.data.currency,
+            })}
+          </p>
+          <small className="muted">{t(side === 'buy' ? 'levelBuyHint' : 'levelSellHint')}</small>
+        </>
+      ) : resource.status === 'failed' ? (
+        <p className="muted">
+          {t(
+            resource.failure.code === 'p2p.verification_limits_unset'
+              ? 'levelUnset'
+              : resource.failure.code === 'p2p.verification_level_unwired'
+                ? 'levelUnwired'
+                : 'levelFailed',
+          )}
+        </p>
+      ) : (
+        <p className="muted">{t('levelLoading')}</p>
+      )}
+    </div>
+  );
+}
+
+const LEVEL_LABEL = { none: 'levelNone', basic: 'levelBasic', full: 'levelFull', institutional: 'levelInstitutional' } as const;
 
 /** The advertiser terms, read in full and accepted for the exact version svc-p2p published. */
 export function AdvertiserTermsSheet({
@@ -118,6 +160,12 @@ function refusalKey(failure: Failure | null) {
       return 'refusedVerify' as const;
     case 'p2p.instrument_kms_required':
       return 'keyOff' as const;
+    case 'p2p.verification_limits_invalid':
+      return 'refusedConfig' as const;
+    case 'p2p.verification_limit_currency':
+      return 'refusedLevelCurrency' as const;
+    case 'p2p.verification_level_unwired':
+      return 'refusedLevelUnwired' as const;
     // The form's key already named a different ad: a reply was lost after it posted.
     case 'p2p.idempotency_conflict':
     case 'p2p.idempotency_in_progress':
@@ -150,6 +198,8 @@ export function OfferSummary({
 }) {
   const { t } = postCopy.useCopy();
   const limit = failure?.code === 'p2p.insufficient_balance' ? failure.p2pLimit : undefined;
+  const band =
+    failure?.code === 'p2p.verification_order_max' || failure?.code === 'p2p.verification_order_min' ? failure.p2pLimit : undefined;
   const refused = refusalKey(failure);
   return (
     <section className="stack" data-testid="offer-summary" aria-label={t('summaryTitle')}>
@@ -179,6 +229,10 @@ export function OfferSummary({
       {limit?.available && limit.shortBy ? (
         <p className="failure" role="alert">
           {t('overBalance', { available: displayAmount(limit.available), shortBy: displayAmount(limit.shortBy), asset: input.asset })}
+        </p>
+      ) : band?.min && band.max && band.currency ? (
+        <p className="failure" role="alert">
+          {t('overLevel', { min: displayAmount(band.min), max: displayAmount(band.max), currency: band.currency })}
         </p>
       ) : refused ? (
         <p className="failure" role="alert">

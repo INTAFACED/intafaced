@@ -4,10 +4,13 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PersonalPayApi } from '../pay-api';
 import type { Offer, PostOfferInput } from '../schemas';
-import { AdvertiserTermsSheet, OfferReceipt, OfferSummary, postInput } from './p2p-post';
+import { AdvertiserTermsSheet, LevelLimits, OfferReceipt, OfferSummary, postInput } from './p2p-post';
 import { emptyOffer } from './p2p-model';
 
-/** J-p2p-03 #2, #4, #6 (P-ads-merchant-01): the summary, the advertiser terms and the receipt of a posted ad. */
+/**
+ * J-p2p-03 #2, #4, #6 (P-ads-merchant-01, -02): the summary, the advertiser terms, the level's per-order limits and the
+ * receipt of a posted ad.
+ */
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement;
@@ -122,6 +125,50 @@ describe('OfferSummary', () => {
     act(() => root?.unmount());
     root = null;
     expect((await render(summary('p2p.idempotency_conflict'))).textContent).toContain('This form already sent an ad');
+  });
+});
+
+describe('LevelLimits and a buy ad beyond them', () => {
+  it('shows the band for the level and which side it binds, and says an unpublished table plainly', async () => {
+    const levelLimits = vi.fn(async () => ({
+      ok: true as const,
+      data: { tier: 'basic' as const, currency: 'EUR', orderMin: '0.5', orderMax: '500' },
+    }));
+    const page = await render(<LevelLimits pay={{ levelLimits } as unknown as PersonalPayApi} side="buy" />);
+    const limits = page.querySelector('[data-testid="offer-level-limits"]')!;
+    expect(limits.textContent).toContain('Per order at your level (basic): 0.5 to 500 EUR.');
+    expect(limits.textContent).toContain('you are the buyer in each one');
+    act(() => root?.unmount());
+    root = null;
+    const unset = vi.fn(async () => ({
+      ok: false as const,
+      reason: 'error' as const,
+      message: 'unset',
+      code: 'p2p.verification_limits_unset',
+    }));
+    const blank = await render(<LevelLimits pay={{ levelLimits: unset } as unknown as PersonalPayApi} side="sell" />);
+    expect(blank.textContent).toContain('has not published per-order limits by level');
+  });
+
+  it('says a buy ad beyond the level with the band to fit', async () => {
+    const page = await render(
+      <OfferSummary
+        input={{ ...input, side: 'buy', maxAmount: '600' }}
+        methodLabels={['TEST bank transfer']}
+        termsNote={null}
+        failure={{
+          ok: false,
+          reason: 'error',
+          message: 'over',
+          code: 'p2p.verification_order_max',
+          p2pLimit: { until: null, min: '0.5', max: '500', currency: 'EUR' },
+        }}
+        posting={false}
+        onConfirm={() => {}}
+        onBack={() => {}}
+      />,
+    );
+    expect(page.textContent).toContain('Each order on this buy ad must be between 0.5 and 500 EUR at your level');
   });
 });
 

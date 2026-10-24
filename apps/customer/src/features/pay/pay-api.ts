@@ -629,6 +629,12 @@ export function createPersonalPayApi(
       if (denied) return Promise.resolve(denied);
       return api.query('p2p', 'offers.sellBalance', { asset }, s.p2pSellBalanceSchema, { signal });
     },
+    /** P-ads-merchant-02: the per-order band this person's verification level allows, which a buy ad's orders must fit. */
+    levelLimits(signal?: AbortSignal) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      return api.query('p2p', 'limits.verification', undefined, s.p2pLevelLimitsSchema, { signal });
+    },
     /**
      * P-ads-merchant-01: post the reviewed ad. `idempotencyKey` is the form's business key, made once per form, so a
      * second press or a retry after a lost reply answers the same ad. `termsVersion` is the version the form showed.
