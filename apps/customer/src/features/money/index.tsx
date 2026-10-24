@@ -10,6 +10,7 @@ import { Withdrawal } from './Withdrawal';
 import { WithdrawalAllowlist } from './WithdrawalAllowlist';
 import { WithdrawalApprovals } from './WithdrawalApprovals';
 import { WithdrawalAddresses } from './WithdrawalAddresses';
+import { ApproveAddress } from './ApproveAddress';
 import { Deposit } from './Deposit';
 import { pendingKey, pendingOutcomes, restorePendingOutcomes } from './pending-outcomes';
 import './money.css';
@@ -122,6 +123,8 @@ function MoneyRooms({ path }: { path: string }) {
   if (pathname === '/uc/recharge') content = <Deposit />;
   else if (pathname === '/uc/withdraw/address')
     content = <WithdrawalAddresses key={`addresses:${revision}:${context.epoch}`} open={open} />;
+  // Read once: the page takes the link's token out of the address bar.
+  else if (pathname === '/approveAddress') content = <ApproveAddress search={new URL(context.href).search} />;
   else if (pathname === '/uc/withdraw/allowlist')
     content = (
       <WithdrawalAllowlist

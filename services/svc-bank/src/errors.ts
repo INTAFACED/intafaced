@@ -444,6 +444,20 @@ export type BankErrorCode =
   | 'bank.security_lock_unavailable'
   /** No IDENTITY_URL: this deployment cannot check the security lock, so address changes and sends refuse. A deployment gap. */
   | 'bank.security_lock_unset'
+  /** The address was approved already, so there is nothing to approve or mail. */
+  | 'bank.address_approval_not_pending'
+  /** No owner-set `BANK_ADDRESS_APPROVAL_LINK_MINUTES`, so no approval link is mailed. */
+  | 'bank.address_approval_link_unset'
+  /** Not a link sent to this account (unknown, malformed, or spent on an address still waiting). */
+  | 'bank.address_approval_link_invalid'
+  /** A newer link was sent for the address; only the newest works. */
+  | 'bank.address_approval_link_replaced'
+  /** The link's time ran out; the customer asks for a new one. */
+  | 'bank.address_approval_link_expired'
+  /** Identity could not take the mail (no mail service, outage, bad reply). Nothing was sent. */
+  | 'bank.address_approval_mail_unavailable'
+  /** The account has no confirmed email address, so no link can be mailed. */
+  | 'bank.address_approval_email_unproved'
   /** Same (rail, railRef), (user, clientRef), or offramp id already booked with different facts. */
   | 'bank.ramp_conflict'
   /** A send over a bank rail with a recipient field that rail's form refuses (the message names the field). Nothing kept. */

@@ -71,6 +71,9 @@ export const destinationViewOutput = z.object({
       offerExpiresAt: z.string().nullable(),
     })
     .strict(),
+  approvedAt: z.string().nullable(),
+  approvedBy: z.enum(['link']).nullable(),
+  approvalLinkExpiresAt: z.string().nullable(),
 });
 
 export const balanceAccountsOutput = z.object({

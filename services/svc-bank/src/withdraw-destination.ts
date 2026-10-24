@@ -16,7 +16,11 @@ import { BankError } from './errors.js';
 export const WITHDRAW_DESTINATION_KINDS = ['crypto', 'bank'] as const;
 export type WithdrawDestinationKind = (typeof WITHDRAW_DESTINATION_KINDS)[number];
 
-/** The address-book vocabulary of ENGINE A-1. Only `active` is written today; the others belong to the cooling slice. */
+/**
+ * The address-book vocabulary of ENGINE A-1. A saved address-book entry starts `pending` until the customer approves it
+ * by an emailed link or from another signed-in device (W-withdraw-09), then `cooling`: its cooling-off runs from the
+ * approval. Entries from before approvals existed, and the legacy slot, are `active`.
+ */
 export const DESTINATION_STATES = ['pending', 'cooling', 'active', 'blocked', 'archived'] as const;
 export type DestinationState = (typeof DESTINATION_STATES)[number];
 
@@ -40,7 +44,13 @@ export type WithdrawDestination = {
    */
   lookalikeOf: string | null;
   lookalikeConfirmedAt: Date | null;
+  /** When and how the customer approved this new address (W-withdraw-09); null until then. */
+  approvedAt: Date | null;
+  approvedBy: DestinationApproval | null;
 };
+
+/** How a new address was approved: an emailed single-use link. Approval from another signed-in device comes later. */
+export type DestinationApproval = 'link';
 
 /** One saved address-book entry as the customer typed it. */
 export type SaveDestinationInput = {
@@ -65,6 +75,11 @@ export type UserWithdrawDestinations = {
   /** Rename. Never moves `updatedAt`: the cooling clock runs from the last change of the address itself. */
   rename(input: { userId: string; destinationId: string; label: string }): Promise<WithdrawDestination>;
   remove(input: { userId: string; destinationId: string; idempotencyKey: string }): Promise<{ destinationId: string; removed: true }>;
+  /**
+   * Approve a `pending` entry: it becomes `cooling` and its cooling-off starts now (`updatedAt`). An entry already approved
+   * is returned unchanged, so a repeated approval changes nothing. A missing entry refuses `bank.withdraw_destination_missing`.
+   */
+  approve(input: { userId: string; destinationId: string; by: DestinationApproval }): Promise<WithdrawDestination>;
 };
 
 /** Owner-set number of entries one address book may hold. */
@@ -293,6 +308,8 @@ export function assertOnlyWithdrawDestinations(): UserWithdrawDestinations {
         updatedAt: new Date(0),
         lookalikeOf: null,
         lookalikeConfirmedAt: null,
+        approvedAt: null,
+        approvedBy: null,
       };
     },
     async require(input) {
@@ -309,6 +326,9 @@ export function assertOnlyWithdrawDestinations(): UserWithdrawDestinations {
       throw MISSING(input.userId, input.destinationId);
     },
     async remove(input) {
+      throw MISSING(input.userId, input.destinationId);
+    },
+    async approve(input) {
       throw MISSING(input.userId, input.destinationId);
     },
   };
@@ -343,6 +363,8 @@ export function memoryWithdrawDestinations(options: DestinationStoreOptions = {}
         updatedAt: clock(),
         lookalikeOf: null,
         lookalikeConfirmedAt: null,
+        approvedAt: null,
+        approvedBy: null,
       };
       rows.set(stored.destinationId, stored);
       return strip(stored);
@@ -384,11 +406,13 @@ export function memoryWithdrawDestinations(options: DestinationStoreOptions = {}
         network: entry.network,
         tag: entry.tag,
         origin: 'customer' as const,
-        state: 'active' as const,
+        state: 'pending' as DestinationState,
         addedAt: now,
         updatedAt: now,
         lookalikeOf: entry.lookalikeOf,
         lookalikeConfirmedAt: entry.lookalikeOf ? now : null,
+        approvedAt: null as Date | null,
+        approvedBy: null as DestinationApproval | null,
       };
       rows.set(stored.destinationId, stored);
       return strip(stored);
@@ -421,10 +445,19 @@ export function memoryWithdrawDestinations(options: DestinationStoreOptions = {}
       removals.set(removalKey, input.destinationId);
       return { destinationId: input.destinationId, removed: true as const };
     },
+    async approve(input) {
+      const row = rows.get(input.destinationId);
+      if (!row || row.userId !== input.userId) throw MISSING(input.userId, input.destinationId);
+      if (row.state !== 'pending') return strip(row);
+      const now = clock();
+      const approved = { ...row, state: 'cooling' as const, updatedAt: now, approvedAt: now, approvedBy: input.by };
+      rows.set(row.destinationId, approved);
+      return strip(approved);
+    },
   };
 }
 
-const COLUMNS = `destination_id, kind, ref, label, asset_id, network, tag, origin, state, created_at, updated_at, lookalike_of, lookalike_confirmed_at`;
+const COLUMNS = `destination_id, kind, ref, label, asset_id, network, tag, origin, state, created_at, updated_at, lookalike_of, lookalike_confirmed_at, approved_at, approved_by`;
 
 function isUniqueViolation(err: unknown, constraintSuffix: string): boolean {
   const e = err as { code?: string; constraint_name?: string } | null;
@@ -506,8 +539,9 @@ export class UserWithdrawDestinationStore implements UserWithdrawDestinations {
         if ((count[0]?.n ?? 0) >= cap) throw BOOK_FULL(cap);
         const rows = await tx<DestinationRow[]>`
           INSERT INTO bank.user_withdraw_destinations
-            (user_id, kind, ref, label, asset_id, network, tag, origin, lookalike_of, lookalike_confirmed_at)
+            (user_id, kind, ref, label, asset_id, network, tag, origin, state, lookalike_of, lookalike_confirmed_at)
           VALUES (${input.userId}, 'crypto', ${entry.ref}, ${entry.label}, ${entry.assetId}, ${entry.network}, ${entry.tag}, 'customer',
+                  'pending',
                   ${entry.lookalikeOf}::uuid, CASE WHEN ${entry.lookalikeOf}::uuid IS NULL THEN NULL ELSE now() END)
           RETURNING ${tx.unsafe(COLUMNS)}
         `;
@@ -582,6 +616,27 @@ export class UserWithdrawDestinationStore implements UserWithdrawDestinations {
       return { destinationId, removed: true as const };
     });
   }
+
+  async approve(input: { userId: string; destinationId: string; by: DestinationApproval }): Promise<WithdrawDestination> {
+    const destinationId = input.destinationId.trim();
+    if (!UUID_RE.test(destinationId)) {
+      throw new BankError('destinationId must be a uuid', 'bank.ramp_invalid_destination');
+    }
+    // Only a pending entry moves, once: the cooling-off starts at the approval, so `updated_at` is the approval time.
+    const rows = await this.sql<DestinationRow[]>`
+      UPDATE bank.user_withdraw_destinations
+         SET state = 'cooling', approved_at = now(), approved_by = ${input.by}, updated_at = now()
+       WHERE user_id = ${input.userId} AND destination_id = ${destinationId}::uuid AND state = 'pending'
+      RETURNING ${this.sql.unsafe(COLUMNS)}
+    `;
+    if (rows[0]) return toDestination(rows[0]);
+    const current = await this.sql<DestinationRow[]>`
+      SELECT ${this.sql.unsafe(COLUMNS)} FROM bank.user_withdraw_destinations
+       WHERE user_id = ${input.userId} AND destination_id = ${destinationId}::uuid
+    `;
+    if (!current[0]) throw MISSING(input.userId, destinationId);
+    return toDestination(current[0]);
+  }
 }
 
 interface DestinationRow {
@@ -598,6 +653,8 @@ interface DestinationRow {
   updated_at: Date;
   lookalike_of: string | null;
   lookalike_confirmed_at: Date | null;
+  approved_at: Date | null;
+  approved_by: string | null;
 }
 
 function toDestination(row: DestinationRow): WithdrawDestination {
@@ -615,5 +672,7 @@ function toDestination(row: DestinationRow): WithdrawDestination {
     updatedAt: row.updated_at,
     lookalikeOf: row.lookalike_of,
     lookalikeConfirmedAt: row.lookalike_confirmed_at,
+    approvedAt: row.approved_at,
+    approvedBy: row.approved_by === 'link' ? row.approved_by : null,
   };
 }

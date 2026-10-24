@@ -48,6 +48,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // LOCAL TEST values: how long a wallet ownership proof stays open to sign, and how long a verified one holds.
     BANK_WALLET_PROOF_WINDOW_MINUTES: '30',
     BANK_WALLET_PROOF_VALID_DAYS: '180',
+    // LOCAL TEST value: how long an emailed link that approves a new withdrawal address works (J-wallet-04 #5).
+    BANK_ADDRESS_APPROVAL_LINK_MINUTES: '30',
     // LOCAL TEST values from the bank profile, not owner decisions (BK-xfer-07): one made-up blocked payee, one made-up
     // exchange account with a small allowance, and the proof files a held send may upload. Unset, every global send
     // refuses before its quote, so the sending journeys could not reach a hold or a refusal on this stack.

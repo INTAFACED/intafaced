@@ -194,6 +194,7 @@ BANK_OFFRAMP_COOLING_HOURS=    # owner-set hours; blank → bank.offramp_cooling
 BANK_ADDRESS_BOOK_CAP=         # owner-set saved addresses per customer; blank → bank.address_book_cap_unset
 BANK_WALLET_PROOF_WINDOW_MINUTES= # owner-set minutes a wallet ownership proof stays open; blank → bank.wallet_proof_window_unset
 BANK_WALLET_PROOF_VALID_DAYS=  # owner-set days a verified wallet proof holds; blank → bank.wallet_proof_validity_unset
+BANK_ADDRESS_APPROVAL_LINK_MINUTES= # owner-set minutes an emailed new-address approval link works (≤ 7 days); blank → bank.address_approval_link_unset
 BANK_ACCOUNT_DETAILS_CURRENCIES= # owner-published ISO-4217 list ("GBP,EUR"); blank → bank.account_details_currencies_unset
 BANK_ELIGIBILITY_JSON=         # owner-published who can open an account; blank → bank.eligibility_unset
 BANK_SEND_FIELD_RULES_JSON=    # owner-published purpose / source-of-funds / reference rules of a global send; blank → bank.send_field_rules_unset

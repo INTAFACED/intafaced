@@ -1,3 +1,4 @@
+import { memoryApprovalLinks } from './ramps/address-approval.js';
 import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -117,6 +118,7 @@ describe('the address book while the security lock holds', () => {
       destinations,
       withdrawNetworks: registry,
       walletProofs: memoryWalletProofs(),
+      approvalLinks: memoryApprovalLinks(),
       offrampCoolingHours: '24',
       walletProofWindowMinutes: '30',
       walletProofValidDays: '180',
@@ -204,15 +206,41 @@ describe('whether a saved address can be used now', () => {
         destinations,
         withdrawNetworks: registry,
         walletProofs: memoryWalletProofs(),
+        approvalLinks: memoryApprovalLinks(),
         offrampCoolingHours: hours,
       });
-    return { lock, service };
+    return { lock, service, destinations };
   }
+
+  /** Saved, then approved by its emailed link: its cooling-off runs from the approval (W-withdraw-09). */
+  async function approved(service: RampService, destinations: ReturnType<typeof memoryWithdrawDestinations>) {
+    const saved = await service.saveDestination(entry);
+    await destinations.approve({ userId: USER, destinationId: saved.destinationId, by: 'link' });
+    return saved;
+  }
+
+  it('says approval_pending for a new address until it is approved, with until when an emailed link works', async () => {
+    const clock = { now: new Date() };
+    const { service, destinations } = at(clock);
+    const saved = await service('24').saveDestination(entry);
+    expect(saved).toMatchObject({ state: 'pending', coolingOffEndsAt: null, approvalLinkExpiresAt: null });
+    await expect(service('24').destinationReadiness({ userId: USER, destinationId: saved.destinationId })).resolves.toEqual({
+      destinationId: saved.destinationId,
+      state: 'approval_pending',
+      coolingOffEndsAt: null,
+      lockUnlocksAt: null,
+      approvalLinkExpiresAt: null,
+    });
+    await destinations.approve({ userId: USER, destinationId: saved.destinationId, by: 'link' });
+    await expect(service('24').destinationReadiness({ userId: USER, destinationId: saved.destinationId })).resolves.toMatchObject({
+      state: 'cooling',
+    });
+  });
 
   it('says cooling, with the end of the cooling-off, for an address saved just now', async () => {
     const clock = { now: new Date() };
-    const { service } = at(clock);
-    const saved = await service('24').saveDestination(entry);
+    const { service, destinations } = at(clock);
+    const saved = await approved(service('24'), destinations);
     const answer = await service('24').destinationReadiness({ userId: USER, destinationId: saved.destinationId });
     expect(answer.state).toBe('cooling');
     expect(answer.coolingOffEndsAt).toBe(new Date(clock.now.getTime() + 24 * HOUR).toISOString());
@@ -221,8 +249,8 @@ describe('whether a saved address can be used now', () => {
 
   it('says ready once the cooling-off has ended', async () => {
     const clock = { now: new Date(Date.now() - 25 * HOUR) };
-    const { service } = at(clock);
-    const saved = await service('24').saveDestination(entry);
+    const { service, destinations } = at(clock);
+    const saved = await approved(service('24'), destinations);
     await expect(service('24').destinationReadiness({ userId: USER, destinationId: saved.destinationId })).resolves.toMatchObject({
       state: 'ready',
     });
@@ -230,32 +258,34 @@ describe('whether a saved address can be used now', () => {
 
   it('says cooling_unset while no cooling-off period is published, and invents none', async () => {
     const clock = { now: new Date(Date.now() - 25 * HOUR) };
-    const { service } = at(clock);
-    const saved = await service('24').saveDestination(entry);
+    const { service, destinations } = at(clock);
+    const saved = await approved(service('24'), destinations);
     await expect(service('').destinationReadiness({ userId: USER, destinationId: saved.destinationId })).resolves.toEqual({
       destinationId: saved.destinationId,
       state: 'cooling_unset',
       coolingOffEndsAt: null,
       lockUnlocksAt: null,
+      approvalLinkExpiresAt: null,
     });
   });
 
   it('says cooling with no end when the published period runs past any date, as the send path refuses it', async () => {
     const clock = { now: new Date() };
-    const { service } = at(clock);
-    const saved = await service('24').saveDestination(entry);
+    const { service, destinations } = at(clock);
+    const saved = await approved(service('24'), destinations);
     await expect(service('99999999999999').destinationReadiness({ userId: USER, destinationId: saved.destinationId })).resolves.toEqual({
       destinationId: saved.destinationId,
       state: 'cooling',
       coolingOffEndsAt: null,
       lockUnlocksAt: null,
+      approvalLinkExpiresAt: null,
     });
   });
 
   it('puts the security lock first, with when it ends', async () => {
     const clock = { now: new Date(Date.now() - 25 * HOUR) };
-    const { service, lock } = at(clock);
-    const saved = await service('24').saveDestination(entry);
+    const { service, lock, destinations } = at(clock);
+    const saved = await approved(service('24'), destinations);
     lock.set(USER, LOCKED);
     await expect(service('24').destinationReadiness({ userId: USER, destinationId: saved.destinationId })).resolves.toMatchObject({
       state: 'locked',
@@ -265,8 +295,8 @@ describe('whether a saved address can be used now', () => {
 
   it('does not answer for an address that is someone else’s or not in the book', async () => {
     const clock = { now: new Date() };
-    const { service } = at(clock);
-    const saved = await service('24').saveDestination(entry);
+    const { service, destinations } = at(clock);
+    const saved = await approved(service('24'), destinations);
     await expect(service('24').destinationReadiness({ userId: OTHER, destinationId: saved.destinationId })).rejects.toMatchObject({
       code: 'bank.withdraw_destination_missing',
     });
