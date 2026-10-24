@@ -343,6 +343,9 @@ export function methodIdKey(raw: string): string {
  * every instrument a real user tries to register, at a point where the user
  * cannot tell whether they typed something wrong or we did.
  */
+/** The longest legal name identity holds (contracts `customerDetailsSchema.legalName`), so the longest holder field. */
+export const HOLDER_NAME_MAX = 200;
+
 export function parseFieldSpecs(raw: unknown): FieldSpec[] {
   if (!Array.isArray(raw) || raw.length === 0) {
     throw new InstrumentError('A method schema needs at least one field', 'p2p.instrument_schema_invalid');
@@ -428,6 +431,15 @@ export function parseFieldSpecs(raw: unknown): FieldSpec[] {
       // A name that may be left out could never be checked, so the field that carries it is always required.
       if (!spec.required) {
         throw new InstrumentError(`Field "${key}" names the account holder, so it must be required`, 'p2p.instrument_schema_invalid', key);
+      }
+      // Identity holds a legal name of at most HOLDER_NAME_MAX characters and checks nothing longer: a longer value
+      // would be refused there on every try and read as "could not be checked".
+      if (spec.maxLength === undefined || spec.maxLength > HOLDER_NAME_MAX) {
+        throw new InstrumentError(
+          `Field "${key}" names the account holder, so its maxLength must be set and at most ${HOLDER_NAME_MAX}`,
+          'p2p.instrument_schema_invalid',
+          key,
+        );
       }
       spec.holderName = true;
     }

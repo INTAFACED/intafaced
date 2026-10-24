@@ -2,6 +2,11 @@ import { defineCopy } from '../../../shared/i18n';
 
 // P-ads-merchant-18 and -19: the payment methods a person gets paid with in P2P, and the catalogue they come from.
 const en = {
+  catalogueWindowMinutes: 'Money can take up to {minutes} minutes to arrive.',
+  catalogueWindowHoursMinutes: 'Money can take up to {hours} hours {minutes} minutes to arrive.',
+  addCountryAny: 'Two letters, for example DE.',
+  addCountryListed: 'Two letters. The countries with a registered payment method are suggested.',
+  refusedInvalid: 'This must be between {min} and {max} characters.',
   catalogueTitle: 'Payment methods by country',
   catalogueIntro: 'What each payment method asks for in each country. Add one below to get paid with it on your ads.',
   catalogueCountry: 'Country',
@@ -25,7 +30,6 @@ const en = {
   addLabel: 'Your name for it (optional)',
   addLabelHint: 'Only you see this. It tells your saved methods apart.',
   addOwnName: 'Enter your name exactly as on your verified identity. An account in anyone else’s name is refused.',
-  addRequired: 'Fill this in.',
   addReview: 'Review',
   addCancel: 'Back',
   addReviewTitle: 'Save this payment method',
@@ -47,6 +51,11 @@ const en = {
 } as const;
 
 const es: Record<keyof typeof en, string> = {
+  catalogueWindowMinutes: 'El dinero puede tardar hasta {minutes} minutos en llegar.',
+  catalogueWindowHoursMinutes: 'El dinero puede tardar hasta {hours} horas {minutes} minutos en llegar.',
+  addCountryAny: 'Dos letras, por ejemplo DE.',
+  addCountryListed: 'Dos letras. Se sugieren los países con un método de pago registrado.',
+  refusedInvalid: 'Debe tener entre {min} y {max} caracteres.',
   catalogueTitle: 'Métodos de pago por país',
   catalogueIntro: 'Lo que pide cada método de pago en cada país. Añade uno abajo para cobrar con él en tus anuncios.',
   catalogueCountry: 'País',
@@ -70,7 +79,6 @@ const es: Record<keyof typeof en, string> = {
   addLabel: 'Tu nombre para él (opcional)',
   addLabelHint: 'Solo lo ves tú. Sirve para distinguir tus métodos guardados.',
   addOwnName: 'Escribe tu nombre exactamente como en tu identidad verificada. Una cuenta a nombre de otra persona se rechaza.',
-  addRequired: 'Rellena este campo.',
   addReview: 'Revisar',
   addCancel: 'Volver',
   addReviewTitle: 'Guardar este método de pago',
@@ -93,6 +101,11 @@ const es: Record<keyof typeof en, string> = {
 };
 
 const fr: Record<keyof typeof en, string> = {
+  catalogueWindowMinutes: 'L’argent peut mettre jusqu’à {minutes} minutes pour arriver.',
+  catalogueWindowHoursMinutes: 'L’argent peut mettre jusqu’à {hours} heures {minutes} minutes pour arriver.',
+  addCountryAny: 'Deux lettres, par exemple DE.',
+  addCountryListed: 'Deux lettres. Les pays dotés d’un moyen de paiement enregistré sont proposés.',
+  refusedInvalid: 'Ce champ doit contenir entre {min} et {max} caractères.',
   catalogueTitle: 'Moyens de paiement par pays',
   catalogueIntro:
     'Ce que demande chaque moyen de paiement dans chaque pays. Ajoutez-en un ci-dessous pour être payé avec sur vos annonces.',
@@ -118,7 +131,6 @@ const fr: Record<keyof typeof en, string> = {
   addLabel: 'Votre nom pour ce moyen (facultatif)',
   addLabelHint: 'Vous seul le voyez. Il distingue vos moyens enregistrés.',
   addOwnName: 'Saisissez votre nom exactement comme sur votre identité vérifiée. Un compte au nom de quelqu’un d’autre est refusé.',
-  addRequired: 'Remplissez ce champ.',
   addReview: 'Vérifier',
   addCancel: 'Retour',
   addReviewTitle: 'Enregistrer ce moyen de paiement',

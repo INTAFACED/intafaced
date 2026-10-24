@@ -290,7 +290,7 @@ describe('svc-p2p payment instruments', () => {
         country: 'DE',
         label: 'Own-name transfer',
         fields: [
-          { key: 'account_holder', label: 'Account holder', required: true, holderName: true },
+          { key: 'account_holder', label: 'Account holder', required: true, maxLength: 120, holderName: true },
           {
             key: 'iban',
             label: 'IBAN',
@@ -320,15 +320,26 @@ describe('svc-p2p payment instruments', () => {
       expect(schema!.fields.find((field) => field.key === 'account_holder')).toMatchObject({ holderName: true });
       expect(schema!.fields.find((field) => field.key === 'iban')).not.toHaveProperty('holderName');
       const two = [
-        { key: 'a', label: 'A', required: true, holderName: true },
-        { key: 'b', label: 'B', required: true, holderName: true },
+        { key: 'a', label: 'A', required: true, maxLength: 120, holderName: true },
+        { key: 'b', label: 'B', required: true, maxLength: 120, holderName: true },
       ];
       await expect(ruled.registerMethodSchema({ methodId: 'two-holders', country: 'DE', label: 'Two', fields: two })).rejects.toMatchObject(
         {
           code: 'p2p.instrument_schema_invalid',
         },
       );
-      const optional = [{ key: 'a', label: 'A', required: false, holderName: true }];
+      // Identity holds a legal name of at most 200 characters: a holder field must not take more.
+      for (const bounds of [{}, { maxLength: 201 }]) {
+        await expect(
+          ruled.registerMethodSchema({
+            methodId: 'long-holder',
+            country: 'DE',
+            label: 'Long',
+            fields: [{ key: 'a', label: 'A', required: true, holderName: true, ...bounds }],
+          }),
+        ).rejects.toMatchObject({ code: 'p2p.instrument_schema_invalid', message: expect.stringContaining('maxLength') });
+      }
+      const optional = [{ key: 'a', label: 'A', required: false, maxLength: 120, holderName: true }];
       await expect(
         ruled.registerMethodSchema({ methodId: 'optional-holder', country: 'DE', label: 'Opt', fields: optional }),
       ).rejects.toMatchObject({
