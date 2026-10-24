@@ -43,6 +43,7 @@ import { parseVerificationLimits } from './verification-limits.js';
 import { parseActiveOrderCap, parseBuyerCancelLimit, parsePairLimits } from './take-limits.js';
 import { parseReminderPolicy } from './seller-reminders.js';
 import { parseToleranceBps } from './amount-mismatch.js';
+import { AdvertiserTermsAcceptances, advertiserTermsVersion, createAdvertiserTerms } from './advertiser-terms.js';
 import { createLocalTestKeyProvider } from './local-test-kms.js';
 import {
   createIdentityContactReader,
@@ -177,6 +178,13 @@ const p2p: P2pService = new P2pService(sql, ledger, bus, {
   },
   reminders: parseReminderPolicy(env.P2P_REMIND_WAIT_SECONDS, env.P2P_REMIND_MAX),
   mismatchToleranceBps: parseToleranceBps(env.P2P_MISMATCH_TOLERANCE_BPS),
+  // P-ads-merchant-01: every new ad needs the published advertiser terms accepted (blank refuses every post), and a
+  // sell ad's total is checked against the maker's free balance. Nothing is reserved at post.
+  advertiserTerms: createAdvertiserTerms({
+    acceptances: new AdvertiserTermsAcceptances(sql),
+    version: advertiserTermsVersion(env.P2P_ADVERTISER_TERMS_VERSION),
+  }),
+  sellBalanceAtPost: true,
   deadlines: {
     escrowSeconds: publishedEscrowDeadlineSeconds(env.P2P_ESCROW_DEADLINE_SECONDS),
     paymentSeconds: publishedPaymentDeadlineSeconds(env.P2P_PAYMENT_DEADLINE_SECONDS),

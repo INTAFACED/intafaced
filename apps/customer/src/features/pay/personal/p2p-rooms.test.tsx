@@ -224,12 +224,12 @@ it('marks the pressed offer and order tabs', () => {
 });
 
 const pending = () => new Promise<never>(() => {});
-const stubPay = { fiat: pending, methods: pending, offer: pending } as unknown as PersonalPayApi;
+const stubPay = { fiat: pending, methods: pending, offer: pending, advertiserTerms: pending } as unknown as PersonalPayApi;
 
-it('shows the whole create form with saving off and the reason on screen', () => {
+it('shows the whole create form, with review off until it is complete', () => {
   const out = renderToString(<OfferForm pay={stubPay} userId={SELLER} mode="create" offerId={null} />);
-  expect(out).toContain('Publishing from this form is off');
-  expect(out).toContain('were published outside this form');
+  expect(out).toContain('data-testid="offer-form"');
+  expect(out).not.toContain('Publishing from this form is off');
   for (const label of [
     'Offer type',
     'Fiat currency',

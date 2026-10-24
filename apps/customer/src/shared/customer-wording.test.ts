@@ -48,6 +48,7 @@ import '../features/pay/p2p-remind-copy';
 import '../features/pay/p2p-mismatch-copy';
 import '../features/pay/p2p-validate-copy';
 import '../features/pay/personal/p2p-depth-copy';
+import '../features/pay/personal/p2p-post-copy';
 import '../features/public/help-copy';
 import '../screens/notifications/alerts-copy';
 import '../screens/pay/recent-copy';
@@ -140,6 +141,7 @@ const CHECKED = new Set([
   'pay.p2p.mismatch',
   'pay.p2p.validate',
   'pay.p2p.depth',
+  'pay.p2p.post',
   'public.help',
   'notifications.alerts',
   'pay.recent',
