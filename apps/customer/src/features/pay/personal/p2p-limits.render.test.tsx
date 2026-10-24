@@ -77,6 +77,41 @@ describe('take limits in plain words (P-trade-orders-03, P-disputes-security-15)
     expect((await note(refused('p2p.method_delisted'))).textContent).toContain('has been retired and no longer takes orders');
   });
 
+  it('says buying is paused after cancelled orders, until when, and that selling is not', async () => {
+    const shown = await note(refused('p2p.buying_restricted', { until: '2026-10-24T09:00:00.000Z', cap: '3', windowHours: '24' }));
+    expect(shown.dataset.kind).toBe('buyingPaused');
+    expect(shown.textContent).toContain(
+      'You cancelled 3 orders, or let their payment time run out, within 24 hours, so buying is paused until',
+    );
+    expect(shown.textContent).toContain('Selling is not paused.');
+    expect(takeRefusalIsDefinite({ reason: 'error', code: 'p2p.buying_restricted', status: 409 })).toBe(true);
+  });
+
+  it('asks for the take’s fresh confirmation in words, links Security, and counts it as nothing placed', async () => {
+    const shown = await note(refused('auth.step_up_required'));
+    expect(shown.dataset.kind).toBe('stepUp');
+    expect(shown.textContent).toContain('Confirm this order with your authenticator app or a passkey before it is placed.');
+    expect(shown.querySelector<HTMLAnchorElement>('a[href="/uc/safe"]')!.textContent).toBe(
+      'Set up an authenticator app or a passkey in Security',
+    );
+    root?.unmount();
+    expect((await note(refused('auth.step_up_expired'))).textContent).toContain('Your last confirmation has ended.');
+    root?.unmount();
+    const failed = await note(refused('auth.step_up_failed'));
+    expect(failed.dataset.kind).toBe('stepUpFailed');
+    expect(failed.textContent).not.toContain('service text');
+    for (const code of ['auth.step_up_required', 'auth.step_up_expired', 'auth.step_up_failed']) {
+      expect(takeRefusalIsDefinite({ reason: 'forbidden', code, status: 403 })).toBe(true);
+    }
+    root?.unmount();
+    // A confirmation that could not be checked does not ask for a new passkey: one would fail the same way.
+    const unchecked = await note(refused('p2p.step_up_unverifiable'));
+    expect(unchecked.dataset.kind).toBe('stepUpUnchecked');
+    expect(unchecked.textContent).toContain('Your confirmation could not be checked just now, so nothing was placed.');
+    expect(unchecked.querySelector('a[href="/uc/safe"]')).toBeNull();
+    expect(takeRefusalIsDefinite({ reason: 'error', code: 'p2p.step_up_unverifiable', status: 412 })).toBe(true);
+  });
+
   it('falls back to the plain sentence when the figures are missing', async () => {
     const shown = await note(refused('p2p.active_order_cap'));
     expect(shown.textContent).toContain('You already have the most ongoing orders');

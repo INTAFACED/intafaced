@@ -12,14 +12,14 @@ export const outreachConfigSchema = z
       .array(
         z
           .string()
-          .uuid()
+          .guid()
           .transform((value) => value.toLowerCase()),
       )
       .length(2)
       .refine((x) => new Set(x).size === 2),
     initialOwnerUserId: z
       .string()
-      .uuid()
+      .guid()
       .transform((value) => value.toLowerCase()),
     continuationTtlSeconds: z.number().int().min(60).max(2592000),
     timeZone: z.string().refine((x) => {

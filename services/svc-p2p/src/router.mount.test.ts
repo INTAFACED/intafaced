@@ -108,7 +108,7 @@ const customerAmount = z
   .refine((value) => /^\d+(\.\d{1,18})?$/.test(value));
 
 const customerOfferSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   makerId: z.string(),
   side: z.enum(['buy', 'sell']),
   asset: z.string().min(1).max(16),
@@ -1406,6 +1406,16 @@ describe('svc-p2p mount — trade/dispute read IDOR', () => {
     expect(strangerHit).toEqual(missing);
     expect(missing).toEqual({ code: 'NOT_FOUND', message: `Trade ${tradeId} not found` });
     expect(reads).toBe(1);
+  });
+
+  it('gives a party the order with the terms copied when it was placed, and an older order null', async () => {
+    const ctx = signed(principal({ userId: BUYER, sub: BUYER, scopes: ['p2p:read'] }));
+    const read = (termsSnapshot: string | null) =>
+      createP2pRouter(stubP2p({ getTrade: async () => ({ ...foreignTrade, termsSnapshot }) }), stubInstruments())
+        .createCaller(ctx)
+        .trades.get({ tradeId });
+    expect((await read('pay within 15 minutes')).terms).toBe('pay within 15 minutes');
+    expect((await read(null)).terms).toBeNull();
   });
 
   it("hides another pair's dispute as NOT_FOUND rather than FORBIDDEN or 500", async () => {

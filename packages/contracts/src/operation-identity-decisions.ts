@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { currentAuthorityInputSchema, operationAdmissionInputSchema } from './account-controls.js';
 
-const id = z.string().uuid();
+const id = z.string().guid();
 const version = z.string().regex(/^(0|[1-9][0-9]*)$/);
 const timestamp = z.string().datetime({ offset: true });
 const payfacProof = z.discriminatedUnion('kind', [
@@ -26,11 +26,13 @@ export const identityOperationAuthoritySchema = z.discriminatedUnion('kind', [
   // Hosted checkout and provider events have no merchant browser session. The
   // owning payment service proves the merchant policy before requesting this.
   z.object({ kind: z.literal('merchant_policy'), merchantId: id }).strict(),
-  // An unattended customer schedule (auto-invest) has no session or API key.
-  // svc-bank proves its own instruction is active before asking; identity still
-  // checks the user is active and not frozen, and the owner's restriction guard
-  // still applies. It names one spot placement and never widens to other kinds.
-  z.object({ kind: z.literal('standing_instruction'), instructionId: id, ownerService: z.literal('svc-bank') }).strict(),
+  // An unattended customer instruction has no session or API key: an svc-bank
+  // schedule (auto-invest), or a futures stop or take-profit the customer armed in
+  // svc-trade, which places one reduce-only order when it fires. The owning service
+  // proves its own instruction is live before asking; identity still checks the
+  // user is active and not frozen, and the owner's restriction guard still
+  // applies. It names one order placement and never widens to other kinds.
+  z.object({ kind: z.literal('standing_instruction'), instructionId: id, ownerService: z.enum(['svc-bank', 'svc-trade']) }).strict(),
   // svc-pay proves current tree ownership/grant under its own cutoff guard.
   // Identity independently checks both the child owner and original actor.
   z
@@ -74,7 +76,7 @@ export const identityOperationIntentSchema = operationAdmissionInputSchema
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['authority'],
-        message: 'A standing instruction is limited to one spot order placement',
+        message: 'A standing instruction is limited to one order placement',
       });
     }
     if (

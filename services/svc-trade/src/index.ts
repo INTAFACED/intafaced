@@ -696,6 +696,11 @@ const conditionalOrders = createConditionalOrderService({
   },
   closeQuantity: (userId, positionId, input) => positions.closeQuantity(userId, positionId, input),
   placeLimit: refuseFuturesRestingLimit,
+  // While futures orders go through the book the at-mark close is retired: a fired order places one reduce-only order
+  // there instead, on the trader's standing instruction. A reduce-only order carries its position's leverage.
+  placeReduce: env.TRADE_FUTURES_MATCHING_ENABLED
+    ? (input, instructionId) => positions.placeMatchedOnInstruction({ ...input, leverage: 0n, reduceOnly: true }, instructionId)
+    : null,
 });
 const conditionalJobs = startConditionalOrderJobs({
   config: conditionalJobsConfig,

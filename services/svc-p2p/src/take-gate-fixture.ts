@@ -1,4 +1,5 @@
 import type { TakeGate } from './take-eligibility.js';
+import type { TakeStepUp } from './take-step-up.js';
 
 /**
  * For tests about something other than eligibility: a person who meets every take requirement. Production wires
@@ -24,6 +25,19 @@ export function metTakeGate(): TakeGate {
     },
     async acceptRisk() {
       return { version: 'TEST', acceptedAt };
+    },
+  };
+}
+
+/**
+ * For tests about something other than the take confirmation: every take is confirmed. Production wires
+ * `createTakeStepUp` (index.ts); the confirmation itself is proved in `take-step-up.test.ts`.
+ */
+export function confirmedTakeStepUp(): TakeStepUp {
+  return {
+    async assertConfirmed() {},
+    async window() {
+      return { confirmedUntil: null };
     },
   };
 }

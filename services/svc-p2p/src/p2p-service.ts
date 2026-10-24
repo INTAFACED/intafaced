@@ -42,7 +42,13 @@ import {
 } from './customer-depth.js';
 import { lockInstrumentOwners } from './instrument-lock.js';
 import type { P2pLimitDetails } from '@intafaced/contracts';
-import { ONGOING_TRADE_STATUSES, pairLimitRefusal, type TakeLimits } from './take-limits.js';
+import {
+  BUYER_CANCEL_REASON_PREFIX,
+  BUYER_TIMEOUT_REASON,
+  ONGOING_TRADE_STATUSES,
+  pairLimitRefusal,
+  type TakeLimits,
+} from './take-limits.js';
 import { completionRates, toAppeal, type AppealRecord, type AppealRow, type CompletionRates } from './completion-rate.js';
 import {
   ORDER_TABS,
@@ -163,6 +169,7 @@ export type P2pErrorCode =
   | 'p2p.quote_expired'
   | 'p2p.quote_changed'
   | 'p2p.active_order_cap'
+  | 'p2p.buying_restricted'
   | 'p2p.pair_limit_exceeded'
   | 'p2p.method_delisted'
   | 'p2p.offer_not_found'
@@ -732,6 +739,8 @@ export interface TradeRecord {
   fiatSentAt: Date | null;
   resolvedAt: Date | null;
   settledAt: Date | null;
+  /** The ad's terms text copied at take; later ad edits never change it. Null on orders placed before 0015. */
+  termsSnapshot: string | null;
 }
 
 export interface DisputeRecord {
@@ -792,6 +801,7 @@ interface TradeRow {
   fiat_sent_at: Date | null;
   resolved_at: Date | null;
   settled_at: Date | null;
+  terms_snapshot: string | null;
 }
 
 interface OfferRow {
@@ -1223,6 +1233,46 @@ export class P2pService {
   }
 
   /**
+   * P-trade-orders-05: a buyer who cancelled the owner's number of orders within the window (their own cancels and
+   * payment windows they let run out) may not buy until the oldest of those leaves it: no take of a sell ad, no new
+   * buy ad, and no seller fills their buy ad meanwhile. Selling is not paused. Read on the database clock, under the
+   * instrument-owner lock on a take.
+   */
+  private async assertBuyingNotRestricted(
+    sql: Sql,
+    input: { buyerId: string; tradeId: string | null; /** The buyer is the ad's maker, not the person asking. */ asMaker: boolean },
+  ): Promise<void> {
+    if (!this.takeLimits) return;
+    const { limit, windowHours } = this.takeLimits.buyerCancels;
+    if (limit === null || windowHours === null) {
+      throw new P2pError('How many cancelled orders pause buying is not set', 'p2p.config_unset');
+    }
+    const buyerId = input.buyerId;
+    const recent = await sql<{ until: Date }[]>`
+      SELECT resolved_at + make_interval(hours => ${windowHours}) AS until
+        FROM p2p.p2p_trades
+       WHERE buyer_id = ${buyerId}
+         AND status = 'cancelled'
+         AND (starts_with(resolution_reason, ${BUYER_CANCEL_REASON_PREFIX}) OR resolution_reason = ${BUYER_TIMEOUT_REASON})
+         AND resolved_at > now() - make_interval(hours => ${windowHours})
+       ORDER BY resolved_at DESC
+       LIMIT ${limit}
+    `;
+    if (recent.length < limit) return;
+    // A retry of a take that already placed its trade is that trade (`p2p.trade_exists` below), never "paused,
+    // nothing placed" because of cancels made since.
+    if (input.tradeId && (await sql`SELECT 1 FROM p2p.p2p_trades WHERE id = ${input.tradeId}`).length > 0) return;
+    // A seller taking a paused buyer's ad is told only that the ad takes no orders: the pause is the buyer's own.
+    if (input.asMaker) throw new P2pError('This offer is not taking orders', 'p2p.offer_not_active');
+    // The latest `limit` cancels are all inside the window; buying returns when the oldest of them leaves it.
+    throw new P2pError(`You cancelled ${limit} orders within ${windowHours} hours, so buying is paused`, 'p2p.buying_restricted', {
+      until: recent[limit - 1]!.until.toISOString(),
+      cap: String(limit),
+      windowHours: String(windowHours),
+    });
+  }
+
+  /**
    * P-trade-orders-03: an ad may still list a method the operator has since retired everywhere. The take refuses by
    * name with the operator's reason; a retirement has no end time. A method merely without the seller's destination
    * keeps the uniform take refusal, which says nothing about anyone's accounts.
@@ -1380,6 +1430,8 @@ export class P2pService {
   }): Promise<OfferRecord> {
     this.assertTradingEnabled();
     this.assertSellNotLocked(input.side === 'sell');
+    // A paused buyer posts no buy ad either (P-trade-orders-05).
+    if (input.side === 'buy') await this.assertBuyingNotRestricted(this.sql, { buyerId: input.makerId, tradeId: null, asMaker: false });
 
     const fiatCurrency = input.fiatCurrency.toUpperCase();
     if (!isSupportedFiat(fiatCurrency)) {
@@ -1876,6 +1928,7 @@ export class P2pService {
             // row lock, so two concurrent takers cannot both pass the same check.
             assertWithinBounds(input.amount, { minAmt: offer.minAmt, maxAmt: offer.maxAmt, remainingAmt: offer.remainingAmt });
             await this.assertActiveOrderCap(tx, { takerId: input.takerId, excludeTradeId: input.tradeId });
+            await this.assertBuyingNotRestricted(tx, { buyerId, tradeId: input.tradeId, asMaker: input.takerId !== buyerId });
 
             // P-trade-orders-06: a named quote holds its price. A floating ad is placed at the price it was quoted at,
             // not at the reference read a moment ago; a fixed ad's price must be the one quoted.
@@ -3720,6 +3773,7 @@ export class P2pService {
     assertReleasePostable(amount, feeBps);
     // The take checks both again under its locks; here they let the review step refuse before a quote is held.
     await this.assertActiveOrderCap(this.sql, { takerId: input.takerId, excludeTradeId: null });
+    await this.assertBuyingNotRestricted(this.sql, { buyerId, tradeId: null, asMaker: input.takerId !== buyerId });
     this.assertPairLimit({ asset: offer.asset, fiatCurrency: offer.fiatCurrency, fiatAmount: priced.fiatAmount });
     if (this.verificationLimits.status !== 'absent') {
       await this.assertBuyerVerificationLimit(this.sql, {
@@ -4337,6 +4391,7 @@ function toTrade(row: TradeRow): TradeRecord {
     fiatSentAt: row.fiat_sent_at,
     resolvedAt: row.resolved_at,
     settledAt: row.settled_at,
+    termsSnapshot: row.terms_snapshot,
   };
 }
 

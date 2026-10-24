@@ -261,9 +261,10 @@ const P2P_LIMIT_CODES = new Set([
   'p2p.verification_daily_limit',
   'p2p.verification_lifetime_limit',
   'p2p.method_delisted',
+  'p2p.buying_restricted',
 ]);
 const DELIST_REASONS: ReadonlySet<string> = new Set(P2P_DELIST_REASONS);
-const P2P_LIMIT_DECIMALS = ['cap', 'min', 'max', 'remaining'] as const;
+const P2P_LIMIT_DECIMALS = ['cap', 'min', 'max', 'remaining', 'windowHours'] as const;
 const P2P_LIMIT_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 const P2P_LIMIT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -274,6 +275,8 @@ export interface P2pLimitDetails {
   min?: string;
   max?: string;
   remaining?: string;
+  /** On `p2p.buying_restricted`: the hours the cancelled orders (`cap` of them) are counted over. */
+  windowHours?: string;
   currency?: string;
   openTradeIds?: string[];
   /** On `p2p.method_delisted` only: why the method was retired. */
@@ -281,7 +284,7 @@ export interface P2pLimitDetails {
 }
 
 /**
- * The figures behind a P2P take limit (P-trade-orders-03, P-disputes-security-15): when it ends, the published
+ * The figures behind a P2P take limit (P-trade-orders-03, -05, P-disputes-security-15): when it ends, the published
  * bounds, what is left, and the caller's own open orders on the order cap. Decimal strings, an ISO instant, a
  * currency code and trade ids only; any malformed field drops the lot, so a sentence cannot ride out on it.
  */

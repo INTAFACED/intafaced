@@ -1,0 +1,94 @@
+// The help centre's owner settings on the local stack (SP-help-centre-03), as a support lead sets them through Edge. The
+// lead is the stack's founder A with the support desk staff scope on its own signed-in session; on a stack with no support
+// staff yet it is appointed the first lead, which is the only appointment svc-support takes from someone who is not one.
+
+let gates;
+let ctx;
+let pair;
+
+async function founders() {
+  gates ??= await import('../../../../tooling/scripts/local-test-gates.mjs');
+  ctx ??= await gates.makeContext({ log: () => {} });
+  pair ??= await gates.approverSessions(ctx);
+  return { ctx, pair };
+}
+
+const data = (res, what) => {
+  const row = res.json?.result?.data;
+  if (row === undefined) throw new Error(`${what} refused (${res.status}): ${res.text.slice(0, 300)}`);
+  return row;
+};
+
+/** The settings a signed-out visitor reads. */
+export async function helpCentre() {
+  const { ctx } = await founders();
+  return data(await ctx.edge.query('support', 'helpCentre'), 'helpCentre');
+}
+
+/** The published contact details a signed-out visitor reads. */
+export async function contactChannels() {
+  const { ctx } = await founders();
+  return data(await ctx.edge.query('support', 'contactChannels'), 'contactChannels');
+}
+
+/** A token for founder A as a support lead. */
+async function leadToken() {
+  const { ctx, pair } = await founders();
+  const token = await pair.a.supportOpsToken();
+  const staff = data(await ctx.edge.query('support', 'staffList', undefined, token), 'staffList');
+  const me = staff.find((member) => member.userId === pair.a.op.userId);
+  if (me?.role === 'lead') return token;
+  if (staff.length > 0)
+    throw new Error(`founder A is not a support lead and this stack already has staff (${staff.length}); a lead must appoint it`);
+  data(
+    await ctx.edge.mutate(
+      'support',
+      'staffAppoint',
+      { userId: pair.a.op.userId, role: 'lead', idempotencyKey: `journey:support-lead:${pair.a.op.userId}` },
+      token,
+    ),
+    'staffAppoint',
+  );
+  return token;
+}
+
+/** Change the given settings from the revision just read. Returns the stored settings. */
+export async function setHelpCentre(changes, reason) {
+  const { ctx } = await founders();
+  const token = await leadToken();
+  const current = await helpCentre();
+  return data(
+    await ctx.edge.mutate('support', 'setHelpCentre', { ...changes, expectedRevision: current.revision, reason }, token),
+    'setHelpCentre',
+  );
+}
+
+/** Create or change a help library category as the support lead. */
+export async function saveCategory(row) {
+  const { ctx } = await founders();
+  return data(await ctx.edge.mutate('support', 'kbSaveCategory', row, await leadToken()), 'kbSaveCategory');
+}
+
+/** Create or change a section under a category as the support lead. */
+export async function saveSection(row) {
+  const { ctx } = await founders();
+  return data(await ctx.edge.mutate('support', 'kbSaveSection', row, await leadToken()), 'kbSaveSection');
+}
+
+/** Publish an article typed as text into a section. Returns the stored version. */
+export async function publishText(row) {
+  const { ctx } = await founders();
+  return data(await ctx.edge.mutate('support', 'kbPublishText', row, await leadToken()), 'kbPublishText');
+}
+
+/** Take an article off the help centre (a new hidden version). */
+export async function unpublish(id, baseRevision) {
+  const { ctx } = await founders();
+  return data(await ctx.edge.mutate('support', 'unpublishKb', { id, baseRevision }, await leadToken()), 'unpublishKb');
+}
+
+/** Narrow or widen who may read an article (public, signed_in, staff) as the support lead. */
+export async function setAudience(id, baseRevision, audience) {
+  const { ctx } = await founders();
+  return data(await ctx.edge.mutate('support', 'setKbAudience', { id, baseRevision, audience }, await leadToken()), 'setKbAudience');
+}

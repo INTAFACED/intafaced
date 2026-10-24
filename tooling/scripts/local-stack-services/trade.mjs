@@ -60,6 +60,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     // from the TEST spot book it names, so its own empty book can take a first order; the band is a LOCAL TEST 5%.
     TRADE_FUTURES_MATCHING_ENABLED: 'true',
     TRADE_FUTURES_PRICE_BAND: '0.05',
+    // Take-profit, stop-loss and stop orders are armed only while their trigger job runs; a fired one places a
+    // reduce-only order in the book. Every 2 s here so a journey sees a crossing promptly (the env allows 1 s to 1 h).
+    TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED: 'true',
+    TRADE_FUTURES_CONDITIONAL_JOBS_INTERVAL_MS: '2000',
     // LOCAL TEST collateral haircut, not an owner decision: 0 bps on cash in the settle asset, as large venues are widely
     // reported to count USDT margin in full. Without it every futures open refuses trade.haircut_unset.
     TRADE_COLLATERAL_HAIRCUT_BPS: '0',

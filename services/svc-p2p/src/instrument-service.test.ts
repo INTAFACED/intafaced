@@ -15,7 +15,7 @@ import { createP2pRouter } from './router.js';
 import { P2pErasure } from './erasure.js';
 import { BlockRfqService } from './block-rfq.js';
 import { MemoryBlockQuoteStore } from './block-rfq-store.js';
-import { metTakeGate } from './take-gate-fixture.js';
+import { confirmedTakeStepUp, metTakeGate } from './take-gate-fixture.js';
 
 // Attributed local screening fixture: exercise downstream authorization and storage.
 // Explicit dev mode accepts this fixture; it is never a production sanctions list.
@@ -256,6 +256,7 @@ describe('svc-p2p payment instruments', () => {
     api = createP2pRouter(p2p, instruments, new P2pErasure(sql), {
       blockRfq: new BlockRfqService(new MemoryBlockQuoteStore()),
       takeGate: metTakeGate(),
+      takeStepUp: confirmedTakeStepUp(),
     });
     await registerMethod();
   });
@@ -1105,6 +1106,8 @@ describe('svc-p2p payment instruments', () => {
           idempotencyKey: 'leak-sweep-create',
         },
         'offers.update': { offerId: offer.id, idempotencyKey: 'leak-sweep-update', terms: 'probe' },
+        // The caller's own confirmation window: a time, never an instrument.
+        'trades.stepUpWindow': undefined,
         'trades.quote': { offerId: offer.id, amount: '10', method: METHOD },
         'trades.lockQuote': { quoteId: '77777777-7777-4777-8777-777777777777', offerId: offer.id, amount: '10', method: METHOD },
         'trades.export': { from: '2020-01-01T00:00:00.000Z', to: '2030-01-01T00:00:00.000Z' },

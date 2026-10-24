@@ -74,6 +74,14 @@
       "types": "./dist/support-contact.d.ts",
       "default": "./dist/support-contact.js"
     },
+    "./support-kb-library": {
+      "types": "./dist/support-kb-library.d.ts",
+      "default": "./dist/support-kb-library.js"
+    },
+    "./support-help-centre": {
+      "types": "./dist/support-help-centre.d.ts",
+      "default": "./dist/support-help-centre.js"
+    },
     "./outreach-public": {
       "types": "./dist/outreach-public.d.ts",
       "default": "./dist/outreach-public.js"
@@ -143,11 +151,11 @@
     "clean": "rimraf dist .turbo"
   },
   "dependencies": {
-    "@asteasolutions/zod-to-openapi": "7.3.4",
+    "@asteasolutions/zod-to-openapi": "8.5.0",
     "@intafaced/auth": "workspace:*",
     "@intafaced/config": "workspace:*",
     "@trpc/server": "^11.19.0",
-    "zod": "^3.24.1"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

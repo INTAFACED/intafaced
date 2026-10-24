@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AuthError, requireMfa } from '@intafaced/auth';
+import { AuthError, requireMfa, type Principal } from '@intafaced/auth';
 import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { enabledFiat } from '@intafaced/config';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
@@ -28,6 +28,7 @@ import { BOARD_SORTS, type BoardSort } from './customer-depth.js';
 import { ELIGIBILITY_CHECK_IDS, ELIGIBILITY_STATES, TakeGateError, unwiredTakeGate, type TakeGate } from './take-eligibility.js';
 import { DELIST_REASONS, type InstrumentService } from './instrument-service.js';
 import { assertModerator, isModerationConfigured, isModerator } from './moderation-auth.js';
+import { TakeStepUpError, unwiredTakeStepUp, type TakeStepUp, type TakeStepUpCaller } from './take-step-up.js';
 import { moderationHonestySchema, moderationOnPublicDoor } from './moderation-honesty.js';
 import {
   ceilingOnWire,
@@ -91,6 +92,12 @@ export type P2pRouterOptions = {
    * `p2p.take_gate_unwired`; a missing gate never means "no checks".
    */
   takeGate?: TakeGate;
+  /**
+   * P-trade-orders-07: the fresh passkey or authenticator confirmation a take
+   * needs (`take-step-up.ts`). Unset → every take refuses `auth.step_up_failed`;
+   * a missing wire never means "no confirmation needed".
+   */
+  takeStepUp?: TakeStepUp;
 };
 
 /**
@@ -119,7 +126,7 @@ const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are unsigne
 /** A take sized in the coin (`amount`) or in the ad's fiat (`fiatAmount`): exactly one. */
 const takeAmountInput = z
   .object({
-    offerId: z.string().uuid(),
+    offerId: z.string().guid(),
     amount: amountString.optional(),
     fiatAmount: amountString.optional(),
     method: z.string().min(1).max(64),
@@ -154,7 +161,7 @@ const offerListShape = {
 };
 
 const offerOutput = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   makerId: z.string(),
   side: z.enum(['buy', 'sell']),
   asset: z.string(),
@@ -179,8 +186,8 @@ const offerOutput = z.object({
 });
 
 const tradeOutput = z.object({
-  id: z.string().uuid(),
-  offerId: z.string().uuid(),
+  id: z.string().guid(),
+  offerId: z.string().guid(),
   sellerId: z.string(),
   buyerId: z.string(),
   asset: z.string(),
@@ -197,9 +204,11 @@ const tradeOutput = z.object({
   resolvedAt: z.string().nullable(),
   settledAt: z.string().nullable(),
 });
+/** One order as its page reads it: plus the ad's terms as they were when it was placed (null before terms were copied). */
+const tradeDetailOutput = tradeOutput.extend({ terms: z.string().nullable() });
 
 const blockQuoteOutput = z.object({
-  quoteId: z.string().uuid(),
+  quoteId: z.string().guid(),
   makerId: z.string(),
   takerId: z.string(),
   side: z.enum(['buy', 'sell']),
@@ -244,8 +253,8 @@ const evidenceOutput = z.object({
  * were ruling on. It is here on both reads now.
  */
 const disputeOutput = z.object({
-  id: z.string().uuid(),
-  tradeId: z.string().uuid(),
+  id: z.string().guid(),
+  tradeId: z.string().guid(),
   openedBy: z.string(),
   /**
    * How the dispute was opened. `timeout` means the fiat_sent clock filed it;
@@ -255,7 +264,7 @@ const disputeOutput = z.object({
   openedVia: z.enum(['party', 'timeout']),
   reason: z.string(),
   /** Null only on disputes opened before chat threads were persisted. */
-  chatThreadId: z.string().uuid().nullable(),
+  chatThreadId: z.string().guid().nullable(),
   status: z.enum(['open', 'resolved']),
   moderatorId: z.string().nullable(),
   resolution: z.enum(['release', 'refund']).nullable(),
@@ -281,9 +290,9 @@ const disputeOutput = z.object({
 });
 
 const appealOutput = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   userId: z.string(),
-  tradeId: z.string().uuid(),
+  tradeId: z.string().guid(),
   reason: z.string(),
   status: z.enum(['submitted', 'accepted', 'rejected']),
   submittedAt: z.string(),
@@ -379,6 +388,12 @@ function toTrpcError(err: unknown): TRPCError {
 
   if (err instanceof ActionApprovalConsumeError) {
     return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+  }
+
+  // Confirm the order again: nothing was reserved or locked. Unverifiable is the deployment's, not the person's.
+  if (err instanceof TakeStepUpError) {
+    const code = err.code === 'p2p.step_up_unverifiable' ? 'PRECONDITION_FAILED' : 'FORBIDDEN';
+    return new TRPCError({ code, message: err.message, cause: err });
   }
 
   if (err instanceof TakeGateError) {
@@ -532,6 +547,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.quote_changed':
       // Too many ongoing orders: one has to finish first. The error data lists them and the soonest deadline.
       case 'p2p.active_order_cap':
+      // Buying is paused after too many cancelled orders; the error data says until when.
+      case 'p2p.buying_restricted':
       case 'p2p.idempotency_conflict':
       case 'p2p.idempotency_in_progress':
       case 'p2p.erase_blocked':
@@ -648,7 +665,7 @@ const methodSchemaOutput = z.object({
  * needs it and nobody can query it.
  */
 const instrumentHeaderOutput = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   methodId: z.string(),
   country: z.string(),
   fiatCurrency: z.string(),
@@ -698,6 +715,12 @@ export function createP2pRouter(
   const opsReads = options.opsReads;
   const disputeResolveRequiresApproval = options.disputeResolveRequiresApproval === true;
   const takeGate = options.takeGate ?? unwiredTakeGate();
+  const takeStepUp = options.takeStepUp ?? unwiredTakeStepUp();
+  const stepUpCaller = (principal: Principal): TakeStepUpCaller => ({
+    userId: principal.userId,
+    sessionId: principal.sid,
+    viaApiKey: principal.kid !== undefined,
+  });
 
   const requireOpsReads = (): OpsReads => {
     if (!opsReads) {
@@ -1011,7 +1034,7 @@ export function createP2pRouter(
               methods: z.array(z.union([z.string().min(1).max(64), z.object({ id: z.string().min(1).max(64) })])).min(1),
               terms: z.string().max(4000).optional(),
               /** Client-chosen id. A retry with the same id must not publish a second offer. */
-              offerId: z.string().uuid().optional(),
+              offerId: z.string().guid().optional(),
               /** Client-chosen key. Required together with offerId: at least one. */
               idempotencyKey: z.string().min(8).max(128).optional(),
             })
@@ -1057,22 +1080,22 @@ export function createP2pRouter(
         .query(async ({ ctx, input }) => guard(async () => presentBoard(ctx.principal.userId, input, true))),
 
       get: merchantApiProcedure('p2p:read')
-        .input(z.object({ offerId: z.string().uuid() }))
+        .input(z.object({ offerId: z.string().guid() }))
         .output(offerOutput)
         .query(async ({ input }) => guard(async () => presentOffer(await p2p.getOffer(input.offerId)))),
 
       close: merchantApiProcedure('p2p:write')
-        .input(z.object({ offerId: z.string().uuid() }))
+        .input(z.object({ offerId: z.string().guid() }))
         .output(offerOutput)
         .mutation(async ({ ctx, input }) => guard(async () => presentOffer(await p2p.closeOffer(input.offerId, ctx.principal.userId)))),
 
       pause: merchantApiProcedure('p2p:write')
-        .input(z.object({ offerId: z.string().uuid() }))
+        .input(z.object({ offerId: z.string().guid() }))
         .output(offerOutput)
         .mutation(async ({ ctx, input }) => guard(async () => presentOffer(await p2p.pauseOffer(input.offerId, ctx.principal.userId)))),
 
       resume: merchantApiProcedure('p2p:write')
-        .input(z.object({ offerId: z.string().uuid() }))
+        .input(z.object({ offerId: z.string().guid() }))
         .output(offerOutput)
         .mutation(async ({ ctx, input }) => guard(async () => presentOffer(await p2p.resumeOffer(input.offerId, ctx.principal.userId)))),
 
@@ -1084,7 +1107,7 @@ export function createP2pRouter(
         .input(
           z
             .object({
-              offerId: z.string().uuid(),
+              offerId: z.string().guid(),
               idempotencyKey: z.string().min(8).max(128),
               price: amountString.optional(),
               minAmount: amountString.optional(),
@@ -1226,16 +1249,31 @@ export function createP2pRouter(
     }),
 
     trades: router({
+      /**
+       * Until when this session's takes need no new confirmation (P-trade-orders-07), or null when the next take does.
+       * An API key is refused: it never confirms a take.
+       */
+      stepUpWindow: merchantApiProcedure('p2p:read')
+        .output(z.object({ confirmedUntil: z.string().datetime().nullable() }))
+        .query(async ({ ctx }) =>
+          guard(async () => {
+            const { confirmedUntil } = await takeStepUp.window(stepUpCaller(ctx.principal));
+            return { confirmedUntil: confirmedUntil?.toISOString() ?? null };
+          }),
+        ),
+
       /** Take an offer → `escrowLock`. The first money path in this router. */
       take: merchantApiProcedure('p2p:write')
         .input(
           z.object({
-            offerId: z.string().uuid(),
-            tradeId: z.string().uuid(),
+            offerId: z.string().guid(),
+            tradeId: z.string().guid(),
             amount: amountString,
             method: z.string().min(1).max(64),
             /** P-trade-orders-06: the locked quote (`trades.lockQuote`) this take places, inside its window. */
-            quoteId: z.string().uuid().optional(),
+            quoteId: z.string().guid().optional(),
+            /** P-trade-orders-07: identity's single-use confirmation of exactly this take. Optional inside a live window. */
+            stepUpApprovalId: z.string().min(1).max(128).optional(),
           }),
         )
         .output(tradeOutput)
@@ -1243,6 +1281,18 @@ export function createP2pRouter(
           guard(async () => {
             // Before anything is reserved or locked: the same checks the eligibility panel shows.
             await takeGate.assertCanTake(ctx);
+            // Then the fresh confirmation, over the strings this take carries.
+            await takeStepUp.assertConfirmed(
+              stepUpCaller(ctx.principal),
+              {
+                tradeId: input.tradeId,
+                offerId: input.offerId,
+                amount: input.amount,
+                method: input.method,
+                ...(input.quoteId ? { quoteId: input.quoteId } : {}),
+              },
+              input.stepUpApprovalId,
+            );
             return toTradeOut(
               await p2p.takeOffer({
                 offerId: input.offerId,
@@ -1258,13 +1308,13 @@ export function createP2pRouter(
         ),
 
       markFiatSent: merchantApiProcedure('p2p:write')
-        .input(z.object({ tradeId: z.string().uuid() }))
+        .input(z.object({ tradeId: z.string().guid() }))
         .output(tradeOutput)
         .mutation(async ({ ctx, input }) => guard(async () => toTradeOut(await p2p.markFiatSent(input.tradeId, ctx.principal.userId)))),
 
       /** Seller confirms the fiat landed → `escrowRelease`. */
       confirmReceived: merchantApiProcedure('p2p:write')
-        .input(z.object({ tradeId: z.string().uuid() }))
+        .input(z.object({ tradeId: z.string().guid() }))
         .output(tradeOutput)
         .mutation(async ({ ctx, input }) =>
           guard(async () => toTradeOut(await p2p.confirmFiatReceived(input.tradeId, ctx.principal.userId))),
@@ -1272,15 +1322,15 @@ export function createP2pRouter(
 
       /** Cancel → `escrowRefund`, in full, to the seller. */
       cancel: merchantApiProcedure('p2p:write')
-        .input(z.object({ tradeId: z.string().uuid(), reason: z.string().max(200).optional() }))
+        .input(z.object({ tradeId: z.string().guid(), reason: z.string().max(200).optional() }))
         .output(tradeOutput)
         .mutation(async ({ ctx, input }) =>
           guard(async () => toTradeOut(await p2p.cancelTrade(input.tradeId, ctx.principal.userId, input.reason ?? 'cancelled'))),
         ),
 
       get: merchantApiProcedure('p2p:read')
-        .input(z.object({ tradeId: z.string().uuid() }))
-        .output(tradeOutput)
+        .input(z.object({ tradeId: z.string().guid() }))
+        .output(tradeDetailOutput)
         .query(async ({ ctx, input }) =>
           guard(async () => {
             const trade = await p2p.getTrade(input.tradeId);
@@ -1288,7 +1338,7 @@ export function createP2pRouter(
             if (trade.buyerId !== ctx.principal.userId && trade.sellerId !== ctx.principal.userId) {
               throw unknownTrade(input.tradeId);
             }
-            return toTradeOut(trade);
+            return { ...toTradeOut(trade), terms: trade.termsSnapshot };
           }),
         ),
 
@@ -1397,10 +1447,10 @@ export function createP2pRouter(
        * retry returns the same quote.
        */
       lockQuote: merchantApiProcedure('p2p:write')
-        .input(takeAmountInput.and(z.object({ quoteId: z.string().uuid() })))
+        .input(takeAmountInput.and(z.object({ quoteId: z.string().guid() })))
         .output(
           z.object({
-            quoteId: z.string().uuid(),
+            quoteId: z.string().guid(),
             amount: amountString,
             price: amountString,
             fiatAmount: amountString,
@@ -1458,12 +1508,12 @@ export function createP2pRouter(
 
       /** P-trade-orders-14: receipt for one released trade, as data, under owner quotas. */
       receipt: merchantApiProcedure('p2p:read')
-        .input(z.object({ tradeId: z.string().uuid() }))
+        .input(z.object({ tradeId: z.string().guid() }))
         .output(
           z.object({
             receipt: z.object({
-              tradeId: z.string().uuid(),
-              offerId: z.string().uuid(),
+              tradeId: z.string().guid(),
+              offerId: z.string().guid(),
               role: z.enum(['buyer', 'seller']),
               asset: z.string(),
               amount: amountString,
@@ -1504,10 +1554,10 @@ export function createP2pRouter(
        * moderator) to a live disputed trade is.
        */
       paymentInstrument: merchantApiProcedure('p2p:read')
-        .input(z.object({ tradeId: z.string().uuid() }))
+        .input(z.object({ tradeId: z.string().guid() }))
         .output(
           z.object({
-            tradeId: z.string().uuid(),
+            tradeId: z.string().guid(),
             methodId: z.string(),
             country: z.string(),
             fiatCurrency: z.string(),
@@ -1550,7 +1600,7 @@ export function createP2pRouter(
         .input(
           z
             .object({
-              takerId: z.string().uuid(),
+              takerId: z.string().guid(),
               side: z.enum(['buy', 'sell']),
               asset: z.string().min(1).max(16),
               fiatCurrency: z.string().length(3),
@@ -1582,7 +1632,7 @@ export function createP2pRouter(
         ),
 
       accept: merchantApiProcedure('p2p:write')
-        .input(z.object({ quoteId: z.string().uuid(), assertedPrice: amountString.optional() }).strict())
+        .input(z.object({ quoteId: z.string().guid(), assertedPrice: amountString.optional() }).strict())
         .output(blockQuoteOutput)
         .mutation(async ({ ctx, input }) =>
           guard(async () =>
@@ -1594,12 +1644,12 @@ export function createP2pRouter(
         ),
 
       expire: merchantApiProcedure('p2p:write')
-        .input(z.object({ quoteId: z.string().uuid() }).strict())
+        .input(z.object({ quoteId: z.string().guid() }).strict())
         .output(blockQuoteOutput)
         .mutation(async ({ ctx, input }) => guard(async () => requireBlockRfq().expire(ctx.principal, { quoteId: input.quoteId }))),
 
       get: merchantApiProcedure('p2p:read')
-        .input(z.object({ quoteId: z.string().uuid() }).strict())
+        .input(z.object({ quoteId: z.string().guid() }).strict())
         .output(blockQuoteOutput)
         .query(async ({ ctx, input }) => guard(async () => requireBlockRfq().get(ctx.principal, input.quoteId))),
 
@@ -1607,7 +1657,7 @@ export function createP2pRouter(
         .input(
           z
             .object({
-              quoteId: z.string().uuid(),
+              quoteId: z.string().guid(),
               allocations: z.array(z.object({ receivingAccount: z.string().min(1).max(120) }).passthrough()).min(1),
             })
             .strict(),
@@ -1625,7 +1675,7 @@ export function createP2pRouter(
         .input(
           z
             .object({
-              quoteId: z.string().uuid(),
+              quoteId: z.string().guid(),
               receivingAccount: z.string().min(1).max(120),
             })
             .strict(),
@@ -1804,7 +1854,7 @@ export function createP2pRouter(
       create: merchantApiProcedure('p2p:write')
         .input(
           z.object({
-            instrumentId: z.string().uuid(),
+            instrumentId: z.string().guid(),
             methodId: z.string().min(1).max(64),
             country: z.string().length(2),
             fiatCurrency: z.string().length(3),
@@ -1837,7 +1887,7 @@ export function createP2pRouter(
       update: merchantApiProcedure('p2p:write')
         .input(
           z.object({
-            instrumentId: z.string().uuid(),
+            instrumentId: z.string().guid(),
             label: z.string().max(120).optional(),
             details: z.record(z.string(), z.string()).optional(),
           }),
@@ -1858,7 +1908,7 @@ export function createP2pRouter(
 
       /** Removal is a state change. An in-flight trade keeps working. */
       remove: merchantApiProcedure('p2p:write')
-        .input(z.object({ instrumentId: z.string().uuid() }))
+        .input(z.object({ instrumentId: z.string().guid() }))
         .output(instrumentHeaderOutput)
         .mutation(async ({ ctx, input }) =>
           guard(async () =>
@@ -1902,7 +1952,7 @@ export function createP2pRouter(
        * and stops a read-only API key dumping a user's stored bank details.
        */
       reveal: merchantApiProcedure('p2p:write')
-        .input(z.object({ instrumentId: z.string().uuid() }))
+        .input(z.object({ instrumentId: z.string().guid() }))
         .output(instrumentHeaderOutput.extend({ details: instrumentDetailsOutput }))
         .mutation(async ({ ctx, input }) =>
           guard(async () => {
@@ -1935,11 +1985,11 @@ export function createP2pRouter(
         .output(
           z.array(
             z.object({
-              id: z.string().uuid(),
-              instrumentId: z.string().uuid().nullable(),
+              id: z.string().guid(),
+              instrumentId: z.string().guid().nullable(),
               viewerId: z.string(),
               viewerRole: z.enum(['owner', 'counterparty', 'moderator', 'other']),
-              tradeId: z.string().uuid().nullable(),
+              tradeId: z.string().guid().nullable(),
               outcome: z.enum(['revealed', 'denied']),
               denyReason: z.string().nullable(),
               at: z.string(),
@@ -1966,16 +2016,16 @@ export function createP2pRouter(
       open: merchantApiProcedure('p2p:write')
         .input(
           z.object({
-            tradeId: z.string().uuid(),
+            tradeId: z.string().guid(),
             reason: z.string().min(1).max(2000),
             evidence: z.array(z.unknown()).max(MAX_EVIDENCE_PER_CALL).optional(),
           }),
         )
         .output(
           z.object({
-            disputeId: z.string().uuid(),
-            tradeId: z.string().uuid(),
-            chatThreadId: z.string().uuid(),
+            disputeId: z.string().guid(),
+            tradeId: z.string().guid(),
+            chatThreadId: z.string().guid(),
             deadlineAt: z.string(),
             /**
              * THE DISPOSITION, DISCLOSED BEFORE IT CAN HAPPEN.
@@ -2029,11 +2079,11 @@ export function createP2pRouter(
       appendEvidence: merchantApiProcedure('p2p:write')
         .input(
           z.object({
-            tradeId: z.string().uuid(),
+            tradeId: z.string().guid(),
             evidence: z.array(z.unknown()).min(1).max(MAX_EVIDENCE_PER_CALL),
           }),
         )
-        .output(z.object({ disputeId: z.string().uuid(), tradeId: z.string().uuid(), evidence: z.array(evidenceOutput) }))
+        .output(z.object({ disputeId: z.string().guid(), tradeId: z.string().guid(), evidence: z.array(evidenceOutput) }))
         .mutation(async ({ ctx, input }) =>
           guard(async () => {
             const dispute = await p2p.appendDisputeEvidence({
@@ -2052,7 +2102,7 @@ export function createP2pRouter(
         ),
 
       get: merchantApiProcedure('p2p:read')
-        .input(z.object({ tradeId: z.string().uuid() }))
+        .input(z.object({ tradeId: z.string().guid() }))
         .output(disputeOutput)
         .query(async ({ ctx, input }) =>
           guard(async () => {
@@ -2140,15 +2190,15 @@ export function createP2pRouter(
       escalate: merchantApiProcedure('p2p:read')
         .input(
           z.object({
-            disputeId: z.string().uuid(),
+            disputeId: z.string().guid(),
             reason: z.string().min(1).max(2000),
             clientRequestId: z.string().min(1).max(128),
           }),
         )
         .output(
           z.object({
-            disputeId: z.string().uuid(),
-            tradeId: z.string().uuid(),
+            disputeId: z.string().guid(),
+            tradeId: z.string().guid(),
             escalatedAt: z.string(),
             escalations: z.number().int(),
             deadlineAt: z.string(),
@@ -2182,7 +2232,7 @@ export function createP2pRouter(
       resolve: merchantApiProcedure('p2p:read')
         .input(
           z.object({
-            tradeId: z.string().uuid(),
+            tradeId: z.string().guid(),
             resolution: z.enum(['release', 'refund']),
             notes: z.string().max(2000).optional(),
             approvalId: z.string().max(128).optional(),
@@ -2340,7 +2390,7 @@ export function createP2pRouter(
           z.object({
             trades: z.array(
               z.object({
-                tradeId: z.string().uuid(),
+                tradeId: z.string().guid(),
                 status: z.enum(['created', 'escrowed', 'fiat_sent', 'released', 'cancelled', 'disputed']),
                 resolution: z.enum(['released', 'refunded', 'voided']).nullable(),
                 resolutionReason: z.string().nullable(),
@@ -2382,7 +2432,7 @@ export function createP2pRouter(
           z.object({
             offers: z.array(
               z.object({
-                id: z.string().uuid(),
+                id: z.string().guid(),
                 makerId: z.string(),
                 side: z.enum(['buy', 'sell']),
                 asset: z.string(),
@@ -2422,8 +2472,8 @@ export function createP2pRouter(
           z.object({
             trades: z.array(
               z.object({
-                id: z.string().uuid(),
-                offerId: z.string().uuid(),
+                id: z.string().guid(),
+                offerId: z.string().guid(),
                 makerId: z.string(),
                 takerId: z.string(),
                 buyerId: z.string(),
@@ -2555,8 +2605,8 @@ export function createP2pRouter(
         list: merchantApiProcedure('p2p:read')
           .input(
             z.object({
-              tradeId: z.string().uuid(),
-              cursor: z.string().uuid().nullable().optional(),
+              tradeId: z.string().guid(),
+              cursor: z.string().guid().nullable().optional(),
               limit: z.number().int().min(1).max(200).optional(),
             }),
           )
@@ -2564,8 +2614,8 @@ export function createP2pRouter(
             z.object({
               messages: z.array(
                 z.object({
-                  id: z.string().uuid(),
-                  tradeId: z.string().uuid(),
+                  id: z.string().guid(),
+                  tradeId: z.string().guid(),
                   senderId: z.string(),
                   clientId: z.string(),
                   text: z.string(),
@@ -2603,7 +2653,7 @@ export function createP2pRouter(
         send: merchantApiProcedure('p2p:read')
           .input(
             z.object({
-              tradeId: z.string().uuid(),
+              tradeId: z.string().guid(),
               text: z.string().min(1).max(2000),
               clientId: z.string().min(1).max(128),
               /** No object store is wired. Any attachment refuses before a row is written. */
@@ -2612,8 +2662,8 @@ export function createP2pRouter(
           )
           .output(
             z.object({
-              id: z.string().uuid(),
-              tradeId: z.string().uuid(),
+              id: z.string().guid(),
+              tradeId: z.string().guid(),
               senderId: z.string(),
               clientId: z.string(),
               text: z.string(),
@@ -2681,8 +2731,8 @@ export function createP2pRouter(
       }),
 
       unread: merchantApiProcedure('p2p:read')
-        .input(z.object({ tradeId: z.string().uuid() }))
-        .output(z.object({ tradeId: z.string().uuid(), unread: z.number().int().nonnegative() }))
+        .input(z.object({ tradeId: z.string().guid() }))
+        .output(z.object({ tradeId: z.string().guid(), unread: z.number().int().nonnegative() }))
         .query(async ({ ctx, input }) =>
           guard(async () => ({
             tradeId: input.tradeId,
@@ -2701,7 +2751,7 @@ export function createP2pRouter(
         .query(async ({ ctx }) => guard(async () => p2p.listContacts(ctx.principal.userId))),
 
       follow: merchantApiProcedure('p2p:write')
-        .input(z.object({ peerId: z.string().uuid(), idempotencyKey: z.string().min(8).max(128) }))
+        .input(z.object({ peerId: z.string().guid(), idempotencyKey: z.string().min(8).max(128) }))
         .output(z.object({ following: z.array(z.string()), blocking: z.array(z.string()) }))
         .mutation(async ({ ctx, input }) =>
           guard(async () =>
@@ -2716,7 +2766,7 @@ export function createP2pRouter(
         ),
 
       unfollow: merchantApiProcedure('p2p:write')
-        .input(z.object({ peerId: z.string().uuid(), idempotencyKey: z.string().min(8).max(128) }))
+        .input(z.object({ peerId: z.string().guid(), idempotencyKey: z.string().min(8).max(128) }))
         .output(z.object({ following: z.array(z.string()), blocking: z.array(z.string()) }))
         .mutation(async ({ ctx, input }) =>
           guard(async () =>
@@ -2731,7 +2781,7 @@ export function createP2pRouter(
         ),
 
       block: merchantApiProcedure('p2p:write')
-        .input(z.object({ peerId: z.string().uuid(), idempotencyKey: z.string().min(8).max(128) }))
+        .input(z.object({ peerId: z.string().guid(), idempotencyKey: z.string().min(8).max(128) }))
         .output(z.object({ following: z.array(z.string()), blocking: z.array(z.string()) }))
         .mutation(async ({ ctx, input }) =>
           guard(async () =>
@@ -2746,7 +2796,7 @@ export function createP2pRouter(
         ),
 
       unblock: merchantApiProcedure('p2p:write')
-        .input(z.object({ peerId: z.string().uuid(), idempotencyKey: z.string().min(8).max(128) }))
+        .input(z.object({ peerId: z.string().guid(), idempotencyKey: z.string().min(8).max(128) }))
         .output(z.object({ following: z.array(z.string()), blocking: z.array(z.string()) }))
         .mutation(async ({ ctx, input }) =>
           guard(async () =>
@@ -2768,7 +2818,7 @@ export function createP2pRouter(
         .query(async ({ ctx }) => guard(async () => p2p.myCompletionAppeal(requireUser(ctx)))),
 
       appeal: merchantApiProcedure('p2p:write')
-        .input(z.object({ tradeId: z.string().uuid(), reason: z.string().max(2000) }))
+        .input(z.object({ tradeId: z.string().guid(), reason: z.string().max(2000) }))
         .output(appealOutput)
         .mutation(async ({ ctx, input }) =>
           guard(async () => p2p.submitCompletionAppeal({ userId: requireUser(ctx), tradeId: input.tradeId, reason: input.reason })),
@@ -2780,7 +2830,7 @@ export function createP2pRouter(
        * everywhere else.
        */
       get: merchantApiProcedure('p2p:read')
-        .input(z.object({ userId: z.string().uuid() }))
+        .input(z.object({ userId: z.string().guid() }))
         .output(reputationOutput)
         .query(async ({ ctx, input }) =>
           guard(async () => {
@@ -2961,7 +3011,7 @@ export function createP2pRouter(
       decide: scopedProcedure('admin:compliance', { module: 'p2p' })
         .input(
           z.object({
-            userId: z.string().uuid(),
+            userId: z.string().guid(),
             to: z.enum(['approved', 'rejected', 'suspended']),
             reason: z.string().min(1),
             confirmOperatorId: z.string().max(128).nullish(),
@@ -3008,7 +3058,7 @@ export function createP2pRouter(
       history: scopedProcedure('admin:compliance', { module: 'p2p' })
         .input(
           z.object({
-            userId: z.string().uuid(),
+            userId: z.string().guid(),
             /**
              * Page size. Optional here so omit reaches the service named
              * refuse (`p2p.merchant_history_limit_unset`) instead of a Zod

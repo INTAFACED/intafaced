@@ -158,7 +158,7 @@ export function useFills(fast: boolean): Loadable<Trade[]> {
   );
 }
 
-const feesSchema = z.record(z.object({ maker: decimalSchema, taker: decimalSchema }).passthrough());
+const feesSchema = z.record(z.string(), z.object({ maker: decimalSchema, taker: decimalSchema }).passthrough());
 export type ListedFees = Record<string, { maker: string; taker: string }>;
 
 /** The fee rates the market lists for each pair (maker and taker, as ratios). Before any rank discount; the order check has the rate this order pays. */

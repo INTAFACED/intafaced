@@ -377,7 +377,9 @@ export function createPersonalPayApi(
     a.method === b.method &&
     parseAmount(a.amount) === parseAmount(b.amount) &&
     parseAmount(a.fiatAmount) === parseAmount(b.fiatAmount) &&
-    parseAmount(a.price) === parseAmount(b.price);
+    parseAmount(a.price) === parseAmount(b.price) &&
+    // Only `trades.get` carries the ad's terms: two readings that both have them must agree.
+    (a.terms === undefined || b.terms === undefined || a.terms === b.terms);
   const sameTerms = (a: s.Trade, b: s.Trade) => sameImmutableTerms(a, b) && a.status === b.status && a.deadlineAt === b.deadlineAt;
   async function currentOffer(offerId: string, signal?: AbortSignal) {
     const denied = signedIn();
@@ -832,7 +834,7 @@ export function createPersonalPayApi(
     async takeOffer(
       offer: s.Offer,
       request: TakeRequest,
-      reviewed: { quote: s.TakeQuote; current: () => boolean; recoveryCurrent?: () => boolean },
+      reviewed: { quote: s.TakeQuote; current: () => boolean; recoveryCurrent?: () => boolean; stepUpApprovalId?: string },
     ) {
       const denied = signedIn();
       if (denied) return denied;
@@ -872,6 +874,8 @@ export function createPersonalPayApi(
             amount: request.amount,
             method: request.method,
             ...(reviewed.quote.quoteId ? { quoteId: reviewed.quote.quoteId } : {}),
+            // The fresh confirmation of exactly this review; inside this session's confirmed ten minutes there is none.
+            ...(reviewed.stepUpApprovalId ? { stepUpApprovalId: reviewed.stepUpApprovalId } : {}),
           },
           s.tradeSchema,
         );
@@ -937,6 +941,8 @@ export function createPersonalPayApi(
       }
       return guard.run(key, () => place(tradeId), tradeId, current, reviewed.recoveryCurrent ?? p2pCurrent);
     },
+    /** Until when this session's orders need no new confirmation, or null when the next one does. */
+    takeStepUpWindow: (signal?: AbortSignal) => api.query('p2p', 'trades.stepUpWindow', undefined, s.takeStepUpWindowSchema, { signal }),
     /** Look up an unconfirmed take by the order id stored before it was sent. Clears the stored id only when found. */
     async reconcileTake(offer: s.Offer, frameCurrent: () => boolean = () => true) {
       const denied = signedIn();

@@ -61,7 +61,7 @@ export function createOrgRouter(sql: Sql, dmaHierarchyLaw: DmaHierarchyLaw = UNP
   return router({
     createOrg: scopedProcedure('identity:write')
       .input(z.object({ name: z.string().min(1).max(128) }))
-      .output(z.object({ id: z.string().uuid(), name: z.string(), createdBy: z.string().uuid() }))
+      .output(z.object({ id: z.string().guid(), name: z.string(), createdBy: z.string().guid() }))
       .mutation(async ({ ctx, input }) => {
         try {
           return await createOrg(sql, ctx.principal.userId, input.name);
@@ -72,16 +72,16 @@ export function createOrgRouter(sql: Sql, dmaHierarchyLaw: DmaHierarchyLaw = UNP
     addOrgMember: scopedProcedure('identity:write')
       .input(
         z.object({
-          orgId: z.string().uuid(),
-          memberId: z.string().uuid(),
+          orgId: z.string().guid(),
+          memberId: z.string().guid(),
           role: orgRoleSchema,
-          secondApproverId: z.string().uuid().optional(),
+          secondApproverId: z.string().guid().optional(),
         }),
       )
       .output(
         z.object({
-          orgId: z.string().uuid(),
-          userId: z.string().uuid(),
+          orgId: z.string().guid(),
+          userId: z.string().guid(),
           role: orgRoleSchema,
         }),
       )
@@ -95,16 +95,16 @@ export function createOrgRouter(sql: Sql, dmaHierarchyLaw: DmaHierarchyLaw = UNP
     grantOrgRole: scopedProcedure('identity:write')
       .input(
         z.object({
-          orgId: z.string().uuid(),
-          memberId: z.string().uuid(),
+          orgId: z.string().guid(),
+          memberId: z.string().guid(),
           role: orgRoleSchema,
-          secondApproverId: z.string().uuid().optional(),
+          secondApproverId: z.string().guid().optional(),
         }),
       )
       .output(
         z.object({
-          orgId: z.string().uuid(),
-          userId: z.string().uuid(),
+          orgId: z.string().guid(),
+          userId: z.string().guid(),
           role: orgRoleSchema,
         }),
       )
@@ -116,11 +116,11 @@ export function createOrgRouter(sql: Sql, dmaHierarchyLaw: DmaHierarchyLaw = UNP
         }
       }),
     assertOrgActor: scopedProcedure('identity:write')
-      .input(z.object({ orgId: z.string().uuid() }))
+      .input(z.object({ orgId: z.string().guid() }))
       .output(
         z.object({
-          orgId: z.string().uuid(),
-          userId: z.string().uuid(),
+          orgId: z.string().guid(),
+          userId: z.string().guid(),
           role: orgRoleSchema,
         }),
       )
@@ -132,11 +132,11 @@ export function createOrgRouter(sql: Sql, dmaHierarchyLaw: DmaHierarchyLaw = UNP
         }
       }),
     assertOrgPlace: scopedProcedure('identity:write')
-      .input(z.object({ orgId: z.string().uuid() }))
+      .input(z.object({ orgId: z.string().guid() }))
       .output(
         z.object({
-          orgId: z.string().uuid(),
-          userId: z.string().uuid(),
+          orgId: z.string().guid(),
+          userId: z.string().guid(),
           role: z.enum(['admin', 'trader']),
         }),
       )
@@ -148,11 +148,11 @@ export function createOrgRouter(sql: Sql, dmaHierarchyLaw: DmaHierarchyLaw = UNP
         }
       }),
     assertOrgRisk: scopedProcedure('identity:write')
-      .input(z.object({ orgId: z.string().uuid() }))
+      .input(z.object({ orgId: z.string().guid() }))
       .output(
         z.object({
-          orgId: z.string().uuid(),
-          userId: z.string().uuid(),
+          orgId: z.string().guid(),
+          userId: z.string().guid(),
           role: z.enum(['admin', 'risk-manager']),
         }),
       )
@@ -168,8 +168,8 @@ export function createOrgRouter(sql: Sql, dmaHierarchyLaw: DmaHierarchyLaw = UNP
      * Never persists a broker tree.
      */
     createDmaHierarchyProduct: scopedProcedure('identity:write')
-      .input(z.object({ orgId: z.string().uuid(), kind: dmaProductSchema }))
-      .output(z.object({ orgId: z.string().uuid(), kind: dmaProductSchema }))
+      .input(z.object({ orgId: z.string().guid(), kind: dmaProductSchema }))
+      .output(z.object({ orgId: z.string().guid(), kind: dmaProductSchema }))
       .mutation(async ({ ctx, input }) => {
         try {
           return await createDmaHierarchyProduct({
@@ -186,7 +186,7 @@ export function createOrgRouter(sql: Sql, dmaHierarchyLaw: DmaHierarchyLaw = UNP
     /** I-account-lifecycle-05: the caller's organisations. */
     listOrgs: scopedProcedure('identity:read')
       .output(
-        z.object({ orgs: z.array(z.object({ id: z.string().uuid(), name: z.string(), role: orgRoleSchema, createdAt: z.string() })) }),
+        z.object({ orgs: z.array(z.object({ id: z.string().guid(), name: z.string(), role: orgRoleSchema, createdAt: z.string() })) }),
       )
       .query(async ({ ctx }) => {
         try {
@@ -197,14 +197,14 @@ export function createOrgRouter(sql: Sql, dmaHierarchyLaw: DmaHierarchyLaw = UNP
       }),
     /** One organisation and its members, to a member only; anyone else gets not found. */
     getOrg: scopedProcedure('identity:read')
-      .input(z.object({ orgId: z.string().uuid() }))
+      .input(z.object({ orgId: z.string().guid() }))
       .output(
         z.object({
-          id: z.string().uuid(),
+          id: z.string().guid(),
           name: z.string(),
-          createdBy: z.string().uuid(),
+          createdBy: z.string().guid(),
           createdAt: z.string(),
-          members: z.array(z.object({ userId: z.string().uuid(), handle: z.string(), role: orgRoleSchema, since: z.string() })),
+          members: z.array(z.object({ userId: z.string().guid(), handle: z.string(), role: orgRoleSchema, since: z.string() })),
         }),
       )
       .query(async ({ ctx, input }) => {
@@ -216,8 +216,8 @@ export function createOrgRouter(sql: Sql, dmaHierarchyLaw: DmaHierarchyLaw = UNP
       }),
     /** Admin removes a member, or a member leaves; the last admin cannot be removed. */
     removeOrgMember: scopedProcedure('identity:write')
-      .input(z.object({ orgId: z.string().uuid(), memberId: z.string().uuid() }))
-      .output(z.object({ orgId: z.string().uuid(), userId: z.string().uuid(), removed: z.literal(true) }))
+      .input(z.object({ orgId: z.string().guid(), memberId: z.string().guid() }))
+      .output(z.object({ orgId: z.string().guid(), userId: z.string().guid(), removed: z.literal(true) }))
       .mutation(async ({ ctx, input }) => {
         try {
           return await removeOrgMember(sql, ctx.principal.userId, input.orgId, input.memberId);
@@ -226,8 +226,8 @@ export function createOrgRouter(sql: Sql, dmaHierarchyLaw: DmaHierarchyLaw = UNP
         }
       }),
     renameOrg: scopedProcedure('identity:write')
-      .input(z.object({ orgId: z.string().uuid(), name: z.string().max(256) }))
-      .output(z.object({ id: z.string().uuid(), name: z.string(), changed: z.boolean() }))
+      .input(z.object({ orgId: z.string().guid(), name: z.string().max(256) }))
+      .output(z.object({ id: z.string().guid(), name: z.string(), changed: z.boolean() }))
       .mutation(async ({ ctx, input }) => {
         try {
           return await renameOrg(sql, ctx.principal.userId, input.orgId, input.name);

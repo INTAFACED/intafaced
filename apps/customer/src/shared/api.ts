@@ -30,11 +30,12 @@ export const p2pLimitSchema = z.object({
   min: limitDecimal.optional(),
   max: limitDecimal.optional(),
   remaining: limitDecimal.optional(),
+  windowHours: limitDecimal.optional(),
   currency: z
     .string()
     .regex(/^[A-Z]{3}$/)
     .optional(),
-  openTradeIds: z.array(z.string().uuid()).max(50).optional(),
+  openTradeIds: z.array(z.string().guid()).max(50).optional(),
   reason: z.enum(P2P_DELIST_REASONS).optional(),
 });
 export type P2pLimit = z.infer<typeof p2pLimitSchema>;

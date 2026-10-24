@@ -1,6 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { z } from 'zod';
-import { publishedCopy, publishedLanguageFor } from '../../shared/copy';
 import { useResource } from '../../shared/resource';
 import { Button, EmptyState, Field } from '../../shared/ui';
 import { isHiddenPath } from '../../app/feature-registry';
@@ -11,6 +10,7 @@ import { Details, Read, type useAction } from './common';
 import { deskCopy } from './support-desk-copy';
 import { HIDDEN_FEATURE_ARTICLES, KB_CATEGORIES, inKbCategory, kbCategoryCounts, type KbCategory } from './support-desk';
 import { kbSchema, type KbArticle } from './support-schemas';
+import { kbArticleText } from '../public/kb-text';
 import { readRelated, sendArticleFeedback } from './support-calls';
 
 const CATEGORY_KEY = {
@@ -22,18 +22,48 @@ const CATEGORY_KEY = {
   general: 'categoryGeneral',
 } as const satisfies Record<KbCategory, Parameters<typeof deskCopy.t>[0]>;
 
+// The desk's search lives on this history entry: words carried from the public help search (/support?q=…) are moved off
+// the address onto it, and each later search replaces them. Reading it has no side effect, so a render React throws away, or
+// the desk mounting again on the same entry, still finds the words; a fresh visit to /support starts with none. The kept
+// search belongs to the account that ran it, so another person signing in on this tab never sees it.
+const SEARCH_KEY = 'supportHelpSearch';
+const clip = (q: string) => q.trim().slice(0, 200);
+const stateOf = (): Record<string, unknown> => {
+  const state: unknown = history.state;
+  return state && typeof state === 'object' ? (state as Record<string, unknown>) : {};
+};
+
+export function readDeskSearch(userId: string | null): string {
+  const carried = new URL(location.href).searchParams.get('q');
+  if (carried !== null) return clip(carried);
+  const kept = stateOf()[SEARCH_KEY] as { userId?: unknown; q?: unknown } | undefined;
+  return kept && kept.userId === userId && typeof kept.q === 'string' ? clip(kept.q) : '';
+}
+
+export function keepDeskSearch(userId: string | null, q: string) {
+  const url = new URL(location.href);
+  const kept = stateOf()[SEARCH_KEY] as { userId?: unknown; q?: unknown } | undefined;
+  if (!url.searchParams.has('q') && (kept ? kept.userId === userId && kept.q === q : q === '')) return;
+  url.searchParams.delete('q');
+  history.replaceState({ ...stateOf(), [SEARCH_KEY]: { userId, q } }, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
 /** The published help library: server search, topic chips, the full text of each answer, and a link to its own page. */
 export function SupportHelpArticles({ action, onStartRequest }: { action: ReturnType<typeof useAction>; onStartRequest: () => void }) {
   const copy = deskCopy.useCopy();
-  const api = useApi();
+  const api = useApi(),
+    { userId } = useSession();
   const depositsHidden = isHiddenPath('/uc/recharge');
-  const [draft, setDraft] = useState(''),
-    [search, setSearch] = useState(''),
+  // Words carried from the public help search open the desk's search already run.
+  const [carried] = useState(() => readDeskSearch(userId));
+  const [draft, setDraft] = useState(carried),
+    [search, setSearch] = useState(carried),
     [category, setCategory] = useState<KbCategory>('all');
   const kb = useResource(
     (signal) => api.query('support', 'searchKb', { q: search, limit: 50 }, z.array(kbSchema), { signal }),
     `kb:${search}`,
   );
+  useEffect(() => keepDeskSearch(userId, search), [userId, search]);
   return (
     <section className="support-pane" aria-label={copy.t('tabHelp')}>
       <p className="muted">{copy.t('helpIntro')}</p>
@@ -42,7 +72,7 @@ export function SupportHelpArticles({ action, onStartRequest }: { action: Return
         role="search"
         onSubmit={(event) => {
           event.preventDefault();
-          setSearch(draft);
+          setSearch(clip(draft));
           setCategory('all');
         }}
       >
@@ -109,12 +139,13 @@ function Article({ row, action, hiddenIds }: { row: KbArticle; action: ReturnTyp
   const copy = deskCopy.useCopy();
   const [opened, setOpened] = useState(false);
   const missing = (key: string) => legacyText('support.published.article.text.is.unavailable.for', { value1: key });
-  const title = publishedCopy(row.titleKey) ?? missing(row.titleKey);
-  const body = publishedCopy(row.bodyKey);
+  const text = kbArticleText(row);
+  const title = text.title ?? missing(row.titleKey);
+  const body = text.body;
   return (
     <details onToggle={(event) => event.currentTarget.open && setOpened(true)}>
-      <summary lang={publishedLanguageFor(row.titleKey) ?? 'und'}>{title}</summary>
-      {body ? <p lang={publishedLanguageFor(row.bodyKey) ?? 'und'}>{body}</p> : <p className="muted">{missing(row.bodyKey)}</p>}
+      <summary lang={text.titleLanguage ?? 'und'}>{title}</summary>
+      {body ? <p lang={text.bodyLanguage ?? 'und'}>{body}</p> : <p className="muted">{missing(row.bodyKey)}</p>}
       <a className="text-link" href={helpHref(row.id, row.version)}>
         {copy.t('readArticle')} →
       </a>
@@ -183,14 +214,16 @@ function RelatedArticles({ id, hiddenIds }: { id: string; hiddenIds: ReadonlySet
             <p className="muted">{copy.t('relatedNone')}</p>
           ) : (
             <ul>
-              {visible.map((row) => (
-                <li key={row.id}>
-                  <a className="text-link" lang={publishedLanguageFor(row.titleKey) ?? 'und'} href={helpHref(row.id, row.version)}>
-                    {publishedCopy(row.titleKey) ??
-                      legacyText('support.published.article.text.is.unavailable.for', { value1: row.titleKey })}
-                  </a>
-                </li>
-              ))}
+              {visible.map((row) => {
+                const text = kbArticleText(row);
+                return (
+                  <li key={row.id}>
+                    <a className="text-link" lang={text.titleLanguage ?? 'und'} href={helpHref(row.id, row.version)}>
+                      {text.title ?? legacyText('support.published.article.text.is.unavailable.for', { value1: row.titleKey })}
+                    </a>
+                  </li>
+                );
+              })}
             </ul>
           );
         }}

@@ -1,0 +1,273 @@
+import { test, expect } from '@playwright/test';
+import { api, journeyState, toUnits, fromUnits } from './stack.mjs';
+import { fundedTrader, signIn } from './desk.mjs';
+
+// J-derivatives-03, in the running app (docs/roadmap/journeys.json): protect a position with a take profit and a stop
+// loss. One test per step, titled "J-derivatives-03 #<n>", run in order on one TEST account. The contract is the TEST
+// perpetual `local-test-gates.mjs futures` lists; its mark follows the stack's TEST book, which the TEST market maker
+// walks a few basis points at a time, so a trigger set 3 bps from the mark is crossed within a minute or two. Every
+// figure is read back through the customer's own API.
+const J = 'J-derivatives-03';
+const DESK = '/trade/futures';
+const SYMBOL = 'BTC/USDT:USDT';
+const SIZE = '0.01';
+const LEVERAGE = '5';
+const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+
+test.describe.configure({ mode: 'default' });
+
+function account() {
+  const who = run.read().account;
+  if (!who) throw new Error(`${J} #1 made no account, so this step has no one to act as`);
+  return who;
+}
+
+async function desk(page) {
+  await signIn(page, account());
+  await page.goto(DESK);
+  await expect(page.getByRole('button', { name: 'Open long' })).toBeVisible();
+}
+
+async function until(read, ok, what, ms = 20_000) {
+  const end = Date.now() + ms;
+  let last;
+  while (Date.now() < end) {
+    last = await read();
+    if (ok(last)) return last;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error(`${what}: still ${JSON.stringify(last)}`);
+}
+
+async function openPosition(me) {
+  const { body } = await me.get('/api/v1/positions');
+  const open = body.find((p) => p.symbol === SYMBOL && p.side === 'long' && p.status === 'open');
+  if (open) return open;
+  // The confirm step names the tier the order moves the position into, as the ticket does.
+  const preview = await me.post('/api/v1/positions/preview', { symbol: SYMBOL, side: 'long', size: SIZE, leverage: LEVERAGE });
+  expect(preview.status, JSON.stringify(preview.body)).toBe(200);
+  const placed = await me.post('/api/v1/futures/orders', {
+    symbol: SYMBOL,
+    side: 'buy',
+    type: 'market',
+    amount: SIZE,
+    leverage: LEVERAGE,
+    marginMode: 'isolated',
+    confirmTier: preview.body.riskTier?.projected,
+    clientOrderId: `${J}-open-${Date.now()}`,
+  });
+  expect(placed.status, JSON.stringify(placed.body)).toBeLessThan(300);
+  const positions = await until(
+    async () => (await me.get('/api/v1/positions')).body,
+    (list) => list.some((p) => p.symbol === SYMBOL && p.side === 'long' && p.status === 'open' && p.contracts === SIZE),
+    'the TEST long',
+  );
+  return positions.find((p) => p.symbol === SYMBOL && p.side === 'long');
+}
+
+/** The mark, as the service prices a preview: the price protection is checked against. */
+async function markOf(me) {
+  const preview = await me.post('/api/v1/positions/preview', { symbol: SYMBOL, side: 'long', size: SIZE, leverage: LEVERAGE });
+  expect(preview.status, JSON.stringify(preview.body)).toBe(200);
+  return toUnits(preview.body.markPrice);
+}
+
+/** `bps` basis points from the mark, in whole units of price. */
+const away = (mark, bps) => fromUnits(((mark + (mark * BigInt(bps)) / 10_000n) / 10n ** 18n) * 10n ** 18n);
+
+async function legs(me, positionId) {
+  const { status, body } = await me.get('/api/v1/futures/conditional-orders');
+  expect(status, JSON.stringify(body)).toBe(200);
+  return body.orders.filter((o) => o.positionId === positionId && o.attachment !== null);
+}
+
+/** The position's take-profit and stop-loss dialog, opened from its row's Manage menu in the Positions tab. */
+async function protection(page) {
+  await page.getByRole('tab', { name: 'Positions' }).click();
+  await page.getByRole('button', { name: `Manage ${SYMBOL}` }).click();
+  await page.getByRole('menuitem', { name: 'Take profit / stop loss' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Take profit and stop loss' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('region', { name: 'On this position now' }).getByRole('list')).toBeVisible();
+  return dialog;
+}
+
+test(`${J} #1 sets a take profit and a stop loss for the whole position: both shown armed with their trigger and its source`, async ({
+  page,
+}) => {
+  const who = await fundedTrader(page, 'jd3', '1000');
+  run.reset({ account: who });
+  const me = await api(who);
+  await signIn(page, who);
+  await page.goto(DESK);
+  // Derivatives access: the risk notice, the quiz and the two agreements, as any new trader clears them.
+  await page.getByRole('button', { name: 'I have read this' }).click();
+  const quiz = page.getByTestId('futures-quiz');
+  await quiz.getByRole('radio', { name: /liquidated and can lose all of its margin/ }).check();
+  await quiz.getByRole('button', { name: 'Submit answers' }).click();
+  await expect(quiz.getByText('Passed. You can trade derivatives under the current rules.')).toBeVisible();
+  for (const kind of ['derivatives_risk', 'margin_terms']) {
+    const card = page.getByTestId(`agreement-${kind}`);
+    await card.getByRole('button', { name: /^Accept / }).click();
+    await expect(card).toContainText('Accepted');
+  }
+  const position = await openPosition(me);
+  await page.reload();
+
+  // Far enough from the mark that neither fires during the next step.
+  const mark = await markOf(me);
+  const tp = away(mark, 300);
+  const sl = away(mark, -300);
+  const dialog = await protection(page);
+  const current = dialog.getByRole('region', { name: 'On this position now' });
+  await expect(current).toContainText('Take profit: None set');
+  await expect(current).toContainText('Stop loss: None set');
+  await dialog.getByLabel(/Take-profit trigger/).fill(tp);
+  await dialog.getByLabel(/Stop-loss trigger/).fill(sl);
+  // The result at each trigger, worked out from the position's own entry and size.
+  await expect(dialog.getByText(/If the whole position closed at this price: \+/)).toBeVisible();
+  await expect(dialog.getByText(/If the whole position closed at this price: −/)).toBeVisible();
+  const sent = page.waitForResponse((r) => r.url().includes(`/positions/${position.id}/protection`) && r.request().method() === 'PUT');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  expect((await sent).status()).toBe(200);
+  await expect(dialog.getByRole('status')).toHaveText('Saved. What is armed now is listed above.');
+  await expect(current.locator('[data-leg="take_profit"]')).toContainText('Take profit: Armed');
+  await expect(current.locator('[data-leg="stop_loss"]')).toContainText('Stop loss: Armed');
+  await expect(current).toContainText('judged on the mark price');
+
+  // What the service armed: one leg each side, for the whole position, judged on the mark.
+  const armed = await legs(me, position.id);
+  expect(armed.map((o) => [o.attachment, o.status, o.side, o.quantity, o.triggerSource]).sort()).toEqual([
+    ['stop_loss', 'armed', 'sell', SIZE, 'mark'],
+    ['take_profit', 'armed', 'sell', SIZE, 'mark'],
+  ]);
+  expect(toUnits(armed.find((o) => o.attachment === 'take_profit').triggerPrice)).toBe(toUnits(tp));
+  expect(toUnits(armed.find((o) => o.attachment === 'stop_loss').triggerPrice)).toBe(toUnits(sl));
+  run.write({ positionId: position.id });
+});
+
+test(`${J} #2 sets a take profit on the wrong side of the mark: refused in words, and the armed pair is unchanged`, async ({ page }) => {
+  const me = await api(account());
+  const { positionId } = run.read();
+  const before = await legs(me, positionId);
+  await desk(page);
+  const dialog = await protection(page);
+  // The fields start from what is armed, so saving one change keeps the other leg.
+  const tpField = dialog.getByLabel(/Take-profit trigger/);
+  await expect(tpField).not.toHaveValue('');
+  await expect(dialog.getByText('Must be above the mark price.')).toBeVisible();
+
+  const mark = await markOf(me);
+  await tpField.fill(away(mark, -100));
+  const sent = page.waitForResponse((r) => r.url().includes(`/positions/${positionId}/protection`) && r.request().method() === 'PUT');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  const answer = await sent;
+  expect(answer.status()).toBe(400);
+  expect((await answer.json()).error).toBe('trade.protection_wrong_side');
+  const alert = dialog.getByRole('alert');
+  await expect(alert).toContainText('That price is on the wrong side of the mark');
+  await expect(alert).toContainText('Nothing was saved.');
+  await expect(alert).toContainText('Code: trade.protection_wrong_side');
+
+  // Nothing stored: the same two legs, still armed at their prices.
+  const after = await legs(me, positionId);
+  expect(after.map((o) => [o.id, o.status, o.triggerPrice])).toEqual(before.map((o) => [o.id, o.status, o.triggerPrice]));
+});
+
+test(`${J} #3 sets a part take profit: the size it covers and the remainder shown, the stop loss still on the whole`, async ({ page }) => {
+  const me = await api(account());
+  const { positionId } = run.read();
+  await desk(page);
+  const dialog = await protection(page);
+  const current = dialog.getByRole('region', { name: 'On this position now' });
+  // 40% of the 0.01 long; the stop loss field is left as it is, so it stays on the whole position.
+  const PART = '0.004';
+  await dialog.getByLabel('Take-profit size (optional)').fill(PART);
+  await expect(dialog.getByText(`If ${PART} of the position closed at this price: +`)).toBeVisible();
+  const sent = page.waitForResponse((r) => r.url().includes(`/positions/${positionId}/protection`) && r.request().method() === 'PUT');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  const answer = await sent;
+  expect(answer.status()).toBe(200);
+  expect(answer.request().postDataJSON().takeProfit).toMatchObject({ quantity: PART });
+  await expect(current.locator('[data-leg="take_profit"]')).toContainText(`Covers ${PART} of ${SIZE}; 0.006 not covered by it`);
+  await expect(current.locator('[data-leg="stop_loss"]')).toContainText('Covers the whole position');
+
+  const armed = (await legs(me, positionId)).filter((o) => o.status === 'armed');
+  expect(armed.map((o) => [o.attachment, o.quantity, o.wholePosition]).sort()).toEqual([
+    ['stop_loss', SIZE, true],
+    ['take_profit', PART, false],
+  ]);
+});
+
+test(`${J} #6 the mark crosses a trigger: armed, triggered, filled through a reduce-only order in the book, once; the other leg cancelled`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const me = await api(account());
+  const { positionId } = run.read();
+  await desk(page);
+  const dialog = await protection(page);
+  const current = dialog.getByRole('region', { name: 'On this position now' });
+
+  // 3 bps either side of the mark. The mark can step across one before the save lands; the refusal then says so and
+  // the pair is set again from the new mark.
+  for (let attempt = 0; ; attempt += 1) {
+    const mark = await markOf(me);
+    const tp = fromUnits(mark + (mark * 3n) / 10_000n + 10n ** 18n);
+    const sl = fromUnits(mark - (mark * 3n) / 10_000n - 10n ** 18n);
+    await dialog.getByLabel(/Take-profit trigger/).fill(tp.split('.')[0]);
+    await dialog.getByLabel(/Stop-loss trigger/).fill(sl.split('.')[0]);
+    // Both on the whole position again, so whichever fires closes it.
+    await dialog.getByLabel('Take-profit size (optional)').fill('');
+    await dialog.getByLabel('Stop-loss size (optional)').fill('');
+    const sent = page.waitForResponse((r) => r.url().includes(`/positions/${positionId}/protection`) && r.request().method() === 'PUT');
+    await dialog.getByRole('button', { name: 'Save' }).click();
+    const answer = await sent;
+    if (answer.status() === 200) break;
+    expect((await answer.json()).error).toBe('trade.protection_wrong_side');
+    expect(attempt).toBeLessThan(4);
+  }
+  await expect(current.locator('[data-leg="take_profit"]')).toContainText('Take profit: Armed');
+  await expect(current.locator('[data-leg="stop_loss"]')).toContainText('Stop loss: Armed');
+  const pair = (await legs(me, positionId)).filter((o) => o.status === 'armed');
+  expect(pair).toHaveLength(2);
+
+  // The pair is listed with every stop on the Orders tab, which keeps a fired one after its position has gone.
+  await dialog.getByRole('button', { name: 'Close dialog' }).first().click();
+  await page.getByRole('tab', { name: 'Orders' }).click();
+  const triggers = page.getByRole('region', { name: 'Take-profit, stop-loss and stop orders' });
+  const rows = triggers.getByRole('row');
+  await expect(rows.filter({ hasText: 'Armed' })).toHaveCount(2);
+  await expect(rows.filter({ hasText: 'Armed' }).first()).toContainText('judged on the mark price');
+
+  // The walk crosses one: it shows filled, with what it closed and through which order, and the other cancelled
+  // because the position closed.
+  const filled = rows.filter({ hasText: 'Filled' });
+  await expect(filled).toHaveCount(1, { timeout: 180_000 });
+  await expect(filled).toContainText(`Fired for ${SIZE}; ${SIZE} closed so far`);
+  await expect(filled).toContainText('Close order ');
+  await expect(rows.filter({ hasText: 'The position closed, so this one is no longer needed.' })).toHaveCount(1);
+  await expect(rows.filter({ hasText: 'Armed' })).toHaveCount(0);
+  await page.getByRole('tab', { name: 'Positions' }).click();
+  await expect(page.getByText('No open futures positions')).toBeVisible();
+
+  // Through the API: one leg filled, the other cancelled position_closed, the position gone.
+  const done = await legs(me, positionId);
+  const live = done.filter((o) => pair.some((p) => p.id === o.id));
+  const fired = live.find((o) => o.status === 'filled');
+  const other = live.find((o) => o.id !== fired.id);
+  expect(other).toMatchObject({ status: 'cancelled', cancelReason: 'position_closed' });
+  expect(fired).toMatchObject({ firedQuantity: SIZE, closedQuantity: SIZE, triggerSource: 'mark' });
+  expect((await me.get('/api/v1/positions')).body.filter((p) => p.id === positionId)).toEqual([]);
+
+  // It closed through the book: one reduce-only sell for the whole size, on the fired leg's own client id, filled.
+  // A few more conditional ticks later there is still only that one.
+  await new Promise((r) => setTimeout(r, 6_000));
+  const { body } = await me.get('/api/v1/futures/orders?scope=all&limit=50');
+  const orders = body.orders ?? body;
+  const closes = orders.filter((o) => (o.clientOrderId ?? '').startsWith(`cond:${fired.id}`));
+  expect(closes.map((o) => [o.orderId, o.side, o.reduceOnly, o.status, o.filledQty])).toEqual([
+    [fired.closeOrderId, 'sell', true, 'filled', SIZE],
+  ]);
+  expect(orders.filter((o) => (o.clientOrderId ?? '').startsWith(`cond:${other.id}`))).toEqual([]);
+});
