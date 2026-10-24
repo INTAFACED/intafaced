@@ -6,7 +6,8 @@
  * write runs under the user's row lock, so the proof, the replay check and the change are one step.
  * Replace is two-phase: start parks the new secret (hash only) in the pending store; confirm
  * proves the new code and the old proof, then swaps. A crash or a wrong code before the swap leaves
- * the old secret live. Owner enforcement of a second factor (slice 14) does not exist yet, so it is
+ * the old secret live. The swap also mints new recovery codes (shown once, in the answer; the old ones stop working) and
+ * ends every other session of the account (J-identity-05 #4: the lost phone is signed out). Owner enforcement of a second factor (slice 14) does not exist yet, so it is
  * treated as not required; a disable that leaves the account with a passkey or nothing is allowed.
  * Secrets and codes are never logged or returned except the new secret at replace start.
  */
@@ -16,8 +17,9 @@ import { AuthError } from './auth-service.js';
 import { hashToken } from './passwords.js';
 import { recordSuccess, reserveAttempt } from './attempt-lockout.js';
 import type { PendingTotpEnrolmentStore } from './pending-totp-store.js';
-import { generateSecret, matchTotpStep, totpUri } from './totp.js';
+import { generateRecoveryCodes, generateSecret, matchTotpStep, totpUri } from './totp.js';
 import { encryptTotpSecret, materializeTotpSecret } from './totp-crypto.js';
+import { syncNavigatorSessionClosed } from '../agents/navigator-session-projection-sync.js';
 
 export const TOTP_LABEL_MAX = 64;
 const CONTROL_OR_LINE_SEPARATOR = /[\p{Cc}\p{Zl}\p{Zp}]/u;
@@ -173,11 +175,16 @@ export class TotpLifecycle {
     return { secret, uri: totpUri(secret, u.email) };
   }
 
-  /** The new code is checked before anything is counted or written; then the old proof; then the swap. */
+  /**
+   * The new code is checked before anything is counted or written; then the old proof; then, in one transaction, the swap,
+   * new recovery codes in place of the old ones, the end of every session but `keepSessionId` (the one replacing), and the
+   * end of every device's trust but that session's.
+   */
   async replaceConfirm(
     userId: string,
     input: { secret: string; newCode: string; currentCode: string },
-  ): Promise<{ replaced: true; recoveryCodeSpent: boolean }> {
+    keepSessionId: string | null = null,
+  ): Promise<{ replaced: true; recoveryCodeSpent: boolean; recoveryCodes: string[]; sessionsEnded: number }> {
     const key = requireKey(this.deps.key);
     const matchedNew = matchTotpStep(input.secret, input.newCode);
     if (matchedNew === null) throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
@@ -189,11 +196,28 @@ export class TotpLifecycle {
       const proof = await this.proveCurrent(tx, userId, u, input.currentCode);
       const held = await this.deps.pending.takeIfSecretHash(userId, hashToken(input.secret));
       if (!held) throw new AuthError('TOTP replacement expired or secret mismatch — start again', 'auth.mfa_invalid');
+      const recoveryCodes = generateRecoveryCodes();
       await tx`UPDATE users SET totp_secret = ${encryptTotpSecret(key, input.secret)}, totp_last_step = ${matchedNew.toString()},
-        totp_enrolled_at = now(), updated_at = now() WHERE id = ${userId}`;
-      return proof;
+        totp_enrolled_at = now(), recovery_code_hashes = ${tx.json(recoveryCodes.map((c) => hashToken(c)) as never)},
+        updated_at = now() WHERE id = ${userId}`;
+      const ended = await tx<Array<{ id: string }>>`
+        UPDATE sessions SET revoked = true
+        WHERE user_id = ${userId} AND revoked = false AND id IS DISTINCT FROM ${keepSessionId}::uuid
+        RETURNING id`;
+      // A lost phone stays trusted no longer: every device but the one replacing asks for approval at its next sign-in.
+      await tx`
+        UPDATE trusted_devices SET removed_at = now()
+        WHERE user_id = ${userId} AND removed_at IS NULL
+          AND id IS DISTINCT FROM (SELECT trusted_device_id FROM sessions WHERE id = ${keepSessionId}::uuid)`;
+      return { ...proof, recoveryCodes, ended: ended.map((r) => r.id) };
     });
     await recordSuccess(this.deps.sql, userId, 'mfa');
-    return { replaced: true, ...outcome };
+    for (const sessionId of outcome.ended) await syncNavigatorSessionClosed(this.deps.sql, sessionId);
+    return {
+      replaced: true,
+      recoveryCodeSpent: outcome.recoveryCodeSpent,
+      recoveryCodes: outcome.recoveryCodes,
+      sessionsEnded: outcome.ended.length,
+    };
   }
 }

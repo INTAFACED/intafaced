@@ -192,25 +192,57 @@ test(`${J} #4 replacing the authenticator on the new phone ends the old device's
   const totp = await totpOf();
   const { who, codes } = await withAuthenticator(page);
 
-  // On the new phone: sign in with a recovery code, then replace the app from Security.
+  // On the new phone: sign in with a recovery code, then replace the app from Security. The old app is gone, so a
+  // recovery code confirms it is them and a second one proves the old factor; each is spent.
   const { context, page: other } = await atSecondStep(browser, who);
   await other.getByRole('button', { name: 'Use a recovery code' }).click();
   await other.getByLabel('Recovery code', { exact: true }).fill(codes[0]);
   await fillSignIn(other, who);
-  await other.getByRole('button', { name: 'Open Security' }).click();
-  await other.locator('.security__authenticator').getByRole('button', { name: 'Replace' }).click();
-  const key = await other.getByLabel('Setup key').inputValue(UNBUILT);
-  await other.getByLabel('Code from the new app').fill(totp(key));
-  await other.getByLabel(/current code|recovery code/i).fill(codes[1]);
-  await other.getByRole('button', { name: 'Replace authenticator app' }).click();
-  await expect(other.locator('.security__authenticator')).toContainText('replaced', UNBUILT);
-  // New recovery codes, shown once.
-  await expect(other.locator('.security__recovery .recovery-codes li').first()).toBeVisible(UNBUILT);
+  await other
+    .getByRole('status')
+    .filter({ hasText: 'Signed in with a recovery code' })
+    .getByRole('button', { name: 'Open Security' })
+    .click();
+  await expect(other).toHaveURL(/\/uc\/safe/);
+  const card = other.locator('.security__authenticator').filter({ hasText: 'Recovery codes left' });
+  await card.getByRole('button', { name: 'Replace', exact: true }).click();
+  await card.getByLabel('6-digit code or a recovery code').fill(codes[1]);
+  await card.getByRole('button', { name: 'Confirm', exact: true }).click();
+  const key = (await card.locator('code').innerText()).trim();
+  await card.getByLabel('Code from the new app').fill(totp(key));
+  await card.getByLabel('Next code or a recovery code').fill(codes[2]);
+  await card.getByRole('button', { name: 'Replace authenticator app' }).click();
+  const told = card.locator('.notice[role=status]');
+  await expect(told).toContainText('Authenticator app replaced');
+  await expect(told).toContainText('The recovery code you used is spent');
+  await expect(told).toContainText('Every other device was signed out (1)');
+
+  // New recovery codes, shown once: none of the old ones, and gone from the page after "I saved them".
+  const fresh = (await card.locator('.security__recovery .recovery-codes li').allInnerTexts()).map((code) => code.trim());
+  expect(fresh.length).toBeGreaterThan(1);
+  for (const old of codes) expect(fresh).not.toContain(old);
+  await card.getByLabel('I saved these codes somewhere safe').check();
+  await card.getByRole('button', { name: 'I saved them' }).click();
+  await expect(card.locator('.security__recovery')).toHaveCount(0);
+  await expect(card).toContainText(`Recovery codes left: ${fresh.length}`);
 
   // The old phone's session has ended.
   await page.goto('/money');
-  await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible(UNBUILT);
+  await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible({ timeout: 15_000 });
+
+  // The new app's next code signs in, and an old recovery code no longer does.
   await context.close();
+  const next = await atSecondStep(browser, who);
+  await next.page.getByRole('button', { name: 'Use a recovery code' }).click();
+  await next.page.getByLabel('Recovery code', { exact: true }).fill(codes[3]);
+  await fillSignIn(next.page, who);
+  await expect(next.page.getByRole('alert')).toContainText('That code did not work');
+  await next.page.getByLabel('Recovery code', { exact: true }).fill(fresh[0]);
+  await fillSignIn(next.page, who);
+  await expect(next.page.getByRole('status').filter({ hasText: 'Signed in with a recovery code' })).toContainText(
+    `Recovery codes left: ${fresh.length - 1}`,
+  );
+  await next.context.close();
 });
 
 test(`${J} #5 support recovery: a case with a mailed one-time link, a second approver, and the agent never sees the link`, async ({
