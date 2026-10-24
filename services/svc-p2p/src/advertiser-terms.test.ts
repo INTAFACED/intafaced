@@ -108,7 +108,10 @@ describe('svc-p2p advertiser terms and the sell balance at post (P-ads-merchant-
     );
   }
 
-  const sellAd = (extra: Record<string, unknown> = {}) => ({
+  // Each ad names its own id, and its key is that id, as the form sends them.
+  let adNumber = 0;
+  const adId = () => `a0000000-0000-4000-8000-${String(++adNumber).padStart(12, '0')}`;
+  const sellAd = (extra: Record<string, unknown> = {}, offerId = adId()) => ({
     side: 'sell' as const,
     asset: ASSET,
     fiatCurrency: 'EUR',
@@ -119,7 +122,8 @@ describe('svc-p2p advertiser terms and the sell balance at post (P-ads-merchant-
     totalAmount: '100',
     methods: ['sepa'],
     terms: 'TEST terms',
-    idempotencyKey: `p2p:offer-create:${MAKER}:${crypto.randomUUID()}`,
+    offerId,
+    idempotencyKey: `p2p:offer-create:${offerId}`,
     ...extra,
   });
 
@@ -236,6 +240,32 @@ describe('svc-p2p advertiser terms and the sell balance at post (P-ads-merchant-
     expect((await c.offers.create(ad)).id).toBe(posted.id);
     expect((await caller(service('TEST-v2')).offers.create(ad)).id).toBe(posted.id);
     expect(await offers()).toHaveLength(1);
+  });
+
+  it('a merchant client retrying by offer id alone, with no key, also gets its posted ad back', async () => {
+    const p2p = service();
+    await caller(p2p).merchants.acceptAdvertiserTerms({ version: VERSION });
+    const offerId = adId();
+    const posted = await p2p.createOffer({ ...serviceAd(), offerId, totalAmt: parseAmount('100') });
+    await ledger.post(recipes.escrowLock({ tradeId: crypto.randomUUID(), sellerId: MAKER, assetId: ASSET, amount: parseAmount('60') }));
+    const terms = new P2pService(sql, ledger, new MemoryEventBus('svc-p2p'), {
+      instruments,
+      feeBps: 0,
+      advertiserTerms: createAdvertiserTerms({ acceptances: new AdvertiserTermsAcceptances(sql), version: 'TEST-v2' }),
+      sellBalanceAtPost: true,
+    });
+    expect((await terms.createOffer({ ...serviceAd(), offerId, totalAmt: parseAmount('100') })).id).toBe(posted.id);
+    // Another maker naming that id is not a retry: it is checked, and refused.
+    await expect(terms.createOffer({ ...serviceAd(), makerId: OTHER, side: 'buy', offerId })).rejects.toMatchObject({
+      code: 'p2p.terms_not_accepted',
+    });
+  });
+
+  it('a free balance is read signed in only, never with an API key', async () => {
+    // A key outside the merchant programme is turned away at the door; a programme member's key by this door's own check.
+    await expect(caller(service(), { kid: 'key-1' }).offers.sellBalance({ asset: ASSET })).rejects.toMatchObject({
+      code: expect.stringMatching(/^(FORBIDDEN|PRECONDITION_FAILED)$/),
+    });
   });
 
   function serviceAd() {

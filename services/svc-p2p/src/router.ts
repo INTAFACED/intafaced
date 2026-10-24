@@ -1263,10 +1263,11 @@ export function createP2pRouter(
         .input(z.object({ asset: z.string().min(1).max(16) }))
         .output(z.object({ asset: z.string(), available: z.string() }))
         .query(async ({ ctx, input }) =>
-          guard(async () => ({
-            asset: input.asset,
-            available: formatAmount(await p2p.sellBalance(requireUser(ctx), input.asset)),
-          })),
+          guard(async () => {
+            // A wallet balance is the person's to read: an API key's P2P scope covers ads and orders, not balances.
+            if (ctx.principal.kid) throw new TRPCError({ code: 'FORBIDDEN', message: 'Your free balance is read signed in only.' });
+            return { asset: input.asset, available: formatAmount(await p2p.sellBalance(requireUser(ctx), input.asset)) };
+          }),
         ),
 
       list: merchantApiProcedure('p2p:read')

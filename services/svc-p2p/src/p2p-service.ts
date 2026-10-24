@@ -383,14 +383,18 @@ export const isNaturalPersonId = (id: string | null | undefined): boolean => typ
 
 /** The seller's own figures on a refused lock: what is free now and how much more the order needs. */
 function shortBalance(err: InsufficientFundsError, asset: string): P2pError {
-  const free = parseAmount(err.availableBalance);
+  return shortOf(parseAmount(err.availableBalance), parseAmount(err.requested), asset, 'this order; nothing was held');
+}
+
+/** `p2p.insufficient_balance` with the free amount and the shortfall, the figures the room shows. */
+function shortOf(free: Amount, requested: Amount, asset: string, what: string): P2pError {
   const available = formatAmount(free);
-  const shortBy = formatAmount(sub(parseAmount(err.requested), free));
-  return new P2pError(
-    `Your free ${asset} balance is ${available}, ${shortBy} short of this order; nothing was held`,
-    'p2p.insufficient_balance',
-    { until: null, available, shortBy },
-  );
+  const shortBy = formatAmount(sub(requested, free));
+  return new P2pError(`Your free ${asset} balance is ${available}, ${shortBy} short of ${what}`, 'p2p.insufficient_balance', {
+    until: null,
+    available,
+    shortBy,
+  });
 }
 
 export class P2pError extends Error {
@@ -1625,36 +1629,34 @@ export class P2pService {
    * P-ads-merchant-01. What a new ad needs from its maker that the offer itself cannot show: the published advertiser
    * terms accepted (and, from the form, the version it showed), and for a sell ad a free balance of the coin that
    * covers the total. The balance check is advisory, at post only: nothing is reserved, the escrow locks per order at
-   * take. A retry of a create that already published (same key) skips both, so a lost reply always returns the ad.
+   * take. A retry of a create that already published (same key, or with no key the same offer id) skips both, so a
+   * lost reply always returns the ad; the transaction below then answers it as a replay.
    */
   private async assertPostable(
     makerId: string,
     side: 'buy' | 'sell',
     asset: string,
     totalAmt: Amount,
-    idempotencyKey: string | undefined,
+    retry: { idempotencyKey: string | undefined; offerId: string | undefined },
     shownTermsVersion: string | undefined,
   ): Promise<void> {
-    if (!this.advertiserTerms && !(this.sellBalanceAtPost && side === 'sell')) return;
-    if (idempotencyKey) {
+    const checkBalance = this.sellBalanceAtPost && side === 'sell';
+    if (!this.advertiserTerms && !checkBalance) return;
+    if (retry.idempotencyKey) {
       const published = await this.sql<{ subject_id: string | null }[]>`
         SELECT subject_id FROM p2p.write_keys
-         WHERE actor_id = ${makerId} AND scope = 'offer.create' AND idempotency_key = ${idempotencyKey}`;
+         WHERE actor_id = ${makerId} AND scope = 'offer.create' AND idempotency_key = ${retry.idempotencyKey}`;
       if (published[0]?.subject_id) return;
+    } else if (retry.offerId) {
+      const published = await this.sql<{ id: string }[]>`
+        SELECT id FROM p2p.offers WHERE id = ${retry.offerId} AND maker_id = ${makerId}`;
+      if (published[0]) return;
     }
-    if (this.advertiserTerms) await this.advertiserTerms.assertAccepted(makerId, shownTermsVersion);
-    if (this.sellBalanceAtPost && side === 'sell') {
-      const free = await this.sellBalance(makerId, asset);
-      if (compare(totalAmt, free) > 0) {
-        const available = formatAmount(free);
-        const shortBy = formatAmount(sub(totalAmt, free));
-        throw new P2pError(
-          `Your free ${asset} balance is ${available}, ${shortBy} short of this ad's total; nothing was posted`,
-          'p2p.insufficient_balance',
-          { until: null, available, shortBy },
-        );
-      }
-    }
+    const [, free] = await Promise.all([
+      this.advertiserTerms?.assertAccepted(makerId, shownTermsVersion),
+      checkBalance ? this.sellBalance(makerId, asset) : null,
+    ]);
+    if (free !== null && compare(totalAmt, free) > 0) throw shortOf(free, totalAmt, asset, "this ad's total; nothing was posted");
   }
 
   async createOffer(input: {
@@ -1766,7 +1768,14 @@ export class P2pService {
     const clientOfferId = input.offerId;
     const idempotencyKey = input.idempotencyKey?.trim() || undefined;
     const makerTier = isVerificationTier(input.makerTier) ? input.makerTier : null;
-    await this.assertPostable(input.makerId, input.side, input.asset, totalAmt, idempotencyKey, input.advertiserTermsVersion);
+    await this.assertPostable(
+      input.makerId,
+      input.side,
+      input.asset,
+      totalAmt,
+      { idempotencyKey, offerId: clientOfferId },
+      input.advertiserTermsVersion,
+    );
     const createHashValue = requestHash([
       input.makerId,
       input.side,

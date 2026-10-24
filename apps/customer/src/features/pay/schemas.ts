@@ -277,6 +277,8 @@ export const p2pHealthSchema = z.object({
   offerLimitsConfigured: z.boolean(),
   offerLimitsPosture: z.enum(['unset', 'unlimited', 'configured']),
   instrumentKmsConfigured: z.literal(false),
+  /** `local-test` is the test stack's seal; anything else refuses new ads until the owner's key service is wired. */
+  instrumentKeyProvider: z.enum(['none', 'local-test']).optional(),
 });
 export const disputeSchema = z.object({
   id,
@@ -388,6 +390,8 @@ export type PostOfferInput = {
   methods: string[];
   terms?: string;
   acceptsNonInstant?: boolean;
+  /** The ad's own id, chosen once per form; the post's key names it too. */
+  offerId?: string;
 };
 export const p2pApiAccessSchema = z.object({
   eligible: z.boolean(),

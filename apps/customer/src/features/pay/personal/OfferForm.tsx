@@ -71,8 +71,14 @@ export function OfferForm({
   );
 }
 
-/** The form's business key: made once per form, so every press and retry of this ad names the same post. */
-const postKey = (userId: string | null) => `p2p:offer-create:${userId ?? 'anon'}:${crypto.randomUUID()}`;
+/**
+ * The ad this form posts: its id is chosen once per form, and the post's key is that id, so every press and retry of
+ * this ad names the same ad and a new form names a new one.
+ */
+const newAd = () => {
+  const offerId = crypto.randomUUID();
+  return { offerId, key: `p2p:offer-create:${offerId}` };
+};
 
 type Stage = { kind: 'form' } | { kind: 'summary' } | { kind: 'posted'; offer: Offer };
 
@@ -81,16 +87,20 @@ function CreateOffer({ pay, userId }: { pay: PersonalPayApi; userId: string | nu
   const { t } = postCopy.useCopy();
   const [values, setValues] = useState<OfferFormValues>(emptyOffer);
   const [stage, setStage] = useState<Stage>({ kind: 'form' });
-  const [key, setKey] = useState(() => postKey(userId));
+  const [ad, setAd] = useState(newAd);
   const terms = useResource((signal) => pay.advertiserTerms(signal), `pay:p2p-advertiser-terms:${userId}`);
   const methods = useResource((signal) => pay.methods(signal), 'pay:registered-methods');
+  const health = useResource((signal) => pay.health(signal), 'pay:p2p-health');
+  // The version last seen or accepted, so a Post pressed while the terms are re-read still sends it.
+  const [knownVersion, setKnownVersion] = useState<string | null>(null);
   const [sheet, setSheet] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [failure, setFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null);
   const [posting, setPosting] = useState(false);
   // A double tap sends one post: the second press finds this set before React has re-rendered the button.
   const inFlight = useRef(false);
-  const version = terms.resource.status === 'ready' ? terms.resource.data.version : null;
+  const version = terms.resource.status === 'ready' ? terms.resource.data.version : knownVersion;
+  const keyOff = health.resource.status === 'ready' && health.resource.data.instrumentKeyProvider !== 'local-test';
   const acceptedNote =
     terms.resource.status === 'ready'
       ? terms.resource.data.acceptedAt
@@ -117,7 +127,7 @@ function CreateOffer({ pay, userId }: { pay: PersonalPayApi; userId: string | nu
       return;
     }
     const termsVersion = version;
-    const result = await pay.postOffer(input, key, termsVersion);
+    const result = await pay.postOffer({ ...input, offerId: ad.offerId }, ad.key, termsVersion);
     inFlight.current = false;
     setPosting(false);
     if (result.ok) {
@@ -132,6 +142,7 @@ function CreateOffer({ pay, userId }: { pay: PersonalPayApi; userId: string | nu
       const fresh = await pay.advertiserTerms();
       terms.reload();
       if (fresh.ok) {
+        setKnownVersion(fresh.data.version);
         setNote(t('termsStale', { version: fresh.data.version }));
         setSheet(fresh.data.version);
         return;
@@ -145,7 +156,7 @@ function CreateOffer({ pay, userId }: { pay: PersonalPayApi; userId: string | nu
         offer={stage.offer}
         onAnother={() => {
           setValues(emptyOffer());
-          setKey(postKey(userId));
+          setAd(newAd());
           setNote(null);
           setStage({ kind: 'form' });
         }}
@@ -155,6 +166,7 @@ function CreateOffer({ pay, userId }: { pay: PersonalPayApi; userId: string | nu
     <>
       {stage.kind === 'form' ? (
         <div data-testid="offer-form">
+          {keyOff ? <P2PReason title={t('keyOffTitle')}>{t('keyOff')}</P2PReason> : null}
           {acceptedNote ? <p className="muted">{acceptedNote}</p> : null}
           <Fields
             pay={pay}
@@ -187,6 +199,7 @@ function CreateOffer({ pay, userId }: { pay: PersonalPayApi; userId: string | nu
           version={sheet}
           onClose={() => setSheet(null)}
           onAccepted={(accepted) => {
+            setKnownVersion(accepted);
             setSheet(null);
             setNote(t('termsNowAccepted', { version: accepted }));
             terms.reload();

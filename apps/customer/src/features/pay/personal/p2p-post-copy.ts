@@ -57,6 +57,10 @@ const en = {
   refusedNoDestination: 'A sell ad needs your own payment details for every method on it. Add them under Payment methods first.',
   refusedTrading: 'Posting ads is paused on this service right now.',
   refusedVerify: 'Verify your identity before you post an ad.',
+  keyOff:
+    'Posting an ad needs a key service for payment details. It is switched off in this build: you can fill in and review the ad, and posting it is refused.',
+  refusedPostedAlready: 'This form already sent an ad, so it cannot send a different one. Check Your offers, then post another ad.',
+  keyOffTitle: 'Posting an ad is switched off',
 } as const;
 
 const es = {
@@ -116,6 +120,11 @@ const es = {
   refusedNoDestination: 'Un anuncio de venta necesita tus propios datos de pago para cada método. Añádelos antes en Métodos de pago.',
   refusedTrading: 'La publicación de anuncios está en pausa en este servicio ahora mismo.',
   refusedVerify: 'Verifica tu identidad antes de publicar un anuncio.',
+  keyOff:
+    'Publicar un anuncio necesita un servicio de claves para los datos de pago. Está desactivado en esta versión: puedes rellenar y revisar el anuncio, y su publicación se rechaza.',
+  refusedPostedAlready:
+    'Este formulario ya envió un anuncio, así que no puede enviar otro distinto. Revisa Tus ofertas y luego publica otro anuncio.',
+  keyOffTitle: 'La publicación de anuncios está desactivada',
 } as const;
 
 const fr = {
@@ -178,6 +187,11 @@ const fr = {
     'Une annonce de vente a besoin de vos propres coordonnées de paiement pour chaque moyen. Ajoutez-les d’abord dans Moyens de paiement.',
   refusedTrading: 'La publication d’annonces est en pause sur ce service pour le moment.',
   refusedVerify: 'Vérifiez votre identité avant de publier une annonce.',
+  keyOff:
+    'Publier une annonce nécessite un service de clés pour les coordonnées de paiement. Il est désactivé dans cette version : vous pouvez remplir et vérifier l’annonce, et sa publication est refusée.',
+  refusedPostedAlready:
+    'Ce formulaire a déjà envoyé une annonce, il ne peut donc pas en envoyer une différente. Vérifiez Vos offres, puis publiez une autre annonce.',
+  keyOffTitle: 'La publication d’annonces est désactivée',
 } as const;
 
 export const postCopy = defineCopy('pay.p2p.post', en, { es, fr });

@@ -116,6 +116,12 @@ function refusalKey(failure: Failure | null) {
       return 'refusedTrading' as const;
     case 'denied.kyc_required':
       return 'refusedVerify' as const;
+    case 'p2p.instrument_kms_required':
+      return 'keyOff' as const;
+    // The form's key already named a different ad: a reply was lost after it posted.
+    case 'p2p.idempotency_conflict':
+    case 'p2p.idempotency_in_progress':
+      return 'refusedPostedAlready' as const;
     default:
       return null;
   }

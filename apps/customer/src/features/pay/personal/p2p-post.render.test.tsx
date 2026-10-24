@@ -104,6 +104,25 @@ describe('OfferSummary', () => {
     expect(again.textContent).toContain('None');
     expect(button('Posting…').disabled).toBe(true);
   });
+
+  it('names the switched-off key service, and a key that already posted another ad', async () => {
+    const summary = (code: string) => (
+      <OfferSummary
+        input={input}
+        methodLabels={['TEST bank transfer']}
+        termsNote={null}
+        failure={{ ok: false, reason: 'error', message: code, code }}
+        posting={false}
+        onConfirm={() => {}}
+        onBack={() => {}}
+      />
+    );
+    const page = await render(summary('p2p.instrument_kms_required'));
+    expect(page.textContent).toContain('Posting an ad needs a key service for payment details. It is switched off in this build');
+    act(() => root?.unmount());
+    root = null;
+    expect((await render(summary('p2p.idempotency_conflict'))).textContent).toContain('This form already sent an ad');
+  });
 });
 
 describe('AdvertiserTermsSheet', () => {
