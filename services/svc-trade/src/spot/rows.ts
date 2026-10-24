@@ -193,6 +193,10 @@ export interface FillRow {
   fee_asset: string;
   fee_amount: string;
   fee_bps: string;
+  /** Absent on rows read before the rebate migration; null when the leg earned none. */
+  rebate_bps?: number | string | null;
+  rebate_amount?: string | null;
+  rebate_asset?: string | null;
   sequence: number;
   ts: Date;
   session_id: string | null;
@@ -214,6 +218,10 @@ export function toFill(row: FillRow) {
     feeAsset: row.fee_asset,
     feeAmount: parseAmount(row.fee_amount),
     feeBps: Number(row.fee_bps),
+    rebate:
+      row.rebate_bps === null || row.rebate_bps === undefined || !row.rebate_amount || !row.rebate_asset
+        ? null
+        : { bps: Number(row.rebate_bps), amount: parseAmount(row.rebate_amount), asset: row.rebate_asset },
     sequence: row.sequence,
     ts: row.ts,
     sessionId: row.session_id ?? null,

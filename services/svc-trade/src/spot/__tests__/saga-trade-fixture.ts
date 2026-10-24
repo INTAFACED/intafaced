@@ -14,8 +14,10 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { parseAmount as amt, recipes, type LedgerClient, type MemoryLedger } from '@intafaced/ledger-client';
 import { TradeService } from '../../controls/test-admission.js';
+import type { TradeServiceOptions } from '../trade-service.js';
 import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks } from '../testing.js';
 import type { Market } from '../types.js';
+import type { OwnerFeeSchedule } from '../fee-schedule.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', '..', 'drizzle');
@@ -47,12 +49,19 @@ export async function openTradeDatabase(): Promise<{ db: TestDatabase; stop: () 
 }
 
 /** The production service over `ledger`. The matching stub is passed in so it outlives a simulated crash. */
-export function tradeOver(db: TestDatabase, ledger: LedgerClient, matching: StubMatching): TradeService {
+export function tradeOver(
+  db: TestDatabase,
+  ledger: LedgerClient,
+  matching: StubMatching,
+  feeSchedule: OwnerFeeSchedule = PUBLISHED_TEST_FEE_SCHEDULE,
+  options: Partial<TradeServiceOptions> = {},
+): TradeService {
   return new TradeService(db.sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
     marketLifecycle: READY_MARKET_LIFECYCLE,
     spotEnabled: true,
     marketSlippageCapBps: 150,
-    feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
+    feeSchedule,
+    ...options,
   });
 }
 

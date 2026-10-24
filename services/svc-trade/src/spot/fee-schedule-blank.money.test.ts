@@ -87,7 +87,7 @@ describe('fee-schedule blank hitch (source)', () => {
     expect(settleStart).toBeGreaterThan(-1);
     const settle = fills.slice(settleStart);
     const rates = settle.indexOf('svc.ratesForFill(');
-    const tradeFill = settle.indexOf('recipes.tradeFill({');
+    const tradeFill = settle.indexOf('recipes.tradeFill(fillInput)');
     const mmFill = settle.indexOf('recipes.marketMakerMakerFill({');
     expect(rates).toBeGreaterThan(-1);
     expect(tradeFill).toBeGreaterThan(-1);

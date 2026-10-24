@@ -66,7 +66,7 @@ import {
   usePendingOrder,
   type Pending,
 } from './pending';
-import { bpsToRatio, exitFeeLines, feeRate, gateSubmit, holdShort, sizeFor } from './form-logic';
+import { bpsToRatio, exitFeeLines, feeRate, gateSubmit, holdShort, rebateRate, sizeFor } from './form-logic';
 import { CONFLICT_CODE, resendOrder, resendOutcome } from './resend';
 import { clearOrdersPaused, markOrdersPaused } from './orders-paused';
 import { scaleLockStays } from './ticket/scale-flow';
@@ -765,9 +765,16 @@ function SideForm({
         <span>
           {live.state === 'ok' && feeRate(live.preview) !== null
             ? live.preview.feeRole === 'maker'
-              ? t('Fee maker', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
+              ? rebateRate(live.preview) !== null
+                ? t('Rebate maker', { rate: fmtPct(rebateRate(live.preview)!, { signed: false }) })
+                : t('Fee maker', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
               : priced && tif === 'GTC'
-                ? t('Fee up to', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
+                ? rebateRate(live.preview, true) !== null
+                  ? t('Fee up to rebate', {
+                      rate: fmtPct(feeRate(live.preview)!, { signed: false }),
+                      rebate: fmtPct(rebateRate(live.preview, true)!, { signed: false }),
+                    })
+                  : t('Fee up to', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
                 : t('Fee taker', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
             : t('Fee unknown')}
         </span>

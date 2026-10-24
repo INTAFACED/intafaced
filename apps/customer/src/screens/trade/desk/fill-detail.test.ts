@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fillFeeRate, fillRole } from './fill-detail';
+import { fillFeeRate, fillRebate, fillRole, fillZeroFee } from './fill-detail';
 
 // TEST DATA written for these tests.
 describe('fillRole', () => {
@@ -8,6 +8,23 @@ describe('fillRole', () => {
     expect(fillRole({ takerOrMaker: 'taker' })).toBe('taker');
     expect(fillRole({ takerOrMaker: null })).toBeNull();
     expect(fillRole({ takerOrMaker: 'other' as never })).toBeNull();
+  });
+});
+
+describe('fillRebate and fillZeroFee', () => {
+  it('reads a rebate only from its own field, and a fee of exactly nothing as zero', () => {
+    expect(fillRebate({ rebate: { cost: '0.001', currency: 'BTC', rate: '0.0005' } })).toEqual({
+      cost: '0.001',
+      currency: 'BTC',
+      rate: '0.0005',
+    });
+    expect(fillRebate({})).toBeNull();
+    expect(fillZeroFee({ fee: { cost: '0', currency: 'USDT', rate: '0' } })).toBe(true);
+    expect(fillZeroFee({ fee: { cost: '0.000', currency: 'USDT', rate: null } })).toBe(true);
+    expect(fillZeroFee({ fee: { cost: '0.0001', currency: 'USDT', rate: '0.001' } })).toBe(false);
+    expect(fillZeroFee({ fee: null })).toBe(false);
+    // An order's fills together (the trade history's group row), which carry no rate.
+    expect(fillZeroFee({ fee: { cost: '0', currency: 'USDC' } })).toBe(true);
   });
 });
 

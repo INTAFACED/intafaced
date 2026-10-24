@@ -238,6 +238,8 @@ export interface FillRecord {
   readonly feeAsset: string;
   readonly feeAmount: Amount;
   readonly feeBps: number;
+  /** A maker leg's rebate (rate, amount, the asset the maker paid). Never a negative fee. Absent or null = none. */
+  readonly rebate?: { readonly bps: number; readonly amount: Amount; readonly asset: string } | null;
   readonly sequence: number;
   readonly ts: Date;
   readonly sessionId: string | null;

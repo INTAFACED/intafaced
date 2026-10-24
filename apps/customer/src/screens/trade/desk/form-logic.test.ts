@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bpsToRatio, exitFeeLines, feeRate, gateSubmit, holdShort, sizeFor } from './form-logic';
+import { bpsToRatio, exitFeeLines, feeRate, gateSubmit, holdShort, rebateRate, sizeFor } from './form-logic';
 
 const ready = {
   signedIn: true,
@@ -57,6 +57,19 @@ describe('holdShort', () => {
     expect(holdShort({ holdAsset: 'USDT', holdAmount: '9999' }, 'USDT', null)).toBe(false);
     expect(holdShort({ holdAsset: 'BTC', holdAmount: '9999' }, 'USDT', '1')).toBe(false);
     expect(holdShort({ holdAsset: 'USDT', holdAmount: null }, 'USDT', '1')).toBe(false);
+  });
+});
+
+describe('rebate line', () => {
+  it('is the published rebate of an order that rests, and nothing for a taker, no rebate or an older wire', () => {
+    expect(rebateRate({ feeRole: 'maker', makerRebateBps: 5 })).toBe(bpsToRatio(5));
+    expect(rebateRate({ feeRole: 'taker', makerRebateBps: 5 })).toBeNull();
+    // A GTC limit the check prices as a taker may still rest, and earns the rebate on what rests.
+    expect(rebateRate({ feeRole: 'taker', makerRebateBps: 5 }, true)).toBe(bpsToRatio(5));
+    expect(rebateRate({ feeRole: 'taker', makerRebateBps: 0 }, true)).toBeNull();
+    expect(rebateRate({ feeRole: 'maker', makerRebateBps: 0 })).toBeNull();
+    expect(rebateRate({ feeRole: 'maker' })).toBeNull();
+    expect(rebateRate(null)).toBeNull();
   });
 });
 

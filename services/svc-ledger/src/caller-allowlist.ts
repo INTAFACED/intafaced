@@ -134,6 +134,7 @@ export const LEDGER_POST_ALLOWLIST = {
     rewardPay: g('token', 'services/svc-trade/src/copy/fee-share.ts'),
     sweepFeesToRewards: g('token', 'services/svc-trade/src/copy/fee-share.ts'),
     tradeFill: g('trade', 'services/svc-trade/src/spot/trade-service/fills.ts'),
+    tradeFillMakerRebate: g('trade', 'services/svc-trade/src/spot/trade-service/fills.ts'),
   },
 } as const satisfies Record<string, Grants>;
 

@@ -145,6 +145,8 @@ export const previewSchema = z.object({
   feeAsset: z.string().nullable(),
   feeBps: z.number().int().nonnegative().nullable(),
   feeRole: z.enum(['maker', 'taker']).nullable(),
+  /** The maker rebate this market publishes if the order rests (0 = none); absent on older wires. Never a negative fee. */
+  makerRebateBps: z.number().int().nonnegative().nullable().optional(),
   orderable: z.boolean(),
   refusals: z.array(
     z.object({ code: z.string(), field: z.string(), message: z.string(), data: z.record(z.string(), z.string()).optional() }),

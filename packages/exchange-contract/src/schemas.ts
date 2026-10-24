@@ -324,6 +324,8 @@ export const tradeSchema = z.object({
   amount: decimal,
   cost: decimal,
   fee: z.object({ cost: decimal, currency: z.string(), rate: decimal.nullable() }).nullable(),
+  /** A maker rebate paid on this fill (in the asset the maker paid), never a negative fee. Absent when none. */
+  rebate: z.object({ cost: decimal, currency: z.string(), rate: decimal }).optional(),
   /** Unix ms when this fills read was assembled. Absent on older wires. */
   serverTime: timestampMs.optional(),
 });
