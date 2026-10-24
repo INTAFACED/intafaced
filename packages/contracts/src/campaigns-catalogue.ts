@@ -30,6 +30,11 @@ export const CAMPAIGN_REFUSAL_CODES = [
   'campaigns.approval_required',
   'campaigns.second_person_required',
   'campaigns.eligibility_unwired',
+  'campaigns.region_list_unset',
+  'campaigns.not_eligible',
+  'campaigns.region_blocked',
+  'campaigns.participant_unread',
+  'campaigns.review_not_needed',
   'owner.decision',
 ] as const;
 export type CampaignRefusalCode = (typeof CAMPAIGN_REFUSAL_CODES)[number];
@@ -89,10 +94,21 @@ const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 /** The end of an hour window is exclusive; 24:00 runs to midnight. */
 const hhmmEnd = z.string().regex(/^(([01]\d|2[0-3]):[0-5]\d|24:00)$/);
 
-/** Who can take part. In this version every signed-in account; exclusions and region lists are CM-eligibility-rules-01. */
+/**
+ * Who can take part (CM-eligibility-rules-01, ENGINE EL-1 to EL-3). Exclusions read svc-identity: `business` is the
+ * account type chosen at sign-up, `institution` the institutional KYC tier. Identity holds no market-maker or staff
+ * mark, so those two refuse `campaigns.eligibility_unwired`. A `listed` campaign refuses customers whose region is on
+ * its restricted list, a compliance value: blank refuses activation `campaigns.region_list_unset`.
+ */
 export const participationRulesSchema = z.object({
   exclusions: z.array(z.enum(['business', 'institution', 'market_maker', 'staff'])).max(4),
   regionScope: z.enum(['platform', 'listed']),
+  /** ISO 3166 alpha-2 regions that cannot take part. Only for `listed`; null while blank. */
+  restrictedRegions: z
+    .array(z.string().regex(/^[A-Z]{2}$/))
+    .max(300)
+    .nullable()
+    .default(null),
 });
 export type ParticipationRules = z.infer<typeof participationRulesSchema>;
 
@@ -137,6 +153,25 @@ export const campaignSchema = z.object({
 });
 export type Campaign = z.infer<typeof campaignSchema>;
 
+/**
+ * The caller's own answer for one campaign. A refusal is one generic reason per rule (ENGINE EL-6): it names the rule,
+ * never another person's history. `unread` means identity did not answer, which is never read as eligible.
+ */
+export const campaignEligibilitySchema = z.object({
+  state: z.enum(['eligible', 'not_eligible', 'region_blocked', 'unread']),
+  /** The caller's review request for this campaign, once filed. */
+  review: z.object({ requestedAt: iso }).nullable(),
+});
+export type CampaignEligibility = z.infer<typeof campaignEligibilitySchema>;
+
+/** One review request per campaign and account, `campaign:review:<campaignId>:<account>`; asking again returns it. */
+export const campaignReviewResultSchema = z.object({
+  review: z.object({ campaignId: id, requestedAt: iso }),
+  /** False when the caller had already asked: the first request is returned. */
+  created: z.boolean(),
+});
+export type CampaignReviewResult = z.infer<typeof campaignReviewResultSchema>;
+
 /** `campaign:join:<campaignId>:<account>`: one participation per account; a retry returns this row. */
 export const participationSchema = z.object({
   campaignId: id,
@@ -162,6 +197,8 @@ export const campaignViewSchema = z.object({
   /** Null reads "not set". */
   reward: campaignRewardSchema.nullable(),
   mine: participationSchema.nullable(),
+  /** Read on a campaign's own page only; the catalogue and My campaigns leave it null. */
+  eligibility: campaignEligibilitySchema.nullable(),
 });
 export type CampaignView = z.infer<typeof campaignViewSchema>;
 
@@ -180,6 +217,7 @@ export type CampaignCatalogue = z.infer<typeof campaignCatalogueSchema>;
 
 export const campaignGetInputSchema = z.object({ id }).strict();
 export const campaignJoinInputSchema = z.object({ campaignId: id }).strict();
+export const campaignReviewInputSchema = z.object({ campaignId: id }).strict();
 export const campaignJoinResultSchema = z.object({
   participation: participationSchema,
   /** False when the account had already joined: the first participation is returned. */

@@ -4,8 +4,10 @@ import {
   CATALOGUE_CAMPAIGN_STATES,
   campaignCatalogueSchema,
   campaignJoinResultSchema,
+  campaignReviewResultSchema,
   campaignViewSchema,
   myCampaignsSchema,
+  type CampaignEligibility,
   type CampaignType,
   type CampaignView,
 } from '@intafaced/contracts/campaigns-catalogue';
@@ -26,7 +28,16 @@ import { campaignCatalogueCopy } from './campaign-catalogue-copy';
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
 /** Refusals these rooms put into their own words; any other failure goes to the shared Failure. */
-const JOIN_CODES = ['campaign.unknown', 'campaign.not_active', 'campaign.outside_window', 'campaigns.timezone_unset'] as const;
+const JOIN_CODES = [
+  'campaign.unknown',
+  'campaign.not_active',
+  'campaign.outside_window',
+  'campaigns.timezone_unset',
+  'campaigns.not_eligible',
+  'campaigns.region_blocked',
+  'campaigns.participant_unread',
+  'campaigns.review_not_needed',
+] as const;
 type JoinCode = (typeof JOIN_CODES)[number];
 const joinCode = (code: string | undefined): JoinCode | null =>
   (JOIN_CODES as readonly string[]).find((c) => c === code) as JoinCode | null;
@@ -57,6 +68,39 @@ function useWeekdays() {
 }
 
 const campaignHref = (id: string) => `/campaigns/${encodeURIComponent(id)}`;
+
+/** The typed reason for an answer that is not `eligible`. */
+const ELIGIBILITY_CODE = {
+  not_eligible: 'campaigns.not_eligible',
+  region_blocked: 'campaigns.region_blocked',
+  unread: 'campaigns.participant_unread',
+} as const satisfies Record<Exclude<CampaignEligibility['state'], 'eligible'>, JoinCode>;
+
+/** Who can join, from the published rules: every signed-in account, less the excluded kinds and restricted regions. */
+function useWho() {
+  const { t, renderedLocale } = campaignCatalogueCopy.useCopy();
+  return useMemo(() => {
+    const list = new Intl.ListFormat(renderedLocale, { type: 'conjunction' });
+    const regions = (() => {
+      try {
+        return new Intl.DisplayNames(renderedLocale, { type: 'region' });
+      } catch {
+        return null;
+      }
+    })();
+    return (rules: CampaignView['participation']) => {
+      const parts = [
+        rules.exclusions.length > 0
+          ? t('whoExcept', { list: list.format(rules.exclusions.map((e) => t(`exclusion_${e}`))) })
+          : t('whoEveryone'),
+      ];
+      if (rules.regionScope === 'listed' && rules.restrictedRegions?.length) {
+        parts.push(t('whoRegions', { regions: list.format(rules.restrictedRegions.map((r) => regions?.of(r) ?? r)) }));
+      }
+      return parts.join('. ');
+    };
+  }, [t, renderedLocale]);
+}
 
 export function CampaignCatalogue() {
   const api = useApi();
@@ -126,6 +170,7 @@ export function CampaignCatalogue() {
 
 function CampaignTable({ campaigns, when }: { campaigns: readonly CampaignView[]; when: (iso: string) => string }) {
   const { t } = campaignCatalogueCopy.useCopy();
+  const who = useWho();
   if (campaigns.length === 0) return <p className="muted">{t('filterNone')}</p>;
   return (
     <DataTable
@@ -142,7 +187,7 @@ function CampaignTable({ campaigns, when }: { campaigns: readonly CampaignView[]
           <td>{t(`type_${c.type}`)}</td>
           <td data-testid="campaign-state">{t(`state_${c.state}`)}</td>
           <td data-testid="campaign-window">{t('windowValue', { start: when(c.startsAt), end: when(c.endsAt) })}</td>
-          <td data-testid="campaign-who">{t('whoEveryone')}</td>
+          <td data-testid="campaign-who">{who(c.participation)}</td>
           <td>{c.mine ? t('joined') : t('notJoined')}</td>
         </tr>
       ))}
@@ -203,6 +248,7 @@ function CampaignBody({
   const { t } = campaignCatalogueCopy.useCopy();
   const when = useWhen();
   const weekdays = useWeekdays();
+  const who = useWho();
   const [busy, setBusy] = useState(false);
   const join = async () => {
     setBusy(true);
@@ -210,7 +256,18 @@ function CampaignBody({
     setBusy(false);
     settle(result.ok ? null : result);
   };
+  const askReview = async () => {
+    setBusy(true);
+    const result = await api.mutate('campaigns', 'participation.requestReview', { campaignId: c.id }, campaignReviewResultSchema);
+    setBusy(false);
+    settle(result.ok ? null : result);
+  };
   const code = refusal && !c.mine ? joinCode(refusal.code) : null;
+  // The rules leave this account out: the reason replaces the Join button, and a refused account may ask once for a review.
+  const left =
+    !c.mine && c.eligibility && c.eligibility.state !== 'eligible'
+      ? { state: c.eligibility.state, code: ELIGIBILITY_CODE[c.eligibility.state], review: c.eligibility.review }
+      : null;
   return (
     <>
       <Panel title={c.name}>
@@ -222,7 +279,7 @@ function CampaignBody({
               label: t('timeFrame'),
               value: <span data-testid="campaign-window">{t('windowValue', { start: when(c.startsAt), end: when(c.endsAt) })}</span>,
             },
-            { label: t('colWho'), value: <span data-testid="campaign-who">{t('whoEveryone')}</span> },
+            { label: t('colWho'), value: <span data-testid="campaign-who">{who(c.participation)}</span> },
           ]}
         />
         <StatRow
@@ -270,6 +327,24 @@ function CampaignBody({
           <p role="status" data-testid="campaign-joined">
             {t('joinedAt', { when: when(c.mine.joinedAt) })}
           </p>
+        ) : left ? (
+          <div data-testid="campaign-eligibility-panel">
+            <p data-testid="campaign-eligibility" data-code={left.code}>
+              <strong>{t('eligibilityTitle')}</strong>: {t(left.code)}
+            </p>
+            {left.review ? (
+              <p role="status" data-testid="campaign-review">
+                {t('reviewRequested', { when: when(left.review.requestedAt) })}
+              </p>
+            ) : left.state !== 'unread' ? (
+              <>
+                <Button onClick={() => void askReview()} disabled={busy} aria-label={t('askReview')}>
+                  {busy ? t('askingReview') : t('askReview')}
+                </Button>
+                <p className="muted">{t('reviewNote')}</p>
+              </>
+            ) : null}
+          </div>
         ) : (
           <Button onClick={() => void join()} disabled={busy} aria-label={t('join', { name: c.name })}>
             {busy ? t('joining') : t('joinShort')}

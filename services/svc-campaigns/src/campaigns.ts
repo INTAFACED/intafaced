@@ -10,8 +10,10 @@ import {
   type CampaignCalendar,
   type CampaignCatalogue,
   type CampaignDefinitionInput,
+  type CampaignEligibility,
   type CampaignGate,
   type CampaignJoinResult,
+  type CampaignReviewResult,
   type CampaignState,
   type CampaignType,
   type CampaignView,
@@ -19,8 +21,10 @@ import {
   type Participation,
   type ParticipationRules,
 } from '@intafaced/contracts/campaigns-catalogue';
+import type { CampaignParticipant } from '@intafaced/contracts';
 import { CampaignsError } from './codes.js';
 import { parseWindowTime } from './drops.js';
+import type { ParticipantSource } from './participants.js';
 
 /**
  * The campaign object, its type catalogue and lifecycle (CM-campaign-types-01, ENGINE LC-1 to LC-4, LC-6), with the time
@@ -41,8 +45,12 @@ import { parseWindowTime } from './drops.js';
  * - A budget is a limit, never a balance. Nothing here reserves or spends; the reservation counters come with the reward
  *   saga (CM-payouts-ledger-02), so all of a budget is left. Joining
  *   writes one participation under `campaign:join:<campaign>:<account>` and moves nothing.
- * - Who can take part: in this version every signed-in account. Exclusions and region lists are CM-eligibility-rules-01
- *   and refuse `campaigns.eligibility_unwired` until it lands.
+ * - Who can take part (CM-eligibility-rules-01): every signed-in account, less the excluded account kinds and, for a
+ *   `listed` campaign, the restricted regions. Identity is read per check (`ParticipantSource`) and never copied. An
+ *   account that is not active, of an excluded kind, or from a restricted region (or with no region recorded) is refused
+ *   with one generic reason per rule; identity not answering is `unread`, never eligible. Market makers and staff have
+ *   no mark in identity, so excluding them refuses `campaigns.eligibility_unwired`. A refused customer may ask for one
+ *   review per campaign (`campaign:review:<campaign>:<account>`); the operator queue that answers it is J-campaigns-16.
  * - Every operator move and every join writes an audit row.
  */
 
@@ -74,6 +82,7 @@ type CampaignRow = {
 };
 
 type ParticipationRow = { participation_key: string; campaign_id: string; revision: number; created_at: Date };
+type ReviewRow = { review_key: string; campaign_id: string; created_at: Date };
 
 const DECIMAL = /^(0|[1-9]\d{0,19})(\.\d{1,18})?$/;
 const ASSET = /^[A-Z0-9]{2,12}$/;
@@ -138,13 +147,16 @@ const isParked = (type: CampaignType) => (PARKED_CAMPAIGN_TYPES as readonly stri
 
 /**
  * The activation gate (ENGINE LC-3): every blank by name, in order. Called by `submit` and `activate`, never a screen.
- * Region lists join it with CM-eligibility-rules-01; until then no campaign can be region-scoped.
+ * A `listed` campaign with a blank region list refuses `campaigns.region_list_unset`: the list is a compliance value.
  */
 export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate['missing'] {
   const missing: CampaignGate['missing'] = [];
   if (isParked(row.type)) missing.push({ code: 'owner.decision', field: 'type' });
   if (!row.budget_asset || row.budget_limit === null) missing.push({ code: 'campaigns.budget_unset', field: 'budget' });
   if (!row.participation) missing.push({ code: 'campaigns.rules_unset', field: 'participation' });
+  else if (row.participation.regionScope === 'listed' && !row.participation.restrictedRegions?.length) {
+    missing.push({ code: 'campaigns.region_list_unset', field: 'restrictedRegions' });
+  }
   if (!row.starts_at || !row.ends_at) missing.push({ code: 'campaigns.time_frame_unset', field: 'timeFrame' });
   if (!timeZone) missing.push({ code: 'campaigns.timezone_unset', field: 'timeZone' });
   if (!row.reward_asset || row.reward_amount === null) missing.push({ code: 'campaigns.reward_unset', field: 'reward' });
@@ -204,7 +216,13 @@ function toParticipation(r: ParticipationRow): Participation {
 const CUSTOMER_STATES = CUSTOMER_CAMPAIGN_STATES as readonly CampaignState[];
 
 /** A row a customer may see, or null. Only rows that went through approval and activation, with the gate's fields set. */
-function toView(r: CampaignRow, timeZone: string, now: Date, mine: Participation | null): CampaignView | null {
+function toView(
+  r: CampaignRow,
+  timeZone: string,
+  now: Date,
+  mine: Participation | null,
+  eligibility: CampaignEligibility | null = null,
+): CampaignView | null {
   const c = toCampaign(r, timeZone, now);
   if (!(CUSTOMER_STATES as readonly string[]).includes(c.state)) return null;
   if (!c.startsAt || !c.endsAt || !c.budget || !c.participation) return null;
@@ -222,10 +240,38 @@ function toView(r: CampaignRow, timeZone: string, now: Date, mine: Participation
     budget: c.budget,
     reward: c.reward,
     mine,
+    eligibility,
   };
 }
 
+/** Whether a campaign's rules need identity's answer at all. A campaign open to every signed-in account does not. */
+export const needsParticipant = (rules: ParticipationRules) => rules.exclusions.length > 0 || rules.regionScope === 'listed';
+
+/**
+ * The caller's answer for one rule set (ENGINE EL-1 to EL-3, EL-6). Null participant is `unread`. A frozen or closed
+ * account, or one of an excluded kind, is `not_eligible`; a `listed` campaign refuses a restricted region, and an account
+ * with no region recorded, as `region_blocked` (a compliance list never passes on a blank).
+ */
+export function eligibilityOf(rules: ParticipationRules, who: CampaignParticipant | null): CampaignEligibility['state'] {
+  if (!needsParticipant(rules)) return 'eligible';
+  if (!who) return 'unread';
+  if (who.status !== 'active') return 'not_eligible';
+  if (rules.exclusions.includes('business') && who.accountType === 'business') return 'not_eligible';
+  if (rules.exclusions.includes('institution') && who.kycTier === 'institutional') return 'not_eligible';
+  if (rules.regionScope === 'listed' && (!who.region || (rules.restrictedRegions ?? []).includes(who.region))) {
+    return 'region_blocked';
+  }
+  return 'eligible';
+}
+
+const ELIGIBILITY_REFUSAL = {
+  not_eligible: ['campaigns.not_eligible', 'This campaign’s rules leave out your account'],
+  region_blocked: ['campaigns.region_blocked', 'This campaign is not open in your region'],
+  unread: ['campaigns.participant_unread', 'Your account could not be checked against this campaign’s rules'],
+} as const;
+
 export const participationKeyOf = (campaignId: string, accountId: string) => `campaign:join:${campaignId}:${accountId}`;
+export const reviewKeyOf = (campaignId: string, accountId: string) => `campaign:review:${campaignId}:${accountId}`;
 
 /** What each move needs and where it goes. `activate` lands on scheduled or active by the start time. */
 const MOVES: Record<CampaignAction, { from: readonly CampaignState[]; to: CampaignState }> = {
@@ -269,13 +315,7 @@ export function parseDefinition(input: CampaignDefinitionInput): Definition {
   const weekdays = input.weekdays ? [...new Set(input.weekdays)].sort((a, b) => a - b) : null;
   const hours = input.hours ?? null;
   if (hours && hours.to <= hours.from) throw new CampaignsError('campaigns.window_invalid', 'The hour window must end after it starts');
-  const participation = input.participation ?? null;
-  if (participation && (participation.exclusions.length > 0 || participation.regionScope !== 'platform')) {
-    throw new CampaignsError(
-      'campaigns.eligibility_unwired',
-      'Exclusions and region lists come with participation rules (CM-eligibility-rules-01); this version takes every signed-in account',
-    );
-  }
+  const participation = input.participation ? parseParticipation(input.participation) : null;
   const budgetAsset = input.budget ? parseAsset(input.budget.asset, 'campaigns.budget_unset', 'The budget') : null;
   const budgetLimit = input.budget ? parseAmount(input.budget.limit, 'campaigns.budget_unset', 'The budget limit') : null;
   const rewardAsset = input.reward ? parseAsset(input.reward.asset, 'campaigns.reward_unset', 'The reward') : null;
@@ -289,11 +329,32 @@ export function parseDefinition(input: CampaignDefinitionInput): Definition {
     weekdays,
     hoursFrom: hours?.from ?? null,
     hoursTo: hours?.to ?? null,
-    participation: participation ? { exclusions: [], regionScope: 'platform' } : null,
+    participation,
     budgetAsset: budgetAsset && budgetLimit ? budgetAsset : null,
     budgetLimit: budgetAsset && budgetLimit ? budgetLimit : null,
     rewardAsset: rewardAsset && rewardAmount ? rewardAsset : null,
     rewardAmount: rewardAsset && rewardAmount ? rewardAmount : null,
+  };
+}
+
+/**
+ * Who can take part, normalised so the same rules store the same way. Identity holds no market-maker or staff mark, so
+ * excluding them refuses `campaigns.eligibility_unwired`. A region list belongs to a `listed` campaign only (a
+ * `platform` one drops it); an empty one is blank, for the gate to name.
+ */
+function parseParticipation(input: ParticipationRules): ParticipationRules {
+  const unwired = input.exclusions.filter((e) => e === 'market_maker' || e === 'staff');
+  if (unwired.length > 0) {
+    throw new CampaignsError(
+      'campaigns.eligibility_unwired',
+      `Identity holds no ${unwired.join(' or ')} mark yet, so a campaign cannot exclude them`,
+    );
+  }
+  const regions = [...new Set((input.restrictedRegions ?? []).map((r) => r.toUpperCase()))].sort();
+  return {
+    exclusions: [...new Set(input.exclusions)].sort(),
+    regionScope: input.regionScope,
+    restrictedRegions: input.regionScope === 'listed' && regions.length > 0 ? regions : null,
   };
 }
 
@@ -324,6 +385,8 @@ export interface CampaignServiceOptions {
   sql: Sql;
   /** The owner's platform time zone, or null while blank. */
   timeZone: () => string | null;
+  /** svc-identity's participant read, per check. Null answers read `unread`. */
+  participants: ParticipantSource;
   now?: () => Date;
 }
 
@@ -331,9 +394,11 @@ export class CampaignService {
   private readonly sql: Sql;
   private readonly now: () => Date;
   private readonly timeZone: () => string | null;
+  private readonly participants: ParticipantSource;
 
   constructor(options: CampaignServiceOptions) {
     this.sql = options.sql;
+    this.participants = options.participants;
     this.now = options.now ?? (() => new Date());
     this.timeZone = options.timeZone;
   }
@@ -516,17 +581,59 @@ export class CampaignService {
     };
   }
 
-  /** One campaign a customer may see, with their own participation. Anything else reads `campaign.unknown`. */
+  /**
+   * One campaign a customer may see, with their own participation and their own answer under its rules (and their
+   * review request, once filed). Anything else reads `campaign.unknown`.
+   */
   async get(input: { id: string; accountId: string }): Promise<CampaignView> {
     const timeZone = this.customerZone();
-    const [[row], [mine]] = await Promise.all([
+    const [[row], [mine], [review]] = await Promise.all([
       this.sql<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${input.id}`,
       this.sql<ParticipationRow[]>`
         SELECT * FROM campaigns.participations WHERE participation_key = ${participationKeyOf(input.id, input.accountId)}`,
+      this.sql<ReviewRow[]>`
+        SELECT * FROM campaigns.eligibility_reviews WHERE review_key = ${reviewKeyOf(input.id, input.accountId)}`,
     ]);
-    const view = row ? toView(row, timeZone, this.now(), mine ? toParticipation(mine) : null) : null;
-    if (!view) throw new CampaignsError('campaign.unknown', 'No such campaign');
-    return view;
+    const now = this.now();
+    if (!row || !toView(row, timeZone, now, null)) throw new CampaignsError('campaign.unknown', 'No such campaign');
+    const state = await this.eligibility(row.participation!, input.accountId);
+    const eligibility = { state, review: review ? { requestedAt: iso(review.created_at) } : null };
+    return toView(row, timeZone, now, mine ? toParticipation(mine) : null, eligibility)!;
+  }
+
+  /**
+   * One review request per campaign and account (`campaign:review:<campaign>:<account>`), for a customer the rules
+   * refuse. Asking again returns the first request. An eligible account has nothing to review
+   * (`campaigns.review_not_needed`); an account identity did not answer for is `campaigns.participant_unread`.
+   */
+  async requestReview(input: { campaignId: string; accountId: string }): Promise<CampaignReviewResult> {
+    const key = reviewKeyOf(input.campaignId, input.accountId);
+    const timeZone = this.customerZone();
+    const [existing] = await this.sql<ReviewRow[]>`SELECT * FROM campaigns.eligibility_reviews WHERE review_key = ${key}`;
+    if (existing) return { review: { campaignId: existing.campaign_id, requestedAt: iso(existing.created_at) }, created: false };
+    const [row] = await this.sql<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${input.campaignId}`;
+    if (!row || !toView(row, timeZone, this.now(), null)) throw new CampaignsError('campaign.unknown', 'No such campaign');
+    const state = await this.eligibility(row.participation!, input.accountId);
+    if (state === 'eligible') throw new CampaignsError('campaigns.review_not_needed', 'Your account can already take part');
+    if (state === 'unread') throw new CampaignsError(...ELIGIBILITY_REFUSAL.unread);
+    return transaction(this.sql, async (tx) => {
+      const [made] = await tx<ReviewRow[]>`
+        INSERT INTO campaigns.eligibility_reviews (review_key, campaign_id, account_id, reason)
+        VALUES (${key}, ${input.campaignId}, ${input.accountId}, ${state})
+        ON CONFLICT (review_key) DO NOTHING
+        RETURNING *`;
+      if (!made) {
+        const [first] = await tx<ReviewRow[]>`SELECT * FROM campaigns.eligibility_reviews WHERE review_key = ${key}`;
+        return { review: { campaignId: first!.campaign_id, requestedAt: iso(first!.created_at) }, created: false };
+      }
+      await audit(tx, input.accountId, 'campaign.review_request', input.campaignId, { reviewKey: key, reason: state });
+      return { review: { campaignId: made.campaign_id, requestedAt: iso(made.created_at) }, created: true };
+    });
+  }
+
+  /** The caller's answer under these rules. Identity is read only when the rules need it. */
+  private async eligibility(rules: ParticipationRules, accountId: string): Promise<CampaignEligibility['state']> {
+    return eligibilityOf(rules, needsParticipant(rules) ? await this.participants.read(accountId) : null);
   }
 
   /**
@@ -537,6 +644,10 @@ export class CampaignService {
   async join(input: { campaignId: string; accountId: string }): Promise<CampaignJoinResult> {
     const key = participationKeyOf(input.campaignId, input.accountId);
     const timeZone = this.customerZone();
+    // Rules do not change past draft, so identity is read once, before the transaction, never while it holds a lock.
+    const [ruled] = await this.sql<Pick<CampaignRow, 'participation'>[]>`
+      SELECT participation FROM campaigns.campaigns WHERE id = ${input.campaignId}`;
+    const answer = ruled?.participation ? await this.eligibility(ruled.participation, input.accountId) : 'eligible';
     return transaction(this.sql, async (tx) => {
       const [row] = await tx<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${input.campaignId} FOR SHARE`;
       const now = this.now();
@@ -546,6 +657,10 @@ export class CampaignService {
       if (!row || !toView(row, timeZone, now, null)) throw new CampaignsError('campaign.unknown', 'No such campaign');
       const state = effectiveState(row, now);
       if (state !== 'active') throw new CampaignsError('campaign.not_active', `This campaign is ${state}, not active`);
+      if (answer !== 'eligible') {
+        const [code, message] = ELIGIBILITY_REFUSAL[answer];
+        throw new CampaignsError(code, message);
+      }
       const clock = zonedClock(now, timeZone);
       if (row.weekdays && !row.weekdays.includes(clock.weekday)) {
         throw new CampaignsError('campaign.outside_window', 'This campaign does not run today');

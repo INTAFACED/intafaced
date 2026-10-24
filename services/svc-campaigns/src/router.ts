@@ -22,6 +22,8 @@ import {
   campaignGetInputSchema,
   campaignJoinInputSchema,
   campaignJoinResultSchema,
+  campaignReviewInputSchema,
+  campaignReviewResultSchema,
   campaignSchema,
   campaignTransitionInputSchema,
   campaignUpdateInputSchema,
@@ -53,6 +55,11 @@ const STATUS: Record<CampaignsRefusalCode | CampaignRefusalCode, TRPCError['code
   'campaigns.reward_unset': 'PRECONDITION_FAILED',
   'campaigns.approval_required': 'PRECONDITION_FAILED',
   'campaigns.eligibility_unwired': 'PRECONDITION_FAILED',
+  'campaigns.region_list_unset': 'PRECONDITION_FAILED',
+  'campaigns.not_eligible': 'FORBIDDEN',
+  'campaigns.region_blocked': 'FORBIDDEN',
+  'campaigns.participant_unread': 'SERVICE_UNAVAILABLE',
+  'campaigns.review_not_needed': 'CONFLICT',
   'owner.decision': 'PRECONDITION_FAILED',
   'campaigns.window_unset': 'PRECONDITION_FAILED',
   'campaigns.timezone_unset': 'BAD_REQUEST',
@@ -129,6 +136,17 @@ export function createCampaignsRouter(drops: DropService, campaigns: CampaignSer
         .mutation(async ({ ctx, input }) => {
           try {
             return await campaigns.join({ campaignId: input.campaignId, accountId: ctx.principal!.userId });
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+      /** One eligibility review request for the caller's own account, for a campaign whose rules refuse them. */
+      requestReview: scopedProcedure('campaigns:write', guard)
+        .input(campaignReviewInputSchema)
+        .output(campaignReviewResultSchema)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await campaigns.requestReview({ campaignId: input.campaignId, accountId: ctx.principal!.userId });
           } catch (err) {
             mapError(err);
           }

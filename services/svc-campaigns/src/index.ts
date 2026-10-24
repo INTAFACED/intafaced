@@ -5,6 +5,7 @@ import { edgeTrustFromEnv } from '@intafaced/config';
 import { createEdgeContext } from '@intafaced/contracts';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { CampaignService, parseTimeZone } from './campaigns.js';
+import { createParticipantClient } from './participants.js';
 import { DropService } from './drops.js';
 import { env } from './env.js';
 import { createCampaignsRouter, type CampaignsRouter } from './router.js';
@@ -32,7 +33,11 @@ const sql = postgres(env.DATABASE_URL, {
 });
 const drops = new DropService({ sql, tgeSchedule: () => tgeSchedule });
 const timeZone = parseTimeZone(env.CAMPAIGNS_PLATFORM_TIME_ZONE);
-const campaigns = new CampaignService({ sql, timeZone: () => timeZone });
+const participants =
+  env.IDENTITY_URL && env.INTERNAL_SERVICE_SECRET
+    ? createParticipantClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET)
+    : { read: async () => null };
+const campaigns = new CampaignService({ sql, timeZone: () => timeZone, participants });
 
 const appRouter = createCampaignsRouter(drops, campaigns);
 const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, ...edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });

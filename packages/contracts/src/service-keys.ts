@@ -16,6 +16,7 @@ export const SERVICE_NAMES = [
   'svc-academy',
   'svc-agents',
   'svc-bank',
+  'svc-campaigns',
   'svc-edge',
   'svc-execution',
   'svc-fix',

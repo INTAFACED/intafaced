@@ -3,8 +3,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTestDatabase, postgresAvailable, type TestDatabase } from '@intafaced/db/testing';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import type { CampaignDefinitionInput } from '@intafaced/contracts/campaigns-catalogue';
-import { CampaignService, effectiveState, participationKeyOf, zonedClock } from './campaigns.js';
+import type { CampaignParticipant } from '@intafaced/contracts';
+import type { CampaignDefinitionInput, ParticipationRules } from '@intafaced/contracts/campaigns-catalogue';
+import { CampaignService, effectiveState, eligibilityOf, participationKeyOf, reviewKeyOf, zonedClock } from './campaigns.js';
 import { CampaignsError } from './codes.js';
 
 /**
@@ -37,7 +38,24 @@ const ME = 'account-me';
 const NOW = new Date('2026-10-24T12:00:00.000Z');
 let now = NOW;
 let zone: string | null = 'UTC';
-const service = () => new CampaignService({ sql: db!.sql, timeZone: () => zone, now: () => now });
+// Identity's answers by account, as svc-identity's participant read returns them; an account not listed reads null.
+let people = new Map<string, CampaignParticipant>();
+let identityReads = 0;
+const participants = {
+  read: async (userId: string) => {
+    identityReads += 1;
+    return people.get(userId) ?? null;
+  },
+};
+const who = (over: Partial<CampaignParticipant> = {}): CampaignParticipant => ({
+  userId: '00000000-0000-4000-8000-000000000001',
+  accountType: 'individual',
+  region: 'DE',
+  status: 'active',
+  kycTier: 'basic',
+  ...over,
+});
+const service = () => new CampaignService({ sql: db!.sql, timeZone: () => zone, now: () => now, participants });
 
 async function code(p: Promise<unknown>): Promise<string> {
   const err = await p.then(
@@ -77,6 +95,8 @@ if (!db) {
   describe('campaigns (Postgres)', () => {
     beforeEach(async () => {
       await db!.truncateAll();
+      people = new Map([[ME, who()]]);
+      identityReads = 0;
       now = NOW;
       zone = 'UTC';
     });
@@ -135,10 +155,113 @@ if (!db) {
       expect(await code(make({ startsAt: '2026-10-24T11:00:00' }))).toBe('campaigns.timezone_unset');
       expect(await code(make({ endsAt: '2026-10-24T10:00:00Z' }))).toBe('campaigns.window_invalid');
       expect(await code(make({ hours: { from: '18:00', to: '09:00' } }))).toBe('campaigns.window_invalid');
-      expect(await code(make({ participation: { exclusions: ['business'], regionScope: 'platform' } }))).toBe(
-        'campaigns.eligibility_unwired',
-      );
-      expect(await code(make({ participation: { exclusions: [], regionScope: 'listed' } }))).toBe('campaigns.eligibility_unwired');
+      // Identity holds no market-maker or staff mark, so neither can be excluded yet.
+      const rules = (exclusions: ParticipationRules['exclusions']) =>
+        make({ participation: { exclusions, regionScope: 'platform', restrictedRegions: null } });
+      expect(await code(rules(['market_maker']))).toBe('campaigns.eligibility_unwired');
+      expect(await code(rules(['business', 'staff']))).toBe('campaigns.eligibility_unwired');
+    });
+
+    it('a listed campaign with a blank region list cannot go live; rules are stored normalised', async () => {
+      const s = service();
+      const blank = await s.create({
+        definition: full({ name: 'TEST blank list', participation: { exclusions: [], regionScope: 'listed', restrictedRegions: [] } }),
+        actor: A,
+      });
+      expect(blank.participation).toEqual({ exclusions: [], regionScope: 'listed', restrictedRegions: null });
+      expect((await s.validate({ id: blank.id })).missing).toEqual([{ code: 'campaigns.region_list_unset', field: 'restrictedRegions' }]);
+      expect(await code(s.transition({ id: blank.id, action: 'submit', revision: 1, actor: A }))).toBe('campaigns.region_list_unset');
+      const listed = await s.create({
+        definition: full({
+          name: 'TEST listed',
+          participation: {
+            exclusions: ['institution', 'business', 'business'],
+            regionScope: 'listed',
+            restrictedRegions: ['us', 'FR', 'US'],
+          },
+        }),
+        actor: A,
+      });
+      expect(listed.participation).toEqual({
+        exclusions: ['business', 'institution'],
+        regionScope: 'listed',
+        restrictedRegions: ['FR', 'US'],
+      });
+      expect((await s.validate({ id: listed.id })).missing).toEqual([]);
+      // A platform campaign drops a stray list.
+      const platform = await s.create({
+        definition: full({ name: 'TEST platform', participation: { exclusions: [], regionScope: 'platform', restrictedRegions: ['FR'] } }),
+        actor: A,
+      });
+      expect(platform.participation?.restrictedRegions).toBeNull();
+    });
+
+    it('an excluded account kind reads not_eligible, cannot join, and may ask for one review', async () => {
+      const s = service();
+      const c = await live({
+        name: 'TEST no business',
+        participation: { exclusions: ['business'], regionScope: 'platform', restrictedRegions: null },
+      });
+      people.set('account-firm', who({ accountType: 'business' }));
+      const page = await s.get({ id: c.id, accountId: 'account-firm' });
+      expect(page.eligibility).toEqual({ state: 'not_eligible', review: null });
+      expect(await code(s.join({ campaignId: c.id, accountId: 'account-firm' }))).toBe('campaigns.not_eligible');
+      const [one, two] = await Promise.all([
+        s.requestReview({ campaignId: c.id, accountId: 'account-firm' }),
+        s.requestReview({ campaignId: c.id, accountId: 'account-firm' }),
+      ]);
+      expect([one.created, two.created].sort()).toEqual([false, true]);
+      expect(two.review).toEqual(one.review);
+      const [{ n }] = await db!.sql<{ n: number }[]>`SELECT count(*)::int AS n FROM campaigns.eligibility_reviews`;
+      expect(n).toBe(1);
+      const [row] = await db!.sql<{ review_key: string; reason: string }[]>`SELECT review_key, reason FROM campaigns.eligibility_reviews`;
+      expect(row).toEqual({ review_key: reviewKeyOf(c.id, 'account-firm'), reason: 'not_eligible' });
+      expect((await s.get({ id: c.id, accountId: 'account-firm' })).eligibility?.review).toEqual({ requestedAt: one.review.requestedAt });
+      // An individual account takes part; it has nothing to review.
+      expect((await s.get({ id: c.id, accountId: ME })).eligibility).toEqual({ state: 'eligible', review: null });
+      expect(await code(s.requestReview({ campaignId: c.id, accountId: ME }))).toBe('campaigns.review_not_needed');
+      expect((await s.join({ campaignId: c.id, accountId: ME })).created).toBe(true);
+      // Institutions, and frozen accounts, are left out too.
+      const noInst = await live({
+        name: 'TEST no institutions',
+        participation: { exclusions: ['institution'], regionScope: 'platform', restrictedRegions: null },
+      });
+      people.set('account-inst', who({ kycTier: 'institutional' }));
+      people.set('account-frozen', who({ status: 'frozen' }));
+      expect(await code(s.join({ campaignId: noInst.id, accountId: 'account-inst' }))).toBe('campaigns.not_eligible');
+      expect(await code(s.join({ campaignId: noInst.id, accountId: 'account-frozen' }))).toBe('campaigns.not_eligible');
+    });
+
+    it('a restricted region, or no region recorded, reads region_blocked with one answer for everyone', async () => {
+      const s = service();
+      const c = await live({ name: 'TEST region', participation: { exclusions: [], regionScope: 'listed', restrictedRegions: ['FR'] } });
+      people.set('account-fr1', who({ region: 'FR' }));
+      people.set('account-fr2', who({ region: 'FR' }));
+      people.set('account-none', who({ region: null }));
+      for (const id of ['account-fr1', 'account-fr2', 'account-none']) {
+        expect((await s.get({ id: c.id, accountId: id })).eligibility?.state).toBe('region_blocked');
+        expect(await code(s.join({ campaignId: c.id, accountId: id }))).toBe('campaigns.region_blocked');
+      }
+      expect((await s.requestReview({ campaignId: c.id, accountId: 'account-fr1' })).created).toBe(true);
+      expect((await s.join({ campaignId: c.id, accountId: ME })).created).toBe(true);
+    });
+
+    it('identity not answering is unread, never eligible; a campaign open to everyone never asks it', async () => {
+      const s = service();
+      const ruled = await live({
+        name: 'TEST ruled',
+        participation: { exclusions: ['business'], regionScope: 'platform', restrictedRegions: null },
+      });
+      expect((await s.get({ id: ruled.id, accountId: 'account-unknown' })).eligibility?.state).toBe('unread');
+      expect(await code(s.join({ campaignId: ruled.id, accountId: 'account-unknown' }))).toBe('campaigns.participant_unread');
+      expect(await code(s.requestReview({ campaignId: ruled.id, accountId: 'account-unknown' }))).toBe('campaigns.participant_unread');
+      const [{ n }] = await db!.sql<{ n: number }[]>`SELECT count(*)::int AS n FROM campaigns.participations`;
+      expect(n).toBe(0);
+      const open = await live({ name: 'TEST open' });
+      identityReads = 0;
+      expect((await s.get({ id: open.id, accountId: 'account-unknown' })).eligibility).toEqual({ state: 'eligible', review: null });
+      expect((await s.join({ campaignId: open.id, accountId: 'account-unknown' })).created).toBe(true);
+      expect(identityReads).toBe(0);
     });
 
     it('a business name is unique among campaigns that are not archived; the same draft again comes back', async () => {
@@ -303,6 +426,17 @@ if (!db) {
     });
   });
 }
+
+describe('campaign eligibility', () => {
+  it('names one generic reason per rule', () => {
+    const rules = { exclusions: ['business' as const], regionScope: 'listed' as const, restrictedRegions: ['FR'] };
+    expect(eligibilityOf(rules, null)).toBe('unread');
+    expect(eligibilityOf(rules, who())).toBe('eligible');
+    expect(eligibilityOf(rules, who({ accountType: 'business', region: 'FR' }))).toBe('not_eligible');
+    expect(eligibilityOf(rules, who({ region: 'FR' }))).toBe('region_blocked');
+    expect(eligibilityOf({ exclusions: [], regionScope: 'platform', restrictedRegions: null }, null)).toBe('eligible');
+  });
+});
 
 describe('campaign clocks', () => {
   it('reads the weekday and hour in a time zone, and the state by the time frame', () => {
