@@ -402,12 +402,15 @@ export type AcademyRoute =
   | { kind: 'reader'; slug: string | undefined }
   | { kind: 'course'; slug: string | undefined }
   | { kind: 'assignment'; slug: string | undefined; itemId: string | undefined }
-  | { kind: 'verify'; code: string | undefined };
+  | { kind: 'verify'; code: string | undefined }
+  | { kind: 'programme'; slug: string };
 /** The public course page (AC-catalogue-03). Until courses are rows a course is one curriculum path. */
 export const academyCourseHref = (slug: string) => `/academy/learning/course/${encodeURIComponent(slug)}`;
 /** An assignment's page in a course staff made (AC-assignments-01). */
 export const academyAssignmentHref = (slug: string, itemId: string) =>
   `${academyCourseHref(slug)}/assignment/${encodeURIComponent(itemId)}`;
+/** A course programme's page (AC-programmes-01). */
+export const academyProgrammeHref = (slug: string) => `/academy/programmes/${encodeURIComponent(slug)}`;
 /** The public check of one certificate (AC-certificates-01): the link a learner shares. Open to anyone, signed in or not. */
 export const academyVerifyHref = (code: string) => `/academy/certificates/verify/${encodeURIComponent(code)}`;
 /** Sign in from a course page and come back to its plain address: a private link's `#key=` never rides in a URL. */
@@ -427,6 +430,7 @@ export function academyRoute(pathname: string): AcademyRoute {
     return { kind: 'assignment', slug: course ? decoded(course) : undefined, itemId: itemId ? decoded(itemId) : undefined };
   if (segment === 'learning' && part === 'course') return { kind: 'course', slug: course ? decoded(course) : undefined };
   if (segment === 'certificates' && part === 'verify') return { kind: 'verify', code: course ? decoded(course) : undefined };
+  if (segment === 'programmes' && part) return { kind: 'programme', slug: decoded(part) ?? part };
   const tab = academyTabs.find(([, slug]) => slug === segment);
   if (tab) return { kind: 'tab', tab: tab[0] };
   if (segment === 'progress') return { kind: 'progress' };
