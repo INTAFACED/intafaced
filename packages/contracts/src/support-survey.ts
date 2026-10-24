@@ -25,7 +25,7 @@ export const supportSurveyRefusalCodeSchema = z.enum([
 export type SupportSurveyRefusalCode = z.infer<typeof supportSurveyRefusalCodeSchema>;
 export type SupportSurveyErrorCode = z.infer<typeof supportSurveyErrorCodeSchema>;
 
-const id = z.string().uuid();
+const id = z.string().guid();
 const timestamp = z.string().datetime({ offset: true });
 const label = z.string().trim().min(1).max(60);
 

@@ -11,7 +11,7 @@ import { EmissionEpoch, TokenHoldings } from './TokenHoldings';
 import { Details, Limit, Read, Select, TextArea, presentActionFailure, useAction } from './common';
 import { governanceCopy as G } from './token-governance-copy';
 import './token-governance.css';
-const uuid = z.string().uuid();
+const uuid = z.string().guid();
 /** The service stores `gov:proposal:<space>:<author>:<n>`; older rows keep their uuid. */
 const proposalIdSchema = z.union([
   uuid,
@@ -32,7 +32,7 @@ const stakeSchema = z.object({
 const proposalSchema = z.object({
   id: proposalIdSchema,
   kind: z.enum(['listing', 'fee_param', 'curriculum', 'grant']),
-  body: z.record(z.unknown()),
+  body: z.record(z.string(), z.unknown()),
   status: z.enum(['draft', 'open', 'passed', 'rejected', 'executed', 'cancelled']),
   opensAt: z.string(),
   closesAt: z.string(),
@@ -464,7 +464,7 @@ export function Token() {
                     setValidation(copyText('token.enter.a.valid.json.object.for.the'));
                     return;
                   }
-                  if (!z.record(z.unknown()).safeParse(body).success) {
+                  if (!z.record(z.string(), z.unknown()).safeParse(body).success) {
                     setValidation(copyText('token.enter.a.valid.json.object.for.the'));
                     return;
                   }

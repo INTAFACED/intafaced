@@ -69,8 +69,8 @@ const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amount must be an u
 const stakeTier = z.enum(['flex', 'm3', 'm12']);
 
 const stakeOutput = z.object({
-  id: z.string().uuid(),
-  userId: z.string().uuid(),
+  id: z.string().guid(),
+  userId: z.string().guid(),
   amount: amountString,
   tier: stakeTier,
   startedAt: z.string(),
@@ -120,7 +120,7 @@ const proposalCountsOutput = z.object({
 const proposalOutput = z.object({
   id: proposalIdWire,
   kind: proposalKind,
-  body: z.record(z.unknown()),
+  body: z.record(z.string(), z.unknown()),
   status: proposalStatus,
   opensAt: z.string(),
   closesAt: z.string(),
@@ -440,7 +440,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
       ),
 
     unstakePreview: scopedProcedure('token:read', { module: 'token' })
-      .input(z.object({ stakeId: z.string().uuid() }))
+      .input(z.object({ stakeId: z.string().guid() }))
       .output(
         z.object({
           status: z.enum(['locked_until', 'ready', 'closing', 'pending', 'closed']),
@@ -466,7 +466,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
         z.object({
           amount: amountString,
           tier: stakeTier,
-          stakeId: z.string().uuid(),
+          stakeId: z.string().guid(),
         }),
       )
       .output(stakeOutput)
@@ -491,7 +491,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
       ),
 
     unstake: scopedProcedure('token:stake', { module: 'token' })
-      .input(z.object({ stakeId: z.string().uuid() }))
+      .input(z.object({ stakeId: z.string().guid() }))
       .output(stakeOutput)
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
@@ -638,7 +638,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
         .input(
           z
             .object({
-              runId: z.string().uuid(),
+              runId: z.string().guid(),
               revenueWindow: z.object({
                 from: z.string().datetime({ offset: true }),
                 to: z.string().datetime({ offset: true }),
@@ -648,7 +648,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
         )
         .output(
           z.object({
-            runId: z.string().uuid(),
+            runId: z.string().guid(),
             tokensBought: amountString,
             burned: amountString,
             toRewards: amountString,
@@ -775,7 +775,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
     recordBuyback: scopedProcedure('admin:treasury')
       .input(
         z.object({
-          runId: z.string().uuid(),
+          runId: z.string().guid(),
           /** Half-open `[from, to)` — `to` belongs to the next window (0002). */
           revenueWindow: z.object({
             from: z.string().datetime({ offset: true }),
@@ -784,7 +784,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
           /**
            * assetId → revenue collected, as decimal strings.
            *
-           * Was `z.record(z.string())`, which accepted any string at all and
+           * Was `z.record(z.string(), z.string())`, which accepted any string at all and
            * wrote it straight to jsonb: `{"IFC":"not-a-number","USDT":"-999"}`
            * stored cleanly. This is the audit record of what the run was sized
            * against, so an unparseable figure here cannot be reconciled against
@@ -805,7 +805,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
       )
       .output(
         z.object({
-          runId: z.string().uuid(),
+          runId: z.string().guid(),
           burned: amountString,
           toRewards: amountString,
           confirmOperatorId: z.string(),
@@ -928,7 +928,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
       .input(
         z.object({
           kind: proposalKind,
-          body: z.record(z.unknown()).default({}),
+          body: z.record(z.string(), z.unknown()).default({}),
           opensAt: z.string().datetime({ offset: true }).optional(),
           closesAt: z.string().datetime({ offset: true }).optional(),
           handle: z.string().optional(),
@@ -976,9 +976,9 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
       )
       .output(
         z.object({
-          id: z.string().uuid(),
+          id: z.string().guid(),
           proposalId: proposalIdWire,
-          userId: z.string().uuid(),
+          userId: z.string().guid(),
           weight: z.string(),
           choice: voteChoice,
           castAt: z.string(),
@@ -1081,7 +1081,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
           title: z.string().optional(),
           bodyMd: z.string().optional(),
           discussionLink: z.string().optional(),
-          body: z.record(z.unknown()).optional(),
+          body: z.record(z.string(), z.unknown()).optional(),
           opensAt: z.string().datetime({ offset: true }).optional(),
           closesAt: z.string().datetime({ offset: true }).optional(),
         }),

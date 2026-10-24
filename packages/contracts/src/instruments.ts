@@ -46,7 +46,7 @@ import { PLANES, type Plane } from '@intafaced/config/modules';
  */
 /** Wire money — JSON numbers are refused, not coerced. No owner min/max here. */
 export const decimalString = z
-  .string({ invalid_type_error: 'JS number refused — amounts are decimal strings' })
+  .string({ error: (issue) => (issue.input === undefined ? undefined : 'JS number refused — amounts are decimal strings') })
   .regex(/^\d+(\.\d{1,18})?$/, 'amounts are positive decimal strings with at most 18 decimal places');
 
 /** A size or increment that must be strictly greater than zero. */

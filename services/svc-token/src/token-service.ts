@@ -3088,7 +3088,7 @@ const ASSET_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
  *
  * This column is the audit record of what a run was sized against — the only
  * written answer to "which revenue did we burn against". It was previously
- * `z.record(z.string())` on the wire and written through untouched, so
+ * `z.record(z.string(), z.string())` on the wire and written through untouched, so
  * `{"IFC":"not-a-number","USDT":"-999","BTC":"1e400"}` stored cleanly. That is
  * not a cosmetic defect: an unparseable audit figure cannot be reconciled
  * against the ledger later, which is the one thing it is for.
