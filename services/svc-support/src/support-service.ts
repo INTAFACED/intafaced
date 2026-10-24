@@ -5,6 +5,7 @@ import {
   SUPPORT_CUSTOMER_PROPERTIES_UNSET,
   type SupportCustomerProperty,
   type SupportMyTicketProperties,
+  SUPPORT_FRAUD_REPORT_KEY_REQUIRED,
   SUPPORT_FRAUD_ROUTE_MISSING,
   SUPPORT_FRAUD_ROUTE_UNSET,
   supportTicketCategorySchema,
@@ -569,9 +570,18 @@ export class SupportService implements SupportContract {
       if (input.messageHeaders !== undefined && input.category !== 'phishing') {
         throw new SupportError('message headers belong to a phishing report only', 'support.headers_not_allowed');
       }
-      // A fraud report goes to the owner's compliance group; with none named or found it is refused before it exists.
-      const route = SUPPORT_CATEGORY_ROUTES[input.category] === 'compliance' ? await this.fraudRoute() : null;
-      if (route && 'refusal' in route)
+      // A fraud report goes to the owner's compliance group; with none named or found it is refused before it exists. It
+      // needs a key, so a crash between the ticket and its group is mended by the retry rather than leaving a duplicate.
+      // A replay of a key that already made the report returns it, even if the route changed since.
+      const compliance = SUPPORT_CATEGORY_ROUTES[input.category] === 'compliance';
+      if (compliance && input.clientRequestId === undefined)
+        throw new SupportError('a fraud report needs a request key', SUPPORT_FRAUD_REPORT_KEY_REQUIRED);
+      const replay =
+        compliance && input.clientRequestId !== undefined
+          ? (await this.store.readReceipt('support.create', input.userId, input.clientRequestId)) !== null
+          : false;
+      const route = compliance ? await this.fraudRoute() : null;
+      if (route && 'refusal' in route && !replay)
         throw new SupportError(
           route.refusal === SUPPORT_FRAUD_ROUTE_UNSET ? 'fraud reports have no group set' : 'the fraud report group does not exist',
           route.refusal,
@@ -606,9 +616,17 @@ export class SupportService implements SupportContract {
         await this.lifecycle.linkFollowUp(ticket.id, input.followsTicketId, ticket.createdAt);
       }
       // Grouped only while ungrouped, so a replay after a crash here groups it, and never undoes a lead's later move.
-      // Until grouped, an ungrouped ticket is read by leads only (`deskCanSee`), so the gap exposes it to no agent.
-      if (route && (await this.groups.groupOfTicket(ticket.id)) === null)
-        await this.groups.setTicketGroup({ ticketId: ticket.id, groupId: route.groupId, by: 'support:fraud-route', at: ticket.createdAt });
+      // Until grouped, an ungrouped ticket is read by leads only (`deskCanSee`), so the gap exposes it to no agent. A group
+      // gone between the read and this write refuses, and the retry with the same key groups it once the route is right.
+      if (route && 'groupId' in route && (await this.groups.groupOfTicket(ticket.id)) === null) {
+        const grouped = await this.groups.setTicketGroup({
+          ticketId: ticket.id,
+          groupId: route.groupId,
+          by: 'support:fraud-route',
+          at: ticket.createdAt,
+        });
+        if (grouped === 'unknown_group') throw new SupportError('the fraud report group does not exist', SUPPORT_FRAUD_ROUTE_MISSING);
+      }
       span.setAttribute('intafaced.support.ticket_id', ticket.id);
       return ticket;
     });

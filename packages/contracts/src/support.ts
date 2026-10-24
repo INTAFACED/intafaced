@@ -17,6 +17,7 @@ export type SupportTicketStatus = z.infer<typeof supportTicketStatusSchema>;
 export {
   SUPPORT_CATEGORY_ROUTES,
   SUPPORT_CATEGORY_UNKNOWN,
+  SUPPORT_FRAUD_REPORT_KEY_REQUIRED,
   SUPPORT_FRAUD_ROUTE_MISSING,
   SUPPORT_FRAUD_ROUTE_UNSET,
   supportCategoriesSchema,

@@ -64,7 +64,11 @@ describe('fraud reports go to compliance (SP-tickets-01)', () => {
 
   it('with no group named, a fraud report is refused and the category says why', async () => {
     const { me } = await desk(null);
-    await expect(me.create(report)).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: 'support.fraud_route_unset' });
+    await expect(me.create(report)).rejects.toMatchObject({ message: 'support.fraud_report_key_required' });
+    await expect(me.create({ ...report, clientRequestId: 'fraud-0' })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'support.fraud_route_unset',
+    });
     expect((await me.categories()).categories.find((row) => row.id === 'fraud_report')).toEqual({
       id: 'fraud_report',
       routesTo: 'compliance',
@@ -76,7 +80,7 @@ describe('fraud reports go to compliance (SP-tickets-01)', () => {
 
   it('a named group the desk does not have refuses, and once it exists the report is grouped into it', async () => {
     const { me, lead, staff, groups } = await desk('TEST Compliance');
-    await expect(me.create(report)).rejects.toMatchObject({ message: 'support.fraud_route_missing' });
+    await expect(me.create({ ...report, clientRequestId: 'fraud-0' })).rejects.toMatchObject({ message: 'support.fraud_route_missing' });
     const group = await lead.groupsSave({ name: 'TEST Compliance', idempotencyKey: 'group-compliance' });
     expect((await me.categories()).categories.find((row) => row.id === 'fraud_report')?.refusal).toBeNull();
     const made = await me.create({ ...report, clientRequestId: 'fraud-1' });
@@ -104,5 +108,21 @@ describe('fraud reports go to compliance (SP-tickets-01)', () => {
     const made = await me.create({ ...report, clientRequestId: 'fraud-2' });
     expect(await groups.groupOfTicket(made.id)).toBe(group.id);
     expect(await support.listMyTickets({ userId: CUSTOMER, limit: 10 })).toHaveLength(1);
+  });
+
+  it('a replay finds its report after the route changed, and a group gone before grouping refuses', async () => {
+    const { me, lead, groups } = await desk('TEST Compliance');
+    const group = await lead.groupsSave({ name: 'TEST Compliance', idempotencyKey: 'group-compliance' });
+    const made = await me.create({ ...report, clientRequestId: 'fraud-3' });
+    await lead.groupsSave({ groupId: group.id, name: 'Renamed', idempotencyKey: 'group-rename' });
+    expect((await me.create({ ...report, clientRequestId: 'fraud-3' })).id).toBe(made.id);
+    // The route is read, then the group is gone when the write lands: refused, and the report stays lead-only.
+    await lead.groupsSave({ groupId: group.id, name: 'TEST Compliance', idempotencyKey: 'group-rename-back' });
+    const set = groups.setTicketGroup.bind(groups);
+    groups.setTicketGroup = async () => 'unknown_group';
+    await expect(me.create({ ...report, clientRequestId: 'fraud-4' })).rejects.toMatchObject({ message: 'support.fraud_route_missing' });
+    groups.setTicketGroup = set;
+    const retried = await me.create({ ...report, clientRequestId: 'fraud-4' });
+    expect(await groups.groupOfTicket(retried.id)).toBe(group.id);
   });
 });

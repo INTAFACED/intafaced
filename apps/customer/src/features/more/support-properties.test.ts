@@ -12,8 +12,9 @@ describe('the desk priority and type on a customer request (SP-tickets-04)', () 
     expect(propertyRows({ status: 'ok', priority: null, ticketType: { value: 'problem' } }, t)).toEqual([['typeRow', 'type_problem']]);
   });
 
-  it('adds no row while unread or not chosen by the owner', () => {
+  it('adds no row while loading, and one row naming why when not chosen by the owner or unread', () => {
     expect(propertyRows(null, t)).toEqual([]);
-    expect(propertyRows({ status: 'unset', code: 'support.customer_properties_unset' }, t)).toEqual([]);
+    expect(propertyRows({ status: 'unset', code: 'support.customer_properties_unset' }, t)).toEqual([['propertiesRow', 'propertiesUnset']]);
+    expect(propertyRows(null, t, true)).toEqual([['propertiesRow', 'propertiesUnread']]);
   });
 });

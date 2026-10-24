@@ -15,6 +15,8 @@ export const SUPPORT_CATEGORY_UNKNOWN = 'support.category_unknown';
 export const SUPPORT_FRAUD_ROUTE_UNSET = 'support.fraud_route_unset';
 /** The owner named a group the desk does not have. */
 export const SUPPORT_FRAUD_ROUTE_MISSING = 'support.fraud_route_missing';
+/** A fraud report is sent with a request key, so a retry after a lost answer finds it instead of making a second one. */
+export const SUPPORT_FRAUD_REPORT_KEY_REQUIRED = 'support.fraud_report_key_required';
 
 /**
  * Where a request of each category goes: the support desk, or compliance (a fraud report is grouped into the owner's

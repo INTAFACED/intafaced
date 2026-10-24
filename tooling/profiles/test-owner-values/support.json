@@ -56,6 +56,11 @@
       "value": "TEST Compliance",
       "note": "The desk group fraud reports go to, so J-support-public-02 #4 can send one; the journey makes the group. Not an owner decision."
     },
+    "SUPPORT_ALL_GROUPS_ROLES": {
+      "service": "support",
+      "value": "agent,lead",
+      "note": "Every staff role sees every desk group, so the group J-support-public-02 #4 makes for fraud reports does not hide other journeys' requests from agents. Not an owner decision."
+    },
     "SUPPORT_CUSTOMER_SEES": {
       "service": "support",
       "value": "priority,type",

@@ -143,7 +143,8 @@ function mapError(err: unknown): never {
       err.code === 'support.assistant_model_unset' ||
       err.code === 'support.kb_section_unknown' ||
       err.code === 'support.fraud_route_unset' ||
-      err.code === 'support.fraud_route_missing'
+      err.code === 'support.fraud_route_missing' ||
+      err.code === 'support.fraud_report_key_required'
     ) {
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message });
     }

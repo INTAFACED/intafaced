@@ -304,15 +304,20 @@ function NewRequest({
     (signal) => api.query('support', 'categories', undefined, supportCategoriesSchema, { signal }),
     `support-categories:${userId}`,
   );
-  const route = routes.resource.status === 'ready' ? routes.resource.data.categories.find((row) => row.id === category) : undefined;
+  // A fraud report can be sent only when the service says where it goes; anything else (unread, refused, or a service
+  // that does not list it) blocks the send and says why.
+  const fraudRow =
+    routes.resource.status === 'ready'
+      ? routes.resource.data.categories.find((row) => row.id === category && row.routesTo === 'compliance')
+      : undefined;
   const routeNote =
-    route?.routesTo === 'compliance'
-      ? route.refusal === null
+    category !== 'fraud_report'
+      ? null
+      : fraudRow?.refusal === null
         ? { key: 'fraudNote' as const, blocks: false }
-        : { key: 'fraudUnset' as const, blocks: true }
-      : category === 'fraud_report' && routes.resource.status !== 'ready'
-        ? { key: 'fraudUnread' as const, blocks: true }
-        : null;
+        : routes.resource.status === 'ready'
+          ? { key: 'fraudUnset' as const, blocks: true }
+          : { key: 'fraudUnread' as const, blocks: true };
   const [formId, setFormId] = useState(''),
     [answers, setAnswers] = useState<FormAnswers>({});
   const form = forms?.forms.find((row) => row.id === formId) ?? null;
