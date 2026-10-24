@@ -41,6 +41,9 @@ const ONE_BOOK_TABLES = new Set([
   'reconciliation_controls',
   'reconciliation_control_audit',
   'reconciliation_control_runs',
+  // Operator labels on an account and their append-only change record (0029, OPS-ledger-desk-01). Text only, no balance.
+  'account_metadata',
+  'account_metadata_changes',
 ]);
 
 const JAVA_WALLET_IDS: readonly { readonly id: string; readonly re: RegExp; readonly why: string }[] = [
