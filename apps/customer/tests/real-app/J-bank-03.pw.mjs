@@ -1,16 +1,19 @@
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { EDGE, ORIGIN, ROOT, fund, journeyState } from './stack.mjs';
+import { EDGE, ORIGIN, ROOT, fund, journeyState, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
 // J-bank-03, in the running app (docs/roadmap/journeys.json): I turn my balance into money in my bank account. One test
 // per step, titled "J-bank-03 #<n>", run in order on one TEST account funded with TEST 50 USDT, with an authenticator app
-// and one linked TEST bank account. The stack connects no banking partner, so no linked account can be verified and
-// nothing can be paid out: this run proves the journey's honest ending. The quote names what stands in the way with no
-// fee invented, the ask needs a fresh confirmation, and it is kept refused with nothing taken from the balance. Balances
-// are read through the person's own bank API. Not here: #4 and #5 (they follow a payout, which needs a partner), and the
-// cooling-off of a verified account (only a partner verifies one; svc-bank's own tests cover it).
+// and one linked TEST bank account. Steps 1 to 3 run before any banking partner has verified that account, so they prove
+// the honest ending: the quote names what stands in the way with no fee invented, the ask needs a fresh confirmation,
+// and it is kept refused with nothing taken from the balance. Steps 4 and 5 run against the stack's TEST payout stand-in
+// (BANK_PAYOUT_PARTNER=payout-sim, which pays nobody): its signed calls verify the account and say paid, failed or came
+// back, as a partner would, and the stack's TEST fixture moves the link past its 24-hour cooling-off (the journey starts
+// from "a saved bank destination past its cooling-off"). Balances are read through the person's own bank API.
 const J = 'J-bank-03';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 // TEST: the standard example IBAN, not a customer's account.
@@ -82,6 +85,27 @@ async function bank() {
         body: JSON.stringify(input),
       }).then(answer),
   };
+}
+
+let jobCtx;
+/** One call of the TEST payout partner's signed job door, as the partner would make it. */
+async function partner(what, body) {
+  jobCtx ??= import('../../../../tooling/scripts/local-test-gates.mjs').then((gates) => gates.makeContext({ log: () => {} }));
+  const ctx = await jobCtx;
+  const raw = JSON.stringify(body);
+  const res = await fetch(`${ctx.url('bank')}/internal/jobs/payout-sim/${what}`, {
+    method: 'POST',
+    redirect: 'error',
+    headers: {
+      'content-type': 'application/json',
+      ...ctx.contracts.serviceAuthHeadersForBody('local-test-stack', ctx.secrets.internal, raw),
+    },
+    body: raw,
+    signal: AbortSignal.timeout(30_000),
+  });
+  const answer = await res.json().catch(() => null);
+  if (res.status !== 200) throw new Error(`payout-sim/${what} refused: ${res.status} ${JSON.stringify(answer).slice(0, 300)}`);
+  return answer;
 }
 
 async function usdt(api) {
@@ -213,4 +237,128 @@ test(`${J} #3 confirms with a fresh check: the ask is kept refused with its reas
   expect(plain).toMatchObject({ ok: false, status: 403 });
   expect((await api.query('cashOut.requests', { limit: 10 })).data).toHaveLength(1);
   expect(await usdt(api)).toBe('50');
+});
+
+test(`${J} #4 watches the tracker: verified by the partner, the cash-out goes from processing to completed, and its receipt is signed with the ledger id`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const { who } = state();
+  const api = await bank();
+  const [account] = (await api.query('linkedAccounts.list', undefined)).data.accounts;
+  // The partner verifies the account, and the TEST fixture moves its link past the 24-hour cooling-off.
+  expect(await partner('verify', { accountId: account.accountId })).toMatchObject({ state: 'verified', verificationRail: null });
+  expect(tool('local-test-stack.mjs', 'age-linked-accounts', who.email, '25')).toContain('1 linked account(s)');
+
+  await signInWithCode(page);
+  await openCashOut(page);
+  await see(page, '20');
+  // Now the partner prices it: its TEST fee and what arrives, in euros, with the stand-in named and nothing in the way.
+  const quote = page.getByTestId('cash-out-quote');
+  await expect(quote).toContainText('1.5 EUR');
+  await expect(quote).toContainText('16.5 EUR');
+  await expect(quote.getByText('not set')).toHaveCount(0);
+  await expect(page.getByTestId('cash-out-stand-in')).toContainText('TEST price from a stand-in');
+  await expect(page.getByTestId('cash-out-blocker')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Cash out', exact: true }).click();
+  await confirmItsMe(page);
+  await expect(page.getByTestId('cash-out-sent')).toContainText('Your cash-out is on its way');
+  // Once it is on its way the quote cannot be confirmed again: another cash-out starts from a fresh quote.
+  await expect(page.getByRole('button', { name: 'Cash out', exact: true })).toHaveCount(0);
+
+  // The tracker: processing, step 1 of 2, no cancel and no receipt while the bank has it; 20 is held from the balance.
+  const newest = page.getByTestId('cash-out-request').first();
+  await expect(newest).toHaveAttribute('data-status', 'processing');
+  await expect(newest.getByTestId('cash-out-steps')).toHaveAttribute('aria-label', 'Processing (1/2)');
+  await expect(newest).toContainText('cannot be cancelled');
+  await expect(newest).toContainText('The receipt is ready once the bank has paid it out.');
+  await expect(newest.getByRole('button', { name: 'Download receipt' })).toHaveCount(0);
+  const [taken] = (await api.query('cashOut.requests', { limit: 10 })).data;
+  expect(taken).toMatchObject({ amount: '20', status: 'processing', payoutRef: `TEST-PAYOUT-${taken.requestId}` });
+  expect(await usdt(api)).toBe('30');
+
+  // The partner says it was paid: completed, once.
+  const paid = await partner('paid', { cashOutId: taken.requestId });
+  expect(paid).toMatchObject({ status: 'completed', ledgerTxId: expect.any(String) });
+  expect(await partner('paid', { cashOutId: taken.requestId })).toEqual(paid);
+  await page.reload();
+  const done = page.locator(`[data-testid="cash-out-request"][data-status="completed"]`).first();
+  await expect(done.getByTestId('cash-out-steps')).toHaveAttribute('aria-label', 'Completed (2/2)');
+  await expect(done).toContainText('Bank reference: TEST-PAYOUT-');
+
+  // The receipt: a file, signed, naming the ledger transaction; the hash on screen is the hash of the file.
+  const receipt = done.getByTestId('cash-out-receipt');
+  const [download] = await Promise.all([page.waitForEvent('download'), receipt.getByRole('button', { name: 'Download receipt' }).click()]);
+  expect(download.suggestedFilename()).toBe(`receipt-${taken.requestId}.txt`);
+  const file = readFileSync(await download.path(), 'utf8');
+  expect(file).toContain(`Ledger transaction: ${paid.ledgerTxId}`);
+  expect(file).toContain('Sent: 20 USDT');
+  expect(file).toContain('Arrives: 16.5 EUR');
+  expect(file).toContain('To: TEST Holder · GB82 •••• 5432');
+  await expect(receipt.getByTestId('cash-out-receipt-ledger')).toHaveText(`Ledger record: ${paid.ledgerTxId}`);
+  await expect(receipt.getByTestId('cash-out-receipt-hash')).toHaveText(`SHA-256: ${createHash('sha256').update(file).digest('hex')}`);
+  await expect(receipt).toContainText(/Signed: [0-9a-f]{64}/);
+
+  // The request step 3 kept refused has no receipt, and says why.
+  const notSent = page.locator(`[data-testid="cash-out-request"][data-status="refused"]`).first();
+  await expect(notSent.getByTestId('cash-out-no-receipt')).toHaveText('No receipt: this cash-out was not sent.');
+  await expect(notSent.getByRole('button', { name: 'Download receipt' })).toHaveCount(0);
+  expect(await usdt(api)).toBe('30');
+});
+
+test(`${J} #5 sees a failed and a returned payout: the reason in plain words, the money back once, and what stays paid out`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  await signInWithCode(page);
+  await openCashOut(page);
+  await see(page, '10');
+  await page.getByRole('button', { name: 'Cash out', exact: true }).click();
+  await confirmItsMe(page);
+  await expect(page.getByTestId('cash-out-sent')).toBeVisible();
+  const api = await bank();
+  const requests = (await api.query('cashOut.requests', { limit: 10 })).data;
+  const failing = requests.find((r) => r.amount === '10' && r.status === 'processing');
+  const completed = requests.find((r) => r.status === 'completed');
+  expect(failing && completed).toBeTruthy();
+  expect(await usdt(api)).toBe('20');
+
+  // The partner could not pay it: the account is closed. The 10 comes back once, however often it says so.
+  expect(await partner('failed', { cashOutId: failing.requestId, reason: 'bank.payout_account_closed' })).toMatchObject({
+    status: 'failed',
+    failureCode: 'bank.payout_account_closed',
+  });
+  expect(await partner('failed', { cashOutId: failing.requestId, reason: 'bank.payout_account_closed' })).toMatchObject({
+    status: 'failed',
+  });
+  expect(await usdt(api)).toBe('30');
+  await page.reload();
+  const failed = page.locator(`[data-testid="cash-out-request"][data-status="failed"]`).first();
+  await expect(failed.getByTestId('cash-out-why')).toContainText('The receiving bank says this account is closed.');
+  await expect(failed.getByTestId('cash-out-why')).toContainText('10 USDT is back in your available balance, once.');
+  await expect(failed.getByTestId('cash-out-no-receipt')).toHaveText('No receipt: this cash-out was not paid out.');
+
+  // The receiving bank sends part of the paid-out 20 back: 5 is credited once, and 15 stays paid out.
+  expect(
+    await partner('returned', { cashOutId: completed.requestId, amount: '5', assetId: 'USDT', reason: 'bank.payout_returned_by_bank' }),
+  ).toMatchObject({
+    status: 'returned',
+    returnedAmount: '5',
+    remainsPaidOut: '15',
+  });
+  expect(
+    await partner('returned', { cashOutId: completed.requestId, amount: '5', assetId: 'USDT', reason: 'bank.payout_returned_by_bank' }),
+  ).toMatchObject({
+    status: 'returned',
+    returnedAmount: '5',
+  });
+  expect(await usdt(api)).toBe('35');
+  await page.reload();
+  const back = page.locator(`[data-testid="cash-out-request"][data-status="returned"]`).first();
+  await expect(back).toContainText('Came back');
+  await expect(back.getByTestId('cash-out-why')).toContainText(
+    'The receiving bank sent it back. 5 USDT of 20 USDT came back to your available balance, once. The other 15 USDT stays paid out.',
+  );
+  // It was paid out, so its receipt still stands.
+  await expect(back.getByRole('button', { name: 'Download receipt' })).toBeVisible();
 });

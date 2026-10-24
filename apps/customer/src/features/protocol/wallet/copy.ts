@@ -101,6 +101,23 @@ const en = {
   permitSigned: 'Signed. Give this signature only to the spender you named; it is not sent anywhere from here.',
   permitSignedValues:
     'The spender needs these exact values with the signature: the amount in the token’s base units, the nonce and the expiry time in seconds.',
+  permitRefused_region: 'This service is not available in your region, so no signing action is offered.',
+  permitRefused_representation_unset:
+    'The representation you accept before signing is not published, so no signing action can start. Nothing was signed.',
+  permitRefused_representation_unavailable:
+    'We could not check whether you have accepted the representation. Try again. Nothing was signed.',
+  reprTitle: 'Before your first signature',
+  reprNote:
+    'Read this once. You accept it by signing it with this wallet; it moves no funds and grants no permission. We record your address, the version and the time.',
+  reprVersion: 'Version {version}',
+  reprAgree: 'I have read this and it is true for me.',
+  reprAccept: 'Accept and sign',
+  reprFailed: 'The wallet did not sign the representation. Nothing was recorded.',
+  reprNotRecorded: 'Your acceptance was not recorded, so nothing else was signed. Try again.',
+  reprStale: 'The representation changed while you read it. Choose Review and sign again to read the current version.',
+  reprNotOwner:
+    'This signature does not check out against your wallet address, so it was not recorded. Wallets that sign through a smart contract cannot accept it.',
+  reprWalletChanged: 'Your wallet switched to another account. Choose Review and sign again for this account.',
   permitRefused_token_invalid: 'The token contract is not a valid address. Nothing was signed.',
   permitRefused_spender_invalid: 'The spender is not a valid address. Nothing was signed.',
   permitRefused_amount_invalid: 'Enter an amount above zero as whole tokens, for example 25 or 0.5. Nothing was signed.',

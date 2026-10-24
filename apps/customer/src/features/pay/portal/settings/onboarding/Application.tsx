@@ -70,7 +70,7 @@ export function fileProblem(file: { size: number; type: string }, rules: NonNull
   }
   return null;
 }
-const kindsOf = (types: readonly string[]) => types.map((type) => (type.split('/')[1] ?? type).toUpperCase()).join(', ');
+export const kindsOf = (types: readonly string[]) => types.map((type) => (type.split('/')[1] ?? type).toUpperCase()).join(', ');
 
 /** What the summary lists as still needed: each unfinished part, and by name each document not sent or marked invalid. */
 export function stillNeeded(application: Application, checklist: Checklist | null, t: T): string[] {
@@ -333,7 +333,13 @@ function Started(props: Inner) {
         </div>
       ) : (
         <p className="pp-callout" role="note">
-          {outcome === 'approved' ? t('approvedNote') : outcome === 'rejected' ? t('rejectedNote') : t('submittedNote')}
+          {outcome === 'approved'
+            ? t('approvedNote')
+            : outcome === 'rejected'
+              ? t('rejectedNote')
+              : docs?.rows.some((row) => row.state === 'rejected')
+                ? t('resendNote')
+                : t('submittedNote')}
         </p>
       )}
       {application.sections
@@ -566,6 +572,8 @@ const usable = (row: DocumentRow) => row.state === 'provided' || row.state === '
 function Documents(props: Inner & { section: Section }) {
   const { t } = applicationCopy.useCopy();
   const draft = props.application.state === 'draft';
+  // Sent and not yet decided: a document marked Invalid takes a new file, nothing else changes.
+  const underReview = !draft && props.kybRef === `application:${props.application.applicationId}` && props.kybStatus === 'pending';
   const { saver, save } = useSectionSave(props);
   return (
     <Gate resource={props.checklist} retry={props.retry} rows={2}>
@@ -600,7 +608,12 @@ function Documents(props: Inner & { section: Section }) {
               </thead>
               <tbody>
                 {checklist.rows.map((row) => (
-                  <DocumentLine key={row.key} {...props} row={row} rules={draft ? rules : null} />
+                  <DocumentLine
+                    key={row.key}
+                    {...props}
+                    row={row}
+                    rules={draft || (underReview && row.state === 'rejected') ? rules : null}
+                  />
                 ))}
               </tbody>
             </table>
@@ -685,7 +698,7 @@ function DocumentLine({ portal, application, row, rules, reloadDocuments }: Inne
   );
 }
 
-async function base64Of(file: Blob): Promise<string> {
+export async function base64Of(file: Blob): Promise<string> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   let binary = '';
   for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));

@@ -4,9 +4,9 @@ import { awayBid, confirm, deskPath, free, held, openDesk, openOrders, reviewLim
 
 // J-wallet-01, in the running app (docs/roadmap/journeys.json): I see what I hold and what I can actually withdraw.
 // One test per step, titled "J-wallet-01 #<n>", run in order on one verified TEST account funded with TEST 500 USDT.
-// Every figure on screen is checked against the ledger through the customer's own API. Not here yet: #4 needs an
-// asset with no published price (every asset on the local stack has a market), #5 an asset and network list, and #6
-// the membership tier on Account (identity's).
+// Every figure on screen is checked against the ledger through the customer's own API. #4 holds TEST gold (XAU): the
+// stack lists it only against USD, and a coin is priced only against USDT or USDC, so no price is published for it.
+// Not here yet: #5, an asset and network list.
 const J = 'J-wallet-01';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
@@ -111,4 +111,42 @@ test(`${J} #3 opens Withdraw: it offers only what is available, and a card or ba
   const after = await balances();
   expect(free(after, 'USDT')).toBe(free(before, 'USDT'));
   expect(held(after, 'USDT')).toBe(held(before, 'USDT'));
+});
+
+test(`${J} #4 holds an asset with no published price: its value says so, never zero, and the total leaves it out`, async ({ page }) => {
+  const who = account();
+  // One business ref per account, so a re-run of this step alone credits nothing more.
+  expect(fund(who.email, 'XAU', '1', `jw01-xau-${who.email.split('@')[0].replace(/[^A-Za-z0-9-]/g, '')}`.slice(0, 64)).out).toMatch(
+    /TEST FUNDS credited/,
+  );
+  const before = await balances();
+  expect(before.XAU).toMatchObject({ total: expect.stringMatching(/^1(\.0+)?$/) });
+  await signIn(page, who);
+  await page.goto('/money');
+  await page.mouse.move(0, 600);
+  const gold = page.locator('tr.money-row[data-asset="XAU"]');
+  await expect(gold).toBeVisible();
+  await expect(gold).toContainText('1 XAU');
+  const value = gold.locator('td.money-cell--value');
+  await expect(value).toHaveText('—');
+  await expect(value).toHaveAttribute('title', 'No price published');
+  await expect(gold.locator('td.money-cell--today')).toHaveText('—');
+  await expect(gold).not.toContainText('$0');
+  // The total counts only what has a price, and says which coin it leaves out.
+  const note = page.locator('.money-note').filter({ hasText: 'Excludes' });
+  await expect(note).toContainText('Excludes 1 coin (no USD price)');
+  await expect(note).toContainText('Not counted: XAU');
+});
+
+test(`${J} #6 opens membership on Account: with no tier published, it says membership is not offered`, async ({ page }) => {
+  const who = account();
+  await signIn(page, who);
+  await page.goto('/uc/account');
+  const panel = page.getByTestId('membership');
+  await expect(panel).toHaveAttribute('data-state', 'not-offered');
+  await expect(panel).toContainText('Membership is not offered');
+  await expect(panel).toContainText('No membership tier is published, so there is nothing to join and nothing is charged.');
+  // No tier, price or join control in its place.
+  await expect(page.locator('#membership').getByRole('button')).toHaveCount(0);
+  await expect(page.locator('#membership [data-tier]')).toHaveCount(0);
 });

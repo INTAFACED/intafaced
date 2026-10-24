@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { forgetSession, nextCode } from './identity-factors.mjs';
 import { businessReadyPerson, openBusiness, refusedPayCalls, signInWithCode, verifiedBusiness } from './merchant.mjs';
+import { ADMIN, founderSignIn } from './admin.mjs';
 
 // J-merchant-02, in the running app (docs/roadmap/journeys.json): get verified and go live. Tests titled
 // "J-merchant-02 #<n>" prove a whole step; the others prove part of one and say which.
@@ -195,12 +196,13 @@ test(`${J} #2 the owner chooses the legal entity type; changing it returns the a
   expect(refused).toEqual([]);
 });
 
-test(`${J} part of #3 the owner adds the people and documents a sole trader is asked for; a file over the limit or of a wrong type is refused before it is sent; each row reads Pending, and the application goes for review`, async ({
+test(`${J} #3 the owner adds the people and documents a sole trader is asked for; a file over the limit or of a wrong type is refused before it is sent; each row reads Pending, then Verified or Invalid with the reason once INTAFACED reviews it, and an Invalid one takes a new file`, async ({
   page,
+  browser,
 }) => {
   test.setTimeout(240_000);
   const owner = await businessReadyPerson(page, 'mdc', '/pay/onboarding');
-  await openBusiness(page, owner, 'TEST Documents Ltd');
+  const merchantId = await openBusiness(page, owner, 'TEST Documents Ltd');
   const refused = refusedPayCalls(page);
   const uploads = [];
   page.on('request', (req) => req.url().includes('kyb.documents.upload') && uploads.push(req.url()));
@@ -265,5 +267,135 @@ test(`${J} part of #3 the owner adds the people and documents a sole trader is a
   await expect(app).toContainText('INTAFACED is reviewing your application');
   await expect(page.getByText('INTAFACED is reviewing it')).toBeVisible();
   await expect(app.getByRole('region', { name: 'Documents', exact: true }).locator('input[type=file]')).toHaveCount(0);
+
+  // INTAFACED's compliance reviewer opens each file in the founder console and gives it a verdict.
+  const desk = await (await browser.newContext({ baseURL: ADMIN, viewport: { width: 1440, height: 1000 } })).newPage();
+  await founderSignIn(desk, 'a');
+  await desk.goto(`/merchants/${merchantId}?tab=verification`);
+  const review = desk.locator('#verification');
+  await expect(review).toContainText('Sent for review');
+  const opened = desk.context().waitForEvent('page');
+  await review.getByRole('button', { name: 'Open the file for Test proof of identity' }).click();
+  // The tab opens on the click and then shows the file's bytes.
+  const tab = await opened;
+  await expect.poll(() => tab.url()).toMatch(/^blob:/);
+  await review.getByRole('button', { name: 'Mark Test proof of identity Verified' }).click();
+  await expect(review.getByRole('button', { name: 'Mark Test proof of identity Verified' })).toHaveCount(0);
+  await expect(review.getByRole('row', { name: /Test proof of identity/ })).toContainText('Reviewed by');
+  const addressRow = review.getByRole('row', { name: /Test proof of address/ });
+  await expect(addressRow.getByRole('button', { name: 'Mark Test proof of address Invalid' })).toBeDisabled();
+  await addressRow.getByLabel('Reason, if Invalid (the merchant reads it)').fill('TEST the address is cut off at the bottom');
+  await addressRow.getByRole('button', { name: 'Mark Test proof of address Invalid' }).click();
+  await expect(addressRow).toContainText('Reason given: TEST the address is cut off at the bottom');
+  await desk.context().close();
+  await page.reload();
+  const reviewed = app.getByRole('region', { name: 'Documents', exact: true });
+  await expect(reviewed.getByRole('row', { name: /Test proof of identity/ })).toContainText('Verified');
+  const invalid = reviewed.getByRole('row', { name: /Test proof of address/ });
+  await expect(invalid).toContainText('Invalid');
+  await expect(invalid).toContainText('Reason: TEST the address is cut off at the bottom');
+
+  // Still under review, the owner answers Invalid with a new file for that document only.
+  await expect(app).toContainText('INTAFACED marked a document Invalid. Send a new file for it under Documents');
+  await expect(reviewed.locator('input[type=file]')).toHaveCount(1);
+  await invalid
+    .getByLabel('Choose a file for Test proof of address')
+    .setInputFiles({ name: 'address-whole.png', mimeType: 'image/png', buffer: Buffer.from('TEST png, the whole page') });
+  await invalid.getByRole('button', { name: 'Send' }).click();
+  await expect(reviewed.getByRole('row', { name: /Test proof of address/ })).toContainText('Pending');
+  await expect(reviewed.locator('input[type=file]')).toHaveCount(0);
+  expect(uploads).toHaveLength(3);
   expect(refused).toEqual([]);
+});
+
+test(`${J} #4 the owner answers an information request from the reviewer: a banner when one is past due, an infected file refused, and a closed request shows who closed it`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  const owner = await businessReadyPerson(page, 'mir', '/pay/onboarding');
+  const merchantId = await openBusiness(page, owner, 'TEST Requests Ltd');
+  const answers = [];
+  page.on('request', (req) => req.url().includes('kyb.requests.answer') && answers.push(req.url()));
+
+  // INTAFACED's compliance reviewer asks for two things in the founder console: one due in ten days, one in two minutes.
+  const desk = await (await browser.newContext({ baseURL: ADMIN, viewport: { width: 1440, height: 1000 } })).newPage();
+  await founderSignIn(desk, 'a');
+  await desk.goto(`/merchants/${merchantId}?tab=verification`);
+  const asks = desk.locator('#information-requests');
+  await expect(asks).toContainText('No information requests');
+  const localTime = (ms) => {
+    const d = new Date(Date.now() + ms);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+  const STATEMENT = 'TEST send a bank statement from the last three months';
+  const BILL = 'TEST send a utility bill for the business address';
+  await asks.getByLabel('What the merchant should send (they read it as written)').fill(STATEMENT);
+  await asks.getByLabel('Due by (your local time)').fill(localTime(10 * 86_400_000));
+  await asks.getByRole('button', { name: 'Send request' }).click();
+  await expect(asks.getByTestId('kyb-request').filter({ hasText: STATEMENT })).toContainText('Open');
+  await asks.getByLabel('What the merchant should send (they read it as written)').fill(BILL);
+  await asks.getByLabel('Due by (your local time)').fill(localTime(2 * 60_000));
+  await asks.getByRole('button', { name: 'Send request' }).click();
+  await expect(asks.getByTestId('kyb-request').filter({ hasText: BILL })).toBeVisible();
+
+  // The owner reads both on the Compliance page and answers the statement request.
+  await page.goto('/pay/compliance');
+  const requests = page.getByRole('list', { name: 'Information requests' });
+  const statement = requests.getByRole('listitem', { name: STATEMENT });
+  await expect(statement).toContainText('Open');
+  await expect(statement).toContainText('Every file is checked for malware before it is kept.');
+  await expect(requests.getByRole('listitem', { name: BILL })).toBeVisible();
+
+  // An infected file (the industry-standard EICAR test string) is refused and nothing of it is kept.
+  const eicar = ['X5O!P%@AP[4\\PZX54(P^)7CC)7}$', 'EICAR-STANDARD-ANTIVIRUS-TEST-FILE', '!$H+H*'].join('');
+  await statement.getByLabel('Your note').fill('TEST the statement is attached');
+  await statement.getByLabel('Choose a file to send with your answer').setInputFiles({
+    name: 'statement.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(eicar),
+  });
+  await statement.getByRole('button', { name: 'Send answer' }).click();
+  await expect(statement.getByRole('alert')).toHaveText(
+    'The malware check found a threat in this file, so it wasn’t kept. Send a clean copy.',
+  );
+  await expect(statement).toContainText('Open');
+
+  await statement.getByLabel('Choose a file to send with your answer').setInputFiles({
+    name: 'statement.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('%PDF-1.4\n% TEST bank statement\n%%EOF\n'),
+  });
+  await statement.getByRole('button', { name: 'Send answer' }).click();
+  await expect(statement).toContainText('Answered');
+  await expect(statement).toContainText('passed the malware check');
+  expect(answers).toHaveLength(2);
+
+  // The reviewer opens the file and closes the request with a note.
+  await desk.reload();
+  const asked = asks.getByTestId('kyb-request').filter({ hasText: STATEMENT });
+  await expect(asked).toContainText('Merchant’s note: TEST the statement is attached');
+  const opened = desk.context().waitForEvent('page');
+  await asked.getByRole('button', { name: /^Open the file sent for request/ }).click();
+  const tab = await opened;
+  await expect.poll(() => tab.url()).toMatch(/^blob:/);
+  await asked.getByLabel('Closing note (the merchant reads it)').fill('TEST statement received, thank you');
+  await asked.getByRole('button', { name: /^Close request/ }).click();
+  await expect(asked).toContainText('Closed by');
+  await expect(asked).toContainText('TEST statement received, thank you');
+  await desk.context().close();
+
+  await page.reload();
+  const closed = page.getByRole('list', { name: 'Information requests' }).getByRole('listitem', { name: STATEMENT });
+  await expect(closed).toContainText('Closed by INTAFACED reviewer');
+  await expect(closed).toContainText('TEST statement received, thank you');
+  await expect(closed.getByRole('button', { name: 'Send answer' })).toHaveCount(0);
+
+  // Once the bill request's due date passes unanswered, the page warns about it.
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByRole('alert').filter({ hasText: 'past its due date' })).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 200_000, intervals: [10_000] });
+  await expect(page.getByRole('listitem', { name: BILL })).toContainText('Past due');
 });

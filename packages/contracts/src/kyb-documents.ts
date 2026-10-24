@@ -68,10 +68,86 @@ export const kybDocumentsUploadInputSchema = z
     applicationId: applicationIdSchema,
     key: kybRequirementKeySchema,
     contentType: z.string().trim().min(1).max(128),
-    /** Base64 bytes. The owner's size cap is applied to the decoded size; this bound only stops absurd bodies. */
+    /** Base64 bytes. The owner's size cap is applied to the decoded size. The HTTP body limits in front of svc-pay cap the whole request first, so a cap above them refuses there (#6228). */
     bytesBase64: z.string().min(1).max(40_000_000),
   })
   .strict();
 
 /** The checklist row for the uploaded key. The same bytes for the same key again return the same document. */
 export const kybDocumentsUploadResultSchema = z.object({ row: kybDocumentRowSchema }).strict();
+
+// ---- compliance review (J-merchant-02 step 3) -------------------------------------------------------------------
+
+/** A compliance reviewer's verdict on one upload: accepted reads Verified to the business, rejected reads Invalid. */
+export const KYB_DOCUMENT_VERDICTS = ['accepted', 'rejected'] as const;
+export const kybDocumentVerdictSchema = z.enum(KYB_DOCUMENT_VERDICTS);
+export type KybDocumentVerdict = z.infer<typeof kybDocumentVerdictSchema>;
+
+/** Length as people count it (code points), the way the stored reason is checked. */
+const charCount = (text: string): number => [...text].length;
+
+/**
+ * Review the upload `documentId`, which must still be its key's current upload, on an application that is a draft or
+ * still under review. A rejection carries the reason the business reads; an acceptance carries none. A verdict is
+ * final for that upload: the business answers Invalid with a new file for that document.
+ */
+export const kybDocumentReviewInputSchema = z
+  .object({
+    applicationId: applicationIdSchema,
+    documentId: z.string().guid(),
+    verdict: kybDocumentVerdictSchema,
+    reason: z
+      .string()
+      .trim()
+      .refine((text) => charCount(text) >= 3 && charCount(text) <= 1000, 'a reason is 3 to 1000 characters')
+      .nullish(),
+  })
+  .strict()
+  .refine((input) => (input.verdict === 'rejected') === Boolean(input.reason), {
+    message: 'a rejection needs a reason, and an acceptance takes none',
+    path: ['reason'],
+  });
+export type KybDocumentReviewInput = z.infer<typeof kybDocumentReviewInputSchema>;
+
+/** A checklist row as the reviewer sees it: who gave the verdict and when, null while it waits. */
+export const kybDocumentReviewRowSchema = kybDocumentRowSchema
+  .extend({ reviewedBy: z.string().max(128).nullable(), reviewedAt: z.string().nullable() })
+  .strict();
+export type KybDocumentReviewRow = z.infer<typeof kybDocumentReviewRowSchema>;
+
+/** One merchant's current application and its documents, for compliance. `application` is null when none was started. */
+export const kybDocumentReviewViewSchema = z
+  .object({
+    merchantId: z.string().guid(),
+    application: z
+      .object({
+        applicationId: applicationIdSchema,
+        entityType: z.string().min(1).max(64),
+        country: z.string().length(2),
+        state: z.enum(['draft', 'submitted']),
+        submittedAt: z.string().nullable(),
+        /** False once INTAFACED decided a sent application: verdicts are closed and the business starts again. */
+        reviewable: z.boolean(),
+      })
+      .strict()
+      .nullable(),
+    rows: z.array(kybDocumentReviewRowSchema),
+    vendorCheck: kybDocumentVendorCheckSchema,
+  })
+  .strict();
+export type KybDocumentReviewView = z.infer<typeof kybDocumentReviewViewSchema>;
+
+export const kybDocumentReviewViewInputSchema = z.object({ merchantId: z.string().guid() }).strict();
+
+/** The bytes of one upload, decrypted for a compliance reviewer. Each read is recorded. */
+export const kybDocumentFileInputSchema = z.object({ applicationId: applicationIdSchema, documentId: z.string().guid() }).strict();
+export const kybDocumentFileSchema = z
+  .object({
+    documentId: z.string().guid(),
+    key: kybRequirementKeySchema,
+    contentType: z.string().min(1).max(128),
+    sha256: z.string().regex(/^[0-9a-f]{64}$/),
+    bytesBase64: z.string().min(1),
+  })
+  .strict();
+export type KybDocumentFile = z.infer<typeof kybDocumentFileSchema>;

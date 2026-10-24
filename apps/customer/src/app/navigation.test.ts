@@ -266,6 +266,10 @@ it('resolves each reserved Academy segment to its own row before the reader patt
     ['/academy/progress', '/academy/progress'],
     ['/academy/some-lesson', '/academy/:slug'],
     ['/academy/learning/course/markets', '/academy/learning/course/:slug'],
+    [
+      '/academy/learning/course/markets/assignment/0f8fad5b-d9cb-469f-a165-70867728950e',
+      '/academy/learning/course/:slug/assignment/:itemId',
+    ],
   ];
   for (const [path, row] of table) expect(findRoom(path)?.path, path).toBe(row);
   const exact = rooms.findIndex((room) => room.path === '/academy/rooms');

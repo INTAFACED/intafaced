@@ -177,6 +177,20 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
     PROTOCOL_OPS_WINDOW_SECONDS: blankIsUnset(z.coerce.number().int().min(60).max(2_592_000).optional()),
 
     /**
+     * The sanctions representation a wallet signs once before its first signing action (D-developer-compliance-03).
+     * The wording is counsel's and the version is the owner's. No default: either blank refuses
+     * `compliance.representation_unset` and no signing action starts. A new version asks every wallet again.
+     */
+    PROTOCOL_REPRESENTATION_VERSION: blankIsUnset(
+      z
+        .string()
+        .max(64)
+        .regex(/^[A-Za-z0-9._-]+$/, 'letters, digits, dot, dash or underscore')
+        .optional(),
+    ),
+    PROTOCOL_REPRESENTATION_TEXT: blankIsUnset(z.string().max(4000).optional()),
+
+    /**
      * Gas tracker percentiles and history length (D-explorer-01). No default.
      * Blank or malformed refuses `protocol.gasPrice` with `protocol.gas_percentiles_unset`.
      * TEST fixtures may pass `10,50,90` and a block count; this schema does not.

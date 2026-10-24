@@ -32,7 +32,7 @@ const MEDIA_SHOWN = 50;
 const READ_BACK_BASE_MS = 60_000;
 
 /** The leading bytes of each type svc-academy can check. A type with no entry here is never accepted. */
-const SIGNATURES: Readonly<Record<string, { offset: number; bytes: readonly number[] }>> = {
+export const FILE_SIGNATURES: Readonly<Record<string, { offset: number; bytes: readonly number[] }>> = {
   'video/webm': { offset: 0, bytes: [0x1a, 0x45, 0xdf, 0xa3] },
   'video/mp4': { offset: 4, bytes: [0x66, 0x74, 0x79, 0x70] },
   'video/quicktime': { offset: 4, bytes: [0x66, 0x74, 0x79, 0x70] },
@@ -44,11 +44,11 @@ const SIGNATURES: Readonly<Record<string, { offset: number; bytes: readonly numb
 
 /** What the leading bytes look like, for the refusal, or null when no known type matches. */
 function sniff(head: Uint8Array): string | null {
-  for (const [type, sig] of Object.entries(SIGNATURES)) if (matches(head, sig)) return type;
+  for (const [type, sig] of Object.entries(FILE_SIGNATURES)) if (signatureMatches(head, sig)) return type;
   return null;
 }
 
-function matches(head: Uint8Array, sig: { offset: number; bytes: readonly number[] }): boolean {
+export function signatureMatches(head: Uint8Array, sig: { offset: number; bytes: readonly number[] }): boolean {
   return sig.bytes.every((b, i) => head[sig.offset + i] === b);
 }
 
@@ -147,7 +147,7 @@ export class CourseMedia {
       throw new AcademyError(`the file is ${input.bytes} bytes; the limit is ${maxBytes}`, 'academy.upload_too_large');
     if (!types.includes(input.contentType))
       throw new AcademyError(`${input.contentType} is not an accepted ${input.kind} type`, 'academy.upload_type_refused');
-    if (!SIGNATURES[input.contentType])
+    if (!FILE_SIGNATURES[input.contentType])
       throw new AcademyError(`the content of ${input.contentType} files cannot be checked`, 'academy.upload_type_refused');
     const item = await this.item(input.itemId);
     const objectKey = `courses/${item.course_id}/items/${item.id}/${input.kind}/${input.sha256}`;
@@ -189,8 +189,8 @@ export class CourseMedia {
       );
     // The checks hold only for the declaration read above: a new declaration of the same file in the meantime wins.
     const same = this.sql`id = ${row.id} AND state = 'pending' AND content_type = ${row.content_type} AND bytes = ${declared}`;
-    const sig = SIGNATURES[row.content_type];
-    if (!sig || !matches(back.head, sig)) {
+    const sig = FILE_SIGNATURES[row.content_type];
+    if (!sig || !signatureMatches(back.head, sig)) {
       const seen = sniff(back.head);
       const refusal = `the file was declared ${row.content_type} but its content is ${seen ?? 'not a type we recognise'}`;
       await this.sql`UPDATE academy.course_media SET state = 'refused', refusal = ${refusal}, confirmed_at = ${input.now} WHERE ${same}`;

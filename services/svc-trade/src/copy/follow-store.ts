@@ -4,7 +4,8 @@ import { CopyError } from './errors.js';
 import { drawdownDecision, mirrorOccupiesConcurrencySlot } from './follow-limits-extra.js';
 import { canonicalizeCopyFillId } from './fee-share.js';
 import { followRelationshipState, parseCopyRelationshipState } from './copy-lifecycle.js';
-import { copyReserveKey, type CopyFollow } from './follows.js';
+import { copyReserveKey, type CopyCursor, type CopyFollow } from './follows.js';
+import { parseAlgoPlaceGrant } from '../algo/durable-principal.js';
 import { dropFollowSessionKey, overlayFollowSessionKey, persistFollowSessionKey } from './session-key.js';
 
 /** postgres.js surfaces PG SQLSTATE on `err.code`. */
@@ -229,6 +230,13 @@ export interface CopyFollowStore {
   deleteFollow(followId: string): Promise<void>;
   /** All follows (hydrate / ops). Product desk uses listFollowsByFollower. */
   listFollows(): Promise<CopyFollow[]>;
+  /** Follows the copy driver may place for: ACTIVE, unexpired, with an unrevoked session key and a place grant. */
+  listCopyingFollows(now: Date): Promise<CopyFollow[]>;
+  /**
+   * Move the follow's copy cursor. `forward` never moves it back (a slower sweep cannot undo a later one); `reset`
+   * sets it outright, when copying is turned on. Only this writes the cursor: saving a follow leaves it alone.
+   */
+  setCopyCursor(followId: string, cursor: CopyCursor, mode: 'forward' | 'reset'): Promise<void>;
   /** Caller-scoped list — never loads another follower's envelope. Desk passes a published limit; uniqueness omits it. */
   listFollowsByFollower(followerId: string, limit?: number): Promise<CopyFollow[]>;
   /** ACTIVE follows of one leader. The count only — no follower identity. */
@@ -339,6 +347,8 @@ export interface CopyFollowStore {
    * Redelivery returns the prior order and does not call placeOrder again.
    */
   runPlaceMirrorOnce(followId: string, fillId: string, run: () => Promise<StoredPlacedMirror>): Promise<RunPlaceMirrorOnceResult>;
+  /** The copy already placed for this leader fill under this follow, or null. */
+  getPlacedMirror(followId: string, fillId: string): Promise<StoredPlacedMirror | null>;
   /** This follower's acceptance of this version, or null. Never another follower's row. */
   getDisclosureAcceptance(followerId: string, version: string): Promise<CopyDisclosureAcceptance | null>;
   /**
@@ -449,7 +459,9 @@ export class MemoryCopyFollowStore implements CopyFollowStore {
     // The reserve is held once and only ever released, the same as the SQL row.
     const held = this.follows.get(follow.followId)?.reserve ?? follow.reserve;
     const reserve = held && held.releasedAt === null && reserveEnds(follow) ? { ...held, releasedAt: new Date() } : held;
-    this.follows.set(follow.followId, reserve ? { ...follow, reserve } : follow);
+    const copyCursor = this.follows.get(follow.followId)?.copyCursor;
+    const { copyCursor: _ignored, ...saved } = follow;
+    this.follows.set(follow.followId, { ...saved, ...(reserve ? { reserve } : {}), ...(copyCursor ? { copyCursor } : {}) });
     persistFollowSessionKey(follow);
     if (!this.exposure.has(follow.followId)) {
       this.exposure.set(follow.followId, exposure);
@@ -489,6 +501,17 @@ export class MemoryCopyFollowStore implements CopyFollowStore {
 
   async listFollows(): Promise<CopyFollow[]> {
     return [...this.follows.values()].map(overlayFollowSessionKey);
+  }
+
+  async listCopyingFollows(now: Date): Promise<CopyFollow[]> {
+    return (await this.listFollows()).filter((f) => isCopying(f, now));
+  }
+
+  async setCopyCursor(followId: string, cursor: CopyCursor, mode: 'forward' | 'reset'): Promise<void> {
+    const follow = this.follows.get(followId);
+    if (!follow) return;
+    if (mode === 'forward' && follow.copyCursor && compareCopyCursor(cursor, follow.copyCursor) <= 0) return;
+    this.follows.set(followId, { ...follow, copyCursor: cursor });
   }
 
   async listFollowsByFollower(followerId: string, limit?: number): Promise<CopyFollow[]> {
@@ -742,6 +765,10 @@ export class MemoryCopyFollowStore implements CopyFollowStore {
     });
   }
 
+  async getPlacedMirror(followId: string, fillId: string): Promise<StoredPlacedMirror | null> {
+    return this.placed.get(mirrorKey(followId, canonicalizeCopyFillId(fillId))) ?? null;
+  }
+
   async getDisclosureAcceptance(followerId: string, version: string): Promise<CopyDisclosureAcceptance | null> {
     return this.disclosures.get(disclosureKey(followerId, version)) ?? null;
   }
@@ -753,6 +780,27 @@ export class MemoryCopyFollowStore implements CopyFollowStore {
     this.disclosures.set(key, row);
     return row;
   }
+}
+
+/** Orders two cursors by time, then fill id (a null id is the moment itself, before any fill at that time). */
+export function compareCopyCursor(a: CopyCursor, b: CopyCursor): number {
+  const byTime = a.at.getTime() - b.at.getTime();
+  if (byTime !== 0) return byTime;
+  const x = a.fillId ?? '';
+  const y = b.fillId ?? '';
+  return x < y ? -1 : x > y ? 1 : 0;
+}
+
+/** Whether the copy driver may place for this follow now. */
+export function isCopying(follow: CopyFollow, now: Date): boolean {
+  return (
+    follow.placeGrant !== undefined &&
+    Boolean(follow.sessionKeyHash) &&
+    follow.sessionKeyRevoked !== true &&
+    followRelationshipState(follow) === 'ACTIVE' &&
+    follow.envelope.expiresAt.getTime() > now.getTime() &&
+    follow.copyCursor !== undefined
+  );
 }
 
 type FollowRow = {
@@ -774,6 +822,12 @@ type FollowRow = {
   exposure: string;
   created_at: Date;
   fixed_order_size?: string | null;
+  place_grant?: unknown;
+  session_key_hash?: string | null;
+  session_key_prefix?: string | null;
+  session_key_revoked?: boolean | null;
+  copy_cursor_at?: Date | string | null;
+  copy_cursor_fill?: string | null;
   reserve?: { asset: string; amount: string; heldAt: string | Date; releasedAt: string | Date | null } | null;
 };
 
@@ -834,6 +888,15 @@ function rowToFollow(row: FollowRow): CopyFollow {
           },
         }
       : {}),
+    ...(parseAlgoPlaceGrant(row.place_grant) ? { placeGrant: parseAlgoPlaceGrant(row.place_grant)! } : {}),
+    ...(row.session_key_hash
+      ? {
+          sessionKeyHash: row.session_key_hash,
+          sessionKeyPrefix: row.session_key_prefix ?? null,
+          sessionKeyRevoked: row.session_key_revoked === true,
+        }
+      : {}),
+    ...(row.copy_cursor_at ? { copyCursor: { at: new Date(row.copy_cursor_at), fillId: row.copy_cursor_fill ?? null } } : {}),
     createdAt: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
     feeShareKilled: row.fee_share_killed,
     relationshipState: parseCopyRelationshipState(row.relationship_state),
@@ -960,7 +1023,8 @@ export class SqlCopyFollowStore implements CopyFollowStore {
         follow_id, follower_id, leader_id, region, permitted_markets,
         max_notional_per_order, max_aggregate_exposure, max_loss,
         max_slippage_bps, max_concurrent, max_drawdown, expires_at,
-        fee_share_killed, relationship_state, exposure, created_at, updated_at, fixed_order_size
+        fee_share_killed, relationship_state, exposure, created_at, updated_at, fixed_order_size, place_grant,
+        session_key_hash, session_key_prefix, session_key_revoked
       ) VALUES (
         ${follow.followId},
         ${follow.followerId},
@@ -979,7 +1043,11 @@ export class SqlCopyFollowStore implements CopyFollowStore {
         ${formatAmount(exposure)},
         ${follow.createdAt},
         now(),
-        ${follow.envelope.fixedOrderSize !== undefined ? formatAmount(follow.envelope.fixedOrderSize) : null}
+        ${follow.envelope.fixedOrderSize !== undefined ? formatAmount(follow.envelope.fixedOrderSize) : null},
+        ${follow.placeGrant ? this.sql.json(follow.placeGrant as never) : null},
+        ${follow.sessionKeyHash ?? null},
+        ${follow.sessionKeyPrefix ?? null},
+        ${follow.sessionKeyRevoked === true}
       )
       ON CONFLICT (follow_id) DO UPDATE SET
         fee_share_killed = EXCLUDED.fee_share_killed,
@@ -994,6 +1062,10 @@ export class SqlCopyFollowStore implements CopyFollowStore {
         expires_at = EXCLUDED.expires_at,
         region = EXCLUDED.region,
         fixed_order_size = EXCLUDED.fixed_order_size,
+        place_grant = EXCLUDED.place_grant,
+        session_key_hash = EXCLUDED.session_key_hash,
+        session_key_prefix = EXCLUDED.session_key_prefix,
+        session_key_revoked = EXCLUDED.session_key_revoked,
         updated_at = now()
       RETURNING (xmax = 0) AS inserted
     `;
@@ -1036,7 +1108,8 @@ export class SqlCopyFollowStore implements CopyFollowStore {
     return this.sql`max_notional_per_order::text, max_aggregate_exposure::text,
       max_loss::text, max_slippage_bps, max_concurrent, max_drawdown::text,
       peak_result::text, expires_at, fee_share_killed, relationship_state,
-      exposure::text, created_at, fixed_order_size::text,
+      exposure::text, created_at, fixed_order_size::text, place_grant,
+      session_key_hash, session_key_prefix, session_key_revoked, copy_cursor_at, copy_cursor_fill,
       (SELECT json_build_object('asset', r.asset, 'amount', r.amount::text, 'heldAt', r.held_at, 'releasedAt', r.released_at)
          FROM copy_follow_reserves r WHERE r.follow_id = copy_follows.follow_id) AS reserve`;
   }
@@ -1087,6 +1160,27 @@ export class SqlCopyFollowStore implements CopyFollowStore {
         FROM copy_follows
     `;
     return rows.map(followFromRow);
+  }
+
+  async listCopyingFollows(now: Date): Promise<CopyFollow[]> {
+    const rows = await this.sql<FollowRow[]>`
+      SELECT follow_id, follower_id, leader_id, region, permitted_markets,
+             ${this.followColumns()}
+        FROM copy_follows
+       WHERE place_grant IS NOT NULL AND session_key_hash IS NOT NULL AND NOT session_key_revoked
+         AND coalesce(relationship_state, 'ACTIVE') = 'ACTIVE' AND expires_at > ${now} AND copy_cursor_at IS NOT NULL
+    `;
+    return rows.map(followFromRow).filter((f) => isCopying(f, now));
+  }
+
+  async setCopyCursor(followId: string, cursor: CopyCursor, mode: 'forward' | 'reset'): Promise<void> {
+    const fill = cursor.fillId ?? '';
+    await this.sql`
+      UPDATE copy_follows SET copy_cursor_at = ${cursor.at}, copy_cursor_fill = ${cursor.fillId}
+       WHERE follow_id = ${followId}
+         AND (${mode === 'reset'} OR copy_cursor_at IS NULL
+              OR (copy_cursor_at, coalesce(copy_cursor_fill, '')) < (${cursor.at}::timestamptz, ${fill}::text))
+    `;
   }
 
   async listFollowsByFollower(followerId: string, limit?: number): Promise<CopyFollow[]> {

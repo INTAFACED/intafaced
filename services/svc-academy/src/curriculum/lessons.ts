@@ -323,6 +323,12 @@ export class LessonRecords {
       // An item with no lesson (or a subheader or link) is copied without one.
       const newest = await this.newest(tx, item.id);
       if (newest) await this.insert(tx, copyId, 1, 'duplicated', null, item.id, newest.blocks, input.operatorId, input.now);
+      // An assignment's brief is copied as revision 1 (AC-assignments-01); its hand-ins stay with the source.
+      await tx`
+        INSERT INTO academy.course_assignments (item_id, revision, instructions, points, due_at, text_mode, file_mode, saved_by, saved_at)
+        SELECT ${copyId}, 1, instructions, points, due_at, text_mode, file_mode, ${input.operatorId}, ${input.now}
+        FROM academy.course_assignments WHERE item_id = ${item.id} AND withdrawn_at IS NULL
+      `;
       return this.read(tx, copyId);
     });
   }

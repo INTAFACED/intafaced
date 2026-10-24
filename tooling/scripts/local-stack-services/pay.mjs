@@ -27,5 +27,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     PAY_KYB_DOC_KEY: secrets.payKybDocKey,
     // LOCAL-TEST value (tooling/profiles/test-owner-values/pay.json): a business application is due 30 days after it starts.
     PAY_KYB_APPLICATION_DUE_DAYS: '30',
+    // LOCAL-TEST scanner for information-request files: infected only when a file carries the EICAR test string. svc-pay refuses it outside APP_ENV dev or test.
+    PAY_KYB_MALWARE_SCANNER: 'local-test-eicar',
   }),
 });

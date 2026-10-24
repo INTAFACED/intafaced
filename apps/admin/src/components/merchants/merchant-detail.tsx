@@ -9,6 +9,10 @@ import { ApprovalsTable } from './approvals-queue';
 import { ControlsTab } from './controls-tab';
 import { CopyButton } from './copy-button';
 import { NotesPanel } from '@/components/founder-ops/notes-panel';
+import type { KybDocumentReviewView } from '@intafaced/contracts/kyb-documents';
+import type { KybRequestsView } from '@intafaced/contracts/kyb-information-requests';
+import { VerificationTab } from './verification-tab';
+import { VerificationRequests } from './verification-requests';
 import type { NotePage } from '@/lib/founder-ops/notes';
 import type { PayCallResult } from '@/lib/merchants/pay-call';
 import { feeLines, FEE_ACCOUNT_RATE, FEE_NOT_CONFIGURED } from '@/lib/merchants/fee-story';
@@ -21,6 +25,7 @@ export const DETAIL_TABS = [
   { id: 'payments', label: 'Payments' },
   { id: 'settlements', label: 'Settlements' },
   { id: 'notes', label: 'Notes' },
+  { id: 'verification', label: 'Verification' },
   { id: 'controls', label: 'Controls' },
   { id: 'approvals', label: 'Approvals' },
   { id: 'halts', label: 'Halts' },
@@ -192,6 +197,10 @@ export function MerchantDetailView({
       {tab === 'settlements' ? <Settlements metrics={data.metrics} here={here} /> : null}
       {tab === 'notes' ? (
         <NotesPanel merchantId={merchantId} result={tabData.notes} path={`/merchants/${merchantId}`} query={{ ...query, tab: 'notes' }} />
+      ) : null}
+      {tab === 'verification' ? <VerificationTab result={tabData.verification} here={href({ tab: 'verification' })} /> : null}
+      {tab === 'verification' ? (
+        <VerificationRequests merchantId={merchantId} result={tabData.verificationRequests} here={href({ tab: 'verification' })} />
       ) : null}
       {tab === 'controls' ? tabData.controls ? <ControlsTab data={tabData.controls} merchantId={merchantId} here={here} /> : null : null}
       {tab === 'approvals' ? (
@@ -583,6 +592,8 @@ export interface DetailTabData {
   readonly approvals?: MerchantApprovalsData;
   readonly halts?: MerchantHaltsData;
   readonly notes?: PayCallResult<NotePage>;
+  readonly verification?: PayCallResult<KybDocumentReviewView>;
+  readonly verificationRequests?: PayCallResult<KybRequestsView>;
 }
 
 function ApprovalsTab({

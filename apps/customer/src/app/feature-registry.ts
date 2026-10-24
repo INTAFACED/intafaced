@@ -448,6 +448,7 @@ export const features: readonly Feature[] = [
       '/academy/programmes',
       '/academy/progress',
       '/academy/learning/course/:slug',
+      '/academy/learning/course/:slug/assignment/:itemId',
       '/academy/:slug',
       '/agents',
       '/quant',

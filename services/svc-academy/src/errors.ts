@@ -230,6 +230,18 @@ export type AcademyErrorCode =
   | 'academy.draft_not_found'
   /** Lesson blocks built by the service do not fit the lesson format (a block over its limit); nothing was written. */
   | 'academy.lesson_blocks_invalid'
+  /** AC-assignments-01: only a learner enrolled in the course hands in its work. */
+  | 'academy.enrolment_required'
+  /** The hand-in lacks a text answer or a file the assignment requires; nothing was recorded. */
+  | 'academy.submission_incomplete'
+  /** No assignment with a saved brief at that item in a published course. */
+  | 'academy.assignment_not_found'
+  /** Staff withdrew the assignment, so nothing more is handed in. */
+  | 'academy.assignment_closed'
+  /** The hand-in was made against an older read; read the assignment again. */
+  | 'academy.submission_version_stale'
+  /** An assignment learners handed in to cannot leave the outline; withdraw it instead. */
+  | 'academy.assignment_has_submissions'
   /** AC-videos-02: the owner has not set the upload size limit or the accepted video or handout types. */
   | 'academy.upload_limits_unset'
   /** The file is over the owner's upload size limit; no upload address was issued. */
@@ -391,6 +403,12 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.import_too_large',
   'academy.draft_not_found',
   'academy.lesson_blocks_invalid',
+  'academy.enrolment_required',
+  'academy.submission_incomplete',
+  'academy.assignment_not_found',
+  'academy.assignment_closed',
+  'academy.submission_version_stale',
+  'academy.assignment_has_submissions',
   'academy.upload_limits_unset',
   'academy.upload_too_large',
   'academy.upload_type_refused',

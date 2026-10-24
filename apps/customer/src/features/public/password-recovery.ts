@@ -54,6 +54,16 @@ export function validEmail(email: string): boolean {
  */
 const ENUMERATING = new Set(['auth.not_found', 'auth.account_frozen', 'auth.email_taken', 'auth.invalid_credentials']);
 
+/**
+ * What a request for a mail (a reset code or the handle) answered: null when the page says "on its way", else the
+ * problem to show. A refusal that would reveal whether the address has an account reads as "on its way" too.
+ */
+export function requestProblem(result: ApiResult<unknown>): RecoveryProblem | null {
+  if (result.ok || (result.code && ENUMERATING.has(result.code))) return null;
+  const problem = passwordProblem(result);
+  return problem === 'invalidInput' ? 'invalidEmail' : problem === 'unconfirmed' ? 'requestUnconfirmed' : problem;
+}
+
 export function recoveryReducer(state: RecoveryState, event: RecoveryEvent): RecoveryState {
   switch (event.type) {
     case 'askCode': {
@@ -64,15 +74,9 @@ export function recoveryReducer(state: RecoveryState, event: RecoveryEvent): Rec
     }
     case 'codeAnswered': {
       if (!state.busy || state.step !== 'request') return state;
-      const result = event.result;
-      if (result.ok || (result.code && ENUMERATING.has(result.code)))
-        return { ...state, step: 'reset', busy: false, codeAsked: true, problem: null };
-      const problem = passwordProblem(result);
-      return {
-        ...state,
-        busy: false,
-        problem: problem === 'invalidInput' ? 'invalidEmail' : problem === 'unconfirmed' ? 'requestUnconfirmed' : problem,
-      };
+      const problem = requestProblem(event.result);
+      if (problem === null) return { ...state, step: 'reset', busy: false, codeAsked: true, problem: null };
+      return { ...state, busy: false, problem };
     }
     case 'reset': {
       if (state.busy || state.step !== 'reset') return state;

@@ -794,6 +794,21 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'A block of this lesson is over the lesson format’s limits, so it was refused before it was stored.',
     next: 'Shorten the lesson or split the section, then try again. Nothing was changed.',
   },
+  'academy.assignment_not_found': {
+    title: 'Not an assignment',
+    body: 'This item is not an assignment, or it has no brief to change.',
+    next: 'Read the course again. Nothing was changed.',
+  },
+  'academy.assignment_closed': {
+    title: 'Assignment withdrawn',
+    body: 'This assignment was withdrawn, so its brief is not edited and learners hand in nothing more.',
+    next: 'Nothing was changed. What learners handed in stays readable to them.',
+  },
+  'academy.assignment_has_submissions': {
+    title: 'Learners handed in to this assignment',
+    body: 'An assignment learners handed in to stays in the outline, so their work stays readable.',
+    next: 'Withdraw the assignment from its page instead. The outline was not saved.',
+  },
   'academy.upload_limits_unset': {
     title: 'The upload limits are not set',
     body: 'The owner has not set the largest file the desk uploads, or the video or handout types it accepts, so no file is uploaded.',

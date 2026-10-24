@@ -149,6 +149,16 @@ export function createApplicationMock(ctx) {
           state.kyb = { ...(state.kyb ?? { mode: 'gateway' }), kybStatus: 'pending', kybRef: `application:${app.id}` };
           return ok(route, view(app));
         }
+        case 'kyb.requests.list': {
+          if (input.merchantId !== MERCHANT_ID) return refuse(route, 404, 'pay.merchant_not_found');
+          // INTAFACED has asked for nothing in the stand-in, and no malware scanner is connected.
+          return ok(route, {
+            merchantId: MERCHANT_ID,
+            requests: [],
+            uploadRules: TEST_UPLOAD_RULES,
+            scanner: { status: 'not_connected', notConnected: 'vendor.malware_scan' },
+          });
+        }
         case 'kyb.documents.checklist': {
           const app = state.kybApplication;
           if (!app || app.id !== input.applicationId) return refuse(route, 404, 'pay.kyb_application_not_found');

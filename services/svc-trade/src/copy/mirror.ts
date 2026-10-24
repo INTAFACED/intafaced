@@ -106,6 +106,8 @@ export function planMirror(input: {
   /** Current aggregate exposure already open for this follow. */
   currentExposure: Amount;
   now: Date;
+  /** The market's quantity step. A fixed-amount quantity is rounded down to it. */
+  lotSize?: Amount;
 }): MirrorPlan {
   const { follow, observation } = input;
 
@@ -126,12 +128,14 @@ export function planMirror(input: {
   }
 
   // A fixed amount sizes every copied order at that quote amount, the quantity scaled from the leader's fill price.
+  // Rounded down to the market's lot step, so the quote amount is what that quantity costs at the leader's price.
   const fixed = follow.envelope.fixedOrderSize;
-  const notional = fixed ?? observation.notional;
-  const qty = fixed === undefined ? observation.qty : (observation.qty * fixed) / observation.notional;
+  const scaled = fixed === undefined ? observation.qty : (observation.qty * fixed) / observation.notional;
+  const qty = fixed !== undefined && input.lotSize !== undefined && input.lotSize > 0n ? scaled - (scaled % input.lotSize) : scaled;
   if (qty <= 0n) {
     throw new CopyError('The fixed amount buys less than the smallest quantity at this price', 'trade.copy_cap_exceeded');
   }
+  const notional = fixed === undefined ? observation.notional : (qty * observation.notional) / observation.qty;
 
   if (notional > follow.envelope.maxNotionalPerOrder) {
     throw new CopyError(
