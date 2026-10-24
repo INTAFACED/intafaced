@@ -67,7 +67,7 @@ export function flattenBreakdown(
 
 export function customerBalancesProcedure(bank: BankServices, guard: Guard) {
   return scopedProcedure('admin:treasury')
-    .input(z.object({ userId: z.string().uuid() }).strict())
+    .input(z.object({ userId: z.string().guid() }).strict())
     .output(
       z.object({
         userId: z.string(),
@@ -98,7 +98,7 @@ export function customerBalanceEntriesProcedure(bank: BankServices, guard: Guard
     .input(
       z
         .object({
-          userId: z.string().uuid(),
+          userId: z.string().guid(),
           assetId: z.string().min(1).max(16),
           cursor: z.string().min(1).max(16).optional(),
           limit: z.number().int().min(1).max(BALANCE_ENTRIES_MAX_LIMIT).default(BALANCE_ENTRIES_DEFAULT_LIMIT),

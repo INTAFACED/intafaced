@@ -7,7 +7,7 @@ import { OperatorSessionError, listSessionsForUser, revokeSessionsForUser } from
 
 const directoryRow = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     handle: z.string(),
     status: z.enum(['active', 'frozen', 'closed']),
     created: z.string().datetime({ offset: true }),
@@ -89,7 +89,7 @@ export function createOperatorOpsRouter(sql: Sql) {
     }),
     sessions: router({
       listForUser: scopedProcedure('admin:compliance')
-        .input(z.object({ userId: z.string().uuid() }).strict())
+        .input(z.object({ userId: z.string().guid() }).strict())
         .output(
           z
             .object({
@@ -117,7 +117,7 @@ export function createOperatorOpsRouter(sql: Sql) {
         .input(
           z
             .object({
-              userId: z.string().uuid(),
+              userId: z.string().guid(),
               approvalId: z.string().min(1).max(128),
               clientRequestId: z.string().min(1).max(128),
             })
@@ -126,7 +126,7 @@ export function createOperatorOpsRouter(sql: Sql) {
         .output(
           z
             .object({
-              userId: z.string().uuid(),
+              userId: z.string().guid(),
               revokedSessionCount: z.number().int(),
               approvalId: z.string(),
               clientRequestId: z.string(),
@@ -147,8 +147,8 @@ export function createOperatorOpsRouter(sql: Sql) {
         .input(
           z
             .object({
-              userId: z.string().uuid(),
-              keyId: z.string().uuid(),
+              userId: z.string().guid(),
+              keyId: z.string().guid(),
               reason: z.string().max(500),
               clientRequestId: z.string().max(128),
             })
@@ -157,11 +157,11 @@ export function createOperatorOpsRouter(sql: Sql) {
         .output(
           z
             .object({
-              userId: z.string().uuid(),
-              keyId: z.string().uuid(),
+              userId: z.string().guid(),
+              keyId: z.string().guid(),
               changed: z.boolean(),
               revocation: z
-                .object({ actorId: z.string().uuid(), reason: z.string(), revokedAt: z.string().datetime({ offset: true }) })
+                .object({ actorId: z.string().guid(), reason: z.string(), revokedAt: z.string().datetime({ offset: true }) })
                 .strict()
                 .nullable(),
             })

@@ -52,7 +52,7 @@ const webauthnShape = () =>
       signature: z.string().min(1),
       userHandle: z.string().nullish(),
     }),
-    clientExtensionResults: z.record(z.unknown()).optional(),
+    clientExtensionResults: z.record(z.string(), z.unknown()).optional(),
   });
 
 const samePersonCreateInput = z

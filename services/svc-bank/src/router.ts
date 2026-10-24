@@ -990,7 +990,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       ),
 
     archive: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ spaceId: z.string().uuid() }))
+      .input(z.object({ spaceId: z.string().guid() }))
       .output(z.object({ archived: z.literal(true) }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
@@ -1002,7 +1002,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       ),
 
     unarchive: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ spaceId: z.string().uuid() }))
+      .input(z.object({ spaceId: z.string().guid() }))
       .output(z.object({ archived: z.literal(false) }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
@@ -1091,8 +1091,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       .input(
         z.object({
           transferId: z.string().min(8).max(64),
-          fromSpaceId: z.string().uuid(),
-          toSpaceId: z.string().uuid(),
+          fromSpaceId: z.string().guid(),
+          toSpaceId: z.string().guid(),
           amount: amountString,
           note: z
             .string()
@@ -1182,7 +1182,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       .input(
         z.object({
           transferId: z.string().min(8).max(64),
-          fromSpaceId: z.string().uuid(),
+          fromSpaceId: z.string().guid(),
           toUserId: z.string().min(1).max(64),
           amount: amountString,
           /** Recipient-visible plain text. Omitted means no note. */
@@ -1190,7 +1190,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           /** Printable payment reference. Omitted means none. */
           reference: z.string().max(64).optional(),
           /** Settles this open payment request. One payment, one request. */
-          requestId: z.string().uuid().optional(),
+          requestId: z.string().guid().optional(),
           stepUpApprovalId: stepUpApprovalField,
         }),
       )
@@ -1200,7 +1200,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           amount: amountString,
           note: z.string().nullable(),
           reference: z.string().nullable(),
-          requestId: z.string().uuid().nullable(),
+          requestId: z.string().guid().nullable(),
         }),
       )
       .mutation(async ({ ctx, input }) =>
@@ -1311,13 +1311,13 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     scheduleToUser: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z.object({
-          fromSpaceId: z.string().uuid(),
+          fromSpaceId: z.string().guid(),
           toUserId: z.string().min(1).max(64),
           amount: amountString,
           cadence: z.enum(['daily', 'weekly', 'monthly']),
           startsAt: z.string().datetime({ offset: true }),
           endsAt: z.string().datetime({ offset: true }).optional(),
-          scheduleId: z.string().uuid(),
+          scheduleId: z.string().guid(),
           stepUpApprovalId: stepUpApprovalField,
         }),
       )
@@ -1362,13 +1362,13 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     schedule: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z.object({
-          fromSpaceId: z.string().uuid(),
-          toSpaceId: z.string().uuid(),
+          fromSpaceId: z.string().guid(),
+          toSpaceId: z.string().guid(),
           amount: amountString,
           cadence: z.enum(['daily', 'weekly', 'monthly']),
           startsAt: z.string().datetime({ offset: true }),
           endsAt: z.string().datetime({ offset: true }).optional(),
-          scheduleId: z.string().uuid(),
+          scheduleId: z.string().guid(),
           stepUpApprovalId: stepUpApprovalField,
         }),
       )
@@ -1469,7 +1469,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     executions: scopedProcedure('bank:read', { module: 'bank' })
       .input(
         z.object({
-          scheduleId: z.string().uuid(),
+          scheduleId: z.string().guid(),
           /**
            * Page size. Optional so omit reaches `bank.executions_list_limit_unset`
            * instead of a Zod "Required". Blank is not 50; pass 50 explicitly.
@@ -1501,7 +1501,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       ),
 
     cancel: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ scheduleId: z.string().uuid() }))
+      .input(z.object({ scheduleId: z.string().guid() }))
       .output(z.object({ cancelled: z.literal(true) }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
@@ -1521,7 +1521,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      * Same ownership ordering as `cancel`, for the same reason written there.
      */
     pause: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ scheduleId: z.string().uuid() }))
+      .input(z.object({ scheduleId: z.string().guid() }))
       .output(z.object({ status: z.string(), nextRunAt: z.string() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
@@ -1542,7 +1542,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      * why skipping is the safe direction.
      */
     resume: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ scheduleId: z.string().uuid() }))
+      .input(z.object({ scheduleId: z.string().guid() }))
       .output(
         z.object({
           status: z.string(),
@@ -1606,7 +1606,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       ),
 
     deposit: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ poolId: z.string().uuid(), amount: amountString, positionId: z.string().uuid() }))
+      .input(z.object({ poolId: z.string().guid(), amount: amountString, positionId: z.string().guid() }))
       .output(z.object({ positionId: z.string(), maturesAt: z.string().nullable() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
@@ -1622,7 +1622,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       ),
 
     withdraw: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ positionId: z.string().uuid() }))
+      .input(z.object({ positionId: z.string().guid() }))
       .output(z.object({ positionId: z.string(), principal: amountString }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
@@ -1684,7 +1684,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           assetId: z.string(),
           from: z.string(),
           to: z.string(),
-          outflowByCategory: z.record(z.string()),
+          outflowByCategory: z.record(z.string(), z.string()),
           totalOutflow: z.string(),
           totalInflow: z.string(),
           net: z.string(),
@@ -1755,7 +1755,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           .object({
             scope: z.enum(['all', 'main']).optional(),
             /** `main` or the id of one named Space. Wins over `scope`. */
-            accountId: z.union([z.literal('main'), z.string().uuid()]).optional(),
+            accountId: z.union([z.literal('main'), z.string().guid()]).optional(),
             assetId: z.string().min(1).max(16).optional(),
           })
           .strict()
@@ -1780,7 +1780,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           .object({
             assetId: z.string().min(1).max(16),
             /** `main` or the id of one named Space; absent = main and every Space. */
-            accountId: z.union([z.literal('main'), z.string().uuid()]).optional(),
+            accountId: z.union([z.literal('main'), z.string().guid()]).optional(),
             cursor: z.string().min(1).max(16).optional(),
             limit: z.number().int().min(1).max(BALANCE_ENTRIES_MAX_LIMIT).default(BALANCE_ENTRIES_DEFAULT_LIMIT),
           })
@@ -1877,8 +1877,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     open: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z.object({
-          loanId: z.string().uuid(),
-          productId: z.string().uuid(),
+          loanId: z.string().guid(),
+          productId: z.string().guid(),
           collateralAmount: amountString,
           principal: amountString,
         }),
@@ -2004,7 +2004,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      * MAX+1 and post a second loanCollateralLock. Same eventId + amount is one lock.
      */
     addCollateral: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ loanId: z.string().uuid(), eventId: z.string().uuid(), amount: amountString }))
+      .input(z.object({ loanId: z.string().guid(), eventId: z.string().guid(), amount: amountString }))
       .output(z.object({ ledgerTxId: z.string(), sequence: z.number().int() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
@@ -2029,7 +2029,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      * release now under the product's max LTV. Self-only. Posts nothing.
      */
     releasable: scopedProcedure('bank:read', { module: 'bank' })
-      .input(z.object({ loanId: z.string().uuid() }))
+      .input(z.object({ loanId: z.string().guid() }))
       .output(
         z.object({
           loanId: z.string(),
@@ -2055,7 +2055,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       ),
 
     releaseExcess: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ loanId: z.string().uuid(), eventId: z.string().uuid(), amount: amountString }))
+      .input(z.object({ loanId: z.string().guid(), eventId: z.string().guid(), amount: amountString }))
       .output(z.object({ ledgerTxId: z.string(), sequence: z.number().int() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
@@ -2070,7 +2070,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       ),
 
     repay: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ loanId: z.string().uuid(), amount: amountString, eventId: z.string().uuid() }))
+      .input(z.object({ loanId: z.string().guid(), amount: amountString, eventId: z.string().guid() }))
       .output(
         z.object({
           ledgerTxId: z.string(),
@@ -2103,7 +2103,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
 
     /** Release collateral on a loan that owes nothing. Refuses otherwise. */
     close: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ loanId: z.string().uuid() }))
+      .input(z.object({ loanId: z.string().guid() }))
       .output(z.object({ released: amountString, ledgerTxId: z.string().nullable() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
@@ -2293,7 +2293,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     issue: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z.object({
-          cardId: z.string().uuid(),
+          cardId: z.string().guid(),
           assetId: z.string().min(1).max(16),
           /**
            * What merchants charge this card in. Omitted means the funding asset,
@@ -2362,7 +2362,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      * something is wrong, so it is user surface and not an operator ticket.
      */
     setStatus: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ cardId: z.string().uuid(), status: z.enum(['active', 'frozen', 'closed']), stepUpApprovalId: stepUpApprovalField }))
+      .input(z.object({ cardId: z.string().guid(), status: z.enum(['active', 'frozen', 'closed']), stepUpApprovalId: stepUpApprovalField }))
       .output(z.object({ id: z.string(), status: z.string() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
@@ -2390,8 +2390,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     setLimits: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z.object({
-          cardId: z.string().uuid(),
-          commandId: z.string().uuid(),
+          cardId: z.string().guid(),
+          commandId: z.string().guid(),
           perAuthorizationLimit: amountString,
           dailyLimit: amountString.nullable().optional(),
           monthlyLimit: amountString.nullable().optional(),
@@ -2446,8 +2446,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     setChannels: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z.object({
-          cardId: z.string().uuid(),
-          commandId: z.string().uuid(),
+          cardId: z.string().guid(),
+          commandId: z.string().guid(),
           online: z.boolean(),
           contactless: z.boolean(),
           atm: z.boolean(),
@@ -2478,7 +2478,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      * not `required`, the call refuses `bank.step_up_unavailable` and the issuer is not called.
      */
     reveal: scopedProcedure('bank:read', { module: 'bank' })
-      .input(z.object({ cardId: z.string().uuid(), revealId: z.string().uuid(), stepUpApprovalId: stepUpApprovalField }))
+      .input(z.object({ cardId: z.string().guid(), revealId: z.string().guid(), stepUpApprovalId: stepUpApprovalField }))
       .output(z.object({ pan: z.string(), expiry: z.string(), cvv: z.string(), expiresAt: z.string() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
@@ -2498,7 +2498,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
 
     pin: router({
       reveal: scopedProcedure('bank:read', { module: 'bank' })
-        .input(z.object({ cardId: z.string().uuid(), revealId: z.string().uuid(), stepUpApprovalId: stepUpApprovalField }))
+        .input(z.object({ cardId: z.string().guid(), revealId: z.string().guid(), stepUpApprovalId: stepUpApprovalField }))
         .output(z.object({ pin: z.string(), expiresAt: z.string() }))
         .mutation(async ({ ctx, input }) =>
           guard(async () => {
@@ -2518,8 +2518,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       set: scopedProcedure('bank:write', { module: 'bank' })
         .input(
           z.object({
-            cardId: z.string().uuid(),
-            commandId: z.string().uuid(),
+            cardId: z.string().guid(),
+            commandId: z.string().guid(),
             pin: z.string().min(1).max(64),
             stepUpApprovalId: stepUpApprovalField,
           }),
@@ -2551,8 +2551,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     walletProvision: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z.object({
-          cardId: z.string().uuid(),
-          provisionId: z.string().uuid(),
+          cardId: z.string().guid(),
+          provisionId: z.string().guid(),
           wallet: z.enum(['apple', 'google']),
           nonce: z.string().min(1).max(4096),
         }),
@@ -2579,8 +2579,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     replace: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z.object({
-          cardId: z.string().uuid(),
-          replacementId: z.string().uuid(),
+          cardId: z.string().guid(),
+          replacementId: z.string().guid(),
           reason: z.enum(['lost', 'stolen', 'damaged']),
         }),
       )
@@ -2609,7 +2609,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     authorizations: scopedProcedure('bank:read', { module: 'bank' })
       .input(
         z.object({
-          cardId: z.string().uuid(),
+          cardId: z.string().guid(),
           /**
            * Page size. Optional so omit reaches `bank.card_authorizations_list_limit_unset`
            * instead of a Zod "Required". Blank is not 50; pass 50 explicitly.
@@ -2783,7 +2783,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       ),
 
     accrueInterest: jobProcedure
-      .input(z.object({ poolId: z.string().uuid().optional(), at: z.string().datetime({ offset: true }).optional() }))
+      .input(z.object({ poolId: z.string().guid().optional(), at: z.string().datetime({ offset: true }).optional() }))
       .output(
         z.object({
           results: z.array(
@@ -2845,7 +2845,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     fundPool: scopedProcedure('admin:treasury')
       .input(
         z.object({
-          poolId: z.string().uuid(),
+          poolId: z.string().guid(),
           fundingId: z.string().min(4).max(64),
           amount: amountString,
           ...actionApprovalFields,
@@ -2907,7 +2907,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     accrueLoanInterest: jobProcedure
       .input(
         z.object({
-          loanId: z.string().uuid().optional(),
+          loanId: z.string().guid().optional(),
           at: z.string().datetime({ offset: true }).optional(),
           limit: z.number().int().min(1).max(10_000).optional(),
         }),
@@ -2970,7 +2970,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      * mark refuses `bank.mark_missing` before any post. Same kill as the sweep.
      */
     seizeLoan: scopedProcedure('admin:treasury')
-      .input(z.object({ loanId: z.string().uuid(), ...actionApprovalFields }))
+      .input(z.object({ loanId: z.string().guid(), ...actionApprovalFields }))
       .output(
         z.object({
           ledgerTxId: z.string(),
@@ -3009,7 +3009,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
 
     /** Give up on a pending loan and give the borrower their collateral back. */
     abandonPendingLoan: scopedProcedure('admin:treasury')
-      .input(z.object({ loanId: z.string().uuid(), ...actionApprovalFields }))
+      .input(z.object({ loanId: z.string().guid(), ...actionApprovalFields }))
       .output(
         z.object({
           released: amountString,
@@ -3060,7 +3060,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     cardAuthorize: scopedProcedure('admin:treasury')
       .input(
         z.object({
-          cardId: z.string().uuid(),
+          cardId: z.string().guid(),
           authorizationRef: z.string().min(4).max(128),
           /**
            * THE MERCHANT'S NUMBER, in the card's SETTLEMENT asset.
@@ -3132,7 +3132,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     cardCapture: scopedProcedure('admin:treasury')
       .input(
         z.object({
-          cardId: z.string().uuid(),
+          cardId: z.string().guid(),
           authorizationRef: z.string().min(4).max(128),
           amount: amountString,
           ...actionApprovalFields,
@@ -3216,7 +3216,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     cardReverse: scopedProcedure('admin:treasury')
       .input(
         z.object({
-          cardId: z.string().uuid(),
+          cardId: z.string().guid(),
           authorizationRef: z.string().min(4).max(128),
           ...actionApprovalFields,
         }),
@@ -3245,7 +3245,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     cardResumeSettlement: scopedProcedure('admin:treasury')
       .input(
         z.object({
-          cardId: z.string().uuid(),
+          cardId: z.string().guid(),
           authorizationRef: z.string().min(4).max(128),
           ...actionApprovalFields,
         }),
@@ -3562,7 +3562,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
         z.object({
           assetId: z.string().min(1).max(16),
           threshold: amountString,
-          targetPoolId: z.string().uuid(),
+          targetPoolId: z.string().guid(),
         }),
       )
       .output(autoInvestRuleOutput)
@@ -3588,7 +3588,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
         z.object({
           assetId: z.string().min(1).max(16),
           granularity: amountString,
-          targetPoolId: z.string().uuid(),
+          targetPoolId: z.string().guid(),
           buyAssetId: z.string().min(1).max(16).optional(),
         }),
       )
@@ -3636,7 +3636,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       ),
 
     cancel: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ ruleId: z.string().uuid() }))
+      .input(z.object({ ruleId: z.string().guid() }))
       .output(z.object({ ok: z.literal(true) }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
@@ -3653,7 +3653,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      * Hold a rule without cancelling. Runner only considers `active` rules.
      */
     pause: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ ruleId: z.string().uuid() }))
+      .input(z.object({ ruleId: z.string().guid() }))
       .output(autoInvestRuleOutput)
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
@@ -3670,7 +3670,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      * multi-fire invent of missed windows.
      */
     resume: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ ruleId: z.string().uuid() }))
+      .input(z.object({ ruleId: z.string().guid() }))
       .output(autoInvestRuleOutput)
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
@@ -3850,7 +3850,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
             .object({
               address: z.enum(['ok', 'invalid', 'checksum_mismatch']),
               lookalike: z
-                .object({ destinationId: z.string().uuid(), label: z.string().nullable(), refMasked: z.string() })
+                .object({ destinationId: z.string().guid(), label: z.string().nullable(), refMasked: z.string() })
                 .strict()
                 .nullable(),
             })
@@ -3901,7 +3901,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
        * add or change an address; a stolen plain token could only swap labels between the customer's own saved ones.
        */
       rename: scopedProcedure('bank:write', { module: 'bank' })
-        .input(z.object({ destinationId: z.string().uuid(), label: z.string().min(1).max(64) }).strict())
+        .input(z.object({ destinationId: z.string().guid(), label: z.string().min(1).max(64) }).strict())
         .output(destinationViewOutput)
         .mutation(async ({ ctx, input }) =>
           guard(async () =>
@@ -3918,20 +3918,20 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
        */
       ownership: router({
         start: scopedProcedure('bank:write', { module: 'bank' })
-          .input(z.object({ destinationId: z.string().uuid() }).strict())
+          .input(z.object({ destinationId: z.string().guid() }).strict())
           .output(
-            z.object({ proofId: z.string().uuid(), destinationId: z.string().uuid(), message: z.string(), expiresAt: z.string() }).strict(),
+            z.object({ proofId: z.string().guid(), destinationId: z.string().guid(), message: z.string(), expiresAt: z.string() }).strict(),
           )
           .mutation(async ({ ctx, input }) =>
             guard(async () => bank.ramps.startWalletProof({ userId: ctx.principal.userId, destinationId: input.destinationId })),
           ),
         verify: scopedProcedure('bank:write', { module: 'bank' })
-          .input(z.object({ proofId: z.string().uuid(), signature: z.string().min(1).max(200) }).strict())
+          .input(z.object({ proofId: z.string().guid(), signature: z.string().min(1).max(200) }).strict())
           .output(
             z
               .object({
-                proofId: z.string().uuid(),
-                destinationId: z.string().uuid(),
+                proofId: z.string().guid(),
+                destinationId: z.string().guid(),
                 state: z.enum(['none', 'pending', 'verified', 'expired']),
                 verifiedAt: z.string().nullable(),
                 validUntil: z.string().nullable(),
@@ -3948,7 +3948,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
 
       /** Remove, with the same step-up scope as saving. A withdrawal that already copied the address is not touched. */
       remove: scopedProcedure('trade:withdraw', { module: 'bank' })
-        .input(z.object({ destinationId: z.string().uuid(), idempotencyKey: z.string().min(1).max(128) }))
+        .input(z.object({ destinationId: z.string().guid(), idempotencyKey: z.string().min(1).max(128) }))
         .output(z.object({ destinationId: z.string(), removed: z.literal(true) }))
         .mutation(async ({ ctx, input }) =>
           guard(async () =>
@@ -4010,8 +4010,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     onrampCreate: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z.object({
-          onrampId: z.string().uuid(),
-          quoteId: z.string().uuid(),
+          onrampId: z.string().guid(),
+          quoteId: z.string().guid(),
           method: z.enum(ONRAMP_METHODS),
         }),
       )
@@ -4110,7 +4110,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     offramp: scopedProcedure('trade:withdraw', { module: 'bank' })
       .input(
         z.object({
-          offrampId: z.string().uuid(),
+          offrampId: z.string().guid(),
           assetId: z.string().min(1).max(16),
           amount: amountString,
           kind: z.enum(['crypto', 'fiat']).default('crypto'),
@@ -4206,7 +4206,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     create: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z.object({
-          accountId: z.string().uuid(),
+          accountId: z.string().guid(),
           name: z.string().min(1).max(128),
           assetId: z.string().min(1).max(16),
           spendThreshold: amountString,
@@ -4236,7 +4236,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     addMember: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z.object({
-          accountId: z.string().uuid(),
+          accountId: z.string().guid(),
           userId: z.string().min(1),
           role: z.enum(BUSINESS_ROLES),
           stepUpApprovalId: stepUpApprovalField,
@@ -4265,11 +4265,11 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     proposeTransfer: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z.object({
-          accountId: z.string().uuid(),
-          fromSpaceId: z.string().uuid(),
-          toSpaceId: z.string().uuid(),
+          accountId: z.string().guid(),
+          fromSpaceId: z.string().guid(),
+          toSpaceId: z.string().guid(),
           amount: amountString,
-          clientId: z.string().uuid(),
+          clientId: z.string().guid(),
           stepUpApprovalId: stepUpApprovalField,
         }),
       )
@@ -4335,7 +4335,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       ),
 
     approve: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ approvalId: z.string().uuid(), stepUpApprovalId: stepUpApprovalField }))
+      .input(z.object({ approvalId: z.string().guid(), stepUpApprovalId: stepUpApprovalField }))
       .output(z.object({ transferId: z.string(), ledgerTxId: z.string() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
@@ -4351,7 +4351,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       ),
 
     reject: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ approvalId: z.string().uuid() }))
+      .input(z.object({ approvalId: z.string().guid() }))
       .output(z.object({ ok: z.literal(true) }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
@@ -4361,7 +4361,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       ),
 
     cancel: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ approvalId: z.string().uuid() }))
+      .input(z.object({ approvalId: z.string().guid() }))
       .output(z.object({ ok: z.literal(true) }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
@@ -4373,7 +4373,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     pending: scopedProcedure('bank:read', { module: 'bank' })
       .input(
         z.object({
-          accountId: z.string().uuid(),
+          accountId: z.string().guid(),
           /**
            * Page size. Optional so omit reaches `bank.business_pending_list_limit_unset`
            * instead of a Zod "Required". Blank is not 50; pass 50 explicitly.
@@ -4428,7 +4428,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       ),
 
     members: scopedProcedure('bank:read', { module: 'bank' })
-      .input(z.object({ accountId: z.string().uuid() }))
+      .input(z.object({ accountId: z.string().guid() }))
       .output(
         z.object({
           members: z.array(
@@ -4469,9 +4469,9 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     removeMember: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z.object({
-          accountId: z.string().uuid(),
+          accountId: z.string().guid(),
           userId: z.string().min(1),
-          requestId: z.string().uuid(),
+          requestId: z.string().guid(),
           stepUpApprovalId: stepUpApprovalField,
         }),
       )
@@ -4502,10 +4502,10 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     setMemberRole: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z.object({
-          accountId: z.string().uuid(),
+          accountId: z.string().guid(),
           userId: z.string().min(1),
           role: z.enum(BUSINESS_ROLES),
-          requestId: z.string().uuid(),
+          requestId: z.string().guid(),
           stepUpApprovalId: stepUpApprovalField,
         }),
       )
@@ -4538,7 +4538,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     resolveRecipientSpace: scopedProcedure('bank:read', { module: 'bank' })
       .input(
         z.object({
-          accountId: z.string().uuid(),
+          accountId: z.string().guid(),
           assetId: z.string().min(1).max(16),
           handle: z.string().max(64).optional(),
           email: z.string().max(320).optional(),
@@ -4551,7 +4551,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
             found: z.literal(true),
             handle: z.string(),
             assetId: z.string(),
-            spaceId: z.string().uuid().nullable(),
+            spaceId: z.string().guid().nullable(),
           }),
         ]),
       )
@@ -4570,7 +4570,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     approvals: scopedProcedure('bank:read', { module: 'bank' })
       .input(
         z.object({
-          accountId: z.string().uuid(),
+          accountId: z.string().guid(),
           status: z.enum(['pending', 'approved', 'rejected', 'cancelled']).optional(),
           /**
            * Page size. Optional so omit reaches `bank.business_approvals_list_limit_unset`
@@ -4643,9 +4643,9 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     setThreshold: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z.object({
-          accountId: z.string().uuid(),
+          accountId: z.string().guid(),
           spendThreshold: amountString,
-          requestId: z.string().uuid(),
+          requestId: z.string().guid(),
         }),
       )
       .output(
@@ -4679,7 +4679,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       ),
 
     close: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ accountId: z.string().uuid(), requestId: z.string().uuid() }))
+      .input(z.object({ accountId: z.string().guid(), requestId: z.string().guid() }))
       .output(
         z.object({
           status: z.enum(['pending', 'applied']),
@@ -4710,7 +4710,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       ),
 
     cancelControl: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ accountId: z.string().uuid(), requestId: z.string().uuid() }))
+      .input(z.object({ accountId: z.string().guid(), requestId: z.string().guid() }))
       .output(
         z.object({
           status: z.enum(['cancelled']),
@@ -4745,18 +4745,18 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      * refuse `bank.business_payroll_rate_unset` — rates are owner law, never invented.
      */
     myRole: scopedProcedure('bank:read', { module: 'bank' })
-      .input(z.object({ accountId: z.string().uuid() }))
+      .input(z.object({ accountId: z.string().guid() }))
       .output(z.object({ role: z.enum(BUSINESS_ROLES) }))
       .query(async ({ ctx, input }) => guard(async () => ({ role: await bank.business.myRole(input.accountId, ctx.principal.userId) }))),
 
     runPayroll: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z.object({
-          payrollId: z.string().uuid(),
-          accountId: z.string().uuid(),
-          fromSpaceId: z.string().uuid(),
+          payrollId: z.string().guid(),
+          accountId: z.string().guid(),
+          fromSpaceId: z.string().guid(),
           recipients: z
-            .array(z.object({ toSpaceId: z.string().uuid(), amount: amountString }))
+            .array(z.object({ toSpaceId: z.string().guid(), amount: amountString }))
             .min(1)
             .max(64),
           stepUpApprovalId: stepUpApprovalField,
@@ -4948,7 +4948,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
               offset: z.number().int().min(0).max(1_000_000).default(0),
               limit: z.number().int().min(1).max(PAY_CUSTODY_DEPOSIT_RECORDS_MAX_LIMIT).default(50),
             })
-            .default({}),
+            .prefault({}),
         )
         .output(z.object({ items: z.array(payCustodyDepositRecordSchema), total: z.number().int().nonnegative() }))
         .query(async ({ ctx, input }) => guard(async () => bank.deposits.list(ctx.principal.userId, input))),

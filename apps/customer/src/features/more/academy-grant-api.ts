@@ -19,7 +19,7 @@ const timestamp = z
   .datetime({ offset: true })
   .refine((value) => Number.isFinite(Date.parse(value)));
 export const grantRecord = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
   certId: z.string().min(1).max(64),
   grantedAt: timestamp,
   idempotencyKey: z.string().min(1),

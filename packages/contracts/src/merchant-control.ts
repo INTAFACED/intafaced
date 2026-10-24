@@ -21,8 +21,8 @@ export type PayAmountString = z.infer<typeof payAmountStringSchema>;
 /** Asset code as the ledger names it (`USD`, `USDT`, ...). Opaque to this contract. */
 export const payAssetCodeSchema = z.string().min(1).max(16);
 
-export const payMerchantIdSchema = z.string().uuid();
-export const payRequestIdSchema = z.string().uuid();
+export const payMerchantIdSchema = z.string().guid();
+export const payRequestIdSchema = z.string().guid();
 export const payTimestampSchema = z.string().datetime({ offset: true });
 /** Optimistic-concurrency token; a decimal counter carried as a string. */
 export const payVersionSchema = z
@@ -91,7 +91,7 @@ export type PayPricingRule = z.infer<typeof payPricingRuleSchema>;
 /** Frozen onto each payment and settlement so a later rule change cannot rewrite history. */
 export const payPricingSnapshotSchema = z
   .object({
-    snapshotId: z.string().uuid(),
+    snapshotId: z.string().guid(),
     appliedLayer: payPricingLayerSchema,
     rule: payPricingRuleSchema,
     feeBps: payBpsSchema,
@@ -168,7 +168,7 @@ export const merchantControlChangeResultSchema = z
     requestId: payRequestIdSchema,
     merchantId: payMerchantIdSchema,
     outcome: z.enum(['changed', 'noop', 'refused', 'conflict', 'pending_second_approval']),
-    actorUserId: z.string().uuid(),
+    actorUserId: z.string().guid(),
     profile: merchantControlProfileSchema.nullable(),
     occurredAt: payTimestampSchema,
   })
@@ -190,16 +190,16 @@ export const payDestinationKindSchema = z.string().min(1).max(32);
 
 export const payoutApprovalSchema = z
   .object({
-    approvalId: z.string().uuid(),
+    approvalId: z.string().guid(),
     merchantId: payMerchantIdSchema,
-    settlementId: z.string().uuid(),
+    settlementId: z.string().guid(),
     amount: payAmountStringSchema,
     assetCode: payAssetCodeSchema,
     /** Hash over amount + destination + rail. A change after request voids the approval. */
     payloadHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
     status: payPayoutApprovalStatusSchema,
-    makerUserId: z.string().uuid(),
-    checkerUserId: z.string().uuid().nullable(),
+    makerUserId: z.string().guid(),
+    checkerUserId: z.string().guid().nullable(),
     createdAt: payTimestampSchema,
     decidedAt: payTimestampSchema.nullable(),
     expiresAt: payTimestampSchema,
@@ -246,7 +246,7 @@ export const merchantControlApprovalPageSchema = z
 
 export const merchantControlApprovalDecideInputSchema = z
   .object({
-    approvalId: z.string().uuid(),
+    approvalId: z.string().guid(),
     decision: z.enum(['approve', 'reject']),
     /** The checker confirms the exact payload they reviewed. */
     expectedPayloadHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
@@ -306,7 +306,7 @@ export type MerchantTierList = z.infer<typeof merchantTierListSchema>;
 /** One pricing rule as it was written, including a superseded row, so a later edit cannot hide the old price. */
 export const merchantPricingHistoryEventSchema = z
   .object({
-    ruleId: z.string().uuid(),
+    ruleId: z.string().guid(),
     layer: payPricingLayerSchema,
     scopeId: z.string().min(1).max(64).nullable(),
     assetCode: payAssetCodeSchema,

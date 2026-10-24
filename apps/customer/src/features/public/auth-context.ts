@@ -11,7 +11,7 @@ export function publicAuthContext(path: string, search: string): AuthContext {
   const params = new URLSearchParams(search);
   const invitation = z
     .string()
-    .uuid()
+    .guid()
     .safeParse(params.get(path === '/invite' ? 'token' : 'invite'));
   let requested = params.get('redirect');
   if (!requested && path.startsWith('/login/returnUrl/')) {

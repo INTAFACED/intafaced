@@ -128,7 +128,7 @@ function toTrpc(err: unknown): never {
 }
 
 const rowOut = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
   handle: z.string(),
   status: z.enum(STATUSES),
   requestedAt: z.string(),

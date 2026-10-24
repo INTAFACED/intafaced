@@ -10,7 +10,7 @@ import { AccountClosureService, ClosureError, type ClosureView } from './closure
 const blocker = z.object({ code: z.string(), count: z.number().int() });
 const balance = z.object({ assetId: z.string(), amount: z.string() });
 const view = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   status: z.enum(['requested', 'cancelled', 'blocked', 'closed']),
   requestedAt: z.string(),
   effectiveAt: z.string(),
@@ -61,7 +61,7 @@ export function createAccountClosureRouter(closure: AccountClosureService | unde
   };
   return router({
     request: protectedProcedure
-      .input(z.object({ stepUpApprovalId: z.string().uuid(), clientRequestId: z.string().uuid() }).strict())
+      .input(z.object({ stepUpApprovalId: z.string().guid(), clientRequestId: z.string().guid() }).strict())
       .output(view)
       .mutation(async ({ ctx, input }) => {
         try {
@@ -71,7 +71,7 @@ export function createAccountClosureRouter(closure: AccountClosureService | unde
         }
       }),
     cancel: protectedProcedure
-      .input(z.object({ stepUpApprovalId: z.string().uuid() }).strict())
+      .input(z.object({ stepUpApprovalId: z.string().guid() }).strict())
       .output(view)
       .mutation(async ({ ctx, input }) => {
         try {

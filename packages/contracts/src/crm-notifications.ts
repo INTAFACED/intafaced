@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { crmActivitySchema, crmOpportunitySchema } from './outreach-crm.js';
 import { guestNotificationReceiptSchema } from './guest-notifications.js';
 
-const id = z.string().uuid();
+const id = z.string().guid();
 const timestamp = z.string().datetime({ offset: true });
 export const crmQueueMessageInputSchema = z
   .object({

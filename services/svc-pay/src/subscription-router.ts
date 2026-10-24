@@ -32,8 +32,8 @@ const amountSchema = z
   .refine((s) => !s.includes('e') && !s.includes('E'), 'scientific notation refused');
 
 const mandateView = z.object({
-  id: z.string().uuid(),
-  merchantId: z.string().uuid(),
+  id: z.string().guid(),
+  merchantId: z.string().guid(),
   customerId: z.string(),
   assetId: z.string(),
   amount: amountSchema,
@@ -49,9 +49,9 @@ const mandateView = z.object({
 });
 
 const subscriptionView = z.object({
-  id: z.string().uuid(),
-  mandateId: z.string().uuid(),
-  merchantId: z.string().uuid(),
+  id: z.string().guid(),
+  mandateId: z.string().guid(),
+  merchantId: z.string().guid(),
   customerId: z.string(),
   nextRunAt: z.string().datetime({ offset: true }),
   status: z.enum(['active', 'paused', 'cancelled', 'completed']),
@@ -92,7 +92,7 @@ const cycleView = z.object({
   idempotencyKey: z.string().nullable(),
   attemptCount: z.number().int().positive(),
   rejectionCode: z.string().nullable(),
-  paymentId: z.string().uuid().nullable(),
+  paymentId: z.string().guid().nullable(),
   exhausted: z.boolean(),
   settledAt: z.string().datetime({ offset: true }).nullable(),
   notifyStatus: z.enum(['attempted', 'skipped_unwired', 'failed']).nullable(),
@@ -100,12 +100,12 @@ const cycleView = z.object({
 });
 
 const executionView = z.object({
-  id: z.string().uuid(),
-  subscriptionId: z.string().uuid(),
+  id: z.string().guid(),
+  subscriptionId: z.string().guid(),
   occurrence: z.number().int().nonnegative(),
   amount: amountSchema,
   status: z.enum(['pending', 'invoiced', 'settled', 'rejected', 'skipped']),
-  paymentId: z.string().uuid().nullable(),
+  paymentId: z.string().guid().nullable(),
   rejectionCode: z.string().nullable(),
   attemptedAt: z.string().datetime({ offset: true }),
   settledAt: z.string().datetime({ offset: true }).nullable(),
@@ -265,7 +265,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
       create: scopedProcedure('pay:write', { module: 'pay' })
         .input(
           z.object({
-            merchantId: z.string().uuid(),
+            merchantId: z.string().guid(),
             customerId: z.string().min(1).max(128),
             assetId: z.string().min(1).max(16),
             amount: amountSchema,
@@ -298,7 +298,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
         ),
 
       get: ownMerchantRead()
-        .input(z.object({ mandateId: z.string().uuid() }))
+        .input(z.object({ mandateId: z.string().guid() }))
         .output(mandateView)
         .query(({ ctx, input }) =>
           wrap(async () => {
@@ -314,7 +314,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
       list: ownMerchantRead()
         .input(
           z.object({
-            merchantId: z.string().uuid(),
+            merchantId: z.string().guid(),
             status: z.enum(['active', 'cancelled', 'expired']).optional(),
             /**
              * Page size. Optional so omit reaches `pay.subscription_mandate_list_limit_unset`.
@@ -348,7 +348,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
        * Does not reverse settled executions.
        */
       cancel: scopedProcedure('pay:write', { module: 'pay' })
-        .input(z.object({ mandateId: z.string().uuid() }))
+        .input(z.object({ mandateId: z.string().guid() }))
         .output(mandateView)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
@@ -367,7 +367,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
       proposeTerms: scopedProcedure('pay:write', { module: 'pay' })
         .input(
           z.object({
-            mandateId: z.string().uuid(),
+            mandateId: z.string().guid(),
             amount: amountSchema,
             ceiling: amountSchema.nullable().optional(),
           }),
@@ -475,7 +475,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
       create: scopedProcedure('pay:write', { module: 'pay' })
         .input(
           z.object({
-            mandateId: z.string().uuid(),
+            mandateId: z.string().guid(),
             /** Default crypto_invoice — never invents a pull path. */
             path: z.enum(['crypto_invoice', 'card', 'card_mandate']).optional(),
             /**
@@ -509,7 +509,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
         ),
 
       get: ownMerchantRead()
-        .input(z.object({ subscriptionId: z.string().uuid() }))
+        .input(z.object({ subscriptionId: z.string().guid() }))
         .output(subscriptionView)
         .query(({ ctx, input }) =>
           wrap(async () => {
@@ -525,7 +525,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
       list: ownMerchantRead()
         .input(
           z.object({
-            merchantId: z.string().uuid(),
+            merchantId: z.string().guid(),
             status: z.enum(['active', 'paused', 'cancelled', 'completed']).optional(),
             /**
              * Page size. Optional so omit reaches `pay.subscription_list_limit_unset`.
@@ -561,7 +561,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
       listExecutions: ownMerchantRead()
         .input(
           z.object({
-            subscriptionId: z.string().uuid(),
+            subscriptionId: z.string().guid(),
             /**
              * Page size. Optional so omit reaches `pay.subscription_execution_list_limit_unset`.
              * Blank is not 50; pass 50 explicitly.
@@ -581,7 +581,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
 
       /** Immediate cancel (SPEC §4). Does not reverse settled executions. */
       cancel: scopedProcedure('pay:write', { module: 'pay' })
-        .input(z.object({ subscriptionId: z.string().uuid() }))
+        .input(z.object({ subscriptionId: z.string().guid() }))
         .output(subscriptionView)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
@@ -598,7 +598,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
        * method stays as it was.
        */
       setCollectionMethod: scopedProcedure('pay:write', { module: 'pay' })
-        .input(z.object({ subscriptionId: z.string().uuid(), method: z.enum(COLLECTION_METHODS) }))
+        .input(z.object({ subscriptionId: z.string().guid(), method: z.enum(COLLECTION_METHODS) }))
         .output(z.object({ subscription: subscriptionView, collectionMethod: z.enum(COLLECTION_METHODS) }))
         .mutation(({ ctx, input }) =>
           wrap(async () => {
@@ -617,7 +617,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
        * completely different explanations.
        */
       pause: scopedProcedure('pay:write', { module: 'pay' })
-        .input(z.object({ subscriptionId: z.string().uuid() }))
+        .input(z.object({ subscriptionId: z.string().guid() }))
         .output(subscriptionView)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
@@ -642,7 +642,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
        * (`pay.subscription_resume_exceeds_mandate`), not quietly trimmed.
        */
       resume: scopedProcedure('pay:write', { module: 'pay' })
-        .input(z.object({ subscriptionId: z.string().uuid() }))
+        .input(z.object({ subscriptionId: z.string().guid() }))
         .output(z.object({ subscription: subscriptionView, projectedEnd: z.string().datetime({ offset: true }).nullable() }))
         .mutation(({ ctx, input }) =>
           wrap(async () => {
@@ -660,7 +660,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
       cycles: ownMerchantRead()
         .input(
           z.object({
-            subscriptionId: z.string().uuid(),
+            subscriptionId: z.string().guid(),
             /**
              * Page size. Optional so omit reaches `pay.subscription_cycle_list_limit_unset`.
              * Blank is not 50; pass 50 explicitly.
@@ -668,7 +668,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
             limit: z.number().int().min(1).max(200).optional(),
           }),
         )
-        .output(z.object({ subscriptionId: z.string().uuid(), cycles: z.array(cycleView) }))
+        .output(z.object({ subscriptionId: z.string().guid(), cycles: z.array(cycleView) }))
         .query(({ ctx, input }) =>
           wrap(async () => {
             const existing = await subscriptions.getSubscription(input.subscriptionId);

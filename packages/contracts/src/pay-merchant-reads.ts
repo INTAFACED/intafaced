@@ -33,7 +33,7 @@ export const payPaymentListInputSchema = z
      * Payments opened through this payment link. A link that is missing or
      * belongs to another merchant is an empty page, not an error.
      */
-    linkId: z.string().uuid().optional(),
+    linkId: z.string().guid().optional(),
     /**
      * Inclusive amount bounds, decimal strings. Omitted means no bound.
      * A blank string is not "no bound": the service refuses it.
@@ -64,7 +64,7 @@ export const payPaymentListSummarySchema = z
 /** One rail try on a payment. `mapsTo` is the status that try means before capture. */
 export const payPaymentAttemptSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     at: payTimestampSchema,
     status: z.enum(['pending', 'authorized', 'failed']),
     railRef: z.string().nullable(),
@@ -87,7 +87,7 @@ export const paySettlementListInputSchema = z
 
 export const paySettlementLinesInputSchema = z
   .object({
-    settlementId: z.string().uuid(),
+    settlementId: z.string().guid(),
     limit: pageLimitSchema,
     cursor: payListCursorSchema.optional(),
   })
@@ -111,7 +111,7 @@ export const payRecordedPricingSnapshotSchema = z
     fee: payAmountStringSchema,
     assetCode: payAssetCodeSchema,
     appliedLayer: z.enum(['global', 'tier', 'merchant']),
-    ruleId: z.string().uuid(),
+    ruleId: z.string().guid(),
     feeBps: payBpsSchema,
     flatFee: payAmountStringSchema.nullable(),
     spreadBps: payBpsSchema.nullable(),
@@ -135,7 +135,7 @@ export const payPricingSnapshotViewSchema = z.union([payRecordedPricingSnapshotS
 
 export const paySettlementLineSchema = z
   .object({
-    paymentId: z.string().uuid(),
+    paymentId: z.string().guid(),
     /**
      * Net included at freeze (captured minus refunded). Null when the
      * `settlement.included` event predates that field — never the payment's
