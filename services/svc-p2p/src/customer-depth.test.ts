@@ -113,7 +113,7 @@ describe('svc-p2p customer depth', () => {
     );
   }
 
-  async function sell(overrides: Partial<Parameters<P2pService['createOffer']>[0]> = {}) {
+  async function sell(overrides: Partial<Parameters<P2pService['createOffer']>[0]> = {}, { fed = true } = {}) {
     const post = () =>
       p2p.createOffer({
         makerId: MAKER,
@@ -129,7 +129,7 @@ describe('svc-p2p customer depth', () => {
         terms: 'pay within 15 minutes',
         ...overrides,
       });
-    return overrides.priceType === 'float' ? whileFed(post) : post();
+    return fed && overrides.priceType === 'float' ? whileFed(post) : post();
   }
 
   it('create with the same idempotency key publishes one offer', async () => {
@@ -408,20 +408,19 @@ describe('svc-p2p customer depth', () => {
     await sell({ price: parseAmount('1'), idempotencyKey: 'ref-fixed' });
     expect(await p2p.referencePrice(ASSET, 'USD')).toBeNull();
     // With no reference for the pair, a new floating ad refuses and a fixed one still posts (P-ads-merchant-03).
-    const unfed = p2p.createOffer({
-      makerId: MAKER,
-      side: 'sell',
-      asset: ASSET,
-      fiatCurrency: 'USD',
-      priceType: 'float',
-      price: parseAmount('1.01'),
-      minAmt: parseAmount('10'),
-      maxAmt: parseAmount('100'),
-      methods: ['sepa'],
-      idempotencyKey: 'ref-float-unfed',
-    });
+    const unfed = sell({ price: parseAmount('1.01'), priceType: 'float', idempotencyKey: 'ref-float-unfed' }, { fed: false });
     await expect(unfed).rejects.toMatchObject({ code: 'p2p.reference_price_unavailable' });
     await expect(unfed).rejects.toThrow('a fixed price still posts');
+    // Refused before anything is written: no ad and no claimed key, so the same key posts once a reference is back.
+    expect(await sql`SELECT 1 FROM p2p.offers WHERE price_type = 'float'`).toHaveLength(1);
+    expect(await sql`SELECT 1 FROM p2p.write_keys WHERE idempotency_key = 'ref-float-unfed'`).toHaveLength(0);
+    // A lost reply's retry of the floating ad posted while the feed answered still answers that ad.
+    const listed = (await p2p.listOfferBoard({ limit: 10, viewerId: TAKER })).offers.find((o) => o.priceType === 'float');
+    await expect(
+      sell({ price: parseAmount('1.01'), priceType: 'float', idempotencyKey: 'ref-float' }, { fed: false }),
+    ).resolves.toMatchObject({
+      id: listed?.id,
+    });
     await expect(sell({ price: parseAmount('1'), idempotencyKey: 'ref-fixed-unfed' })).resolves.toMatchObject({ status: 'active' });
     const fed = new P2pService(sql, ledger, bus, {
       instruments,
@@ -430,6 +429,43 @@ describe('svc-p2p customer depth', () => {
     });
     expect(await fed.referencePrice(ASSET, 'USD')).toBe(parseAmount('0.99'));
     expect(await fed.referencePrice(ASSET, 'EUR')).toBeNull();
+  });
+
+  it('refuses a floating ad when the feed fails, and resumes a paused one only while a reference prices it', async () => {
+    const failing = new P2pService(sql, ledger, bus, {
+      instruments,
+      feeBps: 100,
+      referencePrices: {
+        price: async () => {
+          throw new Error('feed timed out');
+        },
+      },
+    });
+    await expect(
+      failing.createOffer({
+        makerId: MAKER,
+        side: 'sell',
+        asset: ASSET,
+        fiatCurrency: 'USD',
+        priceType: 'float',
+        price: parseAmount('1.01'),
+        minAmt: parseAmount('10'),
+        maxAmt: parseAmount('100'),
+        methods: ['sepa'],
+        idempotencyKey: 'float-feed-down',
+      }),
+    ).rejects.toMatchObject({ code: 'p2p.reference_price_unavailable' });
+
+    const float = await sell({ price: parseAmount('1.01'), priceType: 'float', idempotencyKey: 'float-pause' });
+    const fixed = await sell({ price: parseAmount('1'), idempotencyKey: 'fixed-pause' });
+    await p2p.pauseOffer(float.id, MAKER);
+    await p2p.pauseOffer(fixed.id, MAKER);
+    await expect(p2p.resumeOffer(float.id, MAKER)).rejects.toThrow('cannot be priced or resumed');
+    expect((await p2p.getOffer(float.id)).status).toBe('paused');
+    await expect(p2p.resumeOffer(fixed.id, MAKER)).resolves.toMatchObject({ status: 'active' });
+    await expect(whileFed(() => p2p.resumeOffer(float.id, MAKER))).resolves.toMatchObject({ status: 'active' });
+    // Resuming an ad that is already live reads no reference and answers it.
+    await expect(p2p.resumeOffer(float.id, MAKER)).resolves.toMatchObject({ status: 'active' });
   });
 
   it('reports total, filled and completed counts from the offer and its released trades', async () => {
