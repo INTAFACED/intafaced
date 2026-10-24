@@ -92,6 +92,8 @@ export interface ViewBook {
   listVisible(viewerId: string): Promise<SupportView[]>;
   save(input: ViewSave): Promise<SupportView>;
   remove(input: { viewId: string; actorId: string; reason: string; at: string }): Promise<SupportView>;
+  /** The view this actor already deleted with this reason, so a retried delete answers like the first one. */
+  deleted(input: { viewId: string; actorId: string; reason: string }): Promise<SupportView | null>;
 }
 
 export function viewCapWire(cap: number | null, missing: typeof SUPPORT_VIEW_PERSONAL_CAP_KEY | typeof SUPPORT_VIEW_SHARED_CAP_KEY) {
@@ -239,7 +241,7 @@ function clauseMatches(clause: { field: string; op: string; value: string | null
     const right = Date.parse(clause.value ?? '');
     if (clause.op === 'before') return left < right;
     if (clause.op === 'after') return left > right;
-    return actual === clause.value;
+    return left === right;
   }
   const same = norm(actual) === norm(clause.value);
   return clause.op === 'eq' ? same : !same;
@@ -442,6 +444,21 @@ export class MemoryViewBook implements ViewBook {
     return current;
   }
 
+  async deleted(input: { viewId: string; actorId: string; reason: string }): Promise<SupportView | null> {
+    const fingerprint = viewDeleteFingerprint(input.viewId, input.reason);
+    for (const log of this.logs.values()) {
+      if (
+        log.action === 'delete' &&
+        log.after.id === input.viewId &&
+        log.after.ownerId === input.actorId &&
+        log.fingerprint === fingerprint
+      ) {
+        return log.after;
+      }
+    }
+    return null;
+  }
+
   private readSave(key: string): SaveLog | undefined {
     const hit = this.logs.get(key);
     if (!hit || hit.action !== 'save') return undefined;
@@ -582,6 +599,16 @@ export class SqlViewBook implements ViewBook {
       await tx`DELETE FROM support.desk_views WHERE id = ${view.id}`;
       return view;
     }) as Promise<SupportView>;
+  }
+
+  async deleted(input: { viewId: string; actorId: string; reason: string }): Promise<SupportView | null> {
+    const rows = await this.sql<{ after: SupportView }[]>`
+      SELECT after FROM support.desk_view_log
+      WHERE view_id = ${input.viewId} AND action = 'delete' AND set_by = ${input.actorId}
+        AND fingerprint = ${viewDeleteFingerprint(input.viewId, input.reason)}
+      ORDER BY set_at DESC LIMIT 1
+    `;
+    return rows[0]?.after ?? null;
   }
 }
 

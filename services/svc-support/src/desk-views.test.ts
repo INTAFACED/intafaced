@@ -246,3 +246,37 @@ describe('MemoryViewBook', () => {
     expect(await book.listVisible(AGENT)).toEqual([second]);
   });
 });
+
+describe('saved views: retries, stale tabs and dates (SP-desk-01 review)', () => {
+  it('a retried delete answers with the deleted view; another reason is not found', async () => {
+    const d = await desk();
+    const view = await d.lead.viewsSave(save);
+    const first = await d.lead.viewsDelete({ viewId: view.id, reason: 'Shift ended' });
+    expect(await d.lead.viewsDelete({ viewId: view.id, reason: 'Shift ended' })).toEqual(first);
+    await expect(d.lead.viewsDelete({ viewId: view.id, reason: 'Something else' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    const agent = await d.as(AGENT);
+    await expect(agent.viewsDelete({ viewId: view.id, reason: 'Shift ended' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('the queue honours score ascending as well as descending', async () => {
+    const d = await desk();
+    for (const category of ['phishing', 'account', 'other'] as const)
+      await d.support.createTicket({ userId: CUSTOMER, category, subject: `Widget ${category}`, body: 'Please help with this request' });
+    const ids = (queue: unknown) => ((queue as { entries?: { score: number }[] }).entries ?? []).map((entry) => entry.score);
+    const desc = ids(await d.lead.listQueue({ limit: 20, filter: OPEN, sort: { key: 'score', dir: 'desc' } }));
+    const asc = ids(await d.lead.listQueue({ limit: 20, filter: OPEN, sort: { key: 'score', dir: 'asc' } }));
+    expect(desc).toHaveLength(3);
+    expect(new Set(desc).size).toBe(3);
+    expect(desc).toEqual([...desc].sort((a, b) => b - a));
+    expect(asc).toEqual([...desc].reverse());
+  });
+
+  it('a date filter with eq matches the same instant however it is spelled', async () => {
+    const d = await desk();
+    const ticket = await d.ticket(CUSTOMER, 'Dated widget');
+    const at = new Date(ticket.createdAt);
+    const spelled = `${at.toISOString().slice(0, 19)}${at.getUTCMilliseconds() ? `.${String(at.getUTCMilliseconds()).padStart(3, '0')}` : ''}+00:00`;
+    const listed = await d.lead.listAll({ limit: 50, filter: { field: 'created', op: 'eq', value: spelled } });
+    expect(listed.map((row) => row.id)).toEqual([ticket.id]);
+  });
+});

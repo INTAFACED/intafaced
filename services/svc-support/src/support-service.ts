@@ -1170,7 +1170,8 @@ export class SupportService implements SupportContract {
       const allowed = new Set(tickets.map((ticket) => ticket.id));
       const visible = facts.filter((fact) => allowed.has(fact.ticket.id));
       const sort = this.deskSort(options.sort);
-      if (sort && sort.key !== 'score') {
+      // The queue's own ranking is score, highest first; any other order (score ascending too) is applied over it.
+      if (sort && !(sort.key === 'score' && sort.dir === 'desc')) {
         const ranked = rankOperatorQueue(
           visible.map((fact) => fact.ticket),
           this.now(),
@@ -1378,6 +1379,11 @@ export class SupportService implements SupportContract {
 
   async deleteDeskView(input: { actorId: string; viewId: string; reason: string }): Promise<SupportView> {
     const existing = await this.views.get(input.viewId);
+    // A retried delete whose first answer was lost answers with the view it deleted.
+    if (!existing) {
+      const replay = await this.views.deleted({ viewId: input.viewId, actorId: input.actorId, reason: input.reason });
+      if (replay) return replay;
+    }
     if (!existing || existing.ownerId !== input.actorId) {
       throw new SupportError('view not found', existing?.shared ? 'support.view_not_owner' : 'support.not_found');
     }

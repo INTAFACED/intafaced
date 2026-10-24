@@ -163,6 +163,11 @@ if (!url) {
       expect((await db.sql<{ id: string }[]>`SELECT id FROM support.desk_views`).map((row) => row.id)).toEqual([third.id]);
       const again = (await db.sql<{ key: string }[]>`SELECT key FROM support.desk_view_log`).map((row) => row.key);
       expect(again).toContain(viewLogKey(OWNER, 'Mine', 0, second.id));
+      // A retried delete reads the delete it already logged: same actor and reason only.
+      const removed = await book.deleted({ viewId: first.id, actorId: OWNER, reason: 'Clearing it' });
+      expect(removed).toMatchObject({ id: first.id, ownerId: OWNER });
+      expect(await book.deleted({ viewId: first.id, actorId: OWNER, reason: 'Another reason' })).toBeNull();
+      expect(await book.deleted({ viewId: first.id, actorId: '22222222-2222-4222-8222-222222222222', reason: 'Clearing it' })).toBeNull();
     });
   });
 }
