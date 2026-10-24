@@ -91,6 +91,10 @@ const en = {
   holdFileInvalid: 'That file cannot be used. Choose another one.',
   historyLine: '{amount} {asset} to {currency} · {status}',
   historyMore: 'Showing your latest transfers.',
+  destinationNoPayout:
+    'No payout partner is connected for this destination. A send here is refused, nothing leaves your balance, and the send is kept in your history.',
+  receiveTitle: 'Receive money from abroad',
+  receiveLead: 'Someone abroad pays you by bank transfer to your account details for that currency.',
   failedWhy: 'It was not sent and nothing remains taken from your balance.',
   statusCancelled: 'Cancelled',
   cancelledByYou: 'You cancelled it. Nothing was taken from your balance.',
@@ -210,6 +214,10 @@ const es = {
   holdFileInvalid: 'No se puede usar ese archivo. Elige otro.',
   historyLine: '{amount} {asset} a {currency} · {status}',
   historyMore: 'Se muestran tus últimas transferencias.',
+  destinationNoPayout:
+    'No hay ningún socio de pago conectado para este destino. Un envío aquí se rechaza, no sale nada de tu saldo y el envío queda en tu historial.',
+  receiveTitle: 'Recibir dinero del extranjero',
+  receiveLead: 'Alguien en el extranjero te paga con una transferencia bancaria a tus datos de cuenta en esa moneda.',
   failedWhy: 'No se envió y no queda nada retirado de tu saldo.',
   statusCancelled: 'Cancelado',
   cancelledByYou: 'Lo cancelaste. No se retiró nada de tu saldo.',
@@ -329,6 +337,10 @@ const fr = {
   holdFileInvalid: 'Ce fichier ne peut pas être utilisé. Choisis-en un autre.',
   historyLine: '{amount} {asset} en {currency} · {status}',
   historyMore: 'Tes derniers transferts sont affichés.',
+  destinationNoPayout:
+    'Aucun partenaire de paiement n’est connecté pour cette destination. Un envoi ici est refusé, rien ne quitte ton solde et l’envoi reste dans ton historique.',
+  receiveTitle: 'Recevoir de l’argent de l’étranger',
+  receiveLead: 'Quelqu’un à l’étranger te paie par virement sur tes coordonnées de compte dans cette devise.',
   failedWhy: 'Il n’a pas été envoyé et rien n’est retiré de ton solde.',
   statusCancelled: 'Annulé',
   cancelledByYou: 'Tu l’as annulé. Rien n’a été retiré de ton solde.',

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
-import { AmountInput, Button, confirmWithStepUp, refusalCopy, useSession } from './deps';
+import { AccountDetailsByCurrency, AmountInput, Button, confirmWithStepUp, refusalCopy, useSession } from './deps';
 import type { ApiResult } from './deps';
 import { payCopy } from './copy';
 import { personalCopy } from './personal-copy';
@@ -577,6 +577,8 @@ export function GlobalCard() {
     }
     setFailure(sayFor(result.code, result.message));
     if (!field) setReview(null);
+    // A refusal may have kept the send's intent row, failed: the history is read again to show it.
+    void loadHistory();
     // A lock the service will not pay on (ran out, used, or not for this send) is dropped: only a new quote goes on.
     if (result.code && QUOTE_REFUSALS.has(result.code)) setQuote(null);
   }
@@ -644,6 +646,11 @@ export function GlobalCard() {
                 </option>
               ))}
             </select>
+            {destination && !destination.paysOut ? (
+              <p className="pay-hint" role="note" data-testid="global-no-payout">
+                {g('destinationNoPayout')}
+              </p>
+            ) : null}
             {limits ? (
               <p className="pay-hint" data-testid="global-limits">
                 {[
@@ -948,6 +955,11 @@ export function GlobalCard() {
           </Button>
         </div>
       ) : null}
+      <div className="pay-block" data-testid="global-receive">
+        <h3 className="pay-section-title">{g('receiveTitle')}</h3>
+        <p className="pay-hint">{g('receiveLead')}</p>
+        <AccountDetailsByCurrency />
+      </div>
       <div className="pay-block">
         <h3 className="pay-section-title">{t('globalStepTrack')}</h3>
         <Steps items={trackSteps} />
