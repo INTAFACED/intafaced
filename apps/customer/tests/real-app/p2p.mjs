@@ -415,17 +415,39 @@ async function operatorMethodChange(proc, actionType, fields, input) {
  */
 export const RETIRING_METHOD = 'test-retiring-transfer';
 
-/** Registers the retiring TEST method switched on, which also brings it back from an earlier run's retirement. */
-export async function registerRetiringMethod() {
+/**
+ * Registers a LOCAL TEST method switched on under `methodId`, the same TEST bank transfer as the shared one (DE, account
+ * holder in the person's own name, IBAN), with an optional settlement profile. Registering again brings it back from an
+ * earlier run's retirement. A journey that retires a method registers its own, so no other journey loses it.
+ */
+export async function registerTestMethod(methodId, label, settlement = null) {
   const [base] = (await import('../../../../tooling/scripts/local-test-gates.mjs')).TEST_P2P_METHODS;
-  const method = { methodId: RETIRING_METHOD, country: base.country, label: 'TEST retiring transfer', fields: base.fields };
+  const method = { methodId, country: base.country, label, fields: base.fields };
   return operatorMethodChange(
     'instruments.methods.register',
     'p2p.method_register',
-    { ...method, fields: JSON.stringify(method.fields), enabled: 'true' },
-    { ...method, enabled: true },
+    {
+      ...method,
+      fields: JSON.stringify(method.fields),
+      enabled: 'true',
+      ...(settlement ? { settlement: JSON.stringify(settlement) } : {}),
+    },
+    { ...method, enabled: true, ...(settlement ? { settlement } : {}) },
   );
 }
+
+/** Retires a LOCAL TEST method in its market (DE) with the operator's `reason`, as the founder pair does. */
+export async function retireTestMethod(methodId, reason) {
+  return operatorMethodChange(
+    'instruments.methods.setEnabled',
+    'p2p.method_set_enabled',
+    { methodId, country: 'DE', enabled: 'false', reason },
+    { methodId, country: 'DE', enabled: false, reason },
+  );
+}
+
+/** Registers the retiring TEST method switched on, which also brings it back from an earlier run's retirement. */
+export const registerRetiringMethod = () => registerTestMethod(RETIRING_METHOD, 'TEST retiring transfer');
 
 /**
  * P-disputes-security-09: a third LOCAL TEST method, the same TEST bank transfer under another id, whose money takes up
@@ -433,28 +455,11 @@ export async function registerRetiringMethod() {
  */
 export const SLOW_METHOD = 'test-slow-transfer';
 export const SLOW_WINDOW_SECONDS = 172_800;
-export async function registerSlowMethod() {
-  const [base] = (await import('../../../../tooling/scripts/local-test-gates.mjs')).TEST_P2P_METHODS;
-  const method = { methodId: SLOW_METHOD, country: base.country, label: 'TEST slow transfer', fields: base.fields };
-  const settlement = { instant: false, windowSeconds: SLOW_WINDOW_SECONDS };
-  return operatorMethodChange(
-    'instruments.methods.register',
-    'p2p.method_register',
-    { ...method, fields: JSON.stringify(method.fields), enabled: 'true', settlement: JSON.stringify(settlement) },
-    { ...method, enabled: true, settlement },
-  );
-}
+export const registerSlowMethod = () =>
+  registerTestMethod(SLOW_METHOD, 'TEST slow transfer', { instant: false, windowSeconds: SLOW_WINDOW_SECONDS });
 
 /** Retires the retiring TEST method in its market with the operator's `reason`. */
-export async function retireRetiringMethod(reason) {
-  const input = { methodId: RETIRING_METHOD, country: 'DE', enabled: false, reason };
-  return operatorMethodChange(
-    'instruments.methods.setEnabled',
-    'p2p.method_set_enabled',
-    { methodId: RETIRING_METHOD, country: 'DE', enabled: 'false', reason },
-    input,
-  );
-}
+export const retireRetiringMethod = (reason) => retireTestMethod(RETIRING_METHOD, reason);
 
 /**
  * The browser's virtual authenticator holding the account's TEST passkey, so the person confirms in the app with the
