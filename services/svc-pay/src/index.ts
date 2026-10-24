@@ -137,6 +137,9 @@ import { readProductImageRule } from './catalog/image-rules.js';
 import { readCheckoutLogoRule } from './checkout-branding/logo-rules.js';
 import { registerMerchantEmailInviteRoutes } from './merchant-ops/team-email-claim-routes.js';
 import { claimEmailTeamInvites } from './merchant-ops/team-email-claim.js';
+import { REFERENCE_RAIL_ROUTING_PROFILES } from './routing/decide.js';
+import { parseCheckoutSuccessRates, withSuccessRates } from './routing/success-rates-env.js';
+import { feedSandboxChain } from './rails/sandbox-chain-feed.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -274,6 +277,16 @@ for (const { railId } of env.PAY_CHECKOUT_RAILS) {
   }
 }
 
+/** The checkout rails' eligibility with the owner's declared success fractions (blank: none, checkout refuses). */
+const checkoutSuccessRates = parseCheckoutSuccessRates(env.PAY_CHECKOUT_SUCCESS_RATES, REFERENCE_RAIL_ROUTING_PROFILES);
+// Rates that name no checkout rail are a typo, not the owner's choice to keep checkout off (that is a blank value).
+if (Object.keys(checkoutSuccessRates).length > 0 && !env.PAY_CHECKOUT_RAILS.some(({ railId }) => railId in checkoutSuccessRates)) {
+  throw new Error(
+    `PAY_CHECKOUT_SUCCESS_RATES names ${Object.keys(checkoutSuccessRates).join(', ')}, none of which is in PAY_CHECKOUT_RAILS (${env.PAY_CHECKOUT_RAILS.map((r) => r.railId).join(', ')})`,
+  );
+}
+const checkoutRoutingProfiles = withSuccessRates(REFERENCE_RAIL_ROUTING_PROFILES, checkoutSuccessRates);
+
 /**
  * Outbound merchant webhooks (pay.public-api step 3 / ADR §2.4).
  * Durable journal — Memory alone is not multi-replica safe.
@@ -397,6 +410,7 @@ const pay = new PayService(sql, ledger, rails, {
   publicCheckoutMovement: railPosture.publicCheckoutPolicy,
   checkoutRails: env.PAY_CHECKOUT_RAILS,
   checkoutRiskBand: env.PAY_CHECKOUT_RISK_BAND,
+  routingProfiles: checkoutRoutingProfiles,
   checkoutSessionTtlSeconds: env.PAY_CHECKOUT_SESSION_TTL_SECONDS,
   linkDefaultTtlDays: env.PAY_LINK_DEFAULT_TTL_DAYS,
   linkMaxTtlDays: env.PAY_LINK_MAX_TTL_DAYS,
@@ -1080,10 +1094,10 @@ await app.register(async (webhookScope) => {
     }
 
     try {
-      const outcome = await pay.handleWebhook(request.params.railId, {
-        headers,
-        body: typeof request.body === 'string' ? request.body : '',
-      });
+      const delivery = { headers, body: typeof request.body === 'string' ? request.body : '' };
+      // Dev/test in-memory chain only: a verified transfer is recorded on it before the delivery is applied.
+      if (request.params.railId === cryptoRail.id) await feedSandboxChain(chain, cryptoRail.verifyWebhook(delivery));
+      const outcome = await pay.handleWebhook(request.params.railId, delivery);
       // A duplicate is a 200. A rail that gets anything else will keep retrying
       // a delivery we have already handled, forever.
       return reply.code(200).send({ received: true, duplicate: outcome.duplicate });

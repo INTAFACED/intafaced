@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
 import {
+  displayAmount,
   escapeHtml,
   extractCheckoutToken,
   parsePayerAmount,
@@ -266,6 +267,18 @@ describe('parsePayerAmount', () => {
   });
 });
 
+describe('displayAmount', () => {
+  it('drops only trailing zeros and keeps two places, so the figure stays exact', () => {
+    expect(displayAmount('25.000000000000000000')).toBe('25.00');
+    expect(displayAmount('0.123400000000000000')).toBe('0.1234');
+    expect(displayAmount('100')).toBe('100.00');
+    expect(displayAmount('10.5')).toBe('10.50');
+    expect(displayAmount('1234567.5')).toBe('1,234,567.50');
+    expect(displayAmount('0.000000000000000001')).toBe('0.000000000000000001');
+    expect(displayAmount('n/a')).toBe('n/a');
+  });
+});
+
 describe('stateForError', () => {
   it('maps only codes it has a page for, and falls to error otherwise', () => {
     expect(stateForError(payErr('pay.link_not_found', '')).kind).toBe('not_found');
@@ -286,6 +299,7 @@ describe('stateForError', () => {
     expect(stateForError(payErr('pay.checkout_rails_unset', '')).kind).toBe('unavailable');
     expect(stateForError(payErr('pay.psp_unset', '')).kind).toBe('unavailable');
     expect(stateForError(payErr('pay.routing_no_rail', '')).kind).toBe('unavailable');
+    expect(stateForError(payErr('pay.routing_approval_rate_unset', '')).kind).toBe('unavailable');
     expect(stateForError(payErr('pay.merchant_inactive', '')).kind).toBe('unavailable');
     // Layer B money-door refuse — hosted HTML must not 500 a live KYB gap.
     expect(stateForError(payErr('pay.kyb_required', '')).kind).toBe('unavailable');
@@ -490,6 +504,38 @@ describe('checkout routes', () => {
     expect(res.body).toContain('Nothing has been charged');
     expect(res.body).not.toContain('Payment received');
     await app.close();
+  });
+
+  it('asks the payer for the country only when the country is what routing misses; an operator gap is unavailable', async () => {
+    const refusing = (missing: string[]) =>
+      build({
+        openCheckoutSession: async () => {
+          throw Object.assign(payErr('pay.routing_input_missing', 'missing'), { detail: { missing } });
+        },
+      });
+    const post = (app: Awaited<ReturnType<typeof build>>) =>
+      app.inject({
+        method: 'POST',
+        url: '/checkout/session',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        payload: 'token=pl_stubbed_token_value',
+      });
+
+    const geo = await refusing(['geo']);
+    const asked = await post(geo);
+    expect(asked.statusCode).toBe(400);
+    expect(asked.body).toContain(resolvePayerCopy(PAYER_COPY_KEYS.required));
+    expect(asked.body).toContain('name="geoCountry"');
+    await geo.close();
+
+    for (const missing of [['risk'], ['method'], ['geo', 'risk'], []]) {
+      const app = await refusing(missing);
+      const res = await post(app);
+      expect(res.statusCode).toBe(503);
+      expect(res.body).toContain('Nothing has been charged');
+      expect(res.body).not.toContain(resolvePayerCopy(PAYER_COPY_KEYS.required));
+      await app.close();
+    }
   });
 
   it('shows the unavailable page when rails are unset, never a receipt', async () => {

@@ -2575,6 +2575,7 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.routing_input_missing':
         return 'BAD_REQUEST' as const;
       case 'pay.routing_no_rail':
+      case 'pay.routing_approval_rate_unset':
       case 'pay.rail_outcome_unknown':
       case 'pay.ledger_outcome_unknown':
       case 'pay.settlement_book_unrecognised':
