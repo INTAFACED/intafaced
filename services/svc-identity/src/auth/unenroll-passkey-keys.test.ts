@@ -150,8 +150,11 @@ describe('unenrollPasskeyAndRevokeKeys', () => {
         { id: 'dead', user_id: A, revoked: true },
       ],
     );
+    const before = factorNotices.length;
     const out = await unenrollPasskeyAndRevokeKeys(sql, A, 'cred-1');
     expect(out).toEqual({ credentialId: 'cred-1', remaining: 1, sessionsRevoked: 2, keysRevoked: 2 });
+    // The removal queued its factor-changed notice (I-signin-sessions-08).
+    expect(factorNotices.slice(before).some((values) => values.includes('passkey_removed'))).toBe(true);
     expect(sql.keys.map((k) => k.revoked)).toEqual([true, true, true]);
 
     const liveDoor = new PlaceDoor((async () => [{ id: 'live-1', user_id: A, revoked: true }]) as never);

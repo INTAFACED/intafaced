@@ -310,6 +310,10 @@ if (!available) {
       const [live] = await db.sql<Array<{ id: string }>>`SELECT id FROM sessions WHERE user_id = ${a.userId} AND revoked = false`;
       expect(live!.id).toBe(session.sessionId);
       expect(await mails(a.userId, 'mfa-reset-completed')).toHaveLength(1);
+      // The inbox hears the app went (I-signin-sessions-08); the completed notice is its only mail.
+      const changes = await db.sql<Array<{ change: string }>>`SELECT change FROM security_factor_events WHERE user_id = ${a.userId}`;
+      expect(changes.map((c) => c.change)).toEqual(['totp_added', 'totp_removed']);
+      expect(await mails(a.userId, 'factor-changed')).toHaveLength(1);
       const [row] = await db.sql<Array<{ state: string }>>`SELECT state FROM mfa_resets WHERE user_id = ${a.userId}`;
       expect(row!.state).toBe('completed');
     });

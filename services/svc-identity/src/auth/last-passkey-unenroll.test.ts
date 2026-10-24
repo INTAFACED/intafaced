@@ -156,8 +156,11 @@ describe('unenrollLastRemainingPasskey — last remaining passkey unenrolled', (
 
   it('last remaining cred revokes sessions and keys so PlaceDoor refuses', async () => {
     const sql = combinedStore([{ id: A, webauthn_creds: [enrolled] }], liveSeats(), liveSeats());
+    const before = factorNotices.length;
     const out = await unenrollLastRemainingPasskey(sql, A, 'cred-1');
     expect(out).toEqual({ credentialId: 'cred-1', remaining: 0, sessionsRevoked: 2, keysRevoked: 2 });
+    // The removal queued its factor-changed notice (I-signin-sessions-08).
+    expect(factorNotices.slice(before).some((values) => values.includes('passkey_removed'))).toBe(true);
     expect(sql.users[0]?.webauthn_creds).toEqual([]);
     expect(sql.sessions.map((s) => s.revoked)).toEqual([true, true, true]);
     expect(sql.keys.map((k) => k.revoked)).toEqual([true, true, true]);
@@ -173,7 +176,9 @@ describe('unenrollLastRemainingPasskey — last remaining passkey unenrolled', (
       [{ id: 'live-1', user_id: A, revoked: false }],
       [{ id: 'live-1', user_id: A, revoked: false }],
     );
+    const before = factorNotices.length;
     await expect(unenrollLastRemainingPasskey(sql, A, 'cred-unknown')).rejects.toMatchObject({ code: 'auth.passkey_missing' });
+    expect(factorNotices.length).toBe(before);
     expect(sql.sessionWrites).toBe(0);
     expect(sql.keyWrites).toBe(0);
     expect(sql.sessions[0]?.revoked).toBe(false);

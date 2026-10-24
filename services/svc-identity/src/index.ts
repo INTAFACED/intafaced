@@ -378,16 +378,6 @@ auth.useMailRelayTrigger(() => {
   setImmediate(drainRecoveryMail);
 });
 setInterval(drainRecoveryMail, 15_000).unref();
-// Each change to a sign-in factor leaves an outbox row in its own transaction (I-signin-sessions-08). The relay
-// publishes them for the inbox notice, at least once, and then sends their mails without waiting for the mail timer.
-const relayFactorChanges = () => {
-  void relaySecurityFactorEvents({ sql, bus, now: () => new Date() })
-    .then((published) => {
-      if (published > 0) drainRecoveryMail();
-    })
-    .catch((err) => app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'auth.factor_change_relay_failed'));
-};
-setInterval(relayFactorChanges, 3_000).unref();
 if (env.PAY_URL) {
   auth.useMerchantEmailInviteClaimer(createPayMerchantEmailInviteClaimer(env.PAY_URL, env.INTERNAL_SERVICE_SECRET, fetch, outS2s));
 }
@@ -1025,6 +1015,26 @@ await app.register(fastifyTRPCPlugin, {
   } satisfies FastifyTRPCPluginOptions<AppRouter>['trpcOptions'],
 });
 
+// Each change to a sign-in factor leaves an outbox row in its own transaction (I-signin-sessions-08). The relay
+// publishes them for the inbox notice, at least once; one run at a time, so the changes of an account keep their
+// order. The factor-changed mails ride the mail outbox, drained after any run that found work, published or not.
+let factorRelayRunning = false;
+const relayFactorChanges = () => {
+  if (factorRelayRunning) return;
+  factorRelayRunning = true;
+  void relaySecurityFactorEvents({ sql, bus, now: () => new Date() })
+    .then((published) => {
+      if (published > 0) drainRecoveryMail();
+    })
+    .catch((err) => {
+      app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'auth.factor_change_relay_failed');
+      drainRecoveryMail();
+    })
+    .finally(() => {
+      factorRelayRunning = false;
+    });
+};
+setInterval(relayFactorChanges, 3_000).unref();
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
 app.log.info(
   { port: env.HTTP_PORT, argon2: await argon2Available(), registrationOpen: env.REGISTRATION_OPEN, trpc: true },

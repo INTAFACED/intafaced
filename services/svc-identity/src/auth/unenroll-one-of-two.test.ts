@@ -229,8 +229,11 @@ describe('unenrollOneOfTwo', () => {
 
   it('unenrolls the first of two without dropping the second or revoking its seats and keys', async () => {
     const sql = combinedStore([{ id: A, webauthn_creds: [enrolled, other] }], liveSeats(), liveSeats());
+    const before = factorNotices.length;
     const out = await unenrollOneOfTwo(sql, A, 'cred-1');
     expect(out).toEqual({ credentialId: 'cred-1', remaining: 1, sessionsRevoked: 0, keysRevoked: 0 });
+    // The removal queued its factor-changed notice (I-signin-sessions-08).
+    expect(factorNotices.slice(before).some((values) => values.includes('passkey_removed'))).toBe(true);
     expect(sql.users[0]?.webauthn_creds.map((c) => c.credentialId)).toEqual(['cred-2']);
     expect(sql.sessionWrites).toBe(0);
     expect(sql.keyWrites).toBe(0);

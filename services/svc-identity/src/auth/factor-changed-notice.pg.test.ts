@@ -183,6 +183,25 @@ if (!available) {
       expect(bus.emitted('securityFactorChanged')).toHaveLength(1);
     });
 
+    it('a row published stays published when a later one fails, and the run stops there to keep the order', async () => {
+      const userId = await account();
+      const secret = await withApp(userId);
+      await lifecycle().disable(userId, totp(secret));
+      await db.sql`UPDATE security_factor_events SET published_at = now() WHERE user_id <> ${userId} AND published_at IS NULL`;
+      let calls = 0;
+      const second: Pick<typeof bus, 'publish'> = {
+        publish: (async (...args: Parameters<typeof bus.publish>) => {
+          calls += 1;
+          if (calls === 2) throw new Error('bus down');
+          return bus.publish(...args);
+        }) as typeof bus.publish,
+      };
+      await expect(relaySecurityFactorEvents({ sql: db.sql, bus: second, now: () => new Date() })).rejects.toThrow('bus down');
+      const [first, rest] = await events(userId);
+      expect(first!.published_at).not.toBeNull();
+      expect(rest!.published_at).toBeNull();
+    });
+
     it('the mail goes to the proved address with what changed, even after the address changes', async () => {
       const userId = await account();
       await withApp(userId);
