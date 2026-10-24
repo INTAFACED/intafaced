@@ -1,6 +1,7 @@
 'use client';
 
 import { useId, useRef, useState } from 'react';
+import { KycDocumentViewer } from '@/components/kyc-document-viewer';
 import { formatWhen } from '@/lib/as-of';
 import { postStep, type ApprovalEndpoint } from '@/lib/desk/approval-browser';
 import {
@@ -37,9 +38,13 @@ export function StepReplyView({ reply }: { reply: StepReply }) {
         <div className="adm-callout" role="status" data-testid="step-reply" data-tone="ok">
           <strong>The service answered</strong>
           <p>{reply.detail}</p>
-          <p className="dk-muted">
-            This is what the service said. The state shown above is read again from the service, not taken from this message.
-          </p>
+          {reply.document ? (
+            <KycDocumentViewer document={reply.document} />
+          ) : (
+            <p className="dk-muted">
+              This is what the service said. The state shown above is read again from the service, not taken from this message.
+            </p>
+          )}
         </div>
       );
     }

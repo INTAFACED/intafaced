@@ -100,7 +100,12 @@ export type DeskRequest =
   | { readonly kind: 'protocol.market.restore'; readonly symbol: string }
   /** Console maintenance mode (svc-ops `consoleMode.set`, OPS-admin-access-08): on with a reason, off with none. Both need a second founder. */
   | { readonly kind: 'ops.console_mode.on'; readonly reason: string }
-  | { readonly kind: 'ops.console_mode.off' };
+  | { readonly kind: 'ops.console_mode.off' }
+  /**
+   * Open one KYC document from identity's encrypted vault (svc-identity `kyc.getDocument`, J-ops-console-02 #5). Identity binds
+   * the approval to the document id alone and spends it on the read, so one approval opens it once.
+   */
+  | { readonly kind: 'identity.kyc_document.open'; readonly documentId: string };
 
 export const VENDOR_DECISIONS = ['approved', 'rejected', 'suspended'] as const;
 export type VendorDecision = (typeof VENDOR_DECISIONS)[number];
@@ -230,6 +235,11 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (typeof raw.userId !== 'string' || !UUID.test(raw.userId) || !validClosureReason(raw.reason)) return null;
     if (typeof raw.version !== 'string' || !/^(?:0|[1-9]\d{0,39})$/.test(raw.version)) return null;
     return { kind: 'identity.account.reopen', userId: raw.userId, reason: raw.reason, version: raw.version };
+  }
+  if (raw.kind === 'identity.kyc_document.open') {
+    if (keys !== 'documentId,kind') return null;
+    if (typeof raw.documentId !== 'string' || !UUID.test(raw.documentId)) return null;
+    return { kind: 'identity.kyc_document.open', documentId: raw.documentId };
   }
   if (raw.kind === 'identity.account.tier_move') {
     if (keys !== 'kind,reason,tierId,userId,version') return null;
@@ -461,6 +471,8 @@ export function confirmPhrase(request: DeskRequest): string {
       return 'CONSOLE READ ONLY';
     case 'ops.console_mode.off':
       return 'CONSOLE WRITABLE';
+    case 'identity.kyc_document.open':
+      return `OPEN DOCUMENT ${request.documentId.slice(0, 8)}`;
   }
 }
 
@@ -529,6 +541,8 @@ export function describeRequest(request: DeskRequest): string {
       return `Turn on maintenance mode ("${request.reason}"): this console becomes read-only. Every write refuses ops.console_read_only and a banner says so; reads still work. The halts (posting freeze, module kill, payment halts) and turning the mode off stay open. The posting freeze and every account stay as they are, and the platform keeps running.`;
     case 'ops.console_mode.off':
       return 'Turn off maintenance mode: this console takes writes again. Nothing else changes.';
+    case 'identity.kyc_document.open':
+      return `Open KYC document ${request.documentId} from identity's encrypted vault: its contents are decrypted and shown on the requester's console, once. Identity records which operator read it. Nothing about the document or the account changes.`;
   }
 }
 
@@ -544,6 +558,7 @@ export function requestReason(request: DeskRequest): string | null {
     case 'protocol.pool.restore':
     case 'protocol.market.restore':
     case 'ops.console_mode.off':
+    case 'identity.kyc_document.open':
       return null;
     default:
       return request.reason;

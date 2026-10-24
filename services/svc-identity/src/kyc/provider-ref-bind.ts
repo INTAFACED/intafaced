@@ -124,3 +124,28 @@ export async function bindProviderRefToDocument(
     };
   });
 }
+
+/** A KYC record's review state, as one of its subject's documents shows it. An approval past its expiry reads `expired`. */
+export type DocumentReviewStatus = 'pending' | 'approved' | 'rejected' | 'expired';
+
+export type DocumentReview = { recordId: string; tier: 'none' | 'basic' | 'full' | 'institutional'; status: DocumentReviewStatus };
+
+/**
+ * For each of one subject's documents, the newest KYC record of that same subject that points at it
+ * (`kyc_records.provider_ref`). A document no record points at is absent from the map. Ids only: no bytes, no PII.
+ */
+export async function documentReviews(sql: Sql, userId: string, documentIds: readonly string[]): Promise<Map<string, DocumentReview>> {
+  if (documentIds.length === 0) return new Map();
+  const rows = await sql<Array<{ id: string; provider_ref: string; tier: DocumentReview['tier']; status: DocumentReviewStatus }>>`
+    SELECT DISTINCT ON (provider_ref)
+           id,
+           provider_ref,
+           tier,
+           CASE WHEN status = 'approved' AND expires_at IS NOT NULL AND expires_at <= now() THEN 'expired' ELSE status::text END AS status
+      FROM kyc_records
+     WHERE user_id = ${userId}
+       AND provider_ref IN ${sql(documentIds)}
+     ORDER BY provider_ref, created_at DESC
+  `;
+  return new Map(rows.map((r) => [r.provider_ref, { recordId: r.id, tier: r.tier, status: r.status }]));
+}

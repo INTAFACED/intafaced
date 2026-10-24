@@ -18,6 +18,7 @@ const CODE_WORDS: Readonly<Record<string, string>> = {
   standing_order: 'Standing order',
   one_off: 'One-off send',
   'socket.psp-partners': 'A payment-service partner is not connected',
+  not_attached: 'Not attached to a verification',
 };
 
 /** Prefixes of the typed codes our own services use. Free text and ordinary values (a currency, a domain) never match. */

@@ -8,7 +8,7 @@ import { ADMIN, founderSignIn } from './admin.mjs';
 // J-ops-console-02 steps #3 and #4: /accounts/:userId shows the money, trade, pay, cards, documents and tickets tabs for one
 // account, each read loading or refusing on its own, and a part no service can read for one account names why (#3); and the
 // risk card and indicator strip, which say there is no risk level and nothing is set rather than show a number (#4). Step #5
-// (the document viewer) is not counted here: the console has no viewer yet (OPS-cases-07), and the documents tab says so.
+// (each document's status and the viewer) is its own test, J-ops-console-02-documents.pw.mjs.
 // The account looked at is the stack's second TEST founder, an account that always exists on the stack.
 
 async function secondFounder() {
@@ -83,13 +83,11 @@ test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing
   ).toBeVisible();
 
   // Documents: identity's document list for this account answers in words (a list or "holds no document"), and the
-  // document viewer the console lacks and the per-document decisions identity does not keep each name their blocker.
+  // per-document decisions identity does not keep name their blocker.
   await page.getByTestId('customer-tab-documents').click();
   await expect(page.getByTestId('customer-panel-documents')).toBeVisible({ timeout: 60_000 });
   const documents = page.getByTestId('read-identity.documents');
   await expect(documents.getByText(/As of /).first()).toBeVisible();
-  await expect(page.getByTestId('unwired-documents.viewer')).toContainText('Open a document: no source');
-  await expect(page.getByTestId('unwired-documents.viewer')).toContainText('kyc.getDocument');
   await expect(page.getByTestId('unwired-documents.decisions')).toContainText('no source');
 
   for (const tab of ['cards', 'tickets']) {

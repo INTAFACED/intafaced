@@ -276,6 +276,7 @@ const SECRET_NAMES = [
   'notifyStatusLink', // notify's key for the signed links in status subscription mail
   'academyVideoStore', // the TEST video store's signing key, shared with academy (local-video-store.mjs)
   'payKybDocKey', // pay's key for business verification documents (PAY_KYB_DOC_KEY, 32 bytes as hex)
+  'identityKycDoc', // identity's key for the KYC document vault (IDENTITY_KYC_DOC_KEY, 32 bytes as hex); this stack's own, valid nowhere else
 ];
 
 function loadOrCreateSecrets() {

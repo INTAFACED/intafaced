@@ -16,7 +16,7 @@ import { MemoryAccrualStore } from './affiliates/accrual-store.js';
 import type { CommissionRow } from './affiliates/commission.js';
 import { MemoryLedger, formatAmount, houseFees, parseAmount, recipes, rewardsEngine, userAvailable } from '@intafaced/ledger-client';
 import { MemoryKycDocumentStore } from './kyc/document-store.js';
-import type { BindProviderRefInput, BindProviderRefResult } from './kyc/provider-ref-bind.js';
+import type { BindProviderRefInput, BindProviderRefResult, DocumentReview } from './kyc/provider-ref-bind.js';
 import { MemoryWaitlistStore } from './waitlist/waitlist-store.js';
 import { WaitlistService } from './waitlist/waitlist-service.js';
 import { MemoryShareStore } from './affiliates/share-service.js';
@@ -1717,15 +1717,23 @@ describe('kyc document procedures — meta only, no free cross-user bytes', () =
   const DOC_USER = USER;
   const OTHER = '99999999-9999-4999-8999-999999999999';
 
-  function vaultRouter(bind?: (input: BindProviderRefInput) => Promise<BindProviderRefResult>) {
+  function vaultRouter(
+    bind?: (input: BindProviderRefInput) => Promise<BindProviderRefResult>,
+    reviews: Map<string, DocumentReview> = new Map(),
+  ) {
     const store = new MemoryKycDocumentStore(randomBytes(32).toString('base64'));
+    const asked: Array<{ userId: string; ids: readonly string[] }> = [];
     const r = createIdentityRouter(stub.auth, stub.rank, {
       registrationOpen: true,
       kycDocs: store,
       bindKycProviderRef: bind,
+      kycDocumentReviews: async (userId, ids) => {
+        asked.push({ userId, ids });
+        return reviews;
+      },
       actionApprovals: stubActionApprovals(CONFIRM_KYC),
     });
-    return { store, r };
+    return { store, r, asked };
   }
 
   it('storeDocument requires admin:compliance + MFA and returns meta only', async () => {
@@ -1819,6 +1827,32 @@ describe('kyc document procedures — meta only, no free cross-user bytes', () =
     expect(list).toHaveLength(1);
     expect(list[0]!.userId).toBe(DOC_USER);
     expect(list[0]).not.toHaveProperty('bytes');
+    expect(list[0]).toMatchObject({ reviewStatus: 'not_attached', reviewRecordId: null, reviewTier: null });
+  });
+
+  const KYC_RECORD = '77777777-7777-4777-8777-777777777777';
+
+  it('listDocuments gives each document the review of the KYC record attached to it, asking only for this subject', async () => {
+    const reviews = new Map<string, DocumentReview>();
+    const { r, store, asked } = vaultRouter(undefined, reviews);
+    const bound = await store.put({ userId: DOC_USER, contentType: 'image/png', bytes: Buffer.from('a') });
+    const loose = await store.put({ userId: DOC_USER, contentType: 'application/pdf', bytes: Buffer.from('b') });
+    reviews.set(bound.id, { recordId: KYC_RECORD, tier: 'full', status: 'pending' });
+    const op = r.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR }));
+    const list = await op.kyc.listDocuments({ userId: DOC_USER, limit: 200 });
+    expect(asked).toEqual([{ userId: DOC_USER, ids: expect.arrayContaining([bound.id, loose.id]) }]);
+    expect(list.find((d) => d.id === bound.id)).toMatchObject({ reviewStatus: 'pending', reviewRecordId: KYC_RECORD, reviewTier: 'full' });
+    expect(list.find((d) => d.id === loose.id)).toMatchObject({ reviewStatus: 'not_attached', reviewRecordId: null });
+  });
+
+  it('listDocuments refuses closed when the vault is wired without its review lookup', async () => {
+    const store = new MemoryKycDocumentStore(randomBytes(32).toString('base64'));
+    await store.put({ userId: DOC_USER, contentType: 'image/png', bytes: Buffer.from('a') });
+    const r = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, kycDocs: store });
+    const op = r.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR }));
+    const refused = await op.kyc.listDocuments({ userId: DOC_USER, limit: 200 }).catch((e: unknown) => e);
+    expect(codeOf(refused)).toBe('PRECONDITION_FAILED');
+    expect(String((refused as Error).message)).toMatch(/kyc_doc\.unwired/);
   });
 
   it('bindDocument refuses when vault bind is unwired; succeeds with opaque pointer only', async () => {
