@@ -8,8 +8,9 @@ const catalogs = JSON.parse(readFileSync(process.env.TOKEN_GOVERNANCE_CATALOGS, 
 const text = (key, locale = 'en') => catalogs[locale][key];
 const actor = '11111111-1111-4111-8111-111111111111',
   anotherActor = '99999999-9999-4999-8999-999999999999';
-const first = '21111111-1111-4111-8111-111111111111',
-  second = '22222222-2222-4222-8222-222222222222';
+// Stored proposal ids are text business keys, not uuids (MC-token-01).
+const first = `gov:proposal:ifc:${actor}:1`,
+  second = `gov:proposal:ifc:${anotherActor}:1`;
 const voteId = '31111111-1111-4111-8111-111111111111';
 const markerKey = `intafaced:more:pending:${actor}:token`,
   ballotKey = `intafaced:token:ballot:${actor}`;
@@ -37,10 +38,13 @@ async function network(context, page, baseURL) {
     createdAt: new Date(now - 120000).toISOString(),
     opensAt: new Date(now - 60000).toISOString(),
     closesAt: new Date(now + 3600000).toISOString(),
+    title: null,
+    authorId: actor,
   };
   const other = {
     ...proposal,
     id: second,
+    authorId: anotherActor,
     kind: 'grant',
     body: { title: 'Another original proposal', value: '0.000000000000000002' },
     status: 'passed',
@@ -123,7 +127,12 @@ async function network(context, page, baseURL) {
         if (state.outcome === 'bad-id') receipt.id = 'not-a-uuid';
         return reply(receipt);
       }
-      if (procedure === 'createProposal') return reply({ ...proposal, ...input, id: input.proposalId, status: 'draft' });
+      if (procedure === 'createProposal') {
+        const created = calls.writes.filter((w) => w.procedure === 'createProposal');
+        const ordinal = created.findIndex((w) => w.input.handle === input.handle) + 2;
+        const { handle: _handle, ...fields } = input;
+        return reply({ ...proposal, ...fields, id: `gov:proposal:ifc:${actor}:${ordinal}`, authorId: actor, status: 'draft' });
+      }
       if (procedure === 'closeProposal')
         return route.fulfill({
           status: 412,
@@ -141,7 +150,8 @@ async function network(context, page, baseURL) {
                 ? state.proposal
                 : {
                     ...proposal,
-                    id: String(i).padStart(8, '0') + '-1111-4111-8111-' + String(i).padStart(12, '0'),
+                    id: `gov:proposal:ifc:${anotherActor}:${i + 1}`,
+                    authorId: anotherActor,
                     body: { title: 'Window proposal ' + i },
                   },
             );
@@ -614,8 +624,9 @@ test('retained create close dependencies and unpublished stake unit stay honest'
   await expect(page.getByText('Proposal created', { exact: true })).toBeVisible();
   expect(calls.writes.at(-1)).toMatchObject({
     procedure: 'createProposal',
-    input: { kind: 'curriculum', body: { title: 'Original creation body' } },
+    input: { kind: 'curriculum', body: { title: 'Original creation body' }, handle: expect.any(String) },
   });
+  expect(calls.writes.at(-1).input).not.toHaveProperty('proposalId');
   state.proposal.closesAt = new Date(Date.now() - 1000).toISOString();
   await selected(page)
     .getByRole('button', { name: text('refresh'), exact: true })

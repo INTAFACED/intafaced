@@ -152,6 +152,8 @@ const bank = createBankServices(sql, ledger, history, {
     // a database column and svc-notify's finished consumer never sees one.
     marginCalls: eventMarginCallSink(bus),
     moduleEnabled: env.BANK_LOANS_ENABLED,
+    payoffFee: env.BANK_LOAN_PAYOFF_FEE,
+    payoffWindowMinutes: env.BANK_LOAN_PAYOFF_WINDOW_MINUTES,
     affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s) : undefined,
     affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s) : undefined,
   },

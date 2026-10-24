@@ -1199,6 +1199,7 @@ registerPrivateRest(app, {
           placeSplit: (principal, input, context) => positions.placeMatchedSplit(principal, input, context),
           cancel: (principal, orderId) => positions.cancelMatchedOrder(principal, orderId),
           list: (principal, input) => positions.listMatchedOrders(principal.userId, input),
+          entryProtection: { record: (userId, input) => conditionalOrders.recordEntryProtection(userId, input) },
         },
       }
     : {}),

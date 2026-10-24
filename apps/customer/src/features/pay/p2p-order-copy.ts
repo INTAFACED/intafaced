@@ -16,6 +16,14 @@ const en = {
   details: 'Order details',
   other: 'Other actions',
   counterparty: 'Counterparty',
+  payeeChangedTitle: 'The seller changed these payment details after this order was placed',
+  payeeRemovedTitle: 'The seller removed these payment details after this order was placed',
+  payeeChangedBody:
+    'Pay to the details shown here: they are the ones agreed for this order and they stay the same. If anything about them looks wrong, do not pay; message the seller or open a dispute.',
+  payeeChangedAfterPaidBody:
+    'The details shown here are the ones agreed for this order and they stay the same. If you paid to any other details, message the seller or open a dispute.',
+  payeeNameRule:
+    'Pay from an account in your own name. Enter the payee’s name and account exactly as shown here: your bank may check the payee name against the account.',
   terms: 'Terms when placed',
   termsUnrecorded: 'The ad’s terms were not copied onto this order when it was placed.',
   reputation: 'Inspect reported reputation',
@@ -40,6 +48,11 @@ const en = {
   serviceFee: 'Service fee',
   serviceFeeValue: 'Not on the order record this page reads. It is taken from the released amount.',
   releasePending: 'Release recorded. The ledger payout isn’t confirmed.',
+  paidChecklist: 'Before you mark it paid',
+  paidCheckAmount: 'I paid {amount} {currency}, the exact amount of this order',
+  paidCheckOwnAccount: 'I paid from an account in my own name',
+  paidCheckDetails: 'I paid to the payment details shown on this order',
+  paidChecklistIncomplete: 'Tick each line to mark the payment sent.',
 } as const;
 const es = {
   seller: 'Eres el vendedor',
@@ -58,6 +71,14 @@ const es = {
   details: 'Datos del pedido',
   other: 'Otras acciones',
   counterparty: 'Contraparte',
+  payeeChangedTitle: 'El vendedor cambió estos datos de pago después de hacer este pedido',
+  payeeRemovedTitle: 'El vendedor eliminó estos datos de pago después de hacer este pedido',
+  payeeChangedBody:
+    'Paga a los datos que se muestran aquí: son los acordados para este pedido y no cambian. Si algo en ellos no parece correcto, no pagues; escribe al vendedor o abre una disputa.',
+  payeeChangedAfterPaidBody:
+    'Los datos que se muestran aquí son los acordados para este pedido y no cambian. Si pagaste a otros datos, escribe al vendedor o abre una disputa.',
+  payeeNameRule:
+    'Paga desde una cuenta a tu nombre. Escribe el nombre y la cuenta del beneficiario exactamente como aparecen aquí: tu banco puede comprobar el nombre del beneficiario con la cuenta.',
   terms: 'Condiciones al hacer el pedido',
   termsUnrecorded: 'Las condiciones del anuncio no se copiaron en este pedido cuando se hizo.',
   reputation: 'Consultar reputación comunicada',
@@ -83,6 +104,11 @@ const es = {
   serviceFee: 'Comisión del servicio',
   serviceFeeValue: 'No figura en el registro del pedido que lee esta página. Se descuenta del importe liberado.',
   releasePending: 'Liberación registrada. El pago en el libro mayor no está confirmado.',
+  paidChecklist: 'Antes de marcarlo como pagado',
+  paidCheckAmount: 'Pagué {amount} {currency}, el importe exacto de este pedido',
+  paidCheckOwnAccount: 'Pagué desde una cuenta a mi nombre',
+  paidCheckDetails: 'Pagué a los datos de pago que muestra este pedido',
+  paidChecklistIncomplete: 'Marca cada línea para indicar el pago como enviado.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   seller: 'Vous êtes le vendeur',
@@ -101,6 +127,14 @@ const fr = {
   details: 'Détails de la commande',
   other: 'Autres actions',
   counterparty: 'Contrepartie',
+  payeeChangedTitle: 'Le vendeur a modifié ces informations de paiement après cette commande',
+  payeeRemovedTitle: 'Le vendeur a supprimé ces informations de paiement après cette commande',
+  payeeChangedBody:
+    'Payez aux informations affichées ici : ce sont celles convenues pour cette commande et elles ne changent pas. Si quelque chose vous semble incorrect, ne payez pas ; écrivez au vendeur ou ouvrez un litige.',
+  payeeChangedAfterPaidBody:
+    'Les informations affichées ici sont celles convenues pour cette commande et elles ne changent pas. Si vous avez payé à d’autres informations, écrivez au vendeur ou ouvrez un litige.',
+  payeeNameRule:
+    'Payez depuis un compte à votre nom. Saisissez le nom et le compte du bénéficiaire exactement comme indiqués ici : votre banque peut vérifier le nom du bénéficiaire avec le compte.',
   terms: 'Conditions à la commande',
   termsUnrecorded: 'Les conditions de l’annonce n’ont pas été copiées sur cette commande quand elle a été passée.',
   reputation: 'Consulter la réputation signalée',
@@ -126,5 +160,10 @@ const fr = {
   serviceFee: 'Frais de service',
   serviceFeeValue: 'Absents du dossier de la commande lu par cette page. Ils sont prélevés sur le montant libéré.',
   releasePending: 'Libération enregistrée. Le paiement dans le grand livre n’est pas confirmé.',
+  paidChecklist: 'Avant de le marquer comme payé',
+  paidCheckAmount: 'J’ai payé {amount} {currency}, le montant exact de cette commande',
+  paidCheckOwnAccount: 'J’ai payé depuis un compte à mon nom',
+  paidCheckDetails: 'J’ai payé aux informations de paiement affichées sur cette commande',
+  paidChecklistIncomplete: 'Cochez chaque ligne pour marquer le paiement comme envoyé.',
 } satisfies Record<keyof typeof en, string>;
 export const orderCopy = defineCopy('pay.p2p.order', en, { es, fr });

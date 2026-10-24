@@ -2741,11 +2741,30 @@ describe('svc-token money PG-hard', () => {
     const opensAt = new Date('2026-07-15T00:00:00.000Z');
     const closesAt = new Date('2026-07-22T00:00:00.000Z');
 
+    // Published TEST rule so these cases still exercise voting. Not a product default.
+    let proposalHandle = 0;
+    const propose = (service: TokenService, input: Omit<Parameters<TokenService['createProposal']>[0], 'handle'> & { handle?: string }) => {
+      proposalHandle += 1;
+      return service.createProposal({ ...input, handle: input.handle ?? `ballot-${proposalHandle}` });
+    };
+    beforeEach(async () => {
+      proposalHandle = 0;
+      await sql`
+        UPDATE token.governance_proposer
+           SET kind = 'stake',
+               min_stake = '1000'::numeric,
+               accounts = NULL,
+               period_limit = 100,
+               period_ms = ${7 * 86_400_000}
+         WHERE id = true
+      `;
+    });
+
     it('lets a staked-tier holder open a proposal', async () => {
       await fund(USER_A, '1000');
       await token.stake({ userId: USER_A, amount: amt('1000'), tier: 'flex', stakeId: crypto.randomUUID() });
 
-      const proposal = await token.createProposal({
+      const proposal = await propose(token, {
         kind: 'fee_param',
         body: { buybackBps: 1500 },
         createdBy: USER_A,
@@ -2761,7 +2780,7 @@ describe('svc-token money PG-hard', () => {
 
     it('refuses a zero-stake non-admin proposal', async () => {
       await expect(
-        token.createProposal({
+        propose(token, {
           kind: 'listing',
           body: { symbol: 'X' },
           createdBy: USER_A,
@@ -2776,7 +2795,7 @@ describe('svc-token money PG-hard', () => {
       await fund(USER_A, '999');
       await token.stake({ userId: USER_A, amount: amt('999'), tier: 'flex', stakeId: crypto.randomUUID() });
       await expect(
-        token.createProposal({
+        propose(token, {
           kind: 'listing',
           body: { symbol: 'X' },
           createdBy: USER_A,
@@ -2791,7 +2810,7 @@ describe('svc-token money PG-hard', () => {
       await fund(USER_A, '1000');
       await token.stake({ userId: USER_A, amount: amt('1000'), tier: 'flex', stakeId: crypto.randomUUID() });
       await expect(
-        token.createProposal({
+        propose(token, {
           kind: 'fee_param',
           body: {},
           createdBy: USER_A,
@@ -2805,7 +2824,7 @@ describe('svc-token money PG-hard', () => {
     it('allows a vote AT opensAt and refuses AT closesAt (half-open window)', async () => {
       await fund(USER_A, '1000');
       await token.stake({ userId: USER_A, amount: amt('1000'), tier: 'flex', stakeId: crypto.randomUUID() });
-      const proposal = await token.createProposal({
+      const proposal = await propose(token, {
         kind: 'curriculum',
         body: {},
         createdBy: USER_A,
@@ -2837,7 +2856,7 @@ describe('svc-token money PG-hard', () => {
     it('survives concurrent double-votes — one ballot, one success', async () => {
       await fund(USER_A, '1000');
       await token.stake({ userId: USER_A, amount: amt('1000'), tier: 'flex', stakeId: crypto.randomUUID() });
-      const proposal = await token.createProposal({
+      const proposal = await propose(token, {
         kind: 'listing',
         body: {},
         createdBy: USER_A,
@@ -2862,7 +2881,7 @@ describe('svc-token money PG-hard', () => {
     });
 
     it('lets admin open a proposal without stake', async () => {
-      const proposal = await token.createProposal({
+      const proposal = await propose(token, {
         kind: 'grant',
         body: { amount: '1' },
         createdBy: USER_A,
@@ -2880,7 +2899,7 @@ describe('svc-token money PG-hard', () => {
       await token.stake({ userId: USER_A, amount: amt('5000'), tier: 'flex', stakeId: crypto.randomUUID() });
       await token.stake({ userId: USER_B, amount: amt('2000'), tier: 'flex', stakeId: crypto.randomUUID() });
 
-      const proposal = await token.createProposal({
+      const proposal = await propose(token, {
         kind: 'curriculum',
         body: { title: 'Core path' },
         createdBy: USER_A,
@@ -2953,7 +2972,7 @@ describe('svc-token money PG-hard', () => {
     it('refuses a second ballot from the same user', async () => {
       await fund(USER_A, '1000');
       await token.stake({ userId: USER_A, amount: amt('1000'), tier: 'flex', stakeId: crypto.randomUUID() });
-      const proposal = await token.createProposal({
+      const proposal = await propose(token, {
         kind: 'listing',
         createdBy: USER_A,
         opensAt,
@@ -2968,7 +2987,7 @@ describe('svc-token money PG-hard', () => {
     });
 
     it('refuses a vote with zero stake', async () => {
-      const proposal = await token.createProposal({
+      const proposal = await propose(token, {
         kind: 'grant',
         createdBy: USER_A,
         asAdmin: true,
@@ -2986,7 +3005,7 @@ describe('svc-token money PG-hard', () => {
       await fund(USER_A, '1000');
       await token.stake({ userId: USER_A, amount: amt('1000'), tier: 'flex', stakeId: crypto.randomUUID() });
 
-      const future = await token.createProposal({
+      const future = await propose(token, {
         kind: 'listing',
         createdBy: USER_A,
         opensAt: new Date('2026-08-01T00:00:00.000Z'),
@@ -2998,7 +3017,7 @@ describe('svc-token money PG-hard', () => {
         code: 'token.proposal_not_open',
       });
 
-      const open = await token.createProposal({
+      const open = await propose(token, {
         kind: 'listing',
         createdBy: USER_A,
         opensAt,
@@ -3017,7 +3036,7 @@ describe('svc-token money PG-hard', () => {
       await fund(USER_A, '1000');
       await token.stake({ userId: USER_A, amount: amt('1000'), tier: 'flex', stakeId: crypto.randomUUID() });
 
-      const draft = await token.createProposal({
+      const draft = await propose(token, {
         kind: 'fee_param',
         body: { buybackBps: 1200 },
         createdBy: USER_A,
@@ -3070,9 +3089,9 @@ describe('svc-token money PG-hard', () => {
       await fund(USER_A, '1000');
       await token.stake({ userId: USER_A, amount: amt('1000'), tier: 'flex', stakeId: crypto.randomUUID() });
 
-      await token.createProposal({ kind: 'listing', createdBy: USER_A, opensAt, closesAt, now });
-      await token.createProposal({ kind: 'grant', createdBy: USER_A, opensAt, closesAt, now });
-      await token.createProposal({
+      await propose(token, { kind: 'listing', createdBy: USER_A, opensAt, closesAt, now });
+      await propose(token, { kind: 'grant', createdBy: USER_A, opensAt, closesAt, now });
+      await propose(token, {
         kind: 'listing',
         createdBy: USER_A,
         opensAt: new Date('2026-08-01T00:00:00.000Z'),
@@ -3102,7 +3121,7 @@ describe('svc-token money PG-hard', () => {
       const availableBefore = await balanceOf(USER_A);
       const stakedBefore = await stakedOf(USER_A);
 
-      const proposal = await token.createProposal({
+      const proposal = await propose(token, {
         kind: 'fee_param',
         createdBy: USER_A,
         opensAt,
@@ -3119,7 +3138,7 @@ describe('svc-token money PG-hard', () => {
     it('close writes passed when quorum and for-threshold hold', async () => {
       await fund(USER_A, '1000');
       await token.stake({ userId: USER_A, amount: amt('1000'), tier: 'flex', stakeId: crypto.randomUUID() });
-      const proposal = await token.createProposal({
+      const proposal = await propose(token, {
         kind: 'fee_param',
         createdBy: USER_A,
         opensAt,
@@ -3142,7 +3161,7 @@ describe('svc-token money PG-hard', () => {
       await fund(USER_B, '600');
       await token.stake({ userId: USER_A, amount: amt('400'), tier: 'flex', stakeId: crypto.randomUUID() });
       await token.stake({ userId: USER_B, amount: amt('600'), tier: 'flex', stakeId: crypto.randomUUID() });
-      const proposal = await token.createProposal({
+      const proposal = await propose(token, {
         kind: 'curriculum',
         createdBy: USER_A,
         asAdmin: true,
@@ -3162,7 +3181,7 @@ describe('svc-token money PG-hard', () => {
       await fund(USER_B, '99');
       await token.stake({ userId: USER_A, amount: amt('1000'), tier: 'flex', stakeId: crypto.randomUUID() });
       await token.stake({ userId: USER_B, amount: amt('99'), tier: 'flex', stakeId: crypto.randomUUID() });
-      const proposal = await token.createProposal({
+      const proposal = await propose(token, {
         kind: 'fee_param',
         createdBy: USER_A,
         opensAt,
@@ -3182,7 +3201,7 @@ describe('svc-token money PG-hard', () => {
       await fund(USER_B, '10000');
       await token.stake({ userId: USER_A, amount: amt('100'), tier: 'flex', stakeId: crypto.randomUUID() });
       const bStake = await token.stake({ userId: USER_B, amount: amt('10000'), tier: 'flex', stakeId: crypto.randomUUID() });
-      const missed = await token.createProposal({
+      const missed = await propose(token, {
         kind: 'fee_param',
         createdBy: USER_A,
         asAdmin: true,
@@ -3211,7 +3230,7 @@ describe('svc-token money PG-hard', () => {
       await token.unstake((await sql<Array<{ id: string }>>`SELECT id FROM token.stakes WHERE user_id = ${USER_A}`)[0]!.id);
       await fund(USER_C, '1000');
       await token.stake({ userId: USER_C, amount: amt('1000'), tier: 'flex', stakeId: crypto.randomUUID() });
-      const held = await token.createProposal({
+      const held = await propose(token, {
         kind: 'curriculum',
         createdBy: USER_C,
         opensAt,
@@ -3240,7 +3259,7 @@ describe('svc-token money PG-hard', () => {
       });
       await fund(USER_A, '1000');
       await unset.stake({ userId: USER_A, amount: amt('1000'), tier: 'flex', stakeId: crypto.randomUUID() });
-      const proposal = await unset.createProposal({
+      const proposal = await propose(unset, {
         kind: 'fee_param',
         createdBy: USER_A,
         opensAt,
@@ -3262,7 +3281,7 @@ describe('svc-token money PG-hard', () => {
       const stakedBefore = await stakedOf(USER_A);
       const postsBefore = ledger.journal().length;
 
-      const proposal = await token.createProposal({
+      const proposal = await propose(token, {
         kind: 'grant',
         body: { amount: '999' },
         createdBy: USER_A,
@@ -3284,7 +3303,7 @@ describe('svc-token money PG-hard', () => {
     it('listing close names execute unwired and does not open a market', async () => {
       await fund(USER_A, '1000');
       await token.stake({ userId: USER_A, amount: amt('1000'), tier: 'flex', stakeId: crypto.randomUUID() });
-      const proposal = await token.createProposal({
+      const proposal = await propose(token, {
         kind: 'listing',
         body: { symbol: 'X' },
         createdBy: USER_A,
@@ -3301,7 +3320,7 @@ describe('svc-token money PG-hard', () => {
     it('refuses closeProposal when an active row disagrees with the ledger pot', async () => {
       await fund(USER_A, '1000');
       const stake = await token.stake({ userId: USER_A, amount: amt('1000'), tier: 'flex', stakeId: crypto.randomUUID() });
-      const proposal = await token.createProposal({
+      const proposal = await propose(token, {
         kind: 'fee_param',
         createdBy: USER_A,
         opensAt,
@@ -3322,7 +3341,7 @@ describe('svc-token money PG-hard', () => {
     it('refuses close before the window ends, and refuses a second close', async () => {
       await fund(USER_A, '1000');
       await token.stake({ userId: USER_A, amount: amt('1000'), tier: 'flex', stakeId: crypto.randomUUID() });
-      const proposal = await token.createProposal({
+      const proposal = await propose(token, {
         kind: 'fee_param',
         createdBy: USER_A,
         opensAt,

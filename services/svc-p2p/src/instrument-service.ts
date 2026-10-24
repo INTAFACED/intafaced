@@ -177,9 +177,16 @@ export interface TradeInstrumentView {
   fiatCurrency: string;
   label: string;
   details: InstrumentDetails;
+  /** Each detail key's label from the method schema, in the schema's order; a key the schema no longer names keeps its key. */
+  fields: ReadonlyArray<{ readonly key: string; readonly label: string }>;
   fingerprint: string;
   attachedAt: Date;
   loggedAt: Date;
+  /**
+   * The seller's saved destination no longer matches what this order was placed with: edited (another fingerprint) or
+   * removed. The order still pays the snapshot above; this only says so. Null while they match.
+   */
+  payeeChange: { readonly kind: 'changed' | 'removed' } | null;
 }
 
 export interface AccessLogEntry {
@@ -426,12 +433,7 @@ export class InstrumentService {
 
   /** The applicable schema, exact country beating the wildcard. */
   private async schemaFor(methodId: string, country: string): Promise<MethodSchema> {
-    const rows = await this.sql<SchemaRow[]>`
-      SELECT * FROM p2p.payment_method_schemas
-       WHERE method_id = ${methodId} AND country IN (${country}, ${ANY_COUNTRY})
-    `;
-    const all = rows.map(toSchema);
-    const schema = pickSchema(all, methodId, country);
+    const schema = await this.lookupSchema(methodId, country);
 
     if (!schema) {
       // The honest refusal. We do not know what this market needs, so we cannot
@@ -445,6 +447,15 @@ export class InstrumentService {
       throw new InstrumentError(`Payment method "${methodId}" is not currently accepted in ${country}`, 'p2p.instrument_method_disabled');
     }
     return schema;
+  }
+
+  /** The schema that applies to a method in a country (exact country beating the wildcard), or null when none is registered. */
+  private async lookupSchema(methodId: string, country: string): Promise<MethodSchema | null> {
+    const rows = await this.sql<SchemaRow[]>`
+      SELECT * FROM p2p.payment_method_schemas
+       WHERE method_id = ${methodId} AND country IN (${country}, ${ANY_COUNTRY})
+    `;
+    return pickSchema(rows.map(toSchema), methodId, country);
   }
 
   // ── The owner's instruments ────────────────────────────────────────────────
@@ -908,9 +919,11 @@ export class InstrumentService {
           purged_at: Date | null;
           dispute_status: string | null;
           original_terms_claimed_at: Date | null;
+          method_id: string;
+          country: string;
         }>
       >`
-        SELECT tpi.trade_id, tpi.instrument_id, tpi.owner_id, tpi.purged_at,
+        SELECT tpi.trade_id, tpi.instrument_id, tpi.owner_id, tpi.purged_at, tpi.method_id, tpi.country,
                t.status, t.seller_id, t.buyer_id, t.original_terms_claimed_at, d.status AS dispute_status
           FROM p2p.trade_payment_instruments tpi
           JOIN p2p.p2p_trades t ON t.id = tpi.trade_id
@@ -960,6 +973,15 @@ export class InstrumentService {
         );
       }
 
+      // Display labels, read before the disclosure so that nothing can fail after it is logged. Labels only: whatever
+      // goes wrong here (a malformed stored schema, no schema at all) the buyer still gets the details under their keys.
+      let labels: ReadonlyArray<{ readonly key: string; readonly label: string }> = [];
+      try {
+        labels = (await this.lookupSchema(ctx.method_id, ctx.country))?.fields.map((f) => ({ key: f.key, label: f.label })) ?? [];
+      } catch (err) {
+        recordSwallowed('p2p.instrument.reveal_labels', err);
+      }
+
       // 2 · The disclosure. Read and log, or neither.
       const rows = await this.sql<
         Array<{
@@ -974,13 +996,17 @@ export class InstrumentService {
           fingerprint: string;
           attached_at: Date;
           logged_at: Date;
+          current_fingerprint: string | null;
+          current_status: string | null;
         }>
       >`
         WITH src AS (
           SELECT tpi.trade_id, tpi.instrument_id, tpi.owner_id, tpi.method_id, tpi.country,
-                 tpi.fiat_currency, tpi.label, tpi.details, tpi.fingerprint, tpi.attached_at
+                 tpi.fiat_currency, tpi.label, tpi.details, tpi.fingerprint, tpi.attached_at,
+                 pi.fingerprint AS current_fingerprint, pi.status AS current_status
             FROM p2p.trade_payment_instruments tpi
             JOIN p2p.p2p_trades t ON t.id = tpi.trade_id
+            LEFT JOIN p2p.payment_instruments pi ON pi.id = tpi.instrument_id
            WHERE tpi.trade_id = ${input.tradeId}
              AND tpi.details IS NOT NULL
              AND t.status IN ('escrowed', 'fiat_sent', 'disputed')
@@ -1008,6 +1034,7 @@ export class InstrumentService {
         throw notFound(input.tradeId);
       }
 
+      const details = this.detailsFromStore(row.instrument_id, row.owner_id, row.details);
       return {
         tradeId: row.trade_id,
         instrumentId: row.instrument_id,
@@ -1016,10 +1043,12 @@ export class InstrumentService {
         country: row.country,
         fiatCurrency: row.fiat_currency,
         label: row.label,
-        details: this.detailsFromStore(row.instrument_id, row.owner_id, row.details),
+        details,
+        fields: labelledFields(labels, Object.keys(details)),
         fingerprint: row.fingerprint,
         attachedAt: row.attached_at,
         loggedAt: row.logged_at,
+        payeeChange: payeeChangeOf(row),
       };
     });
   }
@@ -1155,6 +1184,35 @@ function decideRole(
 }
 
 // ── Row mapping ──────────────────────────────────────────────────────────────
+
+/**
+ * Labels for a snapshot's keys, from the method's schema whether or not the method is still accepted: a buyer paying an
+ * order placed before a retirement still needs to know which value is the account holder. Schema order first, then any
+ * key the schema does not name, under its own key.
+ */
+function labelledFields(
+  labels: ReadonlyArray<{ readonly key: string; readonly label: string }>,
+  keys: readonly string[],
+): ReadonlyArray<{ readonly key: string; readonly label: string }> {
+  const present = new Set(keys);
+  const named = labels.filter((field) => present.has(field.key));
+  const known = new Set(named.map((field) => field.key));
+  return [...named, ...keys.filter((key) => !known.has(key)).map((key) => ({ key, label: key }))];
+}
+
+/**
+ * Whether the seller's saved destination still matches the order's snapshot: the fingerprint decides, never the label.
+ * No time is given: the row's `updated_at` also moves on a rename, so it does not say when the payee changed.
+ */
+function payeeChangeOf(row: {
+  fingerprint: string;
+  current_fingerprint: string | null;
+  current_status: string | null;
+}): TradeInstrumentView['payeeChange'] {
+  if (row.current_status === 'removed') return { kind: 'removed' };
+  if (row.current_fingerprint !== null && row.current_fingerprint !== row.fingerprint) return { kind: 'changed' };
+  return null;
+}
 
 function toHeader(row: InstrumentRow): InstrumentHeader {
   return {

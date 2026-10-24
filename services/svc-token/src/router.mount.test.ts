@@ -106,6 +106,13 @@ function stubToken(overrides: Partial<TokenService> = {}): TokenService {
       opensAt: new Date('2026-07-15T00:00:00.000Z'),
       closesAt: new Date('2026-07-22T00:00:00.000Z'),
       createdAt: new Date('2026-07-15T00:00:00.000Z'),
+      title: null,
+      bodyMd: null,
+      discussionLink: null,
+      businessKey: null,
+      authorId: null,
+      revision: 1,
+      counts: { votes: 1, for: 1, against: 0, abstain: 0 },
       tally: {
         forWeight: amt('1000'),
         againstWeight: amt('0'),
@@ -804,6 +811,13 @@ describe('svc-token mount — governance close', () => {
         opensAt: new Date('2026-07-15T00:00:00.000Z'),
         closesAt: new Date('2026-07-22T00:00:00.000Z'),
         createdAt: new Date('2026-07-15T00:00:00.000Z'),
+        title: null,
+        bodyMd: null,
+        discussionLink: null,
+        businessKey: null,
+        authorId: null,
+        revision: 1,
+        counts: { votes: 1, for: 1, against: 0, abstain: 0 },
         tally: {
           forWeight: amt('1000'),
           againstWeight: amt('0'),
@@ -837,6 +851,11 @@ describe('svc-token mount — governance close', () => {
     });
     expect(userCopy('token.proposal_list_limit_unset')).not.toMatch(/50/);
     await expect(caller.listProposals({ limit: 50 })).resolves.toEqual([]);
+  });
+
+  it('does not let a reader open another author draft', () => {
+    const procedures = createTokenRouter(stubToken())._def.procedures as Record<string, unknown>;
+    expect(procedures.openDueProposals).toBeUndefined();
   });
 });
 

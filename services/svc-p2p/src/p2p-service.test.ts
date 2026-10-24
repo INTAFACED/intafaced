@@ -522,6 +522,62 @@ describe('svc-p2p escrow', () => {
       expect(formatAmount(trade.price)).toBe('0.985');
     });
 
+    // P-trade-orders-23 / J-p2p-01 #7: the seller is told once that the buyer marked the order paid.
+    const fiatSentNotices = () => bus.published.filter((env) => env.subject === 'intafaced.p2p.trade_fiat.sent');
+    const noticeOwed = async (tradeId: string) =>
+      (await sql<Array<{ owed: boolean }>>`SELECT handed_at IS NULL AS owed FROM p2p.fiat_sent_notices WHERE trade_id = ${tradeId}`)[0]!
+        .owed;
+
+    it('hands the buyer-paid notice to the bus once when the buyer marks paid, keyed by the trade', async () => {
+      const trade = await escrowedTrade('100');
+      const marked = await p2p.markFiatSent(trade.id, TAKER);
+
+      expect(fiatSentNotices()).toHaveLength(1);
+      expect(fiatSentNotices()[0]).toMatchObject({
+        idempotencyKey: `p2p.trade_fiat.sent:${trade.id}`,
+        payload: { tradeId: trade.id, buyerId: TAKER, sellerId: MAKER, markedAt: marked.fiatSentAt!.toISOString() },
+      });
+      expect(await noticeOwed(trade.id)).toBe(false);
+      // Nothing is left for the sweep.
+      expect(await p2p.sweepFiatSentNotices(100)).toEqual({ sent: 0, failures: [] });
+      expect(fiatSentNotices()).toHaveLength(1);
+    });
+
+    it('still marks paid when the bus is down, and the sweep tells the seller on the next tick', async () => {
+      bus = new BusFailingOnce('svc-p2p', 'p2pTradeFiatSent');
+      p2p = new P2pService(sql, ledger, bus, options);
+      const trade = await escrowedTrade('100');
+
+      const marked = await p2p.markFiatSent(trade.id, TAKER);
+      expect(marked.status).toBe('fiat_sent');
+      expect(fiatSentNotices()).toHaveLength(0);
+      expect(await noticeOwed(trade.id)).toBe(true);
+
+      expect(await p2p.sweepFiatSentNotices(100)).toEqual({ sent: 1, failures: [] });
+      expect(fiatSentNotices()).toHaveLength(1);
+      expect(fiatSentNotices()[0]!.idempotencyKey).toBe(`p2p.trade_fiat.sent:${trade.id}`);
+      expect(await noticeOwed(trade.id)).toBe(false);
+    });
+
+    it('owes no notice once the trade has moved on, and a sweep without a batch size refuses', async () => {
+      bus = new BusFailingOnce('svc-p2p', 'p2pTradeFiatSent');
+      p2p = new P2pService(sql, ledger, bus, options);
+      const trade = await escrowedTrade('100');
+      await p2p.markFiatSent(trade.id, TAKER);
+      await p2p.confirmFiatReceived(trade.id, MAKER);
+
+      // Released before the notice left: "check the payment before you release" would be wrong now.
+      expect(await p2p.sweepFiatSentNotices(100)).toEqual({ sent: 0, failures: [] });
+      expect(fiatSentNotices()).toHaveLength(0);
+      // And it is closed, not owed forever.
+      const [row] = await sql<Array<{ handed: boolean; dropped: boolean }>>`
+        SELECT handed_at IS NOT NULL AS handed, dropped_at IS NOT NULL AS dropped FROM p2p.fiat_sent_notices WHERE trade_id = ${trade.id}
+      `;
+      expect(row).toEqual({ handed: false, dropped: true });
+      await expect(p2p.sweepFiatSentNotices(undefined)).rejects.toMatchObject({ code: 'p2p.sweep_settlements_limit_unset' });
+      await expectBooksClosed();
+    });
+
     it('releases to the buyer, pays the house its fee, and closes the books', async () => {
       const trade = await escrowedTrade('100');
       await p2p.markFiatSent(trade.id, TAKER);

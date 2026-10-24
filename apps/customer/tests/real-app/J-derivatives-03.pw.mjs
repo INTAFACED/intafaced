@@ -199,12 +199,79 @@ test(`${J} #3 sets a part take profit: the size it covers and the remainder show
   ]);
 });
 
+test(`${J} #4 attaches a take profit and a stop loss to an opening order: the order fills, then they arm on the filled size`, async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const me = await api(account());
+  const { positionId } = run.read();
+  const sizeOf = async () => (await me.get('/api/v1/positions')).body.find((p) => p.id === positionId)?.contracts;
+  const before = await sizeOf();
+  await desk(page);
+  const ticket = page.getByRole('region', { name: 'Order ticket' });
+  await ticket.getByRole('textbox', { name: 'Size' }).fill(SIZE);
+  await ticket.getByRole('textbox', { name: 'Leverage' }).fill(LEVERAGE);
+  // 3% either side of the mark, well clear of the TEST walk.
+  const mark = await markOf(me);
+  const tp = away(mark, 300);
+  const sl = away(mark, -300);
+  await ticket.getByRole('textbox', { name: /^Take profit/ }).fill(tp);
+  await ticket.getByRole('textbox', { name: /^Stop loss/ }).fill(sl);
+  await ticket.getByRole('button', { name: 'Review', exact: true }).click();
+  await expect(ticket.getByText('Total to commit now', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Open long' }).click();
+  const confirm = page.getByRole('alertdialog');
+  await expect(confirm).toBeVisible();
+  const tier = confirm.getByRole('region', { name: 'New margin tier' });
+  if ((await tier.count()) > 0) await tier.getByRole('checkbox').click();
+  await expect(confirm.getByText('Take profit', { exact: true })).toBeVisible();
+  await expect(confirm.getByText('Stop loss', { exact: true })).toBeVisible();
+  const sent = page.waitForResponse((r) => r.url().endsWith('/futures/orders') && r.request().method() === 'POST');
+  await confirm.getByRole('button', { name: 'Confirm open long' }).click();
+  // The confirm re-checks the numbers; a mark that moved meanwhile shows the new figures, and the tier is ticked again.
+  const placed = page.getByText(/arm on what this order fills/);
+  await expect(placed.or(confirm.getByText('The numbers moved since you reviewed'))).toBeVisible({ timeout: 20_000 });
+  if (!(await placed.isVisible())) {
+    if ((await tier.count()) > 0) await tier.getByRole('checkbox').click();
+    await confirm.getByRole('button', { name: 'Confirm open long' }).click();
+  }
+  await expect(placed).toBeVisible({ timeout: 20_000 });
+  const request = (await sent).request().postDataJSON();
+  expect(request).toMatchObject({ side: 'buy', amount: SIZE, takeProfit: tp, stopLoss: sl });
+
+  // The order filled into the long, and the protection armed on the 0.01 it filled, not on the whole position.
+  const entry = await until(
+    async () => (await me.get('/api/v1/futures/entry-protection')).body.protections.find((e) => e.clientOrderId === request.clientOrderId),
+    (e) => e?.status === 'done',
+    'the protection on the order',
+  );
+  expect(entry).toMatchObject({ takeProfit: tp, stopLoss: sl, armedQuantity: SIZE });
+  expect(await sizeOf()).toBe(fromUnits(toUnits(before) + toUnits(SIZE)));
+  // The legs are a pair on the position the fills landed in, named after it and the order.
+  expect(entry.takeProfitClientOrderId).toBe(`entry:${positionId}:${request.clientOrderId}:tp`);
+  const ids = [entry.takeProfitClientOrderId, entry.stopLossClientOrderId];
+  const armed = (await legs(me, positionId)).filter((o) => ids.includes(o.clientOrderId));
+  expect(armed.map((o) => [o.attachment, o.status, o.quantity, o.wholePosition, o.triggerPrice]).sort()).toEqual([
+    ['stop_loss', 'armed', SIZE, false, sl],
+    ['take_profit', 'armed', SIZE, false, tp],
+  ]);
+
+  // The Orders tab lists it with what it covers, beside the legs themselves.
+  await page.getByRole('tab', { name: 'Orders' }).click();
+  const attached = page.getByRole('region', { name: 'Take profits and stop losses attached to orders' });
+  const row = attached.getByRole('row').filter({ hasText: 'Set on everything the order filled' });
+  await expect(row).toHaveCount(1);
+  await expect(row).toContainText(SIZE);
+});
+
 test(`${J} #6 the mark crosses a trigger: armed, triggered, filled through a reduce-only order in the book, once; the other leg cancelled`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
   const me = await api(account());
   const { positionId } = run.read();
+  // The size as it stands: #4 added to it.
+  const size = (await me.get('/api/v1/positions')).body.find((p) => p.id === positionId).contracts;
   await desk(page);
   const dialog = await protection(page);
   const current = dialog.getByRole('region', { name: 'On this position now' });
@@ -233,18 +300,19 @@ test(`${J} #6 the mark crosses a trigger: armed, triggered, filled through a red
   expect(pair).toHaveLength(2);
 
   // The pair is listed with every stop on the Orders tab, which keeps a fired one after its position has gone.
+  await expect(dialog.getByRole('button', { name: 'Close dialog' }).first()).toBeInViewport();
   await dialog.getByRole('button', { name: 'Close dialog' }).first().click();
   await page.getByRole('tab', { name: 'Orders' }).click();
   const triggers = page.getByRole('region', { name: 'Take-profit, stop-loss and stop orders' });
   const rows = triggers.getByRole('row');
-  await expect(rows.filter({ hasText: 'Armed' })).toHaveCount(2);
-  await expect(rows.filter({ hasText: 'Armed' }).first()).toContainText('judged on the mark price');
+  // Both listed; at 3 bps the walk can cross one before the tab is read, so a leg may already be on its way out.
+  await expect(rows.filter({ hasText: 'judged on the mark price' }).first()).toBeVisible();
 
   // The walk crosses one: it shows filled, with what it closed and through which order, and the other cancelled
   // because the position closed.
   const filled = rows.filter({ hasText: 'Filled' });
   await expect(filled).toHaveCount(1, { timeout: 180_000 });
-  await expect(filled).toContainText(`Fired for ${SIZE}; ${SIZE} closed so far`);
+  await expect(filled).toContainText(`Fired for ${size}; ${size} closed so far`);
   await expect(filled).toContainText('Close order ');
   await expect(rows.filter({ hasText: 'The position closed, so this one is no longer needed.' })).toHaveCount(1);
   await expect(rows.filter({ hasText: 'Armed' })).toHaveCount(0);
@@ -257,7 +325,7 @@ test(`${J} #6 the mark crosses a trigger: armed, triggered, filled through a red
   const fired = live.find((o) => o.status === 'filled');
   const other = live.find((o) => o.id !== fired.id);
   expect(other).toMatchObject({ status: 'cancelled', cancelReason: 'position_closed' });
-  expect(fired).toMatchObject({ firedQuantity: SIZE, closedQuantity: SIZE, triggerSource: 'mark' });
+  expect(fired).toMatchObject({ firedQuantity: size, closedQuantity: size, triggerSource: 'mark' });
   expect((await me.get('/api/v1/positions')).body.filter((p) => p.id === positionId)).toEqual([]);
 
   // It closed through the book: one reduce-only sell for the whole size, on the fired leg's own client id, filled.
@@ -267,7 +335,7 @@ test(`${J} #6 the mark crosses a trigger: armed, triggered, filled through a red
   const orders = body.orders ?? body;
   const closes = orders.filter((o) => (o.clientOrderId ?? '').startsWith(`cond:${fired.id}`));
   expect(closes.map((o) => [o.orderId, o.side, o.reduceOnly, o.status, o.filledQty])).toEqual([
-    [fired.closeOrderId, 'sell', true, 'filled', SIZE],
+    [fired.closeOrderId, 'sell', true, 'filled', size],
   ]);
   expect(orders.filter((o) => (o.clientOrderId ?? '').startsWith(`cond:${other.id}`))).toEqual([]);
 });
