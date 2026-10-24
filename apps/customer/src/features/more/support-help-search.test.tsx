@@ -9,6 +9,7 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 
 const asked = vi.hoisted(() => [] as unknown[]);
+const who = vi.hoisted(() => ({ userId: 'user-1' }));
 vi.mock('../session/session', () => {
   const api = {
     query: async (_module: string, _procedure: string, input?: unknown) => {
@@ -17,7 +18,7 @@ vi.mock('../session/session', () => {
     },
     mutate: async () => ({ ok: false }),
   };
-  return { useApi: () => api, useSession: () => ({ api, userId: 'user-1', session: { accessToken: 'token' } }) };
+  return { useApi: () => api, useSession: () => ({ api, userId: who.userId, session: { accessToken: 'token' } }) };
 });
 
 import { SupportHelpArticles } from './SupportHelpArticles';
@@ -35,6 +36,7 @@ const field = () => host.querySelector<HTMLInputElement>('input')!;
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   asked.length = 0;
+  who.userId = 'user-1';
   host = document.createElement('div');
   document.body.append(host);
 });
@@ -66,6 +68,20 @@ describe('words carried to the support desk (J-support-public-01 #4)', () => {
     act(() => root.unmount());
     await mount();
     expect(field().value).toBe('withdraw');
+  });
+
+  it('lets newly carried words win over a kept search, and keeps the rest of the entry state', async () => {
+    history.replaceState({ router: 'kept', supportHelpSearch: { userId: 'user-1', q: 'withdraw' } }, '', '/support?q=passkey');
+    await mount();
+    expect(field().value).toBe('passkey');
+    expect(history.state).toEqual({ router: 'kept', supportHelpSearch: { userId: 'user-1', q: 'passkey' } });
+  });
+
+  it("never shows another account's kept search", async () => {
+    history.replaceState({ supportHelpSearch: { userId: 'user-1', q: 'withdraw' } }, '', '/support');
+    who.userId = 'user-2';
+    await mount();
+    expect(field().value).toBe('');
   });
 
   it('starts empty on a fresh visit', async () => {
