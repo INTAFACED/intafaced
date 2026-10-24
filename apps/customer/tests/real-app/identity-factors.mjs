@@ -8,7 +8,7 @@ export const PASSKEY_ORIGIN = 'http://localhost:3210';
 export async function virtualAuthenticator(page, transport = 'internal') {
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('WebAuthn.enable');
-  await cdp.send('WebAuthn.addVirtualAuthenticator', {
+  const { authenticatorId } = await cdp.send('WebAuthn.addVirtualAuthenticator', {
     options: {
       protocol: 'ctap2',
       transport,
@@ -18,6 +18,7 @@ export async function virtualAuthenticator(page, transport = 'internal') {
       automaticPresenceSimulation: true,
     },
   });
+  return { cdp, authenticatorId };
 }
 
 /** Adds a passkey from Security, as the signed-in person would. */

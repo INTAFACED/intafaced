@@ -40,6 +40,10 @@ export type AssessmentDefinition = {
   readonly attemptLimit: number | null;
   /** Null: the owner published no cooldown. Seconds. */
   readonly cooldownSeconds: number | null;
+  /** Null or absent: no time limit. Seconds from Start, held by the server (AC-quizzes-03). */
+  readonly timeLimitSeconds?: number | null;
+  /** Absent: `score_only`, so a finished attempt never shows the key unless staff chose `answers`. */
+  readonly reviewMode?: 'answers' | 'score_only';
 };
 
 export type AssessmentPublicQuestion = {
@@ -93,8 +97,15 @@ export function assertAssessmentCatalog(
     if (def.passMark !== null && (!Number.isInteger(def.passMark) || def.passMark < 0)) {
       throw new AssessmentCatalogError(`assessment ${def.slug} pass mark is not a non-negative integer`);
     }
+    if (def.passMark !== null && def.passMark > def.questions.reduce((sum, q) => sum + q.points, 0)) {
+      throw new AssessmentCatalogError(`assessment ${def.slug} pass mark is more than the questions' points, so no one could pass`);
+    }
     if (def.attemptLimit !== null && (!Number.isInteger(def.attemptLimit) || def.attemptLimit < 1)) {
       throw new AssessmentCatalogError(`assessment ${def.slug} attempt limit is not a positive integer`);
+    }
+    const timeLimit = def.timeLimitSeconds ?? null;
+    if (timeLimit !== null && (!Number.isInteger(timeLimit) || timeLimit < 1)) {
+      throw new AssessmentCatalogError(`assessment ${def.slug} time limit is not a positive integer`);
     }
     if (def.cooldownSeconds !== null && (!Number.isInteger(def.cooldownSeconds) || def.cooldownSeconds < 1)) {
       throw new AssessmentCatalogError(`assessment ${def.slug} cooldown is not a positive integer`);

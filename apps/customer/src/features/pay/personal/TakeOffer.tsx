@@ -1,3 +1,4 @@
+import type { P2pDelistReason } from '@intafaced/contracts/p2p-delist';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../../shared/api';
 import { displayAmount } from '../../../shared/money';
@@ -6,10 +7,14 @@ import { navigate } from '../../../app/location';
 import { useResource } from '../../../shared/resource';
 import { Button, ReviewDialog as Dialog } from '@intafaced/ui';
 import { PayDetails } from '../components';
+import { formatDateTime } from '../portal/ui/format';
 import { wasPlacedUnderHeldReference, type PersonalPayApi } from '../pay-api';
 import type { Offer, TakeQuote, Trade } from '../schemas';
 import { p2pDepth } from './p2p-depth-copy';
 import { TraderName, useTraders } from './Trader';
+import { P2PEligibilityPanel } from './Eligibility';
+import { StepUpConfirm } from '../../money/StepUpConfirm';
+import type { StepUpBegin } from '../../account/security-step-up';
 import {
   checkTake,
   exceedsAvailable,
@@ -38,6 +43,20 @@ export function takeFailureText(t: CopyT, kind: TakeFailure, context: 'quote' | 
       return t('failTermsChanged');
     case 'quoteChanged':
       return t('failQuoteChanged');
+    case 'quoteExpired':
+      return t('failQuoteExpired');
+    case 'orderCap':
+      return t('failOrderCapPlain');
+    case 'pairLimit':
+      return t('failPairLimitPlain');
+    case 'verificationLimit':
+      return t('failVerificationPlain');
+    case 'limitsUnset':
+      return t('failLimitsUnset');
+    case 'methodRetired':
+      return t('failMethodRetired');
+    case 'buyingPaused':
+      return t('failBuyingPausedPlain');
     case 'ownOffer':
       return t('failOwnOffer');
     case 'unavailable':
@@ -58,6 +77,20 @@ export function takeFailureText(t: CopyT, kind: TakeFailure, context: 'quote' | 
       return t('failVerify');
     case 'region':
       return t('failRegion');
+    case 'contact':
+      return t('failContact');
+    case 'risk':
+      return t('failRisk');
+    case 'stepUp':
+      return t('failStepUp');
+    case 'stepUpExpired':
+      return t('failStepUpExpired');
+    case 'stepUpFailed':
+      return t('failStepUpFailed');
+    case 'stepUpUnchecked':
+      return t('failStepUpUnchecked');
+    case 'unchecked':
+      return t('failUnchecked');
     case 'viewChanged':
       return t('failViewChanged');
     case 'noService':
@@ -67,10 +100,59 @@ export function takeFailureText(t: CopyT, kind: TakeFailure, context: 'quote' | 
   }
 }
 
+/** The operator's reason for retiring a payment method, in words. A retirement has no end time. */
+const RETIRED_COPY = {
+  regulation: 'failMethodRetiredRegulation',
+  provider_withdrawn: 'failMethodRetiredProviderWithdrawn',
+  fraud_risk: 'failMethodRetiredFraudRisk',
+  low_demand: 'failMethodRetiredLowDemand',
+} as const satisfies Record<P2pDelistReason, string>;
+
+/**
+ * A take limit in words, with the figures the service sent: the bound, what is left and when it ends, or that it has
+ * no end time. Without the figures the kind's plain sentence stands.
+ */
+function limitText(
+  t: CopyT,
+  kind: TakeFailure,
+  failure: Extract<ApiResult<unknown>, { ok: false }>,
+  limitTime: (iso: string) => string,
+): string | null {
+  if (failure.code === 'p2p.verification_limit_currency') return t('failVerificationCurrency');
+  const limit = failure.p2pLimit;
+  if (!limit) return null;
+  const { cap, min, max, remaining, currency, until, reason, windowHours } = limit;
+  if (kind === 'buyingPaused') {
+    return cap && windowHours && until ? t('failBuyingPaused', { cap, hours: windowHours, time: limitTime(until) }) : null;
+  }
+  if (kind === 'methodRetired' && reason) return t(RETIRED_COPY[reason]);
+  if (kind === 'orderCap' && cap) return t('failOrderCap', { cap });
+  if (kind === 'pairLimit' && min && max && currency) {
+    return t('failPairLimit', { min: displayAmount(min), max: displayAmount(max), currency });
+  }
+  if (kind !== 'verificationLimit' || !currency) return null;
+  switch (failure.code) {
+    case 'p2p.verification_daily_limit':
+      return remaining && until
+        ? t('failVerificationDaily', { remaining: displayAmount(remaining), currency, time: limitTime(until) })
+        : null;
+    case 'p2p.verification_lifetime_limit':
+      return remaining ? t('failVerificationLifetime', { remaining: displayAmount(remaining), currency }) : null;
+    case 'p2p.verification_order_min':
+      return min ? t('failVerificationMin', { min: displayAmount(min), currency }) : null;
+    case 'p2p.verification_order_max':
+      return max ? t('failVerificationMax', { max: displayAmount(max), currency }) : null;
+  }
+  return null;
+}
+
 /** A failed attempt, in words. An unconfirmed one is called that: it is never described as refused or unchanged. */
 export function TakeFailureNote({ failure, context }: { failure: Extract<ApiResult<unknown>, { ok: false }>; context: 'quote' | 'take' }) {
-  const { t } = p2pDepth.useCopy();
+  const { t, requestedLocale } = p2pDepth.useCopy();
   const kind = takeFailureKind(failure);
+  const limitTime = (iso: string) => formatDateTime(iso, requestedLocale)?.short ?? iso;
+  const open = kind === 'orderCap' ? (failure.p2pLimit?.openTradeIds ?? []) : [];
+  const capUntil = kind === 'orderCap' ? failure.p2pLimit?.until : null;
   return (
     <div
       className="failure"
@@ -79,10 +161,35 @@ export function TakeFailureNote({ failure, context }: { failure: Extract<ApiResu
       data-kind={kind}
     >
       {kind === 'unconfirmed' || kind === 'notFound' ? <h3>{t('failUnconfirmedTitle')}</h3> : null}
-      <p>{takeFailureText(t, kind, context)}</p>
+      <p>{limitText(t, kind, failure, limitTime) ?? takeFailureText(t, kind, context)}</p>
+      {capUntil ? <p>{t('failOrderCapUntil', { time: limitTime(capUntil) })}</p> : null}
+      {open.length > 0 ? (
+        <nav aria-label={t('failOrderCapOpen')}>
+          <ul>
+            {open.map((id) => (
+              <li key={id}>
+                <a className="text-link" href={`/p2p/orders/${encodeURIComponent(id)}`} data-testid="take-open-order">
+                  {t('failOrderCapOrder', { ref: id.slice(0, 8) })}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      ) : null}
+      {kind === 'stepUp' ? (
+        <a className="text-link" href="/uc/safe">
+          {t('failStepUpSetUp')}
+        </a>
+      ) : null}
       {kind === 'verify' ? (
         <a className="text-link" href="/verification">
           {t('failVerifyLink')}
+        </a>
+      ) : null}
+      {/* Only the buyer's own figures come back, so the link is shown to the person whose level it is. */}
+      {kind === 'verificationLimit' && failure.p2pLimit && failure.code !== 'p2p.verification_order_min' ? (
+        <a className="text-link" href="/verification">
+          {t('failVerificationRaise')}
         </a>
       ) : null}
     </div>
@@ -166,6 +273,58 @@ export function TakeReviewDetails({
 
 type QuoteState = { key: string; result: ApiResult<TakeQuote> | 'loading' } | null;
 
+const FIAT_TEXT = /^\d{1,18}(\.\d{1,18})?$/;
+
+const clock = (at: Date) => at.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+/**
+ * How long the service holds the reviewed quote, to the second. Once it ends the order cannot be placed from it: the
+ * service would refuse `p2p.quote_expired`, so the button is off and a new quote is one click.
+ */
+export function QuoteCountdown({
+  endsAt,
+  renewing,
+  onRenew,
+  now = () => Date.now(),
+  children,
+}: {
+  endsAt: string;
+  renewing: boolean;
+  onRenew: () => void;
+  now?: () => number;
+  children: (ended: boolean) => ReactNode;
+}) {
+  const { t } = p2pDepth.useCopy();
+  const end = new Date(endsAt);
+  const [left, setLeft] = useState(() => Math.max(0, end.getTime() - now()));
+  useEffect(() => {
+    setLeft(Math.max(0, end.getTime() - now()));
+    const timer = setInterval(() => setLeft(Math.max(0, end.getTime() - now())), 1000);
+    return () => clearInterval(timer);
+  }, [endsAt]);
+  const ended = left <= 0;
+  const seconds = Math.ceil(left / 1000);
+  return (
+    <>
+      <div className="p2p-quote-countdown" role="timer" aria-live="off" data-testid="take-quote-countdown" data-ended={ended}>
+        {ended ? (
+          <p role="status">
+            {t('quoteEnded', { time: clock(end) })}{' '}
+            <Button type="button" variant="secondary" disabled={renewing} onClick={onRenew} data-testid="take-quote-renew">
+              {renewing ? t('quoteLocking') : t('quoteRenew')}
+            </Button>
+          </p>
+        ) : (
+          <p className="muted">
+            {t('quoteHeld', { left: `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`, time: clock(end) })}
+          </p>
+        )}
+      </div>
+      {children(ended)}
+    </>
+  );
+}
+
 /**
  * Placing an order on someone else's offer. The quantity is checked against the offer's limits, the service quotes the
  * exact fee and net amount, and the order is placed only from a review of those figures. It locks money in escrow, so
@@ -173,11 +332,16 @@ type QuoteState = { key: string; result: ApiResult<TakeQuote> | 'loading' } | nu
  * The offer's own maker never gets this form.
  */
 export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: PersonalPayApi; userId: string | null }) {
-  const { t, languageFor, directionFor } = p2pDepth.useCopy();
+  const { t, languageFor, directionFor, requestedLocale } = p2pDepth.useCopy();
   const own = isOwnOffer(offer, userId);
   const methods = offerMethodIds(offer);
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('');
+  // A fiat amount the service turns into the coin amount; editing the coin amount clears it.
+  const [fiat, setFiat] = useState('');
+  const [converted, setConverted] = useState<ApiResult<string> | 'loading' | null>(null);
+  const [locking, setLocking] = useState(false);
+  const [lockFailure, setLockFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null);
   const check = checkTake(offer, amount);
   const journalKey = `${userId}:take:${offer.id.toLowerCase()}`;
   const selling = takerRole(offer) === 'seller';
@@ -202,6 +366,10 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
   const [quoteRound, setQuoteRound] = useState(0);
   const [review, setReview] = useState<{ token: number; request: TakeRequest; quote: TakeQuote } | null>(null);
   const [busy, setBusy] = useState(false);
+  // One take at a time, even for a second click that lands before the first one's render.
+  const placing = useRef(false);
+  // Until when this session's orders need no new confirmation (P-trade-orders-07): read when a review opens.
+  const [confirmedUntil, setConfirmedUntil] = useState<string | null | 'loading'>(null);
   const placedQuotePrice = useRef<string | null>(null);
   const [outcome, setOutcome] = useState<ApiResult<Trade> | null>(null);
   const [checking, setChecking] = useState(false);
@@ -255,6 +423,28 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
     };
   }, [requestKey, quoteRound, own, pay]);
 
+  // The fiat amount, a moment after typing stops, becomes the coin amount the service works out at this ad's price.
+  const conversionMethod = method || methods[0] || '';
+  useEffect(() => {
+    if (own || !FIAT_TEXT.test(fiat.trim()) || !conversionMethod) {
+      setConverted(null);
+      return;
+    }
+    const controller = new AbortController();
+    setConverted('loading');
+    const timer = setTimeout(() => {
+      void pay.coinForFiat(offer, { fiatAmount: fiat.trim(), method: conversionMethod }, controller.signal).then((result) => {
+        if (controller.signal.aborted) return;
+        setConverted(result);
+        if (result.ok) setAmount(result.data);
+      });
+    }, 350);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [fiat, conversionMethod, own, pay]);
+
   if (own)
     return (
       <section
@@ -292,17 +482,64 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
     reviewToken.current++;
     setReview(null);
     setOutcome(null);
+    setLockFailure(null);
   };
-  async function confirm() {
-    if (busy || !review || !userId) return;
+  // The review holds the service's figures for the quote's window: the order names this quote, and an ended one refuses.
+  async function lockAndReview(asked: TakeRequest) {
+    if (locking || busy) return;
+    setLocking(true);
+    setLockFailure(null);
+    const held = await pay.lockQuote(offer, asked);
+    if (!mounted.current) return;
+    setLocking(false);
+    if (!held.ok) {
+      setLockFailure(held);
+      return;
+    }
+    setOutcome(null);
+    const token = ++reviewToken.current;
+    setReview({ token, request: asked, quote: held.data });
+    await readStepUpWindow(token);
+  }
+  /** Whether this session's last confirmation still covers an order; unknown or slow reads ask for a new one. */
+  async function readStepUpWindow(token: number) {
+    setConfirmedUntil('loading');
+    const covered = await pay.takeStepUpWindow(AbortSignal.timeout(10_000));
+    if (mounted.current && reviewToken.current === token) setConfirmedUntil(covered.ok ? covered.data.confirmedUntil : null);
+  }
+  /** What the person confirms: the reviewed ad, coin amount and method, and the held quote; svc-p2p hashes the same. */
+  const stepUpRequest = (reviewed: { request: TakeRequest; quote: TakeQuote }): StepUpBegin => ({
+    scope: 'p2p.step_up.trades.take',
+    purpose: 'trades.take',
+    target: reviewed.request.offerId,
+    amount: reviewed.request.amount,
+    fields: {
+      offerId: reviewed.request.offerId,
+      amount: reviewed.request.amount,
+      method: reviewed.request.method,
+      ...(reviewed.quote.quoteId ? { quoteId: reviewed.quote.quoteId } : {}),
+    },
+  });
+  async function confirm(stepUpApprovalId?: string) {
+    if (busy || placing.current || !review || !userId) return;
+    placing.current = true;
     const { token } = review;
     setBusy(true);
     setOutcome(null);
     const earlier = pay.guard.reference(journalKey)?.toLowerCase() ?? null;
-    const result = await pay.takeOffer(offer, review.request, {
-      quote: review.quote,
-      current: () => mounted.current && reviewToken.current === token,
-    });
+    let result: Awaited<ReturnType<typeof pay.takeOffer>>;
+    try {
+      result = await pay.takeOffer(offer, review.request, {
+        quote: review.quote,
+        current: () => mounted.current && reviewToken.current === token,
+        ...(stepUpApprovalId ? { stepUpApprovalId } : {}),
+      });
+    } catch (err) {
+      if (mounted.current) setBusy(false);
+      throw err;
+    } finally {
+      placing.current = false;
+    }
     if (!mounted.current) return;
     if (result.ok) {
       // The order exists. Open it, unless it is an older order or is priced differently from the review: say so first.
@@ -323,11 +560,16 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
       return;
     }
     setBusy(false);
+    // A refused confirmation is spent or ended: the next attempt asks for a new one. A confirmation spent on a take
+    // refused for another reason still covers this session's next order, so read the window again.
+    const refusedKind = takeFailureKind(result);
+    if (refusedKind === 'stepUp' || refusedKind === 'stepUpExpired' || refusedKind === 'stepUpFailed') setConfirmedUntil(null);
+    else if (stepUpApprovalId && refusedKind !== 'unconfirmed') void readStepUpWindow(token);
     if (result.reason === 'aborted') {
       notify((value) => value + 1);
       return;
     }
-    if (takeFailureKind(result) === 'unconfirmed') {
+    if (refusedKind === 'unconfirmed') {
       // Possibly placed. Leave the review, keep the stored reference, and ask for a check.
       closeReview();
       setOutcome(result);
@@ -392,6 +634,10 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
       </section>
     );
 
+  // A live window with time to spare covers this order; a last few seconds ask for a new confirmation instead.
+  const coveredUntil =
+    confirmedUntil !== null && confirmedUntil !== 'loading' && Date.parse(confirmedUntil) - Date.now() > 20_000 ? confirmedUntil : null;
+
   return (
     <section
       className="p2p-take"
@@ -413,10 +659,11 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
           </Button>
         </section>
       ) : null}
+      <P2PEligibilityPanel pay={pay} userId={userId} compact />
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          if (ready && request.ok && !busy) setReview({ token: ++reviewToken.current, request: request.request, quote: ready });
+          if (ready && request.ok && !busy) void lockAndReview(request.request);
         }}
         className="form-stack"
         noValidate
@@ -431,14 +678,43 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
             inputMode="decimal"
             autoComplete="off"
             value={amount}
-            onChange={(event) => setAmount(event.target.value)}
+            onChange={(event) => {
+              setAmount(event.target.value);
+              setFiat('');
+              setLockFailure(null);
+            }}
             aria-invalid={problem !== null && check.kind !== 'empty'}
           />
           {problem && check.kind !== 'empty' ? <small className="error-text">{problem}</small> : null}
         </label>
         <label className="field">
+          <span>{t('takeFiatAmount', { fiat: offer.fiatCurrency })}</span>
+          <input
+            inputMode="decimal"
+            autoComplete="off"
+            value={fiat}
+            onChange={(event) => {
+              // The coin amount waits for this fiat amount's conversion, so a stale one can't be reviewed meanwhile.
+              setFiat(event.target.value);
+              setAmount('');
+              setLockFailure(null);
+            }}
+            data-testid="take-fiat-amount"
+          />
+          <small className="muted">
+            {converted === 'loading' ? t('takeFiatConverting', { asset: offer.asset }) : t('takeFiatHint', { asset: offer.asset })}
+          </small>
+          {converted && converted !== 'loading' && !converted.ok ? <TakeFailureNote failure={converted} context="quote" /> : null}
+        </label>
+        <label className="field">
           <span>{t('takeMethod')}</span>
-          <select value={method} onChange={(event) => setMethod(event.target.value)}>
+          <select
+            value={method}
+            onChange={(event) => {
+              setMethod(event.target.value);
+              setLockFailure(null);
+            }}
+          >
             <option value="">{methods.length ? '—' : t('takeNoMethods')}</option>
             {methods.map((id) => (
               <option key={id} value={id}>
@@ -467,8 +743,9 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
             </>
           )}
         </div>
-        <Button type="submit" variant="primary" disabled={ready === null || busy} data-testid="take-review">
-          {t('takeReview')}
+        {lockFailure && !review ? <TakeFailureNote failure={lockFailure} context="quote" /> : null}
+        <Button type="submit" variant="primary" disabled={ready === null || busy || locking} data-testid="take-review">
+          {locking ? t('quoteLocking') : t('takeReview')}
         </Button>
       </form>
       {review ? (
@@ -492,15 +769,50 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
               methodLabel={methodLabel(review.request.method)}
               counterparty={<TraderName record={traders[offer.makerId.toLowerCase()] ?? null} />}
             />
-            {outcome && !outcome.ok ? <TakeFailureNote failure={outcome} context="take" /> : null}
-            <div className="actions">
-              <Button variant="ghost" disabled={busy} onClick={closeReview}>
-                {t('takeBack')}
-              </Button>
-              <Button variant="primary" disabled={busy} onClick={() => void confirm()} data-testid="take-confirm">
-                {busy ? t('takePlacing') : t('takeConfirm')}
-              </Button>
-            </div>
+            <QuoteCountdown
+              endsAt={review.quote.reservationExpiresAt}
+              renewing={locking}
+              onRenew={() => void lockAndReview(review.request)}
+            >
+              {(ended) => (
+                <>
+                  {outcome && !outcome.ok ? <TakeFailureNote failure={outcome} context="take" /> : null}
+                  {lockFailure ? <TakeFailureNote failure={lockFailure} context="quote" /> : null}
+                  {coveredUntil ? (
+                    <p className="muted" data-testid="take-step-up-covered">
+                      {t('takeStepUpConfirmed', { time: formatDateTime(coveredUntil, requestedLocale)?.short ?? coveredUntil })}
+                    </p>
+                  ) : confirmedUntil === null ? (
+                    <>
+                      {busy ? <p className="muted">{t('takePlacing')}</p> : null}
+                      <StepUpConfirm
+                        request={() => stepUpRequest(review)}
+                        words={{
+                          why: t('takeStepUpWhy'),
+                          code: t('takeStepUpCode'),
+                          codeHint: t('takeStepUpCodeHint'),
+                          codeShort: t('takeStepUpCodeShort'),
+                          noFactor: t('takeStepUpNoFactor'),
+                          sendWithout: t('takeStepUpSendWithout'),
+                        }}
+                        disabled={busy || ended}
+                        onApproved={(approval) => void confirm(approval ?? undefined)}
+                      />
+                    </>
+                  ) : null}
+                  <div className="actions">
+                    <Button variant="ghost" disabled={busy} onClick={closeReview}>
+                      {t('takeBack')}
+                    </Button>
+                    {coveredUntil ? (
+                      <Button variant="primary" disabled={busy || ended} onClick={() => void confirm()} data-testid="take-confirm">
+                        {busy ? t('takePlacing') : t('takeConfirm')}
+                      </Button>
+                    ) : null}
+                  </div>
+                </>
+              )}
+            </QuoteCountdown>
           </div>
         </Dialog>
       ) : null}

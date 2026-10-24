@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { boolean, date, index, integer, jsonb, pgSchema, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, date, index, integer, jsonb, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { amount, createdAt, tstz, updatedAt } from '@intafaced/db';
 
 /**
@@ -343,6 +343,20 @@ export const certItemCompletions = academy.table(
   ],
 );
 
+/** AC-progress-01: every Complete and Undo, in order. The current state stays in cert_item_completions. */
+export const itemCompletionEvents = academy.table(
+  'item_completion_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').notNull(),
+    itemSlug: text('item_slug').notNull(),
+    event: text('event').notNull(),
+    clientRequestId: text('client_request_id'),
+    recordedAt: tstz('recorded_at').notNull(),
+  },
+  (t) => [index('item_completion_events_user_item_idx').on(t.userId, t.itemSlug, t.recordedAt)],
+);
+
 export const certGrants = academy.table(
   'cert_grants',
   {
@@ -374,8 +388,50 @@ export const assessmentAttempts = academy.table(
     maxScore: integer('max_score').notNull(),
     passed: boolean('passed').notNull(),
     submittedAt: tstz('submitted_at').notNull().defaultNow(),
+    /** AC-progress-02: the quiz's hide-until date at finish; the result shows after the later of this and the quiz's date. */
+    hiddenUntil: tstz('hidden_until'),
   },
   (t) => [uniqueIndex('assessment_attempts_client_uq').on(t.userId, t.clientAttemptId)],
+);
+
+/** AC-quizzes-03: a staff-published quiz per curriculum item. The answer key is in `definition` and never leaves the service. */
+export const quizzes = academy.table('quizzes', {
+  slug: text('slug').primaryKey(),
+  definition: jsonb('definition').notNull(),
+  passMark: integer('pass_mark'),
+  attemptLimit: integer('attempt_limit'),
+  timeLimitSeconds: integer('time_limit_seconds'),
+  reviewMode: text('review_mode').notNull(),
+  reason: text('reason').notNull(),
+  setBy: uuid('set_by').notNull(),
+  setAt: tstz('set_at').notNull(),
+  /** AC-progress-02: results are pending until this instant; null shows them at once. */
+  resultsHiddenUntil: tstz('results_hidden_until'),
+});
+
+/** AC-quizzes-03: one started attempt; finishing writes its score row into assessment_attempts as well. */
+export const quizAttempts = academy.table(
+  'quiz_attempts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').notNull(),
+    slug: text('slug').notNull(),
+    number: integer('number').notNull(),
+    startedAt: tstz('started_at').notNull(),
+    deadlineAt: tstz('deadline_at'),
+    answers: jsonb('answers').notNull(),
+    finishedAt: tstz('finished_at'),
+    score: integer('score'),
+    maxScore: integer('max_score'),
+    passed: boolean('passed'),
+    quiz: jsonb('quiz').notNull(),
+  },
+  (t) => [
+    uniqueIndex('quiz_attempts_number_uq').on(t.userId, t.slug, t.number),
+    uniqueIndex('quiz_attempts_open_uq')
+      .on(t.userId, t.slug)
+      .where(sql`${t.finishedAt} IS NULL`),
+  ],
 );
 
 export const itemPrerequisites = academy.table(
@@ -400,6 +456,14 @@ export const featuredItems = academy.table('featured_items', {
   reason: text('reason').notNull(),
   chosenBy: uuid('chosen_by').notNull(),
   chosenAt: tstz('chosen_at').notNull(),
+});
+
+export const courseStarts = academy.table('course_starts', {
+  path: text('path').primaryKey(),
+  startsAt: tstz('starts_at'),
+  reason: text('reason').notNull(),
+  setBy: uuid('set_by').notNull(),
+  setAt: tstz('set_at').notNull(),
 });
 
 export const itemExtensions = academy.table(
@@ -433,7 +497,164 @@ export const certHolderNameRequests = academy.table(
   (t) => [uniqueIndex('cert_holder_name_requests_pk').on(t.userId, t.clientRequestId)],
 );
 
+/** AC-progress-02: the learner's own to-do items; `client_key` names one add, and a removed item keeps its row. */
+export const plannerTodos = academy.table(
+  'planner_todos',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').notNull(),
+    clientKey: text('client_key').notNull(),
+    text: text('text').notNull(),
+    createdAt: tstz('created_at').notNull(),
+    doneAt: tstz('done_at'),
+    removedAt: tstz('removed_at'),
+  },
+  (t) => [uniqueIndex('planner_todos_key_uq').on(t.userId, t.clientKey)],
+);
+
+/** AC-videos-01: the video staff attach to one curriculum item; the item then completes by the `watch` rule. */
+export const itemVideos = academy.table(
+  'item_videos',
+  {
+    itemSlug: text('item_slug').primaryKey(),
+    videoSlug: text('video_slug').notNull(),
+    reason: text('reason').notNull(),
+    setBy: uuid('set_by').notNull(),
+    setAt: tstz('set_at').notNull(),
+  },
+  (t) => [index('item_videos_video_idx').on(t.videoSlug)],
+);
+
+/** AC-videos-01: one caption track per video and language (WebVTT text), in the order staff listed them. */
+export const videoTracks = academy.table(
+  'video_tracks',
+  {
+    videoSlug: text('video_slug').notNull(),
+    language: text('language').notNull(),
+    label: text('label').notNull(),
+    vtt: text('vtt').notNull(),
+    position: integer('position').notNull(),
+    reason: text('reason').notNull(),
+    setBy: uuid('set_by').notNull(),
+    setAt: tstz('set_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.videoSlug, t.language] })],
+);
+
+/** AC-progress-02: one weekly goal per learner. */
+export const learningGoals = academy.table('learning_goals', {
+  userId: uuid('user_id').primaryKey(),
+  itemsPerWeek: integer('items_per_week').notNull(),
+  reminder: boolean('reminder').notNull(),
+  setAt: tstz('set_at').notNull(),
+});
+
+/** AC-course-structure-01: a course staff create; the slug is fixed, details change by revision. `price` is a catalogue figure, not a balance. */
+export const courses = academy.table(
+  'courses',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    slug: text('slug').notNull(),
+    title: text('title').notNull(),
+    summary: text('summary'),
+    thumbnailUrl: text('thumbnail_url'),
+    pricing: text('pricing').notNull(),
+    price: amount('price'),
+    priceAsset: text('price_asset'),
+    state: text('state').notNull().default('draft'),
+    revision: integer('revision').notNull().default(1),
+    createdBy: uuid('created_by').notNull(),
+    createdAt: tstz('created_at').notNull(),
+    updatedAt: tstz('updated_at').notNull(),
+  },
+  (t) => [uniqueIndex('courses_slug_uq').on(t.slug), index('courses_state_idx').on(t.state, t.createdAt.desc())],
+);
+
+/** AC-course-structure-01: every create, edit and lifecycle move of a course, one row per revision, with who and why. */
+export const courseEvents = academy.table(
+  'course_events',
+  {
+    courseId: uuid('course_id')
+      .notNull()
+      .references(() => courses.id),
+    revision: integer('revision').notNull(),
+    kind: text('kind').notNull(),
+    fromState: text('from_state'),
+    toState: text('to_state').notNull(),
+    actor: uuid('actor').notNull(),
+    reason: text('reason'),
+    at: tstz('at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.courseId, t.revision] })],
+);
+
+/** AC-course-structure-02: a course's sections, in order. */
+export const courseSections = academy.table(
+  'course_sections',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    courseId: uuid('course_id')
+      .notNull()
+      .references(() => courses.id),
+    position: integer('position').notNull(),
+    title: text('title').notNull(),
+  },
+  (t) => [uniqueIndex('course_sections_position_uq').on(t.courseId, t.position)],
+);
+
+/** AC-course-structure-02: the typed items of one section, in order. Only a `link` has a url. */
+export const courseItems = academy.table(
+  'course_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    courseId: uuid('course_id')
+      .notNull()
+      .references(() => courses.id),
+    sectionId: uuid('section_id')
+      .notNull()
+      .references(() => courseSections.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull(),
+    kind: text('kind').notNull(),
+    title: text('title').notNull(),
+    indent: integer('indent').notNull().default(0),
+    url: text('url'),
+    /** The lesson revision learners see (AC-course-structure-03); only an explicit publish moves it. */
+    liveRevision: integer('live_revision'),
+    liveCourseRevision: integer('live_course_revision'),
+    copiedFrom: uuid('copied_from'),
+    copiedAtRevision: integer('copied_at_revision'),
+  },
+  (t) => [uniqueIndex('course_items_position_uq').on(t.sectionId, t.position), index('course_items_course_idx').on(t.courseId)],
+);
+
+/** AC-course-structure-03: every save of an item's lesson, as ordered blocks. Keyed `lesson:<item>:<revision>`. */
+export const lessonRevisions = academy.table(
+  'lesson_revisions',
+  {
+    itemId: uuid('item_id')
+      .notNull()
+      .references(() => courseItems.id, { onDelete: 'cascade' }),
+    revision: integer('revision').notNull(),
+    source: text('source').notNull(),
+    fromRevision: integer('from_revision'),
+    fromItemId: uuid('from_item_id'),
+    blocks: jsonb('blocks').notNull(),
+    actor: uuid('actor').notNull(),
+    at: tstz('at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.itemId, t.revision] })],
+);
+
 export const schema = {
+  courses,
+  courseEvents,
+  courseSections,
+  courseItems,
+  lessonRevisions,
+  plannerTodos,
+  learningGoals,
+  itemVideos,
+  videoTracks,
   rooms,
   roomInvites,
   sessions,
@@ -445,13 +666,17 @@ export const schema = {
   residencyApplications,
   certEnrollments,
   certItemCompletions,
+  itemCompletionEvents,
   certGrants,
   assessmentAttempts,
+  quizzes,
+  quizAttempts,
   certHolderNameRequests,
   itemPrerequisites,
   itemWindows,
   itemExtensions,
   featuredItems,
+  courseStarts,
   learningState,
   learningActiveDays,
   learningTouches,

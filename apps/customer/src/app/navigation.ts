@@ -36,7 +36,12 @@ export const rooms: readonly Room[] = [
   { path: '/help', title: 'Help centre', description: 'Find answers and contact support', area: 'public' },
   { path: '/helplist', title: 'Help centre', description: 'Published help', area: 'public', alias: '/help' },
   { path: '/helpdetail', title: 'Help article', description: 'Published guidance', area: 'public', hidden: true },
+  { path: '/help/category/:id', title: 'Help topic', description: 'Sections of one help topic', area: 'public', hidden: true },
+  { path: '/help/section/:id', title: 'Help section', description: 'Published answers in one section', area: 'public', hidden: true },
   { path: '/status', title: 'Platform status', description: 'Trading mode of each market', area: 'public' },
+  { path: '/status/confirm', title: 'Confirm status updates', description: 'Start status emails', area: 'public', hidden: true },
+  { path: '/status/manage', title: 'Status updates', description: 'Choose what you are told about', area: 'public', hidden: true },
+  { path: '/status/unsubscribe', title: 'Stop status updates', description: 'Leave status emails', area: 'public', hidden: true },
   { path: '/notice', title: 'Notices', description: 'Product announcements', area: 'public' },
   { path: '/notice/:id', title: 'Notice', description: 'Product announcement', area: 'public', hidden: true },
   { path: '/announcement', title: 'Notices', description: 'Product announcements', area: 'public', alias: '/notice' },
@@ -416,6 +421,15 @@ export const rooms: readonly Room[] = [
   },
   { path: '/p2p', title: 'Person-to-person', description: 'Offers, orders and counterparties', door: 'Pay', area: 'pay' },
   { path: '/ctc', title: 'Person-to-person', description: 'Offers and orders', door: 'Pay', area: 'pay', alias: '/p2p' },
+  // The P2P Trading access room: what a person needs before taking an ad (eligibility) and their programme standing.
+  {
+    path: '/p2p/access',
+    title: 'Person-to-person',
+    description: 'Offers, orders and counterparties',
+    door: 'Pay',
+    area: 'pay',
+    hidden: true,
+  },
   { path: '/uc/ad', title: 'My offers', description: 'Manage your person-to-person offers', door: 'Pay', area: 'pay' },
   { path: '/uc/ad/create', title: 'Create offer', description: 'Publish a person-to-person offer', door: 'Pay', area: 'pay', hidden: true },
   { path: '/uc/ad/update', title: 'Edit offer', description: 'Review a person-to-person offer', door: 'Pay', area: 'pay', hidden: true },
@@ -780,6 +794,25 @@ export const rooms: readonly Room[] = [
     area: 'more',
     hidden: true,
   },
+  // Any deeper address under one of the six rooms reaches the More routes, which answer it with the "no customer route" panel
+  // and a link to /more (MC-order-01). Kept after every section and record row, so a real page always matches first.
+  ...(
+    [
+      ['predict', 'Prediction markets', 'Browse and trade predictions'],
+      ['market', 'Market', 'Browse available listings'],
+      ['launch', 'Launch', 'Issue and list an asset'],
+      ['token', 'Token', 'Access and staking'],
+      ['mining', 'Mining', 'Pool activity and payouts'],
+      ['blueprint', 'Identity Blueprint', 'Your profile and connected intelligence'],
+    ] as const
+  ).map(([slug, title, description]) => ({
+    path: `/${slug}/*`,
+    title,
+    description,
+    door: 'More' as const,
+    area: 'more' as const,
+    hidden: true,
+  })),
   { path: '/uc/innovation/myorders', title: 'Launch orders', description: 'Your asset launch orders', door: 'More', area: 'more' },
   { path: '/uc', title: 'Account', description: 'Your account and security', area: 'person', alias: '/uc/account' },
   {
