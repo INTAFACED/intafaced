@@ -69,7 +69,7 @@ describe('setup overview', () => {
   it('names the two genuine blockers: the document check and the terms', () => {
     const out = html({ merchant, progress: ready(progress()) });
     expect(out).toContain('Document checks are not connected here');
-    expect(out).toContain('Terms acceptance is not connected here');
+    expect(out).toContain('No terms of service to accept');
     expect(out).not.toContain('Coming soon');
   });
   it('lists what is missing from the business details when the service says so', () => {
@@ -172,7 +172,7 @@ describe('go-live step', () => {
     });
     expect(out).toContain('••••4321');
     expect(out).toContain('Waiting for your verification to be approved');
-    expect(out).toContain('Terms acceptance is not connected here');
+    expect(out).toContain('No terms of service to accept');
     expect(out).toContain('TEST VALUE');
     expect(out).not.toContain('You are live');
   });

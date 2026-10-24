@@ -211,7 +211,7 @@ export function createAccountMock(ctx) {
             merchantId: MERCHANT_ID,
             business: { done: true, missing: [] },
             documents: { state: 'pending_vendor' },
-            terms: { state: 'not_configured' },
+            terms: state.terms ?? { state: 'not_configured' },
             destination: {
               present: Boolean(state.destination) || !quiet,
               // the same destinations the Destinations page lists: one list, one set of ids
@@ -222,8 +222,18 @@ export function createAccountMock(ctx) {
             },
             kybStatus: state.kyb?.kybStatus ?? 'approved',
             merchantStatus: 'active',
-            blocking: ['documents_pending_vendor', 'terms_not_configured'],
+            blocking: [
+              'documents_pending_vendor',
+              ...(state.terms?.state === 'accepted' ? [] : [state.terms ? 'terms_not_accepted' : 'terms_not_configured']),
+            ],
           });
+        case 'merchant.terms.accept':
+          // Like the service: nothing to accept until a version is published (a test sets state.terms), and only the version shown.
+          if (gone) return refuse(route, 404, 'pay.merchant_not_found');
+          if (!state.terms || state.terms.state === 'not_configured') return refuse(route, 412, 'pay.merchant_terms_unset');
+          if (input.version !== state.terms.version) return refuse(route, 409, 'pay.merchant_terms_version_stale');
+          if (state.terms.state !== 'accepted') state.terms = { ...state.terms, state: 'accepted', acceptedAt: iso(now) };
+          return ok(route, { merchantId: MERCHANT_ID, version: state.terms.version, acceptedAt: state.terms.acceptedAt });
         case 'merchant.businessProfile.get':
           if (gone) return refuse(route, 404, 'pay.merchant_not_found');
           return ok(route, state.profile);

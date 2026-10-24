@@ -1267,6 +1267,62 @@ describe('merchant portal procedures', () => {
     expect(hidden).not.toContain('abcd');
   });
 
+  it('takes the published terms from the owner once per version, and refuses everyone else', async () => {
+    const TERMS = { version: 'TEST-terms-1', url: 'https://terms.example/TEST-terms-1' };
+    const withTerms = (userId: string, over: Partial<Principal> = {}, terms: typeof TERMS | null = TERMS) =>
+      createMerchantPortalRouter({ ...portalDeps(false), terms }).createCaller(ctxOf(principalOf(userId, over)));
+    const onboard = { scopes: ['pay:onboard'] as Principal['scopes'] };
+    const user = id();
+    const merchantId = id();
+    await seedMerchant(merchantId, user, 'none');
+
+    const unpublished = await refusal(() => withTerms(user, onboard, null).merchant.terms.accept({ merchantId, version: 'TEST-terms-1' }));
+    expect(unpublished).toMatchObject({ code: 'PRECONDITION_FAILED', message: 'pay.merchant_terms_unset' });
+    expect((await withTerms(user, onboard).merchant.onboarding.progress({ merchantId })).terms).toEqual({
+      state: 'not_accepted',
+      ...TERMS,
+    });
+    expect((await withTerms(user, onboard).merchant.onboarding.progress({ merchantId })).blocking).toContain('terms_not_accepted');
+
+    const stale = await refusal(() => withTerms(user, onboard).merchant.terms.accept({ merchantId, version: 'TEST-terms-0' }));
+    expect(stale).toMatchObject({ code: 'CONFLICT', message: 'pay.merchant_terms_version_stale' });
+    const helper = id();
+    await sql`
+      INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, invited_by, activated_at)
+      VALUES (${merchantId}, ${helper}, 'admin', 'active', ${user}, now())`;
+    const teammate = await refusal(() => withTerms(helper, onboard).merchant.terms.accept({ merchantId, version: TERMS.version }));
+    expect(teammate.message).toBe('pay.team_role_forbidden');
+    const stranger = await refusal(() => withTerms(id(), onboard).merchant.terms.accept({ merchantId, version: TERMS.version }));
+    expect(stranger.code).toBe('NOT_FOUND');
+    const keyed = await refusal(() => withTerms(user, { kid: 'ifc_test' }).merchant.terms.accept({ merchantId, version: TERMS.version }));
+    expect(keyed.message).toBe('pay.profile_interactive_only');
+
+    const accepted = await withTerms(user, onboard).merchant.terms.accept({ merchantId, version: TERMS.version });
+    expect(accepted).toMatchObject({ merchantId, version: TERMS.version });
+    const again = await withTerms(user).merchant.terms.accept({ merchantId, version: TERMS.version });
+    expect(again.acceptedAt).toBe(accepted.acceptedAt);
+    const rows = await sql<Array<{ accepted_by: string; actor_scope: string; terms_url: string }>>`
+      SELECT accepted_by, actor_scope, terms_url FROM pay.merchant_terms_acceptances WHERE merchant_id = ${merchantId}`;
+    expect(rows).toEqual([{ accepted_by: user, actor_scope: 'pay:onboard', terms_url: TERMS.url }]);
+    const progress = await withTerms(user, onboard).merchant.onboarding.progress({ merchantId });
+    expect(progress.terms).toEqual({ state: 'accepted', ...TERMS, acceptedAt: accepted.acceptedAt });
+    expect(progress.blocking).not.toContain('terms_not_accepted');
+    // The acceptance keeps the address it was read at, even if the setting later points somewhere else for the same version.
+    const moved = { version: TERMS.version, url: 'https://terms.example/elsewhere' };
+    expect((await withTerms(user, onboard, moved).merchant.onboarding.progress({ merchantId })).terms).toMatchObject({ url: TERMS.url });
+    // A new published version needs a new acceptance.
+    const next = { version: 'TEST-terms-2', url: 'https://terms.example/TEST-terms-2' };
+    expect((await withTerms(user, onboard, next).merchant.onboarding.progress({ merchantId })).terms.state).toBe('not_accepted');
+    await expect(sql`UPDATE pay.merchant_terms_acceptances SET version = 'x' WHERE merchant_id = ${merchantId}`).rejects.toThrow(
+      /append-only/,
+    );
+
+    // This test's own merchant, so leaving it suspended touches no other test.
+    await sql`UPDATE pay.merchants SET status = 'suspended' WHERE id = ${merchantId}`;
+    const shut = await refusal(() => withTerms(user, onboard, next).merchant.terms.accept({ merchantId, version: next.version }));
+    expect(shut.message).toBe('pay.owner_grant_withdrawn');
+  });
+
   it('reads volume and fees per asset and per week, and never adds two assets together', async () => {
     const volume = await as(viewer).merchantAnalytics.volume({ merchantId: merchantA, ...WINDOW, bucket: 'week', limit: 10 });
     const usdt = volume.items.filter((item) => item.assetCode === 'USDT');

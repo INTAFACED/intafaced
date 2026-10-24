@@ -23,6 +23,7 @@ export const accountContract: ContractPart = {
     profileSubmit: write,
     profileConfirm: write,
     profileSecondApproval: write,
+    termsAccept: write,
     subCreate: write,
     permGrant: write,
     permRevoke: write,
