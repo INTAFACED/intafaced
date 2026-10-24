@@ -99,8 +99,12 @@ describe('freeze and unfreeze take two founders', () => {
 describe('reconciliation lives in its own section', () => {
   it('the posting desk shows no reconcile figure, button or simulation', () => {
     const html = render();
+    expect(html).toContain('Reconciliation controls are below the transaction lookup.');
     expect(html).not.toContain('reconcile-unavailable');
+    expect(html).not.toContain('svc-edge exposes no route for it');
+    expect(html).not.toContain('reconcile-preview');
     expect(html).not.toContain('Simulated');
+    expect(html).not.toContain('Not counted');
     expect(html).not.toContain('Accounts checked');
     expect(html).not.toContain('<dd>0</dd>');
   });
