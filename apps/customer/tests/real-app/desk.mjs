@@ -51,8 +51,25 @@ export const deskPath = (symbol = 'BTC/USDT') => `/trade/spot/${symbol.replace('
 
 export async function openDesk(page, who, symbol = 'BTC/USDT') {
   await signIn(page, who);
-  await page.goto(deskPath(symbol));
-  await expect(page.getByRole('button', { name: `Buy ${symbol.split('/')[0]}` })).toBeVisible();
+  // What the market list answered, named in the failure: a desk that never opens shows only "Couldn't load".
+  const reads = [];
+  const isList = (url) => new URL(url).pathname === '/api/v1/markets';
+  // Each read names the page it was made on: a read the sign-in's own page started and goto() cut off is not the desk's.
+  const on = () => new URL(page.url()).pathname;
+  const answered = (res) => isList(res.url()) && reads.push(`${on()} ${res.status()}`);
+  const failed = (req) => isList(req.url()) && reads.push(`${on()} failed (${req.failure()?.errorText ?? 'no answer'})`);
+  page.on('response', answered);
+  page.on('requestfailed', failed);
+  try {
+    await page.goto(deskPath(symbol));
+    await expect(page.getByRole('button', { name: `Buy ${symbol.split('/')[0]}` })).toBeVisible();
+  } catch (err) {
+    err.message += `\nmarket list reads: ${reads.join(', ') || 'none'}`;
+    throw err;
+  } finally {
+    page.off('response', answered);
+    page.off('requestfailed', failed);
+  }
 }
 
 /** The review sheet the desk shows before an order is sent ("Review your buy" / "Review your sell"). */
