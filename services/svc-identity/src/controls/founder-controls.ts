@@ -64,8 +64,8 @@ export class FounderControlError extends Error {
 
 /** Deployment configuration is a pair of UUIDs, never handles or display names. */
 export function parseFounderPair(first: unknown, second: unknown): readonly [string, string] | null {
-  const a = z.string().trim().uuid().safeParse(first);
-  const b = z.string().trim().uuid().safeParse(second);
+  const a = z.string().trim().guid().safeParse(first);
+  const b = z.string().trim().guid().safeParse(second);
   if (!a.success || !b.success || a.data.toLowerCase() === b.data.toLowerCase()) return null;
   return [a.data.toLowerCase(), b.data.toLowerCase()].sort() as [string, string];
 }
@@ -178,7 +178,7 @@ const version = z
 // before equality checks, persisted JSON and idempotency fingerprints.
 const canonicalUuid = z
   .string()
-  .uuid()
+  .guid()
   .transform((value) => value.toLowerCase());
 export const founderEntitlementChangeSchema = z
   .object({

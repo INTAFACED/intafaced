@@ -7,6 +7,7 @@ import {
   protocolCapabilitiesOutputSchema,
   protocolDeploymentsInputSchema,
   protocolDeploymentsOutputSchema,
+  protocolGasPriceOutputSchema,
   protocolNetworksListOutputSchema,
   protocolBlockersOutputSchema,
   protocolBlockersRead,
@@ -27,6 +28,7 @@ import { AccountRegistry, bindingMessage, ClaimRefusedError } from './accounts/r
 import { assertMyAccountsListLimit, MY_ACCOUNTS_LIST_LIMIT_CAP, MyAccountsListLimitUnsetError } from './accounts/my-accounts-list-limit.js';
 import type { ProtocolChain } from './chain/client.js';
 import { ChainUnavailableError, CHAIN_PUBLIC_TEXT, isZeroAddress } from './chain/availability.js';
+import { GasPercentilesUnsetError, type GasPercentileSetting } from './chain/gas-price.js';
 import { deployedCodeMatches } from './chain/artifacts.js';
 import { RelayRefusedError, SessionRelay } from './session/relay.js';
 import {
@@ -300,6 +302,9 @@ function toTrpcError(err: unknown): TRPCError {
   if (err instanceof AmmMathError) {
     return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
+  if (err instanceof GasPercentilesUnsetError) {
+    return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+  }
   if (err instanceof SwapSlippageError) {
     const code = err.code === 'protocol.swap_slippage_unset' ? 'PRECONDITION_FAILED' : 'BAD_REQUEST';
     return new TRPCError({ code, message: err.message, cause: err });
@@ -342,6 +347,13 @@ export interface ProtocolRouterDeps {
   probeTimeoutMs?: () => number | undefined;
   /** `PROTOCOL_OPS_WINDOW_SECONDS`: the ops metrics window when the caller names none. Blank = refuse `owner.decision`. */
   opsWindowSeconds?: () => number | undefined;
+  /**
+   * D-explorer-01 owner percentiles and history length. Null or absent refuses
+   * `protocol.gas_percentiles_unset` before any chain read.
+   */
+  gasPercentiles?: () => GasPercentileSetting | null;
+  /** Clock for `protocol.gasPrice.asOf`. Tests pin it. */
+  now?: () => Date;
   /** Test seam for the network registry source; defaults to the owner's `deployments/networks.json`. */
   loadNetworks?: () => ReturnType<typeof loadNetworkRegistry>;
   /**
@@ -496,6 +508,24 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
           usable: status.reachable && status.suiteDeployed,
           launchUsable: status.reachable && status.tokenFactoryDeployed,
         };
+      }),
+
+    /**
+     * Gas tracker for `/chain` (D-explorer-01). `eth_gasPrice` always; low, average
+     * and high are the owner percentiles of `eth_feeHistory` over the last N blocks.
+     * A blank setting refuses before the node is asked. No base fee from the node
+     * leaves `baseFeePerGasWei` and `priorityFeeWei` null — the card shows only `gasPriceWei`.
+     */
+    gasPrice: publicJurisdictionProcedure('protocol', 'protocol')
+      .output(protocolGasPriceOutputSchema)
+      .query(async () => {
+        try {
+          const setting = deps.gasPercentiles?.() ?? null;
+          if (!setting) throw new GasPercentilesUnsetError();
+          return await chain.gasPrice(setting, deps.now?.() ?? new Date());
+        } catch (err) {
+          throw toTrpcError(err);
+        }
       }),
 
     /**
@@ -961,7 +991,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
         .input(
           z
             .object({
-              accountId: z.string().uuid(),
+              accountId: z.string().guid(),
               evidence: z.discriminatedUnion('kind', [
                 z.object({ kind: z.literal('minted'), txHash: hexSchema }).strict(),
                 z.object({ kind: z.literal('not_minted'), attestedBy: z.string().max(128), checkedAt: z.string().datetime() }).strict(),
@@ -1091,7 +1121,11 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
             amountIn: z.string().regex(/^\d+$/),
             reserveIn: z.string().regex(/^\d+$/),
             reserveOut: z.string().regex(/^\d+$/),
-            feeBps: z.number({ required_error: 'feeBps is unset — will not invent 30 bps' }).int().min(0).max(1000),
+            feeBps: z
+              .number({ error: (issue) => (issue.input === undefined ? 'feeBps is unset — will not invent 30 bps' : undefined) })
+              .int()
+              .min(0)
+              .max(1000),
           }),
         )
         .output(
@@ -1221,7 +1255,11 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
           z.object({
             tokenA: addressSchema,
             tokenB: addressSchema,
-            feeBps: z.number({ required_error: 'feeBps is unset — will not invent 30 bps' }).int().min(0).max(1000),
+            feeBps: z
+              .number({ error: (issue) => (issue.input === undefined ? 'feeBps is unset — will not invent 30 bps' : undefined) })
+              .int()
+              .min(0)
+              .max(1000),
           }),
         )
         .output(unsignedCallOutput)

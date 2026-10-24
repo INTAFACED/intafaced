@@ -6,6 +6,7 @@ import { Button, Failure, Loading } from '../../shared/ui';
 import { useLocation } from '../../app/location';
 import { useSession } from '../session/session';
 import { invitationCopy as copy } from './invitation-copy';
+import { ReferrerChange } from './ReferrerChange';
 import {
   attachWindowSchema,
   currentReferrerFor,
@@ -47,13 +48,15 @@ const REFUSAL_COPY = {
   'referral.attach_window_closed': 'refusalWindowClosed',
   'referral.attach_window_unset': 'refusalWindowNotSet',
 } as const satisfies Record<ReferralRefusal, string>;
+/** A link that could not attach for these reasons can still be asked for through a reviewed change (J-campaigns-05 #5). */
+const REVIEWABLE = new Set<string>(['referral.attach_window_closed', 'referral.attach_window_unset', 'referral.already_set']);
 
 export function Invitation() {
   useLocation();
   const { api, userId, session } = useSession();
   const { t, languageFor } = copy.useCopy();
   const capability = new URLSearchParams(location.search).get('token');
-  const parsed = z.string().uuid().safeParse(capability);
+  const parsed = z.string().guid().safeParse(capability);
   const token = session?.accessToken ?? null,
     url = location.href;
   const version = useRef({ client: api, owner: userId, token, url, generation: 0 });
@@ -554,6 +557,14 @@ export function Invitation() {
               </div>
             )}
             <AttachWindowNote key={userId} />
+            <ReferrerChange
+              key={`${userId}:${latestReceipt?.record.localRef ?? ''}`}
+              offerToken={
+                parsed.success && latestReceipt && !latestReceipt.answer.ok && REVIEWABLE.has(latestReceipt.answer.code ?? '')
+                  ? parsed.data
+                  : null
+              }
+            />
             <a href="/uc/promotion" className="invitation__link text-link">
               {t('account')}
             </a>

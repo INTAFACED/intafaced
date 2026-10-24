@@ -370,6 +370,6 @@ export const postRequestSchema = z.object({
   module: z.string().min(1),
   reason: z.string().min(1),
   entries: z.array(entryInputSchema).min(2),
-  meta: z.record(z.unknown()).optional(),
+  meta: z.record(z.string(), z.unknown()).optional(),
   correlationId: z.string().optional(),
 });

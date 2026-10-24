@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { currentAuthorityInputSchema, operationAdmissionInputSchema } from './account-controls.js';
 
-const id = z.string().uuid();
+const id = z.string().guid();
 const version = z.string().regex(/^(0|[1-9][0-9]*)$/);
 const timestamp = z.string().datetime({ offset: true });
 const payfacProof = z.discriminatedUnion('kind', [

@@ -155,13 +155,13 @@ export const teamSchema = z.object({
 });
 export const recipientSpaceSchema = z.discriminatedUnion('found', [
   z.object({ found: z.literal(false) }),
-  z.object({ found: z.literal(true), handle: z.string(), assetId: z.string(), spaceId: z.string().uuid().nullable() }),
+  z.object({ found: z.literal(true), handle: z.string(), assetId: z.string(), spaceId: z.string().guid().nullable() }),
 ]);
 export const analyticsSchema = z.object({
   assetId: z.string(),
   from: z.string(),
   to: z.string(),
-  outflowByCategory: z.record(money),
+  outflowByCategory: z.record(z.string(), money),
   totalOutflow: money,
   totalInflow: money,
   net: signedDecimalSchema,
@@ -597,7 +597,7 @@ export function bankWriteForReview(procedure: BankWrite, input: Record<string, u
     ) {
       const row = data as z.infer<typeof ruleSchema>;
       if (
-        !z.string().uuid().safeParse(row.id).success ||
+        !z.string().guid().safeParse(row.id).success ||
         !z.string().datetime({ offset: true }).safeParse(row.createdAt).success ||
         (row.kind === 'dca' ? !z.string().datetime({ offset: true }).safeParse(row.nextRunAt).success : row.nextRunAt !== null)
       )

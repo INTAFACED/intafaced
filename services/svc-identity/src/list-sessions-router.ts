@@ -12,14 +12,14 @@ import { listSessions, ListSessionsError, SessionsListLimitUnsetError } from './
 export function createListSessionsRouter(sql: Sql) {
   return router({
     listSessions: scopedProcedure('identity:read')
-      .input(z.object({ userId: z.string().uuid(), limit: z.number().int().min(1).max(200), cursor: z.string().max(200).optional() }))
+      .input(z.object({ userId: z.string().guid(), limit: z.number().int().min(1).max(200), cursor: z.string().max(200).optional() }))
       .output(
         z.object({
-          userId: z.string().uuid(),
+          userId: z.string().guid(),
           sessions: z.array(
             z.object({
-              id: z.string().uuid(),
-              familyId: z.string().uuid(),
+              id: z.string().guid(),
+              familyId: z.string().guid(),
               createdAt: z.string(),
               lastUsedAt: z.string(),
               device: z.string().nullable(),

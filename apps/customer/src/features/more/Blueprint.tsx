@@ -11,7 +11,7 @@ import { blueprintSessionCopy } from './blueprint-session-copy';
 
 const VISIBILITIES = ['private', 'crew', 'public'] as const;
 const CARD_SIZES = ['portrait', 'landscape'] as const;
-const uuid = z.string().uuid();
+const uuid = z.string().guid();
 const profile = z.object({
   decisionStyle: z.enum(['analytical', 'intuitive', 'collaborative', 'decisive']),
   riskTemperament: z.enum(['guarded', 'measured', 'assertive', 'bold']),

@@ -10,8 +10,8 @@ import { revokeAllApiKeys, RevokeAllApiKeysError } from './auth/revoke-all-api-k
 export function createApiKeyRevokeAllRouter(sql: Sql) {
   return router({
     revokeAllApiKeys: scopedProcedure('identity:write')
-      .input(z.object({ userId: z.string().uuid() }))
-      .output(z.object({ userId: z.string().uuid(), revoked: z.number().int() }))
+      .input(z.object({ userId: z.string().guid() }))
+      .output(z.object({ userId: z.string().guid(), revoked: z.number().int() }))
       .mutation(async ({ ctx, input }) => {
         try {
           return await revokeAllApiKeys(sql, ctx.principal.userId, input.userId);
