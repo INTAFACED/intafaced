@@ -44,6 +44,8 @@ const catalogueShape = z
             minAmount: decimal.nullable(),
             maxAmount: decimal.nullable(),
             cutOffTime: z.string().trim().min(1).max(80).nullable(),
+            // TEST: false lists and quotes the corridor but gives it no payout, the way a corridor with no partner behaves.
+            payout: z.boolean().optional(),
           })
           .strict(),
       )
@@ -119,7 +121,8 @@ export function globalSimPorts(catalogue: GlobalSimCatalogue, now: () => Date = 
       : {}),
     corridors: {
       status: live,
-      list: async () => catalogue.corridors.map((corridor) => ({ ...corridor, deliveryMethods: [...corridor.deliveryMethods] })),
+      list: async () =>
+        catalogue.corridors.map(({ payout: _payout, ...corridor }) => ({ ...corridor, deliveryMethods: [...corridor.deliveryMethods] })),
     },
     bic: {
       status: live,
@@ -148,6 +151,14 @@ export function globalSimPorts(catalogue: GlobalSimCatalogue, now: () => Date = 
     },
     payout: {
       status: live,
+      covers: ({ country, currency, deliveryMethod }) =>
+        catalogue.corridors.some(
+          (corridor) =>
+            corridor.payout !== false &&
+            corridor.country === country &&
+            corridor.currency === currency &&
+            corridor.deliveryMethods.includes(deliveryMethod),
+        ),
       railId: () => GLOBAL_SIM_RAIL,
       // The stand-in pays nobody: it acknowledges the send so the tracker has a reference, keyed by the send itself.
       submit: async ({ sendId }) => ({ ok: true, providerRef: `TEST-${sendId}`, status: 'sent' }),

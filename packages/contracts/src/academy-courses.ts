@@ -271,7 +271,7 @@ export const academyLessonSchema = z.object({
       basedOnRevision: z.number().int().nonnegative(),
       kind: z.literal('template'),
       blocks: academyLessonBlocksSchema,
-      createdBy: z.string().uuid(),
+      createdBy: z.string().guid(),
       createdAt: isoInstant,
     })
     .nullable(),
@@ -308,17 +308,110 @@ export type AcademyImportLessonResult = z.infer<typeof academyImportLessonResult
  */
 export const ACADEMY_ASSISTANT_PATHS = ['template', 'model'] as const;
 export const academyAssistantDraftInputSchema = z
-  .object({ itemId: z.string().uuid(), revision: z.number().int().nonnegative(), path: z.enum(ACADEMY_ASSISTANT_PATHS) })
+  .object({ itemId: z.string().guid(), revision: z.number().int().nonnegative(), path: z.enum(ACADEMY_ASSISTANT_PATHS) })
   .strict();
 export type AcademyAssistantDraftInput = z.infer<typeof academyAssistantDraftInputSchema>;
 
 /** `admin.decideDraft`: a person accepts (a new lesson revision, with them as the actor) or discards the open draft. */
 export const academyDecideDraftInputSchema = z
   .object({
-    itemId: z.string().uuid(),
+    itemId: z.string().guid(),
     basedOnRevision: z.number().int().nonnegative(),
     kind: z.literal('template'),
     decision: z.enum(['accept', 'discard']),
   })
   .strict();
 export type AcademyDecideDraftInput = z.infer<typeof academyDecideDraftInputSchema>;
+
+/**
+ * AC-videos-02: a course item's video, caption files and handouts. Every file goes to our own object store through a
+ * signed upload: an intent first (keyed `media:<item>:<kind>:<sha256>`, so the same file resumes the same row), then the
+ * bytes, then a confirm in which svc-academy reads the stored object back and checks its size and leading bytes against
+ * what was declared (`academy.file_type_mismatch`). The owner's limits (size, video types, handout types) are blank until
+ * set, and a blank one refuses `academy.upload_limits_unset`. Captions are SRT or WebVTT per video and language, checked
+ * line by line.
+ */
+export const ACADEMY_MEDIA_KINDS = ['video', 'handout'] as const;
+export type AcademyMediaKind = (typeof ACADEMY_MEDIA_KINDS)[number];
+const mimeType = z.string().regex(/^[a-z]+\/[a-z0-9.+-]+$/);
+
+export const academyUploadLimitsSchema = z.object({
+  maxBytes: z.number().int().positive().nullable(),
+  videoTypes: z.array(mimeType).nullable(),
+  handoutTypes: z.array(mimeType).nullable(),
+});
+export type AcademyUploadLimits = z.infer<typeof academyUploadLimitsSchema>;
+
+export const academyMediaSchema = z.object({
+  id: z.string().guid(),
+  kind: z.enum(ACADEMY_MEDIA_KINDS),
+  fileName: z.string().min(1),
+  contentType: mimeType,
+  bytes: z.number().int().positive(),
+  state: z.enum(['pending', 'ready', 'refused']),
+  /** Why a confirm refused the stored object, or null. */
+  refusal: z.string().nullable(),
+  createdAt: isoInstant,
+  /** A short-lived signed address to view a ready file, or null. */
+  url: z.string().url().nullable(),
+});
+export type AcademyMedia = z.infer<typeof academyMediaSchema>;
+
+export const academyItemCaptionSchema = z.object({
+  language: z.string().min(2),
+  label: z.string().min(1),
+  format: z.enum(['srt', 'vtt']),
+  cues: z.number().int().positive(),
+  firstCue: z.string(),
+});
+
+/**
+ * `admin.itemMedia`: one item's uploads (newest first), the owner's upload limits, the item's current video (the newest
+ * checked one, or null) and that video's caption languages. Captions belong to one video, so a re-cut starts with none.
+ */
+export const academyItemMediaSchema = z.object({
+  itemId: z.string().guid(),
+  videoId: z.string().guid().nullable(),
+  limits: academyUploadLimitsSchema,
+  media: z.array(academyMediaSchema),
+  captions: z.array(academyItemCaptionSchema),
+});
+export type AcademyItemMedia = z.infer<typeof academyItemMediaSchema>;
+
+/** `admin.mediaUploadIntent`: what the browser declares before sending a byte. */
+export const academyMediaIntentInputSchema = z
+  .object({
+    itemId: z.string().guid(),
+    kind: z.enum(ACADEMY_MEDIA_KINDS),
+    fileName: z.string().trim().min(1).max(200),
+    contentType: mimeType,
+    bytes: z.number().int().positive(),
+    sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  })
+  .strict();
+export type AcademyMediaIntentInput = z.infer<typeof academyMediaIntentInputSchema>;
+export const academyMediaIntentSchema = z.object({
+  media: academyMediaSchema,
+  /** The signed address to PUT the bytes to, or null when this file is already stored and confirmed. */
+  uploadUrl: z.string().url().nullable(),
+});
+export type AcademyMediaIntent = z.infer<typeof academyMediaIntentSchema>;
+
+export const academyConfirmMediaInputSchema = z.object({ mediaId: z.string().guid() }).strict();
+
+/** `admin.setItemCaptions`: one language's SRT or WebVTT file for the item's current video. */
+export const academySetItemCaptionsInputSchema = z
+  .object({
+    itemId: z.string().guid(),
+    language: z.string().regex(/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$/),
+    label: z.string().trim().min(1).max(60),
+    format: z.enum(['srt', 'vtt']),
+    text: z.string().max(524_288),
+  })
+  .strict();
+export type AcademySetItemCaptionsInput = z.infer<typeof academySetItemCaptionsInputSchema>;
+export const academySetItemCaptionsResultSchema = z.discriminatedUnion('outcome', [
+  z.object({ outcome: z.literal('saved'), media: academyItemMediaSchema }),
+  /** The first line that is not a caption, with its number, and nothing stored. */
+  z.object({ outcome: z.literal('invalid'), problem: z.string().min(1), media: academyItemMediaSchema }),
+]);

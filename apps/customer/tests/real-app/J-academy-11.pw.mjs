@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { ADMIN, founderSignIn } from './admin.mjs';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { tool } from './stack.mjs';
 
 // J-academy-11, in the running app (docs/roadmap/journeys.json): a founder creates a course on the founder console's
@@ -9,6 +11,7 @@ const J = 'J-academy-11';
 const RUN = Date.now().toString(36);
 const SLUG = `test-j11-${RUN}`;
 const TITLE = `TEST J-academy-11 course ${RUN}`;
+const VIDEO_FIXTURE = fileURLToPath(new URL('../../../../tooling/scripts/local-stack-fixtures/academy-test-video.webm', import.meta.url));
 /** The course #2 creates, for the steps after it (serial, one worker). */
 let courseUrl = null;
 
@@ -360,5 +363,101 @@ test(`${J} #6 Draft with no model provider gives the template draft and an owner
   await expect(page.getByTestId(`lesson-revision-${before + 1}`)).toContainText(`Revision ${before + 1}: accepted from an assistant draft`);
   await expect(page.getByTestId('lesson-draft')).toHaveText('No draft is waiting.');
   await expect(liveRevision).toHaveText(liveBefore);
+  await page.context().close();
+});
+
+/** Academy restarted with the owner's upload limits blank, or back on the stack's TEST limits. */
+function academyUploadLimits(on) {
+  const before = process.env.LOCAL_STACK_ACADEMY_UPLOAD_LIMITS;
+  if (on) delete process.env.LOCAL_STACK_ACADEMY_UPLOAD_LIMITS;
+  else process.env.LOCAL_STACK_ACADEMY_UPLOAD_LIMITS = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'academy');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_ACADEMY_UPLOAD_LIMITS;
+    else process.env.LOCAL_STACK_ACADEMY_UPLOAD_LIMITS = before;
+  }
+}
+
+test(`${J} #7 a video, an SRT file and a handout upload; blank limits refuse; too large is refused unsent; a bad subtitle line is shown; a handout that is not its type is refused`, async ({
+  browser,
+}) => {
+  test.setTimeout(240_000);
+  if (!courseUrl) throw new Error(`${J}: #2 left no course, so this step has nothing to upload to`);
+  const page = await console_(browser);
+  await page.goto(courseUrl);
+  await page.getByRole('link', { name: 'Write Section 1 item 2', exact: true }).click();
+  await page.waitForURL(/\/items\/[0-9a-f-]{36}$/);
+  const limits = page.getByTestId('media-limits');
+  const outcome = page.getByTestId('media-outcome');
+  const uploads = [];
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && r.url().includes('/api/academy-media/upload')) uploads.push(r.url());
+  });
+  const video = { name: 'TEST-sizing.webm', mimeType: 'video/webm', buffer: readFileSync(VIDEO_FIXTURE) };
+  const uploadVideo = async (file) => {
+    await page.getByLabel('Video file', { exact: true }).setInputFiles(file);
+    await page.getByRole('button', { name: 'Upload video' }).click();
+  };
+
+  // With the owner's upload limits blank, nothing is uploaded, and the page says why before sending anything.
+  academyUploadLimits(false);
+  try {
+    await page.reload();
+    await expect(limits).toContainText('Not set by the owner: nothing is uploaded');
+    await uploadVideo(video);
+    await expect(outcome).toContainText('The upload limits are not set');
+    expect(uploads).toEqual([]);
+  } finally {
+    academyUploadLimits(true);
+  }
+  await page.reload();
+  await expect(limits).toContainText('1048576 bytes');
+  await expect(limits).toContainText('video/webm');
+
+  // 2 MiB against the stack's TEST limit of 1 MiB: refused here, and no byte is sent.
+  await uploadVideo({ name: 'TEST-big.webm', mimeType: 'video/webm', buffer: Buffer.alloc(2 * 1024 * 1024, 1) });
+  await expect(outcome).toContainText('The file is over the size limit');
+  expect(uploads).toEqual([]);
+
+  // The TEST video goes to the stack's own store and svc-academy reads it back before it counts.
+  await uploadVideo(video);
+  await expect(outcome).toContainText('Done: checked and stored');
+  await expect(page.getByTestId('media-file-video')).toHaveAttribute('data-state', 'ready');
+  await expect(page.getByTestId('media-file-video')).toContainText('TEST-sizing.webm');
+
+  // Subtitles: a malformed line is named and nothing is stored; a good SRT file is stored with its cues.
+  const srt = (stamp) =>
+    Buffer.from(`1\n00:00:01,000 --> 00:00:03,000\nTEST Size the position first.\n\n2\n${stamp} --> 00:00:06,000\nTEST Then the stop.\n`);
+  const addCaptions = async (buffer) => {
+    await page.getByLabel('Caption file', { exact: true }).setInputFiles({ name: 'TEST-en.srt', mimeType: 'application/x-subrip', buffer });
+    await page.getByRole('button', { name: 'Add captions' }).click();
+  };
+  await addCaptions(srt('00:00:04.000'));
+  await expect(outcome).toHaveAttribute('data-code', 'academy.captions_invalid');
+  await expect(outcome).toContainText('line 6: "00:00:04.000" is not an SRT timestamp');
+  await expect(page.getByTestId('media-captions')).toContainText('No captions yet');
+  await addCaptions(srt('00:00:04,000'));
+  await expect(outcome).toContainText('Done: captions saved');
+  await expect(page.getByTestId('media-captions')).toContainText('English (en, SRT): 2 cues, first “TEST Size the position first.”');
+
+  // A handout declared PDF whose bytes are a PNG image: stored, read back, refused by name, and never offered.
+  const handout = async (file) => {
+    await page.getByLabel('Handout file', { exact: true }).setInputFiles(file);
+    await page.getByRole('button', { name: 'Upload handout' }).click();
+  };
+  const png = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489', 'hex');
+  await handout({ name: 'TEST-sheet.pdf', mimeType: 'application/pdf', buffer: png });
+  await expect(outcome).toHaveAttribute('data-code', 'academy.file_type_mismatch');
+  await expect(outcome).toContainText('The file is not what it says it is');
+  const refused = page.getByTestId('media-file-handout').filter({ hasText: 'TEST-sheet.pdf' });
+  await expect(refused).toHaveAttribute('data-state', 'refused');
+  await expect(refused).toContainText('declared application/pdf but its content is image/png');
+  await expect(refused.getByRole('link')).toHaveCount(0);
+
+  // A real PDF handout is checked and stored.
+  await handout({ name: 'TEST-handout.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n% TEST handout\n%%EOF\n') });
+  await expect(outcome).toContainText('Done: checked and stored');
+  await expect(page.getByTestId('media-file-handout').filter({ hasText: 'TEST-handout.pdf' })).toHaveAttribute('data-state', 'ready');
   await page.context().close();
 });

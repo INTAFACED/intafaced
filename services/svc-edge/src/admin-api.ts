@@ -1,7 +1,16 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { z } from 'zod';
-import { AuthError, bearerToken, requireMfa, requireScope, verifyAccessToken, type Principal, type TokenConfig } from '@intafaced/auth';
+import {
+  AuthError,
+  bearerToken,
+  hasScope,
+  requireMfa,
+  requireScope,
+  verifyAccessToken,
+  type Principal,
+  type TokenConfig,
+} from '@intafaced/auth';
 import {
   MODULE_IDS,
   enforcementOf,
@@ -21,6 +30,11 @@ import {
   type WarehouseLagProbe,
   type WarehouseSurfaceResult,
 } from '@intafaced/contracts';
+import {
+  defineReconciliationControlInputSchema,
+  runReconciliationControlInputSchema,
+  updateReconciliationControlInputSchema,
+} from '@intafaced/contracts/ledger-reconciliation';
 import { createEdgeWarehouseLagProbe, warehouseLagProbeEnabled } from './analytics-lag-probe.js';
 import {
   ActionApprovalConsumeError,
@@ -190,6 +204,15 @@ const thawSchema = z.object({
 
 const reconcileSchema = thawSchema;
 
+/** A control body Edge refuses before forwarding. Only this is a 400; a ledger that cannot be reached is not. */
+export class InvalidControlBodyError extends Error {}
+
+function parsedControlBody<T>(schema: z.ZodType<T>, body: unknown): T {
+  const parsed = schema.safeParse(body ?? {});
+  if (!parsed.success) throw new InvalidControlBodyError(parsed.error.issues.map((issue) => issue.message).join('; '));
+  return parsed.data;
+}
+
 export interface KillSwitchSnapshot {
   readonly disabledModules: readonly ModuleId[];
   readonly reasons: Readonly<Record<string, string>>;
@@ -260,8 +283,11 @@ export interface FreezeSnapshot {
  * operator's own bearer token to one named path. It is not a proxy and cannot
  * become one.
  */
+export type LedgerControlPath =
+  '/operator/reconciliation/controls' | '/operator/reconciliation/controls/update' | '/operator/reconciliation/controls/run';
+
 export type LedgerOperatorCall = (
-  path: '/operator/freeze' | '/operator/unfreeze' | '/operator/reconcile' | LedgerLookupPath,
+  path: '/operator/freeze' | '/operator/unfreeze' | '/operator/reconcile' | LedgerLookupPath | LedgerControlPath,
   method: 'GET' | 'POST',
   bearer: string,
   body?: unknown,
@@ -320,6 +346,19 @@ export interface AdminApi {
   lookupTransaction(txId: unknown, header: string): Promise<{ status: number; body: unknown }>;
   /** The transaction a business key booked, or svc-ledger's `found: false`. Recorded by svc-ledger first. */
   traceBusinessKey(businessKey: unknown, header: string): Promise<{ status: number; body: unknown }>;
+  /**
+   * Reconciliation control list. `admin:treasury` (with a second factor) or `admin:compliance`.
+   * Same rule as svc-ledger's list door.
+   */
+  authenticateControlRead(header: string | undefined): Promise<Principal>;
+  /** Forward GET /operator/reconciliation/controls. */
+  listReconciliationControls(header: string): Promise<{ status: number; body: unknown }>;
+  /** Forward POST /operator/reconciliation/controls. Reason is required; the ledger audits it. */
+  defineReconciliationControl(body: unknown, header: string): Promise<{ status: number; body: unknown }>;
+  /** Forward POST /operator/reconciliation/controls/update. */
+  updateReconciliationControl(body: unknown, header: string): Promise<{ status: number; body: unknown }>;
+  /** Forward POST /operator/reconciliation/controls/run. Reason and approval travel in the body. */
+  runReconciliationControl(body: unknown, header: string): Promise<{ status: number; body: unknown }>;
   consumeApproval(input: ActionApprovalConsumeInput, operator: Principal): Promise<ActionApproval>;
   /**
    * Ops honesty residual (VPN/network, freeze invent, compliance queue, analytics dark).
@@ -552,6 +591,52 @@ export function createAdminApi(state: KillSwitchState, deps: AdminApiDeps): Admi
       const key = LOOKUP_BUSINESS_KEY.safeParse(businessKey);
       if (!key.success) return invalidLookup('A business key is 1 to 512 characters.');
       return deps.ledger(`/operator/trace?businessKey=${encodeURIComponent(key.data)}`, 'GET', header);
+    },
+
+    async authenticateControlRead(header) {
+      const principal = await verify(header);
+      const scopes = ['admin:treasury', 'admin:compliance'] as const;
+      let sawMfa = false;
+      for (const scope of scopes) {
+        if (!hasScope(principal.scopes, scope)) continue;
+        try {
+          requireScope(principal, scope);
+        } catch (err) {
+          if (err instanceof AuthError && err.code === 'mfa.required') {
+            sawMfa = true;
+            continue;
+          }
+          throw err;
+        }
+        // Outside the scope catch: a revoked or unknown session refuses as itself, never as a missing scope.
+        if (deps.sessionLive) await deps.sessionLive(principal);
+        return principal;
+      }
+      if (sawMfa) throw new AuthError('A second factor is required', 'mfa.required');
+      throw new AuthError('One of admin:treasury, admin:compliance is required', 'scope.denied');
+    },
+
+    async listReconciliationControls(header) {
+      if (!deps.ledger) return unreachable;
+      return deps.ledger('/operator/reconciliation/controls', 'GET', header);
+    },
+
+    async defineReconciliationControl(body, header) {
+      if (!deps.ledger) return unreachable;
+      const payload = parsedControlBody(defineReconciliationControlInputSchema, body);
+      return deps.ledger('/operator/reconciliation/controls', 'POST', header, payload);
+    },
+
+    async updateReconciliationControl(body, header) {
+      if (!deps.ledger) return unreachable;
+      const payload = parsedControlBody(updateReconciliationControlInputSchema, body);
+      return deps.ledger('/operator/reconciliation/controls/update', 'POST', header, payload);
+    },
+
+    async runReconciliationControl(body, header) {
+      if (!deps.ledger) return unreachable;
+      const payload = parsedControlBody(runReconciliationControlInputSchema, body);
+      return deps.ledger('/operator/reconciliation/controls/run', 'POST', header, payload);
     },
 
     async consumeApproval(input, operator) {

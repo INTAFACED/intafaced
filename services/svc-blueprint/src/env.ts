@@ -115,6 +115,22 @@ const schema = serviceEnvSchema
       BLUEPRINT_SEASON: unpublishedInt(1),
 
       /**
+       * Active card shares one account may hold (MC-blueprint-01). Blank / unset
+       * is unpublished — creating a share refuses `blueprint.share_limit_unset`.
+       * 0 is a deliberate cap. Never git-default a count.
+       */
+      BLUEPRINT_SHARES_PER_OWNER: unpublishedInt(0),
+
+      /**
+       * Opener rows returned for one share (MC-blueprint-01). Blank / unset is
+       * unpublished — the openers read refuses `blueprint.opens_list_limit_unset`.
+       * 0 is a deliberate empty page. Never git-default a page size.
+       * Open-log retention is not a setting here: this slice does not sweep and
+       * does not invent a window. Rows stay until erase.
+       */
+      BLUEPRINT_OPENS_LIST_LIMIT: unpublishedInt(0),
+
+      /**
        * The card rasterizer (§7.1 "rendered server-side … → PNG").
        *
        * **Optional, and unset means unset.** There is deliberately no default URL:

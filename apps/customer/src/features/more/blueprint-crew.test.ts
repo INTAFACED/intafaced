@@ -41,6 +41,8 @@ function exportRecord() {
     matchRuns: [{ id: crewId, candidates: { privateInput: 'not retained' }, scores: [], placedCrewId: peer, ts: time }],
     mentorMatches: [{ studentId: owner, mentorId: peer, fitScore: 50, status: 'shortlisted' }],
     mentoringOthers: [{ studentId: peer, mentorId: owner, fitScore: 50, status: 'accepted' }],
+    shares: [],
+    cardsOpened: [],
   };
 }
 const project = (record: unknown) => crewProjection(crewExportForOwner(owner).parse(record));

@@ -1,3 +1,12 @@
+import { loadProfile } from '../owner-settings.mjs';
+
+/** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
+function testValue(name) {
+  const entry = loadProfile().values[name];
+  if (!entry) throw new Error(`${name} is missing from tooling/profiles/test-owner-values/trade.json.`);
+  return entry.value;
+}
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY }) => ({
   name: 'trade',
   env: () => ({
@@ -68,5 +77,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     // reported to count USDT margin in full. Without it every futures open refuses trade.haircut_unset.
     TRADE_COLLATERAL_HAIRCUT_BPS: '0',
     TRADE_FUTURES_INDEX_SPOT_MARKETS: 'BTC/USDT:USDT=BTC/USDT',
+    // LOCAL TEST, not owner decisions: copy trading's leader fee share, country list, risk disclosure and lead-page
+    // metric definitions, read from the labelled TEST profile so the copy journeys run on TEST money. Each one
+    // blank refuses by name (services/svc-trade/src/env.ts); production stays blank until the owner sets it.
+    TRADE_COPY_FEE_SHARE_LAW: testValue('TRADE_COPY_FEE_SHARE_LAW'),
+    TRADE_COPY_JURISDICTION_LAW: testValue('TRADE_COPY_JURISDICTION_LAW'),
+    TRADE_COPY_DISCLOSURE_LAW: testValue('TRADE_COPY_DISCLOSURE_LAW'),
+    TRADE_COPY_METRIC_DEFINITIONS: testValue('TRADE_COPY_METRIC_DEFINITIONS'),
   }),
 });

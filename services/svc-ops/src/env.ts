@@ -48,7 +48,8 @@ export const opsEnvSchema = baseEnvSchema
       OPS_CUSTODY_FREEZE_POLICY: blankAsAbsent(z.string().optional()),
       /**
        * Joint-restore archive. Blank → restore.record refuses
-       * ops.restore_archive_unconfigured. A set URL is not probed.
+       * ops.restore_archive_unconfigured, and restore.backups lists nothing.
+       * A set URL is probed; a failed read stays ops.restore_archive_unprobed.
        */
       OPS_RESTORE_ARCHIVE_URL: blankAsAbsent(z.string().url().optional()),
       /**

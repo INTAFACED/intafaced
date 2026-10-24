@@ -42,6 +42,7 @@ import {
   TRPCError,
 } from '@intafaced/contracts';
 import { merchantPortalExtensions } from './merchant-portal/router.js';
+import type { MerchantTermsConfig } from './merchant-portal/terms.js';
 import { credentialAuthority } from './payment-authority.js';
 import { formatAmount, LedgerError, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { DualControlError } from './dual-control.js';
@@ -270,6 +271,8 @@ export function createPayRouter(
   withdrawalQuotes: WithdrawalQuoteService | null = null,
   /** W-withdraw-11: the approval gate on the direct door. Absent in unit stubs; the direct door is then never gated. */
   withdrawalApprovals: { assertDirectAllowed: WithdrawalDirectGate } | null = null,
+  /** The published merchant terms (`merchant-portal/terms.ts`). Null: none published, acceptance refuses. */
+  merchantTerms: MerchantTermsConfig | null = null,
 ) {
   const fraudReviews =
     portalSql && typeof portalSql.unsafe === 'function' && typeof portalSql.json === 'function'
@@ -400,7 +403,10 @@ export function createPayRouter(
     return { ...detail, pricingSnapshot: projectPricingSnapshot(detail.pricingSnapshot, audience) };
   };
 
-  const portal = portalSql && teamReads ? merchantPortalExtensions({ sql: portalSql, pay, trees, team: teamReads, approvals }) : null;
+  const portal =
+    portalSql && teamReads
+      ? merchantPortalExtensions({ sql: portalSql, pay, trees, team: teamReads, approvals, terms: merchantTerms })
+      : null;
 
   return router({
     health: publicProcedure

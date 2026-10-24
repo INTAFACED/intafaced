@@ -67,6 +67,8 @@ async function network(context, options = {}) {
     if (procedure === 'affiliates.revokeShare') return reply(route, { ...link({ referrerId: actor }), revokedAt: stamp });
     if (procedure === 'affiliates.myReferrer') return reply(route, null);
     if (procedure === 'affiliates.myAncestors') return reply(route, []);
+    if (procedure === 'affiliates.myLapse')
+      return reply(route, { state: 'none', periodSeconds: null, lastActivityAt: null, endsAt: null, ended: null });
     if (procedure === 'affiliates.myAccruals') return reply(route, { rows: [] });
     if (procedure === 'help.list' || procedure === 'notices.list') return reply(route, []);
     return fail(route);

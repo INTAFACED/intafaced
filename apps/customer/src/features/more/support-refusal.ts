@@ -34,6 +34,10 @@ const BY_CODE: Readonly<Record<string, RefusalKey>> = {
   'support.kb_version_unknown': 'refuseArticleGone',
   'support.comment_cap_unset': 'refuseCommentsOff',
   'support.comment_cap_reached': 'refuseCommentCap',
+  'support.feedback_rate_exceeded': 'refuseFeedbackRate',
+  'support.feedback_rate_limit_unset': 'refuseFeedbackOff',
+  'support.feedback_request_invalid': 'refuseFeedbackRequest',
+  'support.feedback_comment_too_long': 'refuseFeedbackLong',
 };
 const SUPPORT_CODE = /\bsupport(?:\.[a-z0-9_]+)+/;
 

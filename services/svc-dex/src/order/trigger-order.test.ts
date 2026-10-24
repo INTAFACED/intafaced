@@ -1,0 +1,1263 @@
+import { createHash } from 'node:crypto';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { getAddress, type Hex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import { SANCTIONS_REGIONS_ENV, SANCTIONS_SOURCE_ENV, SCREENING_REVIEWED_EMPTY } from '@intafaced/config';
+import {
+  EDGE_PRINCIPAL_HEADER,
+  EDGE_SIGNATURE_HEADER,
+  createEdgeContext,
+  encodePrincipal,
+  signPrincipalHeader,
+} from '@intafaced/contracts';
+import { parseAmount } from '@intafaced/ledger-client/money';
+import { z } from 'zod';
+import { ATTEMPT_TAIL, OrderBook, RATE_COPY, RESTING_ORDER_COPY, poolKey } from './order-book.js';
+import { PRICE_ORDER_TYPES, type OrderDomain } from './order-signature.js';
+import { runKeeperTick, startTriggerKeeper } from './trigger-keeper.js';
+import { minOutForFill, percentString } from './trigger-math.js';
+import type { FillPort, FillQuote, FillSend, PricePort, PriceRead } from './trigger-ports.js';
+import { FEED_UNWIRED_MESSAGE, RAIL_UNWIRED_MESSAGE, unwiredFillPort } from './trigger-ports.js';
+import {
+  dexOrderDomainField,
+  dexOrderKeeperIntervalField,
+  dexOrderMinSizeField,
+  dexOrderRestrictedTokensField,
+  dexOrderSlippageField,
+  dexOrderWarnTokensField,
+  parseAddressListEnv,
+} from './trigger-settings.js';
+import type { TriggerSettings } from './trigger-settings.js';
+import { triggerOrderCodes } from './trigger-error.js';
+import type { TriggerOrderInput } from './trigger-order.js';
+import { createDexRouter } from '../router.js';
+
+const SECRET = 'a-dex-trigger-order-edge-secret-long-enough';
+const USER = '11111111-1111-4111-8111-111111111111';
+const OTHER = '33333333-3333-4333-8333-333333333333';
+const STRANGER = '44444444-4444-4444-8444-444444444444';
+const NOW = new Date('2026-10-23T00:00:00.000Z');
+const account = privateKeyToAccount(`0x${'11'.repeat(32)}` as Hex);
+const MAKER = account.address.toLowerCase();
+const TOKEN_IN = '0x2222222222222222222222222222222222222222';
+const TOKEN_OUT = '0x3333333333333333333333333333333333333333';
+const PAIR = poolKey(TOKEN_IN, TOKEN_OUT);
+const SIG = `0x${'ab'.repeat(65)}`;
+const DOMAIN: OrderDomain = {
+  name: 'INTAFACED TEST Order',
+  version: '1',
+  chainId: 84532,
+  verifyingContract: getAddress('0x0000000000000000000000000000000000000001'),
+};
+
+const priorRegions = process.env[SANCTIONS_REGIONS_ENV];
+const priorSource = process.env[SANCTIONS_SOURCE_ENV];
+beforeAll(() => {
+  process.env[SANCTIONS_REGIONS_ENV] = SCREENING_REVIEWED_EMPTY;
+  process.env[SANCTIONS_SOURCE_ENV] = 'counsel-memo-ref';
+});
+afterAll(() => {
+  if (priorRegions === undefined) delete process.env[SANCTIONS_REGIONS_ENV];
+  else process.env[SANCTIONS_REGIONS_ENV] = priorRegions;
+  if (priorSource === undefined) delete process.env[SANCTIONS_SOURCE_ENV];
+  else process.env[SANCTIONS_SOURCE_ENV] = priorSource;
+});
+
+const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-dex' });
+
+function principal(userId: string) {
+  return encodePrincipal({
+    sub: userId,
+    userId,
+    sid: '22222222-2222-4222-8222-222222222222',
+    scopes: ['protocol:read'],
+    tier: 'none',
+    mfa: false,
+    expiresAt: new Date(Date.now() + 60_000),
+    // The header codec checks the wire shape. The cast matches the other dex edge tests.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any);
+}
+
+function request(headers: Record<string, string>) {
+  return edge({ headers, id: 'req-trigger' });
+}
+
+const anonymous = () => request({ 'x-intafaced-region': 'DE' });
+
+function signed(userId = USER) {
+  const raw = principal(userId);
+  return request({
+    [EDGE_PRINCIPAL_HEADER]: raw,
+    [EDGE_SIGNATURE_HEADER]: signPrincipalHeader(raw, SECRET, 'DE'),
+    'x-intafaced-region': 'DE',
+  });
+}
+
+const forged = () => request({ [EDGE_PRINCIPAL_HEADER]: principal(USER), 'x-intafaced-region': 'DE' });
+
+const settings: TriggerSettings = {
+  minSize: parseAmount('1'),
+  restrictedTokens: [],
+  warnTokens: [],
+  slippageBps: 50,
+  oracleMaxAgeMs: 2_000,
+  orderDomain: DOMAIN,
+};
+
+function typed(over: Partial<TriggerOrderInput['typedOrder']> = {}): TriggerOrderInput {
+  return {
+    signature: SIG,
+    typedOrder: {
+      variant: 'sell_above',
+      maker: MAKER,
+      tokenIn: TOKEN_IN,
+      tokenOut: TOKEN_OUT,
+      amountIn: '100',
+      triggerPrice: '105',
+      minOut: '10',
+      expiry: '2026-10-24T00:00:00.000Z',
+      ...over,
+    },
+  };
+}
+
+/** Sign the parsed order. `100` and `100.0` recover as the same maker signature. */
+async function placed(over: Partial<TriggerOrderInput['typedOrder']> = {}): Promise<TriggerOrderInput> {
+  const input = typed(over);
+  const ownerSlip = settings.slippageBps;
+  if (ownerSlip === undefined) throw new Error('the test slippage default is blank');
+  const rawSlip = input.typedOrder.slippageBps;
+  const slippageBps = rawSlip !== undefined && rawSlip.trim() !== '' ? Number(rawSlip) : ownerSlip;
+  const signature = await account.signTypedData({
+    domain: DOMAIN,
+    types: PRICE_ORDER_TYPES,
+    primaryType: 'PriceOrder',
+    message: {
+      variant: input.typedOrder.variant,
+      maker: getAddress(input.typedOrder.maker),
+      tokenIn: getAddress(input.typedOrder.tokenIn),
+      tokenOut: getAddress(input.typedOrder.tokenOut),
+      amountIn: parseAmount(input.typedOrder.amountIn),
+      triggerPrice: parseAmount(input.typedOrder.triggerPrice),
+      minOut: parseAmount(input.typedOrder.minOut),
+      expiry: BigInt(Date.parse(input.typedOrder.expiry ?? '')),
+      slippageBps: BigInt(slippageBps),
+    },
+  });
+  return { ...input, signature };
+}
+
+class ScriptPrice implements PricePort {
+  result: PriceRead = { status: 'ok', price: parseAmount('104'), observedAt: NOW.toISOString() };
+  onRead: (() => PriceRead | Promise<PriceRead>) | null = null;
+  async read(): Promise<PriceRead> {
+    if (this.onRead) return this.onRead();
+    return this.result;
+  }
+}
+
+class ScriptFill implements FillPort {
+  readonly sent: Array<{ key: string; maker: string; take: bigint; minOut: bigint }> = [];
+  readonly keys: string[] = [];
+  sendCalls = 0;
+  liquidity: bigint | null = null;
+  /** Pool free size that a pending send does not reduce. Only `reserved` keeps a second order off it. */
+  stickyPool: bigint | null = null;
+  crashNext = false;
+  throwNext = false;
+  /** Throw before `noteTx`. No hash is stored. */
+  throwBeforeNote = false;
+  /** Return unknown before `noteTx`. The port still remembers the hash for a repeat. */
+  unknownWithoutHash = false;
+  /** Return sent with a blank hash. The port still remembers the hash for a repeat. */
+  blankSentNext = false;
+  /** Return unwired before `noteTx`. */
+  unwiredNext = false;
+  /** Return rejected before `noteTx`. */
+  rejectNext = false;
+  /** Store a hash, then return rejected. */
+  rejectAfterNote = false;
+  pause: Promise<void> | null = null;
+  onNoted: (() => void) | null = null;
+  onSendEntered: (() => void) | null = null;
+  quoteOf: (amountIn: bigint) => FillQuote = (amountIn) => ({ status: 'ok', take: amountIn, out: parseAmount('10') });
+  receipt: (txHash: string, reads: number) => 'pending' | 'success' | 'reverted' | 'unwired' = () => 'success';
+  private readonly byKey = new Map<string, string>();
+  private reads = 0;
+
+  async quote(input: { amountIn: bigint; reserved?: bigint }): Promise<FillQuote> {
+    const reserved = input.reserved ?? 0n;
+    const pool = this.stickyPool ?? this.liquidity;
+    if (pool !== null) {
+      const free = pool > reserved ? pool - reserved : 0n;
+      if (free <= 0n) return { status: 'insufficient_liquidity' };
+    }
+    const quoted = this.quoteOf(input.amountIn);
+    if (quoted.status === 'ok' && pool !== null) {
+      const free = pool > reserved ? pool - reserved : 0n;
+      if (quoted.take > free) return { status: 'insufficient_liquidity' };
+    }
+    return quoted;
+  }
+
+  async send(input: { key: string; maker: string; take: bigint; minOut: bigint; noteTx?: (txHash: string) => void }): Promise<FillSend> {
+    this.sendCalls += 1;
+    this.keys.push(input.key);
+    // Injected answers apply even on a repeat, so a later tick can reject, throw, or stay unwired
+    // without broadcasting. They do not drop the hash the port already recorded.
+    if (this.rejectNext) {
+      this.rejectNext = false;
+      return { status: 'rejected', reason: 'reverted' };
+    }
+    if (this.unwiredNext) {
+      this.unwiredNext = false;
+      return { status: 'unwired' };
+    }
+    if (this.throwBeforeNote) {
+      this.throwBeforeNote = false;
+      throw new Error('died before the hash was recorded');
+    }
+    const existing = this.byKey.get(input.key);
+    if (existing) {
+      input.noteTx?.(existing);
+      return { status: 'sent', txHash: existing };
+    }
+    if (this.unknownWithoutHash || this.blankSentNext) {
+      const blankSent = this.blankSentNext;
+      this.unknownWithoutHash = false;
+      this.blankSentNext = false;
+      const txHash = `0x${createHash('sha256').update(input.key).digest('hex')}`;
+      this.byKey.set(input.key, txHash);
+      this.sent.push({ key: input.key, maker: input.maker, take: input.take, minOut: input.minOut });
+      if (blankSent) return { status: 'sent', txHash: '  ' };
+      return { status: 'unknown' };
+    }
+    if (this.rejectAfterNote) {
+      this.rejectAfterNote = false;
+      const noted = `0x${createHash('sha256').update(`noted:${input.key}`).digest('hex')}`;
+      input.noteTx?.(noted);
+      return { status: 'rejected', reason: 'reverted' };
+    }
+    if (this.stickyPool === null && this.liquidity !== null && input.take > this.liquidity) {
+      return { status: 'rejected', reason: 'insufficient_liquidity' };
+    }
+    if (this.stickyPool === null && this.liquidity !== null) this.liquidity -= input.take;
+    const txHash = `0x${createHash('sha256').update(input.key).digest('hex')}`;
+    this.byKey.set(input.key, txHash);
+    input.noteTx?.(txHash);
+    this.onNoted?.();
+    this.sent.push({ key: input.key, maker: input.maker, take: input.take, minOut: input.minOut });
+    if (this.throwNext) {
+      this.throwNext = false;
+      throw new Error('died after the send was recorded');
+    }
+    if (this.crashNext) {
+      this.crashNext = false;
+      return { status: 'unknown' };
+    }
+    this.onSendEntered?.();
+    if (this.pause) await this.pause;
+    return { status: 'sent', txHash };
+  }
+
+  async read(txHash: string) {
+    this.reads += 1;
+    return this.receipt(txHash, this.reads);
+  }
+}
+
+function harness(opts?: { settings?: TriggerSettings; price?: PricePort; fill?: FillPort; book?: OrderBook }) {
+  const clock = { now: NOW };
+  const book = opts?.book ?? new OrderBook();
+  const price = opts?.price ?? new ScriptPrice();
+  const fill = opts?.fill ?? new ScriptFill();
+  let venues = 0;
+  const dex = createDexRouter({
+    venues: () => {
+      venues += 1;
+      return [];
+    },
+    now: () => clock.now,
+    triggerOrders: { settings: opts?.settings ?? settings, book, price, fill },
+  });
+  const caller = (userId?: string) => dex.createCaller(userId ? signed(userId) : signed());
+  return { clock, book, price, fill, dex, caller, venues: () => venues };
+}
+
+async function refused(run: Promise<unknown>) {
+  return run.then(
+    () => {
+      throw new Error('trigger order resolved');
+    },
+    (err: { code?: string; message?: string; cause?: { code?: string } }) => err,
+  );
+}
+
+describe('svc-dex price-trigger orders (D-limit-dca-02)', () => {
+  it('does not call a service, open a database, or mint an id', () => {
+    const files = [
+      'trigger-order.ts',
+      'trigger-keeper.ts',
+      'order-book.ts',
+      'order-signature.ts',
+      'trigger-ports.ts',
+      'trigger-settings.ts',
+      'trigger-math.ts',
+      'trigger-error.ts',
+    ];
+    for (const file of files) {
+      const src = readFileSync(new URL(`./${file}`, import.meta.url), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/.*$/gm, '');
+      expect(src).not.toMatch(/svc-identity|INTERNAL_SERVICE_SECRET|DATABASE_URL|fetch\(|randomUUID|ledger\.post/);
+      expect(src).not.toMatch(/from\s+['"]@intafaced\/ledger-client\/recipes['"]/);
+    }
+  });
+
+  it('refuses a missing or forged principal before the book', async () => {
+    const { dex, book } = harness();
+    const anon = await refused(dex.createCaller(anonymous()).order.createTrigger(await placed()));
+    const fake = await refused(dex.createCaller(forged()).order.createTrigger(await placed()));
+    expect(anon.cause?.code).toBe(triggerOrderCodes.principalRequired);
+    expect(fake.cause?.code).toBe(triggerOrderCodes.principalRequired);
+    expect(book.size).toBe(0);
+  });
+
+  it('still screens the region before the order is read', async () => {
+    vi.stubEnv(SANCTIONS_REGIONS_ENV, '   ');
+    vi.stubEnv(SANCTIONS_SOURCE_ENV, undefined);
+    vi.stubEnv('INTAFACED_SCREENING_FAIL_CLOSED', 'true');
+    try {
+      const { dex } = harness();
+      await expect(dex.createCaller(signed()).order.createTrigger(await placed())).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        cause: { code: 'denied.screening_unconfigured' },
+      });
+    } finally {
+      vi.unstubAllEnvs();
+      process.env[SANCTIONS_REGIONS_ENV] = SCREENING_REVIEWED_EMPTY;
+      process.env[SANCTIONS_SOURCE_ENV] = 'counsel-memo-ref';
+    }
+  });
+
+  it('J-dex-protocol-10 step 2: a price order with no expiry is dex.order.expiry_required', async () => {
+    const { caller, book } = harness();
+    const err = await refused(caller().order.createTrigger(typed({ expiry: undefined })));
+    expect(err.cause?.code).toBe(triggerOrderCodes.expiryRequired);
+    expect(err.code).toBe('PRECONDITION_FAILED');
+    const past = await refused(caller().order.createTrigger(typed({ expiry: '2026-10-22T00:00:00.000Z' })));
+    expect(past.cause?.code).toBe(triggerOrderCodes.expiryInvalid);
+    expect(book.size).toBe(0);
+  });
+
+  it('refuses a blank minimum, a blank restricted list, and a blank slippage default', async () => {
+    const order = typed();
+    const min = harness({ settings: {} });
+    expect((await refused(min.caller().order.createTrigger(order))).cause?.code).toBe(triggerOrderCodes.minSizeUnset);
+    expect(min.book.size).toBe(0);
+    const list = harness({ settings: { minSize: parseAmount('1') } });
+    expect((await refused(list.caller().order.createTrigger(order))).cause?.code).toBe(triggerOrderCodes.restrictedListUnset);
+    const slip = harness({ settings: { minSize: parseAmount('1'), restrictedTokens: [] } });
+    const slipErr = await refused(slip.caller().order.createTrigger({ ...order, typedOrder: { ...order.typedOrder, slippageBps: '30' } }));
+    expect(slipErr.cause?.code).toBe(triggerOrderCodes.slippageUnset);
+    expect(slip.book.size).toBe(0);
+  });
+
+  it('refuses an amount under the published minimum and a listed token', async () => {
+    const { caller } = harness();
+    const small = await refused(caller().order.createTrigger(typed({ amountIn: '0.5' })));
+    expect(small.cause?.code).toBe(triggerOrderCodes.belowMinSize);
+    expect(small.message).toContain('1');
+    expect(small.message).not.toMatch(/USD|10/);
+    const listed = harness({
+      settings: { ...settings, restrictedTokens: [TOKEN_IN] },
+    });
+    expect((await refused(listed.caller().order.createTrigger(await placed()))).cause?.code).toBe(triggerOrderCodes.restrictedToken);
+  });
+
+  it('warns on the warn tier and still stores one order', async () => {
+    const { caller, book } = harness({ settings: { ...settings, warnTokens: [TOKEN_OUT] } });
+    const created = await caller().order.createTrigger(await placed());
+    expect(created.replayed).toBe(false);
+    expect(created.warnings).toEqual([{ code: 'dex.order.token_warned', token: 'out' }]);
+    expect(created.state).toBe('open');
+    expect(book.size).toBe(1);
+  });
+
+  it('stores one open order, warns instead of refusing an immediate or uneconomic trigger, and does not send', async () => {
+    const price = new ScriptPrice();
+    price.result = { status: 'ok', price: parseAmount('110'), observedAt: NOW.toISOString() };
+    const fill = new ScriptFill();
+    fill.quoteOf = () => ({ status: 'ok', take: parseAmount('100'), out: parseAmount('9') });
+    const { caller, venues } = harness({ price, fill });
+    const created = await caller().order.createTrigger(await placed({ triggerPrice: '100' }));
+    expect(created.state).toBe('open');
+    expect(created.remaining).toBe('100');
+    expect(created.sheet.rate).toBe(RATE_COPY);
+    expect(created.sheet.resting).toBe(RESTING_ORDER_COPY);
+    expect(created.sheet.minOut).toBe('10');
+    expect(created.warnings).toEqual([
+      { code: 'dex.order.would_fill_immediately', percentage: percentString(parseAmount('10'), parseAmount('100')) },
+      { code: 'dex.order.uneconomic', percentage: percentString(parseAmount('1'), parseAmount('10')) },
+    ]);
+    expect(fill.sent).toHaveLength(0);
+    expect(venues()).toBe(0);
+    expect(JSON.stringify(created)).not.toContain(SIG);
+  });
+
+  it('names feed.market and rail.crypto when the ports are unwired, and still stores the order', async () => {
+    const book = new OrderBook();
+    const dex = createDexRouter({
+      venues: () => [],
+      now: () => NOW,
+      triggerOrders: { settings, book },
+    });
+    const created = await dex.createCaller(signed()).order.createTrigger(await placed());
+    expect(created.notConnected.map((row) => row.code)).toEqual(['feed.market', 'rail.crypto']);
+    expect(created.notConnected[0]?.message).toBe(FEED_UNWIRED_MESSAGE);
+    expect(created.notConnected[1]?.message).toBe(RAIL_UNWIRED_MESSAGE);
+    expect(created.state).toBe('open');
+    expect(book.size).toBe(1);
+  });
+
+  it('is idempotent for the same recovered signature, and a second session replays', async () => {
+    const { caller, book } = harness();
+    const firstInput = await placed({ amountIn: '100.0' });
+    const first = await caller().order.createTrigger(firstInput);
+    const second = await caller().order.createTrigger(await placed({ amountIn: '100' }));
+    expect(second.replayed).toBe(true);
+    expect(second.orderHash).toBe(first.orderHash);
+    expect(book.size).toBe(1);
+    const again = await placed({ expiry: '2026-10-25T00:00:00.000Z' });
+    const [a, b] = await Promise.all([caller().order.createTrigger(again), caller().order.createTrigger(again)]);
+    expect(a.orderHash).toBe(b.orderHash);
+    expect([a.replayed, b.replayed].filter(Boolean)).toHaveLength(1);
+    expect(book.size).toBe(2);
+    const replay = await caller(OTHER).order.createTrigger(firstInput);
+    expect(replay.replayed).toBe(true);
+    expect(replay.orderHash).toBe(first.orderHash);
+    expect((await caller(OTHER).order.get({ orderHash: first.orderHash })).state).toBe('open');
+    const hidden = await refused(caller(STRANGER).order.get({ orderHash: first.orderHash }));
+    expect(hidden.cause?.code).toBe(triggerOrderCodes.notFound);
+  });
+
+  it('validate does not store, and a blank field is a typed refusal', async () => {
+    const { caller, book } = harness();
+    const validated = await caller().order.validate(await placed());
+    expect(validated.ok).toBe(true);
+    expect(book.size).toBe(0);
+    expect((await refused(caller().order.createTrigger(typed({ variant: 'market' })))).cause?.code).toBe(triggerOrderCodes.badRequest);
+    expect((await refused(caller().order.createTrigger(typed({ amountIn: '' })))).cause?.code).toBe(triggerOrderCodes.amountUnset);
+    expect((await refused(caller().order.createTrigger(typed({ triggerPrice: '0' })))).cause?.code).toBe(triggerOrderCodes.triggerInvalid);
+    expect((await refused(caller().order.createTrigger(typed({ minOut: '' })))).cause?.code).toBe(triggerOrderCodes.minOutUnset);
+    expect((await refused(caller().order.createTrigger({ ...typed(), signature: '0xabcd' }))).cause?.code).toBe(
+      triggerOrderCodes.signatureInvalid,
+    );
+    expect((await refused(caller().order.createTrigger({ ...typed(), signature: '  ' }))).cause?.code).toBe(
+      triggerOrderCodes.signatureRequired,
+    );
+    expect((await refused(caller().order.createTrigger(typed({ tokenOut: TOKEN_IN })))).cause?.code).toBe(triggerOrderCodes.badRequest);
+    expect((await refused(caller().order.createTrigger(typed({ slippageBps: '1.5' })))).cause?.code).toBe(
+      triggerOrderCodes.slippageInvalid,
+    );
+    expect(book.size).toBe(0);
+  });
+
+  it('J-dex-protocol-10 step 3: sell-above stays open at 104 and fills once at 106', async () => {
+    const price = new ScriptPrice();
+    const fill = new ScriptFill();
+    const { caller, book } = harness({ price, fill });
+    const created = await caller().order.createTrigger(await placed());
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'below');
+    expect(fill.sent).toHaveLength(0);
+    const open = await caller().order.get({ orderHash: created.orderHash });
+    expect(open.state).toBe('open');
+    expect(open.remaining).toBe('100');
+    const attempts = await caller().order.attempts({ orderHash: created.orderHash });
+    expect(attempts.attempts.map((row) => row.reason)).toEqual(['predicate_false']);
+
+    price.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'cross');
+    const filled = await caller().order.get({ orderHash: created.orderHash });
+    expect(filled.state).toBe('filled');
+    expect(filled.remaining).toBe('0');
+    expect(filled.fills).toHaveLength(1);
+    expect(filled.fills[0]?.amountOut).toBe('10');
+    expect(filled.fills[0]?.minOut).toBe('10');
+    expect(fill.sent[0]?.maker).toBe(MAKER);
+    expect(fill.sent[0]?.key).toBe(`dex.order.fill:${created.orderHash}:1`);
+    expect(fill.sent[0]?.minOut).toBe(parseAmount('10'));
+  });
+
+  it('fills each variant only on its own side of the trigger', async () => {
+    const cases = [
+      ['buy_above', '99', false],
+      ['buy_above', '100', true],
+      ['buy_below', '101', false],
+      ['buy_below', '100', true],
+      ['sell_above', '104', false],
+      ['sell_above', '105', true],
+      ['sell_below', '101', false],
+      ['sell_below', '100', true],
+    ] as const;
+    for (const [variant, px, fills] of cases) {
+      const price = new ScriptPrice();
+      price.result = { status: 'ok', price: parseAmount(px), observedAt: NOW.toISOString() };
+      const fill = new ScriptFill();
+      const { caller, book } = harness({ price, fill });
+      const created = await caller().order.createTrigger(
+        await placed({ variant, triggerPrice: variant.startsWith('sell_above') ? '105' : '100' }),
+      );
+      await runKeeperTick(book, { now: () => NOW, settings, price, fill }, variant + px);
+      const view = await caller().order.get({ orderHash: created.orderHash });
+      expect(view.state).toBe(fills ? 'filled' : 'open');
+      expect(fill.sent).toHaveLength(fills ? 1 : 0);
+    }
+  });
+
+  it('a partial fill of 40 leaves 60 and the next fill cannot exceed it', async () => {
+    const price = new ScriptPrice();
+    price.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
+    const fill = new ScriptFill();
+    let quotedRemaining = 0;
+    fill.quoteOf = (amountIn) => {
+      if (amountIn === parseAmount('100')) return { status: 'ok', take: parseAmount('40'), out: parseAmount('4') };
+      quotedRemaining += 1;
+      if (quotedRemaining === 1) return { status: 'ok', take: parseAmount('70'), out: parseAmount('100') };
+      return { status: 'ok', take: amountIn, out: parseAmount('6') };
+    };
+    const { caller, book } = harness({ price, fill });
+    const created = await caller().order.createTrigger(await placed());
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'part');
+    expect((await caller().order.get({ orderHash: created.orderHash })).remaining).toBe('60');
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'too-big');
+    const held = await caller().order.get({ orderHash: created.orderHash });
+    expect(held.remaining).toBe('60');
+    expect(held.state).toBe('open');
+    expect(fill.sent).toHaveLength(1);
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'rest');
+    const done = await caller().order.get({ orderHash: created.orderHash });
+    expect(done.remaining).toBe('0');
+    expect(done.state).toBe('filled');
+    expect(fill.sent[1]?.take).toBe(parseAmount('60'));
+    expect(fill.sent[1]?.key).toBe(`dex.order.fill:${created.orderHash}:2`);
+  });
+
+  it('order.fill.never-below-minOut', async () => {
+    const floor = minOutForFill(parseAmount('100'), parseAmount('100'), parseAmount('10'));
+    expect(floor).toBe(parseAmount('10'));
+    expect(minOutForFill(parseAmount('40'), parseAmount('100'), parseAmount('10'))).toBe(parseAmount('4'));
+    const partial = minOutForFill(parseAmount('1'), parseAmount('3'), parseAmount('1'));
+    expect(partial * parseAmount('3') >= parseAmount('1') * parseAmount('1')).toBe(true);
+
+    const price = new ScriptPrice();
+    price.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
+    const fill = new ScriptFill();
+    fill.quoteOf = () => ({ status: 'ok', take: parseAmount('100'), out: parseAmount('9') });
+    const { caller, book } = harness({ price, fill });
+    const created = await caller().order.createTrigger(await placed());
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'under');
+    expect(fill.sent).toHaveLength(0);
+    const view = await caller().order.get({ orderHash: created.orderHash });
+    expect(view.state).toBe('open');
+    expect(view.remaining).toBe('100');
+    const attempts = await caller().order.attempts({ orderHash: created.orderHash });
+    expect(attempts.attempts.map((row) => row.reason)).toContain('insufficient_liquidity');
+  });
+
+  it('a stale or disagreeing oracle leaves the order open', async () => {
+    const price = new ScriptPrice();
+    price.result = { status: 'stale' };
+    const fill = new ScriptFill();
+    const { caller, book } = harness({ price, fill });
+    const created = await caller().order.createTrigger(await placed());
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'stale');
+    price.result = { status: 'disagree' };
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'disagree');
+    price.result = { status: 'ok', price: parseAmount('106'), observedAt: '2026-10-22T00:00:00.000Z' };
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'old');
+    price.result = { status: 'ok', price: parseAmount('106'), observedAt: '2026-10-23T00:00:10.000Z' };
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'future');
+    const view = await caller().order.get({ orderHash: created.orderHash });
+    expect(view.state).toBe('open');
+    expect(fill.sent).toHaveLength(0);
+    const reasons = (await caller().order.attempts({ orderHash: created.orderHash })).attempts.map((row) => row.reason);
+    // The old and the future reading are both stale: one row, since the reason did not change.
+    expect(reasons).toEqual(['oracle_stale', 'oracle_disagree', 'oracle_stale']);
+  });
+
+  it('does not fill when the freshness bound or the feed or the rail is blank', async () => {
+    const price = new ScriptPrice();
+    price.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
+    const fill = new ScriptFill();
+    const loose = { ...settings, oracleMaxAgeMs: undefined };
+    const { caller, book } = harness({ price, fill, settings: loose });
+    const created = await caller().order.createTrigger(await placed());
+    await runKeeperTick(book, { now: () => NOW, settings: loose, price, fill }, 'no-age');
+    price.result = { status: 'unwired' };
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'no-feed');
+    price.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill: unwiredFillPort }, 'no-rail');
+    expect(fill.sent).toHaveLength(0);
+    const reasons = (await caller().order.attempts({ orderHash: created.orderHash })).attempts.map((row) => row.reason);
+    expect(reasons).toEqual(['dex.order.oracle_max_age_unset', 'feed.market', 'rail.crypto']);
+  });
+
+  it('order.crash-after-send.reconciles-by-hash', async () => {
+    const price = new ScriptPrice();
+    price.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
+    const fill = new ScriptFill();
+    fill.crashNext = true;
+    const { caller, book } = harness({ price, fill });
+    const created = await caller().order.createTrigger(await placed());
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'send');
+    const mid = await caller().order.get({ orderHash: created.orderHash });
+    expect(mid.state).toBe('executing');
+    expect(mid.pendingFill?.txHash).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(fill.sent).toHaveLength(1);
+    expect(fill.sendCalls).toBe(1);
+    price.result = { status: 'stale' };
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'reconcile');
+    const done = await caller().order.get({ orderHash: created.orderHash });
+    expect(done.state).toBe('filled');
+    expect(done.remaining).toBe('0');
+    expect(fill.sent).toHaveLength(1);
+    expect(fill.sendCalls).toBe(1);
+    expect(done.fills[0]?.key).toBe(fill.sent[0]?.key);
+  });
+
+  it('a thrown send is reconciled by the same key, and a pending receipt does not send twice', async () => {
+    const price = new ScriptPrice();
+    price.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
+    const fill = new ScriptFill();
+    fill.throwNext = true;
+    const { caller, book } = harness({ price, fill });
+    const created = await caller().order.createTrigger(await placed());
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'throw');
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'after-throw');
+    expect((await caller().order.get({ orderHash: created.orderHash })).state).toBe('filled');
+    expect(fill.sent).toHaveLength(1);
+
+    const pending = new ScriptFill();
+    let reads = 0;
+    pending.receipt = () => {
+      reads += 1;
+      return reads === 1 ? 'pending' : 'success';
+    };
+    const second = harness({ price, fill: pending });
+    const row = await second.caller().order.createTrigger(await placed());
+    await runKeeperTick(second.book, { now: () => NOW, settings, price, fill: pending }, 'pend');
+    expect((await second.caller().order.get({ orderHash: row.orderHash })).state).toBe('executing');
+    await runKeeperTick(second.book, { now: () => NOW, settings, price, fill: pending }, 'mined');
+    expect((await second.caller().order.get({ orderHash: row.orderHash })).state).toBe('filled');
+    expect(pending.sent).toHaveLength(1);
+  });
+
+  it('a reverted fill returns to open and the next fill uses the next round', async () => {
+    const price = new ScriptPrice();
+    price.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
+    const fill = new ScriptFill();
+    let reads = 0;
+    fill.receipt = () => {
+      reads += 1;
+      return reads === 1 ? 'reverted' : 'success';
+    };
+    const { caller, book } = harness({ price, fill });
+    const created = await caller().order.createTrigger(await placed());
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'revert');
+    const open = await caller().order.get({ orderHash: created.orderHash });
+    expect(open.state).toBe('open');
+    expect(open.remaining).toBe('100');
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'again');
+    const done = await caller().order.get({ orderHash: created.orderHash });
+    expect(done.state).toBe('filled');
+    expect(fill.sent.map((row) => row.key)).toEqual([`dex.order.fill:${created.orderHash}:1`, `dex.order.fill:${created.orderHash}:2`]);
+  });
+
+  it('expires without filling, and two ticks cannot both take the remaining size', async () => {
+    const price = new ScriptPrice();
+    price.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
+    const fill = new ScriptFill();
+    const { caller, book, clock } = harness({ price, fill });
+    const created = await caller().order.createTrigger(await placed());
+    clock.now = new Date('2026-10-24T00:00:01.000Z');
+    await runKeeperTick(book, { now: () => clock.now, settings, price, fill }, 'expired');
+    expect((await caller().order.get({ orderHash: created.orderHash })).state).toBe('expired');
+    expect(fill.sent).toHaveLength(0);
+
+    const livePrice = new ScriptPrice();
+    livePrice.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
+    const liveFill = new ScriptFill();
+    const live = harness({ price: livePrice, fill: liveFill });
+    await live.caller().order.createTrigger(await placed());
+    await Promise.all([
+      runKeeperTick(live.book, { now: () => NOW, settings, price: livePrice, fill: liveFill }, 'c1'),
+      runKeeperTick(live.book, { now: () => NOW, settings, price: livePrice, fill: liveFill }, 'c2'),
+    ]);
+    expect(liveFill.sent).toHaveLength(1);
+    expect(live.book.size).toBe(1);
+  });
+
+  it('two orders that together exceed pool liquidity admit only what fits', async () => {
+    const price = new ScriptPrice();
+    price.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
+    const fill = new ScriptFill();
+    fill.liquidity = parseAmount('100');
+    const { caller, book } = harness({ price, fill });
+    await caller().order.createTrigger(await placed());
+    await caller().order.createTrigger(await placed({ expiry: '2026-10-25T00:00:00.000Z' }));
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'cap');
+    expect(fill.sent).toHaveLength(1);
+    expect(fill.sent[0]?.take).toBe(parseAmount('100'));
+    expect(fill.liquidity).toBe(0n);
+    const reasons = book.ids().flatMap((id) => book.attempts(id).map((row) => row.reason));
+    expect(reasons).toContain('insufficient_liquidity');
+  });
+
+  it('keeps the attempt log flat across many ticks on an unwired port and bounded when reasons change', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dex-attempt-tail-'));
+    const book = new OrderBook(dir);
+    const price = new ScriptPrice();
+    price.result = { status: 'unwired' };
+    const fill = new ScriptFill();
+    const { caller } = harness({ price, fill, book });
+    const created = await caller().order.createTrigger(await placed());
+    for (let n = 0; n < 500; n += 1) await runKeeperTick(book, { now: () => NOW, settings, price, fill }, `t${n}`);
+    expect(book.attempts(created.orderHash).map((row) => row.reason)).toEqual(['feed.market']);
+    expect(JSON.parse(readFileSync(join(dir, 'dex.order_attempts.json'), 'utf8')).attempts).toHaveLength(1);
+
+    for (let n = 0; n < 200; n += 1) {
+      price.result = n % 2 === 0 ? { status: 'stale' } : { status: 'unwired' };
+      await runKeeperTick(book, { now: () => NOW, settings, price, fill }, `flip${n}`);
+    }
+    expect(book.attempts(created.orderHash)).toHaveLength(ATTEMPT_TAIL);
+    expect((await caller().order.attempts({ orderHash: created.orderHash })).attempts).toHaveLength(ATTEMPT_TAIL);
+    const reopened = new OrderBook(dir);
+    expect(reopened.attempts(created.orderHash)).toHaveLength(ATTEMPT_TAIL);
+    expect(reopened.attempts(created.orderHash).at(-1)?.tick).toBe('flip199');
+  });
+
+  it('repeats one attempt for one tick id and does not start a keeper when the interval is blank', async () => {
+    const price = new ScriptPrice();
+    const fill = new ScriptFill();
+    const { caller, book } = harness({ price, fill });
+    const created = await caller().order.createTrigger(await placed());
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'same');
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'same');
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'other');
+    // The same reason on a new tick is not a new row.
+    expect((await caller().order.attempts({ orderHash: created.orderHash })).attempts).toHaveLength(1);
+    await expect(runKeeperTick(book, { now: () => NOW, settings, price, fill }, '  ')).rejects.toMatchObject({
+      code: triggerOrderCodes.tickUnset,
+    });
+
+    const spy = vi.spyOn(global, 'setInterval');
+    const stop = startTriggerKeeper({ book, deps: { now: () => NOW, settings, price, fill }, intervalMs: undefined });
+    expect(spy).not.toHaveBeenCalled();
+    stop();
+    const running = startTriggerKeeper({ book, deps: { now: () => NOW, settings, price, fill }, intervalMs: 60_000 });
+    expect(spy).toHaveBeenCalledTimes(1);
+    running();
+    spy.mockRestore();
+  });
+
+  it('limitOrder on the same router still does not place', async () => {
+    const { dex } = harness();
+    const err = await refused(
+      dex.createCaller(signed()).limitOrder({
+        symbol: 'IFC-USD',
+        side: 'sell',
+        price: '105',
+        size: '100',
+        window: { startsAt: '2026-10-23T00:00:00.000Z', endsAt: '2026-10-24T00:00:00.000Z' },
+      }),
+    );
+    expect(err.cause?.code).toBe('dex.order.not_placed');
+  });
+
+  it('parses owner bounds without inventing them', () => {
+    const min = z.object({ DEX_ORDER_MIN_SIZE: dexOrderMinSizeField });
+    expect(min.parse({}).DEX_ORDER_MIN_SIZE).toBeUndefined();
+    expect(min.parse({ DEX_ORDER_MIN_SIZE: '  ' }).DEX_ORDER_MIN_SIZE).toBeUndefined();
+    expect(min.parse({ DEX_ORDER_MIN_SIZE: '1.5' }).DEX_ORDER_MIN_SIZE).toBe(parseAmount('1.5'));
+    expect(min.safeParse({ DEX_ORDER_MIN_SIZE: 'nope' }).success).toBe(false);
+    expect(min.safeParse({ DEX_ORDER_MIN_SIZE: '-1' }).success).toBe(false);
+
+    const list = z.object({ DEX_ORDER_RESTRICTED_TOKENS: dexOrderRestrictedTokensField });
+    expect(list.parse({}).DEX_ORDER_RESTRICTED_TOKENS).toBeUndefined();
+    expect(list.parse({ DEX_ORDER_RESTRICTED_TOKENS: '[]' }).DEX_ORDER_RESTRICTED_TOKENS).toEqual([]);
+    const addr = `0x${'ab'.repeat(20)}`;
+    expect(parseAddressListEnv(JSON.stringify([addr, addr.toUpperCase()]), 'DEX_ORDER_RESTRICTED_TOKENS')).toEqual([addr]);
+    expect(list.safeParse({ DEX_ORDER_RESTRICTED_TOKENS: '["nope"]' }).success).toBe(false);
+
+    const bps = z.object({ DEX_ORDER_SLIPPAGE_BPS: dexOrderSlippageField });
+    expect(bps.parse({ DEX_ORDER_SLIPPAGE_BPS: '' }).DEX_ORDER_SLIPPAGE_BPS).toBeUndefined();
+    expect(bps.parse({ DEX_ORDER_SLIPPAGE_BPS: '0' }).DEX_ORDER_SLIPPAGE_BPS).toBe(0);
+    expect(bps.safeParse({ DEX_ORDER_SLIPPAGE_BPS: '10001' }).success).toBe(false);
+
+    const interval = z.object({ DEX_ORDER_KEEPER_INTERVAL_MS: dexOrderKeeperIntervalField });
+    expect(interval.parse({}).DEX_ORDER_KEEPER_INTERVAL_MS).toBeUndefined();
+    expect(interval.parse({ DEX_ORDER_KEEPER_INTERVAL_MS: '2000' }).DEX_ORDER_KEEPER_INTERVAL_MS).toBe(2000);
+    expect(interval.safeParse({ DEX_ORDER_KEEPER_INTERVAL_MS: '0' }).success).toBe(false);
+
+    const warn = z.object({ DEX_ORDER_WARN_TOKENS: dexOrderWarnTokensField });
+    expect(warn.parse({}).DEX_ORDER_WARN_TOKENS).toBeUndefined();
+    expect(warn.parse({ DEX_ORDER_WARN_TOKENS: '[]' }).DEX_ORDER_WARN_TOKENS).toEqual([]);
+    const domain = z.object({ DEX_ORDER_DOMAIN: dexOrderDomainField });
+    expect(domain.parse({}).DEX_ORDER_DOMAIN).toBeUndefined();
+    expect(domain.parse({ DEX_ORDER_DOMAIN: '  ' }).DEX_ORDER_DOMAIN).toBeUndefined();
+    expect(domain.safeParse({ DEX_ORDER_DOMAIN: '{}' }).success).toBe(false);
+  });
+
+  it('refuses an unset warn list and treats an explicit empty list as nothing warned', async () => {
+    const unset = harness({ settings: { ...settings, warnTokens: undefined } });
+    const err = await refused(unset.caller().order.createTrigger(typed()));
+    expect(err.cause?.code).toBe(triggerOrderCodes.warnListUnset);
+    expect(unset.book.size).toBe(0);
+    const { caller, book } = harness();
+    const created = await caller().order.createTrigger(await placed());
+    expect(created.warnings.some((warning) => warning.code === 'dex.order.token_warned')).toBe(false);
+    expect(book.size).toBe(1);
+  });
+
+  it('a dummy signature does not occupy the hash, and a blank domain stores nothing', async () => {
+    const { caller, book } = harness();
+    const dummy = await refused(caller().order.createTrigger(typed()));
+    expect(dummy.cause?.code).toBe(triggerOrderCodes.signatureInvalid);
+    expect(book.size).toBe(0);
+    const created = await caller(OTHER).order.createTrigger(await placed());
+    expect(created.replayed).toBe(false);
+    expect(book.size).toBe(1);
+    const replay = await caller().order.createTrigger(await placed());
+    expect(replay.replayed).toBe(true);
+    expect(replay.orderHash).toBe(created.orderHash);
+
+    const blank = harness({ settings: { ...settings, orderDomain: undefined } });
+    const refusedDomain = await refused(blank.caller().order.createTrigger(typed()));
+    expect(refusedDomain.cause?.code).toBe(triggerOrderCodes.domainUnset);
+    expect(blank.book.size).toBe(0);
+  });
+
+  it('a thrown send keeps the stored hash, and the next tick does not send a new round', async () => {
+    const price = new ScriptPrice();
+    price.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
+    const fill = new ScriptFill();
+    fill.throwNext = true;
+    fill.receipt = () => 'pending';
+    const { caller, book } = harness({ price, fill });
+    const created = await caller().order.createTrigger(await placed());
+    fill.onNoted = () => {
+      const disk = new OrderBook(book.directory);
+      expect(disk.view(created.orderHash)?.state).toBe('executing');
+      expect(disk.view(created.orderHash)?.pendingFill?.txHash).toMatch(/^0x[0-9a-f]{64}$/);
+    };
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'throw');
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'again');
+    expect(fill.sendCalls).toBe(1);
+    expect(fill.keys).toEqual([`dex.order.fill:${created.orderHash}:1`]);
+    const view = await caller().order.get({ orderHash: created.orderHash });
+    expect(view.state).toBe('executing');
+    expect(view.pendingFill?.round).toBe(1);
+    expect(view.remaining).toBe('100');
+  });
+
+  it('a definite non-broadcast clears, and an unknown send stays on round 1', async () => {
+    const price = new ScriptPrice();
+    price.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
+
+    const thrown = new ScriptFill();
+    thrown.throwBeforeNote = true;
+    const first = harness({ price, fill: thrown });
+    const created = await first.caller().order.createTrigger(await placed());
+    await runKeeperTick(first.book, { now: () => NOW, settings, price, fill: thrown }, 'throw');
+    const cleared = await first.caller().order.get({ orderHash: created.orderHash });
+    expect(cleared.state).toBe('open');
+    expect(cleared.pendingFill).toBeNull();
+    expect(cleared.remaining).toBe('100');
+    expect(thrown.keys).toEqual([`dex.order.fill:${created.orderHash}:1`]);
+    expect(first.book.attempts(created.orderHash).map((row) => row.reason)).toContain('reverted');
+    expect(first.book.reserved(PAIR)).toBe(0n);
+
+    const rejected = new ScriptFill();
+    rejected.rejectNext = true;
+    const second = harness({ price, fill: rejected });
+    const rejectedOrder = await second.caller().order.createTrigger(await placed({ expiry: '2026-10-25T00:00:00.000Z' }));
+    await runKeeperTick(second.book, { now: () => NOW, settings, price, fill: rejected }, 'reject');
+    expect((await second.caller().order.get({ orderHash: rejectedOrder.orderHash })).state).toBe('open');
+    expect(rejected.keys).toEqual([`dex.order.fill:${rejectedOrder.orderHash}:1`]);
+    expect(second.book.attempts(rejectedOrder.orderHash).map((row) => row.reason)).toEqual(['reverted']);
+
+    const unwired = new ScriptFill();
+    unwired.unwiredNext = true;
+    const third = harness({ price, fill: unwired });
+    const unwiredOrder = await third.caller().order.createTrigger(await placed({ expiry: '2026-10-26T00:00:00.000Z' }));
+    await runKeeperTick(third.book, { now: () => NOW, settings, price, fill: unwired }, 'unwired');
+    expect((await third.caller().order.get({ orderHash: unwiredOrder.orderHash })).state).toBe('open');
+    expect(unwired.keys).toEqual([`dex.order.fill:${unwiredOrder.orderHash}:1`]);
+    expect(third.book.attempts(unwiredOrder.orderHash).map((row) => row.reason)).toEqual(['rail.crypto']);
+
+    const unknown = new ScriptFill();
+    unknown.unknownWithoutHash = true;
+    unknown.stickyPool = parseAmount('100');
+    const fourth = harness({ price, fill: unknown });
+    const unknownOrder = await fourth.caller().order.createTrigger(await placed({ expiry: '2026-10-27T00:00:00.000Z' }));
+    const heldOff = await fourth.caller().order.createTrigger(await placed({ expiry: '2026-10-27T12:00:00.000Z' }));
+    await runKeeperTick(fourth.book, { now: () => NOW, settings, price, fill: unknown }, 'unknown');
+    expect(fourth.book.live(unknownOrder.orderHash)?.executing?.uncertain).toBe(true);
+    expect(fourth.book.live(unknownOrder.orderHash)?.executing?.txHash).toBeNull();
+    expect(fourth.book.view(heldOff.orderHash)?.state).toBe('open');
+    fourth.book.clearExecuting(unknownOrder.orderHash);
+    expect(fourth.book.view(unknownOrder.orderHash)?.state).toBe('executing');
+    unknown.rejectNext = true;
+    await runKeeperTick(fourth.book, { now: () => NOW, settings, price, fill: unknown }, 'later');
+    const after = await fourth.caller().order.get({ orderHash: unknownOrder.orderHash });
+    expect(after.state).toBe('executing');
+    expect(after.pendingFill?.key).toBe(`dex.order.fill:${unknownOrder.orderHash}:1`);
+    expect(after.pendingFill?.txHash).toBeNull();
+    expect(fourth.book.live(unknownOrder.orderHash)?.executing?.uncertain).toBe(true);
+    expect(unknown.keys).toEqual([`dex.order.fill:${unknownOrder.orderHash}:1`, `dex.order.fill:${unknownOrder.orderHash}:1`]);
+    expect(fourth.book.attempts(unknownOrder.orderHash)).toHaveLength(0);
+    expect(fourth.book.reserved(PAIR)).toBe(parseAmount('100'));
+    expect(fourth.book.view(heldOff.orderHash)?.state).toBe('open');
+    unknown.receipt = () => 'pending';
+    await runKeeperTick(fourth.book, { now: () => NOW, settings, price, fill: unknown }, 'further');
+    const still = await fourth.caller().order.get({ orderHash: unknownOrder.orderHash });
+    expect(still.state).toBe('executing');
+    expect(still.pendingFill?.key).toBe(`dex.order.fill:${unknownOrder.orderHash}:1`);
+    expect(still.pendingFill?.txHash).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(unknown.keys.every((key) => key === `dex.order.fill:${unknownOrder.orderHash}:1`)).toBe(true);
+    expect(unknown.keys).not.toContain(`dex.order.fill:${unknownOrder.orderHash}:2`);
+    expect(unknown.sent).toHaveLength(1);
+    expect(fourth.book.reserved(PAIR)).toBe(parseAmount('100'));
+    expect(fourth.book.view(heldOff.orderHash)?.state).toBe('open');
+
+    const thrownLater = new ScriptFill();
+    thrownLater.unknownWithoutHash = true;
+    const sixth = harness({ price, fill: thrownLater });
+    const thrownLaterOrder = await sixth.caller().order.createTrigger(await placed({ expiry: '2026-10-29T00:00:00.000Z' }));
+    await runKeeperTick(sixth.book, { now: () => NOW, settings, price, fill: thrownLater }, 'unknown-throw');
+    thrownLater.throwBeforeNote = true;
+    await runKeeperTick(sixth.book, { now: () => NOW, settings, price, fill: thrownLater }, 'later-throw');
+    expect((await sixth.caller().order.get({ orderHash: thrownLaterOrder.orderHash })).state).toBe('executing');
+    expect(sixth.book.live(thrownLaterOrder.orderHash)?.executing?.txHash).toBeNull();
+    expect(sixth.book.live(thrownLaterOrder.orderHash)?.executing?.key).toBe(`dex.order.fill:${thrownLaterOrder.orderHash}:1`);
+    thrownLater.receipt = () => 'pending';
+    await runKeeperTick(sixth.book, { now: () => NOW, settings, price, fill: thrownLater }, 'further-throw');
+    expect(thrownLater.keys.every((key) => key === `dex.order.fill:${thrownLaterOrder.orderHash}:1`)).toBe(true);
+    expect(thrownLater.keys).not.toContain(`dex.order.fill:${thrownLaterOrder.orderHash}:2`);
+    expect(thrownLater.sent).toHaveLength(1);
+    expect(sixth.book.reserved(PAIR)).toBe(parseAmount('100'));
+
+    const unwiredLater = new ScriptFill();
+    unwiredLater.unknownWithoutHash = true;
+    const seventh = harness({ price, fill: unwiredLater });
+    const unwiredLaterOrder = await seventh.caller().order.createTrigger(await placed({ expiry: '2026-10-30T00:00:00.000Z' }));
+    await runKeeperTick(seventh.book, { now: () => NOW, settings, price, fill: unwiredLater }, 'unknown-unwired');
+    unwiredLater.unwiredNext = true;
+    await runKeeperTick(seventh.book, { now: () => NOW, settings, price, fill: unwiredLater }, 'later-unwired');
+    expect((await seventh.caller().order.get({ orderHash: unwiredLaterOrder.orderHash })).state).toBe('executing');
+    expect(seventh.book.live(unwiredLaterOrder.orderHash)?.executing?.txHash).toBeNull();
+    expect(seventh.book.attempts(unwiredLaterOrder.orderHash)).toHaveLength(0);
+    unwiredLater.receipt = () => 'pending';
+    await runKeeperTick(seventh.book, { now: () => NOW, settings, price, fill: unwiredLater }, 'further-unwired');
+    expect(unwiredLater.keys.every((key) => key === `dex.order.fill:${unwiredLaterOrder.orderHash}:1`)).toBe(true);
+    expect(unwiredLater.keys).not.toContain(`dex.order.fill:${unwiredLaterOrder.orderHash}:2`);
+    expect(unwiredLater.sent).toHaveLength(1);
+    expect(seventh.book.view(unwiredLaterOrder.orderHash)?.pendingFill?.txHash).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(seventh.book.reserved(PAIR)).toBe(parseAmount('100'));
+
+    const noted = new ScriptFill();
+    noted.rejectAfterNote = true;
+    noted.receipt = () => 'pending';
+    const fifth = harness({ price, fill: noted });
+    const notedOrder = await fifth.caller().order.createTrigger(await placed({ expiry: '2026-10-28T00:00:00.000Z' }));
+    await runKeeperTick(fifth.book, { now: () => NOW, settings, price, fill: noted }, 'noted');
+    const held = await fifth.caller().order.get({ orderHash: notedOrder.orderHash });
+    expect(held.state).toBe('executing');
+    expect(held.pendingFill?.txHash).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(noted.keys).toEqual([`dex.order.fill:${notedOrder.orderHash}:1`]);
+    expect(fifth.book.attempts(notedOrder.orderHash)).toHaveLength(0);
+    expect(fifth.book.reserved(PAIR)).toBe(parseAmount('100'));
+  });
+
+  it('two orders of 100 against a pool of 100 do not both send while one read is pending or unwired', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dex-orders-'));
+    const price = new ScriptPrice();
+    price.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
+    const fill = new ScriptFill();
+    fill.stickyPool = parseAmount('100');
+    fill.receipt = () => 'unwired';
+    const book = new OrderBook(dir);
+    const { caller } = harness({ price, fill, book });
+    await caller().order.createTrigger(await placed());
+    await caller().order.createTrigger(await placed({ expiry: '2026-10-25T00:00:00.000Z' }));
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'unwired');
+    expect(fill.sent).toHaveLength(1);
+    expect(fill.sent[0]?.take).toBe(parseAmount('100'));
+    expect(book.reserved(PAIR)).toBe(parseAmount('100'));
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'still-unwired');
+    expect(fill.sendCalls).toBe(1);
+    expect(book.reserved(PAIR)).toBe(parseAmount('100'));
+
+    fill.receipt = () => 'pending';
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'pending');
+    expect(fill.sendCalls).toBe(1);
+    expect(book.reserved(PAIR)).toBe(parseAmount('100'));
+    expect(
+      book
+        .ids()
+        .map((id) => book.view(id)?.state)
+        .sort(),
+    ).toEqual(['executing', 'open']);
+
+    const resumed = new OrderBook(dir);
+    expect(resumed.reserved(PAIR)).toBe(parseAmount('100'));
+    const fill2 = new ScriptFill();
+    fill2.stickyPool = parseAmount('100');
+    fill2.receipt = () => 'pending';
+    await runKeeperTick(resumed, { now: () => NOW, settings, price, fill: fill2 }, 'restart');
+    expect(fill2.sendCalls).toBe(0);
+    expect(resumed.reserved(PAIR)).toBe(parseAmount('100'));
+
+    fill2.receipt = () => {
+      fill2.stickyPool = 0n;
+      return 'success';
+    };
+    await runKeeperTick(resumed, { now: () => NOW, settings, price, fill: fill2 }, 'mined');
+    expect(fill2.sendCalls).toBe(0);
+    expect(resumed.reserved(PAIR)).toBe(0n);
+    const states = resumed
+      .ids()
+      .map((id) => resumed.view(id)?.state)
+      .sort();
+    expect(states).toEqual(['filled', 'open']);
+  });
+
+  it('an expired executing order does not open a new round', async () => {
+    const price = new ScriptPrice();
+    price.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
+    const fill = new ScriptFill();
+    const { caller, book } = harness({ price, fill });
+    const created = await caller().order.createTrigger(await placed());
+    const started = book.beginFill(created.orderHash, parseAmount('100'), parseAmount('10'), parseAmount('10'));
+    expect(started?.uncertain).toBe(false);
+    expect(started?.txHash).toBeNull();
+    expect(book.reserved(PAIR)).toBe(parseAmount('100'));
+    const later = new Date('2026-10-24T00:00:01.000Z');
+    await runKeeperTick(book, { now: () => later, settings, price, fill }, 'expired');
+    expect(fill.sendCalls).toBe(0);
+    expect(book.view(created.orderHash)?.state).toBe('expired');
+    expect(book.view(created.orderHash)?.pendingFill).toBeNull();
+    expect(book.reserved(PAIR)).toBe(0n);
+
+    const dir = mkdtempSync(join(tmpdir(), 'dex-orders-'));
+    const fillU = new ScriptFill();
+    fillU.unknownWithoutHash = true;
+    const bookU = new OrderBook(dir);
+    const uncertain = harness({ price, fill: fillU, book: bookU });
+    const row = await uncertain.caller().order.createTrigger(await placed({ expiry: '2026-10-25T00:00:00.000Z' }));
+    await runKeeperTick(bookU, { now: () => NOW, settings, price, fill: fillU }, 'unknown');
+    expect(fillU.sendCalls).toBe(1);
+    expect(fillU.sent).toHaveLength(1);
+    expect(bookU.live(row.orderHash)?.executing?.uncertain).toBe(true);
+    expect(bookU.live(row.orderHash)?.executing?.txHash).toBeNull();
+    const resumed = new OrderBook(dir);
+    const past = new Date('2026-10-25T00:00:01.000Z');
+    fillU.throwBeforeNote = true;
+    await runKeeperTick(resumed, { now: () => past, settings, price, fill: fillU }, 'wait');
+    expect(fillU.sendCalls).toBe(2);
+    expect(fillU.sent).toHaveLength(1);
+    expect(fillU.keys).toEqual([`dex.order.fill:${row.orderHash}:1`, `dex.order.fill:${row.orderHash}:1`]);
+    expect(resumed.view(row.orderHash)?.state).toBe('executing');
+    expect(resumed.live(row.orderHash)?.executing?.txHash).toBeNull();
+    expect(resumed.live(row.orderHash)?.executing?.uncertain).toBe(true);
+    expect(resumed.reserved(PAIR)).toBe(parseAmount('100'));
+
+    fillU.receipt = () => 'pending';
+    await runKeeperTick(resumed, { now: () => past, settings, price, fill: fillU }, 'recover');
+    expect(fillU.sendCalls).toBe(3);
+    expect(fillU.sent).toHaveLength(1);
+    expect(fillU.keys.every((key) => key === `dex.order.fill:${row.orderHash}:1`)).toBe(true);
+    expect(resumed.view(row.orderHash)?.state).toBe('executing');
+    expect(resumed.view(row.orderHash)?.pendingFill?.txHash).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(resumed.reserved(PAIR)).toBe(parseAmount('100'));
+
+    fillU.receipt = () => 'success';
+    await runKeeperTick(resumed, { now: () => past, settings, price, fill: fillU }, 'read');
+    expect(fillU.sendCalls).toBe(3);
+    expect(resumed.view(row.orderHash)?.state).toBe('filled');
+    expect(resumed.reserved(PAIR)).toBe(0n);
+  });
+
+  it('a sent result with a blank hash stays executing past expiry until fill.read', async () => {
+    const price = new ScriptPrice();
+    price.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
+    const fill = new ScriptFill();
+    fill.blankSentNext = true;
+    const { caller, book } = harness({ price, fill });
+    const created = await caller().order.createTrigger(await placed({ expiry: '2026-10-25T00:00:00.000Z' }));
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'blank');
+    expect(book.live(created.orderHash)?.executing?.uncertain).toBe(true);
+    expect(book.live(created.orderHash)?.executing?.txHash).toBeNull();
+    expect(book.view(created.orderHash)?.state).toBe('executing');
+    expect(fill.sent).toHaveLength(1);
+    const past = new Date('2026-10-25T00:00:01.000Z');
+    fill.rejectNext = true;
+    await runKeeperTick(book, { now: () => past, settings, price, fill }, 'reject-repeat');
+    expect(book.view(created.orderHash)?.state).toBe('executing');
+    expect(book.live(created.orderHash)?.executing?.txHash).toBeNull();
+    expect(book.live(created.orderHash)?.executing?.uncertain).toBe(true);
+    expect(book.reserved(PAIR)).toBe(parseAmount('100'));
+    expect(fill.sendCalls).toBe(2);
+    expect(fill.sent).toHaveLength(1);
+    expect(fill.keys.every((key) => key === `dex.order.fill:${created.orderHash}:1`)).toBe(true);
+
+    fill.receipt = () => 'reverted';
+    await runKeeperTick(book, { now: () => past, settings, price, fill }, 'read');
+    expect(fill.sendCalls).toBe(3);
+    expect(fill.sent).toHaveLength(1);
+    expect(fill.keys.every((key) => key === `dex.order.fill:${created.orderHash}:1`)).toBe(true);
+    expect(book.view(created.orderHash)?.state).toBe('expired');
+    expect(book.view(created.orderHash)?.pendingFill).toBeNull();
+    expect(book.reserved(PAIR)).toBe(0n);
+    expect(book.attempts(created.orderHash).map((row) => row.reason)).toEqual(['reverted']);
+  });
+
+  it('a thrown prepare leaves the take reserved until the fill is terminal', async () => {
+    const price = new ScriptPrice();
+    price.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
+    let arm = false;
+    let reads = 0;
+    price.onRead = () => {
+      if (!arm) return price.result;
+      reads += 1;
+      if (reads === 2) throw new Error('oracle read failed');
+      return price.result;
+    };
+    const fill = new ScriptFill();
+    fill.stickyPool = parseAmount('100');
+    fill.receipt = () => 'pending';
+    const { caller, book } = harness({ price, fill });
+    await caller().order.createTrigger(await placed());
+    await caller().order.createTrigger(await placed({ expiry: '2026-10-25T00:00:00.000Z' }));
+    arm = true;
+    await expect(runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'boom')).rejects.toThrow('oracle read failed');
+    expect(book.tickOpen()).toBe(false);
+    expect(fill.sendCalls).toBe(0);
+    expect(book.reserved(PAIR)).toBe(parseAmount('100'));
+    const executingId = book.ids().find((id) => book.view(id)?.state === 'executing');
+    expect(executingId).toBeTruthy();
+    expect(book.live(executingId ?? '')?.executing?.txHash).toBeNull();
+    expect(book.live(executingId ?? '')?.executing?.uncertain).toBe(false);
+
+    price.onRead = null;
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'retry');
+    expect(fill.sendCalls).toBe(1);
+    expect(fill.keys).toEqual([`dex.order.fill:${executingId}:1`]);
+    expect(book.reserved(PAIR)).toBe(parseAmount('100'));
+    expect(book.ids().filter((id) => book.view(id)?.state === 'executing')).toHaveLength(1);
+
+    fill.receipt = () => {
+      fill.stickyPool = 0n;
+      return 'success';
+    };
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'done');
+    expect(fill.sendCalls).toBe(1);
+    expect(book.reserved(PAIR)).toBe(0n);
+    expect(book.view(executingId ?? '')?.state).toBe('filled');
+    const open = book
+      .ids()
+      .map((id) => book.view(id))
+      .find((row) => row?.state === 'open');
+    expect(open?.remaining).toBe('100');
+  });
+
+  it('does not start a second tick while one is sending, and reserves the pool across orders', async () => {
+    const price = new ScriptPrice();
+    price.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
+    const fill = new ScriptFill();
+    fill.liquidity = parseAmount('100');
+    let release!: () => void;
+    fill.pause = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let mark!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      mark = resolve;
+    });
+    fill.onSendEntered = () => mark();
+    const { caller, book } = harness({ price, fill });
+    await caller().order.createTrigger(await placed());
+    await caller().order.createTrigger(await placed({ expiry: '2026-10-25T00:00:00.000Z' }));
+    const first = runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'one');
+    await entered;
+    const second = await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'two');
+    expect(second.started).toBe(false);
+    expect(fill.sendCalls).toBe(1);
+    release();
+    await first;
+    expect(fill.sendCalls).toBe(1);
+    expect(fill.sent).toHaveLength(1);
+    const reasons = book.ids().flatMap((id) => book.attempts(id).map((row) => row.reason));
+    expect(reasons).toContain('insufficient_liquidity');
+    const open = book
+      .ids()
+      .map((id) => book.view(id))
+      .find((row) => row?.state === 'open');
+    expect(open?.remaining).toBe('100');
+  });
+
+  it('a restarted book reads the stored hash and does not send round 1 for size already filled', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dex-orders-'));
+    const price = new ScriptPrice();
+    price.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
+    const fill = new ScriptFill();
+    fill.quoteOf = (amountIn) => {
+      if (amountIn === parseAmount('100')) return { status: 'ok', take: parseAmount('40'), out: parseAmount('4') };
+      return { status: 'ok', take: amountIn, out: parseAmount('6') };
+    };
+    const book = new OrderBook(dir);
+    const { caller } = harness({ price, fill, book });
+    const created = await caller().order.createTrigger(await placed());
+    book.addAttempt(created.orderHash, 'note', 'predicate_false', NOW.toISOString());
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'part');
+    expect((await caller().order.get({ orderHash: created.orderHash })).remaining).toBe('60');
+    fill.throwNext = true;
+    fill.receipt = () => 'pending';
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'crash');
+    expect(fill.keys).toEqual([`dex.order.fill:${created.orderHash}:1`, `dex.order.fill:${created.orderHash}:2`]);
+
+    const book2 = new OrderBook(dir);
+    const mid = book2.view(created.orderHash);
+    expect(mid?.remaining).toBe('60');
+    expect(mid?.state).toBe('executing');
+    expect(mid?.pendingFill?.round).toBe(2);
+    expect(mid?.pendingFill?.txHash).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(mid?.fills).toHaveLength(1);
+    expect(mid?.fills[0]?.amountIn).toBe('40');
+    expect(book2.attempts(created.orderHash).map((row) => row.reason)).toContain('predicate_false');
+    expect(book2.allows(created.orderHash, USER)).toBe(true);
+    expect(book2.allows(created.orderHash, STRANGER)).toBe(false);
+
+    const fill2 = new ScriptFill();
+    const reads: string[] = [];
+    fill2.receipt = (txHash) => {
+      reads.push(txHash);
+      return 'success';
+    };
+    await runKeeperTick(book2, { now: () => NOW, settings, price, fill: fill2 }, 'resume');
+    expect(fill2.sendCalls).toBe(0);
+    expect(reads).toEqual([mid?.pendingFill?.txHash]);
+    const done = book2.view(created.orderHash);
+    expect(done?.remaining).toBe('0');
+    expect(done?.state).toBe('filled');
+    expect(done?.fills.map((row) => row.key)).toEqual([`dex.order.fill:${created.orderHash}:1`, `dex.order.fill:${created.orderHash}:2`]);
+    const raw = readFileSync(join(dir, 'dex.orders.json'), 'utf8');
+    expect(raw).not.toContain('balance');
+    expect(readFileSync(join(dir, 'dex.order_attempts.json'), 'utf8')).toContain('predicate_false');
+  });
+});

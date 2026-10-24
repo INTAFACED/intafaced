@@ -28,6 +28,7 @@ const corridor: Corridor = {
   minAmount: '10',
   maxAmount: '1000.5',
   cutOffTime: '16:00',
+  payoutMethods: ['bank'],
 };
 const draft: SendDraft = {
   idempotencyKey: 'global-send:abc-123',
@@ -45,6 +46,8 @@ const draft: SendDraft = {
 describe('destinations', () => {
   it('lists one row per delivery method, from the published corridors only', () => {
     expect(destinationsFrom([corridor]).map((row) => row.key)).toEqual(['DE|EUR|bank', 'DE|EUR|wallet']);
+    // Only the methods a payout partner covers are paid out; the rest are listed and say so.
+    expect(destinationsFrom([corridor]).map((row) => row.paysOut)).toEqual([true, false]);
     expect(destinationsFrom([])).toEqual([]);
   });
 });

@@ -115,10 +115,13 @@ function amzDateOf(at: Date): { amzDate: string; dateStamp: string } {
   return { amzDate, dateStamp };
 }
 
-/**
- * Path-style presigned GET. Object key is never listed from the bucket.
- */
-export function signGetObjectUrl(config: VideoStorageConfig, objectKey: string, at: Date): IssuedPlayback {
+/** Path-style presigned URL for one object and method, valid for the owner's TTL. The bucket is never listed. */
+function presign(
+  config: VideoStorageConfig,
+  method: 'GET' | 'PUT',
+  objectKey: string,
+  at: Date,
+): { url: string; expiresAt: Date; key: string } {
   const storage = assertVideoStorageConfigured(config);
   const key = objectKey.replace(/^\/+/, '');
   if (!key) {
@@ -142,12 +145,25 @@ export function signGetObjectUrl(config: VideoStorageConfig, objectKey: string, 
     .sort()
     .map((k) => `${awsEncode(k, false)}=${awsEncode(query[k]!, false)}`)
     .join('&');
-  const canonicalRequest = ['GET', canonicalUri, canonicalQuery, `host:${host}\n`, 'host', UNSIGNED].join('\n');
+  const canonicalRequest = [method, canonicalUri, canonicalQuery, `host:${host}\n`, 'host', UNSIGNED].join('\n');
   const scope = `${dateStamp}/${region}/s3/aws4_request`;
   const stringToSign = ['AWS4-HMAC-SHA256', amzDate, scope, sha256Hex(canonicalRequest)].join('\n');
   const signature = hmac(signingKey(storage.secretKey, dateStamp, region), stringToSign).toString('hex');
-  const playbackUrl = `${origin}${canonicalUri}?${canonicalQuery}&X-Amz-Signature=${signature}`;
-  return { playbackUrl, expiresAt, grant: issueGrant(storage.secretKey, key, expiresAt) };
+  return { url: `${origin}${canonicalUri}?${canonicalQuery}&X-Amz-Signature=${signature}`, expiresAt, key };
+}
+
+/**
+ * Path-style presigned GET. Object key is never listed from the bucket.
+ */
+export function signGetObjectUrl(config: VideoStorageConfig, objectKey: string, at: Date): IssuedPlayback {
+  const { url, expiresAt, key } = presign(config, 'GET', objectKey, at);
+  return { playbackUrl: url, expiresAt, grant: issueGrant(config.secretKey, key, expiresAt) };
+}
+
+/** AC-videos-02: a presigned PUT, so the browser sends a course file's bytes straight to our own store. */
+export function signPutObjectUrl(config: VideoStorageConfig, objectKey: string, at: Date): { uploadUrl: string; expiresAt: Date } {
+  const { url, expiresAt } = presign(config, 'PUT', objectKey, at);
+  return { uploadUrl: url, expiresAt };
 }
 
 export function issueGrant(secret: string, bound: string, expiresAt: Date): string {

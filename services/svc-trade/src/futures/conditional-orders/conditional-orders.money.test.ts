@@ -370,6 +370,8 @@ describe('futures conditional orders', () => {
       },
       placeLimit: refuseFuturesRestingLimit,
     });
+    // Armed above the mark (a trigger already reached is refused), then the mark falls through it.
+    feed('50000');
     const second = await refusing.create(ALICE, {
       market: 'BTC/USDT:USDT',
       kind: 'stop_limit',
@@ -379,6 +381,7 @@ describe('futures conditional orders', () => {
       limitPrice: '48800',
       clientOrderId: 'c-slim-refuse',
     });
+    feed('48000');
     await refusing.evaluate({ enabled: true });
     const failed = await refusing.get(ALICE, second.order.id);
     expect(failed.status).toBe('failed');

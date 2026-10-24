@@ -8,7 +8,7 @@ import postgres from 'postgres';
  *
  * Applies every `NNNN_*.sql` in order, tracked in `support.__migrations`.
  * That directory is the registry: 0031_help_centre.sql follows 0029, and 0032_kb_library.sql follows 0031.
- * 0030 is reserved for the desk-views migration. Pass `--down` to reverse (CI reversibility, not for live desks).
+ * 0030 is unused (the number once reserved for desk views, which landed as 0033_desk_views.sql). Pass `--down` to reverse (CI reversibility, not for live desks).
  */
 
 const here = dirname(fileURLToPath(import.meta.url));

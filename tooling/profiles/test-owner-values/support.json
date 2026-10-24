@@ -20,6 +20,26 @@
       "service": "support",
       "value": "50",
       "note": "How many comments a requester may add to one request, so journeys can reply and J-support-public-09 can reach the cap. Not an owner decision."
+    },
+    "SUPPORT_VIEW_PERSONAL_CAP": {
+      "service": "support",
+      "value": "20",
+      "note": "Saved desk views one person may keep, so J-support-public-10 can save and replay views. Not an owner decision."
+    },
+    "SUPPORT_VIEW_SHARED_CAP": {
+      "service": "support",
+      "value": "20",
+      "note": "Shared desk views the desk may keep, for the same journey. Not an owner decision."
+    },
+    "SUPPORT_FEEDBACK_RATE_LIMIT": {
+      "service": "support",
+      "value": "5",
+      "note": "Help-answer votes one account or browser may cast per window, so J-support-public-01 #8 can vote and reach the limit. Not an owner decision."
+    },
+    "SUPPORT_FEEDBACK_RATE_WINDOW_SECONDS": {
+      "service": "support",
+      "value": "3600",
+      "note": "The window for the vote limit above, in seconds. Not an owner decision."
     }
   }
 }

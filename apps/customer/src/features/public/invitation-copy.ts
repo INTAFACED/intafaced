@@ -85,6 +85,8 @@ export const invitationCopy = defineCopy(
     windowClosed: 'The time to attach a referrer through a link ended at {closesAt}.',
     windowUnset: 'Not set: the owner has not set how long after sign-up a referrer can be attached through a link.',
     windowCreated: 'Your account was created {createdAt}. The time is measured by the service, not this device.',
+    windowReopened:
+      'Your earlier referral relationship ended {reopenedAt}, so the time to join through a link runs again from then. The time is measured by the service, not this device.',
   } as const,
   {
     es: {

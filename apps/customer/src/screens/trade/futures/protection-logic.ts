@@ -94,3 +94,33 @@ export function entryLegProblem(side: 'long' | 'short', leg: Leg, value: string,
   if (at === null) return null;
   return (legSide(side, leg) === 'above' ? price > at : price < at) ? null : 'wrongSide';
 }
+
+/**
+ * What a failed take profit, stop loss or stop left behind (J-derivatives-03 step 7): how much its finished attempts
+ * closed (null when none), whether its last close order reached the book (that order's own fills are listed with the
+ * orders, so nothing is claimed about them here), and the position it was on as it stands now. `unknown` while the
+ * positions cannot be read, so the line never guesses.
+ */
+export function failedOutcome(
+  order: ConditionalOrder,
+  positions: readonly Position[] | null,
+): {
+  closed: string | null;
+  closeOrder: string | null;
+  position: { state: 'open' | 'closing'; contracts: string; side: Position['side'] } | { state: 'gone' } | 'unknown';
+} {
+  const closedRaw = order.closedQuantity ?? null;
+  const closedAt = closedRaw === null ? null : dec(closedRaw);
+  const closed = closedAt !== null && closedAt > 0n ? closedRaw : null;
+  const closeOrder = order.closeOrderId ?? null;
+  if (positions === null) return { closed, closeOrder, position: 'unknown' };
+  const now =
+    order.positionId === null
+      ? undefined
+      : positions.find((p) => p.id === order.positionId && (p.status ?? 'open') !== 'closed' && p.status !== 'liquidated');
+  return {
+    closed,
+    closeOrder,
+    position: now ? { state: now.status === 'closing' ? 'closing' : 'open', contracts: now.contracts, side: now.side } : { state: 'gone' },
+  };
+}

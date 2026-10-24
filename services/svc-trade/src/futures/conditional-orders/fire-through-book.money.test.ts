@@ -711,6 +711,131 @@ describe('futures conditional orders fire through the book', () => {
     expect(engine.submits).toHaveLength(submitted);
   });
 
+  describe('the price a stop is judged on (J-derivatives-03 #5)', () => {
+    /** Bob sells 0.1 to Carol at `price`: the book's last trade. */
+    async function tradeAt(price: string) {
+      const sell = await book.place(principal(BOB), limit(BOB, 'sell', '0.1', price, `b-last-${seq}`));
+      const buy = await book.place(principal(CAROL), limit(CAROL, 'buy', '0.1', price, `c-last-${seq}`));
+      seq += 1;
+      await book.settleFill({ marketId: MARKET, makerOrderId: sell.orderId, takerOrderId: buy.orderId, price, qty: '0.1', sequence: seq });
+    }
+
+    it('a stop judged on the last trade fires when the book trades through it, not when the mark does', async () => {
+      const positionId = await aliceLong('1');
+      const { order: stop } = await orders.create(ALICE, {
+        market: SYMBOL,
+        kind: 'stop_market',
+        side: 'sell',
+        quantity: '1',
+        triggerPrice: '95',
+        clientOrderId: 'last-stop',
+        triggerSource: 'last',
+      });
+      expect(stop).toMatchObject({ status: 'armed', triggerSource: 'last' });
+      mark = A('94');
+      await orders.evaluate({ enabled: true });
+      expect(await conditional(stop.id)).toMatchObject({ status: 'armed' });
+
+      mark = A('100');
+      await tradeAt('95');
+      const bid = await carolBid('1', '96');
+      scriptFill(stop.id, bid, '1', '96');
+      await orders.evaluate({ enabled: true });
+      expect(await conditional(stop.id)).toMatchObject({ status: 'filled', closedQuantity: '1' });
+      expect(await positionOf(positionId)).toMatchObject({ status: 'closed' });
+    });
+
+    it('a trailing stop on the last trade trails the trades, and a mark stop beside it does not move', async () => {
+      await aliceLong('2');
+      const { order: trail } = await orders.create(ALICE, {
+        market: SYMBOL,
+        kind: 'trailing_stop',
+        side: 'sell',
+        quantity: '1',
+        trailingDistance: '2',
+        clientOrderId: 'last-trail',
+        triggerSource: 'last',
+      });
+      expect(trail).toMatchObject({ triggerPrice: '98', trailExtreme: '100', triggerSource: 'last' });
+      const { order: onMark } = await orders.create(ALICE, {
+        market: SYMBOL,
+        kind: 'trailing_stop',
+        side: 'sell',
+        quantity: '1',
+        trailingDistance: '2',
+        clientOrderId: 'mark-trail',
+      });
+      expect(onMark).toMatchObject({ triggerSource: 'mark' });
+      await tradeAt('103');
+      await orders.evaluate({ enabled: true });
+      expect(await conditional(trail.id)).toMatchObject({ status: 'armed', trailExtreme: '103', triggerPrice: '101' });
+      expect(await conditional(onMark.id)).toMatchObject({ status: 'armed', trailExtreme: '100', triggerPrice: '98' });
+    });
+
+    it('a trigger already reached on its own source is refused; a trade still waiting to settle counts as the last trade', async () => {
+      await aliceLong('1');
+      const stopAt = (trigger: string, triggerSource: 'mark' | 'last', clientOrderId: string) =>
+        orders.create(ALICE, {
+          market: SYMBOL,
+          kind: 'stop_market',
+          side: 'sell',
+          quantity: '1',
+          triggerPrice: trigger,
+          clientOrderId,
+          triggerSource,
+        });
+      await expect(stopAt('101', 'mark', 'crossed-mark')).rejects.toMatchObject({ code: 'trade.conditional_already_crossed' });
+      await expect(stopAt('101', 'last', 'crossed-last')).rejects.toMatchObject({ code: 'trade.conditional_already_crossed' });
+      expect(await stopAt('95', 'last', 'below-last')).toMatchObject({ order: { status: 'armed' } });
+      // The book traded at 94, but that fill is parked behind a liquidation step: it is still the last trade.
+      seq += 1;
+      await sql`
+        INSERT INTO trade.futures_fill_waits (market_id, engine_sequence, maker_order_id, taker_order_id, price, qty, reason)
+        VALUES (${MARKET}, ${seq}, ${randomUUID()}, ${randomUUID()}, 94, 0.1, 'trade.liquidation_in_progress')
+      `;
+      await expect(stopAt('95', 'last', 'parked-last')).rejects.toMatchObject({ code: 'trade.conditional_already_crossed' });
+    });
+
+    it('a last-trade trigger with no trade yet, the unpublished index, and an exit that would enlarge are refused; nothing is stored', async () => {
+      await aliceLong('1');
+      await expect(
+        orders.create(ALICE, {
+          market: SYMBOL,
+          kind: 'stop_market',
+          side: 'sell',
+          quantity: '1',
+          triggerPrice: '95',
+          clientOrderId: 'index-stop',
+          triggerSource: 'index',
+        }),
+      ).rejects.toMatchObject({ code: 'trade.trigger_source_unset' });
+      await expect(
+        orders.create(ALICE, {
+          market: SYMBOL,
+          kind: 'stop_market',
+          side: 'buy',
+          quantity: '1',
+          triggerPrice: '105',
+          clientOrderId: 'enlarge-stop',
+          triggerSource: 'last',
+        }),
+      ).rejects.toMatchObject({ code: 'trade.conditional_would_increase' });
+      await sql`DELETE FROM trade.futures_order_fills WHERE market_id = ${MARKET}`;
+      await expect(
+        orders.create(ALICE, {
+          market: SYMBOL,
+          kind: 'stop_market',
+          side: 'sell',
+          quantity: '1',
+          triggerPrice: '95',
+          clientOrderId: 'no-trade-stop',
+          triggerSource: 'last',
+        }),
+      ).rejects.toMatchObject({ code: 'trade.last_price_missing' });
+      expect(await orders.list(ALICE)).toEqual([]);
+    });
+  });
+
   describe('protection attached to an opening order (J-derivatives-03 #4)', () => {
     /** Records the protection first, as the route does before it places the order. */
     async function entryWith(clientOrderId: string, legs: { takeProfit?: string; stopLoss?: string }, side: 'buy' | 'sell' = 'buy') {

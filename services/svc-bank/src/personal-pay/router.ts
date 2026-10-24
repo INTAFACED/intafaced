@@ -317,6 +317,8 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
               minAmount: z.string().nullable(),
               maxAmount: z.string().nullable(),
               cutOffTime: z.string().nullable(),
+              /** The delivery methods a payout partner pays out on; a send on any other is refused before anything is posted. */
+              payoutMethods: z.array(z.string()),
             }),
           ),
         )

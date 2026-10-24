@@ -165,7 +165,7 @@ export function FollowDetail({
         {follow ? (
           <>
             <DialogHeader>
-              <DialogTitle>{t('Follow of {leader}', { leader: follow.leaderId })}</DialogTitle>
+              <DialogTitle>{t('Follow of {leader}', { leader: follow.leaderRef ?? follow.leaderId ?? '' })}</DialogTitle>
               <DialogDescription>
                 <Badge tone={STATE_TONE[follow.relationshipState.toUpperCase()] ?? 'neutral'}>
                   {t(stateWord(follow.relationshipState) as 'Active')}
