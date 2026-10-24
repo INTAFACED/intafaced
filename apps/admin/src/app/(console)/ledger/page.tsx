@@ -7,10 +7,11 @@ import { PayHaltsDesk } from '@/components/pay-halts-desk';
 import { readConsoleStatus } from '@/lib/console-status';
 import { readFreeze } from '@/lib/control-plane-client';
 import { loadPayHalts } from '@/lib/pay-halts/server';
+import { ledgerQueryFromParams } from '@/lib/search/cross-search';
 
 /**
  * Ledger operations (§4.2 / §14.6): the posting freeze, the transaction lookup (J-ops-console-03), and the payments halts
- * that stop one operation.
+ * that stop one operation. `?txId=` or `?businessKey=` (the cross-desk search's link back) opens the lookup on that query.
  *
  * Server-loads the real freeze state through `readFreeze()` — the same client `/api/ledger-freeze` uses — so the
  * first paint is svc-ledger's answer and not a default. This page previously rendered `operator-commands.ts` stubs
@@ -21,7 +22,7 @@ import { loadPayHalts } from '@/lib/pay-halts/server';
  * with a reason, and the view renders UNKNOWN. The payments halts are read as the signed-in founder and each part
  * of that read can fail on its own, shown as a failure and never as "nothing is halted".
  */
-export default async function LedgerOpsPage() {
+export default async function LedgerOpsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   requireModulePage('ledger');
   const founder = await requireFounderPage();
   const status = readConsoleStatus();
@@ -34,7 +35,7 @@ export default async function LedgerOpsPage() {
   return (
     <div className="adm-stack">
       <LedgerOps treasury={status.treasury} initialFreeze={initialFreeze} initialReadAt={initialReadAt} userId={founder.session.userId} />
-      <LedgerLookup />
+      <LedgerLookup initial={ledgerQueryFromParams(await searchParams)} />
       <PayHaltsDesk initial={halts} userId={founder.session.userId} />
       <p>
         <Link href="/restore">Joint restore</Link>
