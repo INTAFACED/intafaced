@@ -62,6 +62,7 @@ import { CategoryPrefError } from './preferences/categories.js';
 import { QuietHoursError } from './preferences/quiet-hours.js';
 import { RecentDeliveriesError } from './preferences/recent.js';
 import {
+  NOTICE_KINDS,
   INCIDENT_PHASES,
   MAINTENANCE_REMINDER_MINUTES_MAX,
   MAINTENANCE_REMINDERS_MAX,
@@ -419,7 +420,7 @@ const changelogInput = z.object({
 
 const noticeWireOutput = z.object({
   id: z.string().guid(),
-  kind: z.enum(['announcement', 'maintenance', 'incident', 'changelog']),
+  kind: z.enum(NOTICE_KINDS),
   title: z.string(),
   body: z.string(),
   status: z.enum(['draft', 'published']),
@@ -1159,7 +1160,7 @@ export function createNotifyRouter(
       notices: publicProcedure
         .input(
           z.object({
-            kind: z.enum(['announcement', 'maintenance', 'incident', 'changelog']).optional(),
+            kind: z.enum(NOTICE_KINDS).optional(),
             limit: z.number().int().min(1),
             /** The id of the last notice of the page before: answers the page after it. */
             after: z.string().guid().optional(),
@@ -1317,7 +1318,7 @@ export function createNotifyRouter(
       draftNotice: scopedProcedure('admin:write', { module: 'notify' })
         .input(
           z.object({
-            kind: z.enum(['announcement', 'maintenance', 'incident', 'changelog']),
+            kind: z.enum(NOTICE_KINDS),
             title: z.string().min(1).max(200),
             body: z.string().min(1).max(8000),
             startsAt: z.string().datetime({ offset: true }).nullable().optional(),
@@ -1357,9 +1358,7 @@ export function createNotifyRouter(
        * author. Drafts never leave this door; the signed-out reads list published rows only.
        */
       operatorNotices: scopedProcedure('admin:write', { module: 'notify' })
-        .input(
-          z.object({ kind: z.enum(['announcement', 'maintenance', 'incident', 'changelog']).optional(), limit: z.number().int().min(1) }),
-        )
+        .input(z.object({ kind: z.enum(NOTICE_KINDS).optional(), limit: z.number().int().min(1) }))
         .output(
           z.array(
             noticeWireOutput.extend({

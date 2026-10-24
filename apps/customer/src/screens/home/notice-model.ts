@@ -6,7 +6,7 @@ export type HomeNotice = Notice & { kind: 'incident' | 'maintenance' | 'announce
 /** What Home draws from the notice board (HM-widgets-03): open windows as a banner, the current announcement as a strip. */
 export type HomeNotices = { banner: HomeNotice[]; strip: HomeNotice | null };
 
-const drawable = (row: Notice): row is HomeNotice => row.kind !== 'changelog';
+const drawable = (row: Notice): row is HomeNotice => row.kind === 'incident' || row.kind === 'maintenance' || row.kind === 'announcement';
 
 /** Only published notices still open at `now` are drawn, each once, whatever the read held. */
 const open = (rows: readonly Notice[], now: number): HomeNotice[] => {

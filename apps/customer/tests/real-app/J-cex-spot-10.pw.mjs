@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { approverSessions, makeContext, setFeeSchedule } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { EDGE, api, bestPrices, fromUnits, fund, journeyState, otherTrader, times, toUnits } from './stack.mjs';
 import { awayBid, deskPath, fundedTrader, held, openDesk, openOrders } from './desk.mjs';
+import { draftNotice, publishNotice } from './notices.mjs';
 
 // J-cex-spot-10, in the running app (docs/roadmap/journeys.json): a person sees what they pay, what tier they are in,
 // and how to get cheaper. One test per step, titled "J-cex-spot-10 #<n>", run in order on one TEST account funded with
@@ -44,6 +45,12 @@ const REBATE_IFC = {
   pairGroups: { ...SCHEDULE.pairGroups, 'IFC/USDT': 'test-rebate' },
   rows: [...SCHEDULE.rows, REBATE],
 };
+/** IFC/USDT in a TEST group at maker `makerBps`, taker 0.10%: #10 lowers the maker rate in a later version. */
+const changeTo = (makerBps) => ({
+  ...SCHEDULE,
+  pairGroups: { ...SCHEDULE.pairGroups, 'IFC/USDT': 'test-fee-change' },
+  rows: [...SCHEDULE.rows, { pairGroup: 'test-fee-change', tierId: 'regular', zeroFee: false, makerBps, takerBps: '10', minFee: null }],
+});
 
 test.describe.configure({ mode: 'default' });
 
@@ -68,10 +75,14 @@ async function ops() {
   return operators;
 }
 
-/** Write `schedule` as the next version, effective in ten seconds, and wait until the public read serves it. */
-async function publish(schedule, reason) {
+/**
+ * Write `schedule` as the next version, effective in ten seconds or just after `after` (a version already stored to
+ * take effect later, since svc-trade refuses one that would start before it), and wait until the public read serves it.
+ */
+async function publish(schedule, reason, after = null) {
   const { ctx, sessions } = await ops();
-  const row = await setFeeSchedule(ctx, schedule, { reason: `LOCAL TEST ${J}: ${reason}`, sessions });
+  const effectiveAt = Math.max(Date.now() + 10_000, after ? Date.parse(after) + 5_000 : 0);
+  const row = await setFeeSchedule(ctx, schedule, { effectiveAt, reason: `LOCAL TEST ${J}: ${reason}`, sessions });
   await expect.poll(async () => (await published()).body.version, { timeout: 30_000 }).toBe(`v${row.version}`);
   return row;
 }
@@ -94,6 +105,43 @@ async function fillsOf(client, symbol, id) {
     )
     .toBeGreaterThan(0);
   return fills;
+}
+
+/**
+ * The other TEST trader sells into `who`'s resting IFC/USDT buy `id` with an IOC, through any house bids at or above its
+ * price (its own level included, so a house bid that queued there first cannot leave it unfilled; the rest of the IOC
+ * cancels), and waits until nothing of `who`'s rests.
+ */
+async function sellInto(who, { id, price, amount }, clientOrderId) {
+  if ((await openOrders(who, 'IFC/USDT')).some((o) => o.id === id)) {
+    const { body } = await bestPrices('IFC/USDT');
+    const ahead = body.bids.filter(([p]) => toUnits(p) >= toUnits(price)).reduce((sum, [, size]) => sum + toUnits(size), 0n);
+    const size = fromUnits(ahead + toUnits(amount));
+    const seller = otherTrader();
+    fund(seller.email, 'IFC', size);
+    const sell = await (
+      await api(seller)
+    ).post('/api/v1/orders', { symbol: 'IFC/USDT', side: 'sell', type: 'limit', amount: size, price, timeInForce: 'IOC', clientOrderId });
+    expect(sell.status, JSON.stringify(sell.body).slice(0, 300)).toBeLessThan(300);
+  }
+  await expect.poll(async () => (await openOrders(who, 'IFC/USDT')).length, { timeout: 30_000 }).toBe(0);
+}
+
+/** A post-only IFC/USDT buy inside the spread, so it rests ahead of the house bids and a crossing sell reaches it first. */
+async function restingIfcBuy(client, amount, clientOrderId) {
+  const { bid, ask } = await bestPrices('IFC/USDT');
+  const price = fromUnits(toUnits(bid) + ((toUnits(ask) - toUnits(bid)) / 2n / 10n ** 14n) * 10n ** 14n);
+  const placed = await client.post('/api/v1/orders', {
+    symbol: 'IFC/USDT',
+    side: 'buy',
+    type: 'limit',
+    amount,
+    price,
+    timeInForce: 'PO',
+    clientOrderId,
+  });
+  expect(placed.status, JSON.stringify(placed.body).slice(0, 300)).toBeLessThan(300);
+  return { id: placed.body.id, price, amount };
 }
 
 const tab = (page, name) => page.locator('[role=tab]', { hasText: new RegExp(`^${name}$`) });
@@ -273,28 +321,7 @@ test(`${J} #4 fills on a zero-fee pair and a rebate pair: "Zero fee" on one, a m
     expect(placed.status, JSON.stringify(placed.body).slice(0, 300)).toBeLessThan(300);
     const id = placed.body.id;
 
-    // The other TEST trader sells into it with an IOC, through any house bids at or above its price (its own level
-    // included, so a house bid that queued there first cannot leave it unfilled; the rest of the IOC cancels).
-    if ((await openOrders(who, 'IFC/USDT')).some((o) => o.id === id)) {
-      const { body } = await bestPrices('IFC/USDT');
-      const ahead = body.bids.filter(([p]) => toUnits(p) >= toUnits(price)).reduce((sum, [, size]) => sum + toUnits(size), 0n);
-      const size = fromUnits(ahead + toUnits(amount));
-      const seller = otherTrader();
-      fund(seller.email, 'IFC', size);
-      const sell = await (
-        await api(seller)
-      ).post('/api/v1/orders', {
-        symbol: 'IFC/USDT',
-        side: 'sell',
-        type: 'limit',
-        amount: size,
-        price,
-        timeInForce: 'IOC',
-        clientOrderId: `${J}-4-${id}`,
-      });
-      expect(sell.status, JSON.stringify(sell.body).slice(0, 300)).toBeLessThan(300);
-    }
-    await expect.poll(async () => (await openOrders(who, 'IFC/USDT')).length, { timeout: 30_000 }).toBe(0);
+    await sellInto(who, { id, price, amount }, `${J}-4-${id}`);
 
     // Every fill of the order: a maker, no fee, and a rebate in the USDT the maker paid, at 0.05% rounded down.
     const fills = await fillsOf(client, 'IFC/USDT', id);
@@ -330,5 +357,83 @@ test(`${J} #4 fills on a zero-fee pair and a rebate pair: "Zero fee" on one, a m
     await expect(row).not.toContainText(/-\s*0\.\d/);
   } finally {
     await publish(SCHEDULE, 'IFC/USDT back in the default pair group');
+  }
+});
+
+test(`${J} #10 a fee change is on the notice board before it takes effect, and an order placed before then keeps its fees`, async ({
+  page,
+}) => {
+  // Three schedule versions (one a minute and a half ahead), a four-eyes notice, a fill and a desk.
+  test.setTimeout(300_000);
+  const who = account();
+  const client = await api(who);
+  const tag = Date.now().toString(36);
+
+  await publish(changeTo('4'), 'IFC/USDT maker 0.04% before the change');
+  let next = null;
+  try {
+    // An order the person places now, under the version in force: maker 0.04%. It rests until after the change.
+    fund(who.email, 'USDT', '100');
+    const order = await restingIfcBuy(client, '200', `js10-before-${tag}`);
+    expect((await openOrders(who, 'IFC/USDT')).map((o) => o.id)).toContain(order.id);
+
+    // Two operators approve the next version ahead of time, and the notice board says when it takes effect.
+    const { ctx, sessions } = await ops();
+    next = await setFeeSchedule(ctx, changeTo('2'), {
+      effectiveAt: Date.now() + 90_000,
+      reason: `LOCAL TEST ${J}: IFC/USDT maker 0.02% from a time a notice names`,
+      sessions,
+    });
+    const effectiveAt = new Date(next.effectiveAt).toISOString();
+    const draft = await draftNotice({
+      kind: 'fee_change',
+      title: `TEST fee change ${tag}`,
+      body: 'TEST: the IFC/USDT maker fee goes from 0.04% to 0.02%.',
+      startsAt: effectiveAt,
+      key: `${J}:${tag}:fee-change`,
+    });
+    expect((await publishNotice(draft, `${J}:${tag}:fee-change`)).status).toBe('published');
+
+    // The person reads it on the public board while the old version is still the one in force.
+    await page.goto('/notice');
+    const card = page.getByTestId(`notice-${draft.id}`);
+    await expect(card).toContainText(`TEST fee change ${tag}`);
+    await expect(card).toContainText('Fee change');
+    const when = card.getByTestId('notice-effective');
+    await expect(when).toHaveText(`Takes effect ${effectiveAt.slice(0, 19).replace('T', ' ')} UTC`);
+    await expect(when).toHaveAttribute('datetime', effectiveAt);
+    await expect(card).toContainText('Orders placed before then keep the fees in force when they were placed.');
+    expect(Date.now()).toBeLessThan(Date.parse(effectiveAt));
+    expect((await published()).body.version).not.toBe(`v${next.version}`);
+
+    // The version takes effect at the time the notice named.
+    await expect.poll(async () => (await published()).body.version, { timeout: 150_000 }).toBe(`v${next.version}`);
+    expect(Date.now()).toBeGreaterThanOrEqual(Date.parse(effectiveAt));
+    // Still resting: nothing filled it under the old version while the person waited.
+    expect((await openOrders(who, 'IFC/USDT')).map((o) => o.id)).toContain(order.id);
+    const { body: early } = await client.get(`/api/v1/account/trades?symbol=${encodeURIComponent('IFC/USDT')}&limit=100`);
+    expect((Array.isArray(early) ? early : (early.trades ?? [])).filter((f) => f.order === order.id)).toEqual([]);
+
+    // The order placed before then fills afterwards, and pays the maker rate of the version it was placed under (a
+    // buyer's fee comes out of the IFC it receives).
+    await sellInto(who, order, `${J}-10-${order.id}`);
+    const fills = await fillsOf(client, 'IFC/USDT', order.id);
+    for (const fill of fills) {
+      expect(fill.takerOrMaker).toBe('maker');
+      expect(fill.fee).toMatchObject({ currency: 'IFC', rate: '0.0004' });
+    }
+
+    // A new order is checked at the new rate.
+    await openDesk(page, who, 'IFC/USDT');
+    await page.mouse.move(0, 600);
+    await tab(page, 'Limit').click();
+    await page.getByRole('combobox', { name: 'Time in force' }).click();
+    await page.getByRole('option', { name: 'Post only', exact: true }).click();
+    await buyForm(page).getByRole('textbox', { name: 'Price' }).fill(order.price);
+    const check = await checkOf(page, () => buyForm(page).getByRole('textbox', { name: 'Amount' }).fill(order.amount));
+    expect(check).toMatchObject({ feeRole: 'maker', feeBps: 2 });
+    await expect(feeLine(page)).toHaveText(`Fee ${pct(2)} · maker`);
+  } finally {
+    await publish(SCHEDULE, 'IFC/USDT back in the default pair group', next?.effectiveAt);
   }
 });

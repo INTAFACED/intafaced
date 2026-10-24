@@ -60,6 +60,18 @@ describe('public notice feed', () => {
     expect(page).not.toContain('In progress');
   });
 
+  it('shows a fee change with the minute it takes effect, and that orders placed before keep their fees', () => {
+    const row = notice({ kind: 'fee_change', startsAt: '2026-11-01T00:00:00.000Z', endsAt: null });
+    expect(entrySchema.parse(row).kind).toBe('fee_change');
+    const page = renderToString(<NoticeList notices={[row]} />).replace(/<!-- -->/g, '');
+    expect(page).toContain('Fee change');
+    expect(page).toContain(
+      '<time data-testid="notice-effective" dateTime="2026-11-01T00:00:00.000Z">Takes effect 2026-11-01 00:00:00 UTC</time>',
+    );
+    expect(page).toContain('Orders placed before then keep the fees in force when they were placed.');
+    expect(page).not.toContain('Window');
+  });
+
   it('reads a reference that is not a notice id as not published without calling the service', () => {
     expect(isNoticeId('abc')).toBe(false);
     expect(isNoticeId('11111111-1111-4111-8111-111111111111')).toBe(true);
