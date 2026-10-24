@@ -1,5 +1,5 @@
 -- The price a futures conditional order is judged on (J-derivatives-03 step 5, D-orders-04).
--- Reversal: 0107_futures_conditional_trigger_source.down.sql
+-- Reversal: 20261024051744_futures_conditional_trigger_source.down.sql
 --
 -- mark (the published mark, as every order before this was) or last (the futures book's newest trade on the market).
 -- The index is not a stored source: it is not published on this deployment, and an order asking for it is refused by

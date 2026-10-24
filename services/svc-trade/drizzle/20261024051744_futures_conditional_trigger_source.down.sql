@@ -1,4 +1,4 @@
--- intafaced:destructive — reversal of 0107_futures_conditional_trigger_source.sql
+-- intafaced:destructive — reversal of 20261024051744_futures_conditional_trigger_source.sql
 -- Older code judges every order on the mark. An armed order judged on the last trade would silently move to the mark,
 -- so it is cancelled first (`replaced`); its owner places it again.
 UPDATE "trade"."futures_conditional_orders"
