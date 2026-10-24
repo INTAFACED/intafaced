@@ -92,6 +92,8 @@ export const SAME_PERSON_ACTION_TYPES = [
   'identity.step_up.security_lock_unlock',
   // Place a P2P order from an ad (P-trade-orders-07). Identity mints it; svc-p2p consumes it before the take reserves.
   'p2p.step_up.trades.take',
+  // Release a P2P order's escrow to the buyer (P-trade-orders-07, -16). Identity mints it; svc-p2p consumes it before the release.
+  'p2p.step_up.trades.confirmReceived',
 ] as const;
 
 /**

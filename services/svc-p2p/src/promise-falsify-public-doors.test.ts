@@ -48,7 +48,7 @@ import {
   reputationOnPublicDoor,
 } from './merchant-programme.js';
 import { snapshotOf, type ReputationCounters } from './reputation.js';
-import { confirmedTakeStepUp, metTakeGate } from './take-gate-fixture.js';
+import { confirmedReleaseStepUp, confirmedTakeStepUp, metTakeGate } from './take-gate-fixture.js';
 
 // Attributed local fixture for downstream doors; never a production screening declaration.
 beforeEach(() => {
@@ -91,6 +91,7 @@ const migrations = [
   '0022_p2p_method_delist_reason.sql',
   '0023_p2p_take_step_ups.sql',
   '20261024075545_p2p_non_instant_methods.sql',
+  '20261024111016_p2p_release_step_ups.sql',
 ].map((file) => readFileSync(join(here, '..', 'drizzle', file), 'utf8'));
 
 const H8A_IMAGE = 'postgres:16-alpine';
@@ -215,6 +216,7 @@ async function mountStub(
       approvals: stubApprovalConsumer('99999999-9999-4999-8999-999999999999'),
       takeGate: metTakeGate(),
       takeStepUp: confirmedTakeStepUp(),
+      releaseStepUp: confirmedReleaseStepUp(),
     },
     opts.merchants as never,
   );
@@ -831,6 +833,7 @@ describe('D26-P2-01f public doors money', () => {
       moderatorUserIds,
       takeGate: metTakeGate(),
       takeStepUp: confirmedTakeStepUp(),
+      releaseStepUp: confirmedReleaseStepUp(),
     });
     app = Fastify({ logger: false });
     installP2pS2sRawBody(app);

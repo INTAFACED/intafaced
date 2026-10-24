@@ -59,7 +59,10 @@ test('J-p2p-01 #1 the P2P hub opens from More, lists every requirement, and a ta
   const seller = await signUp(page, 'p2p01s');
   await verify(page, seller);
   expect(fund(seller.email, 'USDT', '500').tx).toBeTruthy();
-  const s = p2p(await api(seller));
+  const sellerSession = await api(seller);
+  // The seller confirms releases with a TEST passkey, as the person does (P-trade-orders-07).
+  const sellerPasskey = await testPasskey(sellerSession);
+  const s = p2p(sellerSession, sellerPasskey);
   await testInstrument(s, seller);
   const offer = await s.mutate('offers.create', {
     side: 'sell',
@@ -85,7 +88,7 @@ test('J-p2p-01 #1 the P2P hub opens from More, lists every requirement, and a ta
   const buyer = await unconfirmedAccount('p2p01b');
   await signIn(page, buyer);
   await verify(page, buyer);
-  run.reset({ seller, buyer, offerId: offer.id });
+  run.reset({ seller, buyer, offerId: offer.id, sellerPasskey: sellerPasskey.saved() });
 
   await signIn(page, buyer);
   await page.goto('/more');
@@ -780,8 +783,9 @@ test('J-p2p-01 #8 the seller releases; the order says Completed with the coins a
   const usdt = async () => (await buyer.balances()).USDT?.free ?? '0';
   const before = await usdt();
 
-  // The seller saw the money in their own bank and releases the escrow once.
-  expect((await p2p(seller).mutate('trades.confirmReceived', { tradeId: state.tradeId })).status).toBe('released');
+  // The seller saw the money in their own bank and releases the escrow once, confirmed with their passkey.
+  const sellerPasskey = await restorePasskey(state.sellerPasskey);
+  expect((await p2p(seller, sellerPasskey).mutate('trades.confirmReceived', { tradeId: state.tradeId })).status).toBe('released');
   const trade = await p2p(buyer).query('trades.get', { tradeId: state.tradeId });
   expect(trade).toMatchObject({ status: 'released', displayStatus: 'completed' });
   // The release split is the fee rate frozen at take; the buyer's share is what the ledger pays out.

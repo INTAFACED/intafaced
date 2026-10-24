@@ -671,6 +671,8 @@ export function createPersonalPayApi(
       action: 'markFiatSent' | 'confirmReceived' | 'cancel',
       reason?: string,
       review?: { expected: s.Trade; current: () => boolean },
+      /** `confirmReceived` only: identity's single-use confirmation of this release (P-trade-orders-07). */
+      stepUpApprovalId?: string,
     ) {
       const denied = signedIn();
       if (denied) return denied;
@@ -694,7 +696,11 @@ export function createPersonalPayApi(
           api.mutate(
             'p2p',
             `trades.${action}`,
-            { tradeId, ...(action === 'cancel' && reason ? { reason } : {}) },
+            {
+              tradeId,
+              ...(action === 'cancel' && reason ? { reason } : {}),
+              ...(action === 'confirmReceived' && stepUpApprovalId ? { stepUpApprovalId } : {}),
+            },
             s.tradeSchema.refine(
               (result) =>
                 sameImmutableTerms(result, trade) &&
@@ -957,6 +963,9 @@ export function createPersonalPayApi(
     },
     /** Until when this session's orders need no new confirmation, or null when the next one does. */
     takeStepUpWindow: (signal?: AbortSignal) => api.query('p2p', 'trades.stepUpWindow', undefined, s.takeStepUpWindowSchema, { signal }),
+    /** Until when this session's releases need no new confirmation (svc-p2p `trades.releaseStepUpWindow`), or null. */
+    releaseStepUpWindow: (signal?: AbortSignal) =>
+      api.query('p2p', 'trades.releaseStepUpWindow', undefined, s.takeStepUpWindowSchema, { signal }),
     /** Look up an unconfirmed take by the order id stored before it was sent. Clears the stored id only when found. */
     async reconcileTake(offer: s.Offer, frameCurrent: () => boolean = () => true) {
       const denied = signedIn();

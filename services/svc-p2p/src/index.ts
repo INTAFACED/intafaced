@@ -27,6 +27,8 @@ import { programmeVouch, reputationOnPublicDoor } from './merchant-programme.js'
 import { MerchantService } from './merchant-service.js';
 import { createIdentityApprovalClient, unwiredApprovalConsumer } from './action-approval-consume.js';
 import { createTakeStepUp } from './take-step-up.js';
+import { createReleaseStepUp } from './release-step-up.js';
+import { createIdentityPublicProfile } from './public-profile.js';
 import { OpsReads } from './ops/ops-reads.js';
 import { createP2pRouter, type P2pRouter } from './router.js';
 import { BlockRfqService } from './block-rfq.js';
@@ -218,6 +220,8 @@ const actionApprovals = env.IDENTITY_URL
 // P-trade-orders-07: a take is confirmed with identity's single-use same-person approval; without IDENTITY_URL
 // no confirmation can be spent and every take refuses.
 const takeStepUp = createTakeStepUp({ sql, approvals: actionApprovals });
+// P-trade-orders-07 and -16: a release is confirmed the same way; one confirmation covers that session's releases for ten minutes.
+const releaseStepUp = createReleaseStepUp({ sql, approvals: actionApprovals });
 
 export const appRouter = createP2pRouter(
   p2p,
@@ -233,6 +237,9 @@ export const appRouter = createP2pRouter(
     disputeResolveRequiresApproval: env.P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL,
     takeGate,
     takeStepUp,
+    releaseStepUp,
+    // The other side of an order by their handle; without IDENTITY_URL reputation.get says the profile is unwired.
+    ...(env.IDENTITY_URL ? { publicProfile: createIdentityPublicProfile(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) } : {}),
   },
   merchants,
 );

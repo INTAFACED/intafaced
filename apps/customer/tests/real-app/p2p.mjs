@@ -15,13 +15,17 @@ const pace = () => new Promise((resolve) => setTimeout(resolve, 75));
 
 /** The scope and purpose a take is confirmed under (svc-p2p take-step-up.ts, contracts CUSTOMER_STEP_UP_DOORS). */
 export const TAKE_STEP_UP = { scope: 'p2p.step_up.trades.take', purpose: 'trades.take' };
+/** The scope and purpose a release is confirmed under (svc-p2p release-step-up.ts): one confirmation covers the
+ * session's releases for ten minutes. */
+export const RELEASE_STEP_UP = { scope: 'p2p.step_up.trades.confirmReceived', purpose: 'trades.confirmReceived' };
 
 /**
  * svc-p2p through Edge as `who` (an api() session): queries as GET, mutations as POST; the answer or a thrown refusal.
  *
  * With `passkey` (a `testPasskey` saved on the account), a take is confirmed the way the person does it: identity's
  * step-up for exactly that take, sent with it, which then covers this session's takes for ten minutes (svc-p2p
- * `trades.stepUpWindow`). `bare` never confirms anything, so a journey can see a take refused for want of it.
+ * `trades.stepUpWindow`). A release is confirmed the same way, with its own ten-minute window. `bare` never confirms
+ * anything, so a journey can see a take or a release refused for want of it.
  */
 export function p2p(who, passkey = null) {
   const unwrap = (what, res) => {
@@ -48,11 +52,24 @@ export function p2p(who, passkey = null) {
     confirmedUntil = Date.parse(window.body?.result?.data?.confirmedUntil ?? '') || 0;
     return res;
   };
+  // Inside this session's release window, or for an order this seller already released, no confirmation is asked: ask
+  // for one only when svc-p2p refuses for want of it. One confirmation then covers the next ten minutes of releases.
+  const release = async (input) => {
+    const res = await bare.mutate('trades.confirmReceived', input);
+    if (res.status !== 403 || !['auth.step_up_required', 'auth.step_up_expired'].includes(refusalCode(res))) return res;
+    const stepUpApprovalId = await confirmStepUp(who, passkey, releaseStepUpRequest(input.tradeId));
+    return bare.mutate('trades.confirmReceived', { ...input, stepUpApprovalId });
+  };
   return {
     bare,
     raw: {
       query: bare.query,
-      mutate: (proc, input) => (proc === 'trades.take' ? take(input) : bare.mutate(proc, input)),
+      mutate: (proc, input) =>
+        proc === 'trades.take'
+          ? take(input)
+          : proc === 'trades.confirmReceived' && passkey && !input.stepUpApprovalId
+            ? release(input)
+            : bare.mutate(proc, input),
     },
     async query(proc, input) {
       await pace();
@@ -78,9 +95,17 @@ export const takeStepUpRequest = (input) => ({
   },
 });
 
+/** What a release's confirmation names: the order whose escrow goes to the buyer. */
+export const releaseStepUpRequest = (tradeId) => ({ ...RELEASE_STEP_UP, target: tradeId, fields: { tradeId } });
+
 /** Identity's step-up for one take, answered with `passkey`: returns the single-use stepUpApprovalId. */
 export async function confirmTake(session, passkey, input) {
-  const begun = await session.post('/api/identity/trpc/stepUp.begin', takeStepUpRequest(input));
+  return confirmStepUp(session, passkey, takeStepUpRequest(input));
+}
+
+/** Identity's step-up for `request` (scope, purpose, target, fields), answered with `passkey`: the single-use approval id. */
+export async function confirmStepUp(session, passkey, request) {
+  const begun = await session.post('/api/identity/trpc/stepUp.begin', request);
   const challenge = begun.body?.result?.data?.webauthn?.challenge;
   if (begun.status !== 200 || !challenge)
     throw new Error(`step-up begin refused: ${begun.status} ${JSON.stringify(begun.body).slice(0, 300)}`);

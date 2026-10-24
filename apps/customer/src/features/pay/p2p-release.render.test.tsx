@@ -49,6 +49,8 @@ function payWith(order: Trade): PersonalPayApi {
   return {
     viewer: BUYER,
     trade: async () => ({ ok: true, data: order }),
+    // The other side by handle (J-p2p-02 #2): this order's counterparty has no public profile here.
+    reputation: async () => ({ ok: true, data: { handle: null, profile: { status: 'absent' } } }),
     contacts: () => new Promise(() => undefined),
     guard: { status: () => null, restore: async () => undefined, knownProof: () => null },
   } as unknown as PersonalPayApi;
@@ -88,5 +90,7 @@ describe('P2P released order (J-p2p-01 #8)', () => {
     const result = page.querySelector('[data-testid="order-result"]')!;
     expect(result.textContent).toContain('50 USDT released from your escrow');
     expect(result.textContent).not.toContain('49.5');
+    // J-p2p-02 #6: and the fee the release took, at the rate frozen at take.
+    expect(result.textContent).toContain('0.5 USDT (1% of the released amount)');
   });
 });

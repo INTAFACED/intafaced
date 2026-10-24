@@ -21,6 +21,7 @@ import { displayAmount } from '../../shared/money';
 import { useP2PView, type P2PView } from './p2p-view';
 import { P2POffers } from './P2POffers';
 import { P2POrder } from './P2POrder';
+import { ReleaseAction } from './p2p-release';
 import { orderCopy } from './p2p-order-copy';
 import { P2PCounterparty } from './P2PCounterparty';
 import { p2pReturn } from './p2p-return';
@@ -386,8 +387,9 @@ export function OrderActions({
     [payCopy.t('order'), <span lang="zxx">{trade.id}</span>],
     [payCopy.t('you'), trade.sellerId === userId ? payCopy.t('seller') : payCopy.t('buyer')],
   ];
-  const perform = async (action: 'markFiatSent' | 'confirmReceived' | 'cancel', current: () => boolean) => {
-    const result = await pay.manageTrade(trade.id, action, action === 'cancel' ? reason : undefined, { expected: trade, current });
+  const perform = async (action: 'markFiatSent' | 'confirmReceived' | 'cancel', current: () => boolean, stepUpApprovalId?: string) => {
+    const reasonText = action === 'cancel' ? reason : undefined;
+    const result = await pay.manageTrade(trade.id, action, reasonText, { expected: trade, current }, stepUpApprovalId);
     onOutcome(result);
     return result;
   };
@@ -421,30 +423,10 @@ export function OrderActions({
           />
         )}
         {trade.sellerId === userId && trade.status === 'fiat_sent' && (
-          <ReviewedAction
-            title={payCopy.t('releaseEscrow')}
-            variant="primary"
-            description={payCopy.t('confirmOnlyAfterTheExternalPaymentHas')}
-            review={
-              <div className="p2p-order-review">
-                <PayDetails
-                  values={[
-                    ...reviewValues,
-                    [t('gross'), <PayAmount value={trade.amount} unit={trade.asset} label={t('gross')} />],
-                    [t('releaseTo'), <span lang="zxx">{trade.buyerId}</span>],
-                    [
-                      payCopy.t('paymentToVerify'),
-                      <PayAmount value={trade.fiatAmount} unit={trade.fiatCurrency} label={payCopy.t('paymentToVerify')} />,
-                    ],
-                    [payCopy.t('paymentMethod'), <span lang="zxx">{trade.method}</span>],
-                  ]}
-                />
-                <p className="muted">
-                  <Copy k="releaseTerms" />
-                </p>
-              </div>
-            }
-            perform={(current) => perform('confirmReceived', current)}
+          <ReleaseAction
+            trade={trade}
+            pay={pay}
+            release={(current, stepUpApprovalId) => perform('confirmReceived', current, stepUpApprovalId)}
             onConfirmed={reload}
             disabled={locked}
           />

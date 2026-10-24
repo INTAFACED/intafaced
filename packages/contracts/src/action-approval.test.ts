@@ -163,6 +163,7 @@ describe('same-person approvals', () => {
     }
     expect(samePersonTargetService('pay.step_up.payoutDestination.set')).toBe('svc-pay');
     expect(samePersonTargetService('p2p.step_up.trades.take')).toBe('svc-p2p');
+    expect(samePersonTargetService('p2p.step_up.trades.confirmReceived')).toBe('svc-p2p');
     expect(samePersonTargetService('bank.step_up.transfers.toUser')).toBe('svc-bank');
     expect(
       SAME_PERSON_ACTION_TYPES.every(

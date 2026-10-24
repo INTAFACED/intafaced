@@ -76,6 +76,23 @@ describe('customer step-up binding', () => {
     ).toEqual({ ok: false, code: 'step_up.fields' });
   });
 
+  it('binds a P2P release to the order alone, the order id as its target', () => {
+    const tradeId = '0b6f1c1e-4a7d-4c55-9d1e-2f6f0e8a1b2c';
+    const request = {
+      scope: 'p2p.step_up.trades.confirmReceived',
+      purpose: 'trades.confirmReceived',
+      target: tradeId,
+      fields: { tradeId },
+    };
+    expect(bindCustomerStepUp(ACTOR, request)).toMatchObject({
+      ok: true,
+      payloadHash: customerStepUpPayloadHash('p2p.step_up.trades.confirmReceived', { actor: ACTOR, tradeId }),
+    });
+    // Another order as the target, or an amount the release does not carry, is not this release.
+    expect(bindCustomerStepUp(ACTOR, { ...request, target: '9d1e2f6f-0b6f-4c1e-8a7d-4c552f6f0e8a' })).toMatchObject({ ok: false });
+    expect(bindCustomerStepUp(ACTOR, { ...request, fields: { tradeId, amount: '10' } })).toEqual({ ok: false, code: 'step_up.fields' });
+  });
+
   it('sorts payroll lines by space id then amount string', () => {
     expect(
       canonicalPayrollLines([
