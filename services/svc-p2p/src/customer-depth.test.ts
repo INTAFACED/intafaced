@@ -36,6 +36,18 @@ describe('svc-p2p customer depth', () => {
   let instruments!: InstrumentService;
   let ledger!: MemoryLedger;
   let bus!: MemoryEventBus;
+  // P-ads-merchant-03: a floating ad posts only while a reference prices its pair. These board tests post one while a
+  // TEST feed answers, then stop the feed, which is how a listed floating ad comes to need a market feed.
+  let referenceFeed: bigint | null = null;
+  const TEST_REFERENCE = parseAmount('0.99');
+  async function whileFed<T>(post: () => Promise<T>): Promise<T> {
+    referenceFeed = TEST_REFERENCE;
+    try {
+      return await post();
+    } finally {
+      referenceFeed = null;
+    }
+  }
 
   beforeAll(async () => {
     db = await createTestDatabase({ service: 'p2p', url: process.env.TEST_DATABASE_URL, migrations });
@@ -47,9 +59,11 @@ describe('svc-p2p customer depth', () => {
     ledger = new MemoryLedger();
     bus = new MemoryEventBus('svc-p2p');
     instruments = new InstrumentService(sql);
+    referenceFeed = null;
     p2p = new P2pService(sql, ledger, bus, {
       instruments,
       feeBps: 100,
+      referencePrices: { price: async (asset, fiat) => (asset === ASSET && fiat === 'USD' ? referenceFeed : null) },
       // P-trade-orders-14: trades.export now refuses without owner caps; generous caps keep this test about export content.
       exportPolicy: { maxRangeDays: 36_500, maxRows: 10_000 },
       deadlines: {
@@ -100,20 +114,22 @@ describe('svc-p2p customer depth', () => {
   }
 
   async function sell(overrides: Partial<Parameters<P2pService['createOffer']>[0]> = {}) {
-    return p2p.createOffer({
-      makerId: MAKER,
-      side: 'sell',
-      asset: ASSET,
-      fiatCurrency: 'USD',
-      priceType: 'fixed',
-      price: parseAmount('1'),
-      minAmt: parseAmount('10'),
-      maxAmt: parseAmount('100'),
-      totalAmt: parseAmount('500'),
-      methods: ['sepa'],
-      terms: 'pay within 15 minutes',
-      ...overrides,
-    });
+    const post = () =>
+      p2p.createOffer({
+        makerId: MAKER,
+        side: 'sell',
+        asset: ASSET,
+        fiatCurrency: 'USD',
+        priceType: 'fixed',
+        price: parseAmount('1'),
+        minAmt: parseAmount('10'),
+        maxAmt: parseAmount('100'),
+        totalAmt: parseAmount('500'),
+        methods: ['sepa'],
+        terms: 'pay within 15 minutes',
+        ...overrides,
+      });
+    return overrides.priceType === 'float' ? whileFed(post) : post();
   }
 
   it('create with the same idempotency key publishes one offer', async () => {
@@ -262,19 +278,21 @@ describe('svc-p2p customer depth', () => {
       methods: ['sepa'],
       idempotencyKey: 'board-c',
     });
-    await p2p.createOffer({
-      makerId: MAKER,
-      side: 'sell',
-      asset: ASSET,
-      fiatCurrency: 'USD',
-      priceType: 'float',
-      price: parseAmount('1.01'),
-      minAmt: parseAmount('10'),
-      maxAmt: parseAmount('100'),
-      totalAmt: parseAmount('500'),
-      methods: ['sepa'],
-      idempotencyKey: 'board-float',
-    });
+    await whileFed(() =>
+      p2p.createOffer({
+        makerId: MAKER,
+        side: 'sell',
+        asset: ASSET,
+        fiatCurrency: 'USD',
+        priceType: 'float',
+        price: parseAmount('1.01'),
+        minAmt: parseAmount('10'),
+        maxAmt: parseAmount('100'),
+        totalAmt: parseAmount('500'),
+        methods: ['sepa'],
+        idempotencyKey: 'board-float',
+      }),
+    );
 
     const wire = await p2p.listOfferBoard({ limit: 10, methodId: 'wire', viewerId: TAKER });
     expect(wire.offers).toHaveLength(1);
@@ -389,6 +407,22 @@ describe('svc-p2p customer depth', () => {
     await sell({ price: parseAmount('1.01'), priceType: 'float', idempotencyKey: 'ref-float' });
     await sell({ price: parseAmount('1'), idempotencyKey: 'ref-fixed' });
     expect(await p2p.referencePrice(ASSET, 'USD')).toBeNull();
+    // With no reference for the pair, a new floating ad refuses and a fixed one still posts (P-ads-merchant-03).
+    const unfed = p2p.createOffer({
+      makerId: MAKER,
+      side: 'sell',
+      asset: ASSET,
+      fiatCurrency: 'USD',
+      priceType: 'float',
+      price: parseAmount('1.01'),
+      minAmt: parseAmount('10'),
+      maxAmt: parseAmount('100'),
+      methods: ['sepa'],
+      idempotencyKey: 'ref-float-unfed',
+    });
+    await expect(unfed).rejects.toMatchObject({ code: 'p2p.reference_price_unavailable' });
+    await expect(unfed).rejects.toThrow('a fixed price still posts');
+    await expect(sell({ price: parseAmount('1'), idempotencyKey: 'ref-fixed-unfed' })).resolves.toMatchObject({ status: 'active' });
     const fed = new P2pService(sql, ledger, bus, {
       instruments,
       feeBps: 100,

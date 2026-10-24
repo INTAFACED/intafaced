@@ -68,7 +68,14 @@ describe('svc-p2p per-order limits by level and the balance on edit (P-ads-merch
   }, 30_000);
 
   const service = (verificationLimits: VerificationLimitConfig = TABLE) =>
-    new P2pService(sql, ledger, new MemoryEventBus('svc-p2p'), { instruments, feeBps: 0, verificationLimits, sellBalanceAtPost: true });
+    new P2pService(sql, ledger, new MemoryEventBus('svc-p2p'), {
+      instruments,
+      feeBps: 0,
+      verificationLimits,
+      sellBalanceAtPost: true,
+      // A TEST reference, so the floating buy ad below posts (P-ads-merchant-03) and is left to the take.
+      referencePrices: { price: async () => parseAmount('0.93') },
+    });
 
   let n = 0;
   const ad = (extra: Partial<Parameters<P2pService['createOffer']>[0]> = {}) => ({
