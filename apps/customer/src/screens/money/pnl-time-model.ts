@@ -181,13 +181,9 @@ export function lineChart(points: readonly LinePoint[], width: number, height: n
   };
 }
 
-/** The cumulative profit and loss line (J-portfolio-05 #4). */
-export function pnlChart(points: readonly PnlPoint[], width: number, height: number): PnlChart | null {
-  return lineChart(
-    points.map((point) => ({ at: point.at, usd: point.totalUsd })),
-    width,
-    height,
-  );
+/** The cumulative profit and loss line's points (J-portfolio-05 #4). */
+export function pnlLinePoints(points: readonly PnlPoint[]): LinePoint[] {
+  return points.map((point) => ({ at: point.at, usd: point.totalUsd }));
 }
 
 /** Every coin a missing point names, once per reason, and how many points are missing. */

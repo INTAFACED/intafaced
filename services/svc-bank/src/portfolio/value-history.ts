@@ -1,10 +1,11 @@
 import { formatAmount, mul, parseAmount, type Amount } from '@intafaced/ledger-client';
-import type {
-  BankValueBridge,
-  BankValueOverTime,
-  LedgerHoldingsHistory,
-  LedgerHoldingsHistoryBucket,
-  ValueSeriesInterval,
+import {
+  VALUE_SERIES_INTERVALS,
+  type BankValueBridge,
+  type BankValueOverTime,
+  type LedgerHoldingsHistory,
+  type LedgerHoldingsHistoryBucket,
+  type ValueSeriesInterval,
 } from '@intafaced/contracts';
 import { classify, type ActivityKind } from '../activity/activity-kind.js';
 import { SERIES_TIMEFRAME_MS, closeAt, type CloseSeries } from './candles.js';
@@ -27,12 +28,11 @@ import { PAR_ASSETS } from './valuation.js';
 const MAX_POINTS = 400;
 /** svc-trade answers a window only whole, at most 720 candles to now; one candle back from the start and one spare. */
 const MAX_CANDLES_TO_NOW = 718;
-const INTERVALS: readonly ValueSeriesInterval[] = ['5m', '1h', '4h', '1d', '1w'];
 const DAY_SECONDS = 86_400;
 
 /** The finest candle size whose points fit a chart and whose window to now fits one read; null when none does. */
 export function chooseInterval(from: Date, to: Date, now: Date): ValueSeriesInterval | null {
-  for (const interval of INTERVALS) {
+  for (const interval of VALUE_SERIES_INTERVALS) {
     const ms = SERIES_TIMEFRAME_MS[interval];
     if ((to.getTime() - from.getTime()) / ms <= MAX_POINTS && (now.getTime() - from.getTime()) / ms <= MAX_CANDLES_TO_NOW) return interval;
   }

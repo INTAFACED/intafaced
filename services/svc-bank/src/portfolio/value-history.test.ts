@@ -24,6 +24,7 @@ const ALICE = '11111111-1111-4111-8111-111111111111';
 const BOB = '22222222-2222-4222-8222-222222222222';
 const SPACE = '44444444-4444-4444-8444-444444444444';
 const BOBS_SPACE = '55555555-5555-4555-8555-555555555555';
+const CLOSED = '66666666-6666-4666-8666-666666666666';
 
 const move = (d: number, assetId: string, module: string, reason: string, inflow: string, outflow: string, fee = '0'): LedgerMovement => ({
   assetId,
@@ -213,14 +214,18 @@ function service(options: { fail?: Error; closes?: CloseSeriesSource | null } = 
   const asked: LedgerHoldingsHistoryInput[] = [];
   const portfolio = new PortfolioService(
     { balances: async () => [] },
-    { namedSpaces: async () => [space(SPACE, ALICE), space(BOBS_SPACE, BOB)] },
+    {
+      namedSpaces: async () => [space(SPACE, ALICE), space(BOBS_SPACE, BOB)],
+      // An archived Space, emptied before the range: history reads still see it.
+      allNamedSpaces: async () => [space(SPACE, ALICE), { ...space(CLOSED, ALICE), archivedAt: day(1) }, space(BOBS_SPACE, BOB)],
+    },
     {
       now: () => day(5, 12),
       history: {
         holdingsHistory: async (input) => {
           asked.push(input);
           if (options.fail) throw options.fail;
-          return input.ownerType === 'user' ? MAIN : SAVINGS;
+          return input.ownerType === 'user' ? MAIN : input.ownerId === CLOSED ? history({}, []) : SAVINGS;
         },
       },
       ...(options.closes === null ? {} : { closes: options.closes ?? { closes: async () => daily(0) } }),
@@ -253,13 +258,14 @@ function callerFor(portfolio: PortfolioService, userId: string) {
 }
 
 describe('PortfolioService.valueOverTime', () => {
-  it('reads the caller’s main account and own named Spaces only, from the start of the grid, in the bucket the range needs', async () => {
+  it('reads the caller’s main account and own named Spaces only (archived ones too), from the start of the grid, in the bucket the range needs', async () => {
     const { portfolio, asked } = service();
     const out = await callerFor(portfolio, ALICE).portfolio.valueOverTime({ from: day(1, 7).toISOString(), to: day(5).toISOString() });
     // Under four days fits hourly candles, so the ledger is read by the hour from the hour the range starts in.
     expect(asked).toEqual([
       { ownerType: 'user', ownerId: ALICE, from: day(1, 7).toISOString(), bucketSeconds: 3_600 },
       { ownerType: 'subaccount', ownerId: SPACE, from: day(1, 7).toISOString(), bucketSeconds: 3_600 },
+      { ownerType: 'subaccount', ownerId: CLOSED, from: day(1, 7).toISOString(), bucketSeconds: 3_600 },
     ]);
     expect(out.interval).toBe('1h');
     expect(out.points[0]).toMatchObject({ at: day(1, 7).toISOString(), valueUsd: '0' });

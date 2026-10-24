@@ -12,6 +12,7 @@ import {
 } from '@intafaced/ledger-client';
 import {
   BANK_VALUE_HISTORY_TOO_LARGE,
+  BANK_VALUE_HISTORY_UNAVAILABLE,
   BANK_VALUE_RANGE_INVALID,
   BANK_VALUE_RANGE_TOO_LONG,
   LEDGER_HOLDINGS_HISTORY_TOO_LARGE,
@@ -256,6 +257,8 @@ export interface BalanceEntriesPage {
 /** The slice of SpaceService the total needs: the user's named Spaces (live, plus archived ones that still hold value). */
 export interface SpaceLister {
   namedSpaces(userId: string): Promise<SpaceRecord[]>;
+  /** Every named Space the user has owned, archived ones too: for a history read (value over time). */
+  allNamedSpaces?(userId: string): Promise<SpaceRecord[]>;
 }
 
 export class PortfolioService {
@@ -294,12 +297,14 @@ export class PortfolioService {
     if (interval === null) throw new BankError('The range starts too long ago to be priced: pick a later start', BANK_VALUE_RANGE_TOO_LONG);
     const grid = gridOf(from, to, now, interval);
     if (grid === null) throw new BankError('The range is shorter than one step of its chart: pick a longer one', BANK_VALUE_RANGE_INVALID);
-    if (!this.history) throw new BankError('Value history is not available right now', 'bank.value_history_unavailable');
+    if (!this.history) throw new BankError('Value history is not available right now', BANK_VALUE_HISTORY_UNAVAILABLE);
     const history = this.history;
 
     const owners: Array<{ ownerType: 'user' | 'subaccount'; ownerId: string }> = [
       { ownerType: 'user', ownerId: userId },
-      ...(await this.namedOf(userId)).map((s) => ({ ownerType: 'subaccount' as const, ownerId: s.id })),
+      // Archived Spaces too: one emptied back to main inside the range held value before it, and its half of the move
+      // back must cancel the main account's half.
+      ...(await this.everyNamedOf(userId)).map((s) => ({ ownerType: 'subaccount' as const, ownerId: s.id })),
     ];
     let histories: LedgerHoldingsHistory[];
     try {
@@ -308,9 +313,12 @@ export class PortfolioService {
       );
     } catch (err) {
       if (err instanceof LedgerError && err.code === LEDGER_HOLDINGS_HISTORY_TOO_LARGE) {
-        throw new BankError('Too much happened in this range to show at once: pick a shorter range', BANK_VALUE_HISTORY_TOO_LARGE);
+        throw new BankError(
+          'Too much has happened since this range starts to show at once: pick a later start',
+          BANK_VALUE_HISTORY_TOO_LARGE,
+        );
       }
-      throw new BankError('Value history is not available right now', 'bank.value_history_unavailable');
+      throw new BankError('Value history is not available right now', BANK_VALUE_HISTORY_UNAVAILABLE);
     }
 
     const coins = coinsOf(histories);
@@ -534,6 +542,11 @@ export class PortfolioService {
     const space = (await this.namedOf(userId)).find((s) => s.id.toLowerCase() === wanted);
     if (!space) throw new BankError('That account is not yours', 'bank.space_not_found');
     return this.ledger.balances('subaccount', space.id);
+  }
+
+  private async everyNamedOf(userId: string): Promise<SpaceRecord[]> {
+    const rows = this.spaces.allNamedSpaces ? await this.spaces.allNamedSpaces(userId) : await this.spaces.namedSpaces(userId);
+    return rows.filter((s) => s.kind === 'named' && s.userId === userId);
   }
 
   private async namedOf(userId: string): Promise<SpaceRecord[]> {

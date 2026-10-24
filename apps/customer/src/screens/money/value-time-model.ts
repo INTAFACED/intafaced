@@ -7,7 +7,15 @@ import type { LinePoint } from './pnl-time-model';
  * and #7), from `bank.portfolio.valueOverTime`. Money stays a decimal string or a scaled bigint.
  */
 
-export { bankValueOverTimeSchema } from '@intafaced/contracts/bank-value-history';
+export {
+  BANK_VALUE_HISTORY_TOO_LARGE,
+  BANK_VALUE_HISTORY_UNAVAILABLE,
+  BANK_VALUE_RANGE_INVALID,
+  BANK_VALUE_RANGE_TOO_LONG,
+  bankValueOverTimeSchema,
+} from '@intafaced/contracts/bank-value-history';
+/** The bank's code for prices it cannot read now, shared with the Money total. */
+export const VALUE_PRICES_DOWN = 'bank.prices_unavailable';
 export type { BankValueBridge, BankValueOverTime, BankValuePoint };
 
 export function valueLine(points: readonly BankValuePoint[]): LinePoint[] {

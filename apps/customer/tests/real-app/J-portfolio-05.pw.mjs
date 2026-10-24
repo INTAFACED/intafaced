@@ -631,6 +631,7 @@ async function valueCards(page, query) {
   const card = page.getByRole('region', { name: 'What your money was worth' });
   await expect(card).toBeVisible();
   await expect(card.locator('svg[data-chart="value-over-time"]')).toBeVisible({ timeout: 30_000 });
+  await expect(card.locator('[data-value-interval]')).toHaveCount(1);
   return card;
 }
 

@@ -1,40 +1,28 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { moneyCopy } from './copy';
-import { Amount, Button, Skeleton, StateBlock, fmtUsd, navigate, refusalCopy } from './deps';
+import { Amount, Skeleton, StateBlock, fmtUsd, refusalCopy } from './deps';
 import type { LotBook } from './pnl-model';
 import { usePnlOverTime } from './pnl-source';
 import {
   BREAKDOWNS,
   BREAKDOWN_MAX_DAYS,
-  PNL_RANGES,
   breakdownFromQuery,
-  dayOf,
   firstActivity,
   marketKey,
   missingOf,
+  pnlLinePoints,
   offsetMinutes,
   rangeFromQuery,
   rangeKey,
-  rangeSearch,
   resolveRange,
   type Breakdown,
   type PnlOverTime,
-  type PnlRange,
 } from './pnl-time-model';
-import { INTERVAL_COPY, LINE_H, TimeLine } from './time-line';
+import { INTERVAL_COPY, LINE_H, RangePicker, TimeLine, go } from './time-line';
 import { stamp } from './time';
-import { ValueOverTimeCards } from './ValueOverTime';
 import { usePreferences } from '../../shared/preferences';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
-
-const RANGE_COPY: Record<PnlRange, 'Range 1D' | 'Range 1W' | 'Range 1M' | 'Range 1Y' | 'Range all'> = {
-  '1D': 'Range 1D',
-  '1W': 'Range 1W',
-  '1M': 'Range 1M',
-  '1Y': 'Range 1Y',
-  all: 'Range all',
-};
 
 const MISSING_COPY: Record<PnlOverTime['points'][number]['missing'][number]['reason'], 'Missing no price' | 'Missing cost unknown'> = {
   no_price: 'Missing no price',
@@ -59,73 +47,10 @@ function usdText(value: string | null, copy: Copy): string {
   return value === null ? copy.t('Not known') : fmtUsd(value, { showPlus: true });
 }
 
-function go(search: string) {
-  navigate(`/money/pnl${search === '' ? '' : `?${search}`}`, true);
-}
-
-/** The preset switch and the two dates of a custom range. Both live in the link, like the result view. */
-function RangePicker({ search, offset, copy }: { search: string; offset: number; copy: Copy }) {
-  const { t } = copy;
-  const ask = rangeFromQuery(search);
-  const today = dayOf(Date.now(), offset);
-  const [fromDay, setFromDay] = useState(ask.kind === 'custom' ? ask.fromDay : '');
-  const [toDay, setToDay] = useState(ask.kind === 'custom' ? ask.toDay : today);
-  const ready = fromDay !== '' && toDay !== '' && fromDay <= toDay;
-  return (
-    <div className="money-pnl-range">
-      <div className="money-alloc__switch" role="group" aria-label={t('Pnl range')}>
-        {PNL_RANGES.map((option) => (
-          <button
-            key={option}
-            type="button"
-            className="money-alloc__opt"
-            aria-pressed={ask.kind === 'preset' && ask.range === option}
-            onClick={() => go(rangeSearch(search, { range: option }))}
-          >
-            {t(RANGE_COPY[option])}
-          </button>
-        ))}
-      </div>
-      <form
-        className="money-pnl-range__dates"
-        aria-label={t('Pnl custom range')}
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (ready) go(rangeSearch(search, { fromDay, toDay }));
-        }}
-      >
-        <label className="money-note-form__label">
-          {t('Range from')}{' '}
-          <input
-            type="date"
-            className="money-note-form__input"
-            value={fromDay}
-            max={today}
-            onChange={(event) => setFromDay(event.target.value)}
-          />
-        </label>
-        <label className="money-note-form__label">
-          {t('Range to')}{' '}
-          <input
-            type="date"
-            className="money-note-form__input"
-            value={toDay}
-            max={today}
-            onChange={(event) => setToDay(event.target.value)}
-          />
-        </label>
-        <Button type="submit" variant="secondary" size={40} disabled={!ready}>
-          {t('Show range')}
-        </Button>
-      </form>
-    </div>
-  );
-}
-
 /** The cumulative line (J-portfolio-05 #4). */
 function PnlLine({ data, hidden, copy }: { data: PnlOverTime; hidden: boolean; copy: Copy }) {
   const { timeZone } = usePreferences();
-  const points = useMemo(() => data.points.map((point) => ({ at: point.at, usd: point.totalUsd })), [data.points]);
+  const points = useMemo(() => pnlLinePoints(data.points), [data.points]);
   return (
     <TimeLine
       points={points}
@@ -367,7 +292,6 @@ export function PnlOverTimeCards({ book, search, hidden }: { book: LotBook; sear
       {result.status === 'ready' && ask.kind !== 'invalid' && range !== null ? (
         <BreakdownCard data={result.data} search={search} hidden={hidden} copy={copy} />
       ) : null}
-      {ask.kind !== 'invalid' ? <ValueOverTimeCards range={range} hidden={hidden} /> : null}
     </>
   );
 }

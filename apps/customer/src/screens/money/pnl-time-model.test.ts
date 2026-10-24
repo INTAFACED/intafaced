@@ -5,7 +5,8 @@ import {
   marketKey,
   missingOf,
   offsetMinutes,
-  pnlChart,
+  lineChart,
+  pnlLinePoints,
   rangeFromQuery,
   rangeKey,
   rangeSearch,
@@ -76,7 +77,7 @@ describe('resolveRange', () => {
   });
 });
 
-describe('pnlChart', () => {
+describe('lineChart', () => {
   const points = [
     point('2026-10-01T00:00:00.000Z', '-10'),
     point('2026-10-02T00:00:00.000Z', '30'),
@@ -86,7 +87,7 @@ describe('pnlChart', () => {
   ];
 
   it('breaks the line at a missing point instead of drawing it at zero, and keeps time to scale', () => {
-    const chart = pnlChart(points, 1000, 200)!;
+    const chart = lineChart(pnlLinePoints(points), 1000, 200)!;
     expect(chart.runs).toEqual([
       [
         { x: '0', y: '200' },
@@ -102,13 +103,15 @@ describe('pnlChart', () => {
   });
 
   it('draws nothing with no known figure or no span of time', () => {
-    expect(pnlChart([point('2026-10-01T00:00:00.000Z', null)], 1000, 200)).toBeNull();
-    expect(pnlChart([point('2026-10-01T00:00:00.000Z', null), point('2026-10-02T00:00:00.000Z', null)], 1000, 200)).toBeNull();
-    expect(pnlChart([], 1000, 200)).toBeNull();
+    expect(lineChart(pnlLinePoints([point('2026-10-01T00:00:00.000Z', null)]), 1000, 200)).toBeNull();
+    expect(
+      lineChart(pnlLinePoints([point('2026-10-01T00:00:00.000Z', null), point('2026-10-02T00:00:00.000Z', null)]), 1000, 200),
+    ).toBeNull();
+    expect(lineChart(pnlLinePoints([]), 1000, 200)).toBeNull();
   });
 
   it('a flat line sits in the middle', () => {
-    const chart = pnlChart([point('2026-10-01T00:00:00.000Z', '5'), point('2026-10-02T00:00:00.000Z', '5')], 1000, 200)!;
+    const chart = lineChart(pnlLinePoints([point('2026-10-01T00:00:00.000Z', '5'), point('2026-10-02T00:00:00.000Z', '5')]), 1000, 200)!;
     expect(chart.runs[0]).toEqual([
       { x: '0', y: '100' },
       { x: '1000', y: '100' },

@@ -2,8 +2,8 @@
  * BANK VALUE OVER TIME — what the customer's holdings were worth at each moment of a range, and the change-in-value
  * bridge between its two ends (J-portfolio-05 #6-#7). Browser-safe: zod only.
  *
- * `bank.portfolio.valueOverTime` replays the customer's holdings (main account and every named Space, as the Money total
- * counts them) backwards from now with the ledger's movements, and values each moment at the close of the last candle that
+ * `bank.portfolio.valueOverTime` replays the customer's holdings (main account and every named Space they have owned,
+ * archived ones too, so a move from a closed Space cancels like any move between their own accounts) backwards from now with the ledger's movements, and values each moment at the close of the last candle that
  * had ended by then (USDT and USDC count as 1 USD, as the Money total does). A moment where a coin held then has no price
  * is missing: `valueUsd` null with the coin named, never zero.
  *
@@ -20,8 +20,11 @@ import { z } from 'zod';
 export const BANK_VALUE_RANGE_INVALID = 'bank.value_range_invalid' as const;
 /** The range starts too long ago to be priced in one read: pick a later start. */
 export const BANK_VALUE_RANGE_TOO_LONG = 'bank.value_range_too_long' as const;
-/** More ledger movements than one answer carries: pick a shorter range. */
+/** More ledger movements from the range's start to now than one answer carries (the holdings are replayed back from now,
+ * so the start is what counts): pick a later start. */
 export const BANK_VALUE_HISTORY_TOO_LARGE = 'bank.value_history_too_large' as const;
+/** The ledger's history cannot be read right now (not wired, or the read failed): nothing is drawn from part of it. */
+export const BANK_VALUE_HISTORY_UNAVAILABLE = 'bank.value_history_unavailable' as const;
 
 export const VALUE_SERIES_INTERVALS = ['5m', '1h', '4h', '1d', '1w'] as const;
 export type ValueSeriesInterval = (typeof VALUE_SERIES_INTERVALS)[number];

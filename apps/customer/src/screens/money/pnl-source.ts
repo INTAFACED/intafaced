@@ -13,7 +13,7 @@ import {
   type MissingBasis,
 } from './pnl-model';
 import { pnlOverTimeSchema, type PnlOverTime } from './pnl-time-model';
-import { bankValueOverTimeSchema, type BankValueOverTime } from './value-time-model';
+import { BANK_VALUE_HISTORY_UNAVAILABLE, VALUE_PRICES_DOWN, bankValueOverTimeSchema, type BankValueOverTime } from './value-time-model';
 
 const LOT_BOOK_INTERVAL = 60_000;
 
@@ -97,7 +97,9 @@ export function usePnlOverTime(ask: { from: string; to?: string; utcOffsetMinute
 }
 
 /** The bank's own answers that it cannot read now: they arrive as a 503, which the poller would read as a broken link. */
-const VALUE_DOWN = ['bank.prices_unavailable', 'bank.value_history_unavailable'];
+const VALUE_DOWN = [VALUE_PRICES_DOWN, BANK_VALUE_HISTORY_UNAVAILABLE];
+/** A range that ended before now cannot change but by a late posting, so it is read again rarely. */
+const PAST_RANGE_INTERVAL = 15 * 60_000;
 
 /**
  * `bank.portfolio.valueOverTime`: what the caller's main account and Spaces were worth over a range, and the
@@ -120,7 +122,7 @@ export function useValueOverTime(ask: { from: string; to?: string } | null): Loa
           const down = VALUE_DOWN.find((code) => result.code === code || result.message.includes(code));
           return down ? { ok: false, reason: result.reason, code: down, status: 409 } : result;
         },
-        { intervalMs: LOT_BOOK_INTERVAL },
+        { intervalMs: to !== undefined && Date.parse(to) <= Date.now() ? PAST_RANGE_INTERVAL : LOT_BOOK_INTERVAL },
       );
     }, [env, from, to]),
   );

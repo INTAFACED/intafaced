@@ -1,7 +1,7 @@
 import { useMemo, useState, type PointerEvent } from 'react';
 import { moneyCopy } from './copy';
-import { Amount, fmtUsd } from './deps';
-import { lineChart, type LinePoint } from './pnl-time-model';
+import { Amount, Button, fmtUsd, navigate } from './deps';
+import { PNL_RANGES, dayOf, lineChart, rangeFromQuery, rangeSearch, type LinePoint, type PnlRange } from './pnl-time-model';
 import { stamp } from './time';
 import { usePreferences } from '../../shared/preferences';
 
@@ -9,6 +9,14 @@ type Copy = ReturnType<typeof moneyCopy.useCopy>;
 
 export const LINE_W = 1000;
 export const LINE_H = 240;
+
+const RANGE_COPY: Record<PnlRange, 'Range 1D' | 'Range 1W' | 'Range 1M' | 'Range 1Y' | 'Range all'> = {
+  '1D': 'Range 1D',
+  '1W': 'Range 1W',
+  '1M': 'Range 1M',
+  '1Y': 'Range 1Y',
+  all: 'Range all',
+};
 
 export const INTERVAL_COPY: Record<
   '5m' | '1h' | '4h' | '1d' | '1w',
@@ -20,6 +28,69 @@ export const INTERVAL_COPY: Record<
   '1d': 'Point every 1d',
   '1w': 'Point every 1w',
 };
+
+export function go(search: string) {
+  navigate(`/money/pnl${search === '' ? '' : `?${search}`}`, true);
+}
+
+/** The preset switch and the two dates of a custom range. Both live in the link, like the result view. */
+export function RangePicker({ search, offset, copy }: { search: string; offset: number; copy: Copy }) {
+  const { t } = copy;
+  const ask = rangeFromQuery(search);
+  const today = dayOf(Date.now(), offset);
+  const [fromDay, setFromDay] = useState(ask.kind === 'custom' ? ask.fromDay : '');
+  const [toDay, setToDay] = useState(ask.kind === 'custom' ? ask.toDay : today);
+  const ready = fromDay !== '' && toDay !== '' && fromDay <= toDay;
+  return (
+    <div className="money-pnl-range">
+      <div className="money-alloc__switch" role="group" aria-label={t('Pnl range')}>
+        {PNL_RANGES.map((option) => (
+          <button
+            key={option}
+            type="button"
+            className="money-alloc__opt"
+            aria-pressed={ask.kind === 'preset' && ask.range === option}
+            onClick={() => go(rangeSearch(search, { range: option }))}
+          >
+            {t(RANGE_COPY[option])}
+          </button>
+        ))}
+      </div>
+      <form
+        className="money-pnl-range__dates"
+        aria-label={t('Pnl custom range')}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (ready) go(rangeSearch(search, { fromDay, toDay }));
+        }}
+      >
+        <label className="money-note-form__label">
+          {t('Range from')}{' '}
+          <input
+            type="date"
+            className="money-note-form__input"
+            value={fromDay}
+            max={today}
+            onChange={(event) => setFromDay(event.target.value)}
+          />
+        </label>
+        <label className="money-note-form__label">
+          {t('Range to')}{' '}
+          <input
+            type="date"
+            className="money-note-form__input"
+            value={toDay}
+            max={today}
+            onChange={(event) => setToDay(event.target.value)}
+          />
+        </label>
+        <Button type="submit" variant="secondary" size={40} disabled={!ready}>
+          {t('Show range')}
+        </Button>
+      </form>
+    </div>
+  );
+}
 
 /**
  * A line over time (J-portfolio-05 #4 and #7). Time runs along the bottom, so a missing stretch is a gap of its real
