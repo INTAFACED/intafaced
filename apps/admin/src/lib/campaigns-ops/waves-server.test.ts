@@ -77,6 +77,13 @@ describe('waitlist waves desk', () => {
     );
     expect(await wavesExecute(ctx)({ kind: 'campaigns.waitlist.wave_release', wave: '3', size: '2' }, ids)).toMatchObject({
       ok: false,
+    }); // The stored wave 3 has size 2; a request approved for size 5 never ran.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok({ created: false, wave: wave(3) })),
+    );
+    expect(await wavesExecute(ctx)({ kind: 'campaigns.waitlist.wave_release', wave: '3', size: '5' }, ids)).toMatchObject({
+      ok: false,
     });
   });
 
@@ -96,6 +103,17 @@ describe('waitlist waves desk', () => {
     expect(await wavesExecute(ctx)({ kind: 'campaigns.waitlist.wave_release', wave: '9', size: '2' }, ids)).toMatchObject({
       ok: false,
       refusal: { code: 'waitlist.wave_unknown', changed: 'no' },
+    });
+  });
+
+  it('a switched-off waitlist names the switch, not a race', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => err(412, 'waitlist.enabled is off [flag.waitlist.enabled.disabled]')),
+    );
+    expect(await wavesExecute(ctx)({ kind: 'campaigns.waitlist.wave_release', wave: '1', size: '2' }, ids)).toMatchObject({
+      ok: false,
+      refusal: { code: 'flag.waitlist.enabled.disabled', title: 'The waitlist is switched off' },
     });
   });
 

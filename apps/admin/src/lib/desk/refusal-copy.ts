@@ -217,6 +217,21 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'Every person on the waitlist has already been released, so there is nobody to invite. Nothing was released.',
     next: 'Read the waves below. Release again once more people have joined.',
   },
+  'waitlist.unbuilt': {
+    title: 'The waitlist is not connected',
+    body: 'Identity has no waitlist store on this host, so no wave can be released. Nothing was released.',
+    next: 'Ask whoever runs the identity host to connect the waitlist database, then start a new request.',
+  },
+  'flag.waitlist.enabled.disabled': {
+    title: 'The waitlist is switched off',
+    body: 'The waitlist.enabled switch is off, so identity releases no wave. Nothing was released.',
+    next: 'Turn the waitlist back on first, then start a new request.',
+  },
+  'flag.waitlist.enabled.drop_pending': {
+    title: 'The waitlist has not opened yet',
+    body: 'The waitlist.enabled switch is waiting for its launch drop, so identity releases no wave yet. Nothing was released.',
+    next: 'Release once the waitlist is open.',
+  },
   'auth_key.approval_required': {
     title: 'The approval did not cover this key change',
     body: 'Identity checked the approval against the exact key change and refused it: it is missing, not approved, already used, expired, or for a different change. Nothing was changed.',

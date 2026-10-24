@@ -27,7 +27,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 const whole = (v: unknown, min: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= min;
 
-function readWave(raw: unknown): Wave | null {
+export function readWave(raw: unknown): Wave | null {
   if (!isRecord(raw)) return null;
   const { waveNumber, size, releasedCount, flagKey, releasedBy, approvedBy, releasedAt } = raw;
   if (!whole(waveNumber, 1) || !whole(size, 1) || !whole(releasedCount, 1)) return null;

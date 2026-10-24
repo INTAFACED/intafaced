@@ -5,7 +5,7 @@ import type { ExecuteReply } from '@/lib/desk/approval-types';
 import { partFrom, type Part } from '@/lib/desk/part';
 import { codeInText, explainRefusal, isKnownCode } from '@/lib/desk/refusal-copy';
 import { failureRefusal } from '@/lib/ops-desk/execute';
-import { readWavesState, type Wave, type WavesState } from './waves-model';
+import { readWave, readWavesState, type Wave, type WavesState } from './waves-model';
 
 export interface WavesView {
   readonly asOf: string;
@@ -25,14 +25,13 @@ export async function loadWaves(ctx: FounderCallContext): Promise<WavesView> {
 function readRelease(raw: unknown): { wave: Wave; created: boolean } | null {
   if (!raw || typeof raw !== 'object') return null;
   const { wave, created } = raw as Record<string, unknown>;
-  const state = readWavesState({ waveSize: null, nextWave: 1, waiting: 0, waves: [wave] });
-  if (!state || typeof created !== 'boolean') return null;
-  return { wave: state.waves[0]!, created };
+  const read = readWave(wave);
+  return read && typeof created === 'boolean' ? { wave: read, created } : null;
 }
 
 const WRONG_WAVE: ExecuteReply = { ok: false, refusal: explainRefusal('admin.ops_invalid_response', 502, true) };
 
-/** Run an approved wave release as the signed-in founder. The wave identity returns must be the one approved, or it is not reported done. */
+/** Run an approved wave release as the signed-in founder. The wave identity returns (number and size) must be the one approved, or it is not reported done. */
 export function wavesExecute(ctx: FounderCallContext): ExecuteFn {
   return async (request, ids) => {
     if (request.kind !== 'campaigns.waitlist.wave_release') {
@@ -47,12 +46,13 @@ export function wavesExecute(ctx: FounderCallContext): ExecuteFn {
       readRelease,
     );
     if (result.kind === 'refused' || result.kind === 'forbidden') {
-      const code = result.refusal.code ?? codeInText(result.refusal.message) ?? /\[([a-z0-9_.]+)\]\s*$/.exec(result.refusal.message)?.[1];
+      const code = result.refusal.code ?? codeInText(result.refusal.message);
       return { ok: false, refusal: explainRefusal(isKnownCode(code) ? code : null, result.refusal.status, false) };
     }
     if (result.kind !== 'ok') return failureRefusal('svc-identity', 'identity', result);
     const { wave, created } = result.data;
-    if (String(wave.waveNumber) !== request.wave) return WRONG_WAVE;
+    // A stored wave of another size is not the release that was approved (the owner's size changed since): never done.
+    if (String(wave.waveNumber) !== request.wave || String(wave.size) !== request.size) return WRONG_WAVE;
     return {
       ok: true,
       detail: created

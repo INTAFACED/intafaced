@@ -1,7 +1,7 @@
 /** Browser hop for the waitlist waves desk. Same-origin BFF only; no credential is held here. */
 import type { WavesView } from './waves-server';
 
-export type WavesDeskView = Pick<WavesView, 'asOf' | 'state'>;
+export type WavesDeskView = WavesView;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));

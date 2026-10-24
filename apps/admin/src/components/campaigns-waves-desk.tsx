@@ -10,13 +10,13 @@ import './desk.css';
 /**
  * WAITLIST WAVES (RC-campaigns-03).
  *
- * The owner's wave size, how many people still wait, the waves already released and the two-founder release of the next one.
+ * The owner's wave size, how many people still wait, the waves already released and the two-person release of the next one.
  * A wave invites the top people in the queue (most friends first, ties by who joined first) once. The size is the owner's
  * setting on the identity host and is never typed here; while it is blank the desk says so and offers no release.
  */
 
 const RELEASE_NOTE =
-  'The top people still waiting are invited at once and leave the queue; this cannot be undone. Releasing the same wave again invites nobody new. Two different founders must agree.';
+  'The top people still waiting are invited at once and leave the queue; this cannot be undone. Releasing the same wave again invites nobody new. A second person must approve it: identity refuses an approval from the person who asked.';
 
 export function WavesPanel({ state }: { state: WavesState }) {
   return (
@@ -78,7 +78,8 @@ export function WaveControls({ state, userId, onChanged }: { state: WavesState; 
         };
   return (
     <ControlDesk
-      key={`${state.nextWave}:${size ?? ''}`}
+      // Keyed on the size only: a run moves the next wave on, and the desk must keep showing that run's reply.
+      key={String(size ?? '')}
       endpoint="/api/more-ops/waves"
       userId={userId}
       blockedReason={blocked}
@@ -105,7 +106,7 @@ export function CampaignsWavesDeskView({ view, loading, userId, onRefresh }: Wav
         <div>
           <h1>Waitlist waves</h1>
           <p>
-            Who is still waiting, the waves already released, and the two-founder release of the next wave. Operator ids only, never emails.
+            Who is still waiting, the waves already released, and the two-person release of the next wave. Operator ids only, never emails.
           </p>
         </div>
       </div>

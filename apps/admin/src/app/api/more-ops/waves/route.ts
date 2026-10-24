@@ -5,8 +5,8 @@ import { moduleDisabledResponse } from '@/lib/modules';
 
 /**
  * Waitlist waves (RC-campaigns-03). GET reads the owner's wave size, the next wave and the waves already released from
- * svc-identity. POST runs one step of a two-founder release, exactly as `/api/identity-ops/keys` does: identity issues the
- * approval, a different founder signs it, and svc-identity spends it once when the wave is released.
+ * svc-identity. POST runs one step of a two-person release, exactly as `/api/identity-ops/keys` does: identity issues the
+ * approval, a different person approves it, and svc-identity spends it once when the wave is released.
  */
 
 export const dynamic = 'force-dynamic';
