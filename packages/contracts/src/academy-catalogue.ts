@@ -89,6 +89,8 @@ export const ACADEMY_ENROLMENT_CLOSED_REASONS = [
   'window_not_started',
   'window_ended',
   'full',
+  /** A paid track on a course staff made: course payments are not switched on (AC-commerce-01), so nothing is sold. */
+  'payments_off',
 ] as const;
 export type AcademyEnrolmentClosedReason = (typeof ACADEMY_ENROLMENT_CLOSED_REASONS)[number];
 
@@ -99,28 +101,33 @@ const isoInstant = z.string().datetime({ offset: true });
  * is self-paced and opens when you enrol. `seatCap` null means no cap is set, and then `seatsRemaining` is null too.
  * `activationMail` names the outside piece the activation mail needs while it is switched off; null once it is sent.
  */
-export const academyCourseEnrolmentSchema = z
-  .object({
-    slug: z.enum(ACADEMY_CURRICULUM_PATHS),
-    startsAt: isoInstant.nullable(),
-    seatCap: z.number().int().positive().nullable(),
-    seatsRemaining: z.number().int().nonnegative().nullable(),
-    closed: z.enum(ACADEMY_ENROLMENT_CLOSED_REASONS).nullable(),
-    tracks: z
-      .array(
-        z.object({
-          track: z.enum(ACADEMY_ENROLMENT_TRACKS),
-          free: z.boolean(),
-          closed: z.enum(ACADEMY_ENROLMENT_CLOSED_REASONS).nullable(),
-        }),
-      )
-      .min(1),
-    enrolment: z.object({ track: z.enum(ACADEMY_ENROLMENT_TRACKS), enrolledAt: isoInstant }).nullable(),
-    activationMail: z.literal('vendor.email').nullable(),
-  })
-  .refine((row) => (row.seatCap === null) === (row.seatsRemaining === null), {
-    message: 'seatsRemaining is set exactly when a seat cap is',
-  });
+const enrolmentTerms = <S extends z.ZodTypeAny>(slug: S) =>
+  z
+    .object({
+      slug,
+      startsAt: isoInstant.nullable(),
+      seatCap: z.number().int().positive().nullable(),
+      seatsRemaining: z.number().int().nonnegative().nullable(),
+      closed: z.enum(ACADEMY_ENROLMENT_CLOSED_REASONS).nullable(),
+      tracks: z
+        .array(
+          z.object({
+            track: z.enum(ACADEMY_ENROLMENT_TRACKS),
+            free: z.boolean(),
+            closed: z.enum(ACADEMY_ENROLMENT_CLOSED_REASONS).nullable(),
+          }),
+        )
+        .min(1),
+      enrolment: z.object({ track: z.enum(ACADEMY_ENROLMENT_TRACKS), enrolledAt: isoInstant }).nullable(),
+      activationMail: z.literal('vendor.email').nullable(),
+    })
+    .refine((row) => (row.seatCap === null) === (row.seatsRemaining === null), {
+      message: 'seatsRemaining is set exactly when a seat cap is',
+    });
+export const academyCourseEnrolmentSchema = enrolmentTerms(z.enum(ACADEMY_CURRICULUM_PATHS));
+/** `authoredCourseEnrolment`: the same terms for a course staff made, keyed by its address. */
+export const academyAuthoredCourseEnrolmentSchema = enrolmentTerms(z.string().min(1));
+export type AcademyAuthoredCourseEnrolment = z.infer<typeof academyAuthoredCourseEnrolmentSchema>;
 export type AcademyCourseEnrolment = z.infer<typeof academyCourseEnrolmentSchema>;
 
 /** `enrolCourse` input. A repeat while enrolled answers with the same enrolment; nothing is created twice. */
