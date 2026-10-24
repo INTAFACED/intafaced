@@ -18,7 +18,9 @@ import {
   LEDGER_HOLDINGS_HISTORY_TOO_LARGE,
   type BankValueOverTime,
   type LedgerHoldingsHistory,
+  type RegistryAssetKind,
 } from '@intafaced/contracts';
+import { readRegistry, type AssetRegistryReads } from '../assets/supported-assets.js';
 import { BankError } from '../errors.js';
 import type { LedgerHoldingsHistoryReads } from '../ledger-client.js';
 import type { CloseSeries, CloseSeriesSource } from './candles.js';
@@ -37,6 +39,7 @@ import {
   needsPrices,
   valuePortfolio,
   type Holding,
+  PAR_ASSETS,
   PRICE_QUOTES,
   type PortfolioSummary,
   type PriceBook,
@@ -216,6 +219,8 @@ export interface PortfolioServiceOptions {
   history?: LedgerHoldingsHistoryReads;
   /** svc-trade's public candles. Unset = `valueOverTime` refuses `bank.prices_unavailable` once a coin needs a price. */
   closes?: CloseSeriesSource;
+  /** svc-ledger's asset registry, for the allocation's classes. Unset = `allocation` refuses `bank.asset_registry_unavailable`. */
+  assets?: AssetRegistryReads | null;
   now?: () => Date;
 }
 
@@ -266,6 +271,7 @@ export class PortfolioService {
   private readonly pages: LedgerHistoryPages | undefined;
   private readonly history: LedgerHoldingsHistoryReads | undefined;
   private readonly closes: CloseSeriesSource | undefined;
+  private readonly assets: AssetRegistryReads | null;
   private readonly now: () => Date;
 
   constructor(
@@ -277,6 +283,7 @@ export class PortfolioService {
     this.pages = options.pages;
     this.history = options.history;
     this.closes = options.closes;
+    this.assets = options.assets ?? null;
     this.now = options.now ?? (() => new Date());
   }
 
@@ -354,7 +361,13 @@ export class PortfolioService {
   /** The priced holdings grouped by class and by where they sit (PF-balances-02); same prices and refusals as `summary`. */
   async allocation(userId: string): Promise<PortfolioAllocation> {
     const { summary, holdings } = await this.valued(userId);
-    return allocate(summary, holdings);
+    // Par assets and USD are classed by their code; anything else priced needs the registry, and an unreadable registry
+    // refuses rather than calling every coin unclassified.
+    const needsKinds = summary.priced.some((row) => !PAR_ASSETS.has(row.asset.toUpperCase()));
+    const kinds = new Map<string, RegistryAssetKind>(
+      needsKinds ? (await readRegistry(this.assets)).map((asset) => [asset.id.toUpperCase(), asset.kind]) : [],
+    );
+    return allocate(summary, holdings, kinds);
   }
 
   private async valued(

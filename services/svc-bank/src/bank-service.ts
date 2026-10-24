@@ -280,7 +280,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   // The supply pause lives in the deposit path so auto-invest cannot go around it.
   const earn = new EarnService(sql, ledger, { nativeAssetId: options.nativeAssetId ?? 'IFC', supplyGate: assetPauses });
   const analytics = new SpendAnalytics(spaces, history);
-  const portfolio = new PortfolioService(ledger, spaces, options.portfolio ?? {});
+  const portfolio = new PortfolioService(ledger, spaces, { assets: options.assetRegistry ?? null, ...(options.portfolio ?? {}) });
   const activityRecords = new ActivityRecordService(sql);
   const activity = new ActivityService(spaces, {
     ...(options.activity ?? {}),

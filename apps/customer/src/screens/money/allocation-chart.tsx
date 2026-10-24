@@ -57,13 +57,13 @@ export function AllocationBar({ rows }: { rows: readonly MoneyRow[] }) {
   const coinSlices = slicesOf(rows, t('Other'));
   if (coinSlices.length === 0) return null;
 
-  let slices: Array<{ key: string; label: string; share: string }> = coinSlices;
+  let slices: Array<{ key: string; label: string; share: string; assets?: string[] }> = coinSlices;
   let note: string | null = null;
   if (grouping !== 'coin') {
     if (server.status === 'ready') {
       const grouped = groupSlices(server.data, grouping);
       if (grouped === null) note = t('Grouping invalid');
-      else slices = grouped.map((slice) => ({ key: slice.key, label: t(slice.labelKey), share: slice.share }));
+      else slices = grouped.map((slice) => ({ key: slice.key, label: t(slice.labelKey), share: slice.share, assets: slice.assets }));
     } else if (server.status === 'loading') {
       note = t('Grouping loading');
     } else {
@@ -71,6 +71,7 @@ export function AllocationBar({ rows }: { rows: readonly MoneyRow[] }) {
     }
   }
   const shown = note === null ? slices : [];
+  const unclassified = grouping === 'class' ? (shown.find((slice) => slice.key === 'unclassified')?.assets ?? []) : [];
   const caption =
     grouping === 'coin'
       ? t('Share of your total')
@@ -110,7 +111,7 @@ export function AllocationBar({ rows }: { rows: readonly MoneyRow[] }) {
           </div>
           <ul className="money-alloc__legend" aria-hidden="true">
             {shown.map((slice, index) => (
-              <li key={slice.key}>
+              <li key={slice.key} data-group={slice.key}>
                 <span className="money-alloc__dot" style={{ background: `var(--if-alloc-${index + 1})` }} />
                 <span>{slice.label}</span>
                 <span className="money-alloc__pct">{pctText(slice.share)}</span>
@@ -124,10 +125,16 @@ export function AllocationBar({ rows }: { rows: readonly MoneyRow[] }) {
                 <tr key={slice.key}>
                   <th scope="row">{slice.label}</th>
                   <td>{pctText(slice.share)}</td>
+                  {grouping === 'class' ? <td>{slice.assets?.join(', ')}</td> : null}
                 </tr>
               ))}
             </tbody>
           </table>
+          {unclassified.length > 0 ? (
+            <p className="money-alloc__note">
+              {t(unclassified.length === 1 ? 'Unclassified note' : 'Unclassified note many', { assets: unclassified.join(', ') })}
+            </p>
+          ) : null}
           {grouping !== 'coin' && server.status === 'ready' && server.data.unpriced.length > 0 ? (
             <p className="money-alloc__note">
               {server.data.unpriced.length === 1 ? t('Asset not counted') : t('Assets not counted', { count: server.data.unpriced.length })}

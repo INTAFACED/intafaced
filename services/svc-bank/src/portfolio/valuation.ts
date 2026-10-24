@@ -56,6 +56,8 @@ export interface Holding {
   readonly free: Amount;
   /** Locked (hold, escrow, stake, collateral). */
   readonly used: Amount;
+  /** The part of `used` in `stake` accounts (earn and staked positions). Absent = none. */
+  readonly staked?: Amount;
   /** free + used. */
   readonly total: Amount;
 }
@@ -122,17 +124,22 @@ export interface PortfolioSummary {
 export function holdingsFromBalances(rows: readonly Balance[]): Holding[] {
   const free = new Map<string, Amount>();
   const used = new Map<string, Amount>();
+  const staked = new Map<string, Amount>();
   for (const row of rows) {
     const asset = row.account.assetId;
     if (row.account.kind === 'available') free.set(asset, (free.get(asset) ?? 0n) + row.amount);
-    else if (LOCK_KINDS.has(row.account.kind)) used.set(asset, (used.get(asset) ?? 0n) + row.amount);
+    else if (LOCK_KINDS.has(row.account.kind)) {
+      used.set(asset, (used.get(asset) ?? 0n) + row.amount);
+      if (row.account.kind === 'stake') staked.set(asset, (staked.get(asset) ?? 0n) + row.amount);
+    }
   }
   const assets = [...new Set([...free.keys(), ...used.keys()])].sort();
   const out: Holding[] = [];
   for (const assetId of assets) {
     const f = free.get(assetId) ?? 0n;
     const u = used.get(assetId) ?? 0n;
-    if (f + u > 0n) out.push({ assetId, free: f, used: u, total: f + u });
+    const st = staked.get(assetId) ?? 0n;
+    if (f + u > 0n) out.push({ assetId, free: f, used: u, total: f + u, ...(st > 0n ? { staked: st } : {}) });
   }
   return out;
 }
