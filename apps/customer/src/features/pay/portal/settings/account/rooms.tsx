@@ -55,7 +55,7 @@ export const accountRooms: RoomTable = {
       purpose: extensionCopy.t('compliancePurpose'),
       action: link('/pay/onboarding/verification', extensionCopy.t('verificationAction'), 'primary'),
     }),
-    render: (_route, { portal }) => <WithAccount>{() => <Compliance portal={portal} />}</WithAccount>,
+    render: (_route, { portal }) => <WithAccount>{({ merchantId }) => <Compliance portal={portal} merchantId={merchantId} />}</WithAccount>,
   },
   settings: {
     header: () => ({

@@ -17,6 +17,7 @@ export const settingsContract: ContractPart = {
     { method: 'kybEntityTypes', run: (p) => p.kybEntityTypes() },
     { method: 'kybApplication', run: (p) => p.kybApplication('11111111-1111-4111-8111-111111111111') },
     { method: 'kybDocuments', run: (p) => p.kybDocuments('ab000001-0000-4000-8000-000000000001') },
+    { method: 'kybRequests', run: (p) => p.kybRequests('11111111-1111-4111-8111-111111111111') },
   ],
   notMocked: {
     ...accountContract.notMocked,
@@ -34,5 +35,6 @@ export const settingsContract: ContractPart = {
     kybApplicationRestart: write,
     kybApplicationSubmit: write,
     kybDocumentUpload: write,
+    kybRequestAnswer: write,
   },
 };
