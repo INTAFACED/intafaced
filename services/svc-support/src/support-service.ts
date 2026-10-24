@@ -357,8 +357,6 @@ export class SupportService implements SupportContract {
     private readonly attachmentSettings: AttachmentSettingsBook = new MemoryAttachmentSettingsBook(),
     /** How many requests one bulk change may hold. Owner value; blank (null) refuses `support.bulk_cap_unset`. */
     private readonly bulkCap: number | null = null,
-    /** Saved views. Caps stay null until the owner sets them; a save then refuses rather than guessing 10 or 100. */
-    private readonly views: ViewBook = new MemoryViewBook({ personal: null, shared: null }),
     /**
      * SP-kb-03 owner values. A blank rate refuses a public vote. A blank model
      * refuses the answer panel. A blank search maximum leaves the contract bound.
@@ -380,6 +378,8 @@ export class SupportService implements SupportContract {
      * comment `support.comment_cap_unset`. Operators are not counted and not capped.
      */
     private readonly commentCap: number | null = null,
+    /** Saved views. Caps stay null until the owner sets them; a save then refuses rather than guessing 10 or 100. */
+    private readonly views: ViewBook = new MemoryViewBook({ personal: null, shared: null }),
   ) {}
 
   /** The viewer's place in the desk, or null while no group exists (visibility not restricted). */

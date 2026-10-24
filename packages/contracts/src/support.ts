@@ -450,9 +450,9 @@ export type SupportViewCap = z.infer<typeof supportViewCapSchema>;
 
 export const supportViewSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     name: z.string().min(1).max(80),
-    ownerId: z.string().uuid(),
+    ownerId: z.string().guid(),
     shared: z.boolean(),
     filter: z.unknown(),
     sort: supportViewSortSchema.nullable(),
@@ -478,7 +478,7 @@ export const supportViewCountsSchema = z
     counts: z.array(
       z
         .object({
-          viewId: z.string().uuid(),
+          viewId: z.string().guid(),
           count: z.number().int().min(0),
         })
         .strict(),
@@ -490,7 +490,7 @@ export type SupportViewCounts = z.infer<typeof supportViewCountsSchema>;
 /** The whole view, so a lost reply replays this payload. `filter` and `sort` stay loose: the service names a bad field. */
 export const supportViewSaveInputSchema = z
   .object({
-    viewId: z.string().uuid().optional(),
+    viewId: z.string().guid().optional(),
     name: z.string().trim().min(1).max(80),
     expectedRevision: z.number().int().min(0),
     shared: z.boolean(),
@@ -505,7 +505,7 @@ export type SupportViewSaveInput = z.infer<typeof supportViewSaveInputSchema>;
 
 export const supportViewDeleteInputSchema = z
   .object({
-    viewId: z.string().uuid(),
+    viewId: z.string().guid(),
     reason: z.string().trim().min(1).max(500),
   })
   .strict();

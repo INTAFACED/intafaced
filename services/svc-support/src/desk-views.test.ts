@@ -43,6 +43,8 @@ function service(caps: ViewCaps) {
     undefined,
     undefined,
     null,
+    undefined,
+    null,
     new MemoryViewBook(caps),
   );
 }

@@ -38,7 +38,6 @@ function clocked(kb: {
     undefined,
     undefined,
     null,
-    undefined,
     kb,
   );
   return {

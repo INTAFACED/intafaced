@@ -163,10 +163,6 @@ const support = new SupportService(
   ratingRequests,
   attachmentSettings,
   env.SUPPORT_BULK_CAP ?? null,
-  new SqlViewBook(sql, {
-    personal: env.SUPPORT_VIEW_PERSONAL_CAP ?? null,
-    shared: env.SUPPORT_VIEW_SHARED_CAP ?? null,
-  }),
   {
     feedbackRateLimit: env.SUPPORT_FEEDBACK_RATE_LIMIT ?? null,
     feedbackRateWindowSeconds: env.SUPPORT_FEEDBACK_RATE_WINDOW_SECONDS ?? null,
@@ -174,6 +170,10 @@ const support = new SupportService(
     searchQueryMax: env.SUPPORT_SEARCH_QUERY_MAX ?? null,
   },
   env.SUPPORT_COMMENT_CAP ?? null,
+  new SqlViewBook(sql, {
+    personal: env.SUPPORT_VIEW_PERSONAL_CAP ?? null,
+    shared: env.SUPPORT_VIEW_SHARED_CAP ?? null,
+  }),
 );
 const loop = createTicketKbLoopObserver();
 const appRouter = createSupportRouter(
