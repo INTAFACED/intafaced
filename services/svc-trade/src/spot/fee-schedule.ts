@@ -444,7 +444,9 @@ export function publicFeeSchedule(
               makerBps: schedule.makerBps,
               takerBps: schedule.takerBps,
               makerRebateBps: schedule.makerRebateBps,
-              ...(schedule.makerRebateBps !== null && schedule.makerRebateBps > 0 ? { refusal: 'trade.rebate_recipe_unavailable' as const } : {}),
+              ...(schedule.makerRebateBps !== null && schedule.makerRebateBps > 0
+                ? { refusal: 'trade.rebate_recipe_unavailable' as const }
+                : {}),
             },
           ],
         },

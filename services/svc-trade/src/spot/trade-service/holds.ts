@@ -77,7 +77,9 @@ export async function ratesForFill(
   const takerFeeBps = svc.ratesForSchedule(takerSchedule, makerDiscountBps, takerDiscountBps, kind, symbol).takerFeeBps;
   // The maker's rebate is its own placement version's row, funded by the taker rate this fill charges.
   const makerRebateBps =
-    kind === 'spot' && symbol !== undefined ? fundedMakerRebateBps(makerRebateBpsFor(makerSchedule, { symbol }), makerFeeBps, takerFeeBps) : 0;
+    kind === 'spot' && symbol !== undefined
+      ? fundedMakerRebateBps(makerRebateBpsFor(makerSchedule, { symbol }), makerFeeBps, takerFeeBps)
+      : 0;
   return { makerFeeBps, takerFeeBps, makerRebateBps };
 }
 
