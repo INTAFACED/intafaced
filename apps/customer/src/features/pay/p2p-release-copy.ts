@@ -26,6 +26,10 @@ const en = {
   stepUpDone: 'You confirmed it’s you for this release.',
   stepUpCovered: 'You confirmed it’s you here, so this release needs no new check until {time}.',
   stepUpNone: 'No check was given. The release is refused unless one is saved on this account.',
+  stepUpRequired: 'This release needs a fresh check that it’s you. Confirm it again; nothing was released.',
+  stepUpExpired: 'Your last check has ended. Confirm it’s you again; nothing was released.',
+  stepUpFailed: 'That check could not be used for this release. Confirm it’s you again; nothing was released.',
+  stepUpUnchecked: 'The check could not be verified right now, so nothing was released. The coins stay in escrow; try again shortly.',
 } as const;
 const es = {
   release: 'Liberar al comprador',
@@ -55,6 +59,11 @@ const es = {
   stepUpDone: 'Confirmaste que eres tú para esta liberación.',
   stepUpCovered: 'Ya confirmaste que eres tú aquí, así que esta liberación no necesita otra comprobación hasta {time}.',
   stepUpNone: 'No se dio ninguna comprobación. La liberación se rechaza salvo que la cuenta tenga una guardada.',
+  stepUpRequired: 'Esta liberación necesita una comprobación nueva de que eres tú. Confírmalo otra vez; no se liberó nada.',
+  stepUpExpired: 'Tu última comprobación terminó. Confirma otra vez que eres tú; no se liberó nada.',
+  stepUpFailed: 'Esa comprobación no sirve para esta liberación. Confirma otra vez que eres tú; no se liberó nada.',
+  stepUpUnchecked:
+    'No se pudo verificar la comprobación ahora, así que no se liberó nada. Las monedas siguen en depósito; inténtalo en un momento.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   release: 'Libérer à l’acheteur',
@@ -84,5 +93,10 @@ const fr = {
   stepUpDone: 'Vous avez confirmé que c’est vous pour cette libération.',
   stepUpCovered: 'Vous avez déjà confirmé que c’est vous ici : cette libération ne demande pas de nouvelle vérification avant {time}.',
   stepUpNone: 'Aucune vérification donnée. La libération est refusée sauf si le compte en a une enregistrée.',
+  stepUpRequired: 'Cette libération demande une nouvelle vérification que c’est vous. Confirmez à nouveau ; rien n’a été libéré.',
+  stepUpExpired: 'Votre dernière vérification a pris fin. Confirmez à nouveau que c’est vous ; rien n’a été libéré.',
+  stepUpFailed: 'Cette vérification ne vaut pas pour cette libération. Confirmez à nouveau que c’est vous ; rien n’a été libéré.',
+  stepUpUnchecked:
+    'La vérification n’a pas pu être contrôlée pour l’instant, donc rien n’a été libéré. Les pièces restent en dépôt ; réessayez dans un instant.',
 } satisfies Record<keyof typeof en, string>;
 export const releaseCopy = defineCopy('pay.p2p.release', en, { es, fr });

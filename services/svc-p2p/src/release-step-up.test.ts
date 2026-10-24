@@ -390,6 +390,38 @@ describe('svc-p2p release confirmation (P-trade-orders-07, -16)', () => {
     await stillHeld(tradeId);
   });
 
+  it('an order still being locked needs the seller’s confirmation too, so a lock landing mid-release cannot skip it', async () => {
+    const offer = await p2p.createOffer({
+      makerId: MAKER,
+      side: 'sell',
+      asset: ASSET,
+      fiatCurrency: 'EUR',
+      priceType: 'fixed',
+      price: parseAmount('1'),
+      minAmt: parseAmount('1'),
+      maxAmt: parseAmount('50'),
+      totalAmt: parseAmount('100'),
+      methods: ['sepa'],
+      terms: 'TEST terms',
+    });
+    const trade = await p2p.takeOffer({
+      offerId: offer.id,
+      takerId: TAKER,
+      amount: parseAmount('10'),
+      tradeId: crypto.randomUUID(),
+      method: 'sepa',
+    });
+    // As if the lock reply were still on its way: the order reads `created`.
+    await sql`UPDATE p2p.p2p_trades SET status = 'created' WHERE id = ${trade.id}`.catch(() => undefined);
+    const id = identity();
+    await expect(
+      caller(createReleaseStepUp({ sql, approvals: id.consumer })).trades.confirmReceived({ tradeId: trade.id }),
+    ).rejects.toMatchObject({
+      cause: { code: 'auth.step_up_required' },
+    });
+    expect(releases()).toHaveLength(0);
+  });
+
   it('the buyer, a stranger and a disputed order are refused by the service before any confirmation is asked for', async () => {
     const tradeId = await paidOrder();
     const id = identity();

@@ -73,7 +73,7 @@ export function createReleaseStepUp(deps: { readonly sql: Sql; readonly approval
       if (
         used.user_id === caller.userId &&
         used.session_id === sessionId &&
-        used.trade_id === tradeId &&
+        used.trade_id === tradeId.toLowerCase() &&
         used.payload_hash === payloadHash &&
         used.live
       ) {

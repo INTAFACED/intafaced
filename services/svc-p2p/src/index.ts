@@ -220,7 +220,7 @@ const actionApprovals = env.IDENTITY_URL
 // P-trade-orders-07: a take is confirmed with identity's single-use same-person approval; without IDENTITY_URL
 // no confirmation can be spent and every take refuses.
 const takeStepUp = createTakeStepUp({ sql, approvals: actionApprovals });
-// P-trade-orders-07 and -16: each release is confirmed the same way, one approval per release.
+// P-trade-orders-07 and -16: a release is confirmed the same way; one confirmation covers that session's releases for ten minutes.
 const releaseStepUp = createReleaseStepUp({ sql, approvals: actionApprovals });
 
 export const appRouter = createP2pRouter(

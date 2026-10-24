@@ -277,6 +277,7 @@ export type P2pErrorCode =
   // Open wrote a dispute without a thread id. Should not happen: open allocates
   // when the trade has none. Named so a client never sees a fake empty chat.
   | 'p2p.chat_thread_unset'
+  | 'p2p.public_profile_unavailable'
   // Payment-instrument details are jsonb at rest. Live offer create stays
   // refuse-closed until OWNER KMS envelope encryption is wired — a key
   // improvised here is the appearance of protection without the substance.

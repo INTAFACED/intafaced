@@ -387,8 +387,9 @@ export function OrderActions({
     [payCopy.t('order'), <span lang="zxx">{trade.id}</span>],
     [payCopy.t('you'), trade.sellerId === userId ? payCopy.t('seller') : payCopy.t('buyer')],
   ];
-  const perform = async (action: 'markFiatSent' | 'confirmReceived' | 'cancel', current: () => boolean) => {
-    const result = await pay.manageTrade(trade.id, action, action === 'cancel' ? reason : undefined, { expected: trade, current });
+  const perform = async (action: 'markFiatSent' | 'confirmReceived' | 'cancel', current: () => boolean, stepUpApprovalId?: string) => {
+    const reasonText = action === 'cancel' ? reason : undefined;
+    const result = await pay.manageTrade(trade.id, action, reasonText, { expected: trade, current }, stepUpApprovalId);
     onOutcome(result);
     return result;
   };
@@ -425,11 +426,7 @@ export function OrderActions({
           <ReleaseAction
             trade={trade}
             pay={pay}
-            release={async (current, stepUpApprovalId) => {
-              const result = await pay.manageTrade(trade.id, 'confirmReceived', undefined, { expected: trade, current }, stepUpApprovalId);
-              onOutcome(result);
-              return result;
-            }}
+            release={(current, stepUpApprovalId) => perform('confirmReceived', current, stepUpApprovalId)}
             onConfirmed={reload}
             disabled={locked}
           />

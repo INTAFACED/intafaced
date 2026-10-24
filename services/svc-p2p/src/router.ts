@@ -534,6 +534,8 @@ function toTrpcError(err: unknown): TRPCError {
       // PRECONDITION_FAILED so an operator dash can alarm on the code, not on
       // a generic FORBIDDEN that looks like a missing scope on the caller.
       case 'p2p.moderation_unreachable':
+      // Identity did not name the other side just now: never a made-up handle, never an untyped failure.
+      case 'p2p.public_profile_unavailable':
       case 'p2p.chat_thread_unset':
       // Instruments are jsonb at rest. Live offers stay refuse-closed until
       // OWNER KMS is wired. PRECONDITION_FAILED so an operator dash can alarm
@@ -1467,9 +1469,10 @@ export function createP2pRouter(
             }
             const seller = current.sellerId === ctx.principal.userId;
             if (seller && current.status === 'released' && current.resolution === 'released') return toTradeOut(current);
-            // Only the seller of a held escrow can release it, so only then is a confirmation asked for (and spent). Every
-            // other caller or state gets the service's own refusal, and nothing moves.
-            if (seller && (current.status === 'escrowed' || current.status === 'fiat_sent')) {
+            // Only the seller can release, so only the seller is asked for a confirmation, in every state that is or may
+            // yet become a held escrow: `created` too, since its lock can land between this read and the locked decision.
+            // A disputed or terminal order cannot reach a seller's release, so it gets the service's own refusal.
+            if (seller && (current.status === 'created' || current.status === 'escrowed' || current.status === 'fiat_sent')) {
               await releaseStepUp.assertConfirmed(stepUpCaller(ctx.principal), input.tradeId, input.stepUpApprovalId);
             }
             return toTradeOut(await p2p.confirmFiatReceived(input.tradeId, ctx.principal.userId));

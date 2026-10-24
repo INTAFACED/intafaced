@@ -15,7 +15,8 @@ const pace = () => new Promise((resolve) => setTimeout(resolve, 75));
 
 /** The scope and purpose a take is confirmed under (svc-p2p take-step-up.ts, contracts CUSTOMER_STEP_UP_DOORS). */
 export const TAKE_STEP_UP = { scope: 'p2p.step_up.trades.take', purpose: 'trades.take' };
-/** The scope and purpose a release is confirmed under (svc-p2p release-step-up.ts): one confirmation per release. */
+/** The scope and purpose a release is confirmed under (svc-p2p release-step-up.ts): one confirmation covers the
+ * session's releases for ten minutes. */
 export const RELEASE_STEP_UP = { scope: 'p2p.step_up.trades.confirmReceived', purpose: 'trades.confirmReceived' };
 
 /**
@@ -23,7 +24,7 @@ export const RELEASE_STEP_UP = { scope: 'p2p.step_up.trades.confirmReceived', pu
  *
  * With `passkey` (a `testPasskey` saved on the account), a take is confirmed the way the person does it: identity's
  * step-up for exactly that take, sent with it, which then covers this session's takes for ten minutes (svc-p2p
- * `trades.stepUpWindow`). A release is confirmed the same way, one confirmation per release. `bare` never confirms
+ * `trades.stepUpWindow`). A release is confirmed the same way, with its own ten-minute window. `bare` never confirms
  * anything, so a journey can see a take or a release refused for want of it.
  */
 export function p2p(who, passkey = null) {

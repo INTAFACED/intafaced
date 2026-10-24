@@ -14,15 +14,23 @@ describe('svc-p2p public profile from identity', () => {
     expect(await profile.lookup(USER)).toEqual({ handle: 'TESTbuyer', memberSince: null });
   });
 
-  it('no such account is null; a refusal, a reply for another account or a malformed reply throws', async () => {
+  it('no such account is null; a refusal, a reply for another account or a malformed reply refuses by name', async () => {
     expect(await createIdentityPublicProfile('http://identity', SECRET, undefined, answer(404, {})).lookup(USER)).toBeNull();
-    await expect(createIdentityPublicProfile('http://identity', SECRET, undefined, answer(503, {})).lookup(USER)).rejects.toThrow();
+    await expect(createIdentityPublicProfile('http://identity', SECRET, undefined, answer(503, {})).lookup(USER)).rejects.toMatchObject({
+      code: 'p2p.public_profile_unavailable',
+    });
+    const down = (async () => {
+      throw new TypeError('fetch failed');
+    }) as unknown as typeof fetch;
+    await expect(createIdentityPublicProfile('http://identity', SECRET, undefined, down).lookup(USER)).rejects.toMatchObject({
+      code: 'p2p.public_profile_unavailable',
+    });
     await expect(
       createIdentityPublicProfile('http://identity', SECRET, undefined, answer(200, { userId: 'other', handle: 'x' })).lookup(USER),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({ code: 'p2p.public_profile_unavailable' });
     await expect(
       createIdentityPublicProfile('http://identity', SECRET, undefined, answer(200, { userId: USER })).lookup(USER),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({ code: 'p2p.public_profile_unavailable' });
   });
 });
 

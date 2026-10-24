@@ -11,6 +11,14 @@ import type { PersonalPayApi } from './pay-api';
 import { releaseCopy } from './p2p-release-copy';
 import type { Trade } from './schemas';
 
+/** svc-p2p's release confirmation refusals, said in this room's words: nothing was released, and what to do next. */
+const STEP_UP_REFUSALS = {
+  'auth.step_up_required': 'stepUpRequired',
+  'auth.step_up_expired': 'stepUpExpired',
+  'auth.step_up_failed': 'stepUpFailed',
+  'p2p.step_up_unverifiable': 'stepUpUnchecked',
+} as const;
+
 const CHECKS = ['inMyBank', 'amountMatches', 'senderTerms', 'noReversal', 'stillProtected'] as const;
 type Check = (typeof CHECKS)[number];
 
@@ -18,7 +26,8 @@ type Check = (typeof CHECKS)[number];
  * J-p2p-02 #5 (P-trade-orders-16, -07): the seller releases the escrow once they have seen the money in their own bank.
  * The review names the buyer by handle (never the account id), shows what the buyer gets and the fee the release takes,
  * and asks the seller to tick five facts about the payment and to confirm it's them with a passkey or authenticator
- * code. Release stays off until both are done; the confirmation covers this one release only.
+ * code. Release stays off until both are done; one confirmation covers this session's releases for ten minutes (svc-p2p
+ * release-step-up.ts).
  */
 export function ReleaseAction({
   trade,
@@ -43,9 +52,12 @@ export function ReleaseAction({
   });
   // undefined: not confirmed yet; null: no factor on the account, so the release goes without one and svc-p2p decides.
   const [approval, setApproval] = useState<string | null | undefined>(undefined);
+  // A confirmation names one order: another order on the same page asks again unless the window covers it.
+  useEffect(() => setApproval(undefined), [trade.id]);
   const buyer = useResource((signal) => pay.reputation(trade.buyerId, signal), `pay:reputation:${trade.buyerId}`);
   // A release confirmed in this session in the last ten minutes covers this one too; an unread window asks for a check.
-  const covered = useResource((signal) => pay.releaseStepUpWindow(signal), `pay:release-step-up:${trade.id}`);
+  // The window belongs to the signed-in seller's session, not to one order.
+  const covered = useResource((signal) => pay.releaseStepUpWindow(signal), `pay:release-step-up:${trade.sellerId}`);
   const coveredUntil =
     covered.resource.status === 'ready' &&
     covered.resource.data.confirmedUntil &&
@@ -119,6 +131,8 @@ export function ReleaseAction({
         if (!result.ok) {
           setApproval(undefined);
           covered.reload();
+          const words = result.code ? STEP_UP_REFUSALS[result.code as keyof typeof STEP_UP_REFUSALS] : undefined;
+          if (words) return { ...result, message: t(words) };
         }
         return result;
       }}
