@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, POST_IN_FLIGHT_BOUND_SECONDS, type Amount } from '@intafaced/ledger-client';
 import {
   PAY_CUSTODY_DEPOSIT_PENDING_STATUSES,
   type PayCustodyDepositReason,
@@ -37,7 +37,10 @@ import type { RegistryReader } from '../../registries/read-api.js';
  *   the amount (the funds were spent) posts nothing and is `needs_review` (reason `reversal_unfunded`) with an alert: never
  *   a negative balance and never a partial take-back; a later reorg delivery tries again. While a reversal runs the row is
  *   `needs_review` (reason `chain_reorg`), so no sweep or announcement treats it as credited, and `settleOpen` finishes one a
- *   crash or a ledger error cut short. A reversed transfer seen again is never credited on its own (a re-inclusion and a late
+ *   crash or a ledger error cut short. Only a refusal that proves nothing committed (one attempt, the first post under the
+ *   key) parks a reversal as unfunded. A retried post, a timeout or a crash leaves it started, and an earlier attempt may
+ *   still land, so it is not posted again until `POST_IN_FLIGHT_BOUND_SECONDS` have passed since the last attempt
+ *   (`reversal_attempted_at`). Then the key is read back first. A reversed transfer seen again is never credited on its own (a re-inclusion and a late
  *   delivery from before the reorg look the same): a never-credited one goes to review, a reversed credit stays reversed,
  *   each with an alert. Every reorg is kept by position (`custody_deposit_reorgs`), so a sighting that arrives after its
  *   reorg goes to review too. A rejected row (a token the address was not issued for) keeps its rejection.
@@ -91,7 +94,9 @@ export interface CustodyDepositBookDeps {
   }) => Promise<{ id: string }>;
   /**
    * The reversal engine (`UserMoneyService.reverseCustodyDeposit`): posts the ledger `depositReverse` under the business key,
-   * or answers `unfunded` and posts nothing. Omitted, a reorg of a credited row refuses (`pay.deposit_reverse_unwired`) and
+   * or answers `unfunded` when the refusal proves nothing committed, or `unsure` when it does not (a retried post). `again`
+   * says an earlier call may have posted under the key, so it reads the key back before posting; the book sets it only
+   * after the in-flight bound, when an earlier attempt can no longer land. Omitted, a reorg of a credited row refuses (`pay.deposit_reverse_unwired`) and
    * the row stays credited until it is wired; a never-credited row still closes.
    */
   readonly reverseDeposit?: (input: {
@@ -101,7 +106,8 @@ export interface CustodyDepositBookDeps {
     networkId: string;
     txHash: string;
     outputIndex: number;
-  }) => Promise<{ state: 'reversed'; id: string } | { state: 'unfunded' }>;
+    again: boolean;
+  }) => Promise<{ state: 'reversed'; id: string } | { state: 'unfunded' } | { state: 'unsure' }>;
   readonly registries: Pick<RegistryReader, 'listRoutableNetworks'>;
   /**
    * Publishes one credited deposit for the inbox (`payDepositCreditPosted`, key `pay:deposit-credit:posted:<id>`); throws when
@@ -253,6 +259,7 @@ export class CustodyDepositBook {
     const reverseDeposit = this.deps.reverseDeposit;
     if (!reverseDeposit) throw new Error('pay.deposit_reverse_unwired');
     let current = row;
+    let again = false;
     if (!current.credited_at) {
       // A credit a crash cut short: finish it under its own key first, so there is one credit for the one reversal. It is not
       // announced: the reversal follows at once.
@@ -263,7 +270,7 @@ export class CustodyDepositBook {
       // From here the row is no longer `credited`: no sweep and no announcement treats it as money that stays, even if the
       // reversal is cut short. `settleOpen` finishes a started one.
       const started = await sql<Row[]>`
-        UPDATE pay.custody_deposits SET reversal_started_at = now(), status = 'needs_review', reason = 'chain_reorg', updated_at = now()
+        UPDATE pay.custody_deposits SET reversal_started_at = now(), reversal_attempted_at = now(), status = 'needs_review', reason = 'chain_reorg', updated_at = now()
          WHERE id = ${current.id} AND credited_at IS NOT NULL AND status <> 'reversed' AND reversal_started_at IS NULL
          RETURNING ${sql.unsafe(COLUMNS)}`;
       if (!started[0]) {
@@ -271,6 +278,18 @@ export class CustodyDepositBook {
         return now.status === 'reversed' || !now.reversal_started_at ? now : this.reverseRow(now);
       }
       current = started[0];
+    } else {
+      // Started by an earlier call, whose post may still be in flight. Only once the bound has passed since the last attempt
+      // does one caller claim the next attempt (the claim is the attempt's time, written before the post, so a crash
+      // mid-post still counts). That caller reads the key back before posting again.
+      const claimed = await sql<Row[]>`
+        UPDATE pay.custody_deposits SET reversal_attempted_at = now(), updated_at = now()
+         WHERE id = ${current.id} AND reversal_started_at IS NOT NULL AND status <> 'reversed'
+           AND coalesce(reversal_attempted_at, reversal_started_at) < now() - make_interval(secs => ${POST_IN_FLIGHT_BOUND_SECONDS})
+         RETURNING ${sql.unsafe(COLUMNS)}`;
+      if (!claimed[0]) return this.reload(current.id);
+      current = claimed[0];
+      again = true;
     }
     const outcome = await reverseDeposit({
       userId: current.user_id,
@@ -279,11 +298,18 @@ export class CustodyDepositBook {
       networkId: current.network_id,
       txHash: current.tx_hash,
       outputIndex: current.output_index,
+      again,
     });
+    if (outcome.state === 'unsure') {
+      // A refusal after a retried post: an earlier attempt may still commit, so the reversal stays started and is tried
+      // again once the bound has passed.
+      this.deps.log?.('custody deposit reversal unsure: a retried post was refused; left started', { depositId: current.id });
+      return this.reload(current.id);
+    }
     if (outcome.state === 'unfunded') {
       const parked = await sql<Row[]>`
         UPDATE pay.custody_deposits
-           SET status = 'needs_review', reason = 'reversal_unfunded', reversal_started_at = NULL, updated_at = now()
+           SET status = 'needs_review', reason = 'reversal_unfunded', reversal_started_at = NULL, reversal_attempted_at = NULL, updated_at = now()
          WHERE id = ${current.id} AND status <> 'reversed' RETURNING ${sql.unsafe(COLUMNS)}`;
       // For the support desk: the chain took the deposit back after the funds were spent; nothing was posted.
       this.deps.log?.('custody deposit reversal unfunded: the credited funds were already spent', { alert: true, depositId: current.id });
@@ -304,7 +330,9 @@ export class CustodyDepositBook {
   async settleOpen(): Promise<number> {
     const started = await this.deps.sql<Row[]>`
       SELECT ${this.deps.sql.unsafe(COLUMNS)} FROM pay.custody_deposits
-       WHERE reversal_started_at IS NOT NULL AND status <> 'reversed' ORDER BY reversal_started_at, id LIMIT 500`;
+       WHERE reversal_started_at IS NOT NULL AND status <> 'reversed'
+         AND coalesce(reversal_attempted_at, reversal_started_at) < now() - make_interval(secs => ${POST_IN_FLIGHT_BOUND_SECONDS})
+       ORDER BY reversal_started_at, id LIMIT 500`;
     for (const row of started) {
       try {
         await this.reverseRow(row);

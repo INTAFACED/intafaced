@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MemoryLedger, parseAmount, recipes, userAvailable } from '@intafaced/ledger-client';
+import { MemoryLedger, parseAmount, recipes, stampPostAttempts, userAvailable, type LedgerClient } from '@intafaced/ledger-client';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -314,10 +314,29 @@ describe('custody deposit record (real Postgres)', () => {
   describe('a transfer the chain takes back (W-deposit-06)', () => {
     // The real engines: the credit and its reversal post through UserMoneyService, so the keys are the ones production uses.
     let failReverse = false;
+    // How many attempts the HTTP client stamps on a failed post (`stampPostAttempts`); 2 is a post it retried.
+    let postAttempts = 1;
+    const counted = (): LedgerClient =>
+      new Proxy(ledger, {
+        get(target, prop) {
+          if (prop === 'post') {
+            return async (request: Parameters<LedgerClient['post']>[0]) => {
+              try {
+                return await target.post(request);
+              } catch (err) {
+                stampPostAttempts(err, postAttempts);
+                throw err;
+              }
+            };
+          }
+          const value = Reflect.get(target, prop, target) as unknown;
+          return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+        },
+      });
     const engines = () =>
       new UserMoneyService(
         db.sql,
-        ledger,
+        counted(),
         new RailRegistry([
           new CryptoNativeAdapter({ chain: new MemoryChain(), secret: SECRET, minConfirmations: 6, toleranceSeconds: 300 }),
         ]),
@@ -364,8 +383,13 @@ describe('custody deposit record (real Postgres)', () => {
         }),
       );
     }
+    /** The last reversal attempt was made `minutes` ago, as if the in-flight bound had passed. */
+    const attemptedAgo = (minutes: number) =>
+      db.sql`UPDATE pay.custody_deposits SET reversal_attempted_at = now() - make_interval(mins => ${minutes})
+              WHERE reversal_started_at IS NOT NULL`;
     beforeEach(() => {
       failReverse = false;
+      postAttempts = 1;
     });
 
     it('a credited deposit is reversed once: one depositReverse under its business key, the balance drops by the amount once', async () => {
@@ -373,7 +397,17 @@ describe('custody deposit record (real Postgres)', () => {
       await b.receive(seen());
       expect(await balance()).toBe(parseAmount('25'));
       const outcomes = await Promise.all(Array.from({ length: 3 }, () => b.reverse(reorg())));
-      expect(outcomes.every((o) => o.state === 'recorded' && o.status === 'reversed' && o.reason === 'chain_reorg')).toBe(true);
+      // One delivery reverses it. One racing it either sees the reversal done, or finds it running and leaves it to that one
+      // (needs_review, never a second post).
+      expect(
+        outcomes.filter((o) => o.state === 'recorded' && o.status === 'reversed' && o.reason === 'chain_reorg').length,
+      ).toBeGreaterThanOrEqual(1);
+      for (const o of outcomes) {
+        expect([
+          { state: 'recorded', status: 'reversed', reason: 'chain_reorg' },
+          { state: 'recorded', status: 'needs_review', reason: 'chain_reorg' },
+        ]).toContainEqual(o);
+      }
       await reorging().reverse(reorg({ txHash: TX.toLowerCase() }));
       expect(reversals()).toHaveLength(1);
       expect(reversals()[0]!.idempotencyKey).toBe(`deposit.reverse:crypto-native:ethereum:${TX.toLowerCase()}:0`);
@@ -481,7 +515,12 @@ describe('custody deposit record (real Postgres)', () => {
       ]);
       expect(await b.receive(seen())).toMatchObject({ status: 'needs_review' });
       failReverse = false;
-      // No reorg redelivery needed: the watcher tick's settle pass finishes it under the same key.
+      // The timed-out post may still land: inside the in-flight bound nothing is posted again.
+      await reorging().settleOpen();
+      expect(await row()).toMatchObject({ status: 'needs_review', reason: 'chain_reorg' });
+      expect(reversals()).toHaveLength(0);
+      // No reorg redelivery needed: once the bound has passed, the watcher tick's settle pass finishes it under the same key.
+      await attemptedAgo(8);
       await reorging().settleOpen();
       expect(await row()).toMatchObject({ status: 'reversed', reason: 'chain_reorg' });
       await reorging().reverse(reorg());
@@ -499,10 +538,60 @@ describe('custody deposit record (real Postgres)', () => {
         networkId: 'ethereum',
         txHash: TX.toLowerCase(),
         outputIndex: 0,
+        again: false,
       });
-      await db.sql`UPDATE pay.custody_deposits SET reversal_started_at = now(), status = 'needs_review', reason = 'chain_reorg'`;
+      await db.sql`UPDATE pay.custody_deposits
+                      SET reversal_started_at = now(), reversal_attempted_at = now(), status = 'needs_review', reason = 'chain_reorg'`;
+      // Inside the bound a redelivery leaves the started reversal alone.
+      expect(await reorging().reverse(reorg())).toMatchObject({ status: 'needs_review', reason: 'chain_reorg' });
+      await attemptedAgo(8);
       expect(await reorging().reverse(reorg())).toMatchObject({ status: 'reversed' });
       expect(reversals()).toHaveLength(1);
+      expect(await balance()).toBe(0n);
+      expect((await row()).reversal_ledger_tx_id).toBe(reversals()[0]!.id);
+    });
+
+    it('a refusal after a retried post proves nothing: the reversal stays started, and after the bound the key is read back first', async () => {
+      const b = reorging();
+      await b.receive(seen());
+      await spend('20');
+      logs.length = 0;
+      postAttempts = 2;
+      // Attempt 1 may still be queued on the ledger: not parked as unfunded, and no unfunded alert.
+      expect(await b.reverse(reorg())).toEqual({ state: 'recorded', status: 'needs_review', reason: 'chain_reorg' });
+      expect(await db.sql`SELECT reversal_started_at IS NOT NULL AS started FROM pay.custody_deposits`).toEqual([{ started: true }]);
+      expect(logs.some((l) => l.extra?.alert === true)).toBe(false);
+      postAttempts = 1;
+      await b.settleOpen();
+      expect(await row()).toMatchObject({ status: 'needs_review', reason: 'chain_reorg' });
+      // After the bound the key is absent, so nothing earlier can land: the refusal now proves it, and the row is parked.
+      await attemptedAgo(8);
+      await b.settleOpen();
+      expect(await row()).toMatchObject({ status: 'needs_review', reason: 'reversal_unfunded' });
+      expect(reversals()).toHaveLength(0);
+      expect(await balance()).toBe(parseAmount('5'));
+      expect(logs.some((l) => l.extra?.alert === true)).toBe(true);
+    });
+
+    it('a retried post that did commit is found by the read-back after the bound and flipped once', async () => {
+      const b = reorging();
+      await b.receive(seen());
+      // The ledger committed attempt 1 and answered attempt 2 with a refusal: the engine is told only of the refusal.
+      const money = engines();
+      const book2 = new CustodyDepositBook({
+        sql: db.sql,
+        postDeposit: (input) => money.postCustodyDeposit(input),
+        reverseDeposit: async (input) => {
+          await money.reverseCustodyDeposit(input);
+          return { state: 'unsure' };
+        },
+        registries: { listRoutableNetworks: async () => networks },
+      });
+      expect(await book2.reverse(reorg())).toMatchObject({ status: 'needs_review', reason: 'chain_reorg' });
+      await attemptedAgo(8);
+      expect(await reorging().reverse(reorg())).toMatchObject({ status: 'reversed', reason: 'chain_reorg' });
+      expect(reversals()).toHaveLength(1);
+      expect((await row()).reversal_ledger_tx_id).toBe(reversals()[0]!.id);
       expect(await balance()).toBe(0n);
     });
 
