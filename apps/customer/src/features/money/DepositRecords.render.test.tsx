@@ -118,7 +118,9 @@ describe('deposit records', () => {
     );
     const text = host.textContent ?? '';
     expect(text).toContain('Reversed');
-    expect(text).toContain('The network rewrote the block this deposit was in, so the credit was taken back.');
+    expect(text).toContain(
+      'The network rewrote the block this deposit was in, so it did not arrive. Anything credited from it was taken back once.',
+    );
     expect(text).toContain('the funds are already spent, so support is reviewing it.');
   });
 

@@ -1909,6 +1909,67 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       });
     });
 
+    describe('a chain reorg of a customer deposit (W-deposit-06)', () => {
+      const reorgEvent = {
+        id: 'reorg:0xabc:0xcustomer:2',
+        type: 'chain.reorged',
+        ref: '0xcustomer',
+        txHash: '0xabc',
+        logIndex: 2,
+        confirmations: 0,
+      };
+      const receive = async () => {
+        throw new Error('a reorg is not a sighting');
+      };
+
+      it('goes to the deposit record by chain position; a transfer it never recorded is answered, not acted on', async () => {
+        const seen: unknown[] = [];
+        let answer: 'recorded' | 'unknown' = 'recorded';
+        const routed = new PayService(sql, ledger, rails, {
+          custodyDeposits: {
+            receive,
+            reverse: async (input) => {
+              seen.push(input);
+              return { state: answer };
+            },
+          },
+        });
+        expect(await routed.handleWebhook('crypto-native', signed('crypto-native', reorgEvent))).toMatchObject({
+          type: 'chain.reorged',
+          applied: true,
+          paymentId: null,
+        });
+        expect(seen).toEqual([{ address: '0xcustomer', txHash: '0xabc', outputIndex: 2 }]);
+        answer = 'unknown';
+        expect(await routed.handleWebhook('crypto-native', signed('crypto-native', reorgEvent))).toMatchObject({ applied: false });
+        expect(ledger.journal()).toHaveLength(0);
+      });
+
+      it('a reorg naming a merchant payment is not acted on and not recorded as handled: it stays an operator signal', async () => {
+        const m = await merchant();
+        const payment = await cryptoPayment(m.id, '100');
+        const event = { ...reorgEvent, id: `reorg:${payment.railRef}`, ref: payment.railRef };
+        for (let i = 0; i < 2; i++) {
+          await expect(pay.handleWebhook('crypto-native', signed('crypto-native', event))).rejects.toMatchObject({
+            code: 'pay.webhook_unmatched',
+          });
+        }
+        expect(await sql`SELECT 1 FROM pay.payment_events WHERE rail_event_id = ${`crypto-native:${event.id}`}`).toHaveLength(0);
+        expect((await pay.getPayment(payment.id)).status).toBe(payment.status);
+      });
+
+      it('stays unmatched for an address no customer holds, or with no reversal wired', async () => {
+        const none = new PayService(sql, ledger, rails, { custodyDeposits: { receive, reverse: async () => ({ state: 'unmatched' }) } });
+        await expect(none.handleWebhook('crypto-native', signed('crypto-native', reorgEvent))).rejects.toMatchObject({
+          code: 'pay.webhook_unmatched',
+        });
+        const unwired = new PayService(sql, ledger, rails, { custodyDeposits: { receive } });
+        await expect(unwired.handleWebhook('crypto-native', signed('crypto-native', reorgEvent))).rejects.toMatchObject({
+          code: 'pay.webhook_unmatched',
+        });
+      });
+    });
+
     it('records a refund webhook without acting on it', async () => {
       const m = await merchant();
       const payment = await cardPayment(m.id, '100');
