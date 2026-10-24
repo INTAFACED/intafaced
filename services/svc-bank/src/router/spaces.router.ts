@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import {
+  router,
+  scopedProcedure,
+  serviceProcedureFor,
+  BANK_OWN_SPACES_CALLERS,
+  bankOwnSpacesInputSchema,
+  bankOwnSpacesSchema,
+} from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { accountForSpace } from '../spaces/space-service.js';
 import { assertSelf } from '../assert-self.js';
@@ -91,6 +98,25 @@ export function createSpacesRouter(c: BankRouterContext) {
           await bank.spaces.unarchiveWithinLimit(input.spaceId);
           return { archived: false as const };
         }),
+      ),
+
+    /**
+     * Every named space this customer ever owned, archived ones too, so svc-tax can follow the customer's own coins between
+     * their main account and their spaces (PF-cost-basis-02, LB-6). Service-only: `serviceProcedureFor` proves the caller is
+     * svc-tax before the input is parsed. Names and ids, never a balance. A read; a POST only because the caller signs the body.
+     */
+    ownedAccounts: serviceProcedureFor(BANK_OWN_SPACES_CALLERS)
+      .input(bankOwnSpacesInputSchema)
+      .output(bankOwnSpacesSchema)
+      .mutation(async ({ input }) =>
+        guard(async () => ({
+          spaces: (await bank.spaces.allNamedSpaces(input.userId)).map((s) => ({
+            spaceId: s.id,
+            assetId: s.assetId,
+            name: s.name,
+            archived: s.archivedAt !== null,
+          })),
+        })),
       ),
   });
 }
