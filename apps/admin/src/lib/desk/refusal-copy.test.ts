@@ -44,6 +44,12 @@ describe('typed codes are found inside the wrapped sentences the edge and ledger
     const text = 'identity refused consumeForEdge (412) {"error":{"message":"approval is APPROVED [action_approval.not_approved]"}}';
     expect(codeInText(text)).toBe('action_approval.not_approved');
   });
+  it('prefers identity’s bracketed code over the code the service wrapped it in', () => {
+    const text =
+      'action_approval.identity_unwired — identity refused consume (412) approval is PENDING_APPROVAL [action_approval.not_approved]';
+    expect(codeInText(text)).toBe('action_approval.not_approved');
+    expect(codeInText('action_approval.identity_unwired — IDENTITY_URL is unpublished')).toBe('action_approval.identity_unwired');
+  });
   it('skips unknown action_approval codes and finds a later known one', () => {
     expect(codeInText('action_approval.names_are_not_authority then action_approval.expired')).toBe('action_approval.expired');
     expect(codeInText('action_approval.names_are_not_authority')).toBeNull();

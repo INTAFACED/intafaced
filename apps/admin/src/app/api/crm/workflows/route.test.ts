@@ -283,8 +283,8 @@ describe('protected founder CRM workflows', () => {
       const fetcher = upstream({ upsertCampaign: result, listWorkflowAudit: evidence });
       const response = await POST(request('/api/crm/workflows', 'POST', { action: 'upsertCampaign', input }));
       expect(response.status).toBe(wrong === 'valid' ? 200 : 502);
-      expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toEqual(input);
-      expect(new Headers(fetcher.mock.calls[1]?.[1]?.headers).get('authorization')).toBe(`Bearer ${session.accessToken}`);
+      expect(JSON.parse(String(fetcher.mock.calls[2]?.[1]?.body))).toEqual(input);
+      expect(new Headers(fetcher.mock.calls[2]?.[1]?.headers).get('authorization')).toBe(`Bearer ${session.accessToken}`);
     },
   );
   it('exports bounded originals with protected actor attribution and rejects supplied actor fields', async () => {
@@ -436,7 +436,7 @@ describe('protected founder CRM workflows', () => {
       const fetcher = upstream({ queueMessage: result });
       const response = await POST(request('/api/crm/workflows', 'POST', { action: 'queueMessage', input }));
       expect(response.status).toBe(wrong === 'valid' ? 200 : 502);
-      expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toEqual(input);
+      expect(JSON.parse(String(fetcher.mock.calls[2]?.[1]?.body))).toEqual(input);
       expect(
         (
           await POST(
@@ -473,12 +473,13 @@ describe('protected founder CRM workflows', () => {
         wrong === 'stage_field' ? { ...input, stage: 'closed' } : wrong === 'reason_field' ? { ...input, reason: 'Because' } : input;
       const response = await crmPost(request('/api/crm', 'POST', { action: 'updateNextAction', input: sent }));
       expect(response.status).toBe(wrong === 'valid' ? 200 : wrong === 'stage_field' || wrong === 'reason_field' ? 400 : 502);
-      const toOps = () => fetcher.mock.calls.filter(([url]) => String(url).includes('/api/ops/'));
+      const toOps = () =>
+        fetcher.mock.calls.filter(([url]) => String(url).includes('/api/ops/') && !String(url).includes('consoleMode.get'));
       if (wrong === 'stage_field' || wrong === 'reason_field') expect(toOps()).toHaveLength(0);
       else {
-        expect(String(fetcher.mock.calls[1]?.[0])).toContain('outreach.updateNextAction');
-        expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toEqual(input);
-        expect(new Headers(fetcher.mock.calls[1]?.[1]?.headers).get('authorization')).toBe(`Bearer ${session.accessToken}`);
+        expect(String(fetcher.mock.calls[2]?.[0])).toContain('outreach.updateNextAction');
+        expect(JSON.parse(String(fetcher.mock.calls[2]?.[1]?.body))).toEqual(input);
+        expect(new Headers(fetcher.mock.calls[2]?.[1]?.headers).get('authorization')).toBe(`Bearer ${session.accessToken}`);
       }
       if (wrong === 'valid') expect((await response.json()).nextAction).toEqual({ description: input.description, dueAt: input.dueAt });
     },
@@ -492,7 +493,9 @@ describe('protected founder CRM workflows', () => {
     expect(
       (await crmPost(request('/api/crm', 'POST', { action: 'updateNextAction', input: { ...input, actorUserId: userId } }))).status,
     ).toBe(400);
-    expect(fetcher.mock.calls.filter(([url]) => String(url).includes('/api/ops/'))).toHaveLength(0);
+    expect(
+      fetcher.mock.calls.filter(([url]) => String(url).includes('/api/ops/') && !String(url).includes('consoleMode.get')),
+    ).toHaveLength(0);
   });
   it('list pages pass an alias match through and refuse one for an enquiry that is not on the page', async () => {
     const page = {
