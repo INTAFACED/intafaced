@@ -81,7 +81,11 @@ if (!(await postgresAvailable(URL))) {
     store.auditConsumed({ ...row, at }),
   );
   const api = createStepUpRouter(new CustomerStepUpService(db.sql, store, auth, clock));
-  const guard = new SecurityStepUp({ sql: db.sql, approvals, secondFactor: (userId) => auth.customerStepUpMaterial(userId) });
+  const guard = new SecurityStepUp({
+    sql: db.sql,
+    approvals,
+    secondFactor: (userId) => auth.customerStepUpMaterial(userId, 'security_change'),
+  });
 
   let n = 0;
   const unique = () => `ssu${process.pid}${++n}`;

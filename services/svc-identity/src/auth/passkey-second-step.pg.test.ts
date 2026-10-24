@@ -80,7 +80,7 @@ describe('passkey purposes (pure)', () => {
   });
 
   it('offers the passkeys kept for a purpose, else those kept for nothing, else all of them', () => {
-    const a = { credentialId: 'a' };
+    const a: { credentialId: string; purposes?: string[] } = { credentialId: 'a' };
     const b = { credentialId: 'b', purposes: ['money_out'] };
     const c = { credentialId: 'c', purposes: ['security_change'] };
     expect(credentialsFor([a, b], 'money_out')).toEqual([b]);
