@@ -1244,6 +1244,16 @@ describe('svc-p2p payment instruments', () => {
         // instrument join. Unset owner tables refuse before any row is read.
         'limits.verification': undefined,
         'limits.securityChange': undefined,
+        // P-ads-merchant-21. Review text is the caller's own words, never a
+        // payment-instrument field. A stranger is not a party, so leave, edit
+        // and reply refuse. list is public counts and comments. moderate
+        // refuses until the caller is a moderator.
+        'reviews.leave': { tradeId: trade.id, rating: 'good', comment: 'probe' },
+        'reviews.edit': { tradeId: trade.id, comment: 'probe' },
+        'reviews.reply': { tradeId: trade.id, text: 'probe' },
+        'reviews.list': { userId: SELLER, limit: 20 },
+        'reviews.forTrade': { tradeId: trade.id },
+        'reviews.moderate': { reviewId: crypto.randomUUID(), reason: 'probe' },
         'access.eligibility': undefined,
         'risk.notice': undefined,
         'risk.accept': { version: 'TEST' },

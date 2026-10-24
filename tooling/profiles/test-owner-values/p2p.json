@@ -41,6 +41,11 @@
       "value": "5",
       "note": "Downloads of one P2P receipt per person."
     },
+    "P2P_REVIEW_EDIT_WINDOW_SECONDS": {
+      "service": "p2p",
+      "value": "600",
+      "note": "Seconds the author may edit an order review after leaving it; short, so a journey can see an edit inside it."
+    },
     "P2P_RISK_NOTICE_VERSION": {
       "service": "p2p",
       "value": "TEST-2026-10-23",
