@@ -105,6 +105,9 @@ test('J-ops-console-02 #5 the documents list shows each document with its status
     await deskB.getByLabel(/to approve or run it$/).fill(phrase);
     await deskB.getByRole('button', { name: 'Approve this request' }).click();
     await expect(deskB.getByTestId('step-reply')).toContainText('Approved.', { timeout: 60_000 });
+    // The approver cannot open it: the document opens only for the founder who asked.
+    await expect(deskB.getByRole('button', { name: 'Run the approved request' })).toBeDisabled();
+    await expect(deskB).toContainText('Only the founder who asked to open this document can open it.');
 
     // A runs it: the viewer opens with the image identity decrypted, on A's page only.
     await deskA.getByLabel(/to approve or run it$/).fill(phrase);
@@ -120,7 +123,7 @@ test('J-ops-console-02 #5 the documents list shows each document with its status
 
     // Closing the viewer drops the contents from the page; the approval was spent on that read, so running it again refuses.
     await viewer.getByRole('button', { name: 'Close the document' }).click();
-    await expect(deskA.getByTestId('kyc-document-closed')).toContainText('opening it again needs a new approval');
+    await expect(deskA.getByTestId('step-reply')).toContainText('Document closed. Its contents are no longer on this page');
     await expect(deskA.getByTestId('kyc-document-image')).toHaveCount(0);
     await deskA.getByLabel(/to approve or run it$/).fill(phrase);
     await deskA.getByRole('button', { name: 'Run the approved request' }).click();

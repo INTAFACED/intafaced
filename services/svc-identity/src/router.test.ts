@@ -1852,7 +1852,7 @@ describe('kyc document procedures — meta only, no free cross-user bytes', () =
     const op = r.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR }));
     const refused = await op.kyc.listDocuments({ userId: DOC_USER, limit: 200 }).catch((e: unknown) => e);
     expect(codeOf(refused)).toBe('PRECONDITION_FAILED');
-    expect(String((refused as Error).message)).toMatch(/kyc_doc\.unwired/);
+    expect(String((refused as Error).message)).toMatch(/kyc_doc\.reviews_unwired/);
   });
 
   it('bindDocument refuses when vault bind is unwired; succeeds with opaque pointer only', async () => {
@@ -1970,7 +1970,7 @@ describe('kyc.getDocument is compliance-only bytes, never a public/user read', (
     const r = createIdentityRouter(stub.auth, stub.rank, {
       registrationOpen: true,
       kycDocs: store,
-      actionApprovals: stubActionApprovals(CONFIRM_KYC),
+      actionApprovals: stubActionApprovals(CONFIRM_KYC, OPERATOR),
     });
     const op = r.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR, mfa: true }));
 
@@ -1985,6 +1985,58 @@ describe('kyc.getDocument is compliance-only bytes, never a public/user read', (
 
     const opened = await op.kyc.getDocument({ documentId: meta.id, ...kycDual });
     expect(opened.bytesBase64).toBe(Buffer.from('secret-scan').toString('base64'));
+  });
+
+  it('getDocument is opened only by the operator who asked: anyone else is refused before the approval is spent, and after', async () => {
+    const store = new MemoryKycDocumentStore(randomBytes(32).toString('base64'));
+    const meta = await store.put({ userId: USER, contentType: 'image/png', bytes: Buffer.from('secret-scan') });
+    const spent: string[] = [];
+    const consumeAsRequester = stubActionApprovals(CONFIRM_KYC, CONFIRM_KYC);
+    const withParties = createIdentityRouter(stub.auth, stub.rank, {
+      registrationOpen: true,
+      kycDocs: store,
+      actionApprovals: {
+        consume: async (service, input) => {
+          spent.push(input.approvalId);
+          return consumeAsRequester.consume(service, input);
+        },
+        partiesOf: async () => ({ requesterId: CONFIRM_KYC, approverId: OPERATOR }),
+      },
+    });
+    // The approver (OPERATOR) holds the ids and runs the read: refused, and the approval is not spent.
+    const approver = withParties.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR, mfa: true }));
+    const before = await approver.kyc.getDocument({ documentId: meta.id, ...kycDual }).catch((e: unknown) => e);
+    expect(codeOf(before)).toBe('FORBIDDEN');
+    expect(String((before as Error).message)).toMatch(/kyc_doc\.reader_not_requester/);
+    expect(spent).toEqual([]);
+
+    // Without the parties read, the consumed approval still names the requester, and nobody else gets the bytes.
+    const noParties = createIdentityRouter(stub.auth, stub.rank, {
+      registrationOpen: true,
+      kycDocs: store,
+      actionApprovals: stubActionApprovals(CONFIRM_KYC, CONFIRM_KYC),
+    });
+    const other = noParties.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR, mfa: true }));
+    const after = await other.kyc.getDocument({ documentId: meta.id, ...kycDual }).catch((e: unknown) => e);
+    expect(codeOf(after)).toBe('FORBIDDEN');
+    expect(after).not.toHaveProperty('bytesBase64');
+  });
+
+  it('getDocument refuses a switched-off vault before the approval is spent', async () => {
+    const spent: string[] = [];
+    const r = createIdentityRouter(stub.auth, stub.rank, {
+      registrationOpen: true,
+      actionApprovals: {
+        consume: async (service, input) => {
+          spent.push(input.approvalId);
+          return stubActionApprovals(CONFIRM_KYC, OPERATOR).consume(service, input);
+        },
+      },
+    });
+    const op = r.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR, mfa: true }));
+    const refused = await op.kyc.getDocument({ documentId: '55555555-5555-4555-8555-555555555555', ...kycDual }).catch((e: unknown) => e);
+    expect(String((refused as Error).message)).toMatch(/kyc_doc\.unwired/);
+    expect(spent).toEqual([]);
   });
 });
 

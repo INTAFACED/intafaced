@@ -560,6 +560,11 @@ const kycDocMetaOutput = z.object({
  * One row of a subject's document list: the meta, and the review of the KYC record attached to it. Identity keeps no
  * decision per document yet (OPS-cases-07), so the status is the record's: `not_attached` when no record points at it.
  */
+/** The vault is wired but the lookup of each document's review is not: a boot mis-wire, refused rather than listed as unattached. */
+const KYC_DOC_REVIEWS_UNWIRED = 'kyc_doc.reviews_unwired';
+/** A document read run by anyone but the operator who asked for it. */
+const KYC_DOC_READER_NOT_REQUESTER = 'kyc_doc.reader_not_requester';
+
 const kycDocListOutput = kycDocMetaOutput.extend({
   reviewStatus: z.enum(['not_attached', 'pending', 'approved', 'rejected', 'expired']),
   reviewRecordId: z.string().guid().nullable(),
@@ -899,6 +904,13 @@ export function createIdentityRouter(
       });
     }
     return kycDocs;
+  }
+
+  function readerNotRequester(): TRPCError {
+    return new TRPCError({
+      code: 'FORBIDDEN',
+      message: `Only the operator who asked to open this document can open it [${KYC_DOC_READER_NOT_REQUESTER}]`,
+    });
   }
 
   function requireBindKyc(): (input: BindProviderRefInput) => Promise<BindProviderRefResult> {
@@ -2184,8 +2196,16 @@ export function createIdentityRouter(
         .mutation(async ({ ctx, input }) => {
           try {
             requireMfa(ctx.principal);
-            await consumePrivileged(ctx.principal.userId, input, 'kyc.doc.get', { documentId: input.documentId });
+            // A switched-off vault refuses before the approval is spent.
             const vault = requireKycDocs();
+            // Only the operator who asked may spend the approval on the read: the approver, or anyone else holding the ids,
+            // is refused before it is spent, and again after, so the approval is never a bearer pass to the contents.
+            const reader = ctx.principal.userId;
+            const approvalId = input.approvalId?.trim();
+            const parties = approvalId ? await options.actionApprovals?.partiesOf?.(approvalId) : null;
+            if (parties && parties.requesterId !== reader) throw readerNotRequester();
+            const consumed = await consumePrivileged(reader, input, 'kyc.doc.get', { documentId: input.documentId });
+            if (consumed.requesterId !== reader) throw readerNotRequester();
             const opened = await vault.getFor(input.documentId, {
               kind: 'compliance',
               operatorId: ctx.principal.userId,
@@ -2210,7 +2230,7 @@ export function createIdentityRouter(
             if (!kycDocumentReviews) {
               throw new TRPCError({
                 code: 'PRECONDITION_FAILED',
-                message: `KYC document review lookup is not configured [${KYC_VAULT_UNWIRED}]`,
+                message: `KYC document review lookup is not configured [${KYC_DOC_REVIEWS_UNWIRED}]`,
               });
             }
             const docs = await vault.listMetaForUser(input.userId, input.limit);

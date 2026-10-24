@@ -24,7 +24,8 @@ export interface OpenedDocument {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
-const CONTENT_TYPE = /^[\x21-\x7e][\x20-\x7e]{0,127}$/;
+/** What identity stores: 1 to 128 characters with no line break (`document-store.ts`). Only allowlisted images are drawn. */
+const CONTENT_TYPE = /^[^\r\n]{1,128}$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));

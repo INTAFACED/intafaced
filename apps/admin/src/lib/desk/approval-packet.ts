@@ -542,7 +542,7 @@ export function describeRequest(request: DeskRequest): string {
     case 'ops.console_mode.off':
       return 'Turn off maintenance mode: this console takes writes again. Nothing else changes.';
     case 'identity.kyc_document.open':
-      return `Open KYC document ${request.documentId} from identity's encrypted vault: its contents are decrypted and shown on the requester's console, once. Identity records which operator read it. Nothing about the document or the account changes.`;
+      return `Open KYC document ${request.documentId} from identity's encrypted vault: its contents are decrypted and shown on the requester's console only, once. Identity's approval names who asked and who approved, and the read spends it. Nothing about the document or the account changes.`;
   }
 }
 

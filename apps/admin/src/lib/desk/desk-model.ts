@@ -51,7 +51,7 @@ export interface StepGateInput {
 
 /**
  * Approve and reject are the second founder's; withdraw is the requester's undo. Execute is open to either
- * (identity decides whether the approval exists). Reject and withdraw never need the typed phrase: undoing must
+ * (identity decides whether the approval exists), except opening a KYC document, which only its requester runs. Reject and withdraw never need the typed phrase: undoing must
  * never be harder than doing.
  */
 export function stepGate(input: StepGateInput): Gate {
@@ -67,6 +67,9 @@ export function stepGate(input: StepGateInput): Gate {
   if (packetExpired(packet, input.now)) return { ok: false, why: 'This approval has expired. Start a new request.' };
   if (step === 'approve' && role === 'requester')
     return { ok: false, why: 'You made this request. A different founder has to approve it.' };
+  // A document opens on the console of the founder who asked for it, never on the approver's (identity refuses that too).
+  if (step === 'execute' && packet.request.kind === 'identity.kyc_document.open' && role !== 'requester')
+    return { ok: false, why: 'Only the founder who asked to open this document can open it.' };
   if (input.confirm !== confirmPhrase(packet.request))
     return { ok: false, why: `Type ${confirmPhrase(packet.request)} exactly to confirm.` };
   return { ok: true };

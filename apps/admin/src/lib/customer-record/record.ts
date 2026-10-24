@@ -178,6 +178,8 @@ export function tabPlan(tab: CustomerTab, userId: string): CustomerTabPlan {
             refusals: {
               'kyc_doc.unwired':
                 'Identity’s document vault is switched off on this deployment: its encryption key (IDENTITY_KYC_DOC_KEY) is not set, so no document can be stored or listed for anyone.',
+              'kyc_doc.reviews_unwired':
+                'Identity’s document vault is on, but its lookup of the verification each document is attached to is not wired, so it refuses the list rather than show every document as not attached.',
             },
           },
         ],

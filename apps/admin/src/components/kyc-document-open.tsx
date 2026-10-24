@@ -35,7 +35,7 @@ export function KycDocumentOpen({ row, userId, onChanged }: { row: Row; userId: 
         userId={userId}
         blockedReason={null}
         action={action}
-        consequence="Identity decrypts the document and shows it on your console, once per approval, and records that you read it. A different founder has to approve the read first. Nothing about the document or the account changes."
+        consequence="Identity decrypts the document and shows it on your console only, once per approval. A different founder has to approve the read first, and only you can then run it. The approval names you both. Nothing about the document or the account changes."
         blockedButtonLabel="Opening unavailable"
         onChanged={onChanged}
       />

@@ -8,9 +8,9 @@ import { readOpenedDocument } from './document';
 /**
  * Open one approved KYC document (J-ops-console-02 #5) at identity, as the signed-in founder.
  *
- * Identity checks the approval is for this document, spends it on the read and records the operator who read it; a second
- * run with the same approval refuses. The answer goes back to the page that asked and nowhere else: it is not logged, cached
- * or stored here.
+ * Identity checks the approval is for this document and that the caller is the operator who asked for it, then spends it on
+ * the read; a second run with the same approval refuses. The answer goes back to the page that asked and nowhere else: it is
+ * not logged, cached or stored here.
  */
 
 /** A document is up to 10 MiB, so its read gets longer than an ordinary call. */
@@ -33,7 +33,7 @@ export function kycDocumentOpenExecute(ctx: FounderCallContext): ExecuteFn {
     if (document.id !== request.documentId) return { ok: false, refusal: explainRefusal('admin.ops_invalid_response', 502, true) };
     return {
       ok: true,
-      detail: `Identity opened document ${document.id} (${document.contentType}, ${document.byteLength} bytes) for you, once. Identity records that you read it.`,
+      detail: `Identity opened document ${document.id} (${document.contentType}, ${document.byteLength} bytes) for you, once. The approval that names you as the requester is now spent.`,
       document,
     };
   };
