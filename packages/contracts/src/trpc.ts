@@ -4,7 +4,7 @@ import { requireScope, requireTier, AuthError, hasScope } from '@intafaced/auth'
 import type { AccessDecision, KycTier, ModuleId, Plane } from '@intafaced/config';
 import { checkAccess } from '@intafaced/config';
 import { P2P_DELIST_REASONS, type P2pDelistReason } from './p2p-delist.js';
-import { P2P_RULE_CLASS } from './p2p-rule-class.js';
+import { P2P_FIELD_KEY, P2P_RULE_CLASS } from './p2p-rule-class.js';
 import { isPreviewRefusal, type PreviewRefusal } from './preview-refusal.js';
 import { requireServiceCaller } from './service-auth.js';
 
@@ -328,7 +328,6 @@ export function spendFiguresOf(cause: unknown): { assetId: string; available: st
 
 /** P2P refusals about one field of a payment destination: the answer names the field's key (never its value). */
 const P2P_FIELD_CODES = ['p2p.account_format_invalid', 'p2p.instrument_field_missing', 'p2p.instrument_field_invalid'] as const;
-const P2P_FIELD_KEY = /^[a-z][a-z0-9_]{0,39}$/;
 const P2P_LIMIT_CODES = new Set<string>([
   'p2p.active_order_cap',
   'p2p.pair_limit_exceeded',

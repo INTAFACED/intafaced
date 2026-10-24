@@ -1,5 +1,5 @@
 import { P2P_DELIST_REASONS } from '@intafaced/contracts/p2p-delist';
-import { P2P_RULE_CLASS } from '@intafaced/contracts/p2p-rule-class';
+import { P2P_FIELD_KEY, P2P_RULE_CLASS } from '@intafaced/contracts/p2p-rule-class';
 import { z, type ZodType } from 'zod';
 import { uiMessage, type UiMessage } from './ui-copy';
 
@@ -74,10 +74,7 @@ export const p2pLimitSchema = z.object({
   reason: z.enum(P2P_DELIST_REASONS).optional(),
   ruleClass: z.string().regex(P2P_RULE_CLASS).optional(),
   /** The field a refused payment-method detail is about (`p2p.account_format_invalid`, field missing or invalid). */
-  field: z
-    .string()
-    .regex(/^[a-z][a-z0-9_]{0,39}$/)
-    .optional(),
+  field: z.string().regex(P2P_FIELD_KEY).optional(),
 });
 export type P2pLimit = z.infer<typeof p2pLimitSchema>;
 export type RequestOptions = {

@@ -57,7 +57,7 @@ const account = (methodId, holder, extra = {}) => ({
 async function pickMethod(page, label) {
   const form = page.getByTestId('method-add-form');
   await expect(form).toBeVisible();
-  await form.getByLabel('Country of the account').selectOption('DE');
+  await form.getByLabel('Country of the account').fill('DE');
   await form.getByLabel('Payment method').selectOption({ label });
   await form.getByLabel('Currency you receive').selectOption('EUR');
   return form;
@@ -117,7 +117,7 @@ test('J-p2p-04 #1 the catalogue shows each method per country with what it asks 
   await expect(page.getByTestId('methods-catalogue').locator(`[data-method="${METHOD}"]`)).toBeVisible();
   await expect(page.getByTestId('methods-catalogue').locator(`[data-method="${J04_METHOD}"]`)).toHaveCount(0);
   const form = page.getByTestId('method-add-form');
-  await form.getByLabel('Country of the account').selectOption('DE');
+  await form.getByLabel('Country of the account').fill('DE');
   await expect(form.getByLabel('Payment method').locator('option', { hasText: 'TEST bank transfer' }).first()).toBeAttached();
   await expect(form.getByLabel('Payment method').locator('option', { hasText: J04_LABEL })).toHaveCount(0);
   const refused = await s.bare.mutate('instruments.create', account(J04_METHOD, holderOf(who), { fiatCurrency: 'USD' }));

@@ -26,7 +26,9 @@ export function PaymentMethods({ pay, userId }: { pay: PersonalPayApi; userId: s
   const catalogue = useResource((signal) => pay.methods(signal), 'pay:registered-methods');
   const [limit, setLimit] = useState(50);
   const instruments = useResource((signal) => pay.instruments(limit, signal), `pay:instruments:${userId}:${limit}`);
-  const keyOff = health.resource.status === 'ready' && health.resource.data.instrumentKeyProvider !== 'local-test';
+  // Saving needs a key service that protects the details: while its state is unknown the form stays shut too.
+  const keyOn = health.resource.status === 'ready' && health.resource.data.instrumentKeyProvider === 'local-test';
+  const keyOff = health.resource.status === 'ready' && !keyOn;
   return (
     <div className="stack" data-testid="payment-methods">
       {keyOff ? (
@@ -42,7 +44,7 @@ export function PaymentMethods({ pay, userId }: { pay: PersonalPayApi; userId: s
       <PaySection title={t('addTitle')} description={t('addIntro')}>
         <MethodsState resource={catalogue.resource} retry={catalogue.reload}>
           {(methods) => (
-            <AddMethod pay={pay} methods={methods.filter((method) => method.enabled)} disabled={keyOff} onSaved={instruments.reload} />
+            <AddMethod pay={pay} methods={methods.filter((method) => method.enabled)} disabled={!keyOn} onSaved={instruments.reload} />
           )}
         </MethodsState>
       </PaySection>
@@ -106,6 +108,15 @@ function MethodsState({
   );
 }
 
+/**
+ * The methods a person in `country` can use: each method once, by the row for that country where there is one, else
+ * the every-country row. svc-p2p validates a save against that same row.
+ */
+function methodsIn(methods: Method[], country: string): Method[] {
+  const exact = new Set(methods.filter((method) => method.country === country).map((method) => method.methodId));
+  return methods.filter((method) => method.country === country || (method.country === EVERYWHERE && !exact.has(method.methodId)));
+}
+
 function countryName(code: string, everywhere: string): string {
   return code === EVERYWHERE ? everywhere : code;
 }
@@ -115,7 +126,7 @@ function Catalogue({ methods }: { methods: Method[] }) {
   const countries = useMemo(() => [...new Set(methods.map((method) => method.country))].sort(), [methods]);
   // A real country first: methods registered for every country show under each one too.
   const [country, setCountry] = useState(countries.find((code) => code !== EVERYWHERE) ?? countries[0] ?? '');
-  const shown = methods.filter((method) => method.country === country || (country !== EVERYWHERE && method.country === EVERYWHERE));
+  const shown = country === EVERYWHERE ? methods.filter((method) => method.country === EVERYWHERE) : methodsIn(methods, country);
   return (
     <div className="form-stack" data-testid="methods-catalogue">
       <label className="field">
@@ -139,7 +150,7 @@ function Catalogue({ methods }: { methods: Method[] }) {
           <div className="stack">
             <strong>{method.label}</strong>
             <small className="muted">{countryName(method.country, t('catalogueEverywhere'))}</small>
-            <p className="muted">{settlementText(method.settlement, t)}</p>
+            {method.settlement ? <p className="muted">{settlementText(method.settlement, t)}</p> : null}
             <p>{t('catalogueAsks')}:</p>
             <ul>
               {method.fields.map((field) => (
@@ -157,10 +168,14 @@ function Catalogue({ methods }: { methods: Method[] }) {
   );
 }
 
-function settlementText(settlement: Settlement | undefined, t: MethodsT) {
-  if (!settlement || settlement.instant) return t('catalogueInstant');
+/** The registry's settlement profile in words, to the minute: a method without one says nothing about speed. */
+function settlementText(settlement: Settlement, t: MethodsT) {
+  if (settlement.instant) return t('catalogueInstant');
   if (settlement.windowSeconds === null) return t('catalogueWindowDefault');
-  return t('catalogueWindow', { hours: String(Math.round(settlement.windowSeconds / 3600)) });
+  const minutes = Math.ceil(settlement.windowSeconds / 60);
+  if (minutes < 60) return t('catalogueWindowMinutes', { minutes: String(minutes) });
+  if (minutes % 60 === 0) return t('catalogueWindow', { hours: String(minutes / 60) });
+  return t('catalogueWindowHoursMinutes', { hours: String(Math.floor(minutes / 60)), minutes: String(minutes % 60) });
 }
 
 type Refusal = { field: string | null; text: string };
@@ -181,6 +196,8 @@ function refusalOf(result: Extract<ApiResult<unknown>, { ok: false }>, method: M
       return { field, text: spec?.help ? t('refusedFormatHint', { hint: spec.help }) : t('refusedFormat') };
     case 'p2p.instrument_field_missing':
       return { field, text: t('refusedMissing') };
+    case 'p2p.instrument_field_invalid':
+      return { field, text: t('refusedInvalid', { min: String(spec?.minLength ?? 1), max: String(spec?.maxLength ?? 512) }) };
     case 'p2p.instrument_slot_taken':
       return { field: null, text: t('refusedSlot') };
     case 'p2p.instrument_method_disabled':
@@ -209,6 +226,7 @@ function AddMethod({
     () => [...new Set(methods.map((method) => method.country).filter((code) => code !== EVERYWHERE))].sort(),
     [methods],
   );
+  const anyCountry = methods.some((method) => method.country === EVERYWHERE);
   const [country, setCountry] = useState('');
   const [methodId, setMethodId] = useState('');
   const [fiatCurrency, setFiatCurrency] = useState('');
@@ -219,13 +237,16 @@ function AddMethod({
   const [refused, setRefused] = useState<Refusal | null>(null);
   const [failure, setFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null);
   const [saved, setSaved] = useState(false);
-  // One id per form: a retry of the same add is the same destination, never a second one.
+  // The new destination's id, minted once per form and kept until a save is answered: a resend after a lost answer is
+  // the same destination, and pay-api settles a lost answer by finding this id in the person's list.
   const instrumentId = useRef(crypto.randomUUID());
 
-  const offered = methods.filter((method) => method.country === country || method.country === EVERYWHERE);
+  // A method registered for every country can be added for any country; the others only where they are registered.
+  const countryOk = anyCountry ? /^[A-Z]{2}$/.test(country) : countries.includes(country);
+  const offered = countryOk ? methodsIn(methods, country) : [];
   const method = offered.find((candidate) => candidate.methodId === methodId);
   const missing = method?.fields.filter((field) => field.required && !(details[field.key] ?? '').trim()) ?? [];
-  const ready = Boolean(country && method && fiatCurrency && missing.length === 0);
+  const ready = Boolean(countryOk && method && fiatCurrency && missing.length === 0);
 
   function edit(change: () => void) {
     change();
@@ -278,21 +299,28 @@ function AddMethod({
     >
       <label className="field">
         <span>{t('addCountry')}</span>
-        <select value={country} onChange={(event) => edit(() => (setCountry(event.target.value), setMethodId('')))} disabled={disabled}>
-          <option value="">{t('addCountryPick')}</option>
+        <input
+          value={country}
+          list="method-add-countries"
+          maxLength={2}
+          autoComplete="off"
+          placeholder={t('addCountryPick')}
+          disabled={disabled}
+          onChange={(event) => edit(() => (setCountry(event.target.value.toUpperCase()), setMethodId('')))}
+        />
+        <datalist id="method-add-countries">
           {countries.map((code) => (
-            <option key={code} value={code}>
-              {code}
-            </option>
+            <option key={code} value={code} />
           ))}
-        </select>
+        </datalist>
+        <small className="muted">{t(anyCountry ? 'addCountryAny' : 'addCountryListed')}</small>
       </label>
       <label className="field">
         <span>{t('addMethod')}</span>
         <select
           value={methodId}
           onChange={(event) => edit(() => (setMethodId(event.target.value), setDetails({})))}
-          disabled={disabled || !country}
+          disabled={disabled || !countryOk}
         >
           <option value="">{t('addMethodPick')}</option>
           {offered.map((candidate) => (
