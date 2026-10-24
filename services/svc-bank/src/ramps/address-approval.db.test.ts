@@ -284,15 +284,22 @@ describe.each(stores)('new-address approval: %s', (_name, make) => {
         savedOn: { fam, dev },
       });
 
-    it('approves from a different sign-in: the cooling-off starts then, by device, and again changes nothing', async () => {
+    it('approves from another trusted device: the cooling-off starts then, by device, and again changes nothing', async () => {
       const { deps, destinations, clock } = setup();
       const u = fresh();
-      const entry = await savedFrom(destinations, u, SIGN_IN_A, null);
-      await expect(destinations.savedOn({ userId: u, destinationId: entry.destinationId })).resolves.toEqual({ fam: SIGN_IN_A, dev: null });
+      const entry = await savedFrom(destinations, u, SIGN_IN_A, DEVICE_A);
+      await expect(destinations.savedOn({ userId: u, destinationId: entry.destinationId })).resolves.toEqual({
+        fam: SIGN_IN_A,
+        dev: DEVICE_A,
+      });
+      // A second sign-in that names no device is not a second device.
+      await expect(
+        approveOnDevice(deps, { userId: u, destinationId: entry.destinationId, approving: { fam: SIGN_IN_B, dev: null } }),
+      ).rejects.toMatchObject({ code: 'bank.address_approval_device_unknown' });
       const approved = await approveOnDevice(deps, {
         userId: u,
         destinationId: entry.destinationId,
-        approving: { fam: SIGN_IN_B, dev: null },
+        approving: { fam: SIGN_IN_B, dev: DEVICE_B },
       });
       expect(approved).toMatchObject({ state: 'cooling', approvedBy: 'device' });
       expect(approved.approvedAt).toBeInstanceOf(Date);
@@ -301,7 +308,7 @@ describe.each(stores)('new-address approval: %s', (_name, make) => {
       const again = await approveOnDevice(deps, {
         userId: u,
         destinationId: entry.destinationId,
-        approving: { fam: SIGN_IN_B, dev: null },
+        approving: { fam: SIGN_IN_B, dev: DEVICE_B },
       });
       expect(again).toEqual(approved);
     });
@@ -396,7 +403,12 @@ describe('telling a different device', () => {
   it.each([
     ['both devices named and different', { fam: F1, dev: D1 }, { fam: F1, dev: D2 }, 'different'],
     ['both devices named and the same, new sign-in', { fam: F1, dev: D1 }, { fam: F2, dev: D1 }, 'same'],
-    ['one device missing, different sign-ins', { fam: F1, dev: D1 }, { fam: F2, dev: null }, 'different'],
+    [
+      'one device missing, different sign-ins: a second sign-in is not a second device',
+      { fam: F1, dev: D1 },
+      { fam: F2, dev: null },
+      'unknown',
+    ],
     ['one device missing, the same sign-in', { fam: F1, dev: null }, { fam: F1, dev: D2 }, 'same'],
     ['no sign-in on the saving side', { fam: null, dev: D1 }, { fam: F2, dev: null }, 'unknown'],
     ['no sign-in on the approving side', { fam: F1, dev: null }, { fam: null, dev: null }, 'unknown'],

@@ -293,6 +293,20 @@ async function pendingEntry(deps: AddressApprovalDeps, userId: string, destinati
   return row;
 }
 
+/**
+ * The entry an approval names, as it stands: refuses one missing (`bank.withdraw_destination_missing`) or removed or
+ * blocked since (`bank.address_approval_not_pending`). A waiting entry and one approved already are both returned, so
+ * each caller answers an approved one as it is.
+ */
+async function approvableEntry(deps: AddressApprovalDeps, userId: string, destinationId: string): Promise<WithdrawDestination> {
+  const entry = (await deps.destinations.list(userId)).find((row) => row.destinationId === destinationId);
+  if (!entry) throw new BankError('The address to approve was removed from your address book', 'bank.withdraw_destination_missing');
+  if (entry.state === 'blocked' || entry.state === 'archived') {
+    throw new BankError('This address can no longer be approved: it was removed or blocked', 'bank.address_approval_not_pending');
+  }
+  return entry;
+}
+
 /** What the mail shows so the customer can tell which address they approve: asset, network, first and last characters. */
 function detailOf(row: WithdrawDestination): string {
   const ref = row.ref.replace(/[^A-Za-z0-9]/g, '');
@@ -345,11 +359,7 @@ export async function approveByLink(deps: AddressApprovalDeps, input: { userId: 
   const found = await deps.links.byToken(hashToken(token));
   if (!found || found.link.userId !== input.userId) throw LINK_INVALID();
   const { link, newestSeq } = found;
-  const entry = (await deps.destinations.list(input.userId)).find((row) => row.destinationId === link.destinationId);
-  if (!entry) throw new BankError('The address this link approves was removed from your address book', 'bank.withdraw_destination_missing');
-  if (entry.state === 'blocked' || entry.state === 'archived') {
-    throw new BankError('This address can no longer be approved: it was removed or blocked', 'bank.address_approval_not_pending');
-  }
+  const entry = await approvableEntry(deps, input.userId, link.destinationId);
   if (entry.state !== 'pending') return entry;
   // Only the newest mailed link works; one never recorded as mailed is newest when it is the latest made.
   if (link.seq < newestSeq) {
@@ -370,18 +380,19 @@ export async function approveByLink(deps: AddressApprovalDeps, input: { userId: 
 }
 
 /**
- * Whether an approving sign-in is on a different device from the one that saved the entry. Both must name a sign-in
- * (`fam`; a token without one, such as an API key, an older token or a frozen account's read-only session, is never an
- * interactive sign-in to approve from), else the answer is `unknown`, never a match. Then, both name a trusted device:
- * different devices are different. Otherwise different sign-ins are different (a passkey sign-in names no device).
+ * Whether an approving sign-in is on a different device from the one that saved the entry. Only trusted devices tell
+ * devices apart: both tokens must name one (`dev`), and the approving one a sign-in too (`fam`; a token without one, such
+ * as an API key, an older token or a frozen account's read-only session, is never an interactive sign-in to approve
+ * from). A second sign-in is not a second device: a passkey sign-in names no device and may be the very browser that
+ * saved the entry, so without both devices the answer is `unknown`, or `same` when it is the saving sign-in itself.
  */
 export function deviceComparison(saved: SavedOn, approving: SavedOn): 'different' | 'same' | 'unknown' {
   const lower = (id: string | null) => (id === null ? null : id.toLowerCase());
   const [savedFam, approvingFam] = [lower(saved.fam), lower(approving.fam)];
-  if (savedFam === null || approvingFam === null) return 'unknown';
+  if (approvingFam === null) return 'unknown';
   const [savedDev, approvingDev] = [lower(saved.dev), lower(approving.dev)];
   if (savedDev !== null && approvingDev !== null) return savedDev === approvingDev ? 'same' : 'different';
-  return savedFam === approvingFam ? 'same' : 'different';
+  return savedFam === approvingFam ? 'same' : 'unknown';
 }
 
 /**
@@ -393,11 +404,8 @@ export async function approveOnDevice(
   deps: AddressApprovalDeps,
   input: { userId: string; destinationId: string; approving: SavedOn },
 ): Promise<WithdrawDestination> {
-  const entry = (await deps.destinations.list(input.userId)).find((row) => row.destinationId === input.destinationId);
-  if (!entry) throw new BankError(`User ${input.userId} has no saved address ${input.destinationId}`, 'bank.withdraw_destination_missing');
-  if (entry.state === 'blocked' || entry.state === 'archived') {
-    throw new BankError('This address can no longer be approved: it was removed or blocked', 'bank.address_approval_not_pending');
-  }
+  await assertSecurityLockOpen(deps.securityLock, input.userId, 'approving a withdrawal address');
+  const entry = await approvableEntry(deps, input.userId, input.destinationId);
   if (entry.state !== 'pending') return entry;
   const saved = await deps.destinations.savedOn({ userId: input.userId, destinationId: entry.destinationId });
   const compared = saved === null ? 'unknown' : deviceComparison(saved, input.approving);
@@ -409,11 +417,10 @@ export async function approveOnDevice(
   }
   if (compared === 'unknown') {
     throw new BankError(
-      'This device cannot be told apart from the one that saved the address. Approve it by the emailed link',
+      'This device cannot be told apart from the one that saved the address. Use the emailed link instead',
       'bank.address_approval_device_unknown',
     );
   }
-  await assertSecurityLockOpen(deps.securityLock, input.userId, 'approving a withdrawal address');
   return deps.destinations.approve({ userId: input.userId, destinationId: entry.destinationId, by: 'device' });
 }
 

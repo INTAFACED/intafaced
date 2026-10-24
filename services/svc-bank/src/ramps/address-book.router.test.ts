@@ -129,17 +129,14 @@ describe('bank.ramps.destinations: the address book', () => {
     ).rejects.toMatchObject({ cause: { code: 'bank.address_approval_link_unset' } });
   });
 
-  it('approves from another sign-in, read from the access token: the saving one is refused, and a plain session may not (W-withdraw-09)', async () => {
+  it('approves from another trusted device, read from the access token: the saving one is refused, and a plain session may not (W-withdraw-09)', async () => {
     const destinations = memoryWithdrawDestinations({ addressBookCap: () => '5' });
-    const SIGN_IN_A = { fam: 'aaaaaaaa-0000-4000-8000-000000000001' };
-    const SIGN_IN_B = { fam: 'bbbbbbbb-0000-4000-8000-000000000002' };
+    const SIGN_IN_A = { fam: 'aaaaaaaa-0000-4000-8000-000000000001', dev: 'aaaaaaaa-1111-4111-8111-000000000001' };
+    const SIGN_IN_B = { fam: 'bbbbbbbb-0000-4000-8000-000000000002', dev: 'bbbbbbbb-1111-4111-8111-000000000002' };
     const stepped = (claims: { fam?: string; dev?: string }) =>
       callerWith(['bank:read', 'bank:write', 'trade:withdraw'], true, REGISTRY, destinations, sharedProofs, claims);
     const saved = await stepped(SIGN_IN_A).ramps.destinations.save({ ...entry, label: 'From A' });
-    await expect(destinations.savedOn({ userId: USER, destinationId: saved.destinationId })).resolves.toEqual({
-      fam: SIGN_IN_A.fam,
-      dev: null,
-    });
+    await expect(destinations.savedOn({ userId: USER, destinationId: saved.destinationId })).resolves.toEqual(SIGN_IN_A);
     await expect(stepped(SIGN_IN_A).ramps.destinations.approval.onDevice({ destinationId: saved.destinationId })).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
       cause: { code: 'bank.address_approval_same_device' },

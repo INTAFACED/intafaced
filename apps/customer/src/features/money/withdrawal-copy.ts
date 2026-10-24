@@ -209,7 +209,7 @@ const en = {
   aApproveHereSame:
     'This address was saved on this device, so it cannot be approved here. Approve it on another device where you are signed in, or by the emailed link.',
   aApproveHereUnknown:
-    'This device cannot be told apart from the one that saved the address, so it cannot approve it. Approve it by the emailed link.',
+    'This device cannot be told apart from the one that saved the address, so it cannot approve it. Use the emailed link instead.',
   aApproveHereFailed: 'The address could not be approved. Nothing changed. Try again.',
   apEyebrow: 'WITHDRAWAL ADDRESS',
   apTitle: 'Approve a new withdrawal address',
@@ -448,7 +448,7 @@ const es = {
   aApproveHereSame:
     'Esta dirección se guardó en este dispositivo, así que no se puede aprobar aquí. Apruébala en otro dispositivo donde hayas iniciado sesión, o con el enlace del correo.',
   aApproveHereUnknown:
-    'No se puede distinguir este dispositivo del que guardó la dirección, así que no puede aprobarla. Apruébala con el enlace del correo.',
+    'No se puede distinguir este dispositivo del que guardó la dirección, así que no puede aprobarla. Usa el enlace del correo.',
   aApproveHereFailed: 'No se pudo aprobar la dirección. No cambió nada. Inténtalo de nuevo.',
   apEyebrow: 'DIRECCIÓN DE RETIRO',
   apTitle: 'Aprobar una dirección de retiro nueva',
@@ -689,7 +689,7 @@ const fr = {
   aApproveHereSame:
     'Cette adresse a été enregistrée sur cet appareil, donc elle ne peut pas être approuvée ici. Approuve-la sur un autre appareil où tu es connecté, ou avec le lien reçu par e-mail.',
   aApproveHereUnknown:
-    'Cet appareil ne peut pas être distingué de celui qui a enregistré l’adresse, donc il ne peut pas l’approuver. Approuve-la avec le lien reçu par e-mail.',
+    'Cet appareil ne peut pas être distingué de celui qui a enregistré l’adresse, donc il ne peut pas l’approuver. Utilise plutôt le lien reçu par e-mail.',
   aApproveHereFailed: 'L’adresse n’a pas pu être approuvée. Rien n’a changé. Réessaie.',
   apEyebrow: 'ADRESSE DE RETRAIT',
   apTitle: 'Approuver une nouvelle adresse de retrait',

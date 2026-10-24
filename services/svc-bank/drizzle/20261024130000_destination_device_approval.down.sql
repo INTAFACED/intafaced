@@ -1,7 +1,5 @@
--- Drops the saved sign-in and device. Code from before this writes only `link`, so the check goes back to `link` alone
--- for new rows; entries already approved from a device keep that record (NOT VALID leaves existing rows as they are).
+-- Drops the saved sign-in and device. The `approved_by` check keeps `device`: entries approved from a device keep that
+-- record and stay updatable (a rename rewrites the row), and code from before this only ever writes `link`.
 ALTER TABLE "bank"."user_withdraw_destinations"
-  DROP CONSTRAINT IF EXISTS "user_withdraw_destinations_approved_by_ck",
-  ADD CONSTRAINT "user_withdraw_destinations_approved_by_ck" CHECK ("approved_by" IS NULL OR "approved_by" IN ('link')) NOT VALID,
   DROP COLUMN IF EXISTS "saved_dev",
   DROP COLUMN IF EXISTS "saved_fam";

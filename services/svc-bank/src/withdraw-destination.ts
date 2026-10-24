@@ -471,6 +471,7 @@ export function memoryWithdrawDestinations(options: DestinationStoreOptions = {}
       const row = rows.get(input.destinationId);
       if (!row || row.userId !== input.userId) throw MISSING(input.userId, input.destinationId);
       rows.delete(input.destinationId);
+      savedFrom.delete(input.destinationId);
       removals.set(removalKey, input.destinationId);
       return { destinationId: input.destinationId, removed: true as const };
     },
