@@ -699,6 +699,7 @@ export const appRouter = mergeRouters(
     categoryPolicy: { sql, approvals: actionApprovals },
     catalog: { sql, imageRule: readProductImageRule(process.env) },
     checkoutBranding: { sql, logoRule: readCheckoutLogoRule(process.env) },
+    checkoutMethods: { sql, rails: () => pay.checkoutMethodRails() },
     limits: { sql, approvals: actionApprovals },
     custody: {
       sql,

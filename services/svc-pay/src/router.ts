@@ -2573,7 +2573,11 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.statement_busy':
         return 'TOO_MANY_REQUESTS' as const;
       case 'pay.routing_input_missing':
+      case 'pay.checkout_method_required':
+      case 'pay.checkout_method_not_offered':
         return 'BAD_REQUEST' as const;
+      case 'pay.checkout_no_method':
+        return 'SERVICE_UNAVAILABLE' as const;
       case 'pay.routing_no_rail':
       case 'pay.routing_approval_rate_unset':
       case 'pay.rail_outcome_unknown':

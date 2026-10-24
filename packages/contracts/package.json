@@ -230,6 +230,10 @@
       "types": "./dist/merchant-checkout-branding.d.ts",
       "default": "./dist/merchant-checkout-branding.js"
     },
+    "./merchant-checkout-methods": {
+      "types": "./dist/merchant-checkout-methods.d.ts",
+      "default": "./dist/merchant-checkout-methods.js"
+    },
     "./campaigns-drops": {
       "types": "./dist/campaigns-drops.d.ts",
       "default": "./dist/campaigns-drops.js"

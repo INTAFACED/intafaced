@@ -38,6 +38,8 @@ import {
 import { RoutingInputError } from './routing-inputs.js';
 import { merchantKybMoneyGateRefusal } from './merchant-kyb-money-gate.js';
 import { assertCategoryAllows, categoryRails, checkoutCategoryRule } from './onboarding-policy/category.js';
+import { methodRailsOf, type MethodRails } from './checkout-methods/catalogue.js';
+import { checkoutMethodFor } from './checkout-methods/methods.js';
 import { assertOnlyPayoutDestinations, type MerchantPayoutDestinations } from './merchant-payout-destination.js';
 import { encodeListCursor } from './list-page.js';
 import { type PaymentAttemptView } from './payments/attempts.js';
@@ -229,6 +231,12 @@ export type PayErrorCode =
   | 'pay.routing_no_rail'
   /** Smart routing ran; no rail that could take it has an owner-declared success fraction (PAY_CHECKOUT_SUCCESS_RATES). */
   | 'pay.routing_approval_rate_unset'
+  /** M-adv-payments-core-11: more than one method the business offers can take this payment; the payer picks one. */
+  | 'pay.checkout_method_required'
+  /** M-adv-payments-core-11: the payer named a method the business does not offer for this payment. */
+  | 'pay.checkout_method_not_offered'
+  /** M-adv-payments-core-11: none of the methods the business offers for this payment has a rail. */
+  | 'pay.checkout_no_method'
   | 'pay.invalid_amount'
   | 'pay.identity_admission_unavailable'
   | 'pay.identity_admission_denied'
@@ -1306,6 +1314,19 @@ export class PayService {
     this.chargebackOutcomeTails = new Map();
   }
 
+  /**
+   * The payment methods the public checkout can take (M-adv-payments-core-11): the checkout rails this environment lets
+   * take strangers' money, with the countries their routing profiles declare.
+   */
+  checkoutMethodRails(): MethodRails {
+    return methodRailsOf({
+      checkoutRails: this.checkoutRails,
+      profiles: this.routingProfiles,
+      rails: this.rails,
+      policy: this.publicCheckoutMovement,
+    });
+  }
+
   /** The book `payoutSettlement` reads. Tests use it to store a verified destination. */
   destinationBook(): MerchantPayoutDestinations {
     return this.payoutDestinations;
@@ -2319,10 +2340,12 @@ export class PayService {
     // nothing). This read is a hint for routing only; the admission guard below re-checks inside the transaction.
     const categoryRule = await checkoutCategoryRule(this.sql, input.linkToken);
     if (categoryRule?.class === 'prohibited') assertCategoryAllows(categoryRule, null);
+    // M-adv-payments-core-11: only a method the business offers for this country, currency and amount, in its order.
+    const offeredMethod = await checkoutMethodFor(this.sql, this.checkoutMethodRails(), input, this.now());
     const decision = this.selectCheckoutRail(
       {
         geoCountry: input.geoCountry,
-        method: input.method,
+        method: offeredMethod,
         riskBand: input.riskBand,
       },
       categoryRails(categoryRule) ?? undefined,
