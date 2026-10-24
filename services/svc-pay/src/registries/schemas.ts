@@ -46,7 +46,7 @@ export const networkIdSchema = z
 export const assetCodeSchema = payAssetCodeSchema.regex(/^[A-Z0-9]{1,16}$/, 'asset codes are upper-case letters and digits');
 /** `BASE/QUOTE`, e.g. `USDT/USD`. */
 export const pairSchema = z.string().regex(/^[A-Z0-9]{2,16}\/[A-Z0-9]{2,16}$/, 'pairs look like BASE/QUOTE');
-export const merchantIdSchema = z.string().uuid();
+export const merchantIdSchema = z.string().guid();
 
 const versionSchema = z.number().int().min(1).max(2_147_483_647);
 const approvalFields = {
@@ -190,7 +190,7 @@ export type NetworkView = z.infer<typeof networkViewSchema>;
 
 export const walletRouteViewSchema = z
   .object({
-    routeId: z.string().uuid(),
+    routeId: z.string().guid(),
     assetCode: z.string(),
     networkId: z.string(),
     payoutAllowed: z.boolean(),
@@ -205,7 +205,7 @@ export type WalletRouteView = z.infer<typeof walletRouteViewSchema>;
 
 export const registryEventViewSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     seq: z.string(),
     registry: registryKindSchema,
     entryKey: z.string(),
@@ -213,8 +213,8 @@ export const registryEventViewSchema = z
     actorId: z.string(),
     approverId: z.string().nullable(),
     dualControl: z.boolean(),
-    before: z.record(z.unknown()).nullable(),
-    after: z.record(z.unknown()),
+    before: z.record(z.string(), z.unknown()).nullable(),
+    after: z.record(z.string(), z.unknown()),
     reason: z.string(),
     createdAt: z.string(),
   })

@@ -161,6 +161,14 @@ describe('runIntent: orders through the book', () => {
     expect(api.placeOrder.mock.calls[0]![0]).toMatchObject({ side: 'sell', type: 'limit', price: '99.5' });
   });
 
+  it('an open with a take profit and stop loss sends them with the order (J-derivatives-03 #4)', async () => {
+    const { api, typed } = fakeApi();
+    api.placeOrder.mockResolvedValue(ok(order()));
+    const intent: Intent = { op: 'open', input: { ...openInput, takeProfit: '110', stopLoss: '90' } };
+    expect(await runIntent(typed, USER, intent)).toMatchObject({ kind: 'done' });
+    expect(api.placeOrder.mock.calls[0]![0]).toMatchObject({ clientOrderId: 'open-abc', takeProfit: '110', stopLoss: '90' });
+  });
+
   it('an order the book rejected with nothing filled is a refusal with its own code', async () => {
     const { api, typed } = fakeApi();
     api.placeOrder.mockResolvedValue(ok(order({ status: 'rejected', filledQty: '0', refusalCode: 'trade.hold_unconfirmed' })));

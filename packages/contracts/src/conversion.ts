@@ -35,7 +35,7 @@ export type PayConversionStatus = (typeof PAY_CONVERSION_STATUSES)[number];
 export const conversionQuoteInputSchema = z
   .object({
     merchantId: payMerchantIdSchema,
-    settlementId: z.string().uuid(),
+    settlementId: z.string().guid(),
     fromAsset: payAssetCodeSchema,
     toAsset: payAssetCodeSchema,
     fromAmount: payAmountStringSchema,
@@ -45,10 +45,10 @@ export type ConversionQuoteInput = z.infer<typeof conversionQuoteInputSchema>;
 
 export const conversionQuoteSchema = z
   .object({
-    quoteId: z.string().uuid(),
+    quoteId: z.string().guid(),
     mode: payConversionModeSchema,
     merchantId: payMerchantIdSchema,
-    settlementId: z.string().uuid(),
+    settlementId: z.string().guid(),
     fromAsset: payAssetCodeSchema,
     toAsset: payAssetCodeSchema,
     fromAmount: payAmountStringSchema,
@@ -68,17 +68,17 @@ export const conversionExecuteInputSchema = z
   .object({
     /** Retrying the same id never places a second venue order. */
     requestId: payRequestIdSchema,
-    quoteId: z.string().uuid(),
+    quoteId: z.string().guid(),
   })
   .strict();
 
 export const conversionOrderSchema = z
   .object({
-    conversionId: z.string().uuid(),
+    conversionId: z.string().guid(),
     requestId: payRequestIdSchema,
     mode: payConversionModeSchema,
     merchantId: payMerchantIdSchema,
-    settlementId: z.string().uuid(),
+    settlementId: z.string().guid(),
     status: payConversionStatusSchema,
     fromAsset: payAssetCodeSchema,
     toAsset: payAssetCodeSchema,
@@ -98,7 +98,7 @@ const conversionChangeHashSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 export const conversionResolveProposeInputSchema = z
   .object({
     requestId: payRequestIdSchema,
-    conversionId: z.string().uuid(),
+    conversionId: z.string().guid(),
     reason: z.string().trim().min(1).max(500),
   })
   .strict();
@@ -134,7 +134,7 @@ export const conversionResolveConfirmResultSchema = z
 export const conversionLateFillProposeInputSchema = z
   .object({
     requestId: payRequestIdSchema,
-    auditId: z.string().uuid(),
+    auditId: z.string().guid(),
     /** How the late fill was settled. A sentence, not a quantity. */
     settlement: z.string().trim().min(1).max(500),
     reason: z.string().trim().min(1).max(500),
@@ -163,7 +163,7 @@ export const conversionLateFillConfirmResultSchema = z
 export const conversionLateFillBookProposeInputSchema = z
   .object({
     requestId: payRequestIdSchema,
-    auditId: z.string().uuid(),
+    auditId: z.string().guid(),
     reason: z.string().trim().min(1).max(500),
   })
   .strict();
@@ -207,7 +207,7 @@ export const conversionLateFillSweepResultSchema = z
       .array(
         z
           .object({
-            conversionId: z.string().uuid(),
+            conversionId: z.string().guid(),
             code: z.string().min(1),
           })
           .strict(),
@@ -233,7 +233,7 @@ export const conversionHoldSweepResultSchema = z
   })
   .strict();
 
-export const conversionGetInputSchema = z.object({ conversionId: z.string().uuid() }).strict();
+export const conversionGetInputSchema = z.object({ conversionId: z.string().guid() }).strict();
 export const conversionListInputSchema = z
   .object({ merchantId: payMerchantIdSchema, status: payConversionStatusSchema.optional(), limit: z.number().int().min(1).max(200) })
   .strict();

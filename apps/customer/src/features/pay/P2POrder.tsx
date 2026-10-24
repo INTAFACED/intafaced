@@ -258,6 +258,18 @@ export function P2POrder({
                       [payCopy.t('deadline'), trade.deadlineAt ? <PayTime value={trade.deadlineAt} /> : payCopy.t('notSupplied')],
                       [payCopy.t('ledgerSettlement'), trade.settledAt ? <PayTime value={trade.settledAt} /> : payCopy.t('notConfirmed')],
                       [t('counterparty'), <span lang="zxx">{seller ? trade.buyerId : trade.sellerId}</span>],
+                      [
+                        t('terms'),
+                        trade.terms?.trim() ? (
+                          <span className="p2p-order-terms" data-testid="order-terms" lang="und">
+                            {trade.terms}
+                          </span>
+                        ) : typeof trade.terms === 'string' ? (
+                          payCopy.t('noTermsSupplied')
+                        ) : (
+                          t('termsUnrecorded')
+                        ),
+                      ],
                     ]}
                   />
                   <CounterpartyLink

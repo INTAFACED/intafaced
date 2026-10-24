@@ -123,15 +123,15 @@ export function createAllowlistFounderRouter(deps: AllowlistMountDeps & { founde
       .output(quorumViewSchema)
       .mutation(({ ctx, input }) => wrap(() => deps.service.setQuorum(actorOf(ctx), input))),
     quorum: founder
-      .input(z.object({ userId: z.string().uuid() }).strict())
+      .input(z.object({ userId: z.string().guid() }).strict())
       .output(quorumViewSchema.nullable())
       .query(({ input }) => wrap(() => deps.service.quorum(input.userId))),
     mode: founder
-      .input(z.object({ userId: z.string().uuid() }).strict())
+      .input(z.object({ userId: z.string().guid() }).strict())
       .output(modeViewSchema)
       .query(({ input }) => wrap(() => deps.service.mode(input.userId))),
     policy: founder
-      .input(z.object({ userId: z.string().uuid() }).strict())
+      .input(z.object({ userId: z.string().guid() }).strict())
       .output(policyViewSchema)
       .query(({ input }) => wrap(() => deps.service.policy(input.userId))),
     entries: founder

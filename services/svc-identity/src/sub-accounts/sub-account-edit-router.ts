@@ -31,16 +31,16 @@ export function createSubAccountEditProcedures(service: SubAccountEditService | 
       .input(
         z
           .object({
-            subAccountId: z.string().uuid(),
+            subAccountId: z.string().guid(),
             // Wide wire bounds only; the service checks the real limits and answers identity.sub_account_label_invalid.
             label: z.string().max(4096),
             purpose: z.string().max(4096).nullable(),
-            stepUpApprovalId: z.string().uuid(),
+            stepUpApprovalId: z.string().guid(),
             clientRequestId: z.string().max(4096),
           })
           .strict(),
       )
-      .output(z.object({ id: z.string().uuid(), changed: z.boolean() }))
+      .output(z.object({ id: z.string().guid(), changed: z.boolean() }))
       .mutation(async ({ ctx, input }) => {
         const principal = ctx.principal as Principal;
         try {

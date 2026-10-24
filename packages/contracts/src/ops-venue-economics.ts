@@ -41,7 +41,7 @@ export const opsCostPeriodSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, '
 
 /** A non-negative decimal string. A JS number is refused, not coerced. */
 export const opsCostAmountSchema = z
-  .string({ invalid_type_error: 'JS number refused — amounts are decimal strings' })
+  .string({ error: (issue) => (issue.input === undefined ? undefined : 'JS number refused — amounts are decimal strings') })
   .regex(/^\d+(\.\d{1,18})?$/, 'cost amounts are non-negative decimal strings (max 18dp)');
 
 const assetSchema = z.string().regex(/^[A-Z0-9]{2,12}$/, 'asset is an upper-case code such as USD');

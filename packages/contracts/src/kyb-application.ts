@@ -38,7 +38,7 @@ export const kybApplicationSectionViewSchema = z
 
 export const kybApplicationViewSchema = z
   .object({
-    applicationId: z.string().uuid(),
+    applicationId: z.string().guid(),
     merchantId: payMerchantIdSchema,
     entityType: kybEntityTypeSchema,
     country: kybCountrySchema,
@@ -68,7 +68,7 @@ export const kybApplicationCurrentInputSchema = z.object({ merchantId: payMercha
 
 export const kybApplicationSaveSectionInputSchema = z
   .object({
-    applicationId: z.string().uuid(),
+    applicationId: z.string().guid(),
     section: kybApplicationSectionSchema,
     /** The version this client read. A save from an older read is a conflict, never a silent overwrite. */
     expectedVersion: z.number().int().min(0),
@@ -78,6 +78,6 @@ export const kybApplicationSaveSectionInputSchema = z
   .strict();
 
 /** Clearing a draft needs the caller to say so. History of the earlier saves is kept. */
-export const kybApplicationRestartInputSchema = z.object({ applicationId: z.string().uuid(), confirm: z.literal(true) }).strict();
+export const kybApplicationRestartInputSchema = z.object({ applicationId: z.string().guid(), confirm: z.literal(true) }).strict();
 
-export const kybApplicationSubmitInputSchema = z.object({ applicationId: z.string().uuid() }).strict();
+export const kybApplicationSubmitInputSchema = z.object({ applicationId: z.string().guid() }).strict();
