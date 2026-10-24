@@ -118,6 +118,16 @@ const schema = serviceEnvSchema
       ),
 
       /**
+       * P-ads-merchant-01. The advertiser terms version a person accepts before
+       * posting an ad. Empty is unset: every post then refuses `p2p.config_unset`
+       * naming this setting. Changing it asks every advertiser to accept again.
+       */
+      P2P_ADVERTISER_TERMS_VERSION: z.preprocess(
+        (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+        z.string().trim().min(1).max(64).optional(),
+      ),
+
+      /**
        * Largest `maxAmt` an offer may advertise — the merchant badge's first
        * real entitlement (`merchant-limits.ts` argues why the numbers are not
        * invented in code).

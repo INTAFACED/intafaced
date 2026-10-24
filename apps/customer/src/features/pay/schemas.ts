@@ -373,6 +373,22 @@ export type P2PEligibility = z.infer<typeof p2pEligibilitySchema>;
 /** `risk.notice` / `risk.accept`: the owner-published notice version and when this person accepted it. */
 export const p2pRiskNoticeSchema = z.object({ version: z.string(), acceptedAt: z.string().nullable() });
 export type P2PRiskNotice = z.infer<typeof p2pRiskNoticeSchema>;
+/** P-ads-merchant-01: the caller's free balance of one coin, as svc-p2p reads it from the ledger. */
+export const p2pSellBalanceSchema = z.object({ asset: z.string(), available: amount });
+/** P-ads-merchant-01: what the post-an-ad form sends to `offers.create`, besides its key and the terms version. */
+export type PostOfferInput = {
+  side: 'buy' | 'sell';
+  asset: string;
+  fiatCurrency: string;
+  priceType: 'fixed' | 'float';
+  price: string;
+  minAmount: string;
+  maxAmount: string;
+  totalAmount?: string;
+  methods: string[];
+  terms?: string;
+  acceptsNonInstant?: boolean;
+};
 export const p2pApiAccessSchema = z.object({
   eligible: z.boolean(),
   credential: z.enum(['session', 'api_key']),

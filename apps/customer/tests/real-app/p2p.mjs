@@ -60,6 +60,14 @@ export function p2p(who, passkey = null) {
     const stepUpApprovalId = await confirmStepUp(who, passkey, releaseStepUpRequest(input.tradeId));
     return bare.mutate('trades.confirmReceived', { ...input, stepUpApprovalId });
   };
+  // Posting an ad needs the published advertiser terms accepted (P-ads-merchant-01). The person accepts them in the
+  // post-an-ad form (J-p2p-03); a journey that only needs an ad to exist accepts them here when svc-p2p asks.
+  const post = async (input) => {
+    const res = await bare.mutate('offers.create', input);
+    if (res.status !== 403 || refusalCode(res) !== 'p2p.terms_not_accepted') return res;
+    await acceptAdvertiserTerms(bare);
+    return bare.mutate('offers.create', input);
+  };
   return {
     bare,
     raw: {
@@ -67,9 +75,11 @@ export function p2p(who, passkey = null) {
       mutate: (proc, input) =>
         proc === 'trades.take'
           ? take(input)
-          : proc === 'trades.confirmReceived' && passkey && !input.stepUpApprovalId
-            ? release(input)
-            : bare.mutate(proc, input),
+          : proc === 'offers.create'
+            ? post(input)
+            : proc === 'trades.confirmReceived' && passkey && !input.stepUpApprovalId
+              ? release(input)
+              : bare.mutate(proc, input),
     },
     async query(proc, input) {
       await pace();
@@ -80,6 +90,18 @@ export function p2p(who, passkey = null) {
       return unwrap(proc, await this.raw.mutate(proc, input));
     },
   };
+}
+
+/** Accepts the advertiser terms version svc-p2p publishes, as `bare` (a p2p() client's `bare`). */
+export async function acceptAdvertiserTerms(bare) {
+  const terms = await bare.query('merchants.advertiserTerms');
+  const version = terms.body?.result?.data?.version;
+  if (terms.status !== 200 || !version)
+    throw new Error(`advertiser terms unreadable: ${terms.status} ${JSON.stringify(terms.body).slice(0, 300)}`);
+  const accepted = await bare.mutate('merchants.acceptAdvertiserTerms', { version });
+  if (accepted.status !== 200)
+    throw new Error(`advertiser terms acceptance refused: ${accepted.status} ${JSON.stringify(accepted.body).slice(0, 300)}`);
+  return accepted.body.result.data;
 }
 
 /** What a take's confirmation names: the reviewed ad, coin amount and method, and the held quote when there is one. */
