@@ -136,12 +136,15 @@ export type ServiceMailAccepted = z.infer<typeof serviceMailAcceptedSchema>;
  * moment it acts (`GET /internal/trusted-devices/:userId/:deviceId`, service credentials). A token's `dev` names the
  * device it was minted on; it does not prove the device is still trusted, so a caller that lets one device approve
  * another's request asks here each time.
- * - `live`: the device belongs to that account, is not removed and has not run past its trusted time.
+ * - `live`: the device belongs to that account, is not removed, has not run past its trusted time, and the account is
+ *   active.
  * - `trustedBy`: how it came to be trusted. `sign-up` (the device the account was made on) and `approval` (approved by
- *   a mailed code or from another trusted device) were proved; `sign-in` was trusted as it signed in while the
- *   new-device check was off, so anyone holding the account's factors could have made it.
+ *   a mailed code, or from another device that was itself proved) were proved; `sign-in` was trusted as it signed in
+ *   while the new-device check was off (or was approved from such a device), so anyone holding the account's factors
+ *   could have made it. Devices trusted before this was recorded read `sign-in`.
  * - `newDeviceCheck`: the owner's setting now (`IDENTITY_NEW_DEVICE_CHECK`); blank answers `off`.
- * An unknown device, or one of another account, answers `live: false` and `trustedBy: null`.
+ * An unknown device, or one of another account, answers 200 with `live: false` and `trustedBy: null` (never a 404), so
+ * a caller relies on a device only when `live` is true.
  */
 export const TRUSTED_DEVICE_READ_PATH = '/internal/trusted-devices/:userId/:deviceId' as const;
 export function trustedDeviceReadPath(userId: string, deviceId: string): string {

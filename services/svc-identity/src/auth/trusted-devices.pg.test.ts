@@ -382,6 +382,33 @@ if (!available) {
       expect(await auth.trustedDeviceState(who.userId, device)).toMatchObject({ live: false, trustedBy: 'sign-up' });
     });
 
+    it('a device approved from a device trusted while the check was off is no better proved than its approver', async () => {
+      const who = await account();
+      auth.useNewDevicePolicy({ check: false });
+      const unasked = await auth.login({ identifier: who.email, password: PASSWORD });
+      auth.useNewDevicePolicy(POLICY);
+      const waiting = await newDevice(who);
+      await auth.deviceApproveFromSession({ flowId: waiting.flowId, userId: who.userId, sessionId: unasked.sessionId });
+      const vouched = await auth.deviceComplete({ flowId: waiting.flowId, secret: waiting.secret });
+      expect(await auth.trustedDeviceState(who.userId, await deviceOf(vouched.sessionId))).toEqual({
+        live: true,
+        trustedBy: 'sign-in',
+        newDeviceCheck: 'on',
+      });
+      // Approved from the sign-up device instead, the same request is proved.
+      const second = await newDevice(who);
+      await auth.deviceApproveFromSession({ flowId: second.flowId, userId: who.userId, sessionId: who.sessionId });
+      const proved = await auth.deviceComplete({ flowId: second.flowId, secret: second.secret });
+      expect(await auth.trustedDeviceState(who.userId, await deviceOf(proved.sessionId))).toMatchObject({ trustedBy: 'approval' });
+    });
+
+    it('no device of a frozen account is live', async () => {
+      const who = await account();
+      const device = await deviceOf(who.sessionId);
+      await db.sql`UPDATE users SET status = 'frozen' WHERE id = ${who.userId}`;
+      expect(await auth.trustedDeviceState(who.userId, device)).toEqual({ live: false, trustedBy: 'sign-up', newDeviceCheck: 'on' });
+    });
+
     it('a device trusted again after its time ran out, with the check off, is no longer counted as approved', async () => {
       const who = await account();
       const waiting = await newDevice(who);

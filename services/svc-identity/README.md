@@ -127,6 +127,13 @@ Modules may still call `rank.awardXp` directly — it is a `serviceProcedure` on
 
 ## Security decisions worth knowing
 
+**Trusted devices (`trusted-devices.ts`, I-signin-sessions-07).** Access tokens carry `fam` (session family) and `dev`
+(the trusted device they were minted on); `dev` does not prove the device is still trusted. A service that lets one
+device approve another's request reads `GET /internal/trusted-devices/:userId/:deviceId` (`trustedDeviceStateSchema`,
+service credentials, svc-bank only) at the moment it acts: `live` (not removed, not expired, account active),
+`trustedBy` (`sign-up` and `approval` were proved; `sign-in` was trusted while the check was off, or approved from
+such a device) and `newDeviceCheck`. An unknown device answers 200 with `live: false`.
+
 **Passwords — argon2id, scrypt fallback.** §9 specifies argon2id. `@node-rs/argon2` is a native module, and a failed native install must not stop a developer running tests — so scrypt is the fallback. Both are memory-hard; there is no path here that reaches a fast hash. In production `assertArgon2Available()` runs at boot and the process refuses to start without argon2id. A scrypt hash upgrades to argon2id silently on next login, so nobody needs a reset.
 
 > scrypt at N=2¹⁵, r=8 needs exactly Node's 32 MiB default `maxmem` and therefore fails without raising it. Found by a test. Without it, every password hash on a machine lacking argon2 would throw.

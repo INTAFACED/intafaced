@@ -300,11 +300,13 @@ type Waiting = {
   attempts: number;
   code_hash: string | null;
   expires_at: Date;
+  approved_by_session: string | null;
 };
 
 async function waiting(tx: TransactionSql, flowId: string): Promise<Waiting | undefined> {
   const [row] = await tx<Waiting[]>`
-    SELECT d.user_id, d.secret_hash, d.mfa, d.label, d.approved_at, d.completed_at, f.status, f.attempts, f.code_hash, f.expires_at
+    SELECT d.user_id, d.secret_hash, d.mfa, d.label, d.approved_at, d.completed_at, d.approved_by_session, f.status, f.attempts,
+           f.code_hash, f.expires_at
     FROM device_authorisations d JOIN auth_flows f ON f.id = d.flow_id
     WHERE d.flow_id = ${flowId} AND f.kind = 'new_device'
     FOR UPDATE OF d, f
@@ -433,11 +435,21 @@ export async function completeAuthorisation(
     if (!user || user.status !== 'active') throw new TrustedDeviceError('This account is not active.', 'auth.account_frozen');
     await tx`UPDATE device_authorisations SET completed_at = ${now} WHERE flow_id = ${input.flowId}`;
     await tx`UPDATE auth_flows SET status = 'consumed', consumed_at = ${now} WHERE id = ${input.flowId}`;
+    // Approved from a session: the new device is only as proved as the device that approved it, so a device trusted
+    // by a sign-in while the check was off cannot vouch a proved one into being.
+    let trustedBy: TrustedDeviceTrustedBy = 'approval';
+    if (row.approved_by_session) {
+      const [approver] = await tx<Array<{ trusted_by: TrustedDeviceTrustedBy }>>`
+        SELECT t.trusted_by FROM sessions s JOIN trusted_devices t ON t.id = s.trusted_device_id
+        WHERE s.id = ${row.approved_by_session}
+      `;
+      if (approver?.trusted_by !== 'sign-up' && approver?.trusted_by !== 'approval') trustedBy = 'sign-in';
+    }
     const device = await trustDevice(tx, deps.policy, {
       userId: row.user_id,
       label: row.label,
       now,
-      trustedBy: 'approval',
+      trustedBy,
       presentedKey: input.presentedKey,
     });
     return { userId: row.user_id, mfa: row.mfa, trustedDeviceId: device.id, deviceKey: device.key };
@@ -511,7 +523,8 @@ export async function removeDevice(
 
 /**
  * What another service may rely on about one device of one account now (`GET /internal/trusted-devices/:userId/:deviceId`).
- * Read-only: it never touches `last_seen_at`. A device of another account reads exactly like one that does not exist.
+ * Read-only: it never touches `last_seen_at`. A device of another account reads exactly like one that does not exist, and
+ * no device of an account that is not active (frozen, closed) is live.
  */
 export async function trustedDeviceState(
   q: Sql,
@@ -519,10 +532,10 @@ export async function trustedDeviceState(
   input: { userId: string; deviceId: string; now: Date },
 ): Promise<TrustedDeviceState> {
   const [row] = await q<Array<{ trusted_by: TrustedDeviceTrustedBy; live: boolean }>>`
-    SELECT trusted_by,
-           (removed_at IS NULL AND (trusted_until IS NULL OR trusted_until > ${input.now})) AS live
-    FROM trusted_devices
-    WHERE id = ${input.deviceId} AND user_id = ${input.userId}
+    SELECT t.trusted_by,
+           (t.removed_at IS NULL AND (t.trusted_until IS NULL OR t.trusted_until > ${input.now}) AND u.status = 'active') AS live
+    FROM trusted_devices t JOIN users u ON u.id = t.user_id
+    WHERE t.id = ${input.deviceId} AND t.user_id = ${input.userId}
   `;
   return {
     live: row?.live === true,
