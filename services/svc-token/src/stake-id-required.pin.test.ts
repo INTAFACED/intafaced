@@ -20,8 +20,8 @@ describe('token.stake requires a caller stakeId', () => {
       router.indexOf("stake: scopedProcedure('token:stake'"),
       router.indexOf("unstake: scopedProcedure('token:stake'"),
     );
-    expect(door).toMatch(/stakeId: z\.string\(\)\.uuid\(\)/);
-    expect(door).not.toMatch(/stakeId: z\.string\(\)\.uuid\(\)\.optional\(\)/);
+    expect(door).toMatch(/stakeId: z\.string\(\)\.guid\(\)/);
+    expect(door).not.toMatch(/stakeId: z\.string\(\)\.guid\(\)\.optional\(\)/);
     expect(door).toMatch(/stakeId: input\.stakeId/);
   });
 

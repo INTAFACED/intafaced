@@ -56,7 +56,7 @@ describe('what each tab reads', () => {
     expect(service('svc-trade/src/controls/router.ts')).toMatch(/history: protectedProcedure/);
     // Documents: identity's meta-only list for one subject, compliance scope, limit required, no bytes.
     expect(service('svc-identity/src/router.ts')).toMatch(
-      /listDocuments: scopedProcedure\('admin:compliance'\)\s+\.input\(z\.object\(\{ userId: z\.string\(\)\.uuid\(\), limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\) \}\)\)/,
+      /listDocuments: scopedProcedure\('admin:compliance'\)\s+\.input\(z\.object\(\{ userId: z\.string\(\)\.guid\(\), limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\) \}\)\)/,
     );
     const allowlist = service('svc-pay/src/withdrawals/allowlist/router.ts');
     expect(allowlist).toMatch(/\bmode: founder/);
