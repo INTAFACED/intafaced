@@ -7,7 +7,7 @@
  */
 import { z } from 'zod';
 import { positionSchema } from '@intafaced/exchange-contract/schemas';
-import type { ApiClient } from '../../../shared/api';
+import type { ApiClient, ApiResult } from '../../../shared/api';
 import { decimalSchema } from '../../../shared/money';
 import { listingSchema } from '../../../features/trade/trade-api';
 import { positionPreviewSchema } from '../../../features/trade/tool-api';
@@ -161,6 +161,54 @@ export const futuresOrderSchema = z.object({
 });
 export type FuturesOrder = z.infer<typeof futuresOrderSchema>;
 
+/**
+ * A futures conditional order: a stop, take-profit or trailing stop, or one leg of a position's take-profit and
+ * stop-loss (`attachment`). Armed until the mark crosses its trigger; a fired one places a reduce-only order in the book
+ * (`closeOrderId`) and keeps working until its size is closed.
+ */
+export const conditionalOrderSchema = z.object({
+  id: z.string(),
+  market: z.string(),
+  kind: z.enum(['stop_market', 'stop_limit', 'take_profit', 'trailing_stop']),
+  side: z.enum(['buy', 'sell']),
+  quantity: decimalSchema,
+  triggerPrice: decimalSchema.nullable(),
+  limitPrice: decimalSchema.nullable(),
+  positionId: z.string().nullable(),
+  attachment: z.enum(['take_profit', 'stop_loss']).nullable(),
+  /** A take profit or stop loss that closes the position as it is when it fires. Older answers carry none: whole. */
+  wholePosition: z.boolean().optional(),
+  status: z.enum(['armed', 'triggered', 'filled', 'cancelled', 'failed']),
+  cancelReason: z.string().nullable(),
+  failureReason: z.string().nullable(),
+  /** The price a trigger is judged against. Older answers carry none: the published mark was the only source. */
+  triggerSource: z.enum(['mark', 'last', 'index']).optional(),
+  closeOrderId: z.string().nullable().optional(),
+  firedQuantity: decimalSchema.nullable().optional(),
+  closedQuantity: decimalSchema.nullable().optional(),
+  createdAt: z.string(),
+});
+export type ConditionalOrder = z.infer<typeof conditionalOrderSchema>;
+
+export const protectionSchema = z.object({
+  positionId: z.string(),
+  takeProfit: conditionalOrderSchema.nullable(),
+  stopLoss: conditionalOrderSchema.nullable(),
+});
+export type Protection = z.infer<typeof protectionSchema>;
+
+export interface ProtectionInput {
+  positionId: string;
+  takeProfit: string | null;
+  stopLoss: string | null;
+  /** Part of the position this leg closes. Absent or null: the whole position. */
+  takeProfitQuantity?: string | null;
+  stopLossQuantity?: string | null;
+  clientRequestId: string;
+}
+
+const legBody = (price: string, quantity: string | null | undefined) => (quantity ? { price, quantity } : price);
+
 export const orderTypeEntrySchema = z.object({
   id: z.string(),
   state: z.enum(['available', 'refused']),
@@ -251,6 +299,8 @@ export interface OpenInput {
   priceCorrection?: 'adjust';
   /** Above the max-order: placed as children of at most the cap (`POST /futures/orders/split`), keyed `<clientOpenId>:1..N`. */
   split?: true;
+  /** The margin tier the trader accepted in the confirm step; the service refuses a crossing into a tier not named. */
+  confirmTier?: number;
   clientOpenId: string;
 }
 
@@ -265,6 +315,7 @@ export interface PlaceOrderInput {
   clientOrderId: string;
   collateralClass?: string;
   priceCorrection?: 'adjust';
+  confirmTier?: number;
 }
 
 /** What the review asks: the form as it would be sent, so the band, the slippage cap and the split are this order's own. */
@@ -332,6 +383,28 @@ export function createFuturesApi(api: ApiClient) {
       api.rest('/positions/margin', positionSchema, { method: 'POST', body: { ...input, collateralClass: 'cash' } }),
     reduceMargin: (input: { symbol: string; positionId: string; amount: string; clientAdjustmentId: string }) =>
       api.rest('/positions/margin/reduce', positionSchema, { method: 'POST', body: input }),
+    conditionalOrders: async (signal?: AbortSignal): Promise<ApiResult<ConditionalOrder[]>> => {
+      const read = await api.rest('/futures/conditional-orders', z.object({ orders: z.array(conditionalOrderSchema) }), { signal });
+      return read.ok ? { ...read, data: read.data.orders } : read;
+    },
+    conditionalOrder: (id: string, signal?: AbortSignal) =>
+      api.rest(`/futures/conditional-orders/${encodeURIComponent(id)}`, conditionalOrderSchema, { signal }),
+    /** Cancel one armed order. One that already fired or ended answers with the service's refusal. */
+    cancelConditional: (id: string) =>
+      api.rest(`/futures/conditional-orders/${encodeURIComponent(id)}`, conditionalOrderSchema, { method: 'DELETE' }),
+    /**
+     * Replace a position's take-profit and stop-loss. A missing price clears that leg; a quantity covers that part of
+     * the position, none the whole of it. The same request id replays.
+     */
+    setProtection: (input: ProtectionInput) =>
+      api.rest(`/positions/${encodeURIComponent(input.positionId)}/protection`, protectionSchema, {
+        method: 'PUT',
+        body: {
+          ...(input.takeProfit ? { takeProfit: legBody(input.takeProfit, input.takeProfitQuantity) } : {}),
+          ...(input.stopLoss ? { stopLoss: legBody(input.stopLoss, input.stopLossQuantity) } : {}),
+          clientRequestId: input.clientRequestId,
+        },
+      }),
     marginCall: (positionId: string, signal?: AbortSignal) =>
       api.rest(`/positions/${encodeURIComponent(positionId)}/margin-call`, marginCallSchema, { signal }),
     adlDisclosure: (signal?: AbortSignal) => api.rest('/futures/adl-disclosure', adlDisclosureSchema, { signal }),

@@ -450,7 +450,12 @@ test('Order list marks unread chat, and the counterparty page confirms before bl
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route('**/api/**', async (route) => {
     const url = route.request().url();
-    if (url.includes('trades.list')) return reply(route, [trade]);
+    if (url.includes('trades.page'))
+      return reply(route, {
+        trades: [{ ...trade, tab: 'in_progress', displayStatus: 'waiting_for_buyer_to_pay' }],
+        nextCursor: null,
+        counts: { in_progress: 1, in_dispute: 0, completed: 0, cancelled: 0 },
+      });
     if (url.includes('chat.unread')) return reply(route, { tradeId: orderId, unread: 3 });
     if (url.includes('contacts.block')) {
       blocks.push(route.request().postDataJSON());

@@ -400,6 +400,40 @@ describe('owner pre-trade limits (#4725, PG-hard)', () => {
     });
   });
 
+  describe('open-interest limits on the at-mark open (D-margin-05)', () => {
+    it('the share refuses with the room left and nothing locked; a blank limit refuses every open', async () => {
+      setLimits({ order: BIG, position: BIG, loss: BIG });
+      // TEST fixture values: 10 BTC of open interest, 10% (1 BTC) per account.
+      let oi: { limit: bigint; shareBps: number } | null = { limit: amt('10'), shareBps: 1_000 };
+      positions = new PositionService(sql, ledger, {
+        marks: marks.source(),
+        profitSource: profitSourceFromConfig(PROFIT_SOURCE),
+        maxLeverage: TEST_MAX_LEVERAGE_AMOUNT,
+        bus,
+        now: () => NOW,
+        matchedOrders: {
+          matching: null,
+          enabled: false,
+          priceBand: null,
+          lifecycleProof: null,
+          openInterestLimits: async () => oi as never,
+        },
+      });
+      await open('0.6', 'long', 'oi-first');
+      const locks = lockPosts().length;
+      await expect(open('0.5', 'long', 'oi-over')).rejects.toMatchObject({
+        name: 'FuturesError',
+        code: 'trade.oi_share_limit',
+        status: 422,
+      });
+      await expect(open('0.5', 'long', 'oi-over-2')).rejects.toThrow(/room left 0\.4 BTC$/);
+      expect(lockPosts()).toHaveLength(locks);
+      oi = null;
+      await expect(open('0.1', 'short', 'oi-unset', 'ETH/USDT-PERP')).rejects.toMatchObject({ code: 'trade.oi_limit_unset', status: 503 });
+      expect(lockPosts()).toHaveLength(locks);
+    });
+  });
+
   describe('TRADE_MAX_POSITION on futures open', () => {
     it('resulting position boundary: exactly the limit passes, one tick over refuses', async () => {
       onlyPosition('50000');

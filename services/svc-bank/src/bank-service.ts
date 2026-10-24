@@ -13,6 +13,8 @@ import { RampService, type RampServiceOptions } from './ramps/ramp-service.js';
 import { AddMoneyService } from './ramps/add-money.js';
 import { LinkedAccountService } from './linked-accounts/linked-accounts.js';
 import { CashOutService } from './cash-out/cash-out.js';
+import { RailSendService } from './rail-sends/rail-sends.js';
+import { BANK_PAYEE_COOLING_HOURS_ENV, PayeeService } from './rail-sends/payees.js';
 import { BANK_ADDRESS_BOOK_CAP_ENV } from './withdraw-destination.js';
 import { BANK_OFFRAMP_COOLING_HOURS_ENV } from './offramp-cooling.js';
 import { DepositService, type DepositServiceOptions } from './deposits/deposit-service.js';
@@ -35,7 +37,7 @@ import type { LedgerHistory } from './analytics/ledger-history.js';
 import type { RecipientStatePort } from './recipient-state.js';
 import { BillPayService } from './personal-pay/bills.js';
 import { GlobalSendService } from './personal-pay/global.js';
-import { GlobalHoldService } from './personal-pay/holds.js';
+import { BANK_GLOBAL_HOLD_CANCEL_HOURS_ENV, GlobalHoldService } from './personal-pay/holds.js';
 import { SpendFiguresReader } from './insufficient-funds.js';
 import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } from './personal-pay/ports.js';
 
@@ -81,6 +83,10 @@ export interface BankServices {
   readonly linkedAccounts: LinkedAccountService;
   /** BK-ord-01: cash out to a linked bank account. Kept refused with its reason; nothing is held or posted. */
   readonly cashOut: CashOutService;
+  /** BK-xfer-02: send to a bank account over a bank rail. Kept refused with `rail.bank`; nothing is held or posted. */
+  readonly railSends: RailSendService;
+  /** BK-xfer-06: the recipient book for bank rails, with the owner's cooling-off on a new recipient. */
+  readonly railPayees: PayeeService;
   readonly deposits: DepositService;
   readonly autoInvest: AutoInvestService;
   readonly business: BusinessService;
@@ -100,6 +106,14 @@ export interface BankServices {
 }
 
 export interface BankServiceOptions {
+  /** `BANK_PAYEE_COOLING_HOURS`: how long a new bank-rail recipient waits. Blank refuses; zero is no wait. */
+  payeeCoolingHours?: string;
+  /** `BANK_GLOBAL_HOLD_CANCEL_HOURS`: how long a global send may stay on hold before it is cancelled. Blank, never. */
+  holdCancelHours?: string;
+  /** The service secret a global-send receipt's signing key is derived from. Blank, no receipt is made. */
+  receiptSecret?: string;
+  /** `BANK_GLOBAL_REFUND_FEE`: the fee on refunding a global send the rail returned. Blank refuses; only zero refunds. */
+  refundFee?: string;
   /** Refused by earn pools — svc-token owns native staking (§8.1). */
   nativeAssetId?: string;
   /**
@@ -268,6 +282,10 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
       options.ramps?.offrampCoolingHours !== undefined ? options.ramps.offrampCoolingHours : process.env[BANK_OFFRAMP_COOLING_HOURS_ENV],
   });
   const deposits = new DepositService(sql, options.deposits ?? {});
+  // The owner's window for a new recipient: a value passed in wins, otherwise the live env. Blank refuses a send.
+  const railPayees = new PayeeService(sql, () =>
+    options.payeeCoolingHours !== undefined ? options.payeeCoolingHours : process.env[BANK_PAYEE_COOLING_HOURS_ENV],
+  );
   const business = new BusinessService(
     sql,
     ledger,
@@ -286,8 +304,13 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     options.sendFieldRules,
     options.payeeControls,
     options.exchangeAllowance,
+    options.receiptSecret,
+    options.refundFee,
   );
-  const globalHolds = new GlobalHoldService(sql, globalSend, options.proofLimits);
+  const globalHolds = new GlobalHoldService(sql, globalSend, options.proofLimits, () =>
+    options.holdCancelHours !== undefined ? options.holdCancelHours : process.env[BANK_GLOBAL_HOLD_CANCEL_HOURS_ENV],
+  );
+  globalSend.screenWith((sendId) => globalHolds.screen(sendId));
 
   return {
     spaces,
@@ -310,6 +333,8 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     addMoney,
     linkedAccounts,
     cashOut: new CashOutService(sql, { available: (userId, assetId) => ramps.availableOf(userId, assetId), linked: linkedAccounts }),
+    railSends: new RailSendService(sql, spaces, railPayees),
+    railPayees,
     deposits,
     autoInvest,
     business,

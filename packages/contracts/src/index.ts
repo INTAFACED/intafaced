@@ -5,6 +5,7 @@
  * A change here is reviewed on its own, before either side implements it.
  */
 export * from './trpc.js';
+export * from './p2p-delist.js';
 export * from './edge.js';
 export * from './service-auth.js';
 export * from './service-keys.js';
@@ -57,6 +58,7 @@ export * from './home-tiles-preferences.js';
 export * from './tax-lot-book.js';
 export * from './oauth.js';
 export * from './protocol-networks.js';
+export * from './protocol-gas.js';
 export * from './protocol-ops.js';
 export * from './protocol-badge.js';
 export * from './pay-merchant-reads.js';
@@ -72,7 +74,11 @@ export * from './quant-algo.js';
 export * from './home-work-items.js';
 export * from './support-attachments.js';
 export * from './support-contact.js';
+export * from './support-kb-library.js';
+export * from './support-help-centre.js';
 export * from './outreach-public.js';
+export * from './status-page.js';
+export * from './status-subscriptions.js';
 export * from './support-bulk.js';
 export * from './support-merge.js';
 export * from './support-survey.js';
@@ -80,6 +86,7 @@ export * from './merchant-descriptor.js';
 export * from './preview-refusal.js';
 export * from './academy-articles.js';
 export * from './academy-catalogue.js';
+export * from './academy-courses.js';
 export * from './bank-card-funds.js';
 export * from './asset-registry.js';
 export * from './market-listing-categories.js';

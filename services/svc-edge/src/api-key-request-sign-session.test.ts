@@ -88,11 +88,11 @@ describe('API key request signature at the session door', () => {
       },
     );
     expect(result.rejected).toBeNull();
-    const body = seen as { json: { request: { method: string; path: string; bodyHash: string; signature: string } } };
-    expect(body.json.request.method).toBe('POST');
-    expect(body.json.request.path).toBe('/api/pay/v1/payments');
-    expect(body.json.request.signature).toBe('ab'.repeat(32));
-    expect(body.json.request.bodyHash).toMatch(/^[0-9a-f]{64}$/);
+    const body = seen as { request: { method: string; path: string; bodyHash: string; signature: string } };
+    expect(body.request.method).toBe('POST');
+    expect(body.request.path).toBe('/api/pay/v1/payments');
+    expect(body.request.signature).toBe('ab'.repeat(32));
+    expect(body.request.bodyHash).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it('attests the signed request as svc-edge when the ownership key is configured', async () => {

@@ -118,6 +118,66 @@ const en = {
     'No order with this reference was found. The first request may still be arriving, so check once more before placing it again.',
   failTermsChanged: 'The offer changed after you reviewed it. Nothing was placed. Review the new terms and try again.',
   failQuoteChanged: 'The price or fee changed after you reviewed it. Nothing was placed. Review the new figures.',
+  failQuoteExpired: 'The quote ended before the order was placed. Nothing was placed. Get a new quote.',
+  failOrderCap:
+    'You already have {cap} ongoing orders, the most you can hold at once. Finish or cancel one to place another. Nothing was placed.',
+  failOrderCapPlain:
+    'You already have the most ongoing orders you can hold at once. Finish or cancel one to place another. Nothing was placed.',
+  failOrderCapUntil: 'The soonest of them reaches its deadline at {time}.',
+  failOrderCapOpen: 'Your ongoing orders',
+  failOrderCapOrder: 'Order {ref}',
+  failPairLimit:
+    'Each order on this pair is between {min} and {max} {currency}. This limit has no end time: change the amount and review again. Nothing was placed.',
+  failPairLimitPlain: 'This amount is outside the order limits for this pair. Change the amount and review again. Nothing was placed.',
+  failVerificationDaily:
+    'This buy would pass the daily allowance for your verification level. {remaining} {currency} is left today, and the allowance starts again at {time}. Nothing was placed.',
+  failVerificationLifetime:
+    'This buy would pass the lifetime allowance for your verification level. {remaining} {currency} is left, and it has no end time. A higher verification level raises it. Nothing was placed.',
+  failVerificationMin: 'At your verification level, one buy is at least {min} {currency}. This limit has no end time. Nothing was placed.',
+  failVerificationMax:
+    'At your verification level, one buy is at most {max} {currency}. This limit has no end time; a higher verification level raises it. Nothing was placed.',
+  failVerificationPlain: 'This order is outside the verification-level allowance of the person buying. Nothing was placed.',
+  failVerificationCurrency:
+    'Verification-level allowances are published in another currency, so this order can’t be counted against them. Nothing was placed.',
+  failVerificationRaise: 'Raise your verification level',
+  failLimitsUnset: 'The order limits for this ad could not be checked, so no order can be placed. Nothing was placed.',
+  failMethodRetired:
+    'This payment method has been retired and no longer takes orders. This has no end time: choose another method on this ad, or another ad. Nothing was placed.',
+  failMethodRetiredRegulation:
+    'This payment method has been retired because of a regulatory requirement. This has no end time: choose another method on this ad, or another ad. Nothing was placed.',
+  failMethodRetiredProviderWithdrawn:
+    'This payment method has been retired because the payment provider withdrew it. This has no end time: choose another method on this ad, or another ad. Nothing was placed.',
+  failMethodRetiredFraudRisk:
+    'This payment method has been retired because of a high fraud risk on it. This has no end time: choose another method on this ad, or another ad. Nothing was placed.',
+  failMethodRetiredLowDemand:
+    'This payment method has been retired because too few people used it. This has no end time: choose another method on this ad, or another ad. Nothing was placed.',
+  failBuyingPaused:
+    'You cancelled {cap} orders, or let their payment time run out, within {hours} hours, so buying is paused until {time}. Selling is not paused. Nothing was placed.',
+  failBuyingPausedPlain:
+    'You cancelled too many orders, or let their payment time run out, in a short time, so buying is paused; selling is not. Nothing was placed.',
+  failStepUp: 'Confirm this order with your authenticator app or a passkey before it is placed. Nothing was placed.',
+  failStepUpExpired:
+    'Your last confirmation has ended. Confirm this order again with your authenticator app or a passkey. Nothing was placed.',
+  failStepUpFailed:
+    'That confirmation could not be used for this order. Confirm it again with a new code or your passkey. Nothing was placed.',
+  failStepUpUnchecked: 'Your confirmation could not be checked just now, so nothing was placed. Try again in a moment.',
+  failStepUpSetUp: 'Set up an authenticator app or a passkey in Security',
+  takeStepUpWhy:
+    'Placing an order holds the seller’s coins in escrow, so it needs a fresh check that it’s you. One check covers your next orders here for up to ten minutes.',
+  takeStepUpCode: 'Authenticator code',
+  takeStepUpCodeHint: 'The 6 digits your authenticator app shows now.',
+  takeStepUpCodeShort: 'Enter the 6 digits from your authenticator app.',
+  takeStepUpNoFactor:
+    'Placing an order needs your authenticator app or a passkey, and none is saved on this account. Add one in Security first; placing without one is refused and nothing is held.',
+  takeStepUpSendWithout: 'Place order',
+  takeStepUpConfirmed: 'You confirmed it’s you here, so this order needs no new check until {time}.',
+  takeFiatAmount: 'Or the amount in {fiat}',
+  takeFiatHint: 'The service turns it into {asset} at this ad’s price, rounded down so you never pay more than you typed.',
+  takeFiatConverting: 'Working out the {asset} amount…',
+  quoteLocking: 'Holding this price…',
+  quoteHeld: 'Price, fee and amounts held for {left}, until {time}.',
+  quoteEnded: 'This quote ended at {time}. Get a new quote to place the order.',
+  quoteRenew: 'Get a new quote',
   failOwnOffer: 'You can’t place an order on your own offer.',
   failUnavailable: 'This offer is no longer open for orders. Nothing was placed.',
   failBlocked: 'You can’t place an order with this member.',
@@ -128,6 +188,9 @@ const en = {
   failVerify: 'Verify your identity to place P2P orders. Nothing was placed.',
   failVerifyLink: 'Open verification',
   failRegion: 'P2P orders aren’t available in your region. Nothing was placed.',
+  failContact: 'Confirm your email address to place P2P orders. Nothing was placed.',
+  failUnchecked: 'Your requirements for taking an ad could not all be checked, so nothing was placed. The list above says which.',
+  failRisk: 'Accept the P2P risk and fraud notice to place orders. Nothing was placed.',
   failNoRecord: 'This device can’t keep the safety record an order needs, so no order was sent. Turn on browser storage and try again.',
   failViewChanged: 'This page changed before the order was sent. Open the offer again.',
   failNoService: 'We can’t reach the service right now. Nothing was placed. Try again in a moment.',
@@ -342,6 +405,68 @@ const es = {
     'No se encontró ningún pedido con esta referencia. Puede que la primera solicitud aún esté llegando, así que vuelve a comprobarlo antes de repetir el pedido.',
   failTermsChanged: 'La oferta cambió después de revisarla. No se hizo nada. Revisa las nuevas condiciones e inténtalo de nuevo.',
   failQuoteChanged: 'El precio o la comisión cambiaron después de revisarlos. No se hizo nada. Revisa las nuevas cifras.',
+  failQuoteExpired: 'La cotización terminó antes de hacer el pedido. No se hizo nada. Pide una cotización nueva.',
+  failOrderCap:
+    'Ya tienes {cap} pedidos en curso, el máximo que puedes tener a la vez. Termina o cancela uno para hacer otro. No se hizo nada.',
+  failOrderCapPlain:
+    'Ya tienes el máximo de pedidos en curso que puedes tener a la vez. Termina o cancela uno para hacer otro. No se hizo nada.',
+  failOrderCapUntil: 'El más próximo llega a su plazo a las {time}.',
+  failOrderCapOpen: 'Tus pedidos en curso',
+  failOrderCapOrder: 'Pedido {ref}',
+  failPairLimit:
+    'Cada pedido en este par está entre {min} y {max} {currency}. Este límite no tiene fecha de fin: cambia el importe y revisa de nuevo. No se hizo nada.',
+  failPairLimitPlain: 'Este importe está fuera de los límites de pedido de este par. Cambia el importe y revisa de nuevo. No se hizo nada.',
+  failVerificationDaily:
+    'Esta compra superaría el límite diario de tu nivel de verificación. Quedan {remaining} {currency} hoy, y el límite vuelve a empezar a las {time}. No se hizo nada.',
+  failVerificationLifetime:
+    'Esta compra superaría el límite total de tu nivel de verificación. Quedan {remaining} {currency}, y no tiene fecha de fin. Un nivel de verificación más alto lo aumenta. No se hizo nada.',
+  failVerificationMin:
+    'Con tu nivel de verificación, una compra es de al menos {min} {currency}. Este límite no tiene fecha de fin. No se hizo nada.',
+  failVerificationMax:
+    'Con tu nivel de verificación, una compra es de como máximo {max} {currency}. Este límite no tiene fecha de fin; un nivel de verificación más alto lo aumenta. No se hizo nada.',
+  failVerificationPlain: 'Este pedido está fuera del límite del nivel de verificación de quien compra. No se hizo nada.',
+  failVerificationCurrency:
+    'Los límites por nivel de verificación están publicados en otra moneda, así que este pedido no se puede contar contra ellos. No se hizo nada.',
+  failVerificationRaise: 'Subir tu nivel de verificación',
+  failLimitsUnset:
+    'No se pudieron comprobar los límites de pedido de este anuncio, así que no se puede hacer ningún pedido. No se hizo nada.',
+  failMethodRetired:
+    'Este método de pago se ha retirado y ya no admite pedidos. No tiene fecha de fin. Elige otro método de este anuncio u otro anuncio. No se hizo nada.',
+  failMethodRetiredRegulation:
+    'Este método de pago se ha retirado por un requisito normativo. No tiene fecha de fin. Elige otro método de este anuncio u otro anuncio. No se hizo nada.',
+  failMethodRetiredProviderWithdrawn:
+    'Este método de pago se ha retirado porque el proveedor de pagos lo retiró. No tiene fecha de fin. Elige otro método de este anuncio u otro anuncio. No se hizo nada.',
+  failMethodRetiredFraudRisk:
+    'Este método de pago se ha retirado por un riesgo de fraude elevado. No tiene fecha de fin. Elige otro método de este anuncio u otro anuncio. No se hizo nada.',
+  failMethodRetiredLowDemand:
+    'Este método de pago se ha retirado porque muy pocas personas lo usaban. No tiene fecha de fin. Elige otro método de este anuncio u otro anuncio. No se hizo nada.',
+  failBuyingPaused:
+    'Cancelaste {cap} pedidos, o dejaste que se acabara su plazo de pago, en {hours} horas, así que las compras quedan en pausa hasta las {time}. Las ventas no se pausan. No se hizo nada.',
+  failBuyingPausedPlain:
+    'Cancelaste demasiados pedidos, o dejaste que se acabara su plazo de pago, en poco tiempo, así que las compras quedan en pausa; las ventas no. No se hizo nada.',
+  failStepUp: 'Confirma este pedido con tu app de autenticación o una passkey antes de hacerlo. No se hizo nada.',
+  failStepUpExpired:
+    'Tu última confirmación ha terminado. Confirma este pedido de nuevo con tu app de autenticación o una passkey. No se hizo nada.',
+  failStepUpFailed: 'Esa confirmación no sirve para este pedido. Confírmalo de nuevo con un código nuevo o tu passkey. No se hizo nada.',
+  failStepUpUnchecked: 'No pudimos comprobar tu confirmación ahora mismo, así que no se hizo nada. Inténtalo de nuevo en un momento.',
+  failStepUpSetUp: 'Configura una app de autenticación o una passkey en Seguridad',
+  takeStepUpWhy:
+    'Hacer un pedido retiene en garantía las monedas del vendedor, así que necesita una comprobación nueva de que eres tú. Una comprobación cubre tus próximos pedidos aquí durante un máximo de diez minutos.',
+  takeStepUpCode: 'Código del autenticador',
+  takeStepUpCodeHint: 'Los 6 dígitos que muestra ahora tu app de autenticación.',
+  takeStepUpCodeShort: 'Introduce los 6 dígitos de tu app de autenticación.',
+  takeStepUpNoFactor:
+    'Hacer un pedido necesita tu app de autenticación o una passkey, y esta cuenta no tiene ninguna. Añade una en Seguridad primero; sin ella el pedido se rechaza y no se retiene nada.',
+  takeStepUpSendWithout: 'Hacer el pedido',
+  takeStepUpConfirmed: 'Confirmaste aquí que eres tú, así que este pedido no necesita otra comprobación hasta las {time}.',
+  takeFiatAmount: 'O el importe en {fiat}',
+  takeFiatHint:
+    'El servicio lo convierte en {asset} al precio de este anuncio, redondeando a la baja para que nunca pagues más de lo escrito.',
+  takeFiatConverting: 'Calculando el importe en {asset}…',
+  quoteLocking: 'Reservando este precio…',
+  quoteHeld: 'Precio, comisión e importes reservados durante {left}, hasta las {time}.',
+  quoteEnded: 'Esta cotización terminó a las {time}. Pide una nueva para hacer el pedido.',
+  quoteRenew: 'Pedir una cotización nueva',
   failOwnOffer: 'No puedes hacer un pedido sobre tu propia oferta.',
   failUnavailable: 'Esta oferta ya no admite pedidos. No se hizo nada.',
   failBlocked: 'No puedes hacer un pedido con este miembro.',
@@ -352,6 +477,10 @@ const es = {
   failVerify: 'Verifica tu identidad para hacer pedidos P2P. No se hizo nada.',
   failVerifyLink: 'Abrir verificación',
   failRegion: 'Los pedidos P2P no están disponibles en tu región. No se hizo nada.',
+  failContact: 'Confirma tu correo electrónico para hacer pedidos P2P. No se hizo nada.',
+  failUnchecked:
+    'No se pudieron comprobar todos tus requisitos para tomar un anuncio, así que no se hizo nada. La lista de arriba dice cuál.',
+  failRisk: 'Acepta el aviso de riesgos y fraude P2P para hacer pedidos. No se hizo nada.',
   failNoRecord:
     'Este dispositivo no puede guardar el registro de seguridad que necesita un pedido, así que no se envió nada. Activa el almacenamiento del navegador e inténtalo de nuevo.',
   failViewChanged: 'Esta página cambió antes de enviar el pedido. Abre la oferta de nuevo.',
@@ -565,6 +694,70 @@ const fr = {
     'Aucune commande avec cette référence n’a été trouvée. La première demande est peut-être encore en route : vérifiez une fois de plus avant de repasser la commande.',
   failTermsChanged: 'L’offre a changé après votre vérification. Rien n’a été passé. Vérifiez les nouvelles conditions et réessayez.',
   failQuoteChanged: 'Le prix ou les frais ont changé après votre vérification. Rien n’a été passé. Vérifiez les nouveaux chiffres.',
+  failQuoteExpired: 'Le devis a pris fin avant que la commande soit passée. Rien n’a été passé. Demandez un nouveau devis.',
+  failOrderCap:
+    'Vous avez déjà {cap} commandes en cours, le maximum autorisé en même temps. Terminez ou annulez-en une pour en passer une autre. Rien n’a été passé.',
+  failOrderCapPlain:
+    'Vous avez déjà le maximum de commandes en cours autorisé en même temps. Terminez ou annulez-en une pour en passer une autre. Rien n’a été passé.',
+  failOrderCapUntil: 'La plus proche atteint son échéance à {time}.',
+  failOrderCapOpen: 'Vos commandes en cours',
+  failOrderCapOrder: 'Commande {ref}',
+  failPairLimit:
+    'Chaque commande sur cette paire est comprise entre {min} et {max} {currency}. Cette limite n’a pas de fin : changez le montant et vérifiez de nouveau. Rien n’a été passé.',
+  failPairLimitPlain:
+    'Ce montant est en dehors des limites de commande de cette paire. Changez le montant et vérifiez de nouveau. Rien n’a été passé.',
+  failVerificationDaily:
+    'Cet achat dépasserait le plafond quotidien de votre niveau de vérification. Il reste {remaining} {currency} aujourd’hui, et le plafond repart à {time}. Rien n’a été passé.',
+  failVerificationLifetime:
+    'Cet achat dépasserait le plafond total de votre niveau de vérification. Il reste {remaining} {currency}, sans date de fin. Un niveau de vérification plus élevé le relève. Rien n’a été passé.',
+  failVerificationMin:
+    'À votre niveau de vérification, un achat est d’au moins {min} {currency}. Cette limite n’a pas de fin. Rien n’a été passé.',
+  failVerificationMax:
+    'À votre niveau de vérification, un achat est d’au plus {max} {currency}. Cette limite n’a pas de fin ; un niveau de vérification plus élevé la relève. Rien n’a été passé.',
+  failVerificationPlain: 'Cette commande dépasse le plafond du niveau de vérification de la personne qui achète. Rien n’a été passé.',
+  failVerificationCurrency:
+    'Les plafonds par niveau de vérification sont publiés dans une autre devise, cette commande ne peut donc pas y être comptée. Rien n’a été passé.',
+  failVerificationRaise: 'Relever votre niveau de vérification',
+  failLimitsUnset:
+    'Les limites de commande de cette annonce n’ont pas pu être vérifiées, aucune commande ne peut donc être passée. Rien n’a été passé.',
+  failMethodRetired:
+    'Ce mode de paiement a été retiré et n’accepte plus de commandes. Ce retrait n’a pas de fin. Choisissez un autre mode sur cette annonce, ou une autre annonce. Rien n’a été passé.',
+  failMethodRetiredRegulation:
+    'Ce mode de paiement a été retiré en raison d’une exigence réglementaire. Ce retrait n’a pas de fin. Choisissez un autre mode sur cette annonce, ou une autre annonce. Rien n’a été passé.',
+  failMethodRetiredProviderWithdrawn:
+    'Ce mode de paiement a été retiré parce que le prestataire de paiement l’a retiré. Ce retrait n’a pas de fin. Choisissez un autre mode sur cette annonce, ou une autre annonce. Rien n’a été passé.',
+  failMethodRetiredFraudRisk:
+    'Ce mode de paiement a été retiré en raison d’un risque de fraude élevé. Ce retrait n’a pas de fin. Choisissez un autre mode sur cette annonce, ou une autre annonce. Rien n’a été passé.',
+  failMethodRetiredLowDemand:
+    'Ce mode de paiement a été retiré parce que trop peu de personnes l’utilisaient. Ce retrait n’a pas de fin. Choisissez un autre mode sur cette annonce, ou une autre annonce. Rien n’a été passé.',
+  failBuyingPaused:
+    'Vous avez annulé {cap} commandes, ou laissé passer leur délai de paiement, en {hours} heures, les achats sont donc en pause jusqu’à {time}. Les ventes ne sont pas en pause. Rien n’a été passé.',
+  failBuyingPausedPlain:
+    'Vous avez annulé trop de commandes, ou laissé passer leur délai de paiement, en peu de temps, les achats sont donc en pause ; les ventes non. Rien n’a été passé.',
+  failStepUp: 'Confirmez cette commande avec votre app d’authentification ou une passkey avant qu’elle soit passée. Rien n’a été passé.',
+  failStepUpExpired:
+    'Votre dernière confirmation a pris fin. Confirmez de nouveau cette commande avec votre app d’authentification ou une passkey. Rien n’a été passé.',
+  failStepUpFailed:
+    'Cette confirmation ne vaut pas pour cette commande. Confirmez-la de nouveau avec un nouveau code ou votre passkey. Rien n’a été passé.',
+  failStepUpUnchecked: 'Votre confirmation n’a pas pu être vérifiée, donc rien n’a été passé. Réessayez dans un moment.',
+  failStepUpSetUp: 'Configurez une app d’authentification ou une passkey dans Sécurité',
+  takeStepUpWhy:
+    'Passer une commande bloque en séquestre les cryptos du vendeur, il faut donc vérifier de nouveau que c’est vous. Une vérification couvre vos prochaines commandes ici pendant dix minutes au plus.',
+  takeStepUpCode: 'Code d’authentification',
+  takeStepUpCodeHint: 'Les 6 chiffres affichés maintenant par votre app d’authentification.',
+  takeStepUpCodeShort: 'Saisissez les 6 chiffres de votre app d’authentification.',
+  takeStepUpNoFactor:
+    'Passer une commande demande votre app d’authentification ou une passkey, et ce compte n’en a aucune. Ajoutez-en une dans Sécurité d’abord ; sans elle la commande est refusée et rien n’est bloqué.',
+  takeStepUpSendWithout: 'Passer la commande',
+  takeStepUpConfirmed: 'Vous avez confirmé ici que c’est vous, cette commande ne demande donc pas d’autre vérification avant {time}.',
+  takeFiatAmount: 'Ou le montant en {fiat}',
+  takeFiatHint:
+    'Le service le convertit en {asset} au prix de cette annonce, arrondi à l’inférieur pour ne jamais payer plus que le montant saisi.',
+  takeFiatConverting: 'Calcul du montant en {asset}…',
+  quoteLocking: 'Blocage de ce prix…',
+  quoteHeld: 'Prix, frais et montants bloqués pendant {left}, jusqu’à {time}.',
+  quoteEnded: 'Ce devis a pris fin à {time}. Demandez un nouveau devis pour passer la commande.',
+  quoteRenew: 'Demander un nouveau devis',
   failOwnOffer: 'Vous ne pouvez pas passer commande sur votre propre offre.',
   failUnavailable: 'Cette offre n’accepte plus de commandes. Rien n’a été passé.',
   failBlocked: 'Vous ne pouvez pas passer commande avec ce membre.',
@@ -576,6 +769,10 @@ const fr = {
   failVerify: 'Vérifiez votre identité pour passer des commandes P2P. Rien n’a été passé.',
   failVerifyLink: 'Ouvrir la vérification',
   failRegion: 'Les commandes P2P ne sont pas disponibles dans votre région. Rien n’a été passé.',
+  failContact: 'Confirmez votre adresse e-mail pour passer des commandes P2P. Rien n’a été passé.',
+  failUnchecked:
+    'Vos conditions pour prendre une annonce n’ont pas toutes pu être vérifiées, donc rien n’a été passé. La liste ci-dessus indique laquelle.',
+  failRisk: 'Acceptez l’avis sur les risques et la fraude P2P pour passer des commandes. Rien n’a été passé.',
   failNoRecord:
     'Cet appareil ne peut pas conserver la trace de sécurité qu’exige une commande : aucune commande n’a donc été envoyée. Activez le stockage du navigateur et réessayez.',
   failViewChanged: 'Cette page a changé avant l’envoi de la commande. Rouvrez l’offre.',

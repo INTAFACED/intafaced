@@ -5,7 +5,7 @@
  * matches title and summary, case-folded; an empty query matches everything. No search service is involved.
  */
 import { ACADEMY_CURRICULUM_PATHS, type AcademyPublicCatalogueSort as PublicCatalogueSort } from '@intafaced/contracts';
-import { AcademyError } from '../errors.js';
+import { publishedCourse } from './course-enrolment.js';
 import { getCurriculumItem, listCurriculum, type CurriculumItemSummary, type CurriculumKind, type CurriculumPath } from './catalog.js';
 
 export function searchPublicCurriculum(input: {
@@ -54,9 +54,8 @@ export async function publicCourse(
   syllabus: CurriculumItemSummary[];
   certificate: string | null;
 }> {
-  const path = COURSES.find((row) => row === slug.trim());
-  const syllabus = path ? listCurriculum({ path }) : [];
-  if (!path || syllabus.length === 0) throw new AcademyError(`Course "${slug}" is not published`, 'academy.course_not_found');
+  const path = publishedCourse(slug);
+  const syllabus = listCurriculum({ path });
   // A lesson the signed-out reader would refuse keeps its objectives behind that refusal; its title stays in the syllabus.
   const open = await Promise.all(syllabus.map((row) => opensSignedOut(row.slug)));
   const outcomes = [...new Set(syllabus.flatMap((row, i) => (open[i] ? (getCurriculumItem(row.slug)?.objectives ?? []) : [])))];

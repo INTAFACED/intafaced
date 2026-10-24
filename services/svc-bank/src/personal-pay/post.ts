@@ -59,3 +59,7 @@ export async function reverseFromRail(
 export function forwardKey(transferId: string): string {
   return bankTransferKey('rail', transferId, 0);
 }
+
+export function reverseKey(transferId: string): string {
+  return bankTransferKey('rail', transferId, 1);
+}
