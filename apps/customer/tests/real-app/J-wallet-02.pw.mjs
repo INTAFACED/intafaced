@@ -10,8 +10,9 @@ import { signIn, signUp, verify } from './desk.mjs';
 // ledger through the customer's own API.
 // "part of #2" covers the switched-off network (the stack keeps TEST USDC on TEST Base off), the unverified person and an
 // unpublished asset; it counts as #2 once the unsupported-case lists are published too.
+// #7 reads the inbox: svc-pay announces the credit (intafaced.pay.deposit_credit.posted) and svc-notify files it once.
 // Not here yet: #1 (custody unset, while this stack has it connected), #2's unsupported-case lists, #4 (labelled extra
-// addresses), #7 (the inbox row) and #8 (funding incident banners).
+// addresses) and #8 (funding incident banners).
 const J = 'J-wallet-02';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ASSET = 'USDT';
@@ -155,6 +156,22 @@ test(`${J} #6 the chain event is delivered three times: one row, one credit, and
   const history = page.locator('section', { has: page.getByRole('heading', { name: 'Your deposits' }) });
   await expect(history.locator('tbody tr')).toHaveCount(1);
   await expect(history.locator('tbody tr')).toContainText(`100 ${ASSET}`);
+});
+
+test(`${J} #7 the credit lands in the inbox once, however often the chain delivered it, and opens the deposit page`, async ({ page }) => {
+  test.setTimeout(90_000);
+  const { account: who, credited } = state();
+  if (!credited) throw new Error(`${J} #5 credited nothing, so there is no notice to read`);
+  await signIn(page, who);
+  const notice = page.locator('.nf-row', { hasText: 'Deposit credited' });
+  // The notice is filed from the bus after the credit; read the inbox again until it is there.
+  await expect(async () => {
+    await page.goto('/notifications');
+    await expect(notice).toHaveCount(1, { timeout: 2_000 });
+  }).toPass({ timeout: 60_000 });
+  await expect(notice).toContainText(`100 ${ASSET} is in your available balance.`);
+  await notice.click();
+  await expect(page).toHaveURL(/\/uc\/recharge$/);
 });
 
 test(`${J}, part of #2 a switched-off network shows the owner's banner and no address; an unverified person is sent to Verification; an unpublished asset says so`, async ({
