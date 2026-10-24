@@ -201,11 +201,20 @@ const sharedPotInviteSchema = z.object({
   expired: z.boolean(),
 });
 const sharedPotSchema = z.object({ id: z.string(), name: z.string(), assetId: z.string() });
+/** The owner's card linked to a pot so its holders can freeze it: four digits and its status, never a number. */
+export const sharedPotCardSchema = z.object({
+  cardId: z.string(),
+  panTail: z.string(),
+  status: z.enum(['active', 'frozen', 'closed']),
+  /** Who froze it; `operator` is the bank, and only the bank lifts that. */
+  frozenBy: z.enum(['owner', 'holder', 'operator']).nullable(),
+});
 export const sharedPotsSchema = z.object({
   terms: z.object({ inviteMinutes: z.number().int().nullable(), peopleCap: z.number().int().nullable() }),
   owned: z.array(
     z.object({
       pot: sharedPotSchema,
+      card: sharedPotCardSchema.nullable(),
       members: z.array(sharedPotMemberSchema),
       invites: z.array(sharedPotInviteSchema.extend({ invitee: sharedPotPersonSchema })),
     }),
@@ -213,6 +222,7 @@ export const sharedPotsSchema = z.object({
   shared: z.array(
     z.object({
       pot: sharedPotSchema.extend({ balance: money }),
+      card: sharedPotCardSchema.nullable(),
       owner: sharedPotPersonSchema,
       role: sharedPotRoleSchema,
       members: z.array(sharedPotMemberSchema),
@@ -222,10 +232,22 @@ export const sharedPotsSchema = z.object({
 });
 export const sharedPotActivitySchema = z.object({
   id: z.string(),
-  kind: z.enum(['invited', 'cancelled', 'joined', 'declined', 'left', 'removed']),
+  kind: z.enum([
+    'invited',
+    'cancelled',
+    'joined',
+    'declined',
+    'left',
+    'removed',
+    'card_linked',
+    'card_unlinked',
+    'card_frozen',
+    'card_unfrozen',
+  ]),
   actor: sharedPotPersonSchema,
   subject: sharedPotPersonSchema.nullable(),
   role: sharedPotRoleSchema.nullable(),
+  card: z.object({ cardId: z.string(), panTail: z.string() }).nullable(),
   at: z.string(),
 });
 
@@ -926,6 +948,9 @@ export const bankWrites = {
   'sharedPots.decline': z.object({ declined: z.literal(true) }),
   'sharedPots.leave': z.object({ left: z.literal(true) }),
   'sharedPots.remove': z.object({ removed: z.literal(true) }),
+  'sharedPots.linkCard': sharedPotCardSchema,
+  'sharedPots.unlinkCard': z.object({ unlinked: z.literal(true) }),
+  'sharedPots.freezeCard': sharedPotCardSchema,
   'ramps.setWithdrawDestination': z.object({ kind: z.string(), ref: z.string() }),
   'ramps.offramp': offrampSchema,
   'business.create': businessSchema,
@@ -1028,6 +1053,10 @@ export function bankWriteForReview(procedure: BankWrite, input: Record<string, u
       }
       case 'spaces.clearBillsPot':
         return (data as z.infer<(typeof bankWrites)['spaces.clearBillsPot']>).spaceId === input.spaceId;
+      case 'sharedPots.linkCard':
+        return (data as z.infer<typeof sharedPotCardSchema>).cardId === input.cardId;
+      case 'sharedPots.freezeCard':
+        return (data as z.infer<typeof sharedPotCardSchema>).status === 'frozen';
       case 'sharedPots.invite': {
         const row = data as z.infer<(typeof bankWrites)['sharedPots.invite']>;
         return row.inviteId === input.inviteId && row.spaceId === input.spaceId && row.role === input.role;

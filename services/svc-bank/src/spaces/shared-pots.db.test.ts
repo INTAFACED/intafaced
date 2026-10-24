@@ -2,7 +2,8 @@
  * BK-acct-09 (J-bank-07 #6): shared pots, through the router. The owner invites a contributor by handle and a viewer by
  * email; an invite past its owner-set lifetime refuses `bank.invite_expired`; a pot shared with the owner-set number of
  * people refuses another invite; the contributor adds money with the same transfer as anyone, while the viewer adding
- * money, and any member taking money out, refuses `bank.space_forbidden` and moves nothing. The log names who did what.
+ * money, and any member taking money out, refuses `bank.space_forbidden` and moves nothing. The log names who did what,
+ * including who froze the owner's card linked to the pot.
  *
  * Postgres (TEST_DATABASE_URL) and a MemoryLedger.
  */
@@ -19,6 +20,7 @@ import { createBankServices, memoryRecipientState, type BankServices } from '../
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { createBankRouter } from '../router.js';
 import { memoryBusinessDirectory, type DirectoryPerson } from '../business/business-directory.js';
+import { cardIssuerFor } from '../cards/issuer.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -54,7 +56,7 @@ const PEOPLE: DirectoryPerson[] = [
 let ledger: MemoryLedger;
 
 beforeEach(async () => {
-  await sql`TRUNCATE bank.shared_pot_activity, bank.shared_pot_members, bank.shared_pot_invites, bank.spaces RESTART IDENTITY CASCADE`;
+  await sql`TRUNCATE bank.shared_pot_activity, bank.shared_pot_cards, bank.shared_pot_members, bank.shared_pot_invites, bank.spaces, bank.cards RESTART IDENTITY CASCADE`;
   ledger = new MemoryLedger();
 });
 
@@ -64,6 +66,7 @@ function services(terms: { minutes?: string; cap?: string } = { minutes: '60', c
     directory: memoryBusinessDirectory(PEOPLE),
     sharedPotInviteMinutes: terms.minutes,
     sharedPotPeopleCap: terms.cap,
+    cards: { issuer: cardIssuerFor('card-sim', { live: false }) },
   });
 }
 
@@ -355,5 +358,165 @@ describe('sharedPots', () => {
       ['invited', 'Olga_Owner', 'Pia_Partner'],
       ['invited', 'Olga_Owner', 'Tom_Third'],
     ]);
+  });
+
+  it('a holder freezes the card linked to the pot and the log names them; a viewer cannot; only the owner links, unlinks and unfreezes', async () => {
+    const bank = services();
+    const pot = await sharedPot(bank);
+    const owner = caller(bank, OWNER);
+    const partner = caller(bank, PARTNER);
+    const viewer = caller(bank, VIEWER);
+    for (const [who, handle, role] of [
+      [partner, 'Pia_Partner', 'contributor'],
+      [viewer, 'Vic_Viewer', 'viewer'],
+    ] as const) {
+      const made = await owner.sharedPots.invite({ inviteId: randomUUID(), spaceId: pot.id, handle, role });
+      await who.sharedPots.accept({ inviteId: made.inviteId });
+    }
+    const cardId = randomUUID();
+    const card = await owner.cards.issue({ cardId, assetId: 'USDT', perAuthorizationLimit: '50' });
+    const theirs = randomUUID();
+    await partner.cards.issue({ cardId: theirs, assetId: 'USDT', perAuthorizationLimit: '50' });
+
+    // No card yet: nothing to freeze. Only the owner links, and only their own card.
+    await expect(partner.sharedPots.freezeCard({ spaceId: pot.id })).rejects.toMatchObject(refused('bank.card_not_found', 'BAD_REQUEST'));
+    await expect(partner.sharedPots.linkCard({ spaceId: pot.id, cardId: theirs })).rejects.toMatchObject(
+      refused('bank.space_not_found', 'NOT_FOUND'),
+    );
+    await expect(owner.sharedPots.linkCard({ spaceId: pot.id, cardId: theirs })).rejects.toMatchObject(
+      refused('bank.card_not_found', 'BAD_REQUEST'),
+    );
+    const linked = await owner.sharedPots.linkCard({ spaceId: pot.id, cardId });
+    expect(linked).toEqual({ cardId, panTail: card.panTail, status: 'active', frozenBy: null });
+    expect(await owner.sharedPots.linkCard({ spaceId: pot.id, cardId })).toEqual(linked);
+    const other = await bank.spaces.create({ userId: OWNER, assetId: 'USDT', name: 'Other TEST' });
+    await expect(owner.sharedPots.linkCard({ spaceId: other.id, cardId })).rejects.toMatchObject(
+      refused('bank.shared_pot_invalid', 'BAD_REQUEST'),
+    );
+    expect((await partner.sharedPots.list({ limit: 50 })).shared[0]!.card).toEqual(linked);
+
+    // A viewer cannot freeze it; a stranger is told the pot is not found; a contributor freezes it.
+    await expect(viewer.sharedPots.freezeCard({ spaceId: pot.id })).rejects.toMatchObject(refused('bank.space_forbidden', 'FORBIDDEN'));
+    await expect(caller(bank, THIRD).sharedPots.freezeCard({ spaceId: pot.id })).rejects.toMatchObject(
+      refused('bank.space_not_found', 'NOT_FOUND'),
+    );
+    // Two holders freezing at once freeze it once: one line in the log. The card records a holder froze it, not its owner.
+    await Promise.all([partner.sharedPots.freezeCard({ spaceId: pot.id }), partner.sharedPots.freezeCard({ spaceId: pot.id })]);
+    expect(await partner.sharedPots.freezeCard({ spaceId: pot.id })).toEqual({ ...linked, status: 'frozen', frozenBy: 'holder' });
+    expect((await owner.cards.list({ limit: 10 })).find((c) => c.id === cardId)!.status).toBe('frozen');
+    expect((await bank.cards.card(cardId)).frozenBy).toBe('holder');
+    // A member cannot lift it through the card's own door; the owner can, and the log names them too.
+    await expect(partner.cards.setStatus({ cardId, status: 'active' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await owner.cards.setStatus({ cardId, status: 'active' });
+    await owner.sharedPots.unlinkCard({ spaceId: pot.id });
+    expect(await owner.sharedPots.unlinkCard({ spaceId: pot.id })).toEqual({ unlinked: true });
+    await expect(partner.sharedPots.freezeCard({ spaceId: pot.id })).rejects.toMatchObject(refused('bank.card_not_found', 'BAD_REQUEST'));
+    // Freezing an unlinked card is not the pot's business.
+    await owner.cards.setStatus({ cardId, status: 'frozen' });
+
+    const log = await viewer.sharedPots.activity({ spaceId: pot.id, limit: 50 });
+    expect(log.slice(0, 4).map((e) => [e.kind, e.actor.handle, e.card?.panTail ?? null])).toEqual([
+      ['card_unlinked', 'Olga_Owner', card.panTail],
+      ['card_unfrozen', 'Olga_Owner', card.panTail],
+      ['card_frozen', 'Pia_Partner', card.panTail],
+      ['card_linked', 'Olga_Owner', card.panTail],
+    ]);
+    expect(log[4]!.card).toBeNull();
+  });
+
+  it('closing a linked card unlinks it, in the log with who closed it', async () => {
+    const bank = services();
+    const pot = await sharedPot(bank);
+    const owner = caller(bank, OWNER);
+    const cardId = randomUUID();
+    await owner.cards.issue({ cardId, assetId: 'USDT', perAuthorizationLimit: '50' });
+    await owner.sharedPots.linkCard({ spaceId: pot.id, cardId });
+    await owner.cards.setStatus({ cardId, status: 'closed' });
+    expect((await owner.sharedPots.list({ limit: 50 })).owned).toEqual([]);
+    expect((await owner.sharedPots.activity({ spaceId: pot.id, limit: 50 })).map((e) => e.kind)).toEqual(['card_unlinked', 'card_linked']);
+    await expect(owner.sharedPots.linkCard({ spaceId: pot.id, cardId })).rejects.toMatchObject(
+      refused('bank.card_not_active', 'BAD_REQUEST'),
+    );
+  });
+
+  it('the bank’s freeze, a replacement and archiving the pot each show in the log; a holder removed meanwhile freezes nothing', async () => {
+    const bank = services();
+    const pot = await sharedPot(bank);
+    const owner = caller(bank, OWNER);
+    const partner = caller(bank, PARTNER);
+    const made = await owner.sharedPots.invite({ inviteId: randomUUID(), spaceId: pot.id, handle: 'Pia_Partner', role: 'contributor' });
+    await partner.sharedPots.accept({ inviteId: made.inviteId });
+    const cardId = randomUUID();
+    await owner.cards.issue({ cardId, assetId: 'USDT', perAuthorizationLimit: '50' });
+    await owner.sharedPots.linkCard({ spaceId: pot.id, cardId });
+
+    // The bank's operator freezes it: the log says the bank did, and the pot shows a freeze only the bank lifts.
+    await bank.cards.setOperatorStatus({
+      cardId,
+      status: 'frozen',
+      reason: 'TEST operator freeze',
+      clientRequestId: randomUUID(),
+      consume: async () => {},
+    });
+    expect((await partner.sharedPots.list({ limit: 50 })).shared[0]!.card).toMatchObject({ status: 'frozen', frozenBy: 'operator' });
+    await bank.cards.setOperatorStatus({
+      cardId,
+      status: 'active',
+      reason: 'TEST operator lifts it',
+      clientRequestId: randomUUID(),
+      consume: async () => {},
+    });
+
+    // Removed between the ask and the freeze: the freeze is refused under the card's lock, and the card stays as it was.
+    await owner.sharedPots.remove({ spaceId: pot.id, userId: PARTNER });
+    await expect(bank.cards.setStatus(cardId, 'frozen', PARTNER)).rejects.toMatchObject({ code: 'bank.space_forbidden' });
+    expect((await bank.cards.card(cardId)).status).toBe('active');
+
+    // A replacement takes the lost card's place in the pot.
+    const replacementId = randomUUID();
+    await owner.cards.replace({ cardId, replacementId, reason: 'lost' });
+    expect((await owner.sharedPots.list({ limit: 50 })).owned[0]!.card).toMatchObject({ cardId: replacementId, status: 'active' });
+
+    // Archiving the pot unlinks the card, so it can be linked to another pot.
+    await bank.spaces.archive(pot.id);
+    const next = await bank.spaces.create({ userId: OWNER, assetId: 'USDT', name: 'Next TEST' });
+    expect(await owner.sharedPots.linkCard({ spaceId: next.id, cardId: replacementId })).toMatchObject({ cardId: replacementId });
+
+    const log = await sql<Array<{ kind: string; actor_user_id: string; card_id: string | null }>>`
+      SELECT kind, actor_user_id, card_id FROM bank.shared_pot_activity WHERE space_id = ${pot.id} AND card_id IS NOT NULL ORDER BY id
+    `;
+    expect(log.map((r) => [r.kind, r.actor_user_id, r.card_id])).toEqual([
+      ['card_linked', OWNER, cardId],
+      ['card_frozen', 'bank', cardId],
+      ['card_unfrozen', 'bank', cardId],
+      ['card_unlinked', OWNER, cardId],
+      ['card_linked', OWNER, replacementId],
+      ['card_unlinked', OWNER, replacementId],
+    ]);
+    const named = await owner.sharedPots.activity({ spaceId: next.id, limit: 50 });
+    expect(named.map((e) => [e.kind, e.actor])).toEqual([['card_linked', { userId: OWNER, handle: 'Olga_Owner' }]]);
+  });
+
+  it('one card is linked to one pot even when asked twice at once, and a card from another programme is never linked', async () => {
+    const bank = services();
+    const pot = await sharedPot(bank);
+    const other = await bank.spaces.create({ userId: OWNER, assetId: 'USDT', name: 'Other TEST' });
+    const owner = caller(bank, OWNER);
+    const cardId = randomUUID();
+    await owner.cards.issue({ cardId, assetId: 'USDT', perAuthorizationLimit: '50' });
+    const both = await Promise.allSettled([
+      owner.sharedPots.linkCard({ spaceId: pot.id, cardId }),
+      owner.sharedPots.linkCard({ spaceId: other.id, cardId }),
+    ]);
+    expect(both.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    const lost = both.find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined;
+    if (lost) expect(lost.reason).toMatchObject(refused('bank.shared_pot_invalid', 'BAD_REQUEST'));
+    const foreign = randomUUID();
+    await owner.cards.issue({ cardId: foreign, assetId: 'USDT', perAuthorizationLimit: '50' });
+    await sql`UPDATE bank.cards SET issuer = 'another-programme' WHERE id = ${foreign}`;
+    const third = await bank.spaces.create({ userId: OWNER, assetId: 'USDT', name: 'Third TEST' });
+    await expect(owner.sharedPots.linkCard({ spaceId: third.id, cardId: foreign })).rejects.toMatchObject(
+      refused('bank.card_not_active', 'BAD_REQUEST'),
+    );
   });
 });

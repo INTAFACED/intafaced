@@ -24,8 +24,9 @@ import { signIn, signUp, verify } from './desk.mjs';
 // pot from the Spaces page by handle with a viewer and a contributor. The stack publishes TEST terms: an invite lasts two
 // minutes and a pot is shared with two people at most, open invites included. A third invite is refused, the contributor
 // accepts and adds TEST 5 once, the viewer's invite outlives its two minutes and is refused as expired, and once the
-// viewer has joined, adding money or taking it out is refused bank.space_forbidden and nothing moves. The pot's log names
-// who invited and who joined.
+// viewer has joined, adding money or taking it out is refused bank.space_forbidden and nothing moves. The owner links a
+// TEST card to the pot, the contributor freezes it from the pot, the viewer is refused, and the pot's log names who
+// invited, who joined, and who froze the card.
 const J = 'J-bank-07';
 const POT = 'Holiday TEST';
 const BILLS = 'Bills TEST';
@@ -671,9 +672,7 @@ test(`${J} #5 uses instant-access savings: the bank's rate, TEST 10 saved, three
   await expect(card.getByTestId('instant-savings-earned')).toHaveAttribute('data-amount', history.data.total);
 });
 
-// Step 6's first part. It carries no step number until the card-freeze line of the pot's log (the step's last clause)
-// is built, so the journey does not count step 6 as passed before it is whole.
-test(`${J} step 6 (part 1) shares a pot: invites by handle, an invite that expires, a contributor who adds money, a viewer refused bank.space_forbidden, and a log that names who did what`, async ({
+test(`${J} #6 shares a pot: invites by handle, an invite that expires, a contributor who adds money, a viewer refused bank.space_forbidden, and a log that names who froze the pot's card`, async ({
   page,
 }) => {
   test.setTimeout(480_000);
@@ -799,20 +798,59 @@ test(`${J} step 6 (part 1) shares a pot: invites by handle, an invite that expir
   expect(await potBalance()).toBe(held);
   expect(await mainOf(viewer)).toBe(viewerHeld);
 
-  // The pot's log, read by its owner in the app, names who did each thing.
+  // The owner links a TEST card to the pot from the Spaces page, so the pot's holders can freeze it.
+  const cardId = randomUUID();
+  const issued = await api.mutate('cards.issue', { cardId, assetId: 'USDT', perAuthorizationLimit: '50', cardType: 'virtual' });
+  expect(issued.ok, JSON.stringify(issued.body ?? {}).slice(0, 300)).toBe(true);
+  const tail = issued.data.panTail;
+  await signOutBrowser(page.context());
+  await signIn(page, who);
+  await page.goto('/bank/spaces');
+  await mine.getByRole('button', { name: 'Link a card', exact: true }).click();
+  const link = page.getByRole('dialog');
+  await link.getByLabel('Card', { exact: true }).selectOption(cardId);
+  await link.getByRole('button', { name: 'Review' }).click();
+  await confirm(link, 'Link a card');
+  await close(page);
+  await page.reload();
+  await expect(mine.getByTestId('shared-pot-card')).toHaveAttribute('data-status', 'active');
+  await expect(mine.getByTestId('shared-pot-card')).toHaveAttribute('data-tail', tail);
+
+  // The contributor freezes it from the pot: the card stops paying, and only the owner can lift that.
+  await signOutBrowser(page.context());
+  await signIn(page, partner);
+  await page.goto('/bank/spaces');
+  await expect(asPartner.getByTestId('shared-pot-card')).toHaveAttribute('data-status', 'active');
+  await asPartner.getByRole('button', { name: 'Freeze card', exact: true }).click();
+  await confirm(page.getByRole('dialog'), 'Freeze card');
+  await close(page);
+  await page.reload();
+  await expect(asPartner.getByTestId('shared-pot-card')).toHaveAttribute('data-status', 'frozen');
+  await expect(asPartner).toContainText(`Only @${who.handle} can unfreeze it.`);
+  const cards = await api.query('cards.list', { limit: 50 });
+  expect(cards.data.find((c) => c.id === cardId)?.status).toBe('frozen');
+  // The viewer cannot freeze it, and the contributor cannot lift it through the card's own door.
+  expect(await viewerApi.mutate('sharedPots.freezeCard', { spaceId: pot.id })).toMatchObject({ ok: false, code: 'bank.space_forbidden' });
+  expect(await partnerApi.mutate('cards.setStatus', { cardId, status: 'active' })).toMatchObject({ ok: false, status: 403 });
+
+  // The pot's log, read by its owner in the app, names who did each thing, and who froze the card.
   await signOutBrowser(page.context());
   await signIn(page, who);
   await page.goto('/bank/spaces');
   await mine.getByTestId('shared-pot-log').locator('summary').click();
   const lines = mine.getByTestId('shared-pot-log-entry');
-  await expect(lines).toHaveCount(5);
-  await expect(lines.nth(0)).toContainText(`@${viewer.handle} joined as a viewer`);
-  await expect(lines.nth(1)).toContainText(`@${who.handle} invited @${viewer.handle} as a viewer`);
-  await expect(lines.nth(2)).toContainText(`@${partner.handle} joined as a contributor`);
-  await expect(lines.nth(3)).toContainText(`@${who.handle} invited @${partner.handle} as a contributor`);
-  await expect(lines.nth(4)).toContainText(`@${who.handle} invited @${viewer.handle} as a viewer`);
+  await expect(lines).toHaveCount(7);
+  await expect(lines.nth(0)).toContainText(`@${partner.handle} froze the card •••• ${tail}`);
+  await expect(lines.nth(1)).toContainText(`@${who.handle} linked the card •••• ${tail}`);
+  await expect(lines.nth(2)).toContainText(`@${viewer.handle} joined as a viewer`);
+  await expect(lines.nth(3)).toContainText(`@${who.handle} invited @${viewer.handle} as a viewer`);
+  await expect(lines.nth(4)).toContainText(`@${partner.handle} joined as a contributor`);
+  await expect(lines.nth(5)).toContainText(`@${who.handle} invited @${partner.handle} as a contributor`);
+  await expect(lines.nth(6)).toContainText(`@${who.handle} invited @${viewer.handle} as a viewer`);
   const log = await api.query('sharedPots.activity', { spaceId: pot.id, limit: 50 });
   expect(log.data.map((e) => [e.kind, e.actor.handle])).toEqual([
+    ['card_frozen', partner.handle],
+    ['card_linked', who.handle],
     ['joined', viewer.handle],
     ['invited', who.handle],
     ['joined', partner.handle],

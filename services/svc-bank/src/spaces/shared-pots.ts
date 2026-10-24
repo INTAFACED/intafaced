@@ -8,6 +8,7 @@ import {
   type BusinessDirectoryPort,
 } from '../business/business-directory.js';
 import { assertSharedPotsListLimit } from '../owner-list-limit.js';
+import type { CardStatusChange } from '../cards/card-service.js';
 import type { SpaceRecord, SpaceService } from './space-service.js';
 
 /**
@@ -23,6 +24,12 @@ import type { SpaceRecord, SpaceService } from './space-service.js';
  * owner's ledger account, a contributor adds to it with the same transfer as anyone paying into a space, and only the
  * owner takes money out. A viewer moving money into the pot, or any member taking money out, refuses
  * `bank.space_forbidden` (`assertMayAddTo` and `assertMayTakeOut`, called by the transfer doors). Who did what is a row in the pot's activity log, named by handle.
+ *
+ * The owner may link one of their own cards to the pot. Its holders, the owner and its contributors, may then freeze it
+ * when it is lost; a viewer refuses `bank.space_forbidden`. Only the owner unfreezes it, through the card's own door and
+ * its step-up. Every change of a linked card's status, whoever makes it (the owner, a holder, the bank's operator, a
+ * replacement), is a row in the pot's log naming who acted, written in the same transaction as the card's own row
+ * (`noteCardStatus`, CardService's status hook). The card spends as it did: linking moves no money.
  */
 
 export const BANK_SHARED_POT_INVITE_MINUTES_ENV = 'BANK_SHARED_POT_INVITE_MINUTES';
@@ -59,7 +66,12 @@ export interface SharedPotOptions {
   readonly inviteMinutes: () => string | undefined;
   /** `BANK_SHARED_POT_PEOPLE_CAP`, read on each call. */
   readonly peopleCap: () => string | undefined;
+  /** This deployment's card programme. A card from another one is never linked or frozen from a pot. */
+  readonly cardProgramme?: () => { id: string; simulated: boolean };
 }
+
+/** The log's actor for a change the bank's operator made. Never a user id. */
+export const BANK_ACTOR = 'bank';
 
 export interface SharedPotPerson {
   userId: string;
@@ -82,12 +94,36 @@ export interface SharedPotInvite {
   expired: boolean;
 }
 
+export const SHARED_POT_ACTIVITY_KINDS = [
+  'invited',
+  'cancelled',
+  'joined',
+  'declined',
+  'left',
+  'removed',
+  'card_linked',
+  'card_unlinked',
+  'card_frozen',
+  'card_unfrozen',
+] as const;
+
+/** The card linked to a pot, as its people see it: four digits a human recognises it by, and whether it is frozen. */
+export interface SharedPotCard {
+  cardId: string;
+  panTail: string;
+  status: 'active' | 'frozen' | 'closed';
+  /** Who froze it: the owner, a holder of the pot, or the bank (which only the bank lifts). */
+  frozenBy: 'owner' | 'holder' | 'operator' | null;
+}
+
 export interface SharedPotActivityEntry {
   id: string;
-  kind: 'invited' | 'cancelled' | 'joined' | 'declined' | 'left' | 'removed';
+  kind: (typeof SHARED_POT_ACTIVITY_KINDS)[number];
   actor: SharedPotPerson;
   subject: SharedPotPerson | null;
   role: SharedPotRole | null;
+  /** The card a card entry is about; null on a people entry. */
+  card: { cardId: string; panTail: string } | null;
   at: Date;
 }
 
@@ -96,11 +132,18 @@ export interface SharedPotsOverview {
   /** The caller's own live pots shared with anyone or with an invite out, each with its people and open invites. */
   owned: Array<{
     space: SpaceRecord;
+    card: SharedPotCard | null;
     members: SharedPotMember[];
     invites: Array<SharedPotInvite & { invitee: SharedPotPerson }>;
   }>;
   /** Live pots of other people that the caller is a member of. */
-  shared: Array<{ space: SpaceRecord; owner: SharedPotPerson; role: SharedPotRole; members: SharedPotMember[] }>;
+  shared: Array<{
+    space: SpaceRecord;
+    card: SharedPotCard | null;
+    owner: SharedPotPerson;
+    role: SharedPotRole;
+    members: SharedPotMember[];
+  }>;
   /** Invites to the caller never answered, open or expired, for pots still live. */
   invites: Array<SharedPotInvite & { pot: { name: string; assetId: string }; owner: SharedPotPerson }>;
 }
@@ -132,8 +175,25 @@ interface ActivityRow {
   actor_user_id: string;
   subject_user_id: string | null;
   role: SharedPotRole | null;
+  card_id: string | null;
+  pan_tail: string | null;
   at: Date;
 }
+
+interface CardRow {
+  space_id: string;
+  card_id: string;
+  pan_tail: string;
+  status: SharedPotCard['status'];
+  frozen_by: string | null;
+}
+
+const toCard = (row: CardRow): SharedPotCard => ({
+  cardId: row.card_id,
+  panTail: row.pan_tail,
+  status: row.status,
+  frozenBy: row.frozen_by === 'owner' || row.frozen_by === 'holder' || row.frozen_by === 'operator' ? row.frozen_by : null,
+});
 
 const toInvite = (row: InviteRow): SharedPotInvite => ({
   inviteId: row.id,
@@ -432,6 +492,129 @@ export class SharedPotService {
     }
   }
 
+  /**
+   * The owner links one of their own cards, not closed, to one of their live pots. Linking the same card again changes
+   * nothing; a pot that already has another card, or a card already linked to another pot, refuses
+   * `bank.shared_pot_invalid`. Someone else's card is not found. Moves no money.
+   */
+  async linkCard(spaceId: string, ownerUserId: string, cardId: string): Promise<SharedPotCard> {
+    try {
+      return await this.spaces.underRowLock(async (tx) => {
+        await this.spaces.ownPotForUpdate(tx, spaceId, ownerUserId);
+        // No lock on the card: its status changes take the card's row and then this pot's, so locking it here, after the
+        // pot, could deadlock with them. A card closed meanwhile is unlinked by its own close.
+        const [card] = await tx<Array<CardRow & { user_id: string; issuer: string; simulated: boolean }>>`
+          SELECT id AS card_id, user_id, pan_tail, status, frozen_by, issuer, simulated FROM bank.cards WHERE id = ${cardId}::uuid
+        `;
+        if (!card || card.user_id !== ownerUserId) throw new BankError(`Card ${cardId} not found`, 'bank.card_not_found');
+        if (card.status === 'closed') throw new BankError('A closed card cannot be linked', 'bank.card_not_active');
+        this.assertProgramme(card);
+        const [held] = await tx<Array<{ space_id: string; card_id: string }>>`
+          SELECT space_id, card_id FROM bank.shared_pot_cards WHERE space_id = ${spaceId}::uuid OR card_id = ${cardId}::uuid
+        `;
+        const linked = toCard({ ...card, space_id: spaceId });
+        if (held) {
+          if (held.space_id === spaceId && held.card_id === cardId) return linked;
+          throw taken(held.space_id === spaceId);
+        }
+        await tx`INSERT INTO bank.shared_pot_cards (space_id, card_id) VALUES (${spaceId}::uuid, ${cardId}::uuid)`;
+        await tx`
+          INSERT INTO bank.shared_pot_activity (space_id, actor_user_id, kind, card_id)
+          VALUES (${spaceId}::uuid, ${ownerUserId}, 'card_linked', ${cardId}::uuid)
+        `;
+        return linked;
+      });
+    } catch (err) {
+      // The same card linked to two pots at once: the second meets the one-pot-per-card rule in the database.
+      if ((err as { code?: string }).code === '23505') throw taken(false);
+      throw err;
+    }
+  }
+
+  /** A card from another programme is never changed from a pot: its status change would go to the wrong issuer. */
+  private assertProgramme(card: { issuer: string; simulated: boolean }): void {
+    const programme = this.options.cardProgramme?.();
+    if (!programme || card.issuer !== programme.id || card.simulated !== programme.simulated) {
+      throw new BankError('This card belongs to another card programme, so it cannot be used from a pot', 'bank.card_not_active');
+    }
+  }
+
+  /** The owner unlinks the pot's card. No card linked changes nothing. The card itself is untouched. */
+  async unlinkCard(spaceId: string, ownerUserId: string): Promise<{ unlinked: true }> {
+    return this.spaces.underRowLock(async (tx) => {
+      await this.spaces.ownPotForUpdate(tx, spaceId, ownerUserId);
+      const gone = await tx<Array<{ card_id: string }>>`
+        DELETE FROM bank.shared_pot_cards WHERE space_id = ${spaceId}::uuid RETURNING card_id
+      `;
+      if (gone[0]) {
+        await tx`
+          INSERT INTO bank.shared_pot_activity (space_id, actor_user_id, kind, card_id)
+          VALUES (${spaceId}::uuid, ${ownerUserId}, 'card_unlinked', ${gone[0].card_id}::uuid)
+        `;
+      }
+      return { unlinked: true as const };
+    });
+  }
+
+  /**
+   * The card a holder of this pot may freeze: the owner's or a contributor's ask. A viewer refuses
+   * `bank.space_forbidden`; anyone else is told the pot is not found; a pot with no card, `bank.card_not_found`.
+   */
+  async cardToFreeze(spaceId: string, userId: string): Promise<string> {
+    const pot = await this.spaces.find(spaceId);
+    const role = pot && pot.userId !== userId ? await this.roleOf(spaceId, userId) : null;
+    if (!pot || pot.archivedAt || (pot.userId !== userId && role === null)) {
+      throw new BankError(`Space ${spaceId} not found`, 'bank.space_not_found');
+    }
+    if (role === 'viewer') {
+      throw new BankError('A viewer of a shared pot can see its card but cannot freeze it', 'bank.space_forbidden');
+    }
+    const [link] = await this.sql<Array<{ card_id: string; issuer: string; simulated: boolean }>>`
+      SELECT pc.card_id, c.issuer, c.simulated
+        FROM bank.shared_pot_cards pc JOIN bank.cards c ON c.id = pc.card_id
+       WHERE pc.space_id = ${spaceId}::uuid
+    `;
+    if (!link) throw new BankError('No card is linked to this pot', 'bank.card_not_found');
+    this.assertProgramme(link);
+    return link.card_id;
+  }
+
+  /**
+   * CardService's status hook: a linked card's change is a row in its pot's log naming who made it, in the card's own
+   * transaction. A person other than the card's owner must still be a contributor of the pot the card is linked to when
+   * the freeze lands; otherwise the change is refused and rolled back. A closed card is unlinked, and the card that
+   * replaces it, if any, takes its place. A card linked to no pot changes nothing here.
+   */
+  async noteCardStatus(tx: Sql, change: CardStatusChange): Promise<void> {
+    const [link] = await tx<Array<{ space_id: string }>>`
+      SELECT space_id FROM bank.shared_pot_cards WHERE card_id = ${change.cardId}::uuid
+    `;
+    const actor = change.actor === 'operator' ? BANK_ACTOR : change.actor.userId;
+    if (actor !== BANK_ACTOR && actor !== change.ownerUserId) {
+      // Checked again under the card's row lock: removed, unlinked or made a viewer since the ask, the freeze is refused.
+      if (!link) throw new BankError('No card is linked to this pot', 'bank.card_not_found');
+      if ((await this.roleOf(link.space_id, actor, tx)) !== 'contributor') {
+        throw new BankError('Only the owner and contributors of a shared pot can freeze its card', 'bank.space_forbidden');
+      }
+    }
+    if (!link) return;
+    const log = (kind: SharedPotActivityEntry['kind'], cardId: string) => tx`
+      INSERT INTO bank.shared_pot_activity (space_id, actor_user_id, kind, card_id)
+      VALUES (${link.space_id}::uuid, ${actor}, ${kind}, ${cardId}::uuid)
+    `;
+    if (change.status !== 'closed') {
+      await log(change.status === 'frozen' ? 'card_frozen' : 'card_unfrozen', change.cardId);
+      return;
+    }
+    await log('card_unlinked', change.cardId);
+    if (change.replacementCardId) {
+      await tx`UPDATE bank.shared_pot_cards SET card_id = ${change.replacementCardId}::uuid, linked_at = now() WHERE card_id = ${change.cardId}::uuid`;
+      await log('card_linked', change.replacementCardId);
+    } else {
+      await tx`DELETE FROM bank.shared_pot_cards WHERE card_id = ${change.cardId}::uuid`;
+    }
+  }
+
   /** What the caller shares, what is shared with them and the invites they have not answered, each list one page long. */
   async overview(userId: string, limit: number | undefined): Promise<SharedPotsOverview> {
     const page = assertSharedPotsListLimit(limit);
@@ -439,6 +622,7 @@ export class SharedPotService {
       SELECT s.id FROM bank.spaces s
        WHERE s.user_id = ${userId} AND s.kind = 'named' AND s.archived_at IS NULL
          AND (EXISTS (SELECT 1 FROM bank.shared_pot_members m WHERE m.space_id = s.id)
+              OR EXISTS (SELECT 1 FROM bank.shared_pot_cards c WHERE c.space_id = s.id)
               OR EXISTS (SELECT 1 FROM bank.shared_pot_invites i
                           WHERE i.space_id = s.id AND i.accepted_at IS NULL AND i.declined_at IS NULL AND i.cancelled_at IS NULL))
        ORDER BY s.created_at, s.id
@@ -480,6 +664,17 @@ export class SharedPotService {
            ORDER BY created_at DESC, id
         `
       : [];
+    const linked = potIds.length
+      ? await this.sql<CardRow[]>`
+          SELECT pc.space_id, c.id AS card_id, c.pan_tail, c.status, c.frozen_by
+            FROM bank.shared_pot_cards pc JOIN bank.cards c ON c.id = pc.card_id
+           WHERE pc.space_id = ANY(${potIds}::uuid[])
+        `
+      : [];
+    const cardOf = (spaceId: string): SharedPotCard | null => {
+      const row = linked.find((c) => c.space_id === spaceId);
+      return row ? toCard(row) : null;
+    };
     const ids = [...new Set([...potIds, ...inviteRows.map((r) => r.space_id)])];
     const pots = new Map<string, SpaceRecord>((await Promise.all(ids.map((id) => this.spaces.get(id)))).map((pot) => [pot.id, pot]));
     const names = await this.names([
@@ -495,12 +690,13 @@ export class SharedPotService {
       terms: this.terms(),
       owned: ownedIds.map((id) => ({
         space: pots.get(id)!,
+        card: cardOf(id),
         members: membersOf(id),
         invites: openOut.filter((i) => i.space_id === id).map((i) => ({ ...toInvite(i), invitee: person(i.invitee_user_id) })),
       })),
       shared: sharedRows.map((r) => {
         const space = pots.get(r.space_id)!;
-        return { space, owner: person(space.userId), role: r.role, members: membersOf(r.space_id) };
+        return { space, card: cardOf(r.space_id), owner: person(space.userId), role: r.role, members: membersOf(r.space_id) };
       }),
       invites: inviteRows.map((i) => {
         const pot = pots.get(i.space_id)!;
@@ -517,13 +713,15 @@ export class SharedPotService {
       throw new BankError(`Space ${spaceId} not found`, 'bank.space_not_found');
     }
     const rows = await this.sql<ActivityRow[]>`
-      SELECT id::text, kind, actor_user_id, subject_user_id, role, at
-        FROM bank.shared_pot_activity
-       WHERE space_id = ${spaceId}::uuid ${before === undefined ? this.sql`` : this.sql`AND id < ${before}::bigint`}
-       ORDER BY id DESC
+      SELECT a.id::text, a.kind, a.actor_user_id, a.subject_user_id, a.role, a.card_id, c.pan_tail, a.at
+        FROM bank.shared_pot_activity a LEFT JOIN bank.cards c ON c.id = a.card_id
+       WHERE a.space_id = ${spaceId}::uuid ${before === undefined ? this.sql`` : this.sql`AND a.id < ${before}::bigint`}
+       ORDER BY a.id DESC
        LIMIT ${page}
     `;
-    const names = await this.names(rows.flatMap((r) => (r.subject_user_id ? [r.actor_user_id, r.subject_user_id] : [r.actor_user_id])));
+    const names = await this.names(
+      rows.flatMap((r) => [r.actor_user_id, ...(r.subject_user_id ? [r.subject_user_id] : [])]).filter((id) => id !== BANK_ACTOR),
+    );
     const person = (id: string): SharedPotPerson => ({ userId: id, handle: names.get(id) ?? null });
     return rows.map((r) => ({
       id: r.id,
@@ -531,6 +729,7 @@ export class SharedPotService {
       actor: person(r.actor_user_id),
       subject: r.subject_user_id ? person(r.subject_user_id) : null,
       role: r.role,
+      card: r.card_id ? { cardId: r.card_id, panTail: r.pan_tail ?? '' } : null,
       at: r.at,
     }));
   }
@@ -565,4 +764,11 @@ function directoryError(err: unknown): never {
     throw new BankError('svc-bank cannot read handles, so shared pots cannot name anyone', 'bank.business_directory_unset');
   }
   throw new BankError('svc-identity did not answer for handles; try again', 'bank.business_directory_unavailable');
+}
+
+function taken(thisPot: boolean): BankError {
+  return new BankError(
+    thisPot ? 'This pot already has a linked card; unlink it first' : 'This card is linked to another pot',
+    'bank.shared_pot_invalid',
+  );
 }

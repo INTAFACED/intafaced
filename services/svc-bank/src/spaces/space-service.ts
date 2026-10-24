@@ -605,9 +605,19 @@ export class SpaceService {
     }
     // An archived space pays no bills: the bills pot role ends in the same transaction, under the row lock that
     // `BillsPotService.set` takes, so a racing set either lands first and is ended here or finds the space archived.
+    // Its linked card (BK-acct-09) is unlinked the same way, with a line in its log, so the card can be linked again.
     await this.underRowLock(async (tx) => {
       await tx`UPDATE bank.spaces SET archived_at = now(), updated_at = now() WHERE id = ${spaceId}`;
       await tx`DELETE FROM bank.bills_pots WHERE space_id = ${spaceId}::uuid`;
+      const unlinked = await tx<Array<{ card_id: string }>>`
+        DELETE FROM bank.shared_pot_cards WHERE space_id = ${spaceId}::uuid RETURNING card_id
+      `;
+      for (const { card_id } of unlinked) {
+        await tx`
+          INSERT INTO bank.shared_pot_activity (space_id, actor_user_id, kind, card_id)
+          VALUES (${spaceId}::uuid, ${space.userId}, 'card_unlinked', ${card_id}::uuid)
+        `;
+      }
     });
   }
 
