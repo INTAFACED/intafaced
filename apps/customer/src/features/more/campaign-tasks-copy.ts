@@ -186,7 +186,8 @@ const fr = {
   'campaigns.kyc_required': 'Cette récompense demande {gate} avant d’être réclamée. Cette campagne ne garde rien de vos documents.',
   'campaigns.claim_expired': 'Le délai pour réclamer est fermé : cette récompense est perdue.',
   'campaigns.budget_exhausted': 'Le budget de cette campagne n’a plus de place pour une autre récompense.',
-  'campaigns.reward_saga_unwired': 'Les récompenses ne peuvent pas être payées pour l’instant : les paiements ne sont pas connectés. Rien n’a été réclamé.',
+  'campaigns.reward_saga_unwired':
+    'Les récompenses ne peuvent pas être payées pour l’instant : les paiements ne sont pas connectés. Rien n’a été réclamé.',
   'campaigns.participant_unread': 'Votre compte n’a pas pu être vérifié pour cette réclamation. Rien n’a été réclamé ; réessayez.',
   'campaigns.claim_window_unset': 'Cette campagne n’a pas de délai pour réclamer : rien ne peut être réclamé.',
   'campaigns.reward_unset': 'Cette campagne n’a pas de récompense définie : rien ne peut être réclamé.',

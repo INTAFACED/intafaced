@@ -45,7 +45,8 @@ const participants = participantsWired
   ? createParticipantClient(env.IDENTITY_URL!, env.INTERNAL_SERVICE_SECRET!, s2sKey)
   : { read: async () => null };
 const campaigns = new CampaignService({ sql, timeZone: () => timeZone, participants });
-const ledger = env.LEDGER_URL && env.INTERNAL_SERVICE_SECRET ? createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : null;
+const ledger =
+  env.LEDGER_URL && env.INTERNAL_SERVICE_SECRET ? createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : null;
 const reconcileAfterSeconds = env.CAMPAIGNS_RECONCILE_AFTER_SECONDS ?? null;
 const saga = ledger ? new PayoutSaga({ sql, ledger, reconcileAfterSeconds }) : null;
 const markets = env.TRADE_URL ? createMarketNames({ tradeUrl: env.TRADE_URL }) : null;

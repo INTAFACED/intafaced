@@ -38,8 +38,7 @@ export const REWARD_REASON = 'campaigns.task.reward';
 const RETRYABLE = ['qualified', 'pending_funding', 'pending_retry', 'unknown'] as const;
 
 export type PostAnswer =
-  | { state: 'posted'; txId: string }
-  | { state: 'pending_funding' | 'pending_retry' | 'unknown' | 'failed'; reason: string };
+  { state: 'posted'; txId: string } | { state: 'pending_funding' | 'pending_retry' | 'unknown' | 'failed'; reason: string };
 
 type IntentRow = {
   reward_key: string;

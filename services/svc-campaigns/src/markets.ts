@@ -11,11 +11,7 @@ export interface MarketNames {
 /** svc-trade's own cap on one market list read. */
 const MAX_MARKETS = 500;
 
-export function createMarketNames(options: {
-  tradeUrl: string;
-  timeoutMs?: number;
-  fetch?: typeof fetch;
-}): MarketNames {
+export function createMarketNames(options: { tradeUrl: string; timeoutMs?: number; fetch?: typeof fetch }): MarketNames {
   const doFetch = options.fetch ?? fetch;
   const known = new Map<string, string>();
   const read = async () => {

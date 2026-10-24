@@ -101,10 +101,7 @@ export const rewardKeyOf = (campaignId: string, accountId: string, period: strin
  * Whether one step counts this fill. `symbol` is the listed symbol of the fill's market (`BTC/USDT`), null when it could
  * not be named: then only a step for any market counts it.
  */
-export function stepMatches(
-  step: CampaignTasks['steps'][number],
-  fill: Pick<FillEvent, 'side'> & { symbol: string | null },
-): boolean {
+export function stepMatches(step: CampaignTasks['steps'][number], fill: Pick<FillEvent, 'side'> & { symbol: string | null }): boolean {
   if (step.event !== 'trade.fill') return false;
   if (step.market && step.market !== fill.symbol) return false;
   if (step.side && step.side !== fill.side) return false;
@@ -213,7 +210,8 @@ export class TaskService {
       const n = Math.min(done.get(index) ?? 0, s.count);
       return { index, title: s.title, done: n, target: s.count, complete: n >= s.count };
     });
-    const closes = completion && tasks.claimWindowSeconds ? new Date(completion.completed_at.getTime() + tasks.claimWindowSeconds * 1000) : null;
+    const closes =
+      completion && tasks.claimWindowSeconds ? new Date(completion.completed_at.getTime() + tasks.claimWindowSeconds * 1000) : null;
     return {
       campaignId: row.id,
       joined: Boolean(joined),
@@ -247,8 +245,10 @@ export class TaskService {
     ]);
     if (!joined) throw new CampaignsError('campaigns.not_joined', 'Join this campaign before you claim');
     if (!completion) throw new CampaignsError('campaigns.tasks_incomplete', 'Every step must be done before you claim');
-    if (!row.reward_asset || row.reward_amount === null) throw new CampaignsError('campaigns.reward_unset', 'This campaign has no reward set');
-    if (tasks.claimWindowSeconds === null) throw new CampaignsError('campaigns.claim_window_unset', 'This campaign has no claim window set');
+    if (!row.reward_asset || row.reward_amount === null)
+      throw new CampaignsError('campaigns.reward_unset', 'This campaign has no reward set');
+    if (tasks.claimWindowSeconds === null)
+      throw new CampaignsError('campaigns.claim_window_unset', 'This campaign has no claim window set');
     const now = this.now();
     const closes = new Date(completion.completed_at.getTime() + tasks.claimWindowSeconds * 1000);
     if (now >= closes) {
@@ -321,12 +321,19 @@ export class TaskService {
   }
 
   /** One operator asks for a sweep of earned fees into the reward pot. The reference is the business key. */
-  async requestFunding(input: { reference: string; sourceModule: 'trade'; asset: string; amount: unknown; actor: string }): Promise<PotFunding> {
+  async requestFunding(input: {
+    reference: string;
+    sourceModule: 'trade';
+    asset: string;
+    amount: unknown;
+    actor: string;
+  }): Promise<PotFunding> {
     if (typeof input.amount === 'number' || typeof input.amount === 'bigint') {
       throw new CampaignsError('campaigns.number_on_wire', 'The amount must be a decimal string, not a number');
     }
     const amount = typeof input.amount === 'string' ? input.amount.trim() : '';
-    if (!DECIMAL.test(amount) || !/[1-9]/.test(amount)) throw new CampaignsError('campaigns.budget_unset', 'The amount must be a positive decimal');
+    if (!DECIMAL.test(amount) || !/[1-9]/.test(amount))
+      throw new CampaignsError('campaigns.budget_unset', 'The amount must be a positive decimal');
     const asset = input.asset.trim().toUpperCase();
     if (!ASSET.test(asset)) throw new CampaignsError('campaigns.budget_unset', 'The asset is not an asset symbol');
     return transaction(this.sql, async (tx) => {
@@ -336,7 +343,9 @@ export class TaskService {
         ON CONFLICT (reference) DO NOTHING
         RETURNING *, amount::text AS amount`;
       if (!made) {
-        const [first] = await tx<FundingRow[]>`SELECT *, amount::text AS amount FROM campaigns.pot_fundings WHERE reference = ${input.reference}`;
+        const [first] = await tx<
+          FundingRow[]
+        >`SELECT *, amount::text AS amount FROM campaigns.pot_fundings WHERE reference = ${input.reference}`;
         // The same request sent again by the same person returns it; anything else is a different request.
         if (
           first &&
@@ -360,7 +369,9 @@ export class TaskService {
   async approveFunding(input: { reference: string; actor: string }): Promise<PotFunding> {
     if (!this.saga) throw new CampaignsError('campaigns.reward_saga_unwired', 'The pot cannot be funded: the ledger is not connected');
     const approved = await transaction(this.sql, async (tx) => {
-      const [row] = await tx<FundingRow[]>`SELECT *, amount::text AS amount FROM campaigns.pot_fundings WHERE reference = ${input.reference} FOR UPDATE`;
+      const [row] = await tx<
+        FundingRow[]
+      >`SELECT *, amount::text AS amount FROM campaigns.pot_fundings WHERE reference = ${input.reference} FOR UPDATE`;
       if (!row) throw new CampaignsError('campaigns.funding_unknown', 'No such funding request');
       if (row.state !== 'requested') {
         if (row.approved_by !== input.actor) {
@@ -380,12 +391,16 @@ export class TaskService {
       return true;
     });
     if (approved) await this.saga.fund(input.reference);
-    const [now] = await this.sql<FundingRow[]>`SELECT *, amount::text AS amount FROM campaigns.pot_fundings WHERE reference = ${input.reference}`;
+    const [now] = await this.sql<
+      FundingRow[]
+    >`SELECT *, amount::text AS amount FROM campaigns.pot_fundings WHERE reference = ${input.reference}`;
     return toFunding(now!);
   }
 
   async fundings(): Promise<PotFunding[]> {
-    const rows = await this.sql<FundingRow[]>`SELECT *, amount::text AS amount FROM campaigns.pot_fundings ORDER BY created_at DESC LIMIT 200`;
+    const rows = await this.sql<
+      FundingRow[]
+    >`SELECT *, amount::text AS amount FROM campaigns.pot_fundings ORDER BY created_at DESC LIMIT 200`;
     return rows.map(toFunding);
   }
 

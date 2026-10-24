@@ -141,8 +141,19 @@ let clock: Date | null = null;
 
 /** Earned trade fees the pot can be funded from: a TEST customer pays a fee into the trade fee account. */
 async function earnFees(amount: string) {
-  await book.post(recipes.deposit({ userId: FUNDER, assetId: 'USDT', amount: parseAmount(amount), rail: 'test', railRef: `fees-${amount}-${fills}` }));
-  await book.post(recipes.feeCharge({ chargeId: `test-${amount}-${fills}`, userId: FUNDER, module: 'trade', mode: 'asset', assetId: 'USDT', amount: parseAmount(amount) }));
+  await book.post(
+    recipes.deposit({ userId: FUNDER, assetId: 'USDT', amount: parseAmount(amount), rail: 'test', railRef: `fees-${amount}-${fills}` }),
+  );
+  await book.post(
+    recipes.feeCharge({
+      chargeId: `test-${amount}-${fills}`,
+      userId: FUNDER,
+      module: 'trade',
+      mode: 'asset',
+      assetId: 'USDT',
+      amount: parseAmount(amount),
+    }),
+  );
 }
 
 async function fundPot(reference: string, amount: string) {
@@ -240,7 +251,7 @@ if (!db) {
       expect((await tasks.progress({ campaignId: c.id, accountId: ME })).steps.map((s) => s.done)).toEqual([1, 0, 2]);
     });
 
-    it('counts a market step only when the fill\'s market can be named; an unreachable list leaves the fill to come again', async () => {
+    it("counts a market step only when the fill's market can be named; an unreachable list leaves the fill to come again", async () => {
       const c = await joined();
       // A market id the list does not hold counts only for the any-market step.
       await tasks.onFill(fill(ME, { marketId: '0b6f6a8e-4d1c-4f7a-9a31-5c2e7d9b1aff' }));
@@ -396,9 +407,9 @@ if (!db) {
       await tasks.requestFunding({ reference: 'TEST-pot-5', sourceModule: 'trade', asset: 'USDT', amount: '5', actor: A });
       const out = await tasks.approveFunding({ reference: 'TEST-pot-5', actor: B });
       expect(out).toMatchObject({ state: 'refused', reason: 'ledger.insufficient_funds', ledgerTxId: null });
-      expect(await code(tasks.requestFunding({ reference: 'TEST-pot-5', sourceModule: 'trade', asset: 'USDT', amount: '6', actor: A }))).toBe(
-        'campaigns.funding_reference_taken',
-      );
+      expect(
+        await code(tasks.requestFunding({ reference: 'TEST-pot-5', sourceModule: 'trade', asset: 'USDT', amount: '6', actor: A })),
+      ).toBe('campaigns.funding_reference_taken');
       expect(await code(tasks.requestFunding({ reference: 'TEST-pot-6', sourceModule: 'trade', asset: 'USDT', amount: 5, actor: A }))).toBe(
         'campaigns.number_on_wire',
       );
@@ -423,7 +434,7 @@ describe('task rules', () => {
     expect(stepMatches(STEPS.steps[2]!, { symbol: null, side: 'sell' })).toBe(true);
   });
 
-  it('names a fill\'s market from the market list once, and throws when the list is unreachable', async () => {
+  it("names a fill's market from the market list once, and throws when the list is unreachable", async () => {
     let reads = 0;
     const names = createMarketNames({
       tradeUrl: 'http://trade.test',

@@ -90,7 +90,11 @@ function setup(schedule: string | undefined = undefined) {
     campaigns,
     tasks,
     api: (c: Context) =>
-      createCampaignsRouter(drops as unknown as DropService, campaigns as unknown as CampaignService, tasks as unknown as TaskService).createCaller(c),
+      createCampaignsRouter(
+        drops as unknown as DropService,
+        campaigns as unknown as CampaignService,
+        tasks as unknown as TaskService,
+      ).createCaller(c),
   };
 }
 

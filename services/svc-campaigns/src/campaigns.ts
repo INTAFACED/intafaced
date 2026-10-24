@@ -362,7 +362,13 @@ export function parseDefinition(input: CampaignDefinitionInput): Definition {
 function parseTasks(type: CampaignType, input: CampaignTasks): CampaignTasks {
   if (type !== 'task') throw new CampaignsError('campaigns.tasks_invalid', 'Only a task campaign has steps');
   return {
-    steps: input.steps.map((s) => ({ title: s.title.trim(), event: s.event, market: s.market ?? null, side: s.side ?? null, count: s.count })),
+    steps: input.steps.map((s) => ({
+      title: s.title.trim(),
+      event: s.event,
+      market: s.market ?? null,
+      side: s.side ?? null,
+      count: s.count,
+    })),
     claimWindowSeconds: input.claimWindowSeconds,
     kycGate: input.kycGate,
   };

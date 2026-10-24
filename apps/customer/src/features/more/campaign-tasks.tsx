@@ -96,7 +96,9 @@ export function CampaignTasks({ campaign }: { campaign: CampaignView }) {
               label: t('claimWindow'),
               value: (
                 <span data-testid="task-claim-window">
-                  {tasks.claimWindowSeconds ? t('claimWindowValue', { duration: duration(tasks.claimWindowSeconds) }) : t('claimWindowUnset')}
+                  {tasks.claimWindowSeconds
+                    ? t('claimWindowValue', { duration: duration(tasks.claimWindowSeconds) })
+                    : t('claimWindowUnset')}
                 </span>
               ),
             },

@@ -75,7 +75,10 @@ async function liveCampaign(name, tasks) {
   const made = data(await ctx.edge.mutate('campaigns', 'ops.campaigns.create', definition(name, tasks), a), 'ops.campaigns.create');
   data(await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: made.id, action: 'submit', revision: 1 }, a), 'submit');
   data(await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: made.id, action: 'approve', revision: 1 }, b), 'approve');
-  const live = data(await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: made.id, action: 'activate', revision: 1 }, a), 'activate');
+  const live = data(
+    await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: made.id, action: 'activate', revision: 1 }, a),
+    'activate',
+  );
   expect(live.state).toBe('active');
   return live;
 }
@@ -85,7 +88,10 @@ async function fundPot(reference, amount) {
   const { ctx, pair } = await operators();
   const a = await pair.a.campaignsOpsToken();
   const b = await pair.b.campaignsOpsToken();
-  data(await ctx.edge.mutate('campaigns', 'ops.pot.request', { reference, sourceModule: 'trade', asset: 'USDT', amount }, a), 'ops.pot.request');
+  data(
+    await ctx.edge.mutate('campaigns', 'ops.pot.request', { reference, sourceModule: 'trade', asset: 'USDT', amount }, a),
+    'ops.pot.request',
+  );
   const self = await ctx.edge.mutate('campaigns', 'ops.pot.approve', { reference }, a);
   expect(self.json?.error?.message ?? '').toContain('campaigns.second_person_required');
   const funded = data(await ctx.edge.mutate('campaigns', 'ops.pot.approve', { reference }, b), 'ops.pot.approve');
