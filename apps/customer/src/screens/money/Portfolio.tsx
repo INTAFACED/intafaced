@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { useContext, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Eye, EyeOff } from 'lucide-react';
 import { AllocationBar } from './allocation-chart';
 import { assetName, moneyCopy } from './copy';
@@ -52,22 +52,14 @@ import {
   type NamedAccount,
 } from './portfolio-source';
 import { DerivedTotalNote } from './total-note';
-import { USD_UNIT, changeText, valueText, type ValueUnit } from './display-unit';
+import { USD_UNIT, UnitContext, changeText, useValueText, type ValueUnit } from './display-unit';
 import { Movers } from './Movers';
 import { fmtCoinPrice } from './price-text';
 import { ValuationNote } from './ValuationNote';
+import { HoldingsChange } from './HoldingsChange';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
-
-/** The unit every value on the screen is shown in (USD, or BTC at the bank's own BTC price). */
-const UnitContext = createContext<ValueUnit>(USD_UNIT);
-
-/** A USD value as the screen shows it, in the chosen unit. */
-function useValueText(): (usd: string | null) => string | null {
-  const unit = useContext(UnitContext);
-  return (usd) => valueText(unit, usd, fmtUsd);
-}
 
 /** A change line (amount and percent) in the chosen unit. */
 function useChangeText(): (usd: string | null, pct: string | null) => string {
@@ -654,13 +646,17 @@ export default function Portfolio() {
     );
   } else if (portfolio.status === 'empty' || !view) {
     body = (
-      <StateBlock
-        kind="empty"
-        className="money-state"
-        title={t('Nothing held')}
-        body={t('Nothing held body')}
-        action={buyTarget ? { label: t('Buy crypto'), href: buyTarget } : undefined}
-      />
+      <>
+        <StateBlock
+          kind="empty"
+          className="money-state"
+          title={t('Nothing held')}
+          body={t('Nothing held body')}
+          action={buyTarget ? { label: t('Buy crypto'), href: buyTarget } : undefined}
+        />
+        {/* Nothing held now can still have been held at the start of the range. */}
+        {!scoped && portfolio.status === 'empty' ? <HoldingsChange hidden={hideBalances} /> : null}
+      </>
     );
   } else {
     body = (
@@ -708,6 +704,8 @@ export default function Portfolio() {
           }
         />
         <ValuationNote view={view} copy={copy} refreshMs={SUMMARY_INTERVAL} timeZone={timeZone} />
+        {/* Main account and spaces together, so it is shown for all accounts only. */}
+        {!scoped ? <HoldingsChange hidden={hideBalances} /> : null}
         {!scoped && accounts.status === 'ready' && accounts.data.some((account) => (dec(account.balance) ?? 0n) > 0n) ? (
           <Accounts accounts={accounts.data} hidden={hideBalances} copy={copy} />
         ) : null}

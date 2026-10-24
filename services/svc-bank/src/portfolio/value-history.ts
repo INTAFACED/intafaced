@@ -2,6 +2,7 @@ import { formatAmount, mul, parseAmount, type Amount } from '@intafaced/ledger-c
 import {
   VALUE_SERIES_INTERVALS,
   type BankValueBridge,
+  type BankHoldingsChange,
   type BankValueOverTime,
   type LedgerHoldingsHistory,
   type LedgerHoldingsHistoryBucket,
@@ -110,11 +111,9 @@ export function coinsOf(histories: readonly LedgerHoldingsHistory[]): string[] {
   return [...coins].filter((c) => !PAR_ASSETS.has(c)).sort();
 }
 
-export function valueOverTime(input: ValueInputs): BankValueOverTime {
+/** The replay both reads share: the movements as rows, a price at any moment, and the holdings at each sample. */
+function replay(input: ValueInputs) {
   const { interval, samples, live } = input;
-  const bucketMs = bucketOf(interval) * 1000;
-  const end = samples[samples.length - 1]!.getTime();
-
   const now = new Map<string, Amount>();
   const rows: Row[] = [];
   for (const h of input.histories) {
@@ -156,6 +155,49 @@ export function valueOverTime(input: ValueInputs): BankValueOverTime {
     }
     holdingsAt[i] = new Map(held);
   }
+  return { rows, priceAt, holdingsAt };
+}
+
+/**
+ * What rose and fell in amount between the first and last samples, per coin (J-portfolio-06 #3). Each end is priced as
+ * the value over time prices it; a coin with no price there has no price and no value, never zero.
+ */
+export function holdingsChange(input: ValueInputs): BankHoldingsChange {
+  const { samples, live } = input;
+  const { priceAt, holdingsAt } = replay(input);
+  const last = samples.length - 1;
+  const start = holdingsAt[0]!;
+  const end = holdingsAt[last]!;
+  const startAt = samples[0]!.getTime();
+  const endAt = samples[last]!.getTime();
+  const coins = [...new Set([...start.keys(), ...end.keys()])].sort();
+  const rows = coins.flatMap((assetId) => {
+    const before = start.get(assetId) ?? 0n;
+    const after = end.get(assetId) ?? 0n;
+    if (before === 0n && after === 0n) return [];
+    const startPrice = priceAt(assetId, startAt, false);
+    const endPrice = priceAt(assetId, endAt, live);
+    return [
+      {
+        assetId,
+        startAmount: formatAmount(before),
+        endAmount: formatAmount(after),
+        change: formatAmount(after - before),
+        startPriceUsd: startPrice === null ? null : formatAmount(startPrice),
+        endPriceUsd: endPrice === null ? null : formatAmount(endPrice),
+        startValueUsd: startPrice === null ? null : formatAmount(mul(before, startPrice)),
+        endValueUsd: endPrice === null ? null : formatAmount(mul(after, endPrice)),
+      },
+    ];
+  });
+  return { from: samples[0]!.toISOString(), to: samples[last]!.toISOString(), rows };
+}
+
+export function valueOverTime(input: ValueInputs): BankValueOverTime {
+  const { interval, samples, live } = input;
+  const bucketMs = bucketOf(interval) * 1000;
+  const end = samples[samples.length - 1]!.getTime();
+  const { rows, priceAt, holdingsAt } = replay(input);
 
   const valueOf = (holdings: Map<string, Amount>, at: number, liveEnd: boolean) => {
     let total: Amount = 0n;

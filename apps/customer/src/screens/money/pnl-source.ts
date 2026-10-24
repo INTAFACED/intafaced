@@ -97,7 +97,8 @@ export function usePnlOverTime(ask: { from: string; to?: string; utcOffsetMinute
 }
 
 /** The bank's own answers that it cannot read now: they arrive as a 503, which the poller would read as a broken link. */
-const VALUE_DOWN = [VALUE_PRICES_DOWN, BANK_VALUE_HISTORY_UNAVAILABLE];
+/** The bank's codes for what it cannot read now; they arrive as a 503, which is a typed refusal, not a broken connection. */
+export const VALUE_DOWN = [VALUE_PRICES_DOWN, BANK_VALUE_HISTORY_UNAVAILABLE];
 /** A range that ended before now cannot change but by a late posting, so it is read again rarely. */
 const PAST_RANGE_INTERVAL = 15 * 60_000;
 
