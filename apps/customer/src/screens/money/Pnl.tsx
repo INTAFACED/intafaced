@@ -1,7 +1,8 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { InfoTip } from './InfoTip';
 import { moneyCopy } from './copy';
-import { Amount, Skeleton, StateBlock, fmtAmount, fmtPct, fmtUsd, navigate, refusalCopy, type Loadable } from './deps';
+import { Amount, Button, Skeleton, StateBlock, fmtAmount, fmtPct, fmtUsd, navigate, refusalCopy, type Loadable } from './deps';
+import { MissingCost, basisRefusalWords } from './MissingCost';
 import {
   LOT_METHODS,
   lotAssetFromQuery,
@@ -13,9 +14,11 @@ import {
   type LotBook,
   type LotBookLot,
   type LotMethod,
+  type MissingBasis,
   type UnknownReason,
+  unknownShareOf,
 } from './pnl-model';
-import { useLotBook } from './pnl-source';
+import { useBasisOverride, useLotBook, useMissingBasis, type BasisOutcome } from './pnl-source';
 import { useMoneyPortfolio } from './portfolio-source';
 import { stamp } from './time';
 import { usePreferences } from '../../shared/preferences';
@@ -148,7 +151,7 @@ function AssetRows({ assets, hidden, copy }: { assets: readonly AssetPnl[]; hidd
   );
 }
 
-function SaleRows({ book, hidden, copy }: { book: LotBook; hidden: boolean; copy: Copy }) {
+function SaleRows({ book, missing, hidden, copy }: { book: LotBook; missing: MissingBasis | null; hidden: boolean; copy: Copy }) {
   const { t } = copy;
   const { timeZone } = usePreferences();
   return (
@@ -198,6 +201,20 @@ function SaleRows({ book, hidden, copy }: { book: LotBook; hidden: boolean; copy
                   ) : (
                     <Amount value={usd(sale.realizedUsd, copy, true)} hidden={hidden} />
                   )}
+                  {sale.basisSource === 'customer-entered' ? (
+                    <span className="money-note" data-label="customer-entered">
+                      {' '}
+                      {t('Customer-entered')}
+                    </span>
+                  ) : null}
+                  {missing
+                    ? unknownShareOf(missing, sale).map((part, index) => (
+                        <span key={`${part.lotId ?? 'no-lot'}:${index}`} className="money-note" data-effect="unknown-share">
+                          {' '}
+                          {t('Unknown share', { qty: `${fmtAmount(part.qty)} ${part.assetId}` })}
+                        </span>
+                      ))
+                    : null}
                 </td>
               </tr>
             ))}
@@ -216,7 +233,19 @@ function priceSource(lot: LotBookLot, copy: Copy, timeZone: Parameters<typeof st
   return copy.t('Price source', { market: v.market, frame, time: v.candleAt === null ? '' : stamp(v.candleAt, timeZone) });
 }
 
-function LotRows({ book, search, hidden, copy }: { book: LotBook; search: string; hidden: boolean; copy: Copy }) {
+function LotRows({
+  book,
+  search,
+  hidden,
+  copy,
+  onRemove,
+}: {
+  book: LotBook;
+  search: string;
+  hidden: boolean;
+  copy: Copy;
+  onRemove: (lotId: string) => Promise<BasisOutcome>;
+}) {
   const { t } = copy;
   const { timeZone } = usePreferences();
   const assets = lotAssets(book);
@@ -282,6 +311,7 @@ function LotRows({ book, search, hidden, copy }: { book: LotBook; search: string
               </td>
               <td className="money-num" data-col="cost">
                 {lot.costUsd === null ? <span>{t('Cost unknown')}</span> : <Amount value={usd(lot.costUsd, copy)} hidden={hidden} />}
+                {lot.basisSource === 'customer-entered' ? <CustomerEntered lotId={lot.id} copy={copy} onRemove={onRemove} /> : null}
               </td>
               <td className="money-num" data-col="cost-left">
                 {lot.remainingCostUsd === null ? (
@@ -315,6 +345,35 @@ function LotRows({ book, search, hidden, copy }: { book: LotBook; search: string
   );
 }
 
+/** A lot whose cost is a price the customer entered: labelled so, with our own record beside it, and a way to take it back. */
+function CustomerEntered({ lotId, copy, onRemove }: { lotId: string; copy: Copy; onRemove: (lotId: string) => Promise<BasisOutcome> }) {
+  const { t } = copy;
+  const [busy, setBusy] = useState(false);
+  // A removal takes this label away, and the page says so above; only a refusal is said here.
+  const [message, setMessage] = useState<string | null>(null);
+  return (
+    <span className="money-note" data-label="customer-entered">
+      {' '}
+      {t('Customer-entered')} · {t('Our record unknown')}{' '}
+      <Button
+        type="button"
+        variant="ghost"
+        size={28}
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          const result = await onRemove(lotId);
+          setBusy(false);
+          if (!result.ok) setMessage(basisRefusalWords(result, copy));
+        }}
+      >
+        {t('Remove my price')}
+      </Button>
+      <span role="status">{message ?? ''}</span>
+    </span>
+  );
+}
+
 export default function Pnl({ search = '' }: { search?: string }) {
   const copy = moneyCopy.useCopy();
   const { t } = copy;
@@ -324,6 +383,21 @@ export default function Pnl({ search = '' }: { search?: string }) {
   const method = typeof asked === 'string' ? asked : null;
   const pick = (next: LotMethod) => navigate(`/money/pnl?method=${next}`, true);
   const book = useLotBook(method);
+  const missing = useMissingBasis(method);
+  const basis = useBasisOverride();
+  const missingData = missing.status === 'ready' ? missing.data : null;
+  // What a price write did, said once at page level: the form or label that sent it leaves the page when it works.
+  const [notice, setNotice] = useState<string | null>(null);
+  const setPrice = async (input: Parameters<typeof basis.set>[0]) => {
+    const result = await basis.set(input);
+    if (result.ok) setNotice(t('Price saved'));
+    return result;
+  };
+  const removePrice = async (lotId: string) => {
+    const result = await basis.remove(lotId);
+    if (result.ok) setNotice(t('Price removed'));
+    return result;
+  };
   const portfolio = useMoneyPortfolio();
   const rows = portfolio.status === 'ready' ? portfolio.data.rows : null;
   const view = useMemo(() => (book.status === 'ready' ? pnlView(book.data, rows) : null), [book, rows]);
@@ -396,9 +470,25 @@ export default function Pnl({ search = '' }: { search?: string }) {
             ))}
           </ul>
         ) : null}
+        <p className="money-note" role="status" data-testid="basis-notice">
+          {notice ?? ''}
+        </p>
+        {missingData ? (
+          <MissingCost book={book.data} missing={missingData} hidden={hideBalances} copy={copy} onSave={setPrice} />
+        ) : missing.status === 'refused' || missing.status === 'error' ? (
+          <section className="money-card" aria-label={t('Missing cost')}>
+            <header className="money-card__head">
+              <h2>{t('Missing cost')}</h2>
+            </header>
+            <p className="money-note">
+              {t('Missing cost unreadable')}
+              {missing.status === 'refused' ? ` ${refusalCopy(missing.code).reference}` : ''}
+            </p>
+          </section>
+        ) : null}
         <AssetRows assets={view.assets} hidden={hideBalances} copy={copy} />
-        <SaleRows book={book.data} hidden={hideBalances} copy={copy} />
-        <LotRows book={book.data} search={search} hidden={hideBalances} copy={copy} />
+        <SaleRows book={book.data} missing={missingData} hidden={hideBalances} copy={copy} />
+        <LotRows book={book.data} search={search} hidden={hideBalances} copy={copy} onRemove={removePrice} />
       </>
     );
   }

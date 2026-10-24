@@ -37,3 +37,10 @@ export function stamp(iso: string, zone: Zone, now: number = Date.now(), seconds
   const clock = text.slice(text.lastIndexOf(' ') + 1);
   return `${date}, ${clock}${zone === 'device' ? '' : ` ${zone}`}`;
 }
+
+/** The calendar day ("2026-10-24") an instant falls on in the viewer's zone, as a date input takes it. */
+export function dayIn(iso: string, zone: Zone): string {
+  const at = Date.parse(iso);
+  if (Number.isNaN(at)) return '';
+  return new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit', timeZone: zoneName(zone) }).format(at);
+}
