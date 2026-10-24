@@ -214,6 +214,10 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     title: 'We do not send there',
     body: 'That country, currency and delivery method are not on the list. Choose one from the list.',
   },
+  globalAmountOutside: {
+    title: 'That amount does not fit this destination',
+    body: 'It is below the smallest or above the largest send for this destination. Nothing was sent. Change the amount.',
+  },
   globalDetailsMissing: {
     title: 'More details are needed',
     body: 'This send needs details about you or the recipient that were not included. Nothing was sent.',
@@ -221,6 +225,23 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   globalNoSend: {
     title: 'We can’t send this payment',
     body: 'This payment can’t be sent to that recipient right now. Nothing was taken from your balance.',
+  },
+  globalCancelled: {
+    title: 'This send was cancelled',
+    body: 'It was cancelled while on hold, so it was not sent. Nothing was taken from your balance.',
+  },
+  globalNotCancellable: {
+    title: 'This send can’t be cancelled',
+    body: 'Only a send that is on hold, with nothing sent, can be cancelled.',
+  },
+  globalNotRecallable: {
+    title: 'This send can’t be asked back',
+    body: 'Only a send that has left your balance, and has not come back, can be asked back.',
+  },
+  receiptNotReady: { title: 'No receipt for this send', body: 'A receipt is made once the send has left your balance.' },
+  receiptOff: {
+    title: 'Receipts are switched off',
+    body: 'Receipts can’t be signed in this build, so none is made. Your send is not affected.',
   },
   proofOff: {
     title: 'Uploads are switched off',

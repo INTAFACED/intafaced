@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Position } from '@intafaced/exchange-contract/schemas';
 import type { ApiResult } from '../../../shared/api';
 import { pendingKey, readPending, type Pending } from '../buy/write-lock';
-import type { FuturesApi, FuturesOrder, FuturesSplit, OpenInput, PlaceOrderInput } from './api';
+import type { ConditionalOrder, FuturesApi, FuturesOrder, FuturesSplit, OpenInput, PlaceOrderInput, Protection } from './api';
 import { checkPending, intentId, loadIntent, runIntent, type Intent } from './write';
 
 function memoryStorage() {
@@ -101,6 +101,17 @@ function fakeApi() {
     ordersOn: vi.fn<(symbol: string) => Promise<ApiResult<FuturesOrder[]>>>(),
     position: vi.fn<(id: string) => Promise<ApiResult<Position>>>(),
     positions: vi.fn<() => Promise<ApiResult<Position[]>>>(),
+    setProtection:
+      vi.fn<
+        (input: {
+          positionId: string;
+          takeProfit: string | null;
+          stopLoss: string | null;
+          clientRequestId: string;
+        }) => Promise<ApiResult<Protection>>
+      >(),
+    cancelConditional: vi.fn<(id: string) => Promise<ApiResult<ConditionalOrder>>>(),
+    conditionalOrder: vi.fn<(id: string) => Promise<ApiResult<ConditionalOrder>>>(),
   };
   return { api, typed: api as unknown as FuturesApi };
 }
@@ -422,6 +433,18 @@ describe('a split open (D-orders-06): above the max-order, placed as children ke
     });
   });
 
+  it('the margin tier the trader confirmed goes with the order, on both doors; none confirmed sends none', async () => {
+    const { api, typed } = fakeApi();
+    api.placeSplit.mockResolvedValue(ok({ parts: 2, orders: [child(1), child(2)], stopped: null }));
+    api.placeOrder.mockResolvedValue(ok(child(1)));
+    await runIntent(typed, USER, { op: 'open', input: { ...splitIntent.input, confirmTier: 3 } } as Intent);
+    expect(api.placeSplit.mock.calls[0]![0]).toMatchObject({ clientOrderId: 'open-abc', confirmTier: 3 });
+    await runIntent(typed, USER, { op: 'open', input: { ...openInput, clientOpenId: 'open-t2', confirmTier: 2 } });
+    expect(api.placeOrder.mock.calls[0]![0]).toMatchObject({ clientOrderId: 'open-t2', confirmTier: 2 });
+    await runIntent(typed, USER, { op: 'open', input: { ...openInput, clientOpenId: 'open-t0' } });
+    expect(api.placeOrder.mock.calls[1]![0]).not.toHaveProperty('confirmTier');
+  });
+
   it('children that all did nothing are the first one’s refusal; a split stopped early is done with what is live', async () => {
     const { api, typed } = fakeApi();
     const dead = { status: 'cancelled', refusalCode: 'trade.futures_order_unfilled' };
@@ -467,5 +490,104 @@ describe('a split open (D-orders-06): above the max-order, placed as children ke
     const outcome = await checkPending(typed, USER, pendingFor('open-abc'), { resend: true });
     expect(outcome).toMatchObject({ kind: 'done', orders: [{ orderId: 'ord-1' }, { orderId: 'ord-2' }] });
     expect(api.placeSplit.mock.calls[1]![0]).toEqual(api.placeSplit.mock.calls[0]![0]);
+  });
+});
+
+describe('take profit and stop loss (J-derivatives-03)', () => {
+  const leg = (over: Partial<ConditionalOrder> = {}): ConditionalOrder => ({
+    id: 'tp-1',
+    market: 'BTC/USDT:USDT',
+    kind: 'take_profit',
+    side: 'sell',
+    quantity: '1',
+    triggerPrice: '120',
+    limitPrice: null,
+    positionId: 'pos-1',
+    attachment: 'take_profit',
+    status: 'armed',
+    cancelReason: null,
+    failureReason: null,
+    triggerSource: 'mark',
+    createdAt: '2026-10-23T10:00:00.000Z',
+    ...over,
+  });
+  const protect: Intent = {
+    op: 'protection',
+    input: { symbol: 'BTC/USDT:USDT', positionId: 'pos-1', takeProfit: '120', stopLoss: null, clientRequestId: 'tpsl:abc' },
+  };
+  const cancelTp: Intent = { op: 'cancel-trigger', input: { symbol: 'BTC/USDT:USDT', id: 'tp-1' } };
+
+  it('a replace sends both legs under its request id and answers with what is armed', async () => {
+    const { api, typed } = fakeApi();
+    const armed = { positionId: 'pos-1', takeProfit: leg(), stopLoss: null };
+    api.setProtection.mockResolvedValue(ok(armed));
+    expect(await runIntent(typed, USER, protect)).toEqual({ kind: 'done', protection: armed });
+    expect(api.setProtection).toHaveBeenCalledWith({
+      positionId: 'pos-1',
+      takeProfit: '120',
+      stopLoss: null,
+      clientRequestId: 'tpsl:abc',
+      symbol: 'BTC/USDT:USDT',
+    });
+    expect(readPending(USER)).toEqual({ state: 'none' });
+  });
+
+  it.each([
+    ['trade.protection_wrong_side', 400],
+    ['trade.conditional_trigger_off', 503],
+  ])('%s is a refusal in words that clears the device note', async (code, status) => {
+    const { api, typed } = fakeApi();
+    api.setProtection.mockResolvedValue(failure(status >= 500 ? 'uncertain' : 'rejected', code, status));
+    const outcome = await runIntent(typed, USER, protect);
+    expect(outcome.kind).toBe('refused');
+    expect(outcome.kind === 'refused' && outcome.refusal.code).toBe(code);
+    expect(readPending(USER)).toEqual({ state: 'none' });
+    expect(loadIntent(USER, 'tpsl:abc')).toBeNull();
+  });
+
+  it('an unknown answer keeps the note; Check sends the same request id again, which the service replays', async () => {
+    const { api, typed } = fakeApi();
+    api.setProtection.mockResolvedValueOnce(failure('uncertain', undefined, 502));
+    expect(await runIntent(typed, USER, protect)).toEqual({ kind: 'uncertain', id: 'tpsl:abc' });
+    expect(readPending(USER).state).toBe('pending');
+    api.setProtection.mockResolvedValueOnce(ok({ positionId: 'pos-1', takeProfit: leg(), stopLoss: null }));
+    expect((await checkPending(typed, USER, pendingFor('tpsl:abc'))).kind).toBe('done');
+    expect(api.setProtection.mock.calls[1]![0]).toEqual(api.setProtection.mock.calls[0]![0]);
+    expect(readPending(USER)).toEqual({ state: 'none' });
+  });
+
+  it('a cancel is guarded like any write: blocked while another answer is unknown, and nothing is sent', async () => {
+    const { api, typed } = fakeApi();
+    api.setProtection.mockResolvedValueOnce(failure('uncertain', undefined, 502));
+    await runIntent(typed, USER, protect);
+    expect((await runIntent(typed, USER, cancelTp)).kind).toBe('blocked');
+    expect(api.cancelConditional).not.toHaveBeenCalled();
+  });
+
+  it('an unknown cancel is looked up first: cancelled is done, armed is sent again, fired cannot be cancelled', async () => {
+    const { api, typed } = fakeApi();
+    api.cancelConditional.mockResolvedValue(failure('uncertain', undefined, 502));
+    expect(await runIntent(typed, USER, cancelTp)).toEqual({ kind: 'uncertain', id: 'cancel-trigger:tp-1' });
+
+    api.conditionalOrder.mockResolvedValueOnce(failure('uncertain', undefined, 502));
+    expect((await checkPending(typed, USER, pendingFor('cancel-trigger:tp-1'))).kind).toBe('uncertain');
+
+    api.conditionalOrder.mockResolvedValueOnce(ok(leg({ status: 'cancelled', cancelReason: 'cancelled' })));
+    expect((await checkPending(typed, USER, pendingFor('cancel-trigger:tp-1'))).kind).toBe('done');
+    expect(api.cancelConditional).toHaveBeenCalledTimes(1);
+    expect(readPending(USER)).toEqual({ state: 'none' });
+
+    await runIntent(typed, USER, cancelTp);
+    api.conditionalOrder.mockResolvedValueOnce(ok(leg({ status: 'armed' })));
+    api.cancelConditional.mockResolvedValueOnce(ok(leg({ status: 'cancelled', cancelReason: 'cancelled' })));
+    expect((await checkPending(typed, USER, pendingFor('cancel-trigger:tp-1'))).kind).toBe('done');
+    expect(api.cancelConditional).toHaveBeenCalledTimes(3);
+
+    await runIntent(typed, USER, cancelTp);
+    api.conditionalOrder.mockResolvedValueOnce(ok(leg({ status: 'filled' })));
+    const fired = await checkPending(typed, USER, pendingFor('cancel-trigger:tp-1'));
+    expect(fired.kind === 'refused' && fired.refusal.code).toBe('trade.conditional_not_cancellable');
+    expect(api.cancelConditional).toHaveBeenCalledTimes(4);
+    expect(readPending(USER)).toEqual({ state: 'none' });
   });
 });

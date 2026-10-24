@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { profileEnvFor } from '../owner-settings.mjs';
 
 export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
   name: 'p2p',
@@ -16,11 +17,14 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     LOCAL_TEST_KMS_DIR: path.join(STATE, 'p2p-kms'),
     P2P_FEE_BPS: '0',
     P2P_ESCROW_DEADLINE_SECONDS: '120',
-    P2P_PAYMENT_DEADLINE_SECONDS: '900',
+    // 180, not the 900 a person would get: the order-history journey waits for a real payment timeout.
+    P2P_PAYMENT_DEADLINE_SECONDS: '180',
     P2P_RELEASE_DEADLINE_SECONDS: '1800',
     P2P_DISPUTE_SLA_SECONDS: '604800',
     P2P_DISPUTE_ESCALATION_RECHECK_SECONDS: '3600',
     P2P_SWEEP_INTERVAL_SECONDS: '30',
     P2P_INSTRUMENT_RETENTION_DAYS: '90',
+    // Export caps and receipt quotas: the labelled TEST profile (tooling/profiles/test-owner-values/p2p.json).
+    ...profileEnvFor('p2p', 'dev'),
   }),
 });

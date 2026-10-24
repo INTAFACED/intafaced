@@ -88,16 +88,19 @@ export const SAME_PERSON_ACTION_TYPES = [
   'identity.step_up.anti_phishing_set',
   // Ask to lift the caller's own security lock (W-withdraw-09). Identity mints and consumes it; the lock still holds for the owner-set wait.
   'identity.step_up.security_lock_unlock',
+  // Place a P2P order from an ad (P-trade-orders-07). Identity mints it; svc-p2p consumes it before the take reserves.
+  'p2p.step_up.trades.take',
 ] as const;
 
 /**
  * Same-person rows are consumed only by the service named on the row.
- * Bank doors stay `svc-bank`. Pay destination step-up is `svc-pay`.
+ * Bank doors stay `svc-bank`. Pay destination step-up is `svc-pay`. A P2P order is `svc-p2p`.
  * Identity contact changes are `svc-identity`, because identity consumes them
  * itself and refuses a consume whose caller is not the target service.
  */
-export function samePersonTargetService(actionType: string): 'svc-bank' | 'svc-pay' | 'svc-identity' {
+export function samePersonTargetService(actionType: string): 'svc-bank' | 'svc-pay' | 'svc-identity' | 'svc-p2p' {
   if (actionType.startsWith('pay.step_up.')) return 'svc-pay';
+  if (actionType.startsWith('p2p.step_up.')) return 'svc-p2p';
   if (actionType.startsWith('identity.step_up.')) return 'svc-identity';
   return 'svc-bank';
 }

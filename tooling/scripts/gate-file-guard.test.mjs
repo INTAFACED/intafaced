@@ -142,6 +142,8 @@ test('gate files: the review additions (rules every agent loads, repo-wide confi
     'services/svc-x/AGENTS.md',
     'tooling/x/SKILL.md',
     '.cursor/rules/inta.mdc',
+    '.claude/settings.json',
+    '.claude/agents/explore.md',
     '.github/dependabot.yml',
     '.github/CODEOWNERS',
     'turbo.json',

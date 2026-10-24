@@ -76,6 +76,8 @@ import { checkOpenAdmission, LIMIT_MAX_ORDER, limitAmount, PRETRADE_LIMIT_HTTP_S
 import { assertDatedFuturesTradable } from './dated-futures.js';
 import { CLEARING_POT_SHORT, isInsufficientFunds, payOrOweProfit } from './futures-payouts.js';
 import type { DerivativesAccessGate } from './derivatives-access.js';
+import { unconfirmedTierRefusal, type RiskTierCrossing } from './risk-tier-confirm.js';
+import { OI_LIMIT_UNSET, openInterestRefusal, type OpenInterestRoom } from './open-interest-limits.js';
 import { checkInsuranceBound, INSURANCE_UNDERFUNDED, recipeInsuranceAccount } from './insurance-bound.js';
 import { matchedOrderIdFor, matchedSlotPositionIdFor } from './ids.js';
 import { defaultLiquidationId } from './liquidation-tick.js';
@@ -96,6 +98,7 @@ import {
   planLiquidationFill,
   planLiquidationSettlement,
   planReduceFill,
+  bandFractionOf,
   priceBandAround,
   liquidationSettlementRoot,
   protectiveLimit,
@@ -136,7 +139,7 @@ export class MatchedOrderError extends Error {
  * adjusted, an earlier fill on the same order or position is still being recorded, or a reduce loss past the bound
  * waits for the insurance fund. A fill refused with one of these waits in `trade.futures_fill_waits`.
  */
-const FILL_WAIT_CODES: readonly string[] = [
+export const FILL_WAIT_CODES: readonly string[] = [
   'trade.liquidation_in_progress',
   'trade.position_under_review',
   'trade.futures_fill_in_progress',
@@ -200,6 +203,12 @@ export interface PlaceMatchedOrderInput {
    * the order rests or fills there. Any other value refuses.
    */
   readonly priceCorrection?: unknown;
+  /**
+   * The highest margin tier the trader has accepted for this order (`risk-tier-confirm.ts`). An opening order that
+   * would carry its side into a higher tier than it sits in now refuses `trade.risk_limit_confirm_required` naming
+   * the tier, until this names it. Not part of the request's identity: a retry with it finds the same order.
+   */
+  readonly confirmTier?: number;
 }
 
 /** What a split request placed: every child, in order, and the refusal that stopped it early, if one did. */
@@ -268,6 +277,12 @@ export interface MatchedOrdersDeps {
   readonly enabled: boolean;
   /** The owner's band as a fraction of the mark. Null is unset, and refuses new orders. */
   readonly priceBand: Amount | null;
+  /**
+   * The band a new order on a market is held to now (`dynamic-price-band.ts`): the static band, or wider while the
+   * operator's dynamic range has widened it. Absent holds every order to the static band.
+   */
+  readonly priceBandFor?: (marketId: string) => Promise<Amount>;
+
   /** The owner's leverage cap. Null is unset, and refuses. */
   readonly maxLeverage: Amount | null;
   readonly now: () => Date;
@@ -312,6 +327,42 @@ export interface MatchedOrdersDeps {
    * Absent in tests that do not wire it (the band edge alone); production always wires it.
    */
   readonly slippageCapBps?: (marketId: string) => Promise<number | null>;
+  /**
+   * The margin tier the side's exposure sits in now and would sit in with `qty` more, at `mark` against today's depth
+   * (`PositionService.riskTierCrossing`). Throws a typed refusal when the ladder is unset or the depth unreadable.
+   * Absent in tests that do not wire it; production always wires it.
+   */
+  readonly riskTier?: (input: {
+    readonly userId: string;
+    readonly marketId: string;
+    readonly symbol: string;
+    readonly side: PositionSide;
+    readonly qty: Amount;
+    readonly mark: Amount;
+    /** Once the order's row is written: that row, left out of the exposure since `qty` is that order. */
+    readonly excludeOrderId?: string;
+    /** The depth an earlier rating in the same request read; absent reads it now. */
+    readonly depthNotional?: Amount;
+  }) => Promise<RiskTierCrossing>;
+  /**
+   * The open-interest room this account has on the market (`PositionService.openInterestRoom`), from the operator's
+   * per-market limits. Throws `trade.oi_limit_unset` when either limit is blank. Absent in tests that do not wire it;
+   * production always wires it.
+   */
+  readonly openInterest?: (input: {
+    readonly userId: string;
+    readonly marketId: string;
+    readonly symbol: string;
+    readonly lotSize: Amount | null;
+    /** Once the order's row is written: that row, left out of what is committed, since it is the order being rated. */
+    readonly excludeOrderId?: string;
+  }) => Promise<OpenInterestRoom>;
+}
+
+/** What an opening order's request said about margin tiers, carried to the rating after its row is written. */
+interface TierContext {
+  readonly confirmTier?: number | undefined;
+  readonly depthNotional?: Amount | undefined;
 }
 
 export interface OrderRow {
@@ -396,6 +447,7 @@ interface MarketRow {
   symbol: string;
   kind: string;
   status: string;
+  base_asset: string;
   quote_asset: string;
   lot_size: string | null;
   futures_contract_style: 'perpetual' | 'dated' | null;
@@ -404,6 +456,10 @@ interface MarketRow {
 }
 
 const ORDER_TERMINAL = ['filled', 'cancelled', 'rejected'] as const;
+
+function lotOf(market: MarketRow): Amount | null {
+  return market.lot_size == null ? null : parseAmount(market.lot_size);
+}
 
 /**
  * A matched futures order id is a uuid. The engine also names orders that are not (spot OCO legs are
@@ -625,7 +681,7 @@ async function refuseIfPositionHasPendingFill(tx: Sql | TransactionSql, position
  * settled, or, once it has left the book, what the engine says it filled less what has settled (a fill printed
  * before a cancel still arrives). Refused and rejected orders claim nothing.
  */
-async function reservedReduceQty(tx: TransactionSql, positionId: string): Promise<Amount> {
+export async function reservedReduceQty(tx: Sql | TransactionSql, positionId: string): Promise<Amount> {
   const rows = await tx<{ qty: string; filled_qty: string; engine_filled_qty: string | null; status: string }[]>`
     SELECT qty, filled_qty, engine_filled_qty, status FROM trade.futures_orders
      WHERE position_id = ${positionId} AND reduce_only AND status NOT IN ('refused', 'rejected')
@@ -638,6 +694,15 @@ async function reservedReduceQty(tx: TransactionSql, positionId: string): Promis
     if (left > 0n) reserved += left;
   }
   return reserved;
+}
+
+/**
+ * What a book order has closed so far (`settled`) and what the engine says it filled in all (`engine`, null while
+ * that is not known). A fill printed before a cancel can still be settling, so the two agree only once it has landed.
+ */
+export async function orderFills(tx: Sql | TransactionSql, orderId: string): Promise<{ settled: Amount; engine: Amount | null } | null> {
+  const [row] = await tx<OrderRow[]>`SELECT * FROM trade.futures_orders WHERE id = ${orderId}`;
+  return row ? { settled: parseAmount(row.filled_qty), engine: engineFilled(row) } : null;
 }
 
 function oppositeSide(side: PositionSide): PositionSide {
@@ -657,6 +722,11 @@ interface WaitRow {
 
 export class MatchedFuturesOrders {
   constructor(private readonly deps: MatchedOrdersDeps) {}
+
+  /** The band a new order on this market is held to: the dynamic range's band in force, else the owner's static band. */
+  private async bandInForce(marketId: string, staticBand: Amount): Promise<Amount> {
+    return this.deps.priceBandFor ? this.deps.priceBandFor(marketId) : staticBand;
+  }
 
   /** Whether NEW matched orders are accepted. Read by the at-mark open, which must not run alongside them. */
   get matchingEnabled(): boolean {
@@ -751,6 +821,7 @@ export class MatchedFuturesOrders {
       refuse(FUTURES_PRICE_BAND_UNSET, 'the futures price band is unset on this deployment — the owner names it; nothing is invented');
     }
     const market = await this.loadMarket(input.symbol);
+    const inForce = await this.bandInForce(market.id, band);
     const lotSize = market.lot_size == null ? null : parseAmount(market.lot_size);
     // Every full child is a lot multiple, so a whole order off the lot step would only fail on its last child.
     const lot = checkCloseQuantity({ quantity: input.qty, size: input.qty, lotSize });
@@ -775,7 +846,7 @@ export class MatchedFuturesOrders {
         ? { ok: true as const, parts: [input.qty] }
         : splitPlan({
             qty: input.qty,
-            sizedAt: priceBandAround(mark, band).high,
+            sizedAt: priceBandAround(mark, inForce).high,
             maxOrderNotional: limitAmount(maxOrder),
             lotSize,
             ...(first ? { childSize: parseAmount(first.qty) } : {}),
@@ -809,7 +880,11 @@ export class MatchedFuturesOrders {
       if (pretrade) {
         throw new MatchedOrderError(pretrade.message, pretrade.code, pretrade.code.endsWith('_unset') ? 400 : PRETRADE_LIMIT_HTTP_STATUS);
       }
-      const { bandAt, limit } = await this.openingLimit(input, market.id, mark, band);
+      // The children not yet placed, together, cross into the tier the trader must name before the first is placed.
+      await this.refuseUnconfirmedTier(input, market, total, mark);
+      // The children not yet placed, together, must fit the room the open-interest limits leave.
+      await this.refuseOverOpenInterest(input.userId, market, total);
+      const { bandAt, limit } = await this.openingLimit(input, market.id, mark, inForce);
       const rates = await this.openingFeeRates(input.userId);
       const hold = waiting.reduce(
         (sum, qty) =>
@@ -890,7 +965,7 @@ export class MatchedFuturesOrders {
       if (!sameRequest(existing, input)) {
         refuse('trade.client_order_id_conflict', 'this clientOrderId names a different order', 409);
       }
-      return this.resume(existing);
+      return this.resume(existing, input.confirmTier);
     }
 
     // After the replay above, so an order that was accepted and holds margin is finished on retry even if a new
@@ -909,7 +984,16 @@ export class MatchedFuturesOrders {
     if (band === null) {
       refuse(FUTURES_PRICE_BAND_UNSET, 'the futures price band is unset on this deployment — the owner names it; nothing is invented');
     }
-    if (input.reduceOnly === true) return this.placeReduceOnly(principal, input, clientOrderId, market, band);
+    const inForce = await this.bandInForce(market.id, band);
+    if (input.reduceOnly === true) {
+      return this.placeReduceOnly(
+        (admission, businessId, payload) => admission.admit(principal, 'order.place', businessId, payload),
+        input,
+        clientOrderId,
+        market,
+        inForce,
+      );
+    }
 
     if (input.leverage % LEVERAGE_STEP !== 0n) {
       refuse('trade.leverage_invalid', 'leverage has at most two decimal places');
@@ -930,7 +1014,7 @@ export class MatchedFuturesOrders {
 
     const at = this.deps.now();
     const mark = await this.deps.markFor(market.id, market.symbol, at, input.qty);
-    const { bandAt, limit } = await this.openingLimit(input, market.id, mark, band);
+    const { bandAt, limit } = await this.openingLimit(input, market.id, mark, inForce);
 
     const slot = await this.deps.sql<{ id: string; leverage: string }[]>`
       SELECT id, leverage FROM trade.positions
@@ -966,6 +1050,8 @@ export class MatchedFuturesOrders {
     if (pretrade) {
       throw new MatchedOrderError(pretrade.message, pretrade.code, pretrade.code.endsWith('_unset') ? 400 : PRETRADE_LIMIT_HTTP_STATUS);
     }
+    const rated = await this.refuseUnconfirmedTier(input, market, input.qty, mark);
+    await this.refuseOverOpenInterest(input.userId, market, input.qty);
 
     if (!this.deps.lifecycleProof) refuse('trade.lifecycle_authority_unavailable', 'market lifecycle authority is not configured', 503);
     const proof = await this.deps.lifecycleProof(market.id);
@@ -1002,11 +1088,106 @@ export class MatchedFuturesOrders {
     if (inserted.length === 0) {
       const raced = await this.findOrderByClientId(input.userId, input.symbol, clientOrderId);
       if (!raced || !sameRequest(raced, input)) refuse('trade.client_order_id_conflict', 'this clientOrderId names a different order', 409);
-      return this.resume(raced);
+      return this.resume(raced, input.confirmTier);
     }
 
     const row = await this.loadOrder(orderId);
-    return this.continueOrder(row, market, proof);
+    return this.continueOrder(row, market, proof, { confirmTier: input.confirmTier, depthNotional: rated?.depthNotional });
+  }
+
+  /**
+   * An opening order that carries its side into a higher margin tier than it sits in now refuses until `confirmTier`
+   * names that tier (`risk-tier-confirm.ts`). Before anything is held or written, so the refusal locks nothing.
+   */
+  private async refuseUnconfirmedTier(
+    input: PlaceMatchedOrderInput,
+    market: MarketRow,
+    qty: Amount,
+    mark: Amount,
+  ): Promise<RiskTierCrossing | null> {
+    if (!this.deps.riskTier) return null;
+    const crossing = await this.deps.riskTier({
+      userId: input.userId,
+      marketId: market.id,
+      symbol: market.symbol,
+      side: positionSideOf(input.side),
+      qty,
+      mark,
+    });
+    const refusal = unconfirmedTierRefusal(crossing, input.confirmTier, input.leverage, this.deps.maxLeverage);
+    if (refusal) refuse(refusal.code, refusal.message, refusal.status);
+    return crossing;
+  }
+
+  /**
+   * The same rating again once the order's row is written, before its hold posts, as the haircut is checked: the row
+   * counts in the side's exposure from the moment it exists, so of two opens placed together the later rating sees
+   * both, and they cannot each stay "inside the tier" while together crossing one nobody named. A crossing refuses the
+   * order on its code (the row is kept, refused, as an unfunded hold is). A rating that cannot be read leaves the order
+   * pending, and a retry rates it again.
+   */
+  private async refuseUnconfirmedTierOnRow(row: OrderRow, market: MarketRow, tier: TierContext): Promise<void> {
+    const crossing = await this.deps.riskTier!({
+      userId: row.user_id,
+      marketId: market.id,
+      symbol: market.symbol,
+      side: positionSideOf(row.side),
+      qty: parseAmount(row.qty),
+      mark: parseAmount(row.mark_price),
+      excludeOrderId: row.id,
+      ...(tier.depthNotional !== undefined ? { depthNotional: tier.depthNotional } : {}),
+    });
+    const refusal = unconfirmedTierRefusal(crossing, tier.confirmTier, parseAmount(row.leverage), this.deps.maxLeverage);
+    if (!refusal) return;
+    await this.deps.sql`
+      UPDATE trade.futures_orders SET status = 'refused', refusal_code = ${refusal.code}, updated_at = now()
+       WHERE id = ${row.id} AND status = 'pending'
+    `;
+    refuse(refusal.code, refusal.message, refusal.status);
+  }
+
+  /**
+   * An opening order that would carry the account past its share of the market's open-interest limit, or the market
+   * past the limit, refuses with the room left (`open-interest-limits.ts`). Before anything is held or written.
+   */
+  private async refuseOverOpenInterest(userId: string, market: MarketRow, qty: Amount): Promise<void> {
+    if (!this.deps.openInterest) return;
+    const room = await this.deps.openInterest({ userId, marketId: market.id, symbol: market.symbol, lotSize: lotOf(market) });
+    const refusal = openInterestRefusal(room, qty, market.base_asset);
+    if (refusal) refuse(refusal.code, refusal.message, refusal.status);
+  }
+
+  /**
+   * The same check once the order's row is written, before its hold posts: the row counts from the moment it exists,
+   * so of two opens placed together near a limit the later check sees both, and at most one passes (when both checks
+   * run after both rows exist, both refuse: the safe way round). An order over the limit, or on a market whose limit
+   * was blanked meanwhile, is refused on its code and its row kept, refused; a read that fails leaves it pending for a
+   * retry, as the haircut does.
+   */
+  private async refuseOverOpenInterestOnRow(row: OrderRow, market: MarketRow): Promise<void> {
+    let refusal: { code: string; message: string; status: number } | null;
+    try {
+      const room = await this.deps.openInterest!({
+        userId: row.user_id,
+        marketId: market.id,
+        symbol: market.symbol,
+        lotSize: lotOf(market),
+        excludeOrderId: row.id,
+      });
+      refusal = openInterestRefusal(room, parseAmount(row.qty), market.base_asset);
+    } catch (err) {
+      // PositionService's FuturesError, matched by code since that module imports this one.
+      const code = (err as { code?: unknown } | null)?.code;
+      if (code !== OI_LIMIT_UNSET) throw err;
+      const { message, status } = err as { message: string; status: number };
+      refusal = { code, message, status };
+    }
+    if (!refusal) return;
+    await this.deps.sql`
+      UPDATE trade.futures_orders SET status = 'refused', refusal_code = ${refusal.code}, updated_at = now()
+       WHERE id = ${row.id} AND status = 'pending'
+    `;
+    refuse(refusal.code, refusal.message, refusal.status);
   }
 
   /**
@@ -1070,6 +1251,45 @@ export class MatchedFuturesOrders {
   }
 
   /**
+   * The one reduce-only order a fired conditional order places for its trader (D-orders-04, J-derivatives-03). No
+   * session or key is behind it: the trader armed the conditional order, and admission names that order as a standing
+   * instruction owned by svc-trade (`admitStanding`), whose caller has claimed it as fired. Everything after admission
+   * is the reduce-only path a trader's own order takes: the position's own bound, the band, the reduce room left by
+   * its other reduce-only orders, and a retry on the same `clientOrderId` that finds the same order. It never opens.
+   */
+  async placeOnInstruction(input: PlaceMatchedOrderInput, instructionId: string): Promise<MatchedOrderView> {
+    if (!this.deps.enabled) {
+      refuse('trade.futures_matching_disabled', 'futures orders through the matching engine are switched off on this deployment', 503);
+    }
+    if (input.reduceOnly !== true) refuse('trade.conditional_would_increase', 'a conditional order only ever places a reduce-only order');
+    const clientOrderId = input.clientOrderId?.trim() ?? '';
+    if (clientOrderId.length === 0 || clientOrderId.length > 64) {
+      refuse('trade.client_order_id_required', 'clientOrderId is required (1–64 chars) — omit would double-lock margin on retry');
+    }
+    refuseMalformedOrder(input);
+    const existing = await this.findOrderByClientId(input.userId, input.symbol, clientOrderId);
+    if (existing) {
+      if (!sameRequest(existing, input)) {
+        refuse('trade.client_order_id_conflict', 'this clientOrderId names a different order', 409);
+      }
+      return this.resume(existing);
+    }
+    const market = await this.loadMarket(input.symbol);
+    const band = this.deps.priceBand;
+    if (band === null) {
+      refuse(FUTURES_PRICE_BAND_UNSET, 'the futures price band is unset on this deployment — the owner names it; nothing is invented');
+    }
+    const inForce = await this.bandInForce(market.id, band);
+    return this.placeReduceOnly(
+      (admission, businessId, payload) => admission.admitStanding(input.userId, instructionId, businessId, payload, 'svc-trade'),
+      input,
+      clientOrderId,
+      market,
+      inForce,
+    );
+  }
+
+  /**
    * A reduce-only order: the other side of the caller's open isolated position, no margin locked, at most the
    * position's size less its other live reduce-only orders, and never past its bankruptcy price.
    *
@@ -1078,7 +1298,7 @@ export class MatchedFuturesOrders {
    * and the order carries its position's leverage.
    */
   private async placeReduceOnly(
-    principal: Principal,
+    admit: (admission: TradingAdmissionPort, businessId: string, payload: Record<string, unknown>) => Promise<unknown>,
     input: PlaceMatchedOrderInput,
     clientOrderId: string,
     market: MarketRow,
@@ -1117,6 +1337,13 @@ export class MatchedFuturesOrders {
       if (!position || position.status !== 'open') {
         refuse(FUTURES_REDUCE_ONLY_NO_POSITION, `reduce-only ${input.side} needs an open isolated ${target} position on this market`, 400);
       }
+      // The same request placed at once twice: the one that wrote its row first holds the room, and this one is its
+      // replay (below), not a second claim on the same size refused as too large.
+      const [same] = await tx<{ id: string }[]>`
+        SELECT id FROM trade.futures_orders
+         WHERE user_id = ${input.userId} AND market_id = ${market.id} AND client_order_id = ${clientOrderId}
+      `;
+      if (same) return false;
       // The bound below is priced from the margin; one that is mid-change would price it from a figure about to move.
       if (position.margin_adjust_request != null) {
         refuse(
@@ -1172,7 +1399,7 @@ export class MatchedFuturesOrders {
         }
       }
 
-      await admission.admit(principal, 'order.place', `futures.order:${orderId}`, {
+      await admit(admission, `futures.order:${orderId}`, {
         orderId,
         userId: input.userId,
         marketId: market.id,
@@ -1216,12 +1443,12 @@ export class MatchedFuturesOrders {
   }
 
   /** A retry of an order whose placement stopped part-way: continue from what the row says, with its stored numbers. */
-  private async resume(row: OrderRow): Promise<MatchedOrderView> {
+  private async resume(row: OrderRow, confirmTier?: number): Promise<MatchedOrderView> {
     if (row.status === 'pending' || row.status === 'held') {
       const market = await this.loadMarketById(row.market_id);
       if (!this.deps.lifecycleProof) refuse('trade.lifecycle_authority_unavailable', 'market lifecycle authority is not configured', 503);
       const proof = await this.deps.lifecycleProof(market.id);
-      return this.continueOrder(row, market, proof);
+      return this.continueOrder(row, market, proof, { confirmTier });
     }
     if (row.status === 'submitting' || row.status === 'submit_unknown') {
       refuse(
@@ -1256,13 +1483,20 @@ export class MatchedFuturesOrders {
     }
   }
 
-  private async continueOrder(row: OrderRow, market: MarketRow, proof: LifecycleAdmissionProof): Promise<MatchedOrderView> {
+  private async continueOrder(
+    row: OrderRow,
+    market: MarketRow,
+    proof: LifecycleAdmissionProof,
+    tier: TierContext = {},
+  ): Promise<MatchedOrderView> {
     if (row.status === 'pending' && row.reduce_only) {
       // Nothing to lock: a reduce-only order's loss is bounded by its position's bankruptcy price, not by a hold.
       await this.deps.sql`
         UPDATE trade.futures_orders SET status = 'held', updated_at = now() WHERE id = ${row.id} AND status = 'pending'
       `;
     } else if (row.status === 'pending') {
+      if (this.deps.riskTier) await this.refuseUnconfirmedTierOnRow(row, market, tier);
+      if (this.deps.openInterest) await this.refuseOverOpenInterestOnRow(row, market);
       if (this.deps.assertCollateralCredit) await this.refuseShortOfCredit(row);
       try {
         await this.deps.ledger.post(
@@ -2593,7 +2827,11 @@ export class MatchedFuturesOrders {
         SELECT * FROM trade.futures_orders WHERE market_id = ${market.market_id} AND status = 'open' ORDER BY id
       `;
       for (const order of resting) {
-        if (limitWithinBand(parseAmount(order.limit_price), bandAt)) continue;
+        // An order answers to the wider of the static band and the band it was accepted under (D-instruments-08): a band
+        // narrowing again, or the dynamic range being cleared, never cancels an order its band accepted.
+        const accepted = bandFractionOf(parseAmount(order.mark_price), parseAmount(order.band_high));
+        const own = accepted > band ? priceBandAround(mark, accepted) : bandAt;
+        if (limitWithinBand(parseAmount(order.limit_price), own)) continue;
         const result = await matching.cancel(order.market_id, order.id);
         if (!result.cancelled) continue;
         await this.deps.sql`
@@ -2685,7 +2923,7 @@ export class MatchedFuturesOrders {
 
   private async loadMarket(symbol: string): Promise<MarketRow> {
     const [m] = await this.deps.sql<MarketRow[]>`
-      SELECT id, symbol, kind, status, quote_asset, lot_size,
+      SELECT id, symbol, kind, status, base_asset, quote_asset, lot_size,
              futures_contract_style, futures_expiry_at, futures_settlement_fixing
         FROM trade.markets WHERE symbol = ${symbol} LIMIT 1
     `;
@@ -2712,7 +2950,7 @@ export class MatchedFuturesOrders {
 
   private async loadMarketById(marketId: string): Promise<MarketRow> {
     const [m] = await this.deps.sql<MarketRow[]>`
-      SELECT id, symbol, kind, status, quote_asset, lot_size,
+      SELECT id, symbol, kind, status, base_asset, quote_asset, lot_size,
              futures_contract_style, futures_expiry_at, futures_settlement_fixing
         FROM trade.markets WHERE id = ${marketId} LIMIT 1
     `;

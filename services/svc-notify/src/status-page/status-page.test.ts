@@ -9,6 +9,7 @@ import { MemoryCommandLog } from '../preferences/account.js';
 import { MemoryNoticeStore, NoticeBoard, type NoticeApprovalConsumer } from '../notices/board.js';
 import { MemoryStatusPageBook, type StatusPageBook } from './book.js';
 import { statusPageRouter } from './router.js';
+import { statusBadgeCacheControl, statusBadgeSvg } from './badge.js';
 
 const FOUNDER = '11111111-1111-4111-8111-111111111111';
 const NOW = new Date('2026-10-23T12:00:00.000Z');
@@ -59,17 +60,16 @@ function harness() {
     headers: {},
     id: 'req-anon-status-page',
   });
-  const read = () =>
-    statusPageRouter({ book, notices, now: () => now })
-      .createCaller(ctx)
-      .read();
+  const caller = () => statusPageRouter({ book, notices, now: () => now }).createCaller(ctx);
+  const read = () => caller().read();
+  const badge = (componentId: string | null) => caller().badge({ componentId });
   let n = 0;
   const publish = async (input: Parameters<NoticeBoard['draft']>[1]) => {
     n += 1;
     const draft = await notices.draft(FOUNDER, input);
     return notices.publish(FOUNDER, { id: draft.id, clientRequestId: `pub-${n}`, approvalId: `appr-${n}`, operationId: `op-${n}` });
   };
-  return { book, notices, read, publish, at: (iso: string) => (now = new Date(iso)) };
+  return { book, notices, read, badge, publish, at: (iso: string) => (now = new Date(iso)) };
 }
 
 describe('status page definition', () => {
@@ -77,7 +77,13 @@ describe('status page definition', () => {
     const h = harness();
     const page = await h.read();
     expect(page).toMatchObject({ overall: 'none_defined', components: [], revision: 0 });
-    expect(page.settings).toEqual({ componentCap: null, stalenessSeconds: null, uptimeDays: null });
+    expect(page.settings).toEqual({
+      componentCap: null,
+      stalenessSeconds: null,
+      uptimeDays: null,
+      challengeBits: null,
+      subscribeRatePerHour: null,
+    });
   });
 
   it('refuses components while the cap is blank, and above the cap', async () => {
@@ -241,5 +247,61 @@ describe('incidents', () => {
       id: 'r',
     });
     await expect(statusPageRouter().createCaller(ctx).read()).rejects.toMatchObject({ message: 'notify.status_page_unavailable' });
+  });
+});
+
+describe('status badge', () => {
+  it('says operational for a fresh reading, cached no longer than the staleness window', async () => {
+    const h = harness();
+    await configure(h.book, { components: two, componentCap: 5, stalenessSeconds: 120 }, 0);
+    await h.book.record(
+      { componentId: 'trading', state: 'operational', observedAt: new Date(NOW.getTime() - 60_000), source: 'TEST' },
+      FOUNDER,
+      NOW,
+    );
+    const badge = await h.badge('trading');
+    expect(badge).toMatchObject({
+      componentId: 'trading',
+      name: 'Trading',
+      state: 'operational',
+      label: 'operational',
+      maxAgeSeconds: 60,
+    });
+    // Cached only for what is left of the reading's 120 seconds: it is 60 seconds old.
+    expect(statusBadgeCacheControl(badge)).toBe('public, max-age=60');
+    const svg = statusBadgeSvg(badge);
+    expect(svg).toContain('<title>Trading: operational</title>');
+    expect(svg).not.toMatch(/<script|<foreignObject|href=/i);
+  });
+
+  it('says no data without a fresh reading, caps the cache time, and is not cached with the window unset', async () => {
+    const h = harness();
+    await configure(h.book, { components: two, componentCap: 5, stalenessSeconds: 3600 }, 0);
+    expect(await h.badge('card-network')).toMatchObject({ state: 'no_data', label: 'no data', maxAgeSeconds: 300 });
+    expect(await h.badge(null)).toMatchObject({ componentId: null, state: 'no_data', label: 'no data' });
+    await configure(h.book, { stalenessSeconds: null }, 1);
+    const unset = await h.badge('trading');
+    expect(unset).toMatchObject({ state: 'no_data', maxAgeSeconds: 0 });
+    expect(statusBadgeCacheControl(unset)).toBe('no-cache, max-age=0');
+  });
+
+  it('is not found for a component the page does not define, in any shape', async () => {
+    const h = harness();
+    await configure(h.book, { components: two, componentCap: 5 }, 0);
+    for (const id of ['nope', 'Trading', 'a,b'])
+      await expect(h.badge(id)).rejects.toMatchObject({ code: 'NOT_FOUND', message: 'status.component_unknown' });
+  });
+
+  it('escapes component names in the image', () => {
+    const svg = statusBadgeSvg({
+      componentId: 'x',
+      name: '<b>&"',
+      state: 'operational',
+      label: 'operational',
+      maxAgeSeconds: 0,
+      asOf: NOW.toISOString(),
+    });
+    expect(svg).toContain('&lt;b&gt;&amp;&quot;');
+    expect(svg).not.toContain('<b>');
   });
 });

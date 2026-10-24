@@ -89,6 +89,14 @@ export function kbAudienceVisibleTo(audience: SupportKbAudience | undefined, vie
   return viewer.staff;
 }
 
+/** Bounds of an authored article (SP-kb-01). Wire bounds, not owner caps. */
+export const SUPPORT_KB_TITLE_MAX = 200;
+export const SUPPORT_KB_BODY_MAX = 20_000;
+export const SUPPORT_KB_LIBRARY_ID_MAX = 64;
+/** The keys an authored version carries: its text is on the version itself, not in the catalogue. */
+export const SUPPORT_KB_STORED_TITLE_KEY = 'support.kb.stored.title';
+export const SUPPORT_KB_STORED_BODY_KEY = 'support.kb.stored.body';
+
 export const supportKbArticleSchema = z.object({
   id: z.string().min(1),
   /** i18n catalog key — never raw third-party product names */
@@ -112,6 +120,15 @@ export const supportKbArticleSchema = z.object({
   tags: z.array(z.string().min(1).max(200)).max(20).optional(),
   /** Who may read it. Omitted means public. A reader never receives an article their audience does not allow. */
   audience: supportKbAudienceSchema.optional(),
+  /**
+   * Text typed in the desk (SP-kb-01). An authored version carries its own title and body as plain text, in `language`;
+   * its keys are then the stored-text markers, not catalogue keys. A spine article keyed in the catalogue omits these.
+   */
+  title: z.string().min(1).max(SUPPORT_KB_TITLE_MAX).optional(),
+  body: z.string().min(1).max(SUPPORT_KB_BODY_MAX).optional(),
+  language: z.string().min(2).max(32).optional(),
+  /** The section this version is filed under. Omitted: in no section (the spine, or a row written before sections). */
+  sectionId: z.string().min(1).max(SUPPORT_KB_LIBRARY_ID_MAX).optional(),
 });
 export type SupportKbArticle = z.infer<typeof supportKbArticleSchema>;
 

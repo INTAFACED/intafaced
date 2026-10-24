@@ -45,6 +45,14 @@ describe('public notice feed', () => {
     expect(page).not.toContain('/notice/22222222');
   });
 
+  it('shows the category an announcement is filed under next to its kind, and none when it has none', () => {
+    const filed = renderToString(<NoticeList notices={[notice({ category: { id: 'listings', name: 'TEST new listings' } })]} />);
+    expect(filed.replace(/<!-- -->/g, '')).toContain('Announcement · <span data-testid="notice-category">TEST new listings</span>');
+    const plain = renderToString(<NoticeList notices={[notice({})]} />);
+    expect(plain).not.toContain('notice-category');
+    expect(entrySchema.parse({ ...notice({}), category: undefined }).category).toBeUndefined();
+  });
+
   it('shows a maintenance window with an unset end as not set, never as a made-up time', () => {
     const page = renderToString(<NoticeList notices={[notice({ kind: 'maintenance', startsAt: '2026-10-20T01:00:00.000Z' })]} />);
     expect(page).toContain('Window 2026-10-20 to not set');

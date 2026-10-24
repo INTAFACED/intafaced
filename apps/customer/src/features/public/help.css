@@ -188,3 +188,19 @@
 .help .contact-card .button {
   width: auto;
 }
+.help__topics,
+.help__topics ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.help__topics ul {
+  padding-left: 16px;
+}
+.help__crumbs {
+  font-size: 13px;
+  line-height: 22px;
+}

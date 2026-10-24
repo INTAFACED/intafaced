@@ -180,18 +180,6 @@ export const offerMethodIds = (offer: Pick<Offer, 'methods'>): string[] =>
         : [],
   );
 
-/** Keep offers that take the chosen payment method, and, if asked, only one person's offers. */
-export function filterOffers<T extends Pick<Offer, 'methods' | 'makerId'>>(
-  rows: readonly T[],
-  filter: { method?: string; makerId?: string },
-): T[] {
-  return rows.filter(
-    (offer) =>
-      (!filter.method || offerMethodIds(offer).includes(filter.method)) &&
-      (!filter.makerId || offer.makerId.toLowerCase() === filter.makerId.toLowerCase()),
-  );
-}
-
 export type TakeCheck =
   | { kind: 'empty' }
   | { kind: 'invalid' }
@@ -345,6 +333,13 @@ export type TakeFailure =
   | 'notFound'
   | 'termsChanged'
   | 'quoteChanged'
+  | 'quoteExpired'
+  | 'orderCap'
+  | 'pairLimit'
+  | 'verificationLimit'
+  | 'limitsUnset'
+  | 'methodRetired'
+  | 'buyingPaused'
   | 'ownOffer'
   | 'unavailable'
   | 'blocked'
@@ -355,12 +350,39 @@ export type TakeFailure =
   | 'noRecord'
   | 'verify'
   | 'region'
+  | 'contact'
+  | 'risk'
+  | 'stepUp'
+  | 'stepUpExpired'
+  | 'stepUpFailed'
+  | 'stepUpUnchecked'
+  | 'unchecked'
   | 'viewChanged'
   | 'noService'
   | 'generic';
 
 /** Service refusals that are proof nothing was reserved or locked: they are raised before any inventory moves. */
 export const DEFINITE_TAKE_CODES: ReadonlySet<string> = new Set([
+  // A locked quote is checked before anything is reserved, and a take that already placed skips the check.
+  'p2p.quote_expired',
+  'p2p.quote_changed',
+  'p2p.quote_not_found',
+  'p2p.quote_mismatch',
+  // The owner's take limits are checked before anything is reserved (svc-p2p take-limits.ts, verification-limits.ts).
+  'p2p.active_order_cap',
+  'p2p.pair_limit_exceeded',
+  'p2p.config_unset',
+  'p2p.verification_order_min',
+  'p2p.verification_order_max',
+  'p2p.verification_daily_limit',
+  'p2p.verification_lifetime_limit',
+  'p2p.verification_limit_currency',
+  'p2p.verification_limits_invalid',
+  'p2p.verification_level_unwired',
+  // A retired payment method is refused before the take reserves anything.
+  'p2p.method_delisted',
+  // Buying paused after cancelled orders: checked before anything is reserved.
+  'p2p.buying_restricted',
   'p2p.invalid_amount',
   'p2p.amount_below_min',
   'p2p.amount_above_max',
@@ -377,6 +399,17 @@ export const DEFINITE_TAKE_CODES: ReadonlySet<string> = new Set([
   'denied.kyc_required',
   'denied.region_blocked',
   'denied.region_unknown',
+  // The eligibility gate (svc-p2p take-eligibility.ts) runs before the take reserves or locks anything.
+  'p2p.contact_required',
+  'p2p.contact_unverifiable',
+  'p2p.risk_not_accepted',
+  'p2p.risk_notice_unset',
+  'p2p.take_gate_unwired',
+  // The take's fresh confirmation (svc-p2p take-step-up.ts) is checked after the eligibility gate, before anything moves.
+  'auth.step_up_required',
+  'auth.step_up_expired',
+  'auth.step_up_failed',
+  'p2p.step_up_unverifiable',
 ]);
 /** Replies that can follow a reservation or a lock: the order may exist, so these are never "nothing happened". */
 export const OPEN_TAKE_CODES: ReadonlySet<string> = new Set([
@@ -411,7 +444,30 @@ export function takeFailureKind(failure: { reason: string; code?: string; status
     case 'pay.take_terms_changed':
       return 'termsChanged';
     case 'pay.take_quote_changed':
+    case 'p2p.quote_changed':
+    case 'p2p.quote_mismatch':
       return 'quoteChanged';
+    case 'p2p.quote_expired':
+    case 'p2p.quote_not_found':
+      return 'quoteExpired';
+    case 'p2p.active_order_cap':
+      return 'orderCap';
+    case 'p2p.pair_limit_exceeded':
+      return 'pairLimit';
+    case 'p2p.verification_order_min':
+    case 'p2p.verification_order_max':
+    case 'p2p.verification_daily_limit':
+    case 'p2p.verification_lifetime_limit':
+    case 'p2p.verification_limit_currency':
+      return 'verificationLimit';
+    case 'p2p.config_unset':
+    case 'p2p.verification_limits_invalid':
+    case 'p2p.verification_level_unwired':
+      return 'limitsUnset';
+    case 'p2p.method_delisted':
+      return 'methodRetired';
+    case 'p2p.buying_restricted':
+      return 'buyingPaused';
     case 'pay.take_own_offer':
     case 'p2p.self_trade':
       return 'ownOffer';
@@ -429,6 +485,22 @@ export function takeFailureKind(failure: { reason: string; code?: string; status
       return 'region';
     case 'p2p.take_refused':
       return 'methodRefused';
+    case 'p2p.contact_required':
+      return 'contact';
+    case 'p2p.risk_not_accepted':
+      return 'risk';
+    case 'auth.step_up_required':
+      return 'stepUp';
+    case 'auth.step_up_expired':
+      return 'stepUpExpired';
+    case 'auth.step_up_failed':
+      return 'stepUpFailed';
+    case 'p2p.step_up_unverifiable':
+      return 'stepUpUnchecked';
+    case 'p2p.contact_unverifiable':
+    case 'p2p.risk_notice_unset':
+    case 'p2p.take_gate_unwired':
+      return 'unchecked';
     case 'p2p.release_unpostable':
       return 'tooSmall';
     case 'p2p.invalid_amount':

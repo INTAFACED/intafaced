@@ -44,6 +44,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { marketStatus } from './local-test-market.mjs';
+import { serveVideoStore } from './local-video-store.mjs';
 import academy from './local-stack-services/academy.mjs';
 import agents from './local-stack-services/agents.mjs';
 import bank from './local-stack-services/bank.mjs';
@@ -140,6 +141,8 @@ const PORTS = {
   ops: 14519,
   // The Web3 rooms' read side (no chain node on this stack).
   protocol: 14520,
+  // LOCAL TEST stand-in for the object store Academy signs video URLs for (local-video-store.mjs).
+  'video-store': 14521,
   customer: 3210,
   invitation: 3220,
   admin: 3100,
@@ -266,6 +269,8 @@ const SECRET_NAMES = [
   'payCardWebhook',
   'identityTotp', // identity's TOTP sealing key; lets the labelled local test operators enrol a second factor
   'identityFlowSubject', // identity's key for sign-up and recovery flows (address identifier and code hash)
+  'notifyStatusLink', // notify's key for the signed links in status subscription mail
+  'academyVideoStore', // the TEST video store's signing key, shared with academy (local-video-store.mjs)
 ];
 
 function loadOrCreateSecrets() {
@@ -1100,6 +1105,18 @@ async function startCustomer() {
   await waitHealthy('customer', url, pid, 20_000);
 }
 
+/** The LOCAL TEST video store (local-video-store.mjs): signed, expiring reads of the TEST video Academy plays. */
+async function startVideoStore(secrets) {
+  const procs = readProcs();
+  const url = `${urlOf('video-store')}/health`;
+  if (ownedAlive(procs['video-store']) && (await httpGet(url, 2000)).status === 200) return;
+  if (await portOpen(PORTS['video-store']))
+    fail(`port ${PORTS['video-store']} (video-store) is in use by a process this script did not start`);
+  const env = { ...baseEnv(), LOCAL_VIDEO_STORE_SECRET: secrets.academyVideoStore };
+  const pid = startProc('video-store', [process.execPath, SCRIPT, '__serve-video-store'], env, REPO);
+  await waitHealthy('video-store', url, pid, 20_000);
+}
+
 /** The public invitation site (apps/invitation), served like the Customer app so its intake reaches svc-ops through Edge. */
 async function startInvitation() {
   const procs = readProcs();
@@ -1183,6 +1200,13 @@ async function healthTable({ gateMarket = false } = {}) {
     const r = await httpGet(`${urlOf(n)}/health`, 2500);
     rows.push([`svc-${n}`, PORTS[n], procs[n]?.pid ?? '-', r.status === 200 ? 'ok' : `DOWN (${r.status})`]);
   }
+  const store = await httpGet(`${urlOf('video-store')}/health`, 2500);
+  rows.push([
+    'video-store',
+    PORTS['video-store'],
+    procs['video-store']?.pid ?? '-',
+    store.status === 200 ? 'ok (TEST)' : `DOWN (${store.status})`,
+  ]);
   const cust = await httpGet(`${CUSTOMER_ORIGIN}/`, 2500);
   rows.push([
     'customer',
@@ -1214,7 +1238,7 @@ function onlyFlag(flags) {
   const at = flags.indexOf('--only');
   if (at === -1) return null;
   const names = (flags[at + 1] ?? '').split(',').filter(Boolean);
-  const known = [...serviceNames(), 'customer', 'invitation', 'admin'];
+  const known = [...serviceNames(), 'video-store', 'customer', 'invitation', 'admin'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`--only needs a comma list of: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -1276,6 +1300,8 @@ async function cmdStart(flags) {
   } catch (err) {
     fail(err instanceof Error ? err.message : String(err));
   }
+  // Academy's env points at the video store, so `--only academy` starts it too.
+  if (!only || only.includes('video-store') || only.includes('academy')) await startVideoStore(secrets);
   for (const def of wanted) await startNodeService(def);
   try {
     await ensureLocalTestFounders();
@@ -1331,7 +1357,7 @@ function ensureMarket() {
 
 async function cmdStop(names = []) {
   const procs = readProcs();
-  const order = ['admin', 'invitation', 'customer', ...serviceNames().reverse(), 'nats'];
+  const order = ['admin', 'invitation', 'customer', ...serviceNames().reverse(), 'video-store', 'nats'];
   const only = names.length ? names : null;
   let bad = false;
   for (const name of order) {
@@ -1402,7 +1428,7 @@ function cmdPlan(flags) {
 
 /** Stop the named services (plain stop, leaves Postgres and the rest alone), then start whatever is not running. */
 async function cmdRestart(names) {
-  const known = [...serviceNames(), 'customer', 'invitation', 'admin'];
+  const known = [...serviceNames(), 'video-store', 'customer', 'invitation', 'admin'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`restart needs service names from: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -1715,6 +1741,8 @@ async function runCli() {
     serveCustomer(Number(rest[0]) || PORTS.customer); // the port argument is for tests only
   else if (cmd === '__serve-invitation') serveCustomer(PORTS.invitation, SITES.invitation);
   else if (cmd === '__serve-admin') await serveAdmin();
+  else if (cmd === '__serve-video-store')
+    serveVideoStore({ host: HOST, port: PORTS['video-store'], secretKey: process.env.LOCAL_VIDEO_STORE_SECRET ?? '' });
   else if (cmd === 'start' && rest[0] === 'customer-dist')
     cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
   else if (cmd === 'start') await cmdStart(rest);
