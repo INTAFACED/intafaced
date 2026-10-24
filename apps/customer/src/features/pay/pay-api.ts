@@ -1083,6 +1083,24 @@ export function createPersonalPayApi(
         undefined,
         p2pCurrent,
       ),
+    /**
+     * P-ads-merchant-18: save a payment method in the person's own name. The id is minted once per form, so a retry of the
+     * same add is the same destination and never a second one.
+     */
+    addInstrument: (input: {
+      instrumentId: string;
+      methodId: string;
+      country: string;
+      fiatCurrency: string;
+      label: string;
+      details: Record<string, string>;
+    }) =>
+      guard.run(
+        `${userId}:instrument-add:${input.instrumentId}`,
+        () => api.mutate('p2p', 'instruments.create', input, s.instrumentSchema),
+        undefined,
+        p2pCurrent,
+      ),
     removeInstrument: (instrumentId: string) =>
       guard.run(
         `${userId}:instrument:${instrumentId}`,

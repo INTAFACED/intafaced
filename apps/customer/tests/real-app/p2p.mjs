@@ -70,6 +70,8 @@ export function p2p(who, passkey = null) {
   };
   return {
     bare,
+    /** The api() session this client speaks for (identity reads, the person's own name). */
+    session: who,
     raw: {
       query: bare.query,
       mutate: (proc, input) =>
@@ -287,15 +289,72 @@ export async function readyTaker(session, who, passkey = null) {
   return client;
 }
 
-/** A TEST bank transfer destination for `who`, so their sell ads can be taken. */
+/** The TEST legal name a journey person's payment accounts are held in (P-ads-merchant-18's own-name rule). */
+export const holderOf = (who) => `TEST ${who.handle}`;
+
+const recordedNames = new Map();
+/**
+ * Records `name` (default `holderOf(who)`) as `session`'s verified legal name, the way staff do it: founder A edits the
+ * protected detail, which opens a compliance review, and founder B passes it (identity accountControls.detailsEdit /
+ * detailsDecide). svc-p2p's own-name rule then accepts a payment account held in that name. Returns the name.
+ */
+export async function verifiedName(session, who, name = holderOf(who)) {
+  const me = await session.get('/api/identity/trpc/me');
+  const userId = me.body?.result?.data?.userId;
+  if (me.status !== 200 || !userId) throw new Error(`identity me refused: ${me.status} ${JSON.stringify(me.body).slice(0, 300)}`);
+  if (recordedNames.get(userId) === name) return name;
+  const { ctx, pair } = await operators();
+  const answer = (what, res) => {
+    const out = res.json?.result?.data;
+    if (res.status !== 200 || out === undefined) throw new Error(`${what} refused (${res.status}): ${res.text.slice(0, 300)}`);
+    return out;
+  };
+  const state = answer(
+    'accountControls.details',
+    await ctx.edge.query('identity', 'accountControls.details', { userId }, await pair.a.approvalToken()),
+  );
+  if (state?.details?.legalName !== name) {
+    const edited = answer(
+      'accountControls.detailsEdit',
+      await ctx.edge.mutate(
+        'identity',
+        'accountControls.detailsEdit',
+        {
+          requestId: randomUUID(),
+          userId,
+          expectedVersion: state?.version ?? '0',
+          reason: 'LOCAL TEST legal name for the P2P own-name rule',
+          changes: { legalName: name },
+        },
+        await pair.a.approvalToken(),
+      ),
+    );
+    if (edited.outcome !== 'review_opened') throw new Error(`legal name edit answered ${edited.outcome} ${edited.code ?? ''}`);
+    const passed = answer(
+      'accountControls.detailsDecide',
+      await ctx.edge.mutate(
+        'identity',
+        'accountControls.detailsDecide',
+        { requestId: randomUUID(), userId, reviewId: edited.reviewId, decision: 'pass', note: 'LOCAL TEST review passed' },
+        await pair.b.approvalToken(),
+      ),
+    );
+    if (passed.outcome !== 'applied') throw new Error(`legal name review answered ${passed.outcome} ${passed.code ?? ''}`);
+  }
+  recordedNames.set(userId, name);
+  return name;
+}
+
+/** A TEST bank transfer destination for `who`, held in their verified TEST legal name, so their sell ads can be taken. */
 export async function testInstrument(client, who) {
+  const holder = await verifiedName(client.session, who);
   return client.mutate('instruments.create', {
     instrumentId: randomUUID(),
     methodId: METHOD,
     country: 'DE',
     fiatCurrency: 'EUR',
     label: 'TEST account',
-    details: { account_holder: who.handle, iban: TEST_IBAN },
+    details: { account_holder: holder, iban: TEST_IBAN },
   });
 }
 

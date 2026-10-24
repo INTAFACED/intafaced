@@ -301,6 +301,16 @@ describe('errorFormatter p2p take limits', () => {
     expect(p2pLimitOf(refused('p2p.insufficient_balance', { until: null, ruleClass: 'messenger' }))).toBeUndefined();
   });
 
+  it('keeps the field key of a payment destination refusal, only on those refusals and only as a key', () => {
+    expect(p2pLimitOf(refused('p2p.account_format_invalid', { until: null, field: 'iban' }))).toEqual({ until: null, field: 'iban' });
+    expect(p2pLimitOf(refused('p2p.instrument_field_missing', { until: null, field: 'account_holder' }))).toEqual({
+      until: null,
+      field: 'account_holder',
+    });
+    expect(p2pLimitOf(refused('p2p.account_format_invalid', { until: null, field: 'DE89 3704 0044' }))).toBeUndefined();
+    expect(p2pLimitOf(refused('p2p.insufficient_balance', { until: null, field: 'iban' }))).toBeUndefined();
+  });
+
   it('keeps a limit with no end time and its bounds', () => {
     expect(p2pLimitOf(refused('p2p.pair_limit_exceeded', { until: null, min: '10', max: '500', currency: 'EUR' }))).toEqual({
       until: null,
