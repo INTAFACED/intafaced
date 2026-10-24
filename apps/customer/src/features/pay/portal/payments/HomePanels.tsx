@@ -18,6 +18,7 @@ import { DateTime } from '../ui/DateTime';
 import { PortalReview } from '../ui/PortalReview';
 import { plainCode } from '../ui/plain-code';
 import { paymentsCopy as c } from './copy';
+import { CheckoutLook } from './CheckoutLook';
 import { definite } from './not-available';
 import type { CheckoutSettings } from './schemas';
 
@@ -175,7 +176,15 @@ export function CheckoutSettingsPage({
   authority: PayBusinessAuthority | null;
 }) {
   const settings = useResource((s) => portal.checkoutSettings(merchantId, s), `portal:checkout-settings:${merchantId}`);
-  return <CheckoutSettingsView settings={settings.resource} retry={settings.reload} merchantId={merchantId} authority={authority} />;
+  return (
+    <CheckoutSettingsView
+      settings={settings.resource}
+      retry={settings.reload}
+      merchantId={merchantId}
+      authority={authority}
+      portal={portal}
+    />
+  );
 }
 
 export function CheckoutSettingsView({
@@ -183,14 +192,18 @@ export function CheckoutSettingsView({
   retry,
   merchantId,
   authority,
+  portal,
 }: {
   settings: Resource<CheckoutSettings>;
   retry: () => void;
   merchantId: string;
   authority: PayBusinessAuthority | null;
+  /** Reads and saves the checkout look. Without it (a static preview) that section is left out. */
+  portal?: PortalApi;
 }) {
   return (
     <div className="stack">
+      {portal && <CheckoutLook portal={portal} />}
       <PaySection title={c.t('cs_currentTitle')} description={c.t('cs_currentBody')}>
         <Gate resource={settings} retry={retry} rows={3}>
           {(s) =>

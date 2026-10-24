@@ -5,6 +5,7 @@ import { MerchantOpsError } from '../merchant-ops/errors.js';
 import { iso } from '../merchant-ops/money.js';
 import { decodeCursor, encodeCursor, requireLimit, toPage } from '../merchant-ops/pagination.js';
 import { assertPermission, type MerchantCaller } from '../merchant-ops/roles.js';
+import { decodeImageUpload } from './image-bytes.js';
 import type { ProductImageRule } from './image-rules.js';
 
 /**
@@ -116,18 +117,8 @@ export const isUnique = (err: unknown, constraint: string): boolean =>
   (err as { code?: string }).code === '23505' &&
   (err as { constraint_name?: string }).constraint_name === constraint;
 
-/** Which of the allowed image types these bytes are, from their first bytes; null for anything else (a GIF included). */
-export function sniffImageType(bytes: Buffer): ImageType | null {
-  if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
-  if (bytes.length >= 12 && bytes.toString('latin1', 0, 4) === 'RIFF' && bytes.toString('latin1', 8, 12) === 'WEBP') return 'image/webp';
-  return null;
-}
-
 /** Row ids are uuids; anything else in an address or a cursor names no row, so it never reaches a `::uuid` cast. */
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
 export class ProductCatalog {
   constructor(
@@ -290,16 +281,11 @@ export class ProductCatalog {
     assertWriter(caller);
     const maxBytes = this.imageRule.maxBytes;
     if (maxBytes === null) throw new MerchantOpsError('pay.product_image_rules_unset', 'precondition');
-    // Refuse an oversized file before decoding it; the decoded size is checked again below.
-    if (Math.floor((input.dataBase64.length * 3) / 4) - 2 > maxBytes)
-      throw new MerchantOpsError('pay.product_image_too_large', 'bad_request');
-    if (!BASE64.test(input.dataBase64)) throw new MerchantOpsError('pay.product_image_unreadable', 'bad_request');
-    const bytes = Buffer.from(input.dataBase64, 'base64');
-    if (bytes.length === 0) throw new MerchantOpsError('pay.product_image_unreadable', 'bad_request');
-    if (bytes.length > maxBytes) throw new MerchantOpsError('pay.product_image_too_large', 'bad_request');
-    const type = sniffImageType(bytes);
-    if (!type || type !== input.contentType.toLowerCase()) throw new MerchantOpsError('pay.product_image_type_refused', 'bad_request');
-    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    const { bytes, type, sha256 } = decodeImageUpload(maxBytes, input, {
+      tooLarge: 'pay.product_image_too_large',
+      unreadable: 'pay.product_image_unreadable',
+      typeRefused: 'pay.product_image_type_refused',
+    });
     const sql = this.sql;
     const prior = async () => {
       const rows = await sql<Array<{ id: string; content_type: ImageType; byte_size: number; sha256: string }>>`

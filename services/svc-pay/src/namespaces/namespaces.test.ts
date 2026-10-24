@@ -17,6 +17,7 @@ const isW15 = (path: string) =>
   path.startsWith('merchantOps.') ||
   path.startsWith('merchantCatalog.') ||
   path.startsWith('merchantStores.') ||
+  path.startsWith('merchantCheckout.') ||
   path.startsWith('founderAdmin.ops.') ||
   path.startsWith('b2bRamp.') ||
   path.startsWith('merchant.customerEmails.') ||

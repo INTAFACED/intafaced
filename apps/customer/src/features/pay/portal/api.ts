@@ -5,6 +5,7 @@ import { moneyApi } from './money/api';
 import { paymentsApi } from './payments/api';
 import { settingsApi } from './settings/api';
 import { catalogApi } from './catalog/api';
+import { lookApi } from './payments/look-api';
 
 /**
  * The merchant portal's own client. Every procedure here scopes itself on the server from the signed
@@ -21,5 +22,5 @@ export { PAGE_SIZE };
 
 export function createPortalApi(api: ApiClient, userId: string | null) {
   const tools = portalTools(api, userId);
-  return { ...coreApi(tools), ...moneyApi(tools), ...paymentsApi(tools), ...settingsApi(tools), ...catalogApi(tools) };
+  return { ...coreApi(tools), ...moneyApi(tools), ...paymentsApi(tools), ...settingsApi(tools), ...catalogApi(tools), ...lookApi(tools) };
 }

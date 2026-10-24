@@ -8,6 +8,11 @@ export const paymentsContract: ContractPart = {
     { method: 'paymentHistory', run: (p) => p.paymentHistory('aa000003-0000-4000-8000-000000000003') },
     { method: 'links', run: (p) => p.links(merchant, 25) },
     { method: 'checkoutSettings', run: (p) => p.checkoutSettings(merchant) },
+    { method: 'checkoutLook', run: (p) => p.checkoutLook() },
+    {
+      method: 'saveCheckoutLook',
+      run: (p) => p.saveCheckoutLook({ requestId: 'c3000001-0000-4000-8000-0000000000aa', expectedVersion: 0, brandColor: '#FF6600' }),
+    },
     { method: 'paymentPage', run: (p) => p.paymentPage(merchant, { linkId: '1c000001-0000-4000-8000-000000000001' }, undefined) },
     { method: 'subscriptions', run: (p) => p.subscriptions(merchant, 25) },
     { method: 'subscriptionPage', run: (p) => p.subscriptionPage(merchant, { status: 'active' }, undefined) },

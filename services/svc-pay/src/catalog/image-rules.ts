@@ -18,12 +18,18 @@ export const PRODUCT_IMAGE_MAX_BYTES_CEILING = 700_000;
 
 /** A whole number of bytes from 1 to the ceiling, or blank. Anything else refuses to boot. */
 export function readProductImageRule(env: Record<string, string | undefined>): ProductImageRule {
-  const raw = env[PRODUCT_IMAGE_MAX_BYTES_ENV]?.trim() ?? '';
+  return readImageByteRule(env, PRODUCT_IMAGE_MAX_BYTES_ENV, PRODUCT_IMAGE_MAX_BYTES_CEILING);
+}
+
+/**
+ * An owner's image size rule from `name`: a whole number of bytes from 1 to `ceiling`, or blank for no published size.
+ * Anything else refuses to boot, naming the variable. Product images and checkout logos read theirs with it.
+ */
+export function readImageByteRule(env: Record<string, string | undefined>, name: string, ceiling: number): { maxBytes: number | null } {
+  const raw = env[name]?.trim() ?? '';
   if (!raw) return { maxBytes: null };
-  if (!/^[1-9][0-9]{0,6}$/.test(raw) || Number(raw) > PRODUCT_IMAGE_MAX_BYTES_CEILING) {
-    throw new Error(
-      `${PRODUCT_IMAGE_MAX_BYTES_ENV} must be a whole number of bytes from 1 to ${PRODUCT_IMAGE_MAX_BYTES_CEILING}. Refusing to boot.`,
-    );
+  if (!/^[1-9][0-9]{0,6}$/.test(raw) || Number(raw) > ceiling) {
+    throw new Error(`${name} must be a whole number of bytes from 1 to ${ceiling}. Refusing to boot.`);
   }
   return { maxBytes: Number(raw) };
 }

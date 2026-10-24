@@ -1,4 +1,5 @@
 import { checkoutUrlFor, paymentLinkCreateFingerprint, paymentLinkCreateKey } from './payment-link-create.js';
+import { checkoutLookOf, type CheckoutLook } from './checkout-branding/branding.js';
 import {
   confirmationFingerprint,
   parseInactiveMessage,
@@ -1899,6 +1900,28 @@ export class PayService {
     checkoutConfig: Record<string, unknown>;
   }> {
     return this.readLink(this.sql, token);
+  }
+
+  /**
+   * The saved look (M-payments-core-08) of the business a payment link or checkout session belongs to, for the hosted
+   * page: its brand colour and logo, or null for the default look (and for a token that opens nothing). The token is
+   * the capability, as for `resolvePaymentLink`; only the page asks, so no other read carries the logo's bytes.
+   */
+  async checkoutLook(ref: { linkToken: string } | { sessionToken: string }): Promise<CheckoutLook | null> {
+    const tokenHash = createHash('sha256')
+      .update('linkToken' in ref ? ref.linkToken : ref.sessionToken)
+      .digest('hex');
+    const rows =
+      'linkToken' in ref
+        ? await this.sql<Array<{ brand_color: string; logo_type: string | null; logo_bytes: Buffer | null }>>`
+            SELECT b.brand_color, b.logo_type, b.logo_bytes
+              FROM pay.payment_links l JOIN pay.checkout_branding b ON b.merchant_id = l.merchant_id
+             WHERE l.token_hash = ${tokenHash}`
+        : await this.sql<Array<{ brand_color: string; logo_type: string | null; logo_bytes: Buffer | null }>>`
+            SELECT b.brand_color, b.logo_type, b.logo_bytes
+              FROM pay.checkout_sessions s JOIN pay.checkout_branding b ON b.merchant_id = s.merchant_id
+             WHERE s.token_hash = ${tokenHash}`;
+    return rows[0] ? checkoutLookOf(rows[0]) : null;
   }
 
   private async readLink(
