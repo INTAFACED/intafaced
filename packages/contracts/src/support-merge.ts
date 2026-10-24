@@ -23,8 +23,8 @@ const reasonSchema = z.string().trim().min(1).max(SUPPORT_MERGE_REASON_MAX);
 
 export const supportMergeInputSchema = z
   .object({
-    sourceId: z.string().uuid(),
-    survivorId: z.string().uuid(),
+    sourceId: z.string().guid(),
+    survivorId: z.string().guid(),
     reason: reasonSchema,
   })
   .strict();
@@ -32,8 +32,8 @@ export type SupportMergeInput = z.infer<typeof supportMergeInputSchema>;
 
 export const supportMergeResultSchema = z
   .object({
-    sourceId: z.string().uuid(),
-    survivorId: z.string().uuid(),
+    sourceId: z.string().guid(),
+    survivorId: z.string().guid(),
     commentsMoved: z.number().int().nonnegative(),
     attachmentsMoved: z.number().int().nonnegative(),
     mergedAt: z.string().datetime(),
@@ -42,13 +42,13 @@ export const supportMergeResultSchema = z
 export type SupportMergeResult = z.infer<typeof supportMergeResultSchema>;
 
 /** What a merge would do, read before the confirmation. Moves nothing. */
-export const supportMergePreviewInputSchema = z.object({ sourceId: z.string().uuid(), survivorId: z.string().uuid() }).strict();
+export const supportMergePreviewInputSchema = z.object({ sourceId: z.string().guid(), survivorId: z.string().guid() }).strict();
 export type SupportMergePreviewInput = z.infer<typeof supportMergePreviewInputSchema>;
 
 export const supportMergePreviewSchema = z
   .object({
-    sourceId: z.string().uuid(),
-    survivorId: z.string().uuid(),
+    sourceId: z.string().guid(),
+    survivorId: z.string().guid(),
     /** Null when the merge is allowed; otherwise the typed code a merge would give. */
     refusal: z.enum(SUPPORT_MERGE_ERROR_CODES).nullable(),
     commentsToMove: z.number().int().nonnegative(),

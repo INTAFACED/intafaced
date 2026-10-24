@@ -8,7 +8,7 @@ import { z } from 'zod';
 export const outreachAudienceSchema = z.enum(['investor', 'trader', 'merchant', 'academy', 'partner']);
 export type OutreachAudience = z.infer<typeof outreachAudienceSchema>;
 
-const id = z.string().uuid();
+const id = z.string().guid();
 const timestamp = z.string().datetime({ offset: true });
 const shortText = z.string().trim().min(1).max(160);
 const message = z.string().trim().max(2000);

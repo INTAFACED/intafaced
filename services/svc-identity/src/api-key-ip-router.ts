@@ -27,10 +27,10 @@ async function currentList(sql: Sql, userId: string, keyId: string): Promise<str
 export function createApiKeyIpRouter(sql: Sql, minter: ApiKeyMinter, gate: ApiKeyFactorGate) {
   return router({
     bindApiKeyIpAllowlist: scopedProcedure('identity:write')
-      .input(z.object({ keyId: z.string().uuid(), ips: z.array(z.string()), factorProof: optionalFactorProof }))
+      .input(z.object({ keyId: z.string().guid(), ips: z.array(z.string()), factorProof: optionalFactorProof }))
       .output(
         z.object({
-          id: z.string().uuid(),
+          id: z.string().guid(),
           ipAllowlist: z.array(z.string()),
           requireSignature: z.boolean(),
           requireNonEmptyIpAllowlist: z.boolean(),
@@ -64,10 +64,10 @@ export function createApiKeyIpRouter(sql: Sql, minter: ApiKeyMinter, gate: ApiKe
         }
       }),
     unbindApiKeyIpAllowlist: scopedProcedure('identity:write')
-      .input(z.object({ keyId: z.string().uuid(), ip: z.string(), factorProof: optionalFactorProof }))
+      .input(z.object({ keyId: z.string().guid(), ip: z.string(), factorProof: optionalFactorProof }))
       .output(
         z.object({
-          id: z.string().uuid(),
+          id: z.string().guid(),
           ipAllowlist: z.array(z.string()),
           requireSignature: z.boolean(),
           requireNonEmptyIpAllowlist: z.boolean(),

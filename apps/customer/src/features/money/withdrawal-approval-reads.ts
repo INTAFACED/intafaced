@@ -8,8 +8,8 @@ import { approvalCopy } from './withdrawal-approval-copy';
 // money was sent: only the withdrawal record says what happened to the funds.
 export const APPROVAL_STATUSES = ['pending', 'approved', 'executed', 'rejected', 'expired', 'canceled', 'failed'] as const;
 export const approvalRequestSchema = z.object({
-  id: z.string().uuid(),
-  userId: z.string().uuid(),
+  id: z.string().guid(),
+  userId: z.string().guid(),
   assetId: z.string().min(1).max(32),
   amount: z
     .string()
@@ -18,7 +18,7 @@ export const approvalRequestSchema = z.object({
   rail: z.string(),
   destination: z.object({ kind: z.string(), ref: z.string() }),
   clientRef: z.string(),
-  teamAccountId: z.string().uuid(),
+  teamAccountId: z.string().guid(),
   requiredApprovals: z.number().int().min(1),
   approvalCount: z.number().int().min(0),
   approvedByMe: z.boolean(),
@@ -33,7 +33,7 @@ export type ApprovalRequest = z.infer<typeof approvalRequestSchema>;
 
 const requestIdSchema = z
   .string()
-  .uuid()
+  .guid()
   .transform((value) => value.toLowerCase());
 const limitSchema = z.number().int().min(1).max(200);
 

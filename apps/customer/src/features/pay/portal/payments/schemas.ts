@@ -83,7 +83,7 @@ export const activityItemSchema = z.object({
   action: z.string(),
   objectType: z.string(),
   objectId: z.string(),
-  detail: z.record(z.string()),
+  detail: z.record(z.string(), z.string()),
 });
 export type ActivityItem = z.infer<typeof activityItemSchema>;
 
@@ -133,8 +133,8 @@ export const checkoutSettingsSchema = z.discriminatedUnion('status', [
   z.object({
     status: z.literal('configured'),
     profileId: z.string(),
-    checkoutConfig: z.record(z.unknown()),
-    feeRouting: z.record(z.unknown()).nullable(),
+    checkoutConfig: z.record(z.string(), z.unknown()),
+    feeRouting: z.record(z.string(), z.unknown()).nullable(),
     domains: z.array(z.string()),
     createdAt: timestamp,
   }),
