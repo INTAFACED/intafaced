@@ -46,6 +46,8 @@ export function createPortalMock(
   const unmounted = [];
   const ctx = mockContext(scenario, now, { myAccess, role, emailInvites });
   const stepUpMock = createStepUpMock(ctx, { mode: stepUp });
+  // The pay stand-in spends the approvals the identity stand-in issues, as svc-pay does.
+  ctx.stepUp = stepUpMock;
   const parts = [
     stepUpMock,
     createCoreMock(ctx),
