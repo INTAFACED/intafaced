@@ -14,6 +14,9 @@ export const settingsContract: ContractPart = {
     { method: 'invite', run: (p) => p.invite({ userId: 'TEST-user-new', role: 'viewer' }) },
     { method: 'exportsList', run: (p) => p.exportsList(undefined, '', '') },
     { method: 'exportDownload', run: (p) => p.exportDownload('f1000000-0000-4000-8000-000000000001') },
+    { method: 'kybEntityTypes', run: (p) => p.kybEntityTypes() },
+    { method: 'kybApplication', run: (p) => p.kybApplication('11111111-1111-4111-8111-111111111111') },
+    { method: 'kybDocuments', run: (p) => p.kybDocuments('ab000001-0000-4000-8000-000000000001') },
   ],
   notMocked: {
     ...accountContract.notMocked,
@@ -25,5 +28,11 @@ export const settingsContract: ContractPart = {
     acceptInvite: write,
     declineInvite: write,
     createExport: write,
+    kybApplicationStart: write,
+    kybApplicationChangeType: write,
+    kybApplicationSave: write,
+    kybApplicationRestart: write,
+    kybApplicationSubmit: write,
+    kybDocumentUpload: write,
   },
 };

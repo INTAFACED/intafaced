@@ -39,7 +39,7 @@ const en = {
   step2Title: 'Verification',
   step2Short: 'Prove who you are',
   step2Body:
-    'Send INTAFACED the reference of your business verification file. INTAFACED reviews it and decides; it is never approved automatically.',
+    'Fill in the business application below and send it for review, or send the reference of a verification file you already filed with INTAFACED. INTAFACED reviews it and decides; it is never approved automatically.',
   step3Title: 'Payout destination',
   step3Short: 'Where you get paid',
   step3Body:

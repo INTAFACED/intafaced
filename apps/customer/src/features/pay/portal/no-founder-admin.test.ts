@@ -124,6 +124,18 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
       settlement: new Set(['settlement.list', 'settlement.get', 'settlement.lines', 'settlement.lifecycle', 'settlement.payout']),
       payHalts: new Set(['payHalts.status']),
       conversion: new Set(['conversion.quote', 'conversion.execute', 'conversion.get', 'conversion.list']),
+      // The business application is the merchant's own (`pay:onboard`); `kyb.decide` and `kyb.decisionBinding` are the operator's.
+      kyb: new Set([
+        'kyb.entityTypes.read',
+        'kyb.application.current',
+        'kyb.application.start',
+        'kyb.application.changeType',
+        'kyb.application.saveSection',
+        'kyb.application.restart',
+        'kyb.application.submit',
+        'kyb.documents.checklist',
+        'kyb.documents.upload',
+      ]),
     };
     // Procedures with no dot in their name, each allowed by name.
     const bare = new Set([

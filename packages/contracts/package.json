@@ -141,6 +141,18 @@
     "./academy-courses": {
       "types": "./dist/academy-courses.d.ts",
       "default": "./dist/academy-courses.js"
+    },
+    "./kyb-entity-types": {
+      "types": "./dist/kyb-entity-types.d.ts",
+      "default": "./dist/kyb-entity-types.js"
+    },
+    "./kyb-application": {
+      "types": "./dist/kyb-application.d.ts",
+      "default": "./dist/kyb-application.js"
+    },
+    "./kyb-documents": {
+      "types": "./dist/kyb-documents.d.ts",
+      "default": "./dist/kyb-documents.js"
     }
   },
   "scripts": {
