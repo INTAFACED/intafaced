@@ -154,6 +154,14 @@ export type BankErrorCode =
    * sum that quietly omitted the coins it could not price would be a wrong number.
    */
   | 'bank.prices_unavailable'
+  /** `portfolio.valueOverTime`: the range must start before it ends, and before now (or is shorter than one chart step). */
+  | 'bank.value_range_invalid'
+  /** `portfolio.valueOverTime`: the range starts too long ago for one candle read to price it. */
+  | 'bank.value_range_too_long'
+  /** `portfolio.valueOverTime`: more ledger movements in the range than one answer carries. */
+  | 'bank.value_history_too_large'
+  /** `portfolio.valueOverTime`: svc-ledger's holdings history could not be read (or is not wired). Nothing is guessed. */
+  | 'bank.value_history_unavailable'
   /**
    * `portfolio.summary` was asked to show values in a currency other than USD or BTC. The platform has no FX rate source
    * (the rate source is an owner value and stays blank), so the call refuses by name and keeps no guess.
