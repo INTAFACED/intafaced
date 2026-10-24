@@ -1056,4 +1056,57 @@
       text-align: left;
     }
   }
+  .money-pnl-range {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .money-pnl-range__dates {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 8px;
+  }
+  .money-pnl-chart {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .money-pnl-chart__plot {
+    position: relative;
+  }
+  .money-pnl-chart__plot svg {
+    display: block;
+    width: 100%;
+    height: 240px;
+    border-radius: var(--if-r-xs);
+    background: var(--if-panel);
+    touch-action: pan-y;
+  }
+  .money-pnl-chart__tip {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    margin: 0;
+    padding: 4px 8px;
+    border: 1px solid var(--if-line);
+    border-radius: var(--if-r-xs);
+    background: var(--if-bg-1);
+    color: var(--if-fg-1);
+    font: 400 12px/16px var(--if-font-ui);
+  }
+  .money-pnl-chart__axis {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .money-pnl-points summary {
+    cursor: pointer;
+    font: 500 14px/20px var(--if-font-ui);
+    color: var(--if-fg-1);
+  }
 }
