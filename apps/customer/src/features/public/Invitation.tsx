@@ -601,7 +601,11 @@ function AttachWindowNote() {
               ? t('windowUnset')
               : t(resource.data.state === 'open' ? 'windowOpen' : 'windowClosed', { closesAt: when(resource.data.closesAt!) })}
           </p>
-          <p className="muted">{t('windowCreated', { createdAt: when(resource.data.accountCreatedAt) })}</p>
+          <p className="muted">
+            {resource.data.reopenedAt
+              ? t('windowReopened', { reopenedAt: when(resource.data.reopenedAt) })
+              : t('windowCreated', { createdAt: when(resource.data.accountCreatedAt) })}
+          </p>
         </>
       )}
     </div>
