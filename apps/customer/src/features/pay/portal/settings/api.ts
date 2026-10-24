@@ -1,9 +1,10 @@
 import { z } from 'zod';
 import * as p from '../schemas';
 import { type PortalTools } from '../api-tools';
+import type { DestinationProof } from '../access/destination-step-up';
 import { accountApi } from './account/account-api';
 
-const baseSettingsApi = ({ query, mutate, list }: PortalTools) => ({
+const baseSettingsApi = ({ query, mutate, list, confirmDestinationStepUp }: PortalTools) => ({
   /** The names are the merchant's own, stored on the account the service derives from the session (never from this call). */
   createMerchant: (feeBps: number, businessDetails: Record<string, string>, names: { legalName: string; displayName?: string }) =>
     mutate(
@@ -12,8 +13,16 @@ const baseSettingsApi = ({ query, mutate, list }: PortalTools) => ({
       p.merchantCreatedSchema,
     ),
   submitKyb: (merchantId: string, kybRef: string) => mutate('merchant.submitKyb', { merchantId, kybRef }, p.kybSubmitSchema),
-  setPayoutDestination: (merchantId: string, railId: string, kind: string, ref: string) =>
-    mutate('merchant.setPayoutDestination', { merchantId, railId, kind, ref }, p.destinationSchema),
+  /** Confirms the destination with the owner's code or passkey, then saves it with that single-use approval. */
+  setPayoutDestination: async (merchantId: string, railId: string, kind: string, ref: string, proof: DestinationProof) => {
+    const approved = await confirmDestinationStepUp({ merchantId, railId, kind, ref }, proof);
+    if (!approved.ok) return approved;
+    return mutate(
+      'merchant.setPayoutDestination',
+      { merchantId, railId, kind, ref, stepUpApprovalId: approved.data.stepUpApprovalId },
+      p.destinationSchema,
+    );
+  },
   kybCurrent: (signal?: AbortSignal) => query('merchantOps.kyb.current', {}, p.kybCurrentSchema, signal),
   kybHistory: (cursor: string | undefined, signal?: AbortSignal) =>
     list('merchantOps.kyb.history', p.kybEventSchema, { ...(cursor ? { cursor } : {}) }, signal),

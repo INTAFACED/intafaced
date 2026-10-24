@@ -172,6 +172,8 @@ describe('svc-p2p customer depth', () => {
       SELECT terms_snapshot FROM p2p.p2p_trades WHERE id = ${trade.id}
     `;
     expect(snap[0]?.terms_snapshot).toBe('pay within 15 minutes');
+    // The order record carries the same copy, so the order page shows the terms it was placed under.
+    expect(stored.termsSnapshot).toBe('pay within 15 minutes');
     await expect(p2p.updateOffer({ offerId: offer.id, makerId: TAKER, idempotencyKey: 'not-maker', terms: 'no' })).rejects.toMatchObject({
       code: 'p2p.not_a_party',
     });

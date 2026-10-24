@@ -158,6 +158,7 @@ test('onboarding: verification then payout destination, with activation explicit
   await address.fill(`0x${'ab'.repeat(20)}`);
   await snap(page, '07-onboarding-payout');
   await page.getByRole('button', { name: 'Save destination' }).click();
+  await page.getByRole('dialog').getByLabel('6-digit code from your authenticator app *').fill(TEST_TOTP_CODE);
   await page.getByRole('dialog').locator('.form-stack > button').last().click();
   await expect(page.getByText('Destination saved.', { exact: true })).toBeVisible();
   await expect(page.getByText('Waiting for your verification to be approved')).toBeVisible();

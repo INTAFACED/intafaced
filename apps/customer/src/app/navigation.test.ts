@@ -20,6 +20,11 @@ it('returns a signed-in customer to a requested room, but refuses external and t
   expect(safeReturnTo('/bank/spaces')).toBe('/bank/spaces');
   expect(safeReturnTo('//example.com')).toBe('/home');
   expect(safeReturnTo('/ops')).toBe('/home');
+  // The help centre's sign-in prompt returns to the answer it was on; other public rooms still send home.
+  expect(safeReturnTo('/helpdetail?id=kb-signed-in-only')).toBe('/helpdetail?id=kb-signed-in-only');
+  expect(safeReturnTo('/help/section/withdrawals')).toBe('/help/section/withdrawals');
+  expect(safeReturnTo('/login')).toBe('/home');
+  expect(safeReturnTo('/register')).toBe('/home');
 });
 
 it('preserves the validated authenticated destination query and fragment, including fragment-only links', () => {
