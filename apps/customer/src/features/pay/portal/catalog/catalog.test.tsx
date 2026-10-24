@@ -13,6 +13,7 @@ import { ROLE_CAPABILITIES } from '../access/capabilities';
 import type { PortalApi } from '../api';
 import { parsePortalRoute } from '../routes';
 import { ProductCreate, ProductList } from './Products';
+import { ProductImport } from './ProductImport';
 import { SubscriptionPriceFact, SubscriptionPricePicker } from './SubscriptionPrice';
 import { productImageUploadInputSchema } from '@intafaced/contracts/merchant-catalog';
 import {
@@ -58,6 +59,7 @@ describe('product catalogue (J-merchant-03 steps 1 and 2)', () => {
   it('opens /pay/products, /pay/products/new and one product at their own addresses', () => {
     expect(parsePortalRoute('/pay/products')).toEqual({ room: 'products' });
     expect(parsePortalRoute('/pay/products/new')).toEqual({ room: 'product-new' });
+    expect(parsePortalRoute('/pay/products/import')).toEqual({ room: 'product-import' });
     expect(parsePortalRoute('/pay/products/c1000001-0000-4000-8000-000000000001')).toEqual({
       room: 'product',
       param: 'c1000001-0000-4000-8000-000000000001',
@@ -76,6 +78,24 @@ describe('product catalogue (J-merchant-03 steps 1 and 2)', () => {
       expect(page, role).toContain('The owner, an admin or a developer can add them.');
     }
     expect(draw(ready('owner', 'pending'))).toContain('Products can be added once your business is verified.');
+  });
+  it('gives the import page its columns and file to who may add products, and says why to anyone else (step 5)', () => {
+    const drawImport = (access: Access) =>
+      renderToStaticMarkup(
+        <MerchantAccessContext.Provider value={{ access, can: (need: Parameters<typeof allows>[1]) => allows(access, need) } as never}>
+          <ProductImport portal={portal} />
+        </MerchantAccessContext.Provider>,
+      );
+    const page = drawImport(ready('developer'));
+    expect(page).toContain('Products file (CSV)');
+    for (const column of ['name', 'type', 'product_id', 'unit_label', 'statement_descriptor', 'event_starts_at', 'event_location'])
+      expect(page).toContain(`<code>${column}</code>`);
+    expect(page).not.toContain('Check file');
+    for (const role of ['finance', 'viewer'] as const) {
+      const refused = drawImport(ready(role));
+      expect(refused, role).not.toContain('Products file (CSV)');
+      expect(refused, role).toContain('The owner, an admin or a developer can add them.');
+    }
   });
   it('keeps Save off while the name is empty, and asks an event for its time and place', () => {
     expect(draftProblem(blankProduct())).toBe('nameRequired');

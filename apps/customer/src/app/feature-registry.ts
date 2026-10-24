@@ -88,6 +88,7 @@ const businessPaySlugs = [
   'invoices/new',
   'products',
   'products/new',
+  'products/import',
   'products/:productId',
   'developer/sandbox',
   'developer/docs',

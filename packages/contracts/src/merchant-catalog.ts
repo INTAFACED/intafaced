@@ -305,3 +305,94 @@ export const priceChoicesSchema = z
     nextCursor: z.string().nullable(),
   })
   .strict();
+
+/**
+ * A file of products (J-merchant-03 step 5, M-catalogue-01, M-adv-payments-core-21): CSV, one header line then one
+ * product a line. `name` and `type` are required columns; the others may be left out or left blank. A dry run checks
+ * every line and writes nothing; a commit writes every product in one step, and only when no line has a problem. The
+ * file is its own key: the same file again, byte for byte, answers with what it made and makes nothing.
+ */
+export const PRODUCT_IMPORT_COLUMNS = [
+  'name',
+  'type',
+  'product_id',
+  'unit_label',
+  'statement_descriptor',
+  'event_starts_at',
+  'event_location',
+] as const;
+export const productImportColumnSchema = z.enum(PRODUCT_IMPORT_COLUMNS);
+export type ProductImportColumn = z.infer<typeof productImportColumnSchema>;
+
+/** At most this many products a file. A longer file is refused whole (`pay.product_import_too_many_rows`). */
+export const PRODUCT_IMPORT_MAX_ROWS = 500;
+/** At most this many characters a file, so one request stays under the 1 MiB body limit even when every character is
+ * one JSON writes as six bytes (`\u0001`). */
+export const PRODUCT_IMPORT_MAX_CHARS = 150_000;
+/** At most this many problems are listed; `problemCount` counts them all. */
+export const PRODUCT_IMPORT_MAX_PROBLEMS = 100;
+
+export const PRODUCT_IMPORT_PROBLEMS = [
+  /** A header names a column the file format does not have. */
+  'column_unknown',
+  /** A header names one column twice. */
+  'column_repeated',
+  /** The header lacks `name` or `type`. */
+  'column_missing',
+  /** A line has more or fewer cells than the header. */
+  'row_width',
+  /** A quoted cell is never closed. */
+  'quote_unclosed',
+  'value_required',
+  'value_invalid',
+  'value_too_long',
+  /** The product id is already one of this business's products. */
+  'id_taken',
+  /** Two lines of the file choose the same product id. */
+  'id_repeated',
+  /** An event needs both a start time and a location. */
+  'event_details_required',
+  /** Only an event carries a start time or a location. */
+  'event_details_not_event',
+] as const;
+export const productImportProblemKindSchema = z.enum(PRODUCT_IMPORT_PROBLEMS);
+
+export const productImportInputSchema = z
+  .object({
+    /** The file's text, as read. */
+    csv: z.string().min(1).max(PRODUCT_IMPORT_MAX_CHARS),
+    /** false: a dry run, which writes nothing. */
+    commit: z.boolean(),
+  })
+  .strict();
+
+export const productImportProblemSchema = z
+  .object({
+    /** The file's line the problem is on; the header is line 1. A quoted cell may span lines: its row's first line. */
+    line: z.number().int().min(1),
+    /** The column the problem is in; null for a problem with the whole line. */
+    column: z.string().nullable(),
+    problem: productImportProblemKindSchema,
+  })
+  .strict();
+export type ProductImportProblem = z.infer<typeof productImportProblemSchema>;
+
+export const productImportSchema = z
+  .object({
+    /** The file's SHA-256, its key. */
+    fileSha256: z.string().regex(/^[0-9a-f]{64}$/),
+    /** Product lines in the file. */
+    rows: z.number().int().nonnegative(),
+    /** The first problems, in line order; none when the file can be imported. */
+    problems: z.array(productImportProblemSchema).max(PRODUCT_IMPORT_MAX_PROBLEMS),
+    problemCount: z.number().int().nonnegative(),
+    /** The file's products are in the catalogue, from this request or an earlier one. */
+    imported: z.boolean(),
+    /** An earlier request imported this file; nothing was made now. */
+    replayed: z.boolean(),
+    importedAt: z.string().nullable(),
+    /** The products the file made, in file order; a product deleted since is left out. Empty until imported. */
+    products: z.array(productSchema),
+  })
+  .strict();
+export type ProductImport = z.infer<typeof productImportSchema>;
