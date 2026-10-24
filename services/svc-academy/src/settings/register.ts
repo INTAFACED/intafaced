@@ -45,6 +45,8 @@ export interface SettingsEnv {
   readonly ACADEMY_GRADER_LEASE_SECONDS?: number | undefined;
   readonly ACADEMY_CERT_ISSUE_SWEEP_SECONDS?: number | undefined;
   readonly ACADEMY_PROGRAMME_MAX_COURSES?: number | undefined;
+  readonly ACADEMY_POST_MAX_CHARS?: number | undefined;
+  readonly ACADEMY_POST_IMAGE_MAX_BYTES?: number | undefined;
   readonly ACADEMY_UPLOAD_VIDEO_TYPES?: readonly string[] | undefined;
   readonly ACADEMY_UPLOAD_HANDOUT_TYPES?: readonly string[] | undefined;
   readonly ACADEMY_PAPER_MARKETS_LIMIT?: number | undefined;
@@ -229,6 +231,22 @@ export function settingsRegister(env: SettingsEnv): readonly SettingRow[] {
       store: 'env',
       readOnly: false,
       refusalCode: 'academy.programme_limit_unset',
+    },
+    {
+      // Blank: every discussion post and reply refuses.
+      key: 'post_max_chars',
+      state: state(positiveInt(env.ACADEMY_POST_MAX_CHARS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.post_limit_unset',
+    },
+    {
+      // Blank: a post with an image refuses; a post without one is not affected.
+      key: 'post_image_max_bytes',
+      state: state(positiveInt(env.ACADEMY_POST_IMAGE_MAX_BYTES)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.attachment_limit_unset',
     },
     {
       key: 'upload_size_limit',

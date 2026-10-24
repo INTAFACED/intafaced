@@ -108,6 +108,7 @@ export * from './academy-catalogue.js';
 export * from './academy-certificates.js';
 export * from './academy-courses.js';
 export * from './academy-programmes.js';
+export * from './academy-discussion.js';
 export * from './bank-card-funds.js';
 export * from './asset-registry.js';
 export * from './market-listing-categories.js';

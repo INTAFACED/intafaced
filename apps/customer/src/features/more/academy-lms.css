@@ -289,3 +289,18 @@
   border-left: 3px solid var(--color-accent);
   font-weight: 600;
 }
+
+/* Course discussion (AC-rooms-01): a post's own words keep their line breaks; an image never overflows its panel. */
+.academy-discussion-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.academy-discussion-image {
+  display: block;
+  max-width: 100%;
+  min-width: 48px;
+  min-height: 48px;
+  max-height: 480px;
+  object-fit: contain;
+  image-rendering: auto;
+}
