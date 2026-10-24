@@ -40,10 +40,12 @@ import {
   type PlaceOrderInput,
 } from './spot/trade-service.js';
 import {
+  discountedFeeBps,
   FEE_SCHEDULE_RESIDUAL,
   FeeScheduleError,
   publicFeeSchedule,
   publishedProductBps,
+  REGULAR_FEE_TIER,
   type OwnerFeeSchedule,
 } from './spot/fee-schedule.js';
 import {
@@ -111,7 +113,7 @@ import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from 
  *   DELETE /api/v1/orders          scope: trade:write + jurisdiction(module=trade)  (cancelAll; ?symbol= optional)
  *   POST   /api/v1/markets/:marketId/orders/mass-cancel scope: trade:write + jurisdiction  (matching mass-cancel; auth account only)
  *   GET    /api/v1/account/trades  scope: trade:read  (?symbol=&limit=&since= ms)
- *   GET    /api/v1/account/fees    scope: trade:read  (published maker/taker from markets)
+ *   GET    /api/v1/account/fees    scope: trade:read  (the caller's maker/taker: its tier, less its rank discount)
  *   GET    /api/v1/account/balance scope: trade:read  (ledger projection; self-only)
  *   GET    /api/v1/positions       scope: trade:read  (open futures rows; [] when none)
  *   GET    /api/v1/positions/closed scope: trade:read (closed/liquidated; [] when none; ?symbol=&limit=&since= ms)
@@ -272,6 +274,10 @@ export interface PrivateRestDeps {
   feeSchedule?: OwnerFeeSchedule;
   /** The schedule in force now (a later approved version, else `feeSchedule`). Absent: `feeSchedule` as booted. */
   feeScheduleNow?: () => Promise<OwnerFeeSchedule>;
+  /** The caller's fee tier for a new spot order under `schedule` (the last finished snapshot). Absent: regular. */
+  feeTier?(userId: string, schedule: OwnerFeeSchedule): Promise<string>;
+  /** The caller's rank discount in bps of the published rate. Absent: none. */
+  feeDiscountBps?(userId: string): Promise<number>;
   /** Clock for `serverTime` on private reads. Default `new Date()`. */
   now?: () => Date;
   /** Authenticated PX-S01 projection; missing publisher remains typed refusal. */
@@ -724,19 +730,52 @@ export function presentCcxtTradingFee(market: Market) {
   };
 }
 
+/** Which published block the fill path charges a market from: spot rows, the futures `perpetual` block, none for options. */
+export function feeProductOf(market: Market): 'spot' | 'perpetual' | null {
+  return market.kind === 'spot' ? 'spot' : market.kind === 'futures' ? 'perpetual' : null;
+}
+
+/** Whether a market's rate depends on the caller's fee tier: live spot only (paper and futures are always regular). */
+export function tieredMarket(market: Market): boolean {
+  return market.kind === 'spot' && !market.paper;
+}
+
+/** Whose rates `presentAccountFees` answers: the caller's fee tier and rank discount, as the order check reads them. */
+export interface AccountFeeTerms {
+  readonly tierId: string;
+  readonly discountBps: number;
+}
+
+const REGULAR_TERMS: AccountFeeTerms = { tierId: REGULAR_FEE_TIER, discountBps: 0 };
+
 /**
- * Customer fee card. Maker/taker are the owner schedule, once per symbol.
- * Listing-row bps are not copied onto this wire.
+ * Customer fee card: once per symbol, the rates `terms` pays on the owner schedule in force, the way placement and the
+ * order check resolve them. Spot reads the market's pair-group row at the tier (a paper market is regular), futures the
+ * `perpetual` block, and both take the rank discount; options have no rate and are left out. Listing-row bps are not
+ * copied onto this wire. With no terms, the regular tier before any discount (the public schedule).
  */
 export function presentAccountFees(
   markets: readonly Market[],
   schedule: Extract<OwnerFeeSchedule, { published: true }>,
-): Record<string, ReturnType<typeof presentCcxtTradingFee> & { makerBps: number; takerBps: number; version: string }> {
-  const out: Record<string, ReturnType<typeof presentCcxtTradingFee> & { makerBps: number; takerBps: number; version: string }> = {};
+  terms: AccountFeeTerms = REGULAR_TERMS,
+): Record<
+  string,
+  ReturnType<typeof presentCcxtTradingFee> & { makerBps: number; takerBps: number; version: string; tier: string; discountBps: number }
+> {
+  const out: ReturnType<typeof presentAccountFees> = {};
   for (const market of markets) {
+    const product = feeProductOf(market);
+    if (!product) continue;
+    const tierId = tieredMarket(market) ? terms.tierId : REGULAR_FEE_TIER;
     let rates: { makerBps: number; takerBps: number } | null;
     try {
-      rates = publishedProductBps(schedule, 'spot', { symbol: market.symbol });
+      rates = publishedProductBps(schedule, product, product === 'spot' ? { symbol: market.symbol, tierId } : undefined);
+      if (rates) {
+        rates = {
+          makerBps: discountedFeeBps(rates.makerBps, terms.discountBps),
+          takerBps: discountedFeeBps(rates.takerBps, terms.discountBps),
+        };
+      }
     } catch (err) {
       // A market whose schedule row refuses shows no rate; the order path refuses it with the typed code.
       if (err instanceof FeeScheduleError) continue;
@@ -751,6 +790,8 @@ export function presentAccountFees(
       makerBps: rates.makerBps,
       takerBps: rates.takerBps,
       version: schedule.version,
+      tier: tierId,
+      discountBps: terms.discountBps,
     };
   }
   return out;
@@ -784,7 +825,7 @@ export interface AdminMarketFee {
  */
 export function presentAdminFees(markets: readonly Market[], schedule: Extract<OwnerFeeSchedule, { published: true }>) {
   const rows: AdminMarketFee[] = markets.map((market) => {
-    const product = market.kind === 'spot' ? 'spot' : market.kind === 'futures' ? 'perpetual' : null;
+    const product = feeProductOf(market);
     let rates: { makerBps: number; takerBps: number } | null = null;
     let refusal: AdminFeeRefusal | null = null;
     if (product) {
@@ -1500,10 +1541,12 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   });
 
   /**
-   * Owner `TRADE_FEE_SCHEDULE` maker/taker, once per listed symbol. Same bps
-   * order preview returns as `feeBps`. Listing-row maker_bps/taker_bps are not
-   * this schedule. No rank personalisation. Empty listing → `{}`. Unpublished
-   * schedule with symbols listed → `trade.fee_schedule_blank`.
+   * The rates this caller pays, once per listed symbol: the owner schedule in force at the caller's fee tier (the last
+   * finished snapshot, as placement reads it) less its rank discount, the same bps the order check returns as `feeBps`
+   * for an order on the account itself (a sub-account's orders are charged the regular tier, as placement does).
+   * Listing-row maker_bps/taker_bps are not this schedule. Empty listing → `{}`. Unpublished schedule with symbols
+   * listed → `trade.fee_schedule_blank`; a tier or rank read that fails refuses rather than answer the regular rate.
+   * The volume behind the tier is `GET /api/v1/account/fee-tier`.
    */
   app.get('/api/v1/account/fees', async (req, reply) => {
     const principal = requirePrincipal(req, reply);
@@ -1521,7 +1564,29 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
           intafacedCode: 'trade.fee_schedule_blank',
         });
       }
-      return reply.code(200).send(presentAccountFees(listed, schedule));
+      // Read together. The tier is matched against the schedule just read, so the rows it names are the ones in force;
+      // it is read only when a live spot market is listed, since nothing else is tiered.
+      const refuse = (message: string, intafacedCode: string) =>
+        reply.code(503).send({ code: 'ExchangeNotAvailable', message, intafacedCode });
+      const [tier, discount] = await Promise.allSettled([
+        deps.feeTier && listed.some(tieredMarket) ? deps.feeTier(principal.userId, schedule) : Promise.resolve(REGULAR_FEE_TIER),
+        deps.feeDiscountBps ? deps.feeDiscountBps(principal.userId) : Promise.resolve(0),
+      ]);
+      if (tier.status === 'rejected') {
+        req.log.warn({ err: tier.reason }, 'fee tier read failed; the fee read refuses');
+        return refuse('fee tier is unavailable', 'trade.fee_tier_unavailable');
+      }
+      // A discount outside 0..9999 bps is not one the fill path would take: refuse rather than drop every market.
+      if (discount.status === 'rejected' || !Number.isInteger(discount.value) || discount.value < 0 || discount.value >= 10_000) {
+        req.log.warn(
+          { err: discount.status === 'rejected' ? discount.reason : discount.value },
+          'rank discount read failed; the fee read refuses',
+        );
+        return refuse('rank discount is unavailable', 'trade.perks_unavailable');
+      }
+      const tierId = tier.value;
+      const discountBps = discount.value;
+      return reply.code(200).send(presentAccountFees(listed, schedule, { tierId, discountBps }));
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
@@ -1530,8 +1595,9 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   });
 
   /**
-   * The published spot schedule for anyone, signed in or not: the same regular-tier maker and taker rates
-   * `/account/fees` answers (that read has no rank personalisation either), with the schedule version, and the whole
+   * The published schedule for anyone, signed in or not: per listed market the regular-tier rate before any rank
+   * discount (spot from its pair-group row, futures from the `perpetual` block, options left out), with the schedule
+   * version, and the whole
    * schedule by pair group and tier (`groups`, `tiers`) for the public fee page. Strategy backtests in svc-quant price
    * their simulated fills with `fees`. Unpublished refuses `trade.fee_schedule_blank`; a
    * market whose row refuses is left out, never shown at zero. An empty listing answers an empty `fees` map.

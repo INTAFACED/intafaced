@@ -954,7 +954,7 @@
     justify-content: space-between;
     gap: 8px;
   }
-  .dk-fees-listed {
+  .dk-fees-mine {
     color: var(--if-fg-3);
   }
   /* Fee currency: the asset fees come out of, and the choice spot does not offer */

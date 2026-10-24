@@ -122,7 +122,7 @@ test(`${J} #5 opens the spot desk: ticker, book, chart, tape, fees, trading mode
   // A fresh stack draws its first candle after the TEST market maker's first crossing trade (about a minute).
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 90_000 });
   await expect(page.locator('[role=tab]', { hasText: 'Last trades' })).toBeVisible();
-  await expect(page.getByText(/Listed: maker [\d.]+% · taker [\d.]+%/).first()).toBeVisible();
+  await expect(page.getByText(/Your rates: maker [\d.]+% · taker [\d.]+%/).first()).toBeVisible();
   await expect(page.getByText(/trading mode/i).first()).toBeVisible();
   await page.locator('[role=tab]', { hasText: /^Positions$/ }).click();
   await expect(page.getByText('Not applicable: cash spot holds balances, not positions')).toBeVisible();

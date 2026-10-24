@@ -2040,6 +2040,167 @@ describe('private REST — mount boundary + order write path', () => {
     await app.close();
   });
 
+  const TIER_ROWS = parseFeeScheduleJson(
+    JSON.stringify({
+      published: true,
+      version: 'tiers',
+      defaultPairGroup: 'all-others',
+      pairGroups: {},
+      rows: [
+        { pairGroup: 'all-others', tierId: 'regular', zeroFee: false, makerBps: '8', takerBps: '10', minFee: null },
+        { pairGroup: 'all-others', tierId: 'vip-1', zeroFee: false, makerBps: '6', takerBps: '9', minFee: null },
+      ],
+      perpetual: { makerBps: '2', takerBps: '5' },
+    }),
+  );
+  const tierMarkets = [
+    fakeMarket({ id: '00000000-0000-4000-8000-000000000011', symbol: 'BTC/USDT', makerBps: 10, takerBps: 20 }),
+    fakeMarket({ id: '00000000-0000-4000-8000-000000000012', symbol: 'PAPER/USDT', paper: true, makerBps: 10, takerBps: 20 }),
+    fakeMarket({ id: '00000000-0000-4000-8000-000000000013', symbol: 'BTC/USDT:USDT', kind: 'futures', makerBps: 10, takerBps: 20 }),
+    fakeMarket({ id: '00000000-0000-4000-8000-000000000014', symbol: 'BTC-OPT', kind: 'options', makerBps: 10, takerBps: 20 }),
+  ];
+
+  it("GET /account/fees: the caller's own rates, at its tier and less its rank discount, as the order check reads them", async () => {
+    const asked: string[] = [];
+    const app = await build(
+      deps({
+        markets: async () => tierMarkets,
+        feeSchedule: TIER_ROWS,
+        feeTier: async (userId, schedule) => {
+          // The tier is matched against the schedule the read prices with, never a second read of it.
+          asked.push(`${userId}@${schedule.published ? schedule.version : 'blank'}`);
+          return 'vip-1';
+        },
+        feeDiscountBps: async () => 5000,
+      }),
+    );
+    const res = await app.inject({ method: 'GET', url: '/api/v1/account/fees', headers: signedHeaders() });
+    expect(res.statusCode, res.body).toBe(200);
+    const body = res.json();
+    expect(asked).toEqual([`${USER}@tiers`]);
+    // Spot at vip-1 (6/9) halved by the rank discount, rounding the discount down: 3 and 5 (9 - floor(4.5)).
+    expect(body['BTC/USDT']).toEqual({
+      symbol: 'BTC/USDT',
+      maker: '0.0003',
+      taker: '0.0005',
+      percentage: true,
+      makerBps: 3,
+      takerBps: 5,
+      version: 'tiers',
+      tier: 'vip-1',
+      discountBps: 5000,
+    });
+    expect(tradingFeeSchema.safeParse(body['BTC/USDT']).success).toBe(true);
+    // A paper market is regular, as placement charges it; futures read the perpetual block; options have no rate.
+    expect(body['PAPER/USDT']).toMatchObject({ makerBps: 4, takerBps: 5, tier: 'regular' });
+    expect(body['BTC/USDT:USDT']).toMatchObject({ makerBps: 1, takerBps: 3, tier: 'regular' });
+    expect(body['BTC-OPT']).toBeUndefined();
+    await app.close();
+  });
+
+  it("GET /account/fees: another caller is answered at its own tier, never the first caller's", async () => {
+    const OTHER = '33333333-3333-4333-8333-333333333333';
+    const app = await build(
+      deps({
+        markets: async () => tierMarkets.slice(0, 1),
+        feeSchedule: TIER_ROWS,
+        feeTier: async (userId) => (userId === USER ? 'vip-1' : 'regular'),
+        feeDiscountBps: async () => 0,
+      }),
+    );
+    const mine = await app.inject({ method: 'GET', url: '/api/v1/account/fees', headers: signedHeaders() });
+    const theirs = await app.inject({
+      method: 'GET',
+      url: '/api/v1/account/fees',
+      headers: signedHeaders(principal({ sub: OTHER, userId: OTHER })),
+    });
+    expect(mine.json()['BTC/USDT']).toMatchObject({ makerBps: 6, takerBps: 9, tier: 'vip-1' });
+    expect(theirs.json()['BTC/USDT']).toMatchObject({ makerBps: 8, takerBps: 10, tier: 'regular' });
+    await app.close();
+  });
+
+  it('GET /account/fees: a tier or rank read that fails refuses by name, never answers the regular rate', async () => {
+    for (const [failing, code] of [
+      ['feeTier', 'trade.fee_tier_unavailable'],
+      ['feeDiscountBps', 'trade.perks_unavailable'],
+    ] as const) {
+      const app = await build(
+        deps({
+          markets: async () => tierMarkets.slice(0, 1),
+          feeSchedule: TIER_ROWS,
+          feeTier: async () => {
+            if (failing === 'feeTier') throw new Error('snapshot read failed');
+            return 'regular';
+          },
+          feeDiscountBps: async () => {
+            if (failing === 'feeDiscountBps') throw new Error('perks read failed');
+            return 0;
+          },
+        }),
+      );
+      const res = await app.inject({ method: 'GET', url: '/api/v1/account/fees', headers: signedHeaders() });
+      expect(res.statusCode).toBe(503);
+      expect(res.json()).toMatchObject({ code: 'ExchangeNotAvailable', intafacedCode: code });
+      await app.close();
+    }
+  });
+
+  it('GET /account/fees: a rank discount the fill path would not take refuses, never an empty map', async () => {
+    for (const bad of [10_000, -1, 2.5]) {
+      const app = await build(
+        deps({
+          markets: async () => tierMarkets.slice(0, 1),
+          feeSchedule: TIER_ROWS,
+          feeTier: async () => 'regular',
+          feeDiscountBps: async () => bad,
+        }),
+      );
+      const res = await app.inject({ method: 'GET', url: '/api/v1/account/fees', headers: signedHeaders() });
+      expect(res.statusCode).toBe(503);
+      expect(res.json()).toMatchObject({ intafacedCode: 'trade.perks_unavailable' });
+      await app.close();
+    }
+  });
+
+  it('GET /account/fees: with no live spot market listed the tier is not read, so its failure refuses nothing', async () => {
+    let read = false;
+    const app = await build(
+      deps({
+        markets: async () => tierMarkets.slice(1),
+        feeSchedule: TIER_ROWS,
+        feeTier: async () => {
+          read = true;
+          throw new Error('snapshot read failed');
+        },
+        feeDiscountBps: async () => 0,
+      }),
+    );
+    const res = await app.inject({ method: 'GET', url: '/api/v1/account/fees', headers: signedHeaders() });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(read).toBe(false);
+    expect(Object.keys(res.json()).sort()).toEqual(['BTC/USDT:USDT', 'PAPER/USDT']);
+    await app.close();
+  });
+
+  it('GET /fees/published: futures at the perpetual block, options left out, regular before any discount', async () => {
+    const app = await build(
+      deps({
+        markets: async () => tierMarkets,
+        feeSchedule: TIER_ROWS,
+        feeTier: async () => 'vip-1',
+        feeDiscountBps: async () => 5000,
+      }),
+    );
+    const res = await app.inject({ method: 'GET', url: '/api/v1/fees/published' });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().fees).toEqual({
+      'BTC/USDT': { makerBps: 8, takerBps: 10 },
+      'PAPER/USDT': { makerBps: 8, takerBps: 10 },
+      'BTC/USDT:USDT': { makerBps: 2, takerBps: 5 },
+    });
+    await app.close();
+  });
+
   // ── GET /fees/published ───────────────────────────────────────────────────
 
   it('GET /fees/published: no principal needed; the owner schedule with its version, not listing-row bps', async () => {
