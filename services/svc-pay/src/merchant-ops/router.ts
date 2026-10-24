@@ -1,6 +1,6 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { merchantCustomerSeriesInputSchema, merchantCustomerSeriesSchema, router } from '@intafaced/contracts';
+import { merchantCustomerSeriesInputSchema, merchantCustomerSeriesSchema, router, TRPCError } from '@intafaced/contracts';
 import { defaultDisputeCaseStore, type DisputeCaseStore } from '../fraud/dispute-case.js';
 import type { FounderAuthority } from '../founder-authority.js';
 import { founderProcedure } from '../namespaces/founder-procedure.js';
@@ -13,6 +13,14 @@ import { INVOICE_STATUSES, InvoiceService, type InvoiceLinkPort } from './invoic
 import { EXPORT_KINDS, ExportService, type ExportDeps } from './exports.js';
 import { MerchantKybView } from './kyb.js';
 import { NOTIFICATION_KINDS, NotificationService } from './notifications.js';
+import {
+  ReceiptBrandingService,
+  ReceiptPrecisionInvalid,
+  ReceiptPrecisionUnset,
+  STATUS_EMAIL_KINDS,
+  StatusEmailNotConnected,
+  type ReceiptAssetPlaces,
+} from './receipt-branding.js';
 import { OperatorNotes } from './notes.js';
 import { cursorInput, limitInput } from './pagination.js';
 import { PayoutList } from './payouts.js';
@@ -66,6 +74,11 @@ export interface MerchantOpsDeps {
    * on the next tick. Tests pass a no-op and drive `processQueued` themselves.
    */
   readonly exportKick?: (jobId: string, run: () => Promise<boolean>) => void;
+  /**
+   * Decimal places from the asset registry (M-adv-payments-core-07). Absent, or a
+   * null answer, refuses `ledger.asset_precision_unset`. No place count is invented.
+   */
+  readonly receiptPlaces?: ReceiptAssetPlaces;
 }
 
 const id = z.string().guid();
@@ -91,6 +104,7 @@ function makeParts(deps: MerchantOpsDeps) {
           ledger: deps.exports?.ledger ?? deps.ledger,
         }),
         notifications: new NotificationService(sql),
+        branding: new ReceiptBrandingService(sql, deps.receiptPlaces ?? null),
         activity: new ActivityFeed(sql),
         payouts: new PayoutList(sql),
         webhooks: new WebhookOps(sql, { allowLocalHttp: deps.webhooksAllowLocalHttp === true, retry: deps.webhookRetry }),
@@ -581,6 +595,35 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
             .mutation(({ ctx, input }) => wrapOps(async () => need().notifications.setPreference(await callerOf(ctx), input))),
         }),
       }),
+
+      receiptBranding: router({
+        get: read
+          .input(z.object({}).strict())
+          .query(({ ctx }) => wrapBranding(async () => need().branding.getForMerchant(await callerOf(ctx)))),
+        save: memberWrite
+          .input(templateInput)
+          .mutation(({ ctx, input }) => wrapBranding(async () => need().branding.saveForMerchant(await callerOf(ctx), input))),
+        preview: read
+          .input(z.object({ amount: z.string(), assetId: z.string() }).strict())
+          .query(({ ctx, input }) => wrapBranding(async () => need().branding.preview(await callerOf(ctx), input))),
+      }),
+      statusEmails: router({
+        get: read.input(z.object({}).strict()).query(({ ctx }) => wrapBranding(async () => need().branding.statusGet(await callerOf(ctx)))),
+        set: memberWrite
+          .input(
+            z
+              .object({
+                succeeded: z.boolean().optional(),
+                failed: z.boolean().optional(),
+                refunded: z.boolean().optional(),
+              })
+              .strict(),
+          )
+          .mutation(({ ctx, input }) => wrapBranding(async () => need().branding.statusSet(await callerOf(ctx), input))),
+        sendTest: memberWrite
+          .input(z.object({ kind: z.enum(STATUS_EMAIL_KINDS) }).strict())
+          .mutation(({ ctx, input }) => wrapBranding(async () => need().branding.sendTest(await callerOf(ctx), input.kind))),
+      }),
     }),
   });
 }
@@ -627,6 +670,36 @@ export function createFounderOpsRouter(deps: MerchantOpsDeps) {
         .input(z.object({ noteId: id, reason: z.string().trim().min(3).max(500) }))
         .mutation(({ ctx, input }) => wrapOps(async () => need().notes.retract(founderIdOf(ctx), input))),
     }),
+    receiptTemplate: router({
+      get: founder.input(z.object({}).strict()).query(() => wrapBranding(async () => need().branding.getOpsDefault())),
+      save: founder
+        .input(templateInput)
+        .mutation(({ ctx, input }) => wrapBranding(async () => need().branding.saveOpsDefault(founderIdOf(ctx), input))),
+    }),
   });
+}
+
+const templateInput = z
+  .object({
+    requestId: id,
+    logoRef: z.string().nullable(),
+    accent: z.string().nullable(),
+    footer: z.string(),
+    language: z.string(),
+  })
+  .strict();
+
+async function wrapBranding<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await wrapOps(fn);
+  } catch (error) {
+    if (error instanceof StatusEmailNotConnected) {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'vendor.email', cause: error });
+    }
+    if (error instanceof ReceiptPrecisionUnset || error instanceof ReceiptPrecisionInvalid) {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: error.code, cause: error });
+    }
+    throw error;
+  }
 }
 export type FounderOpsRouter = ReturnType<typeof createFounderOpsRouter>;
