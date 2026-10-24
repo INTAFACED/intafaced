@@ -1,5 +1,5 @@
 -- trade.copy · fixed amount per copied order and the per-follow reserve (CB-copy-03, CB-copy-04; J-copy-bots-otc-01 #7)
--- Reversal: 20261024050102_copy_follow_reserve.down.sql
+-- Reversal: 20261024063621_copy_follow_reserve.down.sql
 --
 -- fixed_order_size: the quote amount each copied order uses. NULL means the follower chose no fixed size; it is never
 -- defaulted. It can never exceed max_notional_per_order.

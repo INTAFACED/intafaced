@@ -1,4 +1,4 @@
--- intafaced:destructive — reversal of 20261024050102_copy_follow_reserve.sql
+-- intafaced:destructive — reversal of 20261024063621_copy_follow_reserve.sql
 DROP TABLE IF EXISTS "trade"."copy_follow_reserves";
 
 ALTER TABLE "trade"."copy_follows"
