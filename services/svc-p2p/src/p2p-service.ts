@@ -145,6 +145,7 @@ import type { DelistReason, DenialSink } from './instrument-service.js';
 import { recordSwallowed, withMoneySpan, withSpan } from './tracing.js';
 import { affiliateLegAfterP2pRelease, fireAffiliateAccrue, NoopAffiliateAccrue, type AffiliateAccruePort } from './affiliate-accrue.js';
 import { fireAffiliatePayout, NoopAffiliatePayout, type AffiliatePayoutPort } from './affiliate-payout.js';
+import { nextReminderAt, type ReminderPolicy, type ReminderState } from './seller-reminders.js';
 
 /**
  * svc-p2p — PEER-TO-PEER TRADING WITH ESCROW (§6.2).
@@ -195,6 +196,8 @@ export type P2pErrorCode =
   | 'p2p.buying_restricted'
   | 'p2p.insufficient_balance'
   | 'p2p.offer_unfunded'
+  | 'p2p.remind_too_early'
+  | 'p2p.remind_rate_limited'
   | 'p2p.pair_limit_exceeded'
   | 'p2p.method_delisted'
   | 'p2p.offer_not_found'
@@ -729,6 +732,11 @@ export interface P2pServiceOptions {
    * values, where blank refuses every take `p2p.config_unset`; omitted is a service built without them (tests).
    */
   takeLimits?: TakeLimits;
+  /**
+   * P-trade-orders-15. The wait before (and between) seller reminders and how many an order may send. `index.ts`
+   * always passes the owner's values, where blank refuses every reminder `p2p.config_unset`; omitted is unset too.
+   */
+  reminders?: ReminderPolicy;
 }
 
 /**
@@ -1126,6 +1134,7 @@ export class P2pService {
   private readonly securityChangeLockSeconds: number | null;
   private readonly reviewEditWindowSeconds: number | undefined;
   private readonly takeLimits: TakeLimits | undefined;
+  private readonly reminders: ReminderPolicy;
   private tradingEnabled: boolean;
 
   /**
@@ -1162,6 +1171,7 @@ export class P2pService {
     this.securityChangeLockSeconds = options.securityChangeLockSeconds ?? null;
     this.reviewEditWindowSeconds = options.reviewEditWindowSeconds;
     this.takeLimits = options.takeLimits;
+    this.reminders = options.reminders ?? { waitSeconds: null, max: null };
   }
 
   /**
@@ -2414,6 +2424,141 @@ export class P2pService {
           buyerId: row.buyer_id,
           sellerId: row.seller_id,
           markedAt: row.marked_at,
+        });
+        sent++;
+      } catch (err) {
+        failures.push(describeFailure(row.trade_id, 'fiat_sent', err));
+      }
+    }
+    return { sent, failures };
+  }
+
+  // ── Seller reminders (P-trade-orders-15) ─────────────────────────────────────
+
+  /**
+   * J-p2p-02 #2: the buyer of a paid order reminds the seller to check the payment and release. The owner's wait runs
+   * from the moment the order was marked paid, and again from each reminder; the owner's count caps them. The row is
+   * written under the order's lock, so two presses at once send one; it is also the outbox for the seller's notice.
+   */
+  async remindSeller(tradeId: string, actorId: string): Promise<ReminderState> {
+    const { waitSeconds, max } = this.reminders;
+    const sent = await withSpan('p2p.remindSeller', async () =>
+      transaction(
+        this.sql,
+        async (tx) => {
+          const trade = await this.lockTrade(tx, tradeId);
+          if (trade.buyerId !== actorId && trade.sellerId !== actorId) throw unknownTrade(tradeId);
+          if (trade.buyerId !== actorId) throw new P2pError('Only the buyer can remind the seller', 'p2p.not_the_buyer');
+          if (trade.status !== 'fiat_sent' || !trade.fiatSentAt) {
+            // Same refusal as any other move the order's state does not allow: terminal stays terminal.
+            throw new TradeStateError(
+              `Trade ${tradeId} is ${trade.status}: a reminder is for a paid order waiting on release`,
+              isTerminal(trade.status) ? 'p2p.trade_terminal' : 'p2p.invalid_transition',
+              trade.status,
+              'fiat_sent',
+            );
+          }
+          if (waitSeconds === null || max === null) {
+            throw new P2pError('P2P_REMIND_WAIT_SECONDS and P2P_REMIND_MAX are not published; no reminder was sent', 'p2p.config_unset');
+          }
+          const [last] = await tx<Array<{ n: number; reminded_at: Date }>>`
+            SELECT n, reminded_at FROM p2p.trade_reminders WHERE trade_id = ${tradeId} ORDER BY n DESC LIMIT 1
+          `;
+          const count = last?.n ?? 0;
+          if (count >= max) {
+            throw new P2pError(
+              `This order already sent the seller ${max} reminders, the most one order may send`,
+              'p2p.remind_rate_limited',
+              {
+                until: null,
+                cap: String(max),
+              },
+            );
+          }
+          const now = await txNow(tx);
+          const nextAt = nextReminderAt(this.reminders, trade.fiatSentAt, last?.reminded_at ?? null)!;
+          if (now < nextAt) {
+            throw new P2pError('The seller can be reminded once the wait has passed; no reminder was sent', 'p2p.remind_too_early', {
+              until: nextAt.toISOString(),
+            });
+          }
+          const n = count + 1;
+          await tx`
+            INSERT INTO p2p.trade_reminders (trade_id, n, buyer_id, seller_id, reminded_at)
+            VALUES (${tradeId}, ${n}, ${trade.buyerId}, ${trade.sellerId}, ${now})
+          `;
+          return { tradeId, n, buyerId: trade.buyerId, sellerId: trade.sellerId, remindedAt: now };
+        },
+        { isolation: 'read committed', maxAttempts: 5 },
+      ),
+    );
+    // Owed from the commit above; the sweep hands it over if this process dies first or the bus is down.
+    try {
+      await this.handOverReminder(sent);
+    } catch (err) {
+      recordSwallowed('p2p.trade_reminder.publish', err);
+    }
+    return this.reminderState(await this.getTrade(tradeId));
+  }
+
+  /** An order's reminders as its parties see them. Reads only; a stranger never reaches it (callers filter parties first). */
+  async reminderState(trade: TradeRecord): Promise<ReminderState> {
+    const [row] = await this.sql<Array<{ count: number; last_at: Date | null }>>`
+      SELECT count(*)::int AS count, max(reminded_at) AS last_at FROM p2p.trade_reminders WHERE trade_id = ${trade.id}
+    `;
+    const count = row?.count ?? 0;
+    const lastAt = row?.last_at ? new Date(row.last_at) : null;
+    const { max } = this.reminders;
+    const open = trade.status === 'fiat_sent' && trade.fiatSentAt !== null && max !== null && count < max;
+    return { count, lastAt, nextAt: open ? nextReminderAt(this.reminders, trade.fiatSentAt!, lastAt) : null, max };
+  }
+
+  private async handOverReminder(reminder: { tradeId: string; n: number; buyerId: string; sellerId: string; remindedAt: Date }) {
+    await this.bus.publish(
+      'p2pTradeReminderSent',
+      {
+        tradeId: reminder.tradeId,
+        n: reminder.n,
+        buyerId: reminder.buyerId,
+        sellerId: reminder.sellerId,
+        remindedAt: reminder.remindedAt.toISOString(),
+      },
+      { idempotencyKey: `p2p.trade_reminder.sent:${reminder.tradeId}:${reminder.n}` },
+    );
+    await this.sql`
+      UPDATE p2p.trade_reminders SET handed_at = now()
+       WHERE trade_id = ${reminder.tradeId} AND n = ${reminder.n} AND handed_at IS NULL AND dropped_at IS NULL
+    `;
+  }
+
+  /** Hand over every reminder still owed, oldest first; one for an order no longer waiting on release is closed unsent. */
+  async sweepReminders(limit?: number): Promise<{ sent: number; failures: SweepFailure[] }> {
+    const lim = assertSweepSettlementsLimit(limit);
+    await this.sql`
+      UPDATE p2p.trade_reminders r SET dropped_at = now()
+        FROM p2p.p2p_trades t
+       WHERE t.id = r.trade_id AND r.handed_at IS NULL AND r.dropped_at IS NULL AND t.status <> 'fiat_sent'
+    `;
+    // Only orders still waiting on release: one released between the drop above and this read is left for the next
+    // tick's drop, never handed over as "please release".
+    const owed = await this.sql<Array<{ trade_id: string; n: number; buyer_id: string; seller_id: string; reminded_at: Date }>>`
+      SELECT r.trade_id, r.n, r.buyer_id, r.seller_id, r.reminded_at
+        FROM p2p.trade_reminders r
+        JOIN p2p.p2p_trades t ON t.id = r.trade_id AND t.status = 'fiat_sent'
+       WHERE r.handed_at IS NULL AND r.dropped_at IS NULL
+       ORDER BY r.reminded_at ASC
+       LIMIT ${lim}
+    `;
+    let sent = 0;
+    const failures: SweepFailure[] = [];
+    for (const row of owed) {
+      try {
+        await this.handOverReminder({
+          tradeId: row.trade_id,
+          n: row.n,
+          buyerId: row.buyer_id,
+          sellerId: row.seller_id,
+          remindedAt: row.reminded_at,
         });
         sent++;
       } catch (err) {

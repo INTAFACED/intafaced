@@ -542,6 +542,105 @@ describe('svc-p2p escrow', () => {
       expect(fiatSentNotices()).toHaveLength(1);
     });
 
+    // P-trade-orders-15 / J-p2p-02 #2: the buyer reminds a slow seller, after the owner's wait and up to the owner's count.
+    describe('seller reminders', () => {
+      const WAIT = 60;
+      const reminders = () => bus.published.filter((env) => env.subject === 'intafaced.p2p.trade_reminder.sent');
+      const remindingService = (policy = { waitSeconds: WAIT, max: 2 }) => {
+        p2p = new P2pService(sql, ledger, bus, { ...options, reminders: policy });
+        return p2p;
+      };
+      /** Moves the order's paid mark and its reminders back by `seconds`, as if that much time had passed. */
+      const later = async (tradeId: string, seconds: number) => {
+        await sql`UPDATE p2p.p2p_trades SET fiat_sent_at = fiat_sent_at - make_interval(secs => ${seconds}) WHERE id = ${tradeId}`;
+        await sql`UPDATE p2p.trade_reminders SET reminded_at = reminded_at - make_interval(secs => ${seconds}) WHERE trade_id = ${tradeId}`;
+      };
+      const paid = async () => {
+        const trade = await escrowedTrade('100');
+        return p2p.markFiatSent(trade.id, TAKER);
+      };
+
+      it('refuses a reminder before the wait with the time it may go, and sends nothing', async () => {
+        remindingService();
+        const trade = await paid();
+        const refused = await p2p.remindSeller(trade.id, TAKER).catch((error: unknown) => error);
+        expect(refused).toMatchObject({ code: 'p2p.remind_too_early' });
+        expect((refused as P2pError).limit?.until).toBe(new Date(trade.fiatSentAt!.getTime() + WAIT * 1000).toISOString());
+        expect(reminders()).toHaveLength(0);
+        expect((await p2p.reminderState(trade)).count).toBe(0);
+      });
+
+      it('after the wait sends one reminder keyed by order and number, and the next waits again until the count is spent', async () => {
+        remindingService();
+        const trade = await paid();
+        await later(trade.id, WAIT);
+        const first = await p2p.remindSeller(trade.id, TAKER);
+        expect(first.count).toBe(1);
+        expect(first.nextAt!.getTime()).toBe(first.lastAt!.getTime() + WAIT * 1000);
+        expect(reminders()).toHaveLength(1);
+        expect(reminders()[0]).toMatchObject({
+          idempotencyKey: `p2p.trade_reminder.sent:${trade.id}:1`,
+          payload: { tradeId: trade.id, n: 1, buyerId: TAKER, sellerId: MAKER },
+        });
+        // A second press at once is too early, not a second reminder.
+        await expect(p2p.remindSeller(trade.id, TAKER)).rejects.toMatchObject({ code: 'p2p.remind_too_early' });
+        await later(trade.id, WAIT);
+        expect((await p2p.remindSeller(trade.id, TAKER)).count).toBe(2);
+        await later(trade.id, WAIT);
+        const capped = await p2p.remindSeller(trade.id, TAKER).catch((error: unknown) => error);
+        expect(capped).toMatchObject({ code: 'p2p.remind_rate_limited', limit: { until: null, cap: '2' } });
+        expect(reminders()).toHaveLength(2);
+        expect((await p2p.reminderState(await p2p.getTrade(trade.id))).nextAt).toBeNull();
+        expect(await p2p.sweepReminders(100)).toEqual({ sent: 0, failures: [] });
+      });
+
+      it('only the buyer reminds; a stranger is told the order does not exist', async () => {
+        remindingService();
+        const trade = await paid();
+        await later(trade.id, WAIT);
+        await expect(p2p.remindSeller(trade.id, MAKER)).rejects.toMatchObject({ code: 'p2p.not_the_buyer' });
+        await expect(p2p.remindSeller(trade.id, crypto.randomUUID())).rejects.toMatchObject({ code: 'p2p.trade_not_found' });
+        expect(reminders()).toHaveLength(0);
+      });
+
+      it('refuses on an order not waiting on release, and while the owner figures are blank', async () => {
+        remindingService();
+        const escrowed = await escrowedTrade('100');
+        await expect(p2p.remindSeller(escrowed.id, TAKER)).rejects.toMatchObject({ code: 'p2p.invalid_transition' });
+        const trade = await paid();
+        await later(trade.id, WAIT);
+        await p2p.confirmFiatReceived(trade.id, MAKER);
+        await expect(p2p.remindSeller(trade.id, TAKER)).rejects.toMatchObject({ code: 'p2p.trade_terminal' });
+
+        remindingService({ waitSeconds: null, max: null } as never);
+        const unset = await paid();
+        await later(unset.id, WAIT);
+        await expect(p2p.remindSeller(unset.id, TAKER)).rejects.toMatchObject({ code: 'p2p.config_unset' });
+        expect((await p2p.reminderState(unset)).nextAt).toBeNull();
+        expect(reminders()).toHaveLength(0);
+      });
+
+      it('sends with the bus down; the sweep hands it over next tick, and drops one whose order was released meanwhile', async () => {
+        bus = new BusFailingOnce('svc-p2p', 'p2pTradeReminderSent');
+        remindingService();
+        const trade = await paid();
+        await later(trade.id, WAIT);
+        expect((await p2p.remindSeller(trade.id, TAKER)).count).toBe(1);
+        expect(reminders()).toHaveLength(0);
+        expect(await p2p.sweepReminders(100)).toEqual({ sent: 1, failures: [] });
+        expect(reminders()).toHaveLength(1);
+
+        bus = new BusFailingOnce('svc-p2p', 'p2pTradeReminderSent');
+        remindingService();
+        const other = await paid();
+        await later(other.id, WAIT);
+        await p2p.remindSeller(other.id, TAKER);
+        await p2p.confirmFiatReceived(other.id, MAKER);
+        expect(await p2p.sweepReminders(100)).toEqual({ sent: 0, failures: [] });
+        expect(reminders().filter((env) => (env.payload as { tradeId: string }).tradeId === other.id)).toHaveLength(0);
+      });
+    });
+
     it('still marks paid when the bus is down, and the sweep tells the seller on the next tick', async () => {
       bus = new BusFailingOnce('svc-p2p', 'p2pTradeFiatSent');
       p2p = new P2pService(sql, ledger, bus, options);

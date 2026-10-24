@@ -41,6 +41,7 @@ import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { instrumentKeyHealth } from './instrument-key-provider.js';
 import { parseVerificationLimits } from './verification-limits.js';
 import { parseActiveOrderCap, parseBuyerCancelLimit, parsePairLimits } from './take-limits.js';
+import { parseReminderPolicy } from './seller-reminders.js';
 import { createLocalTestKeyProvider } from './local-test-kms.js';
 import {
   createIdentityContactReader,
@@ -173,6 +174,7 @@ const p2p: P2pService = new P2pService(sql, ledger, bus, {
     pairLimits: parsePairLimits(env.P2P_PAIR_LIMITS),
     buyerCancels: parseBuyerCancelLimit(env.P2P_BUYER_CANCEL_LIMIT, env.P2P_BUYER_CANCEL_WINDOW_HOURS),
   },
+  reminders: parseReminderPolicy(env.P2P_REMIND_WAIT_SECONDS, env.P2P_REMIND_MAX),
   deadlines: {
     escrowSeconds: publishedEscrowDeadlineSeconds(env.P2P_ESCROW_DEADLINE_SECONDS),
     paymentSeconds: publishedPaymentDeadlineSeconds(env.P2P_PAYMENT_DEADLINE_SECONDS),
@@ -333,6 +335,11 @@ async function sweep(): Promise<void> {
       app.log.error({ err, sweep: 'fiat_sent_notice' }, 'p2p buyer-paid notice sweep failed — sellers may not be told yet');
       return { sent: 0, failures: [] };
     });
+    // Seller reminders the fast path did not hand over, on their own catch for the same reason.
+    const reminders = await p2p.sweepReminders(100).catch((err: unknown) => {
+      app.log.error({ err, sweep: 'trade_reminder' }, 'p2p seller reminder sweep failed — sellers may not be told yet');
+      return { sent: 0, failures: [] };
+    });
 
     // Data retention, on the same tick. It runs last on purpose: it only ever
     // touches trades that are already terminal, so it can never take work away
@@ -355,6 +362,9 @@ async function sweep(): Promise<void> {
         { ...f, sweep: 'fiat_sent_notice' },
         'p2p buyer-paid notice could not be handed to the bus — the seller is not told yet',
       );
+    }
+    for (const f of reminders.failures) {
+      app.log.error({ ...f, sweep: 'trade_reminder' }, 'p2p seller reminder could not be handed to the bus — the seller is not told yet');
     }
     for (const f of swept.failures) {
       app.log.error({ ...f, sweep: 'timeout' }, 'p2p timeout sweep could not act on a trade');

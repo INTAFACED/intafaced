@@ -83,6 +83,18 @@ const schema = serviceEnvSchema
       P2P_BUYER_CANCEL_WINDOW_HOURS: ownerInt,
 
       /**
+       * P-trade-orders-15. Seconds the buyer of a paid order waits before reminding the seller to release, counted from
+       * the mark-paid and again from each reminder. Empty is unset: every reminder then refuses `p2p.config_unset`.
+       */
+      P2P_REMIND_WAIT_SECONDS: ownerInt,
+
+      /**
+       * P-trade-orders-15. Most reminders one order may send the seller. Empty is unset: every reminder then refuses
+       * `p2p.config_unset`.
+       */
+      P2P_REMIND_MAX: ownerInt,
+
+      /**
        * P-trade-orders-03. Per-order fiat bounds by pair, as JSON decimal strings: `{"USDT/EUR":{"min":"10","max":"5000"}}`.
        * Empty is unset and a pair missing from the table is unset for that pair: those takes refuse `p2p.config_unset`.
        */

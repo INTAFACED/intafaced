@@ -22,6 +22,7 @@ import { useP2PView, type P2PView } from './p2p-view';
 import { P2POffers } from './P2POffers';
 import { P2POrder } from './P2POrder';
 import { ReleaseAction } from './p2p-release';
+import { RemindSeller } from './p2p-remind';
 import { orderCopy } from './p2p-order-copy';
 import { P2PCounterparty } from './P2PCounterparty';
 import { p2pReturn } from './p2p-return';
@@ -422,6 +423,7 @@ export function OrderActions({
             disabled={locked}
           />
         )}
+        {trade.buyerId === userId && trade.status === 'fiat_sent' && <RemindSeller trade={trade} pay={pay} onSent={reload} />}
         {trade.sellerId === userId && trade.status === 'fiat_sent' && (
           <ReleaseAction
             trade={trade}

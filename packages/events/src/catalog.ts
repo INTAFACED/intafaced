@@ -947,6 +947,25 @@ export const p2pTradeFiatSent = defineEvent(
   'The buyer marked the fiat payment as sent. The seller must check and release. A trade is marked paid once, so consumers dedupe on tradeId.',
 );
 
+/**
+ * P-trade-orders-15 / J-p2p-02 #2: the buyer reminded the seller to check the payment and release. Numbered from 1 per
+ * order (`n`); the owner's wait and count bound how many there are. Consumers dedupe on tradeId and n.
+ */
+export const p2pTradeReminderSent = defineEvent(
+  'p2p',
+  'trade_reminder',
+  'sent',
+  1,
+  z.object({
+    tradeId: z.string().guid(),
+    n: z.number().int().positive(),
+    buyerId: userIdSchema,
+    sellerId: userIdSchema,
+    remindedAt: z.string().datetime({ offset: true }),
+  }),
+  'The buyer reminded the seller to check the payment and release. A reminder is sent once per (tradeId, n).',
+);
+
 export const p2pChatMessageSent = defineEvent(
   'p2p',
   'chat_message',
@@ -1458,6 +1477,7 @@ export const EVENT_CATALOG = {
   p2pDisputeResolved,
   p2pTradeExpired,
   p2pTradeFiatSent,
+  p2pTradeReminderSent,
   p2pChatMessageSent,
   p2pDisputeEscalated,
   p2pQuoteExpired,
@@ -2086,6 +2106,13 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'svc-notify turns it into the chat-waiting notice in the P-trade-orders-23 svc-notify PR, idempotent by event id. Until then no publisher exists either, so no user is promised a notice.',
+  },
+  {
+    event: 'p2pTradeReminderSent',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      "svc-p2p publishes it from its reminder outbox (P-trade-orders-15, J-p2p-02 #2), and the seller sees the reminder on the order itself. svc-notify turns it into the seller's inbox notice in its own PR, idempotent by tradeId and n; until then no inbox notice is promised.",
   },
   {
     event: 'p2pDisputeEscalated',

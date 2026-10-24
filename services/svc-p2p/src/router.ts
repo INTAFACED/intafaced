@@ -31,6 +31,7 @@ import { assertModerator, isModerationConfigured, isModerator } from './moderati
 import { TakeStepUpError, unwiredTakeStepUp, type TakeStepUp, type TakeStepUpCaller } from './take-step-up.js';
 import { unwiredReleaseStepUp, type ReleaseStepUp } from './release-step-up.js';
 import type { PublicProfileLookup } from './public-profile.js';
+import type { ReminderState } from './seller-reminders.js';
 import { moderationHonestySchema, moderationOnPublicDoor } from './moderation-honesty.js';
 import {
   ceilingOnWire,
@@ -222,6 +223,17 @@ const tradeOutput = z.object({
   settledAt: z.string().nullable(),
 });
 /**
+ * P-trade-orders-15: how many reminders the buyer sent, when the last went, and when the next may go (null when none can:
+ * the order is not waiting on release, the owner's count is spent, or the owner's figures are blank).
+ */
+const reminderOutput = z.object({
+  count: z.number().int().nonnegative(),
+  lastAt: z.string().datetime().nullable(),
+  nextAt: z.string().datetime().nullable(),
+  max: z.number().int().positive().nullable(),
+});
+
+/**
  * One order as its page reads it: the ad's terms as they were when it was placed (null before terms were copied), the
  * readable status the order list shows, the fee rate frozen at take, and, for a released order only, the split the
  * ledger's escrow release posts from that rate (`mulBps`, fee off the escrowed amount). A refund or a void takes no fee,
@@ -246,6 +258,8 @@ const tradeDetailOutput = tradeOutput.extend({
    * the order is `created`: the lock is not provably done, so no amount is claimed either way.
    */
   escrowHeld: amountString.nullable(),
+  /** P-trade-orders-15: the buyer's reminders to the seller on this order. */
+  reminders: reminderOutput,
 });
 
 const blockQuoteOutput = z.object({
@@ -601,6 +615,9 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.active_order_cap':
       // Buying is paused after too many cancelled orders; the error data says until when.
       case 'p2p.buying_restricted':
+      // A reminder before the wait has passed (the error data says when it may go), or past the owner's count.
+      case 'p2p.remind_too_early':
+      case 'p2p.remind_rate_limited':
       // Selling into a buy ad from a balance that falls short: nothing was held; the error data says by how much.
       case 'p2p.insufficient_balance':
       // A sell ad whose maker holds less than it offers: the order was voided and nothing is held.
@@ -1483,6 +1500,16 @@ export function createP2pRouter(
           }),
         ),
 
+      /**
+       * P-trade-orders-15 / J-p2p-02 #2: the buyer of a paid order reminds the seller to check the payment and release.
+       * Refuses `p2p.remind_too_early` with the time it may go, `p2p.remind_rate_limited` once the owner's count is spent,
+       * and `p2p.config_unset` while either owner figure is blank. Nothing moves.
+       */
+      remind: merchantApiProcedure('p2p:write')
+        .input(z.object({ tradeId: z.string().guid() }))
+        .output(reminderOutput)
+        .mutation(async ({ ctx, input }) => guard(async () => toReminderOut(await p2p.remindSeller(input.tradeId, ctx.principal.userId)))),
+
       /** Cancel → `escrowRefund`, in full, to the seller. */
       cancel: merchantApiProcedure('p2p:write')
         .input(z.object({ tradeId: z.string().guid(), reason: z.string().max(200).optional() }))
@@ -1510,6 +1537,7 @@ export function createP2pRouter(
               settlement: trade.settlement,
               releasePreview: releasePreview(trade),
               escrowHeld: escrowHeld(trade),
+              reminders: toReminderOut(await p2p.reminderState(trade)),
             };
           }),
         ),
@@ -3493,6 +3521,15 @@ function escrowHeld(trade: { status: string; resolution: string | null; settledA
   if (trade.status === 'created') return null;
   if (trade.resolution === null || trade.settledAt === null) return formatAmount(trade.amount);
   return '0';
+}
+
+function toReminderOut(state: ReminderState): z.infer<typeof reminderOutput> {
+  return {
+    count: state.count,
+    lastAt: state.lastAt?.toISOString() ?? null,
+    nextAt: state.nextAt?.toISOString() ?? null,
+    max: state.max,
+  };
 }
 
 /** What a release of a held escrow would post, by the same rule as `releaseSplit`. Null when nothing is held. */

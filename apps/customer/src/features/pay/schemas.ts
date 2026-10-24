@@ -133,7 +133,17 @@ export const tradeSchema = z.object({
   releasePreview: z.object({ fee: amount, netAmount: amount }).nullable().optional(),
   /** `trades.get` only: what of this order is still in escrow (zero once the release or refund posted; null while `created`). */
   escrowHeld: amount.nullable().optional(),
+  /** `trades.get` only: the buyer's reminders to the seller (P-trade-orders-15). */
+  reminders: z.lazy(() => tradeRemindersSchema).optional(),
 });
+/** svc-p2p `trades.remind` and `trades.get` `reminders`: how many went, the last, when the next may go, the owner's count. */
+export const tradeRemindersSchema = z.object({
+  count: z.number().int().nonnegative(),
+  lastAt: z.string().datetime().nullable(),
+  nextAt: z.string().datetime().nullable(),
+  max: z.number().int().positive().nullable(),
+});
+export type TradeReminders = z.infer<typeof tradeRemindersSchema>;
 /** svc-p2p `trades.page`: one keyset page newest first, the server's tab and readable status per row, and exact per-tab counts. */
 export const orderTabs = ['in_progress', 'in_dispute', 'completed', 'cancelled'] as const;
 export const orderPageSchema = z.object({

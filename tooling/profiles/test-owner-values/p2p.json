@@ -16,6 +16,16 @@
       "value": "24",
       "note": "Hours the cancelled orders are counted over."
     },
+    "P2P_REMIND_WAIT_SECONDS": {
+      "service": "p2p",
+      "value": "5",
+      "note": "Seconds before the buyer of a paid order may remind the seller, and between reminders; short, so J-p2p-02 reaches it."
+    },
+    "P2P_REMIND_MAX": {
+      "service": "p2p",
+      "value": "3",
+      "note": "Most seller reminders one order may send; small, so a journey can reach the cap."
+    },
     "P2P_EXPORT_MAX_RANGE_DAYS": {
       "service": "p2p",
       "value": "90",
