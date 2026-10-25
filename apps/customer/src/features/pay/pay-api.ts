@@ -1095,6 +1095,8 @@ export function createPersonalPayApi(
       fiatCurrency: string;
       label: string;
       details: Record<string, string>;
+      /** The person's confirmation of exactly this change and these details (svc-p2p refuses a change without one). */
+      stepUpApprovalId?: string;
     }): Promise<ApiResult<z.infer<typeof s.instrumentSchema>>> {
       const denied = signedIn();
       if (denied) return denied;
@@ -1105,13 +1107,25 @@ export function createPersonalPayApi(
       const stored = listed.ok ? listed.data.find((row) => row.id.toLowerCase() === input.instrumentId.toLowerCase()) : undefined;
       return stored ? { ok: true, data: stored } : result;
     },
-    removeInstrument: (instrumentId: string) =>
+    removeInstrument: (instrumentId: string, stepUpApprovalId?: string) =>
       guard.run(
         `${userId}:instrument:${instrumentId}`,
-        () => api.mutate('p2p', 'instruments.remove', { instrumentId }, s.instrumentSchema),
+        () =>
+          api.mutate('p2p', 'instruments.remove', { instrumentId, ...(stepUpApprovalId ? { stepUpApprovalId } : {}) }, s.instrumentSchema),
         undefined,
         p2pCurrent,
       ),
+    /**
+     * The person's own saved details for one method, masked by svc-p2p (the account holder whole, every other value as its
+     * last four). svc-p2p logs every read in the same statement, the owner's included, so this runs only when the person
+     * asks to see them.
+     */
+    async maskedInstrument(instrumentId: string): Promise<ApiResult<z.infer<typeof s.revealedInstrumentSchema>>> {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      return api.mutate('p2p', 'instruments.revealMasked', { instrumentId }, s.revealedInstrumentSchema);
+    },
     guard,
   };
 }

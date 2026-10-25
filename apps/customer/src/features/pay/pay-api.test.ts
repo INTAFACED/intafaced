@@ -1321,4 +1321,45 @@ describe('adding a P2P payment method (P-ads-merchant-18)', () => {
       p2pLimit: { until: null, field: 'iban' },
     });
   });
+  it('sends the person’s confirmation with a save and a removal only when there is one', async () => {
+    const sent: unknown[] = [];
+    const api = createApiClient({
+      fetch: async (_url, options) => {
+        sent.push(JSON.parse(String(options?.body)));
+        return response(header);
+      },
+    });
+    const pay = createPersonalPayApi(api, userId, createPayMutationGuard());
+    await pay.addInstrument({ ...input, stepUpApprovalId: 'approval-1' });
+    await pay.addInstrument(input);
+    await pay.removeInstrument(instrumentId, 'approval-2');
+    await pay.removeInstrument(instrumentId);
+    expect(sent).toEqual([
+      { ...input, stepUpApprovalId: 'approval-1' },
+      input,
+      { instrumentId, stepUpApprovalId: 'approval-2' },
+      { instrumentId },
+    ]);
+  });
+
+  it('reads saved details masked through the logged read and refuses an answer without them', async () => {
+    const urls: string[] = [];
+    const answer = (body: unknown) =>
+      createApiClient({
+        fetch: async (url) => {
+          urls.push(String(url));
+          return response(body);
+        },
+      });
+    const shown = await createPersonalPayApi(
+      answer({ ...header, details: { iban: '•••• 3000' } }),
+      userId,
+      createPayMutationGuard(),
+    ).maskedInstrument(instrumentId);
+    expect(shown).toEqual({ ok: true, data: { ...header, details: { iban: '•••• 3000' } } });
+    expect(urls[0]).toContain('instruments.revealMasked');
+    expect(await createPersonalPayApi(answer(header), userId, createPayMutationGuard()).maskedInstrument(instrumentId)).toMatchObject({
+      ok: false,
+    });
+  });
 });

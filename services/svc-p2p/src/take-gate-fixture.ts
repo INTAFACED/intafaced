@@ -1,6 +1,7 @@
 import type { TakeGate } from './take-eligibility.js';
 import type { TakeStepUp } from './take-step-up.js';
 import type { ReleaseStepUp } from './release-step-up.js';
+import type { InstrumentStepUp } from './instrument-step-up.js';
 
 /**
  * For tests about something other than eligibility: a person who meets every take requirement. Production wires
@@ -53,5 +54,15 @@ export function confirmedReleaseStepUp(): ReleaseStepUp {
     async window() {
       return { confirmedUntil: null };
     },
+  };
+}
+
+/**
+ * For tests about something other than the payment-method confirmation: every change is confirmed. Production wires
+ * `createInstrumentStepUp` (index.ts); the confirmation itself is proved in `instrument-step-up.test.ts`.
+ */
+export function confirmedInstrumentStepUp(): InstrumentStepUp {
+  return {
+    async assertConfirmed() {},
   };
 }

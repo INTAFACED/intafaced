@@ -9,13 +9,13 @@ import { MemoryLedger, parseAmount as amt, recipes } from '@intafaced/ledger-cli
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { P2pService } from './p2p-service.js';
-import { InstrumentService } from './instrument-service.js';
+import { InstrumentService, maskedValue } from './instrument-service.js';
 import { ANY_COUNTRY, InstrumentError, methodIdKey } from './instruments.js';
 import { createP2pRouter } from './router.js';
 import { P2pErasure } from './erasure.js';
 import { BlockRfqService } from './block-rfq.js';
 import { MemoryBlockQuoteStore } from './block-rfq-store.js';
-import { confirmedReleaseStepUp, confirmedTakeStepUp, metTakeGate } from './take-gate-fixture.js';
+import { confirmedInstrumentStepUp, confirmedReleaseStepUp, confirmedTakeStepUp, metTakeGate } from './take-gate-fixture.js';
 
 // Attributed local screening fixture: exercise downstream authorization and storage.
 // Explicit dev mode accepts this fixture; it is never a production sanctions list.
@@ -258,6 +258,9 @@ describe('svc-p2p payment instruments', () => {
       takeGate: metTakeGate(),
       takeStepUp: confirmedTakeStepUp(),
       releaseStepUp: confirmedReleaseStepUp(),
+      instrumentStepUp: confirmedInstrumentStepUp(),
+      // The router saves a destination only with the instrument key on; this suite's service stores them plainly.
+      instrumentKeyProvider: 'local-test',
     });
     await registerMethod();
   });
@@ -370,6 +373,15 @@ describe('svc-p2p payment instruments', () => {
         }),
       ).rejects.toMatchObject({ code: 'p2p.holder_name_mismatch' });
       expect((await ruled.revealOwn({ instrumentId: saved.id, viewerId: SELLER })).details).toMatchObject({ account_holder: 'A Seller' });
+      // The masked view (J-p2p-04 #3): the holder whole, the IBAN by its last four only, and logged like any read.
+      const before = (await ruled.accessLogFor(SELLER, 100)).length;
+      expect((await ruled.revealOwnMasked({ instrumentId: saved.id, viewerId: SELLER })).details).toEqual({
+        account_holder: 'A Seller',
+        iban: '•••• 3000',
+      });
+      expect(await ruled.accessLogFor(SELLER, 100)).toHaveLength(before + 1);
+      // Someone else's id is refused and logged as denied, as for the whole values.
+      await expect(ruled.revealOwnMasked({ instrumentId: saved.id, viewerId: STRANGER })).rejects.toThrow();
       // A label-only edit has no name to check.
       const calls = holderNames.calls.length;
       await ruled.updateInstrument({ instrumentId: saved.id, ownerId: SELLER, label: 'Renamed' });
@@ -1312,6 +1324,7 @@ describe('svc-p2p payment instruments', () => {
         'instruments.update': { instrumentId: (await instruments.listInstruments(SELLER, false, 200))[0]!.id, label: 'mine now' },
         'instruments.remove': { instrumentId: (await instruments.listInstruments(SELLER, false, 200))[0]!.id },
         'instruments.reveal': { instrumentId: (await instruments.listInstruments(SELLER, false, 200))[0]!.id },
+        'instruments.revealMasked': { instrumentId: (await instruments.listInstruments(SELLER, false, 200))[0]!.id },
         // Considered, and this is the interesting pair. Both are self-only —
         // neither takes a `userId`, so a stranger calling them gets their own
         // (empty) record and never the seller's. `data.export` DOES carry
@@ -2093,5 +2106,13 @@ describe('svc-p2p payment instruments', () => {
       });
       expect(created.methodId).toBe('raw-method');
     });
+  });
+});
+
+describe('maskedValue (J-p2p-04 #3)', () => {
+  it('shows the last four of a long value, spaces dropped, and none of a short one', () => {
+    expect(maskedValue('DE89 3704 0044 0532 0130 00')).toBe('•••• 3000');
+    expect(maskedValue('123456')).toBe('••••');
+    expect(maskedValue('')).toBe('••••');
   });
 });

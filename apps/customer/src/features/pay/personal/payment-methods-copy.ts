@@ -2,6 +2,26 @@ import { defineCopy } from '../../../shared/i18n';
 
 // P-ads-merchant-18 and -19: the payment methods a person gets paid with in P2P, and the catalogue they come from.
 const en = {
+  stepUpWhy: 'Buyers pay to the methods you save, so each one you add or remove needs a fresh check that it’s you.',
+  stepUpCode: 'Authenticator code',
+  stepUpCodeHint: 'The 6 digits your authenticator app shows now.',
+  stepUpCodeShort: 'Enter the 6 digits from your authenticator app.',
+  stepUpNoFactor:
+    'Your account has no passkey or authenticator app, so this change cannot be confirmed. Add one in Security first; sending it now is refused.',
+  stepUpSendSave: 'Save without confirming',
+  addSaving: 'Saving',
+  stepUpSendRemove: 'Remove without confirming',
+  stepUpDone: 'Confirmed. You can go ahead.',
+  stepUpNone: 'Not confirmed. The change will be refused unless your account needs no check.',
+  stepUpFirst: 'Confirm it’s you first.',
+  refusedStepUp: 'This change needs a check that it’s you. Nothing was changed. Confirm with your passkey or authenticator code.',
+  refusedStepUpExpired: 'Your last check has ended. Nothing was changed. Confirm it’s you again.',
+  refusedStepUpFailed: 'That check could not be used for this change. Nothing was changed. Confirm it’s you again.',
+  refusedStepUpUnchecked: 'Your check could not be verified just now, so nothing was changed. Try again later.',
+  detailsShow: 'Show details',
+  detailsHide: 'Hide details',
+  detailsLoading: 'Reading your saved details',
+  detailsLogged: 'Account numbers show only their last four characters. Every look at saved details is logged, yours too.',
   catalogueWindowMinutes: 'Money can take up to {minutes} minutes to arrive.',
   catalogueWindowHoursMinutes: 'Money can take up to {hours} hours {minutes} minutes to arrive.',
   addCountryAny: 'Two letters, for example DE.',
@@ -51,6 +71,27 @@ const en = {
 } as const;
 
 const es: Record<keyof typeof en, string> = {
+  stepUpWhy: 'Los compradores pagan a los métodos que guardas, así que añadir o quitar uno pide comprobar de nuevo que eres tú.',
+  stepUpCode: 'Código del autenticador',
+  stepUpCodeHint: 'Los 6 dígitos que muestra ahora tu app de autenticación.',
+  stepUpCodeShort: 'Introduce los 6 dígitos de tu app de autenticación.',
+  stepUpNoFactor:
+    'Tu cuenta no tiene llave de acceso ni app de autenticación, así que este cambio no se puede confirmar. Añade una en Seguridad primero; enviarlo ahora se rechaza.',
+  stepUpSendSave: 'Guardar sin confirmar',
+  addSaving: 'Guardando',
+  stepUpSendRemove: 'Quitar sin confirmar',
+  stepUpDone: 'Confirmado. Puedes continuar.',
+  stepUpNone: 'Sin confirmar. El cambio se rechazará salvo que tu cuenta no necesite comprobación.',
+  stepUpFirst: 'Primero confirma que eres tú.',
+  refusedStepUp: 'Este cambio pide comprobar que eres tú. No se cambió nada. Confirma con tu llave de acceso o código del autenticador.',
+  refusedStepUpExpired: 'Tu última comprobación ha terminado. No se cambió nada. Confirma de nuevo que eres tú.',
+  refusedStepUpFailed: 'Esa comprobación no sirve para este cambio. No se cambió nada. Confirma de nuevo que eres tú.',
+  refusedStepUpUnchecked: 'No se pudo verificar tu comprobación ahora, así que no se cambió nada. Inténtalo más tarde.',
+  detailsShow: 'Ver datos',
+  detailsHide: 'Ocultar datos',
+  detailsLoading: 'Leyendo tus datos guardados',
+  detailsLogged:
+    'Los números de cuenta muestran solo sus últimos cuatro caracteres. Cada consulta de los datos guardados queda registrada, también las tuyas.',
   catalogueWindowMinutes: 'El dinero puede tardar hasta {minutes} minutos en llegar.',
   catalogueWindowHoursMinutes: 'El dinero puede tardar hasta {hours} horas {minutes} minutos en llegar.',
   addCountryAny: 'Dos letras, por ejemplo DE.',
@@ -101,6 +142,28 @@ const es: Record<keyof typeof en, string> = {
 };
 
 const fr: Record<keyof typeof en, string> = {
+  stepUpWhy:
+    'Les acheteurs paient vers les moyens que vous enregistrez : en ajouter ou en retirer un demande une nouvelle vérification que c’est bien vous.',
+  stepUpCode: 'Code de l’authentificateur',
+  stepUpCodeHint: 'Les 6 chiffres affichés maintenant par votre application d’authentification.',
+  stepUpCodeShort: 'Saisissez les 6 chiffres de votre application d’authentification.',
+  stepUpNoFactor:
+    'Votre compte n’a ni clé d’accès ni application d’authentification, donc ce changement ne peut pas être confirmé. Ajoutez-en une dans Sécurité d’abord ; l’envoyer maintenant est refusé.',
+  stepUpSendSave: 'Enregistrer sans confirmer',
+  addSaving: 'Enregistrement',
+  stepUpSendRemove: 'Retirer sans confirmer',
+  stepUpDone: 'Confirmé. Vous pouvez continuer.',
+  stepUpNone: 'Non confirmé. Le changement sera refusé sauf si votre compte ne demande aucune vérification.',
+  stepUpFirst: 'Confirmez d’abord que c’est vous.',
+  refusedStepUp: 'Ce changement demande de vérifier que c’est vous. Rien n’a été changé. Confirmez avec votre clé d’accès ou votre code.',
+  refusedStepUpExpired: 'Votre dernière vérification a expiré. Rien n’a été changé. Confirmez à nouveau que c’est vous.',
+  refusedStepUpFailed: 'Cette vérification ne vaut pas pour ce changement. Rien n’a été changé. Confirmez à nouveau que c’est vous.',
+  refusedStepUpUnchecked: 'Votre vérification n’a pas pu être contrôlée pour le moment, donc rien n’a été changé. Réessayez plus tard.',
+  detailsShow: 'Voir les coordonnées',
+  detailsHide: 'Masquer les coordonnées',
+  detailsLoading: 'Lecture de vos coordonnées enregistrées',
+  detailsLogged:
+    'Les numéros de compte n’affichent que leurs quatre derniers caractères. Chaque consultation des coordonnées est journalisée, les vôtres aussi.',
   catalogueWindowMinutes: 'L’argent peut mettre jusqu’à {minutes} minutes pour arriver.',
   catalogueWindowHoursMinutes: 'L’argent peut mettre jusqu’à {hours} heures {minutes} minutes pour arriver.',
   addCountryAny: 'Deux lettres, par exemple DE.',
