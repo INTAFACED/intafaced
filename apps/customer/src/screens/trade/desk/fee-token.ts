@@ -1,3 +1,4 @@
+// hand-declared-ok: svc-trade /fees/published and svc-token accessOf and feeDiscount.get have no schema in packages/contracts
 /**
  * Paying a spot fee in the platform token (J-cex-spot-10 #9). Three reads, all the service's own figures:
  *
