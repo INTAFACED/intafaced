@@ -143,7 +143,7 @@ export function VerificationCases({
               <ol className="verification__case-steps">
                 {c.history.map((step) => (
                   <li key={step.version} data-state={step.state}>
-                    <Copy k={step.state} /> · {time(step.at)}
+                    <Copy k={`step_${step.state}`} /> · {time(step.at)}
                   </li>
                 ))}
               </ol>
