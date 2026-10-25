@@ -753,6 +753,91 @@ describe('svc-token money PG-hard', () => {
       }
     });
 
+    it('publishes the owner ladder over the version it names, and the next discount read charges it', async () => {
+      const original = await readSchedule();
+      try {
+        await restoreFeeSchedule(null);
+        // A cache filled before the publish must not answer after it: the TTL here is the production one.
+        const cached = new TokenService(sql, ledger, bus, { ...options, feeScheduleTtlMs: 60_000 });
+        await publishFeeSchedule();
+        await fund(USER_A, '10000');
+        await token.stake({ userId: USER_A, amount: amt('10000'), tier: 'flex', stakeId: crypto.randomUUID() });
+        expect((await cached.accessOf(USER_A)).feeDiscountBps).toBe(0);
+
+        const before = await cached.feeDiscountScheduleRow();
+        expect(before.version).toMatch(/^sha256:/);
+        const ladder = {
+          basis: 'staked',
+          tiers: [
+            { minStake: '0', discountBps: 0 },
+            { minStake: '5000.0', discountBps: 1_500 },
+          ],
+        };
+        const published = await cached.publishFeeDiscountSchedule({ schedule: ladder, expectedVersion: before.version });
+        expect(published.previousVersion).toBe(before.version);
+        expect(published.schedule.tiers[1]).toEqual({ minStake: '5000', discountBps: 1_500 });
+        expect(await readSchedule()).toEqual(published.schedule);
+        expect(await cached.feeDiscountScheduleRow()).toEqual({ schedule: published.schedule, version: published.version });
+        expect((await cached.accessOf(USER_A)).feeDiscountBps).toBe(1_500);
+      } finally {
+        await restoreFeeSchedule(original);
+      }
+    });
+
+    it('refuses a publish over a version that is no longer stored, and writes nothing', async () => {
+      const original = await readSchedule();
+      try {
+        await restoreFeeSchedule(null);
+        expect(await token.feeDiscountScheduleRow()).toEqual({ schedule: null, version: 'unset' });
+        const first = await token.publishFeeDiscountSchedule({
+          schedule: { basis: 'staked', tiers: [{ minStake: '0', discountBps: 100 }] },
+          expectedVersion: 'unset',
+        });
+        // A second owner pair approved their ladder against the blank row too: theirs lost the race.
+        await expect(
+          token.publishFeeDiscountSchedule({
+            schedule: { basis: 'staked', tiers: [{ minStake: '0', discountBps: 900 }] },
+            expectedVersion: 'unset',
+          }),
+        ).rejects.toMatchObject({ code: 'token.fee_discount_stale' });
+        expect((await token.feeDiscountScheduleRow()).version).toBe(first.version);
+        expect(await readSchedule()).toEqual(first.schedule);
+      } finally {
+        await restoreFeeSchedule(original);
+      }
+    });
+
+    it('refuses a ladder the door does not accept before it reads or writes the row', async () => {
+      const original = await readSchedule();
+      try {
+        await restoreFeeSchedule(null);
+        await expect(
+          token.publishFeeDiscountSchedule({
+            schedule: {
+              basis: 'staked',
+              tiers: [
+                { minStake: '0', discountBps: 2_000 },
+                { minStake: '1000', discountBps: 1_000 },
+              ],
+            },
+            expectedVersion: 'unset',
+          }),
+        ).rejects.toMatchObject({ code: 'token.fee_discount_invalid' });
+        expect(await readSchedule()).toBeNull();
+        // A row that does not parse is shown as stored, with its version, so the owner can replace it.
+        await sql`UPDATE token.token_params SET fee_discount_schedule = '{"basis":"balance","tiers":[]}'::jsonb WHERE id = true`;
+        const row = await token.feeDiscountScheduleRow();
+        expect(row.schedule).toEqual({ basis: 'balance', tiers: [] });
+        const replaced = await token.publishFeeDiscountSchedule({
+          schedule: { basis: 'staked', tiers: [{ minStake: '0', discountBps: 0 }] },
+          expectedVersion: row.version,
+        });
+        expect(replaced.previousVersion).toBe(row.version);
+      } finally {
+        await restoreFeeSchedule(original);
+      }
+    });
+
     it('refuses to serve a discount at all when the row is unreadable', async () => {
       // No fallback to the compiled-in default, deliberately: falling back would charge a
       // discount the database does not hold, silently — the exact failure being fixed here.
