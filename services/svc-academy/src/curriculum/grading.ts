@@ -46,6 +46,7 @@ type QueueRow = {
   last_n: number;
   holder: string | null;
   expires_at: Date | null;
+  extended_due: Date | null;
 };
 
 type CourseGradeRow = {
@@ -291,7 +292,7 @@ export class AssignmentGrading {
         fl.file_name, fl.content_type, fl.bytes::text AS bytes,
         pr.received, pr.mean_total,
         g.score::text AS score, g.comment, g.at AS graded_at, coalesce(g.n, 0)::int AS last_n,
-        le.holder, le.expires_at
+        le.holder, le.expires_at, x.due_at AS extended_due
       FROM latest l
       JOIN firsts f ON f.user_id = l.user_id
       LEFT JOIN academy.assignment_files fl ON fl.id = l.file_id
@@ -304,6 +305,7 @@ export class AssignmentGrading {
         SELECT score, comment, at, n FROM academy.assignment_grade_events WHERE submission_id = l.id ORDER BY n DESC LIMIT 1
       ) g ON TRUE
       LEFT JOIN academy.assignment_grader_leases le ON le.submission_id = l.id AND le.expires_at > ${now}
+      LEFT JOIN academy.course_item_extensions x ON x.item_id = l.item_id AND x.user_id = l.user_id
       ORDER BY f.alias
     `;
     const dueAt = view.brief.dueAt === null ? null : new Date(view.brief.dueAt);
@@ -318,7 +320,8 @@ export class AssignmentGrading {
         alias: r.alias,
         version: r.version,
         submittedAt: r.submitted_at.toISOString(),
-        late: dueAt !== null && r.submitted_at.getTime() > dueAt.getTime(),
+        // A learner's own later due date (AC-release-access-02) moves when their hand-in counts as late.
+        late: (r.extended_due ?? dueAt) !== null && r.submitted_at.getTime() > (r.extended_due ?? dueAt)!.getTime(),
         text: r.text,
         file: r.file_name === null ? null : { fileName: r.file_name, contentType: r.content_type!, bytes: Number(r.bytes) },
         peerReviews: { received: r.received, meanTotal: r.mean_total === null ? null : canonicalPrice(r.mean_total) },

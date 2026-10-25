@@ -117,6 +117,7 @@ export * from './academy-discussion.js';
 export * from './academy-course-messages.js';
 export * from './academy-course-quizzes.js';
 export * from './academy-course-release.js';
+export * from './academy-course-item-rules.js';
 export * from './bank-card-funds.js';
 export * from './asset-registry.js';
 export * from './market-listing-categories.js';

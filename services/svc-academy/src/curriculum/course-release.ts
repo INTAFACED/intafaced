@@ -38,26 +38,44 @@ export function opensAt(rule: AcademySectionReleaseRule, enrolledAt: Date | null
 }
 
 /**
- * Refuses `academy.not_released_yet` while the item's section has not opened for this learner. Work the learner already
- * began there (a hand-in, a quiz attempt, a survey answer) stays theirs to read and finish when staff move the date later.
- * Writes nothing.
+ * Refuses `academy.not_released_yet` while the item's section has not opened for this learner, then
+ * `academy.prerequisite_unmet` (naming the items) while an assignment or quiz it requires is not yet handed in, finished
+ * or answered (AC-release-access-02). Work the learner already began on this item (a hand-in, a quiz attempt, a survey
+ * answer) stays theirs to read and finish when staff move a date or add a rule later. Writes nothing.
  */
-export async function assertItemReleased(sql: Db, itemId: string, userId: string, now: Date): Promise<void> {
-  const [row] = await sql<Array<{ release_at: Date | null; after_days: number | null; enrolled_at: Date | null; begun: boolean }>>`
+export async function assertItemOpen(sql: Db, itemId: string, userId: string, now: Date): Promise<void> {
+  const [row] = await sql<
+    Array<{ release_at: Date | null; after_days: number | null; enrolled_at: Date | null; begun: boolean; unmet: string[] }>
+  >`
     SELECT r.release_at, r.after_days,
       (SELECT e.enrolled_at FROM academy.course_enrolments e
         WHERE e.course_id = i.course_id AND e.user_id = ${userId} AND e.left_at IS NULL) AS enrolled_at,
-      (EXISTS (SELECT 1 FROM academy.assignment_submissions s WHERE s.item_id = i.id AND s.user_id = ${userId})
-        OR EXISTS (SELECT 1 FROM academy.course_quiz_attempts t WHERE t.item_id = i.id AND t.user_id = ${userId})
-        OR EXISTS (SELECT 1 FROM academy.course_survey_takers k WHERE k.item_id = i.id AND k.user_id = ${userId})) AS begun
-    FROM academy.course_items i JOIN academy.course_section_releases r ON r.section_id = i.section_id
+      ${doneBy(sql, sql`i.id`, userId, true)} AS begun,
+      ARRAY(SELECT p.prerequisite_id::text FROM academy.course_item_prerequisites p
+        WHERE p.item_id = i.id AND NOT ${doneBy(sql, sql`p.prerequisite_id`, userId, false)}
+        ORDER BY p.prerequisite_id) AS unmet
+    FROM academy.course_items i LEFT JOIN academy.course_section_releases r ON r.section_id = i.section_id
     WHERE i.id = ${itemId}
   `;
-  const rule = row ? ruleOf(row) : null;
-  if (rule === null || row!.begun) return;
-  const at = opensAt(rule, row!.enrolled_at);
-  if (at === null || at.getTime() > now.getTime())
-    throw new AcademyError(`academy.not_released_yet opens=${at?.toISOString() ?? 'after enrolment'}`, 'academy.not_released_yet');
+  if (!row || row.begun) return;
+  const rule = ruleOf(row);
+  if (rule !== null) {
+    const at = opensAt(rule, row.enrolled_at);
+    if (at === null || at.getTime() > now.getTime())
+      throw new AcademyError(`academy.not_released_yet opens=${at?.toISOString() ?? 'after enrolment'}`, 'academy.not_released_yet');
+  }
+  if (row.unmet.length > 0) throw new AcademyError(`academy.prerequisite_unmet items=${row.unmet.join(',')}`, 'academy.prerequisite_unmet');
+}
+
+/**
+ * Whether the learner has done an item: handed in, answered the survey, or (with `open` true) started or (false)
+ * finished a quiz attempt.
+ */
+function doneBy(sql: Db, item: ReturnType<Db>, userId: string, open: boolean) {
+  return sql`(EXISTS (SELECT 1 FROM academy.assignment_submissions s WHERE s.item_id = ${item} AND s.user_id = ${userId})
+    OR EXISTS (SELECT 1 FROM academy.course_quiz_attempts t WHERE t.item_id = ${item} AND t.user_id = ${userId}
+      ${open ? sql`` : sql`AND t.state <> 'open'`})
+    OR EXISTS (SELECT 1 FROM academy.course_survey_takers k WHERE k.item_id = ${item} AND k.user_id = ${userId}))`;
 }
 
 export class CourseRelease {

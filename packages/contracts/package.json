@@ -198,6 +198,10 @@
       "types": "./dist/academy-course-release.d.ts",
       "default": "./dist/academy-course-release.js"
     },
+    "./academy-course-item-rules": {
+      "types": "./dist/academy-course-item-rules.d.ts",
+      "default": "./dist/academy-course-item-rules.js"
+    },
     "./academy-course-messages": {
       "types": "./dist/academy-course-messages.d.ts",
       "default": "./dist/academy-course-messages.js"
