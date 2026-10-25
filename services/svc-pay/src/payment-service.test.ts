@@ -431,6 +431,23 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
+    it('refuses to capture a disputed payment again: it stays disputed and its captured total is unchanged', async () => {
+      const m = await merchant();
+      const payment = await cardPayment(m.id, '12');
+      await pay.capture(payment.id);
+      await pay.markDisputed(payment.id, { disputeId: 'dp-capture-retry' });
+      const booked = ledger.totalsByAsset().USDT;
+
+      await expect(pay.capture(payment.id)).rejects.toMatchObject({ code: 'pay.invalid_transition' });
+
+      const after = await pay.getPayment(payment.id);
+      expect(after.status).toBe('disputed');
+      expect(formatAmount(after.capturedAmount)).toBe('12');
+      expect((await events(payment.id)).filter((e) => e === 'captured')).toHaveLength(1);
+      expect(ledger.totalsByAsset().USDT).toBe(booked);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
     it('appends every transition and overwrites nothing', async () => {
       const m = await merchant();
       const payment = await cardPayment(m.id);
