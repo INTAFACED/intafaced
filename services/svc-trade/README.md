@@ -452,6 +452,18 @@ none. Absent or `null` means no table. A field left out, an unknown field, a gue
 tier or a tier the programme does not name refuses the schedule as blank. The table is what each tier is promised:
 support and treasury read it, and nothing in this service applies it. My tier lists it; a blank cell reads "not set".
 
+`tierProgram.application` (SP-fees-vip-04, J-cex-spot-10 #7) opens VIP applications: `proofTypes` (only types this
+service recognises from a file's first bytes: `application/pdf`, `image/png`, `image/jpeg`) and `maxBytes` (1 to
+5 MiB). Absent or `null`, every application refuses `vip.application_unset`. `POST /api/v1/vip/applications`
+`{requestId, proof: {fileName, contentType, bytesBase64}, note?}` (`trade:write`) checks the type against the bytes,
+then keeps the proof encrypted with `TRADE_VIP_PROOF_KEY` (32 bytes as hex or base64; AES-256-GCM bound to the row id
+and the file's SHA-256; blank refuses `vip.proof_key_unset`) and appends a `pending` event. One application waits per
+person (`vip.application_open`); the same `requestId` with the same file and note answers the application it made
+(200), with anything else `vip.request_reused`. `GET /api/v1/vip/applications` (`trade:read`) answers the rules and
+the caller's own applications, metadata only: the file never leaves the service on this door. The edge's
+`EDGE_BODY_LIMIT_BYTES` also bounds an upload: base64 adds a third, so a `maxBytes` above three quarters of it is
+refused at the edge first. The compliance review that decides an application is not built yet (SP-fees-vip-04 part 2).
+
 ---
 
 ## Database constraints as a backstop
