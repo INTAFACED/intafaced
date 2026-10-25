@@ -46,7 +46,7 @@ export const feeTierCopy = defineCopy('public-fee-tier', {
   feesLink: 'See every rate on the fee schedule',
   benefitsTitle: 'VIP benefits',
   benefitsLead:
-    'What each tier is promised beyond its rates, as published. Our support and treasury teams apply them. "Not set" means nothing is published for that benefit yet.',
+    'What each tier is promised beyond its rates, as published. Our support and treasury teams apply them. "Not set" means the owner has published nothing for that benefit.',
   benefitsNotSet: 'Benefits not set: no tier has published benefits beyond its rates.',
   colPrioritySupport: 'Priority support',
   colVipPortal: 'VIP portal',
