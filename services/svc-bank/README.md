@@ -207,6 +207,18 @@ A payment from another person (`transfers.toUser`, a paid request) is sorted rig
 
 **Moves no value.** A contributor adds money with `transfers.create` into the pot, the same transfer as anyone paying into a space. A viewer doing so, and any member taking money out of a pot they do not own, refuses `bank.space_forbidden`. Either owner value blank refuses `bank.joint_unset` (the slice's decision note: nothing is shared until the owner decides). Handles come from svc-identity's directory (`IDENTITY_URL`).
 
+### `recovery` — **recovery claims (RC-identity-08, J-identity-05 #7). The heir's keys move a dead owner's balances; staff never do.**
+
+| Procedure                 | Scope        | What it does                                                                                                                                                                                                                               |
+| ------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `recovery.estates`        | `bank:read`  | The accounts the caller may claim as heir, as svc-identity lists them now, each with the free balances a sweep moves (main account per asset and named spaces), the held value that stays until released, and any debt that blocks a sweep |
+| `recovery.claims.open`    | `bank:write` | Open the claim on one listed account, or answer the open one again, with the text each recovery key signs (`recoveryClaimMessage`). Moves nothing                                                                                          |
+| `recovery.claims.execute` | `bank:write` | Ask identity whether these signatures claim the account for the caller now, then sweep the owner's free balances into the caller's main account in each asset                                                                              |
+
+**Who decides what.** Two staff confirm the death notice in svc-identity, and the owner chose the heir, the keys and how many must sign while alive. svc-bank asks identity (`GET /internal/recovery-claims/estates/:heirUserId`, `POST /internal/recovery-claims/verify`) with the signed-in caller's own id, never an id from input, and keeps only the claim and its sweep plan. An API key or a sub-account refuses `bank.recovery_delegated`; staff (`admin:*`, `support:ops`, `market:ops`) refuse `bank.recovery_staff_forbidden`. Identity refusing the signatures refuses `bank.recovery_claim_refused` with identity's code in the message, and no IDENTITY_URL, or identity not answering, refuses `bank.recovery_unavailable`. Nothing moves in any of these.
+
+**How a sweep posts.** One claim per account (`recovery_claims`, id derived from the account and the confirmed notice). Each round writes one `recovery_sweeps` row per funded account before anything posts, then posts each as `bankTransfer` in the `recovery` key space with the row's key, and marks it posted. A crash in between leaves the row pending, and the next call posts the same key again, which the ledger answers with the first transaction. A ledger refusal that proves nothing posted (funds gone, an entry the ledger will not take, the posting freeze) settles the row refused. Once no row of a round is pending, the claim moves to the next round (the claim reads `executed` only once a sweep has posted), so value that reaches the owner's accounts later is swept by asking again. Value held, staked or pledged (any non-`available` account, or a purposed one) stays where it is: the free value moves without it, and a later round moves it once it is released. A negative balance is a debt, and refuses the whole round with `bank.recovery_blocked` until it is settled. The ledger is read just before the round is planned, outside the claim's lock; value that arrives after the read goes to the next round. The owner's trading sub-accounts in svc-identity are not swept by this slice: their balances stay frozen with the account.
+
 ### `business` — **maker/checker with ledger holds. Not full bank-biz.**
 
 | Procedure                      | Scope                  | What it does                                                                                                                                                                                |
@@ -328,6 +340,7 @@ Every recipe this service invokes, and what it touches. Transfer/earn recipes li
 | ----------------------- | -------------------------- | ------------------------------------------------------------- |
 | `bankTransfer`          | `bank.transfer.manual`     | space account → space account                                 |
 | `bankTransfer`          | `bank.transfer.scheduled`  | space account → space account                                 |
+| `bankTransfer`          | `bank.transfer.manual`     | dead owner's free account → heir available (`recovery` keys)  |
 | `earnDeposit`           | `bank.earn.deposited`      | user available → user stake                                   |
 | `earnWithdraw`          | `bank.earn.withdrawn`      | user stake → user available                                   |
 | `earnPoolFund`          | `bank.earn.pool.funded`    | `houseFees('bank')` → `earnPoolReserve(pool)`                 |
@@ -356,6 +369,7 @@ bank.transfer.sched:<scheduleId>:<occurrence>        one firing of one standing 
 bank.transfer.own:<transferId>:0                     a user moving value between their own spaces
 bank.transfer.p2p:<transferId>:0                     a payment to another user (personal pay, a paid request)
 bank.transfer.rail:<paymentId>:<0|1>                 a send to a rail boundary (0) and its reversal (1)
+bank.transfer.recovery:<claimId>:<account>:<round>   one recovery sweep of one owner account (never reversed by consent)
 bank.earn.deposit:<positionId>                       one position opening
 bank.earn.withdraw:<positionId>                      one position closing
 bank.earn.fund:<poolId>:<fundingId>                  one reserve top-up
@@ -657,4 +671,4 @@ The internal job doors, the closure check and `/trpc` name the caller from its o
 
 ## Service keys: outgoing calls
 
-The calls to svc-identity (affiliate accrue and payout, recipient status, handle lookup, business directory) and to svc-trade (auto-invest convert quote and execute) are signed with svc-bank's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`S2S_KEYRING` lets the doors verify callers); `dual` also sends the shared secret, `keypair` the key only. Unset, they are signed with the shared secret exactly as before. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+The calls to svc-identity (affiliate accrue and payout, recipient status, handle lookup, business directory, recovery estates and claim checks) and to svc-trade (auto-invest convert quote and execute) are signed with svc-bank's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`S2S_KEYRING` lets the doors verify callers); `dual` also sends the shared secret, `keypair` the key only. Unset, they are signed with the shared secret exactly as before. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.

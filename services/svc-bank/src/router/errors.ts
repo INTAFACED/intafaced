@@ -476,6 +476,14 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.dd_refund_not_collected': 'CONFLICT',
   // The request is fine; the period it had to be made in is over.
   'bank.dd_refund_window_closed': 'CONFLICT',
+  'bank.recovery_unavailable': 'SERVICE_UNAVAILABLE',
+  'bank.recovery_delegated': 'FORBIDDEN',
+  'bank.recovery_staff_forbidden': 'FORBIDDEN',
+  'bank.recovery_estate_not_found': 'NOT_FOUND',
+  'bank.recovery_claim_not_found': 'NOT_FOUND',
+  'bank.recovery_claim_conflict': 'CONFLICT',
+  'bank.recovery_claim_refused': 'PRECONDITION_FAILED',
+  'bank.recovery_blocked': 'PRECONDITION_FAILED',
 
   // Kill switches. Same 503 class as the matching HTTP job endpoints —
   // operator flipped the flag off; tRPC must not be a back door past it.

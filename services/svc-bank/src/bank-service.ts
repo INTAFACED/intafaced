@@ -27,6 +27,8 @@ import { listSupportedAssets, withdrawNetworksFrom, type AssetRegistryReads, typ
 import { AutoInvestService, type AutoInvestServiceOptions } from './auto-invest/auto-invest-service.js';
 import { IncomeSorterService } from './sorter/income-sorter.js';
 import { SharedPotService } from './spaces/shared-pots.js';
+import { RecoveryClaimService } from './recovery/recovery-claims.js';
+import { unconfiguredIdentityRecovery, type IdentityRecoveryPort } from './recovery/identity-recovery.js';
 import { BillsPotService } from './spaces/bills-pot.js';
 import { BusinessService } from './business/business-service.js';
 import { BusinessLookupLimiter, unconfiguredBusinessDirectory, type BusinessDirectoryPort } from './business/business-directory.js';
@@ -77,6 +79,8 @@ export interface BankServices {
   /** The person's bills pot per asset, and whether a standing order from it may top it up from the main account. */
   readonly billsPots: BillsPotService;
   readonly sharedPots: SharedPotService;
+  /** RC-identity-08: the heir's claim on a dead owner's balances, swept once the owner's recovery keys sign it. */
+  readonly recovery: RecoveryClaimService;
   readonly earn: EarnService;
   readonly analytics: SpendAnalytics;
   readonly portfolio: PortfolioService;
@@ -229,6 +233,8 @@ export interface BankServiceOptions {
    * need no check and still work. See `recipient-state.ts`.
    */
   recipients?: RecipientStatePort;
+  /** Identity's recovery claim doors (RC-identity-08). Unset = every claim refuses `bank.recovery_unavailable`. */
+  identityRecovery?: IdentityRecoveryPort;
   /** Merged money history: the ledger page port and the cursor secret. Unset = `bank.activity.list` refuses, never answers empty. */
   activity?: ActivityServiceOptions;
   /** Public handles for receipts. Unset = receipts name `bank.party_handles_unset` and requests refuse. */
@@ -396,11 +402,14 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   globalSend.screenWith((sendId) => globalHolds.screen(sendId));
   const directDebits = new DirectDebitService(sql, ledger, spaces, options.directDebitScheme ?? unsetDirectDebitScheme);
 
+  const recovery = new RecoveryClaimService(sql, ledger, spaces, options.identityRecovery ?? unconfiguredIdentityRecovery());
+
   return {
     spaces,
     sorter,
     billsPots,
     sharedPots,
+    recovery,
     transfers,
     personalPay,
     earn,
