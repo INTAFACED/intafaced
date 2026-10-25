@@ -2016,6 +2016,9 @@ export class P2pService {
         this.sql,
         async (tx) => {
           const offerId = clientOfferId ?? crypto.randomUUID();
+          // P-ads-merchant-18: the destinations checked above are checked again under the maker's instrument key, so a
+          // removal at the same moment either sees this ad (and pauses it) or this post sees the method gone.
+          if (input.side === 'sell') await assertSellDestinations(tx, this.instruments, input.makerId, fiatCurrency, input.methods ?? []);
           if (idempotencyKey) {
             const claim = await claimWriteKey(tx, {
               actorId: input.makerId,
@@ -2119,10 +2122,11 @@ export class P2pService {
 
   async getOffer(offerId: string, viewerId?: string | null): Promise<OfferRecord> {
     const offer = await this.loadOfferRaw(offerId);
-    // The maker reads their own ad as stored, paused or not payable included (P-ads-merchant-18: an ad paused because its
-    // last method was removed must stay visible to its maker, with the reason, so it can be resumed).
-    if (viewerId && viewerId === offer.makerId) return offer;
     const [projected] = await this.projectBoardMethods([offer]);
+    // The maker still reads their own ad when no method on it is payable (P-ads-merchant-18: an ad paused because its last
+    // method was removed stays visible to its maker, with the reason, so it can be resumed). Projected otherwise, so the
+    // edit form never offers a method with no destination back.
+    if (!projected && viewerId && viewerId === offer.makerId) return offer;
     // Zero payable methods is not on the public board — same answer as missing,
     // so get-by-id cannot confirm "listed rails, no destination / no schema".
     if (!projected) throw new P2pError(`Offer ${offerId} not found`, 'p2p.offer_not_found');
@@ -2296,58 +2300,69 @@ export class P2pService {
 
   /**
    * Which of the maker's active sell ads list this instrument's method, and which of them it is the last payable method
-   * for. Read-only: the remove dialog shows it before the person confirms.
+   * for. Read-only: the remove dialog shows it, and the ads marked `pauses` are the ones the person confirms pausing.
    */
   async methodRemovalImpact(instrumentId: string, ownerId: string): Promise<MethodRemovalImpact> {
-    return this.readRemovalImpact(this.sql, instrumentId, ownerId, false);
+    return (await this.readRemovalImpact(this.sql, instrumentId, ownerId, false)).impact;
   }
 
-  private async readRemovalImpact(db: Sql, instrumentId: string, ownerId: string, lock: boolean): Promise<MethodRemovalImpact> {
-    const [instrument] = lock
-      ? await db<Array<{ method_id: string; fiat_currency: string }>>`
-          SELECT method_id, fiat_currency FROM p2p.payment_instruments
-           WHERE id = ${instrumentId} AND owner_id = ${ownerId} AND status = 'active'
-           FOR UPDATE
-        `
-      : await db<Array<{ method_id: string; fiat_currency: string }>>`
-          SELECT method_id, fiat_currency FROM p2p.payment_instruments
-           WHERE id = ${instrumentId} AND owner_id = ${ownerId} AND status = 'active'
-        `;
+  /**
+   * The same refusal `removeMethod` makes, read before the router spends the person's confirmation on a removal that
+   * would be refused anyway. `removeMethod` checks again under the maker's key.
+   */
+  async assertRemovalConfirmed(instrumentId: string, ownerId: string, pauseOfferIds: readonly string[]): Promise<void> {
+    const { impact } = await this.readRemovalImpact(this.sql, instrumentId, ownerId, false);
+    assertPausesConfirmed(impact, pauseOfferIds);
+  }
+
+  /**
+   * `impact` lists the active sell ads; `stranded` are the ones the maker paused by hand that lose their last payable
+   * method too. They are already off the board, so nothing is asked about them; they take the reason, so the maker reads
+   * why resuming needs a method first.
+   */
+  private async readRemovalImpact(
+    db: Sql,
+    instrumentId: string,
+    ownerId: string,
+    lock: boolean,
+  ): Promise<{ impact: MethodRemovalImpact; stranded: string[] }> {
+    const [instrument] = await db<Array<{ method_id: string; fiat_currency: string }>>`
+      SELECT method_id, fiat_currency FROM p2p.payment_instruments
+       WHERE id = ${instrumentId} AND owner_id = ${ownerId} AND status = 'active'
+       ${lock ? db`FOR UPDATE` : db``}
+    `;
     if (!instrument) {
       throw new InstrumentError(`No payment instrument is available for ${instrumentId}`, 'p2p.instrument_not_found');
     }
-    const impact = { instrumentId, methodId: instrument.method_id, fiatCurrency: instrument.fiat_currency };
     // One active destination per method and currency (`instrument_slot_taken`), so without this one the method is not
     // payable; the ads it leaves with no payable method at all are the ones that pause.
     const after = await this.instruments.liveMethodKeys(ownerId, instrument.fiat_currency, { db, exceptInstrumentId: instrumentId });
-    const offers = lock
-      ? await db<OfferRow[]>`
-          SELECT * FROM p2p.offers
-           WHERE maker_id = ${ownerId} AND side = 'sell' AND status = 'active' AND fiat_currency = ${instrument.fiat_currency}
-           ORDER BY created_at, id
-           FOR UPDATE
-        `
-      : await db<OfferRow[]>`
-          SELECT * FROM p2p.offers
-           WHERE maker_id = ${ownerId} AND side = 'sell' AND status = 'active' AND fiat_currency = ${instrument.fiat_currency}
-           ORDER BY created_at, id
-        `;
+    const offers = await db<OfferRow[]>`
+      SELECT * FROM p2p.offers
+       WHERE maker_id = ${ownerId} AND side = 'sell' AND status IN ('active', 'paused') AND fiat_currency = ${instrument.fiat_currency}
+       ORDER BY created_at, id
+       ${lock ? db`FOR UPDATE` : db``}
+    `;
     const ads: MethodRemovalAd[] = [];
+    const stranded: string[] = [];
     for (const row of offers) {
       const methods = Array.isArray(row.methods) ? row.methods : [];
       if (methods.length === 0 || !methodAllowed(methods, instrument.method_id)) continue;
-      ads.push({ offerId: row.id, asset: row.asset, fiatCurrency: row.fiat_currency, pauses: !sellOfferBoardable(methods, after) });
+      const pauses = !sellOfferBoardable(methods, after);
+      if (row.status === 'active') ads.push({ offerId: row.id, asset: row.asset, fiatCurrency: row.fiat_currency, pauses });
+      else if (pauses && row.pause_reason == null) stranded.push(row.id);
     }
-    return { ...impact, ads };
+    return { impact: { instrumentId, methodId: instrument.method_id, fiatCurrency: instrument.fiat_currency, ads }, stranded };
   }
 
   /**
    * Remove a payment instrument (the step-up is the router's, before this). When it is the last payable method of any
-   * active sell ad, the removal is refused with `p2p.method_in_use` unless the person confirmed `pauseAds`; then the
-   * instrument goes, those ads pause with reason `method_removed`, and the maker's notice is owed, all in one commit.
-   * Under the maker's instrument key, so a take, a resume or a second removal cannot interleave with the read.
+   * active sell ad, the removal is refused with `p2p.method_in_use` unless `pauseOfferIds` names every such ad: the ads
+   * the person was shown and agreed to pause, so an ad posted since is never paused unseen. Then the instrument goes,
+   * those ads pause with reason `method_removed`, and the maker's notice is owed, all in one commit. Under the maker's
+   * instrument key, so a post, a take, a resume or a second removal cannot interleave with the read.
    */
-  async removeMethod(input: { instrumentId: string; ownerId: string; pauseAds: boolean }): Promise<InstrumentHeader> {
+  async removeMethod(input: { instrumentId: string; ownerId: string; pauseOfferIds: readonly string[] }): Promise<InstrumentHeader> {
     const removeInstrument = this.instruments.removeInstrument?.bind(this.instruments);
     if (!removeInstrument) throw new Error('svc-p2p: payment instrument removal is not wired');
     const done = await withSpan('p2p.removeMethod', async () =>
@@ -2355,15 +2370,15 @@ export class P2pService {
         this.sql,
         async (tx) => {
           await lockInstrumentOwners(tx, input.ownerId);
-          const impact = await this.readRemovalImpact(tx, input.instrumentId, input.ownerId, true);
-          const pausing = impact.ads.filter((ad) => ad.pauses).map((ad) => ad.offerId);
-          if (pausing.length > 0 && !input.pauseAds) {
-            throw new P2pError(
-              `This payment method is the only one ${pausing.length} active ad(s) can be paid with (${pausing.join(', ')}). Confirm to pause them and remove it.`,
-              'p2p.method_in_use',
-            );
-          }
+          const { impact, stranded } = await this.readRemovalImpact(tx, input.instrumentId, input.ownerId, true);
+          const pausing = assertPausesConfirmed(impact, input.pauseOfferIds);
           const header = await removeInstrument({ instrumentId: input.instrumentId, ownerId: input.ownerId }, tx);
+          if (stranded.length > 0) {
+            await tx`
+              UPDATE p2p.offers SET pause_reason = 'method_removed', updated_at = now()
+               WHERE id = ANY(${stranded}::uuid[]) AND maker_id = ${input.ownerId} AND status = 'paused'
+            `;
+          }
           if (pausing.length === 0) return { header, notice: null };
           const paused = await tx<Array<{ id: string }>>`
             UPDATE p2p.offers SET status = 'paused', pause_reason = 'method_removed', updated_at = now()
@@ -4772,6 +4787,10 @@ export class P2pService {
 
     try {
       const written = await transaction(this.sql, async (tx) => {
+        // Same as create: a new method list for a sell ad is checked again under the maker's instrument key.
+        if (input.methods && previewForLock.side === 'sell') {
+          await assertSellDestinations(tx, this.instruments, previewForLock.makerId, previewForLock.fiatCurrency, input.methods);
+        }
         const claim = await claimWriteKey(tx, {
           actorId: input.makerId,
           scope: 'offer.update',
@@ -5835,6 +5854,35 @@ function assertChatListLimit(limit: number | undefined): number {
     throw new P2pError('p2p.chat_list_limit_unset', 'p2p.chat_list_limit_unset');
   }
   return Math.min(200, Math.floor(limit));
+}
+
+/** The ads this removal pauses, refused `p2p.method_in_use` unless the person confirmed each of them. */
+function assertPausesConfirmed(impact: MethodRemovalImpact, confirmed: readonly string[]): string[] {
+  const agreed = new Set(confirmed.map((id) => id.toLowerCase()));
+  const pausing = impact.ads.filter((ad) => ad.pauses).map((ad) => ad.offerId);
+  const unconfirmed = pausing.filter((id) => !agreed.has(id.toLowerCase()));
+  if (unconfirmed.length > 0) {
+    throw new P2pError(
+      `This payment method is the only one ${unconfirmed.length} active ad(s) can be paid with (${unconfirmed.join(', ')}). Confirm pausing them to remove it.`,
+      'p2p.method_in_use',
+    );
+  }
+  return pausing;
+}
+
+/** A sell ad's methods each have a live destination, read under the maker's instrument key (taken first, per its rules). */
+async function assertSellDestinations(
+  tx: Sql,
+  instruments: Pick<TradeInstrumentAttacher, 'liveMethodKeys'>,
+  makerId: string,
+  fiatCurrency: string,
+  methods: readonly unknown[],
+): Promise<void> {
+  await lockInstrumentOwners(tx, makerId);
+  const live = await instruments.liveMethodKeys(makerId, fiatCurrency, { db: tx });
+  if (missingSellDestinations(methods, live).length > 0) {
+    throw new PricingError(resolveP2pCopy(P2P_COPY.offerMethodNoDestination), 'p2p.offer_method_no_destination');
+  }
 }
 
 function methodAllowed(methods: unknown[], method: string): boolean {

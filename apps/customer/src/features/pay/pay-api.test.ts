@@ -1387,10 +1387,10 @@ describe('adding a P2P payment method (P-ads-merchant-18)', () => {
     const pay = createPersonalPayApi(api, userId, createPayMutationGuard());
     expect(await pay.methodRemovalImpact(instrumentId)).toEqual({ ok: true, data: impact });
     expect(urls[0]).toContain('instruments.removalImpact');
-    await pay.removeInstrument(instrumentId, 'approval-3', true);
-    await pay.removeInstrument(instrumentId, 'approval-4', false);
+    await pay.removeInstrument(instrumentId, 'approval-3', [offerId]);
+    await pay.removeInstrument(instrumentId, 'approval-4', []);
     expect(sent).toEqual([
-      { instrumentId, stepUpApprovalId: 'approval-3', pauseAds: true },
+      { instrumentId, stepUpApprovalId: 'approval-3', pauseOfferIds: [offerId] },
       { instrumentId, stepUpApprovalId: 'approval-4' },
     ]);
   });

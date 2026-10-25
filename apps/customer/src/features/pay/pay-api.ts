@@ -348,6 +348,9 @@ function takeRefusal(code: string, reason: Extract<ApiResult<never>, { ok: false
   return { ok: false, reason, message: 'The order was not placed.', code };
 }
 
+/** The most paused ads My offers lists (svc-p2p's page maximum); the room says when there may be more. */
+export const PAUSED_OFFERS_SHOWN = 200;
+
 export function createPersonalPayApi(
   api: ApiClient,
   userId: string | null,
@@ -1114,15 +1117,19 @@ export function createPersonalPayApi(
       if (!p2pCurrent()) return p2pDeparted();
       return api.query('p2p', 'instruments.removalImpact', { instrumentId }, s.methodRemovalImpactSchema, { signal });
     },
-    /** `pauseAds` is the person's confirmation that the ads this method is the last one for pause with it. */
-    removeInstrument: (instrumentId: string, stepUpApprovalId?: string, pauseAds = false) =>
+    /** `pauseOfferIds`: the ads the person was shown pausing with this method and agreed to; svc-p2p pauses no other. */
+    removeInstrument: (instrumentId: string, stepUpApprovalId?: string, pauseOfferIds: readonly string[] = []) =>
       guard.run(
         `${userId}:instrument:${instrumentId}`,
         () =>
           api.mutate(
             'p2p',
             'instruments.remove',
-            { instrumentId, ...(stepUpApprovalId ? { stepUpApprovalId } : {}), ...(pauseAds ? { pauseAds: true } : {}) },
+            {
+              instrumentId,
+              ...(stepUpApprovalId ? { stepUpApprovalId } : {}),
+              ...(pauseOfferIds.length ? { pauseOfferIds: [...pauseOfferIds] } : {}),
+            },
             s.instrumentSchema,
           ),
         undefined,
@@ -1136,7 +1143,7 @@ export function createPersonalPayApi(
       return api.query(
         'p2p',
         'offers.mine',
-        { status: 'paused', limit: 50 },
+        { status: 'paused', limit: PAUSED_OFFERS_SHOWN },
         z.array(s.offerSchema.refine((offer) => offer.makerId === userId, 'An ad in this list is not this account’s')),
         { signal },
       );

@@ -15,8 +15,7 @@ const en = {
   removeImpactNone: 'None of your active ads uses this method.',
   removeImpactPauses: 'Pauses: this is the only method it can be paid with',
   removeImpactStays: 'Stays up: it can still be paid with your other methods',
-  removeImpactWarning:
-    'Removing this method pauses {count} of your ads. You get a notice, and you can resume them once you add a {fiat} method again.',
+  removeImpactWarning: 'Removing this method pauses {count} of your ads. You can resume them once you add a {fiat} method again.',
   removeImpactChanged: 'Your ads changed while you were confirming. Nothing was removed; open this again to see which ads it affects.',
   stepUpDone: 'Confirmed. You can go ahead.',
   stepUpNone: 'Not confirmed. The change will be refused unless your account needs no check.',
@@ -91,8 +90,7 @@ const es: Record<keyof typeof en, string> = {
   removeImpactNone: 'Ninguno de tus anuncios activos usa este método.',
   removeImpactPauses: 'Se pausa: es el único método con el que se puede pagar',
   removeImpactStays: 'Sigue activo: se puede pagar con tus otros métodos',
-  removeImpactWarning:
-    'Quitar este método pausa {count} de tus anuncios. Recibirás un aviso y podrás reanudarlos cuando vuelvas a añadir un método en {fiat}.',
+  removeImpactWarning: 'Quitar este método pausa {count} de tus anuncios. Podrás reanudarlos cuando vuelvas a añadir un método en {fiat}.',
   removeImpactChanged: 'Tus anuncios cambiaron mientras confirmabas. No se quitó nada; vuelve a abrir esto para ver a qué anuncios afecta.',
   stepUpDone: 'Confirmado. Puedes continuar.',
   stepUpNone: 'Sin confirmar. El cambio se rechazará salvo que tu cuenta no necesite comprobación.',
@@ -171,7 +169,7 @@ const fr: Record<keyof typeof en, string> = {
   removeImpactPauses: 'Mise en pause : c’est le seul moyen avec lequel elle peut être payée',
   removeImpactStays: 'Reste en ligne : elle peut encore être payée avec vos autres moyens',
   removeImpactWarning:
-    'Retirer ce moyen met en pause {count} de vos annonces. Vous recevez un avis, et vous pourrez les reprendre après avoir ajouté un moyen en {fiat}.',
+    'Retirer ce moyen met en pause {count} de vos annonces. Vous pourrez les reprendre après avoir ajouté un moyen en {fiat}.',
   removeImpactChanged:
     'Vos annonces ont changé pendant la confirmation. Rien n’a été retiré ; rouvrez ceci pour voir les annonces concernées.',
   stepUpDone: 'Confirmé. Vous pouvez continuer.',

@@ -973,10 +973,11 @@ export function createP2pRouter(
   };
 
   /** The caller's own id, from the verified principal. Never from an input. */
-  const presentOffer = async (offer: Awaited<ReturnType<P2pService['getOffer']>>): Promise<OfferOut> => {
-    const [counts, settlements] = await Promise.all([p2p.releasedTradeCounts([offer.id]), boardSettlements([offer])]);
-    return toOfferOut(offer, counts.get(offer.id) ?? 0, settlements);
+  const presentOffers = async (offers: ReadonlyArray<Awaited<ReturnType<P2pService['getOffer']>>>): Promise<OfferOut[]> => {
+    const [counts, settlements] = await Promise.all([p2p.releasedTradeCounts(offers.map((o) => o.id)), boardSettlements(offers)]);
+    return offers.map((offer) => toOfferOut(offer, counts.get(offer.id) ?? 0, settlements));
   };
+  const presentOffer = async (offer: Awaited<ReturnType<P2pService['getOffer']>>): Promise<OfferOut> => (await presentOffers([offer]))[0]!;
 
   /** One catalogue read per page for every listed method's settlement profile. */
   const boardSettlements = async (offers: ReadonlyArray<{ methods: readonly unknown[] }>) =>
@@ -1314,9 +1315,7 @@ export function createP2pRouter(
         .output(z.array(offerOutput))
         .query(async ({ ctx, input }) =>
           guard(async () => {
-            const offers = await p2p.listOwnOffers(ctx.principal.userId, input.status, input.limit);
-            const [counts, settlements] = await Promise.all([p2p.releasedTradeCounts(offers.map((o) => o.id)), boardSettlements(offers)]);
-            return offers.map((offer) => toOfferOut(offer, counts.get(offer.id) ?? 0, settlements));
+            return presentOffers(await p2p.listOwnOffers(ctx.principal.userId, input.status, input.limit));
           }),
         ),
 
@@ -2315,19 +2314,23 @@ export function createP2pRouter(
 
       /**
        * Removal is a state change. An in-flight trade keeps working. When the method is the last payable one of an active
-       * sell ad, the removal is refused `p2p.method_in_use` unless `pauseAds` confirms pausing those ads.
+       * sell ad, the removal is refused `p2p.method_in_use` unless `pauseOfferIds` names each of those ads.
        */
       remove: merchantApiProcedure('p2p:write')
         .input(
           z.object({
             instrumentId: z.string().guid(),
             stepUpApprovalId: z.string().min(1).max(200).optional(),
-            pauseAds: z.boolean().optional(),
+            /** The ads `removalImpact` marked `pauses`, which the person agreed to pause with the method. */
+            pauseOfferIds: z.array(z.string().guid()).max(1000).optional(),
           }),
         )
         .output(instrumentHeaderOutput)
         .mutation(async ({ ctx, input }) =>
           guard(async () => {
+            const pauseOfferIds = input.pauseOfferIds ?? [];
+            // A removal the ads would refuse is refused before the person's confirmation is spent on it.
+            await p2p.assertRemovalConfirmed(input.instrumentId, ctx.principal.userId, pauseOfferIds);
             await instrumentStepUp.assertConfirmed(stepUpCaller(ctx.principal), {
               instrumentId: input.instrumentId,
               change: 'remove',
@@ -2338,7 +2341,7 @@ export function createP2pRouter(
               await p2p.removeMethod({
                 instrumentId: input.instrumentId,
                 ownerId: ctx.principal.userId,
-                pauseAds: input.pauseAds === true,
+                pauseOfferIds,
               }),
             );
           }),

@@ -3,7 +3,7 @@ import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button } from '@intafaced/ui';
 import { Field } from './ui-kit';
-import type { PersonalPayApi } from './pay-api';
+import { PAUSED_OFFERS_SHOWN, type PersonalPayApi } from './pay-api';
 import { id, type BoardQuery, type BoardSort, type Offer, type OfferPage } from './schemas';
 import { payCopy, PayCopy, payRefusal } from './copy';
 import { offerCopy } from './p2p-offer-copy';
@@ -833,25 +833,30 @@ function PausedOffers({
       </h3>
       <PayState resource={paused.resource} retry={paused.reload} empty={t('pausedNone')}>
         {(offers) => (
-          <ul className="p2p-offer-list">
-            {offers.map((offer) => (
-              <li key={offer.id} className="p2p-offer-row" data-offer-id={offer.id} data-pause-reason={offer.pauseReason ?? undefined}>
-                <div className="p2p-offer-maker">
-                  <strong>
-                    <OfferSide offer={offer} own />
-                  </strong>
-                  <span className="muted" lang="zxx">
-                    {offerMethods(offer).join(', ') || payCopy.t('noUsableMethodsDeclared')}
-                  </span>
-                  <Status value={offer.status} />
-                </div>
-                <PauseReason offer={offer} />
-                <Button className="p2p-offer-inspect" variant="secondary" onClick={(event) => choose(offer.id, event.currentTarget)}>
-                  <Copy k="inspect" />
-                </Button>
-              </li>
-            ))}
-          </ul>
+          <>
+            {offers.length >= PAUSED_OFFERS_SHOWN ? (
+              <p className="muted">{t('pausedMore', { count: String(PAUSED_OFFERS_SHOWN) })}</p>
+            ) : null}
+            <ul className="p2p-offer-list">
+              {offers.map((offer) => (
+                <li key={offer.id} className="p2p-offer-row" data-offer-id={offer.id} data-pause-reason={offer.pauseReason ?? undefined}>
+                  <div className="p2p-offer-maker">
+                    <strong>
+                      <OfferSide offer={offer} own />
+                    </strong>
+                    <span className="muted" lang="zxx">
+                      {offerMethods(offer).join(', ') || payCopy.t('noUsableMethodsDeclared')}
+                    </span>
+                    <Status value={offer.status} />
+                  </div>
+                  <PauseReason offer={offer} />
+                  <Button className="p2p-offer-inspect" variant="secondary" onClick={(event) => choose(offer.id, event.currentTarget)}>
+                    <Copy k="inspect" />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </PayState>
     </section>
