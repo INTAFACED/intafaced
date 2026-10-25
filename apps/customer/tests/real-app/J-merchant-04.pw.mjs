@@ -417,8 +417,10 @@ test(`${J} #7 the payer is offered only the methods for the country and currency
   await expect(method('pay_later').locator('[data-not-connected="rail.card"]')).toBeVisible();
 
   // The owner puts bank debit first and turns it on, and keeps crypto on.
-  await page.getByRole('button', { name: 'Move Bank debit up' }).click();
-  await page.getByRole('button', { name: 'Move Bank debit up' }).click();
+  // (A rerun on the same business finds it saved already.)
+  for (let moves = 0; moves < 3 && (await methods.locator(':scope > li').first().getAttribute('data-method')) !== 'bank_debit'; moves++) {
+    await page.getByRole('button', { name: 'Move Bank debit up' }).click();
+  }
   await page.getByRole('checkbox', { name: 'Offer Bank debit' }).check();
   await expect(page.getByRole('checkbox', { name: 'Offer Crypto' })).toBeChecked();
   await page.getByRole('button', { name: 'Save methods' }).click();
@@ -436,7 +438,9 @@ test(`${J} #7 the payer is offered only the methods for the country and currency
   const preview = async (country, currency) => {
     await page.getByLabel('Country').fill(country);
     await page.getByLabel('Currency').fill(currency);
+    const answered = page.waitForResponse((response) => response.url().includes('merchantCheckoutMethods.preview'));
     await page.getByRole('button', { name: 'Check', exact: true }).click();
+    await answered;
     const offer = page.getByTestId('checkout-methods-offer');
     await expect(offer).toBeVisible();
     return offer;
