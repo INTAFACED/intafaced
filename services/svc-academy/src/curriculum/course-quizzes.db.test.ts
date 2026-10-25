@@ -1,5 +1,6 @@
 /**
- * AC-quizzes-01 — quizzes on the items of a course staff made: draft and publish rules, attempts, access code and IP filter.
+ * AC-quizzes-01 and AC-quizzes-02 — quizzes on the items of a course staff made: draft and publish rules, attempts, access
+ * code and IP filter; question kinds, essay review, results visibility and surveys.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -7,18 +8,10 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import type { AcademySaveCourseQuizInput } from '@intafaced/contracts';
-import { AssessmentRepository } from '../assessment/repository.js';
 import { CourseRecords } from './courses.js';
 import { CoursePreview } from './course-preview.js';
 import { CourseLearners } from './course-learners.js';
-import {
-  CourseQuizzes,
-  type StartAttemptFn,
-  accessCodeMatches,
-  addressAllowed,
-  createQuizAddressResolver,
-  hashAccessCode,
-} from './course-quizzes.js';
+import { CourseQuizzes, accessCodeMatches, addressAllowed, createQuizAddressResolver, hashAccessCode } from './course-quizzes.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -51,11 +44,10 @@ beforeEach(async () => {
 const courses = () => new CourseRecords(db.sql, { maxSections: 5, maxItems: 5 });
 const learners = () => new CourseLearners(db.sql, new CoursePreview(db.sql));
 const quizzes = () => new CourseQuizzes(db.sql);
-const engine = () => new AssessmentRepository(db.sql, []);
-const startAttempt: StartAttemptFn = (input) => engine().start(input);
 
 const QUESTIONS: AcademySaveCourseQuizInput['questions'] = [
   {
+    kind: 'single',
     id: 'q1',
     prompt: 'TEST What caps the loss on a trade?',
     points: 2,
@@ -74,6 +66,9 @@ const draft = (over: Partial<AcademySaveCourseQuizInput> = {}): Omit<AcademySave
   timeLimitSeconds: null,
   reviewMode: 'score_only',
   ipAllow: null,
+  kind: 'quiz',
+  anonymous: false,
+  resultsVisibility: 'always',
   questions: QUESTIONS,
   ...over,
 });
@@ -120,7 +115,7 @@ async function course() {
 }
 
 const start = (itemId: string, over: { userId?: string; accessCode?: string | null; clientAddress?: string | null } = {}) =>
-  quizzes().start({ itemId, userId: L, accessCode: null, clientAddress: null, now: NOW, ...over }, startAttempt);
+  quizzes().start({ itemId, userId: L, accessCode: null, clientAddress: null, now: NOW, ...over });
 
 describe('a quiz on a course staff made (AC-quizzes-01)', () => {
   it('a quiz item with nothing saved is revision 0 with every blocker listed; another kind is not a quiz', async () => {
@@ -177,7 +172,7 @@ describe('a quiz on a course staff made (AC-quizzes-01)', () => {
     await quizzes().setState({ itemId: id, state: 'published', reason: 'TEST', operatorId: A, now: NOW });
 
     const attempt = await start(id);
-    expect(attempt).toMatchObject({ slug: id, number: 1, result: null });
+    expect(attempt).toMatchObject({ itemId: id, number: 1, result: null });
     expect((await quizzes().adminView(id)).attempts).toBe(1);
     await expect(quizzes().setState({ itemId: id, state: 'draft', reason: 'TEST', operatorId: A, now: NOW })).rejects.toMatchObject({
       code: 'academy.item_has_attempts',
@@ -225,20 +220,11 @@ describe('a quiz on a course staff made (AC-quizzes-01)', () => {
     await expect(
       courses().saveOutline({ courseId: created.id, revision: 2, sections: asLesson, operatorId: A, now: NOW }),
     ).rejects.toMatchObject({ code: 'academy.item_kind_locked' });
-    // An attempt made straight through the engine, as a learner's would be once the course is open.
-    await engine().start({
-      userId: L,
-      slug: item.id,
-      now: NOW,
-      definition: {
-        slug: item.id,
-        kind: 'quiz',
-        passMark: 1,
-        attemptLimit: 1,
-        cooldownSeconds: null,
-        questions: [{ ...QUESTIONS[0]!, kind: 'single' }],
-      },
-    });
+    // An attempt row as a learner's would be once the course is open.
+    await db.sql`
+      INSERT INTO academy.course_quiz_attempts (item_id, user_id, number, started_at, quiz, state)
+      VALUES (${item.id}, ${L}, 1, ${NOW}, ${db.sql.json({ questions: QUESTIONS, passMark: 1 } as never)}, 'open')
+    `;
     expect(saved.revision).toBe(1);
     await expect(
       courses().saveOutline({
@@ -297,6 +283,242 @@ describe('a quiz on a course staff made (AC-quizzes-01)', () => {
     expect((await quizzes().adminView(id)).accessCodeSet).toBe(true);
     await quizzes().save({ itemId: id, revision: 2, ...draft({ ipAllow: null, accessCode: null }), operatorId: A, now: NOW });
     expect((await quizzes().adminView(id)).accessCodeSet).toBe(false);
+  });
+});
+
+describe('question kinds, essay review, results visibility and surveys (AC-quizzes-02)', () => {
+  const MIXED: AcademySaveCourseQuizInput['questions'] = [
+    { kind: 'numeric', id: 'n1', prompt: 'TEST Risk on 1000 at 2%?', points: 2, answer: '20', tolerance: '0.5' },
+    {
+      kind: 'multi',
+      id: 'm1',
+      prompt: 'TEST Which cap a loss?',
+      points: 2,
+      choices: [
+        { id: 'a', text: 'A stop' },
+        { id: 'b', text: 'Position size' },
+        { id: 'c', text: 'Hope' },
+      ],
+      correctChoiceIds: ['a', 'b'],
+      partialCredit: true,
+    },
+    { kind: 'essay', id: 'e1', prompt: 'TEST Why size before entry?', points: 4 },
+  ];
+  const take = async (id: string, userId = L) => {
+    const attempt = await start(id, { userId });
+    await quizzes().answer({ attemptId: attempt.attemptId, userId, questionId: 'n1', answer: '20.4', now: NOW });
+    await quizzes().answer({ attemptId: attempt.attemptId, userId, questionId: 'm1', answer: ['a'], now: NOW });
+    await quizzes().answer({ attemptId: attempt.attemptId, userId, questionId: 'e1', answer: 'TEST Because the stop sets it.', now: NOW });
+    return quizzes().finish({ attemptId: attempt.attemptId, userId, now: NOW });
+  };
+
+  it('an essay leaves the attempt pending until staff score it, under an alias; then it is graded', async () => {
+    const { quiz } = await course();
+    await quizzes().save({ itemId: quiz.id, revision: 0, ...draft({ questions: MIXED, passMark: 5 }), operatorId: A, now: NOW });
+    await quizzes().setState({ itemId: quiz.id, state: 'published', reason: 'TEST', operatorId: A, now: NOW });
+    const view = await quizzes().learnerView({ itemId: quiz.id, userId: L });
+    expect(view.questions.map((q) => [q.kind, q.choices === null])).toEqual([
+      ['numeric', true],
+      ['multi', false],
+      ['essay', true],
+    ]);
+    expect(JSON.stringify(view)).not.toMatch(/correctChoiceIds|tolerance|"answer"/);
+
+    const finished = await take(quiz.id);
+    expect(finished.result).toEqual({ state: 'pending_review', finishedAt: NOW.toISOString() });
+    expect((await quizzes().adminView(quiz.id)).pendingReview).toBe(1);
+    const [review] = await quizzes().reviews(quiz.id);
+    expect(review).toMatchObject({
+      alias: 1,
+      autoScore: 3,
+      essays: [{ questionId: 'e1', points: 4, text: 'TEST Because the stop sets it.' }],
+    });
+    expect(JSON.stringify(review)).not.toContain(L);
+
+    await expect(
+      quizzes().scoreEssays({ itemId: quiz.id, attemptId: review!.attemptId, points: { e1: 5 }, operatorId: A, now: NOW }),
+    ).rejects.toMatchObject({ code: 'academy.assessment_invalid' });
+    // A missing score, an inherited key and another quiz's id are refused, never read as 0 or scored on the wrong quiz.
+    for (const points of [{}, { toString: 1 }, { e1: 3, other: 1 }] as Array<Record<string, number>>)
+      await expect(
+        quizzes().scoreEssays({ itemId: quiz.id, attemptId: review!.attemptId, points, operatorId: A, now: NOW }),
+      ).rejects.toMatchObject({ code: 'academy.assessment_invalid' });
+    await expect(
+      quizzes().scoreEssays({ itemId: L, attemptId: review!.attemptId, points: { e1: 3 }, operatorId: A, now: NOW }),
+    ).rejects.toMatchObject({ code: 'academy.attempt_not_found' });
+    expect(
+      await quizzes().scoreEssays({ itemId: quiz.id, attemptId: review!.attemptId, points: { e1: 3 }, operatorId: A, now: NOW }),
+    ).toEqual([]);
+    await expect(
+      quizzes().scoreEssays({ itemId: quiz.id, attemptId: review!.attemptId, points: { e1: 3 }, operatorId: A, now: NOW }),
+    ).rejects.toMatchObject({ code: 'academy.attempt_closed' });
+    const graded = await quizzes().current({ itemId: quiz.id, userId: L, now: NOW });
+    expect(graded!.result).toMatchObject({ state: 'graded', score: 6, maxScore: 8, pass: true, review: null });
+    // With the review mode showing answers, each answer comes back against the key with what it earned.
+    await quizzes().save({
+      itemId: quiz.id,
+      revision: 1,
+      ...draft({ questions: MIXED, passMark: 5, reviewMode: 'answers' }),
+      operatorId: A,
+      now: NOW,
+    });
+    const reviewed = await quizzes().current({ itemId: quiz.id, userId: L, now: NOW });
+    expect(reviewed!.result).toMatchObject({
+      review: [
+        { questionId: 'n1', given: '20.4', key: '20', earned: 2, points: 2 },
+        { questionId: 'm1', given: ['a'], key: ['a', 'b'], earned: 1, points: 2 },
+        { questionId: 'e1', key: null, earned: 3, points: 4 },
+      ],
+    });
+    // The attempt is taken, so the questions stay as they are.
+    await expect(
+      quizzes().save({ itemId: quiz.id, revision: 2, ...draft({ questions: MIXED.slice(0, 2), passMark: 1 }), operatorId: A, now: NOW }),
+    ).rejects.toMatchObject({ code: 'academy.item_has_attempts' });
+  });
+
+  it('an answer that does not fit its question refuses, and a finished attempt takes no more answers', async () => {
+    const { quiz } = await course();
+    await quizzes().save({ itemId: quiz.id, revision: 0, ...draft({ questions: MIXED, passMark: 1 }), operatorId: A, now: NOW });
+    await quizzes().setState({ itemId: quiz.id, state: 'published', reason: 'TEST', operatorId: A, now: NOW });
+    const attempt = await start(quiz.id);
+    for (const [questionId, answer] of [
+      ['n1', 'twenty'],
+      ['m1', 'a'],
+      ['m1', ['z']],
+      ['zz', 'x'],
+    ] as const)
+      await expect(
+        quizzes().answer({ attemptId: attempt.attemptId, userId: L, questionId, answer: answer as never, now: NOW }),
+      ).rejects.toMatchObject({ code: 'academy.assessment_invalid' });
+    await expect(
+      quizzes().answer({ attemptId: attempt.attemptId, userId: OUTSIDER, questionId: 'n1', answer: '1', now: NOW }),
+    ).rejects.toMatchObject({ code: 'academy.attempt_not_found' });
+    await quizzes().finish({ attemptId: attempt.attemptId, userId: L, now: NOW });
+    await expect(
+      quizzes().answer({ attemptId: attempt.attemptId, userId: L, questionId: 'n1', answer: '20', now: NOW }),
+    ).rejects.toMatchObject({ code: 'academy.attempt_closed' });
+    await expect(start(quiz.id)).rejects.toMatchObject({ code: 'academy.attempt_limit' });
+  });
+
+  it('results show always, only after the last attempt, or never', async () => {
+    const auto = MIXED.slice(0, 2);
+    const { quiz } = await course();
+    await quizzes().save({
+      itemId: quiz.id,
+      revision: 0,
+      ...draft({ questions: auto, passMark: 1, attemptLimit: 2, scoringPolicy: 'highest', resultsVisibility: 'after_last_attempt' }),
+      operatorId: A,
+      now: NOW,
+    });
+    await quizzes().setState({ itemId: quiz.id, state: 'published', reason: 'TEST', operatorId: A, now: NOW });
+    const first = await start(quiz.id);
+    expect((await quizzes().finish({ attemptId: first.attemptId, userId: L, now: NOW })).result).toMatchObject({ state: 'withheld' });
+    const second = await start(quiz.id);
+    expect((await quizzes().finish({ attemptId: second.attemptId, userId: L, now: NOW })).result).toMatchObject({
+      state: 'graded',
+      score: 0,
+      maxScore: 4,
+      pass: false,
+    });
+    await quizzes().save({
+      itemId: quiz.id,
+      revision: 1,
+      ...draft({ questions: auto, passMark: 1, attemptLimit: 2, scoringPolicy: 'highest', resultsVisibility: 'never' }),
+      operatorId: A,
+      now: NOW,
+    });
+    expect((await quizzes().current({ itemId: quiz.id, userId: L, now: NOW }))!.result).toMatchObject({ state: 'withheld' });
+  });
+
+  it('a timed attempt past its deadline is finished with what was saved by then', async () => {
+    const { quiz } = await course();
+    await quizzes().save({
+      itemId: quiz.id,
+      revision: 0,
+      ...draft({ questions: MIXED.slice(0, 1), passMark: 1, timeLimitSeconds: 60 }),
+      operatorId: A,
+      now: NOW,
+    });
+    await quizzes().setState({ itemId: quiz.id, state: 'published', reason: 'TEST', operatorId: A, now: NOW });
+    const attempt = await start(quiz.id);
+    expect(attempt.secondsLeft).toBe(60);
+    await quizzes().answer({ attemptId: attempt.attemptId, userId: L, questionId: 'n1', answer: '20', now: NOW });
+    const later = new Date(NOW.getTime() + 61_000);
+    await expect(
+      quizzes().answer({ attemptId: attempt.attemptId, userId: L, questionId: 'n1', answer: '0', now: later }),
+    ).rejects.toMatchObject({ code: 'academy.attempt_closed' });
+    expect((await quizzes().current({ itemId: quiz.id, userId: L, now: later }))!.result).toMatchObject({
+      state: 'graded',
+      score: 2,
+      finishedAt: new Date(NOW.getTime() + 60_000).toISOString(),
+    });
+  });
+
+  it('an anonymous survey keeps no account with its answers, and the same device cannot answer twice', async () => {
+    const { quiz } = await course();
+    const survey = draft({
+      kind: 'survey',
+      anonymous: true,
+      passMark: null,
+      attemptLimit: null,
+      questions: [{ kind: 'essay', id: 's1', prompt: 'TEST What would you change?', points: 1 }],
+    });
+    await expect(
+      quizzes().save({ itemId: quiz.id, revision: 0, ...survey, accessCode: 'TEST-CODE-1', operatorId: A, now: NOW }),
+    ).rejects.toMatchObject({ code: 'academy.assessment_invalid' });
+    const saved = await quizzes().save({ itemId: quiz.id, revision: 0, ...survey, operatorId: A, now: NOW });
+    expect(saved.blockers).toEqual([]);
+    await quizzes().setState({ itemId: quiz.id, state: 'published', reason: 'TEST', operatorId: A, now: NOW });
+    expect(await quizzes().learnerView({ itemId: quiz.id, userId: L })).toMatchObject({ kind: 'survey', anonymous: true, passMark: null });
+    await expect(start(quiz.id)).rejects.toMatchObject({ code: 'academy.quiz_not_found' });
+
+    const token = 'TEST-device-token-0001';
+    const LATER = new Date(NOW.getTime() + 25 * 60_000);
+    const sent = await quizzes().submitSurvey({
+      itemId: quiz.id,
+      userId: L,
+      clientToken: token,
+      answers: { s1: 'TEST More charts' },
+      now: LATER,
+    });
+    expect(sent).toEqual({ itemId: quiz.id, anonymous: true, submittedAt: LATER.toISOString() });
+    expect((await quizzes().learnerView({ itemId: quiz.id, userId: L })).responded).toBe(true);
+    // Once per learner, whatever token the device sends.
+    for (const clientToken of [token, 'TEST-device-token-0002'])
+      await expect(
+        quizzes().submitSurvey({ itemId: quiz.id, userId: L, clientToken, answers: { s1: 'TEST again' }, now: NOW }),
+      ).rejects.toMatchObject({ code: 'academy.survey_duplicate' });
+    const rows = await db.sql`SELECT * FROM academy.course_survey_responses WHERE item_id = ${quiz.id}`;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.user_id).toBeNull();
+    expect((rows[0]!.submitted_at as Date).toISOString()).toBe('2026-10-23T12:00:00.000Z');
+    const takers = await db.sql`SELECT * FROM academy.course_survey_takers WHERE item_id = ${quiz.id}`;
+    expect(Object.keys(takers[0]!).sort()).toEqual(['item_id', 'user_id']);
+    // Written apart: the answers and the record of who answered share no transaction id to join them by.
+    const [xids] = await db.sql<Array<{ r: string; t: string }>>`
+      SELECT (SELECT xmin::text FROM academy.course_survey_responses WHERE item_id = ${quiz.id}) AS r,
+             (SELECT xmin::text FROM academy.course_survey_takers WHERE item_id = ${quiz.id}) AS t
+    `;
+    expect(xids!.r).not.toBe(xids!.t);
+    expect(JSON.stringify(rows)).not.toContain(L);
+    expect(JSON.stringify(rows)).not.toContain(token);
+    expect((await quizzes().adminView(quiz.id)).responses).toBe(1);
+    await expect(quizzes().setState({ itemId: quiz.id, state: 'draft', reason: 'TEST', operatorId: A, now: NOW })).rejects.toMatchObject({
+      code: 'academy.item_has_attempts',
+    });
+  });
+
+  it('a named survey keeps the account, once', async () => {
+    const { quiz } = await course();
+    const survey = draft({ kind: 'survey', passMark: null, questions: [{ kind: 'essay', id: 's1', prompt: 'TEST Thoughts?', points: 1 }] });
+    await quizzes().save({ itemId: quiz.id, revision: 0, ...survey, operatorId: A, now: NOW });
+    await quizzes().setState({ itemId: quiz.id, state: 'published', reason: 'TEST', operatorId: A, now: NOW });
+    await quizzes().submitSurvey({ itemId: quiz.id, userId: L, clientToken: 'TEST-device-token-0001', answers: { s1: 'x' }, now: NOW });
+    await expect(
+      quizzes().submitSurvey({ itemId: quiz.id, userId: L, clientToken: 'TEST-device-token-0002', answers: { s1: 'y' }, now: NOW }),
+    ).rejects.toMatchObject({ code: 'academy.survey_duplicate' });
+    const rows = await db.sql<Array<{ user_id: string }>>`SELECT user_id FROM academy.course_survey_responses`;
+    expect(rows.map((r) => r.user_id)).toEqual([L]);
   });
 });
 

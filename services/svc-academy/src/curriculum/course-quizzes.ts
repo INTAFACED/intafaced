@@ -1,36 +1,45 @@
 /**
- * AC-quizzes-01 — quizzes on the items of a course staff made, and their attempt rules.
+ * AC-quizzes-01 and AC-quizzes-02 — quizzes and surveys on the items of a course staff made, and their attempts.
  *
  * Staff save a quiz item's questions and rules as a draft over the revision they read, then publish it. Publish refuses
  * what would leave learners with a quiz nobody can be marked on: no questions (`academy.quiz_no_questions`), a blank pass
  * mark (`academy.pass_mark_unset`), and more than one attempt with no scoring policy across them
- * (`academy.scoring_policy_unset`). Once a learner has an attempt the quiz keeps its questions and stays published
- * (`academy.item_has_attempts`); its rules still change. A null attempt or time limit is the author's choice of none.
+ * (`academy.scoring_policy_unset`). Once a learner has an attempt (or a survey a response) the questions stay as they are
+ * and it stays published (`academy.item_has_attempts`); its rules still change. A null attempt or time limit is the
+ * author's choice of none.
  *
- * Learners take a published quiz through the existing attempt engine, with the item id as the slug: the attempt keeps its
- * own copy of the quiz, so a later edit never rescores it. Each start checks enrolment, then the access code (kept only
- * as a salted scrypt hash, never read back) and then the IP filter: a caller address the service cannot read refuses
- * `academy.ip_unreadable`, one outside the list `academy.ip_not_allowed`. Every save, publish and take-down is an event
- * row with who and why. No money moves here.
+ * A question is single choice, multi-select (with or without partial credit), numeric (an exact decimal within a
+ * tolerance) or essay. Attempts are this module's own rows: each keeps its copy of the questions, so a later edit never
+ * rescores it. An attempt with an essay is pending review until staff score it, under an alias, never the account. The
+ * score shows as the quiz's results visibility allows. A survey has no key and no score; an anonymous survey stores no
+ * account with its answers, only the one-way hash of a token the learner's device keeps.
+ *
+ * Each start checks enrolment, then the access code (kept only as a salted scrypt hash, never read back) and then the IP
+ * filter: a caller address the service cannot read refuses `academy.ip_unreadable`, one outside the list
+ * `academy.ip_not_allowed`. Every save, publish, take-down and essay score is an event row with who. No money moves here.
  */
-import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { BlockList, isIP } from 'node:net';
 import type { Sql, TransactionSql } from 'postgres';
 import type {
   AcademyAdminCourseQuiz,
+  AcademyCourseQuizAnswer,
+  AcademyCourseQuizAttempt,
   AcademyCourseQuizBlocker,
+  AcademyCourseQuizKind,
   AcademyCourseQuizQuestion,
+  AcademyCourseQuizReview,
   AcademyCourseQuizState,
   AcademyLearnerCourseQuiz,
-  AcademyQuizAttempt,
   AcademyQuizReviewMode,
   AcademyQuizScoringPolicy,
+  AcademyResultsVisibility,
   AcademySaveCourseQuizInput,
   AcademySetCourseQuizStateInput,
 } from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
-import type { AssessmentDefinition } from '../assessment/catalog.js';
+import { answerFits, scoreAttempt, scoreQuestion } from './course-quiz-score.js';
 
 type Db = Sql | TransactionSql;
 
@@ -38,7 +47,11 @@ type QuizRow = {
   item_id: string;
   course_id: string;
   title: string;
+  /** The outline item's kind; the quiz's own kind is `quiz_kind`. */
   kind: string;
+  quiz_kind: AcademyCourseQuizKind | null;
+  anonymous: boolean | null;
+  results_visibility: AcademyResultsVisibility | null;
   revision: number | null;
   state: AcademyCourseQuizState | null;
   questions: AcademyCourseQuizQuestion[] | null;
@@ -56,24 +69,82 @@ type QuizRow = {
 
 type LearnerRow = QuizRow & { course_slug: string; course_title: string; course_state: string; enrolled: boolean };
 
+type AttemptRow = {
+  id: string;
+  item_id: string;
+  user_id: string;
+  number: number;
+  started_at: Date;
+  deadline_at: Date | null;
+  quiz: { questions: AcademyCourseQuizQuestion[]; passMark: number };
+  answers: Record<string, AcademyCourseQuizAnswer>;
+  finished_at: Date | null;
+  state: 'open' | 'pending_review' | 'graded';
+  auto_score: number | null;
+  max_score: number | null;
+  essay_points: Record<string, number> | null;
+  score: number | null;
+  passed: boolean | null;
+};
+
 const columns = (sql: Db) => sql`
-  i.id AS item_id, i.course_id, i.title, i.kind, q.revision, q.state, q.questions, q.pass_mark, q.attempt_limit, q.scoring_policy,
-  q.time_limit_seconds, q.review_mode, q.access_code_hash, q.ip_allow, q.saved_by, q.saved_at, q.published_at
+  i.id AS item_id, i.course_id, i.title, i.kind, q.kind AS quiz_kind, q.anonymous, q.results_visibility, q.revision, q.state,
+  q.questions, q.pass_mark, q.attempt_limit, q.scoring_policy, q.time_limit_seconds, q.review_mode, q.access_code_hash, q.ip_allow,
+  q.saved_by, q.saved_at, q.published_at
 `;
 
-/** What stops a draft from being published, in the order the editor lists them. Pure. */
+const ATTEMPT = (sql: Db) => sql`
+  id, item_id, user_id, number, started_at, deadline_at, quiz, answers, finished_at, state, auto_score, max_score, essay_points,
+  score, passed
+`;
+
+/** Questions as stored. A question saved before question kinds existed is single choice. */
+function questionsOf(row: { questions: AcademyCourseQuizQuestion[] | null }): AcademyCourseQuizQuestion[] {
+  return (row.questions ?? []).map((q) =>
+    'kind' in q && q.kind ? q : ({ ...(q as object), kind: 'single' } as AcademyCourseQuizQuestion),
+  );
+}
+
+/** What stops a draft from being published, in the order the editor lists them. A survey needs only questions. Pure. */
 export function publishBlockers(quiz: {
+  kind: AcademyCourseQuizKind;
   questions: readonly unknown[];
   passMark: number | null;
   attemptLimit: number | null;
   scoringPolicy: AcademyQuizScoringPolicy | null;
 }): AcademyCourseQuizBlocker[] {
+  const graded = quiz.kind === 'quiz';
   return [
     ...(quiz.questions.length === 0 ? (['academy.quiz_no_questions'] as const) : []),
-    ...(quiz.passMark === null ? (['academy.pass_mark_unset'] as const) : []),
-    ...(quiz.attemptLimit !== 1 && quiz.scoringPolicy === null ? (['academy.scoring_policy_unset'] as const) : []),
+    ...(graded && quiz.passMark === null ? (['academy.pass_mark_unset'] as const) : []),
+    ...(graded && quiz.attemptLimit !== 1 && quiz.scoringPolicy === null ? (['academy.scoring_policy_unset'] as const) : []),
   ];
 }
+
+/** A value as one string with its object keys sorted (jsonb keeps its own order), to tell whether a save changes it. */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (value !== null && typeof value === 'object')
+    return `{${Object.keys(value)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${canonical((value as Record<string, unknown>)[k])}`)
+      .join(',')}}`;
+  return JSON.stringify(value);
+}
+
+/** Each answer of a graded attempt against the key of its own copy of the questions, with what it earned. Pure. */
+function reviewOf(row: AttemptRow) {
+  return row.quiz.questions.map((q) => {
+    const given = row.answers[q.id] ?? null;
+    const key = q.kind === 'single' ? q.correctChoiceId : q.kind === 'multi' ? q.correctChoiceIds : q.kind === 'numeric' ? q.answer : null;
+    const earned = scoreQuestion(q, given ?? undefined) ?? row.essay_points?.[q.id] ?? 0;
+    return { questionId: q.id, kind: q.kind, given, key, earned, points: q.points };
+  });
+}
+
+/** The one-way hash an anonymous survey response is kept under: nothing in it names an account. */
+export const surveyTokenHash = (itemId: string, clientToken: string) =>
+  createHash('sha256').update(`${itemId}:${clientToken}`).digest('hex');
 
 const scryptAsync = promisify(scrypt) as (code: string, salt: Buffer, length: number) => Promise<Buffer>;
 
@@ -128,39 +199,6 @@ export function addressAllowed(address: string, rules: readonly string[]): boole
   return family !== 0 && list.check(plain, family === 4 ? 'ipv4' : 'ipv6');
 }
 
-/** Questions as one string with a fixed key order (jsonb keeps its own), to tell whether a save changes them. */
-const canonical = (questions: readonly AcademyCourseQuizQuestion[]) =>
-  JSON.stringify(questions.map((q) => [q.id, q.prompt, q.points, q.choices.map((c) => [c.id, c.text]), q.correctChoiceId]));
-
-/** The published quiz as the attempt engine scores it; the item id is its slug. */
-function definitionOf(row: QuizRow): AssessmentDefinition {
-  return {
-    slug: row.item_id,
-    kind: 'quiz',
-    passMark: row.pass_mark,
-    attemptLimit: row.attempt_limit,
-    cooldownSeconds: null,
-    timeLimitSeconds: row.time_limit_seconds,
-    reviewMode: row.review_mode ?? 'score_only',
-    questions: (row.questions ?? []).map((q) => ({
-      id: q.id,
-      prompt: q.prompt,
-      kind: 'single' as const,
-      points: q.points,
-      choices: q.choices.map((c) => ({ id: c.id, text: c.text })),
-      correctChoiceId: q.correctChoiceId,
-    })),
-  };
-}
-
-export type StartAttemptFn = (input: {
-  userId: string;
-  slug: string;
-  now: Date;
-  definition: AssessmentDefinition;
-  tx: Sql;
-}) => Promise<AcademyQuizAttempt>;
-
 export class CourseQuizzes {
   constructor(private readonly sql: Sql) {}
 
@@ -169,10 +207,16 @@ export class CourseQuizzes {
     return this.adminIn(this.sql, await this.row(this.sql, itemId));
   }
 
-  /** The draft over the revision read. Questions change only while no learner has an attempt; rules always may. */
+  /** The draft over the revision read. Questions and kind change only while nobody has taken it; rules always may. */
   async save(input: AcademySaveCourseQuizInput & { operatorId: string; now: Date }): Promise<AcademyAdminCourseQuiz> {
     const ipAllow = checkIpRules(input.ipAllow);
-    if (input.passMark !== null && input.passMark > input.questions.reduce((sum, q) => sum + q.points, 0))
+    const survey = input.kind === 'survey';
+    if (survey && (typeof input.accessCode === 'string' || ipAllow !== null))
+      throw new AcademyError('academy.assessment_invalid a survey takes no access code or IP filter', 'academy.assessment_invalid');
+    // A survey has no score, so nothing to pass and nothing to pick between attempts.
+    const passMark = survey ? null : input.passMark;
+    const scoringPolicy = survey ? null : input.scoringPolicy;
+    if (passMark !== null && passMark > input.questions.reduce((sum, q) => sum + q.points, 0))
       throw new AcademyError("academy.assessment_invalid the pass mark is more than the questions' points", 'academy.assessment_invalid');
     const newCode = typeof input.accessCode === 'string' ? await hashAccessCode(input.accessCode) : null;
     return this.sql.begin(async (tx) => {
@@ -180,22 +224,25 @@ export class CourseQuizzes {
       const revision = row.revision ?? 0;
       if (revision !== input.revision)
         throw new AcademyError(`the quiz is at revision ${revision}, not ${input.revision}`, 'academy.revision_stale');
-      const attempts = await this.attempts(tx, row.item_id);
-      if (attempts > 0 && canonical(row.questions ?? []) !== canonical(input.questions))
-        throw new AcademyError('learners have attempted this quiz, so its questions stay as they are', 'academy.item_has_attempts');
+      const was = { kind: row.quiz_kind ?? 'quiz', anonymous: row.anonymous ?? false, questions: questionsOf(row) };
+      const next = { kind: input.kind, anonymous: input.anonymous, questions: input.questions };
+      if ((await this.taken(tx, row.item_id)) > 0 && canonical(was) !== canonical(next))
+        throw new AcademyError('learners have taken this quiz, so its questions stay as they are', 'academy.item_has_attempts');
       const state = row.state ?? 'draft';
       // A published quiz stays publishable: a save that would block it refuses with the first blocker.
-      const blockers = publishBlockers(input);
+      const blockers = publishBlockers({ ...input, passMark, scoringPolicy });
       if (state === 'published' && blockers.length > 0) throw new AcademyError(blockers[0]!, blockers[0]!);
-      const code = input.accessCode === undefined ? row.access_code_hash : input.accessCode === null ? null : newCode;
+      const code = survey ? null : input.accessCode === undefined ? row.access_code_hash : input.accessCode === null ? null : newCode;
       await tx`
         INSERT INTO academy.course_quizzes
-          (item_id, revision, state, questions, pass_mark, attempt_limit, scoring_policy, time_limit_seconds, review_mode,
-           access_code_hash, ip_allow, saved_by, saved_at)
-        VALUES (${row.item_id}, ${revision + 1}, 'draft', ${tx.json(input.questions as never)}, ${input.passMark}, ${input.attemptLimit},
-                ${input.scoringPolicy}, ${input.timeLimitSeconds}, ${input.reviewMode}, ${code}, ${ipAllow}, ${input.operatorId}, ${input.now})
+          (item_id, revision, state, kind, anonymous, results_visibility, questions, pass_mark, attempt_limit, scoring_policy,
+           time_limit_seconds, review_mode, access_code_hash, ip_allow, saved_by, saved_at)
+        VALUES (${row.item_id}, ${revision + 1}, 'draft', ${input.kind}, ${input.anonymous}, ${input.resultsVisibility},
+                ${tx.json(input.questions as never)}, ${passMark}, ${input.attemptLimit}, ${scoringPolicy}, ${input.timeLimitSeconds},
+                ${input.reviewMode}, ${code}, ${ipAllow}, ${input.operatorId}, ${input.now})
         ON CONFLICT (item_id) DO UPDATE SET
-          revision = EXCLUDED.revision, questions = EXCLUDED.questions, pass_mark = EXCLUDED.pass_mark,
+          revision = EXCLUDED.revision, kind = EXCLUDED.kind, anonymous = EXCLUDED.anonymous,
+          results_visibility = EXCLUDED.results_visibility, questions = EXCLUDED.questions, pass_mark = EXCLUDED.pass_mark,
           attempt_limit = EXCLUDED.attempt_limit, scoring_policy = EXCLUDED.scoring_policy,
           time_limit_seconds = EXCLUDED.time_limit_seconds, review_mode = EXCLUDED.review_mode,
           access_code_hash = EXCLUDED.access_code_hash, ip_allow = EXCLUDED.ip_allow, saved_by = EXCLUDED.saved_by,
@@ -206,7 +253,7 @@ export class CourseQuizzes {
     });
   }
 
-  /** Publish when nothing blocks it, or take back to draft while no learner has an attempt. A repeat answers as stored. */
+  /** Publish when nothing blocks it, or take back to draft while nobody has taken it. A repeat answers as stored. */
   async setState(input: AcademySetCourseQuizStateInput & { operatorId: string; now: Date }): Promise<AcademyAdminCourseQuiz> {
     return this.sql.begin(async (tx) => {
       const row = await this.row(tx, input.itemId, true);
@@ -214,14 +261,15 @@ export class CourseQuizzes {
       if (row.state === input.state) return this.adminIn(tx, row);
       if (input.state === 'published') {
         const blockers = publishBlockers({
-          questions: row.questions ?? [],
+          kind: row.quiz_kind ?? 'quiz',
+          questions: questionsOf(row),
           passMark: row.pass_mark,
           attemptLimit: row.attempt_limit,
           scoringPolicy: row.scoring_policy,
         });
         if (blockers.length > 0) throw new AcademyError(`${blockers[0]} blockers=${blockers.join(',')}`, blockers[0]!);
-      } else if ((await this.attempts(tx, row.item_id)) > 0) {
-        throw new AcademyError('learners have attempted this quiz, so it stays published', 'academy.item_has_attempts');
+      } else if ((await this.taken(tx, row.item_id)) > 0) {
+        throw new AcademyError('learners have taken this quiz, so it stays published', 'academy.item_has_attempts');
       }
       await tx`
         UPDATE academy.course_quizzes
@@ -241,64 +289,347 @@ export class CourseQuizzes {
     });
   }
 
-  /** The published quiz as the enrolled learner reads it: no key, no code, no filter. Writes nothing. */
+  /** The published quiz or survey as the enrolled learner reads it: no key, no code, no filter. Writes nothing. */
   async learnerView(input: { itemId: string; userId: string }): Promise<AcademyLearnerCourseQuiz> {
     const row = await this.learnerRow(this.sql, input.itemId, input.userId);
-    const [used] = await this.sql<Array<{ n: number }>>`
-      SELECT count(*)::int AS n FROM academy.quiz_attempts WHERE user_id = ${input.userId} AND slug = ${row.item_id}
+    const [used] = await this.sql<Array<{ n: number; responded: boolean }>>`
+      SELECT
+        (SELECT count(*) FROM academy.course_quiz_attempts WHERE item_id = ${row.item_id} AND user_id = ${input.userId})::int AS n,
+        EXISTS (SELECT 1 FROM academy.course_survey_takers WHERE item_id = ${row.item_id} AND user_id = ${input.userId}) AS responded
     `;
+    const kind = row.quiz_kind ?? 'quiz';
     return {
       itemId: row.item_id,
       courseSlug: row.course_slug,
       courseTitle: row.course_title,
       title: row.title,
-      passMark: row.pass_mark!,
+      kind,
+      anonymous: row.anonymous ?? false,
+      passMark: kind === 'survey' ? null : row.pass_mark,
       attemptLimit: row.attempt_limit,
       timeLimitSeconds: row.time_limit_seconds,
       reviewMode: row.review_mode ?? 'score_only',
+      resultsVisibility: row.results_visibility ?? 'always',
       accessCodeRequired: row.access_code_hash !== null,
       attemptsUsed: used!.n,
-      questions: (row.questions ?? []).map((q) => ({
+      responded: used!.responded,
+      questions: questionsOf(row).map((q) => ({
         id: q.id,
         prompt: q.prompt,
-        kind: 'single' as const,
+        kind: q.kind,
         points: q.points,
-        choices: q.choices.map((c) => ({ id: c.id, text: c.text })),
+        choices: 'choices' in q ? q.choices.map((c) => ({ id: c.id, text: c.text })) : null,
       })),
     };
   }
 
   /**
    * Start (or get back) the learner's attempt. Enrolment first, then the access code, then the IP filter, so a refusal
-   * never tells someone outside the course what the quiz asks for. `clientAddress` is null when it cannot be read.
+   * never tells someone outside the course what the quiz asks for. `clientAddress` is null when it cannot be read. An open
+   * attempt past its deadline is finished with what was saved by then; at the attempt limit Start refuses.
    */
-  async start(
-    input: { itemId: string; userId: string; accessCode: string | null; clientAddress: string | null; now: Date },
-    startAttempt: StartAttemptFn,
-  ): Promise<AcademyQuizAttempt> {
+  async start(input: {
+    itemId: string;
+    userId: string;
+    accessCode: string | null;
+    clientAddress: string | null;
+    now: Date;
+  }): Promise<AcademyCourseQuizAttempt> {
     // Checked outside the hold: hashing a typed code takes time and reads only the stored hash.
     const checked = await this.learnerRow(this.sql, input.itemId, input.userId);
+    if ((checked.quiz_kind ?? 'quiz') === 'survey')
+      throw new AcademyError('a survey is answered with submitCourseSurvey, not started', 'academy.quiz_not_found');
     if (checked.access_code_hash !== null && !(input.accessCode && (await accessCodeMatches(input.accessCode, checked.access_code_hash))))
       throw new AcademyError('academy.access_code_invalid', 'academy.access_code_invalid');
     // Read again holding the item, as a take-down or a question change does, so neither slips in before the attempt lands.
     return this.sql.begin(async (tx) => {
       const row = await this.learnerRow(tx, input.itemId, input.userId, true);
-      if (row.access_code_hash !== checked.access_code_hash)
-        throw new AcademyError('academy.access_code_invalid the code changed; start again', 'academy.access_code_invalid');
+      if (row.access_code_hash !== checked.access_code_hash || (row.quiz_kind ?? 'quiz') !== 'quiz')
+        throw new AcademyError('academy.access_code_invalid the quiz changed; start again', 'academy.access_code_invalid');
       if (row.ip_allow !== null) {
         const address = input.clientAddress === null ? null : unmapped(input.clientAddress);
         if (address === null || isIP(address) === 0)
           throw new AcademyError('academy.ip_unreadable the caller address could not be read', 'academy.ip_unreadable');
         if (!addressAllowed(address, row.ip_allow)) throw new AcademyError('academy.ip_not_allowed', 'academy.ip_not_allowed');
       }
-      return startAttempt({
-        userId: input.userId,
-        slug: row.item_id,
-        now: input.now,
-        definition: definitionOf(row),
-        tx: tx as unknown as Sql,
-      });
+      await this.hold(tx, input.userId, row.item_id);
+      const open = await this.settleOpen(tx, input.userId, row.item_id, input.now);
+      if (open) return this.attemptIn(tx, open, input.now);
+      const [counted] = await tx<Array<{ n: number }>>`
+        SELECT count(*)::int AS n FROM academy.course_quiz_attempts WHERE item_id = ${row.item_id} AND user_id = ${input.userId}
+      `;
+      if (row.attempt_limit !== null && counted!.n >= row.attempt_limit)
+        throw new AcademyError(`academy.attempt_limit limit=${row.attempt_limit}`, 'academy.attempt_limit');
+      const deadline = row.time_limit_seconds === null ? null : new Date(input.now.getTime() + row.time_limit_seconds * 1000);
+      const [created] = await tx<AttemptRow[]>`
+        INSERT INTO academy.course_quiz_attempts (item_id, user_id, number, started_at, deadline_at, quiz, state)
+        VALUES (${row.item_id}, ${input.userId}, ${counted!.n + 1}, ${input.now}, ${deadline},
+                ${tx.json({ questions: questionsOf(row), passMark: row.pass_mark } as never)}, 'open')
+        RETURNING ${ATTEMPT(tx)}
+      `;
+      return this.attemptIn(tx, created!, input.now);
     });
+  }
+
+  /** The caller's newest attempt on this quiz, or null. One past its deadline is finished here with what was saved. */
+  async current(input: { itemId: string; userId: string; now: Date }): Promise<AcademyCourseQuizAttempt | null> {
+    const row = await this.learnerRow(this.sql, input.itemId, input.userId);
+    return this.sql.begin(async (tx) => {
+      await this.hold(tx, input.userId, row.item_id);
+      await this.settleOpen(tx, input.userId, row.item_id, input.now);
+      const [latest] = await tx<AttemptRow[]>`
+        SELECT ${ATTEMPT(tx)} FROM academy.course_quiz_attempts
+        WHERE item_id = ${row.item_id} AND user_id = ${input.userId} ORDER BY number DESC LIMIT 1
+      `;
+      return latest ? this.attemptIn(tx, latest, input.now) : null;
+    });
+  }
+
+  /** Save one answer on the caller's open attempt. A finished attempt, or one past its deadline, refuses `academy.attempt_closed`. */
+  async answer(input: {
+    attemptId: string;
+    userId: string;
+    questionId: string;
+    answer: AcademyCourseQuizAnswer;
+    now: Date;
+  }): Promise<AcademyCourseQuizAttempt> {
+    return this.sql.begin(async (tx) => {
+      const open = await this.ownOpen(tx, input.attemptId, input.userId, input.now);
+      const question = open.quiz.questions.find((q) => q.id === input.questionId);
+      if (!question || !answerFits(question, input.answer))
+        throw new AcademyError('academy.assessment_invalid the answer does not fit that question', 'academy.assessment_invalid');
+      const [saved] = await tx<AttemptRow[]>`
+        UPDATE academy.course_quiz_attempts SET answers = answers || ${tx.json({ [input.questionId]: input.answer } as never)}
+        WHERE id = ${open.id}
+        RETURNING ${ATTEMPT(tx)}
+      `;
+      return this.attemptIn(tx, saved!, input.now);
+    });
+  }
+
+  /** Finish and score the saved answers once. Finishing again answers with the same result; nothing is scored twice. */
+  async finish(input: { attemptId: string; userId: string; now: Date }): Promise<AcademyCourseQuizAttempt> {
+    return this.sql.begin(async (tx) => {
+      const row = await this.ownAttempt(tx, input.attemptId, input.userId);
+      await this.hold(tx, input.userId, row.item_id);
+      const [current] = await tx<AttemptRow[]>`SELECT ${ATTEMPT(tx)} FROM academy.course_quiz_attempts WHERE id = ${row.id}`;
+      const finished = current!.state === 'open' ? await this.finishRow(tx, current!, input.now) : current!;
+      return this.attemptIn(tx, finished, input.now);
+    });
+  }
+
+  /** Finished attempts waiting for an essay score, oldest first, each under the learner's alias on this quiz. */
+  async reviews(itemId: string): Promise<AcademyCourseQuizReview[]> {
+    const row = await this.row(this.sql, itemId);
+    const rows = await this.sql<Array<AttemptRow & { alias: number }>>`
+      SELECT ${ATTEMPT(this.sql)}, a.alias FROM academy.course_quiz_attempts t
+      JOIN (SELECT user_id, row_number() OVER (ORDER BY min(started_at), user_id)::int AS alias
+            FROM academy.course_quiz_attempts WHERE item_id = ${row.item_id} GROUP BY user_id) a USING (user_id)
+      WHERE t.item_id = ${row.item_id} AND t.state = 'pending_review'
+      ORDER BY t.finished_at, t.id
+    `;
+    return rows.map((r) => ({
+      attemptId: r.id,
+      alias: r.alias,
+      number: r.number,
+      finishedAt: r.finished_at!.toISOString(),
+      autoScore: r.auto_score ?? 0,
+      essays: r.quiz.questions
+        .filter((q) => q.kind === 'essay')
+        .map((q) => {
+          const text = r.answers[q.id];
+          return { questionId: q.id, prompt: q.prompt, points: q.points, text: typeof text === 'string' ? text : null };
+        }),
+    }));
+  }
+
+  /** Score an attempt's essays, each from 0 to its points, and grade it. A graded attempt is not scored again. */
+  async scoreEssays(input: {
+    itemId: string;
+    attemptId: string;
+    points: Record<string, number>;
+    operatorId: string;
+    now: Date;
+  }): Promise<AcademyCourseQuizReview[]> {
+    const itemId = await this.sql.begin(async (tx) => {
+      const [row] = await tx<AttemptRow[]>`
+        SELECT ${ATTEMPT(tx)} FROM academy.course_quiz_attempts WHERE id = ${input.attemptId} FOR UPDATE
+      `;
+      // An attempt on another quiz is not found here, so a score never lands on a quiz the editor is not showing.
+      if (!row || row.item_id !== input.itemId) throw new AcademyError('academy.attempt_not_found', 'academy.attempt_not_found');
+      if (row.state !== 'pending_review')
+        throw new AcademyError(`academy.attempt_closed the attempt is ${row.state}, not waiting for a score`, 'academy.attempt_closed');
+      const essays = row.quiz.questions.filter((q) => q.kind === 'essay');
+      const given = Object.keys(input.points);
+      if (given.length !== essays.length || essays.some((q) => !Object.hasOwn(input.points, q.id) || input.points[q.id]! > q.points))
+        throw new AcademyError('academy.assessment_invalid score every essay, each from 0 to its points', 'academy.assessment_invalid');
+      const score = (row.auto_score ?? 0) + essays.reduce((sum, q) => sum + input.points[q.id]!, 0);
+      await tx`
+        UPDATE academy.course_quiz_attempts
+        SET state = 'graded', essay_points = ${tx.json(input.points)}, score = ${score}, passed = ${score >= row.quiz.passMark},
+            scored_by = ${input.operatorId}, scored_at = ${input.now}
+        WHERE id = ${row.id}
+      `;
+      const [quiz] = await tx<Array<{ revision: number }>>`SELECT revision FROM academy.course_quizzes WHERE item_id = ${row.item_id}`;
+      await this.event(tx, row.item_id, quiz?.revision ?? 1, 'essay_scored', null, input.operatorId, input.now);
+      return row.item_id;
+    });
+    return this.reviews(itemId);
+  }
+
+  /**
+   * One survey response per learner; a second refuses `academy.survey_duplicate`. That the learner answered is a row of its
+   * own with no answers and no time. An anonymous survey keeps the answers with the one-way hash of the device's token, no
+   * account and the hour only; a named one keeps the account with them.
+   */
+  async submitSurvey(input: {
+    itemId: string;
+    userId: string;
+    clientToken: string;
+    answers: Record<string, AcademyCourseQuizAnswer>;
+    now: Date;
+  }): Promise<{ itemId: string; anonymous: boolean; submittedAt: string }> {
+    const row = await this.learnerRow(this.sql, input.itemId, input.userId);
+    if ((row.quiz_kind ?? 'quiz') !== 'survey')
+      throw new AcademyError('a graded quiz is started, not sent as a survey', 'academy.quiz_not_found');
+    const questions = questionsOf(row);
+    const entries = Object.entries(input.answers);
+    if (entries.length === 0)
+      throw new AcademyError('academy.assessment_invalid answer at least one question', 'academy.assessment_invalid');
+    for (const [questionId, answer] of entries) {
+      const question = questions.find((q) => q.id === questionId);
+      if (!question || !answerFits(question, answer))
+        throw new AcademyError(`academy.assessment_invalid the answer to ${questionId} does not fit it`, 'academy.assessment_invalid');
+    }
+    const anonymous = row.anonymous ?? false;
+    // An anonymous response keeps its time to the hour only, so it cannot be matched to a request by the second.
+    const at = anonymous ? new Date(Math.floor(input.now.getTime() / 3_600_000) * 3_600_000) : input.now;
+    const duplicate = () => new AcademyError('this survey already has your answers', 'academy.survey_duplicate');
+    const [taken] = await this.sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM academy.course_survey_takers WHERE item_id = ${row.item_id} AND user_id = ${input.userId}
+    `;
+    if (taken!.n > 0) throw duplicate();
+    // The answers and the record that this learner answered are separate statements, never one transaction, so the
+    // two rows share no transaction id to join them by. A crash between them leaves at most one extra response, not a lost one.
+    let responseId: string;
+    try {
+      const [response] = await this.sql<Array<{ id: string }>>`
+        INSERT INTO academy.course_survey_responses (item_id, user_id, token_hash, answers, submitted_at)
+        VALUES (${row.item_id}, ${anonymous ? null : input.userId}, ${surveyTokenHash(row.item_id, input.clientToken)},
+                ${this.sql.json(input.answers as never)}, ${at})
+        RETURNING id
+      `;
+      responseId = response!.id;
+    } catch (error) {
+      if ((error as { code?: string }).code === '23505') throw duplicate();
+      throw error;
+    }
+    try {
+      await this.sql`INSERT INTO academy.course_survey_takers (item_id, user_id) VALUES (${row.item_id}, ${input.userId})`;
+    } catch (error) {
+      if ((error as { code?: string }).code !== '23505') throw error;
+      // Two answers raced: the learner had already answered, so this one is taken back.
+      await this.sql`DELETE FROM academy.course_survey_responses WHERE id = ${responseId}`;
+      throw duplicate();
+    }
+    return { itemId: row.item_id, anonymous, submittedAt: input.now.toISOString() };
+  }
+
+  /** One learner's attempts on one quiz are taken in turn. */
+  private async hold(tx: Db, userId: string, itemId: string) {
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${userId}:course-quiz:${itemId}`}, 0))`;
+  }
+
+  /** The caller's own attempt; another learner's id is not found, the same as one that does not exist. */
+  private async ownAttempt(tx: Db, attemptId: string, userId: string): Promise<AttemptRow> {
+    const [row] = await tx<AttemptRow[]>`
+      SELECT ${ATTEMPT(tx)} FROM academy.course_quiz_attempts WHERE id = ${attemptId} AND user_id = ${userId}
+    `;
+    if (!row) throw new AcademyError('academy.attempt_not_found', 'academy.attempt_not_found');
+    return row;
+  }
+
+  private async ownOpen(tx: Db, attemptId: string, userId: string, now: Date): Promise<AttemptRow> {
+    const row = await this.ownAttempt(tx, attemptId, userId);
+    await this.hold(tx, userId, row.item_id);
+    const open = await this.settleOpen(tx, userId, row.item_id, now);
+    if (!open || open.id !== attemptId) throw new AcademyError('academy.attempt_closed this attempt is finished', 'academy.attempt_closed');
+    return open;
+  }
+
+  /** The open attempt, unless its deadline has passed: then it is finished with the answers saved by the deadline. */
+  private async settleOpen(tx: Db, userId: string, itemId: string, now: Date): Promise<AttemptRow | null> {
+    const [open] = await tx<AttemptRow[]>`
+      SELECT ${ATTEMPT(tx)} FROM academy.course_quiz_attempts WHERE item_id = ${itemId} AND user_id = ${userId} AND state = 'open'
+    `;
+    if (!open) return null;
+    if (open.deadline_at && now.getTime() >= open.deadline_at.getTime()) {
+      await this.finishRow(tx, open, open.deadline_at);
+      return null;
+    }
+    return open;
+  }
+
+  /** Score the saved answers against the attempt's own copy; an essay leaves it pending review. */
+  private async finishRow(tx: Db, row: AttemptRow, at: Date): Promise<AttemptRow> {
+    const scored = scoreAttempt(row.quiz.questions, row.answers);
+    const finishedAt = row.deadline_at && at.getTime() > row.deadline_at.getTime() ? row.deadline_at : at;
+    const graded = !scored.essays;
+    const [finished] = await tx<AttemptRow[]>`
+      UPDATE academy.course_quiz_attempts
+      SET finished_at = ${finishedAt}, state = ${graded ? 'graded' : 'pending_review'}, auto_score = ${scored.autoScore},
+          max_score = ${scored.maxScore}, score = ${graded ? scored.autoScore : null},
+          passed = ${graded ? scored.autoScore >= row.quiz.passMark : null}
+      WHERE id = ${row.id}
+      RETURNING ${ATTEMPT(tx)}
+    `;
+    return finished!;
+  }
+
+  /** An attempt as its learner sees it: the score only as the quiz's results visibility allows. */
+  private async attemptIn(tx: Db, row: AttemptRow, now: Date): Promise<AcademyCourseQuizAttempt> {
+    const secondsLeft =
+      row.state === 'open' && row.deadline_at ? Math.max(0, Math.ceil((row.deadline_at.getTime() - now.getTime()) / 1000)) : null;
+    const base = {
+      attemptId: row.id,
+      itemId: row.item_id,
+      number: row.number,
+      startedAt: row.started_at.toISOString(),
+      deadlineAt: row.deadline_at?.toISOString() ?? null,
+      secondsLeft,
+      answers: row.answers,
+    };
+    if (row.state === 'open') return { ...base, result: null };
+    const finishedAt = row.finished_at!.toISOString();
+    if (row.state === 'pending_review') return { ...base, result: { state: 'pending_review', finishedAt } };
+    const shown = await this.resultsShow(tx, row);
+    if (!shown.show) return { ...base, result: { state: 'withheld', finishedAt } };
+    return {
+      ...base,
+      result: {
+        state: 'graded',
+        score: row.score!,
+        maxScore: row.max_score!,
+        pass: row.passed!,
+        finishedAt,
+        review: shown.reviewMode === 'answers' ? reviewOf(row) : null,
+      },
+    };
+  }
+
+  /** Whether the quiz's results visibility, as it is now, lets this learner see a graded score, and its review mode. */
+  private async resultsShow(tx: Db, row: AttemptRow): Promise<{ show: boolean; reviewMode: AcademyQuizReviewMode }> {
+    const [quiz] = await tx<
+      Array<{ visibility: AcademyResultsVisibility; limit: number | null; finished: number; review_mode: AcademyQuizReviewMode }>
+    >`
+      SELECT q.results_visibility AS visibility, q.attempt_limit AS limit, q.review_mode,
+        (SELECT count(*)::int FROM academy.course_quiz_attempts t
+          WHERE t.item_id = q.item_id AND t.user_id = ${row.user_id} AND t.state <> 'open') AS finished
+      FROM academy.course_quizzes q WHERE q.item_id = ${row.item_id}
+    `;
+    if (!quiz || quiz.visibility === 'never') return { show: false, reviewMode: 'score_only' };
+    const show = quiz.visibility === 'always' || (quiz.limit !== null && quiz.finished >= quiz.limit);
+    return { show, reviewMode: quiz.review_mode };
   }
 
   private async learnerRow(sql: Db, itemId: string, userId: string, lock = false): Promise<LearnerRow> {
@@ -331,8 +662,12 @@ export class CourseQuizzes {
     return row;
   }
 
-  private async attempts(sql: Db, itemId: string): Promise<number> {
-    const [counted] = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM academy.quiz_attempts WHERE slug = ${itemId}`;
+  /** Attempts and survey responses on the quiz: once there is one, its questions stay as they are. */
+  private async taken(sql: Db, itemId: string): Promise<number> {
+    const [counted] = await sql<Array<{ n: number }>>`
+      SELECT (SELECT count(*) FROM academy.course_quiz_attempts WHERE item_id = ${itemId})::int
+           + (SELECT count(*) FROM academy.course_survey_responses WHERE item_id = ${itemId})::int AS n
+    `;
     return counted!.n;
   }
 
@@ -344,8 +679,12 @@ export class CourseQuizzes {
   }
 
   private async adminIn(sql: Db, row: QuizRow): Promise<AcademyAdminCourseQuiz> {
-    const questions = row.questions ?? [];
+    const questions = questionsOf(row);
+    const kind = row.quiz_kind ?? 'quiz';
     const quiz = {
+      kind,
+      anonymous: row.anonymous ?? false,
+      resultsVisibility: row.results_visibility ?? 'always',
       passMark: row.pass_mark,
       attemptLimit: row.attempt_limit,
       scoringPolicy: row.scoring_policy,
@@ -353,6 +692,12 @@ export class CourseQuizzes {
       reviewMode: row.review_mode ?? 'score_only',
       ipAllow: row.ip_allow,
     };
+    const [counts] = await sql<Array<{ attempts: number; pending: number; responses: number }>>`
+      SELECT
+        (SELECT count(*) FROM academy.course_quiz_attempts WHERE item_id = ${row.item_id})::int AS attempts,
+        (SELECT count(*) FROM academy.course_quiz_attempts WHERE item_id = ${row.item_id} AND state = 'pending_review')::int AS pending,
+        (SELECT count(*) FROM academy.course_survey_responses WHERE item_id = ${row.item_id})::int AS responses
+    `;
     return {
       itemId: row.item_id,
       courseId: row.course_id,
@@ -365,7 +710,9 @@ export class CourseQuizzes {
       savedBy: row.saved_by,
       savedAt: row.saved_at?.toISOString() ?? null,
       publishedAt: row.published_at?.toISOString() ?? null,
-      attempts: await this.attempts(sql, row.item_id),
+      attempts: counts!.attempts,
+      pendingReview: counts!.pending,
+      responses: counts!.responses,
       blockers: publishBlockers({ questions, ...quiz }),
     };
   }

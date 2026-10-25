@@ -331,10 +331,11 @@ export class CourseRecords {
         );
       if (listed.has(brief.item_id)) throw new AcademyError('an assignment with a brief stays an assignment', 'academy.item_kind_locked');
     }
-    // A saved quiz stays a quiz, and one learners attempted stays in the outline (AC-quizzes-01).
+    // A saved quiz stays a quiz, and one learners attempted or answered stays in the outline (AC-quizzes-01, 02).
     const quizKept = new Set(sections.flatMap((s) => s.items).flatMap((i) => (i.id !== undefined && i.kind === 'quiz' ? [i.id] : [])));
     const quizzes = await tx<Array<{ item_id: string; attempted: boolean }>>`
-      SELECT q.item_id, EXISTS (SELECT 1 FROM academy.quiz_attempts t WHERE t.slug = q.item_id::text) AS attempted
+      SELECT q.item_id, (EXISTS (SELECT 1 FROM academy.course_quiz_attempts t WHERE t.item_id = q.item_id)
+        OR EXISTS (SELECT 1 FROM academy.course_survey_responses r WHERE r.item_id = q.item_id)) AS attempted
       FROM academy.course_quizzes q JOIN academy.course_items i ON i.id = q.item_id WHERE i.course_id = ${courseId}
     `;
     for (const quiz of quizzes) {

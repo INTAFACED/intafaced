@@ -5,11 +5,13 @@ import { moduleDisabledResponse } from '@/lib/modules';
 import { changeQuiz, isQuizOp, loadQuiz } from '@/lib/academy/quizzes-server';
 
 /**
- * The Academy quiz editor (AC-quizzes-01).
+ * The Academy quiz editor (AC-quizzes-01, 02).
  *
- *   GET ?itemId=<uuid>   a quiz item's questions, attempt rules, state, attempts and what stops Publish
- *   POST { op: 'save', itemId, revision, passMark, attemptLimit, scoringPolicy, timeLimitSeconds, reviewMode, ipAllow, accessCode?, questions }
- *   POST { op: 'setState', itemId, state, reason }   publish, or take back to draft while nobody has an attempt
+ *   GET ?itemId=<uuid>   a quiz item's questions, attempt rules, state, attempts, what stops Publish and the essay queue
+ *   POST { op: 'save', itemId, revision, kind, anonymous, resultsVisibility, passMark, attemptLimit, scoringPolicy,
+ *          timeLimitSeconds, reviewMode, ipAllow, accessCode?, questions }
+ *   POST { op: 'setState', itemId, state, reason }   publish, or take back to draft while nobody has taken it
+ *   POST { op: 'scoreEssays', itemId, attemptId, points }   score an attempt's essays and grade it
  *
  * Founder-only. svc-academy records the founder from their own token and never sends an access code back.
  */
