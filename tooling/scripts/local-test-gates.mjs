@@ -1244,7 +1244,13 @@ export async function publishWithdrawalLimits(ctx) {
         out.push({ what, status: 'already published' });
         continue;
       }
-      const change = { tier, assetId, limit: want, expectedVersion: row ? row.version : null, reason: `${MARKERS.label}: TEST withdrawal limit` };
+      const change = {
+        tier,
+        assetId,
+        limit: want,
+        expectedVersion: row ? row.version : null,
+        reason: `${MARKERS.label}: TEST withdrawal limit`,
+      };
       const r = await payFounderSave(ctx, sessions, {
         preview: 'founderAdmin.limits.preview',
         previewInput: change,
