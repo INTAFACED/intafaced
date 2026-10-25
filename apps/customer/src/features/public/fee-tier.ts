@@ -39,8 +39,8 @@ export const feeTierSchema = z.object({
       thresholds: z.array(z.object({ tierId: z.string().min(1), minVolume30d: decimal })).min(1),
       volumeQuotes: z.array(z.string().min(1)).min(1),
       snapshotTimeUtc: z.string().nullable(),
-      /** The owner's benefits table, one row per tier; null: not published (a server before the table answers none). */
-      benefits: z.array(benefitsSchema).nullable().default(null),
+      /** The owner's benefits table, one row per tier; null: not published. */
+      benefits: z.array(benefitsSchema).nullable(),
       downgradeGraceDays: z.null(),
       subAccounts: z.null(),
       botsAndCopy: z.null(),

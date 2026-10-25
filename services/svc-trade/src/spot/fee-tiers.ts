@@ -122,8 +122,8 @@ export function parseTierProgram(raw: unknown, rows: readonly FeeScheduleRow[] |
 }
 
 /**
- * `tierProgram.benefits`: one row per tier the programme names (regular included), each with every benefit present,
- * null where the owner sets none. Absent or null: no table. A row for a tier the programme does not name, a repeated
+ * `tierProgram.benefits`: rows for the tiers the programme names (regular included), each with every benefit present,
+ * null where the owner sets none; a tier with no row has nothing set. Absent or null: no table. A row for a tier the programme does not name, a repeated
  * tier, an unknown field or a guessed type refuses the whole schedule, as every other blank rule does.
  */
 function parseBenefits(
@@ -141,9 +141,8 @@ function parseBenefits(
     const extra = Object.keys(row).filter((key) => !(BENEFIT_KEYS as readonly string[]).includes(key));
     if (extra.length > 0) throw blank(`${at} has unknown fields: ${extra.join(', ')}`);
     for (const key of BENEFIT_KEYS) if (!(key in row)) throw blank(`${at}.${key} must be set or null (never absent)`);
-    if (typeof row.tierId !== 'string' || !tiers.has(row.tierId)) {
-      throw blank(`${at}.tierId must be '${REGULAR_FEE_TIER}' or a tier of the thresholds`);
-    }
+    const tierId = typeof row.tierId === 'string' ? row.tierId.trim() : '';
+    if (!tiers.has(tierId)) throw blank(`${at}.tierId must be '${REGULAR_FEE_TIER}' or a tier of the thresholds`);
     const flag = (key: 'prioritySupport' | 'vipPortal' | 'ambassador'): boolean | null => {
       const value = row[key];
       if (value !== null && typeof value !== 'boolean') throw blank(`${at}.${key} must be true, false or null`);
@@ -154,7 +153,7 @@ function parseBenefits(
       throw blank(`${at}.subAccountCap must be a whole number or null`);
     }
     return {
-      tierId: row.tierId,
+      tierId,
       prioritySupport: flag('prioritySupport'),
       vipPortal: flag('vipPortal'),
       ambassador: flag('ambassador'),

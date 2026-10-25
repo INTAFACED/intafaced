@@ -23,6 +23,7 @@ const tier: FeeTier = feeTierSchema.parse({
     ],
     volumeQuotes: ['USDT', 'USDC'],
     snapshotTimeUtc: '07:00',
+    benefits: null,
     downgradeGraceDays: null,
     subAccounts: null,
     botsAndCopy: null,
@@ -63,8 +64,8 @@ describe('/fees/my-tier', () => {
       ...tier,
       program: {
         ...tier.program,
+        // Out of tier order, and no row for test-vip-2: the page lists every tier lowest first, a missing row "not set".
         benefits: [
-          { tierId: 'regular', ...blank },
           {
             ...blank,
             tierId: 'test-vip-1',
@@ -73,6 +74,7 @@ describe('/fees/my-tier', () => {
             subAccountCap: 20,
             withdrawalLimit24h: { asset: 'USDT', amount: '250000' },
           },
+          { tierId: 'regular', ...blank },
         ],
       },
     });
@@ -84,6 +86,8 @@ describe('/fees/my-tier', () => {
       '<td data-benefit="prioritySupport">Yes</td><td data-benefit="vipPortal">No</td><td data-benefit="ambassador">not set</td>',
     );
     expect(html).toContain('<td data-benefit="subAccountCap">20</td><td data-benefit="withdrawalLimit24h">up to 250000 USDT</td>');
+    expect(html.indexOf('data-benefits="regular"')).toBeLessThan(html.indexOf('data-benefits="test-vip-1"'));
+    expect(html).toMatch(/data-benefits="test-vip-2"><th scope="row">test-vip-2<\/th><td data-benefit="prioritySupport">not set<\/td>/);
   });
 
   it('says the benefits are not set when the owner published no table', () => {

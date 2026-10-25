@@ -150,6 +150,7 @@ describe("the owner's benefits table", () => {
         withdrawalLimit24h: { asset: 'USDT', amount: '250000.5' },
       },
     ]);
+    expect(program({ benefits: [{ ...ROW, tierId: ' test-vip-1 ' }] }).benefits?.[0]?.tierId).toBe('test-vip-1');
     expect(program().benefits).toBeNull();
     expect(program({ benefits: null }).benefits).toBeNull();
   });
