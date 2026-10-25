@@ -702,3 +702,141 @@ test(`${J} #7 item B requiring A and then A requiring B refuses the cycle; a due
   expect(open.status, JSON.stringify(open.body).slice(0, 300)).toBe(200);
   await context.close();
 });
+
+const SLUG_G = `test-j12g-${RUN}`;
+
+test(`${J} #8 gradebook weights that add up wrongly refuse and the right set saves; dropped lowest is applied before averaging`, async ({
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  // A course with three graded assignments and a one-question quiz.
+  const course = await staff('mutate', 'admin.createCourse', {
+    slug: SLUG_G,
+    title: `TEST J-academy-12 course G ${RUN}`,
+    summary: 'TEST A course with homework and a quiz.',
+    thumbnailUrl: null,
+    pricing: 'free',
+    price: null,
+    priceAsset: null,
+  });
+  const outline = await staff('mutate', 'admin.saveOutline', {
+    courseId: course.id,
+    revision: course.revision,
+    sections: [
+      {
+        title: 'TEST Work',
+        items: [
+          { kind: 'assignment', title: 'TEST One', indent: 0, url: null },
+          { kind: 'assignment', title: 'TEST Two', indent: 0, url: null },
+          { kind: 'assignment', title: 'TEST Three', indent: 0, url: null },
+          { kind: 'quiz', title: 'TEST Quiz', indent: 0, url: null },
+        ],
+      },
+    ],
+  });
+  const [one, two, three, quiz] = outline.outline[0].items.map((i) => i.id);
+  for (const itemId of [one, two, three])
+    await staff('mutate', 'admin.saveAssignment', {
+      itemId,
+      revision: 0,
+      instructions: 'TEST Size a trade.',
+      points: '10',
+      dueAt: null,
+      text: 'required',
+      file: 'off',
+    });
+  await staff('mutate', 'admin.saveCourseQuiz', {
+    itemId: quiz,
+    revision: 0,
+    kind: 'quiz',
+    anonymous: false,
+    resultsVisibility: 'always',
+    passMark: 1,
+    attemptLimit: 1,
+    scoringPolicy: null,
+    timeLimitSeconds: null,
+    reviewMode: 'score_only',
+    ipAllow: null,
+    questions: [
+      {
+        kind: 'single',
+        id: 'q1',
+        prompt: 'TEST What caps the loss?',
+        points: 1,
+        choices: [
+          { id: 'c1', text: 'A stop' },
+          { id: 'c2', text: 'Hope' },
+        ],
+        correctChoiceId: 'c1',
+      },
+    ],
+  });
+  await staff('mutate', 'admin.setCourseQuizState', { itemId: quiz, state: 'published', reason: `TEST ${J}: open the quiz` });
+  const current = await staff('query', 'admin.course', { courseId: course.id });
+  await staff('mutate', 'admin.setCourseState', {
+    courseId: course.id,
+    to: 'published',
+    revision: current.course.revision,
+    reason: `TEST ${J}: open course G`,
+  });
+
+  // A learner hands in all three, graded 10, 5 and 8 of 10, and gets the quiz right.
+  const learner = await learnerOn(browser, 'ja12h', SLUG_G);
+  for (const [itemId, score] of [
+    [one, '10'],
+    [two, '5'],
+    [three, '8'],
+  ]) {
+    await handIn(learner, itemId, 'TEST My working.');
+    const queue = await staff('query', 'admin.gradingQueue', { itemId });
+    const row = queue.rows[0];
+    await staff('mutate', 'admin.openGrading', { itemId, submissionId: row.submissionId });
+    await staff('mutate', 'admin.gradeSubmission', {
+      itemId,
+      submissionId: row.submissionId,
+      n: row.nextN,
+      score,
+      comment: null,
+      reason: null,
+    });
+  }
+  const started = await learnerWrite(learner, 'startCourseQuiz', { itemId: quiz, accessCode: null });
+  expect(started.status, JSON.stringify(started.body).slice(0, 300)).toBe(200);
+  const attemptId = started.body.result.data.attemptId;
+  expect((await learnerWrite(learner, 'answerCourseQuiz', { attemptId, questionId: 'q1', answer: 'c1' })).status).toBe(200);
+  expect((await learnerWrite(learner, 'finishCourseQuiz', { attemptId })).status).toBe(200);
+
+  // On the console gradebook: 0.7 and 0.4 refuse; 0.6 and 0.4 save.
+  const page = await console_(browser);
+  await page.goto(`/academy-ops/catalogue/courses/${course.id}`);
+  await page.getByRole('link', { name: 'Open the gradebook' }).click();
+  const policy = page.getByTestId('grading-policy');
+  await policy.getByLabel('Type 1 name', { exact: true }).fill('Homework');
+  await policy.getByLabel('Type 1 weight', { exact: true }).fill('0.7');
+  await policy.getByLabel('Type 1 drop lowest', { exact: true }).fill('1');
+  for (const title of ['TEST One', 'TEST Two', 'TEST Three']) await policy.getByLabel(`Type 1 holds ${title}`, { exact: true }).check();
+  await policy.getByRole('button', { name: 'Add type' }).click();
+  await policy.getByLabel('Type 2 name', { exact: true }).fill('Quizzes');
+  await policy.getByLabel('Type 2 weight', { exact: true }).fill('0.4');
+  await policy.getByLabel('Type 2 holds TEST Quiz', { exact: true }).check();
+  await policy.getByLabel('Policy reason', { exact: true }).fill(`TEST ${J}: homework and quizzes`);
+  await policy.getByRole('button', { name: 'Save grading policy' }).click();
+  await expect(page.getByTestId('course-desk-outcome')).toContainText('The weights do not add up to 1');
+  await expect(page.getByTestId('course-desk-outcome')).toHaveAttribute('data-code', 'academy.weights_invalid');
+  await expect(page.getByTestId('policy-now')).toContainText('No policy yet');
+
+  // The form keeps what was typed: the founder corrects the first weight only.
+  await policy.getByLabel('Type 1 weight', { exact: true }).fill('0.6');
+  await policy.getByRole('button', { name: 'Save grading policy' }).click();
+  await expect(page.getByTestId('course-desk-outcome')).toContainText('Done: grading policy saved');
+  await expect(page.getByTestId('policy-now')).toContainText('Revision 1');
+
+  // Homework drops the 5 before averaging: (1 + 0.8) / 2 = 0.9; total 0.6 × 0.9 + 0.4 × 1 = 0.94.
+  const learnerId = await userIdOf(learner);
+  const row = page.getByTestId('gradebook').locator(`tr[data-learner="${learnerId}"]`);
+  await expect(row.locator('td[data-type="Homework"]')).toContainText('0.9');
+  await expect(row.locator('td[data-type="Homework"]')).toContainText('dropped TEST Two');
+  await expect(row.locator('td[data-type="Quizzes"]')).toHaveText('1');
+  await expect(row.getByTestId('gradebook-total')).toHaveText('0.94');
+  await page.context().close();
+});
