@@ -65,6 +65,7 @@ const THREE_STEPS = {
     { title: 'TEST trade three times', event: 'trade.fill', market: SYMBOL, side: null, count: 3 },
   ],
   claimWindowSeconds: 3600,
+  holdSeconds: 0,
   kycGate: 'full',
 };
 
@@ -258,6 +259,7 @@ test(`${J} #5 claims after the window closed: the claim-expired state, and the r
   const short = await liveCampaign(`TEST short window ${tag}`, {
     steps: [{ title: 'TEST trade once', event: 'trade.fill', market: SYMBOL, side: null, count: 1 }],
     claimWindowSeconds: 20,
+    holdSeconds: 0,
     kycGate: 'full',
   });
   await signIn(page, me);
@@ -317,6 +319,7 @@ test(`${J} #8 misses a day in a streak task: the streak resets at the zone bound
     {
       steps: [{ title: 'TEST trade three days in a row', event: 'trade.fill', market: SYMBOL, side: null, count: 1, streakDays: 3 }],
       claimWindowSeconds: 3600,
+      holdSeconds: 0,
       kycGate: 'full',
     },
     { startsAt: new Date(Date.now() - 7 * DAY).toISOString() },

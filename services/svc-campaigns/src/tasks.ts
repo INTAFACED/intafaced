@@ -1,15 +1,17 @@
 import type postgres from 'postgres';
 import { transaction } from '@intafaced/db';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
-import type {
-  CampaignTasks,
-  KycGate,
-  PayoutRecordList,
-  PotFunding,
-  RedemptionAttempt,
-  RewardRecord,
-  TaskClaimResult,
-  TaskProgress,
+import {
+  REWARD_STATUS_OF,
+  type CampaignTasks,
+  type KycGate,
+  type MyRewards,
+  type PayoutRecordList,
+  type PotFunding,
+  type RedemptionAttempt,
+  type RewardRecord,
+  type TaskClaimResult,
+  type TaskProgress,
 } from '@intafaced/contracts/campaigns-catalogue';
 import type { CampaignParticipant } from '@intafaced/contracts';
 import { CampaignsError } from './codes.js';
@@ -33,6 +35,9 @@ import { NO_STREAK, streakOf } from './streaks.js';
  * - One claim per (campaign, account, period); this version has one-time tasks, so the period is `once`. The intent is
  *   unique on `task:<campaign>:<account>:once`, holds its terms (asset, amount) and is written under a lock on the
  *   campaign, after checking the budget limit less what the campaign's other intents hold. Then the saga posts it.
+ * - A campaign with a risk-review hold (`holdSeconds` above 0) writes the claimed intent `held` until the hold ends; it
+ *   keeps its place in the budget and nothing is posted. `releaseHolds` releases each one once when its hold has ended:
+ *   to `qualified` and the saga, or `withheld` when the account is not active then. An unread account stays held.
  */
 
 type Sql = postgres.Sql;
@@ -65,6 +70,7 @@ type IntentRow = {
   ledger_tx_id: string | null;
   created_at: Date;
   posted_at: Date | null;
+  hold_until: Date | null;
 };
 
 type AttemptRow = { reward_key: string; outcome: RedemptionAttempt['outcome']; reason: string | null; at: Date };
@@ -98,6 +104,8 @@ const ASSET = /^[A-Z0-9]{2,12}$/;
 const TIER_RANK: Record<CampaignParticipant['kycTier'], number> = { none: 0, basic: 1, full: 2, institutional: 3 };
 const GATE_RANK: Record<KycGate, number> = { none: 0, basic: 1, full: 2 };
 export const PERIOD_ONCE = 'once';
+/** How many rewards My Rewards lists, newest first. */
+export const MY_REWARDS_LIMIT = 200;
 
 export const rewardKeyOf = (campaignId: string, accountId: string, period: string) => `task:${campaignId}:${accountId}:${period}`;
 
@@ -311,9 +319,14 @@ export class TaskService {
       throw new CampaignsError('campaigns.reward_unset', 'This campaign has no reward set');
     if (tasks.claimWindowSeconds === null)
       throw new CampaignsError('campaigns.claim_window_unset', 'This campaign has no claim window set');
+    // Stored before holds existed, or blank: never read as "no hold".
+    const holdSeconds = tasks.holdSeconds ?? null;
+    if (holdSeconds === null) throw new CampaignsError('campaigns.hold_period_unset', 'This campaign has no hold period set');
     const now = this.now();
+    // Withheld when its hold ended: it was claimed inside the window and served its hold, so neither applies again.
+    const served = existing?.state === 'withheld' && existing.hold_until !== null;
     const closes = new Date(completion.completed_at.getTime() + tasks.claimWindowSeconds * 1000);
-    if (now >= closes) {
+    if (!served && now >= closes) {
       await this.write(row, input.accountId, key, 'forfeited', 'campaigns.claim_expired');
       throw new CampaignsError('campaigns.claim_expired', 'The claim window closed; this reward is forfeited');
     }
@@ -327,21 +340,103 @@ export class TaskService {
       const made = await this.write(row, input.accountId, key, 'withheld', `account.${who.status}`);
       return { reward: await this.record(made.intent), created: made.created };
     }
+    if (holdSeconds > 0 && !served) {
+      const held = await this.write(row, input.accountId, key, 'held', null, new Date(now.getTime() + holdSeconds * 1000));
+      return { reward: await this.record(held.intent), created: held.created };
+    }
     const made = await this.write(row, input.accountId, key, 'qualified', null);
     if (made.created) await this.saga.attempt(key);
     return { reward: await this.record((await this.intent(key))!), created: made.created };
   }
 
   /**
-   * Writes the intent under a lock on the campaign. A `qualified` one must fit the budget limit less what the campaign's
-   * other intents hold (`campaigns.budget_exhausted`). Two claims at once: one row, by the unique key.
+   * Releases every held reward whose hold has ended (the reconciler calls it each pass). Each is moved once, by a
+   * conditional update in one transaction with its log line: to `qualified`, then posted by the saga under its own key,
+   * or to `withheld` when the account is not active (a later claim, once it is active, pays it without a second hold or
+   * a window check). An account identity cannot read now stays held, behind the others, for the next pass.
+   * A crash after the release and before the post leaves a `qualified` row the reconciler posts. Returns how many it
+   * released to the saga.
+   */
+  async releaseHolds(limit = 100): Promise<number> {
+    if (!this.saga) return 0;
+    const now = this.now();
+    // Oldest look first: a reward whose account could not be read goes to the back, so it never blocks the others.
+    const due = await this.sql<{ reward_key: string; account_id: string }[]>`
+      SELECT reward_key, account_id FROM campaigns.reward_intents
+      WHERE state = 'held' AND hold_until <= ${now} ORDER BY updated_at, reward_key LIMIT ${limit}`;
+    let released = 0;
+    for (const { reward_key: key, account_id: accountId } of due) {
+      const who = await this.participants.read(accountId);
+      if (!who) {
+        await this.sql`UPDATE campaigns.reward_intents SET updated_at = now() WHERE reward_key = ${key} AND state = 'held'`;
+        continue;
+      }
+      const next = who.status === 'active' ? 'qualified' : 'withheld';
+      const reason = next === 'withheld' ? `account.${who.status}` : null;
+      const moved = await transaction(this.sql, async (tx) => {
+        const changed = await tx`
+          UPDATE campaigns.reward_intents SET state = ${next}, reason = ${reason}, updated_at = now()
+          WHERE reward_key = ${key} AND state = 'held' AND hold_until <= ${now}`;
+        if (changed.count === 0) return false;
+        await tx`
+          INSERT INTO campaigns.redemption_attempts (reward_key, outcome, reason)
+          VALUES (${key}, ${next === 'qualified' ? 'released' : 'withheld'}, ${reason})`;
+        return true;
+      });
+      if (moved && next === 'qualified') {
+        await this.saga.attempt(key);
+        released += 1;
+      }
+    }
+    return released;
+  }
+
+  /**
+   * Every reward of one account, newest first, with its campaign's name and plain status, and the totals by status and
+   * asset summed from those rows (CM-rewards-hub-01). The account is the caller's principal, never a field.
+   */
+  async myRewards(input: { accountId: string }): Promise<MyRewards> {
+    const [rows, groups] = await Promise.all([
+      this.sql<(IntentRow & { campaign_name: string })[]>`
+        SELECT i.*, i.amount::text AS amount, c.name AS campaign_name
+        FROM campaigns.reward_intents i JOIN campaigns.campaigns c ON c.id = i.campaign_id
+        WHERE i.account_id = ${input.accountId}
+        ORDER BY i.created_at DESC, i.reward_key LIMIT ${MY_REWARDS_LIMIT}`,
+      // The totals count every reward, not only the listed ones.
+      this.sql<{ state: RewardRecord['state']; asset: string; amount: string; n: number }[]>`
+        SELECT state, asset, sum(amount)::text AS amount, count(*)::int AS n FROM campaigns.reward_intents
+        WHERE account_id = ${input.accountId} GROUP BY state, asset`,
+    ]);
+    const attempts = await this.attemptsOf(rows.map((r) => r.reward_key));
+    const rewards = rows.map((r) => ({
+      ...this.toRecord(r, attempts.get(r.reward_key) ?? []),
+      campaignName: r.campaign_name,
+      status: REWARD_STATUS_OF[r.state],
+    }));
+    const sums = new Map<string, { status: MyRewards['totals'][number]['status']; asset: string; units: bigint; count: number }>();
+    for (const g of groups) {
+      const status = REWARD_STATUS_OF[g.state];
+      const k = `${status}:${g.asset}`;
+      const line = sums.get(k) ?? { status, asset: g.asset, units: 0n, count: 0 };
+      line.units += parseAmount(g.amount);
+      line.count += g.n;
+      sums.set(k, line);
+    }
+    const totals = [...sums.values()].map((l) => ({ status: l.status, asset: l.asset, amount: formatAmount(l.units), count: l.count }));
+    return { rewards, totals, more: totals.reduce((n, l) => n + l.count, 0) > rewards.length };
+  }
+
+  /**
+   * Writes the intent under a lock on the campaign. A `qualified` or `held` one must fit the budget limit less what the
+   * campaign's other intents hold (`campaigns.budget_exhausted`). Two claims at once: one row, by the unique key.
    */
   private async write(
     row: TaskCampaignRow,
     accountId: string,
     key: string,
-    state: 'qualified' | 'forfeited' | 'withheld',
+    state: 'held' | 'qualified' | 'forfeited' | 'withheld',
     reason: string | null,
+    holdUntil: Date | null = null,
   ): Promise<{ intent: IntentRow; created: boolean }> {
     return transaction(this.sql, async (tx) => {
       const [locked] = await tx<{ budget_limit: string | null }[]>`
@@ -351,7 +446,7 @@ export class TaskService {
       >`SELECT *, amount::text AS amount FROM campaigns.reward_intents WHERE reward_key = ${key} FOR UPDATE`;
       // Only a withheld reward moves on, and only to another state: the account became active, or the window closed.
       if (first && (first.state !== 'withheld' || state === 'withheld')) return { intent: first, created: false };
-      if (state === 'qualified') {
+      if (state === 'qualified' || state === 'held') {
         if (row.budget_asset !== row.reward_asset) {
           throw new CampaignsError('campaigns.budget_asset_mismatch', 'The budget and the reward are in different assets');
         }
@@ -365,14 +460,15 @@ export class TaskService {
       }
       const [made] = first
         ? await tx<IntentRow[]>`
-            UPDATE campaigns.reward_intents SET state = ${state}, reason = ${reason}, updated_at = now()
+            UPDATE campaigns.reward_intents SET state = ${state}, reason = ${reason}, hold_until = ${holdUntil}, updated_at = now()
             WHERE reward_key = ${key} RETURNING *, amount::text AS amount`
         : await tx<IntentRow[]>`
-            INSERT INTO campaigns.reward_intents (reward_key, campaign_id, account_id, period, asset, amount, state, reason)
-            VALUES (${key}, ${row.id}, ${accountId}, ${PERIOD_ONCE}, ${row.reward_asset!}, ${row.reward_amount!}, ${state}, ${reason})
+            INSERT INTO campaigns.reward_intents (reward_key, campaign_id, account_id, period, asset, amount, state, reason,
+              hold_until)
+            VALUES (${key}, ${row.id}, ${accountId}, ${PERIOD_ONCE}, ${row.reward_asset!}, ${row.reward_amount!}, ${state}, ${reason},
+              ${holdUntil})
             RETURNING *, amount::text AS amount`;
-      const outcome = state === 'qualified' ? 'qualified' : state;
-      await tx`INSERT INTO campaigns.redemption_attempts (reward_key, outcome, reason) VALUES (${key}, ${outcome}, ${reason})`;
+      await tx`INSERT INTO campaigns.redemption_attempts (reward_key, outcome, reason) VALUES (${key}, ${state}, ${reason})`;
       await tx`
         INSERT INTO campaigns.audit_log (actor, action, target, detail)
         VALUES (${accountId}, ${'campaign.task.claim'}, ${row.id}, ${tx.json({ rewardKey: key, state })})`;
@@ -523,6 +619,7 @@ export class TaskService {
       ledgerTxId: row.ledger_tx_id,
       createdAt: iso(row.created_at),
       postedAt: row.posted_at ? iso(row.posted_at) : null,
+      holdUntil: row.hold_until ? iso(row.hold_until) : null,
       rollback: {
         windowSeconds: window,
         closesAt: window && row.posted_at ? iso(new Date(row.posted_at.getTime() + window * 1000)) : null,

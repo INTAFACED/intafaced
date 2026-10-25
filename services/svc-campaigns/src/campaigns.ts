@@ -189,6 +189,10 @@ export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate[
   if (row.tasks && row.tasks.claimWindowSeconds === null) {
     missing.push({ code: 'campaigns.claim_window_unset', field: 'claimWindow' });
   }
+  // Stored before holds existed, or blank: a task campaign names its hold, 0 when it pays at once.
+  if (row.tasks && (row.tasks.holdSeconds ?? null) === null) {
+    missing.push({ code: 'campaigns.hold_period_unset', field: 'holdPeriod' });
+  }
   return missing;
 }
 
@@ -399,6 +403,7 @@ function parseTasks(type: CampaignType, input: CampaignTasks): CampaignTasks {
       streakDays: s.streakDays ?? null,
     })),
     claimWindowSeconds: input.claimWindowSeconds,
+    holdSeconds: input.holdSeconds ?? null,
     kycGate: input.kycGate,
   };
 }
