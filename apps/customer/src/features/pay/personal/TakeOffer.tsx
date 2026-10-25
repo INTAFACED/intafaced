@@ -58,6 +58,8 @@ export function takeFailureText(t: CopyT, kind: TakeFailure, context: 'quote' | 
       return t('failMethodRetired');
     case 'nonInstantRefused':
       return t('failNonInstant');
+    case 'floatingCashRefused':
+      return t('failFloatingCash');
     case 'buyingPaused':
       return t('failBuyingPausedPlain');
     case 'shortBalance':

@@ -268,8 +268,7 @@ export const methodSchema = z.object({
   fields: z.array(methodFieldSchema),
   enabled: z.boolean(),
   settlement: methodSettlementSchema.optional(),
-  /** P-ads-merchant-19: cash in person when the row carries cash rules; the rules themselves, or null. */
-  kind: z.enum(['transfer', 'cash_in_person']).optional(),
+  /** P-ads-merchant-19: the row's payment-note rules and cash-in-person rules (cash in person when set), or null. */
   noteRules: z
     .object({ guidance: z.string(), forbidden: z.array(z.string()) })
     .nullable()

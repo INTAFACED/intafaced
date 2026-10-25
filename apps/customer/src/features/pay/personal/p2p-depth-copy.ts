@@ -145,6 +145,8 @@ const en = {
     'This payment method has been retired and no longer takes orders. This has no end time: choose another method on this ad, or another ad. Nothing was placed.',
   failNonInstant:
     'This ad does not accept payment methods that are not instant, and this one is not instant. Choose another method on this ad, or another ad. Nothing was placed.',
+  failFloatingCash:
+    'Cash in person has a locked price, and this ad follows a floating price, so it cannot be paid this way. Choose another method on this ad, or another ad. Nothing was placed.',
   failMethodRetiredRegulation:
     'This payment method has been retired because of a regulatory requirement. This has no end time: choose another method on this ad, or another ad. Nothing was placed.',
   failMethodRetiredProviderWithdrawn:
@@ -438,6 +440,8 @@ const es = {
     'Este método de pago se ha retirado y ya no admite pedidos. No tiene fecha de fin. Elige otro método de este anuncio u otro anuncio. No se hizo nada.',
   failNonInstant:
     'Este anuncio no acepta métodos de pago que no sean instantáneos, y este no lo es. Elige otro método de este anuncio u otro anuncio. No se hizo nada.',
+  failFloatingCash:
+    'El efectivo en persona tiene un precio fijado y este anuncio sigue un precio flotante, así que no se puede pagar así. Elige otro método de este anuncio u otro anuncio. No se hizo nada.',
   failMethodRetiredRegulation:
     'Este método de pago se ha retirado por un requisito normativo. No tiene fecha de fin. Elige otro método de este anuncio u otro anuncio. No se hizo nada.',
   failMethodRetiredProviderWithdrawn:
@@ -732,6 +736,8 @@ const fr = {
     'Ce mode de paiement a été retiré et n’accepte plus de commandes. Ce retrait n’a pas de fin. Choisissez un autre mode sur cette annonce, ou une autre annonce. Rien n’a été passé.',
   failNonInstant:
     'Cette annonce n’accepte pas les modes de paiement non instantanés, et celui-ci ne l’est pas. Choisissez un autre mode sur cette annonce, ou une autre annonce. Rien n’a été passé.',
+  failFloatingCash:
+    'Les espèces en personne ont un prix bloqué et cette annonce suit un prix flottant, elle ne peut donc pas être payée ainsi. Choisissez un autre mode sur cette annonce, ou une autre annonce. Rien n’a été passé.',
   failMethodRetiredRegulation:
     'Ce mode de paiement a été retiré en raison d’une exigence réglementaire. Ce retrait n’a pas de fin. Choisissez un autre mode sur cette annonce, ou une autre annonce. Rien n’a été passé.',
   failMethodRetiredProviderWithdrawn:
