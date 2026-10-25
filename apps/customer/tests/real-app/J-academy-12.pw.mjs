@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { ORIGIN, api } from './stack.mjs';
 import { signUp } from './desk.mjs';
+import { userIdOf } from './copy.mjs';
 
 // J-academy-12, in the running app (docs/roadmap/journeys.json): a founder adds a quiz and an assignment to a draft course,
 // schedules release and sets the gradebook. One test per step, titled "J-academy-12 #<n>", run in order. The founder is the
@@ -572,4 +573,132 @@ test(`${J} #6 a section released 7 days after enrolment, with pacing: the learne
   await expect(release.getByTestId('course-desk-outcome')).toHaveAttribute('data-code', 'academy.pacing_locked');
   expect((await staff('query', 'admin.courseRelease', { courseId: course.id })).pacing).toBe('self_paced');
   await page.context().close();
+});
+
+const SLUG_E = `test-j12e-${RUN}`;
+
+test(`${J} #7 item B requiring A and then A requiring B refuses the cycle; a due date extension for one learner shows who granted it and why`, async ({
+  browser,
+}) => {
+  test.setTimeout(240_000);
+  // A draft course with an assignment (due tomorrow) and a published quiz.
+  const course = await staff('mutate', 'admin.createCourse', {
+    slug: SLUG_E,
+    title: `TEST J-academy-12 course E ${RUN}`,
+    summary: 'TEST A course whose quiz needs the write-up first.',
+    thumbnailUrl: null,
+    pricing: 'free',
+    price: null,
+    priceAsset: null,
+  });
+  const outline = await staff('mutate', 'admin.saveOutline', {
+    courseId: course.id,
+    revision: course.revision,
+    sections: [
+      {
+        title: 'TEST Week one',
+        items: [
+          { kind: 'assignment', title: 'TEST Item A write-up', indent: 0, url: null },
+          { kind: 'quiz', title: 'TEST Item B check', indent: 0, url: null },
+        ],
+      },
+    ],
+  });
+  const [a, b] = outline.outline[0].items.map((i) => i.id);
+  const due = new Date(Date.now() + DAY_MS);
+  await staff('mutate', 'admin.saveAssignment', {
+    itemId: a,
+    revision: 0,
+    instructions: 'TEST Size a trade from the stop.',
+    points: '10',
+    dueAt: due.toISOString(),
+    text: 'required',
+    file: 'off',
+  });
+  await staff('mutate', 'admin.saveCourseQuiz', {
+    itemId: b,
+    revision: 0,
+    kind: 'quiz',
+    anonymous: false,
+    resultsVisibility: 'always',
+    passMark: 1,
+    attemptLimit: 1,
+    scoringPolicy: null,
+    timeLimitSeconds: null,
+    reviewMode: 'score_only',
+    ipAllow: null,
+    questions: [
+      {
+        kind: 'single',
+        id: 'q1',
+        prompt: 'TEST What caps the loss?',
+        points: 1,
+        choices: [
+          { id: 'c1', text: 'A stop' },
+          { id: 'c2', text: 'Hope' },
+        ],
+        correctChoiceId: 'c1',
+      },
+    ],
+  });
+  await staff('mutate', 'admin.setCourseQuizState', { itemId: b, state: 'published', reason: `TEST ${J}: open quiz B` });
+
+  // On the console: B requires A saves; A requires B is refused as a loop and nothing changes.
+  const context = await browser.newContext({ baseURL: ADMIN, viewport: { width: 1440, height: 1000 } });
+  const page = await context.newPage();
+  const founder = await founderSignIn(page, 'a');
+  await page.goto(`/academy-ops/catalogue/courses/${course.id}`);
+  const rules = page.getByTestId('course-item-rules');
+  const itemB = rules.locator('[data-testid="item-prerequisites"][data-item="TEST Item B check"]');
+  await itemB.getByLabel('TEST Item B check requires TEST Item A write-up').check();
+  await itemB.getByLabel('Prerequisites reason, TEST Item B check').fill(`TEST ${J}: write up before the check`);
+  await itemB.getByRole('button', { name: 'Save prerequisites' }).click();
+  await expect(rules.getByTestId('course-desk-outcome')).toContainText('Done: prerequisites saved');
+  await expect(itemB.getByTestId('prerequisites-now')).toContainText('Requires TEST Item A write-up');
+  const itemA = rules.locator('[data-testid="item-prerequisites"][data-item="TEST Item A write-up"]');
+  await itemA.getByLabel('TEST Item A write-up requires TEST Item B check').check();
+  await itemA.getByLabel('Prerequisites reason, TEST Item A write-up').fill(`TEST ${J}: try a loop`);
+  await itemA.getByRole('button', { name: 'Save prerequisites' }).click();
+  await expect(rules.getByTestId('course-desk-outcome')).toContainText('That would make a loop');
+  await expect(rules.getByTestId('course-desk-outcome')).toHaveAttribute('data-code', 'academy.prerequisite_cycle');
+  await expect(itemA.getByTestId('prerequisites-now')).toContainText('Requires nothing');
+
+  const current = await staff('query', 'admin.course', { courseId: course.id });
+  await staff('mutate', 'admin.setCourseState', {
+    courseId: course.id,
+    to: 'published',
+    revision: current.course.revision,
+    reason: `TEST ${J}: open course E`,
+  });
+
+  // A learner enrols: quiz B stays closed until A is handed in.
+  const learner = await learnerOn(browser, 'ja12g', SLUG_E);
+  const closed = await (await api(learner)).get(trpc('courseQuiz', { itemId: b }));
+  expect(JSON.stringify(closed.body)).toContain('academy.prerequisite_unmet');
+
+  // The founder moves this one learner's due date two days later, with a reason; the list shows who and why.
+  const learnerId = await userIdOf(learner);
+  const later = new Date(Date.now() + 3 * DAY_MS);
+  const pad = (n) => String(n).padStart(2, '0');
+  const local = `${later.getFullYear()}-${pad(later.getMonth() + 1)}-${pad(later.getDate())}T${pad(later.getHours())}:${pad(later.getMinutes())}`;
+  const form = rules.getByTestId('extension-form');
+  await form.getByRole('combobox', { name: 'Extension assignment' }).selectOption({ label: 'TEST Item A write-up' });
+  await form.getByLabel('Learner account id', { exact: true }).fill(learnerId);
+  await form.getByLabel('New due date', { exact: true }).fill(local);
+  await form.getByLabel('Extension reason', { exact: true }).fill(`TEST ${J}: travelling this week`);
+  await form.getByRole('button', { name: 'Move the due date' }).click();
+  await expect(rules.getByTestId('course-desk-outcome')).toContainText('Done: due date moved for the learner');
+  const row = rules.getByTestId('extensions').locator(`tr[data-learner="${learnerId}"]`);
+  await expect(row).toContainText('TEST Item A write-up');
+  await expect(row).toContainText(founder.userId);
+  await expect(row).toContainText(`TEST ${J}: travelling this week`);
+
+  // The learner reads their own due date and the reason; the hand-in opens quiz B.
+  const view = (await assignmentOf(learner, a)).body.result.data;
+  expect(view.extension).toMatchObject({ reason: `TEST ${J}: travelling this week` });
+  expect(Math.abs(Date.parse(view.extension.dueAt) - later.getTime())).toBeLessThan(60_000);
+  await handIn(learner, a, 'TEST I size from the stop distance.');
+  const open = await (await api(learner)).get(trpc('courseQuiz', { itemId: b }));
+  expect(open.status, JSON.stringify(open.body).slice(0, 300)).toBe(200);
+  await context.close();
 });
