@@ -53,6 +53,7 @@ const S2 = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const S3 = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
 const AMT = parseAmount('10');
 const QUOTE = parseAmount('100');
+const CAMPAIGN_REWARD_KEY = `task:${S1}:${U}:once`;
 
 const VARIABLE_REASON_RECIPES: ReadonlySet<RecipeName> = new Set(['feeCharge', 'rewardPay']);
 
@@ -803,6 +804,18 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
         assetId: 'USDT',
         amount: AMT,
       }),
+    },
+    {
+      name: 'campaignRewardLock',
+      post: recipes.campaignRewardLock({ rewardKey: CAMPAIGN_REWARD_KEY, userId: U, assetId: 'USDT', amount: AMT }),
+    },
+    {
+      name: 'campaignRewardUnlock',
+      post: recipes.campaignRewardUnlock({ rewardKey: CAMPAIGN_REWARD_KEY, userId: U, assetId: 'USDT', amount: AMT }),
+    },
+    {
+      name: 'campaignRewardForfeit',
+      post: recipes.campaignRewardForfeit({ rewardKey: CAMPAIGN_REWARD_KEY, userId: U, assetId: 'USDT', amount: AMT }),
     },
     {
       name: 'bankTransferReversal',

@@ -46,6 +46,7 @@ import {
 import { LEDGER_DOOR_CALLERS, type LedgerDoor } from './door-callers.js';
 import { RECIPE_REQUIRED_CODE, assertKnownRecipePost } from './recipe-gate.js';
 import { MAKER_REBATE_UNBOUND_CODE, assertMakerRebateBound } from './maker-rebate-binding.js';
+import { CAMPAIGN_LOCK_UNBOUND_CODE, assertCampaignLockBound } from './campaign-lock-binding.js';
 import type { LedgerService } from './service.js';
 import { userCopy } from './user-copy.js';
 import { REGISTRY_REFUSALS } from './ledger/supported-assets.js';
@@ -124,7 +125,8 @@ export function httpError(err: unknown): { status: number; body: Record<string, 
       err.code === LEDGER_HOLDINGS_HISTORY_TOO_LARGE ||
       err.code === 'ledger.history_cursor_invalid' ||
       err.code === RECIPE_REQUIRED_CODE ||
-      err.code === MAKER_REBATE_UNBOUND_CODE)
+      err.code === MAKER_REBATE_UNBOUND_CODE ||
+      err.code === CAMPAIGN_LOCK_UNBOUND_CODE)
   ) {
     return { status: 400, body: { message: err.message, code: err.code } };
   }
@@ -162,6 +164,7 @@ export async function handleS2sPost(ledger: LedgerService, body: unknown, caller
   if (caller) applyCallerBinding(caller, input, binding);
   assertKnownRecipePost(input);
   await assertMakerRebateBound(ledger, input);
+  await assertCampaignLockBound(ledger, input);
   const entries: EntryInput[] = input.entries.map((e) => ({
     account: e.account,
     direction: e.direction,

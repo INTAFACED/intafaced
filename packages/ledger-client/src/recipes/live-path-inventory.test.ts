@@ -72,6 +72,9 @@ function scanProductionRecipeCallers(): Map<string, string[]> {
 const PINNED_SOCKETS: readonly { name: RecipeName; fingerprint: string }[] = [
   { name: 'marketMakerSeedFund', fingerprint: 'f0ed307f9c4c' },
   { name: 'tradeFillFeeCorrection', fingerprint: '1948c544d9f1' },
+  { name: 'campaignRewardLock', fingerprint: 'a10658549898' },
+  { name: 'campaignRewardUnlock', fingerprint: 'f8554ae4becd' },
+  { name: 'campaignRewardForfeit', fingerprint: '053fe1f28084' },
   { name: 'orderHoldAmend', fingerprint: 'eb8454c78c05' },
   { name: 'marketListingFee', fingerprint: 'c6b5159bbd35' },
   { name: 'marketPremiumPlacement', fingerprint: 'ef52f37a4786' },
@@ -93,6 +96,9 @@ const RECIPE_GATE_CATALOG = 'services/svc-ledger/src/recipe-gate.ts';
 const SOCKET_CALLER_ALLOWLIST: ReadonlyMap<RecipeName, readonly string[]> = new Map([
   ['marketMakerSeedFund', [RECIPE_GATE_CATALOG]],
   ['tradeFillFeeCorrection', [RECIPE_GATE_CATALOG]],
+  ['campaignRewardLock', [RECIPE_GATE_CATALOG]],
+  ['campaignRewardUnlock', [RECIPE_GATE_CATALOG]],
+  ['campaignRewardForfeit', [RECIPE_GATE_CATALOG]],
   ['orderHoldAmend', [RECIPE_GATE_CATALOG]],
   ['marketListingFee', [RECIPE_GATE_CATALOG]],
   ['marketPremiumPlacement', [RECIPE_GATE_CATALOG]],
@@ -112,10 +118,10 @@ describe('D26-P2-11 recipe matrix inventory (live path closure)', () => {
     expect(inventory.live.length + inventory.sockets.length).toBe(inventory.recipes.length);
   });
 
-  it('pins live vs §13 socket counts on tip (78 = 69 live + 9 socket)', () => {
+  it('pins live vs §13 socket counts on tip (81 = 69 live + 12 socket)', () => {
     const counts = countByKind(inventory);
-    expect(counts).toEqual({ live: 69, socket: 9 });
-    expect(inventory.recipes).toHaveLength(78);
+    expect(counts).toEqual({ live: 69, socket: 12 });
+    expect(inventory.recipes).toHaveLength(81);
     expect(liveRecipeKeys(inventory)).toHaveLength(69);
     expect(socketRecipeKeys(inventory)).toEqual(PINNED_SOCKETS.map((s) => s.name).sort());
   });

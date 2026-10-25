@@ -148,6 +148,24 @@ export const RECIPE_MATRIX = {
   staffHoldPlace: { kind: 'live', module: 'ops', proof: 'services/svc-ops/src/staff-holds/desk.ts' },
   staffHoldRelease: { kind: 'live', module: 'ops', proof: 'services/svc-ops/src/staff-holds/desk.ts' },
   staffHoldConfirm: { kind: 'live', module: 'ops', proof: 'services/svc-ops/src/staff-holds/desk.ts' },
+  campaignRewardLock: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      '§13 — CM-payouts-ledger-01 / CM-rewards-hub-02 locked campaign rewards and bonuses: from the rewards engine into its own pot campaigns:lock:<lockId>; nothing reaches the customer balance. No production writer posts it yet (svc-campaigns gets its grant in the J-campaigns-03 #4-#6 service PR); the recipe-gate catalog samples it and does not ledger.post.',
+  },
+  campaignRewardUnlock: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      '§13 — CM-payouts-ledger-01 / CM-rewards-hub-02 locked campaign rewards and bonuses: the pot to the customer available once the condition is met. No production writer posts it yet (svc-campaigns gets its grant in the J-campaigns-03 #4-#6 service PR); the recipe-gate catalog samples it and does not ledger.post.',
+  },
+  campaignRewardForfeit: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      '§13 — CM-payouts-ledger-01 / CM-rewards-hub-02 locked campaign rewards and bonuses: the pot back to the rewards engine when the condition fails or the bonus expires. No production writer posts it yet (svc-campaigns gets its grant in the J-campaigns-03 #4-#6 service PR); the recipe-gate catalog samples it and does not ledger.post.',
+  },
   marketPurchase: { kind: 'live', module: 'market', proof: 'services/svc-market/src/commerce/commerce-service.ts' },
   marketListingFee: {
     kind: 'socket',

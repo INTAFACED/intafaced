@@ -507,6 +507,36 @@ describe('recipe-gate', () => {
       expect.objectContaining({ code: RECIPE_REQUIRED_CODE }),
     );
 
+    // Locked campaign rewards: only the rewards engine into a campaigns:lock pot, and out of one only to the customer or the engine.
+    const rewardKey = `task:${USER2}:${USER}:once`;
+    const reward = { rewardKey, userId: USER, assetId: 'USDT', amount: amt('2') };
+    accept(recipes.campaignRewardLock({ ...reward, assetId: 'BTC' }));
+    accept(recipes.campaignRewardUnlock({ ...reward, assetId: 'BTC' }));
+    accept(recipes.campaignRewardForfeit({ ...reward, assetId: 'BTC' }));
+    const refuse = (post: ReturnType<typeof toWire>) =>
+      expect(() => assertKnownRecipePost(post)).toThrow(expect.objectContaining({ code: RECIPE_REQUIRED_CODE }));
+    const swap = (post: ReturnType<typeof toWire>, from: (e: (typeof post.entries)[number]) => boolean, account: object) => ({
+      ...post,
+      entries: post.entries.map((e) => (from(e) ? { ...e, account: { ...e.account, ...account } } : e)),
+    });
+    const isPot = (e: { account: { ownerType: string } }) => e.account.ownerType === 'module';
+    const isHouse = (e: { account: { ownerType: string } }) => e.account.ownerType === 'house';
+    const locked = toWire(recipes.campaignRewardLock(reward));
+    const unlocked = toWire(recipes.campaignRewardUnlock(reward));
+    const forfeited = toWire(recipes.campaignRewardForfeit(reward));
+    // Into another module pot, or out of house fees instead of the rewards engine.
+    refuse(swap(locked, isPot, { ownerId: 'pay:clearing:m1' }));
+    refuse(swap(locked, isHouse, { ownerId: 'fees:trade' }));
+    // Out of a merchant's clearing instead of a lock pot.
+    refuse(swap(unlocked, isPot, { ownerId: 'pay:clearing:m1' }));
+    refuse(swap(forfeited, isPot, { ownerId: 'pay:clearing:m1' }));
+    // A customer's own funds into the rewards engine is never a forfeit.
+    refuse(swap(forfeited, isPot, { ownerType: 'user', ownerId: USER }));
+    // Nor into house fees.
+    refuse(swap(forfeited, isHouse, { ownerId: 'fees:trade' }));
+    refuse({ ...forfeited, reason: 'campaigns.reward.unlocked' });
+    refuse({ ...unlocked, module: 'token' });
+
     const bare = toWire(recipes.tradeFill({ ...fill, makerFeeBps: 0, takerFeeBps: 0 }));
     const last = bare.entries[bare.entries.length - 1];
     expect(() => assertKnownRecipePost({ ...bare, entries: [...bare.entries, last!] })).toThrow(
