@@ -22,6 +22,7 @@ import type {
 import { academyPrivateLinkKeySchema } from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
 import { canonicalPrice } from './courses.js';
+import { opensAt, ruleOf } from './course-release.js';
 
 type LinkRow = {
   id: string;
@@ -128,11 +129,16 @@ export class CoursePreview {
    * The course row and its outline from one snapshot, so a save in between never mixes two versions. With a reader who
    * holds an open enrolment in the course, what is released carries no lock.
    */
-  view(courseId: string, readerId: string | null = null): Promise<AcademyCourseLearnerView | null> {
-    return this.sql.begin('isolation level repeatable read read only', (tx) => this.viewIn(tx, courseId, readerId));
+  view(courseId: string, readerId: string | null = null, now: Date = new Date()): Promise<AcademyCourseLearnerView | null> {
+    return this.sql.begin('isolation level repeatable read read only', (tx) => this.viewIn(tx, courseId, readerId, now));
   }
 
-  private async viewIn(tx: TransactionSql, courseId: string, readerId: string | null): Promise<AcademyCourseLearnerView | null> {
+  private async viewIn(
+    tx: TransactionSql,
+    courseId: string,
+    readerId: string | null,
+    now: Date = new Date(),
+  ): Promise<AcademyCourseLearnerView | null> {
     const [course] = await tx<
       Array<{
         slug: string;
@@ -143,23 +149,26 @@ export class CoursePreview {
         price: string | null;
         price_asset: string | null;
         state: AcademyCourseState;
+        pacing: 'self_paced' | 'instructor_paced' | null;
       }>
     >`
-      SELECT slug, title, summary, thumbnail_url, pricing, price, price_asset, state
-      FROM academy.courses WHERE id = ${courseId}
+      SELECT c.slug, c.title, c.summary, c.thumbnail_url, c.pricing, c.price, c.price_asset, c.state, p.pacing
+      FROM academy.courses c LEFT JOIN academy.course_pacing p ON p.course_id = c.id WHERE c.id = ${courseId}
     `;
     if (!course) return null;
-    const enrolled =
-      readerId !== null &&
-      (
-        await tx`
-        SELECT 1 FROM academy.course_enrolments WHERE course_id = ${courseId} AND user_id = ${readerId} AND left_at IS NULL
-      `
-      ).length > 0;
+    const [enrolment] =
+      readerId === null
+        ? []
+        : await tx<Array<{ enrolled_at: Date }>>`
+        SELECT enrolled_at FROM academy.course_enrolments WHERE course_id = ${courseId} AND user_id = ${readerId} AND left_at IS NULL
+      `;
+    const enrolled = enrolment !== undefined;
     const rows = await tx<
       Array<{
         section_id: string;
         section_title: string;
+        release_at: Date | null;
+        after_days: number | null;
         id: string | null;
         kind: AcademyOutlineItemKind | null;
         title: string | null;
@@ -168,19 +177,28 @@ export class CoursePreview {
         assignment_open: boolean;
       }>
     >`
-      SELECT s.id AS section_id, s.title AS section_title, i.id, i.kind, i.title, i.indent, i.live_revision,
+      SELECT s.id AS section_id, s.title AS section_title, r.release_at, r.after_days, i.id, i.kind, i.title, i.indent, i.live_revision,
         (a.item_id IS NOT NULL) AS assignment_open
       FROM academy.course_sections s
+      LEFT JOIN academy.course_section_releases r ON r.section_id = s.id
       LEFT JOIN academy.course_items i ON i.section_id = s.id
       LEFT JOIN academy.course_assignments a ON a.item_id = i.id
       WHERE s.course_id = ${courseId}
       ORDER BY s.position, i.position
     `;
     const sections: AcademyCourseLearnerView['sections'] = [];
-    let current = null as { id: string; section: AcademyCourseLearnerView['sections'][number] } | null;
+    let current = null as { id: string; open: boolean; section: AcademyCourseLearnerView['sections'][number] } | null;
     for (const r of rows) {
       if (current?.id !== r.section_id) {
-        current = { id: r.section_id, section: { title: r.section_title, items: [] } };
+        // A section scheduled for later (AC-release-access-01): its instant for this reader, or the days after enrolling.
+        const rule = ruleOf(r);
+        const at = rule === null ? null : opensAt(rule, enrolment?.enrolled_at ?? null);
+        const open = rule === null || (at !== null && at.getTime() <= now.getTime());
+        const release =
+          rule === null
+            ? null
+            : { at: at?.toISOString() ?? null, afterEnrolmentDays: rule.kind === 'after_enrolment' ? rule.days : null, open };
+        current = { id: r.section_id, open, section: { title: r.section_title, release, items: [] } };
         sections.push(current.section);
       }
       if (r.id === null || r.kind === null || r.title === null) continue;
@@ -199,7 +217,9 @@ export class CoursePreview {
             : !released
               ? 'not_released'
               : enrolled
-                ? null
+                ? current.open
+                  ? null
+                  : 'scheduled'
                 : course.state === 'published'
                   ? 'enrol'
                   : 'enrolment_closed',
@@ -214,6 +234,7 @@ export class CoursePreview {
       price: canonicalPrice(course.price),
       priceAsset: course.price_asset,
       state: course.state,
+      pacing: course.pacing,
       sections,
     };
   }

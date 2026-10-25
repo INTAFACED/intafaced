@@ -474,3 +474,102 @@ test(`${J} #5 a rubric totals the chosen levels as a decimal string; a peer step
   await expect(queue.locator('[data-grading-row]').filter({ hasText: 'TEST B sizes' })).toContainText('mean rubric total 0.5');
   await page.context().close();
 });
+
+const SLUG_D = `test-j12d-${RUN}`;
+const DAY_MS = 24 * 3600_000;
+
+test(`${J} #6 a section released 7 days after enrolment, with pacing: the learner sees a clock and the local release time; changing pacing after start refuses`, async ({
+  browser,
+}) => {
+  test.setTimeout(240_000);
+  // A draft course: an opening section with a reading, and a second week whose assignment has its brief.
+  const course = await staff('mutate', 'admin.createCourse', {
+    slug: SLUG_D,
+    title: `TEST J-academy-12 course D ${RUN}`,
+    summary: 'TEST A course that opens a week at a time.',
+    thumbnailUrl: null,
+    pricing: 'free',
+    price: null,
+    priceAsset: null,
+  });
+  const outline = await staff('mutate', 'admin.saveOutline', {
+    courseId: course.id,
+    revision: course.revision,
+    sections: [
+      { title: 'TEST Week one', items: [{ kind: 'link', title: 'TEST Reading', indent: 0, url: 'https://example.com/reading' }] },
+      { title: 'TEST Week two', items: [{ kind: 'assignment', title: 'TEST Week two write-up', indent: 0, url: null }] },
+    ],
+  });
+  const weekTwo = outline.outline[1].items[0].id;
+  await staff('mutate', 'admin.saveAssignment', {
+    itemId: weekTwo,
+    revision: 0,
+    instructions: 'TEST Size a trade from the stop.',
+    points: '10',
+    dueAt: null,
+    text: 'required',
+    file: 'off',
+  });
+
+  // On the console: pacing, then week two opens 7 days after each learner enrols.
+  const page = await console_(browser);
+  await page.goto(`/academy-ops/catalogue/courses/${course.id}`);
+  const release = page.getByTestId('course-release');
+  await release.getByRole('combobox', { name: 'Pacing', exact: true }).selectOption('self_paced');
+  await release.getByLabel('Pacing reason', { exact: true }).fill(`TEST ${J}: learners go at their own speed`);
+  await release.getByRole('button', { name: 'Save pacing' }).click();
+  await expect(release.getByTestId('course-desk-outcome')).toContainText('Done: pacing saved');
+  const week = release.locator('[data-testid="release-section"][data-section="TEST Week two"]');
+  await week.getByRole('combobox', { name: 'Release of TEST Week two' }).selectOption('after_enrolment');
+  await week.getByLabel('Days after enrolment, TEST Week two').fill('7');
+  await week.getByLabel('Release reason, TEST Week two').fill(`TEST ${J}: drip week two`);
+  await week.getByRole('button', { name: 'Save release' }).click();
+  await expect(release.getByTestId('course-desk-outcome')).toContainText('Done: section release saved');
+  await expect(week.getByTestId('release-rule')).toContainText('Opens 7 days after each learner enrols');
+
+  const current = await staff('query', 'admin.course', { courseId: course.id });
+  await staff('mutate', 'admin.setCourseState', {
+    courseId: course.id,
+    to: 'published',
+    revision: current.course.revision,
+    reason: `TEST ${J}: open course D`,
+  });
+
+  // A learner enrols; week two is scheduled, with a clock and the time it opens in the learner's own time zone.
+  const learnerPage = await (await browser.newContext({ baseURL: ORIGIN, timezoneId: 'Asia/Tokyo' })).newPage();
+  const learner = await signUp(learnerPage, 'ja12f');
+  const enrolled = await learnerWrite(learner, 'enrolAuthoredCourse', { slug: SLUG_D, track: 'audit' });
+  expect(enrolled.status, JSON.stringify(enrolled.body).slice(0, 300)).toBe(200);
+  const enrolledAt = Date.now();
+  await learnerPage.goto(`/academy/learning/course/${SLUG_D}`);
+  await expect(learnerPage.getByText('Self-paced: go at your own speed')).toBeVisible({ timeout: 20_000 });
+  const clock = learnerPage.getByTestId('section-release');
+  await expect(clock).toHaveCount(1);
+  await expect(clock).toHaveAttribute('data-open', 'no');
+  await expect(clock).toContainText('🕒');
+  await expect(clock).toContainText('(your time)');
+  const opensAt = Date.parse((await clock.locator('time').getAttribute('datetime')) ?? '');
+  expect(Math.abs(opensAt - (enrolledAt + 7 * DAY_MS))).toBeLessThan(5 * 60_000);
+  // The text is that instant in Tokyo time, as the learner's browser formats it.
+  const local = await learnerPage.evaluate(
+    (iso) => new Intl.DateTimeFormat(navigator.language, { dateStyle: 'long', timeStyle: 'short' }).format(new Date(iso)),
+    new Date(opensAt).toISOString(),
+  );
+  await expect(clock.locator('time')).toHaveText(`Opens ${local} (your time)`);
+  await expect(learnerPage.locator('li[data-lock="scheduled"]')).toContainText('TEST Week two write-up');
+  await expect(learnerPage.locator('li[data-lock="none"]')).toContainText('TEST Reading');
+  const closed = await assignmentOf(learner, weekTwo);
+  expect(JSON.stringify(closed.body)).toContain('academy.not_released_yet');
+  await learnerPage.context().close();
+
+  // With a learner enrolled, a pacing change refuses by name and the pacing stays.
+  await page.reload();
+  await expect(release.getByTestId('pacing-locked')).toBeVisible();
+  await release.getByRole('combobox', { name: 'Pacing', exact: true }).selectOption('instructor_paced');
+  await release.getByLabel('Pacing reason', { exact: true }).fill(`TEST ${J}: try to change pacing after start`);
+  await release.getByRole('button', { name: 'Save pacing' }).click();
+  await expect(release.getByTestId('course-desk-outcome')).toContainText('Pacing is fixed');
+  await expect(release.getByTestId('course-desk-outcome')).toHaveAttribute('data-code', 'academy.pacing_locked');
+  expect((await staff('query', 'admin.courseRelease', { courseId: course.id })).pacing).toBe('self_paced');
+  await page.context().close();
+});
