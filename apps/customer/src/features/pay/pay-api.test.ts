@@ -1342,7 +1342,7 @@ describe('adding a P2P payment method (P-ads-merchant-18)', () => {
     ]);
   });
 
-  it('reads saved details through the logged read and refuses an answer without them', async () => {
+  it('reads saved details masked through the logged read and refuses an answer without them', async () => {
     const urls: string[] = [];
     const answer = (body: unknown) =>
       createApiClient({
@@ -1352,13 +1352,13 @@ describe('adding a P2P payment method (P-ads-merchant-18)', () => {
         },
       });
     const shown = await createPersonalPayApi(
-      answer({ ...header, details: { iban: 'X' } }),
+      answer({ ...header, details: { iban: '•••• 3000' } }),
       userId,
       createPayMutationGuard(),
-    ).revealInstrument(instrumentId);
-    expect(shown).toEqual({ ok: true, data: { ...header, details: { iban: 'X' } } });
-    expect(urls[0]).toContain('instruments.reveal');
-    expect(await createPersonalPayApi(answer(header), userId, createPayMutationGuard()).revealInstrument(instrumentId)).toMatchObject({
+    ).maskedInstrument(instrumentId);
+    expect(shown).toEqual({ ok: true, data: { ...header, details: { iban: '•••• 3000' } } });
+    expect(urls[0]).toContain('instruments.revealMasked');
+    expect(await createPersonalPayApi(answer(header), userId, createPayMutationGuard()).maskedInstrument(instrumentId)).toMatchObject({
       ok: false,
     });
   });

@@ -146,7 +146,8 @@ test('J-p2p-04 #1 the catalogue shows each method per country with what it asks 
   await form.getByTestId('method-add-country').fill('DE');
   await expect(form.getByTestId('method-add-method').locator('option', { hasText: 'TEST bank transfer' }).first()).toBeAttached();
   await expect(form.getByTestId('method-add-method').locator('option', { hasText: J04_LABEL })).toHaveCount(0);
-  const refused = await s.bare.mutate('instruments.create', account(J04_METHOD, holderOf(who), { fiatCurrency: 'USD' }));
+  const refused = await s.raw.mutate('instruments.create', account(J04_METHOD, holderOf(who), { fiatCurrency: 'USD' }));
+  keepCounter(s);
   expect(refusalCode(refused)).toBe('p2p.instrument_method_disabled');
   await page.goto('/uc/ad/create');
   await expect(page.getByTestId('offer-form').getByLabel('TEST bank transfer', { exact: true })).toBeVisible();
@@ -178,7 +179,6 @@ test('J-p2p-04 #2 a holder name that is not the verified name is refused and not
   // Straight to the service, confirmed with the passkey: someone else's name, then an IBAN in the wrong shape. Neither
   // stores anything.
   const mismatch = await s.raw.mutate('instruments.create', account(METHOD, 'TEST Somebody Else', { fiatCurrency: 'USD' }));
-  keepCounter(s);
   expect(refusalCode(mismatch)).toBe('p2p.holder_name_mismatch');
   const badIban = await s.raw.mutate(
     'instruments.create',
@@ -187,12 +187,13 @@ test('J-p2p-04 #2 a holder name that is not the verified name is refused and not
       details: { account_holder: holderOf(state.seller), iban: 'de89 3704' },
     }),
   );
+  keepCounter(s);
   expect(refusalCode(badIban)).toBe('p2p.account_format_invalid');
   expect(badIban.body.error.data.p2pLimit).toEqual({ until: null, field: 'iban' });
   expect(await s.query('instruments.list', { limit: 200 })).toEqual(before);
 
-  // In the app: the same two refusals, each on its field, and the saved list unchanged. The first save asks the seller
-  // to confirm it's them; the second is covered by that confirmation.
+  // In the app: the same two refusals, each on its field, and the saved list unchanged. Each save is confirmed with the
+  // passkey, for exactly the details under review.
   const page = await sellerInApp(browser, run.read());
   await page.goto('/p2p/methods');
   const saved = page.getByTestId('saved-method');
@@ -211,8 +212,7 @@ test('J-p2p-04 #2 a holder name that is not the verified name is refused and not
   await form.getByLabel('Account holder').fill(holderOf(state.seller));
   await form.getByLabel('IBAN').fill('de89 3704');
   await form.getByRole('button', { name: 'Review' }).click();
-  await expect(page.getByTestId('method-add-covered')).toContainText('need no new check until');
-  await page.getByTestId('method-add-confirm').click();
+  await page.getByTestId('method-add-review').getByRole('button', { name: 'Use a passkey' }).click();
   await expect(form.locator('[data-field="iban"] [role="alert"]')).toHaveText(
     'This is not in the format the method needs: Two capital letters, two digits, then 11 to 30 capital letters or digits, with no spaces',
   );
@@ -245,13 +245,13 @@ test('J-p2p-04 #3 saving a payment method asks for a step-up and shows it masked
   await form.getByLabel('Your name for it (optional)').fill('TEST pounds account');
   await form.getByRole('button', { name: 'Review' }).click();
   const review = page.getByTestId('method-add-review');
+  // No way to save but confirming: the passkey or code approves exactly these details.
   await expect(review.getByTestId('step-up-confirm')).toBeVisible();
-  await expect(page.getByTestId('method-add-confirm')).toHaveCount(0);
   await review.getByRole('button', { name: 'Use a passkey' }).click();
   await expect(form.getByTestId('method-add-saved')).toBeVisible();
   await expect(saved).toHaveCount(before.length + 1);
 
-  // Shown masked: the holder whole, the IBAN by its last four only, read through the logged read.
+  // Shown masked by the service: the holder whole, the IBAN by its last four only, read through the logged read.
   const row = saved.filter({ hasText: 'TEST pounds account' });
   await row.getByTestId('saved-method-show').click();
   const details = row.getByTestId('saved-method-details');
@@ -278,7 +278,9 @@ test('J-p2p-04 #4 removing a method an ad uses lists the ads first; confirming p
   const state = journey();
   const s = await seller(state);
   const [bank] = (await s.query('instruments.list', { limit: 200 })).filter((row) => row.methodId === METHOD && row.status === 'active');
-  const res = await s.bare.mutate('instruments.remove', { instrumentId: bank.id });
+  // Confirmed with the passkey, so the refusal is about the ads, not the confirmation.
+  const res = await s.raw.mutate('instruments.remove', { instrumentId: bank.id });
+  keepCounter(s);
   expect(refusalCode(res), 'removing a method an ad uses refuses with no list of ads yet (P-ads-merchant-18 removal slice)').toBe(
     'p2p.method_in_use',
   );

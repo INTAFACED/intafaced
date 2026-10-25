@@ -603,7 +603,8 @@ test('J-p2p-01 #6 the payment details name the seller’s account holder and num
   page,
 }) => {
   const state = journey();
-  const s = p2p(await api(state.seller));
+  // Changing a saved account is confirmed with the seller's TEST passkey (P-ads-merchant-18).
+  const s = p2p(await api(state.seller), await restorePasskey(state.sellerPasskey));
   await signIn(page, state.buyer);
 
   // While escrow is held: the account holder and IBAN under their labels, and the name the payment must carry.
@@ -645,6 +646,8 @@ test('J-p2p-01 #6 the payment details name the seller’s account holder and num
     instrumentId: saved.id,
     details: { account_holder: holderOf(state.seller), iban: TEST_IBAN },
   });
+  // A passkey's counter only goes up: keep how far it went for the release in #8.
+  run.write({ sellerPasskey: s.passkey().saved() });
 });
 
 test('J-p2p-01 #7 the buyer ticks the checklist and marks paid; the order moves to Paid with the release countdown, and the seller is told once', async ({

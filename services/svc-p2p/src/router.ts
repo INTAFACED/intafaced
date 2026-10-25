@@ -2218,7 +2218,7 @@ export function createP2pRouter(
             label: z.string().max(120).optional(),
             /** Exactly the fields the method schema declared. An extra key is refused. */
             details: z.record(z.string(), z.string()),
-            /** Identity's approval for this change (P-ads-merchant-18); omitted inside this session's ten-minute window. */
+            /** Identity's approval of exactly this change and these details (P-ads-merchant-18). Without it, refused. */
             stepUpApprovalId: z.string().min(1).max(200).optional(),
           }),
         )
@@ -2227,7 +2227,12 @@ export function createP2pRouter(
           guard(async () => {
             // Saved details are sealed with the instrument key: without it nothing is saved, before any confirmation.
             if (options.instrumentKeyProvider !== 'local-test') refuseLiveOffersUntilOwnerKms();
-            await instrumentStepUp.assertConfirmed(stepUpCaller(ctx.principal), input.instrumentId, 'create', input.stepUpApprovalId);
+            await instrumentStepUp.assertConfirmed(stepUpCaller(ctx.principal), {
+              instrumentId: input.instrumentId,
+              change: 'create',
+              details: input.details,
+              approvalId: input.stepUpApprovalId,
+            });
             return toHeaderOut(
               await instruments.createInstrument({
                 instrumentId: input.instrumentId,
@@ -2259,7 +2264,12 @@ export function createP2pRouter(
         .mutation(async ({ ctx, input }) =>
           guard(async () => {
             if (input.details !== undefined && options.instrumentKeyProvider !== 'local-test') refuseLiveOffersUntilOwnerKms();
-            await instrumentStepUp.assertConfirmed(stepUpCaller(ctx.principal), input.instrumentId, 'update', input.stepUpApprovalId);
+            await instrumentStepUp.assertConfirmed(stepUpCaller(ctx.principal), {
+              instrumentId: input.instrumentId,
+              change: 'update',
+              details: input.details,
+              approvalId: input.stepUpApprovalId,
+            });
             return toHeaderOut(
               await instruments.updateInstrument({
                 instrumentId: input.instrumentId,
@@ -2277,21 +2287,13 @@ export function createP2pRouter(
         .output(instrumentHeaderOutput)
         .mutation(async ({ ctx, input }) =>
           guard(async () => {
-            await instrumentStepUp.assertConfirmed(stepUpCaller(ctx.principal), input.instrumentId, 'remove', input.stepUpApprovalId);
+            await instrumentStepUp.assertConfirmed(stepUpCaller(ctx.principal), {
+              instrumentId: input.instrumentId,
+              change: 'remove',
+              details: undefined,
+              approvalId: input.stepUpApprovalId,
+            });
             return toHeaderOut(await instruments.removeInstrument({ instrumentId: input.instrumentId, ownerId: ctx.principal.userId }));
-          }),
-        ),
-
-      /**
-       * Until when this session's payment-method changes need no new confirmation (P-ads-merchant-18), or null when the
-       * next one does. A take's or a release's confirmation never counts here. An API key is refused.
-       */
-      stepUpWindow: merchantApiProcedure('p2p:read')
-        .output(z.object({ confirmedUntil: z.string().datetime().nullable() }))
-        .query(async ({ ctx }) =>
-          guard(async () => {
-            const { confirmedUntil } = await instrumentStepUp.window(stepUpCaller(ctx.principal));
-            return { confirmedUntil: confirmedUntil?.toISOString() ?? null };
           }),
         ),
 
@@ -2336,6 +2338,21 @@ export function createP2pRouter(
         .mutation(async ({ ctx, input }) =>
           guard(async () => {
             const revealed = await instruments.revealOwn({ instrumentId: input.instrumentId, viewerId: ctx.principal.userId });
+            return { ...toHeaderOut(revealed), details: { ...revealed.details } };
+          }),
+        ),
+
+      /**
+       * The owner's own details masked (J-p2p-04 #3): the account holder whole, every other value as its last four.
+       * Logged like `reveal`, and `p2p:write` for the same reason. The room shows this; the whole values stay behind
+       * `reveal`.
+       */
+      revealMasked: merchantApiProcedure('p2p:write')
+        .input(z.object({ instrumentId: z.string().guid() }))
+        .output(instrumentHeaderOutput.extend({ details: instrumentDetailsOutput }))
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => {
+            const revealed = await instruments.revealOwnMasked({ instrumentId: input.instrumentId, viewerId: ctx.principal.userId });
             return { ...toHeaderOut(revealed), details: { ...revealed.details } };
           }),
         ),

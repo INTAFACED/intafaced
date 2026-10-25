@@ -1095,7 +1095,7 @@ export function createPersonalPayApi(
       fiatCurrency: string;
       label: string;
       details: Record<string, string>;
-      /** The person's confirmation of this one change, or none while this session's last one still covers it. */
+      /** The person's confirmation of exactly this change and these details (svc-p2p refuses a change without one). */
       stepUpApprovalId?: string;
     }): Promise<ApiResult<z.infer<typeof s.instrumentSchema>>> {
       const denied = signedIn();
@@ -1115,14 +1115,17 @@ export function createPersonalPayApi(
         undefined,
         p2pCurrent,
       ),
-    /** Until when this session's payment-method changes need no new confirmation (`instruments.stepUpWindow`), or null. */
-    instrumentStepUpWindow: (signal?: AbortSignal) =>
-      api.query('p2p', 'instruments.stepUpWindow', undefined, s.takeStepUpWindowSchema, { signal }),
     /**
-     * The person's own saved details for one method. svc-p2p logs every read in the same statement, the owner's
-     * included, so this runs only when the person asks to see them.
+     * The person's own saved details for one method, masked by svc-p2p (the account holder whole, every other value as its
+     * last four). svc-p2p logs every read in the same statement, the owner's included, so this runs only when the person
+     * asks to see them.
      */
-    revealInstrument: (instrumentId: string) => api.mutate('p2p', 'instruments.reveal', { instrumentId }, s.revealedInstrumentSchema),
+    async maskedInstrument(instrumentId: string): Promise<ApiResult<z.infer<typeof s.revealedInstrumentSchema>>> {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      return api.mutate('p2p', 'instruments.revealMasked', { instrumentId }, s.revealedInstrumentSchema);
+    },
     guard,
   };
 }
