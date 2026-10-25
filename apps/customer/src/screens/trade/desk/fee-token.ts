@@ -73,7 +73,8 @@ export type FeeTokenChoice =
   | {
       readonly kind: 'not_offered';
       /** `no_terms` also covers a schedule that is unpublished or still loading: nothing is offered until it answers. */
-      readonly reason: 'no_terms' | 'no_price' | 'no_discount' | 'order_type' | 'signed_out';
+      /** `received`: the order receives the token itself, so its fee is paid in it already. */
+      readonly reason: 'no_terms' | 'received' | 'no_price' | 'no_discount' | 'order_type' | 'signed_out';
       readonly token: string | null;
     };
 
@@ -83,6 +84,7 @@ export function feeTokenChoice(source: Loadable<FeeToken>, receive: string, type
   const terms = data?.terms ?? null;
   if (!terms) return { kind: 'not_offered', reason: 'no_terms', token: null };
   const token = terms.asset;
+  if (receive === token) return { kind: 'not_offered', reason: 'received', token };
   if (terms.perUnit[receive] === undefined) return { kind: 'not_offered', reason: 'no_price', token };
   if (!signedIn) return { kind: 'not_offered', reason: 'signed_out', token };
   if (type !== 'limit' && type !== 'market') return { kind: 'not_offered', reason: 'order_type', token };

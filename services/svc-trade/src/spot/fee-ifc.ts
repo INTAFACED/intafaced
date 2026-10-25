@@ -12,6 +12,9 @@
  *   · token charged       → the leg row says fee asset = the token, amount = what was charged.
  *   · token balance short → nothing is charged in the token, the fill takes the fee in the received asset as before, and
  *                           the leg row says why (`trade.fee_ifc_insufficient`). The order never fails on a fee.
+ *   · charge refused      → the same, when the ledger refuses this charge itself the same way on every retry
+ *                           (`trade.fee_ifc_refused`). A refusal that is not about this charge (a freeze, an outage)
+ *                           retries the fill, which the fill post would need anyway.
  *
  * If this crashes exactly here, whose funds are stranded? Nobody's:
  *   · after the token charge and before the rows: a redelivery finds no row, posts the same `fee:trade:ifc:<legId>` key
@@ -47,7 +50,9 @@ export type IfcFeeFallback =
   /** The fee converts to less than one unit of the token. */
   | 'trade.fee_ifc_dust'
   /** The schedule version the order was placed under names no conversion for this fee asset. */
-  | 'trade.fee_ifc_index_unset';
+  | 'trade.fee_ifc_index_unset'
+  /** The ledger refused this charge itself (an entry or a grant it will refuse on every retry). */
+  | 'trade.fee_ifc_refused';
 
 /** The token discount the owner's stake earns now, in bps off the token fee (svc-token `accessOf`). */
 export interface IfcDiscountSource {
@@ -173,7 +178,10 @@ export function ifcGross(fee: Amount, perUnit: string): Amount {
   return mul(fee, parseAmount(perUnit), 'floor');
 }
 
-/** What `feeCharge` takes for `gross` at `discountBps` (its own rounding: the discount rounds up, in the payer's favour). */
+/**
+ * What `feeCharge` takes for `gross` at `discountBps` (its rounding: the discount rounds up, in the payer's favour). Used
+ * only to tell dust before building the charge, which refuses a zero net; the amount charged is read off the charge.
+ */
 export function ifcNet(gross: Amount, discountBps: number): Amount {
   return sub(gross, mulBps(gross, discountBps, 'ceil'));
 }
@@ -213,8 +221,7 @@ export async function chargeIfcLeg(
   const perUnit = leg.terms?.perUnit[leg.feeAsset];
   if (!leg.terms || perUnit === undefined) return { charged: null, fallback: 'trade.fee_ifc_index_unset' };
   const gross = ifcGross(leg.fee, perUnit);
-  const net = ifcNet(gross, leg.discountBps);
-  if (net <= 0n) return { charged: null, fallback: 'trade.fee_ifc_dust' };
+  if (ifcNet(gross, leg.discountBps) <= 0n) return { charged: null, fallback: 'trade.fee_ifc_dust' };
   const charge = recipes.feeCharge({
     chargeId: ifcChargeId(leg.legId),
     userId: leg.userId,
@@ -225,21 +232,38 @@ export async function chargeIfcLeg(
     grossTokenAmount: gross,
     discountBps: leg.discountBps,
   });
-  const charged = { charged: { tokenAsset: leg.terms.tokenAsset, net }, fallback: null };
+  // The amount the charge moves, as the recipe built it.
+  const charged = { charged: { tokenAsset: leg.terms.tokenAsset, net: charge.entries[0]!.amount }, fallback: null };
   try {
     await ledger.post(charge);
   } catch (err) {
-    if (!isInsufficientFunds(err)) throw err;
+    const fallback = fallbackFor(err);
+    if (fallback === null) throw err;
     // A redelivery whose first attempt was charged posts the same key: the ledger may answer the balance before the
     // key. The key decides, so the token is never charged without the row saying so.
     if (await ledger.getTxByKey(charge.idempotencyKey)) return charged;
-    return { charged: null, fallback: 'trade.fee_ifc_insufficient' };
+    return { charged: null, fallback };
   }
   return charged;
 }
 
-function isInsufficientFunds(err: unknown): boolean {
-  return err instanceof InsufficientFundsError || (err instanceof LedgerError && err.code === 'ledger.insufficient_funds');
+/**
+ * Ledger refusals of this charge itself, the same on every retry: retrying would hold the counterparty's side of the
+ * fill too, so the leg pays in what it receives and says why. Every other failure (a freeze, an outage, a key reused
+ * with another body, an unknown code) is not about this charge, and the fill retries.
+ */
+const REFUSED_CHARGE_CODES = new Set([
+  'ledger.invalid_entry',
+  'ledger.unbalanced',
+  'ledger.owner_identity_space',
+  'ledger.caller_forbidden',
+]);
+
+function fallbackFor(err: unknown): IfcFeeFallback | null {
+  if (err instanceof InsufficientFundsError) return 'trade.fee_ifc_insufficient';
+  if (!(err instanceof LedgerError)) return null;
+  if (err.code === 'ledger.insufficient_funds') return 'trade.fee_ifc_insufficient';
+  return REFUSED_CHARGE_CODES.has(err.code) ? 'trade.fee_ifc_refused' : null;
 }
 
 /** `feeCharge` keys on `fee:trade:<chargeId>`: one token charge per fill leg, ever. */
@@ -265,7 +289,7 @@ export function ifcDecisionFromRow(
  * lock one could fall back for funds and the other, after a deposit, charge the token: the fee would be taken twice.
  *
  * A row already there is the decision. A row held by another order is a reused engine sequence: nothing is charged,
- * and writing the row refuses it as before.
+ * and writing the row refuses it as before. The row is read and written on the connection that holds the lock.
  */
 export async function settleIfcLeg(
   deps: {
@@ -284,12 +308,12 @@ export async function settleIfcLeg(
     readonly fee: Amount;
     readonly rebateFill: boolean;
   },
-  writeRow: (decision: IfcLegDecision) => Promise<void>,
+  writeRow: (decision: IfcLegDecision, sql: Sql) => Promise<void>,
 ): Promise<IfcLegDecision> {
   const tokenAsset = leg.order.feeCurrency ?? null;
   if (tokenAsset === null || tokenAsset === leg.feeAsset) return PAID_IN_RECEIVED;
-  return withLegLock(deps.sql, `trade.fill_fee_ifc:${leg.legId}`, async () => {
-    const [row] = await deps.sql<Array<{ order_id: string; fee_asset: string; fee_amount: string; fee_fallback: string | null }>>`
+  return withLegLock(deps.sql, `trade.fill_fee_ifc:${leg.legId}`, async (sql) => {
+    const [row] = await sql<Array<{ order_id: string; fee_asset: string; fee_amount: string; fee_fallback: string | null }>>`
       SELECT order_id, fee_asset, fee_amount::text AS fee_amount, fee_fallback FROM trade.fills
        WHERE market_id = ${leg.marketId} AND sequence = ${leg.sequence} AND liquidity = ${leg.role}
        LIMIT 1
@@ -304,17 +328,30 @@ export async function settleIfcLeg(
       terms: await deps.termsAt(leg.order.createdAt),
       rebateFill: leg.rebateFill,
     });
-    await writeRow(decision);
+    await writeRow(decision, sql);
     return decision;
   });
 }
 
-/** A transaction that only holds the lock: the work inside commits on its own connections before the lock goes. */
-async function withLegLock<T>(sql: Sql, key: string, run: () => Promise<T>): Promise<T> {
-  return (await sql.begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
-    return run();
-  })) as T;
+/**
+ * A session lock on one reserved connection, and the leg's read and write on that same connection, each committed
+ * before the lock goes. Holding the lock on one pool connection while the work waits for another could exhaust the
+ * pool when many fills settle at once (follow-store.ts `runFollowExclusive`).
+ */
+async function withLegLock<T>(sql: Sql, key: string, run: (sql: Sql) => Promise<T>): Promise<T> {
+  const connection = await sql.reserve();
+  let locked = false;
+  try {
+    await connection`SELECT pg_advisory_lock(hashtextextended(${key}, 0))`;
+    locked = true;
+    return await run(connection);
+  } finally {
+    try {
+      if (locked) await connection`SELECT pg_advisory_unlock(hashtextextended(${key}, 0))`;
+    } finally {
+      connection.release();
+    }
+  }
 }
 
 /** Whether a retry asks for the same fee currency its stored order was placed with. */

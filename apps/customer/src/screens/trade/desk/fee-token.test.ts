@@ -27,6 +27,7 @@ describe('whether an order can pay its fee in the token', () => {
   it.each([
     ['no terms are published', ready({ terms: null, access: null, accessRefused: null, ladder: null }), 'BTC', 'limit', true, 'no_terms'],
     ['the schedule has not answered', { status: 'loading' as const }, 'BTC', 'limit', true, 'no_terms'],
+    ['the order receives the token itself', full, 'IFC', 'limit', true, 'received'],
     ['no price is published for the fee asset', full, 'ETH', 'limit', true, 'no_price'],
     ['no one is signed in', full, 'BTC', 'limit', false, 'signed_out'],
     ['the order is a stop', full, 'BTC', 'stop_limit', true, 'order_type'],

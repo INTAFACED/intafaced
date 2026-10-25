@@ -121,6 +121,14 @@ describe('placing an order that pays its fees in the token', () => {
     expect(await heldUsdt()).toBe(before);
   });
 
+  it('keeps the token choice on a replacement that does not name a fee currency', async () => {
+    const trade = tradeOver(database(), ledger, matching, WITH_TERMS, { ifcDiscount });
+    const original = await trade.placeOrder(principalFor(ALICE), buy('p-4', { feeCurrency: 'IFC' }));
+    const outcome = await trade.replaceOrder(principalFor(ALICE), original.id, buy('p-4-r', { price: amt('99') }));
+    expect(outcome.replacement?.feeCurrency).toBe('IFC');
+    expect(outcome.replacement?.feeIfcDiscountBps).toBe(2000);
+  });
+
   it('refuses a retry under the same client id that changes the fee currency', async () => {
     const trade = tradeOver(database(), ledger, matching, WITH_TERMS, { ifcDiscount });
     await trade.placeOrder(principalFor(ALICE), buy('p-3', { feeCurrency: 'IFC' }));
@@ -171,7 +179,7 @@ describe('settling a fill whose taker pays in the token', () => {
         if (req.reason === 'trade.fill.fee_ifc' && ++charges === 1) {
           reached();
           await gate;
-          throw new InsufficientFundsError('IFC short at that instant');
+          throw new InsufficientFundsError('user:test', 'IFC', '80', '0');
         }
         return ledger.post(req);
       },

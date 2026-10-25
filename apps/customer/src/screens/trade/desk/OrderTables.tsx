@@ -19,11 +19,15 @@ import { orderTag } from './tif';
 import { OrderChanges } from './OrderChanges';
 
 /** Why a fill whose order chose the platform token took the fee in what it received (svc-trade fee-ifc.ts). */
-const FEE_FALLBACK: Record<string, 'Fee fallback insufficient' | 'Fee fallback rebate' | 'Fee fallback dust' | 'Fee fallback no price'> = {
+const FEE_FALLBACK: Record<
+  string,
+  'Fee fallback insufficient' | 'Fee fallback rebate' | 'Fee fallback dust' | 'Fee fallback no price' | 'Fee fallback refused'
+> = {
   'trade.fee_ifc_insufficient': 'Fee fallback insufficient',
   'trade.fee_ifc_rebate_fill': 'Fee fallback rebate',
   'trade.fee_ifc_dust': 'Fee fallback dust',
   'trade.fee_ifc_index_unset': 'Fee fallback no price',
+  'trade.fee_ifc_refused': 'Fee fallback refused',
 };
 
 /**

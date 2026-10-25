@@ -956,13 +956,15 @@ function FeeCurrencyRow({
   const reason =
     choice.reason === 'no_terms'
       ? t('Fee currency reason', { asset: receiveAsset })
-      : choice.reason === 'no_price'
-        ? t('Fee token no price', { token: choice.token ?? '', asset: receiveAsset })
-        : choice.reason === 'signed_out'
-          ? t('Fee token signed out', { token: choice.token ?? '', asset: receiveAsset })
-          : choice.reason === 'order_type'
-            ? t('Fee token order type', { token: choice.token ?? '', asset: receiveAsset })
-            : t('Fee token no discount', { token: choice.token ?? '', asset: receiveAsset });
+      : choice.reason === 'received'
+        ? t('Fee token received', { token: choice.token ?? receiveAsset })
+        : choice.reason === 'no_price'
+          ? t('Fee token no price', { token: choice.token ?? '', asset: receiveAsset })
+          : choice.reason === 'signed_out'
+            ? t('Fee token signed out', { token: choice.token ?? '', asset: receiveAsset })
+            : choice.reason === 'order_type'
+              ? t('Fee token order type', { token: choice.token ?? '', asset: receiveAsset })
+              : t('Fee token no discount', { token: choice.token ?? '', asset: receiveAsset });
   return (
     <div className="dk-fee-asset" data-fee-currency={receiveAsset} data-fee-token={choice.reason}>
       <span>{t('Fees in', { asset: receiveAsset })}</span>

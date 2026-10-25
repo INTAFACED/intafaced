@@ -204,6 +204,7 @@ const messages = {
   'Fee token no discount':
     'Not offered now: the {token} stake discount is not published. The fee comes out of the {asset} this order receives.',
   'Fee token order type': 'Only a plain limit or market order can pay its fee in {token}. This one pays in the {asset} it receives.',
+  'Fee token received': 'This order receives {token}, so its fee is already paid in {token}.',
   'Fee token signed out': 'Log in to pay fees in {token}. The fee comes out of the {asset} this order receives.',
   'Review fee currency': 'Fee paid in',
   'Review fee token': '{token}, {discount} off with your stake; in {asset} if your {token} is short',
@@ -211,6 +212,7 @@ const messages = {
   'Fee fallback rebate': 'in {asset}: this fill paid a maker rebate',
   'Fee fallback dust': 'in {asset}: under one unit of the token',
   'Fee fallback no price': 'in {asset}: no token price was published for it',
+  'Fee fallback refused': 'in {asset}: the token charge was refused',
   'Short of funds hint': 'Not enough {asset}',
   'Send again': 'Send the same order again',
   'Send again hint': 'If the order never arrived, this sends it once more under the same order number, so it can’t be placed twice.',

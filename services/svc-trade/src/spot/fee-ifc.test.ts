@@ -118,7 +118,7 @@ describe('the conversion', () => {
 });
 
 describe('charging one leg', () => {
-  const leg = {
+  const leg: Parameters<typeof chargeIfcLeg>[1] = {
     legId: 'leg-1',
     userId: USER,
     feeAsset: 'BTC',
@@ -136,7 +136,7 @@ describe('charging one leg', () => {
         posts.push(req);
         if (outcome === 'ok') return { id: 'tx' };
         if (outcome === 'down') throw new Error('socket hang up');
-        throw new InsufficientFundsError('IFC short');
+        throw new InsufficientFundsError('user:test', 'IFC', '80', '10');
       },
       getTxByKey: async (key: string) => (outcome === 'short-but-booked' && key === 'fee:trade:ifc:leg-1' ? { id: 'tx' } : null),
     };
@@ -176,6 +176,20 @@ describe('charging one leg', () => {
       getTxByKey: async () => null,
     };
     expect(await chargeIfcLeg(coded, leg)).toEqual({ charged: null, fallback: 'trade.fee_ifc_insufficient' });
+  });
+
+  it('falls back when the ledger refuses this charge itself, and retries the fill on any other refusal', async () => {
+    const refusing = (code: string) => ({
+      post: async () => {
+        throw new LedgerError('refused', code);
+      },
+      getTxByKey: async () => null,
+    });
+    expect(await chargeIfcLeg(refusing('ledger.invalid_entry'), leg)).toEqual({ charged: null, fallback: 'trade.fee_ifc_refused' });
+    expect(await chargeIfcLeg(refusing('ledger.caller_forbidden'), leg)).toEqual({ charged: null, fallback: 'trade.fee_ifc_refused' });
+    for (const code of ['ledger.frozen', 'ledger.idempotency_conflict', 'ledger.writes_blocked_store_unavailable']) {
+      await expect(chargeIfcLeg(refusing(code), leg)).rejects.toThrow('refused');
+    }
   });
 
   it('counts a charge the ledger already booked under the key as charged, even when a retry is refused for funds', async () => {

@@ -274,7 +274,7 @@ export async function ocoExecutionSettled(
  * comparing them would turn every legitimate redelivery into an incident.
  */
 export async function insertFillLeg(
-  svc: TradeServiceInternal,
+  svc: Pick<TradeServiceInternal, 'sql'>,
   leg: {
     id: string;
     orderId: string;
@@ -558,6 +558,7 @@ export async function settleFill(svc: PublishingService, market: Market, fill: E
       attribution: takerAttribution,
     });
     // A taker paying in the token is charged it before its row; the fill then takes no fee from what it receives.
+    let takerWritten = false;
     const takerIfc = await settleIfcLeg(
       ifcDeps(svc, takerAttribution),
       {
@@ -570,12 +571,15 @@ export async function settleFill(svc: PublishingService, market: Market, fill: E
         fee: takerFeeInReceived,
         rebateFill: false,
       },
-      (ifc) => svc.insertFillLeg(takerRow(ifc)),
+      async (ifc, sql) => {
+        await insertFillLeg({ sql }, takerRow(ifc));
+        takerWritten = true;
+      },
     );
     const takerFee = takerIfc.charged?.net ?? takerFeeInReceived;
     const takerFeeAsset = takerIfc.charged?.tokenAsset ?? takerReceives;
     const takerFillFeeBps = takerIfc.charged ? 0 : rates.takerFeeBps;
-    await svc.insertFillLeg(takerRow(takerIfc));
+    if (!takerWritten) await svc.insertFillLeg(takerRow(takerIfc));
 
     await svc.refreshFilledQty(taker.id);
     await svc.notePartialIfOpen(taker.id, formatAmount(qty), formatAmount(price), `fill:${fill.sequence}:taker`);
@@ -776,6 +780,7 @@ export async function settleFill(svc: PublishingService, market: Market, fill: E
   // Before the fill rows and `tradeFill` (fee-ifc.ts): a leg whose order chose the token is charged it and written, or
   // written with why it stays in the received asset. A taker whose fee pays this fill's maker rebate keeps it there.
   const decided: IfcLegDecision[] = [];
+  const written = new Set<'maker' | 'taker'>();
   for (const leg of legs) {
     decided.push(
       await settleIfcLeg(
@@ -790,7 +795,10 @@ export async function settleFill(svc: PublishingService, market: Market, fill: E
           fee: leg.feeAmount,
           rebateFill: leg.role === 'taker' && paidRebate !== null,
         },
-        (ifc) => svc.insertFillLeg(rowOf(leg, ifc)),
+        async (ifc, sql) => {
+          await insertFillLeg({ sql }, rowOf(leg, ifc));
+          written.add(leg.role);
+        },
       ),
     );
   }
@@ -809,8 +817,9 @@ export async function settleFill(svc: PublishingService, market: Market, fill: E
     );
   }
 
+  // A leg decided and written under its lock above is not written again.
   for (const [i, leg] of legs.entries()) {
-    await svc.insertFillLeg(rowOf(leg, decided[i]!));
+    if (!written.has(leg.role)) await svc.insertFillLeg(rowOf(leg, decided[i]!));
   }
 
   // Recomputed from the fills rather than incremented, so it is idempotent by
