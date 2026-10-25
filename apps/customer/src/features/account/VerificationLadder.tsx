@@ -1,5 +1,6 @@
 import { StatusTag } from '@intafaced/ui';
 import {
+  KYC_LADDER_LEVELS,
   kycLevelsDescribeOutputSchema,
   type KycLadderFeatureState,
   type KycLadderLevel,
@@ -10,7 +11,7 @@ import { useResource } from '../../shared/resource';
 import { Button, Failure, Loading } from '../../shared/ui';
 import { verificationLadderCopy as copy } from './verification-ladder-copy';
 
-const order: Record<KycLadderLevel, number> = { none: 0, basic: 1, full: 2, institutional: 3 };
+const rank = (level: KycLadderLevel) => KYC_LADDER_LEVELS.indexOf(level);
 
 /** A refusal at every level, from the region or the module. The matrix code stays in a data attribute. */
 function blockedKey(code: string): 'module_blocked' | 'region_blocked' | 'unavailable' {
@@ -23,14 +24,26 @@ function blockedKey(code: string): 'module_blocked' | 'region_blocked' | 'unavai
  * I-kyc-compliance-04/05: the ladder of levels on /verification. Each level lists what it unlocks (worked out by
  * identity with the same rule the money services' guards use), what the owner publishes it asks for, and the stated
  * review time. Unpublished reads as unpublished, never as an empty list. "Verify to unlock" starts a request for that
- * level in the request form beside it; it grants nothing by itself.
+ * level in the request form beside it; it grants nothing by itself, and shows only for a level that form offers.
+ * `statusTier` is the level the page's own status read returned: when it changes (a refresh after an approval), the
+ * ladder reads again, so the two never show different levels for long.
  */
-export function VerificationLadder({ onVerify, verifyDisabled }: { onVerify: (level: KycLadderLevel) => void; verifyDisabled: boolean }) {
+export function VerificationLadder({
+  onVerify,
+  verifyDisabled,
+  offered,
+  statusTier,
+}: {
+  onVerify: (level: KycLadderLevel) => void;
+  verifyDisabled: boolean;
+  offered: readonly KycLadderLevel[];
+  statusTier: KycLadderLevel | null;
+}) {
   const { api, userId } = useSession();
   const { t, Copy } = copy.useCopy();
   const { resource, reload } = useResource(
     (signal) => api.query('identity', 'kyc.levels.describe', {}, kycLevelsDescribeOutputSchema, { signal }),
-    `verification-ladder:${userId}`,
+    `verification-ladder:${userId}:${statusTier ?? 'reading'}`,
   );
   if (resource.status === 'loading') return <Loading />;
   if (resource.status === 'failed')
@@ -44,7 +57,7 @@ export function VerificationLadder({ onVerify, verifyDisabled }: { onVerify: (le
     );
   const ladder = resource.data;
   const feature = (rung: KycLadderRung, f: KycLadderFeatureState) => {
-    const held = order[rung.level] <= order[ladder.held];
+    const held = rank(rung.level) <= rank(ladder.held);
     const label =
       f.state === 'allowed'
         ? f.perOffer
@@ -123,7 +136,7 @@ export function VerificationLadder({ onVerify, verifyDisabled }: { onVerify: (le
                 {rung.reviewHours === 1 ? <Copy k="reviewTimeOne" /> : <Copy k="reviewTime" params={{ hours: String(rung.reviewHours) }} />}
               </p>
             )}
-            {order[rung.level] > order[ladder.held] && (
+            {rank(rung.level) > rank(ladder.held) && offered.includes(rung.level) && (
               <Button variant="secondary" disabled={verifyDisabled} onClick={() => onVerify(rung.level)}>
                 <Copy k="verify" />
               </Button>

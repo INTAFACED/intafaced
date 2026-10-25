@@ -15,7 +15,7 @@ export const verificationLadderCopy = defineCopy('account.verificationLadder', {
   noReviewTimeHelp: 'Ask Support',
   verify: 'Verify to unlock',
   held: 'Included in your level',
-  allowed: 'Unlocked',
+  allowed: 'Unlocked at this level',
   needsLevel: 'Needs level {level}',
   perOffer: 'Set per reward',
   module_blocked: 'Not offered in your region',

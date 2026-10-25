@@ -147,6 +147,7 @@ describe('published requirements and review times (I-kyc-compliance-05)', () => 
     ['{"gold":["id_document"]}', 'not a verification level'],
     ['{"basic":["blood_type"]}', 'unknown requirement'],
     ['{"basic":["id_document","id_document"]}', 'twice'],
+    ['{"basic":["legal_name"],"basic":["email"]}', 'basic is set twice'],
   ])('a malformed requirement list stops the service: %s', (raw, message) => {
     expect(() => parseKycRequirementsByLevel(raw)).toThrow(message);
   });
@@ -197,6 +198,11 @@ describe('the read door', () => {
 
   it('says when the region was never resolved', async () => {
     const { r } = await caller(['identity:read'], 'XX');
+    expect(await r.describe()).toMatchObject({ region: 'XX', regionResolved: false });
+  });
+
+  it('a blank region reads as unresolved, never as a broken read', async () => {
+    const { r } = await caller(['identity:read'], '');
     expect(await r.describe()).toMatchObject({ region: 'XX', regionResolved: false });
   });
 

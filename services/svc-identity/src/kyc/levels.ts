@@ -64,6 +64,10 @@ export function parseKycRequirementsByLevel(raw: string | undefined): ReadonlyMa
     throw new Error(`${setting} must be a JSON object of level -> requirement keys`);
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(`${setting} must be a JSON object`);
+  // JSON.parse keeps the last of two equal keys without a word. A level named twice is a mistake to stop on, not to
+  // resolve: level names never appear as requirement keys, so counting them as object keys in the raw text is exact.
+  for (const tier of KYC_TIERS)
+    if ((raw.match(new RegExp(`"${tier}"\\s*:`, 'g')) ?? []).length > 1) throw new Error(`${setting}: ${tier} is set twice`);
   for (const [level, keys] of Object.entries(parsed)) {
     const tier = tierOf(level, setting);
     if (!Array.isArray(keys) || keys.length === 0) throw new Error(`${setting}: ${tier} must list at least one requirement`);
