@@ -27,6 +27,7 @@ import {
   TEST_DEPOSIT_NETWORKS,
   TEST_DEPOSIT_TERMS,
   TEST_HALTED_DEPOSIT,
+  TEST_WITHDRAWAL_LIMITS,
   networkRowMatches,
   payProposal,
   assetEditProposal,
@@ -285,7 +286,13 @@ for (const n of TEST_DEPOSIT_NETWORKS) {
 // The TEST networks ask for as many confirmations as the stack's svc-pay credits at, so the room's count and the credit agree.
 {
   const { default: payService } = await import('./local-stack-services/pay.mjs');
-  const payEnv = payService({ c: () => ({}), secrets: {}, dbUrl: () => '', urlOf: () => '', PORTS: {} }).env();
+  const payEnv = payService({
+    c: () => ({}),
+    secrets: { payTravelRuleKey: 'TEST-placeholder' },
+    dbUrl: () => '',
+    urlOf: () => '',
+    PORTS: {},
+  }).env();
   for (const n of TEST_DEPOSIT_NETWORKS) assert.equal(String(n.confirmationsRequired), payEnv.PAY_MIN_CONFIRMATIONS, n.networkId);
 }
 assert.equal(TEST_DEPOSIT_TERMS.length, 4);
@@ -301,6 +308,19 @@ for (const t of TEST_DEPOSIT_TERMS) {
   else assert.equal(t.haltNote, null);
 }
 assert.equal(TEST_DEPOSIT_TERMS.filter((t) => !t.enabled).length, 1);
+// TEST withdrawal limits for every verified level, none for an unverified account, and the stack's svc-pay enforces them.
+assert.deepEqual([...TEST_WITHDRAWAL_LIMITS.tiers], ['basic', 'full', 'institutional']);
+{
+  const { default: payService } = await import('./local-stack-services/pay.mjs');
+  const payEnv = payService({
+    c: () => ({}),
+    secrets: { payTravelRuleKey: 'TEST-placeholder' },
+    dbUrl: () => '',
+    urlOf: () => '',
+    PORTS: {},
+  }).env();
+  assert.equal(payEnv.PAY_WITHDRAWAL_LIMITS, 'required');
+}
 assert.deepEqual(payProposal('pay.registry_change', 'sha256:abc'), {
   actionType: 'pay.registry_change',
   targetService: 'svc-pay',
