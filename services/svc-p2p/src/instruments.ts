@@ -89,7 +89,39 @@ export interface MethodSchema {
   readonly enabled: boolean;
   /** P-disputes-security-09: whether money on this method in this market arrives at once. */
   readonly settlement: MethodSettlement;
+  /** P-ads-merchant-19: `cash_in_person` when the row carries cash rules, else `transfer`. */
+  readonly kind: MethodKind;
+  /** P-ads-merchant-19: what the payer writes in the payment note, and what they never write. Null: none registered. */
+  readonly noteRules: MethodNoteRules | null;
+  /** P-ads-merchant-19: the cash-in-person rules, owner values on the row. Null on a transfer method. */
+  readonly cashRules: MethodCashRules | null;
 }
+
+export type MethodKind = 'transfer' | 'cash_in_person';
+
+/** The payment-note rules a method row carries: guidance for the note, and words that never go in it. */
+export interface MethodNoteRules {
+  readonly guidance: string;
+  readonly forbidden: readonly string[];
+}
+
+/**
+ * Cash in person (P-ads-merchant-19): the price is locked (a floating ad cannot list it), the meeting and proof guidance
+ * are shown before anyone takes, and the seller's release window on an order paid this way is the row's own.
+ */
+export interface MethodCashRules {
+  readonly meetingGuidance: string;
+  readonly proof: string;
+  readonly releaseWindowSeconds: number;
+}
+
+/** Bounds of the rule texts and the cash release window; the service and the database check the same. */
+export const NOTE_GUIDANCE_MAX = 500;
+export const NOTE_FORBIDDEN_MAX_WORDS = 20;
+export const NOTE_FORBIDDEN_WORD_MAX = 80;
+export const CASH_TEXT_MAX = 1000;
+export const CASH_RELEASE_MIN_SECONDS = 300;
+export const CASH_RELEASE_MAX_SECONDS = 24 * 60 * 60;
 
 /**
  * How money on a method arrives in one market. Instant: at once, and the published payment deadline applies. Non-instant:

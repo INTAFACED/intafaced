@@ -146,6 +146,8 @@ export const p2pTrades = p2p.table(
     /** The method's settlement profile in the market it pays into, copied at take (P-disputes-security-09). */
     nonInstant: boolean('non_instant').notNull().default(false),
     settlementWindowSeconds: integer('settlement_window_seconds'),
+    /** P-ads-merchant-19: the release window of a cash-in-person method row, copied at take (300 s to 24 h). */
+    cashReleaseSeconds: integer('cash_release_seconds'),
     status: tradeStatusEnum('status').notNull().default('created'),
     /**
      * THE DECISION. Written and committed before the ledger post it authorises.
@@ -342,6 +344,10 @@ export const paymentMethodSchemas = p2p.table(
     /** Settlement profile (P-disputes-security-09): instant, or a window of 60 s to 30 days (null = the published deadline). */
     instant: boolean('instant').notNull().default(true),
     settlementWindowSeconds: integer('settlement_window_seconds'),
+    /** Payment-note rules (P-ads-merchant-19): `{ guidance, forbidden[] }`, or null when none is registered. */
+    noteRules: jsonb('note_rules'),
+    /** Cash-in-person rules (P-ads-merchant-19): `{ meetingGuidance, proof, releaseWindowSeconds }`; set = cash in person. */
+    cashRules: jsonb('cash_rules'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

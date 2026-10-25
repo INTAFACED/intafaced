@@ -28,6 +28,8 @@ const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 /** This journey's own TEST method, which step 1 retires; no other journey pays with it. */
 const J04_METHOD = 'test-j04-transfer';
 const J04_LABEL = 'TEST J-p2p-04 transfer';
+/** The stack's TEST cash-in-person method (`local-test-gates.mjs p2p`), whose row carries cash rules. */
+const CASH_METHOD = 'test-cash-in-person';
 const AD = { price: '0.93', min: '10', max: '100' };
 // A part of a step whose door is not built yet refuses at once, so the run stays short.
 const UNBUILT = { timeout: 5_000 };
@@ -163,11 +165,40 @@ test('J-p2p-04 #1 cash in person and payment-note rules come from the method row
   await signIn(page, state.seller);
   await page.goto('/p2p/methods');
   await page.getByTestId('methods-catalogue').getByLabel('Country').selectOption('DE');
-  // The remittance note rules the method row carries, shown beside it (P-ads-merchant-19).
-  await expect(
-    page.locator(`[data-testid="catalogue-method"][data-method="${METHOD}"] [data-testid="catalogue-note-rules"]`),
-    'the catalogue shows no payment-note rules yet (P-ads-merchant-19 catalogue rules slice)',
-  ).toBeVisible(UNBUILT);
+  // The remittance note rules the bank transfer's row carries, shown beside it (P-ads-merchant-19).
+  const notes = page.locator(`[data-testid="catalogue-method"][data-method="${METHOD}"] [data-testid="catalogue-note-rules"]`);
+  await expect(notes).toContainText('Payment note');
+  await expect(notes).toContainText('TEST: write only the order number in the payment note.');
+  await expect(notes.getByTestId('catalogue-note-forbidden')).toHaveText('Never write: USDT, crypto, P2P');
+  // The TEST cash-in-person row: a locked price, the meeting and proof guidance, and its own release window.
+  const cash = page.locator(`[data-testid="catalogue-method"][data-method="${CASH_METHOD}"] [data-testid="catalogue-cash-rules"]`);
+  await expect(cash).toContainText('Cash in person');
+  await expect(cash).toContainText('The price is locked: an ad with a floating price cannot offer this method.');
+  await expect(cash).toContainText('Meeting: TEST: meet in a busy public place in daylight.');
+  await expect(cash).toContainText('Proof: TEST: count the notes together before the seller releases.');
+  await expect(cash.getByTestId('catalogue-cash-release')).toHaveText(
+    'Once the buyer marks the order paid, the seller has 10 minutes to release.',
+  );
+  // A transfer method shows no cash rules.
+  await expect(page.locator(`[data-testid="catalogue-method"][data-method="${METHOD}"] [data-testid="catalogue-cash-rules"]`)).toHaveCount(
+    0,
+  );
+  // The locked price is the service's rule, not only the page's: a floating ad listing the cash method is refused by name.
+  const s = await seller(state);
+  const floating = await s.raw.mutate('offers.create', {
+    side: 'sell',
+    asset: 'USDT',
+    fiatCurrency: 'EUR',
+    priceType: 'float',
+    price: '1.01',
+    minAmount: AD.min,
+    maxAmount: AD.max,
+    totalAmount: '100',
+    methods: [METHOD, CASH_METHOD],
+    terms: 'TEST terms: J-p2p-04 #1 floating cash ad',
+    idempotencyKey: `${J}:float-cash:${state.seller.handle}`,
+  });
+  expect(refusalCode(floating)).toBe('p2p.floating_not_allowed_for_method');
 });
 
 test('J-p2p-04 #2 a holder name that is not the verified name is refused and nothing is stored; a badly formatted IBAN shows the format hint', async ({

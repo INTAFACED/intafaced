@@ -74,6 +74,13 @@ const en = {
   keyOffTitle: 'Adding payment methods is off',
   keyOff:
     'Saving payment details needs a key service that protects them, and the owner has not switched one on in this version. You can read the methods; saving is refused.',
+  cashTitle: 'Cash in person',
+  cashLocked: 'The price is locked: an ad with a floating price cannot offer this method.',
+  cashMeeting: 'Meeting',
+  cashProof: 'Proof',
+  cashRelease: 'Once the buyer marks the order paid, the seller has {minutes} minutes to release.',
+  noteTitle: 'Payment note',
+  noteForbidden: 'Never write',
 } as const;
 
 const es: Record<keyof typeof en, string> = {
@@ -151,6 +158,13 @@ const es: Record<keyof typeof en, string> = {
   keyOffTitle: 'Añadir métodos de pago está desactivado',
   keyOff:
     'Guardar datos de pago necesita un servicio de claves que los proteja, y el propietario no ha activado ninguno en esta versión. Puedes leer los métodos; guardar se rechaza.',
+  cashTitle: 'Efectivo en persona',
+  cashLocked: 'El precio está fijado: un anuncio con precio flotante no puede ofrecer este método.',
+  cashMeeting: 'Encuentro',
+  cashProof: 'Comprobación',
+  cashRelease: 'Cuando el comprador marca el pedido como pagado, el vendedor tiene {minutes} minutos para liberar.',
+  noteTitle: 'Concepto del pago',
+  noteForbidden: 'No escribas nunca',
 };
 
 const fr: Record<keyof typeof en, string> = {
@@ -233,6 +247,13 @@ const fr: Record<keyof typeof en, string> = {
   keyOffTitle: 'L’ajout de moyens de paiement est désactivé',
   keyOff:
     'Enregistrer des coordonnées de paiement nécessite un service de clés qui les protège, et le propriétaire n’en a activé aucun dans cette version. Vous pouvez lire les moyens ; l’enregistrement est refusé.',
+  cashTitle: 'Espèces en personne',
+  cashLocked: 'Le prix est bloqué : une annonce à prix flottant ne peut pas proposer ce moyen.',
+  cashMeeting: 'Rencontre',
+  cashProof: 'Preuve',
+  cashRelease: 'Une fois que l’acheteur a marqué la commande payée, le vendeur a {minutes} minutes pour libérer.',
+  noteTitle: 'Note de paiement',
+  noteForbidden: 'N’écrivez jamais',
 };
 
 export const methodsCopy = defineCopy('pay.p2p.methods', en, { es, fr });

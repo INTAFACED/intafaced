@@ -481,6 +481,9 @@ describe('svc-p2p mount — instruments.methods schema dual-control', () => {
             fields: [...FIELDS],
             enabled: true,
             settlement: { instant: true },
+            kind: 'transfer' as const,
+            noteRules: null,
+            cashRules: null,
           };
         },
         setMethodSchemaEnabled: async (methodId: string, country: string, enabled: boolean, reason?: string) => {
@@ -492,6 +495,9 @@ describe('svc-p2p mount — instruments.methods schema dual-control', () => {
             fields: [...FIELDS],
             enabled,
             settlement: { instant: true },
+            kind: 'transfer' as const,
+            noteRules: null,
+            cashRules: null,
           };
         },
       }),
@@ -818,6 +824,42 @@ describe('svc-p2p mount — instruments.methods schema dual-control', () => {
     ]);
   });
 
+  it('binds the cash and payment-note rules to the approval: the approved rules register, other rules refuse', async () => {
+    // P-ads-merchant-19: rules make a method cash in person (a locked price, its own release window), so a second
+    // person approves them with the fields; a register that sends none hashes as before.
+    const fields = [{ key: 'iban', label: 'IBAN' }];
+    const noteRules = { guidance: 'Write only the order number.', forbidden: ['USDT'] };
+    const cashRules = { meetingGuidance: 'Meet in public.', proof: 'Count together.', releaseWindowSeconds: 600 };
+    const hash = p2pActionPayloadHash('p2p.method_register', {
+      methodId: registerInput.methodId,
+      country: registerInput.country,
+      label: registerInput.label,
+      fields: JSON.stringify(parseFieldSpecs(fields)),
+      enabled: 'preserve-or-default',
+      noteRules: JSON.stringify(noteRules),
+      cashRules: JSON.stringify(cashRules),
+    });
+    const approved = compliance(hashBoundApproval(hash));
+    await expect(
+      approved.caller.instruments.methods.register({ ...registerInput, fields, noteRules, cashRules, ...APPROVED }),
+    ).resolves.toMatchObject({ methodId: 'bank_transfer', confirmOperatorId: CONFIRM });
+    expect(approved.calls).toEqual([['register', expect.objectContaining({ noteRules, cashRules })]]);
+
+    const swapped = compliance(hashBoundApproval(hash));
+    await expect(
+      swapped.caller.instruments.methods.register({
+        ...registerInput,
+        fields,
+        noteRules,
+        cashRules: { ...cashRules, releaseWindowSeconds: 86_400 },
+        ...APPROVED,
+      }),
+    ).rejects.toThrow();
+    const dropped = compliance(hashBoundApproval(hash));
+    await expect(dropped.caller.instruments.methods.register({ ...registerInput, fields, noteRules, ...APPROVED })).rejects.toThrow();
+    expect([...swapped.calls, ...dropped.calls]).toEqual([]);
+  });
+
   /**
    * `registerMethodSchema` stores `parseFieldSpecs`, not the request array.
    * Key case, label whitespace, and a non-boolean `required` all change on
@@ -839,7 +881,17 @@ describe('svc-p2p mount — instruments.methods schema dual-control', () => {
         const fields = parseFieldSpecs(input.fields);
         const enabled = input.enabled ?? true;
         stored.push({ methodId: input.methodId, country: input.country, label: input.label, fields, enabled });
-        return { methodId: input.methodId, country: input.country, label: input.label, fields, enabled, settlement: { instant: true } };
+        return {
+          methodId: input.methodId,
+          country: input.country,
+          label: input.label,
+          fields,
+          enabled,
+          settlement: { instant: true },
+          kind: 'transfer' as const,
+          noteRules: null,
+          cashRules: null,
+        };
       },
     });
     const callerFor = (payloadHash: string) =>
