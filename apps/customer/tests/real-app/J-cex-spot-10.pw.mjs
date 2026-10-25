@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import {
@@ -26,6 +27,7 @@ import {
   verify,
 } from './desk.mjs';
 import { draftNotice, publishNotice } from './notices.mjs';
+import { ADMIN, founderSignIn } from './admin.mjs';
 
 // J-cex-spot-10, in the running app (docs/roadmap/journeys.json): a person sees what they pay, what tier they are in,
 // and how to get cheaper. One test per step, titled "J-cex-spot-10 #<n>", run in order on one TEST account funded with
@@ -748,6 +750,98 @@ test(`${J} part of #7 compliance approves with no trial published: the grant is 
     await expect(page.locator('[data-tier-page=trial]')).toContainText('From your VIP trial, until ');
     await expect(card.locator('tr[data-vip-application=approved] td').last()).toHaveText('Approved');
   } finally {
+    await publish(SCHEDULE, 'VIP rules off');
+  }
+});
+
+test(`${J} part of #7 compliance decides in the founder console: the proof saved for a reason, a second founder approves, the trial starts`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  // Its own fresh applicant, as above, with a TEST one-day trial published, so an approval grants it.
+  const who = await signUp(page, 'vipdesk');
+  await verify(page, who);
+  const client = await api(who);
+  const tiered = tiersAt(new Date(Date.now() + 3_600_000));
+  const trial = { tierId: 'test-vip-1', days: 1 };
+  await publish({ ...tiered, tierProgram: { ...tiered.tierProgram, application: TEST_APPLICATION, trial } }, 'TEST VIP trial for the desk');
+  const a = await (await browser.newContext({ acceptDownloads: true })).newPage();
+  const b = await (await browser.newContext()).newPage();
+  try {
+    const sent = await client.post('/api/v1/vip/applications', {
+      requestId: `vip-desk-${Date.now()}`,
+      proof: { fileName: 'statement.pdf', contentType: 'application/pdf', bytesBase64: TEST_PDF.toString('base64') },
+    });
+    expect(sent.status, JSON.stringify(sent.body).slice(0, 300)).toBe(201);
+    const applicationId = sent.body.application.id;
+
+    // Founder A opens the room: what an approval grants now, and the application waiting.
+    await founderSignIn(a, 'a');
+    await a.goto(`${ADMIN}/trade-ops/vip-applications`);
+    const room = a.locator('[data-room=vip-applications]');
+    await expect(room).toContainText('An approval grants now');
+    await expect(room).toContainText('test-vip-1 for 1 day');
+    const row = room.getByRole('row').filter({ hasText: client.userId });
+    await expect(row).toContainText('Waiting for review');
+    await row.getByRole('button', { name: 'Open' }).click();
+    const panel = a.locator('[data-vip-desk=open]');
+    await expect(panel).toContainText(`Application ${applicationId}`);
+
+    // The proof is saved, never shown, and only for a stated reason: the bytes are the ones the person sent.
+    const reason = 'TEST statement checked against the venue';
+    await panel.getByLabel(/^Reason \(12 to 500/).fill(reason);
+    const [download] = await Promise.all([a.waitForEvent('download'), panel.getByRole('button', { name: 'Save the proof file' }).click()]);
+    expect(download.suggestedFilename()).toBe('statement.pdf');
+    const saved = await download.path();
+    expect(createHash('sha256').update(readFileSync(saved)).digest('hex')).toBe(createHash('sha256').update(TEST_PDF).digest('hex'));
+    await expect(panel).toContainText('The opening is in the audit.');
+
+    // A asks for the approval; applying it before a second founder approves decides nothing.
+    await panel.getByRole('button', { name: 'Ask a second founder to approve' }).click();
+    await expect(panel).toContainText('Request filed');
+    const valueOf = (label) => panel.locator('dt', { hasText: label }).locator('xpath=following-sibling::dd[1]');
+    const approvalId = (await valueOf('Approval id (apply with this once approved)').innerText()).trim();
+    const payloadHash = (await valueOf('Payload hash (the approver confirms this)').innerText()).trim();
+    expect(payloadHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    await panel.getByLabel('Approved request id').fill(approvalId);
+    const apply = async (expected) => {
+      await panel.getByRole('button', { name: 'Apply the approved decision' }).click();
+      const dialog = a.getByRole('alertdialog');
+      await expect(dialog).toContainText('the person is on test-vip-1 for 1 day, from now');
+      await dialog.getByRole('button', { name: 'Apply decision' }).click();
+      await expect(dialog).toContainText(expected);
+      await dialog.getByRole('button', { name: /^(Close|Cancel)$/ }).click();
+    };
+    await apply('still waiting for a second founder');
+    expect((await client.get('/api/v1/vip/applications')).body.applications.map((x) => x.status)).toEqual(['pending']);
+
+    // Founder B approves exactly that hash in Freezes & approvals; A applies it.
+    const approver = await founderSignIn(b, 'b');
+    await b.goto(`${ADMIN}/trade-ops/approvals`);
+    await b.getByLabel('Approval id', { exact: true }).fill(approvalId);
+    await b.getByLabel('Payload hash you reviewed').fill(payloadHash);
+    await b.getByRole('button', { name: 'Approve request' }).click();
+    const approveDialog = b.getByRole('alertdialog');
+    await approveDialog.getByRole('button', { name: 'Approve', exact: true }).click();
+    await expect(approveDialog.locator('[data-outcome=ok]')).toBeVisible();
+
+    await apply('Applied');
+    await expect(panel).toContainText('Approved');
+    await expect(panel).toContainText(`approved by ${approver.userId}`);
+    await expect(panel).toContainText(/test-vip-1, 1 days?, /);
+
+    // The person is on the trial's tier until it ends.
+    const tier = await myTier(client);
+    expect(tier.tier).toBe('test-vip-1');
+    expect(tier.trial).toMatchObject({ applicationId, tierId: 'test-vip-1' });
+    await signIn(page, who);
+    await page.goto('/fees/my-tier');
+    await expect(page.locator('[data-tier-page=tier] h2')).toHaveText('Your tier: test-vip-1');
+    await expect(page.locator('[data-tier-page=trial]')).toContainText('From your VIP trial, until ');
+  } finally {
+    await a.context().close();
+    await b.context().close();
     await publish(SCHEDULE, 'VIP rules off');
   }
 });
