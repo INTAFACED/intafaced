@@ -343,12 +343,14 @@ export function selectSmartCheckoutRail(request: SmartRoutingRequest): SmartRout
 }
 
 /**
- * Reference profiles for the two v1 adapters. Operators pass these (or a
+ * Reference profiles for the v1 adapters and the TEST bank. Operators pass these (or a
  * tightened subset) into `selectSmartCheckoutRail` — they are never applied
  * silently when the caller omitted profiles.
  *
  * - crypto-native: crypto method; explicit worldwide geo (`*`); low/external bands.
  * - card-sandbox: card method; explicit worldwide; low/medium only (sandbox refuse on live-only still applies).
+ * - bank-transfer-sandbox: pushed bank transfer (J-merchant-04 step 6); explicit worldwide; low/medium only; sandbox, so
+ *   refused wherever only live rails may take a public payment.
  */
 export const REFERENCE_RAIL_ROUTING_PROFILES: readonly RailRoutingProfile[] = [
   {
@@ -360,6 +362,12 @@ export const REFERENCE_RAIL_ROUTING_PROFILES: readonly RailRoutingProfile[] = [
   {
     railId: 'card-sandbox',
     methods: ['card'],
+    countries: ['*'],
+    riskBands: ['low', 'medium'],
+  },
+  {
+    railId: 'bank-transfer-sandbox',
+    methods: ['bank_transfer'],
     countries: ['*'],
     riskBands: ['low', 'medium'],
   },

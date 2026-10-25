@@ -426,10 +426,40 @@ test.describe('recovery keys', () => {
     page,
     browser,
   }) => {
-    test.setTimeout(120_000);
-    const { heir } = await setUpRecovery(page, browser);
-    // Next slices: two staff confirm a death notice on the owner (RC-identity-02), then the heir opens the claim room,
-    // signs with both keys and the trading balances sweep to the heir's account (RC-identity-08).
+    test.setTimeout(150_000);
+    const { owner, heir } = await setUpRecovery(page, browser);
+    // Two staff confirm a death notice on the owner (RC-identity-02). Recording it changes nothing; without a second
+    // person's approval it is not confirmed; with one, the account is frozen and nobody signs in to it.
+    const found = await support('query', 'accountDirectory.search', { email: owner.email });
+    const ownerId = found.data?.rows?.[0]?.id;
+    expect(ownerId, found.text).toBeTruthy();
+    const recorded = await support('mutate', 'deathNotice.record', {
+      userId: ownerId,
+      caseRef: `TEST-${owner.handle}`,
+      reporterKind: 'executor',
+      evidenceDocumentIds: [],
+      receivedAt: new Date().toISOString(),
+    });
+    expect(recorded.data, recorded.text).toMatchObject({ status: 'received', userId: ownerId });
+    const { noticeId } = recorded.data;
+    const alone = await support('mutate', 'deathNotice.confirm', { noticeId, approvalId: 'apr-none' });
+    expect(alone.text).toContain('identity.death_notice_approval_required');
+    const { gates, ctx, sessions } = await founders();
+    const { approvalId } = await gates.twoPerson(ctx, sessions, { ...recorded.data.approvalProposal, policyVersion: 'local-test:v1' });
+    const confirmed = await support('mutate', 'deathNotice.confirm', { noticeId, approvalId });
+    expect(confirmed.data, confirmed.text).toMatchObject({ status: 'confirmed', approvedBy: expect.any(String) });
+    expect(confirmed.data.approvedBy).not.toBe(confirmed.data.decidedBy);
+    const ownerContext = await browser.newContext();
+    const ownerPage = await ownerContext.newPage();
+    await ownerPage.goto('/login');
+    await ownerPage.fill('input[name=identifier]', owner.email);
+    await ownerPage.fill('input[name=password]', owner.password);
+    await ownerPage.getByRole('button', { name: /^sign in$/i }).click();
+    await expect(ownerPage.getByRole('alert')).toContainText('This account is frozen.');
+    await ownerContext.close();
+
+    // Next slices: the heir opens the claim room, signs with both keys and the trading balances sweep to the heir's
+    // account (RC-identity-08).
     const heirContext = await browser.newContext();
     const heirPage = await heirContext.newPage();
     await heirPage.goto('/login');

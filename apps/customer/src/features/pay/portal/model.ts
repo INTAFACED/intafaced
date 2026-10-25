@@ -185,7 +185,7 @@ const money = (value: unknown): string | null => {
 
 export type PaymentStep = {
   at: string;
-  kind: 'created' | 'authorized' | 'captured' | 'settled' | 'refunded' | 'refund_reversed' | 'disputed' | 'failed';
+  kind: 'created' | 'authorized' | 'captured' | 'settled' | 'refunded' | 'refund_reversed' | 'disputed' | 'failed' | 'held_name';
   amount: string | null;
   refundId: string | null;
   settlementId: string | null;
@@ -231,6 +231,25 @@ export function paymentLinks(events: readonly PaymentEvent[]) {
     settlementId: text(settled ? historyPayload(settled).settlementId : null),
     disputeId: text(find('disputed') ? historyPayload(find('disputed')!).disputeId : null),
   };
+}
+
+/** Why a bank transfer is held for a review of the name it came from (RC-merchant-09), from the code svc-pay records. */
+export type NameHoldReason = 'mismatch' | 'missing' | 'rule_unset';
+const NAME_HOLD_REASONS: Readonly<Record<string, NameHoldReason>> = {
+  'pay.payer_name_mismatch': 'mismatch',
+  'pay.payer_name_missing': 'missing',
+  'pay.name_match_rule_unset': 'rule_unset',
+};
+
+/**
+ * The payment's payer-name hold, when it is still waiting: its reason from the `payer_name.held` event. Nothing was taken
+ * while it waits, so a payment that went on to be taken (or failed) is not shown as held. Names are never in the event.
+ */
+export function nameHold(status: string, events: readonly PaymentEvent[]): NameHoldReason | null {
+  if (status !== 'created') return null;
+  const held = events.find((e) => e.event === 'payer_name.held');
+  const reason = held ? historyPayload(held).reason : null;
+  return typeof reason === 'string' && Object.hasOwn(NAME_HOLD_REASONS, reason) ? NAME_HOLD_REASONS[reason]! : null;
 }
 
 export type PayoutState = 'not_ready' | 'unknown' | 'ready' | 'awaiting_approval' | 'approved' | 'rejected' | 'paid_out' | 'failed';

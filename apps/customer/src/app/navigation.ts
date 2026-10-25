@@ -220,6 +220,15 @@ export const rooms: readonly Room[] = [
     area: 'money',
   },
   { path: '/bank/earn', title: 'Earn', description: 'Available earning products', door: 'Bank', area: 'money' },
+  {
+    path: '/bank/earn/pool',
+    title: 'Earn pool',
+    description: 'One pool’s terms, rate history and your savings in it',
+    door: 'Bank',
+    area: 'money',
+    // Opened for one pool (`?id=`) from each Earn pool card, like a help article.
+    hidden: true,
+  },
   { path: '/bank/loans', title: 'Loans', description: 'Applications and repayments', door: 'Bank', area: 'money' },
   {
     path: '/bank/loans/detail',
@@ -492,6 +501,14 @@ export const rooms: readonly Room[] = [
   // The P2P Trading access room: what a person needs before taking an ad (eligibility) and their programme standing.
   {
     path: '/p2p/access',
+    title: 'Person-to-person',
+    description: 'Offers, orders and counterparties',
+    door: 'Pay',
+    area: 'pay',
+    hidden: true,
+  },
+  {
+    path: '/p2p/methods',
     title: 'Person-to-person',
     description: 'Offers, orders and counterparties',
     door: 'Pay',

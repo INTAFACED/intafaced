@@ -38,6 +38,10 @@ import {
 import { RoutingInputError } from './routing-inputs.js';
 import { merchantKybMoneyGateRefusal } from './merchant-kyb-money-gate.js';
 import { assertCategoryAllows, categoryRails, checkoutCategoryRule } from './onboarding-policy/category.js';
+import { methodRailsOf, type MethodRails } from './checkout-methods/catalogue.js';
+import { checkoutMethodFor } from './checkout-methods/methods.js';
+import { givenPayerName, type PayerNameMatchRule } from './payer-name/match.js';
+import { NAME_CHECKED_METHOD, isHeldOpenPayment, recordGivenPayerName } from './payer-name/holds.js';
 import { assertOnlyPayoutDestinations, type MerchantPayoutDestinations } from './merchant-payout-destination.js';
 import { encodeListCursor } from './list-page.js';
 import { type PaymentAttemptView } from './payments/attempts.js';
@@ -229,6 +233,16 @@ export type PayErrorCode =
   | 'pay.routing_no_rail'
   /** Smart routing ran; no rail that could take it has an owner-declared success fraction (PAY_CHECKOUT_SUCCESS_RATES). */
   | 'pay.routing_approval_rate_unset'
+  /** M-adv-payments-core-11: more than one method the business offers can take this payment; the payer picks one. */
+  | 'pay.checkout_method_required'
+  /** M-adv-payments-core-11: the payer named a method the business does not offer for this payment. */
+  | 'pay.checkout_method_not_offered'
+  /** M-adv-payments-core-11: none of the methods the business offers for this payment has a rail. */
+  | 'pay.checkout_no_method'
+  /** RC-merchant-09: a bank transfer needs the name on the payer's bank account before it opens. Nothing was written. */
+  | 'pay.payer_name_required'
+  /** RC-merchant-09: the bank transfer's name did not pass the owner's rule; the payment is held for review and nothing moves. */
+  | 'pay.payer_name_held'
   | 'pay.invalid_amount'
   | 'pay.identity_admission_unavailable'
   | 'pay.identity_admission_denied'
@@ -371,6 +385,18 @@ export type PayErrorCode =
   | 'pay.withdrawal_not_cancellable'
   | 'pay.withdrawal_not_reversible'
   | 'pay.withdrawal_canceled'
+  /** W-withdraw-14: the address is one of the sender's own deposit addresses on the platform. Nothing is claimed. */
+  | 'pay.withdrawal_self_send'
+  /** W-withdraw-14: an internal send named an address that belongs to no account on the platform. */
+  | 'pay.internal_destination_external'
+  /** W-withdraw-14: the platform address is frozen, past its expiry, or names more than one account; nothing is claimed. */
+  | 'pay.internal_destination_unavailable'
+  /** W-withdraw-14: this process has no svc-bank client for internal settlement. */
+  | 'pay.internal_settlement_unwired'
+  /** W-withdraw-14: svc-bank proved nothing was posted and refused the send (`failureCode` names its reason). */
+  | 'pay.internal_settlement_refused'
+  | 'pay.internal_asset_unsupported'
+  | 'pay.withdrawal_platform_address'
   | 'pay.wallet_withdraw_unavailable'
   | 'pay.wallet_withdraw_disabled'
   | 'pay.wallet_typed_address'
@@ -922,6 +948,12 @@ export interface PayServiceOptions {
   readonly routingProfiles?: readonly RailRoutingProfile[];
 
   /**
+   * RC-merchant-09: the owner's rule for comparing the name on a bank transfer with the name the payer gave
+   * (`PAY_PAYER_NAME_MATCH_RULE`). Unset, every bank transfer is held for review: a rule is never guessed.
+   */
+  readonly payerNameMatchRule?: PayerNameMatchRule | null;
+
+  /**
    * How long a browser handoff stays open (seconds). Never applied to the payment.
    * Unset / null refuses open — never invent 900. Owner may pass 900 explicitly.
    */
@@ -1047,6 +1079,11 @@ export interface CheckoutSessionView {
    * credited to the merchant before it is all in.
    */
   readonly progress?: { readonly received: string; readonly missing: string; readonly confirming: string } | null;
+  /**
+   * RC-merchant-09: the payer's bank transfer arrived and is held for a review of the name it came from. Nothing has
+   * been taken from it; the business is paid only if the review lets it through.
+   */
+  readonly heldForReview?: boolean;
   readonly confirmationMessage?: string | null;
   readonly confirmationUrl?: string | null;
 }
@@ -1208,6 +1245,7 @@ export type PayServiceInternal = { [K in keyof PayService]: PayService[K] } & {
   now: PayService['now'];
   paymentFactsFor: PayService['paymentFactsFor'];
   paymentIsSandbox: PayService['paymentIsSandbox'];
+  payerNameMatchRule: PayService['payerNameMatchRule'];
   payoutDestinations: PayService['payoutDestinations'];
   postChargebackOpenOrRefuse: PayService['postChargebackOpenOrRefuse'];
   postPendingSettlement: PayService['postPendingSettlement'];
@@ -1246,6 +1284,7 @@ export class PayService {
   private readonly checkoutRails: readonly CheckoutRail[];
   private readonly checkoutRiskBand: string | undefined;
   private readonly routingProfiles: readonly RailRoutingProfile[];
+  private readonly payerNameMatchRule: PayerNameMatchRule | null;
   private readonly checkoutSessionTtlSeconds: number | null;
   private readonly linkDefaultTtlDays: number | null;
   private readonly linkMaxTtlDays: number | null;
@@ -1287,6 +1326,7 @@ export class PayService {
     this.checkoutRails = options.checkoutRails ?? DEFAULT_CHECKOUT_RAILS;
     this.checkoutRiskBand = options.checkoutRiskBand?.trim() || undefined;
     this.routingProfiles = options.routingProfiles ?? REFERENCE_RAIL_ROUTING_PROFILES;
+    this.payerNameMatchRule = options.payerNameMatchRule ?? null;
     this.checkoutSessionTtlSeconds = options.checkoutSessionTtlSeconds ?? null;
     this.linkDefaultTtlDays = options.linkDefaultTtlDays ?? null;
     this.linkMaxTtlDays = options.linkMaxTtlDays ?? null;
@@ -1310,6 +1350,20 @@ export class PayService {
     this.chargebackOutcomeHeld = 0;
     this.chargebackOutcomeWaiters = [];
     this.chargebackOutcomeTails = new Map();
+  }
+
+  /**
+   * The payment methods the public checkout can take (M-adv-payments-core-11): the checkout rails this environment lets
+   * take strangers' money, with the countries their routing profiles declare.
+   */
+  checkoutMethodRails(onlyRails?: readonly string[]): MethodRails {
+    return methodRailsOf({
+      checkoutRails: this.checkoutRails,
+      profiles: this.routingProfiles,
+      rails: this.rails,
+      policy: this.publicCheckoutMovement,
+      ...(onlyRails ? { onlyRails } : {}),
+    });
   }
 
   /** The book `payoutSettlement` reads. Tests use it to store a verified destination. */
@@ -2317,6 +2371,11 @@ export class PayService {
      * Operator/test risk band. Public tRPC/HTML must not send this — use `checkoutRiskBand`.
      */
     riskBand?: string;
+    /**
+     * RC-merchant-09: the name on the bank account a payer will send a bank transfer from. Required for a bank transfer
+     * (`pay.payer_name_required` before anything is written), kept with the payment, and ignored for any other method.
+     */
+    payerName?: string;
   }): Promise<{ sessionToken: string; session: CheckoutSessionView }> {
     // Step 0. Before anything exists. Smart routing (D26-P1-P3) replaces
     // preference-only selection. Blank geo/method/risk refuses rather than invent.
@@ -2325,10 +2384,17 @@ export class PayService {
     // nothing). This read is a hint for routing only; the admission guard below re-checks inside the transaction.
     const categoryRule = await checkoutCategoryRule(this.sql, input.linkToken);
     if (categoryRule?.class === 'prohibited') assertCategoryAllows(categoryRule, null);
+    // M-adv-payments-core-11: only a method the business offers for this country, currency and amount, in its order.
+    const offeredMethod = await checkoutMethodFor(
+      this.sql,
+      this.checkoutMethodRails(categoryRails(categoryRule) ?? undefined),
+      input,
+      this.now(),
+    );
     const decision = this.selectCheckoutRail(
       {
         geoCountry: input.geoCountry,
-        method: input.method,
+        method: offeredMethod,
         riskBand: input.riskBand,
       },
       categoryRails(categoryRule) ?? undefined,
@@ -2337,6 +2403,12 @@ export class PayService {
     // Blank reserve terms (and any rule the routing hint did not cover) refuse by name before any row.
     assertCategoryAllows(categoryRule, adapter.id);
     const method = this.checkoutRails.find((r) => r.railId === adapter.id)!.method;
+    // RC-merchant-09: the transfer will be checked against the name the payer gives, so a payment on a rail that checks
+    // names opens only with one.
+    const payerName = adapter.checksPayerName ? givenPayerName(input.payerName) : null;
+    if (adapter.checksPayerName && payerName === null) {
+      throw new PayError('Give the name on the bank account you will pay from', 'pay.payer_name_required', { method });
+    }
 
     const opened = await transaction(
       this.sql,
@@ -2419,6 +2491,7 @@ export class PayService {
             this.identityAuthorityGuard,
           );
         const payment = await insertPayment(tx, { ...creationInput, id: paymentId });
+        if (payerName !== null) await recordGivenPayerName(tx, payment.id, payerName);
 
         // SPEC §5 — reason per decision. Taxonomy only (no cost/approval invent).
         // Survives in payment_events so a later dispute can answer "why this rail".
@@ -2505,7 +2578,7 @@ export class PayService {
         url: row.confirmation_url,
       });
       // A closed window over a payment paid in part: the payer must still see what arrived and where the rest goes.
-      return row.status === 'expired' ? { ...view, progress: await this.checkoutProgress(row.payment_id) } : view;
+      return row.status === 'expired' ? { ...view, ...(await this.checkoutArrivals(row.payment_id, method)) } : view;
     }
 
     if (row.expires_at.getTime() <= this.now().getTime()) {
@@ -2516,13 +2589,27 @@ export class PayService {
          WHERE id = ${row.id} AND status = 'open'
       `;
       const view = toCheckoutSessionView({ ...row, status: 'expired' }, row.label, method);
-      return { ...view, progress: await this.checkoutProgress(row.payment_id) };
+      return { ...view, ...(await this.checkoutArrivals(row.payment_id, method)) };
     }
 
     // The resume: a session committed before the rail was asked. Idempotent on
     // the payment id, so re-running is free and produces the same address.
     const view = toCheckoutSessionView(await this.ensureInstruction(row), row.label, method);
-    return { ...view, progress: await this.checkoutProgress(row.payment_id) };
+    return { ...view, ...(await this.checkoutArrivals(row.payment_id, method)) };
+  }
+
+  /**
+   * What has arrived for the payment, as the payer reads it: held for a payer-name review (RC-merchant-09), or the part
+   * received so far. A held payment shows no "send the missing" line: nothing more should be sent until the review.
+   */
+  private async checkoutArrivals(
+    paymentId: string | null,
+    method: string,
+  ): Promise<Pick<CheckoutSessionView, 'progress' | 'heldForReview'>> {
+    if (paymentId && method === NAME_CHECKED_METHOD && (await isHeldOpenPayment(this.sql, paymentId))) {
+      return { progress: null, heldForReview: true };
+    }
+    return { progress: await this.checkoutProgress(paymentId) };
   }
 
   /**

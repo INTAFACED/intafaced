@@ -46,6 +46,7 @@ import { LessonRecords } from './curriculum/lessons.js';
 import { CourseMedia, type ReadBackFn } from './curriculum/media.js';
 import { CourseAssignments, type PutObjectFn } from './curriculum/assignments.js';
 import { CourseQuizzes } from './curriculum/course-quizzes.js';
+import { CourseRelease } from './curriculum/course-release.js';
 import { PeerReviews, type GetObjectFn } from './curriculum/peer-review.js';
 import { AssignmentGrading } from './curriculum/grading.js';
 import { LearnHub } from './curriculum/learn-hub.js';
@@ -413,8 +414,10 @@ export class AcademyService {
   readonly discussion: CourseDiscussion;
   /** AC-rooms-04: conversations with course teams. The router calls it directly. */
   readonly courseMessages: CourseMessages;
-  /** AC-quizzes-01: quizzes on the items of a course staff made. The router calls it directly; starts go through `startCourseQuiz`. */
+  /** AC-quizzes-01: quizzes on the items of a course staff made. The router calls it directly (AC-quizzes-02: its own attempts). */
   readonly courseQuizzes: CourseQuizzes;
+  /** AC-release-access-01: scheduled release and pacing on a course staff made. The router calls it directly. */
+  readonly courseRelease: CourseRelease;
 
   constructor(
     private readonly sql: Sql,
@@ -465,6 +468,7 @@ export class AcademyService {
     this.programmeRecords = new ProgrammeRecords(sql, this.options.programmeMaxCourses);
     this.courseMessages = new CourseMessages(sql, this.options.messageMaxChars ?? null);
     this.courseQuizzes = new CourseQuizzes(sql);
+    this.courseRelease = new CourseRelease(sql);
     this.discussion = new CourseDiscussion(sql, {
       postMaxChars: this.options.postMaxChars ?? null,
       imageMaxBytes: this.options.postImageMaxBytes ?? null,
@@ -1967,8 +1971,9 @@ export class AcademyService {
       this.assessments.grades(userId, now),
       this.grading.courseGrades(userId),
     ]);
-    // Quizzes in courses staff made (AC-quizzes-01) carry their item id as slug; their grades belong to that course's
-    // gradebook (AC-assignments-04), not to the curriculum paths' grades here.
+    // Attempts on quizzes in courses staff made, started before those quizzes had attempts of their own (AC-quizzes-01),
+    // left score rows under their item id as slug. Course quiz grades belong to that course's gradebook (AC-assignments-04,
+    // from course_quiz_attempts), not to the curriculum paths' grades here.
     const grades = allGrades.filter((row) => getCurriculumItem(row.slug) !== null);
     const paths = enrolments.map((row) => row.pathSlug as CurriculumPath);
     const times = await this.completionTimes(
@@ -3271,11 +3276,6 @@ export class AcademyService {
 
   assessmentAttempts(userId: string, slug: string): Promise<VisibleAttemptRow[]> {
     return this.assessments.attempts(userId, slug);
-  }
-
-  /** AC-quizzes-01: start (or get back) an attempt on a quiz in a course staff made, after its enrolment, code and address checks. */
-  startCourseQuiz(input: { itemId: string; userId: string; accessCode: string | null; clientAddress: string | null; now?: Date }) {
-    return this.courseQuizzes.start({ ...input, now: input.now ?? new Date() }, (start) => this.assessments.start(start));
   }
 
   /** AC-quizzes-03: Start (or resume) a timed attempt; see AssessmentRepository.start. */

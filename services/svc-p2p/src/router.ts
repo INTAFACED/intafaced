@@ -31,6 +31,7 @@ import { DELIST_REASONS, type InstrumentService } from './instrument-service.js'
 import { assertModerator, isModerationConfigured, isModerator } from './moderation-auth.js';
 import { TakeStepUpError, unwiredTakeStepUp, type TakeStepUp, type TakeStepUpCaller } from './take-step-up.js';
 import { unwiredReleaseStepUp, type ReleaseStepUp } from './release-step-up.js';
+import { unwiredInstrumentStepUp, type InstrumentStepUp } from './instrument-step-up.js';
 import type { PublicProfileLookup } from './public-profile.js';
 import type { ReminderState } from './seller-reminders.js';
 import { MISMATCH_CLASSIFICATIONS, MISMATCH_KINDS, type MismatchReport } from './amount-mismatch.js';
@@ -105,6 +106,8 @@ export type P2pRouterOptions = {
   takeStepUp?: TakeStepUp;
   /** P-trade-orders-07 and -16: the seller's fresh confirmation of a release. Unset refuses every release. */
   releaseStepUp?: ReleaseStepUp;
+  /** P-ads-merchant-18: the person's fresh confirmation of a payment-method change. Unset refuses every change. */
+  instrumentStepUp?: InstrumentStepUp;
 };
 
 /**
@@ -515,6 +518,11 @@ export function toTrpcError(err: unknown): TRPCError {
         return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
       case 'p2p.instrument_slot_taken':
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+      // P-ads-merchant-18: no verified legal name to check against yet, or identity could not answer.
+      case 'p2p.holder_name_unverified':
+        return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
+      case 'p2p.holder_name_unverifiable':
+        return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'p2p.instrument_retention_unset':
       case 'p2p.instrument_list_limit_unset':
       case 'p2p.method_schema_list_limit_unset':
@@ -766,6 +774,8 @@ const fieldSpecOutput = z.object({
   /** A hint for the input control. Not an access-control decision. */
   sensitive: z.boolean().optional(),
   help: z.string().optional(),
+  /** P-ads-merchant-18: the account holder's name, checked against the person's verified legal name. */
+  holderName: z.boolean().optional(),
 });
 
 const methodSchemaOutput = z.object({
@@ -879,6 +889,7 @@ export function createP2pRouter(
   const takeGate = options.takeGate ?? unwiredTakeGate();
   const takeStepUp = options.takeStepUp ?? unwiredTakeStepUp();
   const releaseStepUp = options.releaseStepUp ?? unwiredReleaseStepUp();
+  const instrumentStepUp = options.instrumentStepUp ?? unwiredInstrumentStepUp();
   const stepUpCaller = (principal: Principal): TakeStepUpCaller => ({
     userId: principal.userId,
     sessionId: principal.sid,
@@ -2207,12 +2218,22 @@ export function createP2pRouter(
             label: z.string().max(120).optional(),
             /** Exactly the fields the method schema declared. An extra key is refused. */
             details: z.record(z.string(), z.string()),
+            /** Identity's approval of exactly this change and these details (P-ads-merchant-18). Without it, refused. */
+            stepUpApprovalId: z.string().min(1).max(200).optional(),
           }),
         )
         .output(instrumentHeaderOutput)
         .mutation(async ({ ctx, input }) =>
-          guard(async () =>
-            toHeaderOut(
+          guard(async () => {
+            // Saved details are sealed with the instrument key: without it nothing is saved, before any confirmation.
+            if (options.instrumentKeyProvider !== 'local-test') refuseLiveOffersUntilOwnerKms();
+            await instrumentStepUp.assertConfirmed(stepUpCaller(ctx.principal), {
+              instrumentId: input.instrumentId,
+              change: 'create',
+              details: input.details,
+              approvalId: input.stepUpApprovalId,
+            });
+            return toHeaderOut(
               await instruments.createInstrument({
                 instrumentId: input.instrumentId,
                 ownerId: ctx.principal.userId,
@@ -2222,8 +2243,8 @@ export function createP2pRouter(
                 ...(input.label === undefined ? {} : { label: input.label }),
                 details: input.details,
               }),
-            ),
-          ),
+            );
+          }),
         ),
 
       /**
@@ -2236,30 +2257,44 @@ export function createP2pRouter(
             instrumentId: z.string().guid(),
             label: z.string().max(120).optional(),
             details: z.record(z.string(), z.string()).optional(),
+            stepUpApprovalId: z.string().min(1).max(200).optional(),
           }),
         )
         .output(instrumentHeaderOutput)
         .mutation(async ({ ctx, input }) =>
-          guard(async () =>
-            toHeaderOut(
+          guard(async () => {
+            if (input.details !== undefined && options.instrumentKeyProvider !== 'local-test') refuseLiveOffersUntilOwnerKms();
+            await instrumentStepUp.assertConfirmed(stepUpCaller(ctx.principal), {
+              instrumentId: input.instrumentId,
+              change: 'update',
+              details: input.details,
+              approvalId: input.stepUpApprovalId,
+            });
+            return toHeaderOut(
               await instruments.updateInstrument({
                 instrumentId: input.instrumentId,
                 ownerId: ctx.principal.userId,
                 ...(input.label === undefined ? {} : { label: input.label }),
                 ...(input.details === undefined ? {} : { details: input.details }),
               }),
-            ),
-          ),
+            );
+          }),
         ),
 
       /** Removal is a state change. An in-flight trade keeps working. */
       remove: merchantApiProcedure('p2p:write')
-        .input(z.object({ instrumentId: z.string().guid() }))
+        .input(z.object({ instrumentId: z.string().guid(), stepUpApprovalId: z.string().min(1).max(200).optional() }))
         .output(instrumentHeaderOutput)
         .mutation(async ({ ctx, input }) =>
-          guard(async () =>
-            toHeaderOut(await instruments.removeInstrument({ instrumentId: input.instrumentId, ownerId: ctx.principal.userId })),
-          ),
+          guard(async () => {
+            await instrumentStepUp.assertConfirmed(stepUpCaller(ctx.principal), {
+              instrumentId: input.instrumentId,
+              change: 'remove',
+              details: undefined,
+              approvalId: input.stepUpApprovalId,
+            });
+            return toHeaderOut(await instruments.removeInstrument({ instrumentId: input.instrumentId, ownerId: ctx.principal.userId }));
+          }),
         ),
 
       /** The caller's own instruments. Headers only — no field values, ever. */
@@ -2303,6 +2338,21 @@ export function createP2pRouter(
         .mutation(async ({ ctx, input }) =>
           guard(async () => {
             const revealed = await instruments.revealOwn({ instrumentId: input.instrumentId, viewerId: ctx.principal.userId });
+            return { ...toHeaderOut(revealed), details: { ...revealed.details } };
+          }),
+        ),
+
+      /**
+       * The owner's own details masked (J-p2p-04 #3): the account holder whole, every other value as its last four.
+       * Logged like `reveal`, and `p2p:write` for the same reason. The room shows this; the whole values stay behind
+       * `reveal`.
+       */
+      revealMasked: merchantApiProcedure('p2p:write')
+        .input(z.object({ instrumentId: z.string().guid() }))
+        .output(instrumentHeaderOutput.extend({ details: instrumentDetailsOutput }))
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => {
+            const revealed = await instruments.revealOwnMasked({ instrumentId: input.instrumentId, viewerId: ctx.principal.userId });
             return { ...toHeaderOut(revealed), details: { ...revealed.details } };
           }),
         ),

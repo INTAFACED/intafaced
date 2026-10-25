@@ -7,6 +7,7 @@ import {
   type AcademyPublishedCourseCard,
 } from '@intafaced/contracts/academy-courses';
 import { useApi } from '../session/session';
+import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { Loading, Panel } from '../../shared/ui';
 import { t as copyText } from './copy';
@@ -26,7 +27,38 @@ import { CourseTeamContact } from './AcademyCourseMessages';
 /** The page size the catalogue asks for. */
 const CARDS_PAGE = 50;
 
-const LOCKS = { enrol: 'lockEnrol', enrolment_closed: 'lockClosed', not_released: 'lockNotReleased' } as const;
+const LOCKS = {
+  enrol: 'lockEnrol',
+  enrolment_closed: 'lockClosed',
+  not_released: 'lockNotReleased',
+  scheduled: 'lockScheduled',
+} as const;
+
+/** An instant in the reader's own time zone and language. */
+const localTime = (iso: string, language: string) => {
+  try {
+    return new Intl.DateTimeFormat(language, { dateStyle: 'long', timeStyle: 'short' }).format(new Date(iso));
+  } catch {
+    return iso;
+  }
+};
+
+/** When a scheduled section opens for this reader (AC-release-access-01): a clock with the local instant, or the days. */
+function SectionRelease({ release }: { release: AcademyCourseLearnerView['sections'][number]['release'] }) {
+  const { t } = copy.useCopy();
+  const { language } = usePreferences();
+  if (release === null) return null;
+  const text =
+    release.at === null
+      ? t('releaseAfterEnrolment', { days: String(release.afterEnrolmentDays ?? '') })
+      : t(release.open ? 'releaseOpen' : 'releaseAt', { date: localTime(release.at, language) });
+  return (
+    <p className="academy-lms-meta" data-testid="section-release" data-open={release.open ? 'yes' : 'no'}>
+      <span aria-hidden="true">🕒</span> {release.at !== null && <time dateTime={release.at}>{text}</time>}
+      {release.at === null && text}
+    </p>
+  );
+}
 const OUTLINE_KINDS = {
   lesson: 'outlineLesson',
   video: 'outlineVideo',
@@ -78,6 +110,11 @@ export function AuthoredCourseBody({ data, note }: { data: AcademyCourseLearnerV
       </section>
       <section aria-label={t('courseSyllabus')}>
         <h3>{t('courseSyllabus')}</h3>
+        {data.pacing && (
+          <p className="muted" data-testid="course-pacing">
+            {t(data.pacing === 'self_paced' ? 'pacingSelf' : 'pacingInstructor')}
+          </p>
+        )}
         {data.sections.length === 0 ? (
           <p className="muted">{t('outlineEmpty')}</p>
         ) : (
@@ -85,6 +122,7 @@ export function AuthoredCourseBody({ data, note }: { data: AcademyCourseLearnerV
             {data.sections.map((section, si) => (
               <li key={si} className="academy-lms-card">
                 <strong lang="und">{section.title}</strong>
+                <SectionRelease release={section.release} />
                 <ul className="academy-lms-stack">
                   {section.items.map((item, ii) =>
                     item.kind === 'subheader' ? (

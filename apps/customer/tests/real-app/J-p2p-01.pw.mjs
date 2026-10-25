@@ -18,6 +18,7 @@ import {
   registerRetiringMethod,
   registerSlowMethod,
   retireRetiringMethod,
+  holderOf,
   testInstrument,
   testPasskey,
   unconfirmedAccount,
@@ -103,7 +104,7 @@ test('J-p2p-01 #1 the P2P hub opens from More, lists every requirement, and a ta
     ['Offers', '/p2p'],
     ['Your orders', '/uc/order'],
     ['Your offers', '/uc/ad'],
-    ['Payment methods', '/p2p?view=methods'],
+    ['Payment methods', '/p2p/methods'],
     ['Trading access', '/p2p/access'],
   ])
     await expect(rooms.getByRole('link', { name, exact: true })).toHaveAttribute('href', href);
@@ -414,7 +415,7 @@ test('J-p2p-01 #4 a payment method retired while the ad is open refuses in plain
     country: 'DE',
     fiatCurrency: 'EUR',
     label: 'TEST second account',
-    details: { account_holder: seller.handle, iban: TEST_IBAN },
+    details: { account_holder: holderOf(seller), iban: TEST_IBAN },
   });
   const offer = await s.mutate('offers.create', {
     side: 'sell',
@@ -602,7 +603,8 @@ test('J-p2p-01 #6 the payment details name the seller’s account holder and num
   page,
 }) => {
   const state = journey();
-  const s = p2p(await api(state.seller));
+  // Changing a saved account is confirmed with the seller's TEST passkey (P-ads-merchant-18).
+  const s = p2p(await api(state.seller), await restorePasskey(state.sellerPasskey));
   await signIn(page, state.buyer);
 
   // While escrow is held: the account holder and IBAN under their labels, and the name the payment must carry.
@@ -630,7 +632,7 @@ test('J-p2p-01 #6 the payment details name the seller’s account holder and num
   const switched = 'DE00TESTPAYEECHANGED01';
   await s.mutate('instruments.update', {
     instrumentId: saved.id,
-    details: { account_holder: state.seller.handle, iban: switched },
+    details: { account_holder: holderOf(state.seller), iban: switched },
   });
   const after = await reveal();
   await expect(after.getByTestId('order-payee-changed')).toContainText(
@@ -642,8 +644,10 @@ test('J-p2p-01 #6 the payment details name the seller’s account holder and num
   // Put the seller's account back, so the later steps pay the account the ad was placed with.
   await s.mutate('instruments.update', {
     instrumentId: saved.id,
-    details: { account_holder: state.seller.handle, iban: TEST_IBAN },
+    details: { account_holder: holderOf(state.seller), iban: TEST_IBAN },
   });
+  // A passkey's counter only goes up: keep how far it went for the release in #8.
+  run.write({ sellerPasskey: s.passkey().saved() });
 });
 
 test('J-p2p-01 #7 the buyer ticks the checklist and marks paid; the order moves to Paid with the release countdown, and the seller is told once', async ({
@@ -707,7 +711,7 @@ test('J-p2p-01 #7 a method that is not instant shows its settlement window on th
     country: 'DE',
     fiatCurrency: 'EUR',
     label: 'TEST slow account',
-    details: { account_holder: seller.handle, iban: TEST_IBAN },
+    details: { account_holder: holderOf(seller), iban: TEST_IBAN },
   });
   const ad = {
     side: 'sell',

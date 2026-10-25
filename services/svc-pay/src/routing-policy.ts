@@ -23,7 +23,7 @@ export const ROUTING_APPROVAL_RATE_UNSET = 'pay.routing_approval_rate_unset' as 
 export const ROUTING_DECISION_KIND = 'pay.routing.decision' as const;
 
 /** v1 reference profiles in decide.ts — listed here for honesty board only. */
-export const REFERENCE_PROFILE_RAIL_IDS = ['crypto-native', 'card-sandbox'] as const;
+export const REFERENCE_PROFILE_RAIL_IDS = ['crypto-native', 'card-sandbox', 'bank-transfer-sandbox'] as const;
 
 export type RoutingPolicySummary = ReturnType<typeof describeRoutingPolicy>;
 

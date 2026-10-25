@@ -62,3 +62,35 @@
   background: var(--look-accent);
   color: var(--look-on-accent);
 }
+
+/* The payment methods the hosted checkout offers (/pay/checkout): one card per method, in the checkout's order. */
+.pp-methods {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pp-method {
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--if-line);
+  border-radius: var(--if-r-md);
+  background: var(--if-panel);
+}
+.pp-method-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.pp-method-name {
+  font-weight: 600;
+}
+.pp-method-order {
+  margin: 0;
+}
+.pp-method-limits {
+  margin: 0.5rem 0 0;
+  padding: 0;
+  border: 0;
+}

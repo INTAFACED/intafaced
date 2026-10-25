@@ -117,6 +117,8 @@ const migrations = [
   '0089_pay_payout_dispatched_outcome.sql',
   // createPayment and openCheckoutSession read the business's category (RC-merchant-08). Empty here: nothing refused.
   '20261024084448_pay_business_categories.sql',
+  // openCheckoutSession reads the business's payment methods (M-adv-payments-core-11). Empty here: the default offer.
+  '20261024233504_pay_checkout_methods.sql',
 ].map((f) => readFileSync(join(here, '..', 'drizzle', f), 'utf8'));
 
 const SECRET = 'svc-pay-test-secret-at-least-32-characters';
@@ -4289,6 +4291,30 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
         code: 'pay.routing_no_rail',
       });
       expect(await sql`SELECT id FROM pay.payments`).toHaveLength(0);
+    });
+
+    it('M-adv-payments-core-11: opens on the one method the business offers for this payment, and refuses any other before a row', async () => {
+      const { link, merchant: m } = await linked({ amount: '10', currency: 'USDT' });
+      const rule = (method: string, enabled: boolean) => ({ method, enabled, ruleAsset: null, minAmount: null, maxAmount: null });
+      // Bank debit first and on: it has no rail and is not for USDT, so the payer is still offered crypto alone.
+      await sql`
+        INSERT INTO pay.checkout_methods (merchant_id, methods, updated_by)
+        VALUES (${m.id}, ${sql.json([rule('bank_debit', true), rule('crypto', true), rule('card', false), rule('pay_later', false)] as never)}, 'test-owner')`;
+      await expect(pay.openCheckoutSession({ linkToken: link.token, ...geo, method: 'card' })).rejects.toMatchObject({
+        code: 'pay.checkout_method_not_offered',
+      });
+      await expect(pay.openCheckoutSession({ linkToken: link.token, geoCountry: 'XXX', method: 'card' })).rejects.toMatchObject({
+        code: 'pay.routing_input_missing',
+      });
+      expect(await sql`SELECT id FROM pay.payments`).toHaveLength(0);
+      const opened = await pay.openCheckoutSession({ linkToken: link.token, ...geo });
+      expect(opened.session).toMatchObject({ method: 'crypto', amount: '10', currency: 'USDT' });
+
+      // Crypto off: nothing the business offers can take a USDT payment, and nothing is written.
+      await sql`UPDATE pay.checkout_methods SET methods = ${sql.json([rule('bank_debit', true), rule('crypto', false), rule('card', false), rule('pay_later', false)] as never)} WHERE merchant_id = ${m.id}`;
+      const before = (await sql`SELECT id FROM pay.payments`).length;
+      await expect(pay.openCheckoutSession({ linkToken: link.token, ...geo })).rejects.toMatchObject({ code: 'pay.checkout_no_method' });
+      expect(await sql`SELECT id FROM pay.payments`).toHaveLength(before);
     });
 
     /**

@@ -29,6 +29,7 @@ import type {
   AcademyWithdrawAssignmentInput,
 } from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
+import { assertItemReleased } from './course-release.js';
 import { isVideoStorageConfigured, signPutObjectUrl, type VideoStorageConfig } from '../video/storage.js';
 import { canonicalPrice } from './courses.js';
 import { FILE_SIGNATURES, signatureMatches } from './media.js';
@@ -315,6 +316,8 @@ export class CourseAssignments {
     if (!row || row.kind !== 'assignment' || row.revision === null || row.course_state !== 'published')
       throw new AcademyError('no assignment is open at that address', 'academy.assignment_not_found');
     if (!row.enrolled) throw new AcademyError(`academy.enrolment_required course=${row.course_slug}`, 'academy.enrolment_required');
+    // A section scheduled for later keeps its assignment closed until it opens for this learner (AC-release-access-01).
+    await assertItemReleased(sql, row.item_id, userId, new Date());
     return row;
   }
 

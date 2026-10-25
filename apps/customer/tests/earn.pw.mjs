@@ -7,8 +7,33 @@ const userId = '11111111-1111-4111-8111-111111111111',
   poolId = '22222222-2222-4222-8222-222222222222',
   positionId = '33333333-3333-4333-8333-333333333333';
 const session = { userId, accessToken: 'isolated-identity-test', refreshToken: 'isolated-refresh-test', expiresAt: '2027-10-09T00:00:00Z' };
-const pool = { id: poolId, assetId: 'USDC', kind: 'flexible', name: 'USDC flexible', aprBps: 350, termDays: null, minDeposit: '10' };
-const position = { id: positionId, poolId, assetId: 'USDC', principal: '0.000000000000000001', maturesAt: null };
+const pool = {
+  id: poolId,
+  assetId: 'USDC',
+  kind: 'flexible',
+  name: 'USDC flexible',
+  aprBps: 350,
+  termDays: null,
+  minDeposit: '10',
+  payoutEvery: 'day',
+  compounding: 'simple',
+  rewardAssetId: 'USDC',
+  yieldSource: 'pool_reserve',
+  rateBands: null,
+  commissionBps: null,
+  capacity: null,
+};
+const position = {
+  id: positionId,
+  poolId,
+  assetId: 'USDC',
+  principal: '0.000000000000000001',
+  openedAt: '2026-01-01T09:00:00Z',
+  maturesAt: null,
+  rateAtOpenBps: 350,
+  accruesFrom: '2026-01-02T00:00:00.000Z',
+  accrual: 'accruing',
+};
 const reply = (r, data) => r.fulfill({ json: { result: { data } } }),
   failed = (r) => r.fulfill({ status: 503, json: { error: 'Unavailable', message: 'Current read failed.' } });
 async function setup(page, options = {}) {

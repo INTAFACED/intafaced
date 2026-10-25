@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { STALE_AFTER_SECONDS, bars, lagParts, newRequestId, staleness } from './model';
+import { STALE_AFTER_SECONDS, bars, lagParts, nameHold, newRequestId, staleness } from './model';
 import {
   businessDetails,
   merchantNames,
@@ -13,7 +13,7 @@ import {
 } from './settings/model';
 import { mixShares, nextDueSoonest, seriesWindow } from './payments/model';
 import { parsePortalRoute, portalRedirect } from './routes';
-import type { Member, MerchantRecord, Series } from './schemas';
+import type { Member, MerchantRecord, PaymentEvent, Series } from './schemas';
 
 const merchant = (patch: Partial<MerchantRecord> = {}): MerchantRecord => ({
   id: '11111111-1111-4111-8111-111111111111',
@@ -303,5 +303,38 @@ describe('portal routes', () => {
       '/pay/payments/a/b',
     ])
       expect(parsePortalRoute(path), path).toBeNull();
+  });
+});
+
+describe('a bank transfer held for a name check (RC-merchant-09)', () => {
+  const held = (payload: Record<string, unknown>): PaymentEvent => ({
+    id: 'e1',
+    event: 'payer_name.held',
+    payload,
+    railEventId: null,
+    ts: '2026-10-25T01:00:00.000Z',
+  });
+
+  it('names the reason the service gave while the payment is still open', () => {
+    expect(nameHold('created', [held({ reason: 'pay.payer_name_mismatch' })])).toBe('mismatch');
+    expect(nameHold('created', [held({ reason: 'pay.payer_name_missing' })])).toBe('missing');
+    expect(nameHold('created', [held({ reason: 'pay.name_match_rule_unset' })])).toBe('rule_unset');
+  });
+
+  it('shows nothing once the payment moved on, for a reason it does not know, or without the owner payload', () => {
+    expect(nameHold('captured', [held({ reason: 'pay.payer_name_mismatch' })])).toBeNull();
+    expect(nameHold('created', [])).toBeNull();
+    expect(nameHold('created', [held({ reason: 'constructor' })])).toBeNull();
+    expect(nameHold('created', [held({ reason: 'toString' })])).toBeNull();
+    expect(nameHold('created', [held({})])).toBeNull();
+    const team: PaymentEvent = {
+      id: 'e2',
+      event: 'payer_name.held',
+      ts: '2026-10-25T01:00:00.000Z',
+      amount: null,
+      assetId: null,
+      failure: null,
+    };
+    expect(nameHold('created', [team])).toBeNull();
   });
 });

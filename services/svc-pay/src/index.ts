@@ -73,6 +73,8 @@ import { WalletPay, failClosedWalletPublish } from './wallet/wallet-pay.js';
 import { createLedgerClient, createReceiptAssetPlaces } from './ledger-client.js';
 import { BankPayoutAbsentAdapter } from './rails/bank-payout.js';
 import { CardSandboxAdapter } from './rails/card-sandbox.js';
+import { bankTransferSandboxFromEnv } from './rails/bank-transfer-sandbox.js';
+import { readPayerNameMatchRule } from './payer-name/match.js';
 import { CryptoNativeAdapter } from './rails/crypto-native.js';
 import { RailRegistry } from './rails/registry.js';
 import { CryptoChainWatcher, PostgresChainWatcherCursorStore } from './rails/chain-watcher.js';
@@ -107,6 +109,7 @@ import { KybApplicationService, readKybApplicationDueDays } from './kyb-applicat
 import { KYB_DOC_KEY_ENV, KybDocumentService, parseKybDocKey } from './kyb-documents.js';
 import { KybInformationRequestService } from './kyb-information-requests.js';
 import { KYB_MALWARE_SCANNER_ENV, openKybMalwareScanner } from './kyb-malware-scan.js';
+import { SCREENING_SCREENER_ENV, openScreeningScreener } from './screening/local-test-screener.js';
 import { SubMerchantService } from './submerchants.js';
 import { createSubMerchantRouter } from './submerchant-router.js';
 import { createSubscriptionRouter } from './subscription-router.js';
@@ -123,6 +126,7 @@ import {
   retainRawBody,
   createIdentityOperationDecisionClient,
   createBankApproverEligibilityClient,
+  createBankInternalWithdrawalClient,
   s2sFromEnv,
 } from '@intafaced/contracts';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
@@ -225,6 +229,15 @@ const cryptoRail = new CryptoNativeAdapter({
 /** Filled once Fastify exists. A malformed rail due date is logged and ignored. */
 const evidenceDueByLog: { warn: (eventId: string) => void } = { warn: () => undefined };
 
+/**
+ * The TEST bank for pushed bank transfers at hosted checkout (J-merchant-04 step 6): registered only when its secret is
+ * set, and only under APP_ENV dev or test (anywhere else its secret refuses boot). A public checkout takes it only when
+ * `PAY_CHECKOUT_RAILS` names it.
+ */
+const bankTransferRail = bankTransferSandboxFromEnv(process.env, env.PAY_WEBHOOK_TOLERANCE_SECONDS);
+/** RC-merchant-09: the owner's payer-name rule. Blank holds every bank transfer for review; an unknown value refuses boot. */
+const payerNameMatchRule = readPayerNameMatchRule(process.env);
+
 const rails = new RailRegistry([
   cryptoRail,
   // Always registered. mode:'absent' — not a sandbox, so staging/prod boot is
@@ -240,6 +253,7 @@ const rails = new RailRegistry([
         }),
       ]
     : []),
+  ...(bankTransferRail ? [bankTransferRail] : []),
 ]);
 
 /**
@@ -328,6 +342,8 @@ const payGuards = buildPayGuards({
   kycTierOf: kycTierSource,
   limitSource,
   custodyPolicyMode: loadCustodyPolicyMode(process.env),
+  // No screener is connected: blank refuses every custodial send. `local-test` is the test stack's stand-in (dev/test only).
+  screening: openScreeningScreener({ appEnv: process.env.APP_ENV, setting: process.env[SCREENING_SCREENER_ENV] }) ?? undefined,
 });
 const conversion = new ConversionService({
   sql,
@@ -411,6 +427,7 @@ const pay = new PayService(sql, ledger, rails, {
   checkoutRails: env.PAY_CHECKOUT_RAILS,
   checkoutRiskBand: env.PAY_CHECKOUT_RISK_BAND,
   routingProfiles: checkoutRoutingProfiles,
+  payerNameMatchRule,
   checkoutSessionTtlSeconds: env.PAY_CHECKOUT_SESSION_TTL_SECONDS,
   linkDefaultTtlDays: env.PAY_LINK_DEFAULT_TTL_DAYS,
   linkMaxTtlDays: env.PAY_LINK_MAX_TTL_DAYS,
@@ -543,6 +560,11 @@ const userMoney = new UserMoneyService(sql, ledger, rails, {
     purchase_hold: purchaseHoldSource(purchaseHolds, ledger),
   }),
   purchaseHolds,
+  // W-withdraw-14: a withdrawal to another account's platform address is one send at svc-bank. Without BANK_URL it is not
+  // wired, so such a withdrawal refuses (`pay.internal_settlement_unwired`) before anything is claimed.
+  internalSettlement: env.BANK_URL
+    ? createBankInternalWithdrawalClient({ bankUrl: env.BANK_URL, secret: env.INTERNAL_SERVICE_SECRET, s2s: s2sKey })
+    : undefined,
 });
 
 /**
@@ -699,6 +721,7 @@ export const appRouter = mergeRouters(
     categoryPolicy: { sql, approvals: actionApprovals },
     catalog: { sql, imageRule: readProductImageRule(process.env) },
     checkoutBranding: { sql, logoRule: readCheckoutLogoRule(process.env) },
+    checkoutMethods: { sql, rails: () => pay.checkoutMethodRails() },
     limits: { sql, approvals: actionApprovals },
     custody: {
       sql,
@@ -1097,6 +1120,9 @@ await app.register(async (webhookScope) => {
       const delivery = { headers, body: typeof request.body === 'string' ? request.body : '' };
       // Dev/test in-memory chain only: a verified transfer is recorded on it before the delivery is applied.
       if (request.params.railId === cryptoRail.id) await feedSandboxChain(chain, cryptoRail.verifyWebhook(delivery));
+      // The TEST bank books a verified transfer before the delivery is applied, as the in-memory chain does above.
+      if (bankTransferRail && request.params.railId === bankTransferRail.id)
+        bankTransferRail.receive(bankTransferRail.verifyWebhook(delivery));
       const outcome = await pay.handleWebhook(request.params.railId, delivery);
       // A duplicate is a 200. A rail that gets anything else will keep retrying
       // a delivery we have already handled, forever.

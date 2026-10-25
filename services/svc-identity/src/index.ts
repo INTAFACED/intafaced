@@ -95,6 +95,9 @@ import { createSecurityLockRouter } from './security-lock-router.js';
 import { createMfaResetRouter } from './mfa-reset-router.js';
 import { createSupportRecoveryRouter } from './support-recovery-router.js';
 import { createRecoveryKeysRouter } from './recovery-keys-router.js';
+import { createDeathNoticesRouter } from './death-notices-router.js';
+import { listRecoveryEstates, relayDeathNoticeEvents, verifyRecoveryClaim } from './auth/death-notices.js';
+import { registerRecoveryClaimVerifyRoute } from './auth/recovery-claim-verify.js';
 import { RecoveryKeys } from './auth/recovery-keys.js';
 import { createTrustedDevicesRouter } from './trusted-devices-router.js';
 import { SecurityLock } from './auth/security-lock.js';
@@ -691,6 +694,7 @@ export const appRouter = mergeRouters(
   createSupportRecoveryRouter(() => auth.supportRecoveryDeps()),
   createTrustedDevicesRouter(auth, securityStepUp),
   createRecoveryKeysRouter(new RecoveryKeys(sql, securityStepUp, founderPair ?? [])),
+  createDeathNoticesRouter(() => ({ sql, now: () => new Date() })),
   createActionApprovalRouter(actionApprovals, {
     privilegedUserIds: founderPair ?? [],
     // Fresh factor for money-out step-up: the same verification as `auth.stepUp`, token discarded.
@@ -877,6 +881,15 @@ registerServiceMailRoute(app, {
 /** Whether a customer's trusted device can still be relied on, for a service that lets one device approve another's request. */
 registerTrustedDeviceReadRoute(app, {
   read: (userId, deviceId) => auth.trustedDeviceState(userId, deviceId),
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
+  ...(doorS2s ? { s2s: doorS2s } : {}),
+});
+
+/** Whether a recovery claim holds, for svc-bank before it sweeps a dead owner's trading balances to the heir (RC-identity-08). */
+registerRecoveryClaimVerifyRoute(app, {
+  verify: (input) => verifyRecoveryClaim(sql, input),
+  estates: (heirUserId) => listRecoveryEstates(sql, heirUserId),
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
   ...(doorS2s ? { s2s: doorS2s } : {}),
@@ -1071,6 +1084,17 @@ const relayFactorChanges = () => {
     });
 };
 setInterval(relayFactorChanges, 3_000).unref();
+// Death notices (RC-identity-02) are published from their own rows, at least once; one run at a time.
+let deathNoticeRelayRunning = false;
+setInterval(() => {
+  if (deathNoticeRelayRunning) return;
+  deathNoticeRelayRunning = true;
+  void relayDeathNoticeEvents({ sql, bus, now: () => new Date() })
+    .catch((err) => app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'identity.death_notice_relay_failed'))
+    .finally(() => {
+      deathNoticeRelayRunning = false;
+    });
+}, 3_000).unref();
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
 app.log.info(
   { port: env.HTTP_PORT, argon2: await argon2Available(), registrationOpen: env.REGISTRATION_OPEN, trpc: true },

@@ -938,6 +938,8 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
     kycRejected: { userId: uid(), caseId: uid(), version: 2, reasonCode: 'doc_blurry', rejectedAt: ts() },
     kycInfoRequested: { userId: uid(), caseId: uid(), version: 2, reasonCode: 'need_address', requestedAt: ts() },
     securityFactorChanged: { userId: uid(), change: 'totp_replaced', changedAt: ts(), noticeKey: 'factor-changed:u:1' },
+    deathNoticeCreated: { userId: uid(), noticeId: uid(), at: ts() },
+    deathNoticeConfirmed: { userId: uid(), noticeId: uid(), at: ts() },
     ledgerTxPosted: {
       txId: uid(),
       module: 'trade',

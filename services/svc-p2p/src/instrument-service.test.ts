@@ -9,13 +9,13 @@ import { MemoryLedger, parseAmount as amt, recipes } from '@intafaced/ledger-cli
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { P2pService } from './p2p-service.js';
-import { InstrumentService } from './instrument-service.js';
+import { InstrumentService, maskedValue } from './instrument-service.js';
 import { ANY_COUNTRY, InstrumentError, methodIdKey } from './instruments.js';
 import { createP2pRouter } from './router.js';
 import { P2pErasure } from './erasure.js';
 import { BlockRfqService } from './block-rfq.js';
 import { MemoryBlockQuoteStore } from './block-rfq-store.js';
-import { confirmedReleaseStepUp, confirmedTakeStepUp, metTakeGate } from './take-gate-fixture.js';
+import { confirmedInstrumentStepUp, confirmedReleaseStepUp, confirmedTakeStepUp, metTakeGate } from './take-gate-fixture.js';
 
 // Attributed local screening fixture: exercise downstream authorization and storage.
 // Explicit dev mode accepts this fixture; it is never a production sanctions list.
@@ -258,6 +258,9 @@ describe('svc-p2p payment instruments', () => {
       takeGate: metTakeGate(),
       takeStepUp: confirmedTakeStepUp(),
       releaseStepUp: confirmedReleaseStepUp(),
+      instrumentStepUp: confirmedInstrumentStepUp(),
+      // The router saves a destination only with the instrument key on; this suite's service stores them plainly.
+      instrumentKeyProvider: 'local-test',
     });
     await registerMethod();
   });
@@ -266,6 +269,146 @@ describe('svc-p2p payment instruments', () => {
     await db?.drop();
     await adminStop();
   }, 30_000);
+
+  // ── P-ads-merchant-18: the own-name rule, and P-trade-orders-03: the format hint ──
+
+  describe('the own-name rule and the format hint (J-p2p-04 #2)', () => {
+    const OWN = 'own-name-transfer';
+    /** Identity's answer, faked: only SELLER's verified name is "A Seller"; STRANGER has none. */
+    const holderNames = {
+      calls: [] as Array<{ userId: string; name: string }>,
+      async assertOwnName(userId: string, name: string) {
+        holderNames.calls.push({ userId, name });
+        if (userId === STRANGER) throw new InstrumentError('no verified name', 'p2p.holder_name_unverified');
+        if (name !== 'A Seller') throw new InstrumentError('not your name', 'p2p.holder_name_mismatch');
+      },
+    };
+    let ruled!: InstrumentService;
+
+    beforeEach(async () => {
+      holderNames.calls.length = 0;
+      ruled = new InstrumentService(sql, { holderNames });
+      await ruled.registerMethodSchema({
+        methodId: OWN,
+        country: 'DE',
+        label: 'Own-name transfer',
+        fields: [
+          { key: 'account_holder', label: 'Account holder', required: true, maxLength: 120, holderName: true },
+          {
+            key: 'iban',
+            label: 'IBAN',
+            required: true,
+            pattern: '[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}',
+            help: 'Two letters, two digits, then 11 to 30 letters or digits, no spaces',
+          },
+        ],
+      });
+    });
+
+    const add = (service: InstrumentService, ownerId: string, details: Record<string, string>) =>
+      service.createInstrument({
+        ownerId,
+        methodId: OWN,
+        country: 'DE',
+        fiatCurrency: 'EUR',
+        label: 'Own account',
+        details,
+        instrumentId: crypto.randomUUID(),
+      });
+    const stored = async (ownerId: string) =>
+      (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM p2p.payment_instruments WHERE owner_id = ${ownerId}`)[0]!.n;
+
+    it('keeps the holder-name field on the schema, and refuses a second one or an optional one', async () => {
+      const [schema] = await ruled.listMethodSchemas({ methodId: OWN, limit: 10 });
+      expect(schema!.fields.find((field) => field.key === 'account_holder')).toMatchObject({ holderName: true });
+      expect(schema!.fields.find((field) => field.key === 'iban')).not.toHaveProperty('holderName');
+      const two = [
+        { key: 'a', label: 'A', required: true, maxLength: 120, holderName: true },
+        { key: 'b', label: 'B', required: true, maxLength: 120, holderName: true },
+      ];
+      await expect(ruled.registerMethodSchema({ methodId: 'two-holders', country: 'DE', label: 'Two', fields: two })).rejects.toMatchObject(
+        {
+          code: 'p2p.instrument_schema_invalid',
+        },
+      );
+      // Identity holds a legal name of at most 200 characters: a holder field must not take more.
+      for (const bounds of [{}, { maxLength: 201 }]) {
+        await expect(
+          ruled.registerMethodSchema({
+            methodId: 'long-holder',
+            country: 'DE',
+            label: 'Long',
+            fields: [{ key: 'a', label: 'A', required: true, holderName: true, ...bounds }],
+          }),
+        ).rejects.toMatchObject({ code: 'p2p.instrument_schema_invalid', message: expect.stringContaining('maxLength') });
+      }
+      const optional = [{ key: 'a', label: 'A', required: false, maxLength: 120, holderName: true }];
+      await expect(
+        ruled.registerMethodSchema({ methodId: 'optional-holder', country: 'DE', label: 'Opt', fields: optional }),
+      ).rejects.toMatchObject({
+        code: 'p2p.instrument_schema_invalid',
+      });
+    });
+
+    it('stores a destination in the verified name, and refuses another name or no verified name with nothing stored', async () => {
+      await expect(add(ruled, SELLER, { account_holder: 'Someone Else', iban: 'DE89370400440532013000' })).rejects.toMatchObject({
+        code: 'p2p.holder_name_mismatch',
+      });
+      expect(await stored(SELLER)).toBe(0);
+      await expect(add(ruled, STRANGER, { account_holder: 'A Seller', iban: 'DE89370400440532013000' })).rejects.toMatchObject({
+        code: 'p2p.holder_name_unverified',
+      });
+      expect(await stored(STRANGER)).toBe(0);
+      // Identity is asked with the name as validated (trimmed) and the owner, never anyone else's id.
+      const saved = await add(ruled, SELLER, { account_holder: '  A Seller ', iban: 'DE89370400440532013000' });
+      expect(saved.status).toBe('active');
+      expect(holderNames.calls.at(-1)).toEqual({ userId: SELLER, name: 'A Seller' });
+
+      // An edit of the details is checked again; a refused edit leaves the destination as it was.
+      await expect(
+        ruled.updateInstrument({
+          instrumentId: saved.id,
+          ownerId: SELLER,
+          details: { account_holder: 'Someone Else', iban: 'DE89370400440532013000' },
+        }),
+      ).rejects.toMatchObject({ code: 'p2p.holder_name_mismatch' });
+      expect((await ruled.revealOwn({ instrumentId: saved.id, viewerId: SELLER })).details).toMatchObject({ account_holder: 'A Seller' });
+      // The masked view (J-p2p-04 #3): the holder whole, the IBAN by its last four only, and logged like any read.
+      const before = (await ruled.accessLogFor(SELLER, 100)).length;
+      expect((await ruled.revealOwnMasked({ instrumentId: saved.id, viewerId: SELLER })).details).toEqual({
+        account_holder: 'A Seller',
+        iban: '•••• 3000',
+      });
+      expect(await ruled.accessLogFor(SELLER, 100)).toHaveLength(before + 1);
+      // Someone else's id is refused and logged as denied, as for the whole values.
+      await expect(ruled.revealOwnMasked({ instrumentId: saved.id, viewerId: STRANGER })).rejects.toThrow();
+      // A label-only edit has no name to check.
+      const calls = holderNames.calls.length;
+      await ruled.updateInstrument({ instrumentId: saved.id, ownerId: SELLER, label: 'Renamed' });
+      expect(holderNames.calls.length).toBe(calls);
+    });
+
+    it('refuses every holder-named destination when identity is not wired, and leaves methods without one alone', async () => {
+      await expect(add(instruments, SELLER, { account_holder: 'A Seller', iban: 'DE89370400440532013000' })).rejects.toMatchObject({
+        code: 'p2p.holder_name_unverifiable',
+      });
+      expect(await stored(SELLER)).toBe(0);
+      // The fixture method declares no holder-name field: nothing to check.
+      expect((await sellerInstrument()).status).toBe('active');
+    });
+
+    it('refuses a badly formatted account with the format hint, naming the field and never the value, before identity is asked', async () => {
+      const refused = await add(ruled, SELLER, { account_holder: 'A Seller', iban: 'DE89 3704 0044' }).catch((err: unknown) => err);
+      expect(refused).toBeInstanceOf(InstrumentError);
+      expect(refused).toMatchObject({ code: 'p2p.account_format_invalid', field: 'iban', limit: { until: null, field: 'iban' } });
+      expect((refused as Error).message).toBe(
+        '"IBAN" is not in the expected format: Two letters, two digits, then 11 to 30 letters or digits, no spaces',
+      );
+      expect((refused as Error).message).not.toContain('3704');
+      expect(holderNames.calls).toEqual([]);
+      expect(await stored(SELLER)).toBe(0);
+    });
+  });
 
   // ── The registry: we do not invent a market's requirements ─────────────────
 
@@ -1181,6 +1324,7 @@ describe('svc-p2p payment instruments', () => {
         'instruments.update': { instrumentId: (await instruments.listInstruments(SELLER, false, 200))[0]!.id, label: 'mine now' },
         'instruments.remove': { instrumentId: (await instruments.listInstruments(SELLER, false, 200))[0]!.id },
         'instruments.reveal': { instrumentId: (await instruments.listInstruments(SELLER, false, 200))[0]!.id },
+        'instruments.revealMasked': { instrumentId: (await instruments.listInstruments(SELLER, false, 200))[0]!.id },
         // Considered, and this is the interesting pair. Both are self-only —
         // neither takes a `userId`, so a stranger calling them gets their own
         // (empty) record and never the seller's. `data.export` DOES carry
@@ -1962,5 +2106,13 @@ describe('svc-p2p payment instruments', () => {
       });
       expect(created.methodId).toBe('raw-method');
     });
+  });
+});
+
+describe('maskedValue (J-p2p-04 #3)', () => {
+  it('shows the last four of a long value, spaces dropped, and none of a short one', () => {
+    expect(maskedValue('DE89 3704 0044 0532 0130 00')).toBe('•••• 3000');
+    expect(maskedValue('123456')).toBe('••••');
+    expect(maskedValue('')).toBe('••••');
   });
 });

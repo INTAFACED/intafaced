@@ -17,7 +17,7 @@ const CODE = `TEST-${RUN}`;
 test.describe.configure({ mode: 'serial' });
 
 /** What the steps before a step left behind (serial, one worker). */
-const run = { courseId: null, quizId: null, learner: null };
+const run = { courseId: null, quizId: null, mixedId: null, surveyId: null, learner: null };
 
 function needs(...keys) {
   for (const key of keys) if (!run[key]) throw new Error(`${J}: an earlier step left no ${key}, so this step has nothing to work on`);
@@ -64,7 +64,7 @@ async function enrolledLearner(browser, prefix) {
   return who;
 }
 
-const quizPage = (page) => page.goto(`/academy-ops/catalogue/courses/${run.courseId}/items/${run.quizId}`);
+const quizPage = (page, itemId = run.quizId) => page.goto(`/academy-ops/catalogue/courses/${run.courseId}/items/${itemId}`);
 const editor = (page) => page.getByTestId('quiz-editor');
 
 async function saveDraft(page) {
@@ -100,6 +100,8 @@ test(`${J} #1 publishing a quiz with no pass mark refuses by name; two attempts 
         items: [
           { kind: 'lesson', title: 'TEST Sizing a trade', indent: 0, url: null },
           { kind: 'quiz', title: 'TEST Check yourself', indent: 0, url: null },
+          { kind: 'quiz', title: 'TEST Size the trade', indent: 0, url: null },
+          { kind: 'quiz', title: 'TEST Tell us', indent: 0, url: null },
           { kind: 'assignment', title: 'TEST Write-up', indent: 0, url: null },
         ],
       },
@@ -107,6 +109,8 @@ test(`${J} #1 publishing a quiz with no pass mark refuses by name; two attempts 
   });
   run.courseId = course.id;
   run.quizId = outline.outline[0].items[1].id;
+  run.mixedId = outline.outline[0].items[2].id;
+  run.surveyId = outline.outline[0].items[3].id;
 
   const page = await console_(browser);
   await quizPage(page);
@@ -153,7 +157,7 @@ test(`${J} #1 publishing a quiz with no pass mark refuses by name; two attempts 
   run.learner = await enrolledLearner(browser, 'ja12');
   const started = await learnerWrite(run.learner, 'startCourseQuiz', { itemId: run.quizId, accessCode: null });
   expect(started.status, JSON.stringify(started.body).slice(0, 300)).toBe(200);
-  expect(started.body.result.data).toMatchObject({ slug: run.quizId, number: 1, result: null });
+  expect(started.body.result.data).toMatchObject({ itemId: run.quizId, number: 1, result: null });
 
   await quizPage(page);
   await expect(editor(page).getByTestId('quiz-facts')).toContainText('Attempts by learners1');
@@ -162,6 +166,105 @@ test(`${J} #1 publishing a quiz with no pass mark refuses by name; two attempts 
   await editor(page).getByRole('button', { name: 'Take back to draft' }).click();
   await expect(editor(page).getByText('Learners have taken this quiz')).toBeVisible();
   await expect(editor(page).getByTestId('quiz-facts')).toContainText('Published');
+  await page.context().close();
+});
+
+test(`${J} #2 numeric, multi-select, essay and survey questions: tolerance, partial credit and results visibility; an essay stays pending until graded; an anonymous survey keeps no account`, async ({
+  browser,
+}) => {
+  test.setTimeout(240_000);
+  needs('courseId', 'mixedId', 'surveyId', 'learner');
+  const page = await console_(browser);
+  await quizPage(page, run.mixedId);
+  await expect(editor(page)).toBeVisible();
+  const q = (n, what) => editor(page).getByLabel(`Question ${n} ${what}`, { exact: true });
+
+  // A numeric question with a tolerance, a multi-select with partial credit and an essay.
+  for (let i = 0; i < 3; i += 1) await editor(page).getByRole('button', { name: 'Add question' }).click();
+  await q(1, 'kind').selectOption('numeric');
+  await editor(page).getByLabel('Question 1', { exact: true }).fill('TEST Risking 2% of 1000, how much is at risk?');
+  await q(1, 'points').fill('2');
+  await q(1, 'numeric answer').fill('20');
+  await q(1, 'tolerance').fill('0.5');
+  await q(2, 'kind').selectOption('multi');
+  await editor(page).getByLabel('Question 2', { exact: true }).fill('TEST Which of these cap a loss?');
+  await q(2, 'points').fill('2');
+  await q(2, 'choices, one per line').fill('A stop order\nPosition size\nHope');
+  await editor(page).getByLabel('Question 2 correct: A stop order').check();
+  await editor(page).getByLabel('Question 2 correct: Position size').check();
+  await q(2, 'partial credit').check();
+  await q(3, 'kind').selectOption('essay');
+  await editor(page).getByLabel('Question 3', { exact: true }).fill('TEST Why size a trade before entering it?');
+  await q(3, 'points').fill('4');
+  await editor(page).getByLabel('Pass mark (points)').fill('5');
+  await editor(page).getByLabel('Attempts allowed').fill('1');
+  await editor(page).getByLabel('Results shown to learners').selectOption('after_last_attempt');
+  await saveDraft(page);
+  await publish(page, `TEST ${J}: mixed questions`);
+  await expect(editor(page).getByText('quiz published')).toBeVisible();
+
+  // The learner reads the questions without any key, and answers: inside the tolerance, one of two correct choices, an essay.
+  const read = await (await api(run.learner)).get(trpc('courseQuiz', { itemId: run.mixedId }));
+  expect(read.status).toBe(200);
+  expect(read.body.result.data.questions.map((x) => x.kind)).toEqual(['numeric', 'multi', 'essay']);
+  expect(read.body.result.data.resultsVisibility).toBe('after_last_attempt');
+  expect(JSON.stringify(read.body)).not.toMatch(/correctChoiceIds|tolerance|"answer"/);
+  const started = await learnerWrite(run.learner, 'startCourseQuiz', { itemId: run.mixedId, accessCode: null });
+  expect(started.status, JSON.stringify(started.body).slice(0, 300)).toBe(200);
+  const attemptId = started.body.result.data.attemptId;
+  const [numeric, multi, essay] = read.body.result.data.questions;
+  for (const [questionId, answer] of [
+    [numeric.id, '20.4'],
+    [multi.id, [multi.choices[0].id]],
+    [essay.id, 'TEST The stop and the size fix the loss before the trade starts.'],
+  ]) {
+    const saved = await learnerWrite(run.learner, 'answerCourseQuiz', { attemptId, questionId, answer });
+    expect(saved.status, JSON.stringify(saved.body).slice(0, 300)).toBe(200);
+  }
+  const finished = await learnerWrite(run.learner, 'finishCourseQuiz', { attemptId });
+  expect(finished.status).toBe(200);
+  expect(finished.body.result.data.result).toMatchObject({ state: 'pending_review' });
+
+  // Staff see it waiting under an alias, score the essay, and the attempt is graded: 2 + 1 (partial credit) + 3.
+  await quizPage(page, run.mixedId);
+  await expect(editor(page).getByTestId('quiz-facts')).toContainText('Waiting for an essay score1');
+  const reviews = editor(page).getByTestId('quiz-reviews');
+  await expect(reviews).toContainText('Learner 1, attempt 1');
+  await expect(reviews).toContainText('TEST The stop and the size fix the loss before the trade starts.');
+  await reviews.getByLabel('Learner 1 essay 1 points (0 to 4)').fill('3');
+  await reviews.getByRole('button', { name: 'Save scores for learner 1' }).click();
+  await expect(editor(page).getByText('essays scored')).toBeVisible();
+  await expect(reviews).toContainText('No attempt is waiting for an essay score.');
+  const graded = await (await api(run.learner)).get(trpc('courseQuizAttempt', { itemId: run.mixedId }));
+  expect(graded.body.result.data.result).toMatchObject({ state: 'graded', score: 6, maxScore: 8, pass: true });
+
+  // An anonymous survey: no pass mark, answered once per device, and the reply keeps no account.
+  await quizPage(page, run.surveyId);
+  await editor(page).getByLabel('Quiz kind').selectOption('survey');
+  await editor(page)
+    .getByLabel(/Anonymous survey/)
+    .check();
+  await editor(page).getByRole('button', { name: 'Add question' }).click();
+  await q(1, 'kind').selectOption('essay');
+  await editor(page).getByLabel('Question 1', { exact: true }).fill('TEST What would make this course better?');
+  await saveDraft(page);
+  await expect(editor(page).getByText('Nothing stops Publish.')).toBeVisible();
+  await publish(page, `TEST ${J}: survey`);
+  await expect(editor(page).getByText('quiz published')).toBeVisible();
+  await expect(editor(page).getByTestId('quiz-facts')).toContainText('Anonymous survey');
+  const survey = await (await api(run.learner)).get(trpc('courseQuiz', { itemId: run.surveyId }));
+  expect(survey.body.result.data).toMatchObject({ kind: 'survey', anonymous: true, passMark: null });
+  const token = `TEST-${RUN}-device-token`;
+  const answers = { [survey.body.result.data.questions[0].id]: 'TEST More worked examples.' };
+  const sent = await learnerWrite(run.learner, 'submitCourseSurvey', { itemId: run.surveyId, clientToken: token, answers });
+  expect(sent.status, JSON.stringify(sent.body).slice(0, 300)).toBe(200);
+  expect(sent.body.result.data).toMatchObject({ itemId: run.surveyId, anonymous: true });
+  expect(JSON.stringify(sent.body)).not.toContain(run.learner.userId ?? '\u0000');
+  const again = await learnerWrite(run.learner, 'submitCourseSurvey', { itemId: run.surveyId, clientToken: token, answers });
+  expect(again.status).toBe(409);
+  expect(again.body?.error?.data?.cause?.code).toBe('academy.survey_duplicate');
+  await quizPage(page, run.surveyId);
+  await expect(editor(page).getByTestId('quiz-facts')).toContainText('Survey responses1');
   await page.context().close();
 });
 
@@ -196,4 +299,277 @@ test(`${J} #3 with an access code and an IP filter set, a start without the code
   const unreadable = await learnerWrite(learner, 'startCourseQuiz', { itemId: run.quizId, accessCode: CODE });
   expect(unreadable.status).toBe(412);
   expect(unreadable.body?.error?.data?.cause?.code).toBe('academy.ip_unreadable');
+});
+
+// Steps 4 and 5 work on courses of their own: a published course's outline is not edited, and the first course was opened
+// for learners in step 1.
+const SLUG_B = `test-j12b-${RUN}`;
+const SLUG_C = `test-j12c-${RUN}`;
+const itemPage = (page, courseId, itemId) => page.goto(`/academy-ops/catalogue/courses/${courseId}/items/${itemId}`);
+
+/** A local date and time a day from now, as a datetime-local field takes it. */
+function tomorrow() {
+  const at = new Date(Date.now() + 24 * 3600_000);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
+}
+
+/** A draft course with one assignment, made through Academy's admin door; answers the course and the assignment's ids. */
+async function draftWithAssignment(slug, title) {
+  const course = await staff('mutate', 'admin.createCourse', {
+    slug,
+    title,
+    summary: 'TEST A course a founder adds graded work to.',
+    thumbnailUrl: null,
+    pricing: 'free',
+    price: null,
+    priceAsset: null,
+  });
+  const outline = await staff('mutate', 'admin.saveOutline', {
+    courseId: course.id,
+    revision: course.revision,
+    sections: [{ title: 'TEST Hand in', items: [{ kind: 'assignment', title: 'TEST Size write-up', indent: 0, url: null }] }],
+  });
+  return { courseId: course.id, itemId: outline.outline[0].items[0].id };
+}
+
+/** A learner signs up and enrols on a course's free track through their own API. */
+async function learnerOn(browser, prefix, slug) {
+  const page = await (await browser.newContext({ baseURL: ORIGIN })).newPage();
+  const who = await signUp(page, prefix);
+  await page.context().close();
+  const res = await learnerWrite(who, 'enrolAuthoredCourse', { slug, track: 'audit' });
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return who;
+}
+
+const assignmentOf = async (who, itemId) => (await api(who)).get(trpc('assignment', { itemId }));
+
+/** Hands in text as the learner's next version. */
+async function handIn(who, itemId, text) {
+  const view = (await assignmentOf(who, itemId)).body.result.data;
+  const sent = await learnerWrite(who, 'submitAssignment', { itemId, version: view.nextVersion, text, fileId: null });
+  expect(sent.status, JSON.stringify(sent.body).slice(0, 300)).toBe(200);
+}
+
+test(`${J} #4 an assignment with a due date is duplicated and both exist; deleting one with hand-ins keeps them readable`, async ({
+  browser,
+}) => {
+  test.setTimeout(240_000);
+  const { courseId, itemId } = await draftWithAssignment(SLUG_B, `TEST J-academy-12 course B ${RUN}`);
+  const page = await console_(browser);
+  await itemPage(page, courseId, itemId);
+  const editor = page.getByTestId('assignment-editor');
+  await editor.getByLabel('Instructions', { exact: true }).fill('TEST Size one trade so a stop costs one percent, with your working.');
+  await editor.getByLabel('Points', { exact: true }).fill('10');
+  await editor.getByLabel('Due', { exact: true }).fill(tomorrow());
+  await editor.getByRole('combobox', { name: 'Text answer', exact: true }).selectOption('required');
+  await editor.getByRole('combobox', { name: 'File answer', exact: true }).selectOption('off');
+  await editor.getByRole('button', { name: 'Save assignment' }).click();
+  await expect(page.getByTestId('course-desk-outcome')).toContainText('Done: assignment saved');
+
+  // Duplicate: the copy comes right after it, with the same brief and due date, and both are in the outline.
+  await page.getByRole('button', { name: 'Duplicate this item' }).click();
+  await expect.poll(async () => (await staff('query', 'admin.course', { courseId })).outline[0].items.length, { timeout: 15_000 }).toBe(2);
+  const [original, copy] = (await staff('query', 'admin.course', { courseId })).outline[0].items;
+  expect(original.id).toBe(itemId);
+  expect(copy).toMatchObject({ kind: 'assignment', title: 'TEST Size write-up' });
+  const [first, second] = [
+    await staff('query', 'admin.assignment', { itemId }),
+    await staff('query', 'admin.assignment', { itemId: copy.id }),
+  ];
+  expect(second.brief).toEqual(first.brief);
+  expect(second.brief.dueAt).not.toBeNull();
+
+  // The course opens; a learner hands in to the copy; staff delete (withdraw) the copy, and the hand-in stays readable.
+  const current = await staff('query', 'admin.course', { courseId });
+  await staff('mutate', 'admin.setCourseState', {
+    courseId,
+    to: 'published',
+    revision: current.course.revision,
+    reason: `TEST ${J}: open course B`,
+  });
+  const learner = await learnerOn(browser, 'ja12d', SLUG_B);
+  await handIn(learner, copy.id, 'TEST I risk ten on a thousand with the stop one percent away.');
+  await itemPage(page, courseId, copy.id);
+  await editor.getByLabel('Reason to withdraw', { exact: true }).fill(`TEST ${J}: delete the copy`);
+  await editor.getByRole('button', { name: 'Withdraw assignment' }).click();
+  await expect(editor.getByText(/Withdrawn/).first()).toBeVisible();
+  const kept = await assignmentOf(learner, copy.id);
+  expect(kept.status, JSON.stringify(kept.body).slice(0, 300)).toBe(200);
+  expect(JSON.stringify(kept.body.result.data)).toContain('TEST I risk ten on a thousand with the stop one percent away.');
+  // The original is untouched and still takes hand-ins.
+  expect((await staff('query', 'admin.assignment', { itemId })).withdrawnAt).toBeNull();
+  run.courseB = courseId;
+  run.workB = itemId;
+  run.learnerB = learner;
+  await page.context().close();
+});
+
+test(`${J} #5 a rubric totals the chosen levels as a decimal string; a peer step with no review count refuses to publish`, async ({
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  needs('courseB', 'workB', 'learnerB');
+  const page = await console_(browser);
+
+  // A draft course whose assignment has peer review on and no review count is not published.
+  const c = await draftWithAssignment(SLUG_C, `TEST J-academy-12 course C ${RUN}`);
+  await staff('mutate', 'admin.saveAssignment', {
+    itemId: c.itemId,
+    revision: 0,
+    instructions: 'TEST Explain your stop.',
+    points: '10',
+    dueAt: null,
+    text: 'required',
+    file: 'off',
+  });
+  await itemPage(page, c.courseId, c.itemId);
+  const steps = page.getByTestId('assignment-review-steps');
+  await steps.getByLabel('Peer review', { exact: true }).check();
+  await steps.getByLabel('Reviews each learner gives', { exact: true }).fill('');
+  await steps.getByLabel('Criterion 1', { exact: true }).fill('TEST Sizing');
+  await steps.getByLabel('Criterion 1 levels', { exact: true }).fill('0, 0.5, 1.5');
+  await steps.getByRole('button', { name: 'Save review steps' }).click();
+  await expect(page.getByTestId('course-desk-outcome')).toContainText('Done: review steps saved');
+  await page.goto(`/academy-ops/catalogue/courses/${c.courseId}`);
+  await page.getByLabel('Reason', { exact: true }).fill(`TEST ${J}: try to open course C`);
+  await page.getByRole('button', { name: 'Publish', exact: true }).click();
+  await expect(page.getByTestId('course-desk-outcome')).toContainText('Peer review has no review count');
+  expect((await staff('query', 'admin.course', { courseId: c.courseId })).course.state).toBe('draft');
+
+  // On course B, a two-criterion rubric with decimal levels and one peer review each.
+  await itemPage(page, run.courseB, run.workB);
+  await steps.getByLabel('Peer review', { exact: true }).check();
+  await steps.getByLabel('Reviews each learner gives', { exact: true }).fill('1');
+  await steps.getByLabel('Criterion 1', { exact: true }).fill('TEST Sizing');
+  await steps.getByLabel('Criterion 1 levels', { exact: true }).fill('0, 0.5, 1.5');
+  await steps.getByRole('button', { name: 'Add criterion' }).click();
+  await steps.getByLabel('Criterion 2', { exact: true }).fill('TEST Working shown');
+  await steps.getByLabel('Criterion 2 levels', { exact: true }).fill('0, 1');
+  await steps.getByRole('button', { name: 'Save review steps' }).click();
+  await expect(page.getByTestId('course-desk-outcome')).toContainText('Done: review steps saved');
+
+  // Two learners hand in and review each other: 1.5 + 1 and 0.5 + 0.
+  const other = await learnerOn(browser, 'ja12e', SLUG_B);
+  await handIn(run.learnerB, run.workB, 'TEST B sizes from the stop distance.');
+  await handIn(other, run.workB, 'TEST E sizes by a fixed amount.');
+  for (const [who, marks] of [
+    [run.learnerB, ['1.5', '1']],
+    [other, ['0.5', '0']],
+  ]) {
+    const state = await learnerWrite(who, 'peerReview', { itemId: run.workB });
+    expect(state.status, JSON.stringify(state.body).slice(0, 300)).toBe(200);
+    const task = state.body.result.data.task;
+    expect(task).toMatchObject({ kind: 'peer' });
+    const sent = await learnerWrite(who, 'submitPeerReview', { itemId: run.workB, taskId: task.id, marks });
+    expect(sent.status, JSON.stringify(sent.body).slice(0, 300)).toBe(200);
+  }
+
+  // The grader sees each hand-in's rubric total as a decimal string, exactly.
+  await itemPage(page, run.courseB, run.workB);
+  await page.getByRole('link', { name: 'Grade hand-ins', exact: true }).click({ timeout: 10_000 });
+  const queue = page.getByTestId('grading-queue');
+  await expect(queue.locator('[data-grading-row]').filter({ hasText: 'TEST E sizes' })).toContainText('mean rubric total 2.5');
+  await expect(queue.locator('[data-grading-row]').filter({ hasText: 'TEST B sizes' })).toContainText('mean rubric total 0.5');
+  await page.context().close();
+});
+
+const SLUG_D = `test-j12d-${RUN}`;
+const DAY_MS = 24 * 3600_000;
+
+test(`${J} #6 a section released 7 days after enrolment, with pacing: the learner sees a clock and the local release time; changing pacing after start refuses`, async ({
+  browser,
+}) => {
+  test.setTimeout(240_000);
+  // A draft course: an opening section with a reading, and a second week whose assignment has its brief.
+  const course = await staff('mutate', 'admin.createCourse', {
+    slug: SLUG_D,
+    title: `TEST J-academy-12 course D ${RUN}`,
+    summary: 'TEST A course that opens a week at a time.',
+    thumbnailUrl: null,
+    pricing: 'free',
+    price: null,
+    priceAsset: null,
+  });
+  const outline = await staff('mutate', 'admin.saveOutline', {
+    courseId: course.id,
+    revision: course.revision,
+    sections: [
+      { title: 'TEST Week one', items: [{ kind: 'link', title: 'TEST Reading', indent: 0, url: 'https://example.com/reading' }] },
+      { title: 'TEST Week two', items: [{ kind: 'assignment', title: 'TEST Week two write-up', indent: 0, url: null }] },
+    ],
+  });
+  const weekTwo = outline.outline[1].items[0].id;
+  await staff('mutate', 'admin.saveAssignment', {
+    itemId: weekTwo,
+    revision: 0,
+    instructions: 'TEST Size a trade from the stop.',
+    points: '10',
+    dueAt: null,
+    text: 'required',
+    file: 'off',
+  });
+
+  // On the console: pacing, then week two opens 7 days after each learner enrols.
+  const page = await console_(browser);
+  await page.goto(`/academy-ops/catalogue/courses/${course.id}`);
+  const release = page.getByTestId('course-release');
+  await release.getByRole('combobox', { name: 'Pacing', exact: true }).selectOption('self_paced');
+  await release.getByLabel('Pacing reason', { exact: true }).fill(`TEST ${J}: learners go at their own speed`);
+  await release.getByRole('button', { name: 'Save pacing' }).click();
+  await expect(release.getByTestId('course-desk-outcome')).toContainText('Done: pacing saved');
+  const week = release.locator('[data-testid="release-section"][data-section="TEST Week two"]');
+  await week.getByRole('combobox', { name: 'Release of TEST Week two' }).selectOption('after_enrolment');
+  await week.getByLabel('Days after enrolment, TEST Week two').fill('7');
+  await week.getByLabel('Release reason, TEST Week two').fill(`TEST ${J}: drip week two`);
+  await week.getByRole('button', { name: 'Save release' }).click();
+  await expect(release.getByTestId('course-desk-outcome')).toContainText('Done: section release saved');
+  await expect(week.getByTestId('release-rule')).toContainText('Opens 7 days after each learner enrols');
+
+  const current = await staff('query', 'admin.course', { courseId: course.id });
+  await staff('mutate', 'admin.setCourseState', {
+    courseId: course.id,
+    to: 'published',
+    revision: current.course.revision,
+    reason: `TEST ${J}: open course D`,
+  });
+
+  // A learner enrols; week two is scheduled, with a clock and the time it opens in the learner's own time zone.
+  const learnerPage = await (await browser.newContext({ baseURL: ORIGIN, timezoneId: 'Asia/Tokyo' })).newPage();
+  const learner = await signUp(learnerPage, 'ja12f');
+  const enrolled = await learnerWrite(learner, 'enrolAuthoredCourse', { slug: SLUG_D, track: 'audit' });
+  expect(enrolled.status, JSON.stringify(enrolled.body).slice(0, 300)).toBe(200);
+  const enrolledAt = Date.now();
+  await learnerPage.goto(`/academy/learning/course/${SLUG_D}`);
+  await expect(learnerPage.getByText('Self-paced: go at your own speed')).toBeVisible({ timeout: 20_000 });
+  const clock = learnerPage.getByTestId('section-release');
+  await expect(clock).toHaveCount(1);
+  await expect(clock).toHaveAttribute('data-open', 'no');
+  await expect(clock).toContainText('🕒');
+  await expect(clock).toContainText('(your time)');
+  const opensAt = Date.parse((await clock.locator('time').getAttribute('datetime')) ?? '');
+  expect(Math.abs(opensAt - (enrolledAt + 7 * DAY_MS))).toBeLessThan(5 * 60_000);
+  // The text is that instant in Tokyo time, as the learner's browser formats it.
+  const local = await learnerPage.evaluate(
+    (iso) => new Intl.DateTimeFormat(navigator.language, { dateStyle: 'long', timeStyle: 'short' }).format(new Date(iso)),
+    new Date(opensAt).toISOString(),
+  );
+  await expect(clock.locator('time')).toHaveText(`Opens ${local} (your time)`);
+  await expect(learnerPage.locator('li[data-lock="scheduled"]')).toContainText('TEST Week two write-up');
+  await expect(learnerPage.locator('li[data-lock="none"]')).toContainText('TEST Reading');
+  const closed = await assignmentOf(learner, weekTwo);
+  expect(JSON.stringify(closed.body)).toContain('academy.not_released_yet');
+  await learnerPage.context().close();
+
+  // With a learner enrolled, a pacing change refuses by name and the pacing stays.
+  await page.reload();
+  await expect(release.getByTestId('pacing-locked')).toBeVisible();
+  await release.getByRole('combobox', { name: 'Pacing', exact: true }).selectOption('instructor_paced');
+  await release.getByLabel('Pacing reason', { exact: true }).fill(`TEST ${J}: try to change pacing after start`);
+  await release.getByRole('button', { name: 'Save pacing' }).click();
+  await expect(release.getByTestId('course-desk-outcome')).toContainText('Pacing is fixed');
+  await expect(release.getByTestId('course-desk-outcome')).toHaveAttribute('data-code', 'academy.pacing_locked');
+  expect((await staff('query', 'admin.courseRelease', { courseId: course.id })).pacing).toBe('self_paced');
+  await page.context().close();
 });

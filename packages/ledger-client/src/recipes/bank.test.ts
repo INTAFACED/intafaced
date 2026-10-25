@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MemoryLedger } from '../memory-ledger.js';
 import { formatAmount, parseAmount as amt } from '../money.js';
-import { earnPoolReserve, earnStakeAccount, houseFees, userAvailable } from '../accounts.js';
+import { earnPoolReserve, earnStakeAccount, houseFees, subAccountAvailable, userAvailable } from '../accounts.js';
 import { InvalidEntryError } from '../types.js';
-import { bankTransferKey, legacyBankTransferKey } from './bank.js';
+import { accountKey } from '../client.js';
+import { bankTransferKey, legacyBankTransferKey, recoverySweepTransferId } from './bank.js';
 import { recipes } from './index.js';
 
 /**
@@ -389,7 +390,61 @@ describe('bankTransfer key spaces (F-2.1)', () => {
     expect(bankTransferKey('p2p', 'T-1', 0)).toBe('bank.transfer.p2p:T-1:0');
     expect(bankTransferKey('sched', 'T-1', 3)).toBe('bank.transfer.sched:T-1:3');
     expect(bankTransferKey('rail', 'T-1', 1)).toBe('bank.transfer.rail:T-1:1');
-    expect(new Set(['own', 'p2p', 'sched', 'rail'].map((s) => bankTransferKey(s as 'own', 'T-1', 0))).size).toBe(4);
+    expect(bankTransferKey('recovery', 'T-1', 0)).toBe('bank.transfer.recovery:T-1:0');
+    expect(new Set(['own', 'p2p', 'sched', 'rail', 'recovery'].map((s) => bankTransferKey(s as 'own', 'T-1', 0))).size).toBe(5);
+  });
+
+  it('a recovery sweep is a manual move between two people, booked once per claim and account', async () => {
+    const book = new MemoryLedger({ idempotencyConflict: 'refuse' });
+    await seed(book);
+    const from = userAvailable(USER, 'USDT');
+    const transferId = recoverySweepTransferId('claim-1', from);
+    const sweep = { ...own(transferId), amount: amt('100'), keySpace: 'recovery' as const };
+    expect(() => recipes.bankTransfer({ ...sweep, kind: 'scheduled' })).toThrow(/does not go with/);
+    const request = recipes.bankTransfer(sweep);
+    expect(request.idempotencyKey).toBe(`bank.transfer.recovery:claim-1:${accountKey(from)}:0`);
+    expect(request.meta).toMatchObject({ keySpace: 'recovery', transferId });
+    const first = await book.post(request);
+    // A retried claim finds the same posting and moves nothing more.
+    const again = await book.post(recipes.bankTransfer(sweep));
+    expect(again.id).toBe(first.id);
+    // The same key with another amount is a conflict, never a second movement.
+    await expect(book.post(recipes.bankTransfer({ ...sweep, amount: amt('1') }))).rejects.toThrow();
+    expect(formatAmount((await book.balance(from)).amount)).toBe('0');
+    expect(formatAmount((await book.balance(userAvailable(USER_B, 'USDT'))).amount)).toBe('100');
+    expect(book.reconcile()).toEqual({ ok: true });
+  });
+
+  it('two accounts of one asset are two sweeps, later value is the next occurrence, and an over-sweep moves nothing', async () => {
+    const book = new MemoryLedger({ idempotencyConflict: 'refuse' });
+    await seed(book);
+    const space = subAccountAvailable('44444444-4444-4444-8444-444444444444', 'USDT');
+    await book.post(recipes.bankTransfer({ ...own('fund-space'), to: space, amount: amt('40'), keySpace: 'own' }));
+    const primary = userAvailable(USER, 'USDT');
+    const ids = [recoverySweepTransferId('claim-2', primary), recoverySweepTransferId('claim-2', space)];
+    expect(new Set(ids).size).toBe(2);
+    const sweep = (from: typeof primary, amount: string, occurrence = 0) =>
+      recipes.bankTransfer({
+        ...own(recoverySweepTransferId('claim-2', from)),
+        from,
+        amount: amt(amount),
+        occurrence,
+        keySpace: 'recovery',
+      });
+    // More than the account holds is refused by the book, and nothing moves.
+    await expect(book.post(sweep(primary, '61'))).rejects.toThrow();
+    await book.post(sweep(primary, '60'));
+    await book.post(sweep(space, '40'));
+    // Value that arrives after the sweep goes in the next occurrence of the same claim and account.
+    await book.post(
+      recipes.bankTransfer({ ...own('late-refund', USER), from: userAvailable(USER_B, 'USDT'), amount: amt('5'), keySpace: 'p2p' }),
+    );
+    expect(() => recoverySweepTransferId(' ', primary)).toThrow(InvalidEntryError);
+    await book.post(sweep(primary, '5', 1));
+    expect(formatAmount((await book.balance(primary)).amount)).toBe('0');
+    expect(formatAmount((await book.balance(space)).amount)).toBe('0');
+    expect(formatAmount((await book.balance(userAvailable(USER_B, 'USDT'))).amount)).toBe('100');
+    expect(book.reconcile()).toEqual({ ok: true });
   });
 
   it('posts under the key the builder names, so a lookup after a lost reply finds it', () => {

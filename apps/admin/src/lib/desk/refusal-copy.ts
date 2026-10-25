@@ -1127,8 +1127,28 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
   },
   'academy.assessment_invalid': {
     title: 'The quiz does not add up',
-    body: 'svc-academy found this quiz inconsistent, for example a pass mark above the questions’ points together, so nobody could pass.',
-    next: 'Check the pass mark, points and answers, then save again. Nothing was saved.',
+    body: 'svc-academy found this quiz inconsistent: for example a pass mark above the questions’ points together, an essay score above its question’s points, or an access code or IP filter on a survey.',
+    next: 'Check the pass mark, points, answers and scores, then try again. Nothing was saved.',
+  },
+  'academy.attempt_closed': {
+    title: 'Already scored',
+    body: 'This attempt is not waiting for an essay score any more: it was scored already.',
+    next: 'Read the quiz again. Nothing was changed.',
+  },
+  'academy.pacing_locked': {
+    title: 'Pacing is fixed',
+    body: 'Learners have enrolled in this course, so its pacing stays as it was when they joined.',
+    next: 'Section release dates can still change. Nothing was changed.',
+  },
+  'academy.not_released_yet': {
+    title: 'Not open yet',
+    body: 'This section is scheduled and has not opened for this learner yet.',
+    next: 'It opens at the time shown. Nothing was changed.',
+  },
+  'academy.attempt_not_found': {
+    title: 'No such attempt',
+    body: 'This attempt is not on record.',
+    next: 'Read the quiz again. Nothing was changed.',
   },
   'academy.ip_rule_invalid': {
     title: 'An IP filter entry is not an address',

@@ -174,7 +174,9 @@ export type GuardReplayReason =
   | 'payout_hold_booked'
   | 'withdrawal_already_sent'
   | 'withdrawal_rail_outcome_recorded'
-  | 'withdrawal_hold_booked';
+  | 'withdrawal_hold_booked'
+  /** An internal withdrawal (W-withdraw-14) whose send was asked of svc-bank and whose answer is not on record. */
+  | 'withdrawal_internal_send_asked';
 
 /** Fresh admission, an idempotent repeat, or the finishing of work already admitted. See REPLAY AND RECOVERY above. */
 export type GuardReplay = { readonly kind: 'fresh' } | { readonly kind: 'replay' | 'recovery'; readonly reason: GuardReplayReason };

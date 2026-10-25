@@ -3,6 +3,7 @@ import { compare, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { PayGuardRefusal, type PartialPayGuards } from '../seams/guards.js';
 import type { TreasuryLimits, TreasuryMode } from './config.js';
 import { assetExposure, type ConversionInventorySource } from './exposure.js';
+import { INTERNAL_RAIL } from '../withdrawals/internal.js';
 
 /**
  * TREASURY EXPOSURE GUARDS (W5).
@@ -75,6 +76,8 @@ export function createTreasuryGuards(deps: {
     },
     beforeUserMoneyWithdrawal: async (ctx) => {
       if (ctx.replay.kind !== 'fresh') return;
+      // An internal withdrawal (W-withdraw-14) moves value between two accounts inside the book: nothing leaves custody.
+      if (ctx.rail === INTERNAL_RAIL) return;
       // A `pending` claim with no hold on the ledger is classified fresh but its row
       // is already in the pending sum. Take that row out so a retry does not count twice.
       await admitWithdrawal(ctx.tx, ctx);

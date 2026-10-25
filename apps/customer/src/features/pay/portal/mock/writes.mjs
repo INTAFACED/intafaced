@@ -10,6 +10,37 @@ import { fromU, toU } from './world.mjs';
 const uuid = (prefix, n) => hex(prefix, n);
 /** A TEST logo rule (100 KB), as the local stack publishes it; not an owner value. */
 const TEST_LOGO_RULES = { logoMaxBytes: 100_000, logoTypes: ['image/png', 'image/jpeg', 'image/webp'] };
+/** The stand-in platform takes crypto and TEST bank transfers, as the local stack does; the rest name what they need. */
+const TEST_METHOD_CONNECTION = {
+  crypto: { state: 'connected' },
+  card: { state: 'not_connected', notice: 'rail.card' },
+  bank_debit: { state: 'not_connected', notice: 'rail.bank' },
+  pay_later: { state: 'not_connected', notice: 'rail.card' },
+  bank_transfer: { state: 'connected' },
+};
+const TEST_METHOD_CURRENCIES = { crypto: 'crypto', card: 'fiat', bank_debit: 'fiat', pay_later: 'fiat', bank_transfer: 'fiat' };
+const testCheckoutMethods = (state) => {
+  const saved = state.checkoutMethods;
+  const rules =
+    saved?.rules ??
+    ['crypto', 'card', 'bank_debit', 'pay_later', 'bank_transfer'].map((method) => ({
+      method,
+      enabled: method === 'crypto' || method === 'bank_transfer',
+      ruleAsset: null,
+      minAmount: null,
+      maxAmount: null,
+    }));
+  return {
+    status: saved ? 'saved' : 'default',
+    version: saved?.version ?? 0,
+    updatedAt: saved?.updatedAt ?? null,
+    methods: rules.map((rule) => ({
+      rule,
+      connection: TEST_METHOD_CONNECTION[rule.method],
+      currencies: TEST_METHOD_CURRENCIES[rule.method],
+    })),
+  };
+};
 const decimalPlaces = (value) => (String(value).split('.')[1] ?? '').length;
 const OWNER_ONLY = new Set([
   'payment.refund',
@@ -200,6 +231,27 @@ export function createWritesMock(ctx) {
             updatedAt: iso(now),
           };
           return ok(route, { branding: { rules: TEST_LOGO_RULES, look: state.checkoutLook }, replayed: false });
+        }
+        case 'merchantCheckoutMethods.get':
+          return ok(route, testCheckoutMethods(state));
+        case 'merchantCheckoutMethods.save': {
+          if (ctx.role !== 'owner' && ctx.role !== 'admin') return refuse(route, 403, 'pay.team_role_forbidden');
+          const version = state.checkoutMethods?.version ?? 0;
+          if (input.expectedVersion !== version) return refuse(route, 409, 'pay.checkout_methods_stale');
+          state.checkoutMethods = { rules: input.methods, version: version + 1, updatedAt: iso(now) };
+          return ok(route, { methods: testCheckoutMethods(state), replayed: false });
+        }
+        case 'merchantCheckoutMethods.preview': {
+          // The stand-in has the crypto rail only, everywhere, as the local stack does.
+          const fiat = !/^(USDT|USDC|BTC|ETH|SOL)$/.test(String(input.currency).toUpperCase());
+          const offered = [];
+          const leftOut = [];
+          for (const rule of testCheckoutMethods(state).methods.map((m) => m.rule)) {
+            if (!rule.enabled) leftOut.push({ method: rule.method, reason: 'off' });
+            else if ((rule.method !== 'crypto') !== fiat) leftOut.push({ method: rule.method, reason: 'currency' });
+            else offered.push({ method: rule.method, connection: TEST_METHOD_CONNECTION[rule.method] });
+          }
+          return ok(route, { offered, leftOut });
         }
         case 'merchant.profile': {
           // Saves the checkout domains (a new checkout profile). The read above keeps answering from its fixed record.

@@ -327,6 +327,9 @@ function stubUserMoney(): MoneyStub {
   const service = {
     credit: record('credit', deposit),
     withdraw: record('withdraw', withdrawal),
+    // Every address here is outside the platform (W-withdraw-14), so `withdrawal.create` keeps the named rail. Not recorded:
+    // the tests count the money calls.
+    platformDestination: async () => ({ kind: 'external' }),
     getWithdrawal: record('getWithdrawal', withdrawal),
     listWithdrawals: record('listWithdrawals', () => [withdrawal()]),
     availableBalance: record('availableBalance', () => amt('60.5')),

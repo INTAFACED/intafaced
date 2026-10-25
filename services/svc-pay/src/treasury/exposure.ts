@@ -19,7 +19,8 @@ import type { TreasuryLimits } from './config.js';
  *
  * User-money withdrawals (`pay.withdrawals` in `pending` or `held`) count as
  * pending payouts too: that value is on its way off the platform. `sent` and
- * `failed` do not.
+ * `failed` do not, and neither does an internal withdrawal (rail `internal`,
+ * W-withdraw-14): it moves value between two accounts and never leaves custody.
  */
 
 export interface ConversionInventorySource {
@@ -47,7 +48,7 @@ export async function pendingPayoutExposure(conn: Sql, assetId: string): Promise
   const withdrawals = await conn<Array<{ total: string }>>`
     SELECT COALESCE(SUM(amount), 0)::text AS total
       FROM pay.withdrawals
-     WHERE asset_id = ${assetId} AND status IN ('pending', 'held')
+     WHERE asset_id = ${assetId} AND status IN ('pending', 'held') AND rail <> 'internal'
   `;
   return parseAmount(rows[0]!.total) + parseAmount(withdrawals[0]!.total);
 }
@@ -78,7 +79,7 @@ export async function assetExposure(
 /** Operator view, in the shape of `founderTreasuryExposureSchema.perAsset`. Every asset with a limit or any pending payout. */
 export async function treasuryExposureView(sql: Sql, limits: TreasuryLimits, inventory: ConversionInventorySource) {
   const pending = await sql<Array<{ asset_id: string }>>`
-    SELECT asset_id FROM pay.payout_admissions UNION SELECT asset_id FROM pay.withdrawals WHERE status IN ('pending', 'held')
+    SELECT asset_id FROM pay.payout_admissions UNION SELECT asset_id FROM pay.withdrawals WHERE status IN ('pending', 'held') AND rail <> 'internal'
   `;
   const assets = [...new Set([...limits.byAsset.keys(), ...pending.map((r) => r.asset_id)])].sort();
   const perAsset = [];

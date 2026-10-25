@@ -13,6 +13,23 @@ export const paymentsContract: ContractPart = {
       method: 'saveCheckoutLook',
       run: (p) => p.saveCheckoutLook({ requestId: 'c3000001-0000-4000-8000-0000000000aa', expectedVersion: 0, brandColor: '#FF6600' }),
     },
+    { method: 'checkoutMethods', run: (p) => p.checkoutMethods() },
+    {
+      method: 'saveCheckoutMethods',
+      run: (p) =>
+        p.saveCheckoutMethods({
+          requestId: 'c3000001-0000-4000-8000-0000000000ab',
+          expectedVersion: 0,
+          methods: (['bank_debit', 'crypto', 'card', 'pay_later', 'bank_transfer'] as const).map((method) => ({
+            method,
+            enabled: method !== 'pay_later',
+            ruleAsset: null,
+            minAmount: null,
+            maxAmount: null,
+          })),
+        }),
+    },
+    { method: 'previewCheckoutMethods', run: (p) => p.previewCheckoutMethods({ country: 'DE', currency: 'EUR' }) },
     { method: 'paymentPage', run: (p) => p.paymentPage(merchant, { linkId: '1c000001-0000-4000-8000-000000000001' }, undefined) },
     { method: 'subscriptions', run: (p) => p.subscriptions(merchant, 25) },
     { method: 'subscriptionPage', run: (p) => p.subscriptionPage(merchant, { status: 'active' }, undefined) },

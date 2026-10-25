@@ -28,6 +28,11 @@ export function assertEarnInterestListLimit(limit: number | undefined): number {
   return assertOwnerListLimit(limit, 'bank.earn_interest_list_limit_unset', 'earn.interestHistory');
 }
 
+/** earn.rateHistory page size. Blank refuses rather than return every rate a pool ever published. */
+export function assertEarnRateHistoryListLimit(limit: number | undefined): number {
+  return assertOwnerListLimit(limit, 'bank.earn_rate_history_limit_unset', 'earn.rateHistory');
+}
+
 /** sharedPots.list and sharedPots.activity page size. Blank refuses rather than return every pot, invite or log row. */
 export function assertSharedPotsListLimit(limit: number | undefined): number {
   return assertOwnerListLimit(limit, 'bank.shared_pots_list_limit_unset', 'sharedPots.list');

@@ -195,6 +195,33 @@ export const securityFactorChanged = defineEvent(
   'A sign-in factor of an account changed. svc-notify writes the security inbox notice (I-signin-sessions-08); svc-identity already mailed the proved address.',
 );
 
+/**
+ * A death notice for an account (RC-identity-02, J-identity-05 #7). `created`: staff recorded one; the account is not
+ * changed by it (a false report must never lock a living person). `confirmed`: a second person approved it, and in the
+ * same transaction the account was frozen and its sessions and API keys revoked. Both are published from an outbox row,
+ * at least once, with the business key `identity.death_notice.<created|confirmed>:<noticeId>`. Who reported and the
+ * evidence never ride on the bus.
+ */
+const deathNoticePayload = z.object({ userId: userIdSchema, noticeId: z.string().guid(), at: z.string().datetime({ offset: true }) });
+
+export const deathNoticeCreated = defineEvent(
+  'identity',
+  'death_notice',
+  'created',
+  1,
+  deathNoticePayload,
+  'Staff recorded a death notice for an account (RC-identity-02). The account is unchanged until a second person confirms it.',
+);
+
+export const deathNoticeConfirmed = defineEvent(
+  'identity',
+  'death_notice',
+  'confirmed',
+  1,
+  deathNoticePayload,
+  'A second person confirmed a death notice (RC-identity-02): the account is frozen and its sessions and API keys revoked. Its balances move only by the recovery keys the owner set (RC-identity-08).',
+);
+
 // ── ledger (§4.2) ────────────────────────────────────────────────────────────
 
 export const ledgerTxPosted = defineEvent(
@@ -1478,6 +1505,8 @@ export const EVENT_CATALOG = {
   kycRejected,
   kycInfoRequested,
   securityFactorChanged,
+  deathNoticeCreated,
+  deathNoticeConfirmed,
   ledgerTxPosted,
   ledgerReconciliationFailed,
   ledgerReconciliationRunFailed,
@@ -1637,6 +1666,20 @@ export interface WiringSocket {
 }
 
 export const WIRING_SOCKETS = [
+  {
+    event: 'deathNoticeCreated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No subscriber yet (RC-identity-02): the notice is a durable svc-identity row that staff read on the account; nothing else acts on an unconfirmed notice, and no customer is promised a notice of it.',
+  },
+  {
+    event: 'deathNoticeConfirmed',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No subscriber yet (RC-identity-02): the freeze, session and API key revocation happen in the confirming transaction, and the recovery claim (RC-identity-08) asks identity for the confirmed notice when it runs, so nothing waits on the event.',
+  },
   {
     event: 'kycSubmitted',
     missing: 'publisher',

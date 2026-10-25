@@ -70,7 +70,14 @@ export interface FieldSpec {
    * field as sensitive.
    */
   readonly sensitive?: boolean;
+  /** Shown with the field, and in a format refusal (`p2p.account_format_invalid`) so the person can correct it. */
   readonly help?: string;
+  /**
+   * P-ads-merchant-18, the own-name rule: this field is the account holder's name. At most one per method; a new or
+   * edited destination is refused unless identity says it is the person's verified legal name. A method without one
+   * (cash in person, a handle) has no name to check. Operator-set, under the same two-person approval as the schema.
+   */
+  readonly holderName?: boolean;
 }
 
 export interface MethodSchema {
@@ -133,9 +140,25 @@ export type InstrumentErrorCode =
   | 'p2p.access_log_limit_unset'
   // purgeExpiredSnapshots batch unpublished. Blank is not 500.
   | 'p2p.purge_snapshots_limit_unset'
-  | 'p2p.delist_reason_required';
+  | 'p2p.delist_reason_required'
+  // P-trade-orders-03: a value that does not match the method's format; the message carries the operator's hint.
+  | 'p2p.account_format_invalid'
+  // P-ads-merchant-18, the own-name rule: the holder name is not the verified legal name, there is none, or identity
+  // could not say. Each refuses before anything is stored.
+  | 'p2p.holder_name_mismatch'
+  | 'p2p.holder_name_unverified'
+  | 'p2p.holder_name_unverifiable';
+
+/** Refusals about one field the person can correct: the answer names the field (contracts `p2pLimit.field`). */
+const FIELD_REFUSALS: ReadonlySet<InstrumentErrorCode> = new Set([
+  'p2p.account_format_invalid',
+  'p2p.instrument_field_missing',
+  'p2p.instrument_field_invalid',
+]);
 
 export class InstrumentError extends Error {
+  /** On a field refusal: the field's key for the client, as contracts' `p2pLimitOf` reads it. Never a value. */
+  readonly limit?: { readonly until: null; readonly field: string };
   constructor(
     message: string,
     readonly code: InstrumentErrorCode,
@@ -144,6 +167,7 @@ export class InstrumentError extends Error {
   ) {
     super(message);
     this.name = 'InstrumentError';
+    if (field !== undefined && FIELD_REFUSALS.has(code)) this.limit = { until: null, field };
   }
 }
 
@@ -319,6 +343,9 @@ export function methodIdKey(raw: string): string {
  * every instrument a real user tries to register, at a point where the user
  * cannot tell whether they typed something wrong or we did.
  */
+/** The longest legal name identity holds (contracts `customerDetailsSchema.legalName`), so the longest holder field. */
+export const HOLDER_NAME_MAX = 200;
+
 export function parseFieldSpecs(raw: unknown): FieldSpec[] {
   if (!Array.isArray(raw) || raw.length === 0) {
     throw new InstrumentError('A method schema needs at least one field', 'p2p.instrument_schema_invalid');
@@ -359,6 +386,7 @@ export function parseFieldSpecs(raw: unknown): FieldSpec[] {
       maxLength?: number;
       sensitive?: boolean;
       help?: string;
+      holderName?: boolean;
     } = { key, label, required: f.required !== false };
 
     if (f.pattern !== undefined) {
@@ -396,10 +424,32 @@ export function parseFieldSpecs(raw: unknown): FieldSpec[] {
 
     if (f.sensitive !== undefined) spec.sensitive = f.sensitive === true;
     if (typeof f.help === 'string' && f.help.trim().length > 0) spec.help = f.help.trim().slice(0, 400);
+    if (f.holderName !== undefined && f.holderName !== false) {
+      if (f.holderName !== true) {
+        throw new InstrumentError(`Field "${key}" has a holderName that is not true or false`, 'p2p.instrument_schema_invalid', key);
+      }
+      // A name that may be left out could never be checked, so the field that carries it is always required.
+      if (!spec.required) {
+        throw new InstrumentError(`Field "${key}" names the account holder, so it must be required`, 'p2p.instrument_schema_invalid', key);
+      }
+      // Identity holds a legal name of at most HOLDER_NAME_MAX characters and checks nothing longer: a longer value
+      // would be refused there on every try and read as "could not be checked".
+      if (spec.maxLength === undefined || spec.maxLength > HOLDER_NAME_MAX) {
+        throw new InstrumentError(
+          `Field "${key}" names the account holder, so its maxLength must be set and at most ${HOLDER_NAME_MAX}`,
+          'p2p.instrument_schema_invalid',
+          key,
+        );
+      }
+      spec.holderName = true;
+    }
 
     specs.push(spec);
   }
 
+  if (specs.filter((spec) => spec.holderName).length > 1) {
+    throw new InstrumentError('A method schema names at most one account-holder field', 'p2p.instrument_schema_invalid');
+  }
   return specs;
 }
 
@@ -496,8 +546,9 @@ export function validateDetails(schema: MethodSchema, raw: unknown): InstrumentD
     }
     if (field.pattern !== undefined && !compilePattern(field.pattern, field.key).test(trimmed)) {
       // The message names the field and never the value: an error string is the
-      // one place personal data escapes into logs without anyone deciding to.
-      throw new InstrumentError(`"${field.label}" is not in the expected format`, 'p2p.instrument_field_invalid', field.key);
+      // one place personal data escapes into logs without anyone deciding to. The operator's hint says what is expected.
+      const hint = field.help === undefined ? '' : `: ${field.help}`;
+      throw new InstrumentError(`"${field.label}" is not in the expected format${hint}`, 'p2p.account_format_invalid', field.key);
     }
 
     out[field.key] = trimmed;
