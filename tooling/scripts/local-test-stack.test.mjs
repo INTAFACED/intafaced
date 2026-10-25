@@ -72,14 +72,20 @@ const script = resolve(here, 'local-test-stack.mjs');
 // `LOCAL_STACK_BANK_DEPOSIT_CUSTODY=off` starts the bank with no custody port at all (J-wallet-02 #1), and nothing else changes.
 {
   const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
-  const on = localTestServiceEnvs().find((service) => service.name === 'bank').env;
+  const bankEnv = () => localTestServiceEnvs().find((service) => service.name === 'bank').env;
   const before = process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
-  process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY = 'off';
   try {
-    const off = localTestServiceEnvs().find((service) => service.name === 'bank').env;
+    delete process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
+    const on = bankEnv();
+    assert.ok(on.PAY_URL);
+    process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY = 'off';
+    const off = bankEnv();
     assert.equal('PAY_URL' in off, false);
     const { PAY_URL: _payUrl, ...rest } = on;
     assert.deepEqual(off, rest);
+    // Any other value is a mistake, refused by name, never read as connected.
+    process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY = 'OFF';
+    assert.throws(bankEnv, /LOCAL_STACK_BANK_DEPOSIT_CUSTODY is "OFF"/);
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
     else process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY = before;

@@ -8,7 +8,12 @@ function testValue(name) {
 }
 
 /** svc-pay as the deposit custody port, or none at all when the stack is asked to show custody unset. */
-const depositCustody = (urlOf) => (process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY === 'off' ? {} : { PAY_URL: urlOf('pay') });
+function depositCustody(urlOf) {
+  const asked = process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
+  if (asked === undefined || asked === '') return { PAY_URL: urlOf('pay') };
+  if (asked === 'off') return {};
+  throw new Error(`LOCAL_STACK_BANK_DEPOSIT_CUSTODY is "${asked}"; leave it unset for custody connected, or set it to off.`);
+}
 
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'bank',
