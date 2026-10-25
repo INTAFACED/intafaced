@@ -80,6 +80,8 @@ export const EVENT_BUS_MATRIX = {
   kycRejected: { kind: 'socket', socketClass: 'A' },
   kycInfoRequested: { kind: 'socket', socketClass: 'A' },
   securityFactorChanged: { kind: 'live' },
+  deathNoticeCreated: { kind: 'socket', socketClass: 'A' },
+  deathNoticeConfirmed: { kind: 'socket', socketClass: 'A' },
   ledgerTxPosted: { kind: 'socket', socketClass: 'A' },
   ledgerReconciliationFailed: { kind: 'socket', socketClass: 'A' },
   ledgerReconciliationRunFailed: { kind: 'socket', socketClass: 'A' },
