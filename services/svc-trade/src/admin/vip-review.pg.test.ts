@@ -28,6 +28,7 @@ const PDF = Buffer.from('%PDF-1.7 TEST proof of status, never a real statement')
 const OP = '33333333-3333-4333-8333-333333333333';
 const APPROVER = '44444444-4444-4444-8444-444444444444';
 const writer = () => principalFor(OP, ['admin:read', 'admin:write']);
+const compliance = () => principalFor(OP, ['admin:read', 'admin:compliance']);
 const REASON = 'TEST statement checked against the venue';
 const DAY = 86_400_000;
 
@@ -381,20 +382,22 @@ describe('reading applications and proofs', () => {
   it('opens a proof for a stated reason and audits it; without the key it refuses by name', async () => {
     const { admin } = desk(TRIAL);
     const id = await apply();
-    const proof = await admin.proof(principalFor(OP, ['admin:read']), { applicationId: id, reason: REASON });
+    const proof = await admin.proof(compliance(), { applicationId: id, reason: REASON });
     expect(Buffer.from(proof.bytesBase64, 'base64').equals(PDF)).toBe(true);
     expect(proof).toMatchObject({ fileName: 'statement.pdf', contentType: 'application/pdf' });
     const audits = await sql()<
       Array<{ kind: string; object_id: string; reason: string }>
     >`SELECT kind, object_id, reason FROM trade.operator_audit`;
     expect(audits).toEqual([{ kind: 'vip_application.proof_view', object_id: id, reason: REASON }]);
+    // An operator without the compliance scope opens nothing, and nothing more is audited.
+    const writerOnly = principalFor(OP, ['admin:read', 'admin:write']);
+    expect(await refusal(admin.proof(writerOnly, { applicationId: id, reason: REASON }))).toBe('scope.denied');
+    expect(await sql()`SELECT 1 FROM trade.operator_audit`).toHaveLength(1);
+    expect(await refusal(desk(TRIAL, undefined, null).admin.proof(compliance(), { applicationId: id, reason: REASON }))).toBe(
+      'vip.proof_key_unset',
+    );
     expect(
-      await refusal(desk(TRIAL, undefined, null).admin.proof(principalFor(OP, ['admin:read']), { applicationId: id, reason: REASON })),
-    ).toBe('vip.proof_key_unset');
-    expect(
-      await refusal(
-        desk(TRIAL, undefined, Buffer.alloc(32, 1)).admin.proof(principalFor(OP, ['admin:read']), { applicationId: id, reason: REASON }),
-      ),
+      await refusal(desk(TRIAL, undefined, Buffer.alloc(32, 1)).admin.proof(compliance(), { applicationId: id, reason: REASON })),
     ).toBe('vip.proof_unreadable');
   });
 });

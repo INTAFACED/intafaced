@@ -118,6 +118,7 @@ function fail(error: unknown): never {
 export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
   const operator = scopedProcedure('admin:read');
   const operatorWrite = scopedProcedure('admin:write');
+  const compliance = scopedProcedure('admin:compliance');
   const ready = (): TradeOpsAdmin => {
     if (!admin) {
       throw new TRPCError({
@@ -456,7 +457,7 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
         )
         .query(({ ctx, input }) => ready().vipApplications.list(ctx.principal, input).catch(fail)),
       // A mutation: each opening is written to the operator audit.
-      proof: operator
+      proof: compliance
         .input(z.object({ applicationId: id, reason }).strict())
         .mutation(({ ctx, input }) => ready().vipApplications.proof(ctx.principal, input).catch(fail)),
       review: operatorWrite

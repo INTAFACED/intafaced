@@ -94,8 +94,9 @@ function encrypt(key: Buffer, plaintext: Buffer, additional: Buffer): { cipherte
 
 /** Open a kept proof: the AAD binds it to its row and contents, and the plaintext must hash to the kept SHA-256. */
 export function openProof(key: Buffer, row: { id: string; sha256: string; ciphertext: Buffer; nonce: Buffer }): Buffer {
+  if (row.ciphertext.length < 16) throw new Error('vip proof is shorter than its tag');
   const tag = row.ciphertext.subarray(row.ciphertext.length - 16);
-  const decipher = createDecipheriv('aes-256-gcm', key, row.nonce);
+  const decipher = createDecipheriv('aes-256-gcm', key, row.nonce, { authTagLength: 16 });
   decipher.setAAD(proofAad(row.id, row.sha256));
   decipher.setAuthTag(tag);
   const plaintext = Buffer.concat([decipher.update(row.ciphertext.subarray(0, row.ciphertext.length - 16)), decipher.final()]);

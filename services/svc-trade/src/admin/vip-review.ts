@@ -14,7 +14,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
-import type { Principal } from '@intafaced/auth';
+import { requireScope, type Principal } from '@intafaced/auth';
 import type { OwnerFeeSchedule } from '../spot/fee-schedule.js';
 import type { VipTrialRules } from '../spot/fee-tiers.js';
 import {
@@ -145,12 +145,16 @@ export class VipReviewAdmin {
     return { applications: await this.present(rows), trialRules: trialRulesOf(schedule), proofKeyed: this.deps.proofKey !== null };
   }
 
-  /** One application's proof file, opened for a stated reason. Every opening is audited. */
+  /**
+   * One application's proof file, opened for a stated reason by compliance (`admin:compliance`, as the other identity
+   * document doors). Every opening is audited.
+   */
   async proof(
     principal: Principal,
     input: { applicationId: string; reason: string },
   ): Promise<{ fileName: string; contentType: string; sha256: string; bytesBase64: string }> {
     requireOperator(principal);
+    requireScope(principal, 'admin:compliance');
     const reason = requireReason(input.reason);
     const key = this.deps.proofKey;
     if (!key) throw new TradeOpsError('vip.proof_key_unset', 'the proof file key is not set, so no proof can be opened');
