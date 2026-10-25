@@ -18,7 +18,7 @@ import { assertEarnPoolsListLimit } from '../catalog-list-limit.js';
 import { assertEarnInterestListLimit, assertEarnPositionsListLimit } from '../owner-list-limit.js';
 import { assertEarnResumePendingLimit } from '../job-batch-limit.js';
 import { stakePrincipalForAccrual } from './accrue-principal.js';
-import { accrualBoundary, accrualDate, planAccrual, type AccruingPosition } from './interest.js';
+import { accrualBoundary, accrualDate, dailyInterest, planAccrual, type AccruingPosition } from './interest.js';
 import { withMoneySpan } from '../tracing.js';
 import { rateForDay, readRateHistory, recordRateChange, setPoolRate, type RateHistory } from './rate-history.js';
 import { readPoolTotals, type PoolTotal } from '../ops/pool-totals.js';
@@ -52,6 +52,9 @@ export interface PoolRecord {
   minDeposit: Amount;
   status: 'open' | 'closed';
 }
+
+/** Where a saving stands in the daily accrual (`EarnService.accrualStates`). */
+export type AccrualState = 'waiting' | 'accruing' | 'pool_closed' | 'below_unit';
 
 export interface PositionRecord {
   id: string;
@@ -624,6 +627,58 @@ export class EarnService {
         FROM bank.earn_positions p WHERE p.id = ANY(${positions.map((position) => position.id)}::uuid[])
     `;
     for (const row of rows) out.set(row.id, row.rate_bps);
+    return out;
+  }
+
+  /**
+   * Where each open position stands in the daily accrual (BK-earn-01, crypto-credit-earn-048), by position id. A day pays
+   * the positions opened before it began (`accrueInner`), so a position first earns on the UTC day after it opened:
+   * `accruesFrom` is that day's midnight.
+   *
+   * - `pool_closed`: the pool is closed, and the daily job pays only open pools (`openPoolsForAccrual`).
+   * - `below_unit`: a day's interest on it at the pool's rate rounds down to nothing, so no day pays it (`planAccrual`).
+   * - `waiting`: its first full UTC day has not begun, and no day that counted it has been paid.
+   * - `accruing`: its first day has begun, or the bank already paid a day that counted it (a day on or after its first,
+   *   planned after it opened, with its owner among the payees: a job run ahead of the clock).
+   */
+  async accrualStates(
+    positions: readonly PositionRecord[],
+    now: Date = new Date(),
+  ): Promise<Map<string, { accruesFrom: Date; accrual: AccrualState }>> {
+    const out = new Map<string, { accruesFrom: Date; accrual: AccrualState }>();
+    if (positions.length === 0) return out;
+    const DAY = 24 * 60 * 60 * 1000;
+    const poolRows = await this.sql<Array<{ id: string; apr_bps: string; status: 'open' | 'closed' }>>`
+      SELECT id, apr_bps, status FROM bank.earn_pools WHERE id = ANY(${[...new Set(positions.map((position) => position.poolId))]}::uuid[])
+    `;
+    const pools = new Map(poolRows.map((row) => [row.id, { aprBps: Number(row.apr_bps), status: row.status }]));
+    const first = (position: PositionRecord) => new Date(accrualBoundary(position.openedAt).getTime() + DAY);
+    // Only a position whose first day is still ahead needs the record: the clock settles every other one.
+    const ahead = positions.filter((position) => first(position) > now);
+    const paidAhead = new Set<string>();
+    if (ahead.length > 0) {
+      const rows = await this.sql<Array<{ id: string }>>`
+        SELECT p.id FROM bank.earn_positions p
+         WHERE p.id = ANY(${ahead.map((position) => position.id)}::uuid[])
+           AND EXISTS (
+             SELECT 1 FROM bank.interest_accruals a
+              WHERE a.pool_id = p.pool_id AND a.ledger_tx_id IS NOT NULL
+                AND a.accrual_date > (p.opened_at AT TIME ZONE 'UTC')::date
+                AND a.created_at > p.opened_at
+                AND a.planned_payouts @> jsonb_build_array(jsonb_build_object('userId', p.user_id::text))
+           )
+      `;
+      for (const row of rows) paidAhead.add(row.id);
+    }
+    for (const position of positions) {
+      const pool = pools.get(position.poolId)!;
+      const accruesFrom = first(position);
+      let accrual: AccrualState;
+      if (pool.status !== 'open') accrual = 'pool_closed';
+      else if (dailyInterest(position.principal, pool.aprBps) === 0n) accrual = 'below_unit';
+      else accrual = position.status === 'active' && (now >= accruesFrom || paidAhead.has(position.id)) ? 'accruing' : 'waiting';
+      out.set(position.id, { accruesFrom, accrual });
+    }
     return out;
   }
 

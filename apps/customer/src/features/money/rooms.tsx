@@ -1555,12 +1555,12 @@ function LoanDetailRoom({ search }: { search: string }) {
   );
 }
 /** `/bank/earn/pool?id=<pool>`: one pool's terms, rate history and the person's savings in it, inside the Earn room (J-bank-08 #1, #2). */
-function EarnPoolRoom({ search }: { search: string }) {
+function EarnPoolRoom({ search, open }: { search: string; open: (spec: ActionSpec) => void }) {
   const { t } = earnPoolCopy.useCopy();
   const poolId = new URLSearchParams(search).get('id');
   return (
     <BankPage room="Earn" title={t('poolTitle')} description={t('poolDescription')}>
-      <EarnPool poolId={poolId && poolId.trim() !== '' ? poolId : null} />
+      <EarnPool poolId={poolId && poolId.trim() !== '' ? poolId : null} open={open} />
     </BankPage>
   );
 }
@@ -2014,7 +2014,7 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
     case '/bank/earn':
       return <Earn open={open} />;
     case '/bank/earn/pool':
-      return <EarnPoolRoom search={search} />;
+      return <EarnPoolRoom search={search} open={open} />;
     case '/bank/loans':
       return <Loans open={open} />;
     case '/bank/loans/detail':

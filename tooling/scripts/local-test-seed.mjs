@@ -6,6 +6,7 @@
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs status [--state <dir>]
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs unseed [--state <dir>]
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs age-loan <loanId> <days> [--state <dir>]
+ *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs fund-earn-pool <poolId> <amount> <ref> [--state <dir>]
  *
  * Default state dir: ~/.intafaced/local-test-stack
  * Nitro's preview stack: ~/.intafaced/s3-trade-20261015
@@ -48,6 +49,10 @@ export const LIST_LIMIT = 200;
 /** `age-loan` moves a TEST loan back at most this many days: enough for a month of interest rows, far below the accrual backlog guard. */
 export const MAX_AGE_DAYS = 31;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** `fund-earn-pool` puts at most this much TEST reserve into one pool at a time: the seeded pools' own reserve. */
+export const MAX_POOL_FUNDING = '1000000';
+/** A pool the stack may fund by hand: one whose name says it is TEST (the seeded pools and the journeys' own). */
+const TEST_POOL_NAME = /^TEST[ ·]/;
 
 const DECIMAL = /^\d+(\.\d+)?$/;
 
@@ -532,6 +537,37 @@ export async function ageLoan(deps, loanId, days) {
   };
 }
 
+/**
+ * Funds one TEST earn pool's reserve, so the bank's own accrual job can pay the pool's interest on this stack (J-bank-08
+ * #3: a journey opens its own pool through the treasury door, and ops.fundPool only draws on bank revenue a fresh stack
+ * does not have). The same two moves `apply` makes for a seeded pool: a labelled TEST deposit to the TEST funder, then
+ * `earnPoolFund` from the funder's available balance. `ref` makes both business keys, so a retry funds once. Refused
+ * unless the pool exists, is named TEST and is open, and the amount is a decimal above zero and at most the cap.
+ */
+export async function fundEarnPool(deps, poolId, amount, ref) {
+  assertTestTables();
+  if (typeof poolId !== 'string' || !UUID.test(poolId)) throw new GuardError('refusing: fund-earn-pool needs a pool id (a UUID)');
+  if (typeof ref !== 'string' || !/^[A-Za-z0-9-]{4,64}$/.test(ref)) {
+    throw new GuardError('refusing: fund-earn-pool needs a ref of 4 to 64 letters, digits or dashes');
+  }
+  assertDecimal('pool funding', amount);
+  const units = deps.parseAmount(amount);
+  if (units <= 0n || units > deps.parseAmount(MAX_POOL_FUNDING)) {
+    throw new GuardError(`refusing: fund-earn-pool funds above 0 and at most ${MAX_POOL_FUNDING}`);
+  }
+  const pool = await deps.readPoolById(poolId);
+  if (!pool) throw new GuardError(`refusing: pool ${poolId} is not on this stack`);
+  if (!TEST_POOL_NAME.test(pool.name)) throw new GuardError(`refusing: pool ${poolId} is not a TEST pool`);
+  if (pool.status !== 'open') throw new GuardError(`refusing: pool ${poolId} is ${pool.status}`);
+  await fundFromLocalTestDeposit(deps, {
+    slug: `pool-${poolId}-${ref}`,
+    assetId: pool.assetId,
+    amount: units,
+    recipe: (from) => deps.recipes.earnPoolFund({ poolId, fundingId: `local-test-${ref}`, assetId: pool.assetId, amount: units, from }),
+  });
+  return { lines: [`pool ${poolId}: reserve funded ${amount} ${pool.assetId} (ref ${ref})`, FUNDS_LABEL] };
+}
+
 // ── Status (read-only) ──────────────────────────────────────────────────────
 
 export async function statusReport(deps, now = new Date()) {
@@ -685,6 +721,11 @@ export async function openLocal(plan) {
       `;
       return rows.map((row) => ({ id: row.id, name: row.name, status: row.status, assetId: row.asset_id }));
     },
+    async readPoolById(poolId) {
+      const rows = await bankSql`SELECT id, name, status, asset_id FROM bank.earn_pools WHERE id = ${poolId}`;
+      const row = rows[0];
+      return row ? { id: row.id, name: row.name, status: row.status, assetId: row.asset_id } : null;
+    },
     async readProducts(names) {
       if (names.length === 0) return [];
       const rows = await bankSql`
@@ -775,10 +816,14 @@ export function parseArgs(argv) {
     args.splice(at, 2);
   }
   const [command, ...rest] = args;
-  if (!command) throw new GuardError('refusing: command required. Use: apply | status | unseed | age-loan');
-  const operands = command === 'age-loan' ? 2 : 0;
+  if (!command) throw new GuardError('refusing: command required. Use: apply | status | unseed | age-loan | fund-earn-pool');
+  const operands = command === 'age-loan' ? 2 : command === 'fund-earn-pool' ? 3 : 0;
   if (rest.length > operands) throw new GuardError(`refusing: unknown argument "${rest[operands]}"`);
-  if (rest.length < operands) throw new GuardError('refusing: age-loan needs <loanId> <days>');
+  if (rest.length < operands) {
+    throw new GuardError(
+      command === 'age-loan' ? 'refusing: age-loan needs <loanId> <days>' : 'refusing: fund-earn-pool needs <poolId> <amount> <ref>',
+    );
+  }
   return { command, operands: rest, stateDir: path.resolve(stateDir ?? defaultStateDir()) };
 }
 
@@ -804,7 +849,12 @@ async function dispatch(command, deps, hooks, operands = []) {
     for (const line of report.lines) out(line);
     return 0;
   }
-  throw new GuardError(`refusing: unknown command "${command}". Use: apply | status | unseed | age-loan`);
+  if (command === 'fund-earn-pool') {
+    const report = await fundEarnPool(deps, operands[0], operands[1], operands[2]);
+    for (const line of report.lines) out(line);
+    return 0;
+  }
+  throw new GuardError(`refusing: unknown command "${command}". Use: apply | status | unseed | age-loan | fund-earn-pool`);
 }
 
 /**

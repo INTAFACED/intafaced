@@ -59,3 +59,10 @@ export function togglePick(picked: readonly string[], id: string): string[] {
   if (picked.includes(id)) return picked.filter((one) => one !== id);
   return picked.length >= COMPARE_MAX ? [...picked] : [...picked, id];
 }
+
+/** A day or an instant as a calendar day in UTC: accrual days and rate records are UTC days. One look across earn. */
+export function utcDay(value: string): string {
+  const at = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00Z` : value);
+  if (!Number.isFinite(at)) return value;
+  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(at);
+}
