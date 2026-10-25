@@ -12,11 +12,14 @@ import {
 
 /**
  * The reward saga (CM-payouts-ledger-02, ENGINE RW-1 to RW-8): the only place svc-campaigns moves value, and only
- * through two ledger-client recipes.
+ * through ledger-client recipes.
  *
  * - `rewardPay` pays a claimed reward from the one reward pot to the customer's available balance, under the ledger key
  *   `reward:<reward_key>` (`reward_key` is `task:<campaign>:<account>:<period>`, a business key, never a clock or a
  *   random id).
+ * - A reward the campaign gives locked or as a bonus goes into its own campaigns pot with `campaignRewardLock`, under
+ *   `campaigns:lock:<reward_key>`, never to the customer's balance; its outcome is `campaignRewardUnlock` (to the
+ *   customer) or `campaignRewardForfeit` (back to the reward pot), each under its own key (`settle`).
  * - `sweepFeesToRewards` funds that pot from fee revenue the platform earned, once two operators agree, under
  *   `token.fee.sweep:campaigns:<reference>:<module>:<asset>`.
  *
@@ -51,7 +54,10 @@ type IntentRow = {
   asset: string;
   amount: string;
   attempts: number;
+  form: 'paid' | 'locked' | 'bonus';
 };
+
+type SettleRow = { reward_key: string; account_id: string; asset: string; amount: string; settle: 'unlock' | 'forfeit'; form: string };
 
 type FundingRow = { reference: string; source_module: string; asset: string; amount: string; attempts: number };
 
@@ -103,18 +109,16 @@ export class PayoutSaga {
         OR (${retry} AND state IN ${this.sql(RETRYABLE)})
         OR (${retry} AND state = 'posting' AND last_attempt_at < now() - make_interval(secs => ${stale}))
       )
-      RETURNING reward_key, account_id, asset, amount::text AS amount, attempts`;
+      RETURNING reward_key, account_id, asset, amount::text AS amount, attempts, form`;
     if (!row) return false;
     let answer: PostAnswer;
     try {
+      const terms = { userId: row.account_id, assetId: row.asset, amount: parseAmount(row.amount) };
+      // A locked reward or a bonus goes into its own campaigns pot, never to the customer's balance.
       const tx = await this.ledger.post(
-        recipes.rewardPay({
-          rewardId: row.reward_key,
-          userId: row.account_id,
-          assetId: row.asset,
-          amount: parseAmount(row.amount),
-          reason: REWARD_REASON,
-        }),
+        row.form === 'paid'
+          ? recipes.rewardPay({ ...terms, rewardId: row.reward_key, reason: REWARD_REASON })
+          : recipes.campaignRewardLock({ ...terms, rewardKey: row.reward_key }),
       );
       answer = { state: 'posted', txId: tx.id };
     } catch (err) {
@@ -127,13 +131,22 @@ export class PayoutSaga {
   private async recordIntent(rewardKey: string, answer: PostAnswer): Promise<void> {
     await transaction(this.sql, async (tx) => {
       if (answer.state === 'posted') {
-        // The ledger booked it: that answer stands over any open state an overlapping attempt wrote first.
-        const booked = await tx`
-          UPDATE campaigns.reward_intents SET state = 'posted', reason = NULL, ledger_tx_id = ${answer.txId},
-            posted_at = now(), updated_at = now()
-          WHERE reward_key = ${rewardKey} AND state IN ${tx(OPEN)}`;
-        if (booked.count > 0) {
-          await tx`INSERT INTO campaigns.redemption_attempts (reward_key, outcome) VALUES (${rewardKey}, 'posted')`;
+        // The ledger booked it: that answer stands over any open state an overlapping attempt wrote first. A lock's
+        // booking makes the reward `locked` until its condition ends, counted from now.
+        const booked = await tx<{ form: string }[]>`
+          UPDATE campaigns.reward_intents SET
+            state = CASE WHEN form = 'paid' THEN 'posted' ELSE 'locked' END,
+            ledger_tx_id = CASE WHEN form = 'paid' THEN ${answer.txId} ELSE NULL END,
+            posted_at = CASE WHEN form = 'paid' THEN now() ELSE NULL END,
+            lock_tx_id = CASE WHEN form = 'paid' THEN NULL ELSE ${answer.txId} END,
+            locked_at = CASE WHEN form = 'paid' THEN NULL ELSE now() END,
+            lock_until = CASE WHEN form = 'paid' THEN NULL ELSE now() + make_interval(secs => lock_seconds) END,
+            reason = NULL, updated_at = now()
+          WHERE reward_key = ${rewardKey} AND state IN ${tx(OPEN)}
+          RETURNING form`;
+        if (booked[0]) {
+          const outcome = booked[0].form === 'paid' ? 'posted' : 'locked';
+          await tx`INSERT INTO campaigns.redemption_attempts (reward_key, outcome) VALUES (${rewardKey}, ${outcome})`;
         }
         return;
       }
@@ -145,6 +158,65 @@ export class PayoutSaga {
       await tx`
         INSERT INTO campaigns.redemption_attempts (reward_key, outcome, reason) VALUES (${rewardKey}, ${outcome}, ${answer.reason})`;
     });
+  }
+
+  /**
+   * One attempt at the decided outcome of a locked reward or bonus (`settling`, with `settle` written first): an unlock
+   * pays its pot to the customer and the reward is `posted`; a forfeit returns its pot to the reward pot and the reward
+   * is `forfeited`, never given again. Each outcome has its own key, so a retry books nothing twice. Any refusal or a
+   * lost answer leaves it `settling` with the reason (logged as `refused` or `unknown`, once per new answer), and the
+   * reconciler posts the same outcome again: the value never leaves the reward's pot until an outcome books.
+   */
+  async settle(rewardKey: string, { retry = false }: { retry?: boolean } = {}): Promise<boolean> {
+    const stale = inFlightAfter(this.reconcileAfterSeconds);
+    const [row] = await this.sql<SettleRow[]>`
+      UPDATE campaigns.reward_intents SET last_attempt_at = now(), updated_at = now()
+      WHERE reward_key = ${rewardKey} AND state = 'settling' AND (
+        last_attempt_at IS NULL OR last_attempt_at < locked_at
+        OR (${retry} AND last_attempt_at < now() - make_interval(secs => ${stale}))
+      )
+      RETURNING reward_key, account_id, asset, amount::text AS amount, settle, form`;
+    if (!row) return false;
+    const terms = { rewardKey: row.reward_key, userId: row.account_id, assetId: row.asset, amount: parseAmount(row.amount) };
+    let txId: string | null = null;
+    let reason: string;
+    let refused = false;
+    try {
+      const tx = await this.ledger.post(
+        row.settle === 'unlock' ? recipes.campaignRewardUnlock(terms) : recipes.campaignRewardForfeit(terms),
+      );
+      txId = tx.id;
+      reason = row.settle === 'unlock' ? '' : row.form === 'bonus' ? 'campaigns.bonus_expired' : 'campaigns.lock_condition_failed';
+    } catch (err) {
+      reason = codeOf(err);
+      refused = classifyPostOutcome(err) === 'refused';
+    }
+    await transaction(this.sql, async (tx) => {
+      if (txId === null) {
+        // The value stays in the reward's own pot either way, so the same outcome is posted again; the log gets a line
+        // when the answer changes, not on every pass, and a refusal reads as one so an operator can see it.
+        const kept = await tx`
+          UPDATE campaigns.reward_intents SET reason = ${reason}, updated_at = now()
+          WHERE reward_key = ${rewardKey} AND state = 'settling' AND reason IS DISTINCT FROM ${reason}`;
+        if (kept.count > 0) {
+          await tx`
+            INSERT INTO campaigns.redemption_attempts (reward_key, outcome, reason)
+            VALUES (${rewardKey}, ${refused ? 'refused' : 'unknown'}, ${reason})`;
+        }
+        return;
+      }
+      const unlock = row.settle === 'unlock';
+      const booked = await tx`
+        UPDATE campaigns.reward_intents SET state = ${unlock ? 'posted' : 'forfeited'}, reason = ${unlock ? null : reason},
+          ledger_tx_id = ${txId}, posted_at = ${unlock ? new Date() : null}, updated_at = now()
+        WHERE reward_key = ${rewardKey} AND state = 'settling'`;
+      if (booked.count > 0) {
+        await tx`
+          INSERT INTO campaigns.redemption_attempts (reward_key, outcome, reason)
+          VALUES (${rewardKey}, ${unlock ? 'unlocked' : 'forfeited'}, ${unlock ? null : reason})`;
+      }
+    });
+    return true;
   }
 
   /** One approved pot funding. Only `posting` rows post; a refusal is final for that reference. */
@@ -201,6 +273,12 @@ export class PayoutSaga {
       ORDER BY created_at LIMIT ${limit}`;
     let posted = 0;
     for (const { reward_key } of intents) if (await this.attempt(reward_key, { retry: true })) posted += 1;
+    // A decided outcome whose post failed or whose answer was lost.
+    const settling = await this.sql<{ reward_key: string }[]>`
+      SELECT reward_key FROM campaigns.reward_intents
+      WHERE state = 'settling' AND last_attempt_at < now() - make_interval(secs => ${after})
+      ORDER BY updated_at LIMIT ${limit}`;
+    for (const { reward_key } of settling) if (await this.settle(reward_key, { retry: true })) posted += 1;
     const fundings = await this.sql<{ reference: string }[]>`
       SELECT reference FROM campaigns.pot_fundings
       WHERE state IN ('posting', 'unknown')

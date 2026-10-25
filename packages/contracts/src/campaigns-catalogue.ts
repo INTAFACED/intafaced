@@ -41,6 +41,9 @@ export const CAMPAIGN_REFUSAL_CODES = [
   'campaigns.tasks_invalid',
   'campaigns.claim_window_unset',
   'campaigns.hold_period_unset',
+  'campaigns.lock_period_unset',
+  'campaigns.bonus_expiry_unset',
+  'campaigns.bonus_scope_unset',
   'campaigns.no_tasks',
   'campaigns.not_joined',
   'campaigns.tasks_incomplete',
@@ -174,6 +177,37 @@ export const taskStepSchema = z
   .strict();
 export type TaskStep = z.infer<typeof taskStepSchema>;
 
+/** Where a bonus applies (CM-rewards-hub-02): a closed list; spot trading and withdrawal fees are never in it. */
+export const BONUS_APPLIES_TO = ['derivatives', 'copy_trading', 'bots', 'fiat', 'other'] as const;
+export type BonusAppliesTo = (typeof BONUS_APPLIES_TO)[number];
+
+/**
+ * How a claimed reward is given (CM-payouts-ledger-01 locked part, CM-rewards-hub-02). Null: paid to the customer's
+ * balance. `locked`: held in a campaigns pot until the customer completes `step` within `seconds` of the lock; done, it
+ * is paid to them; not done in time, it is forfeited once and never given again. `bonus`: held in a campaigns pot,
+ * never withdrawable, and forfeited once when `expirySeconds` after the grant pass (whether any bonus profit becomes
+ * withdrawable is an owner decision, LD-camp-06, still blank, so none does). Blank seconds refuse
+ * `campaigns.lock_period_unset` or `campaigns.bonus_expiry_unset`; a bonus with no product refuses
+ * `campaigns.bonus_scope_unset`. A locked reward or bonus is never in the customer's balance.
+ */
+export const rewardLockSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('locked'),
+      seconds: z.number().int().min(60).max(31_536_000).nullable(),
+      step: taskStepSchema.extend({ streakDays: z.null().default(null) }),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('bonus'),
+      expirySeconds: z.number().int().min(60).max(31_536_000).nullable(),
+      appliesTo: z.array(z.enum(BONUS_APPLIES_TO)).max(BONUS_APPLIES_TO.length),
+    })
+    .strict(),
+]);
+export type RewardLock = z.infer<typeof rewardLockSchema>;
+
 /**
  * A task campaign's steps, claim window, risk-review hold and verification gate. The claim window (seconds after the last
  * step completes) and the hold (seconds a claimed reward waits on hold before it is paid; 0 pays at once) are operator
@@ -185,6 +219,7 @@ export const campaignTasksSchema = z
     steps: z.array(taskStepSchema).min(1).max(10),
     claimWindowSeconds: z.number().int().min(1).max(31_536_000).nullable(),
     holdSeconds: z.number().int().min(0).max(31_536_000).nullable().default(null),
+    lock: rewardLockSchema.nullable().default(null),
     kycGate: z.enum(KYC_GATES),
   })
   .strict();
@@ -354,6 +389,8 @@ export const REWARD_STATES = [
   'held',
   'qualified',
   'posting',
+  'locked',
+  'settling',
   'posted',
   'pending_funding',
   'pending_retry',
@@ -367,7 +404,7 @@ export type RewardState = (typeof REWARD_STATES)[number];
 /** One line of the redemption log: every attempt, with its outcome and typed reason. */
 export const redemptionAttemptSchema = z.object({
   at: iso,
-  outcome: z.enum(['held', 'released', 'qualified', 'posted', 'refused', 'unknown', 'withheld', 'forfeited']),
+  outcome: z.enum(['held', 'released', 'qualified', 'posted', 'locked', 'unlocked', 'refused', 'unknown', 'withheld', 'forfeited']),
   reason: z.string().nullable(),
 });
 export type RedemptionAttempt = z.infer<typeof redemptionAttemptSchema>;
@@ -387,6 +424,21 @@ export const rewardRecordSchema = z.object({
   postedAt: iso.nullable(),
   /** When a held reward's risk-review hold ends; null when the campaign pays at once. */
   holdUntil: iso.nullable(),
+  /** `paid` to the balance, or given `locked` or as a `bonus` (see `rewardLockSchema`), as the campaign said at the claim. */
+  form: z.enum(['paid', 'locked', 'bonus']),
+  /** A locked reward or bonus once its lock posted: the lock transaction, when its condition ends or it expires. */
+  lock: z
+    .object({
+      txId: z.string(),
+      until: iso,
+      /** A locked reward's condition: the step and how many of its events count so far. Null for a bonus. */
+      condition: z.object({ title: z.string(), done: z.number().int().min(0), target: z.number().int().positive() }).nullable(),
+      /** A bonus's products; empty for a locked reward. */
+      appliesTo: z.array(z.enum(BONUS_APPLIES_TO)),
+      /** The decided outcome once its condition is met or its time ran out; null while it waits. */
+      outcome: z.enum(['unlock', 'forfeit']).nullable(),
+    })
+    .nullable(),
   /**
    * The rollback window (an owner value; null reads "not set") and when it closes for this reward. A value-moving
    * rollback needs a reversing recipe that does not exist yet, so it is never available here.
@@ -451,16 +503,19 @@ export type TaskClaimResult = z.infer<typeof taskClaimResultSchema>;
  * My Rewards hub (CM-rewards-hub-01, J-campaigns-03): every reward of the signed-in account, in plain status words.
  * `on_hold`: held for review, or withheld while the account is not active. `still_open`: qualified and not booked yet
  * (being posted, waiting for the pot, the platform posting freeze, or an answer that was lost). `posted`: booked, with the
- * ledger transaction. `closed`: forfeited or failed, never paid. Totals are summed from the reward rows on each read, never
+ * ledger transaction. `locked`: a locked reward or bonus waiting on its condition or expiry, held in a campaigns pot and
+ * never withdrawable (its total is the customer's restricted balance). `closed`: forfeited or failed, never paid. Totals are summed from the reward rows on each read, never
  * stored.
  */
-export const REWARD_STATUSES = ['on_hold', 'still_open', 'posted', 'closed'] as const;
+export const REWARD_STATUSES = ['on_hold', 'still_open', 'locked', 'posted', 'closed'] as const;
 export type RewardStatus = (typeof REWARD_STATUSES)[number];
 export const REWARD_STATUS_OF = {
   held: 'on_hold',
   withheld: 'on_hold',
   qualified: 'still_open',
   posting: 'still_open',
+  locked: 'locked',
+  settling: 'locked',
   pending_funding: 'still_open',
   pending_retry: 'still_open',
   unknown: 'still_open',

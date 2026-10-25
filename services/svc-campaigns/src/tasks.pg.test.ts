@@ -6,6 +6,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   LedgerError,
   MemoryLedger,
+  campaignLockAccount,
   houseFees,
   parseAmount,
   recipes,
@@ -20,7 +21,7 @@ import { CampaignService, zonedClock } from './campaigns.js';
 import { CampaignsError } from './codes.js';
 import { PayoutSaga, REWARD_REASON, answerOf } from './payouts.js';
 import { createMarketNames, type MarketNames } from './markets.js';
-import { TaskService, meetsGate, rewardKeyOf, stepMatches, type FillEvent } from './tasks.js';
+import { TaskService, LOCK_FILL_GRACE_SECONDS, meetsGate, rewardKeyOf, stepMatches, type FillEvent } from './tasks.js';
 
 /**
  * Task campaigns and the reward saga against real Postgres and the in-memory reference ledger (CM-tasks-quests-01,
@@ -71,6 +72,7 @@ const STEPS: CampaignTasks = {
   ],
   claimWindowSeconds: 3600,
   holdSeconds: 0,
+  lock: null,
   kycGate: 'full',
 };
 
@@ -578,6 +580,7 @@ if (!db) {
         steps: [{ title: 'TEST trade 3 days in a row', event: 'trade.fill', market: null, side: null, count: 1, streakDays: 3 }],
         claimWindowSeconds: 3600,
         holdSeconds: 0,
+        lock: null,
         kycGate: 'full',
       };
       const c = await joined({ tasks: streak, startsAt: new Date(Date.now() - 10 * 24 * HOUR).toISOString() });
@@ -608,6 +611,7 @@ if (!db) {
         steps: [{ title: 'TEST', event: 'trade.fill', market: null, side: null, count: 2, streakDays: 3 }],
         claimWindowSeconds: 3600,
         holdSeconds: 0,
+        lock: null,
         kycGate: 'none',
       };
       expect(await code(campaigns().create({ definition: definition({ tasks: bad }), actor: A }))).toBe('campaigns.tasks_invalid');
@@ -712,6 +716,190 @@ if (!db) {
       const c = await s.create({ definition: definition({ tasks: { ...STEPS, claimWindowSeconds: null } }), actor: A });
       expect((await s.validate({ id: c.id })).missing).toContainEqual({ code: 'campaigns.claim_window_unset', field: 'claimWindow' });
       expect(await code(s.create({ definition: definition({ type: 'referral' }), actor: A }))).toBe('campaigns.tasks_invalid');
+    });
+
+    // ── Locked rewards and bonuses (CM-payouts-ledger-01, CM-rewards-hub-02, J-campaigns-03 #4-#6) ──────────────────
+
+    const UNLOCK = {
+      title: 'TEST sell BTC again',
+      event: 'trade.fill' as const,
+      market: 'BTC/USDT',
+      side: 'sell' as const,
+      count: 1,
+      streakDays: null,
+    };
+    const LOCKED: CampaignTasks = { ...STEPS, lock: { kind: 'locked', seconds: 600, step: UNLOCK } };
+    const BONUS: CampaignTasks = { ...STEPS, lock: { kind: 'bonus', expirySeconds: 600, appliesTo: ['derivatives'] } };
+    const pot = (key: string) => book.balance(campaignLockAccount(key, 'USDT')).then((b) => b.amount);
+    const later = (seconds: number) => {
+      clock = new Date(Date.now() + seconds * 1000);
+    };
+
+    /** Locks reconcile: every pot holds what its locked row says, and outcomes left the engine exactly once. */
+    async function locksReconcile() {
+      const rows = await db!.sql<{ reward_key: string; state: string; amount: string; settle: string | null }[]>`
+        SELECT reward_key, state, amount::text AS amount, settle FROM campaigns.reward_intents WHERE lock_tx_id IS NOT NULL`;
+      for (const r of rows) {
+        const open = r.state === 'locked' || r.state === 'settling';
+        expect(await pot(r.reward_key)).toBe(open ? parseAmount(r.amount) : 0n);
+        expect(await book.getTxByKey(`reward:${r.reward_key}`)).toBeNull();
+        expect(Boolean(await book.getTxByKey(`campaigns:unlock:${r.reward_key}`))).toBe(r.state === 'posted');
+        expect(Boolean(await book.getTxByKey(`campaigns:forfeit:${r.reward_key}`))).toBe(r.state === 'forfeited');
+      }
+    }
+
+    it('a locked reward goes into its own pot, not the balance, and unlocks once when its step is done', async () => {
+      await earnFees('100');
+      await fundPot('TEST-lock-1', '100');
+      const c = await joined({ tasks: LOCKED });
+      await complete(c.id);
+      const { reward } = await tasks.claim({ campaignId: c.id, accountId: ME });
+      expect(reward).toMatchObject({ state: 'locked', form: 'locked', ledgerTxId: null });
+      expect(reward.lock).toMatchObject({ condition: { title: UNLOCK.title, done: 0, target: 1 }, appliesTo: [] });
+      expect(await free(ME)).toBe(0n);
+      expect(await pot(reward.rewardKey)).toBe(parseAmount('10'));
+      // The fills before the lock do not count; a buy does not match the sell step.
+      await tasks.onFill(fill(ME, { side: 'buy' }));
+      expect(await tasks.settleLocks()).toBe(0);
+      const sell = fill(ME, { side: 'sell' });
+      await tasks.onFill(sell);
+      await tasks.onFill(sell);
+      const [a, b] = await Promise.all([tasks.settleLocks(), tasks.settleLocks()]);
+      expect(a + b).toBe(1);
+      const done = (await tasks.progress({ campaignId: c.id, accountId: ME })).reward!;
+      expect(done).toMatchObject({ state: 'posted', form: 'locked', reason: null });
+      expect(done.ledgerTxId).toBe((await book.getTxByKey(`campaigns:unlock:${reward.rewardKey}`))!.id);
+      expect(done.lock?.condition).toMatchObject({ done: 1, target: 1 });
+      expect(done.attempts.map((x) => x.outcome)).toEqual(['qualified', 'locked', 'unlocked']);
+      expect(await free(ME)).toBe(parseAmount('10'));
+      await locksReconcile();
+    });
+
+    it('a locked reward whose step is not done in time is forfeited once and never given again', async () => {
+      await earnFees('100');
+      await fundPot('TEST-lock-2', '100');
+      const c = await joined({ tasks: LOCKED });
+      await complete(c.id);
+      const { reward } = await tasks.claim({ campaignId: c.id, accountId: ME });
+      later(601);
+      // A sell after the lock ended does not count; inside the grace for late fills nothing is decided yet.
+      await tasks.onFill(fill(ME, { side: 'sell', ts: new Date(Date.now() + 601_000).toISOString() }));
+      expect(await tasks.settleLocks()).toBe(0);
+      later(601 + LOCK_FILL_GRACE_SECONDS);
+      expect((await Promise.all([tasks.settleLocks(), tasks.settleLocks()])).reduce((x, y) => x + y)).toBe(1);
+      expect(await tasks.settleLocks()).toBe(0);
+      const again = await tasks.claim({ campaignId: c.id, accountId: ME });
+      expect(again.created).toBe(false);
+      expect(again.reward).toMatchObject({ state: 'forfeited', reason: 'campaigns.lock_condition_failed' });
+      expect(again.reward.ledgerTxId).toBe((await book.getTxByKey(`campaigns:forfeit:${reward.rewardKey}`))!.id);
+      expect(await free(ME)).toBe(0n);
+      expect((await book.balance(rewardsEngine('USDT'))).amount).toBe(parseAmount('100'));
+      await locksReconcile();
+    });
+
+    it('a sell made inside the lock that arrives after it ends still unlocks; a frozen and a lost unlock reply pay once', async () => {
+      await earnFees('100');
+      await fundPot('TEST-lock-4', '100');
+      const c = await joined({ tasks: LOCKED });
+      await complete(c.id);
+      const { reward } = await tasks.claim({ campaignId: c.id, accountId: ME });
+      const inside = new Date(Date.now() + 590_000).toISOString();
+      later(601);
+      expect(await tasks.settleLocks()).toBe(0);
+      await tasks.onFill(fill(ME, { side: 'sell', ts: inside }));
+      // The unlock is decided, then refused under the posting freeze: it stays settling, its pot untouched, logged once.
+      wire.mode.frozen = true;
+      expect(await tasks.settleLocks()).toBe(1);
+      await reconcileLater();
+      let now = (await tasks.progress({ campaignId: c.id, accountId: ME })).reward!;
+      expect(now).toMatchObject({ state: 'settling', reason: 'ledger.frozen' });
+      expect(now.attempts.filter((x) => x.outcome === 'refused')).toHaveLength(1);
+      expect(await pot(reward.rewardKey)).toBe(parseAmount('10'));
+      await locksReconcile();
+      // Lifted, the unlock books but its answer is lost; the next pass finds it under its key and pays nothing twice.
+      wire.mode.frozen = false;
+      wire.mode.next = 'lose-reply';
+      await reconcileLater();
+      expect((await tasks.progress({ campaignId: c.id, accountId: ME })).reward!).toMatchObject({ state: 'settling' });
+      await reconcileLater();
+      now = (await tasks.progress({ campaignId: c.id, accountId: ME })).reward!;
+      expect(now).toMatchObject({ state: 'posted', form: 'locked', reason: null });
+      expect(now.attempts.filter((x) => x.outcome === 'unlocked')).toHaveLength(1);
+      expect(await free(ME)).toBe(parseAmount('10'));
+      expect(await pot(reward.rewardKey)).toBe(0n);
+      await locksReconcile();
+      // The operator list shows the same lock terms the customer sees.
+      const ops = await tasks.payoutRecords({ campaignId: c.id });
+      expect(ops.records[0]!.lock?.condition).toMatchObject({ title: UNLOCK.title, done: 1, target: 1 });
+    });
+
+    it('a bonus is never in the balance, forfeits once when it expires, and leaves nothing locked', async () => {
+      await earnFees('100');
+      await fundPot('TEST-bonus-1', '100');
+      const c = await joined({ tasks: BONUS });
+      await complete(c.id);
+      const { reward } = await tasks.claim({ campaignId: c.id, accountId: ME });
+      expect(reward).toMatchObject({ state: 'locked', form: 'bonus' });
+      expect(reward.lock).toMatchObject({ condition: null, appliesTo: ['derivatives'] });
+      let mine = await tasks.myRewards({ accountId: ME });
+      expect(mine.totals).toEqual([{ status: 'locked', asset: 'USDT', amount: '10', count: 1 }]);
+      expect(await free(ME)).toBe(0n);
+      // A bonus has no unlock: trades change nothing.
+      await tasks.onFill(fill(ME, { side: 'sell' }));
+      expect(await tasks.settleLocks()).toBe(0);
+      later(601);
+      expect(await tasks.settleLocks()).toBe(1);
+      expect(await tasks.settleLocks()).toBe(0);
+      mine = await tasks.myRewards({ accountId: ME });
+      expect(mine.rewards[0]).toMatchObject({ state: 'forfeited', status: 'closed', reason: 'campaigns.bonus_expired' });
+      expect(mine.totals.filter((t) => t.status === 'locked')).toEqual([]);
+      expect(await pot(reward.rewardKey)).toBe(0n);
+      expect(await free(ME)).toBe(0n);
+      await locksReconcile();
+    });
+
+    it('a forfeit under the posting freeze stays settling and posts once after it lifts; a lost lock reply posts once', async () => {
+      await earnFees('100');
+      await fundPot('TEST-lock-3', '100');
+      const c = await joined({ tasks: BONUS });
+      await complete(c.id);
+      wire.mode.next = 'lose-reply';
+      const { reward } = await tasks.claim({ campaignId: c.id, accountId: ME });
+      expect(reward.state).toBe('unknown');
+      await reconcileLater();
+      expect((await tasks.progress({ campaignId: c.id, accountId: ME })).reward!.state).toBe('locked');
+      later(601);
+      wire.mode.frozen = true;
+      expect(await tasks.settleLocks()).toBe(1);
+      let now = (await tasks.progress({ campaignId: c.id, accountId: ME })).reward!;
+      expect(now).toMatchObject({ state: 'settling', reason: 'ledger.frozen' });
+      expect(await reconcileLater()).toMatchObject({ intents: 1 });
+      wire.mode.frozen = false;
+      await reconcileLater();
+      await reconcileLater();
+      now = (await tasks.progress({ campaignId: c.id, accountId: ME })).reward!;
+      expect(now).toMatchObject({ state: 'forfeited', reason: 'campaigns.bonus_expired' });
+      await locksReconcile();
+    });
+
+    it('a blank lock period, bonus expiry or bonus scope cannot go live', async () => {
+      const s = campaigns();
+      const make = async (lock: CampaignTasks['lock']) => {
+        const c = await s.create({ definition: definition({ tasks: { ...STEPS, lock } }), actor: A });
+        return (await s.validate({ id: c.id })).missing;
+      };
+      expect(await make({ kind: 'locked', seconds: null, step: UNLOCK })).toContainEqual({
+        code: 'campaigns.lock_period_unset',
+        field: 'lockPeriod',
+      });
+      expect(await make({ kind: 'bonus', expirySeconds: null, appliesTo: ['bots'] })).toContainEqual({
+        code: 'campaigns.bonus_expiry_unset',
+        field: 'bonusExpiry',
+      });
+      expect(await make({ kind: 'bonus', expirySeconds: 600, appliesTo: [] })).toContainEqual({
+        code: 'campaigns.bonus_scope_unset',
+        field: 'bonusScope',
+      });
     });
   });
 }

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type postgres from 'postgres';
 import { transaction } from '@intafaced/db';
 import {
+  BONUS_APPLIES_TO,
   CAMPAIGN_TYPES,
   CUSTOMER_CAMPAIGN_STATES,
   PARKED_CAMPAIGN_TYPES,
@@ -21,6 +22,7 @@ import {
   type MyCampaigns,
   type Participation,
   type ParticipationRules,
+  type RewardLock,
 } from '@intafaced/contracts/campaigns-catalogue';
 import type { CampaignParticipant } from '@intafaced/contracts';
 import { formatAmount, parseAmount as parseAmount18 } from '@intafaced/ledger-client';
@@ -193,6 +195,10 @@ export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate[
   if (row.tasks && (row.tasks.holdSeconds ?? null) === null) {
     missing.push({ code: 'campaigns.hold_period_unset', field: 'holdPeriod' });
   }
+  const lock = row.tasks?.lock ?? null;
+  if (lock?.kind === 'locked' && lock.seconds === null) missing.push({ code: 'campaigns.lock_period_unset', field: 'lockPeriod' });
+  if (lock?.kind === 'bonus' && lock.expirySeconds === null) missing.push({ code: 'campaigns.bonus_expiry_unset', field: 'bonusExpiry' });
+  if (lock?.kind === 'bonus' && lock.appliesTo.length === 0) missing.push({ code: 'campaigns.bonus_scope_unset', field: 'bonusScope' });
   return missing;
 }
 
@@ -387,6 +393,20 @@ export function parseDefinition(input: CampaignDefinitionInput): Definition {
   };
 }
 
+/** How the reward is given, stored the same way every time: a bonus's products in the closed list's order, once each. */
+function lockOf(lock: RewardLock | null): RewardLock | null {
+  if (!lock) return null;
+  if (lock.kind === 'bonus') {
+    return { kind: 'bonus', expirySeconds: lock.expirySeconds, appliesTo: BONUS_APPLIES_TO.filter((p) => lock.appliesTo.includes(p)) };
+  }
+  const s = lock.step;
+  return {
+    kind: 'locked',
+    seconds: lock.seconds,
+    step: { title: s.title.trim(), event: s.event, market: s.market ?? null, side: s.side ?? null, count: s.count, streakDays: null },
+  };
+}
+
 /** Steps belong to a `task` campaign only, and each step's market is stored as listed (`BTC/USDT`). */
 function parseTasks(type: CampaignType, input: CampaignTasks): CampaignTasks {
   if (type !== 'task') throw new CampaignsError('campaigns.tasks_invalid', 'Only a task campaign has steps');
@@ -404,6 +424,7 @@ function parseTasks(type: CampaignType, input: CampaignTasks): CampaignTasks {
     })),
     claimWindowSeconds: input.claimWindowSeconds,
     holdSeconds: input.holdSeconds ?? null,
+    lock: lockOf(input.lock ?? null),
     kycGate: input.kycGate,
   };
 }

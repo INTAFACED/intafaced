@@ -1,5 +1,7 @@
 import { useState } from 'react';
+import { myRewardsSchema } from '@intafaced/contracts/campaigns-catalogue';
 import { Button, Failure, Loading } from '../../shared/ui';
+import { useResource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';
 import { useSession } from '../session/session';
@@ -263,6 +265,7 @@ export function WithdrawForm() {
               {problem ?? (available !== null && asset ? t('fAvailable', { amount: shown(available), asset }) : undefined)}
             </small>
           </label>
+          {asset && <LockedRewards asset={asset} hidden={hideBalances} shown={shown} />}
           {available !== null && !hideBalances && !resuming && (
             <div>
               <button type="button" className="bd-link" onClick={() => setAmount(available)}>
@@ -338,5 +341,41 @@ export function WithdrawForm() {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * Campaign rewards locked or given as a bonus in this asset (CM-rewards-hub-02): never in the available balance, so they
+ * cannot be sent out. Read from the campaigns service each visit; a failed read says so and shows no number, and hidden
+ * balances hide this one too.
+ */
+function LockedRewards({ asset, hidden, shown }: { asset: string; hidden: boolean; shown: (value: string) => string }) {
+  const { t } = withdrawalCopy.useCopy();
+  const { api } = useSession();
+  const mine = useResource((signal) => api.query('campaigns', 'rewards.mine', {}, myRewardsSchema, { signal }), 'withdraw-locked-rewards');
+  const r = mine.resource;
+  if (r.status === 'loading') return null;
+  if (r.status === 'failed') {
+    return (
+      <p className="muted" data-testid="withdraw-locked-rewards" data-state="failed">
+        {t('fLockedUnread')}
+      </p>
+    );
+  }
+  const line = r.data.totals.find((l) => l.status === 'locked' && l.asset === asset);
+  if (!line) return null;
+  return (
+    <p
+      className="muted"
+      data-testid="withdraw-locked-rewards"
+      data-state="ready"
+      data-amount={hidden ? undefined : line.amount}
+      data-asset={asset}
+    >
+      {t('fLocked', { amount: shown(line.amount), asset })}{' '}
+      <a className="text-link" href="/uc/promotion">
+        {t('fLockedLink')}
+      </a>
+    </p>
   );
 }
