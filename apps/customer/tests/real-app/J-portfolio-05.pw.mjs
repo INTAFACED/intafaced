@@ -162,7 +162,9 @@ async function bank() {
 
 /** What `qty` BTC was worth at each moment it may have been posted at, between `from` and `to`: the close of each
  * one-minute candle that started in that window, and of the last one before it (the price-at-time rule), from the public
- * candles. Read again each step: a candle still open when the coins left closes later at a different price. */
+ * candles. Read again each step: a candle still open when the coins left closes later at a different price. When its
+ * one-minute read fails, svc-tax prices from the last hourly candle that ended before the moment (prices.ts, tested there),
+ * so that close is a candidate too. */
 async function valuesAt(qty, [from, to]) {
   const since = Math.floor(from / 60_000) * 60_000 - 3_600_000;
   const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1m&since=${since}&limit=720`, {
@@ -173,6 +175,17 @@ async function valuesAt(qty, [from, to]) {
   const before = candles.filter((c) => c[0] <= from).at(-1);
   const closes = [...(before ? [before] : []), ...candles.filter((c) => c[0] > from && c[0] <= to)].map((c) => c[4]);
   expect(closes.length).toBeGreaterThan(0);
+  const HOUR = 3_600_000;
+  const hourly = await fetch(
+    `${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1h&since=${Math.floor(from / HOUR) * HOUR - 24 * HOUR}&limit=48`,
+    { headers: { origin: ORIGIN } },
+  );
+  expect(hourly.status).toBe(200);
+  const hours = await hourly.json();
+  for (const at of [from, to]) {
+    const ended = hours.filter((c) => c[0] + HOUR <= at).at(-1);
+    if (ended) closes.push(ended[4]);
+  }
   return [...new Set(closes)].map((close) => times(qty, toUnits(close)));
 }
 
@@ -379,8 +392,13 @@ test(`${J} #2 turns "include transfers" off: the deposit and the withdrawal stop
   // On again, the deposit and the withdrawal count again.
   await page.getByRole('switch', { name: 'Count deposits and withdrawals' }).click();
   await expect(page.getByRole('switch', { name: 'Count deposits and withdrawals' })).toBeChecked();
+  // The hand count is read again on every try: a minute's candle can still change after the start of this step (a fill
+  // stored late into it), and the screen prices the withdrawal from the candle as it is now.
   await expect
-    .poll(async () => hand.realised.map((r) => usd(r, true)).includes(await page.locator('[data-figure="realised"]').innerText()))
+    .poll(async () => {
+      const shown = await page.locator('[data-figure="realised"]').innerText();
+      return (await handCount()).realised.map((r) => usd(r, true)).includes(shown);
+    })
     .toBe(true);
   await expect(out.locator('th [data-label="not-counted"]')).toHaveCount(0);
 });
