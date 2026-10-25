@@ -104,6 +104,8 @@ const ASSET = /^[A-Z0-9]{2,12}$/;
 const TIER_RANK: Record<CampaignParticipant['kycTier'], number> = { none: 0, basic: 1, full: 2, institutional: 3 };
 const GATE_RANK: Record<KycGate, number> = { none: 0, basic: 1, full: 2 };
 export const PERIOD_ONCE = 'once';
+/** How many rewards My Rewards lists, newest first. */
+export const MY_REWARDS_LIMIT = 200;
 
 export const rewardKeyOf = (campaignId: string, accountId: string, period: string) => `task:${campaignId}:${accountId}:${period}`;
 
@@ -321,8 +323,10 @@ export class TaskService {
     const holdSeconds = tasks.holdSeconds ?? null;
     if (holdSeconds === null) throw new CampaignsError('campaigns.hold_period_unset', 'This campaign has no hold period set');
     const now = this.now();
+    // Withheld when its hold ended: it was claimed inside the window and served its hold, so neither applies again.
+    const served = existing?.state === 'withheld' && existing.hold_until !== null;
     const closes = new Date(completion.completed_at.getTime() + tasks.claimWindowSeconds * 1000);
-    if (now >= closes) {
+    if (!served && now >= closes) {
       await this.write(row, input.accountId, key, 'forfeited', 'campaigns.claim_expired');
       throw new CampaignsError('campaigns.claim_expired', 'The claim window closed; this reward is forfeited');
     }
@@ -336,7 +340,7 @@ export class TaskService {
       const made = await this.write(row, input.accountId, key, 'withheld', `account.${who.status}`);
       return { reward: await this.record(made.intent), created: made.created };
     }
-    if (holdSeconds > 0) {
+    if (holdSeconds > 0 && !served) {
       const held = await this.write(row, input.accountId, key, 'held', null, new Date(now.getTime() + holdSeconds * 1000));
       return { reward: await this.record(held.intent), created: held.created };
     }
@@ -348,20 +352,25 @@ export class TaskService {
   /**
    * Releases every held reward whose hold has ended (the reconciler calls it each pass). Each is moved once, by a
    * conditional update in one transaction with its log line: to `qualified`, then posted by the saga under its own key,
-   * or to `withheld` when the account is not active. An account identity cannot read now stays held for the next pass.
+   * or to `withheld` when the account is not active (a later claim, once it is active, pays it without a second hold or
+   * a window check). An account identity cannot read now stays held, behind the others, for the next pass.
    * A crash after the release and before the post leaves a `qualified` row the reconciler posts. Returns how many it
    * released to the saga.
    */
   async releaseHolds(limit = 100): Promise<number> {
     if (!this.saga) return 0;
     const now = this.now();
+    // Oldest look first: a reward whose account could not be read goes to the back, so it never blocks the others.
     const due = await this.sql<{ reward_key: string; account_id: string }[]>`
       SELECT reward_key, account_id FROM campaigns.reward_intents
-      WHERE state = 'held' AND hold_until <= ${now} ORDER BY hold_until LIMIT ${limit}`;
+      WHERE state = 'held' AND hold_until <= ${now} ORDER BY updated_at, reward_key LIMIT ${limit}`;
     let released = 0;
     for (const { reward_key: key, account_id: accountId } of due) {
       const who = await this.participants.read(accountId);
-      if (!who) continue;
+      if (!who) {
+        await this.sql`UPDATE campaigns.reward_intents SET updated_at = now() WHERE reward_key = ${key} AND state = 'held'`;
+        continue;
+      }
       const next = who.status === 'active' ? 'qualified' : 'withheld';
       const reason = next === 'withheld' ? `account.${who.status}` : null;
       const moved = await transaction(this.sql, async (tx) => {
@@ -387,11 +396,17 @@ export class TaskService {
    * asset summed from those rows (CM-rewards-hub-01). The account is the caller's principal, never a field.
    */
   async myRewards(input: { accountId: string }): Promise<MyRewards> {
-    const rows = await this.sql<(IntentRow & { campaign_name: string })[]>`
-      SELECT i.*, i.amount::text AS amount, c.name AS campaign_name
-      FROM campaigns.reward_intents i JOIN campaigns.campaigns c ON c.id = i.campaign_id
-      WHERE i.account_id = ${input.accountId}
-      ORDER BY i.created_at DESC, i.reward_key LIMIT 200`;
+    const [rows, groups] = await Promise.all([
+      this.sql<(IntentRow & { campaign_name: string })[]>`
+        SELECT i.*, i.amount::text AS amount, c.name AS campaign_name
+        FROM campaigns.reward_intents i JOIN campaigns.campaigns c ON c.id = i.campaign_id
+        WHERE i.account_id = ${input.accountId}
+        ORDER BY i.created_at DESC, i.reward_key LIMIT ${MY_REWARDS_LIMIT}`,
+      // The totals count every reward, not only the listed ones.
+      this.sql<{ state: RewardRecord['state']; asset: string; amount: string; n: number }[]>`
+        SELECT state, asset, sum(amount)::text AS amount, count(*)::int AS n FROM campaigns.reward_intents
+        WHERE account_id = ${input.accountId} GROUP BY state, asset`,
+    ]);
     const attempts = await this.attemptsOf(rows.map((r) => r.reward_key));
     const rewards = rows.map((r) => ({
       ...this.toRecord(r, attempts.get(r.reward_key) ?? []),
@@ -399,17 +414,16 @@ export class TaskService {
       status: REWARD_STATUS_OF[r.state],
     }));
     const sums = new Map<string, { status: MyRewards['totals'][number]['status']; asset: string; units: bigint; count: number }>();
-    for (const r of rewards) {
-      const k = `${r.status}:${r.asset}`;
-      const line = sums.get(k) ?? { status: r.status, asset: r.asset, units: 0n, count: 0 };
-      line.units += parseAmount(r.amount);
-      line.count += 1;
+    for (const g of groups) {
+      const status = REWARD_STATUS_OF[g.state];
+      const k = `${status}:${g.asset}`;
+      const line = sums.get(k) ?? { status, asset: g.asset, units: 0n, count: 0 };
+      line.units += parseAmount(g.amount);
+      line.count += g.n;
       sums.set(k, line);
     }
-    return {
-      rewards,
-      totals: [...sums.values()].map((l) => ({ status: l.status, asset: l.asset, amount: formatAmount(l.units), count: l.count })),
-    };
+    const totals = [...sums.values()].map((l) => ({ status: l.status, asset: l.asset, amount: formatAmount(l.units), count: l.count }));
+    return { rewards, totals, more: totals.reduce((n, l) => n + l.count, 0) > rewards.length };
   }
 
   /**

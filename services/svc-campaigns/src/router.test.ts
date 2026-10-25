@@ -85,7 +85,7 @@ function setup(schedule: string | undefined = undefined) {
       created: true,
     })),
     progress: vi.fn(),
-    myRewards: vi.fn(async () => ({ rewards: [], totals: [] })),
+    myRewards: vi.fn(async () => ({ rewards: [], totals: [], more: false })),
   };
   return {
     drops,
@@ -140,7 +140,7 @@ describe('campaigns router', () => {
 
   it('reads My Rewards for the signed-in account only, behind campaigns:read', async () => {
     const { tasks, api } = setup();
-    expect(await api(await ctx(['campaigns:read'])).rewards.mine({})).toEqual({ rewards: [], totals: [] });
+    expect(await api(await ctx(['campaigns:read'])).rewards.mine({})).toEqual({ rewards: [], totals: [], more: false });
     expect(tasks.myRewards).toHaveBeenCalledWith({ accountId: ME });
     await expect(api(await ctx(['campaigns:read'])).rewards.mine({ accountId: 'someone-else' } as never)).rejects.toMatchObject({
       code: 'BAD_REQUEST',

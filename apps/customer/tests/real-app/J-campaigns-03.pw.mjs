@@ -215,7 +215,7 @@ test(`${J} #1 opens /uc/promotion with no activity: an honest empty state, no in
   expect(fund(me.email, 'USDT', '500').tx).toBeTruthy();
   run.write({ me });
 
-  expect(await mine(me)).toEqual({ rewards: [], totals: [] });
+  expect(await mine(me)).toEqual({ rewards: [], totals: [], more: false });
   await signIn(page, me);
   const hub = await openHub(page);
   await expect(hub).toHaveAttribute('data-state', 'ready');

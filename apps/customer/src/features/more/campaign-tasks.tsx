@@ -107,6 +107,18 @@ export function CampaignTasks({ campaign }: { campaign: CampaignView }) {
                 </span>
               ),
             },
+            {
+              label: t('hold'),
+              value: (
+                <span data-testid="task-hold">
+                  {tasks.holdSeconds === null || tasks.holdSeconds === undefined
+                    ? t('holdUnset')
+                    : tasks.holdSeconds === 0
+                      ? t('holdNone')
+                      : t('holdValue', { duration: duration(tasks.holdSeconds) })}
+                </span>
+              ),
+            },
             { label: t('verification'), value: <span data-testid="task-gate">{t(`gate_${tasks.kycGate}`)}</span> },
           ]}
         />
@@ -121,7 +133,15 @@ export function CampaignTasks({ campaign }: { campaign: CampaignView }) {
       </Panel>
       <Panel title={t('rewardTitle')}>
         {p?.reward ? (
-          <Reward reward={p.reward} when={when} duration={duration} desk={deskOf(tasks)} />
+          <>
+            <Reward reward={p.reward} when={when} duration={duration} desk={deskOf(tasks)} />
+            {/* A withheld reward is looked at again on a later claim, once the account is active. */}
+            {p.reward.state === 'withheld' ? (
+              <Button onClick={() => void claim()} disabled={busy}>
+                {busy ? t('claiming') : t('claimAgain')}
+              </Button>
+            ) : null}
+          </>
         ) : p ? (
           <>
             <p data-testid="task-reward-none">{t('rewardNone')}</p>

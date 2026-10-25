@@ -451,7 +451,8 @@ export type TaskClaimResult = z.infer<typeof taskClaimResultSchema>;
  * My Rewards hub (CM-rewards-hub-01, J-campaigns-03): every reward of the signed-in account, in plain status words.
  * `on_hold`: held for review, or withheld while the account is not active. `still_open`: qualified and not booked yet
  * (being posted, waiting for the pot, the platform posting freeze, or an answer that was lost). `posted`: booked, with the
- * ledger transaction. `closed`: forfeited or failed, never paid. Totals are summed from the rows on each read, never stored.
+ * ledger transaction. `closed`: forfeited or failed, never paid. Totals are summed from the reward rows on each read, never
+ * stored.
  */
 export const REWARD_STATUSES = ['on_hold', 'still_open', 'posted', 'closed'] as const;
 export type RewardStatus = (typeof REWARD_STATUSES)[number];
@@ -472,8 +473,10 @@ export const myRewardSchema = rewardRecordSchema.extend({ campaignName: z.string
 export type MyReward = z.infer<typeof myRewardSchema>;
 export const myRewardsSchema = z.object({
   rewards: z.array(myRewardSchema),
-  /** One line per status and asset that has a reward, summed from `rewards`. */
+  /** One line per status and asset that has a reward, summed over every reward of the account. */
   totals: z.array(z.object({ status: z.enum(REWARD_STATUSES), asset, amount: campaignDecimal, count: z.number().int().positive() })),
+  /** True when the account has more rewards than `rewards` lists (the newest ones are listed). */
+  more: z.boolean(),
 });
 export type MyRewards = z.infer<typeof myRewardsSchema>;
 export const myRewardsInputSchema = z.object({}).strict();

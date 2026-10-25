@@ -101,6 +101,11 @@ function Rewards({ data }: { data: MyRewards }) {
           <Row key={reward.rewardKey} reward={reward} />
         ))}
       </DataTable>
+      {data.more ? (
+        <p className="muted" data-testid="rewards-more">
+          {t('more', { count: String(data.rewards.length) })}
+        </p>
+      ) : null}
     </>
   );
 }
@@ -109,9 +114,12 @@ function Row({ reward: r }: { reward: MyReward }) {
   const { t } = rewardsHubCopy.useCopy();
   const { when, left } = useFormat();
   const reason = r.reason ?? '';
+  const leftSeconds = r.holdUntil ? (new Date(r.holdUntil).getTime() - Date.now()) / 1000 : 0;
   const why =
     r.state === 'held' && r.holdUntil
-      ? t('why_held', { left: left((new Date(r.holdUntil).getTime() - Date.now()) / 1000), when: when(r.holdUntil) })
+      ? leftSeconds > 0
+        ? t('why_held', { left: left(leftSeconds), when: when(r.holdUntil) })
+        : t('why_held_ended', { when: when(r.holdUntil) })
       : r.state === 'posted' && r.postedAt
         ? t('why_posted', { when: when(r.postedAt) })
         : r.state === 'held' || r.state === 'posted'

@@ -23,7 +23,9 @@ const en = {
   status_still_open: 'Still open',
   status_closed: 'Closed',
   why_held: 'Waiting for the campaign’s review hold to end: {left} left, until {when}.',
-  why_withheld: 'Withheld while your account is not active ({reason}). It is looked at again when you claim.',
+  why_held_ended: 'The review hold ended on {when}; it is being released for payment.',
+  why_withheld: 'Withheld while your account is not active ({reason}). When it is active again, claim again on the campaign page.',
+  more: 'The newest {count} rewards are listed; the totals count every reward.',
   why_qualified: 'Qualified and waiting to be paid.',
   why_posting: 'Being paid now.',
   why_pending_funding: 'The reward pot cannot cover it at the moment; it is paid under the same reference once funded.',
@@ -33,7 +35,6 @@ const en = {
   why_failed: 'The payment was refused ({reason}), so nothing was paid.',
   why_forfeited: 'Forfeited ({reason}): it will not be paid.',
   txLink: 'Transaction {tx}',
-  openCampaign: 'Open the campaign',
 } as const;
 
 const es: { [K in keyof typeof en]: string } = {
@@ -59,7 +60,9 @@ const es: { [K in keyof typeof en]: string } = {
   status_still_open: 'Abierta',
   status_closed: 'Cerrada',
   why_held: 'A la espera de que termine la retención de revisión de la campaña: quedan {left}, hasta el {when}.',
-  why_withheld: 'Retenida mientras tu cuenta no está activa ({reason}). Se revisa de nuevo cuando reclames.',
+  why_held_ended: 'La retención de revisión terminó el {when}; se está liberando para el pago.',
+  why_withheld: 'Retenida mientras tu cuenta no está activa ({reason}). Reclama de nuevo en la página de la campaña cuando esté activa.',
+  more: 'Se muestran las {count} recompensas más recientes; los totales cuentan todas.',
   why_qualified: 'Cumple y está pendiente de pago.',
   why_posting: 'Se está pagando ahora.',
   why_pending_funding: 'El fondo de recompensas no la cubre en este momento; se paga con la misma referencia cuando se dote.',
@@ -69,7 +72,6 @@ const es: { [K in keyof typeof en]: string } = {
   why_failed: 'El pago fue rechazado ({reason}), así que no se pagó nada.',
   why_forfeited: 'Perdida ({reason}): no se pagará.',
   txLink: 'Transacción {tx}',
-  openCampaign: 'Abrir la campaña',
 };
 
 const fr: { [K in keyof typeof en]: string } = {
@@ -95,7 +97,10 @@ const fr: { [K in keyof typeof en]: string } = {
   status_still_open: 'Ouverte',
   status_closed: 'Close',
   why_held: 'En attente de la fin de la retenue de vérification de la campagne : encore {left}, jusqu’au {when}.',
-  why_withheld: 'Retenue tant que votre compte n’est pas actif ({reason}). Elle est réexaminée quand vous réclamez.',
+  why_held_ended: 'La retenue de vérification a pris fin le {when} ; elle est en cours de libération pour le paiement.',
+  why_withheld:
+    'Retenue tant que votre compte n’est pas actif ({reason}). Réclamez à nouveau sur la page de la campagne une fois qu’il est actif.',
+  more: 'Les {count} récompenses les plus récentes sont listées ; les totaux comptent toutes les récompenses.',
   why_qualified: 'Éligible, en attente de paiement.',
   why_posting: 'Paiement en cours.',
   why_pending_funding:
@@ -106,7 +111,6 @@ const fr: { [K in keyof typeof en]: string } = {
   why_failed: 'Le paiement a été refusé ({reason}) : rien n’a été versé.',
   why_forfeited: 'Perdue ({reason}) : elle ne sera pas versée.',
   txLink: 'Transaction {tx}',
-  openCampaign: 'Ouvrir la campagne',
 };
 
 export const rewardsHubCopy = defineCopy('account.rewards.hub', en, { es, fr });

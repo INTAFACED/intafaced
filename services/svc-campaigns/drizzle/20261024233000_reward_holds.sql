@@ -18,3 +18,8 @@ CREATE INDEX IF NOT EXISTS reward_intents_held_idx ON campaigns.reward_intents (
 ALTER TABLE campaigns.redemption_attempts DROP CONSTRAINT IF EXISTS redemption_attempts_outcome_ck;
 ALTER TABLE campaigns.redemption_attempts ADD CONSTRAINT redemption_attempts_outcome_ck CHECK (outcome IN ('held', 'released',
   'qualified', 'posted', 'refused', 'unknown', 'withheld', 'forfeited'));
+
+-- A task campaign approved before holds existed was approved to pay at once: it keeps that (0). A draft stays blank, so
+-- its activation gate names the hold.
+UPDATE campaigns.campaigns SET tasks = tasks || '{"holdSeconds": 0}'::jsonb
+WHERE tasks IS NOT NULL AND NOT (tasks ? 'holdSeconds') AND state NOT IN ('draft', 'pending_approval');
