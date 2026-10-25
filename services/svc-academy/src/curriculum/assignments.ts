@@ -30,6 +30,7 @@ import type {
 } from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
 import { assertItemOpen } from './course-release.js';
+import { dueFor } from './course-item-rules.js';
 import { isVideoStorageConfigured, signPutObjectUrl, type VideoStorageConfig } from '../video/storage.js';
 import { canonicalPrice } from './courses.js';
 import { FILE_SIGNATURES, signatureMatches } from './media.js';
@@ -340,7 +341,7 @@ export class CourseAssignments {
     const [extension] = await sql<Array<{ due_at: Date; reason: string }>>`
       SELECT due_at, reason FROM academy.course_item_extensions WHERE item_id = ${itemId} AND user_id = ${userId}
     `;
-    const dueAt = extension?.due_at ?? row.due_at;
+    const dueAt = dueFor(row.due_at, extension?.due_at ?? null);
     return {
       itemId: row.item_id,
       courseSlug: row.course_slug,

@@ -15,35 +15,15 @@ import type {
   AcademySetCourseItemPrerequisitesInput,
 } from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
+import { findPrerequisiteCycle } from '../release/access.js';
 
 type Db = Sql | TransactionSql;
 const GATED = new Set(['assignment', 'quiz']);
 
-/**
- * The first cycle the edges hold, as the path of item ids from an item back to itself, looked for from `start` first;
- * null when there is none. Pure. `edges` maps an item to the items it requires.
- */
-export function findCycle(edges: ReadonlyMap<string, readonly string[]>, start?: string): string[] | null {
-  const state = new Map<string, 'open' | 'done'>();
-  const path: string[] = [];
-  const visit = (node: string): string[] | null => {
-    if (state.get(node) === 'done') return null;
-    if (state.get(node) === 'open') return [...path.slice(path.indexOf(node)), node];
-    state.set(node, 'open');
-    path.push(node);
-    for (const next of edges.get(node) ?? []) {
-      const cycle = visit(next);
-      if (cycle) return cycle;
-    }
-    path.pop();
-    state.set(node, 'done');
-    return null;
-  };
-  for (const node of [...(start === undefined ? [] : [start]), ...[...edges.keys()].sort()]) {
-    const cycle = visit(node);
-    if (cycle) return cycle;
-  }
-  return null;
+/** The due date a learner works to: their own when staff moved it later than the brief's, else the brief's. Pure. */
+export function dueFor(briefDue: Date | null, extended: Date | null): Date | null {
+  if (extended === null || briefDue === null) return briefDue;
+  return extended.getTime() > briefDue.getTime() ? extended : briefDue;
 }
 
 export class CourseItemRules {
@@ -60,10 +40,18 @@ export class CourseItemRules {
   ): Promise<AcademyCourseItemRules> {
     return this.sql.begin(async (tx) => {
       await this.lockCourse(tx, input.courseId);
-      const items = await tx<Array<{ id: string; kind: string }>>`
-        SELECT id, kind FROM academy.course_items WHERE course_id = ${input.courseId}
+      // An assignment counts once its brief is saved and open; a quiz once it is saved. Anything else no learner can finish.
+      const items = await tx<Array<{ id: string; kind: string; completable: boolean }>>`
+        SELECT i.id, i.kind,
+          CASE i.kind
+            WHEN 'assignment' THEN EXISTS (SELECT 1 FROM academy.course_assignments a WHERE a.item_id = i.id AND a.withdrawn_at IS NULL)
+            WHEN 'quiz' THEN EXISTS (SELECT 1 FROM academy.course_quizzes q WHERE q.item_id = i.id)
+            ELSE false
+          END AS completable
+        FROM academy.course_items i WHERE i.course_id = ${input.courseId}
       `;
       const kinds = new Map(items.map((i) => [i.id, i.kind]));
+      const completable = new Set(items.filter((i) => i.completable).map((i) => i.id));
       const wanted = [...new Set(input.prerequisiteIds)].sort();
       if (!GATED.has(kinds.get(input.itemId) ?? ''))
         throw new AcademyError('no assignment or quiz of this course has that id', 'academy.outline_item_unknown');
@@ -76,6 +64,11 @@ export class CourseItemRules {
             `a ${kind} records no completion on a course staff made, so it cannot be required`,
             'academy.prerequisite_unmeasured',
           );
+        if (!completable.has(id))
+          throw new AcademyError(
+            `item ${id} has no saved brief or quiz (or was withdrawn), so no learner can finish it yet`,
+            'academy.prerequisite_unmeasured',
+          );
       }
       const stored = await tx<Array<{ item_id: string; prerequisite_id: string }>>`
         SELECT p.item_id, p.prerequisite_id FROM academy.course_item_prerequisites p
@@ -85,8 +78,13 @@ export class CourseItemRules {
       for (const e of stored) edges.set(e.item_id, [...(edges.get(e.item_id) ?? []), e.prerequisite_id]);
       const current = (edges.get(input.itemId) ?? []).sort();
       if (JSON.stringify(current) === JSON.stringify(wanted)) return this.viewIn(tx, input.courseId);
-      edges.set(input.itemId, wanted);
-      const cycle = findCycle(edges, input.itemId);
+      edges.delete(input.itemId);
+      // The changed item's edges first, so a cycle is named from the item being saved.
+      const cycle = findPrerequisiteCycle(
+        [[input.itemId, wanted] as const, ...edges].flatMap(([itemSlug, to]) =>
+          to.map((prerequisiteSlug) => ({ itemSlug, prerequisiteSlug })),
+        ),
+      );
       if (cycle) throw new AcademyError(`academy.prerequisite_cycle path=${cycle.join('>')}`, 'academy.prerequisite_cycle');
 
       await tx`DELETE FROM academy.course_item_prerequisites WHERE item_id = ${input.itemId}`;

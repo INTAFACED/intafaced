@@ -11,7 +11,7 @@ import { CoursePreview } from './course-preview.js';
 import { CourseLearners } from './course-learners.js';
 import { CourseQuizzes } from './course-quizzes.js';
 import { CourseAssignments } from './assignments.js';
-import { CourseItemRules, findCycle } from './course-item-rules.js';
+import { CourseItemRules, dueFor } from './course-item-rules.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -138,18 +138,13 @@ const set = (courseId: string, itemId: string, prerequisiteIds: string[], reason
   rules().setPrerequisites({ courseId, itemId, prerequisiteIds, reason, operatorId: A, now: NOW });
 const events = () => db.sql`SELECT kind, reason FROM academy.course_item_rule_events ORDER BY at, reason`;
 
-describe('findCycle', () => {
-  it('finds a path back to its start, and none in a line', () => {
-    expect(findCycle(new Map([['b', ['a']]]))).toBeNull();
-    expect(
-      findCycle(
-        new Map([
-          ['a', ['b']],
-          ['b', ['c']],
-          ['c', ['a']],
-        ]),
-      ),
-    ).toEqual(['a', 'b', 'c', 'a']);
+describe('dueFor', () => {
+  it('takes the learner’s own date only while it is later than the brief’s', () => {
+    const brief = new Date('2026-11-01T00:00:00Z');
+    expect(dueFor(brief, new Date('2026-11-03T00:00:00Z'))!.toISOString()).toBe('2026-11-03T00:00:00.000Z');
+    expect(dueFor(new Date('2026-11-10T00:00:00Z'), new Date('2026-11-03T00:00:00Z'))!.toISOString()).toBe('2026-11-10T00:00:00.000Z');
+    expect(dueFor(null, new Date('2026-11-03T00:00:00Z'))).toBeNull();
+    expect(dueFor(brief, null)).toBe(brief);
   });
 });
 

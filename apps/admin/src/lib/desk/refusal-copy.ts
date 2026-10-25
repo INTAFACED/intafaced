@@ -1141,14 +1141,14 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     next: 'Remove one of the items that leads back. Nothing was saved.',
   },
   'academy.window_invalid': {
-    title: 'That date does not work',
-    body: 'A learner’s own due date must come after the assignment’s due date, and the assignment must have one.',
-    next: 'Pick a later date, or set the assignment’s due date first. Nothing was saved.',
+    title: 'That date or window does not work',
+    body: 'Academy found the dates out of order: for example a learner’s own due date not after the assignment’s, an assignment with no due date to move, or a window that ends before it starts.',
+    next: 'Check the dates and try again. Nothing was saved.',
   },
   'academy.enrolment_required': {
     title: 'Not enrolled',
-    body: 'That account is not enrolled in this course, so it has no due date to move.',
-    next: 'Check the learner’s account id. Nothing was saved.',
+    body: 'That account is not enrolled in this course.',
+    next: 'Check the learner’s account id. Nothing was changed.',
   },
   'academy.prerequisite_unmeasured': {
     title: 'That item cannot be required',

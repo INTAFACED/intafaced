@@ -52,6 +52,7 @@ export async function assertItemOpen(sql: Db, itemId: string, userId: string, no
         WHERE e.course_id = i.course_id AND e.user_id = ${userId} AND e.left_at IS NULL) AS enrolled_at,
       ${doneBy(sql, sql`i.id`, userId, true)} AS begun,
       ARRAY(SELECT p.prerequisite_id::text FROM academy.course_item_prerequisites p
+        JOIN academy.course_items pi ON pi.id = p.prerequisite_id AND pi.kind IN ('assignment', 'quiz')
         WHERE p.item_id = i.id AND NOT ${doneBy(sql, sql`p.prerequisite_id`, userId, false)}
         ORDER BY p.prerequisite_id) AS unmet
     FROM academy.course_items i LEFT JOIN academy.course_section_releases r ON r.section_id = i.section_id
@@ -68,13 +69,14 @@ export async function assertItemOpen(sql: Db, itemId: string, userId: string, no
 }
 
 /**
- * Whether the learner has done an item: handed in, answered the survey, or (with `open` true) started or (false)
- * finished a quiz attempt.
+ * Whether the learner has begun an item (`begun` true: any hand-in, attempt or survey answer) or done it (false: a hand-in
+ * that is not a draft or withdrawn, a finished attempt, or a survey answer).
  */
-function doneBy(sql: Db, item: ReturnType<Db>, userId: string, open: boolean) {
-  return sql`(EXISTS (SELECT 1 FROM academy.assignment_submissions s WHERE s.item_id = ${item} AND s.user_id = ${userId})
+function doneBy(sql: Db, item: ReturnType<Db>, userId: string, begun: boolean) {
+  return sql`(EXISTS (SELECT 1 FROM academy.assignment_submissions s WHERE s.item_id = ${item} AND s.user_id = ${userId}
+      ${begun ? sql`` : sql`AND s.state NOT IN ('draft', 'withdrawn')`})
     OR EXISTS (SELECT 1 FROM academy.course_quiz_attempts t WHERE t.item_id = ${item} AND t.user_id = ${userId}
-      ${open ? sql`` : sql`AND t.state <> 'open'`})
+      ${begun ? sql`` : sql`AND t.state <> 'open'`})
     OR EXISTS (SELECT 1 FROM academy.course_survey_takers k WHERE k.item_id = ${item} AND k.user_id = ${userId}))`;
 }
 

@@ -157,7 +157,7 @@ export function AcademyCourseItemRules({ courseId, initial }: { courseId: string
     const answer = await postItemRulesChange({ courseId, ...body });
     setReply(answer);
     setBusy(false);
-    // Whatever the answer, the section shows the course as svc-academy holds it now.
+    // Whatever the answer, the section shows the course as svc-academy holds it now, and a refused choice is not kept ticked.
     await reload();
   };
 
@@ -180,7 +180,7 @@ export function AcademyCourseItemRules({ courseId, initial }: { courseId: string
             <ol className="dk-stack" aria-label="Prerequisites">
               {rules.items.map((item) => (
                 <PrerequisiteForm
-                  key={`${item.itemId}-${item.setAt}`}
+                  key={`${item.itemId}-${view?.asOf}`}
                   item={item}
                   items={rules.items}
                   busy={busy}

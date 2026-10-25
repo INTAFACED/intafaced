@@ -26,6 +26,7 @@ import { AcademyError } from '../errors.js';
 import type { CourseAssignments } from './assignments.js';
 import { canonicalPrice } from './courses.js';
 import { hundredths } from './peer-review.js';
+import { dueFor } from './course-item-rules.js';
 
 type Db = Sql | TransactionSql;
 
@@ -315,23 +316,26 @@ export class AssignmentGrading {
       title: view.title,
       points: view.brief.points,
       leaseSeconds: this.leaseSeconds,
-      rows: rows.map((r): AcademyGradingRow => ({
-        submissionId: r.submission_id,
-        alias: r.alias,
-        version: r.version,
-        submittedAt: r.submitted_at.toISOString(),
+      rows: rows.map((r): AcademyGradingRow => {
         // A learner's own later due date (AC-release-access-02) moves when their hand-in counts as late.
-        late: (r.extended_due ?? dueAt) !== null && r.submitted_at.getTime() > (r.extended_due ?? dueAt)!.getTime(),
-        text: r.text,
-        file: r.file_name === null ? null : { fileName: r.file_name, contentType: r.content_type!, bytes: Number(r.bytes) },
-        peerReviews: { received: r.received, meanTotal: r.mean_total === null ? null : canonicalPrice(r.mean_total) },
-        grade:
-          r.score === null
-            ? null
-            : { score: canonicalPrice(r.score)!, comment: r.comment, gradedAt: r.graded_at!.toISOString(), overrides: r.last_n - 1 },
-        nextN: r.last_n + 1,
-        lease: r.holder === null ? null : { mine: r.holder === operatorId, expiresAt: r.expires_at!.toISOString() },
-      })),
+        const due = dueFor(dueAt, r.extended_due);
+        return {
+          submissionId: r.submission_id,
+          alias: r.alias,
+          version: r.version,
+          submittedAt: r.submitted_at.toISOString(),
+          late: due !== null && r.submitted_at.getTime() > due.getTime(),
+          text: r.text,
+          file: r.file_name === null ? null : { fileName: r.file_name, contentType: r.content_type!, bytes: Number(r.bytes) },
+          peerReviews: { received: r.received, meanTotal: r.mean_total === null ? null : canonicalPrice(r.mean_total) },
+          grade:
+            r.score === null
+              ? null
+              : { score: canonicalPrice(r.score)!, comment: r.comment, gradedAt: r.graded_at!.toISOString(), overrides: r.last_n - 1 },
+          nextN: r.last_n + 1,
+          lease: r.holder === null ? null : { mine: r.holder === operatorId, expiresAt: r.expires_at!.toISOString() },
+        };
+      }),
     };
   }
 }
