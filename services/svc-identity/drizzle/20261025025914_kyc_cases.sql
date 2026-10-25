@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS "identity"."kyc_cases" (
   CONSTRAINT "kyc_cases_reject_has_reason" CHECK ("state" <> 'rejected' OR "reason_code" IS NOT NULL OR "backfilled")
 );
 CREATE INDEX IF NOT EXISTS "kyc_cases_user_idx" ON "identity"."kyc_cases" ("user_id", "created_at" DESC);
+CREATE INDEX IF NOT EXISTS "kyc_cases_previous_idx" ON "identity"."kyc_cases" ("previous_case_id") WHERE "previous_case_id" IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS "identity"."kyc_case_events" (
   "id"           uuid PRIMARY KEY DEFAULT gen_random_uuid(),

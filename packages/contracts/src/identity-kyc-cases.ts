@@ -20,13 +20,15 @@ const isoSchema = z.string().datetime({ offset: true });
 export const kycCaseSchema = z.object({
   id: z.string().guid(),
   recordId: z.string().guid(),
-  tier: z.enum(['basic', 'full', 'institutional']),
-  jurisdiction: z.string().length(2),
+  tier: z.enum(['none', 'basic', 'full', 'institutional']),
+  jurisdiction: z.string().max(64),
   state: kycCaseStateSchema,
   version: z.number().int().min(1),
   followsCaseId: z.string().guid().nullable(),
   submittedAt: isoSchema,
   decidedAt: isoSchema.nullable(),
+  /** When an approved level lapses; past it the case reads expired. */
+  expiresAt: isoSchema.nullable(),
   reason: z.object({ code: kycReasonCodeSchema, text: z.string().min(1).nullable(), guidance: z.string().min(1).nullable() }).nullable(),
   note: z.string().min(1).max(500).nullable(),
   history: z.array(z.object({ version: z.number().int().min(1), state: kycCaseStateSchema, at: isoSchema })).min(1),
