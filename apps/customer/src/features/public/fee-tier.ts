@@ -20,6 +20,15 @@ const snapshotSchema = z.object({
   scheduleVersion: z.string().min(1),
 });
 
+const benefitsSchema = z.object({
+  tierId: z.string().min(1),
+  prioritySupport: z.boolean().nullable(),
+  vipPortal: z.boolean().nullable(),
+  ambassador: z.boolean().nullable(),
+  subAccountCap: z.number().int().min(0).nullable(),
+  withdrawalLimit24h: z.object({ asset: z.string().min(1), amount: decimal }).nullable(),
+});
+
 export const EXCLUSIONS = ['other_quotes', 'futures_and_options', 'bots_and_copy', 'sub_accounts', 'assets'] as const;
 
 export const feeTierSchema = z.object({
@@ -30,6 +39,8 @@ export const feeTierSchema = z.object({
       thresholds: z.array(z.object({ tierId: z.string().min(1), minVolume30d: decimal })).min(1),
       volumeQuotes: z.array(z.string().min(1)).min(1),
       snapshotTimeUtc: z.string().nullable(),
+      /** The owner's benefits table, one row per tier; null: not published. */
+      benefits: z.array(benefitsSchema).nullable(),
       downgradeGraceDays: z.null(),
       subAccounts: z.null(),
       botsAndCopy: z.null(),
@@ -49,6 +60,7 @@ export const feeTierSchema = z.object({
 
 export type FeeTier = z.infer<typeof feeTierSchema>;
 export type FeeTierSnapshot = z.infer<typeof snapshotSchema>;
+export type FeeTierBenefits = z.infer<typeof benefitsSchema>;
 
 /** An unpublished schedule answers 503 with the blank code: an answer ("not set", here `null`), not an outage. */
 export const feeTierFetcher =

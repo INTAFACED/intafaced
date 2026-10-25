@@ -29,7 +29,27 @@ export interface FeeTierProgram {
   readonly volumeQuotes: readonly string[];
   /** "HH:MM" UTC, once a day. Null: no snapshot runs; tiers stay at the last snapshot, regular for a new account. */
   readonly snapshotTimeUtc: string | null;
+  /** What each tier gives beyond its rates (SP-fees-vip-03 benefits), or null: the owner published no benefits table. */
+  readonly benefits: readonly FeeTierBenefits[] | null;
 }
+
+/**
+ * One tier's row of the owner's benefits table. A null cell is not set, and the page says so: nothing is assumed. The
+ * benefits are read by people and by the planes that honour them (support, withdrawals); they change nothing here.
+ */
+export interface FeeTierBenefits {
+  /** `regular` or a threshold tier. */
+  readonly tierId: string;
+  readonly prioritySupport: boolean | null;
+  readonly vipPortal: boolean | null;
+  readonly ambassador: boolean | null;
+  /** How many sub-accounts the tier may open. */
+  readonly subAccountCap: number | null;
+  /** The withdrawal limit over 24 hours, in one asset. */
+  readonly withdrawalLimit24h: { readonly asset: string; readonly amount: string } | null;
+}
+
+const BENEFIT_KEYS = ['tierId', 'prioritySupport', 'vipPortal', 'ambassador', 'subAccountCap', 'withdrawalLimit24h'] as const;
 
 /** The days a snapshot looks back over. */
 export const TIER_VOLUME_DAYS = 30;
@@ -97,7 +117,73 @@ export function parseTierProgram(raw: unknown, rows: readonly FeeScheduleRow[] |
     return { tierId, minVolume30d: formatAmount(min) };
   });
   if (new Set(thresholds.map((t) => t.tierId)).size !== thresholds.length) throw blank('.thresholds repeats a tier');
-  return { thresholds, volumeQuotes, snapshotTimeUtc: obj.snapshotTimeUtc as string | null };
+  const benefits = parseBenefits(obj.benefits, thresholds, blank);
+  return { thresholds, volumeQuotes, snapshotTimeUtc: obj.snapshotTimeUtc as string | null, benefits };
+}
+
+/**
+ * `tierProgram.benefits`: rows for the tiers the programme names (regular included), each with every benefit present,
+ * null where the owner sets none; a tier with no row has nothing set. Absent or null: no table. A row for a tier the programme does not name, a repeated
+ * tier, an unknown field or a guessed type refuses the whole schedule, as every other blank rule does.
+ */
+function parseBenefits(
+  raw: unknown,
+  thresholds: readonly FeeTierThreshold[],
+  blank: (message: string) => FeeScheduleError,
+): readonly FeeTierBenefits[] | null {
+  if (raw === undefined || raw === null) return null;
+  if (!Array.isArray(raw) || raw.length === 0) throw blank('.benefits must be a non-empty array or null');
+  const tiers = new Set<string>([REGULAR_FEE_TIER, ...thresholds.map((t) => t.tierId)]);
+  const rows = raw.map((entry, index): FeeTierBenefits => {
+    const at = `.benefits[${index}]`;
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw blank(`${at} must be an object`);
+    const row = entry as Record<string, unknown>;
+    const extra = Object.keys(row).filter((key) => !(BENEFIT_KEYS as readonly string[]).includes(key));
+    if (extra.length > 0) throw blank(`${at} has unknown fields: ${extra.join(', ')}`);
+    for (const key of BENEFIT_KEYS) if (!(key in row)) throw blank(`${at}.${key} must be set or null (never absent)`);
+    const tierId = typeof row.tierId === 'string' ? row.tierId.trim() : '';
+    if (!tiers.has(tierId)) throw blank(`${at}.tierId must be '${REGULAR_FEE_TIER}' or a tier of the thresholds`);
+    const flag = (key: 'prioritySupport' | 'vipPortal' | 'ambassador'): boolean | null => {
+      const value = row[key];
+      if (value !== null && typeof value !== 'boolean') throw blank(`${at}.${key} must be true, false or null`);
+      return value;
+    };
+    const cap = row.subAccountCap;
+    if (cap !== null && (typeof cap !== 'number' || !Number.isSafeInteger(cap) || cap < 0)) {
+      throw blank(`${at}.subAccountCap must be a whole number or null`);
+    }
+    return {
+      tierId,
+      prioritySupport: flag('prioritySupport'),
+      vipPortal: flag('vipPortal'),
+      ambassador: flag('ambassador'),
+      subAccountCap: cap,
+      withdrawalLimit24h: parseLimit(row.withdrawalLimit24h, `${at}.withdrawalLimit24h`, blank),
+    };
+  });
+  if (new Set(rows.map((row) => row.tierId)).size !== rows.length) throw blank('.benefits repeats a tier');
+  return rows;
+}
+
+function parseLimit(
+  raw: unknown,
+  at: string,
+  blank: (message: string) => FeeScheduleError,
+): { readonly asset: string; readonly amount: string } | null {
+  if (raw === null) return null;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw blank(`${at} must be {asset, amount} or null`);
+  const limit = raw as Record<string, unknown>;
+  if (Object.keys(limit).some((key) => key !== 'asset' && key !== 'amount')) throw blank(`${at} has unknown fields`);
+  if (typeof limit.asset !== 'string' || !ASSET.test(limit.asset)) throw blank(`${at}.asset must be an asset code`);
+  let amount: bigint;
+  try {
+    if (typeof limit.amount !== 'string') throw new Error('not a string');
+    amount = parseAmount(limit.amount);
+  } catch {
+    throw blank(`${at}.amount must be a decimal string`);
+  }
+  if (amount <= 0n) throw blank(`${at}.amount must be above zero`);
+  return { asset: limit.asset, amount: formatAmount(amount) };
 }
 
 /** The tier `volume` reaches: the highest threshold at or below it, else regular. */

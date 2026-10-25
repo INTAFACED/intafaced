@@ -445,6 +445,13 @@ child or copy trading. An order takes the tier of the last finished snapshot whe
 row (`orders.fee_tier`). No programme means every account is regular. `GET /api/v1/account/fee-tier` gives the
 caller's tier, counted volume, next threshold, next snapshot and own snapshot rows.
 
+`tierProgram.benefits` (SP-fees-vip-03, J-cex-spot-10 #7) is the owner's benefits table: one row per tier
+(`regular` or a threshold tier), each row carrying every field (`prioritySupport`, `vipPortal`, `ambassador` as
+true/false, `subAccountCap` as a whole number, `withdrawalLimit24h` as `{asset, amount}`), `null` where the owner sets
+none. Absent or `null` means no table. A field left out, an unknown field, a guessed type, an empty table, a repeated
+tier or a tier the programme does not name refuses the schedule as blank. The table is what each tier is promised:
+support and treasury read it, and nothing in this service applies it. My tier lists it; a blank cell reads "not set".
+
 ---
 
 ## Database constraints as a backstop

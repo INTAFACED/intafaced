@@ -93,6 +93,7 @@ export function registerFeeTierRest(app: FastifyInstance, deps: FeeTierRestDeps)
         thresholds: program.thresholds,
         volumeQuotes: program.volumeQuotes,
         snapshotTimeUtc: program.snapshotTimeUtc,
+        benefits: program.benefits,
         downgradeGraceDays: null,
         subAccounts: null,
         botsAndCopy: null,
