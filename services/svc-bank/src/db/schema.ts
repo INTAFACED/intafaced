@@ -352,6 +352,34 @@ export const interestAccruals = bank.table(
   ],
 );
 
+/**
+ * EVERY RATE A POOL HAS PUBLISHED (BK-earn-05), append-only (a trigger refuses UPDATE and DELETE).
+ *
+ * Opening a pool records its first rate; an approved change records the next, in the same transaction as the pool's
+ * `apr_bps`. A pool opened before this table has no record until its first change, and none is invented for it.
+ */
+export const earnRateChanges = bank.table(
+  'earn_rate_changes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    poolId: uuid('pool_id')
+      .notNull()
+      .references(() => earnPools.id),
+    rateBps: integer('rate_bps').notNull(),
+    effectiveAt: tstz('effective_at').notNull(),
+    reason: text('reason'),
+    /** The identity approval a change consumed; null for the opening record. */
+    approvalId: text('approval_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('earn_rate_changes_pool_effective_uq').on(t.poolId, t.effectiveAt),
+    uniqueIndex('earn_rate_changes_approval_uq')
+      .on(t.approvalId)
+      .where(sql`${t.approvalId} IS NOT NULL`),
+  ],
+);
+
 // ═════════════════════════════════════════════════════════════════════════════
 // LOANS (§8.1) — collateral lock, LTV marking, margin call, liquidation, accrual
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1712,6 +1740,7 @@ export const schema = {
   earnPools,
   earnPositions,
   interestAccruals,
+  earnRateChanges,
   loanProducts,
   loans,
   loanCollateralEvents,

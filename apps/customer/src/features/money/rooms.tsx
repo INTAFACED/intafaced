@@ -32,6 +32,9 @@ import { EarlyUnlock, SpaceLockActions } from './SpaceLock';
 import { bankReads, bankWrites, type poolSchema, type positionSchema } from './contracts';
 import type { ApiResult } from '../../shared/api';
 import { earnCopy } from './earn-copy';
+import { earnPoolCopy } from './earn-pool-copy';
+import { EarnCompare, poolHref } from './EarnCompare';
+import { EarnPool } from './EarnPool';
 import { LoanHealth, currentLoanPreflight, loanActionAllowed, loanStatusNote, readReleasable } from './LoanHealth';
 import { loanCopy, loanStatusLabel } from './loan-copy';
 import { MoneyActivity } from './activity';
@@ -874,6 +877,7 @@ function Earn({ open }: { open: (spec: ActionSpec) => void }) {
   const automation = useBankRead('autoInvest.policy', undefined);
   return (
     <BankPage room="Earn" description={earnCopy.t('description')}>
+      {pools.resource.status === 'ready' && <EarnCompare pools={pools.resource.data} />}
       <div className="money-earn-lanes">
         <Section
           title={copyText('rooms.your.positions')}
@@ -997,6 +1001,11 @@ function Earn({ open }: { open: (spec: ActionSpec) => void }) {
                         <Text k="rooms.minimum.deposit" />
                         {funds(pool.minDeposit, pool.assetId)}
                         <Text k="rooms.apr.is.the.configured.simple.annual.rate" />
+                      </p>
+                      <p className="money-caption">
+                        <a className="text-link" href={poolHref(pool.id)} data-testid="earn-pool-link" data-pool={pool.id}>
+                          {earnPoolCopy.t('details')}
+                        </a>
                       </p>
                       <div className="actions">
                         <Button
@@ -1545,6 +1554,16 @@ function LoanDetailRoom({ search }: { search: string }) {
     </BankPage>
   );
 }
+/** `/bank/earn/pool?id=<pool>`: one pool's terms, rate history and the person's savings in it, inside the Earn room (J-bank-08 #1, #2). */
+function EarnPoolRoom({ search }: { search: string }) {
+  const { t } = earnPoolCopy.useCopy();
+  const poolId = new URLSearchParams(search).get('id');
+  return (
+    <BankPage room="Earn" title={t('poolTitle')} description={t('poolDescription')}>
+      <EarnPool poolId={poolId && poolId.trim() !== '' ? poolId : null} />
+    </BankPage>
+  );
+}
 /** `/bank/calendar`: everything dated, inside the Transfers room (J-bank-06 #5). */
 function CalendarRoom() {
   const { t } = calendarCopy.useCopy();
@@ -1994,6 +2013,8 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
       return <RulesRoom />;
     case '/bank/earn':
       return <Earn open={open} />;
+    case '/bank/earn/pool':
+      return <EarnPoolRoom search={search} />;
     case '/bank/loans':
       return <Loans open={open} />;
     case '/bank/loans/detail':

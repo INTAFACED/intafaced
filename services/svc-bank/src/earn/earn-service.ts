@@ -20,6 +20,7 @@ import { assertEarnResumePendingLimit } from '../job-batch-limit.js';
 import { stakePrincipalForAccrual } from './accrue-principal.js';
 import { accrualBoundary, accrualDate, planAccrual, type AccruingPosition } from './interest.js';
 import { withMoneySpan } from '../tracing.js';
+import { rateForDay, readRateHistory, recordRateChange, setPoolRate, type RateHistory } from './rate-history.js';
 import { readPoolTotals, type PoolTotal } from '../ops/pool-totals.js';
 
 /**
@@ -136,7 +137,8 @@ export interface AccrualResult {
 type PlannedPayout = { userId: string; amount: Amount };
 
 /** What the first transaction of `accrueInner` decided: finished, or a plan to post. */
-type AccrualStep = { kind: 'done'; result: AccrualResult } | { kind: 'resume'; accrualId: string; payouts: PlannedPayout[] };
+type AccrualStep =
+  { kind: 'done'; result: AccrualResult } | { kind: 'resume'; accrualId: string; payouts: PlannedPayout[]; rateBps: number };
 
 /** Amounts go to JSON as decimal strings: a bigint cannot, and a number would lose digits. */
 function encodePayouts(payouts: readonly PlannedPayout[]): Array<{ userId: string; amount: string }> {
@@ -171,7 +173,13 @@ export class EarnService {
 
   // ── Pools ──────────────────────────────────────────────────────────────────
 
+  /**
+   * Open a pool and record its opening rate (BK-earn-05), in one transaction: a pool never exists without the first
+   * line of its rate history. `id` is the caller-stable retry key of an operator's create (`ops.createPool`): the same
+   * id with the same terms returns the pool already made, and with different terms refuses `bank.pool_conflict`.
+   */
   async createPool(input: {
+    id?: string;
     assetId: string;
     kind: 'flexible' | 'fixed';
     name: string;
@@ -180,17 +188,56 @@ export class EarnService {
     minDeposit?: Amount;
   }): Promise<PoolRecord> {
     this.assertEarnable(input.assetId);
+    const termDays = input.kind === 'fixed' ? (input.termDays ?? null) : null;
+    const minDeposit = formatAmount(input.minDeposit ?? 0n);
 
-    const rows = await this.sql<PoolRow[]>`
-      INSERT INTO bank.earn_pools (asset_id, kind, name, apr_bps, term_days, min_deposit)
-      VALUES (
-        ${input.assetId}, ${input.kind}, ${input.name}, ${input.aprBps},
-        ${input.kind === 'fixed' ? (input.termDays ?? null) : null},
-        ${formatAmount(input.minDeposit ?? 0n)}::numeric
-      )
-      RETURNING id, asset_id, kind, name, apr_bps, term_days, min_deposit, status
-    `;
-    return toPool(rows[0]!);
+    return transaction(
+      this.sql,
+      async (tx) => {
+        const rows = await tx<Array<PoolRow & { created_at: Date }>>`
+          INSERT INTO bank.earn_pools (id, asset_id, kind, name, apr_bps, term_days, min_deposit)
+          VALUES (
+            ${input.id ?? tx`gen_random_uuid()`}, ${input.assetId}, ${input.kind}, ${input.name}, ${input.aprBps},
+            ${termDays}, ${minDeposit}::numeric
+          )
+          ON CONFLICT (id) DO NOTHING
+          RETURNING id, asset_id, kind, name, apr_bps, term_days, min_deposit, status, created_at
+        `;
+        const made = rows[0];
+        if (!made) {
+          const existing = await tx<PoolRow[]>`
+            SELECT id, asset_id, kind, name, apr_bps, term_days, min_deposit, status
+              FROM bank.earn_pools WHERE id = ${input.id!}
+          `;
+          const pool = existing[0] ? toPool(existing[0]) : null;
+          // The rate it opened with, not today's: a later approved change is not a different create.
+          const opened = await tx<Array<{ rate_bps: number }>>`
+            SELECT rate_bps FROM bank.earn_rate_changes WHERE pool_id = ${input.id!} ORDER BY effective_at ASC LIMIT 1
+          `;
+          if (
+            !pool ||
+            opened[0]?.rate_bps !== input.aprBps ||
+            pool.assetId !== input.assetId ||
+            pool.kind !== input.kind ||
+            pool.name !== input.name ||
+            pool.termDays !== termDays ||
+            pool.minDeposit !== parseAmount(minDeposit)
+          ) {
+            throw new BankError(`Pool ${input.id} already exists on different terms; a new pool needs a new id`, 'bank.pool_conflict');
+          }
+          return pool;
+        }
+        await recordRateChange(tx, {
+          poolId: made.id,
+          rateBps: input.aprBps,
+          effectiveAt: made.created_at,
+          reason: null,
+          approvalId: null,
+        });
+        return toPool(made);
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
   }
 
   async pool(poolId: string): Promise<PoolRecord> {
@@ -257,6 +304,16 @@ export class EarnService {
         return { ledgerTxId: tx.id };
       },
     );
+  }
+
+  /** Every rate the pool has published, oldest first (BK-earn-05). Read only. */
+  rateHistory(poolId: string, limit?: number, before?: Date): Promise<RateHistory> {
+    return readRateHistory(this.sql, poolId, limit, before);
+  }
+
+  /** An approved change of a flexible pool's rate; see `setPoolRate` in rate-history.ts. */
+  setPoolRate(input: { poolId: string; rateBps: number; reason: string; approvalId: string; now?: Date }) {
+    return setPoolRate(this.sql, input);
   }
 
   /** What the pool can still afford to pay. A ledger read, never a column. */
@@ -539,6 +596,37 @@ export class EarnService {
     return toPosition(row);
   }
 
+  /** The person's open positions in one pool, newest first: the pool page lists them without paging through every pool. */
+  async positionsInPool(userId: string, poolId: string, limit?: number): Promise<PositionRecord[]> {
+    const page = assertEarnPositionsListLimit(limit);
+    const rows = await this.sql<PositionRow[]>`
+      SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status
+        FROM bank.earn_positions WHERE user_id = ${userId} AND pool_id = ${poolId} AND status = 'active'
+       ORDER BY opened_at DESC
+       LIMIT ${page}
+    `;
+    return rows.map(toPosition);
+  }
+
+  /**
+   * The rate each position's pool had recorded in force when it opened (BK-earn-05), by position id. A position opened
+   * before its pool's first record maps to null: the bank has no record of that rate and none is guessed.
+   */
+  async ratesAtOpen(positions: readonly PositionRecord[]): Promise<Map<string, number | null>> {
+    const out = new Map<string, number | null>();
+    if (positions.length === 0) return out;
+    const rows = await this.sql<Array<{ id: string; rate_bps: number | null }>>`
+      SELECT p.id, (
+        SELECT c.rate_bps FROM bank.earn_rate_changes c
+         WHERE c.pool_id = p.pool_id AND c.effective_at <= p.opened_at
+         ORDER BY c.effective_at DESC LIMIT 1
+      ) AS rate_bps
+        FROM bank.earn_positions p WHERE p.id = ANY(${positions.map((position) => position.id)}::uuid[])
+    `;
+    for (const row of rows) out.set(row.id, row.rate_bps);
+    return out;
+  }
+
   async positionsOf(userId: string, limit?: number): Promise<PositionRecord[]> {
     const page = assertEarnPositionsListLimit(limit);
     const rows = await this.sql<PositionRow[]>`
@@ -712,10 +800,12 @@ export class EarnService {
     const step = await transaction(
       this.sql,
       async (tx): Promise<AccrualStep> => {
+        // The rate in force when the day began (BK-earn-05): a change recorded during the day pays from the next one.
+        const rateBps = await rateForDay(tx, pool.id, boundary, pool.aprBps);
         // Claim the day. A second run blocks here until the claim commits.
         const claimed = await tx<Array<{ id: string }>>`
           INSERT INTO bank.interest_accruals (pool_id, accrual_date, rate_bps, paid_amount, recipients)
-          VALUES (${pool.id}, ${date}, ${pool.aprBps}, 0, 0)
+          VALUES (${pool.id}, ${date}, ${rateBps}, 0, 0)
           ON CONFLICT (pool_id, accrual_date) DO NOTHING
           RETURNING id
         `;
@@ -728,16 +818,17 @@ export class EarnService {
               recipients: number;
               ledger_tx_id: string | null;
               planned_payouts: Array<{ userId: string; amount: string }> | null;
+              rate_bps: string;
             }>
           >`
-            SELECT id, paid_amount, recipients, ledger_tx_id, planned_payouts FROM bank.interest_accruals
+            SELECT id, paid_amount, recipients, ledger_tx_id, planned_payouts, rate_bps FROM bank.interest_accruals
              WHERE pool_id = ${pool.id} AND accrual_date = ${date}
           `;
           const row = existing[0]!;
           if (row.ledger_tx_id === null && row.planned_payouts !== null) {
             // A run planned the day and stopped before recording the post. Pay
             // exactly what it planned.
-            return { kind: 'resume', accrualId: row.id, payouts: decodePayouts(row.planned_payouts) };
+            return { kind: 'resume', accrualId: row.id, payouts: decodePayouts(row.planned_payouts), rateBps: Number(row.rate_bps) };
           }
           return {
             kind: 'done',
@@ -778,7 +869,7 @@ export class EarnService {
           accruing.push({ positionId: p.id, userId: p.user_id, principal: ledgerPrincipal });
         }
 
-        const plan = planAccrual(accruing, pool.aprBps, daysPerYear);
+        const plan = planAccrual(accruing, rateBps, daysPerYear);
 
         if (plan.payouts.length === 0) {
           // A real outcome, recorded: an empty pool, or every position too small
@@ -796,14 +887,14 @@ export class EarnService {
              SET planned_payouts = ${tx.json(encodePayouts(payouts) as never)}
            WHERE id = ${accrualId}
         `;
-        return { kind: 'resume', accrualId, payouts };
+        return { kind: 'resume', accrualId, payouts, rateBps };
       },
       { isolation: 'read committed', maxAttempts: 5 },
     );
 
     if (step.kind === 'done') return step.result;
 
-    return this.settleAccrual(pool, date, step.accrualId, step.payouts, 'release');
+    return this.settleAccrual(pool, date, step.accrualId, step.payouts, step.rateBps, 'release');
   }
 
   /**
@@ -820,6 +911,7 @@ export class EarnService {
     date: string,
     accrualId: string,
     payouts: PlannedPayout[],
+    rateBps: number,
     onUnderfunded: 'release' | 'keep',
   ): Promise<AccrualResult> {
     const total = sum(payouts.map((p) => p.amount));
@@ -861,7 +953,7 @@ export class EarnService {
       await this.sql`
         INSERT INTO bank.interest_accruals (pool_id, accrual_date, rate_bps, paid_amount, recipients, ledger_tx_id, planned_payouts)
         VALUES (
-          ${pool.id}, ${date}, ${pool.aprBps}, ${formatAmount(total)}::numeric, ${payouts.length}, ${posted.id},
+          ${pool.id}, ${date}, ${rateBps}, ${formatAmount(total)}::numeric, ${payouts.length}, ${posted.id},
           ${this.sql.json(encodePayouts(payouts) as never)}
         )
         ON CONFLICT (pool_id, accrual_date) DO UPDATE
@@ -889,16 +981,24 @@ export class EarnService {
    */
   private async resumeEarlierAccruals(before: string, results: AccrualResult[], failures: AccrueAllReport['failures']): Promise<void> {
     const pending = await this.sql<
-      Array<{ id: string; pool_id: string; accrual_date: string; planned_payouts: Array<{ userId: string; amount: string }> }>
+      Array<{
+        id: string;
+        pool_id: string;
+        accrual_date: string;
+        rate_bps: string;
+        planned_payouts: Array<{ userId: string; amount: string }>;
+      }>
     >`
-      SELECT id, pool_id, accrual_date::text AS accrual_date, planned_payouts FROM bank.interest_accruals
+      SELECT id, pool_id, accrual_date::text AS accrual_date, rate_bps, planned_payouts FROM bank.interest_accruals
        WHERE planned_payouts IS NOT NULL AND ledger_tx_id IS NULL AND accrual_date < ${before}
        ORDER BY accrual_date ASC, id ASC
     `;
     for (const row of pending) {
       try {
         const pool = await this.pool(row.pool_id);
-        results.push(await this.settleAccrual(pool, row.accrual_date, row.id, decodePayouts(row.planned_payouts), 'keep'));
+        results.push(
+          await this.settleAccrual(pool, row.accrual_date, row.id, decodePayouts(row.planned_payouts), Number(row.rate_bps), 'keep'),
+        );
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
         const code = err instanceof BankError ? err.code : undefined;

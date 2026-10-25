@@ -27,6 +27,14 @@ export type BankErrorCode =
   | 'bank.schedule_edit_cutoff_unset'
   | 'bank.pool_not_found'
   | 'bank.pool_closed'
+  /** An ops pool create reused a pool id with different terms: a new pool needs a new id. */
+  | 'bank.pool_conflict'
+  /** An ops pool create whose term does not fit its kind: a fixed pool needs days, a flexible one has none. */
+  | 'bank.pool_terms_invalid'
+  /** A fixed-term pool's rate is the term's promise: it never changes; a new rate is a new pool. */
+  | 'bank.fixed_pool_rate_locked'
+  /** A rate change that names the rate already in force records nothing. */
+  | 'bank.pool_rate_unchanged'
   | 'bank.pool_underfunded'
   /**
    * No open pool carries an operator-configured APR for the requested earn
@@ -596,6 +604,8 @@ export type BankErrorCode =
   | 'bank.earn_positions_list_limit_unset'
   /** earn.interestHistory page size unpublished. Blank is not 50 — never dump every paid day. */
   | 'bank.earn_interest_list_limit_unset'
+  /** earn.rateHistory page size unpublished. Blank is not 50 — never dump every recorded rate. */
+  | 'bank.earn_rate_history_limit_unset'
   /** sharedPots.list or sharedPots.activity page size unpublished. Blank is not 50. */
   | 'bank.shared_pots_list_limit_unset'
   /** BANK_SHARED_POT_INVITE_MINUTES or BANK_SHARED_POT_PEOPLE_CAP is blank: no pot is shared (BK-acct-09 decision note). */
