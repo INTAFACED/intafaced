@@ -74,7 +74,7 @@ afterAll(async () => {
 beforeEach(async () => {
   await sql()`ALTER TABLE trade.vip_application_events DISABLE TRIGGER vip_application_events_append_only_trg`;
   await sql()`ALTER TABLE trade.vip_applications DISABLE TRIGGER vip_applications_status_only_trg`;
-  await sql()`TRUNCATE trade.vip_application_events, trade.vip_applications`;
+  await sql()`TRUNCATE trade.vip_trials, trade.vip_application_events, trade.vip_applications`;
   await sql()`ALTER TABLE trade.vip_application_events ENABLE TRIGGER vip_application_events_append_only_trg`;
   await sql()`ALTER TABLE trade.vip_applications ENABLE TRIGGER vip_applications_status_only_trg`;
 });

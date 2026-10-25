@@ -634,6 +634,10 @@ async function signInPair(ctx, ops, saveSteps) {
       async tradeOpsToken() {
         return mintOperatorToken(ctx, op, ['admin:read', 'admin:write']);
       },
+      /** Same session as compliance: the trade desk's VIP application review also needs `admin:compliance`. */
+      async complianceToken() {
+        return mintOperatorToken(ctx, op, ['admin:read', 'admin:write', 'admin:compliance']);
+      },
       /** Same session with the CRM scopes svc-ops checks before it asks identity whether the caller is a founder. */
       async crmToken() {
         return mintOperatorToken(ctx, op, ['ops:read', 'ops:write']);
@@ -1408,6 +1412,88 @@ export async function setFeeSchedule(ctx, schedule, { effectiveAt, reason, sessi
   if (!row?.version) throw new Error(`trade admin.fees.set refused (${res.status}): ${refusalText(res)}`);
   ctx.log(`fee schedule: version ${row.version} from ${row.effectiveAt} (${MARKERS.label}); approval ${ids.approvalId}`);
   return row;
+}
+
+// ── 2c'''. VIP application review (two-person approval) ──────────────────
+
+export const VIP_REVIEW_ACTION = 'trade.vip_application_review';
+export const VIP_TRIAL_GRANT_ACTION = 'trade.vip_trial_grant';
+
+/** The hash svc-trade recomputes when it consumes a review approval (services/svc-trade/src/admin/vip-review.ts). */
+export function vipReviewPayloadHash({ applicationId, decision, reason, trial }) {
+  const body = { actionType: VIP_REVIEW_ACTION, applicationId, decision, reason, trial: decision === 'approve' ? (trial ?? null) : null };
+  return `sha256:${crypto.createHash('sha256').update(canonicalJson(body)).digest('hex')}`;
+}
+
+/** The hash svc-trade recomputes when it consumes a trial grant approval. */
+export function vipTrialGrantPayloadHash({ applicationId, reason, trial }) {
+  const body = { actionType: VIP_TRIAL_GRANT_ACTION, applicationId, reason, trial };
+  return `sha256:${crypto.createHash('sha256').update(canonicalJson(body)).digest('hex')}`;
+}
+
+/**
+ * Decide one VIP application as compliance does: one TEST operator proposes, the other approves at identity, the first
+ * applies it. The approval binds the trial the owner publishes now (read from the review list), as the door does.
+ * Returns svc-trade's answer as it came, refusal included.
+ */
+export async function reviewVipApplication(ctx, { applicationId, decision, reason, sessions = null }) {
+  const pair = sessions ?? (await approverSessions(ctx));
+  const list = data(await ctx.edge.query('trade', 'admin.vipApplications.list', { status: 'pending' }, await pair.a.complianceToken()));
+  if (!list) throw new Error('trade admin.vipApplications.list gave no answer');
+  const body = { applicationId, decision, reason: reason ?? `${MARKERS.label}: TEST VIP review` };
+  const ids = await twoPerson(ctx, pair, {
+    actionType: VIP_REVIEW_ACTION,
+    targetService: 'svc-trade',
+    targetId: applicationId,
+    expectedVersion: 'pending',
+    payloadHash: vipReviewPayloadHash({ ...body, trial: list.trialRules }),
+    policyVersion: MARKERS.policyVersion,
+  });
+  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+  return ctx.edge.mutate(
+    'trade',
+    'admin.vipApplications.review',
+    { ...body, approvalId: ids.approvalId, operationId: ids.operationId },
+    await pair.a.complianceToken(),
+  );
+}
+
+/**
+ * Ask svc-trade to grant the trial the owner publishes to an application approved without one. With none published it
+ * refuses `vip.trial_unset` before any approval is asked for, so no approval is spent: this reads the refusal first,
+ * and only with a trial published runs the two-person approval. Returns svc-trade's answer as it came.
+ */
+export async function grantVipTrial(ctx, { applicationId, reason, sessions = null }) {
+  const pair = sessions ?? (await approverSessions(ctx));
+  const body = { applicationId, reason: reason ?? `${MARKERS.label}: TEST VIP trial` };
+  const list = data(
+    await ctx.edge.query('trade', 'admin.vipApplications.list', { status: 'approved_no_trial' }, await pair.a.complianceToken()),
+  );
+  if (!list) throw new Error('trade admin.vipApplications.list gave no answer');
+  if (!list.trialRules) {
+    // No trial published: the door refuses before it consumes anything, so an approval nobody can use is not proposed.
+    return ctx.edge.mutate(
+      'trade',
+      'admin.vipApplications.grantTrial',
+      { ...body, approvalId: 'none-proposed', operationId: 'none-proposed' },
+      await pair.a.complianceToken(),
+    );
+  }
+  const ids = await twoPerson(ctx, pair, {
+    actionType: VIP_TRIAL_GRANT_ACTION,
+    targetService: 'svc-trade',
+    targetId: applicationId,
+    expectedVersion: 'approved_no_trial',
+    payloadHash: vipTrialGrantPayloadHash({ ...body, trial: list.trialRules }),
+    policyVersion: MARKERS.policyVersion,
+  });
+  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+  return ctx.edge.mutate(
+    'trade',
+    'admin.vipApplications.grantTrial',
+    { ...body, approvalId: ids.approvalId, operationId: ids.operationId },
+    await pair.a.complianceToken(),
+  );
 }
 
 // ── 2c''. TEST fee-decay schedule for IFC holders (two-person approval) ───

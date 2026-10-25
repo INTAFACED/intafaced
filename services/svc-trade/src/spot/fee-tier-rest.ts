@@ -1,7 +1,7 @@
 /**
  * GET /api/v1/account/fee-tier: the caller's own fee tier and how it was reached (SP-fees-vip-03, J-cex-spot-10 #5-#6).
  *
- * The tier is the one an order placed now keeps (`feeTierAt`). Beside it: the owner's programme as published (or none:
+ * The tier is the one an order placed now keeps (`feeTierAt`), with the VIP trial it comes from when it does. Beside it: the owner's programme as published (or none:
  * "Thresholds not set"), the volume counted toward the next snapshot and what it reaches, the next threshold, when the
  * next snapshot runs (none without a snapshot time), what is excluded, and the caller's own snapshot rows with the
  * figures each used. Self only: the user is the edge-signed principal, never a query field.
@@ -13,7 +13,16 @@ import { parseAmount } from '@intafaced/ledger-client';
 import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
 import type { EdgeTrust } from '../edge-trust.js';
 import { REGULAR_FEE_TIER, type OwnerFeeSchedule } from './fee-schedule.js';
-import { VOLUME_EXCLUSIONS, countedVolume, programmeSince, snapshotInForce, snapshotsOf, tierOf } from './fee-tier-store.js';
+import {
+  VOLUME_EXCLUSIONS,
+  countedVolume,
+  programmeSince,
+  snapshotInForce,
+  snapshotsOf,
+  tierOf,
+  trialGiving,
+  trialsInForce,
+} from './fee-tier-store.js';
 import { nextSnapshotInstant, nextThreshold, tierForVolume, volumeWindow } from './fee-tiers.js';
 
 export const ACCOUNT_FEE_TIER_PATH = '/api/v1/account/fee-tier';
@@ -56,11 +65,15 @@ export function registerFeeTierRest(app: FastifyInstance, deps: FeeTierRestDeps)
     }
     const userId = principal.userId;
     const program = schedule.tierProgram ?? null;
-    const [inForce, snapshots] = await Promise.all([
+    const [inForce, snapshots, trials] = await Promise.all([
       snapshotInForce(deps.sql, userId, at),
       snapshotsOf(deps.sql, userId, FEE_TIER_SNAPSHOT_ROWS),
+      trialsInForce(deps.sql, userId, at),
     ]);
-    const tier = tierOf(schedule, inForce);
+    const tier = tierOf(schedule, inForce, trials);
+    // The VIP trial the tier comes from (vip-review.ts), or none. A snapshot that gives the same tier is named instead:
+    // the tier does not end with the trial.
+    const trial = inForce?.tierId === tier ? null : trialGiving(tier, trials);
     // The snapshot the tier comes from, or none: a snapshot whose tier the programme in force no longer names gives
     // regular, and is not shown as where the tier came from (it stays in the rows below).
     const source = inForce && inForce.tierId === tier ? inForce : null;
@@ -74,6 +87,7 @@ export function registerFeeTierRest(app: FastifyInstance, deps: FeeTierRestDeps)
         snapshotsRunning: deps.snapshotsRunning,
         nextSnapshotAt: null,
         lastSnapshot: null,
+        trial: null,
         snapshots,
         excluded: VOLUME_EXCLUSIONS,
       });
@@ -111,6 +125,7 @@ export function registerFeeTierRest(app: FastifyInstance, deps: FeeTierRestDeps)
       snapshotsRunning: deps.snapshotsRunning,
       nextSnapshotAt: nextAt?.toISOString() ?? null,
       lastSnapshot: source,
+      trial,
       snapshots,
       excluded: VOLUME_EXCLUSIONS,
     });

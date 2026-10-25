@@ -1,7 +1,14 @@
 import { createHash } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
-import { approverSessions, makeContext, setFeeDiscountSchedule, setFeeSchedule } from '../../../../tooling/scripts/local-test-gates.mjs';
+import {
+  approverSessions,
+  grantVipTrial,
+  makeContext,
+  reviewVipApplication,
+  setFeeDiscountSchedule,
+  setFeeSchedule,
+} from '../../../../tooling/scripts/local-test-gates.mjs';
 import { EDGE, api, bestPrices, fromUnits, fund, journeyState, otherTrader, times, toUnits } from './stack.mjs';
 import {
   awayBid,
@@ -678,6 +685,71 @@ test(`${J} part of #7 applies with a proof file: a type not accepted is refused 
   const card = page.locator('[data-tier-page=vip-apply]');
   await expect(card.locator('[data-vip=not-open]')).toHaveText('Applications are not open: no accepted proof file is published.');
   await expect(card.locator('tr[data-vip-application=pending]')).toHaveCount(1);
+});
+
+test(`${J} part of #7 compliance approves with no trial published: the grant is refused vip.trial_unset, then granted once one is`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  // Its own fresh applicant, as above.
+  const who = await signUp(page, 'vipreview');
+  await verify(page, who);
+  const client = await api(who);
+  const { ctx, sessions } = await ops();
+  const tiered = tiersAt(new Date(Date.now() + 3_600_000));
+  // The application rules are published and no trial is: an approval can grant none.
+  await publish({ ...tiered, tierProgram: { ...tiered.tierProgram, application: TEST_APPLICATION } }, 'TEST VIP rules, no trial');
+  let applicationId;
+  try {
+    const sent = await client.post('/api/v1/vip/applications', {
+      requestId: `vip-review-${Date.now()}`,
+      proof: { fileName: 'statement.pdf', contentType: 'application/pdf', bytesBase64: TEST_PDF.toString('base64') },
+    });
+    expect(sent.status, JSON.stringify(sent.body).slice(0, 300)).toBe(201);
+    applicationId = sent.body.application.id;
+
+    // Two TEST operators: one proposes the approval at identity, the other approves it, the first applies it.
+    const reviewed = await reviewVipApplication(ctx, { applicationId, decision: 'approve', sessions });
+    const decided = reviewed.json?.result?.data;
+    expect(decided, JSON.stringify(reviewed.json).slice(0, 400)).toBeTruthy();
+    expect(decided.application).toMatchObject({ id: applicationId, status: 'approved_no_trial', trial: null });
+    expect(decided.trialRefusal).toBe('vip.trial_unset');
+    const approval = decided.application.events.at(-1);
+    expect(approval).toMatchObject({ status: 'approved_no_trial', actorRole: 'compliance' });
+    expect(approval.approverId).toBeTruthy();
+    expect(approval.approverId).not.toBe(approval.actorId);
+
+    // Granting the trial is refused by name, and the application stays as it was.
+    const grant = await grantVipTrial(ctx, { applicationId, sessions });
+    expect(grant.json?.error?.data?.cause?.code, JSON.stringify(grant.json).slice(0, 400)).toBe('vip.trial_unset');
+    const mine = await client.get('/api/v1/vip/applications');
+    expect(mine.body.applications.map((a) => [a.id, a.status])).toEqual([[applicationId, 'approved_no_trial']]);
+
+    // The person sees the decision on My tier, and stays on the tier their volume gives.
+    await signIn(page, who);
+    await page.goto('/fees/my-tier');
+    const card = page.locator('[data-tier-page=vip-apply]');
+    await expect(card.locator('tr[data-vip-application=approved_no_trial] td').last()).toHaveText('Approved, no trial period set');
+    await expect(page.locator('[data-tier-page=tier] h2')).toHaveText('Your tier: Regular');
+    await expect(page.locator('[data-tier-page=trial]')).toHaveCount(0);
+
+    // Once the owner publishes a trial, the grant goes through with its own approval: the tier is the trial's until it ends.
+    const trial = { tierId: 'test-vip-1', days: 1 };
+    await publish({ ...tiered, tierProgram: { ...tiered.tierProgram, application: TEST_APPLICATION, trial } }, 'TEST VIP trial');
+    const granted = await grantVipTrial(ctx, { applicationId, sessions });
+    const after = granted.json?.result?.data;
+    expect(after, JSON.stringify(granted.json).slice(0, 400)).toBeTruthy();
+    expect(after.application).toMatchObject({ status: 'approved', trial: { tierId: 'test-vip-1', days: 1 } });
+    const tier = await myTier(client);
+    expect(tier.tier).toBe('test-vip-1');
+    expect(tier.trial).toMatchObject({ applicationId, tierId: 'test-vip-1', endsAt: after.application.trial.endsAt });
+    await page.reload();
+    await expect(page.locator('[data-tier-page=tier] h2')).toHaveText('Your tier: test-vip-1');
+    await expect(page.locator('[data-tier-page=trial]')).toContainText('From your VIP trial, until ');
+    await expect(card.locator('tr[data-vip-application=approved] td').last()).toHaveText('Approved');
+  } finally {
+    await publish(SCHEDULE, 'VIP rules off');
+  }
 });
 
 test(`${J} #8 looks at the fee currency row: disabled with its reason, and no request is sent`, async ({ page }) => {
