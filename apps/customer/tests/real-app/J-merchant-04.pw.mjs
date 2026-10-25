@@ -468,6 +468,102 @@ test(`${J} #5 the payer pays in two transfers: TEST 60 of TEST 100 received and 
   await expect(invoice.getByRole('cell').nth(usesColumn)).toHaveText('1');
 });
 
+/** The owner's EUR balance row on the balance page, once the page has read the balances: '' when the business holds no
+ * EUR row yet. A EUR row can appear with zeros as soon as a EUR payment exists, so callers compare figures, not presence. */
+async function eurBalance(page) {
+  await page.goto('/pay/money');
+  await expect(page.getByRole('row').nth(1)).toBeVisible();
+  const rows = page.getByRole('row').filter({ hasText: 'EUR' });
+  return (await rows.count()) === 0 ? '' : ((await rows.first().textContent()) ?? '').replace(/\s+/g, ' ').trim();
+}
+/** True when a balance row shows no money: only zero figures. */
+const noMoney = (row) => !/[1-9]/.test(row);
+
+/** The payer's hosted page for a link with no amount or currency: the payer names both, then the name on their bank
+ * account when the business takes the payment by bank transfer. Returns the transfer reference the page shows. */
+async function payerSendsByBank(payerPage, address, amount, currency, name) {
+  await payerPage.goto(address);
+  await expect(payerPage.locator('.amount')).toHaveText('Choose an amount');
+  await payerPage.getByLabel(/Amount/).fill(amount);
+  await payerPage.getByLabel('Currency').fill(currency);
+  await payerPage.getByLabel('Country').fill('DE');
+  await payerPage.getByRole('button', { name: /continue/i }).click();
+  // A bank transfer is checked against the name on the account it comes from, so the page asks for it.
+  await expect(payerPage.getByRole('alert')).toHaveText('Give the name on the bank account you will send the transfer from.');
+  await payerPage.getByLabel('Name on your bank account').fill(name);
+  await payerPage.getByRole('button', { name: /continue/i }).click();
+  await expect(payerPage.getByText('Pay by bank transfer', { exact: true })).toBeVisible();
+  await expect(payerPage.getByText('TEST bank: no real bank account receives this transfer.')).toBeVisible();
+  const reference = (await payerPage.locator('.reference code').textContent())?.trim();
+  expect(reference).toMatch(/^BT[0-9A-F]{12}$/);
+  return reference;
+}
+
+test(`${J} #6 the payer pays by bank from an account in another name: the transfer is held for review, nothing is credited, and the owner sees why; the same transfer from the given name completes`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(420_000);
+  const state = journey();
+  await signInOwner(page, state, '/pay/links/new');
+  const refused = refusedPayCalls(page);
+
+  // A link with no amount or asset: the payer names both, here TEST 30 EUR, which only the TEST bank takes.
+  const label = `TEST Bank invoice ${Date.now().toString(36)}`;
+  await page.getByLabel('Link label *').fill(label);
+  await page.getByRole('combobox', { name: /^Asset/ }).selectOption('');
+  await page.getByRole('button', { name: 'Create link' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Create link' }).click();
+  await expect(page.getByRole('heading', { name: 'Your link is ready' })).toBeVisible();
+  const address = await page.getByTestId('link-address').getByRole('link', { name: 'Open the link' }).getAttribute('href');
+  expect(refused).toEqual([]);
+  // This business has never been paid in EUR.
+  expect(noMoney(await eurBalance(page))).toBe(true);
+  const run = Date.now();
+
+  const payer = await browser.newContext();
+  try {
+    const payerPage = await payer.newPage();
+
+    // The payer says the transfer comes from Ada Lovelace; the TEST bank reports it from "A LOVELACE".
+    const reference = await payerSendsByBank(payerPage, address, '30', 'EUR', 'Ada Lovelace');
+    const sessionUrl = payerPage.url();
+    await expect(payerPage.getByText('Waiting for your transfer')).toBeVisible();
+    tool('local-test-stack.mjs', 'bank-transfer', reference, 'EUR', '30', '--tx', `j-merchant-04-name-${run}`, '--payer', 'A LOVELACE');
+    await expect(async () => {
+      await payerPage.goto(sessionUrl);
+      await expect(payerPage.getByRole('status')).toHaveText('Your bank transfer arrived and is held for a check', { timeout: 2_000 });
+    }).toPass({ timeout: 60_000 });
+    await expect(payerPage.getByText('Being checked')).toBeVisible();
+    await expect(payerPage.getByText('Payment received')).toHaveCount(0);
+
+    // Delivered again, the same transfer is still one held transfer, and nothing is credited.
+    tool('local-test-stack.mjs', 'bank-transfer', reference, 'EUR', '30', '--tx', `j-merchant-04-name-${run}`, '--payer', 'A LOVELACE');
+    expect(noMoney(await eurBalance(page))).toBe(true);
+
+    // The owner's payment is still open, held for a name check, with the reason; it was never captured.
+    await page.goto('/pay/payments');
+    await page.getByRole('row').filter({ hasText: 'EUR' }).first().getByRole('link').first().click();
+    await expect(page).toHaveURL(/\/pay\/payments\/[0-9a-f-]{36}$/);
+    await expect(page.getByTestId('payment-name-hold')).toHaveText(
+      'Held for a name check. The bank transfer came from an account in another name than the one your customer gave. Nothing has been taken or added to your balance while it is checked.',
+    );
+    await expect(page.getByText('Bank transfer held for a name check').first()).toBeVisible();
+
+    // The contrast: the same TEST bank and amount, from the name the payer gave, completes once and is credited.
+    const matching = await payerSendsByBank(payerPage, address, '30', 'EUR', 'Grace Hopper');
+    const matchingUrl = payerPage.url();
+    tool('local-test-stack.mjs', 'bank-transfer', matching, 'EUR', '30', '--tx', `j-merchant-04-match-${run}`, '--payer', 'GRACE  HOPPER');
+    await expect(async () => {
+      await payerPage.goto(matchingUrl);
+      await expect(payerPage.getByText('Payment received')).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 60_000 });
+    await expect(async () => expect(noMoney(await eurBalance(page))).toBe(false)).toPass({ timeout: 30_000 });
+  } finally {
+    await payer.close();
+  }
+});
+
 test(`${J} #7 the payer is offered only the methods for the country and currency in the set order; bank debit with no rail shows rail.bank; a crypto payment completes`, async ({
   page,
   browser,
@@ -479,8 +575,10 @@ test(`${J} #7 the payer is offered only the methods for the country and currency
   const methods = page.getByRole('list', { name: 'Payment methods' });
   const method = (id) => methods.locator(`li[data-method="${id}"]`);
 
-  // What the platform can take: crypto is available; card, bank debit and pay later each name the piece they need.
+  // What the platform can take: crypto and the TEST bank's transfers are available; card, bank debit and pay later each
+  // name the piece they need.
   await expect(method('crypto').getByText('Available')).toBeVisible();
+  await expect(method('bank_transfer').getByText('Available')).toBeVisible();
   await expect(method('bank_debit').locator('[data-not-connected="rail.bank"]')).toContainText('Bank debit needs a banking partner.');
   await expect(method('card').locator('[data-not-connected="rail.card"]')).toBeVisible();
   await expect(method('pay_later').locator('[data-not-connected="rail.card"]')).toBeVisible();
@@ -501,9 +599,10 @@ test(`${J} #7 the payer is offered only the methods for the country and currency
     'crypto',
     'card',
     'pay_later',
+    'bank_transfer',
   ]);
 
-  // A customer in Germany paying in EUR is offered bank debit, which names rail.bank, and not crypto.
+  // A customer in Germany paying in EUR is offered bank debit, which names rail.bank, then bank transfer, and not crypto.
   const preview = async (country, currency) => {
     await page.getByLabel('Country').fill(country);
     await page.getByLabel('Currency').fill(currency);
@@ -516,7 +615,7 @@ test(`${J} #7 the payer is offered only the methods for the country and currency
   };
   const eur = await preview('DE', 'EUR');
   const eurOffered = eur.locator('ol > li');
-  expect(await eurOffered.evaluateAll((items) => items.map((li) => li.dataset.method))).toEqual(['bank_debit']);
+  expect(await eurOffered.evaluateAll((items) => items.map((li) => li.dataset.method))).toEqual(['bank_debit', 'bank_transfer']);
   await expect(eurOffered.first().locator('[data-not-connected="rail.bank"]')).toBeVisible();
   await expect(eur.locator('li[data-method="crypto"]')).toHaveText('Crypto: Not for this currency');
   await expect(eur.locator('li[data-method="card"]')).toHaveText('Card: Switched off');

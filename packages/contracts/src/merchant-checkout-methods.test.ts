@@ -20,12 +20,13 @@ describe('merchantCheckoutMethods (M-adv-payments-core-11)', () => {
   it('takes every catalogue method exactly once, in any order', () => {
     const methods = [...CHECKOUT_METHODS].reverse().map((m) => rule(m));
     expect(checkoutMethodsSaveInputSchema.parse({ requestId, expectedVersion: 0, methods }).methods.map((m) => m.method)).toEqual([
+      'bank_transfer',
       'pay_later',
       'bank_debit',
       'card',
       'crypto',
     ]);
-    const twice = [rule('crypto'), rule('crypto'), rule('card'), rule('bank_debit')];
+    const twice = [rule('crypto'), rule('crypto'), rule('card'), rule('bank_debit'), rule('pay_later')];
     expect(checkoutMethodsSaveInputSchema.safeParse({ requestId, expectedVersion: 0, methods: twice }).success).toBe(false);
     expect(checkoutMethodsSaveInputSchema.safeParse({ requestId, expectedVersion: 0, methods: methods.slice(1) }).success).toBe(false);
   });

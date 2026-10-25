@@ -20,7 +20,7 @@ export const paymentsContract: ContractPart = {
         p.saveCheckoutMethods({
           requestId: 'c3000001-0000-4000-8000-0000000000ab',
           expectedVersion: 0,
-          methods: (['bank_debit', 'crypto', 'card', 'pay_later'] as const).map((method) => ({
+          methods: (['bank_debit', 'crypto', 'card', 'pay_later', 'bank_transfer'] as const).map((method) => ({
             method,
             enabled: method !== 'pay_later',
             ruleAsset: null,

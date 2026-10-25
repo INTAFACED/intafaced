@@ -5,8 +5,10 @@ import { z } from 'zod';
  * M-payments-core-07, J-merchant-04 step 7): `merchantCheckoutMethods.*` on svc-pay.
  *
  * The catalogue is fixed. A method is connected when the platform has a rail that takes it on the public checkout;
- * one with no rail names the missing piece (`rail.crypto`, `rail.card` for cards and pay later, `rail.bank` for bank debit) and is
- * never offered as payable. The business sets the order, which methods are on, and per method an optional minimum and
+ * one with no rail names the missing piece (`rail.crypto`, `rail.card` for cards and pay later, `rail.bank` for bank debit
+ * and bank transfer) and is never offered as payable. Bank debit is a pull with the payer's mandate; bank transfer is a
+ * push the payer sends with a reference (J-merchant-04 step 6), and it is last so a list saved before it existed keeps its
+ * order. The business sets the order, which methods are on, and per method an optional minimum and
  * maximum in one asset (blank is no rule, never a default). A business that never saved has the catalogue order with
  * only the connected methods on, which is what the checkout offered before this existed.
  *
@@ -15,7 +17,7 @@ import { z } from 'zod';
  * preview answers the same question the hosted page asks, so the owner reads what a payer would be offered. Every team
  * role reads; the owner and admins change it, from an interactive session. Nothing here moves money.
  */
-export const CHECKOUT_METHODS = ['crypto', 'card', 'bank_debit', 'pay_later'] as const;
+export const CHECKOUT_METHODS = ['crypto', 'card', 'bank_debit', 'pay_later', 'bank_transfer'] as const;
 export const checkoutMethodIdSchema = z.enum(CHECKOUT_METHODS);
 export type CheckoutMethodId = z.infer<typeof checkoutMethodIdSchema>;
 

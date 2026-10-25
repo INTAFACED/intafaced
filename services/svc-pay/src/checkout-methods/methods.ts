@@ -32,9 +32,10 @@ interface MethodsRow {
 }
 
 /**
- * The saved rules, read back strictly: every catalogue method once. A row that does not read (a method the catalogue
- * no longer has, a bad amount) is not guessed at: the default stands in its place, which offers only what the platform
- * can take.
+ * The saved rules, read back strictly: each saved method once. A method the catalogue gained after the save is added at
+ * the end, switched off, so a saved list keeps its order and nothing the owner did not choose is offered. A row that does
+ * not read (a method the catalogue no longer has, a repeat, a bad amount) is not guessed at: the default stands in its
+ * place, which offers only what the platform can take.
  */
 export function savedRules(raw: unknown): CheckoutMethodRule[] | null {
   if (!Array.isArray(raw)) return null;
@@ -45,7 +46,10 @@ export function savedRules(raw: unknown): CheckoutMethodRule[] | null {
     rules.push(parsed.data);
   }
   const seen = new Set(rules.map((r) => r.method));
-  return seen.size === CHECKOUT_METHODS.length && rules.length === CHECKOUT_METHODS.length ? rules : null;
+  if (seen.size !== rules.length || rules.length === 0) return null;
+  for (const method of CHECKOUT_METHODS)
+    if (!seen.has(method)) rules.push({ method, enabled: false, ruleAsset: null, minAmount: null, maxAmount: null });
+  return rules;
 }
 
 /** The business's saved rules, or null when it never saved (or the row does not read). */
@@ -66,10 +70,13 @@ export async function rulesOf(sql: Sql, merchantId: string, rails: MethodRails):
  * `pay.checkout_no_method`, each with the offer so the page can show the choice or what is missing.
  *
  * The caller's method passes through unchanged, and the open goes on exactly as before methods could be set, when:
- * - the business never saved its methods (the default offers what the platform can take, which routing already decides);
+ * - the business never saved its methods and the payer named a method, or the platform has only one (the default offers
+ *   what the platform can take, which routing already decides). With several connected and none named, the default
+ *   offer decides as a saved one does: crypto for a crypto payment and a bank transfer for a fiat one (J-merchant-04
+ *   step 6), or the payer chooses;
  * - the platform has no connected method at all (the open refuses by the name of that operator gap);
  * - there is no country, no currency, or no link that can still be paid (the open refuses those by name further on).
- * A country that is not two letters, for a business that saved its methods, refuses as a missing country.
+ * A country that is not two letters, where the offer decides, refuses as a missing country.
  * Each of those refuses, if it does, before anything is written.
  */
 export async function checkoutMethodFor(
@@ -90,8 +97,9 @@ export async function checkoutMethodFor(
        AND (max_uses IS NULL OR uses < max_uses)`;
   const currency = link?.currency ?? input.assetId;
   if (!link || !currency) return input.method;
-  const rules = await savedRulesOf(sql, link.merchant_id);
-  if (!rules) return input.method;
+  const saved = await savedRulesOf(sql, link.merchant_id);
+  if (!saved && (input.method !== undefined || rails.size < 2)) return input.method;
+  const rules = saved ?? defaultRules(rails);
   // A country the offer cannot read must not skip the business's rules: routing would take it under a '*' profile.
   if (!/^[A-Z]{2}$/.test(country)) {
     throw new PayError('Say which country you are paying from, as two letters', 'pay.routing_input_missing', { missing: ['geo'] });

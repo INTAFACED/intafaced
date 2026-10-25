@@ -183,6 +183,7 @@ const en = {
   amountRequested: 'Amount asked for',
   timelineEmpty: 'No history has been recorded for this payment yet.',
   step_created: 'Payment created',
+  step_held_name: 'Bank transfer held for a name check',
   refundsEmptyBody: 'Nothing has been refunded on this payment.',
   refundState_completed: 'Completed',
   disputeCardTitle: 'Dispute',
@@ -495,6 +496,13 @@ const en = {
   pay_layer_merchant: 'Your own rate, {percent}%',
   pay_flatFee: ' + {flat} {asset}',
   pay_whyFailed: 'Why it failed:',
+  pay_heldTitle: 'Held for a name check.',
+  pay_held_mismatch:
+    'The bank transfer came from an account in another name than the one your customer gave. Nothing has been taken or added to your balance while it is checked.',
+  pay_held_missing:
+    'The bank did not say whose account the transfer came from. Nothing has been taken or added to your balance while it is checked.',
+  pay_held_rule_unset:
+    'No rule for comparing payer names is set, so every bank transfer is checked by hand. Nothing has been taken or added to your balance while it is checked.',
   pay_description: 'Description',
   pay_activity: 'Activity',
   pay_activityEmpty: 'No activity has been recorded for this payment yet.',

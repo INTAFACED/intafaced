@@ -91,7 +91,18 @@ describe('the offer a payer gets', () => {
       ['card', false],
       ['bank_debit', false],
       ['pay_later', false],
+      ['bank_transfer', false],
     ]);
+    // A connected TEST bank is on by default too, last in the order.
+    const withBank: MethodRails = new Map([...cryptoOnly, ['bank_transfer', { countries: ['*'] }]]);
+    expect(defaultRules(withBank).map((r) => [r.method, r.enabled])).toEqual([
+      ['crypto', true],
+      ['card', false],
+      ['bank_debit', false],
+      ['pay_later', false],
+      ['bank_transfer', true],
+    ]);
+    expect(connectionOf('bank_transfer', cryptoOnly)).toEqual({ state: 'not_connected', notice: 'rail.bank' });
     expect(connectionOf('bank_debit', cryptoOnly)).toEqual({ state: 'not_connected', notice: 'rail.bank' });
     expect(connectionOf('pay_later', cryptoOnly)).toEqual({ state: 'not_connected', notice: 'rail.card' });
     expect(connectionOf('crypto', new Map())).toEqual({ state: 'not_connected', notice: 'rail.crypto' });

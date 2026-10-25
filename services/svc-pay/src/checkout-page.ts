@@ -36,6 +36,7 @@ import { CHECKOUT_METHODS, checkoutButtonTextColor, checkoutMethodOfferSchema, t
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { formatMoney } from '@intafaced/i18n';
 import { PAYER_COPY_KEYS, payerTranslator, resolvePayerCopy } from './payer-copy.js';
+import { PAYER_NAME_MAX } from './payer-name/match.js';
 
 export type CheckoutLinkView = {
   id: string;
@@ -66,6 +67,8 @@ export type CheckoutSessionPageView = {
   expiresAt: string;
   instruction: { reference: string; amount: string; currency: string } | null;
   progress?: { received: string; missing: string; confirming?: string } | null;
+  /** RC-merchant-09: the bank transfer arrived and is held for a review of the name it came from. */
+  heldForReview?: boolean;
   confirmationMessage?: string | null;
   confirmationUrl?: string | null;
 };
@@ -79,6 +82,7 @@ export type CheckoutPay = {
     assetId?: string;
     geoCountry?: string;
     method?: string;
+    payerName?: string;
   }): Promise<{ sessionToken: string; session: CheckoutSessionPageView }>;
   getCheckoutSession(sessionToken: string): Promise<CheckoutSessionPageView>;
   /**
@@ -125,16 +129,22 @@ export type CheckoutPageState =
   | { kind: 'choose_method'; link: CheckoutLinkView; offer: CheckoutMethodOffer; values: PayerAnswers; problem?: string }
   /** M-adv-payments-core-11: no method the business offers for this payment has a rail. Nothing was started. */
   | { kind: 'no_method'; offer: CheckoutMethodOffer }
+  /**
+   * RC-merchant-09: the payment goes by bank transfer and needs the name on the payer's bank account first. The form
+   * comes back with the payer's answers, the method fixed, and the name asked for. Nothing was started.
+   */
+  | { kind: 'payer_name'; link: CheckoutLinkView; values: PayerAnswers; problem: string }
   | { kind: 'error'; message?: string };
 
 /** What the payer typed into the form, sent back into it when the page asks for one more answer. */
-export type PayerAnswers = { amount?: string; assetId?: string; geoCountry?: string };
+export type PayerAnswers = { amount?: string; assetId?: string; geoCountry?: string; payerName?: string };
 
 const METHOD_LABELS: Readonly<Record<(typeof CHECKOUT_METHODS)[number], string>> = {
   crypto: 'Crypto',
   card: 'Card',
   bank_debit: 'Bank debit',
   pay_later: 'Pay later',
+  bank_transfer: 'Bank transfer',
 };
 
 /** The outside piece each notice names, as the app's service-off notice names it. */
@@ -290,6 +300,16 @@ export function renderCheckoutPage(
           look,
         ),
       };
+    case 'payer_name':
+      return {
+        status: 400,
+        html: pageShell(
+          linkBody(state.link, paths, state.problem, { offer: null, values: state.values, fixedMethod: 'bank_transfer' }),
+          state.link.label,
+          undefined,
+          look,
+        ),
+      };
     case 'no_method':
       // The business offers methods for this payment, and none of them is connected: say which piece each one needs.
       // Nothing was charged and no payment was started, exactly as on the unavailable page.
@@ -326,7 +346,7 @@ function linkBody(
   link: CheckoutLinkView,
   paths: CheckoutPaths,
   problem?: string,
-  choice?: { offer: CheckoutMethodOffer; values: PayerAnswers },
+  choice?: { offer: CheckoutMethodOffer | null; values: PayerAnswers; fixedMethod?: 'bank_transfer' },
 ): string {
   const values = choice?.values ?? {};
   const valueAttr = (v: string | undefined) => (v ? ` value="${escapeHtml(v)}"` : '');
@@ -378,7 +398,7 @@ function linkBody(
   // The methods in the business's order. Only a connected one can be picked; the first of those is picked already.
   let firstPayable = true;
   const methodField =
-    choice && choice.offer.offered.length > 0
+    choice?.offer && choice.offer.offered.length > 0
       ? `
       <fieldset class="methods">
         <legend>How to pay</legend>
@@ -399,6 +419,20 @@ function linkBody(
       </fieldset>`
       : '';
 
+  // RC-merchant-09: a bank transfer is checked against the name on the account it comes from, so the payer gives it.
+  // Asked for when bank transfer is the method, and offered beside the methods when it is one of the choices.
+  const bankTransferOffered = choice?.offer?.offered.some((o) => o.method === 'bank_transfer' && o.connection.state === 'connected');
+  const nameField =
+    choice?.fixedMethod === 'bank_transfer' || bankTransferOffered
+      ? `
+      <label class="field">
+        <span>Name on your bank account${choice?.fixedMethod === 'bank_transfer' ? '' : ' (for a bank transfer)'}</span>
+        <input name="payerName" autocomplete="name" maxlength="${PAYER_NAME_MAX}"${choice?.fixedMethod === 'bank_transfer' ? ' required' : ''}${valueAttr(values.payerName)} />
+      </label>
+      <p class="hint">Send the transfer from an account in this name. A transfer from another name is held for a check before the business is paid.</p>`
+      : '';
+  const fixedMethodField = choice?.fixedMethod ? `<input type="hidden" name="method" value="${escapeHtml(choice.fixedMethod)}" />` : '';
+
   const tokenField = link.token ? `<input type="hidden" name="token" value="${escapeHtml(link.token)}" />` : '';
 
   return `
@@ -411,7 +445,7 @@ function linkBody(
       ${amountLine}
       ${problemLine}
       <form method="POST" action="${escapeHtml(paths.basePath)}/checkout/session" class="pay">
-        ${tokenField}${amountField}${geoField}${methodField}
+        ${tokenField}${amountField}${geoField}${methodField}${fixedMethodField}${nameField}
         <button type="submit">${escapeHtml(resolvePayerCopy(PAYER_COPY_KEYS.continue))}</button>
       </form>
       <p class="hint">Nothing is charged until you send the payment yourself. This page never asks for card details.</p>
@@ -506,6 +540,22 @@ function sessionBody(session: CheckoutSessionPageView): string {
     `;
   }
 
+  if (session.heldForReview) {
+    // RC-merchant-09. The payer's money arrived and is held: nothing was taken from it and the business is not paid yet.
+    // The reason (a name that differs, none from the bank, no rule) is the review's, not the payer's to read here.
+    return `
+      <header class="head">
+        <p class="eyebrow">Being checked</p>
+        <h1>${escapeHtml(session.label)}</h1>
+      </header>
+      <section class="card">
+        ${amountLine}
+        <p class="cta" role="status">Your bank transfer arrived and is held for a check</p>
+        <p class="hint">The name on the account it came from is checked before the business is paid. Nothing has been taken from it yet. Send nothing more for this payment.</p>
+      </section>
+    `;
+  }
+
   if (session.status === 'expired' && session.progress && session.instruction) {
     // Closed over a payment paid in part: the payment does not close with the window, so the payer still reads what
     // arrived and where the rest goes. "Nothing has been charged" would be false here.
@@ -547,6 +597,25 @@ function sessionBody(session: CheckoutSessionPageView): string {
   }
 
   if (session.progress) return partReceived(session, session.progress, session.instruction.reference, amountLine, false);
+
+  if (session.method === 'bank_transfer') {
+    // The only bank-transfer rail today is the TEST bank (`rails/bank-transfer-sandbox.ts`): no real account is behind
+    // it, so the page says so. A live bank rail brings the account to pay into, and this page shows it then.
+    return `
+    <header class="head">
+      <p class="eyebrow">Pay by bank transfer</p>
+      <h1>${escapeHtml(session.label)}</h1>
+    </header>
+    <section class="card" aria-label="Payment instruction">
+      ${amountLine}
+      <p class="label">Send exactly this amount by bank transfer, quoting this reference</p>
+      <p class="reference"><code>${escapeHtml(session.instruction.reference)}</code></p>
+      <p class="hint">TEST bank: no real bank account receives this transfer.</p>
+      <p class="cta" role="status">Waiting for your transfer…</p>
+      <p class="hint">Send it from the account in the name you gave. This page refreshes on its own and updates when the transfer arrives.</p>
+    </section>
+  `;
+  }
 
   return `
     <header class="head">
@@ -860,10 +929,14 @@ async function registerRoutes(app: FastifyInstance, pay: CheckoutPay, paths: Che
     const geoCountry = typeof body.geoCountry === 'string' && body.geoCountry.trim() ? body.geoCountry.trim().slice(0, 8) : undefined;
     // Only a catalogue method is passed on; anything else is as if none was picked, and the page asks again.
     const method = CHECKOUT_METHODS.find((m) => m === body.method);
+    // Passed on as typed (bounded); the service decides whether it is a name it can check.
+    // Passed on whole: the service refuses a name a bank could not hold (pay.payer_name_required), never a cut-down one.
+    const payerName = typeof body.payerName === 'string' && body.payerName.trim() ? body.payerName.trim() : undefined;
     const answers: PayerAnswers = {
       ...(typeof body.amount === 'string' && amount !== undefined ? { amount: body.amount.trim().slice(0, 64) } : {}),
       ...(assetId ? { assetId } : {}),
       ...(geoCountry ? { geoCountry } : {}),
+      ...(payerName ? { payerName } : {}),
     };
 
     try {
@@ -873,6 +946,7 @@ async function registerRoutes(app: FastifyInstance, pay: CheckoutPay, paths: Che
         assetId,
         geoCountry,
         ...(method ? { method } : {}),
+        ...(payerName ? { payerName } : {}),
       });
       // 303, so a refresh of the resulting page does not re-POST and open a
       // second session — and a second payment — against the same link.
@@ -905,6 +979,22 @@ async function registerRoutes(app: FastifyInstance, pay: CheckoutPay, paths: Che
           return send(
             reply,
             renderCheckoutPage({ kind: 'choose_method', link, offer, values: answers, ...(problem ? { problem } : {}) }, paths, look),
+          );
+        } catch (linkErr) {
+          return send(reply, renderCheckoutPage(stateForError(linkErr), paths));
+        }
+      }
+      if (code === 'pay.payer_name_required') {
+        try {
+          const link = { ...(await pay.resolvePaymentLink(token)), token };
+          const look = await lookOf(pay, { linkToken: token });
+          return send(
+            reply,
+            renderCheckoutPage(
+              { kind: 'payer_name', link, values: answers, problem: 'Give the name on the bank account you will send the transfer from.' },
+              paths,
+              look,
+            ),
           );
         } catch (linkErr) {
           return send(reply, renderCheckoutPage(stateForError(linkErr), paths));

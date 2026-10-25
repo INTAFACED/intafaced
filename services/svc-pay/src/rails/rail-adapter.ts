@@ -336,6 +336,12 @@ export interface RailResult {
    * already states about refundable balances.
    */
   readonly remainingAuthorized?: Amount;
+
+  /**
+   * On a rail that `checksPayerName`: the name on the sending account of EVERY transfer this result counts (null for one
+   * the bank reported no name for), so the core checks exactly the money it is about to take in (RC-merchant-09).
+   */
+  readonly payerNames?: readonly (string | null)[];
 }
 
 /**
@@ -426,6 +432,12 @@ export interface RailEvent {
 
   /** Where the chain saw the transfer, on a `captured` or `chain.reorged` delivery from a chain watcher. Absent from every other rail. */
   readonly chain?: { readonly txHash: string; readonly logIndex: number; readonly confirmations: number };
+
+  /**
+   * The name on the account the money came from, on a `captured` delivery from a bank rail that reports it. Compared with
+   * the name the payer gave before a bank transfer is captured (RC-merchant-09); never shown to the payer or the business.
+   */
+  readonly payerName?: string;
 }
 
 /**
@@ -851,6 +863,13 @@ export interface RailAdapter {
    * lost only on such a rail; on any other it stays in flight until someone reconciles it.
    */
   readonly refundIsIdempotentByRefundId?: boolean;
+  /**
+   * True on a rail the payer pushes money to from an account they choose (a bank transfer). Its authorize results name
+   * the sending account of every transfer counted (`RailResult.payerNames`), and the core holds the payment for review,
+   * instead of authorizing it, when any of them fails the owner's payer-name rule (RC-merchant-09). Keyed on the rail,
+   * never on the payment's method string, so no method name skips the check.
+   */
+  readonly checksPayerName?: boolean;
 
   /**
    * `live`, `sandbox` or `absent`. See `RailMode`.

@@ -20,8 +20,9 @@ import { FRESH, type GuardReplay } from '../seams/guards.js';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, recipes, type Amount } from '@intafaced/ledger-client';
 import { isSandboxRailId } from '../sandbox-key-routing.js';
-import { isRailHealthBlockingCode, railReasonCode, type PaymentIntent } from '../rails/rail-adapter.js';
+import { isRailHealthBlockingCode, railReasonCode, type PaymentIntent, type RailResult } from '../rails/rail-adapter.js';
 import { PayoutAdmissionError, stable } from '../payout-admission.js';
+import { assertNoPayerNameHold, holdOnPayerNames } from '../payer-name/holds.js';
 import { withMoneySpan, withRailSpan } from '../tracing.js';
 import type { PayService, PayServiceInternal, PaymentRow, PaymentStatus, PaymentView } from '../payment-service.js';
 import {
@@ -302,6 +303,8 @@ export async function authorize(
 
         const adapter = svc.rails.require(row.rail_adapter, 'authorize');
         refuseUnusableRail(adapter, svc.now());
+        // RC-merchant-09: a payment held for a payer-name review is not taken in by any door until the review decides.
+        if (adapter.checksPayerName) await assertNoPayerNameHold(tx, row.id);
 
         const intent: PaymentIntent = {
           paymentId: row.id,
@@ -326,6 +329,18 @@ export async function authorize(
           );
         }
         await appendEvent(tx, row.id, 'rail.authorize', railPayload(result));
+
+        // RC-merchant-09: on a rail the payer pushes money to, the name of every transfer the rail counted is checked here,
+        // in this transaction and under this lock, before any of it is authorized. One that fails holds the payment.
+        if (result.ok && adapter.checksPayerName) {
+          const received = result.status === 'pending' ? pendingReceived(result) : result.amount;
+          const names = await holdOnPayerNames(tx, svc.payerNameMatchRule, row, { payerNames: result.payerNames, received });
+          if (names === 'held') {
+            // The reference stays, so the payer's page still says where the money went. Nothing else moves.
+            await tx`UPDATE pay.payments SET rail_ref = ${result.railRef || null}, updated_at = now() WHERE id = ${row.id}`;
+            return { declined: false as const, view: await svc.view(tx, { ...row, rail_ref: result.railRef || null }) };
+          }
+        }
 
         if (!result.ok) {
           await appendEvent(tx, row.id, 'failed', {
@@ -448,6 +463,7 @@ export async function capture(
           const row = await lockPayment(tx, paymentId);
           if (row.status === 'captured' || row.status === 'settled') return svc.view(tx, row);
           assertTransition(row, 'captured');
+          if (svc.rails.has(row.rail_adapter) && svc.rails.get(row.rail_adapter).checksPayerName) await assertNoPayerNameHold(tx, row.id);
           if (
             admitted &&
             (parseAmount(row.amount) !== parseAmount(original.amount) ||
@@ -617,5 +633,16 @@ export async function reconcileAuthorizedCaptures(
   } catch (error) {
     if (error instanceof CaptureReconcileError) throw new PayError(error.message, error.code);
     throw error;
+  }
+}
+
+/** What a `pending` result says has arrived so far (`raw.received`, a decimal string); none when it says nothing readable. */
+function pendingReceived(result: RailResult): Amount {
+  const received = result.raw?.received;
+  if (typeof received !== 'string') return 0n;
+  try {
+    return parseAmount(received);
+  } catch {
+    return 0n;
   }
 }

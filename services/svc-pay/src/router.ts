@@ -198,6 +198,8 @@ const checkoutSessionView = z.object({
   method: z.string(),
   expiresAt: z.string().datetime({ offset: true }),
   instruction: z.object({ reference: z.string(), amount: amountSchema, currency: assetIdSchema }).nullable(),
+  /** RC-merchant-09: the bank transfer arrived and is held for a payer-name review; nothing more should be sent. */
+  heldForReview: z.boolean().optional(),
 });
 
 const depositView = z.object({
@@ -474,6 +476,8 @@ export function createPayRouter(
             geoCountry: z.string().max(8).optional(),
             /** Method (`crypto`/`card`), never a rail adapter id. */
             method: z.string().max(32).optional(),
+            /** RC-merchant-09: the name on the bank account a bank transfer comes from. Checked by the service. */
+            payerName: z.string().max(1000).optional(),
           }),
         )
         .output(z.object({ sessionToken: z.string(), session: checkoutSessionView }))
@@ -485,6 +489,7 @@ export function createPayRouter(
               assetId: input.assetId,
               geoCountry: input.geoCountry,
               method: input.method,
+              payerName: input.payerName,
             });
             return { sessionToken, session };
           }),
