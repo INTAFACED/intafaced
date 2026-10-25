@@ -2242,13 +2242,6 @@ export const WIRING_SOCKETS = [
       "svc-p2p publishes it from its reminder outbox (P-trade-orders-15, J-p2p-02 #2), and the seller sees the reminder on the order itself. svc-notify turns it into the seller's inbox notice in its own PR, idempotent by tradeId and n; until then no inbox notice is promised.",
   },
   {
-    event: 'p2pRemarkCaseOpened',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      "svc-p2p publishes it from its remark-case outbox (P-ads-merchant-19, J-p2p-04 #5), and staff read the case in svc-p2p. svc-notify turns it into the reported party's inbox notice in its own PR, idempotent by caseId; until then no inbox notice is promised.",
-  },
-  {
     event: 'p2pDisputeEscalated',
     missing: 'publisher',
     class: 'A',

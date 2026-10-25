@@ -17,6 +17,7 @@ import {
   p2pEscrowRefunded,
   p2pEscrowReleased,
   p2pOfferPaused,
+  p2pRemarkCaseOpened,
   p2pTradeDisputed,
   p2pTradeFiatSent,
   positionUpdated,
@@ -560,6 +561,26 @@ export async function subscribeNotificationEvents(
           severity: 'action',
           sourceSubject: p2pOfferPaused.subject,
           sourceIdempotencyKey: `${payload.instrumentId}:maker`,
+        }),
+      );
+    }),
+  );
+
+  attachments.push(
+    await attach(bus, 'p2pRemarkCaseOpened', p2pRemarkCaseOpened.subject, 'notify-p2p-remark-case-opened', async (payload) => {
+      // P-ads-merchant-19: the other party reported a remark in a payment note and a case opened for staff. The reported
+      // party is told once per case; the remark itself stays with svc-p2p and never travels on the bus.
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.reportedId,
+          kind: 'p2p.remark_case.opened',
+          titleKey: 'notify.p2p.remark_case.opened.title',
+          bodyKey: 'notify.p2p.remark_case.opened.body',
+          params: { caseId: payload.caseId, tradeId: payload.tradeId },
+          href: `/p2p/orders/${payload.tradeId}`,
+          severity: 'action',
+          sourceSubject: p2pRemarkCaseOpened.subject,
+          sourceIdempotencyKey: `${payload.caseId}:reported`,
         }),
       );
     }),
