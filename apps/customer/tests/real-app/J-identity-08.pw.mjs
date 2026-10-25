@@ -143,7 +143,7 @@ test(`${J}, part of #6 (I-kyc-compliance-01): one case record with history; a re
   await expect(rejected.locator('.verification__case-reason')).toHaveAttribute('data-reason', 'document_unreadable');
   await expect(rejected.locator('.verification__case-reason-text')).toHaveText('Reason: TEST: the photo of your ID could not be read.');
   await expect(rejected.locator('.verification__case-guidance')).toContainText('What to do: TEST: take a new photo');
-  await expect(rejected.locator('.verification__case-steps li')).toHaveText([/^Pending review · /, /^Rejected · /]);
+  await expect(rejected.locator('.verification__case-steps li')).toHaveText([/^Sent for review · /, /^Rejected · /]);
   await expect(rung('none')).toHaveAttribute('aria-current', 'step');
 
   // Sent again from the rejected case: a new case, linked to the rejected one, which stays as it was.
@@ -161,7 +161,7 @@ test(`${J}, part of #6 (I-kyc-compliance-01): one case record with history; a re
   tool('local-test-gates.mjs', 'verify');
   await page.reload();
   await expect(cases.first()).toHaveAttribute('data-state', 'approved');
-  await expect(cases.first().locator('.verification__case-steps li')).toHaveText([/^Pending review · /, /^Approved · /]);
+  await expect(cases.first().locator('.verification__case-steps li')).toHaveText([/^Sent for review · /, /^Approved · /]);
   await expect(rung('full')).toHaveAttribute('aria-current', 'step');
   for (const feature of ['deposit', 'withdraw', 'trade'])
     await expect(rung('full').locator(`[data-feature="${feature}"]`)).toContainText('Included in your level');
