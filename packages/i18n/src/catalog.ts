@@ -171,8 +171,11 @@ export const en = {
   'notify.p2p.trade.fiat_sent.title': 'The buyer marked the order paid',
   'notify.p2p.trade.fiat_sent.body': 'Check that the payment for trade {tradeId} arrived in your account before you release.',
   'notify.p2p.offer.paused.title': 'Ads paused: payment method removed',
-  'notify.p2p.offer.paused.body':
-    'You removed the only payment method {count} of your ads could be paid with, so they are paused. Add a payment method for their currency, then resume them from My offers.',
+  'notify.p2p.offer.paused.body': {
+    one: 'You removed the only payment method {count} of your ads could be paid with, so it is paused. Add a payment method for its currency, then resume it from My offers.',
+    other:
+      'You removed the only payment method {count} of your ads could be paid with, so they are paused. Add a payment method for their currency, then resume them from My offers.',
+  },
   'notify.identity.kyc.approved.title': 'Verification approved',
   'notify.identity.kyc.approved.body': 'You are verified at the {tier} tier.',
   'notify.identity.security.totp_added.title': 'Authenticator app turned on',

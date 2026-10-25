@@ -394,12 +394,14 @@ test('J-p2p-04 #4 removing a method an ad uses lists the ads first; confirming p
   await expect
     .poll(async () => (await notices()).length, {
       timeout: 30_000,
-      message: 'svc-notify does not turn p2p.offer.paused into the maker’s notice yet (P-ads-merchant-18 notice slice)',
+      message: 'the maker’s p2p.offer.paused inbox notice for this removal (svc-notify durable notify-p2p-offer-paused)',
     })
     .toBe(1);
   await page.goto('/notifications');
   await expect(page.getByText('Ads paused: payment method removed')).toBeVisible();
-  await expect(page.getByText('You removed the only payment method 1 of your ads could be paid with', { exact: false })).toBeVisible();
+  await expect(
+    page.getByText('You removed the only payment method 1 of your ads could be paid with, so it is paused.', { exact: false }),
+  ).toBeVisible();
 });
 
 test('J-p2p-04 #5 reporting a sensitive remark in a payment note opens a case and tells the reported party', async ({ page, browser }) => {
