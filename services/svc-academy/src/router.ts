@@ -114,6 +114,10 @@ import {
   academySaveCourseQuizInputSchema,
   academySetCourseQuizStateInputSchema,
   academyStartCourseQuizInputSchema,
+  academyCourseReleaseInputSchema,
+  academyCourseReleaseSchema,
+  academySetSectionReleaseInputSchema,
+  academySetCoursePacingInputSchema,
   academyCourseQuizAttemptSchema,
   academyAnswerCourseQuizInputSchema,
   academyFinishCourseQuizInputSchema,
@@ -920,6 +924,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.quiz_no_questions':
     case 'academy.scoring_policy_unset':
     case 'academy.ip_unreadable':
+    case 'academy.not_released_yet':
     case 'academy.certificate_unpublished':
     case 'academy.enrolment_closed':
     case 'academy.verify_rate_unset':
@@ -941,6 +946,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.planner_full':
     case 'academy.item_has_attempts':
     case 'academy.survey_duplicate':
+    case 'academy.pacing_locked':
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
 
     case 'academy.attempt_not_found':
@@ -3360,6 +3366,28 @@ export function createAcademyRouter(
         .output(academyCourseQuizReviewsSchema)
         .mutation(({ input, ctx }) =>
           guard(() => academy.courseQuizzes.scoreEssays({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
+
+      /** AC-release-access-01: a course's pacing and each section's release rule. */
+      courseRelease: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyCourseReleaseInputSchema)
+        .output(academyCourseReleaseSchema)
+        .query(({ input }) => guard(() => academy.courseRelease.adminView(input.courseId))),
+
+      /** AC-release-access-01: a section opens at an instant or days after enrolment, or with the course; with a reason. */
+      setSectionRelease: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySetSectionReleaseInputSchema)
+        .output(academyCourseReleaseSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.courseRelease.setSectionRelease({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
+
+      /** AC-release-access-01: self-paced or instructor-paced, refused once a learner has enrolled. */
+      setCoursePacing: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySetCoursePacingInputSchema)
+        .output(academyCourseReleaseSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.courseRelease.setPacing({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
         ),
 
       /** AC-assignments-01: an assignment item's brief, who saved it, and how many learners handed in. */

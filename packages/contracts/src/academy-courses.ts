@@ -503,8 +503,12 @@ export type AcademySetCourseTopicsInput = z.infer<typeof academySetCourseTopicsI
  * only, never sample data, and reading it writes nothing. Each item carries its lock: `not_released` while no lesson
  * revision is published to learners; otherwise `enrol` until the reader enrols, or `enrolment_closed` while the course
  * is not published (nobody can enrol yet, or any more). A subheader is a label and has none.
+ *
+ * AC-release-access-01: a section may be released at an instant or some days after the reader's enrolment. Until then
+ * its items carry `scheduled` for an enrolled reader, and the section carries its release: the instant in UTC (the
+ * screen shows it in the reader's own time), or for a reader not yet enrolled the days after enrolling.
  */
-export const ACADEMY_LEARNER_ITEM_LOCKS = ['enrol', 'enrolment_closed', 'not_released'] as const;
+export const ACADEMY_LEARNER_ITEM_LOCKS = ['enrol', 'enrolment_closed', 'not_released', 'scheduled'] as const;
 // An enrolled reader (`authoredCourse`, signed in) sees no `enrol` lock on what is released.
 export type AcademyLearnerItemLock = (typeof ACADEMY_LEARNER_ITEM_LOCKS)[number];
 export const academyCourseLearnerViewSchema = z.object({
@@ -516,9 +520,22 @@ export const academyCourseLearnerViewSchema = z.object({
   price: z.string().nullable(),
   priceAsset: z.string().nullable(),
   state: z.enum(ACADEMY_COURSE_STATES),
+  /** How the course is paced; null while staff have not said. */
+  pacing: z.enum(['self_paced', 'instructor_paced']).nullable(),
   sections: z.array(
     z.object({
       title: z.string().min(1),
+      /** When the section opens to this reader; null when it has no release rule. */
+      release: z
+        .object({
+          /** The instant it opens for this reader, or null while that depends on an enrolment they do not have. */
+          at: isoInstant.nullable(),
+          /** Days after enrolling, for a rule relative to enrolment; null for a fixed instant. */
+          afterEnrolmentDays: z.number().int().positive().nullable(),
+          /** Whether it is open for this reader now. */
+          open: z.boolean(),
+        })
+        .nullable(),
       items: z.array(
         z.object({
           /** The outline item, so an open assignment links to its page (AC-assignments-01). */
