@@ -6,6 +6,7 @@ import { useResource } from '../../shared/resource';
 import { Button, Dialog, EmptyState, Failure, Field, Loading, Page } from '../../shared/ui';
 import { verificationCopy as copy } from './verification-copy';
 import { VerificationLadder } from './VerificationLadder';
+import { VerificationCases } from './VerificationCases';
 import { KYC_LADDER_LEVELS } from '@intafaced/contracts/identity-kyc-levels';
 import {
   finishVerification,
@@ -600,6 +601,15 @@ export function Verification() {
             const parsed = requestedTier.safeParse(level);
             if (!parsed.success) return;
             setTier(parsed.data);
+            jump();
+          }}
+        />
+        <VerificationCases
+          recordsKey={resource.status === 'ready' ? resource.data.records.map((row) => `${row.id}.${row.status}`).join(',') : 'reading'}
+          offered={offeredTiers}
+          resubmitDisabled={blocked}
+          onResubmit={(level) => {
+            setTier(level);
             jump();
           }}
         />
