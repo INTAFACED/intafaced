@@ -376,8 +376,9 @@ function linkBody(
 
   // The methods in the business's order. Only a connected one can be picked; the first of those is picked already.
   let firstPayable = true;
-  const methodField = choice
-    ? `
+  const methodField =
+    choice && choice.offer.offered.length > 0
+      ? `
       <fieldset class="methods">
         <legend>How to pay</legend>
         ${choice.offer.offered
@@ -395,7 +396,7 @@ function linkBody(
           })
           .join('')}
       </fieldset>`
-    : '';
+      : '';
 
   const tokenField = link.token ? `<input type="hidden" name="token" value="${escapeHtml(link.token)}" />` : '';
 
@@ -837,10 +838,20 @@ async function registerRoutes(app: FastifyInstance, pay: CheckoutPay, paths: Che
         const offer = offerOf(err);
         if (!offer) return send(reply, renderCheckoutPage({ kind: 'error' }, paths));
         const look = await lookOf(pay, { linkToken: token });
-        if (code === 'pay.checkout_no_method') return send(reply, renderCheckoutPage({ kind: 'no_method', offer }, paths, look));
+        // Something offered names the piece it needs: that is the business's gap, not the payer's. Nothing offered at all
+        // means every method was left out by its rule, currency or country, so the payer gets the form back to change the
+        // amount.
+        if (code === 'pay.checkout_no_method' && offer.offered.length > 0) {
+          return send(reply, renderCheckoutPage({ kind: 'no_method', offer }, paths, look));
+        }
         try {
           const link = { ...(await pay.resolvePaymentLink(token)), token };
-          const problem = code === 'pay.checkout_method_not_offered' ? 'Choose one of the ways to pay listed here.' : undefined;
+          const problem =
+            code === 'pay.checkout_no_method'
+              ? 'This business takes no payment like this one. Check the amount.'
+              : code === 'pay.checkout_method_not_offered'
+                ? 'Choose one of the ways to pay listed here.'
+                : undefined;
           return send(
             reply,
             renderCheckoutPage({ kind: 'choose_method', link, offer, values: answers, ...(problem ? { problem } : {}) }, paths, look),

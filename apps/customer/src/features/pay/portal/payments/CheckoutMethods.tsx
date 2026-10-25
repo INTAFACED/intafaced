@@ -6,21 +6,22 @@ import type {
   CheckoutMethods as CheckoutMethodsView,
 } from '@intafaced/contracts/merchant-checkout-methods';
 import { Button } from '@intafaced/ui';
+import { compareDecimal } from '../../../../data/decimal';
 import { useResource } from '../../../../shared/resource';
 import { ServiceOffNotice } from '../../../../shared/service-off';
 import { Field } from '../../ui-kit';
 import { PaySection } from '../../components';
-import { useMerchantAccess } from '../access/MerchantAccess';
 import type { PortalApi } from '../api';
 import { imageRequestId } from '../catalog/model';
 import { Gate } from '../components';
 import { DateTime } from '../ui/DateTime';
+import { useMayChangeLook } from './CheckoutLook';
 import { methodsCopy as c } from './methods-copy';
 
 /** A method's limits as typed: strings, blank for none. Decimal text on the wire, never a number. */
 type Draft = { method: CheckoutMethodId; enabled: boolean; ruleAsset: string; minAmount: string; maxAmount: string };
 
-const AMOUNT = /^\d+(\.\d{1,18})?$/;
+const AMOUNT = /^\d{1,20}(\.\d{1,18})?$/;
 const ASSET = /^[A-Za-z0-9]{2,12}$/;
 
 const draftOf = (rule: CheckoutMethodRule): Draft => ({
@@ -30,17 +31,6 @@ const draftOf = (rule: CheckoutMethodRule): Draft => ({
   minAmount: rule.minAmount ?? '',
   maxAmount: rule.maxAmount ?? '',
 });
-
-/** -1, 0 or 1 for two checked decimal strings, by value, never through a number. */
-function compareDecimal(a: string, b: string): number {
-  const scaled = (v: string) => {
-    const [whole = '0', frac = ''] = v.split('.');
-    return BigInt(whole + frac.padEnd(18, '0'));
-  };
-  const x = scaled(a);
-  const y = scaled(b);
-  return x < y ? -1 : x > y ? 1 : 0;
-}
 
 /** What is wrong with a method's limits, in the person's words, or null. */
 function limitProblem(d: Draft): string | null {
@@ -52,7 +42,7 @@ function limitProblem(d: Draft): string | null {
   if (!asset || !ASSET.test(asset)) return c.t('ruleAssetMissing');
   if (!min && !max) return c.t('ruleAmountsMissing');
   if ((min && !positive(min)) || (max && !positive(max))) return c.t('ruleAmountInvalid');
-  if (min && max && compareDecimal(min, max) > 0) return c.t('ruleInverted');
+  if (min && max && compareDecimal(min, max) === 1) return c.t('ruleInverted');
   return null;
 }
 
@@ -66,13 +56,6 @@ const ruleOf = (d: Draft): CheckoutMethodRule => {
     maxAmount: blank(d.maxAmount),
   };
 };
-
-/** Whether this person may change the methods: the role table says so, and the business is verified (the service's rule too). */
-function useMayChangeMethods(): { allowed: boolean; unverified: boolean } {
-  const { access, can } = useMerchantAccess();
-  const unverified = access.status === 'ready' && access.kybStatus !== 'approved';
-  return { allowed: can('profile.manage') && !unverified, unverified: can('profile.manage') && unverified };
-}
 
 /**
  * `/pay/checkout`, payment methods (J-merchant-04 step 7): the order the hosted checkout offers its methods in, which are
@@ -113,7 +96,7 @@ function MethodsForm({
   note: Note | null;
   setNote: (note: Note | null) => void;
 }) {
-  const may = useMayChangeMethods();
+  const may = useMayChangeLook();
   const [drafts, setDrafts] = useState<Draft[]>(() => methods.methods.map((m) => draftOf(m.rule)));
   const [busy, setBusy] = useState(false);
   const about = new Map(methods.methods.map((m) => [m.rule.method, m]));

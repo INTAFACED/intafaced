@@ -262,7 +262,8 @@ describe('the payment methods a hosted checkout offers (M-adv-payments-core-11, 
       INSERT INTO pay.checkout_methods (merchant_id, methods, updated_by)
       VALUES (${otherMerchant}, ${sql.json([{ method: 'cheque', enabled: true }] as never)}, ${otherOwner})`;
     const read = await as(otherOwner).merchantCheckoutMethods.get({});
-    expect(read).toMatchObject({ status: 'default', version: 1 });
+    // Its version stays, so the next save replaces it; it was not saved as the methods in force, so there is no date.
+    expect(read).toMatchObject({ status: 'default', version: 1, updatedAt: null });
     expect(read.methods.map((m) => [m.rule.method, m.rule.enabled])).toEqual([
       ['crypto', true],
       ['card', false],
@@ -290,6 +291,7 @@ describe('the payment methods a hosted checkout offers (M-adv-payments-core-11, 
       const token = await link(merchant, '100', 'USDT');
       expect(await checkoutMethodFor(sql, CRYPTO_ONLY, { linkToken: token, geoCountry: 'de' }, now)).toBe('crypto');
       expect(await checkoutMethodFor(sql, CRYPTO_ONLY, { linkToken: token, geoCountry: 'DE', method: 'crypto' }, now)).toBe('crypto');
+      expect(await checkoutMethodFor(sql, CRYPTO_ONLY, { linkToken: token, geoCountry: 'DE', method: ' Crypto' }, now)).toBe('crypto');
       const notOffered = await refusal(() =>
         checkoutMethodFor(sql, CRYPTO_ONLY, { linkToken: token, geoCountry: 'DE', method: 'card' }, now),
       );

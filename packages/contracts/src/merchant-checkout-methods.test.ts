@@ -38,7 +38,9 @@ describe('merchantCheckoutMethods (M-adv-payments-core-11)', () => {
     });
     expect(checkoutMethodRuleSchema.safeParse(rule('crypto', { minAmount: '5' })).success).toBe(false);
     expect(checkoutMethodRuleSchema.safeParse(rule('crypto', { ruleAsset: 'USDT' })).success).toBe(false);
-    for (const amount of [5, '0', '-1', '1e3', '1.0000000000000000001', ''])
+    // Up to what the ledger holds: 20 whole digits.
+    expect(checkoutMethodRuleSchema.safeParse(rule('crypto', { ruleAsset: 'USDT', maxAmount: '9'.repeat(20) })).success).toBe(true);
+    for (const amount of [5, '0', '-1', '1e3', '1.0000000000000000001', '', '1'.repeat(21)])
       expect(checkoutMethodRuleSchema.safeParse(rule('crypto', { ruleAsset: 'USDT', minAmount: amount })).success, String(amount)).toBe(
         false,
       );

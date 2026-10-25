@@ -57,6 +57,24 @@ describe('which methods the public checkout can take', () => {
     ).toBe(0);
     expect(methodRailsOf({ ...base, checkoutRails: [{ railId: 'card-sandbox', method: 'card' }], policy: 'live-only' }).size).toBe(0);
     expect(methodRailsOf({ ...base, checkoutRails: [], policy: 'allow-sandbox' }).size).toBe(0);
+    // RC-merchant-08: a rail the business's category does not allow is not one of its methods.
+    const both = [
+      { railId: 'crypto-native', method: 'crypto' },
+      { railId: 'card-sandbox', method: 'card' },
+    ];
+    expect([...methodRailsOf({ ...base, checkoutRails: both, policy: 'allow-sandbox', onlyRails: ['crypto-native'] }).keys()]).toEqual([
+      'crypto',
+    ]);
+  });
+
+  it('reads methods and countries the way routing does: trimmed, methods in lower case, countries in upper case', () => {
+    const rails = methodRailsOf({
+      checkoutRails: [{ railId: 'card-sandbox', method: ' Card ' }],
+      profiles: [{ railId: 'card-sandbox', methods: ['CARD'], countries: [' de', 'fr ', 'DE'] }],
+      rails: registry(),
+      policy: 'allow-sandbox',
+    });
+    expect([...rails.entries()]).toEqual([['card', { countries: ['DE', 'FR'] }]]);
   });
 });
 

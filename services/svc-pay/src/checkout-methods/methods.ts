@@ -12,6 +12,7 @@ import {
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
 import { MerchantOpsError } from '../merchant-ops/errors.js';
 import { iso } from '../merchant-ops/money.js';
+import { compareDecimal } from '../registries/decimal.js';
 import { assertPermission, type MerchantCaller } from '../merchant-ops/roles.js';
 import { PayError } from '../payment-service/internal.js';
 import { connectionOf, defaultRules, METHOD_CATALOGUE, offerFor, payableMethods, type MethodRails } from './catalogue.js';
@@ -94,7 +95,9 @@ export async function checkoutMethodFor(
   const offer = offerFor(rules, rails, { country, currency, ...(amount ? { amount } : {}) });
   const payable = payableMethods(offer);
   if (input.method !== undefined) {
-    if (payable.includes(input.method as never)) return input.method;
+    const named = input.method.trim().toLowerCase();
+    const picked = payable.find((m) => m === named);
+    if (picked) return picked;
     throw new PayError('This business does not offer that payment method for this payment', 'pay.checkout_method_not_offered', { offer });
   }
   if (payable.length === 1) return payable[0];
@@ -126,8 +129,9 @@ export class CheckoutMethodSettings {
   }
 
   /**
-   * Save the methods. The same request id with the same details answers with the methods it saved; with other details
-   * it refuses `pay.request_id_reused`. A save made from an older version refuses `pay.checkout_methods_stale`.
+   * Save the methods. The same request id with the same details was made already: it answers `replayed` with the methods
+   * as they are now (a later save may have changed them). With other details it refuses `pay.request_id_reused`. A save
+   * made from an older version refuses `pay.checkout_methods_stale`.
    */
   async save(caller: MerchantCaller, input: CheckoutMethodsSaveInput): Promise<{ methods: CheckoutMethods; replayed: boolean }> {
     assertPermission(caller, 'profile.manage');
@@ -182,7 +186,7 @@ export class CheckoutMethodSettings {
     return {
       status: row && rules ? 'saved' : 'default',
       version: row?.version ?? 0,
-      updatedAt: row ? iso(row.updated_at) : null,
+      updatedAt: row && rules ? iso(row.updated_at) : null,
       methods: (rules ?? defaultRules(rails)).map((rule) => ({
         rule,
         connection: connectionOf(rule.method, rails),
@@ -190,15 +194,4 @@ export class CheckoutMethodSettings {
       })),
     };
   }
-}
-
-/** -1, 0 or 1 for two non-negative decimal strings, by value (scaled to 18 places), never through a number. */
-function compareDecimal(a: string, b: string): number {
-  const scaled = (v: string) => {
-    const [whole = '0', frac = ''] = v.split('.');
-    return BigInt(whole + frac.padEnd(18, '0'));
-  };
-  const x = scaled(a);
-  const y = scaled(b);
-  return x < y ? -1 : x > y ? 1 : 0;
 }

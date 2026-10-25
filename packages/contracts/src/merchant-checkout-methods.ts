@@ -24,11 +24,11 @@ export const CHECKOUT_METHOD_NOTICES = ['rail.crypto', 'rail.card', 'rail.bank']
 export const checkoutMethodNoticeSchema = z.enum(CHECKOUT_METHOD_NOTICES);
 export type CheckoutMethodNotice = z.infer<typeof checkoutMethodNoticeSchema>;
 
-/** A decimal amount for a rule: digits with at most 18 places, no sign, no exponent. */
+/** A decimal amount for a rule: at most 20 whole digits and 18 places (what the ledger holds), no sign, no exponent. */
 const ruleAmountSchema = z
   .string()
   .trim()
-  .regex(/^\d+(\.\d{1,18})?$/, 'an amount like 25 or 0.5')
+  .regex(/^\d{1,20}(\.\d{1,18})?$/, 'an amount like 25 or 0.5')
   .refine((v) => /[1-9]/.test(v), 'must be greater than zero');
 
 /** An asset code as the payment links use it. */
@@ -68,8 +68,12 @@ export const checkoutMethodsSchema = z
   .object({
     /** `default` until the first save: the catalogue order with the connected methods on. */
     status: z.enum(['default', 'saved']),
-    /** 0 for the default. */
+    /**
+     * The stored version, which the next save names: 0 before the first save. A stored row that no longer reads (a
+     * method the catalogue dropped) shows as the default with its version, so a save replaces it.
+     */
     version: z.number().int().min(0),
+    /** When the methods in force were saved; null for the default. */
     updatedAt: z.string().datetime({ offset: true }).nullable(),
     methods: z.array(
       z

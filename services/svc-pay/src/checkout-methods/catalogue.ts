@@ -54,9 +54,15 @@ export function methodRailsOf(input: {
   readonly profiles: readonly RailRoutingProfile[];
   readonly rails: RailRegistry;
   readonly policy: ValueMovementPolicy;
+  /** RC-merchant-08: the rails the business's category allows; omitted, no category limit. */
+  readonly onlyRails?: readonly string[];
 }): MethodRails {
   const out = new Map<string, { countries: string[] }>();
-  for (const { railId, method } of input.checkoutRails) {
+  for (const entry of input.checkoutRails) {
+    const railId = entry.railId;
+    // Read the way smart routing reads them: methods in lower case, countries in upper case, both trimmed.
+    const method = entry.method.trim().toLowerCase();
+    if (input.onlyRails && !input.onlyRails.includes(railId)) continue;
     if (!input.rails.has(railId)) continue;
     const adapter = input.rails.get(railId);
     if (adapter.mode === 'absent' || !PUBLIC_CHECKOUT_CAPABILITIES.every((c) => adapter.capabilities.includes(c))) continue;
@@ -66,10 +72,13 @@ export function methodRailsOf(input: {
       continue;
     }
     const profile = input.profiles.find((p) => p.railId === railId);
-    if (!profile?.methods?.includes(method)) continue;
-    const entry = out.get(method) ?? { countries: [] };
-    for (const country of profile.countries ?? []) if (!entry.countries.includes(country)) entry.countries.push(country);
-    out.set(method, entry);
+    if (!profile?.methods?.some((m) => m.trim().toLowerCase() === method)) continue;
+    const taken = out.get(method) ?? { countries: [] };
+    for (const raw of profile.countries ?? []) {
+      const country = raw.trim().toUpperCase();
+      if (country && !taken.countries.includes(country)) taken.countries.push(country);
+    }
+    out.set(method, taken);
   }
   return out;
 }

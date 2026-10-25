@@ -1318,12 +1318,13 @@ export class PayService {
    * The payment methods the public checkout can take (M-adv-payments-core-11): the checkout rails this environment lets
    * take strangers' money, with the countries their routing profiles declare.
    */
-  checkoutMethodRails(): MethodRails {
+  checkoutMethodRails(onlyRails?: readonly string[]): MethodRails {
     return methodRailsOf({
       checkoutRails: this.checkoutRails,
       profiles: this.routingProfiles,
       rails: this.rails,
       policy: this.publicCheckoutMovement,
+      ...(onlyRails ? { onlyRails } : {}),
     });
   }
 
@@ -2341,7 +2342,12 @@ export class PayService {
     const categoryRule = await checkoutCategoryRule(this.sql, input.linkToken);
     if (categoryRule?.class === 'prohibited') assertCategoryAllows(categoryRule, null);
     // M-adv-payments-core-11: only a method the business offers for this country, currency and amount, in its order.
-    const offeredMethod = await checkoutMethodFor(this.sql, this.checkoutMethodRails(), input, this.now());
+    const offeredMethod = await checkoutMethodFor(
+      this.sql,
+      this.checkoutMethodRails(categoryRails(categoryRule) ?? undefined),
+      input,
+      this.now(),
+    );
     const decision = this.selectCheckoutRail(
       {
         geoCountry: input.geoCountry,

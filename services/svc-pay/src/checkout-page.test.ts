@@ -614,6 +614,27 @@ describe('checkout routes', () => {
     expect(res.body).not.toContain('Payment received');
     await app.close();
 
+    // Nothing offered at all (every method left out by its rule): the payer gets the form back with their answers.
+    const outside = await build({
+      resolvePaymentLink: async () => ({ ...stubLink, amount: null }),
+      openCheckoutSession: async () => {
+        throw Object.assign(payErr('pay.checkout_no_method', 'none'), {
+          detail: { offer: { offered: [], leftOut: [{ method: 'crypto', reason: 'below_min' }] } },
+        });
+      },
+    });
+    const small = await outside.inject({
+      method: 'POST',
+      url: '/checkout/session',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: 'token=pl_stubbed_token_value&amount=2&geoCountry=DE',
+    });
+    expect(small.statusCode).toBe(400);
+    expect(small.body).toContain('This business takes no payment like this one. Check the amount.');
+    expect(small.body).toContain('value="2"');
+    expect(small.body).not.toContain('How to pay');
+    await outside.close();
+
     // An offer that does not read is not shown: the page falls to its error state.
     const garbled = await build({
       openCheckoutSession: async () => {
