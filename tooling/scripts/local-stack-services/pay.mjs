@@ -7,6 +7,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     DATABASE_URL: dbUrl('svc_pay', secrets),
     LEDGER_URL: urlOf('ledger'),
     IDENTITY_URL: urlOf('identity'),
+    // W-withdraw-14: a withdrawal to another account's platform address is one send at svc-bank (transfers.settleWithdrawal).
+    BANK_URL: urlOf('bank'),
     IDENTITY_ADMISSION_SECRET: secrets.payAdmission,
     PAY_CRYPTO_WEBHOOK_SECRET: secrets.payCryptoWebhook,
     PAY_CARD_SANDBOX_WEBHOOK_SECRET: secrets.payCardWebhook,
@@ -35,6 +37,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     PAY_KYB_APPLICATION_DUE_DAYS: '30',
     // LOCAL-TEST scanner for information-request files: infected only when a file carries the EICAR test string. svc-pay refuses it outside APP_ENV dev or test.
     PAY_KYB_MALWARE_SCANNER: 'local-test-eicar',
+    // LOCAL-TEST screener for custodial sends (W9): answers clear, recorded as provider local-test, so J-wallet-07 #3-#5 can
+    // walk an internal withdrawal. No supplier is connected anywhere else; svc-pay refuses it outside APP_ENV dev or test.
+    PAY_SCREENING_SCREENER: 'local-test',
     // LOCAL-TEST value (tooling/profiles/test-owner-values/pay.json): the largest product image, 500 KB.
     PAY_PRODUCT_IMAGE_MAX_BYTES: '500000',
     // LOCAL-TEST value (tooling/profiles/test-owner-values/pay.json): the largest hosted checkout logo, 100 KB.

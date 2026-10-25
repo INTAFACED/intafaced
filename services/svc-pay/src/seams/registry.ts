@@ -10,6 +10,7 @@ import { createW1ControlGuards } from './slots/w1-control.js';
 import { createW5HaltsGuards } from './slots/w5-halts.js';
 import { createW6ConversionGuards } from './slots/w6-conversion.js';
 import { createW9ScreeningGuards } from './slots/w9-screening.js';
+import type { ScreeningGuardDeps } from '../screening/guard.js';
 import { createW10B2bRampGuards } from './slots/w10-b2b-ramp.js';
 import { createRcMerchant08CategoryGuards } from './slots/rc-merchant-08-category.js';
 
@@ -38,6 +39,8 @@ export function buildPayGuards(deps: {
    * Omitted only by in-process tests that build guards without a policy table in play; they get no policy guard.
    */
   custodyPolicyMode?: CustodyPolicyMode;
+  /** The W9 screener. Omitted: none is connected and every custodial send is refused as unavailable. */
+  screening?: Partial<Omit<ScreeningGuardDeps, 'sql'>>;
 }): PayGuards {
   return composeGuards(
     createW5HaltsGuards({
@@ -46,7 +49,7 @@ export function buildPayGuards(deps: {
       conversionInventory: createConversionInventory(deps.sql, deps.ledger),
     }),
     createRcMerchant08CategoryGuards(deps),
-    createW9ScreeningGuards(deps),
+    createW9ScreeningGuards({ ...deps, ...deps.screening }),
     createWithdrawalLimitGuards({ sql: deps.sql, tierOf: deps.kycTierOf, source: deps.limitSource }),
     createCustodyPolicyGuards({ sql: deps.sql, mode: deps.custodyPolicyMode ?? 'off' }),
     createW1ControlGuards(deps),

@@ -371,6 +371,18 @@ export type PayErrorCode =
   | 'pay.withdrawal_not_cancellable'
   | 'pay.withdrawal_not_reversible'
   | 'pay.withdrawal_canceled'
+  /** W-withdraw-14: the address is one of the sender's own deposit addresses on the platform. Nothing is claimed. */
+  | 'pay.withdrawal_self_send'
+  /** W-withdraw-14: an internal send named an address that belongs to no account on the platform. */
+  | 'pay.internal_destination_external'
+  /** W-withdraw-14: the platform address is frozen, past its expiry, or names more than one account; nothing is claimed. */
+  | 'pay.internal_destination_unavailable'
+  /** W-withdraw-14: this process has no svc-bank client for internal settlement. */
+  | 'pay.internal_settlement_unwired'
+  /** W-withdraw-14: svc-bank proved nothing was posted and refused the send (`failureCode` names its reason). */
+  | 'pay.internal_settlement_refused'
+  | 'pay.internal_asset_unsupported'
+  | 'pay.withdrawal_platform_address'
   | 'pay.wallet_withdraw_unavailable'
   | 'pay.wallet_withdraw_disabled'
   | 'pay.wallet_typed_address'
