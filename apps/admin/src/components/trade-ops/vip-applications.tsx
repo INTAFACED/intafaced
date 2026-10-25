@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   Badge,
   Button,
@@ -20,12 +20,14 @@ import { tradeOpsAction } from '@/lib/trade-ops/client';
 import type { Outcome } from '@/lib/trade-ops/outcome';
 import {
   trialText,
+  VIP_LIST_SHOWN,
   VIP_STATUS_TEXT,
   type VipApplication,
   type VipDecision,
   type VipEvent,
   type VipList,
   type VipProofFile,
+  type VipReviewResult,
   type VipStatus,
   type VipTrialRules,
 } from '@/lib/trade-ops/vip-review';
@@ -62,14 +64,21 @@ export function VipApplications({ initial, initialFilter }: { initial: Outcome<V
   const [filter, setFilter] = useState<Filter>(initialFilter);
   const [read, setRead] = useState<Outcome<VipList>>(initial);
   const [busy, setBusy] = useState(false);
-  const [openId, setOpenId] = useState<string | null>(null);
+  // The opened application is kept by itself, so one decided here stays open after the view re-reads without it.
+  const [opened, setOpened] = useState<VipApplication | null>(null);
+  const reads = useRef(0);
 
   const list = read.kind === 'ok' ? read.data : null;
-  const open = list?.applications.find((a) => a.id === openId) ?? null;
+  const open = opened ? (list?.applications.find((a) => a.id === opened.id) ?? opened) : null;
+  const setOpenId = (id: string | null) => setOpened(id ? (list?.applications.find((a) => a.id === id) ?? null) : null);
 
   async function load(next: Filter = filter) {
+    const n = ++reads.current;
     setBusy(true);
-    setRead(await tradeOpsAction<VipList>('vip-applications', { action: 'read', status: next === 'all' ? null : next }));
+    const out = await tradeOpsAction<VipList>('vip-applications', { action: 'read', status: next === 'all' ? null : next });
+    // A read overtaken by a newer one (another filter, Read again) is dropped.
+    if (n !== reads.current) return;
+    setRead(out);
     setBusy(false);
   }
 
@@ -101,7 +110,7 @@ export function VipApplications({ initial, initialFilter }: { initial: Outcome<V
       width: 90,
       value: () => null,
       cell: (a) => (
-        <Button size={28} variant="ghost" shape="rounded" onClick={() => setOpenId(a.id)} aria-pressed={openId === a.id}>
+        <Button size={28} variant="ghost" shape="rounded" onClick={() => setOpenId(a.id)} aria-pressed={opened?.id === a.id}>
           Open
         </Button>
       ),
@@ -168,12 +177,33 @@ export function VipApplications({ initial, initialFilter }: { initial: Outcome<V
           />
         )
       ) : null}
-      {open && list ? <VipApplicationPanel key={open.id} application={open} list={list} onChanged={() => void load()} /> : null}
+      {list && list.applications.length >= VIP_LIST_SHOWN ? (
+        <p className="text-sm text-fg-2">The newest {VIP_LIST_SHOWN} in this view are shown; older ones are not listed here.</p>
+      ) : null}
+      {open && list ? (
+        <VipApplicationPanel
+          key={open.id}
+          application={open}
+          list={list}
+          onChanged={(application) => {
+            setOpened(application);
+            void load();
+          }}
+        />
+      ) : null}
     </div>
   );
 }
 
-function VipApplicationPanel({ application, list, onChanged }: { application: VipApplication; list: VipList; onChanged: () => void }) {
+function VipApplicationPanel({
+  application,
+  list,
+  onChanged,
+}: {
+  application: VipApplication;
+  list: VipList;
+  onChanged: (application: VipApplication) => void;
+}) {
   const [reason, setReason] = useState('');
   const [decision, setDecision] = useState<VipDecision>('approve');
   const [busy, setBusy] = useState(false);
@@ -182,6 +212,7 @@ function VipApplicationPanel({ application, list, onChanged }: { application: Vi
   const [check, setCheck] = useState<Outcome<{ payloadHash: string; trial: VipTrialRules | null }> | null>(null);
   const [proposed, setProposed] = useState<Outcome<Proposed> | null>(null);
   const [approvalId, setApprovalId] = useState('');
+  const [applied, setApplied] = useState<VipReviewResult | null>(null);
   const reasonOk = reason.trim().length >= 12 && reason.trim().length <= 500;
   const kind: 'review' | 'grant' | null =
     application.status === 'pending' ? 'review' : application.status === 'approved_no_trial' ? 'grant' : null;
@@ -234,14 +265,17 @@ function VipApplicationPanel({ application, list, onChanged }: { application: Vi
     { id: 'reason', header: 'Reason', value: (e) => e.reason ?? '—' },
   ];
 
+  // The trial a decision grants is the one published when it is applied: the one this room just filed against when it
+  // filed one, otherwise the one it last read. svc-trade applies the trial published at that moment either way.
+  const trialNow = proposed?.kind === 'ok' ? proposed.data.trial : list.trialRules;
   const consequence =
     kind === 'review'
       ? decision === 'reject'
         ? 'The application is marked not approved. The person sees it on My tier and may apply again.'
-        : list.trialRules
-          ? `The application is approved and the person is on ${trialText(list.trialRules)}, from now. The approval is used up.`
+        : trialNow
+          ? `The application is approved and the person is on ${trialText(trialNow)}, from now. The approval is used up.`
           : 'The application is approved with no trial period, since none is published (vip.trial_unset). A trial can be granted once the owner publishes one.'
-      : `The person is granted ${trialText(list.trialRules)}, from now. The approval is used up.`;
+      : `The person is granted ${trialText(trialNow)}, from now. The approval is used up.`;
 
   return (
     <section className="flex flex-col gap-3 rounded border border-line p-4" aria-label="Application" data-vip-desk="open">
@@ -278,6 +312,7 @@ function VipApplicationPanel({ application, list, onChanged }: { application: Vi
           onValueChange={(v) => {
             setReason(v);
             setCheck(null);
+            setProposed(null);
           }}
           density="dense"
           autoComplete="off"
@@ -299,6 +334,11 @@ function VipApplicationPanel({ application, list, onChanged }: { application: Vi
       {proof && proof.kind !== 'ok' ? <OutcomeNotice outcome={proof} /> : null}
       {proof?.kind === 'ok' ? <p className="text-sm text-fg-2">Saved {proof.data.fileName}. The opening is in the audit.</p> : null}
 
+      {applied ? (
+        <p role="status" data-vip-desk="applied" className="text-sm text-fg-1">
+          {appliedText(applied)}
+        </p>
+      ) : null}
       {kind === null ? (
         <p className="text-sm text-fg-2">
           This application is decided{application.trial ? ' and its trial granted' : ''}: nothing is left to do.
@@ -405,7 +445,12 @@ function VipApplicationPanel({ application, list, onChanged }: { application: Vi
                 })
               }
               onDone={(o) => {
-                if (o.kind === 'ok') onChanged();
+                if (o.kind !== 'ok') return;
+                const result = o.data as VipReviewResult;
+                setApplied(result);
+                setProposed(null);
+                setApprovalId('');
+                onChanged(result.application);
               }}
             />
           </div>
@@ -413,6 +458,16 @@ function VipApplicationPanel({ application, list, onChanged }: { application: Vi
       )}
     </section>
   );
+}
+
+/** What a decision or grant just did, in words, from svc-trade's answer. */
+function appliedText(result: VipReviewResult): string {
+  const { application, trialRefusal } = result;
+  if (application.status === 'rejected') return 'Applied: the application is marked not approved.';
+  if (trialRefusal === 'vip.trial_unset') return 'Applied: approved with no trial period, since none is published (vip.trial_unset).';
+  return application.trial
+    ? `Applied: approved, on ${application.trial.tierId} until ${utc(application.trial.endsAt)} UTC.`
+    : `Applied: ${VIP_STATUS_TEXT[application.status]}.`;
 }
 
 /** The extension the checked type gets: the saved name never claims a type the bytes were not checked as. */

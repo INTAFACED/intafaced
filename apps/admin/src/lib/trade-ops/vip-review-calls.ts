@@ -7,6 +7,7 @@ import {
   parseVipList,
   parseVipProof,
   parseVipReviewResult,
+  VIP_LIST_SHOWN,
   type VipDecision,
   type VipList,
   type VipProofFile,
@@ -29,12 +30,10 @@ import {
  * retried.
  */
 
-export const VIP_LIST_LIMIT = 200;
-
 export function readVipApplications(ctx: TradeCtx, status: VipStatus | null): Promise<Outcome<VipList>> {
   return edgeCall(
     ctx,
-    trpcSpec('trade', 'admin.vipApplications.list', 'query', { ...(status ? { status } : {}), limit: VIP_LIST_LIMIT }, parseVipList),
+    trpcSpec('trade', 'admin.vipApplications.list', 'query', { ...(status ? { status } : {}), limit: VIP_LIST_SHOWN }, parseVipList),
   );
 }
 

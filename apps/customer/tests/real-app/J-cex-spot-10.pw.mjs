@@ -805,15 +805,16 @@ test(`${J} part of #7 compliance decides in the founder console: the proof saved
     const payloadHash = (await valueOf('Payload hash (the approver confirms this)').innerText()).trim();
     expect(payloadHash).toMatch(/^sha256:[0-9a-f]{64}$/);
     await panel.getByLabel('Approved request id').fill(approvalId);
-    const apply = async (expected) => {
+    const apply = async () => {
       await panel.getByRole('button', { name: 'Apply the approved decision' }).click();
       const dialog = a.getByRole('alertdialog');
       await expect(dialog).toContainText('the person is on test-vip-1 for 1 day, from now');
       await dialog.getByRole('button', { name: 'Apply decision' }).click();
-      await expect(dialog).toContainText(expected);
-      await dialog.getByRole('button', { name: /^(Close|Cancel)$/ }).click();
+      return dialog;
     };
-    await apply('still waiting for a second founder');
+    const early = await apply();
+    await expect(early).toContainText('still waiting for a second founder');
+    await early.getByRole('button', { name: 'Cancel' }).click();
     expect((await client.get('/api/v1/vip/applications')).body.applications.map((x) => x.status)).toEqual(['pending']);
 
     // Founder B first checks what the request is: the same decision and reason in the room give the same hash.
@@ -840,7 +841,9 @@ test(`${J} part of #7 compliance decides in the founder console: the proof saved
     await approveDialog.getByRole('button', { name: 'Approve', exact: true }).click();
     await expect(approveDialog.locator('[data-outcome=ok]')).toBeVisible();
 
-    await apply('Applied');
+    // Applied: the panel stays open on the decided application and says what was done.
+    await apply();
+    await expect(panel.locator('[data-vip-desk=applied]')).toContainText('Applied: approved, on test-vip-1 until ');
     await expect(panel).toContainText('Approved');
     await expect(panel).toContainText(`approved by ${approver.userId}`);
     await expect(panel).toContainText(/test-vip-1, 1 days?, /);

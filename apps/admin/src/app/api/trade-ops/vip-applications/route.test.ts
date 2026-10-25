@@ -39,13 +39,14 @@ const list = (status: string, trialRules: typeof TRIAL | null = TRIAL) => ({
   trialRules,
   proofKeyed: true,
 });
-const approval = (status: string, actionType = 'trade.vip_application_review') => ({
+const APPROVE_HASH = 'sha256:f340afb02be7d0797824dd75c7678d2cffa9ac246cb1c43de5d37fad25a66916';
+const approval = (status: string, actionType = 'trade.vip_application_review', payloadHash = APPROVE_HASH) => ({
   approvalId: 'ap-1',
   actionType,
   targetService: 'svc-trade',
   targetId: APP,
   expectedVersion: 'pending',
-  payloadHash: 'sha256:x',
+  payloadHash,
   requesterId: ME,
   approverId: status === 'PENDING' ? null : '00000000-0000-4000-8000-000000000002',
   policyVersion: 'trade-vip-review-v1',
@@ -54,6 +55,12 @@ const approval = (status: string, actionType = 'trade.vip_application_review') =
   status,
   operationId: 'op-minted-by-identity',
 });
+/** The list as svc-trade answers it for the status the call asks for. */
+const listed = (url: URL, status: string, trialRules: typeof TRIAL | null = TRIAL) => {
+  const wanted = /"status":"(\w+)"/.exec(decodeURIComponent(String(url)))?.[1];
+  const all = list(status, trialRules);
+  return data(wanted && wanted !== status ? { ...all, applications: [] } : all);
+};
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 const data = (body: unknown) => json({ result: { data: { json: body } } });
 const urls = () => fetchMock.mock.calls.map((c) => String(c[0]));
@@ -89,7 +96,7 @@ describe('VIP applications route', () => {
   });
 
   it('reads the applications with the trial published now, and refuses a body of another shape', async () => {
-    fetchMock.mockImplementation(async () => data(list('pending')));
+    fetchMock.mockImplementation(async (url: URL) => listed(url, 'pending'));
     expect(await (await post({ action: 'read', status: 'pending' })).json()).toMatchObject({
       kind: 'ok',
       data: { trialRules: TRIAL, proofKeyed: true, applications: [{ id: APP, status: 'pending' }] },
@@ -112,7 +119,7 @@ describe('VIP applications route', () => {
 
   it('files a decision bound to the status and the trial read just now, with the hash svc-trade recomputes', async () => {
     fetchMock.mockImplementation(async (url: URL) =>
-      String(url).includes('actionApproval.propose') ? data(approval('PENDING')) : data(list('pending')),
+      String(url).includes('actionApproval.propose') ? data(approval('PENDING')) : listed(url, 'pending'),
     );
     const res = await post({ action: 'propose', kind: 'review', applicationId: APP, decision: 'approve', reason: REASON });
     expect(await res.json()).toMatchObject({ kind: 'ok', data: { approval: { approvalId: 'ap-1' }, trial: TRIAL } });
@@ -130,14 +137,14 @@ describe('VIP applications route', () => {
   });
 
   it('files nothing for an application already decided, or a trial grant while no trial is published', async () => {
-    fetchMock.mockImplementation(async () => data(list('approved')));
+    fetchMock.mockImplementation(async (url: URL) => listed(url, 'approved'));
     const decided = await post({ action: 'propose', kind: 'review', applicationId: APP, decision: 'reject', reason: REASON });
     expect(decided.status).toBe(409);
     expect(await decided.json()).toMatchObject({ code: 'vip.application_decided' });
     expect(await (await post({ action: 'propose', kind: 'grant', applicationId: APP, reason: REASON })).json()).toMatchObject({
       code: 'vip.trial_not_owed',
     });
-    fetchMock.mockImplementation(async () => data(list('approved_no_trial', null)));
+    fetchMock.mockImplementation(async (url: URL) => listed(url, 'approved_no_trial', null));
     expect(await (await post({ action: 'propose', kind: 'grant', applicationId: APP, reason: REASON })).json()).toMatchObject({
       code: 'vip.trial_unset',
     });
@@ -146,7 +153,9 @@ describe('VIP applications route', () => {
 
   it('files a trial grant over the approved-without-trial status, with its hash', async () => {
     fetchMock.mockImplementation(async (url: URL) =>
-      String(url).includes('actionApproval.propose') ? data(approval('PENDING', 'trade.vip_trial_grant')) : data(list('approved_no_trial')),
+      String(url).includes('actionApproval.propose')
+        ? data(approval('PENDING', 'trade.vip_trial_grant'))
+        : listed(url, 'approved_no_trial'),
     );
     expect(await (await post({ action: 'propose', kind: 'grant', applicationId: APP, reason: REASON })).json()).toMatchObject({
       kind: 'ok',
@@ -157,7 +166,7 @@ describe('VIP applications route', () => {
   });
 
   it('works out the hash a request for exactly this decision carries, so the approver can check it, and files nothing', async () => {
-    fetchMock.mockImplementation(async () => data(list('pending')));
+    fetchMock.mockImplementation(async (url: URL) => listed(url, 'pending'));
     const approve = await (await post({ action: 'hash', kind: 'review', applicationId: APP, decision: 'approve', reason: REASON })).json();
     expect(approve).toMatchObject({
       kind: 'ok',
@@ -172,7 +181,7 @@ describe('VIP applications route', () => {
 
   it('decides nothing while the request still waits for a second founder', async () => {
     fetchMock.mockImplementation(async (url: URL) =>
-      String(url).includes('actionApproval.get') ? data(approval('PENDING')) : data(list('pending')),
+      String(url).includes('actionApproval.get') ? data(approval('PENDING')) : listed(url, 'pending'),
     );
     const res = await post({
       action: 'apply',
@@ -187,6 +196,47 @@ describe('VIP applications route', () => {
     expect(urls().some((u) => u.includes('admin.vipApplications.review'))).toBe(false);
   });
 
+  it('says in words when the approval is for another decision or reason, and sends no decision', async () => {
+    fetchMock.mockImplementation(async (url: URL) =>
+      String(url).includes('actionApproval.get')
+        ? data(approval('APPROVED', 'trade.vip_application_review', 'sha256:' + '0'.repeat(64)))
+        : listed(url, 'pending'),
+    );
+    const res = await post({
+      action: 'apply',
+      kind: 'review',
+      applicationId: APP,
+      decision: 'approve',
+      reason: REASON,
+      approvalId: 'ap-1',
+    });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: 'approval_mismatch' });
+    expect(urls().some((u) => u.includes('admin.vipApplications.review'))).toBe(false);
+  });
+
+  it('a used approval goes to svc-trade as it is, so a retry after a lost reply answers what was decided', async () => {
+    const decided = { application: { ...application('approved'), trial: null }, trialRefusal: null };
+    fetchMock.mockImplementation(async (url: URL) =>
+      String(url).includes('admin.vipApplications.review')
+        ? data(decided)
+        : String(url).includes('actionApproval.get')
+          ? data(approval('CONSUMED'))
+          : listed(url, 'approved'),
+    );
+    const res = await post({
+      action: 'apply',
+      kind: 'review',
+      applicationId: APP,
+      decision: 'approve',
+      reason: REASON,
+      approvalId: 'ap-1',
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ kind: 'ok', data: { application: { status: 'approved' } } });
+    expect(sentTo('admin.vipApplications.review')).toMatchObject({ approvalId: 'ap-1', operationId: 'op-minted-by-identity' });
+  });
+
   it('applies with the approval id and its own operation id, and passes the service refusal through', async () => {
     fetchMock.mockImplementation(async (url: URL) =>
       String(url).includes('admin.vipApplications.review')
@@ -196,7 +246,7 @@ describe('VIP applications route', () => {
           )
         : String(url).includes('actionApproval.get')
           ? data(approval('APPROVED'))
-          : data(list('pending')),
+          : listed(url, 'pending'),
     );
     const res = await post({
       action: 'apply',

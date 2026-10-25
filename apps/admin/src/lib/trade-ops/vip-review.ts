@@ -9,6 +9,9 @@ export type VipDecision = 'approve' | 'reject';
 
 export const VIP_STATUSES: readonly VipStatus[] = ['pending', 'approved', 'approved_no_trial', 'rejected'];
 
+/** How many applications one read of the room asks svc-trade for (newest first). */
+export const VIP_LIST_SHOWN = 200;
+
 /** The trial the owner publishes in the fee schedule (`tierProgram.trial`), or none. */
 export interface VipTrialRules {
   readonly tierId: string;
