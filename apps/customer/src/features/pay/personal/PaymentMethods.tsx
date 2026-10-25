@@ -81,7 +81,7 @@ export function PaymentMethods({ pay, userId }: { pay: PersonalPayApi; userId: s
                 headers={[payCopy.t('label'), payCopy.t('method'), payCopy.t('currencyCountry'), payCopy.t('state'), '']}
               >
                 {rows.map((instrument) => (
-                  <tr key={instrument.id} data-testid="saved-method">
+                  <tr key={instrument.id} data-testid="saved-method" data-instrument-id={instrument.id}>
                     <td>{instrument.label || payCopy.t('unlabelledDestination')}</td>
                     <td>{instrument.methodId}</td>
                     <td>
