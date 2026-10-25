@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { StatusTag } from '@intafaced/ui';
 import {
   KYC_LADDER_LEVELS,
@@ -12,6 +13,13 @@ import { Button, Failure, Loading } from '../../shared/ui';
 import { verificationLadderCopy as copy } from './verification-ladder-copy';
 
 const rank = (level: KycLadderLevel) => KYC_LADDER_LEVELS.indexOf(level);
+
+/** svc-pay `withdrawal.tierLimits` (D-148): only figures the owner set; a level with none has no limit set. */
+const amount = z.string().regex(/^\d+(\.\d+)?$/);
+const tierLimitsSchema = z.object({
+  enforced: z.boolean(),
+  limits: z.array(z.object({ tier: z.string(), assetId: z.string().min(1), perTx: amount, rolling24h: amount })),
+});
 
 /** A refusal at every level, from the region or the module. The matrix code stays in a data attribute. */
 function blockedKey(code: string): 'module_blocked' | 'region_blocked' | 'unavailable' {
@@ -45,6 +53,10 @@ export function VerificationLadder({
     (signal) => api.query('identity', 'kyc.levels.describe', {}, kycLevelsDescribeOutputSchema, { signal }),
     `verification-ladder:${userId}:${statusTier ?? 'reading'}`,
   );
+  const limits = useResource(
+    (signal) => api.query('pay', 'withdrawal.tierLimits', {}, tierLimitsSchema, { signal }),
+    `verification-ladder-limits:${userId}:${statusTier ?? 'reading'}`,
+  ).resource;
   if (resource.status === 'loading') return <Loading />;
   if (resource.status === 'failed')
     return (
@@ -136,6 +148,43 @@ export function VerificationLadder({
                 {rung.reviewHours === 1 ? <Copy k="reviewTimeOne" /> : <Copy k="reviewTime" params={{ hours: String(rung.reviewHours) }} />}
               </p>
             )}
+            <h4>
+              <Copy k="limitsTitle" />
+            </h4>
+            <div className="verification__limits" data-level={rung.level}>
+              {limits.status === 'loading' ? (
+                <p className="muted">
+                  <Copy k="limitsReading" />
+                </p>
+              ) : limits.status === 'failed' ? (
+                <p className="muted" data-limits="failed">
+                  <Copy k="limitsFailed" />
+                </p>
+              ) : (
+                <>
+                  {limits.data.limits.some((l) => l.tier === rung.level) ? (
+                    <ul data-limits="set">
+                      {limits.data.limits
+                        .filter((l) => l.tier === rung.level)
+                        .map((l) => (
+                          <li key={l.assetId}>
+                            <Copy k="limitRow" params={{ asset: l.assetId, perTx: l.perTx, rolling: l.rolling24h }} />
+                          </li>
+                        ))}
+                    </ul>
+                  ) : (
+                    <p data-limits="unset">
+                      <Copy k="limitUnset" />
+                    </p>
+                  )}
+                  {!limits.data.enforced && (
+                    <p className="muted">
+                      <Copy k="limitsNotApplied" />
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
             {rank(rung.level) > rank(ladder.held) && offered.includes(rung.level) && (
               <Button variant="secondary" disabled={verifyDisabled} onClick={() => onVerify(rung.level)}>
                 <Copy k="verify" />
