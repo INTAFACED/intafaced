@@ -88,7 +88,8 @@ describe('catalog — the key set is closed and complete', () => {
     // The buyer-paid notice to the seller (P-trade-orders-23) adds a title and a body key.
     // Standing-order reminder and failure notices (BK-acct-10) add four title/body keys.
     // Sign-in factor change notices (I-signin-sessions-08) add five titles and one shared body.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(274);
+    // The ads-paused notice to the maker (P-ads-merchant-18) adds a title and a body key.
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(276);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(

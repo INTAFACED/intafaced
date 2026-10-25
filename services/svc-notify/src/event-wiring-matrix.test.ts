@@ -26,8 +26,8 @@ const readmeSource = readFileSync(join(here, '..', 'README.md'), 'utf8');
 
 describe('notify event-wiring matrix — Class B no silent growth', () => {
   it('pins the known consumer count (growth is a deliberate matrix edit)', () => {
-    expect(notifyEventConsumerCount()).toBe(23);
-    expect(NOTIFY_EVENT_CONSUMERS).toHaveLength(23);
+    expect(notifyEventConsumerCount()).toBe(24);
+    expect(NOTIFY_EVENT_CONSUMERS).toHaveLength(24);
   });
 
   it('every matrix durable is attached in events.ts', () => {

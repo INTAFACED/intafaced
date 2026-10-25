@@ -21,6 +21,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const LIVE_ROOMS = [
   '/support',
   '/p2p/orders/:id',
+  '/uc/ad',
   '/verification',
   '/uc/account',
   '/uc/safe',
