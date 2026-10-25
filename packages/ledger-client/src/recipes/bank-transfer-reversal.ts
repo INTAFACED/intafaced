@@ -47,8 +47,12 @@ function requirePositive(name: string, value: unknown): asserts value is Amount 
   if (typeof value !== 'bigint' || value <= 0n) throw new InvalidEntryError(`${name} must be a positive amount`);
 }
 
-/** Internal sends only: a rail send is reversed by the rail, not by consent. */
-export type BankTransferReversalKeySpace = Exclude<BankTransferKeySpace, 'rail'>;
+/**
+ * Internal sends only: a rail send is reversed by the rail, not by consent, and a recovery sweep is never reversed
+ * by consent (the owner it came from has died; a mistaken claim is a new, reviewed claim, not a consent).
+ */
+export const NOT_CONSENT_REVERSIBLE = ['rail', 'recovery'] as const satisfies readonly BankTransferKeySpace[];
+export type BankTransferReversalKeySpace = Exclude<BankTransferKeySpace, (typeof NOT_CONSENT_REVERSIBLE)[number]>;
 
 export interface BankTransferReversalInput {
   /** The original send's key space, from the stored row. */
@@ -70,7 +74,7 @@ export interface BankTransferReversalInput {
 }
 
 export function bankTransferReversalKey(space: BankTransferReversalKeySpace, transferId: string, occurrence: number): string {
-  if (space === ('rail' as string) || !BANK_TRANSFER_KEY_SPACES.includes(space)) {
+  if ((NOT_CONSENT_REVERSIBLE as readonly string[]).includes(space) || !BANK_TRANSFER_KEY_SPACES.includes(space)) {
     throw new InvalidEntryError(`A consented reversal is for an internal send; key space ${String(space)} is not one`);
   }
   if (typeof transferId !== 'string' || transferId.trim() === '') throw new InvalidEntryError('A reversal needs the original transfer id');
