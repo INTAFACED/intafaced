@@ -3,7 +3,21 @@ import { test, expect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { approverSessions, makeContext, setFeeDiscountSchedule, setFeeSchedule } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { EDGE, api, bestPrices, fromUnits, fund, journeyState, otherTrader, times, toUnits } from './stack.mjs';
-import { awayBid, confirm, deskPath, free, fundedTrader, held, openDesk, openOrders, placements, reviewSheet, signIn } from './desk.mjs';
+import {
+  awayBid,
+  confirm,
+  deskPath,
+  free,
+  fundedTrader,
+  held,
+  openDesk,
+  openOrders,
+  placements,
+  reviewSheet,
+  signIn,
+  signUp,
+  verify,
+} from './desk.mjs';
 import { draftNotice, publishNotice } from './notices.mjs';
 
 // J-cex-spot-10, in the running app (docs/roadmap/journeys.json): a person sees what they pay, what tier they are in,
@@ -595,15 +609,17 @@ const TEST_PDF = Buffer.from('%PDF-1.4\n% TEST proof of VIP status elsewhere, no
 test(`${J} part of #7 applies with a proof file: a type not accepted is refused naming the accepted ones, a PDF waits for review`, async ({
   page,
 }) => {
-  test.setTimeout(150_000);
-  const who = account();
+  test.setTimeout(240_000);
+  // Its own fresh applicant: an application is never deleted, so a step re-run alone must not meet the last one.
+  const who = await signUp(page, 'vipapply');
+  await verify(page, who);
   const client = await api(who);
   const tiered = tiersAt(new Date(Date.now() + 3_600_000));
   await publish({ ...tiered, tierProgram: { ...tiered.tierProgram, application: TEST_APPLICATION } }, 'TEST VIP application rules');
   try {
     const before = await client.get('/api/v1/vip/applications');
     expect(before.status, JSON.stringify(before.body).slice(0, 300)).toBe(200);
-    expect(before.body).toEqual({ rules: TEST_APPLICATION, applications: [] });
+    expect(before.body).toEqual({ rules: TEST_APPLICATION, closed: null, applications: [] });
     await signIn(page, who);
     await page.goto('/fees/my-tier');
     const card = page.locator('[data-tier-page=vip-apply]');

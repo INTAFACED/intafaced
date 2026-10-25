@@ -131,7 +131,11 @@ describe('sending a VIP application', () => {
     expect(() => open(proofAad('33333333-3333-4333-8333-333333333333', application.proof.sha256))).toThrow();
 
     const listed = await server.inject({ method: 'GET', url: VIP_APPLICATIONS_PATH, headers: signed(ALICE) });
-    expect(listed.json()).toEqual({ rules: { proofTypes: ['application/pdf', 'image/png'], maxBytes: 1024 }, applications: [application] });
+    expect(listed.json()).toEqual({
+      rules: { proofTypes: ['application/pdf', 'image/png'], maxBytes: 1024 },
+      closed: null,
+      applications: [application],
+    });
     expect((await server.inject({ method: 'GET', url: VIP_APPLICATIONS_PATH, headers: signed(BOB) })).json().applications).toEqual([]);
     expect(await sql()`SELECT status, actor_role FROM trade.vip_application_events`).toEqual([
       { status: 'pending', actor_role: 'applicant' },
@@ -162,6 +166,52 @@ describe('sending a VIP application', () => {
     });
     expect([other.statusCode, other.json().code]).toEqual([409, 'vip.request_reused']);
     expect(await rows()).toHaveLength(1);
+  });
+
+  it('answers a kept request after the rules change, and refuses its id for the same file under another name', async () => {
+    const first = await (
+      await app()
+    ).inject({ method: 'POST', url: VIP_APPLICATIONS_PATH, headers: signed(ALICE), payload: body('vip-req-0020') });
+    expect(first.statusCode).toBe(201);
+    const closed = await app(schedule(null), null);
+    const again = await closed.inject({
+      method: 'POST',
+      url: VIP_APPLICATIONS_PATH,
+      headers: signed(ALICE),
+      payload: body('vip-req-0020'),
+    });
+    expect([again.statusCode, again.json().application.id]).toEqual([200, first.json().application.id]);
+    const renamed = await (
+      await app()
+    ).inject({
+      method: 'POST',
+      url: VIP_APPLICATIONS_PATH,
+      headers: signed(ALICE),
+      payload: body('vip-req-0020', PDF, 'application/pdf', 'other.pdf'),
+    });
+    expect([renamed.statusCode, renamed.json().code]).toEqual([409, 'vip.request_reused']);
+    expect(await rows()).toHaveLength(1);
+  });
+
+  it('takes a new application once the last one is decided', async () => {
+    const server = await app();
+    const first = await server.inject({
+      method: 'POST',
+      url: VIP_APPLICATIONS_PATH,
+      headers: signed(ALICE),
+      payload: body('vip-req-0021'),
+    });
+    await sql()`UPDATE trade.vip_applications SET status = 'rejected' WHERE id = ${first.json().application.id}`;
+    const next = await server.inject({ method: 'POST', url: VIP_APPLICATIONS_PATH, headers: signed(ALICE), payload: body('vip-req-0022') });
+    expect(next.statusCode, next.body).toBe(201);
+    expect((await rows()).map((r) => r.status).sort()).toEqual(['pending', 'rejected']);
+  });
+
+  it('says why applications are not open before anyone sends a file', async () => {
+    const unset = await (await app(schedule(null))).inject({ method: 'GET', url: VIP_APPLICATIONS_PATH, headers: signed(ALICE) });
+    expect(unset.json()).toEqual({ rules: null, closed: 'vip.application_unset', applications: [] });
+    const unkeyed = await (await app(OPEN, null)).inject({ method: 'GET', url: VIP_APPLICATIONS_PATH, headers: signed(ALICE) });
+    expect(unkeyed.json()).toEqual({ rules: null, closed: 'vip.proof_key_unset', applications: [] });
   });
 
   it('keeps one pending application per person, also when two are sent at once', async () => {
@@ -200,6 +250,15 @@ describe('sending a VIP application', () => {
     ['rules the owner has not published', schedule(null), KEY, body('vip-req-0008'), 503, 'vip.application_unset'],
     ['no proof key', OPEN, null, body('vip-req-0009'), 503, 'vip.proof_key_unset'],
     ['a body with an extra field', OPEN, KEY, { ...body('vip-req-0010'), tier: 'test-vip-1' }, 400, 'vip.request_invalid'],
+    ['a note with a control character', OPEN, KEY, { ...body('vip-req-0014'), note: 'TEST\u0000' }, 400, 'vip.request_invalid'],
+    [
+      'a name with a direction override',
+      OPEN,
+      KEY,
+      body('vip-req-0015', PDF, 'application/pdf', 'statement\u202Efdp.exe'),
+      400,
+      'vip.request_invalid',
+    ],
   ] as const)('refuses %s and keeps nothing', async (_name, fees, key, payload, status, code) => {
     const server = await app(fees, key);
     const res = await server.inject({ method: 'POST', url: VIP_APPLICATIONS_PATH, headers: signed(ALICE), payload });

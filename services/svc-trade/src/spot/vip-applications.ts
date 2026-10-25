@@ -14,7 +14,7 @@
  * same id with a different file refuses. Not money: an application moves nothing.
  */
 import { createCipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 
 export const VIP_PROOF_KEY_ENV = 'TRADE_VIP_PROOF_KEY';
 
@@ -142,6 +142,10 @@ function toView(row: ApplicationRow): VipApplicationView {
 }
 
 const REQUEST_ID = /^[A-Za-z0-9._:-]{8,64}$/;
+/** Control characters, and the direction overrides that could make a name read as another to a reviewer. */
+const NAME_UNSAFE = /[\u0000-\u001f\u007f/\\\u202a-\u202e\u2066-\u2069]/;
+/** A note may break lines; any other control character or direction override refuses. */
+const NOTE_UNSAFE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u202a-\u202e\u2066-\u2069]/;
 
 /** Canonical base64 only: a lenient decode would keep different bytes than the person sent. */
 function decodeProof(base64: string): Buffer {
@@ -156,6 +160,18 @@ export interface VipApplicationInput {
   readonly contentType: string;
   readonly bytesBase64: string;
   readonly note?: string | null;
+}
+
+const noteOf = (input: VipApplicationInput): string | null => (input.note == null ? null : input.note.trim() || null);
+
+/** Whether a kept application is the one this input asks for: the same bytes, type, name and note. */
+function sameRequest(row: ApplicationRow, input: VipApplicationInput, sha256: string): boolean {
+  return (
+    row.proof_sha256 === sha256 &&
+    row.proof_content_type === input.contentType.trim().toLowerCase() &&
+    row.proof_file_name === input.fileName.trim() &&
+    (row.note ?? null) === noteOf(input)
+  );
 }
 
 /** The checks that need no database, in the order a person can fix them. Returns the bytes and their type. */
@@ -173,11 +189,13 @@ export function checkProof(
   if (!key) throw new VipError('VIP applications are not open: the proof file key is not set', 'vip.proof_key_unset');
   if (!REQUEST_ID.test(input.requestId)) throw new VipError('requestId must be 8 to 64 letters, digits or ._:-', 'vip.request_invalid');
   const fileName = input.fileName.trim();
-  if (fileName.length < 1 || fileName.length > 200 || /[\u0000-\u001f\u007f/\\]/.test(fileName)) {
-    throw new VipError('fileName must be 1 to 200 characters with no path or control characters', 'vip.request_invalid');
+  if (fileName.length < 1 || fileName.length > 200 || NAME_UNSAFE.test(fileName)) {
+    throw new VipError('fileName must be 1 to 200 characters with no path, control or direction characters', 'vip.request_invalid');
   }
-  const note = input.note == null ? null : input.note.trim() || null;
-  if (note !== null && [...note].length > 1000) throw new VipError('note must be at most 1000 characters', 'vip.request_invalid');
+  const note = noteOf(input);
+  if (note !== null && ([...note].length > 1000 || NOTE_UNSAFE.test(note))) {
+    throw new VipError('note must be at most 1000 characters with no control or direction characters', 'vip.request_invalid');
+  }
   const contentType = input.contentType.trim().toLowerCase();
   if (!rules.proofTypes.includes(contentType)) {
     throw new VipError(`${input.contentType} is not an accepted proof file type`, 'vip.file_type_unsupported', {
@@ -201,10 +219,15 @@ export class VipApplicationStore {
     private readonly key: Buffer | null,
   ) {}
 
+  /** False without a usable proof key: every application would refuse `vip.proof_key_unset`, so reads say so first. */
+  get keyed(): boolean {
+    return this.key !== null;
+  }
+
   /**
-   * Keep one application. The same request again answers the application it made; the same request id with another
-   * file or note refuses; a second while one is pending refuses. Under a lock per person, so two requests at once
-   * cannot both open one.
+   * Keep one application. The same request again answers the application it made, even after the owner's rules
+   * change; the same request id with another file, name or note refuses; a second while one is pending refuses. Under
+   * a lock per person, so two requests at once cannot both open one.
    */
   async submit(
     userId: string,
@@ -212,20 +235,18 @@ export class VipApplicationStore {
     scheduleVersion: string,
     input: VipApplicationInput,
   ): Promise<{ application: VipApplicationView; created: boolean }> {
+    const requestKey = `vip-application:${userId}:${input.requestId}`;
+    // A retry of a request already kept is answered before the rules: they may have changed since it was kept.
+    if (REQUEST_ID.test(input.requestId)) {
+      const replay = await this.replayOf(this.sql, requestKey, input);
+      if (replay) return { application: replay, created: false };
+    }
     const proof = checkProof(rules, this.key, input);
     const key = this.key!;
-    const requestKey = `vip-application:${userId}:${input.requestId}`;
     return (await this.sql.begin(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`trade.vip_application:${userId}`}, 0))`;
-      const [same] = await tx<Array<ApplicationRow & { note: string | null }>>`
-        SELECT ${tx.unsafe(VIEW_COLUMNS)} FROM trade.vip_applications WHERE request_key = ${requestKey}
-      `;
-      if (same) {
-        if (same.proof_sha256 !== proof.sha256 || same.proof_content_type !== proof.contentType || (same.note ?? null) !== proof.note) {
-          throw new VipError('This request id was already used for another application', 'vip.request_reused');
-        }
-        return { application: toView(same), created: false };
-      }
+      const replay = await this.replayOf(tx, requestKey, input);
+      if (replay) return { application: replay, created: false };
       const [open] = await tx<Array<{ id: string }>>`
         SELECT id FROM trade.vip_applications WHERE user_id = ${userId} AND status = 'pending' LIMIT 1
       `;
@@ -250,6 +271,20 @@ export class VipApplicationStore {
       `;
       return { application: toView(row!), created: true };
     })) as { application: VipApplicationView; created: boolean };
+  }
+
+  /** The application this request already made, or null; the same request id for anything else refuses. */
+  private async replayOf(sql: Sql | TransactionSql, requestKey: string, input: VipApplicationInput): Promise<VipApplicationView | null> {
+    const [same] = await sql<ApplicationRow[]>`
+      SELECT ${sql.unsafe(VIEW_COLUMNS)} FROM trade.vip_applications WHERE request_key = ${requestKey}
+    `;
+    if (!same) return null;
+    const bytes = Buffer.from(input.bytesBase64, 'base64');
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    if (bytes.toString('base64') !== input.bytesBase64 || !sameRequest(same, input, sha256)) {
+      throw new VipError('This request id was already used for another application', 'vip.request_reused');
+    }
+    return toView(same);
   }
 
   /** The person's own applications, newest first, metadata only. */

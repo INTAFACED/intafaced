@@ -58,7 +58,7 @@ function SignedInTier() {
   return <MyTierView load={useSource(source)} apply={<VipApply />} />;
 }
 
-/** `apply` is the VIP application, shown under the benefits it applies for. */
+/** `apply` is the VIP application: shown whatever the tier read answers, so a pending application stays in view. */
 export function MyTierView({ load, apply }: { load: Loadable<FeeTier | null>; apply?: ReactNode }) {
   const copy = feeTierCopy.useCopy();
   return (
@@ -83,7 +83,8 @@ export function MyTierView({ load, apply }: { load: Loadable<FeeTier | null>; ap
           <p>{copy.t('blankBody')}</p>
         </section>
       ) : null}
-      {load.status === 'ready' && load.data ? <Tier tier={load.data} apply={apply} /> : null}
+      {load.status === 'ready' && load.data ? <Tier tier={load.data} /> : null}
+      {apply}
       <p>
         <a className="text-link" href="/fees">
           {copy.t('feesLink')} →
@@ -93,7 +94,7 @@ export function MyTierView({ load, apply }: { load: Loadable<FeeTier | null>; ap
   );
 }
 
-function Tier({ tier, apply }: { tier: FeeTier; apply?: ReactNode }) {
+function Tier({ tier }: { tier: FeeTier }) {
   const copy = feeTierCopy.useCopy();
   const name = (tierId: string) => (tierId === 'regular' ? copy.t('regular') : tierId);
   const { program, volume } = tier;
@@ -166,7 +167,6 @@ function Tier({ tier, apply }: { tier: FeeTier; apply?: ReactNode }) {
         yours={tier.tier}
         name={name}
       />
-      {apply}
       <section className="pub-card" aria-label={copy.t('snapshotsTitle')} data-tier-page="snapshots">
         <h2>{copy.t('snapshotsTitle')}</h2>
         {tier.snapshots.length === 0 ? (

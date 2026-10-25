@@ -21,6 +21,8 @@ const applicationSchema = z.object({
 
 export const vipApplicationsSchema = z.object({
   rules: z.object({ proofTypes: z.array(z.string().min(1)).min(1), maxBytes: z.number().int().min(1) }).nullable(),
+  /** Why applications are not open, when they are not: the owner's rules or the proof key unset. */
+  closed: z.enum(['vip.application_unset', 'vip.proof_key_unset']).nullable(),
   applications: z.array(applicationSchema),
 });
 
@@ -42,11 +44,12 @@ export function toBase64(bytes: Uint8Array): string {
 }
 
 /**
- * The request id of a send: from the file's bytes and the note, so sending the same thing again (a retry after a lost
- * answer) is the same request and answers the application it made, never a second one.
+ * The request id of a send: from the file's bytes, its name, the note and the person's newest application before it
+ * ("none" for a first). Sending the same thing again after a lost answer is the same request and answers the
+ * application it made; applying again after a decision is a new one.
  */
-export async function vipRequestId(bytes: Uint8Array, note: string): Promise<string> {
-  const noteBytes = new TextEncoder().encode(`\n${note.trim()}`);
+export async function vipRequestId(bytes: Uint8Array, fileName: string, note: string, after: string): Promise<string> {
+  const noteBytes = new TextEncoder().encode(`\n${fileName.trim()}\n${note.trim()}\n${after}`);
   const joined = new Uint8Array(bytes.length + noteBytes.length);
   joined.set(bytes);
   joined.set(noteBytes, bytes.length);
@@ -61,11 +64,12 @@ export async function sendVipApplication(
   api: ApiClient,
   file: { name: string; type: string; bytes: Uint8Array },
   note: string,
+  after: string,
 ): Promise<ApiResult<{ application: VipApplication }>> {
   return api.rest(VIP_APPLICATIONS, z.object({ application: applicationSchema }), {
     method: 'POST',
     body: {
-      requestId: await vipRequestId(file.bytes, note),
+      requestId: await vipRequestId(file.bytes, file.name, note, after),
       proof: { fileName: file.name, contentType: fileType(file), bytesBase64: toBase64(file.bytes) },
       ...(note.trim() ? { note: note.trim() } : {}),
     },

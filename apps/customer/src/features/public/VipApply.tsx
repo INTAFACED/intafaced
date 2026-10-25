@@ -27,13 +27,15 @@ export function VipApply() {
   return (
     <VipApplyView
       load={load}
-      send={async (file, note) => {
+      send={async (file, note, after) => {
         const result = await sendVipApplication(
           env.api,
           { name: file.name, type: file.type, bytes: new Uint8Array(await file.arrayBuffer()) },
           note,
+          after,
         );
-        if (result.ok) env.poller.refresh(SOURCE_KEY);
+        // Every answer re-reads the list: an answer that never came may still have kept the application.
+        env.poller.refresh(SOURCE_KEY);
         return result;
       }}
     />
@@ -41,6 +43,7 @@ export function VipApply() {
 }
 
 type Sent = ApiResult<{ application: VipApplication }>;
+type Send = (file: File, note: string, after: string) => Promise<Sent>;
 type Copy = ReturnType<typeof feeTierCopy.useCopy>;
 
 /** The words for a send that did not keep an application, naming the accepted files where that is the fix. */
@@ -61,12 +64,21 @@ function refusedLine(copy: Copy, result: Extract<Sent, { ok: false }>, file: Fil
       return copy.t('vipRefused_proof_key_unset');
     case 'vip.application_open':
       return copy.t('vipRefused_application_open');
+    case 'vip.request_invalid':
+      return copy.t('vipRefused_request_invalid');
+    case 'vip.file_invalid':
+      return copy.t('vipRefused_file_invalid');
+    case 'vip.request_reused':
+      return copy.t('vipRefused_request_reused');
     default:
+      // The edge refuses a body over its own limit before the service sees it.
+      if (result.status === 413) return copy.t('vipRefused_upload_too_large');
+      if (result.reason === 'uncertain' || result.reason === 'unreachable') return copy.t('vipUncertain');
       return copy.t('vipRefused_other', { message: result.message });
   }
 }
 
-export function VipApplyView({ load, send }: { load: Loadable<VipApplications>; send: (file: File, note: string) => Promise<Sent> }) {
+export function VipApplyView({ load, send }: { load: Loadable<VipApplications>; send: Send }) {
   const copy = feeTierCopy.useCopy();
   const [file, setFile] = useState<File | null>(null);
   const [note, setNote] = useState('');
@@ -75,6 +87,8 @@ export function VipApplyView({ load, send }: { load: Loadable<VipApplications>; 
   const data = load.status === 'ready' ? load.data : null;
   const rules = data?.rules ?? null;
   const waiting = data?.applications.some((application) => application.status === 'pending') ?? false;
+  // The newest application before this send, so applying again after a decision is a new request.
+  const after = data?.applications[0]?.id ?? 'none';
 
   const submit = async () => {
     if (!file || !rules || busy) return;
@@ -83,11 +97,18 @@ export function VipApplyView({ load, send }: { load: Loadable<VipApplications>; 
       setLine({ ok: false, text: copy.t('vipRefused_file_too_large', { size: sizeName(rules.maxBytes) }) });
       return;
     }
+    if (file.name.trim().length > 200) {
+      setLine({ ok: false, text: copy.t('vipRefused_name_too_long') });
+      return;
+    }
     setBusy(true);
     setLine(null);
     try {
-      const result = await send(file, note);
-      if (result.ok) {
+      const result = await send(file, note, after);
+      if (result.ok && result.data.application.status !== 'pending') {
+        const status = copy.t(`vipStatus_${result.data.application.status}` as const);
+        setLine({ ok: false, text: copy.t('vipEarlier', { status }) });
+      } else if (result.ok) {
         setLine({ ok: true, text: copy.t('vipSent', { file: result.data.application.proof.fileName }) });
         setFile(null);
         setNote('');
@@ -113,9 +134,13 @@ export function VipApplyView({ load, send }: { load: Loadable<VipApplications>; 
         </p>
       ) : null}
       {load.status === 'refused' ? <p role="alert">{refusalCopy(load.code).title}</p> : null}
-      {data && !rules ? <p data-vip="not-open">{copy.t('vipNotOpen')}</p> : null}
+      {data && !rules ? (
+        <p data-vip="not-open">{data.closed === 'vip.proof_key_unset' ? copy.t('vipNotOpenKey') : copy.t('vipNotOpen')}</p>
+      ) : null}
       {rules ? (
-        <p data-vip="rules">{copy.t('vipRules', { types: rules.proofTypes.map(typeName).join(', '), size: sizeName(rules.maxBytes) })}</p>
+        <p id="vip-apply-rules" data-vip="rules">
+          {copy.t('vipRules', { types: rules.proofTypes.map(typeName).join(', '), size: sizeName(rules.maxBytes) })}
+        </p>
       ) : null}
       {rules && waiting ? (
         <p role="status" data-vip="waiting">
@@ -136,6 +161,8 @@ export function VipApplyView({ load, send }: { load: Loadable<VipApplications>; 
             <input
               type="file"
               accept={rules.proofTypes.join(',')}
+              aria-describedby={line && !line.ok ? 'vip-apply-rules vip-apply-result' : 'vip-apply-rules'}
+              aria-invalid={line && !line.ok ? true : undefined}
               onChange={(event) => {
                 setFile(event.target.files?.[0] ?? null);
                 setLine(null);
@@ -147,14 +174,14 @@ export function VipApplyView({ load, send }: { load: Loadable<VipApplications>; 
             <textarea value={note} maxLength={1000} rows={3} onChange={(event) => setNote(event.target.value)} />
           </label>
           <p>
-            <button type="submit" className="button button--primary" disabled={!file || busy}>
+            <button type="submit" className="button button--primary" disabled={!file || busy} aria-busy={busy || undefined}>
               {busy ? copy.t('vipSending') : copy.t('vipSend')}
             </button>
           </p>
         </form>
       ) : null}
       {line ? (
-        <p role={line.ok ? 'status' : 'alert'} data-vip-result={line.ok ? 'sent' : 'refused'}>
+        <p id="vip-apply-result" role={line.ok ? 'status' : 'alert'} data-vip-result={line.ok ? 'sent' : 'refused'}>
           {line.text}
         </p>
       ) : null}

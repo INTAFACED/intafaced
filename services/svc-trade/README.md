@@ -458,11 +458,14 @@ service recognises from a file's first bytes: `application/pdf`, `image/png`, `i
 `{requestId, proof: {fileName, contentType, bytesBase64}, note?}` (`trade:write`) checks the type against the bytes,
 then keeps the proof encrypted with `TRADE_VIP_PROOF_KEY` (32 bytes as hex or base64; AES-256-GCM bound to the row id
 and the file's SHA-256; blank refuses `vip.proof_key_unset`) and appends a `pending` event. One application waits per
-person (`vip.application_open`); the same `requestId` with the same file and note answers the application it made
-(200), with anything else `vip.request_reused`. `GET /api/v1/vip/applications` (`trade:read`) answers the rules and
+person (`vip.application_open`). The same `requestId` with the same file, name and note answers the application it
+made (200), even after the rules change; with anything else it refuses `vip.request_reused`. A name or note with a
+control or direction-override character refuses `vip.request_invalid`. `GET /api/v1/vip/applications` (`trade:read`)
+answers the rules, `closed` (`vip.application_unset` or `vip.proof_key_unset` when not open, with `rules: null`) and
 the caller's own applications, metadata only: the file never leaves the service on this door. The edge's
 `EDGE_BODY_LIMIT_BYTES` also bounds an upload: base64 adds a third, so a `maxBytes` above three quarters of it is
-refused at the edge first. The compliance review that decides an application is not built yet (SP-fees-vip-04 part 2).
+refused at the edge first (the screen says the file is too large to upload). The compliance review that decides an
+application is not built yet (SP-fees-vip-04 part 2).
 
 ---
 

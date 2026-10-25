@@ -2,8 +2,9 @@
  * The person's own VIP applications (SP-fees-vip-04, J-cex-spot-10 #7), self only: the user is the edge-signed
  * principal, never a body or query field.
  *
- *   GET  /api/v1/vip/applications  the owner's rules (accepted types and largest file, or null: not open) and the
- *                                  person's applications, metadata only.
+ *   GET  /api/v1/vip/applications  the owner's rules (accepted types and largest file) and the person's applications,
+ *                                  metadata only. Not open: rules null and `closed` names why (the owner's rules or
+ *                                  the proof key unset), so the screen says it before anyone sends a file.
  *   POST /api/v1/vip/applications  { requestId, proof: { fileName, contentType, bytesBase64 }, note? } → 201, or 200 for
  *                                  the same request again. Refusals name their code (vip-applications.ts).
  */
@@ -38,7 +39,7 @@ export interface VipRestDeps {
   edgeSecret: string;
   edgeTrust?: EdgeTrust;
   serviceName: string;
-  store: Pick<VipApplicationStore, 'submit' | 'listOwn'>;
+  store: Pick<VipApplicationStore, 'submit' | 'listOwn' | 'keyed'>;
   scheduleAt(at: Date): Promise<OwnerFeeSchedule>;
   now?: () => Date;
 }
@@ -70,7 +71,8 @@ export function registerVipRest(app: FastifyInstance, deps: VipRestDeps): void {
     const who = principalOf(req, 'trade:read');
     if (who.refused) return reply.code(who.refused.status).send({ code: who.refused.code, message: who.refused.message });
     const { rules } = await rulesNow(deps);
-    return reply.code(200).send({ rules, applications: await deps.store.listOwn(who.userId) });
+    const closed = !rules ? 'vip.application_unset' : !deps.store.keyed ? 'vip.proof_key_unset' : null;
+    return reply.code(200).send({ rules: closed ? null : rules, closed, applications: await deps.store.listOwn(who.userId) });
   });
 
   app.post(VIP_APPLICATIONS_PATH, { bodyLimit: VIP_APPLICATION_BODY_LIMIT }, async (req, reply) => {
