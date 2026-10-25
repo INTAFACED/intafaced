@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, publicProcedure, protectedProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, publicProcedure, protectedProcedure, scopedProcedure, anyScopeProcedure, TRPCError } from '@intafaced/contracts';
 import { InsufficientFundsError, LedgerError, formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { hasScope } from '@intafaced/auth';
 import {
@@ -9,11 +9,22 @@ import {
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 import { DualControlError, requireDualControl } from './dual-control.js';
-import { TokenError, previewStakeTerms, type BuybackRunResult, type TokenService, type YieldRunResult } from './token-service.js';
+import {
+  TokenError,
+  feeDiscountLadderToPublish,
+  previewStakeTerms,
+  type BuybackRunResult,
+  type TokenService,
+  type YieldRunResult,
+} from './token-service.js';
 import { publishedStakeTiers, stakingAssetPublication } from './terms.js';
 import { requireTokenJobService } from './job-hmac.js';
 import { DELEGATION_BLOCKER, refuseDelegation, unavailableDelegation } from './delegation.js';
 import { userCopy } from './user-copy.js';
+import { feeDiscountSchedulePayload } from './economics/staking.js';
+
+/** The founders' approval that publishes the fee-decay schedule; the router binds the ladder and the version it replaces. */
+export const FEE_DISCOUNT_PUBLISH_ACTION = 'token.fee_discount.publish';
 
 /**
  * svc-token API surface.
@@ -200,7 +211,11 @@ function toTrpcError(err: unknown): TRPCError {
       // posted irreversibly.
       case 'token.buyback_window_overlap':
       case 'token.buyback_run_conflict':
+      case 'token.fee_discount_stale':
         return new TRPCError({ code: 'CONFLICT', message, cause: err });
+      // The ladder's own error names the step that is wrong; the copy alone would not tell the owner which.
+      case 'token.fee_discount_invalid':
+        return new TRPCError({ code: 'BAD_REQUEST', message: `${message} ${err.message}`, cause: err });
       case 'token.buyback_window_invalid':
       case 'token.buyback_revenue_invalid':
       case 'token.buyback_tokens_unmoved':
@@ -771,6 +786,72 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
           };
         }),
       ),
+
+    /**
+     * The published fee-decay schedule (§4.3): stake thresholds to fee discount bps, the ladder `accessOf` reads.
+     * `get` answers the stored row (null while blank) and its version to any token reader, since it prices their fees,
+     * and to the operators who publish it. It is the published price list, not account data, so it carries no module
+     * gate (an operator session has no KYC tier).
+     * `publish` is the owner's door until governance executes `fee_param` proposals: two founders approve exactly this
+     * ladder over exactly the version it replaces (`token.fee_discount.publish`), and the proposer writes it.
+     */
+    feeDiscount: router({
+      get: anyScopeProcedure(['token:read', 'admin:read'])
+        .output(z.object({ schedule: z.unknown(), version: z.string() }))
+        .query(() => guard(() => token.feeDiscountScheduleRow())),
+      publish: scopedProcedure('admin:write')
+        .input(
+          z.object({
+            schedule: z
+              .object({
+                basis: z.literal('staked'),
+                tiers: z
+                  .array(z.object({ minStake: z.string().min(1).max(64), discountBps: z.number().int() }).strict())
+                  .min(1)
+                  .max(32),
+              })
+              .strict(),
+            expectedVersion: z.string().min(1).max(80),
+            approvalId: z.string().max(128).nullish(),
+            operationId: z.string().max(128).nullish(),
+          }),
+        )
+        .output(
+          z.object({
+            schedule: z.object({
+              basis: z.literal('staked'),
+              tiers: z.array(z.object({ minStake: z.string(), discountBps: z.number().int() })),
+            }),
+            version: z.string(),
+            previousVersion: z.string(),
+            confirmOperatorId: z.string(),
+          }),
+        )
+        .mutation(({ ctx, input }) =>
+          guard(async () => {
+            // Refuse a ladder the door would refuse, or a version already replaced, before the founders' approval is
+            // spent on it. The write checks the version again under its lock.
+            feeDiscountLadderToPublish(input.schedule);
+            const stored = await token.feeDiscountScheduleRow();
+            if (stored.version !== input.expectedVersion) {
+              throw new TokenError(
+                `expectedVersion ${input.expectedVersion} is stale; the stored schedule is ${stored.version}`,
+                'token.fee_discount_stale',
+              );
+            }
+            const consumed = await consumeTokenApproval(
+              approvals,
+              input,
+              FEE_DISCOUNT_PUBLISH_ACTION,
+              { schedule: feeDiscountSchedulePayload(input.schedule), expectedVersion: input.expectedVersion },
+              input.expectedVersion,
+            );
+            const confirmOperatorId = requireDualControl(ctx.principal.userId, consumed.approverId);
+            const result = await token.publishFeeDiscountSchedule({ schedule: input.schedule, expectedVersion: input.expectedVersion });
+            return { ...result, confirmOperatorId };
+          }),
+        ),
+    }),
 
     recordBuyback: scopedProcedure('admin:treasury')
       .input(

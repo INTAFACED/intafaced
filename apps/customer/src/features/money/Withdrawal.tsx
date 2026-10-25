@@ -7,6 +7,7 @@ import { Button, EmptyState, Failure, Field, Loading, Page } from '../../shared/
 import { useSession } from '../session/session';
 import { amount, date, Section } from './components';
 import { WithdrawForm } from './WithdrawForm';
+import { INTERNAL_RAIL } from './withdraw-destination';
 import { allowlistCopy } from './withdrawal-allowlist-copy';
 import { supportedAssetsCopy } from './supported-assets-copy';
 import { useSupportedAssets } from './supported-assets-reads';
@@ -236,8 +237,8 @@ function List({ current }: { current: () => boolean }) {
                           >
                             {t(`s_${item.status}`)}
                           </span>
-                          <span className="withdrawal-rail" lang="und">
-                            {item.rail}
+                          <span className="withdrawal-rail" lang={item.rail === INTERNAL_RAIL ? undefined : 'und'}>
+                            {item.rail === INTERNAL_RAIL ? t('rInside') : item.rail}
                           </span>
                           <time dateTime={item.createdAt}>{date(item.createdAt)}</time>
                         </div>
@@ -387,7 +388,7 @@ function Detail({ id, current }: { id: string; current: () => boolean }) {
           {record.destination.kind} · {record.destination.ref}
         </span>,
       ],
-      [t('rail'), <span lang="und">{record.rail}</span>],
+      [t('rail'), record.rail === INTERNAL_RAIL ? t('rInside') : <span lang="und">{record.rail}</span>],
       [
         t('railRef'),
         record.railRef === null ? (

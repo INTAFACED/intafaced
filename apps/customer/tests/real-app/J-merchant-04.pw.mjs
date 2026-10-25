@@ -399,6 +399,75 @@ test(`${J} #4 the payer opens the link: the fixed amount and asset before confir
   await expect(print).toContainText('1 of 1');
 });
 
+/** The owner's pending (clearing) figure for one asset on the balance page. */
+async function pendingBalance(page, asset) {
+  await page.goto('/pay/money');
+  const row = page.getByRole('row').filter({ hasText: asset });
+  await expect(row).toHaveCount(1);
+  return (await row.textContent())?.replace(/\s+/g, ' ').trim();
+}
+
+test(`${J} #5 the payer pays in two transfers: TEST 60 of TEST 100 received and TEST 40 missing with no credit yet; the second confirmed transfer completes it once`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(420_000);
+  const state = journey();
+  await signInOwner(page, state, '/pay/links');
+  const refused = refusedPayCalls(page);
+  // Its own label per run, so a re-run on the same business finds this link's row.
+  const label = `TEST Invoice in two parts ${Date.now().toString(36)}`;
+  const address = await makeLink(page, label, '100', 'USDT');
+  expect(refused).toEqual([]);
+  const before = await pendingBalance(page, 'USDT');
+
+  const payer = await browser.newContext();
+  try {
+    const payerPage = await payer.newPage();
+    await payerPage.goto(address);
+    await expect(payerPage.locator('.amount')).toHaveText('100.00 USDT');
+    const reference = await payerContinues(payerPage);
+    const sessionUrl = payerPage.url();
+    const run = Date.now();
+
+    // The first TEST transfer covers part of it: the page says what arrived and what is missing.
+    tool('local-test-stack.mjs', 'chain-deposit', reference, 'USDT', '60', '12', '--tx', `j-merchant-04-part-1-${run}`);
+    await expect(async () => {
+      await payerPage.goto(sessionUrl);
+      await expect(payerPage.getByRole('status')).toHaveText('60.00 USDT of 100.00 USDT received, 40.00 USDT missing', { timeout: 2_000 });
+    }).toPass({ timeout: 60_000 });
+    await expect(payerPage.getByText('Send the missing 40.00 USDT to the same reference')).toBeVisible();
+    await expect(payerPage.locator('.reference code')).toHaveText(reference);
+
+    // No credit yet: the owner's pending balance has not moved.
+    expect(await pendingBalance(page, 'USDT')).toBe(before);
+
+    // The second confirmed TEST transfer completes the payment.
+    tool('local-test-stack.mjs', 'chain-deposit', reference, 'USDT', '40', '12', '--tx', `j-merchant-04-part-2-${run}`);
+    await expect(async () => {
+      await payerPage.goto(sessionUrl);
+      await expect(payerPage.getByText('Payment received')).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 60_000 });
+    await expect(payerPage.locator('.amount')).toHaveText('100.00 USDT');
+
+    // Once: delivering the second transfer again books nothing more.
+    const after = await pendingBalance(page, 'USDT');
+    expect(after).not.toBe(before);
+    tool('local-test-stack.mjs', 'chain-deposit', reference, 'USDT', '40', '12', '--tx', `j-merchant-04-part-2-${run}`);
+    expect(await pendingBalance(page, 'USDT')).toBe(after);
+  } finally {
+    await payer.close();
+  }
+
+  // The owner sees the link used once.
+  await page.goto('/pay/links');
+  const invoice = page.getByRole('row').filter({ hasText: label });
+  await expect(invoice).toBeVisible();
+  const usesColumn = (await page.getByRole('columnheader').allTextContents()).findIndex((h) => h.trim() === 'Completed payments');
+  expect(usesColumn).toBeGreaterThanOrEqual(0);
+  await expect(invoice.getByRole('cell').nth(usesColumn)).toHaveText('1');
+});
+
 test(`${J} #7 the payer is offered only the methods for the country and currency in the set order; bank debit with no rail shows rail.bank; a crypto payment completes`, async ({
   page,
   browser,

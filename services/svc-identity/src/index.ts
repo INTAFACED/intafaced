@@ -94,6 +94,8 @@ import { createSelfFreezeLiftRouter } from './self-freeze-lift-router.js';
 import { createSecurityLockRouter } from './security-lock-router.js';
 import { createMfaResetRouter } from './mfa-reset-router.js';
 import { createSupportRecoveryRouter } from './support-recovery-router.js';
+import { createRecoveryKeysRouter } from './recovery-keys-router.js';
+import { RecoveryKeys } from './auth/recovery-keys.js';
 import { createTrustedDevicesRouter } from './trusted-devices-router.js';
 import { SecurityLock } from './auth/security-lock.js';
 import { SelfFreezeLift } from './auth/self-freeze-lift.js';
@@ -139,6 +141,7 @@ import { SqlWaitlistStore } from './waitlist/waitlist-store.js';
 import { parseWaveSize, WaitlistService } from './waitlist/waitlist-service.js';
 import { registerAffiliateProducerAccrue } from './affiliates/producer-accrue.js';
 import { registerBusinessDirectoryRoutes, sqlBusinessDirectory } from './business-directory.js';
+import { registerHolderNameCheck } from './holder-name-check.js';
 import { registerAffiliateProducerPayout } from './affiliates/producer-payout.js';
 import { createNavigatorSessionStore } from './agents/navigator-session-store.js';
 import { registerNavigatorSessionRoutes } from './agents/navigator-session-routes.js';
@@ -687,6 +690,7 @@ export const appRouter = mergeRouters(
   createMfaResetRouter(auth),
   createSupportRecoveryRouter(() => auth.supportRecoveryDeps()),
   createTrustedDevicesRouter(auth, securityStepUp),
+  createRecoveryKeysRouter(new RecoveryKeys(sql, securityStepUp, founderPair ?? [])),
   createActionApprovalRouter(actionApprovals, {
     privilegedUserIds: founderPair ?? [],
     // Fresh factor for money-out step-up: the same verification as `auth.stepUp`, token discarded.
@@ -794,6 +798,9 @@ registerBusinessDirectoryRoutes(app, {
   store: sqlBusinessDirectory(sql),
   installRawBody: false,
 });
+
+// The own-name rule for svc-p2p's payout destinations (P-ads-merchant-18): only the outcome leaves identity.
+registerHolderNameCheck(app, { internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s, details: customerDetails });
 
 registerClosureFinalize(app, { secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s, closure });
 registerAffiliateProducerPayout(app, {

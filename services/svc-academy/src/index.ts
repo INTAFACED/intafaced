@@ -17,6 +17,7 @@ import { videoGateFromEnv, videoStorageFromEnv } from './video/library.js';
 import { createTradePublicPaperFlagPort } from './paper/market-flag-verify.js';
 import { parseAmbassadorIfcPayLawJson, parseAmbassadorRevenueShareLawJson } from './ambassadors/ifc-pay-rate-law.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
+import { createQuizAddressResolver } from './curriculum/course-quizzes.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -183,6 +184,9 @@ export type AppRouter = typeof appRouter;
 // must fail to start, not start and serve every request as anonymous.
 const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, ...edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
 
+// AC-quizzes-01: built before the listener opens, so a malformed proxy range stops the service instead of reading no address.
+const quizAddress = createQuizAddressResolver(env.ACADEMY_TRUSTED_PROXY_CIDRS);
+
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 
 app.get('/health', async () => ({ ok: true, service: env.SERVICE_NAME }));
@@ -227,7 +231,10 @@ await app.register(fastifyTRPCPlugin, {
     createContext: ({ req }) => {
       const ctx = edgeContext(req);
       const peer = (req as { ip?: unknown }).ip;
-      return Object.assign(ctx, { clientAddress: typeof peer === 'string' ? peer.trim() : '' });
+      return Object.assign(ctx, {
+        clientAddress: typeof peer === 'string' ? peer.trim() : '',
+        quizClientAddress: quizAddress(req.socket.remoteAddress, req.headers['x-intafaced-client-ip']),
+      });
     },
   } satisfies FastifyTRPCPluginOptions<AcademyRouter>['trpcOptions'],
 });

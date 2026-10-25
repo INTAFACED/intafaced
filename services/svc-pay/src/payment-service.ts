@@ -379,6 +379,18 @@ export type PayErrorCode =
   | 'pay.withdrawal_not_cancellable'
   | 'pay.withdrawal_not_reversible'
   | 'pay.withdrawal_canceled'
+  /** W-withdraw-14: the address is one of the sender's own deposit addresses on the platform. Nothing is claimed. */
+  | 'pay.withdrawal_self_send'
+  /** W-withdraw-14: an internal send named an address that belongs to no account on the platform. */
+  | 'pay.internal_destination_external'
+  /** W-withdraw-14: the platform address is frozen, past its expiry, or names more than one account; nothing is claimed. */
+  | 'pay.internal_destination_unavailable'
+  /** W-withdraw-14: this process has no svc-bank client for internal settlement. */
+  | 'pay.internal_settlement_unwired'
+  /** W-withdraw-14: svc-bank proved nothing was posted and refused the send (`failureCode` names its reason). */
+  | 'pay.internal_settlement_refused'
+  | 'pay.internal_asset_unsupported'
+  | 'pay.withdrawal_platform_address'
   | 'pay.wallet_withdraw_unavailable'
   | 'pay.wallet_withdraw_disabled'
   | 'pay.wallet_typed_address'
@@ -1049,6 +1061,12 @@ export interface CheckoutSessionView {
    * learn a rail's shape to produce.
    */
   readonly instruction: { readonly reference: string; readonly amount: string; readonly currency: string } | null;
+  /**
+   * Part of the amount has arrived and the rest has not (J-merchant-04 step 5): decimal strings, as the rail last
+   * counted final transfers; `confirming` is sent but not yet final. Null until something final has arrived. Nothing is
+   * credited to the merchant before it is all in.
+   */
+  readonly progress?: { readonly received: string; readonly missing: string; readonly confirming: string } | null;
   readonly confirmationMessage?: string | null;
   readonly confirmationUrl?: string | null;
 }
@@ -2523,10 +2541,12 @@ export class PayService {
     const method = this.checkoutRails.find((r) => r.railId === row.rail_adapter)?.method ?? 'crypto';
 
     if (row.status !== 'open') {
-      return toCheckoutSessionView(row, row.label, method, {
+      const view = toCheckoutSessionView(row, row.label, method, {
         message: row.confirmation_message,
         url: row.confirmation_url,
       });
+      // A closed window over a payment paid in part: the payer must still see what arrived and where the rest goes.
+      return row.status === 'expired' ? { ...view, progress: await this.checkoutProgress(row.payment_id) } : view;
     }
 
     if (row.expires_at.getTime() <= this.now().getTime()) {
@@ -2536,12 +2556,40 @@ export class PayService {
         UPDATE pay.checkout_sessions SET status = 'expired', updated_at = now()
          WHERE id = ${row.id} AND status = 'open'
       `;
-      return toCheckoutSessionView({ ...row, status: 'expired' }, row.label, method);
+      const view = toCheckoutSessionView({ ...row, status: 'expired' }, row.label, method);
+      return { ...view, progress: await this.checkoutProgress(row.payment_id) };
     }
 
     // The resume: a session committed before the rail was asked. Idempotent on
     // the payment id, so re-running is free and produces the same address.
-    return toCheckoutSessionView(await this.ensureInstruction(row), row.label, method);
+    const view = toCheckoutSessionView(await this.ensureInstruction(row), row.label, method);
+    return { ...view, progress: await this.checkoutProgress(row.payment_id) };
+  }
+
+  /**
+   * What the rail last said has arrived for a payment paid in parts: the newest `rail.pending` event that counted
+   * something. Read from the payment's own events, so the page shows what the core recorded, never a figure of its own.
+   */
+  private async checkoutProgress(paymentId: string | null): Promise<CheckoutSessionView['progress']> {
+    if (!paymentId) return null;
+    const rows = await this.sql<Array<{ received: string | null; missing: string | null; confirming: string | null }>>`
+      SELECT e.payload->>'received' AS received, e.payload->>'missing' AS missing, e.payload->>'confirming' AS confirming
+        FROM pay.payment_events e
+        JOIN pay.payments p ON p.id = e.payment_id
+       WHERE e.payment_id = ${paymentId} AND e.event = 'rail.pending'
+         -- Only while the payment still takes the rest: once it is authorized, captured or failed, "send the missing"
+         -- would ask a payer for money nothing will count.
+         AND p.status = 'created'
+       ORDER BY e.seq DESC
+       LIMIT 1
+    `;
+    const latest = rows[0];
+    if (!latest?.received || !latest.missing) return null;
+    const received = parseAmount(latest.received);
+    const missing = parseAmount(latest.missing);
+    if (received <= 0n || missing <= 0n) return null;
+    const confirming = latest.confirming ? parseAmount(latest.confirming) : 0n;
+    return { received: formatAmount(received), missing: formatAmount(missing), confirming: formatAmount(confirming) };
   }
 
   /**

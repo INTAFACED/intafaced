@@ -167,6 +167,32 @@ describe('EvmLiveChain deposit scan cursor', () => {
   });
 });
 
+describe('EvmLiveChain inbound transfers', () => {
+  it('lists every transfer to an address oldest first, so a payment paid in parts adds up (J-merchant-04 step 5)', async () => {
+    const chain = chainWith();
+    const address = await chain.acceptanceAddress('pay-in-two-parts', 'ETH');
+    const first = '0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc' as Hex;
+    const second = '0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd' as Hex;
+    installRpc(chain, {
+      getBlockNumber: async () => 6n,
+      getBlock: async ({ blockNumber }) => {
+        if (blockNumber === 2n)
+          return block(blockNumber, [{ to: address, from: PAYER, value: parseAmount('0.06'), hash: first, transactionIndex: 0 }]);
+        if (blockNumber === 5n)
+          return block(blockNumber, [{ to: address, from: PAYER, value: parseAmount('0.04'), hash: second, transactionIndex: 1 }]);
+        return block(blockNumber);
+      },
+    });
+
+    expect(await chain.inboundTransfers(address)).toMatchObject([
+      { txHash: first, assetId: 'ETH', amount: parseAmount('0.06') },
+      { txHash: second, assetId: 'ETH', amount: parseAmount('0.04') },
+    ]);
+    expect(await chain.inboundTransfer(address)).toMatchObject({ txHash: first });
+    expect(await chain.inboundTransfers('not-an-address')).toEqual([]);
+  });
+});
+
 describe('EvmLiveChain inbound identity', () => {
   it.each(['contract', 'sender'] as const)(
     'does not finalize an original token deposit using a receipt with a foreign %s',

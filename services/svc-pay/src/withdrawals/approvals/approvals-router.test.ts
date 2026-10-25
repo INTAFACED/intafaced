@@ -224,7 +224,8 @@ describe('the direct door', () => {
     const caller = createPayRouter(
       {} as PayService,
       rails,
-      { withdraw } as unknown as UserMoneyService,
+      // An outside address (W-withdraw-14): the direct door keeps the named rail.
+      { withdraw, platformDestination: async () => ({ kind: 'external' }) } as unknown as UserMoneyService,
       null,
       undefined,
       undefined,

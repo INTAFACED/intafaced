@@ -107,6 +107,7 @@ import { KybApplicationService, readKybApplicationDueDays } from './kyb-applicat
 import { KYB_DOC_KEY_ENV, KybDocumentService, parseKybDocKey } from './kyb-documents.js';
 import { KybInformationRequestService } from './kyb-information-requests.js';
 import { KYB_MALWARE_SCANNER_ENV, openKybMalwareScanner } from './kyb-malware-scan.js';
+import { SCREENING_SCREENER_ENV, openScreeningScreener } from './screening/local-test-screener.js';
 import { SubMerchantService } from './submerchants.js';
 import { createSubMerchantRouter } from './submerchant-router.js';
 import { createSubscriptionRouter } from './subscription-router.js';
@@ -123,6 +124,7 @@ import {
   retainRawBody,
   createIdentityOperationDecisionClient,
   createBankApproverEligibilityClient,
+  createBankInternalWithdrawalClient,
   s2sFromEnv,
 } from '@intafaced/contracts';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
@@ -328,6 +330,8 @@ const payGuards = buildPayGuards({
   kycTierOf: kycTierSource,
   limitSource,
   custodyPolicyMode: loadCustodyPolicyMode(process.env),
+  // No screener is connected: blank refuses every custodial send. `local-test` is the test stack's stand-in (dev/test only).
+  screening: openScreeningScreener({ appEnv: process.env.APP_ENV, setting: process.env[SCREENING_SCREENER_ENV] }) ?? undefined,
 });
 const conversion = new ConversionService({
   sql,
@@ -543,6 +547,11 @@ const userMoney = new UserMoneyService(sql, ledger, rails, {
     purchase_hold: purchaseHoldSource(purchaseHolds, ledger),
   }),
   purchaseHolds,
+  // W-withdraw-14: a withdrawal to another account's platform address is one send at svc-bank. Without BANK_URL it is not
+  // wired, so such a withdrawal refuses (`pay.internal_settlement_unwired`) before anything is claimed.
+  internalSettlement: env.BANK_URL
+    ? createBankInternalWithdrawalClient({ bankUrl: env.BANK_URL, secret: env.INTERNAL_SERVICE_SECRET, s2s: s2sKey })
+    : undefined,
 });
 
 /**

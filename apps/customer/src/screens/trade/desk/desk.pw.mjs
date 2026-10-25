@@ -1152,7 +1152,7 @@ test('fee line: this order’s rate and role from the check, and the listed pair
   await ready(page);
   await fillBuy(page, { price: '63999.9', amount: '0.0001' });
   await expect(buyForm(page)).toContainText('Fee up to 0.10%'); // a resting limit may fill as a maker, so "up to"
-  await expect(buyForm(page)).toContainText('Listed: maker 0.08% · taker 0.12%');
+  await expect(buyForm(page)).toContainText('Your rates: maker 0.08% · taker 0.12%');
 });
 
 test('a frozen ledger: the service refuses the order with a generic error; the desk says orders are paused, nothing rests, Buy works again', async ({

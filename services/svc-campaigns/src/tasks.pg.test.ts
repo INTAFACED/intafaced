@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { createTestDatabase, postgresAvailable, type TestDatabase } from '@intafaced/db/testing';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import {
+  LedgerError,
   MemoryLedger,
   houseFees,
   parseAmount,
@@ -69,6 +70,7 @@ const STEPS: CampaignTasks = {
     { title: 'TEST trade twice', event: 'trade.fill', market: null, side: null, count: 2, streakDays: null },
   ],
   claimWindowSeconds: 3600,
+  holdSeconds: 0,
   kycGate: 'full',
 };
 
@@ -113,11 +115,15 @@ const fill = (userId: string, over: Partial<FillEvent> = {}): FillEvent => ({
   ...over,
 });
 
-/** A ledger that can drop the reply of a post that booked, or fail before sending, on demand. */
+/**
+ * A ledger that can drop the reply of a post that booked, or fail before sending, on demand; `frozen` refuses every post
+ * as svc-ledger does under the platform posting freeze, until it is set back.
+ */
 function flaky(inner: MemoryLedger) {
-  const mode = { next: 'ok' as 'ok' | 'lose-reply' | 'never-sent' };
+  const mode = { next: 'ok' as 'ok' | 'lose-reply' | 'never-sent', frozen: false };
   const ledger: LedgerClient = {
     post: async (request: PostRequest) => {
+      if (mode.frozen) throw new LedgerError('Ledger posting is frozen: TEST freeze', 'ledger.frozen');
       const now = mode.next;
       mode.next = 'ok';
       if (now === 'never-sent') throw new Error('socket hang up');
@@ -421,10 +427,157 @@ if (!db) {
       await reconciles(parseAmount('10'));
     });
 
+    it('holds a claimed reward for its review period: on hold in the budget, nothing posted, then paid once when it ends', async () => {
+      const c = await joined({ tasks: { ...STEPS, holdSeconds: 600 } });
+      await earnFees('10');
+      await fundPot('TEST-pot-hold-1', '10');
+      await complete(c.id);
+      const claimed = await tasks.claim({ campaignId: c.id, accountId: ME });
+      expect(claimed.reward).toMatchObject({ state: 'held', ledgerTxId: null });
+      const until = new Date(claimed.reward.holdUntil!).getTime();
+      expect(Math.abs(until - (Date.now() + 600_000))).toBeLessThan(5_000);
+      expect((await campaigns().get({ id: c.id, accountId: ME })).budget.left).toBe('90');
+      // Before the hold ends: claiming again, the reconciler and a release pass post nothing.
+      expect(await tasks.claim({ campaignId: c.id, accountId: ME })).toMatchObject({ created: false, reward: { state: 'held' } });
+      expect(await tasks.releaseHolds()).toBe(0);
+      await reconcileLater();
+      expect(await free(ME)).toBe(0n);
+      // The hold ends: two release passes at once pay it once, under the reward's own key.
+      clock = new Date(until + 1_000);
+      expect((await Promise.all([tasks.releaseHolds(), tasks.releaseHolds()])).reduce((a, b) => a + b, 0)).toBe(1);
+      await tasks.releaseHolds();
+      await reconcileLater();
+      const p = await tasks.progress({ campaignId: c.id, accountId: ME });
+      expect(p.reward).toMatchObject({ state: 'posted' });
+      expect(p.reward!.attempts.map((a) => a.outcome)).toEqual(['held', 'released', 'posted']);
+      expect(await free(ME)).toBe(parseAmount('10'));
+      await reconciles(parseAmount('10'));
+    });
+
+    it('a hold that ends under the posting freeze stays still open, then posts once after the freeze lifts', async () => {
+      const c = await joined({ tasks: { ...STEPS, holdSeconds: 60 } });
+      await earnFees('10');
+      await fundPot('TEST-pot-hold-2', '10');
+      await complete(c.id);
+      const claimed = await tasks.claim({ campaignId: c.id, accountId: ME });
+      wire.mode.frozen = true;
+      clock = new Date(new Date(claimed.reward.holdUntil!).getTime() + 1_000);
+      expect(await tasks.releaseHolds()).toBe(1);
+      expect((await tasks.progress({ campaignId: c.id, accountId: ME })).reward).toMatchObject({
+        state: 'pending_retry',
+        reason: 'ledger.frozen',
+      });
+      await reconcileLater();
+      expect((await tasks.progress({ campaignId: c.id, accountId: ME })).reward?.state).toBe('pending_retry');
+      expect(await free(ME)).toBe(0n);
+      wire.mode.frozen = false;
+      await reconcileLater();
+      await reconcileLater();
+      const p = await tasks.progress({ campaignId: c.id, accountId: ME });
+      expect(p.reward?.state).toBe('posted');
+      expect(p.reward!.attempts.filter((a) => a.outcome === 'posted')).toHaveLength(1);
+      expect(await free(ME)).toBe(parseAmount('10'));
+      await reconciles(parseAmount('10'));
+    });
+
+    it('withholds a held reward whose account is frozen when the hold ends; an unread account stays held', async () => {
+      const c = await joined({ tasks: { ...STEPS, holdSeconds: 60 } });
+      await earnFees('10');
+      await fundPot('TEST-pot-hold-3', '10');
+      await complete(c.id);
+      const claimed = await tasks.claim({ campaignId: c.id, accountId: ME });
+      clock = new Date(new Date(claimed.reward.holdUntil!).getTime() + 1_000);
+      people.delete(ME);
+      expect(await tasks.releaseHolds()).toBe(0);
+      expect((await tasks.progress({ campaignId: c.id, accountId: ME })).reward?.state).toBe('held');
+      people.set(ME, person(ME, { status: 'frozen' }));
+      expect(await tasks.releaseHolds()).toBe(0);
+      const p = await tasks.progress({ campaignId: c.id, accountId: ME });
+      expect(p.reward).toMatchObject({ state: 'withheld', reason: 'account.frozen' });
+      expect(p.reward!.attempts.map((a) => a.outcome)).toEqual(['held', 'withheld']);
+      await reconcileLater();
+      expect(await free(ME)).toBe(0n);
+      expect(await book.getTxByKey(`reward:${claimed.reward.rewardKey}`)).toBeNull();
+      // Active again after the claim window closed: the claim was made in time and the hold was served, so it pays now.
+      people.set(ME, person(ME));
+      clock = new Date(Date.now() + 2 * HOUR);
+      const paid = await tasks.claim({ campaignId: c.id, accountId: ME });
+      expect(paid.reward.state).toBe('posted');
+      expect(paid.reward.attempts.map((a) => a.outcome)).toEqual(['held', 'withheld', 'qualified', 'posted']);
+      await reconciles(parseAmount('10'));
+    });
+
+    it('an account that cannot be read goes behind the other due holds, so it never blocks them', async () => {
+      const first = await joined({ tasks: { ...STEPS, holdSeconds: 60 } });
+      const second = await joined({ tasks: { ...STEPS, holdSeconds: 60 } }, YOU);
+      await earnFees('20');
+      await fundPot('TEST-pot-hold-4', '20');
+      await complete(first.id);
+      await complete(second.id, YOU);
+      await tasks.claim({ campaignId: first.id, accountId: ME });
+      await tasks.claim({ campaignId: second.id, accountId: YOU });
+      clock = new Date(Date.now() + 120_000);
+      people.delete(ME);
+      // One row a pass: the unread one is looked at first, then goes to the back, and the next pass releases the other.
+      expect(await tasks.releaseHolds(1)).toBe(0);
+      expect(await tasks.releaseHolds(1)).toBe(1);
+      expect((await tasks.progress({ campaignId: second.id, accountId: YOU })).reward?.state).toBe('posted');
+      expect((await tasks.progress({ campaignId: first.id, accountId: ME })).reward?.state).toBe('held');
+    });
+
+    it('a blank hold refuses activation, and a claim on a campaign stored without one', async () => {
+      const s = campaigns();
+      const draft = await s.create({ definition: definition({ tasks: { ...STEPS, holdSeconds: null } }), actor: A });
+      expect(await code(s.transition({ id: draft.id, action: 'submit', revision: 1, actor: A }))).toBe('campaigns.hold_period_unset');
+      const c = await joined();
+      await complete(c.id);
+      await db.sql`UPDATE campaigns.campaigns SET tasks = tasks - 'holdSeconds' WHERE id = ${c.id}`;
+      expect(await code(tasks.claim({ campaignId: c.id, accountId: ME }))).toBe('campaigns.hold_period_unset');
+      expect((await db.sql`SELECT count(*)::int AS n FROM campaigns.reward_intents`)[0]!.n).toBe(0);
+    });
+
+    it('My Rewards lists only my own rewards in plain status, with totals summed from the rows', async () => {
+      expect(await tasks.myRewards({ accountId: ME })).toEqual({ rewards: [], totals: [], more: false });
+      const paid = await joined();
+      const held = await joined({ tasks: { ...STEPS, holdSeconds: 3600 } });
+      const open = await joined({ reward: { asset: 'USDT', amount: '2.5' } });
+      const theirs = await joined({}, YOU);
+      await earnFees('20');
+      await fundPot('TEST-pot-hub', '20');
+      await tasks.onFill(fill(ME, { side: 'buy' }));
+      await tasks.onFill(fill(ME, { side: 'sell' }));
+      await tasks.onFill(fill(YOU, { side: 'buy' }));
+      await tasks.onFill(fill(YOU, { side: 'sell' }));
+      await tasks.claim({ campaignId: paid.id, accountId: ME });
+      await tasks.claim({ campaignId: held.id, accountId: ME });
+      wire.mode.frozen = true;
+      await tasks.claim({ campaignId: open.id, accountId: ME });
+      wire.mode.frozen = false;
+      await tasks.claim({ campaignId: theirs.id, accountId: YOU });
+      const mine = await tasks.myRewards({ accountId: ME });
+      expect(mine.rewards.map((r) => [r.campaignId, r.state, r.status]).sort()).toEqual(
+        [
+          [paid.id, 'posted', 'posted'],
+          [held.id, 'held', 'on_hold'],
+          [open.id, 'pending_retry', 'still_open'],
+        ].sort(),
+      );
+      expect(mine.rewards.every((r) => r.campaignName.startsWith('TEST task campaign'))).toBe(true);
+      expect(mine.rewards.find((r) => r.status === 'posted')!.ledgerTxId).toBeTruthy();
+      expect(mine.rewards.find((r) => r.status === 'on_hold')!.holdUntil).toBeTruthy();
+      expect(mine.totals.sort((a, b) => a.status.localeCompare(b.status))).toEqual([
+        { status: 'on_hold', asset: 'USDT', amount: '10', count: 1 },
+        { status: 'posted', asset: 'USDT', amount: '10', count: 1 },
+        { status: 'still_open', asset: 'USDT', amount: '2.5', count: 1 },
+      ]);
+      expect(mine.more).toBe(false);
+    });
+
     it('a streak step counts days in a row in the zone; a missed day resets it, and a full run completes it once', async () => {
       const streak: CampaignTasks = {
         steps: [{ title: 'TEST trade 3 days in a row', event: 'trade.fill', market: null, side: null, count: 1, streakDays: 3 }],
         claimWindowSeconds: 3600,
+        holdSeconds: 0,
         kycGate: 'full',
       };
       const c = await joined({ tasks: streak, startsAt: new Date(Date.now() - 10 * 24 * HOUR).toISOString() });
@@ -454,6 +607,7 @@ if (!db) {
       const bad: CampaignTasks = {
         steps: [{ title: 'TEST', event: 'trade.fill', market: null, side: null, count: 2, streakDays: 3 }],
         claimWindowSeconds: 3600,
+        holdSeconds: 0,
         kycGate: 'none',
       };
       expect(await code(campaigns().create({ definition: definition({ tasks: bad }), actor: A }))).toBe('campaigns.tasks_invalid');

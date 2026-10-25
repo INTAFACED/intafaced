@@ -111,6 +111,36 @@ export const securityLockSchema = z
 export type SecurityLockView = z.infer<typeof securityLockSchema>;
 
 /**
+ * OWN-NAME RULE (P-ads-merchant-18, J-p2p-04 #2). A service that stores a payout destination in the person's own name
+ * asks identity whether the holder name it was given is the account's verified legal name. svc-identity compares, so the
+ * legal name never leaves it: the caller sends a name and gets only the outcome. `POST /internal/holder-name-check`,
+ * service credentials, body-bound; svc-p2p is the only caller today.
+ *
+ * - `match` / `mismatch`: the names compared after identity's normalising (case, Latin accents, spacing, dashes,
+ *   apostrophes, full stops and commas do not count; the words and their order do).
+ * - `unverified`: identity holds no verified legal name for the account. The caller refuses; it never reads as a match.
+ * - `unconfigured`: identity's details key is unset, so no name can be read. The caller refuses.
+ * - `inactive`: the account is frozen, closed or archived. The caller refuses.
+ * The answer's userId is lower case. Unknown account: 404; a record identity cannot read: 503
+ * `identity.details_unreadable`. The caller refuses on both.
+ */
+export const IDENTITY_HOLDER_NAME_CHECK_PATH = '/internal/holder-name-check';
+export const holderNameCheckInputSchema = z
+  .object({
+    userId: z.string().guid(),
+    name: z.string().min(1).max(200),
+  })
+  .strict();
+export type HolderNameCheckInput = z.infer<typeof holderNameCheckInputSchema>;
+export const holderNameCheckSchema = z
+  .object({
+    userId: z.string().guid(),
+    outcome: z.enum(['match', 'mismatch', 'unverified', 'unconfigured', 'inactive']),
+  })
+  .strict();
+export type HolderNameCheck = z.infer<typeof holderNameCheckSchema>;
+
+/**
  * The locked-out second-step reset (I-signin-sessions-12, J-identity-05 #2/#3), svc-identity's top-level `mfaReset`.
  * `start` and `confirm` answer a view: a code sent to the masked proved address, or the wait with who was told. `sms`
  * names the missing texting rail when a proved phone could not be texted. `status` is the account's waiting reset, for

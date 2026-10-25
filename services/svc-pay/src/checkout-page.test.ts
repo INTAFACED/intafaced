@@ -134,6 +134,39 @@ describe('checkout page rendering', () => {
     expect(html).toContain('http-equiv="refresh"');
   });
 
+  it('says what part has arrived and what is missing, and keeps polling (J-merchant-04 step 5)', () => {
+    const { html } = renderCheckoutPage({
+      kind: 'session',
+      session: { ...stubSession, amount: '100', progress: { received: '60', missing: '40' } },
+    });
+    expect(html).toContain('60.00 USDT of 100.00 USDT received, 40.00 USDT missing');
+    expect(html).toContain('Send the missing 40.00 USDT to the same reference');
+    expect(html).toContain('0xacceptance000000000001');
+    expect(html).not.toContain('Payment received');
+    expect(html).toContain('http-equiv="refresh"');
+  });
+
+  it('never asks again for an amount already on its way, and keeps the reference on a closed window', () => {
+    const inFlight = renderCheckoutPage({
+      kind: 'session',
+      session: { ...stubSession, amount: '100', progress: { received: '60', missing: '40', confirming: '40' } },
+    });
+    expect(inFlight.html).toContain('60.00 USDT of 100.00 USDT received, 40.00 USDT missing');
+    expect(inFlight.html).toContain('40.00 USDT is on its way and waiting for confirmations.');
+    expect(inFlight.html).toContain('Nothing more to send');
+    expect(inFlight.html).not.toContain('Send the missing');
+
+    const closed = renderCheckoutPage({
+      kind: 'session',
+      session: { ...stubSession, status: 'expired', amount: '100', progress: { received: '60', missing: '40', confirming: '0' } },
+    });
+    // Not "Nothing has been charged": 60 arrived, and the rest still reaches the merchant.
+    expect(closed.html).not.toContain('Nothing has been charged');
+    expect(closed.html).toContain('Send the missing 40.00 USDT to the same reference');
+    expect(closed.html).toContain('0xacceptance000000000001');
+    expect(closed.html).toContain('the payment has not');
+  });
+
   it('says paid only when the session says completed', () => {
     const done = renderCheckoutPage({ kind: 'session', session: { ...stubSession, status: 'completed' } });
     expect(done.html).toContain('Payment received');

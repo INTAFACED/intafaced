@@ -179,6 +179,18 @@ describe('progress page (AC-progress-02)', () => {
   });
 });
 
+describe('progress page grades and courses staff made (AC-quizzes-01)', () => {
+  it('leaves a quiz in a course staff made out of the path grades', async () => {
+    const academy = service();
+    const itemId = '77777777-7777-4777-8777-777777777777';
+    await sql`
+      INSERT INTO academy.assessment_attempts (user_id, slug, client_attempt_id, score, max_score, passed, submitted_at)
+      VALUES (${USER}, ${itemId}, 'quiz-attempt:TEST', 1, 2, false, now())
+    `;
+    expect((await academy.progressPage(USER)).grades).toEqual({ rows: [], averages: [] });
+  });
+});
+
 describe('planner (AC-progress-02)', () => {
   it('refuses an add while the owner has set no cap, in words', async () => {
     const academy = service();
