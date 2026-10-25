@@ -292,6 +292,10 @@ describe('the payment methods a hosted checkout offers (M-adv-payments-core-11, 
       expect(await checkoutMethodFor(sql, CRYPTO_ONLY, { linkToken: token, geoCountry: 'de' }, now)).toBe('crypto');
       expect(await checkoutMethodFor(sql, CRYPTO_ONLY, { linkToken: token, geoCountry: 'DE', method: 'crypto' }, now)).toBe('crypto');
       expect(await checkoutMethodFor(sql, CRYPTO_ONLY, { linkToken: token, geoCountry: 'DE', method: ' Crypto' }, now)).toBe('crypto');
+      // A country the offer cannot read does not skip the rules.
+      expect(
+        await refusal(() => checkoutMethodFor(sql, CRYPTO_ONLY, { linkToken: token, geoCountry: 'XXX', method: 'card' }, now)),
+      ).toMatchObject({ code: 'pay.routing_input_missing', detail: { missing: ['geo'] } });
       const notOffered = await refusal(() =>
         checkoutMethodFor(sql, CRYPTO_ONLY, { linkToken: token, geoCountry: 'DE', method: 'card' }, now),
       );

@@ -4303,6 +4303,9 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       await expect(pay.openCheckoutSession({ linkToken: link.token, ...geo, method: 'card' })).rejects.toMatchObject({
         code: 'pay.checkout_method_not_offered',
       });
+      await expect(pay.openCheckoutSession({ linkToken: link.token, geoCountry: 'XXX', method: 'card' })).rejects.toMatchObject({
+        code: 'pay.routing_input_missing',
+      });
       expect(await sql`SELECT id FROM pay.payments`).toHaveLength(0);
       const opened = await pay.openCheckoutSession({ linkToken: link.token, ...geo });
       expect(opened.session).toMatchObject({ method: 'crypto', amount: '10', currency: 'USDT' });

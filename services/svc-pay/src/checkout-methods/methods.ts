@@ -69,6 +69,7 @@ export async function rulesOf(sql: Sql, merchantId: string, rails: MethodRails):
  * - the business never saved its methods (the default offers what the platform can take, which routing already decides);
  * - the platform has no connected method at all (the open refuses by the name of that operator gap);
  * - there is no country, no currency, or no link that can still be paid (the open refuses those by name further on).
+ * A country that is not two letters, for a business that saved its methods, refuses as a missing country.
  * Each of those refuses, if it does, before anything is written.
  */
 export async function checkoutMethodFor(
@@ -78,7 +79,7 @@ export async function checkoutMethodFor(
   now: Date,
 ): Promise<string | undefined> {
   const country = input.geoCountry?.trim().toUpperCase();
-  if (!country || !/^[A-Z]{2}$/.test(country)) return input.method;
+  if (!country) return input.method;
   const tokenHash = createHash('sha256').update(input.linkToken).digest('hex');
   if (rails.size === 0) return input.method;
   // A hint only, read without a lock: the open reads and locks the link again, and refuses a link that cannot be paid.
@@ -91,6 +92,10 @@ export async function checkoutMethodFor(
   if (!link || !currency) return input.method;
   const rules = await savedRulesOf(sql, link.merchant_id);
   if (!rules) return input.method;
+  // A country the offer cannot read must not skip the business's rules: routing would take it under a '*' profile.
+  if (!/^[A-Z]{2}$/.test(country)) {
+    throw new PayError('Say which country you are paying from, as two letters', 'pay.routing_input_missing', { missing: ['geo'] });
+  }
   const amount = link.amount ?? (input.amount !== undefined && input.amount > 0n ? formatAmount(input.amount) : undefined);
   const offer = offerFor(rules, rails, { country, currency, ...(amount ? { amount } : {}) });
   const payable = payableMethods(offer);
