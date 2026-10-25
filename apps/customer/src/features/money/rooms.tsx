@@ -56,6 +56,8 @@ import { addMoneyCopy } from './add-money-copy';
 import { LinkedAccounts } from './LinkedAccounts';
 import { DirectDebits } from './DirectDebits';
 import { directDebitsCopy } from './direct-debits-copy';
+import { RecoveryClaim } from './RecoveryClaim';
+import { recoveryClaimCopy } from './recovery-claim-copy';
 import { MoneyCalendar } from './Calendar';
 import { calendarCopy } from './calendar-copy';
 import { Rules } from './Rules';
@@ -1500,6 +1502,28 @@ function DirectDebitsRoom() {
     </BankPage>
   );
 }
+/** `/bank/recovery` (RC-identity-08): where a person named to receive someone's account claims it with their keys. */
+function RecoveryClaimRoom() {
+  const { t } = recoveryClaimCopy.useCopy();
+  return (
+    <BankPage room="Recovery" title={t('title')} description={t('description')}>
+      <RecoveryClaim />
+    </BankPage>
+  );
+}
+/** The way into the recovery claim room from the bank's services. */
+function RecoveryClaimLink() {
+  const { t } = recoveryClaimCopy.useCopy();
+  return (
+    <a className="link-row" href="/bank/recovery">
+      <span>
+        <strong>{t('open')}</strong>
+        <small>{t('openHint')}</small>
+      </span>
+      <span aria-hidden="true">↗</span>
+    </a>
+  );
+}
 /** The way into the money calendar from Transfers. */
 function CalendarLink() {
   const { t } = calendarCopy.useCopy();
@@ -1992,6 +2016,7 @@ function BankOverview() {
               <span aria-hidden="true">↗</span>
             </a>
           ))}
+          <RecoveryClaimLink />
         </nav>
       </Section>
     </Page>
@@ -2009,6 +2034,8 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
       return <DirectDebitsRoom />;
     case '/bank/calendar':
       return <CalendarRoom />;
+    case '/bank/recovery':
+      return <RecoveryClaimRoom />;
     case '/bank/rules':
       return <RulesRoom />;
     case '/bank/earn':
