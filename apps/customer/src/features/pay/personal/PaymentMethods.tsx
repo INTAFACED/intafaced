@@ -12,7 +12,18 @@ import type { PersonalPayApi } from '../pay-api';
 import type { MethodField } from '../schemas';
 import { methodsCopy } from './payment-methods-copy';
 
-type Method = { methodId: string; country: string; label: string; fields: MethodField[]; enabled: boolean; settlement?: Settlement };
+type Method = {
+  methodId: string;
+  country: string;
+  label: string;
+  fields: MethodField[];
+  enabled: boolean;
+  settlement?: Settlement;
+  noteRules?: NoteRules | null;
+  cashRules?: CashRules | null;
+};
+type NoteRules = { guidance: string; forbidden: string[] };
+type CashRules = { meetingGuidance: string; proof: string; releaseWindowSeconds: number };
 type Settlement = { instant: true } | { instant: false; windowSeconds: number | null };
 type MethodsT = ReturnType<typeof methodsCopy.useCopy>['t'];
 
@@ -359,10 +370,46 @@ function Catalogue({ methods }: { methods: Method[] }) {
               ))}
             </ul>
             {method.fields.some((field) => field.holderName) ? <p data-testid="catalogue-own-name">{t('catalogueOwnName')}</p> : null}
+            {method.cashRules ? <CashRulesView rules={method.cashRules} /> : null}
+            {method.noteRules ? <NoteRulesView rules={method.noteRules} /> : null}
           </div>
           <Status value={method.enabled ? 'enabled' : 'disabled'} />
         </article>
       ))}
+    </div>
+  );
+}
+
+/** P-ads-merchant-19: the cash-in-person rules the method row carries: a locked price, the meeting, the proof, the release window. */
+function CashRulesView({ rules }: { rules: CashRules }) {
+  const { t } = methodsCopy.useCopy();
+  return (
+    <div className="stack" data-testid="catalogue-cash-rules">
+      <strong>{t('cashTitle')}</strong>
+      <p>{t('cashLocked')}</p>
+      <p>
+        {t('cashMeeting')}: {rules.meetingGuidance}
+      </p>
+      <p>
+        {t('cashProof')}: {rules.proof}
+      </p>
+      <p data-testid="catalogue-cash-release">{t('cashRelease', { minutes: String(Math.ceil(rules.releaseWindowSeconds / 60)) })}</p>
+    </div>
+  );
+}
+
+/** P-ads-merchant-19: what the payer writes in the payment note, and the words that never go in it. */
+function NoteRulesView({ rules }: { rules: NoteRules }) {
+  const { t } = methodsCopy.useCopy();
+  return (
+    <div className="stack" data-testid="catalogue-note-rules">
+      <strong>{t('noteTitle')}</strong>
+      <p>{rules.guidance}</p>
+      {rules.forbidden.length > 0 ? (
+        <p data-testid="catalogue-note-forbidden">
+          {t('noteForbidden')}: {rules.forbidden.join(', ')}
+        </p>
+      ) : null}
     </div>
   );
 }

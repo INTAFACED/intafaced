@@ -23,7 +23,18 @@ import {
   type DisputeRecord,
   type P2pService,
 } from './p2p-service.js';
-import { InstrumentError, methodIdFromOfferEntry, parseFieldSpecs, type MethodSettlement } from './instruments.js';
+import {
+  CASH_RELEASE_MAX_SECONDS,
+  CASH_RELEASE_MIN_SECONDS,
+  CASH_TEXT_MAX,
+  InstrumentError,
+  methodIdFromOfferEntry,
+  NOTE_FORBIDDEN_MAX_WORDS,
+  NOTE_FORBIDDEN_WORD_MAX,
+  NOTE_GUIDANCE_MAX,
+  parseFieldSpecs,
+  type MethodSettlement,
+} from './instruments.js';
 import { BOARD_SORTS, type BoardSort } from './customer-depth.js';
 import { ELIGIBILITY_CHECK_IDS, ELIGIBILITY_STATES, TakeGateError, unwiredTakeGate, type TakeGate } from './take-eligibility.js';
 import { POSTING_CHECK_IDS, POSTING_CHECK_STATES, POSTING_POLICIES } from './posting-eligibility.js';
@@ -717,6 +728,8 @@ export function toTrpcError(err: unknown): TRPCError {
       // settlement window ends.
       case 'p2p.non_instant_not_accepted':
       case 'p2p.dispute_before_settlement':
+      // P-ads-merchant-19: cash in person has a locked price; post the ad at a fixed price.
+      case 'p2p.floating_not_allowed_for_method':
       case 'p2p.offer_limit_exceeded':
       case 'p2p.invalid_fee_bps':
       case 'p2p.invalid_escrow_deadline':
@@ -782,6 +795,16 @@ const fieldSpecOutput = z.object({
   holderName: z.boolean().optional(),
 });
 
+const noteRulesInput = z.object({
+  guidance: z.string().min(1).max(NOTE_GUIDANCE_MAX),
+  forbidden: z.array(z.string().min(1).max(NOTE_FORBIDDEN_WORD_MAX)).max(NOTE_FORBIDDEN_MAX_WORDS).readonly(),
+});
+const cashRulesInput = z.object({
+  meetingGuidance: z.string().min(1).max(CASH_TEXT_MAX),
+  proof: z.string().min(1).max(CASH_TEXT_MAX),
+  releaseWindowSeconds: z.number().int().min(CASH_RELEASE_MIN_SECONDS).max(CASH_RELEASE_MAX_SECONDS),
+});
+
 const methodSchemaOutput = z.object({
   methodId: z.string(),
   country: z.string(),
@@ -789,6 +812,10 @@ const methodSchemaOutput = z.object({
   fields: z.array(fieldSpecOutput),
   enabled: z.boolean(),
   settlement: settlementOutput,
+  /** P-ads-merchant-19: cash in person when the row carries cash rules; the rules themselves, or null. */
+  kind: z.enum(['transfer', 'cash_in_person']),
+  noteRules: noteRulesInput.nullable(),
+  cashRules: cashRulesInput.nullable(),
 });
 
 /**
@@ -2135,6 +2162,10 @@ export function createP2pRouter(
                   z.object({ instant: z.literal(false), windowSeconds: z.number().int().min(60).max(2_592_000).nullable() }),
                 ])
                 .optional(),
+              /** P-ads-merchant-19: payment-note rules. Omitted keeps the row's; null clears them. */
+              noteRules: noteRulesInput.nullable().optional(),
+              /** P-ads-merchant-19: rules make the method cash in person; null makes it a transfer; omitted keeps. */
+              cashRules: cashRulesInput.nullable().optional(),
               confirmOperatorId: z.string().max(128).nullish(),
               approvalId: z.string().max(128).nullish(),
               operationId: z.string().max(128).nullish(),
@@ -2160,6 +2191,9 @@ export function createP2pRouter(
                 enabled: input.enabled === undefined ? 'preserve-or-default' : input.enabled ? 'true' : 'false',
                 // The approval covers the profile only when one is sent, so a register without it hashes as before.
                 ...(input.settlement === undefined ? {} : { settlement: JSON.stringify(input.settlement) }),
+                // The same for the rules: a register that sends none hashes as before.
+                ...(input.noteRules === undefined ? {} : { noteRules: JSON.stringify(input.noteRules) }),
+                ...(input.cashRules === undefined ? {} : { cashRules: JSON.stringify(input.cashRules) }),
               });
               const schema = await instruments.registerMethodSchema({
                 methodId: input.methodId,
@@ -2168,6 +2202,8 @@ export function createP2pRouter(
                 fields: input.fields,
                 ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
                 ...(input.settlement === undefined ? {} : { settlement: input.settlement }),
+                ...(input.noteRules === undefined ? {} : { noteRules: input.noteRules }),
+                ...(input.cashRules === undefined ? {} : { cashRules: input.cashRules }),
               });
               return { ...schema, fields: [...schema.fields], confirmOperatorId };
             }),

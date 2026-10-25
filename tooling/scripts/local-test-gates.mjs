@@ -1647,8 +1647,28 @@ export const TEST_P2P_METHODS = [
         help: 'Two capital letters, two digits, then 11 to 30 capital letters or digits, with no spaces',
       },
     ],
+    // P-ads-merchant-19: the payment-note rules the row carries (keys in svc-p2p's order: the approval hash covers them).
+    noteRules: { guidance: 'TEST: write only the order number in the payment note.', forbidden: ['USDT', 'crypto', 'P2P'] },
+  },
+  {
+    // P-ads-merchant-19: a TEST cash-in-person method. Its rules make it cash: a locked price and its own release window.
+    methodId: 'test-cash-in-person',
+    country: 'DE',
+    label: 'TEST cash in person',
+    fields: [{ key: 'meeting_area', label: 'Meeting area', required: true, minLength: 2, maxLength: 120 }],
+    cashRules: {
+      meetingGuidance: 'TEST: meet in a busy public place in daylight.',
+      proof: 'TEST: count the notes together before the seller releases.',
+      releaseWindowSeconds: 600,
+    },
   },
 ];
+
+/** What a register call sends and the approval covers beyond the fields: the rules, when the TEST row has them. */
+const methodRules = (method) => ({
+  ...(method.noteRules ? { noteRules: JSON.stringify(method.noteRules) } : {}),
+  ...(method.cashRules ? { cashRules: JSON.stringify(method.cashRules) } : {}),
+});
 export const P2P_METHOD_REGISTER_ACTION = 'p2p.method_register';
 
 /** The hash svc-p2p recomputes when it consumes a p2p.method_register approval (p2pActionPayloadHash, fixed key order). */
@@ -1660,6 +1680,7 @@ export function p2pMethodRegisterHash(method) {
     label: method.label,
     fields: JSON.stringify(method.fields),
     enabled: 'preserve-or-default',
+    ...methodRules(method),
   });
   return `sha256:${crypto.createHash('sha256').update(payload).digest('hex')}`;
 }
@@ -1679,9 +1700,13 @@ export async function publishP2pMethods(ctx) {
     const listed = data(read);
     if (!Array.isArray(listed) && !read.text.includes('p2p.instrument_method_unknown'))
       throw new Error(`p2p instruments.methods.list for ${method.methodId} refused (${read.status}): ${refusalText(read)}`);
-    // Registered with these very fields: nothing to do. Registered with older ones (a stack from before the TEST method
-    // gained its holder-name field and format hint): register again, which replaces the fields and keeps the rest.
-    if (listed?.length > 0 && JSON.stringify(listed[0].fields) === JSON.stringify(method.fields)) {
+    // Registered with these very fields and rules: nothing to do. Registered with older ones (a stack from before the TEST
+    // method gained its holder-name field, format hint or rules): register again, which replaces them and keeps the rest.
+    const same = (row) =>
+      JSON.stringify(row.fields) === JSON.stringify(method.fields) &&
+      JSON.stringify(row.noteRules ?? null) === JSON.stringify(method.noteRules ?? null) &&
+      JSON.stringify(row.cashRules ?? null) === JSON.stringify(method.cashRules ?? null);
+    if (listed?.length > 0 && same(listed[0])) {
       out.push({ methodId: method.methodId, country: method.country, changed: false });
       continue;
     }

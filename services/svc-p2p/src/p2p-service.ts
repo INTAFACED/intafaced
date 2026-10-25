@@ -217,6 +217,7 @@ import {
 
 export type P2pErrorCode =
   | 'p2p.non_instant_not_accepted'
+  | 'p2p.floating_not_allowed_for_method'
   | 'p2p.content_rule_violation'
   | 'p2p.content_rules_invalid'
   | 'p2p.posting_threshold_not_met'
@@ -682,7 +683,7 @@ export interface TradeInstrumentAttacher {
   attachToTrade(
     tx: Sql,
     input: { tradeId: string; sellerId: string; takerId: string; methodId: string; fiatCurrency: string; sink: DenialSink },
-  ): Promise<{ instrumentId: string; fingerprint: string; settlement?: MethodSettlement }>;
+  ): Promise<{ instrumentId: string; fingerprint: string; settlement?: MethodSettlement; cashReleaseSeconds?: number | null }>;
 
   /**
    * THE ONE REFUSAL. Queues the attempt against the seller, then throws.
@@ -733,6 +734,12 @@ export interface TradeInstrumentAttacher {
    * a catalogue still builds (every method then reads instant).
    */
   boardSettlements?(methodIds: readonly string[], db?: Sql): Promise<ReadonlyMap<string, MethodSettlement>>;
+
+  /**
+   * P-ads-merchant-19: the methods any market's enabled row calls cash in person (a locked price). Optional so a test
+   * stub without a catalogue still builds (no method is then cash).
+   */
+  cashMethods?(methodIds: readonly string[], db?: Sql): Promise<ReadonlySet<string>>;
 }
 
 export interface P2pServiceOptions {
@@ -945,6 +952,8 @@ export interface TradeRecord {
   termsSnapshot: string | null;
   /** P-disputes-security-09: the method's profile in the market the buyer pays into, copied at take. */
   settlement: MethodSettlement;
+  /** P-ads-merchant-19: the cash-in-person release window copied at take, or null on a transfer method. */
+  cashReleaseSeconds?: number | null;
 }
 
 export interface DisputeRecord {
@@ -1008,6 +1017,7 @@ interface TradeRow {
   terms_snapshot: string | null;
   non_instant?: boolean;
   settlement_window_seconds?: number | null;
+  cash_release_seconds?: number | null;
 }
 
 interface OfferRow {
@@ -1641,6 +1651,21 @@ export class P2pService {
     throw new P2pError('The seller has not accepted non-instant payment methods on this ad', 'p2p.non_instant_not_accepted');
   }
 
+  /**
+   * P-ads-merchant-19: cash in person has a locked price, so a floating ad may not list a method any market calls cash.
+   * Checked at post, on an edit that changes the methods, and again at take (the operator may make a method cash later).
+   */
+  private async assertFloatingAllowed(input: { priceType: PriceType; methods: readonly unknown[]; db?: Sql }): Promise<void> {
+    if (input.priceType !== 'float' || !this.instruments.cashMethods) return;
+    const ids = input.methods.map(methodIdFromOfferEntry).filter((id): id is string => id !== null);
+    const cash = await this.instruments.cashMethods(ids, input.db);
+    if (cash.size === 0) return;
+    throw new P2pError(
+      `Cash in person has a locked price, so a floating ad cannot list ${[...cash].sort().join(', ')}; post it at a fixed price`,
+      'p2p.floating_not_allowed_for_method',
+    );
+  }
+
   /** P-trade-orders-03: the order's fiat amount against the owner's bounds for this asset and fiat pair. */
   private assertPairLimit(input: { asset: string; fiatCurrency: string; fiatAmount: Amount }): void {
     if (!this.takeLimits) return;
@@ -1934,6 +1959,7 @@ export class P2pService {
      * this rail" — the residual left after take refusals became uniform. Buy
      * offers skip this: the seller is the taker, unknown at post time.
      */
+    await this.assertFloatingAllowed({ priceType: input.priceType, methods: input.methods });
     if (input.side === 'sell') {
       const live = await this.instruments.liveMethodKeys(input.makerId, fiatCurrency);
       const missing = missingSellDestinations(input.methods, live);
@@ -2748,6 +2774,9 @@ export class P2pService {
               }
             }
 
+            // P-ads-merchant-19: the operator may have made a listed method cash in person since the ad was posted.
+            await this.assertFloatingAllowed({ priceType: offer.priceType, methods: [input.method], db: tx });
+
             const attached = await this.instruments.attachToTrade(tx, {
               tradeId: input.tradeId,
               sellerId,
@@ -2761,12 +2790,17 @@ export class P2pService {
             // from it, whatever the operator changes later. The check above already refused a sell ad without consent
             // (the destination's market is one of the catalogue's), so this one only holds if a stub disagrees.
             const settlement = attached.settlement ?? { instant: true };
-            if (settlement.instant) return toTrade(inserted[0]);
-            if (offer.side === 'sell' && !offer.acceptsNonInstant) {
+            // P-ads-merchant-19: an order paid in cash in person keeps the row's release window, whatever changes later.
+            const cashRelease = attached.cashReleaseSeconds ?? null;
+            if (settlement.instant && cashRelease === null) return toTrade(inserted[0]);
+            if (!settlement.instant && offer.side === 'sell' && !offer.acceptsNonInstant) {
               throw new P2pError('This ad does not accept payment methods that are not instant', 'p2p.non_instant_not_accepted');
             }
             const [profiled] = await tx<TradeRow[]>`
-              UPDATE p2p.p2p_trades SET non_instant = true, settlement_window_seconds = ${settlement.windowSeconds}
+              UPDATE p2p.p2p_trades
+                 SET non_instant = ${!settlement.instant},
+                     settlement_window_seconds = ${settlement.instant ? null : settlement.windowSeconds},
+                     cash_release_seconds = ${cashRelease}
                WHERE id = ${input.tradeId}
               RETURNING *
             `;
@@ -2930,7 +2964,10 @@ export class P2pService {
           const now = await txNow(tx);
           // P-disputes-security-09: on a non-instant order the release timeout (which opens a dispute) never comes
           // before the payment window ends, so no dispute of any origin opens while the money may still be on its way.
-          const released = deadlineFor('fiat_sent', now, this.deadlines)!;
+          // P-ads-merchant-19: an order paid in cash in person takes the method row's release window, copied at take.
+          const released = trade.cashReleaseSeconds
+            ? new Date(now.getTime() + trade.cashReleaseSeconds * 1000)
+            : deadlineFor('fiat_sent', now, this.deadlines)!;
           const settledBy = trade.settlement.instant || !trade.deadlines.paymentBy ? null : new Date(trade.deadlines.paymentBy);
           const deadlineAt = settledBy && settledBy > released ? settledBy : released;
           const deadlines = withDeadline(trade.deadlines, 'fiat_sent', deadlineAt);
@@ -4768,6 +4805,7 @@ export class P2pService {
       if (missingSellDestinations(input.methods, registered).length > 0) {
         throw new InstrumentError(resolveP2pCopy(P2P_COPY.methodUnknown), 'p2p.instrument_method_unknown');
       }
+      await this.assertFloatingAllowed({ priceType: preview.priceType, methods: input.methods });
       if (preview.side === 'sell') {
         const live = await this.instruments.liveMethodKeys(preview.makerId, preview.fiatCurrency);
         if (missingSellDestinations(input.methods, live).length > 0) {
@@ -5643,6 +5681,7 @@ function toTrade(row: TradeRow): TradeRecord {
     settledAt: row.settled_at,
     termsSnapshot: row.terms_snapshot,
     settlement: row.non_instant ? { instant: false, windowSeconds: row.settlement_window_seconds ?? null } : { instant: true },
+    cashReleaseSeconds: row.cash_release_seconds ?? null,
   };
 }
 

@@ -268,6 +268,13 @@ export const methodSchema = z.object({
   fields: z.array(methodFieldSchema),
   enabled: z.boolean(),
   settlement: methodSettlementSchema.optional(),
+  /** P-ads-merchant-19: cash in person when the row carries cash rules; the rules themselves, or null. */
+  kind: z.enum(['transfer', 'cash_in_person']).optional(),
+  noteRules: z
+    .object({ guidance: z.string(), forbidden: z.array(z.string()) })
+    .nullable()
+    .optional(),
+  cashRules: z.object({ meetingGuidance: z.string(), proof: z.string(), releaseWindowSeconds: z.number().int() }).nullable().optional(),
 });
 export const fiatSchema = z.object({ code: z.string(), name: z.string(), symbol: z.string(), minorUnits: z.number().int() });
 export const tradeDestinationSchema = z.object({

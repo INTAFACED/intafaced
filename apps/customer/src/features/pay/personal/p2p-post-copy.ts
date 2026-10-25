@@ -2,6 +2,7 @@ import { defineCopy } from '../../../shared/i18n';
 
 // P-ads-merchant-01: posting an ad from the form: what is free to sell, the advertiser terms, the summary and the receipt.
 const en = {
+  refusedFloatingCash: 'Cash in person has a locked price, so a floating price cannot list it. Choose a fixed price or another method.',
   refusedNoReference:
     'No market price is published for this coin and currency, so a floating price cannot be worked out. Choose a fixed price instead.',
   refusedThreshold: 'Your account does not meet what posting an ad in this currency needs. Go back to the form to see what is missing.',
@@ -104,6 +105,8 @@ const en = {
 } as const;
 
 const es = {
+  refusedFloatingCash:
+    'El efectivo en persona tiene un precio fijado, así que un precio flotante no puede incluirlo. Elige un precio fijo u otro método.',
   refusedNoReference:
     'No hay un precio de mercado publicado para esta moneda y divisa, así que no se puede calcular un precio flotante. Elige un precio fijo.',
   refusedThreshold: 'Tu cuenta no cumple lo que necesita publicar un anuncio en esta moneda. Vuelve al formulario para ver lo que falta.',
@@ -209,6 +212,8 @@ const es = {
 } as const;
 
 const fr = {
+  refusedFloatingCash:
+    'Les espèces en personne ont un prix bloqué, un prix flottant ne peut donc pas les proposer. Choisissez un prix fixe ou un autre moyen.',
   refusedNoReference:
     'Aucun prix de marché n’est publié pour cette crypto et cette monnaie, un prix flottant ne peut donc pas être calculé. Choisissez un prix fixe.',
   refusedThreshold:
