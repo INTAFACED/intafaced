@@ -78,6 +78,12 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     effect: 'Inbox row for the seller when the buyer marks paid',
   },
   {
+    event: 'p2pOfferPaused',
+    durable: 'notify-p2p-offer-paused',
+    subject: 'intafaced.p2p.offer.paused',
+    effect: 'Inbox row for the maker when removing a payment method paused their ads',
+  },
+  {
     event: 'kycApproved',
     durable: 'notify-kyc-approved',
     subject: 'intafaced.identity.kyc.approved',
