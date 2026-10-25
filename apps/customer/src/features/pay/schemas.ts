@@ -243,11 +243,25 @@ export const instrumentSchema = z.object({
   updatedAt: z.string(),
   removedAt: z.string().nullable(),
 });
+/** One field a payment method asks for, as svc-p2p's registry publishes it. About the method, never about a person. */
+export const methodFieldSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  required: z.boolean(),
+  pattern: z.string().optional(),
+  minLength: z.number().int().optional(),
+  maxLength: z.number().int().optional(),
+  sensitive: z.boolean().optional(),
+  help: z.string().optional(),
+  /** P-ads-merchant-18: the account holder, who must be the person themself. */
+  holderName: z.boolean().optional(),
+});
+export type MethodField = z.infer<typeof methodFieldSchema>;
 export const methodSchema = z.object({
   methodId: z.string(),
   country: z.string(),
   label: z.string(),
-  fields: z.array(z.unknown()),
+  fields: z.array(methodFieldSchema),
   enabled: z.boolean(),
   settlement: methodSettlementSchema.optional(),
 });

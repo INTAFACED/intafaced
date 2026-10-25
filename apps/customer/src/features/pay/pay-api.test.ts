@@ -1267,3 +1267,58 @@ describe('Exact original P2P reconciliation identity', () => {
     });
   }
 });
+
+describe('adding a P2P payment method (P-ads-merchant-18)', () => {
+  const instrumentId = '55555555-5555-4555-8555-555555555555';
+  const input = { instrumentId, methodId: 'test-bank-transfer', country: 'DE', fiatCurrency: 'EUR', label: '', details: { iban: 'X' } };
+  const header = {
+    id: instrumentId,
+    methodId: 'test-bank-transfer',
+    country: 'DE',
+    fiatCurrency: 'EUR',
+    label: '',
+    status: 'active',
+    createdAt: '2026-10-24T22:00:00Z',
+    updatedAt: '2026-10-24T22:00:00Z',
+    removedAt: null,
+  };
+  const lostAnswer = (listed: unknown[]) =>
+    createApiClient({
+      fetch: async (_url, options) =>
+        options?.method === 'POST'
+          ? new Response(JSON.stringify({ error: { message: 'Connection ended' } }), { status: 503 })
+          : response(listed),
+    });
+
+  it('settles a lost answer from the person’s own list: found means saved', async () => {
+    const pay = createPersonalPayApi(lostAnswer([header]), userId, createPayMutationGuard());
+    expect(await pay.addInstrument(input)).toEqual({ ok: true, data: header });
+  });
+
+  it('keeps a lost answer unconfirmed when the id is not listed, and holds nothing back for the resend', async () => {
+    const pay = createPersonalPayApi(lostAnswer([]), userId, createPayMutationGuard());
+    expect(await pay.addInstrument(input)).toMatchObject({ ok: false, reason: 'uncertain' });
+    // The same id goes again rather than being held as an unresolved operation.
+    expect(await pay.addInstrument(input)).toMatchObject({ ok: false, reason: 'uncertain' });
+  });
+
+  it('passes a refusal through with its code and field', async () => {
+    const api = createApiClient({
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              message: 'x',
+              data: { code: 'BAD_REQUEST', cause: { code: 'p2p.account_format_invalid' }, p2pLimit: { until: null, field: 'iban' } },
+            },
+          }),
+          { status: 400 },
+        ),
+    });
+    expect(await createPersonalPayApi(api, userId, createPayMutationGuard()).addInstrument(input)).toMatchObject({
+      ok: false,
+      code: 'p2p.account_format_invalid',
+      p2pLimit: { until: null, field: 'iban' },
+    });
+  });
+});

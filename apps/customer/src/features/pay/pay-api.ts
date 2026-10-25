@@ -1083,6 +1083,28 @@ export function createPersonalPayApi(
         undefined,
         p2pCurrent,
       ),
+    /**
+     * P-ads-merchant-18: save a payment method in the person's own name. No money moves, so there is no recovery
+     * journal: the form keeps one id until the save is answered, and a lost answer is settled by reading the person's
+     * own list for that id. Found, it was saved; not found, nothing was stored and the same id may be sent again.
+     */
+    async addInstrument(input: {
+      instrumentId: string;
+      methodId: string;
+      country: string;
+      fiatCurrency: string;
+      label: string;
+      details: Record<string, string>;
+    }): Promise<ApiResult<z.infer<typeof s.instrumentSchema>>> {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      const result = await api.mutate('p2p', 'instruments.create', input, s.instrumentSchema);
+      if (result.ok || result.reason !== 'uncertain') return result;
+      const listed = await api.query('p2p', 'instruments.list', { limit: 200 }, z.array(s.instrumentSchema));
+      const stored = listed.ok ? listed.data.find((row) => row.id.toLowerCase() === input.instrumentId.toLowerCase()) : undefined;
+      return stored ? { ok: true, data: stored } : result;
+    },
     removeInstrument: (instrumentId: string) =>
       guard.run(
         `${userId}:instrument:${instrumentId}`,

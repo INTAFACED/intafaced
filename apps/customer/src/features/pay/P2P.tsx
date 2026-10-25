@@ -2,7 +2,7 @@ import { payCopy, PayCopy, payRefusal } from './copy';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable } from '@intafaced/ui';
+import { Button } from '@intafaced/ui';
 import { EmptyState, Field, Page } from './ui-kit';
 import { createPersonalPayApi, type PersonalPayApi } from './pay-api';
 import {
@@ -36,6 +36,7 @@ import { OrderReceipt } from './personal/OrderReceipt';
 import { OrderReview } from './personal/OrderReview';
 import { p2pDepth } from './personal/p2p-depth-copy';
 import { P2PEligibilityPanel } from './personal/Eligibility';
+import { PaymentMethods } from './personal/PaymentMethods';
 
 export function P2P({ path }: { path: string }) {
   const view = useP2PView();
@@ -121,7 +122,7 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
         <a href="/uc/ad" aria-current={showMine || inspectionMine ? 'page' : undefined}>
           <PayCopy k="yourOffers" />
         </a>
-        <a href="/p2p?view=methods" aria-current={showMethods ? 'page' : undefined}>
+        <a href="/p2p/methods" aria-current={showMethods ? 'page' : undefined}>
           <PayCopy k="paymentMethods" />
         </a>
         <a href="/p2p/access" aria-current={showAccess ? 'page' : undefined}>
@@ -558,53 +559,6 @@ function OrderDispute({ trade, pay, reloadOrder }: { trade: Trade; pay: Personal
         </p>
       )}
     </PaySection>
-  );
-}
-function PaymentMethods({ pay, userId }: { pay: PersonalPayApi; userId: string | null }) {
-  const [limit, setLimit] = useState(50);
-  const instruments = useResource((signal) => pay.instruments(limit, signal), `pay:instruments:${userId}:${limit}`);
-  return (
-    <div className="stack">
-      <PayNotice title={payCopy.t('newPaymentDestinationsAreUnavailable')}>
-        <PayCopy k="theRequiredInstrumentEncryptionProviderIsAbsent" />
-      </PayNotice>
-      <PaySection title={payCopy.t('yourPaymentDestinationLabels')}>
-        <PayState resource={instruments.resource} retry={instruments.reload} empty={payCopy.t('noPaymentDestinationHeadersReturned')}>
-          {(rows) => (
-            <>
-              <DataTable
-                label={payCopy.t('paymentDestinations')}
-                headers={[payCopy.t('label'), payCopy.t('method'), payCopy.t('currencyCountry'), payCopy.t('state'), '']}
-              >
-                {rows.map((instrument) => (
-                  <tr key={instrument.id}>
-                    <td>{instrument.label || payCopy.t('unlabelledDestination')}</td>
-                    <td>{instrument.methodId}</td>
-                    <td>
-                      {instrument.fiatCurrency} / {instrument.country}
-                    </td>
-                    <td>
-                      <Status value={instrument.status} />
-                    </td>
-                    <td>
-                      {instrument.status === 'active' && (
-                        <ReviewedAction
-                          title={payCopy.t('removeDestination')}
-                          description={payCopy.t('thisRemovesTheDestinationFromFutureTrades')}
-                          perform={() => pay.removeInstrument(instrument.id)}
-                          onConfirmed={instruments.reload}
-                        />
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </DataTable>
-              <PayPagination count={rows.length} limit={limit} setLimit={setLimit} />
-            </>
-          )}
-        </PayState>
-      </PaySection>
-    </div>
   );
 }
 function TradingProgramme({ pay, userId }: { pay: PersonalPayApi; userId: string | null }) {

@@ -70,6 +70,8 @@ export function p2p(who, passkey = null) {
   };
   return {
     bare,
+    /** The api() session this client speaks for (identity reads, the person's own name). */
+    session: who,
     raw: {
       query: bare.query,
       mutate: (proc, input) =>
@@ -287,15 +289,72 @@ export async function readyTaker(session, who, passkey = null) {
   return client;
 }
 
-/** A TEST bank transfer destination for `who`, so their sell ads can be taken. */
+/** The TEST legal name a journey person's payment accounts are held in (P-ads-merchant-18's own-name rule). */
+export const holderOf = (who) => `TEST ${who.handle}`;
+
+const recordedNames = new Map();
+/**
+ * Records `name` (default `holderOf(who)`) as `session`'s verified legal name, the way staff do it: founder A edits the
+ * protected detail, which opens a compliance review, and founder B passes it (identity accountControls.detailsEdit /
+ * detailsDecide). svc-p2p's own-name rule then accepts a payment account held in that name. Returns the name.
+ */
+export async function verifiedName(session, who, name = holderOf(who)) {
+  const me = await session.get('/api/identity/trpc/me');
+  const userId = me.body?.result?.data?.userId;
+  if (me.status !== 200 || !userId) throw new Error(`identity me refused: ${me.status} ${JSON.stringify(me.body).slice(0, 300)}`);
+  if (recordedNames.get(userId) === name) return name;
+  const { ctx, pair } = await operators();
+  const answer = (what, res) => {
+    const out = res.json?.result?.data;
+    if (res.status !== 200 || out === undefined) throw new Error(`${what} refused (${res.status}): ${res.text.slice(0, 300)}`);
+    return out;
+  };
+  const state = answer(
+    'accountControls.details',
+    await ctx.edge.query('identity', 'accountControls.details', { userId }, await pair.a.approvalToken()),
+  );
+  if (state?.details?.legalName !== name) {
+    const edited = answer(
+      'accountControls.detailsEdit',
+      await ctx.edge.mutate(
+        'identity',
+        'accountControls.detailsEdit',
+        {
+          requestId: randomUUID(),
+          userId,
+          expectedVersion: state?.version ?? '0',
+          reason: 'LOCAL TEST legal name for the P2P own-name rule',
+          changes: { legalName: name },
+        },
+        await pair.a.approvalToken(),
+      ),
+    );
+    if (edited.outcome !== 'review_opened') throw new Error(`legal name edit answered ${edited.outcome} ${edited.code ?? ''}`);
+    const passed = answer(
+      'accountControls.detailsDecide',
+      await ctx.edge.mutate(
+        'identity',
+        'accountControls.detailsDecide',
+        { requestId: randomUUID(), userId, reviewId: edited.reviewId, decision: 'pass', note: 'LOCAL TEST review passed' },
+        await pair.b.approvalToken(),
+      ),
+    );
+    if (passed.outcome !== 'applied') throw new Error(`legal name review answered ${passed.outcome} ${passed.code ?? ''}`);
+  }
+  recordedNames.set(userId, name);
+  return name;
+}
+
+/** A TEST bank transfer destination for `who`, held in their verified TEST legal name, so their sell ads can be taken. */
 export async function testInstrument(client, who) {
+  const holder = await verifiedName(client.session, who);
   return client.mutate('instruments.create', {
     instrumentId: randomUUID(),
     methodId: METHOD,
     country: 'DE',
     fiatCurrency: 'EUR',
     label: 'TEST account',
-    details: { account_holder: who.handle, iban: TEST_IBAN },
+    details: { account_holder: holder, iban: TEST_IBAN },
   });
 }
 
@@ -356,17 +415,39 @@ async function operatorMethodChange(proc, actionType, fields, input) {
  */
 export const RETIRING_METHOD = 'test-retiring-transfer';
 
-/** Registers the retiring TEST method switched on, which also brings it back from an earlier run's retirement. */
-export async function registerRetiringMethod() {
+/**
+ * Registers a LOCAL TEST method switched on under `methodId`, the same TEST bank transfer as the shared one (DE, account
+ * holder in the person's own name, IBAN), with an optional settlement profile. Registering again brings it back from an
+ * earlier run's retirement. A journey that retires a method registers its own, so no other journey loses it.
+ */
+export async function registerTestMethod(methodId, label, settlement = null) {
   const [base] = (await import('../../../../tooling/scripts/local-test-gates.mjs')).TEST_P2P_METHODS;
-  const method = { methodId: RETIRING_METHOD, country: base.country, label: 'TEST retiring transfer', fields: base.fields };
+  const method = { methodId, country: base.country, label, fields: base.fields };
   return operatorMethodChange(
     'instruments.methods.register',
     'p2p.method_register',
-    { ...method, fields: JSON.stringify(method.fields), enabled: 'true' },
-    { ...method, enabled: true },
+    {
+      ...method,
+      fields: JSON.stringify(method.fields),
+      enabled: 'true',
+      ...(settlement ? { settlement: JSON.stringify(settlement) } : {}),
+    },
+    { ...method, enabled: true, ...(settlement ? { settlement } : {}) },
   );
 }
+
+/** Retires a LOCAL TEST method in its market (DE) with the operator's `reason`, as the founder pair does. */
+export async function retireTestMethod(methodId, reason) {
+  return operatorMethodChange(
+    'instruments.methods.setEnabled',
+    'p2p.method_set_enabled',
+    { methodId, country: 'DE', enabled: 'false', reason },
+    { methodId, country: 'DE', enabled: false, reason },
+  );
+}
+
+/** Registers the retiring TEST method switched on, which also brings it back from an earlier run's retirement. */
+export const registerRetiringMethod = () => registerTestMethod(RETIRING_METHOD, 'TEST retiring transfer');
 
 /**
  * P-disputes-security-09: a third LOCAL TEST method, the same TEST bank transfer under another id, whose money takes up
@@ -374,28 +455,11 @@ export async function registerRetiringMethod() {
  */
 export const SLOW_METHOD = 'test-slow-transfer';
 export const SLOW_WINDOW_SECONDS = 172_800;
-export async function registerSlowMethod() {
-  const [base] = (await import('../../../../tooling/scripts/local-test-gates.mjs')).TEST_P2P_METHODS;
-  const method = { methodId: SLOW_METHOD, country: base.country, label: 'TEST slow transfer', fields: base.fields };
-  const settlement = { instant: false, windowSeconds: SLOW_WINDOW_SECONDS };
-  return operatorMethodChange(
-    'instruments.methods.register',
-    'p2p.method_register',
-    { ...method, fields: JSON.stringify(method.fields), enabled: 'true', settlement: JSON.stringify(settlement) },
-    { ...method, enabled: true, settlement },
-  );
-}
+export const registerSlowMethod = () =>
+  registerTestMethod(SLOW_METHOD, 'TEST slow transfer', { instant: false, windowSeconds: SLOW_WINDOW_SECONDS });
 
 /** Retires the retiring TEST method in its market with the operator's `reason`. */
-export async function retireRetiringMethod(reason) {
-  const input = { methodId: RETIRING_METHOD, country: 'DE', enabled: false, reason };
-  return operatorMethodChange(
-    'instruments.methods.setEnabled',
-    'p2p.method_set_enabled',
-    { methodId: RETIRING_METHOD, country: 'DE', enabled: 'false', reason },
-    input,
-  );
-}
+export const retireRetiringMethod = (reason) => retireTestMethod(RETIRING_METHOD, reason);
 
 /**
  * The browser's virtual authenticator holding the account's TEST passkey, so the person confirms in the app with the

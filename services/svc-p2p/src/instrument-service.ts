@@ -20,6 +20,7 @@ import {
   type MethodSchema,
   type MethodSettlement,
 } from './instruments.js';
+import { unwiredHolderNameRule, type HolderNameRule } from './holder-name.js';
 import { recordSwallowed, withSpan } from './tracing.js';
 import { P2P_COPY, resolveP2pCopy } from './user-copy.js';
 import {
@@ -102,6 +103,11 @@ export interface InstrumentServiceOptions {
    * `p2p.instrument_kms_required` instead of returning the blob as details.
    */
   keyProvider?: InstrumentKeyProvider | null;
+  /**
+   * P-ads-merchant-18, the own-name rule, for methods with an account-holder field. Absent: every such destination
+   * refuses `p2p.holder_name_unverifiable`, never "any name".
+   */
+  holderNames?: HolderNameRule;
 }
 
 /** Who was looking. Recorded on every access-log row, allowed or refused. */
@@ -299,6 +305,7 @@ export function assertPurgeExpiredSnapshotsLimit(limit: number | undefined): num
 export class InstrumentService {
   private readonly retentionDays: number | null;
   private readonly keyProvider: InstrumentKeyProvider | null;
+  private readonly holderNames: HolderNameRule;
 
   constructor(
     private readonly sql: Sql,
@@ -306,6 +313,16 @@ export class InstrumentService {
   ) {
     this.retentionDays = options.retentionDays ?? null;
     this.keyProvider = options.keyProvider ?? null;
+    this.holderNames = options.holderNames ?? unwiredHolderNameRule();
+  }
+
+  /** The own-name rule, when the method names an account-holder field: before anything is stored. */
+  private async assertOwnName(schema: MethodSchema, ownerId: string, details: InstrumentDetails): Promise<void> {
+    const holder = schema.fields.find((field) => field.holderName === true);
+    if (!holder) return;
+    const name = details[holder.key];
+    if (name === undefined) throw new InstrumentError(`"${holder.label}" is required`, 'p2p.instrument_field_missing', holder.key);
+    await this.holderNames.assertOwnName(ownerId, name);
   }
 
   /** Fingerprint is already computed from plaintext. Seal only the stored copy. */
@@ -506,6 +523,7 @@ export class InstrumentService {
 
     const schema = await this.schemaFor(methodId, country);
     const details = validateDetails(schema, input.details);
+    await this.assertOwnName(schema, input.ownerId, details);
     const fingerprint = fingerprintDetails(methodId, country, details);
     const stored = this.detailsForStore(instrumentId, input.ownerId, details);
 
@@ -547,6 +565,7 @@ export class InstrumentService {
     if (input.details !== undefined) {
       const schema = await this.schemaFor(current.method_id, current.country);
       details = validateDetails(schema, input.details);
+      await this.assertOwnName(schema, input.ownerId, details);
       fingerprint = fingerprintDetails(current.method_id, current.country, details);
     }
     const stored = details === null ? current.details : this.detailsForStore(input.instrumentId, input.ownerId, details);

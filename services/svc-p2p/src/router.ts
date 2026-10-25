@@ -515,6 +515,11 @@ export function toTrpcError(err: unknown): TRPCError {
         return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
       case 'p2p.instrument_slot_taken':
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+      // P-ads-merchant-18: no verified legal name to check against yet, or identity could not answer.
+      case 'p2p.holder_name_unverified':
+        return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
+      case 'p2p.holder_name_unverifiable':
+        return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'p2p.instrument_retention_unset':
       case 'p2p.instrument_list_limit_unset':
       case 'p2p.method_schema_list_limit_unset':
@@ -766,6 +771,8 @@ const fieldSpecOutput = z.object({
   /** A hint for the input control. Not an access-control decision. */
   sensitive: z.boolean().optional(),
   help: z.string().optional(),
+  /** P-ads-merchant-18: the account holder's name, checked against the person's verified legal name. */
+  holderName: z.boolean().optional(),
 });
 
 const methodSchemaOutput = z.object({

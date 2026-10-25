@@ -4,7 +4,7 @@ import { requireScope, requireTier, AuthError, hasScope } from '@intafaced/auth'
 import type { AccessDecision, KycTier, ModuleId, Plane } from '@intafaced/config';
 import { checkAccess } from '@intafaced/config';
 import { P2P_DELIST_REASONS, type P2pDelistReason } from './p2p-delist.js';
-import { P2P_RULE_CLASS } from './p2p-rule-class.js';
+import { P2P_FIELD_KEY, P2P_RULE_CLASS } from './p2p-rule-class.js';
 import { isPreviewRefusal, type PreviewRefusal } from './preview-refusal.js';
 import { requireServiceCaller } from './service-auth.js';
 
@@ -326,7 +326,9 @@ export function spendFiguresOf(cause: unknown): { assetId: string; available: st
   return { assetId, available, onHold, inEarn };
 }
 
-const P2P_LIMIT_CODES = new Set([
+/** P2P refusals about one field of a payment destination: the answer names the field's key (never its value). */
+const P2P_FIELD_CODES = ['p2p.account_format_invalid', 'p2p.instrument_field_missing', 'p2p.instrument_field_invalid'] as const;
+const P2P_LIMIT_CODES = new Set<string>([
   'p2p.active_order_cap',
   'p2p.pair_limit_exceeded',
   'p2p.verification_order_min',
@@ -339,6 +341,7 @@ const P2P_LIMIT_CODES = new Set([
   'p2p.remind_too_early',
   'p2p.remind_rate_limited',
   'p2p.content_rule_violation',
+  ...P2P_FIELD_CODES,
 ]);
 const DELIST_REASONS: ReadonlySet<string> = new Set(P2P_DELIST_REASONS);
 const P2P_LIMIT_DECIMALS = ['cap', 'min', 'max', 'remaining', 'windowHours', 'available', 'shortBy'] as const;
@@ -363,6 +366,8 @@ export interface P2pLimitDetails {
   reason?: P2pDelistReason;
   /** On `p2p.content_rule_violation` only: the content rule class an ad's terms broke, never the phrase. */
   ruleClass?: string;
+  /** On a payment destination's field refusal (format, missing, invalid) only: the method field's key, never its value. */
+  field?: string;
 }
 
 /**
@@ -398,6 +403,12 @@ export function p2pLimitOf(cause: unknown): P2pLimitDetails | undefined {
       return undefined;
     }
     out.ruleClass = row.ruleClass;
+  }
+  if (row.field !== undefined) {
+    if (!(P2P_FIELD_CODES as readonly string[]).includes(cause.code) || typeof row.field !== 'string' || !P2P_FIELD_KEY.test(row.field)) {
+      return undefined;
+    }
+    out.field = row.field;
   }
   if (row.openTradeIds !== undefined) {
     const ids = row.openTradeIds;

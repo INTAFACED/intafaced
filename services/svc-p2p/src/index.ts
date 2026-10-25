@@ -28,6 +28,7 @@ import { MerchantService } from './merchant-service.js';
 import { createIdentityApprovalClient, unwiredApprovalConsumer } from './action-approval-consume.js';
 import { createTakeStepUp } from './take-step-up.js';
 import { createReleaseStepUp } from './release-step-up.js';
+import { createIdentityHolderNameRule } from './holder-name.js';
 import { createIdentityPublicProfile } from './public-profile.js';
 import { OpsReads } from './ops/ops-reads.js';
 import { createP2pRouter, type P2pRouter } from './router.js';
@@ -132,6 +133,8 @@ const instrumentKey = instrumentKeyHealth(instrumentKeyProvider?.kind);
 const instruments = new InstrumentService(sql, {
   retentionDays: publishedInstrumentRetentionDays(env.P2P_INSTRUMENT_RETENTION_DAYS),
   keyProvider: instrumentKeyProvider,
+  // P-ads-merchant-18: a destination with an account-holder field is in the person's verified legal name, or refused.
+  ...(env.IDENTITY_URL ? { holderNames: createIdentityHolderNameRule(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) } : {}),
 });
 
 /**
