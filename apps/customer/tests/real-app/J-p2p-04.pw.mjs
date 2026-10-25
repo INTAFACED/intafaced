@@ -415,6 +415,10 @@ test('J-p2p-04 #5 reporting a sensitive remark in a payment note opens a case an
   await expect(opened).toContainText('A case is open for staff to decide.');
   const caseId = await opened.getAttribute('data-case-id');
   expect(caseId).toMatch(/^[0-9a-f-]{36}$/);
+  // The order page reads the report back on the next visit, so the form does not come back.
+  await page.reload();
+  await expect(page.getByTestId('order-remark-case')).toHaveAttribute('data-case-id', caseId);
+  await expect(page.getByTestId('order-remark-report')).toHaveCount(0);
 
   // A second report on the same order is refused by name; the same report again answers the same case.
   const s = await seller(state);

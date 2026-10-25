@@ -1418,9 +1418,10 @@ describe('svc-p2p payment instruments', () => {
         'merchants.postingEligibility': { fiatCurrency: 'EUR' },
         // J-p2p-04 #5. A report holds the reporter's own words and the two
         // party ids, never an instrument field. A stranger is not a party to
-        // the trade, so the report refuses; the case list is moderators only.
+        // the trade, so the report and the own-case read refuse; the case list is moderators only.
         'trades.reportSensitiveRemark': { caseId: crypto.randomUUID(), tradeId: trade.id, remark: 'probe' },
         'disputes.remarkCases': { limit: 50 },
+        'trades.remarkCase': { tradeId: trade.id },
       };
 
       const paths = Object.keys((api as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures);

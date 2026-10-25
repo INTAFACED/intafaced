@@ -34,6 +34,8 @@ describe('svc-p2p sensitive-remark cases (P-ads-merchant-19)', () => {
   let bus!: MemoryEventBus;
   let p2p!: P2pService;
   let tradeId!: string;
+  let offerId!: string;
+  let ledger!: MemoryLedger;
 
   beforeAll(async () => {
     db = await createTestDatabase({ service: 'p2p', url: process.env.TEST_DATABASE_URL, migrations });
@@ -42,7 +44,7 @@ describe('svc-p2p sensitive-remark cases (P-ads-merchant-19)', () => {
 
   beforeEach(async () => {
     await db!.truncateAll();
-    const ledger = new MemoryLedger();
+    ledger = new MemoryLedger();
     const instruments = new InstrumentService(sql);
     bus = new MemoryEventBus('svc-p2p');
     p2p = new P2pService(sql, ledger, bus, {
@@ -82,6 +84,7 @@ describe('svc-p2p sensitive-remark cases (P-ads-merchant-19)', () => {
       methods: ['sepa'],
       terms: 'TEST terms',
     });
+    offerId = offer.id;
     tradeId = crypto.randomUUID();
     await p2p.takeOffer({ tradeId, offerId: offer.id, takerId: BUYER, amount: parseAmount('20'), method: 'sepa', tier: 'basic' });
     await p2p.markFiatSent(tradeId, BUYER);
@@ -137,6 +140,41 @@ describe('svc-p2p sensitive-remark cases (P-ads-merchant-19)', () => {
     }
     expect(await sql`SELECT 1 FROM p2p.remark_cases`).toHaveLength(0);
     expect(notices()).toHaveLength(0);
+  });
+
+  it('refuses a case id already used for another order’s report, and leaves both cases as they were', async () => {
+    const first = await report(SELLER);
+    const other = crypto.randomUUID();
+    await p2p.takeOffer({ tradeId: other, offerId, takerId: STRANGER, amount: parseAmount('20'), method: 'sepa', tier: 'basic' });
+    await expect(
+      p2p.reportSensitiveRemark({ caseId: first.id, tradeId: other, reporterId: STRANGER, remark: 'USDT' }),
+    ).rejects.toMatchObject({ code: 'p2p.remark_case_exists' });
+    expect(await p2p.listRemarkCases(10)).toEqual([first]);
+    expect(notices()).toHaveLength(1);
+  });
+
+  it('refuses a report on an order that was never funded: there is no payment note yet', async () => {
+    // The escrow lock's answer is lost, so the order stays created: the buyer was never asked to pay.
+    const unfunded = crypto.randomUUID();
+    vi.spyOn(ledger, 'post').mockRejectedValueOnce(new Error('lost lock acknowledgement'));
+    await expect(
+      p2p.takeOffer({ tradeId: unfunded, offerId, takerId: STRANGER, amount: parseAmount('20'), method: 'sepa', tier: 'basic' }),
+    ).rejects.toThrow('lost lock acknowledgement');
+    expect((await p2p.getTrade(unfunded)).status).toBe('created');
+    for (const reporterId of [SELLER, STRANGER]) {
+      await expect(
+        p2p.reportSensitiveRemark({ caseId: crypto.randomUUID(), tradeId: unfunded, reporterId, remark: 'USDT' }),
+      ).rejects.toMatchObject({ code: 'p2p.invalid_transition' });
+    }
+    expect(await sql`SELECT 1 FROM p2p.remark_cases`).toHaveLength(0);
+  });
+
+  it('reads each party their own case on the order, null before one, and a stranger not found', async () => {
+    expect(await p2p.ownRemarkCase(tradeId, SELLER)).toBeNull();
+    const opened = await report(SELLER);
+    expect(await p2p.ownRemarkCase(tradeId, SELLER)).toEqual(opened);
+    expect(await p2p.ownRemarkCase(tradeId, BUYER)).toBeNull();
+    await expect(p2p.ownRemarkCase(tradeId, STRANGER)).rejects.toMatchObject({ code: 'p2p.trade_not_found' });
   });
 
   it('with the bus down the case still opens; the sweep tells the reported party once', async () => {

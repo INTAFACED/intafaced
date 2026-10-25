@@ -1650,15 +1650,11 @@ export function createP2pRouter(
         .mutation(async ({ ctx, input }) => guard(async () => toReminderOut(await p2p.remindSeller(input.tradeId, ctx.principal.userId)))),
 
       /**
-       * P-trade-orders-20 / J-p2p-02 #3: the seller of a paid order reports an under-, over- or part payment found in
-       * their own bank. Answers the classification; the order stays paid either way and nothing moves. Refuses
-       * `p2p.invalid_amount` when the amount contradicts the kind, and `p2p.mismatch_report_exists` for a second,
-       * different report.
-       */
-      /**
        * P-ads-merchant-19 / J-p2p-04 #5: a party to an order reports a sensitive remark the other party wrote in the
        * payment note. A case opens against the other party and they are told (svc-notify, by caseId). One per party per
-       * order: the same report again returns the first, a different one refuses `p2p.remark_case_exists`.
+       * order: the same report again returns the first, a different one (or a case id already used) refuses
+       * `p2p.remark_case_exists`. An order never funded has no payment note: `p2p.invalid_transition` (or
+       * `p2p.trade_terminal` once it is cancelled).
        */
       reportSensitiveRemark: merchantApiProcedure('p2p:write')
         .input(
@@ -1684,6 +1680,23 @@ export function createP2pRouter(
           ),
         ),
 
+      /** P-ads-merchant-19: the caller's own remark case on this order, or null; a non-party gets not found. */
+      remarkCase: merchantApiProcedure('p2p:read')
+        .input(z.object({ tradeId: z.string().guid() }))
+        .output(remarkCaseOutput.nullable())
+        .query(async ({ ctx, input }) =>
+          guard(async () => {
+            const report = await p2p.ownRemarkCase(input.tradeId, ctx.principal.userId);
+            return report ? toRemarkCaseOut(report) : null;
+          }),
+        ),
+
+      /**
+       * P-trade-orders-20 / J-p2p-02 #3: the seller of a paid order reports an under-, over- or part payment found in
+       * their own bank. Answers the classification; the order stays paid either way and nothing moves. Refuses
+       * `p2p.invalid_amount` when the amount contradicts the kind, and `p2p.mismatch_report_exists` for a second,
+       * different report.
+       */
       reportMismatch: merchantApiProcedure('p2p:write')
         .input(z.object({ tradeId: z.string().guid(), kind: z.enum(MISMATCH_KINDS), amountReceived: amountString }))
         .output(mismatchOutput)
