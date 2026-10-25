@@ -807,6 +807,57 @@ export const currencyWrites = {
   add: accountCurrencySchema,
   remove: z.object({ assetId: z.string(), removed: z.literal(true) }),
 };
+/** A ledger balance of a dead owner's account, as the heir's claim room shows it (RC-identity-08). */
+const recoveryAccountSchema = z.object({
+  ownerType: z.enum(['user', 'subaccount']),
+  assetId: z.string(),
+  kind: z.string(),
+  spaceId: z.string().nullable(),
+  spaceName: z.string().nullable(),
+  amount: signedDecimalSchema,
+});
+export type RecoveryAccount = z.infer<typeof recoveryAccountSchema>;
+const recoveryClaimSchema = z.object({
+  claimId: z.string(),
+  status: z.enum(['open', 'executed']),
+  round: z.number().int(),
+  createdAt: z.string(),
+  executedAt: z.string().nullable(),
+});
+export const recoveryEstateSchema = z.object({
+  userId: z.string(),
+  handle: z.string(),
+  threshold: z.number().int().min(1),
+  liveKeys: z.number().int().min(0),
+  claim: recoveryClaimSchema.nullable(),
+  sweepable: z.array(recoveryAccountSchema),
+  /** Held for an order, withdrawal, stake or collateral: stays until released. */
+  held: z.array(recoveryAccountSchema),
+  /** Debts: any of these stops a sweep. */
+  blockers: z.array(recoveryAccountSchema),
+});
+export type RecoveryEstate = z.infer<typeof recoveryEstateSchema>;
+const recoverySweepSchema = z.object({
+  round: z.number().int(),
+  ownerType: z.enum(['user', 'subaccount']),
+  spaceId: z.string().nullable(),
+  assetId: z.string(),
+  amount: money,
+  status: z.enum(['pending', 'posted', 'refused']),
+  ledgerTxId: z.string().nullable(),
+  refusalCode: z.string().nullable(),
+});
+export type RecoverySweep = z.infer<typeof recoverySweepSchema>;
+export const recoveryWrites = {
+  open: recoveryClaimSchema.extend({
+    ownerUserId: z.string(),
+    handle: z.string(),
+    threshold: z.number().int(),
+    liveKeys: z.number().int(),
+    message: z.string(),
+  }),
+  execute: z.object({ claim: recoveryClaimSchema, round: z.number().int().nullable(), sweeps: z.array(recoverySweepSchema) }),
+};
 export const bankReads = {
   'accounts.features': accountTermsSchema,
   'accounts.profile': bankProfileSchema,
@@ -817,6 +868,7 @@ export const bankReads = {
   'eligibility.get': eligibilitySchema,
   'linkedAccounts.list': z.object({ accounts: z.array(linkedAccountSchema) }),
   'directDebits.list': directDebitsViewSchema,
+  'recovery.estates': z.object({ estates: z.array(recoveryEstateSchema) }),
   'calendar.window': calendarViewSchema,
   'rules.get': rulesViewSchema,
   'sorter.list': sorterListSchema,

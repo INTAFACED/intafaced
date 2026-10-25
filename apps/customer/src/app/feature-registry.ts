@@ -163,6 +163,16 @@ export const features: readonly Feature[] = [
       'Real-app journeys run 39886483027 on main at dc30da1 (2026-10-23): J-bank-01 #4 creates a space and is refused at the TEST limit of 5.',
   },
   {
+    id: 'bank-recovery-claim',
+    label: 'Recovery claim',
+    paths: ['/bank/recovery'],
+    status: 'blocked',
+    reason:
+      'A named heir claims a dead owner’s free balances with the owner’s recovery keys once two staff confirm the death notice (RC-identity-08). Its journey step has not passed on main',
+    unlock: 'J-identity-05 #7 (RC-identity-08) passing in the Real-app journeys run on main',
+    tab: 'money',
+  },
+  {
     id: 'bank-direct-debits',
     label: 'Direct debits',
     paths: ['/bank/direct-debits'],

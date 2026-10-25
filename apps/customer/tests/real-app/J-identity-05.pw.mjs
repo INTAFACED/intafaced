@@ -1,7 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { ROOT, mailedCodes, mailedLines, nextMailedCode, signUpInBrowser } from './stack.mjs';
+import { ROOT, fund, mailedCodes, mailedLines, nextMailedCode, signUpInBrowser } from './stack.mjs';
+import { verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 
 // J-identity-05, in the running app (docs/roadmap/journeys.json): I lost my phone and got back in. One test per step,
@@ -10,7 +11,6 @@ import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, virtualAuthenticator } fr
 // the browser that set the authenticator up; a lost phone is a fresh browser context, so the person signs in elsewhere.
 // Steps whose screens are not built yet fail at their first check, on a short timeout.
 const J = 'J-identity-05';
-const UNBUILT = { timeout: 5_000 };
 
 test.describe.configure({ mode: 'default' });
 
@@ -426,8 +426,20 @@ test.describe('recovery keys', () => {
     page,
     browser,
   }) => {
-    test.setTimeout(150_000);
-    const { owner, heir } = await setUpRecovery(page, browser);
+    test.setTimeout(240_000);
+    const { owner, heir, keys } = await setUpRecovery(page, browser);
+    // The heir is a fully verified customer, so the bank answers them; the owner holds TEST balances before they die.
+    const heirSetup = await browser.newContext();
+    const heirSetupPage = await heirSetup.newPage();
+    await heirSetupPage.goto('/login');
+    await heirSetupPage.fill('input[name=identifier]', heir.email);
+    await heirSetupPage.fill('input[name=password]', heir.password);
+    await heirSetupPage.getByRole('button', { name: /^sign in$/i }).click();
+    await expect(heirSetupPage).not.toHaveURL(/\/login/);
+    await verify(heirSetupPage, heir);
+    await heirSetup.close();
+    expect(fund(owner.email, 'USDT', '125').tx).toBeTruthy();
+    expect(fund(owner.email, 'BTC', '0.02').tx).toBeTruthy();
     // Two staff confirm a death notice on the owner (RC-identity-02). Recording it changes nothing; without a second
     // person's approval it is not confirmed; with one, the account is frozen and nobody signs in to it.
     const found = await support('query', 'accountDirectory.search', { email: owner.email });
@@ -458,16 +470,38 @@ test.describe('recovery keys', () => {
     await expect(ownerPage.getByRole('alert')).toContainText('This account is frozen.');
     await ownerContext.close();
 
-    // Next slices: the heir opens the claim room, signs with both keys and the trading balances sweep to the heir's
-    // account (RC-identity-08).
+    // The heir opens the claim room from the bank, pastes the two keys, and the owner's free balances move to the
+    // heir's main account. The keys sign in the browser; staff hold none.
     const heirContext = await browser.newContext();
     const heirPage = await heirContext.newPage();
     await heirPage.goto('/login');
     await heirPage.fill('input[name=identifier]', heir.email);
     await heirPage.fill('input[name=password]', heir.password);
     await heirPage.getByRole('button', { name: /^sign in$/i }).click();
-    await heirPage.goto('/money');
-    await expect(heirPage.getByRole('heading', { name: 'Recovery claim' })).toBeVisible(UNBUILT);
+    await expect(heirPage).not.toHaveURL(/\/login/);
+    await heirPage.goto('/bank');
+    await heirPage.getByRole('link', { name: /Recovery claim/ }).click();
+    await expect(heirPage.getByRole('heading', { name: 'Recovery claim', level: 1 })).toBeVisible();
+    await expect(heirPage.getByText(`Account of @${owner.handle}`)).toBeVisible();
+    await expect(heirPage.getByText('2 of their 2 live keys must sign.')).toBeVisible();
+    const moving = heirPage.getByTestId('recovery-sweepable');
+    await expect(moving).toContainText('125 USDT');
+    await expect(moving).toContainText('0.02 BTC');
+    await heirPage.getByLabel('Recovery key 1').fill(keys[0]);
+    await heirPage.getByLabel('Recovery key 2').fill(keys[1]);
+    await heirPage.getByRole('button', { name: 'Sign and claim' }).click();
+    const moved = heirPage.getByTestId('recovery-moved');
+    await expect(moved).toContainText('Moved to your main account:', { timeout: 20_000 });
+    await expect(moved).toContainText('125 USDT');
+    await expect(moved).toContainText('0.02 BTC');
+    await expect(moved).not.toContainText('Refused');
+    await expect(heirPage.getByText('Nothing is left to move.')).toBeVisible();
+    await expect(heirPage.getByText(/^Claimed /)).toBeVisible();
+    // Claiming again moves nothing twice.
+    await heirPage.getByLabel('Recovery key 1').fill(keys[0]);
+    await heirPage.getByLabel('Recovery key 2').fill(keys[1]);
+    await heirPage.getByRole('button', { name: 'Sign and claim' }).click();
+    await expect(heirPage.getByText('Nothing new to move. Everything free was moved already.')).toBeVisible({ timeout: 20_000 });
     await heirContext.close();
   });
 });
