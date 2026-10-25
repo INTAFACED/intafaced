@@ -571,6 +571,120 @@ describe('checkout routes', () => {
     }
   });
 
+  it('asks how to pay when the business offers more than one method, in its order, with a method that has no rail named and not pickable', async () => {
+    const offer = {
+      offered: [
+        { method: 'bank_debit', connection: { state: 'not_connected', notice: 'rail.bank' } },
+        { method: 'card', connection: { state: 'connected' } },
+        { method: 'pay_later', connection: { state: 'connected' } },
+      ],
+      leftOut: [{ method: 'crypto', reason: 'currency' }],
+    };
+    const received: unknown[] = [];
+    const app = await build({
+      resolvePaymentLink: async () => ({ ...stubLink, amount: null, currency: null }),
+      openCheckoutSession: async (input) => {
+        received.push(input);
+        if (input.method === 'pay_later') return { sessionToken: 'cs_session_token_here', session: stubSession };
+        const code = input.method ? 'pay.checkout_method_not_offered' : 'pay.checkout_method_required';
+        throw Object.assign(payErr(code, 'choose'), { detail: { offer } });
+      },
+    });
+    const post = (extra: string) =>
+      app.inject({
+        method: 'POST',
+        url: '/checkout/session',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        payload: `token=pl_stubbed_token_value&amount=12.5&assetId=EUR&geoCountry=DE${extra}`,
+      });
+
+    const asked = await post('');
+    expect(asked.statusCode).toBe(200);
+    // The payer's answers come back, and the methods are in the business's order: bank debit, card, pay later.
+    expect(asked.body).toContain('value="12.5"');
+    expect(asked.body).toContain('value="EUR"');
+    expect(asked.body).toContain('value="DE"');
+    const order = ['value="bank_debit"', 'value="card"', 'value="pay_later"'].map((v) => asked.body.indexOf(v));
+    expect(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1]!))).toBe(true);
+    expect(asked.body).toMatch(/value="bank_debit" disabled/);
+    expect(asked.body).toMatch(/value="card" required checked/);
+    expect(asked.body).toContain('data-not-connected="rail.bank"');
+    expect(asked.body).toContain('Bank debit needs a banking partner.');
+    expect(asked.body).not.toContain('value="crypto"');
+
+    // Anything but a catalogue method is as if none was picked.
+    await post('&method=wire');
+    expect(received.at(-1)).not.toHaveProperty('method');
+    const wrong = await post('&method=card');
+    expect(wrong.statusCode).toBe(400);
+    expect(wrong.body).toContain('Choose one of the ways to pay listed here.');
+    const paid = await post('&method=pay_later');
+    expect(paid.statusCode).toBe(303);
+    expect(received.at(-1)).toMatchObject({ method: 'pay_later', geoCountry: 'DE', assetId: 'EUR' });
+    await app.close();
+  });
+
+  it('names what each offered method needs when none can take the payment, and never a receipt', async () => {
+    const app = await build({
+      openCheckoutSession: async () => {
+        throw Object.assign(payErr('pay.checkout_no_method', 'none'), {
+          detail: {
+            offer: { offered: [{ method: 'bank_debit', connection: { state: 'not_connected', notice: 'rail.bank' } }], leftOut: [] },
+          },
+        });
+      },
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/checkout/session',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: 'token=pl_stubbed_token_value&geoCountry=DE',
+    });
+    expect(res.statusCode).toBe(503);
+    expect(res.body).toContain('Nothing has been charged');
+    expect(res.body).toContain('Bank debit needs a banking partner. It is switched off here.');
+    expect(res.body).toContain('<span class="code">rail.bank</span>');
+    expect(res.body).not.toContain('Payment received');
+    await app.close();
+
+    // Nothing offered at all (every method left out by its rule): the payer gets the form back with their answers.
+    const outside = await build({
+      resolvePaymentLink: async () => ({ ...stubLink, amount: null }),
+      openCheckoutSession: async () => {
+        throw Object.assign(payErr('pay.checkout_no_method', 'none'), {
+          detail: { offer: { offered: [], leftOut: [{ method: 'crypto', reason: 'below_min' }] } },
+        });
+      },
+    });
+    const small = await outside.inject({
+      method: 'POST',
+      url: '/checkout/session',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: 'token=pl_stubbed_token_value&amount=2&geoCountry=DE',
+    });
+    expect(small.statusCode).toBe(400);
+    expect(small.body).toContain('This business takes no payment like this one. Check the amount.');
+    expect(small.body).toContain('value="2"');
+    expect(small.body).not.toContain('How to pay');
+    await outside.close();
+
+    // An offer that does not read is not shown: the page falls to its error state.
+    const garbled = await build({
+      openCheckoutSession: async () => {
+        throw Object.assign(payErr('pay.checkout_no_method', 'none'), { detail: { offer: { offered: [{ method: '<b>x</b>' }] } } });
+      },
+    });
+    const bad = await garbled.inject({
+      method: 'POST',
+      url: '/checkout/session',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: 'token=pl_stubbed_token_value&geoCountry=DE',
+    });
+    expect(bad.statusCode).toBe(500);
+    expect(bad.body).not.toContain('<b>x</b>');
+    await garbled.close();
+  });
+
   it('shows the unavailable page when rails are unset, never a receipt', async () => {
     const app = await build({
       openCheckoutSession: async () => {

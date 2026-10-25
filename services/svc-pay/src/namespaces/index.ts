@@ -12,6 +12,7 @@ import type { RegistriesMountDeps } from '../registries/index.js';
 import type { CategoryPolicyMountDeps } from '../onboarding-policy/category-router.js';
 import { createMerchantCatalogRouter, type CatalogMountDeps } from '../catalog/router.js';
 import { createCheckoutBrandingRouter, type CheckoutBrandingMountDeps } from '../checkout-branding/router.js';
+import { createCheckoutMethodsRouter, type CheckoutMethodsMountDeps } from '../checkout-methods/router.js';
 import type { DepositSettingsMountDeps } from '../custody/deposits/settings.js';
 import type { DepositFreezesMountDeps } from '../custody/deposits/freezes.js';
 import type { DepositTravelRuleMountDeps } from '../custody/deposits/travel-rule.js';
@@ -68,6 +69,8 @@ export function createPayNamespaces(deps: {
   /** The product catalogue (M-catalogue-01). Absent: every merchantCatalog procedure refuses. */
   catalog?: CatalogMountDeps;
   checkoutBranding?: CheckoutBrandingMountDeps;
+  /** The hosted checkout's payment methods (M-adv-payments-core-11). Absent: every merchantCheckoutMethods procedure refuses. */
+  checkoutMethods?: CheckoutMethodsMountDeps;
   depositSettings?: DepositSettingsMountDeps;
   depositFreezes?: DepositFreezesMountDeps;
   depositTravelRule?: DepositTravelRuleMountDeps;
@@ -150,6 +153,7 @@ export function createPayNamespaces(deps: {
     createMerchantOpsRouter(opsDeps), // W15: merchantOps.*  (founderAdmin.ops.* is mounted via createFounderAdminRouter above)
     createMerchantCatalogRouter(deps.catalog), // M-catalogue-01: merchantCatalog.*
     createCheckoutBrandingRouter(deps.checkoutBranding), // M-payments-core-08: merchantCheckout.branding.*
+    createCheckoutMethodsRouter(deps.checkoutMethods), // M-adv-payments-core-11: merchantCheckoutMethods.*
     // W10: b2bRamp.* refuses while pay.b2b_ramp is off, including a direct caller.
     createB2bRampRouter({ founderAuthority: deps.founderAuthority, sql: deps.sql }),
     // M-plat-org-10: receipt preview and send. Email switches mount on the portal `merchant` router.

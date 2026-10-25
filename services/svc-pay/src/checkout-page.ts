@@ -32,7 +32,7 @@
  */
 
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { checkoutButtonTextColor } from '@intafaced/contracts';
+import { CHECKOUT_METHODS, checkoutButtonTextColor, checkoutMethodOfferSchema, type CheckoutMethodOffer } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { formatMoney } from '@intafaced/i18n';
 import { PAYER_COPY_KEYS, payerTranslator, resolvePayerCopy } from './payer-copy.js';
@@ -117,7 +117,39 @@ export type CheckoutPageState =
   | { kind: 'unavailable' }
   | { kind: 'busy' }
   | { kind: 'amount_required'; link: CheckoutLinkView; message: string }
+  /**
+   * M-adv-payments-core-11: more than one method the business offers can take this payment. The form comes back with
+   * the payer's own answers and the methods in the business's order; a method with no rail is listed with its notice and
+   * cannot be picked.
+   */
+  | { kind: 'choose_method'; link: CheckoutLinkView; offer: CheckoutMethodOffer; values: PayerAnswers; problem?: string }
+  /** M-adv-payments-core-11: no method the business offers for this payment has a rail. Nothing was started. */
+  | { kind: 'no_method'; offer: CheckoutMethodOffer }
   | { kind: 'error'; message?: string };
+
+/** What the payer typed into the form, sent back into it when the page asks for one more answer. */
+export type PayerAnswers = { amount?: string; assetId?: string; geoCountry?: string };
+
+const METHOD_LABELS: Readonly<Record<(typeof CHECKOUT_METHODS)[number], string>> = {
+  crypto: 'Crypto',
+  card: 'Card',
+  bank_debit: 'Bank debit',
+  pay_later: 'Pay later',
+};
+
+/** The outside piece each notice names, as the app's service-off notice names it. */
+const NOTICE_DEPENDENCY: Readonly<Record<string, string>> = {
+  'rail.bank': 'a banking partner',
+  'rail.card': 'a card issuer',
+  'rail.crypto': 'a live network node or custody signer',
+};
+
+/** "Bank debit needs a banking partner. It is switched off here." with its code, as the app shows it. */
+function methodNotice(method: (typeof CHECKOUT_METHODS)[number], notice: string): string {
+  return `<p class="notice" data-not-connected="${escapeHtml(notice)}">${escapeHtml(METHOD_LABELS[method])} needs ${escapeHtml(
+    NOTICE_DEPENDENCY[notice] ?? 'an outside connection',
+  )}. It is switched off here. <span class="code">${escapeHtml(notice)}</span></p>`;
+}
 
 /** Escape for HTML text/attribute contexts. Labels are merchant-supplied. */
 export function escapeHtml(value: string): string {
@@ -248,6 +280,37 @@ export function renderCheckoutPage(
       };
     case 'amount_required':
       return { status: 400, html: pageShell(linkBody(state.link, paths, state.message), state.link.label, undefined, look) };
+    case 'choose_method':
+      return {
+        status: state.problem ? 400 : 200,
+        html: pageShell(
+          linkBody(state.link, paths, state.problem, { offer: state.offer, values: state.values }),
+          state.link.label,
+          undefined,
+          look,
+        ),
+      };
+    case 'no_method':
+      // The business offers methods for this payment, and none of them is connected: say which piece each one needs.
+      // Nothing was charged and no payment was started, exactly as on the unavailable page.
+      return {
+        status: 503,
+        html: pageShell(
+          `
+    <header class="head">
+      <p class="eyebrow">Checkout</p>
+      <h1>Payment unavailable</h1>
+    </header>
+    <section class="card">
+      <p class="hint">This merchant cannot take this payment right now. Nothing has been charged and no payment was started.</p>
+      ${state.offer.offered.map((o) => (o.connection.state === 'not_connected' ? methodNotice(o.method, o.connection.notice) : '')).join('')}
+    </section>
+  `,
+          'Payment unavailable',
+          undefined,
+          look,
+        ),
+      };
     case 'error':
       return {
         status: 500,
@@ -259,7 +322,14 @@ export function renderCheckoutPage(
   }
 }
 
-function linkBody(link: CheckoutLinkView, paths: CheckoutPaths, problem?: string): string {
+function linkBody(
+  link: CheckoutLinkView,
+  paths: CheckoutPaths,
+  problem?: string,
+  choice?: { offer: CheckoutMethodOffer; values: PayerAnswers },
+): string {
+  const values = choice?.values ?? {};
+  const valueAttr = (v: string | undefined) => (v ? ` value="${escapeHtml(v)}"` : '');
   const fixedAmount = link.amount !== null;
 
   const amountLine = fixedAmount
@@ -288,22 +358,46 @@ function linkBody(link: CheckoutLinkView, paths: CheckoutPaths, problem?: string
     : `
       <label class="field">
         <span>${escapeHtml(resolvePayerCopy(PAYER_COPY_KEYS.amount))}${link.currency ? ` (${escapeHtml(link.currency)})` : ''}</span>
-        <input name="amount" inputmode="decimal" autocomplete="off" required pattern="[0-9]+(\\.[0-9]{1,18})?" placeholder="0.00" />
+        <input name="amount" inputmode="decimal" autocomplete="off" required pattern="[0-9]+(\\.[0-9]{1,18})?" placeholder="0.00"${valueAttr(values.amount)} />
       </label>${
         link.currency
           ? ''
           : `
       <label class="field">
         <span>Currency</span>
-        <input name="assetId" autocomplete="off" required maxlength="16" placeholder="USDT" />
+        <input name="assetId" autocomplete="off" required maxlength="16" placeholder="USDT"${valueAttr(values.assetId)} />
       </label>`
       }`;
 
   const geoField = `
       <label class="field">
         <span>Country</span>
-        <input name="geoCountry" autocomplete="country" required minlength="2" maxlength="8" placeholder="DE" />
+        <input name="geoCountry" autocomplete="country" required minlength="2" maxlength="8" placeholder="DE"${valueAttr(values.geoCountry)} />
       </label>`;
+
+  // The methods in the business's order. Only a connected one can be picked; the first of those is picked already.
+  let firstPayable = true;
+  const methodField =
+    choice && choice.offer.offered.length > 0
+      ? `
+      <fieldset class="methods">
+        <legend>How to pay</legend>
+        ${choice.offer.offered
+          .map((o) => {
+            if (o.connection.state === 'not_connected') {
+              return `<label class="method off"><input type="radio" name="method" value="${escapeHtml(o.method)}" disabled /> ${escapeHtml(
+                METHOD_LABELS[o.method],
+              )}</label>${methodNotice(o.method, o.connection.notice)}`;
+            }
+            const checked = firstPayable ? ' checked' : '';
+            firstPayable = false;
+            return `<label class="method"><input type="radio" name="method" value="${escapeHtml(o.method)}" required${checked} /> ${escapeHtml(
+              METHOD_LABELS[o.method],
+            )}</label>`;
+          })
+          .join('')}
+      </fieldset>`
+      : '';
 
   const tokenField = link.token ? `<input type="hidden" name="token" value="${escapeHtml(link.token)}" />` : '';
 
@@ -317,7 +411,7 @@ function linkBody(link: CheckoutLinkView, paths: CheckoutPaths, problem?: string
       ${amountLine}
       ${problemLine}
       <form method="POST" action="${escapeHtml(paths.basePath)}/checkout/session" class="pay">
-        ${tokenField}${amountField}${geoField}
+        ${tokenField}${amountField}${geoField}${methodField}
         <button type="submit">${escapeHtml(resolvePayerCopy(PAYER_COPY_KEYS.continue))}</button>
       </form>
       <p class="hint">Nothing is charged until you send the payment yourself. This page never asks for card details.</p>
@@ -525,6 +619,12 @@ function pageShell(body: string, title: string, refreshSeconds?: number, look: C
     .field span { display: block; margin-bottom: .3rem; font-size: .85rem; color: var(--muted); }
     .field input { width: 100%; padding: .65rem .75rem; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font: inherit; }
     button { width: 100%; padding: .85rem 1rem; border: 0; border-radius: 8px; background: var(--accent); color: var(--on-accent, #fff); font: inherit; font-weight: 650; cursor: pointer; }
+    .methods { margin: 0 0 .9rem; padding: 0; border: 0; }
+    .methods legend { margin-bottom: .3rem; font-size: .85rem; color: var(--muted); }
+    .method { display: block; padding: .55rem 0; }
+    .method.off { color: var(--muted); }
+    .notice { margin: 0 0 .6rem; font-size: .88rem; color: var(--warn); }
+    .notice .code { font: .8rem ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
     .logo { display: block; max-width: 10rem; max-height: 3rem; margin: 0 0 .75rem; object-fit: contain; }
   </style>
 </head>
@@ -559,6 +659,13 @@ function missingDims(err: unknown): readonly string[] {
   const detail = err && typeof err === 'object' && 'detail' in err ? (err as { detail?: { missing?: unknown } }).detail : undefined;
   const missing = detail?.missing;
   return Array.isArray(missing) ? missing.filter((m): m is string => typeof m === 'string') : [];
+}
+
+/** The offer a method refusal carries, read back strictly; anything else is not shown. */
+function offerOf(err: unknown): CheckoutMethodOffer | null {
+  const detail = err && typeof err === 'object' && 'detail' in err ? (err as { detail?: { offer?: unknown } }).detail : undefined;
+  const parsed = checkoutMethodOfferSchema.safeParse(detail?.offer);
+  return parsed.success ? parsed.data : null;
 }
 
 function errorCode(err: unknown): string | undefined {
@@ -751,9 +858,22 @@ async function registerRoutes(app: FastifyInstance, pay: CheckoutPay, paths: Che
     if (amount === null) return showLink(token, reply, resolvePayerCopy(PAYER_COPY_KEYS.invalidAmount));
     const assetId = typeof body.assetId === 'string' && body.assetId.trim() ? body.assetId.trim().slice(0, 16) : undefined;
     const geoCountry = typeof body.geoCountry === 'string' && body.geoCountry.trim() ? body.geoCountry.trim().slice(0, 8) : undefined;
+    // Only a catalogue method is passed on; anything else is as if none was picked, and the page asks again.
+    const method = CHECKOUT_METHODS.find((m) => m === body.method);
+    const answers: PayerAnswers = {
+      ...(typeof body.amount === 'string' && amount !== undefined ? { amount: body.amount.trim().slice(0, 64) } : {}),
+      ...(assetId ? { assetId } : {}),
+      ...(geoCountry ? { geoCountry } : {}),
+    };
 
     try {
-      const { sessionToken } = await pay.openCheckoutSession({ linkToken: token, amount, assetId, geoCountry });
+      const { sessionToken } = await pay.openCheckoutSession({
+        linkToken: token,
+        amount,
+        assetId,
+        geoCountry,
+        ...(method ? { method } : {}),
+      });
       // 303, so a refresh of the resulting page does not re-POST and open a
       // second session — and a second payment — against the same link.
       return reply
@@ -763,6 +883,33 @@ async function registerRoutes(app: FastifyInstance, pay: CheckoutPay, paths: Che
         .header('location', `${paths.basePath}/checkout/session/${encodeURIComponent(sessionToken)}`)
         .send();
     } catch (err) {
+      const code = errorCode(err);
+      if (code === 'pay.checkout_method_required' || code === 'pay.checkout_method_not_offered' || code === 'pay.checkout_no_method') {
+        const offer = offerOf(err);
+        if (!offer) return send(reply, renderCheckoutPage({ kind: 'error' }, paths));
+        const look = await lookOf(pay, { linkToken: token });
+        // Something offered names the piece it needs: that is the business's gap, not the payer's. Nothing offered at all
+        // means every method was left out by its rule, currency or country, so the payer gets the form back to change the
+        // amount.
+        if (code === 'pay.checkout_no_method' && offer.offered.length > 0) {
+          return send(reply, renderCheckoutPage({ kind: 'no_method', offer }, paths, look));
+        }
+        try {
+          const link = { ...(await pay.resolvePaymentLink(token)), token };
+          const problem =
+            code === 'pay.checkout_no_method'
+              ? 'This business takes no payment like this one. Check the amount.'
+              : code === 'pay.checkout_method_not_offered'
+                ? 'Choose one of the ways to pay listed here.'
+                : undefined;
+          return send(
+            reply,
+            renderCheckoutPage({ kind: 'choose_method', link, offer, values: answers, ...(problem ? { problem } : {}) }, paths, look),
+          );
+        } catch (linkErr) {
+          return send(reply, renderCheckoutPage(stateForError(linkErr), paths));
+        }
+      }
       if (errorCode(err) === 'pay.checkout_amount_required') {
         return showLink(token, reply, resolvePayerCopy(PAYER_COPY_KEYS.invalidAmount));
       }

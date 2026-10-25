@@ -28,8 +28,11 @@ const typeNames = (types: readonly string[]) => {
   return names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}` : (names[0] ?? '');
 };
 
-/** Whether this person may change the look: the role table says so, and the business is verified (the service's rule too). */
-function useMayChangeLook(): { allowed: boolean; unverified: boolean } {
+/**
+ * Whether this person may change the checkout's settings (its look, its payment methods): the role table says so, and the
+ * business is verified (the service's rule too).
+ */
+export function useMayChangeLook(): { allowed: boolean; unverified: boolean } {
   const { access, can } = useMerchantAccess();
   const unverified = access.status === 'ready' && access.kybStatus !== 'approved';
   return { allowed: can('profile.manage') && !unverified, unverified: can('profile.manage') && unverified };
