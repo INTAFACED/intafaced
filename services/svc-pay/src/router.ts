@@ -2312,6 +2312,22 @@ export function createPayRouter(
         .query(({ ctx, input }) => wrap(async () => userMoney.withdrawalAllowance(ctx.principal.userId, input.assetId))),
 
       /**
+       * The owner's withdrawal limits for every KYC tier (D-148), as the verification ladder shows them
+       * (I-kyc-compliance-04): only figures the owner set, per tier and asset; a tier left out has no limit set, never a
+       * number. `enforced` is false when this deployment applies no limits. The same owner figures every customer is held
+       * to, nothing about the caller's own use. `trade:read` like the other withdrawal reads.
+       */
+      tierLimits: scopedProcedure('trade:read')
+        .input(z.object({}).strict().optional())
+        .output(
+          z.object({
+            enforced: z.boolean(),
+            limits: z.array(z.object({ tier: z.string(), assetId: assetIdSchema, perTx: amountSchema, rolling24h: amountSchema })),
+          }),
+        )
+        .query(() => wrap(async () => userMoney.withdrawalTierLimits())),
+
+      /**
        * The caller's own withdrawals in the customer status vocabulary (W-withdraw-06; a held row split by its dispatch
        * journal, as `withdrawal.get` shows it), filtered by asset, status, id and time and paged by a cursor. `limit` is required (blank refuses with `pay.withdrawal_list_limit_unset`):
        * there is no default page size. A status no stored value can mean yet returns an empty page, never a wrong row.

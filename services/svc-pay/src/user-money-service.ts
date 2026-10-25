@@ -26,7 +26,12 @@ import {
   type PartialPayGuards,
   type PayGuards,
 } from './seams/guards.js';
-import { GUARD_WITHDRAWAL_LIMITS_UNWIRED, type WithdrawalAllowanceView, type WithdrawalLimitReader } from './limits/reader.js';
+import {
+  GUARD_WITHDRAWAL_LIMITS_UNWIRED,
+  type PublishedLimitsView,
+  type WithdrawalAllowanceView,
+  type WithdrawalLimitReader,
+} from './limits/reader.js';
 import { bankInternalWithdrawalInputSchema, internalWithdrawalTransferId, type BankInternalWithdrawalPort } from '@intafaced/contracts';
 import {
   INTERNAL_RAIL,
@@ -1639,6 +1644,12 @@ export class UserMoneyService {
   async withdrawalAllowance(userId: string, assetId: string): Promise<WithdrawalAllowanceView> {
     if (!this.withdrawalLimits) throw new PayGuardRefusal(GUARD_WITHDRAWAL_LIMITS_UNWIRED, 'unavailable');
     return this.withdrawalLimits.allowance(userId, assetId);
+  }
+
+  /** The owner's withdrawal limits for every KYC tier (the verification ladder). No figure is invented for a tier left out. */
+  async withdrawalTierLimits(): Promise<PublishedLimitsView> {
+    if (!this.withdrawalLimits) throw new PayGuardRefusal(GUARD_WITHDRAWAL_LIMITS_UNWIRED, 'unavailable');
+    return this.withdrawalLimits.published();
   }
 
   /** The caller's own withdrawals in the customer status vocabulary, one filtered page at a time. */

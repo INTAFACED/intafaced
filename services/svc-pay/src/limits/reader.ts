@@ -22,8 +22,19 @@ export interface WithdrawalAllowanceView {
   readonly maxNow: string;
 }
 
+/**
+ * The owner's withdrawal limits for every KYC tier, as the verification ladder shows them (I-kyc-compliance-04). Only
+ * figures the owner set are listed; a tier or asset left out has no limit set. `enforced` is false when this deployment
+ * does not apply limits at all (`PAY_WITHDRAWAL_LIMITS=off`), so the page never presents a figure as binding when it is not.
+ */
+export interface PublishedLimitsView {
+  readonly enforced: boolean;
+  readonly limits: Array<{ tier: string; assetId: string; perTx: string; rolling24h: string }>;
+}
+
 export interface WithdrawalLimitReader {
   allowance(userId: string, assetId: string): Promise<WithdrawalAllowanceView>;
+  published(): Promise<PublishedLimitsView>;
 }
 
 export interface WithdrawalLimitReaderDeps {
@@ -63,6 +74,18 @@ export function createWithdrawalLimitReader(deps: WithdrawalLimitReaderDeps): Wi
         used24h: formatAmount(a.used24h),
         remaining: { perTx: formatAmount(a.perTx), rolling24h: formatAmount(a.left24h) },
         maxNow: formatAmount(a.maxNow),
+      };
+    },
+    async published() {
+      const rows = await deps.source.list(deps.sql);
+      return {
+        enforced: deps.mode === 'required',
+        limits: rows.map((r) => ({
+          tier: r.tier,
+          assetId: r.assetId,
+          perTx: formatAmount(r.perTx),
+          rolling24h: formatAmount(r.rolling24h),
+        })),
       };
     },
   };
