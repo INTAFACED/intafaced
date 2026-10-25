@@ -9,13 +9,15 @@ import { assertEarnRateHistoryListLimit } from '../owner-list-limit.js';
  * The table is append-only (a trigger refuses UPDATE and DELETE). A pool's rate is written in two places only, each in
  * one transaction with this table: `EarnService.createPool` records the opening rate, and `setPoolRate` records an
  * approved change and moves the pool's `apr_bps` with it. The history is never built in the browser and never filled in
- * for the time before the first record: a pool opened before the table existed has no record until its first change.
+ * for the time before the first record: a pool opened before the table existed has no record until its first change,
+ * which first records the rate the pool was paying at that moment.
  */
 
 export interface RateChange {
   rateBps: number;
   effectiveAt: Date;
-  /** The owner's reason, when one was given; the opening record has none. */
+  /** The owner's reason, when one was given; the first record (the opening rate, or a pre-table pool's rate when it
+   * first changed) has none. */
   reason: string | null;
 }
 
@@ -165,7 +167,17 @@ export async function setPoolRate(
             + interval '1 millisecond'
         ) AS at
       `;
-      const effectiveAt = clock!.at;
+      let effectiveAt = clock!.at;
+      const [recorded] = await tx<Array<{ any: boolean }>>`
+        SELECT EXISTS (SELECT 1 FROM bank.earn_rate_changes WHERE pool_id = ${input.poolId}) AS any
+      `;
+      if (!recorded!.any) {
+        // A pool opened before the table has no record. Record the rate it pays now first, so the day this change
+        // lands on still pays it (`rateForDay` falls back to the first record) and the history never claims the new
+        // rate held earlier. Nothing is dated before this moment: what the pool paid before stays unrecorded.
+        await recordRateChange(tx, { poolId: input.poolId, rateBps: previousBps, effectiveAt, reason: null, approvalId: null });
+        effectiveAt = new Date(effectiveAt.getTime() + 1);
+      }
       await recordRateChange(tx, {
         poolId: input.poolId,
         rateBps: input.rateBps,

@@ -224,6 +224,8 @@ export const rooms: readonly Room[] = [
     description: 'One pool’s terms, rate history and your savings in it',
     door: 'Bank',
     area: 'money',
+    // Opened for one pool (`?id=`) from each Earn pool card, like a help article.
+    hidden: true,
   },
   { path: '/bank/loans', title: 'Loans', description: 'Applications and repayments', door: 'Bank', area: 'money' },
   {

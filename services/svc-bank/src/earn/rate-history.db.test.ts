@@ -362,6 +362,40 @@ describe('earn rate history (BK-earn-05)', () => {
     await expect(customer(bank).earn.rateHistory({ poolId: legacy!.id })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
   });
 
+  it('a pre-table pool’s first change records the rate it was paying first, so the day of the change still pays it', async () => {
+    const bank = services();
+    const [legacy] = await sql<Array<{ id: string }>>`
+      INSERT INTO bank.earn_pools (asset_id, kind, name, apr_bps, min_deposit) VALUES ('USDT', 'flexible', 'TEST old', 3650, 0) RETURNING id
+    `;
+    const poolId = legacy!.id;
+    await bank.earn.setPoolRate({ poolId, rateBps: 7300, reason: 'TEST first change', approvalId: randomUUID() });
+    const history = await customer(bank).earn.rateHistory({ poolId, limit: 10 });
+    expect(history.changes.map((c) => [c.rateBps, c.reason])).toEqual([
+      [3650, null],
+      [7300, 'TEST first change'],
+    ]);
+    expect(history.earlier).toBe(false);
+
+    await ledger.post(recipes.deposit({ userId: CUSTOMER, assetId: 'USDT', amount: amt('1000'), rail: 'test', railRef: randomUUID() }));
+    await ledger.post(recipes.deposit({ userId: PAYER, assetId: 'USDT', amount: amt('100'), rail: 'test', railRef: randomUUID() }));
+    await ledger.post(
+      recipes.feeCharge({
+        chargeId: `bank:${randomUUID()}`,
+        userId: PAYER,
+        module: 'bank',
+        mode: 'asset',
+        assetId: 'USDT',
+        amount: amt('100'),
+      }),
+    );
+    await bank.earn.fundPool({ poolId, fundingId: 'seed-legacy', amount: amt('100') });
+    const DAY = 24 * 60 * 60 * 1000;
+    await bank.earn.deposit({ poolId, userId: CUSTOMER, amount: amt('1000'), positionId: randomUUID(), now: new Date(Date.now() - DAY) });
+    // Today began before the change: it pays the 36.5% the pool was paying (exactly 1), not the new 73%.
+    expect((await bank.earn.accrue({ poolId, at: new Date() })).paid).toBe(amt('1'));
+    expect((await bank.earn.accrue({ poolId, at: new Date(Date.now() + DAY) })).paid).toBe(amt('2'));
+  });
+
   it('pages back: the newest records oldest first, and says older ones exist', async () => {
     const bank = services();
     const pool = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'TEST paged', aprBps: 100 });

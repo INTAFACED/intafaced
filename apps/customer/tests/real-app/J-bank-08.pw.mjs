@@ -169,7 +169,7 @@ test(`${J} #1 opens Earn and compares pools: pools side by side with rates, and 
   await expect(rows.nth(0)).toContainText('TEST rate cut');
   await expect(rows.nth(1)).toHaveAttribute('data-rate', '175');
   await expect(rows.nth(2)).toHaveAttribute('data-rate', '150');
-  await expect(rows.nth(2)).toContainText('Rate when the pool opened');
+  await expect(rows.nth(2)).toContainText('First rate on record');
   await expect(history.getByTestId('earn-rate-history-start')).toContainText('No earlier history');
   await expect(history).toContainText('Now: 1.25%');
   const recorded = await api.query('earn.rateHistory', { poolId: pool.id, limit: 50 });

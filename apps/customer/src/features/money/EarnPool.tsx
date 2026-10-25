@@ -151,7 +151,7 @@ function RateHistory({ history }: { history: History }) {
               <td>{day(change.effectiveAt)}</td>
               <td>{bps(change.rateBps)}</td>
               <td>
-                {/* Only the opening record has no reason: every approved change carries one. */}
+                {/* Only the first record has no reason: every approved change carries one. */}
                 {change.reason ?? t('historyOpened')}
               </td>
             </tr>
