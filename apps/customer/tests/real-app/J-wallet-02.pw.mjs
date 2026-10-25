@@ -16,7 +16,10 @@ import { draftNotice, publishNotice } from './notices.mjs';
 // the LOCAL TEST tool (local-test-stack.mjs expire-deposit-addresses) and sends to an expired one: held for release.
 // #8 has the founders publish a TEST funding incident for USDT on TEST Ethereum (four-eyes, as the notice desk does) and
 // moves it on a stage: Deposit shows it, with its stage and dates, on that pair only. It closes the incident at the end.
-// Not here yet: #1 (custody unset, while this stack has it connected) and #2's unsupported-case lists.
+// #1 restarts the bank with no custody port (LOCAL_STACK_BANK_DEPOSIT_CUSTODY=off, as a deployment with custody unset runs),
+// reads the whole room and its refusal, and restarts it connected again before #3, whatever happened (an afterEach hook
+// covers a step that times out).
+// Not here yet: #2's unsupported-case lists.
 const J = 'J-wallet-02';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ASSET = 'USDT';
@@ -59,6 +62,83 @@ async function openDeposit(page, who) {
 const assetPicker = (page) => page.getByRole('combobox', { name: /^Asset Coins you hold/ });
 const records = (page) => page.locator('section', { has: page.getByRole('heading', { name: 'Deposit records' }) });
 const recordRow = (page, tx) => records(page).locator('tbody tr', { hasText: tx });
+
+/**
+ * The bank restarted with no deposit custody port, or back on the stack's svc-pay. "Off" is written to its own state file
+ * before the restart, so a run cancelled while custody is off is put back by the next run's first hook, and cleared only
+ * once the bank is connected again.
+ */
+const custody = journeyState(`${J}-custody`);
+function bankDepositCustody(on) {
+  const before = process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
+  if (on) delete process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
+  else process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY = 'off';
+  if (!on) custody.write({ off: true });
+  try {
+    tool('local-test-stack.mjs', 'restart', 'bank');
+    if (on) custody.reset({});
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
+    else process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY = before;
+  }
+}
+const putCustodyBack = () => {
+  if (custody.read().off) bankDepositCustody(true);
+};
+// A step that fails or times out never reaches its own end, so the hooks put custody back before the next step, and a run
+// that was cancelled with custody off is put back before this one starts.
+test.beforeAll(putCustodyBack);
+test.afterEach(putCustodyBack);
+
+test(`${J} #1 opens Deposit with custody unset: the whole room, every control, and a typed refusal naming the blocker`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const who = await signUp(page, 'w2u');
+  await verify(page, who);
+  bankDepositCustody(false);
+  // The bank's own answer names the blocker on the room's catalogue, incoming and records reads.
+  const client = await api(who);
+  const reads = { 'deposits.assets': undefined, 'deposits.pending': undefined, 'deposits.list': { offset: 0, limit: 20 } };
+  for (const [route, input] of Object.entries(reads)) {
+    const query = input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`;
+    const { status, body } = await client.get(`/api/bank/trpc/${route}${query}`);
+    expect(status, route).toBe(412);
+    expect(JSON.stringify(body), route).toContain('bank.deposit_custody_unset');
+  }
+
+  await openDeposit(page, who);
+  // The room is there with every control: asset, network, address, terms, incoming and records. Nothing says "coming soon".
+  // With no custody there is no deposit catalogue, so the asset chooser lists only the coins the app knows of.
+  await expect(assetPicker(page)).toBeVisible();
+  await expect(assetPicker(page).locator('option:not([value=""])')).not.toHaveCount(0);
+  // The network chooser's reason is part of its name while it has nothing to offer.
+  const network = page.getByRole('combobox', { name: /^Network/ });
+  await expect(network).toBeVisible();
+  await expect(network).toBeDisabled();
+  await expect(network.locator('option')).toHaveText(['No networks available']);
+  await expect(page.getByText('The list of networks for an asset needs crypto custody, which isn’t connected.')).toBeVisible();
+  await expect(page.getByText('Deposit addresses are not available', { exact: true })).toBeVisible();
+  await expect(
+    page.getByText(
+      'Crypto custody isn’t connected, so no deposit address is issued. Please do not send anything to an address from elsewhere.',
+    ),
+  ).toBeVisible();
+  await expect(page.getByTestId('deposit-address')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Show my deposit address' })).toHaveCount(0);
+  for (const fact of ['Minimum deposit', 'Confirmations needed', 'Time to arrive'])
+    await expect(page.getByText(fact, { exact: true })).toBeVisible();
+  await expect(page.getByText('Not published', { exact: true })).toHaveCount(3);
+  await expect(page.getByRole('heading', { name: 'On its way' })).toBeVisible();
+  await expect(page.getByText('Incoming deposits cannot be shown because crypto custody isn’t connected.')).toBeVisible();
+  await expect(records(page)).toBeVisible();
+  await expect(page.getByText('Deposit records cannot be shown because crypto custody isn’t connected.')).toBeVisible();
+  await expect(page.getByText(/coming soon/i)).toHaveCount(0);
+  bankDepositCustody(true);
+  // Connected again, the same person's catalogue answers, so #3 starts from a connected stack.
+  const { status } = await (await api(who)).get('/api/bank/trpc/deposits.assets');
+  expect(status).toBe(200);
+});
 
 test(`${J} #3 with custody connected, reads the address: no address until a network is chosen, then the address, its QR and the published terms`, async ({
   page,

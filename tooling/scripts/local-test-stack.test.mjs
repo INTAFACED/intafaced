@@ -69,6 +69,30 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: bank reads deposit custody from the stack svc-pay');
 }
 
+// `LOCAL_STACK_BANK_DEPOSIT_CUSTODY=off` starts the bank with no custody port at all (J-wallet-02 #1), and nothing else changes.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const bankEnv = () => localTestServiceEnvs().find((service) => service.name === 'bank').env;
+  const before = process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
+  try {
+    delete process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
+    const on = bankEnv();
+    assert.ok(on.PAY_URL);
+    process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY = 'off';
+    const off = bankEnv();
+    assert.equal('PAY_URL' in off, false);
+    const { PAY_URL: _payUrl, ...rest } = on;
+    assert.deepEqual(off, rest);
+    // Any other value is a mistake, refused by name, never read as connected.
+    process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY = 'OFF';
+    assert.throws(bankEnv, /LOCAL_STACK_BANK_DEPOSIT_CUSTODY is "OFF"/);
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
+    else process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY = before;
+  }
+  console.log('local-test-stack: bank can start with deposit custody unset');
+}
+
 // The bank process carries its BK-xfer-07 TEST values from the bank profile, verbatim, so a global send on this
 // stack meets the same payee list, exchange allowance and proof limits as CX-8 instead of the unset refusals.
 {
