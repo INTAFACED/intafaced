@@ -122,6 +122,7 @@ The occurrences that were written off are in the **response**, not merely in the
 | `earn.pools`           | `bank:read`  | Open flexible and fixed pools; refuses `bank.earn_rate_unset` when none are configured                                                                                                                                          |
 | `earn.deposit`         | `bank:write` | Open a position                                                                                                                                                                                                                 |
 | `earn.withdraw`        | `bank:write` | Close a position; fixed terms enforced                                                                                                                                                                                          |
+| `earn.setAutoRenew`    | `bank:write` | A fixed-term saving's auto-renew choice: the next term starts when this one ends                                                                                                                                                |
 | `earn.positions`       | `bank:read`  | The user's open positions                                                                                                                                                                                                       |
 | `earn.interestHistory` | `bank:read`  | The caller's interest from one pool, a row per paid day (date, that day's rate, their payout, ledger tx), and the sum of every paid day (J-bank-07 #5). Page size required; blank refuses `bank.earn_interest_list_limit_unset` |
 
@@ -275,6 +276,7 @@ BANK_SEND_FIELD_RULES_JSON=    # owner-published purpose / source-of-funds / ref
 | `ops.runRiskSweep`         | `admin:treasury` | Mark open loans; margin-call and liquidate past grace                 |
 | `ops.resumePendingLoans`   | `admin:treasury` | Re-drive loans stuck between collateral lock and principal draw       |
 | `ops.resumePendingEarn`    | `admin:treasury` | Re-drive earn deposits stuck pending after ledger post                |
+| `ops.renewEarnTerms`       | `admin:treasury` | Start the next term of ended fixed-term savings with auto-renew on    |
 | `ops.abandonPendingLoan`   | `admin:treasury` | Give up on a pending loan and return collateral                       |
 | `ops.adjustLoanInterest`   | `admin:treasury` | Four-eyes interest correction: a new signed row with its reason       |
 | `ops.cardAuthorize`        | `admin:treasury` | The authorisation "webhook" — decide, and hold if the answer is yes   |
@@ -301,7 +303,7 @@ HTTP, for the external scheduler (service credentials required; each money job h
 | `POST /internal/jobs/run-auto-invest`         | auto-invest threshold sweeps / due DCA                           |
 | `POST /internal/jobs/run-income-sorter`       | income sorter: unsorted payments and splits left pending         |
 
-Plus `/health` and `/ready`. Card settlement resume is tRPC-only (`ops.cardResumeSettlement`) — no HTTP twin yet.
+Plus `/health` and `/ready`. Card settlement resume (`ops.cardResumeSettlement`) and fixed-term auto-renew (`ops.renewEarnTerms`) are tRPC-only: the scheduler calls them signed as svc-bank, with no HTTP twin yet.
 
 ---
 

@@ -3016,6 +3016,7 @@ describe('svc-bank money PG-hard', () => {
         'earn_pools.min_deposit': 'a POLICY floor on a single deposit',
         'earn_positions.principal': 'the deposit RECORD; interest is paid to available, never added here',
         'interest_accruals.paid_amount': 'a RECORD of one day; summing the table is the lifetime figure',
+        'earn_renewals.principal': 'a RECORD of the amount one renewed term holds; written once, nothing posts with it',
 
         // ── Loans (§8.1) ─────────────────────────────────────────────────────
         //

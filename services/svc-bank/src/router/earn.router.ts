@@ -162,6 +162,22 @@ export function createEarnRouter(c: BankRouterContext) {
         }),
       ),
 
+    /**
+     * A fixed-term saving's auto-renew choice (BK-earn-03, J-bank-08 #4): on, a new term of the same length and amount
+     * starts when this one ends; off, the saving can be taken back once the term ends.
+     */
+    setAutoRenew: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ positionId: z.string().guid(), on: z.boolean() }))
+      .output(z.object({ positionId: z.string(), autoRenew: z.boolean(), maturesAt: z.string().nullable() }))
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const existing = await bank.earn.position(input.positionId);
+          assertSelf(ctx.principal.userId, existing.userId);
+          const position = await bank.earn.setAutoRenew(input.positionId, input.on);
+          return { positionId: position.id, autoRenew: position.autoRenew, maturesAt: position.maturesAt?.toISOString() ?? null };
+        }),
+      ),
+
     positions: scopedProcedure('bank:read', { module: 'bank' })
       .input(
         z
@@ -191,6 +207,12 @@ export function createEarnRouter(c: BankRouterContext) {
             accruesFrom: z.string(),
             /** `waiting` until that day, then `accruing`; a closed pool or a too-small saving is paid nothing (BK-earn-01). */
             accrual: z.enum(['waiting', 'accruing', 'pool_closed', 'below_unit']),
+            /** A fixed-term saving the saver asked to renew when its term ends (BK-earn-03). */
+            autoRenew: z.boolean(),
+            /** How many new terms auto-renew has started; `maturesAt` is the end of the current one. */
+            renewals: z.number().int(),
+            /** The next UTC day the bank pays this saving's interest (a date); null when no day pays it. */
+            nextPayoutOn: z.string().nullable(),
           }),
         ),
       )
@@ -210,6 +232,9 @@ export function createEarnRouter(c: BankRouterContext) {
             rateAtOpenBps: atOpen.get(p.id) ?? null,
             accruesFrom: states.get(p.id)!.accruesFrom.toISOString(),
             accrual: states.get(p.id)!.accrual,
+            autoRenew: p.autoRenew,
+            renewals: states.get(p.id)!.renewals,
+            nextPayoutOn: states.get(p.id)!.nextPayoutOn,
           }));
         }),
       ),

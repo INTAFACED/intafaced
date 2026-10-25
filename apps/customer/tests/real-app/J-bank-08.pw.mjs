@@ -18,10 +18,15 @@ import { signIn, signUp, verify } from './desk.mjs';
 // the bank pays it; a deposit under the minimum is refused, TEST 100 waits for its first full UTC day, and once the
 // bank's own accrual job (signed as its scheduler, the stack has no timer) pays that day the saving is accruing and the
 // day paid is the calculator's figure to the unit. The pool's TEST reserve comes from `local-test-seed.mjs
-// fund-earn-pool`, the seed's own funding move. Step 7: auto earn into the pool refuses a keep-amount of zero, then
-// saves one. Step 8: the answer to taking the saving back is lost on the way to the page; the bank took it back once,
-// the page sends nothing again, and the empty list afterwards does not settle the lost answer. Steps 4 to 6 (BK-earn-03,
-// BK-earn-04) follow as their slices land; until then each stops at the first control its slice adds, quickly.
+// fund-earn-pool`, the seed's own funding move. Step 4 (BK-earn-03): in a TEST 30-day pool of the journey's own, a
+// saving shows its lock date, its daily payout schedule and that nothing compounds; the page offers no early take back
+// and the bank refuses one with the date; auto-renew turned on, the bank's renewal job (signed as its scheduler) starts
+// one new term of the same amount at the term's end and moves no money, and a second run renews nothing. Step 5: the
+// schedule names the next payout day; the job pays that day once however often it runs, and the schedule moves on a
+// day. Step 7: auto earn into the pool refuses a keep-amount of zero, then saves one. Step 8: the answer to taking the
+// saving back is lost on the way to the page; the bank took it back once, the page sends nothing again, and the empty
+// list afterwards does not settle the lost answer. Step 6 (BK-earn-04) follows as its slice lands; until then it stops
+// at the first control its slice adds, quickly.
 const J = 'J-bank-08';
 const RUN = process.env.JOURNEY_RUN_ID ?? `local-${Date.now()}`;
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -110,12 +115,12 @@ async function setRate(poolId, rateBps, reason) {
 }
 
 let jobCtx;
-/** One day of earn interest for one pool, through the bank's job procedure signed as its scheduler would sign it. */
-async function accrue(poolId, at) {
+/** One of the bank's job procedures, signed as its scheduler would sign it (the stack has no timer). */
+async function job(procedure, input) {
   jobCtx ??= import('../../../../tooling/scripts/local-test-gates.mjs').then((gates) => gates.makeContext({ log: () => {} }));
   const ctx = await jobCtx;
-  const raw = JSON.stringify({ poolId, at: at.toISOString() });
-  const res = await fetch(`${ctx.url('bank')}/trpc/ops.accrueInterest`, {
+  const raw = JSON.stringify(input);
+  const res = await fetch(`${ctx.url('bank')}/trpc/${procedure}`, {
     method: 'POST',
     redirect: 'error',
     headers: { 'content-type': 'application/json', ...ctx.contracts.serviceAuthHeadersForBody('svc-bank', ctx.secrets.internal, raw) },
@@ -123,9 +128,13 @@ async function accrue(poolId, at) {
     signal: AbortSignal.timeout(30_000),
   });
   const parsed = await res.json().catch(() => null);
-  if (res.status !== 200) throw new Error(`ops.accrueInterest refused: ${res.status} ${JSON.stringify(parsed).slice(0, 300)}`);
-  return parsed.result.data.results[0];
+  if (res.status !== 200) throw new Error(`${procedure} refused: ${res.status} ${JSON.stringify(parsed).slice(0, 300)}`);
+  return parsed.result.data;
 }
+/** One day of earn interest for one pool. */
+const accrue = async (poolId, at) => (await job('ops.accrueInterest', { poolId, at: at.toISOString() })).results[0];
+/** The renewal job for one pool, run at `at`. */
+const renew = (poolId, at) => job('ops.renewEarnTerms', { poolId, at: at.toISOString(), limit: 10 });
 /** The journey pool's TEST reserve, moved by the seed's own funding step; `ref` keys it, so a retry funds once. */
 function fundReserve(poolId, amount, ref) {
   return execFileSync(
@@ -326,17 +335,104 @@ test(`${J} #3 uses the calculator, then deposits below and above the minimum: ba
 test(`${J} #4 chooses a fixed term with auto-renew: the lock date, payout schedule and compounding, and early withdrawal refused`, async ({
   page,
 }) => {
+  test.setTimeout(180_000);
   const { who } = state();
+  const api = await bank(who);
+  // A TEST 30-day pool of the journey's own, below the seeded pools' rates.
+  const fixed = await openPool({ kind: 'fixed', aprBps: 200, termDays: 30, minDeposit: '10', label: 'fixed' });
+  run.write({ fixedPool: fixed.id });
   await signIn(page, who);
-  await page.goto('/bank/earn');
-  await expect(page.getByTestId('earn-auto-renew')).toBeVisible(UNBUILT);
+  await page.goto(poolPage(fixed.id));
+
+  const deposit = page.getByTestId('earn-pool-deposit');
+  await deposit.getByRole('button', { name: 'Deposit', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Amount (USDT)').fill('100');
+  await dialog.getByRole('button', { name: 'Review' }).click();
+  await expect(dialog).toContainText('30 days');
+  await confirm(dialog, 'Deposit');
+  await close(page);
+  const [position] = (await api.query('earn.positions', { limit: 50, poolId: fixed.id })).data;
+  // The lock date is the term from the moment it opened.
+  expect(Date.parse(position.maturesAt) - Date.parse(position.openedAt)).toBe(30 * 24 * 60 * 60 * 1000);
+  expect(position).toMatchObject({ principal: '100', autoRenew: false, renewals: 0 });
+  run.write({ fixedPosition: position.id });
+
+  await page.reload();
+  const card = page.locator(`[data-testid="earn-pool-position"][data-position="${position.id}"]`);
+  const term = card.getByTestId('earn-fixed-term');
+  await expect(term).toHaveAttribute('data-matures', position.maturesAt);
+  await expect(term).toContainText('30-day term, locked until');
+  // The payout schedule: every UTC day to the main balance, through the term, and no compounding.
+  const schedule = card.getByTestId('earn-payout-schedule');
+  await expect(schedule).toHaveAttribute('data-next', position.accruesFrom.slice(0, 10));
+  await expect(schedule).toContainText('Interest is paid every day (UTC) to your main USDT balance.');
+  await expect(schedule).toContainText('A fixed term is paid each day of the term, not in one payment at its end.');
+  await expect(schedule.getByTestId('earn-compounding')).toHaveAttribute('data-compounding', 'none');
+
+  // Early withdrawal: the page offers none before the lock date, and the bank itself refuses one, naming the date.
+  await expect(card.getByTestId('earn-withdraw')).toHaveAttribute('data-state', 'locked');
+  await expect(card.getByTestId('earn-withdraw')).toContainText('Locked: you can take it back from');
+  const early = await api.mutate('earn.withdraw', { positionId: position.id });
+  expect(early).toMatchObject({ ok: false, code: 'bank.position_locked' });
+  expect(JSON.stringify(early.body)).toContain(position.maturesAt);
+
+  // Auto-renew on.
+  const renewal = card.getByTestId('earn-auto-renew');
+  await expect(renewal).toHaveAttribute('data-on', 'false');
+  await renewal.getByRole('button', { name: 'Turn on auto-renew', exact: true }).click();
+  await expect(dialog).toContainText('A new term of the same length starts');
+  await confirm(dialog, 'Turn on auto-renew');
+  await close(page);
+  await page.reload();
+  await expect(renewal).toHaveAttribute('data-on', 'true');
+  await expect(renewal).toContainText('Auto-renew is on: when this term ends on');
+
+  // At the end of the term the bank's renewal job starts one new 30-day term with the same amount, and moves no money;
+  // a second run renews nothing.
+  const before = await mainUsdt(api);
+  const ends = new Date(Date.parse(position.maturesAt) + 60_000);
+  const next = new Date(Date.parse(position.maturesAt) + 30 * 24 * 60 * 60 * 1000).toISOString();
+  expect(await renew(fixed.id, ends)).toEqual({ renewed: [{ positionId: position.id, terms: [1], maturesAt: next }], skipped: [] });
+  expect(await renew(fixed.id, ends)).toEqual({ renewed: [], skipped: [] });
+  expect(await mainUsdt(api)).toBe(before);
+  await page.reload();
+  await expect(term).toHaveAttribute('data-matures', next);
+  await expect(term).toHaveAttribute('data-renewals', '1');
+  await expect(term).toContainText('Terms started by auto-renew: 1.');
+  const [renewed] = (await api.query('earn.positions', { limit: 50, poolId: fixed.id })).data;
+  expect(renewed).toMatchObject({ principal: '100', maturesAt: next, renewals: 1, autoRenew: true });
 });
 
 test(`${J} #5 sees a payout: one payout per period posted, and the schedule shows the next date`, async ({ page }) => {
-  const { who, pool } = state();
+  test.setTimeout(120_000);
+  const { who, pool, position } = state();
+  if (!position) throw new Error(`${J} #3 saved nothing, so there is no payout to see`);
+  const api = await bank(who);
+  const [saving] = (await api.query('earn.positions', { limit: 50, poolId: pool })).data;
+  // #3 paid the saving's first day, so the next payout is the day after it.
+  const DAY = 24 * 60 * 60 * 1000;
+  const secondDay = Date.parse(saving.accruesFrom) + DAY;
+  const dayOf = (at) => new Date(at).toISOString().slice(0, 10);
+  expect(saving.nextPayoutOn).toBe(dayOf(secondDay));
   await signIn(page, who);
   await page.goto(poolPage(pool));
-  await expect(page.getByTestId('earn-payout-schedule')).toBeVisible(UNBUILT);
+  const card = page.locator(`[data-testid="earn-pool-position"][data-position="${position}"]`);
+  const schedule = card.getByTestId('earn-payout-schedule');
+  await expect(schedule).toHaveAttribute('data-next', dayOf(secondDay));
+  await expect(schedule.getByTestId('earn-payout-next')).toContainText('Next payout:');
+
+  // The period (one UTC day) pays once, however often the job runs that day.
+  const perDay = fromUnits(daily('100', 125));
+  const before = await mainUsdt(api);
+  expect(await accrue(pool, new Date(secondDay + 60 * 60 * 1000))).toMatchObject({ paid: perDay, recipients: 1, alreadyAccrued: false });
+  expect(await accrue(pool, new Date(secondDay + 2 * 60 * 60 * 1000))).toMatchObject({ paid: perDay, alreadyAccrued: true });
+  expect(await mainUsdt(api)).toBe(before + toUnits(perDay));
+  await page.reload();
+  await expect(schedule).toHaveAttribute('data-next', dayOf(secondDay + DAY));
+  const earned = page.getByTestId('earn-pool-earned');
+  await expect(earned.getByTestId('earn-pool-earned-day')).toHaveCount(2);
+  await expect(earned).toHaveAttribute('data-total', fromUnits(daily('100', 125) * 2n));
 });
 
 test(`${J} #6 opens a staking-style pool: unbonding states, pool status and a risk disclosure; a closed pool refuses deposits while existing positions keep accruing and can withdraw`, async ({
@@ -389,6 +485,8 @@ test(`${J} #8 withdraws: the withdrawal posts once, and an unknown outcome is no
   if (!position) throw new Error(`${J} #3 saved nothing, so there is nothing to take back`);
   const api = await bank(who);
   const before = await mainUsdt(api);
+  const paidDays = (await api.query('earn.interestHistory', { poolId: pool, limit: 50 })).data.days.length;
+  expect(paidDays).toBeGreaterThan(0);
   await signIn(page, who);
   await page.goto(poolPage(pool));
 
@@ -418,5 +516,5 @@ test(`${J} #8 withdraws: the withdrawal posts once, and an unknown outcome is no
   await expect(page.locator('#bank-unconfirmed')).toBeVisible();
   expect(sent).toBe(1);
   // Interest already paid stays listed.
-  await expect(page.getByTestId('earn-pool-earned').getByTestId('earn-pool-earned-day')).toHaveCount(1);
+  await expect(page.getByTestId('earn-pool-earned').getByTestId('earn-pool-earned-day')).toHaveCount(paidDays);
 });
