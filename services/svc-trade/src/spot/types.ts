@@ -151,6 +151,12 @@ export interface OrderRecord {
   readonly feeDiscountBps: number;
   /** The fee tier the order was placed at (the last finished tier snapshot then); its fills are charged at it. */
   readonly feeTier: string;
+  /**
+   * The platform token this order pays its fees in, and the stake discount off that fee it was placed at (fee-ifc.ts).
+   * Absent or null: each fill's fee is taken in the asset it receives.
+   */
+  readonly feeCurrency?: string | null;
+  readonly feeIfcDiscountBps?: number | null;
   /** The caller's own label from the create body. Null when none was sent. Never part of the idempotency key. */
   readonly tag: string | null;
   readonly protectionPrice: Amount | null;
@@ -242,6 +248,8 @@ export interface FillRecord {
   readonly feeBps: number;
   /** A maker leg's rebate (rate, amount, the asset the maker paid). Never a negative fee. Absent or null = none. */
   readonly rebate?: { readonly bps: number; readonly amount: Amount; readonly asset: string } | null;
+  /** Why a leg whose order chose the token paid in the asset it received (fee-ifc.ts). Absent or null = it did not. */
+  readonly feeFallback?: string | null;
   readonly sequence: number;
   readonly ts: Date;
   readonly sessionId: string | null;
@@ -375,6 +383,12 @@ export type TradeErrorCode =
   | 'trade.tag_unsupported'
   | 'trade.invalid_tag'
   | 'trade.fee_currency_unsupported'
+  /** Paying the fee in the platform token was asked and the owner's token fee terms (`ifcFee`) are unpublished. */
+  | 'trade.fee_currency_ifc_unset'
+  /** The token fee terms name no conversion for the asset this order would pay its fee in. */
+  | 'trade.fee_ifc_index_unset'
+  /** The stake discount could not be read from svc-token, so no token-fee order is taken. */
+  | 'trade.fee_ifc_discount_unavailable'
   | 'trade.trigger_source_unset'
   | 'trade.invalid_qty'
   | 'trade.invalid_price'

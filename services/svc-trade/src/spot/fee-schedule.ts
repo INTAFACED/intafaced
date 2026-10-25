@@ -86,7 +86,19 @@ export type OwnerFeeSchedule =
       readonly defaultPairGroup?: string;
       /** Tiers by 30-day volume (fee-tiers.ts). Absent or null: every account is on the regular tier. */
       readonly tierProgram?: FeeTierProgram | null;
+      /** Paying spot fees in the platform token (fee-ifc.ts). Absent or null: the choice refuses `trade.fee_currency_ifc_unset`. */
+      readonly ifcFee?: IfcFeeTerms | null;
     };
+
+/**
+ * The owner's terms for paying a spot fee in the platform token (RC-cex-spot-11). `perUnit` says how many tokens one
+ * unit of each fee asset is worth; there is no index price feed, so this published figure is the conversion, versioned
+ * with the rates. An asset it does not name cannot be paid in the token (`trade.fee_ifc_index_unset`).
+ */
+export interface IfcFeeTerms {
+  readonly tokenAsset: string;
+  readonly perUnit: Readonly<Record<string, string>>;
+}
 
 export const UNPUBLISHED_FEE_SCHEDULE: OwnerFeeSchedule = { published: false };
 
@@ -167,9 +179,11 @@ export function parseFeeScheduleJson(raw: string | null | undefined): OwnerFeeSc
       pairGroups: spot.pairGroups,
       defaultPairGroup: spot.defaultPairGroup,
       tierProgram: parseTierProgram(obj.tierProgram, spot.rows),
+      ifcFee: parseIfcFeeTerms(obj.ifcFee),
     };
   }
   parseTierProgram(obj.tierProgram, undefined);
+  const ifcFee = parseIfcFeeTerms(obj.ifcFee);
 
   const makerBps = parseBpsDecimalString(obj.makerBps, 'makerBps');
   const takerBps = parseBpsDecimalString(obj.takerBps, 'takerBps');
@@ -181,7 +195,33 @@ export function parseFeeScheduleJson(raw: string | null | undefined): OwnerFeeSc
     takerBps,
     makerRebateBps,
     perpetual,
+    ifcFee,
   };
+}
+
+const ASSET_ID = /^[A-Z0-9]{2,12}$/;
+const POSITIVE_DECIMAL = /^(?:0|[1-9][0-9]{0,19})(?:\.[0-9]{1,18})?$/;
+
+function parseIfcFeeTerms(raw: unknown): IfcFeeTerms | null {
+  if (raw === undefined || raw === null) return null;
+  const blank = (message: string) => new FeeScheduleError(`${TRADE_FEE_SCHEDULE_ENV}.ifcFee${message}`, 'trade.fee_schedule_blank');
+  if (typeof raw !== 'object' || Array.isArray(raw)) throw blank(' must be an object');
+  const obj = raw as Record<string, unknown>;
+  for (const key of Object.keys(obj))
+    if (key !== 'tokenAsset' && key !== 'perUnit') throw blank(`.${key} is not a field of the IFC fee terms`);
+  if (typeof obj.tokenAsset !== 'string' || !ASSET_ID.test(obj.tokenAsset)) throw blank('.tokenAsset must be an asset id');
+  if (!obj.perUnit || typeof obj.perUnit !== 'object' || Array.isArray(obj.perUnit)) throw blank('.perUnit must be an object');
+  const perUnit: Record<string, string> = {};
+  for (const [asset, value] of Object.entries(obj.perUnit as Record<string, unknown>)) {
+    if (!ASSET_ID.test(asset)) throw blank(`.perUnit.${asset} is not an asset id`);
+    if (asset === obj.tokenAsset) throw blank(`.perUnit.${asset}: a fee taken in the token is already paid in it`);
+    if (typeof value !== 'string' || !POSITIVE_DECIMAL.test(value) || !/[1-9]/.test(value)) {
+      throw blank(`.perUnit.${asset} must be a positive decimal string (never a JSON number)`);
+    }
+    perUnit[asset] = value;
+  }
+  if (Object.keys(perUnit).length === 0) throw blank('.perUnit must name at least one fee asset');
+  return { tokenAsset: obj.tokenAsset, perUnit };
 }
 
 const MIN_FEE_DECIMAL = /^[0-9]{1,30}(\.[0-9]{1,18})?$/;

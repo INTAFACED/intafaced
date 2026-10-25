@@ -21,6 +21,7 @@ import { createTradeApi, type Order, type TradeApi } from '../../../features/tra
 import { decimalSchema } from '../../../shared/money';
 import type { OrderBook, Trade } from '@intafaced/exchange-contract/schemas';
 import { deskListingSchema, toDeskMarkets, type DeskMarket } from './market';
+import { feeTokenFetcher, type FeeToken } from './fee-token';
 
 export const DESK_INTERVALS = {
   markets: 300_000,
@@ -183,6 +184,20 @@ export function useMyFees(): Loadable<MyFees> {
           },
           DESK_INTERVALS.fees,
         ),
+      [env],
+    ),
+  );
+}
+
+/** Paying fees in the platform token: the owner's terms, and when signed in the person's stake discount and the ladder. */
+export function useFeeToken(): Loadable<FeeToken> {
+  const env = useDataEnv();
+  return useSource(
+    useMemo(
+      () =>
+        env.poller.source<FeeToken>(`desk-fee-token:${env.userId ?? 'signed-out'}`, feeTokenFetcher(env.api, Boolean(env.userId)), {
+          intervalMs: DESK_INTERVALS.fees,
+        }),
       [env],
     ),
   );

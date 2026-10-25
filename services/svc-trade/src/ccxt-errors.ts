@@ -285,6 +285,10 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.tag_unsupported': { ccxt: 'InvalidOrder', status: 400 },
   'trade.invalid_tag': { ccxt: 'InvalidOrder', status: 400 },
   'trade.fee_currency_unsupported': { ccxt: 'InvalidOrder', status: 400 },
+  'trade.fee_currency_ifc_unset': { ccxt: 'InvalidOrder', status: 400 },
+  'trade.fee_ifc_index_unset': { ccxt: 'InvalidOrder', status: 400 },
+  /** svc-token did not answer the stake discount: retry later, nothing was held. */
+  'trade.fee_ifc_discount_unavailable': { ccxt: 'OnMaintenance', status: 503 },
   'trade.trigger_source_unset': { ccxt: 'InvalidOrder', status: 400 },
   'trade.invalid_qty': { ccxt: 'InvalidOrder', status: 400 },
   'trade.invalid_price': { ccxt: 'InvalidOrder', status: 400 },
