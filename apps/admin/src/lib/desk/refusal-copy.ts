@@ -1150,6 +1150,16 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'That account is not enrolled in this course.',
     next: 'Check the learner’s account id. Nothing was changed.',
   },
+  'academy.weights_invalid': {
+    title: 'The weights do not add up to 1',
+    body: 'The weights of all the types together must come to exactly 1, for example 0.6 and 0.4.',
+    next: 'Change the weights so they add up to 1. Nothing was saved.',
+  },
+  'academy.grading_policy_invalid': {
+    title: 'The grading policy does not fit the course',
+    body: 'Each item may sit in one type only, a type may not drop every score it holds, two types may not share a name, and only the course’s assignments and graded quizzes count.',
+    next: 'Correct the types and save again. Nothing was saved.',
+  },
   'academy.prerequisite_unmeasured': {
     title: 'That item cannot be required',
     body: 'A lesson, video, file or link records no completion on a course staff made, so no learner could ever meet it.',

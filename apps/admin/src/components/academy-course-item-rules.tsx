@@ -168,6 +168,9 @@ export function AcademyCourseItemRules({ courseId, initial }: { courseId: string
   return (
     <section className="dk-stack" aria-labelledby="h-item-rules" data-testid="course-item-rules">
       <h2 id="h-item-rules">Prerequisites and due dates</h2>
+      <p>
+        <a href={`/academy-ops/catalogue/gradebook/${courseId}`}>Open the gradebook</a>
+      </p>
       <span className="dk-asof">{view ? `Read ${formatAsOf(view.asOf)}` : 'No read yet'}</span>
       <Outcome reply={reply} />
       {!part && <p className="dk-why">The console could not reach its own server for this course. Nothing is shown rather than a guess.</p>}
