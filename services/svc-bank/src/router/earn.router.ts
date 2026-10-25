@@ -187,6 +187,10 @@ export function createEarnRouter(c: BankRouterContext) {
             maturesAt: z.string().nullable(),
             /** The pool's recorded rate when the position opened; null when it opened before the pool's first record. */
             rateAtOpenBps: z.number().int().nullable(),
+            /** The UTC midnight the position first earns from: a day pays positions opened before it began. */
+            accruesFrom: z.string(),
+            /** `waiting` until that day, then `accruing`; a closed pool or a too-small saving is paid nothing (BK-earn-01). */
+            accrual: z.enum(['waiting', 'accruing', 'pool_closed', 'below_unit']),
           }),
         ),
       )
@@ -195,7 +199,7 @@ export function createEarnRouter(c: BankRouterContext) {
           const positions = input?.poolId
             ? await bank.earn.positionsInPool(ctx.principal.userId, input.poolId, input.limit)
             : await bank.earn.positionsOf(ctx.principal.userId, input?.limit);
-          const atOpen = await bank.earn.ratesAtOpen(positions);
+          const [atOpen, states] = await Promise.all([bank.earn.ratesAtOpen(positions), bank.earn.accrualStates(positions)]);
           return positions.map((p) => ({
             id: p.id,
             poolId: p.poolId,
@@ -204,6 +208,8 @@ export function createEarnRouter(c: BankRouterContext) {
             openedAt: p.openedAt.toISOString(),
             maturesAt: p.maturesAt?.toISOString() ?? null,
             rateAtOpenBps: atOpen.get(p.id) ?? null,
+            accruesFrom: states.get(p.id)!.accruesFrom.toISOString(),
+            accrual: states.get(p.id)!.accrual,
           }));
         }),
       ),

@@ -1,27 +1,23 @@
 import type { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { Button, Loading } from '../../shared/ui';
-import { bps, date, funds, NoRows, Section, useBankRead } from './components';
-import type { positionSchema, rateHistorySchema } from './contracts';
+import { bps, date, funds, NoRows, Section, useBankRead, type ActionSpec } from './components';
+import type { earnPoolPageSchema, positionSchema, rateHistorySchema } from './contracts';
 import { earnPoolCopy } from './earn-pool-copy';
 import { poolFactRows } from './EarnCompare';
-import { stepChart } from './earn-rate-history';
+import { stepChart, utcDay as day } from './earn-rate-history';
+import { AccrualState, AutoEarn, EarnCalculator, PoolDeposit, PoolEarned, PoolWithdraw } from './EarnPoolActions';
 import './earn-pool.css';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 type History = z.infer<typeof rateHistorySchema>;
 type Position = z.infer<typeof positionSchema>;
+type Pool = z.infer<typeof earnPoolPageSchema>;
+type Open = (spec: ActionSpec) => void;
 const HISTORY_ROWS = 200;
 const POSITIONS = 50;
 const CHART_W = 600;
 const CHART_H = 160;
-
-/** A day as a calendar day in UTC: a rate takes effect at an instant, but the table reads it as the day it started. */
-function day(value: string) {
-  const at = Date.parse(value);
-  if (!Number.isFinite(at)) return value;
-  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(at);
-}
 
 function Refused({ failure, retry }: { failure: Failed; retry: () => void }) {
   const { t } = earnPoolCopy.useCopy();
@@ -44,7 +40,7 @@ function Refused({ failure, retry }: { failure: Failed; retry: () => void }) {
  * has changed, and the person's savings in it with the rate in force when each was opened. Every line is the bank's
  * answer (`earn.pool`, `earn.rateHistory`, `earn.positions`); a blank owner table reads "not set".
  */
-export function EarnPool({ poolId }: { poolId: string | null }) {
+export function EarnPool({ poolId, open }: { poolId: string | null; open: Open }) {
   const { t } = earnPoolCopy.useCopy();
   if (!poolId) {
     return (
@@ -55,10 +51,10 @@ export function EarnPool({ poolId }: { poolId: string | null }) {
       </NoRows>
     );
   }
-  return <PoolBody poolId={poolId} />;
+  return <PoolBody poolId={poolId} open={open} />;
 }
 
-function PoolBody({ poolId }: { poolId: string }) {
+function PoolBody({ poolId, open }: { poolId: string; open: Open }) {
   const { t } = earnPoolCopy.useCopy();
   const pool = useBankRead('earn.pool', { poolId });
   const history = useBankRead('earn.rateHistory', { poolId, limit: HISTORY_ROWS });
@@ -92,10 +88,25 @@ function PoolBody({ poolId }: { poolId: string }) {
         {history.resource.status === 'failed' && <Refused failure={history.resource.failure} retry={history.reload} />}
         {history.resource.status === 'ready' && <RateHistory history={history.resource.data} />}
       </Section>
-      <Section title={t('yoursTitle')}>
+      <Section title={t('saveTitle')}>
+        <EarnCalculator pool={data} />
+        <PoolDeposit pool={data} open={open} />
+      </Section>
+      <Section
+        title={t('yoursTitle')}
+        actions={
+          <Button variant="ghost" onClick={positions.reload}>
+            {t('refresh')}
+          </Button>
+        }
+      >
         {positions.resource.status === 'loading' && <Loading />}
         {positions.resource.status === 'failed' && <Refused failure={positions.resource.failure} retry={positions.reload} />}
-        {positions.resource.status === 'ready' && <Yours positions={positions.resource.data} />}
+        {positions.resource.status === 'ready' && <Yours pool={data} positions={positions.resource.data} open={open} />}
+        <PoolEarned pool={data} />
+      </Section>
+      <Section title={t('autoTitle')}>
+        <AutoEarn pool={data} open={open} />
       </Section>
     </div>
   );
@@ -163,7 +174,7 @@ function RateHistory({ history }: { history: History }) {
 }
 
 /** The person's savings in this pool, each with the rate the bank's record shows in force when it was opened. */
-function Yours({ positions }: { positions: Position[] }) {
+function Yours({ pool, positions, open }: { pool: Pool; positions: Position[]; open: Open }) {
   const { t } = earnPoolCopy.useCopy();
   if (!positions.length) return <p className="money-caption">{t('yoursNone')}</p>;
   return (
@@ -180,6 +191,8 @@ function Yours({ positions }: { positions: Position[] }) {
               </div>
               <strong className="numeric">{funds(position.principal, position.assetId)}</strong>
             </header>
+            <AccrualState position={position} />
+            <PoolWithdraw pool={pool} position={position} open={open} />
           </article>
         );
       })}
