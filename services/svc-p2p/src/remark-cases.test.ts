@@ -169,12 +169,14 @@ describe('svc-p2p sensitive-remark cases (P-ads-merchant-19)', () => {
     expect(await sql`SELECT 1 FROM p2p.remark_cases`).toHaveLength(0);
   });
 
-  it('reads each party their own case on the order, null before one, and a stranger not found', async () => {
-    expect(await p2p.ownRemarkCase(tradeId, SELLER)).toBeNull();
+  it('reads each party their own report in full, and that the other reported them without the quote; a stranger not found', async () => {
+    expect(await p2p.remarkCasesOn(tradeId, SELLER)).toEqual({ mine: null, againstMe: null });
     const opened = await report(SELLER);
-    expect(await p2p.ownRemarkCase(tradeId, SELLER)).toEqual(opened);
-    expect(await p2p.ownRemarkCase(tradeId, BUYER)).toBeNull();
-    await expect(p2p.ownRemarkCase(tradeId, STRANGER)).rejects.toMatchObject({ code: 'p2p.trade_not_found' });
+    expect(await p2p.remarkCasesOn(tradeId, SELLER)).toEqual({ mine: opened, againstMe: null });
+    const seen = await p2p.remarkCasesOn(tradeId, BUYER);
+    expect(seen).toEqual({ mine: null, againstMe: { caseId: opened.id, openedAt: opened.openedAt } });
+    expect(JSON.stringify(seen)).not.toContain(opened.remark);
+    await expect(p2p.remarkCasesOn(tradeId, STRANGER)).rejects.toMatchObject({ code: 'p2p.trade_not_found' });
   });
 
   it('with the bus down the case still opens; the sweep tells the reported party once', async () => {

@@ -399,7 +399,7 @@ test('J-p2p-04 #4 removing a method an ad uses lists the ads first; confirming p
     .toBe(1);
 });
 
-test('J-p2p-04 #5 reporting a sensitive remark in a payment note opens a case and tells the reported party', async ({ page }) => {
+test('J-p2p-04 #5 reporting a sensitive remark in a payment note opens a case and tells the reported party', async ({ page, browser }) => {
   test.setTimeout(120_000);
   const state = journey();
   // The open order from #1: the buyer pays by this journey's TEST transfer and the seller quotes what the note said.
@@ -431,4 +431,18 @@ test('J-p2p-04 #5 reporting a sensitive remark in a payment note opens a case an
     status: 'open',
   });
   run.write({ remarkCaseId: caseId });
+
+  // The buyer, who is the reported party, sees on the order that a case is open, without the quote.
+  const buyerContext = await browser.newContext();
+  try {
+    const buyerPage = await buyerContext.newPage();
+    await signIn(buyerPage, state.buyer);
+    await buyerPage.goto(`/p2p/orders/${state.tradeId}`);
+    const against = buyerPage.getByTestId('order-remark-against-me');
+    await expect(against).toHaveAttribute('data-case-id', caseId);
+    await expect(against).toContainText('The other person on this order reported a remark in a payment note.');
+    await expect(buyerPage.getByText(quote)).toHaveCount(0);
+  } finally {
+    await buyerContext.close();
+  }
 });

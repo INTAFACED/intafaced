@@ -1062,12 +1062,12 @@ export function createPersonalPayApi(
       if (!p2pCurrent()) return p2pDeparted();
       return api.mutate('p2p', 'trades.reportSensitiveRemark', { caseId, tradeId, remark }, s.remarkCaseSchema);
     },
-    /** P-ads-merchant-19: the person's own remark report on this order, or null when they made none. */
-    async remarkCase(tradeId: string, signal?: AbortSignal): Promise<ApiResult<s.RemarkCase | null>> {
+    /** P-ads-merchant-19: the person's own remark report on this order, and whether the other party reported them. */
+    async remarkCase(tradeId: string, signal?: AbortSignal): Promise<ApiResult<s.RemarkCasesOn>> {
       const denied = signedIn();
       if (denied) return denied;
       if (!p2pCurrent()) return p2pDeparted();
-      return api.query('p2p', 'trades.remarkCase', { tradeId }, s.remarkCaseSchema.nullable(), { signal });
+      return api.query('p2p', 'trades.remarkCase', { tradeId }, s.remarkCasesOnSchema, { signal });
     },
     /** P-trade-orders-20: the seller reports what arrived in their bank. Moves nothing; svc-p2p classifies it. */
     reportMismatch: (tradeId: string, kind: s.TradeMismatch['kind'], amountReceived: string) =>

@@ -1680,14 +1680,25 @@ export function createP2pRouter(
           ),
         ),
 
-      /** P-ads-merchant-19: the caller's own remark case on this order, or null; a non-party gets not found. */
+      /**
+       * P-ads-merchant-19: the remark cases on this order as the caller may see them: their own report (or null), and
+       * whether the other party reported them, with the case id and when, never the quote. A non-party gets not found.
+       */
       remarkCase: merchantApiProcedure('p2p:read')
         .input(z.object({ tradeId: z.string().guid() }))
-        .output(remarkCaseOutput.nullable())
+        .output(
+          z.object({
+            mine: remarkCaseOutput.nullable(),
+            againstMe: z.object({ caseId: z.string(), openedAt: z.string() }).nullable(),
+          }),
+        )
         .query(async ({ ctx, input }) =>
           guard(async () => {
-            const report = await p2p.ownRemarkCase(input.tradeId, ctx.principal.userId);
-            return report ? toRemarkCaseOut(report) : null;
+            const { mine, againstMe } = await p2p.remarkCasesOn(input.tradeId, ctx.principal.userId);
+            return {
+              mine: mine ? toRemarkCaseOut(mine) : null,
+              againstMe: againstMe ? { caseId: againstMe.caseId, openedAt: againstMe.openedAt.toISOString() } : null,
+            };
           }),
         ),
 

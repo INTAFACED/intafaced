@@ -43,7 +43,8 @@ function NoteRulesFor({ method, pay }: { method: string; pay: PersonalPayApi }) 
 /**
  * P-ads-merchant-19 / J-p2p-04 #5: either party to a funded order quotes a sensitive remark they found in a payment
  * note. svc-p2p opens a case for staff and tells the other party; one report per person per order, read back on every
- * visit. Render it with `key={trade.id}` so another order starts a fresh form.
+ * visit, and the reported party sees that a case is open. Render it with `key={trade.id}` so another order starts a
+ * fresh form.
  */
 export function ReportRemark({ trade, pay, userId }: { trade: Trade; pay: PersonalPayApi; userId: string | null }) {
   // An order that was never funded has no payment note: the buyer pays only once the coin is held.
@@ -57,8 +58,23 @@ function RemarkSection({ trade, pay, userId }: { trade: Trade; pay: PersonalPayA
   if (answered) return <RemarkCaseOpened report={answered} />;
   return (
     <PayState resource={own.resource} retry={own.reload}>
-      {(report) => (report ? <RemarkCaseOpened report={report} /> : <RemarkForm trade={trade} pay={pay} onOpened={setAnswered} />)}
+      {({ mine, againstMe }) => (
+        <>
+          {againstMe ? <ReportedAgainstMe caseId={againstMe.caseId} /> : null}
+          {mine ? <RemarkCaseOpened report={mine} /> : <RemarkForm trade={trade} pay={pay} onOpened={setAnswered} />}
+        </>
+      )}
     </PayState>
+  );
+}
+
+/** The reported party's side: the other party reported a remark on this order. The quote stays with staff. */
+function ReportedAgainstMe({ caseId }: { caseId: string }) {
+  const { t } = remarkCopy.useCopy();
+  return (
+    <p role="status" data-testid="order-remark-against-me" data-case-id={caseId}>
+      {t('againstMe')}
+    </p>
   );
 }
 
