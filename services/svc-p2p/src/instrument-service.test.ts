@@ -1416,6 +1416,11 @@ describe('svc-p2p payment instruments', () => {
         'offers.sellBalance': { asset: 'USDT' },
         // P-ads-merchant-12: the caller's own posting checklist (tier, order counts); no instrument table is read.
         'merchants.postingEligibility': { fiatCurrency: 'EUR' },
+        // J-p2p-04 #5. A report holds the reporter's own words and the two
+        // party ids, never an instrument field. A stranger is not a party to
+        // the trade, so the report refuses; the case list is moderators only.
+        'trades.reportSensitiveRemark': { caseId: crypto.randomUUID(), tradeId: trade.id, remark: 'probe' },
+        'disputes.remarkCases': { limit: 50 },
       };
 
       const paths = Object.keys((api as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures);

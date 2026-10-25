@@ -101,6 +101,8 @@ export interface P2pExport {
    * words belong to the other party as much as to the caller.
    */
   readonly orderReviews: unknown[];
+  /** Sensitive payment-note remark cases this person reported or was reported in (P-ads-merchant-19), whole. */
+  readonly remarkCases: unknown[];
   readonly reputation: unknown | null;
   /**
    * The caller's payment destinations — **headers only, never the values.**
@@ -130,7 +132,7 @@ export class P2pErasure {
    */
   async exportFor(userId: string): Promise<P2pExport> {
     return withSpan('p2p.export', async () => {
-      const [offers, trades, disputes, orderReviews, reputation, instruments] = await Promise.all([
+      const [offers, trades, disputes, orderReviews, remarkCases, reputation, instruments] = await Promise.all([
         this.sql`SELECT * FROM p2p.offers WHERE maker_id = ${userId} ORDER BY created_at`,
         this.sql`SELECT * FROM p2p.p2p_trades WHERE seller_id = ${userId} OR buyer_id = ${userId} ORDER BY created_at`,
         this.sql`
@@ -143,6 +145,11 @@ export class P2pErasure {
           SELECT * FROM p2p.order_reviews
            WHERE author_id = ${userId} OR subject_id = ${userId}
            ORDER BY created_at
+        `,
+        this.sql`
+          SELECT * FROM p2p.remark_cases
+           WHERE reporter_id = ${userId} OR reported_id = ${userId}
+           ORDER BY opened_at
         `,
         this.sql`SELECT * FROM p2p.p2p_reputation WHERE user_id = ${userId}`,
         // HEADERS ONLY — the column list is explicit precisely so that `SELECT *`
@@ -174,6 +181,7 @@ export class P2pErasure {
         trades: [...trades],
         disputes: [...disputes],
         orderReviews: [...orderReviews],
+        remarkCases: [...remarkCases],
         reputation: reputation[0] ?? null,
         instruments: [...instruments],
         // An export that implies it is the whole platform is a lie told by
@@ -337,6 +345,21 @@ export class P2pErasure {
                 'A dispute is a record of two people disagreeing, and the evidence in it was filed BY and ABOUT ' +
                 'both of them. It is append-only by construction, and one party erasing it would remove the ' +
                 "other party's account of what happened.",
+            });
+          }
+
+          // Not deleted. A remark case is a report BY one party ABOUT the other, the record a penalty would rest on.
+          const remarkCases = await tx<Array<{ n: string }>>`
+            SELECT count(*) AS n FROM p2p.remark_cases WHERE reporter_id = ${userId} OR reported_id = ${userId}
+          `;
+          if (Number(remarkCases[0]!.n) > 0) {
+            retained.push({
+              category: 'reports of a sensitive payment-note remark',
+              rows: Number(remarkCases[0]!.n),
+              reason:
+                'A remark case is one party reporting what the other wrote in a payment note, and staff decide it. ' +
+                "Erasing it at either party's request would remove the record a decision rests on, or the account " +
+                'of the person who reported it.',
             });
           }
 

@@ -1009,6 +1009,26 @@ export const p2pOfferPaused = defineEvent(
   'Active sell ads were paused because the maker removed the only payment method they could still be paid with. Sent once per removed instrument.',
 );
 
+/**
+ * P-ads-merchant-19 / J-p2p-04 #5: a party to an order reported a sensitive remark in its payment note, and a case was
+ * opened. One case per (order, reporter): consumers dedupe on caseId. The remark itself never travels on the bus; the
+ * reported party is told a case was opened about their order, and staff read the case in svc-p2p.
+ */
+export const p2pRemarkCaseOpened = defineEvent(
+  'p2p',
+  'remark_case',
+  'opened',
+  1,
+  z.object({
+    caseId: z.string().guid(),
+    tradeId: z.string().guid(),
+    reportedId: userIdSchema,
+    reporterRole: z.enum(['buyer', 'seller']),
+    openedAt: z.string().datetime({ offset: true }),
+  }),
+  'A party to a P2P order reported a sensitive remark in its payment note; a case was opened. Sent once per case.',
+);
+
 export const p2pChatMessageSent = defineEvent(
   'p2p',
   'chat_message',
@@ -1555,6 +1575,7 @@ export const EVENT_CATALOG = {
   p2pTradeFiatSent,
   p2pTradeReminderSent,
   p2pOfferPaused,
+  p2pRemarkCaseOpened,
   p2pChatMessageSent,
   p2pDisputeEscalated,
   p2pQuoteExpired,
@@ -2190,6 +2211,13 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       "svc-p2p publishes it from its reminder outbox (P-trade-orders-15, J-p2p-02 #2), and the seller sees the reminder on the order itself. svc-notify turns it into the seller's inbox notice in its own PR, idempotent by tradeId and n; until then no inbox notice is promised.",
+  },
+  {
+    event: 'p2pRemarkCaseOpened',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      "svc-p2p publishes it from its remark-case outbox (P-ads-merchant-19, J-p2p-04 #5), and staff read the case in svc-p2p. svc-notify turns it into the reported party's inbox notice in its own PR, idempotent by caseId; until then no inbox notice is promised.",
   },
   {
     event: 'p2pDisputeEscalated',

@@ -153,6 +153,19 @@ export type TradeReminders = z.infer<typeof tradeRemindersSchema>;
  * svc-p2p `trades.reportMismatch` and `trades.get` `mismatch`: the seller's report of what arrived, and the owner's band
  * it was classified by (`reported` when the band is blank and a person decides).
  */
+/** svc-p2p `trades.reportSensitiveRemark` (P-ads-merchant-19): the case a party's report of a payment-note remark opened. */
+export const remarkCaseSchema = z.object({
+  id,
+  tradeId: id,
+  reporterId: z.string(),
+  reportedId: z.string(),
+  reporterRole: z.enum(['buyer', 'seller']),
+  remark: z.string(),
+  status: z.literal('open'),
+  openedAt: z.string(),
+});
+export type RemarkCase = z.infer<typeof remarkCaseSchema>;
+
 export const tradeMismatchSchema = z.object({
   kind: z.enum(['under', 'over', 'partial']),
   amountReceived: z.string(),

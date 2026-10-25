@@ -365,6 +365,11 @@ async function sweep(): Promise<void> {
       app.log.error({ err, sweep: 'offer_paused' }, 'p2p ad-paused notice sweep failed — makers may not be told yet');
       return { sent: 0, failures: [] };
     });
+    // Remark-case notices (a reported payment note) the fast path did not hand over, on their own catch likewise.
+    const remarks = await p2p.sweepRemarkCases(100).catch((err: unknown) => {
+      app.log.error({ err, sweep: 'remark_case' }, 'p2p remark-case notice sweep failed — reported parties may not be told yet');
+      return { sent: 0, failures: [] };
+    });
 
     // Data retention, on the same tick. It runs last on purpose: it only ever
     // touches trades that are already terminal, so it can never take work away
@@ -393,6 +398,12 @@ async function sweep(): Promise<void> {
     }
     for (const f of pauses.failures) {
       app.log.error({ ...f, sweep: 'offer_paused' }, 'p2p ad-paused notice could not be handed to the bus — the maker is not told yet');
+    }
+    for (const f of remarks.failures) {
+      app.log.error(
+        { ...f, sweep: 'remark_case' },
+        'p2p remark-case notice could not be handed to the bus — the reported party is not told yet',
+      );
     }
     for (const f of swept.failures) {
       app.log.error({ ...f, sweep: 'timeout' }, 'p2p timeout sweep could not act on a trade');

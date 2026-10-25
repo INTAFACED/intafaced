@@ -17,11 +17,13 @@ import {
   MAX_EVIDENCE_PER_CALL,
   P2pError,
   PricingError,
+  REMARK_MAX,
   unknownTrade,
   TradeStateError,
   evidenceVisibleTo,
   type DisputeRecord,
   type P2pService,
+  type RemarkCase,
 } from './p2p-service.js';
 import {
   CASH_RELEASE_MAX_SECONDS,
@@ -699,6 +701,8 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.review_exists':
       // P-ads-merchant-18: the method is the last payable one of an active sell ad; the person confirms pausing them.
       case 'p2p.method_in_use':
+      // P-ads-merchant-19: one remark report per party per order; more goes to the dispute.
+      case 'p2p.remark_case_exists':
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
       case 'p2p.receipt_quota_reached':
         return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
@@ -714,6 +718,7 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.receipt_not_available':
       case 'p2p.ops_cursor_invalid':
       case 'p2p.chat_text_required':
+      case 'p2p.remark_invalid':
       case 'p2p.export_range_invalid':
       case 'p2p.offer_method_unsupported':
       case 'p2p.verification_limit_currency':
@@ -804,6 +809,21 @@ const cashRulesInput = z.object({
   proof: z.string().min(1).max(CASH_TEXT_MAX),
   releaseWindowSeconds: z.number().int().min(CASH_RELEASE_MIN_SECONDS).max(CASH_RELEASE_MAX_SECONDS),
 });
+
+const remarkCaseOutput = z.object({
+  id: z.string(),
+  tradeId: z.string(),
+  reporterId: z.string(),
+  reportedId: z.string(),
+  reporterRole: z.enum(['buyer', 'seller']),
+  remark: z.string(),
+  status: z.literal('open'),
+  openedAt: z.string(),
+});
+
+function toRemarkCaseOut(report: RemarkCase): z.infer<typeof remarkCaseOutput> {
+  return { ...report, openedAt: report.openedAt.toISOString() };
+}
 
 const methodSchemaOutput = z.object({
   methodId: z.string(),
@@ -1635,6 +1655,35 @@ export function createP2pRouter(
        * `p2p.invalid_amount` when the amount contradicts the kind, and `p2p.mismatch_report_exists` for a second,
        * different report.
        */
+      /**
+       * P-ads-merchant-19 / J-p2p-04 #5: a party to an order reports a sensitive remark the other party wrote in the
+       * payment note. A case opens against the other party and they are told (svc-notify, by caseId). One per party per
+       * order: the same report again returns the first, a different one refuses `p2p.remark_case_exists`.
+       */
+      reportSensitiveRemark: merchantApiProcedure('p2p:write')
+        .input(
+          z.object({
+            /** The client's id for this report, made once per form: a lost reply sent again returns the same case. */
+            caseId: z.string().guid(),
+            tradeId: z.string().guid(),
+            /** The remark as written in the payment note. Staff read it; the reported party is told a case opened. */
+            remark: z.string().trim().min(1).max(REMARK_MAX),
+          }),
+        )
+        .output(remarkCaseOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () =>
+            toRemarkCaseOut(
+              await p2p.reportSensitiveRemark({
+                caseId: input.caseId,
+                tradeId: input.tradeId,
+                reporterId: ctx.principal.userId,
+                remark: input.remark,
+              }),
+            ),
+          ),
+        ),
+
       reportMismatch: merchantApiProcedure('p2p:write')
         .input(z.object({ tradeId: z.string().guid(), kind: z.enum(MISMATCH_KINDS), amountReceived: amountString }))
         .output(mismatchOutput)
@@ -2654,6 +2703,20 @@ export function createP2pRouter(
         ),
 
       /**
+       * P-ads-merchant-19: the open sensitive-remark cases, oldest first, for the same moderators as the dispute queue.
+       * The outcome goes to the penalty ladder (P-ads-merchant-17) once it exists; until then a case stays open here.
+       */
+      remarkCases: merchantApiProcedure('p2p:read')
+        .input(z.object({ limit: z.number().int().min(1).max(200) }))
+        .output(z.object({ cases: z.array(remarkCaseOutput) }))
+        .query(async ({ ctx, input }) =>
+          guard(async () => {
+            assertModerator(ctx.principal, moderatorUserIds);
+            return { cases: (await p2p.listRemarkCases(input.limit)).map(toRemarkCaseOut) };
+          }),
+        ),
+
+      /**
        * MODERATOR ONLY. Release to the buyer, or refund the seller. There is no
        * third option in the input schema, because there is no third option in
        * the escrow: §6.2's promise is that every dispute terminates.
@@ -3038,6 +3101,7 @@ export function createP2pRouter(
             disputes: z.array(z.unknown()),
             /** Reviews this person wrote or received, including hidden ones. They are still held. */
             orderReviews: z.array(z.unknown()),
+            remarkCases: z.array(z.unknown()),
             reputation: z.unknown().nullable(),
             /**
              * Headers only. The values live behind `instruments.reveal`, which
