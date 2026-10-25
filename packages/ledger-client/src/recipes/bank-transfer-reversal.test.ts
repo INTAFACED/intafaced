@@ -72,6 +72,8 @@ describe('consented reversal of a posted internal send', () => {
     expect(bankTransferReversalKey('own', 't1', 0)).not.toBe(bankTransferReversalKey('p2p', 't1', 0));
     expect(bankTransferReversalKey('sched', 't1', 3)).toBe('bank.transfer.reverse:sched:t1:3');
     expect(() => bankTransferReversalKey('rail' as never, 't1', 0)).toThrow(InvalidEntryError);
+    // A recovery sweep has no living sender to consent to or to receive the value back.
+    expect(() => bankTransferReversalKey('recovery' as never, 't1', 0)).toThrow(InvalidEntryError);
     expect(() => recipes.bankTransferReversal(stored({ originalKeySpace: 'nope' as never }))).toThrow(InvalidEntryError);
   });
 
