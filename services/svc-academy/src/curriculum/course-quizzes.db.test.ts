@@ -339,7 +339,7 @@ describe('question kinds, essay review, results visibility and surveys (AC-quizz
       quizzes().scoreEssays({ itemId: quiz.id, attemptId: review!.attemptId, points: { e1: 5 }, operatorId: A, now: NOW }),
     ).rejects.toMatchObject({ code: 'academy.assessment_invalid' });
     // A missing score, an inherited key and another quiz's id are refused, never read as 0 or scored on the wrong quiz.
-    for (const points of [{}, { toString: 1 }, { e1: 3, other: 1 }])
+    for (const points of [{}, { toString: 1 }, { e1: 3, other: 1 }] as Array<Record<string, number>>)
       await expect(
         quizzes().scoreEssays({ itemId: quiz.id, attemptId: review!.attemptId, points, operatorId: A, now: NOW }),
       ).rejects.toMatchObject({ code: 'academy.assessment_invalid' });
