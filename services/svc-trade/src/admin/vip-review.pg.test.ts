@@ -247,10 +247,11 @@ describe('deciding a VIP application', () => {
     expect(await feeTierAt(sql(), TRIAL, BOB, new Date(clock.getTime() + 1000))).toBe('regular');
     // A programme that no longer names the trial's tier charges at regular.
     const renamed = schedule(null);
-    const dropped = {
+    if (renamed.published !== true || !renamed.tierProgram) throw new Error('no programme');
+    const dropped: OwnerFeeSchedule = {
       ...renamed,
-      tierProgram: { ...renamed.tierProgram!, thresholds: renamed.tierProgram!.thresholds.slice(0, 1) },
-    } as OwnerFeeSchedule;
+      tierProgram: { ...renamed.tierProgram, thresholds: renamed.tierProgram.thresholds.slice(0, 1) },
+    };
     expect(await feeTierAt(sql(), dropped, ALICE, new Date(clock.getTime() + 1000))).toBe('regular');
   });
 

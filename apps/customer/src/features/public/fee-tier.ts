@@ -54,6 +54,11 @@ export const feeTierSchema = z.object({
   snapshotsRunning: z.boolean(),
   nextSnapshotAt: z.string().nullable(),
   lastSnapshot: snapshotSchema.nullable(),
+  /** The VIP trial the tier comes from (an approved application), or none. */
+  trial: z
+    .object({ applicationId: z.string().min(1), tierId: z.string().min(1), startsAt: z.string().min(1), endsAt: z.string().min(1) })
+    .nullable()
+    .optional(),
   snapshots: z.array(snapshotSchema),
   excluded: z.array(z.enum(EXCLUSIONS)),
 });

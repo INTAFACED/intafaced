@@ -15,6 +15,7 @@ export const feeTierCopy = defineCopy('public-fee-tier', {
   yourTier: 'Your tier: {tier}',
   regular: 'Regular',
   tierFromSnapshot: 'From the snapshot at {time}. A new order keeps this tier, and so do its fills.',
+  tierFromTrial: 'From your VIP trial, until {time}. A new order keeps this tier, and so do its fills.',
   tierNoSnapshot: 'No snapshot has counted your volume yet, so you are on the regular tier.',
   thresholdsNotSet: 'Thresholds not set. Every account is on the regular tier.',
   thresholdsTitle: 'Tiers by 30-day volume',
