@@ -175,6 +175,7 @@ import { loadOtcMakerDirectory } from './otc/maker-directory.js';
 import { parseOtcConvertBoundsJson } from './otc/otc-convert-bounds.js';
 import { SqlOtcQuoteStore } from './otc/quote-store.js';
 import { createOtcStakeSource } from './otc/stake-source.js';
+import { createIfcDiscountSource } from './spot/fee-ifc.js';
 import { canonicalizeCopyFillId } from './copy/fee-share.js';
 import { parseCopyFeeShareLawJson, parseCopyJurisdictionLawJson } from './copy/fee-share-law.js';
 import { parseCopyDisclosureLawJson } from './copy/disclosure.js';
@@ -312,6 +313,8 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
   affiliatePayout,
   dropCopyIngest,
   holdUnknownTakerMaxAgeMs: env.TRADE_HOLD_UNKNOWN_TAKER_MAX_AGE_MS,
+  // A spot fee paid in the platform token is discounted by the owner's stake, read from svc-token at placement.
+  ifcDiscount: createIfcDiscountSource(env.TOKEN_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
   onHoldUnknownAlert: (a) => app.log.error({ alert: a }, 'order.hold reply lost'),
 });
 const venuePublicAdapter = createVenueMarketDataAdapter(env.TRADE_VENUE_MARK_VENUE);

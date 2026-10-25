@@ -936,24 +936,54 @@ function createBodyRefusal(error: { issues: ReadonlyArray<{ path: ReadonlyArray<
   return { ...typed, issues: error.issues.map((i) => ({ path: i.path, message: i.message })) };
 }
 
+/** The create-body fields a plain market or limit order has. Any other field places through an installer. */
+const PLAIN_ORDER_FIELDS: ReadonlySet<string> = new Set([
+  'symbol',
+  'type',
+  'side',
+  'amount',
+  'price',
+  'timeInForce',
+  'postOnly',
+  'clientOrderId',
+  'tag',
+  'feeCurrency',
+  'requestDeadline',
+  'expireAt',
+  'stpMode',
+]);
+
 /**
- * Spot takes the fee in the asset the order receives (base on a buy, quote on a sell) and has no fee token, so a
- * different `feeCurrency` is refused rather than dropped. A market that does not exist is left to the place door.
+ * Spot takes the fee in the asset the order receives (base on a buy, quote on a sell), or in the platform token when
+ * the order asks for it (fee-ifc.ts: the service decides, from the owner's terms and the stake). The token is carried
+ * only on a plain market or limit order: a stop, an OCO, a bracket, an iceberg or a reduce-only order is placed through
+ * an installer that does not carry it, so it is refused here rather than dropped. A market that does not exist is left
+ * to the place door. Returns what to carry, or undefined when the order pays in the asset it receives.
  */
-async function refuseFeeCurrency(
+async function feeCurrencyFor(
   deps: Pick<PrivateRestDeps, 'marketBySymbol'>,
-  body: { symbol: string; side: string; feeCurrency?: string },
-): Promise<void> {
-  if (body.feeCurrency === undefined) return;
+  body: { symbol: string; side: string; type: string; feeCurrency?: string },
+  rawBody: unknown,
+): Promise<string | undefined> {
+  if (body.feeCurrency === undefined) return undefined;
   const market = await deps.marketBySymbol(body.symbol);
-  if (!market) return;
+  if (!market) return undefined;
   const received = body.side === 'buy' ? market.baseAsset : market.quoteAsset;
-  if (body.feeCurrency.toUpperCase() !== received.toUpperCase()) {
+  if (body.feeCurrency.trim().toUpperCase() === received.toUpperCase()) return undefined;
+  const raw = rawBody !== null && typeof rawBody === 'object' && !Array.isArray(rawBody) ? Object.keys(rawBody) : [];
+  const notPlain = body.type !== 'market' && body.type !== 'limit' ? body.type : raw.find((field) => !PLAIN_ORDER_FIELDS.has(field));
+  if (notPlain !== undefined) {
     throw new TradeError(
-      `fees are taken in ${received}, the asset this order receives; there is no fee token to pay them in ${body.feeCurrency}`,
+      `fees on this order are taken in ${received}, the asset it receives; only a plain market or limit order ` +
+        `(no ${notPlain}) can pay them in ${body.feeCurrency}`,
       'trade.fee_currency_unsupported',
     );
   }
+  return body.feeCurrency;
+}
+
+function withFeeCurrency(input: PlaceOrderInput, feeCurrency: string | undefined): PlaceOrderInput {
+  return feeCurrency === undefined ? input : { ...input, feeCurrency };
 }
 
 export function mapCreateOrderBody(body: CreateOrderRequest, opts: { allowStopLimit?: boolean } = {}): PlaceOrderInput {
@@ -2539,8 +2569,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         const now = (deps.now ?? (() => new Date()))();
         const replay = await isDeadlineReplay(deps, principal, parsed.data, now);
         refuseUnsupportedPlacementOptions(parsed.data, now, replay);
-        await refuseFeeCurrency(deps, parsed.data);
-        input = mapCreateOrderBody(parsed.data);
+        input = withFeeCurrency(mapCreateOrderBody(parsed.data), await feeCurrencyFor(deps, parsed.data, rawItem));
       } catch (err) {
         const mapped = toCcxtError(err);
         if (mapped) {
@@ -2847,8 +2876,12 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const now = (deps.now ?? (() => new Date()))();
       const replay = await isDeadlineReplay(deps, principal, parsed.data, now);
       refuseUnsupportedPlacementOptions(parsed.data, now, replay);
-      await refuseFeeCurrency(deps, parsed.data);
-      input = carryPlacement(mapCreateOrderBody(parsed.data, { allowStopLimit: deps.stopTriggers !== undefined }), rawBody, true);
+      const feeCurrency = await feeCurrencyFor(deps, parsed.data, rawBody);
+      input = carryPlacement(
+        withFeeCurrency(mapCreateOrderBody(parsed.data, { allowStopLimit: deps.stopTriggers !== undefined }), feeCurrency),
+        rawBody,
+        true,
+      );
       const attached = await attachIcebergDisplay(deps, input, parsed.data, readRawDisplayQty(rawBody));
       input = attached.input;
       displayQty = attached.displayQty;

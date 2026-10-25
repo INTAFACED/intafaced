@@ -5,7 +5,7 @@
  * function here, which passes itself as `svc`.
  */
 import type { EventBus } from '@intafaced/events';
-import { formatAmount, makerRebateFor, mul, mulBps, parseAmount, recipes, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, makerRebateFor, mul, mulBps, parseAmount, recipes, type Amount, type PostRequest } from '@intafaced/ledger-client';
 import { fillIdFor, fillLegIdFor } from '../ids.js';
 import { ocoLegParent, settlementOrderId } from '../oco-legs.js';
 import { type FillRow } from '../rows.js';
@@ -16,6 +16,7 @@ import { type EngineCancellation, type EngineFill, type EngineSubmitResult, type
 import { isHouseMmAccount } from '../../mm/seed-market.js';
 import { HOUSE_MM_USER_UUID } from '../ids.js';
 import { REGULAR_FEE_TIER } from '../fee-schedule.js';
+import { settleIfcLeg, type IfcLegDecision } from '../fee-ifc.js';
 import {
   attributionFromOrder,
   houseMmAttribution,
@@ -291,6 +292,8 @@ export async function insertFillLeg(
     feeBps: number;
     /** A maker leg's rebate, or null. */
     rebate?: { readonly bps: number; readonly amount: bigint; readonly asset: string } | null;
+    /** Why a leg whose order chose the token paid in the asset it received (fee-ifc.ts), or null. */
+    feeFallback?: string | null;
     sequence: number;
     attribution: AuthAttribution;
   },
@@ -303,14 +306,15 @@ export async function insertFillLeg(
       INSERT INTO trade.fills (
         id, order_id, counter_order_id, market_id, user_id, side, liquidity,
         price, qty, quote_amount, fee_asset, fee_amount, fee_bps, sequence,
-        session_id, api_key_id, rebate_bps, rebate_amount, rebate_asset
+        session_id, api_key_id, rebate_bps, rebate_amount, rebate_asset, fee_fallback
       ) VALUES (
         ${leg.id}, ${leg.orderId}, ${leg.counterOrderId},
         ${leg.marketId}, ${leg.userId}, ${leg.side}, ${leg.role},
         ${formatAmount(leg.price)}::numeric, ${formatAmount(leg.qty)}::numeric, ${formatAmount(leg.quoteAmount)}::numeric,
         ${leg.feeAsset}, ${formatAmount(leg.feeAmount)}::numeric, ${leg.feeBps}, ${leg.sequence},
         ${attribution.sessionId}, ${attribution.apiKeyId},
-        ${rebate?.bps ?? null}, ${rebate ? formatAmount(rebate.amount) : null}::numeric, ${rebate?.asset ?? null}
+        ${rebate?.bps ?? null}, ${rebate ? formatAmount(rebate.amount) : null}::numeric, ${rebate?.asset ?? null},
+        ${leg.feeFallback ?? null}
       )
       ON CONFLICT (id) DO NOTHING
       RETURNING id
@@ -371,6 +375,7 @@ export async function insertFillLeg(
     parseAmount(existing.quote_amount) === leg.quoteAmount &&
     parseAmount(existing.fee_amount) === leg.feeAmount &&
     existing.fee_asset === leg.feeAsset &&
+    (existing.fee_fallback ?? null) === (leg.feeFallback ?? null) &&
     (existing.session_id ?? null) === attribution.sessionId &&
     (existing.api_key_id ?? null) === attribution.apiKeyId;
   const sameRebate =
@@ -486,11 +491,11 @@ export async function settleFill(svc: PublishingService, market: Market, fill: E
     // (recipe throws; re-run throws). Inserting first left remainingHold
     // overstated forever — README recovery claim was false for this class.
     svc.assertFillFeesPostable(fill.sequence, market.symbol, fill.takerSide, qty, quoteAmount, rates);
-    const takerFee = mulBps(takerBuys ? qty : quoteAmount, rates.takerFeeBps);
+    const takerFeeInReceived = mulBps(takerBuys ? qty : quoteAmount, rates.takerFeeBps);
     const makerFee = mulBps(takerBuys ? quoteAmount : qty, rates.makerFeeBps);
     const makerSide = takerBuys ? ('sell' as const) : ('buy' as const);
     const makerFeeAsset = takerBuys ? market.quoteAsset : market.baseAsset;
-    const takerFeeAsset = takerBuys ? market.baseAsset : market.quoteAsset;
+    const takerReceives = takerBuys ? market.baseAsset : market.quoteAsset;
     // fills.order_id FK → trade.orders. Seed path never wrote a row; insert a
     // bookkeeping stub. Hold value lives on MM ledger pots; row hold_amount
     // is the fill notional (orders_hold_positive_ck) for this match only.
@@ -533,7 +538,7 @@ export async function settleFill(svc: PublishingService, market: Market, fill: E
       sequence: fill.sequence,
       attribution: mmAttribution,
     });
-    await svc.insertFillLeg({
+    const takerRow = (ifc: IfcLegDecision) => ({
       id: fillLegIdFor(market.id, fill.sequence, 'taker'),
       orderId: taker.id,
       counterOrderId: fill.makerOrderId,
@@ -541,16 +546,36 @@ export async function settleFill(svc: PublishingService, market: Market, fill: E
       symbol: market.symbol,
       userId: taker.userId,
       side: fill.takerSide,
-      role: 'taker',
+      role: 'taker' as const,
       price,
       qty,
       quoteAmount,
-      feeAsset: takerFeeAsset,
-      feeAmount: takerFee,
+      feeAsset: ifc.charged?.tokenAsset ?? takerReceives,
+      feeAmount: ifc.charged?.net ?? takerFeeInReceived,
       feeBps: rates.takerFeeBps,
+      feeFallback: ifc.fallback,
       sequence: fill.sequence,
       attribution: takerAttribution,
     });
+    // A taker paying in the token is charged it before its row; the fill then takes no fee from what it receives.
+    const takerIfc = await settleIfcLeg(
+      ifcDeps(svc, takerAttribution),
+      {
+        legId: fillLegIdFor(market.id, fill.sequence, 'taker'),
+        marketId: market.id,
+        sequence: fill.sequence,
+        role: 'taker',
+        order: taker,
+        feeAsset: takerReceives,
+        fee: takerFeeInReceived,
+        rebateFill: false,
+      },
+      (ifc) => svc.insertFillLeg(takerRow(ifc)),
+    );
+    const takerFee = takerIfc.charged?.net ?? takerFeeInReceived;
+    const takerFeeAsset = takerIfc.charged?.tokenAsset ?? takerReceives;
+    const takerFillFeeBps = takerIfc.charged ? 0 : rates.takerFeeBps;
+    await svc.insertFillLeg(takerRow(takerIfc));
 
     await svc.refreshFilledQty(taker.id);
     await svc.notePartialIfOpen(taker.id, formatAmount(qty), formatAmount(price), `fill:${fill.sequence}:taker`);
@@ -568,7 +593,7 @@ export async function settleFill(svc: PublishingService, market: Market, fill: E
           quoteAmount,
           takerSide: fill.takerSide,
           makerFeeBps: rates.makerFeeBps,
-          takerFeeBps: rates.takerFeeBps,
+          takerFeeBps: takerFillFeeBps,
         }),
         mmAttribution,
         takerAttribution,
@@ -667,12 +692,13 @@ export async function settleFill(svc: PublishingService, market: Market, fill: E
   // layer already refuses; without this the fills table permanently outruns
   // the ledger and release understates remainder.
   svc.assertFillFeesPostable(fill.sequence, market.symbol, fill.takerSide, qty, quoteAmount, rates);
-  // Each side's fee comes out of what that side RECEIVES (see `tradeFill`).
+  // Each side's fee comes out of what that side RECEIVES (see `tradeFill`), unless its order pays in the token.
   const takerFee = mulBps(takerBuys ? qty : quoteAmount, rates.takerFeeBps);
   const makerFee = mulBps(takerBuys ? quoteAmount : qty, rates.makerFeeBps);
 
-  // The one input both ledger posts take, so the rebate cannot drift from the fill it rebates.
-  const fillInput = {
+  // The one input both ledger posts take, so the rebate cannot drift from the fill it rebates. These are the rates in
+  // the received assets; a side charged in the token posts 0 below.
+  const ratedFillInput = {
     fillId: fillIdFor(market.id, fill.sequence),
     makerId: maker.userId,
     takerId: taker.userId,
@@ -693,7 +719,7 @@ export async function settleFill(svc: PublishingService, market: Market, fill: E
   // negative fee. Deterministic from the two placement versions, so a redelivery computes the same one.
   const rebate =
     rates.makerRebateBps > 0
-      ? { bps: rates.makerRebateBps, ...makerRebateFor({ ...fillInput, makerRebateBps: rates.makerRebateBps }) }
+      ? { bps: rates.makerRebateBps, ...makerRebateFor({ ...ratedFillInput, makerRebateBps: rates.makerRebateBps }) }
       : null;
   const paidRebate = rebate && rebate.amount > 0n ? { bps: rebate.bps, amount: rebate.amount, asset: rebate.assetId } : null;
 
@@ -724,26 +750,67 @@ export async function settleFill(svc: PublishingService, market: Market, fill: E
   // settle + NATS redelivery must not 500 on fills_pkey — that broke CX-8 L3.
   const makerAttribution = attributionFromOrder(maker);
   const takerAttribution = attributionFromOrder(taker);
+  const rowOf = (leg: (typeof legs)[number], ifc: IfcLegDecision) => ({
+    id: fillLegIdFor(market.id, fill.sequence, leg.role),
+    orderId: leg.order.id,
+    counterOrderId: leg.counterOrderId,
+    marketId: market.id,
+    symbol: market.symbol,
+    userId: leg.order.userId,
+    side: leg.side,
+    role: leg.role,
+    price,
+    qty,
+    quoteAmount,
+    feeAsset: ifc.charged?.tokenAsset ?? leg.feeAsset,
+    feeAmount: ifc.charged?.net ?? leg.feeAmount,
+    feeBps: leg.feeBps,
+    feeFallback: ifc.fallback,
+    rebate: leg.rebate,
+    sequence: fill.sequence,
+    attribution: leg.role === 'maker' ? makerAttribution : takerAttribution,
+  });
+
+  // ── 4b · A FEE PAID IN THE TOKEN ──────────────────────────────────────────
+  //
+  // Before the fill rows and `tradeFill` (fee-ifc.ts): a leg whose order chose the token is charged it and written, or
+  // written with why it stays in the received asset. A taker whose fee pays this fill's maker rebate keeps it there.
+  const decided: IfcLegDecision[] = [];
   for (const leg of legs) {
-    await svc.insertFillLeg({
-      id: fillLegIdFor(market.id, fill.sequence, leg.role),
-      orderId: leg.order.id,
-      counterOrderId: leg.counterOrderId,
-      marketId: market.id,
-      symbol: market.symbol,
-      userId: leg.order.userId,
-      side: leg.side,
-      role: leg.role,
-      price,
-      qty,
-      quoteAmount,
-      feeAsset: leg.feeAsset,
-      feeAmount: leg.feeAmount,
-      feeBps: leg.feeBps,
-      rebate: leg.rebate,
-      sequence: fill.sequence,
-      attribution: leg.role === 'maker' ? makerAttribution : takerAttribution,
-    });
+    decided.push(
+      await settleIfcLeg(
+        ifcDeps(svc, leg.role === 'maker' ? makerAttribution : takerAttribution),
+        {
+          legId: fillLegIdFor(market.id, fill.sequence, leg.role),
+          marketId: market.id,
+          sequence: fill.sequence,
+          role: leg.role,
+          order: leg.order,
+          feeAsset: leg.feeAsset,
+          fee: leg.feeAmount,
+          rebateFill: leg.role === 'taker' && paidRebate !== null,
+        },
+        (ifc) => svc.insertFillLeg(rowOf(leg, ifc)),
+      ),
+    );
+  }
+  const [makerIfc, takerIfc] = decided as [IfcLegDecision, IfcLegDecision];
+  const fillInput = {
+    ...ratedFillInput,
+    makerFeeBps: makerIfc.charged ? 0 : ratedFillInput.makerFeeBps,
+    takerFeeBps: takerIfc.charged ? 0 : ratedFillInput.takerFeeBps,
+  };
+  // A rebate is paid out of the taker fee in the received asset, so a rebate fill never charges its taker the token
+  // (and its maker owes no fee to charge). Settling one that did would post a rebate the fill never funded.
+  if (paidRebate && (makerIfc.charged || takerIfc.charged)) {
+    throw new TradeError(
+      `fill ${fill.sequence} on ${market.symbol} pays a maker rebate and a fee in the token; refusing before the fill post`,
+      'trade.rebate_recipe_unavailable',
+    );
+  }
+
+  for (const [i, leg] of legs.entries()) {
+    await svc.insertFillLeg(rowOf(leg, decided[i]!));
   }
 
   // Recomputed from the fills rather than incremented, so it is idempotent by
@@ -773,20 +840,22 @@ export async function settleFill(svc: PublishingService, market: Market, fill: E
   }
 
   // Affiliates share what the house kept: a rebate is paid out of the taker's fee, in that fee's own asset.
+  // A fee paid in the token is shared in the token, as it landed in the house fees.
   const affiliateFees = {
     fillId: fillIdFor(market.id, fill.sequence),
     makerUserId: maker.userId,
     takerUserId: taker.userId,
-    makerFee,
-    takerFee: paidRebate ? takerFee - paidRebate.amount : takerFee,
-    makerFeeAsset: takerBuys ? market.quoteAsset : market.baseAsset,
-    takerFeeAsset: takerBuys ? market.baseAsset : market.quoteAsset,
+    makerFee: makerIfc.charged?.net ?? makerFee,
+    takerFee: takerIfc.charged?.net ?? (paidRebate ? takerFee - paidRebate.amount : takerFee),
+    makerFeeAsset: makerIfc.charged?.tokenAsset ?? (takerBuys ? market.quoteAsset : market.baseAsset),
+    takerFeeAsset: takerIfc.charged?.tokenAsset ?? (takerBuys ? market.baseAsset : market.quoteAsset),
   };
   await svc.notifyAffiliateAccrue(affiliateFees);
   await svc.notifyAffiliatePayout(affiliateFees);
 
   // User-visible fill + order snapshots for private WS (not money — ledger already moved).
-  for (const leg of legs) {
+  for (const [i, leg] of legs.entries()) {
+    const paid = rowOf(leg, decided[i]!);
     const settledAt = new Date().toISOString();
     await svc.bus.publish(
       'fillSettled',
@@ -800,8 +869,8 @@ export async function settleFill(svc: PublishingService, market: Market, fill: E
         price: formatAmount(price),
         qty: formatAmount(qty),
         quoteAmount: formatAmount(quoteAmount),
-        feeAsset: leg.feeAsset,
-        feeAmount: formatAmount(leg.feeAmount),
+        feeAsset: paid.feeAsset,
+        feeAmount: formatAmount(paid.feeAmount),
         feeBps: leg.feeBps,
         sequence: fill.sequence,
         ts: settledAt,
@@ -817,8 +886,8 @@ export async function settleFill(svc: PublishingService, market: Market, fill: E
       price: formatAmount(price),
       qty: formatAmount(qty),
       quoteAmount: formatAmount(quoteAmount),
-      feeAsset: leg.feeAsset,
-      feeAmount: formatAmount(leg.feeAmount),
+      feeAsset: paid.feeAsset,
+      feeAmount: formatAmount(paid.feeAmount),
       sequence: fill.sequence,
       ts: settledAt,
       order: leg.order,
@@ -833,6 +902,21 @@ export async function settleFill(svc: PublishingService, market: Market, fill: E
     const latest = await svc.findOrder(leg.order.id);
     if (latest) await svc.publishOrderUpdated(latest);
   }
+}
+
+/** What a token fee charge runs on: the ledger posting as the leg's own order, and the order's schedule version. */
+function ifcDeps(svc: TradeServiceInternal, attribution: AuthAttribution) {
+  return {
+    sql: svc.sql,
+    ledger: {
+      post: (req: PostRequest) => svc.ledger.post(withLedgerAttribution(req, attribution)),
+      getTxByKey: (key: string) => svc.ledger.getTxByKey(key),
+    },
+    termsAt: async (at: Date) => {
+      const schedule = await svc.feeScheduleAt(at);
+      return schedule.published === true ? (schedule.ifcFee ?? null) : null;
+    },
+  };
 }
 
 /**

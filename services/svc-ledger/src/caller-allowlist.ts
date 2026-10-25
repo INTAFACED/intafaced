@@ -18,7 +18,8 @@ import type { RecipeName } from '@intafaced/ledger-client';
  * `feeCharge` is the exception to the recipe's own module. The registry sample
  * uses a caller-chosen module; the live meter defaults that module to `agents`
  * (`meter.ts`, `options.module ?? 'agents'`) and `svc-agents` `index.ts` does
- * not override it. The allowlist requires module `agents`.
+ * not override it. The allowlist requires module `agents`. svc-trade posts it with module `trade`, for a spot fee
+ * paid in the platform token (`fee-ifc.ts`).
  */
 
 export interface RecipeGrant {
@@ -116,6 +117,7 @@ export const LEDGER_POST_ALLOWLIST = {
     unstake: g('token', 'services/svc-token/src/token-service.ts'),
   },
   'svc-trade': {
+    feeCharge: g('trade', 'services/svc-trade/src/spot/fee-ifc.ts'),
     futuresFundingPay: g('trade', 'services/svc-trade/src/futures/funding-settlement.ts'),
     futuresInsuranceTopup: g('trade', 'services/svc-trade/src/admin/insurance-topup.ts'),
     futuresMarginAdd: g('trade', 'services/svc-trade/src/futures/position-service.ts'),

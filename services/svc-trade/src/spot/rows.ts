@@ -124,6 +124,9 @@ export interface OrderRow {
   fee_discount_bps: string;
   /** Absent from a read that names its columns without it: the regular tier, as every order before tiers. */
   fee_tier?: string | null;
+  /** Absent from a read that names its columns without them, and null unless the order pays its fees in the token. */
+  fee_currency?: string | null;
+  fee_ifc_discount_bps?: number | string | null;
   tag?: string | null;
   protection_price: string | null;
   engine_sequence: number | null;
@@ -166,6 +169,9 @@ export function toOrder(row: OrderRow): OrderRecord {
     amendReleased: parseAmount(row.amend_released ?? '0'),
     feeDiscountBps: Number(row.fee_discount_bps),
     feeTier: row.fee_tier ?? REGULAR_FEE_TIER,
+    feeCurrency: row.fee_currency ?? null,
+    feeIfcDiscountBps:
+      row.fee_ifc_discount_bps === null || row.fee_ifc_discount_bps === undefined ? null : Number(row.fee_ifc_discount_bps),
     tag: row.tag ?? null,
     protectionPrice: row.protection_price === null ? null : parseAmount(row.protection_price),
     engineSequence: row.engine_sequence,
@@ -201,6 +207,8 @@ export interface FillRow {
   rebate_bps?: number | string | null;
   rebate_amount?: string | null;
   rebate_asset?: string | null;
+  /** Absent on rows read before the token-fee migration. */
+  fee_fallback?: string | null;
   sequence: number;
   ts: Date;
   session_id: string | null;
@@ -226,6 +234,7 @@ export function toFill(row: FillRow) {
       row.rebate_bps === null || row.rebate_bps === undefined || !row.rebate_amount || !row.rebate_asset
         ? null
         : { bps: Number(row.rebate_bps), amount: parseAmount(row.rebate_amount), asset: row.rebate_asset },
+    feeFallback: row.fee_fallback ?? null,
     sequence: row.sequence,
     ts: row.ts,
     sessionId: row.session_id ?? null,
