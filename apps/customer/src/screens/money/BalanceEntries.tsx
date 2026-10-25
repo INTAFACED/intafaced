@@ -114,7 +114,11 @@ export default function BalanceEntries({ rawAsset, search }: { rawAsset: string;
           <span aria-hidden="true"> · </span>
           {hideBalances
             ? t('Entries add up', { count: String(state.check.entryCount), balance: '••••', asset })
-            : t('Entries add up', { count: String(state.check.entryCount), balance: fmtAmount(state.check.balance), asset })}
+            : t('Entries add up', {
+                count: String(state.check.entryCount),
+                balance: fmtAmount(state.check.balance, { round: 'down' }),
+                asset,
+              })}
         </p>
         <section className="money-card money-detail__card" aria-label={t('Balance entries title', { asset })}>
           <table className="money-table money-table--activity">
