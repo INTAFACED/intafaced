@@ -202,15 +202,17 @@ export class EvmLiveChain implements CryptoChainPort {
   }
 
   async inboundTransfer(address: string): Promise<ConfirmedTransfer | null> {
-    if (!isAddress(address)) return null;
+    return (await this.inboundTransfers(address))[0] ?? null;
+  }
+
+  async inboundTransfers(address: string): Promise<readonly ConfirmedTransfer[]> {
+    if (!isAddress(address)) return [];
     await this.refresh();
     const addr = getAddress(address).toLowerCase();
-    const matches = [...this.observed.values()]
+    return [...this.observed.values()]
       .filter((observed) => observed.address.toLowerCase() === addr && observed.inReceipt)
-      .sort(compareObserved);
-    const observed = matches[0];
-    if (!observed) return null;
-    return toTransfer(observed);
+      .sort(compareObserved)
+      .map(toTransfer);
   }
 
   async lookupSend(idempotencyKey: string): Promise<ChainSendLookup> {

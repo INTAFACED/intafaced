@@ -7,7 +7,7 @@ import { fitsPlaces } from '../../../features/account/trading-settings';
 import { draftSchema, isStopType, type Draft, type Preview, type TradeApi } from '../../../features/trade/trade-api';
 import type { BookPick } from './OrderBook';
 import { deskCopy } from './copy';
-import { useDeskApi, useListedFees, useOpenOrders, useRefreshPrivate } from './data';
+import { useDeskApi, useMyFees, useOpenOrders, useRefreshPrivate } from './data';
 import {
   Amount,
   AlertDialog,
@@ -197,7 +197,7 @@ function SideForm({
   const [restingId, setRestingId] = useState<string | null>(null);
   const restingSeen = useRef(false);
   const openOrders = useOpenOrders();
-  const listedFees = useListedFees();
+  const myFees = useMyFees();
   const [review, setReview] = useState<{ draft: Draft; preview: Preview; changed: boolean } | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [busy, setBusy] = useState(false);
@@ -582,7 +582,7 @@ function SideForm({
   const verb = side === 'buy' ? t('Buy asset', { asset: market.base }) : t('Sell asset', { asset: market.base });
   const loginHref = `/login?redirect=${encodeURIComponent(`${location.pathname}${location.search}`)}`;
   const bbo = bboPrice(side, reference);
-  const listed = listedFees.status === 'ready' ? (listedFees.data[market.symbol] ?? null) : null;
+  const mine = myFees.status === 'ready' ? (myFees.data[market.symbol] ?? null) : null;
 
   const stopInput = (label: string) => (
     <AmountInput
@@ -780,9 +780,9 @@ function SideForm({
                 : t('Fee taker', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
             : t('Fee unknown')}
         </span>
-        {listed ? (
-          <span className="dk-fees-listed" title={t('Fee listed title')}>
-            {t('Fee listed', { maker: fmtPct(listed.maker, { signed: false }), taker: fmtPct(listed.taker, { signed: false }) })}
+        {mine ? (
+          <span className="dk-fees-mine" title={t('Fee yours title')}>
+            {t('Fee yours', { maker: fmtPct(mine.maker, { signed: false }), taker: fmtPct(mine.taker, { signed: false }) })}
           </span>
         ) : null}
       </p>

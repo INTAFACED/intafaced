@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import postgres, { type Sql } from 'postgres';
 import { assertTestDatabase } from '@intafaced/db';
-import { parseOptions } from './safety.js';
+import { CLEANUP_CONNECT_S, CLEANUP_DROP_MS, parseOptions } from './safety.js';
 
 /** Owns exactly one randomly named database. Never lists or sweeps other databases. */
 export class SimulationDatabase {
@@ -17,14 +17,14 @@ export class SimulationDatabase {
     this.admin = this.connect(adminUrl);
   }
 
-  private connect(url: string, work = false): Sql {
+  private connect(url: string, work = false, timeouts = { connect: 3, statement: 5000, lock: 1000 }): Sql {
     return postgres(url, {
       max: work ? 8 : 1,
-      connect_timeout: 3,
+      connect_timeout: timeouts.connect,
       idle_timeout: 1,
       connection: {
-        statement_timeout: 5000,
-        lock_timeout: 1000,
+        statement_timeout: timeouts.statement,
+        lock_timeout: timeouts.lock,
         ...(work ? { search_path: 'pay,public', application_name: this.database } : {}),
       },
       onnotice: () => undefined,
@@ -66,20 +66,27 @@ export class SimulationDatabase {
     // Stop all setup/work clients before dropping. This also cancels active SQL.
     await Promise.allSettled([this.admin.end({ timeout: 0 }), this.client?.end({ timeout: 0 })]);
     if (!this.attemptedCreate) return;
-    const cleanup = this.connect(this.adminUrl);
+    // The drop has its own budget (safety.ts CLEANUP_DROP_MS), not the setup clients' 5 s statement and 1 s lock
+    // waits: its forced checkpoint on a busy server outlasted those, and cleanup then read as unconfirmed. The race
+    // below covers the lazy connect too, so it allows the connect wait on top of the drop.
+    const cleanup = this.connect(this.adminUrl, false, { connect: CLEANUP_CONNECT_S, statement: CLEANUP_DROP_MS, lock: CLEANUP_DROP_MS });
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([
         cleanup.unsafe(`DROP DATABASE IF EXISTS "${this.database}" WITH (FORCE)`),
         new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => {
-            void cleanup.end({ timeout: 0 });
-            reject(new Error('pay-sim owned database cleanup deadline exceeded'));
-          }, 5000);
+          timer = setTimeout(
+            () => {
+              void cleanup.end({ timeout: 0 });
+              reject(new Error('pay-sim owned database cleanup deadline exceeded'));
+            },
+            CLEANUP_CONNECT_S * 1000 + CLEANUP_DROP_MS,
+          );
         }),
       ]);
-    } catch {
-      throw new Error('pay-sim could not confirm cleanup of its owned TEST DATA database');
+    } catch (error) {
+      // Kept for a test's failure output; it can name the host and port, and the CLI prints none of it.
+      throw new Error('pay-sim could not confirm cleanup of its owned TEST DATA database', { cause: error });
     } finally {
       if (timer) clearTimeout(timer);
       await cleanup.end({ timeout: 0 });

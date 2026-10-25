@@ -11,6 +11,7 @@ import { ChangePassword } from './ChangePassword';
 import { Authenticator } from './Authenticator';
 import { PasskeyNames } from './PasskeyNames';
 import { SigninMethods } from './SigninMethods';
+import { RecoveryKeys } from './RecoveryKeys';
 import { AntiPhishing } from './AntiPhishing';
 import { SecurityChecklist } from './SecurityChecklist';
 import { Devices } from './Devices';
@@ -827,6 +828,7 @@ export function Security() {
             }}
           />
           <ChangePassword onChanged={() => setSeatVersion((value) => value + 1)} />
+          <RecoveryKeys />
           <SecurityLock />
           <FreezeAccount />
           <CloseAccount />

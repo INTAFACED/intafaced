@@ -130,7 +130,7 @@ export async function applyWebhook(svc: PayServiceInternal, adapter: RailAdapter
   switch (event.type) {
     case 'authorized':
       if (payment.status === 'created') {
-        await svc.authorize(payment.id);
+        if ((await svc.authorize(payment.id)).status === 'created') return stillPending(adapter, event, payment.id);
         applied = true;
       }
       break;
@@ -140,7 +140,7 @@ export async function applyWebhook(svc: PayServiceInternal, adapter: RailAdapter
         applied = true;
       } else if (payment.status === 'created') {
         // Some rails announce authorization and capture in one delivery.
-        await svc.authorize(payment.id);
+        if ((await svc.authorize(payment.id)).status === 'created') return stillPending(adapter, event, payment.id);
         await svc.capture(payment.id);
         applied = true;
       }
@@ -357,6 +357,15 @@ export async function applyWebhook(svc: PayServiceInternal, adapter: RailAdapter
     paymentId: payment.id,
     applied,
   };
+}
+
+/**
+ * The rail still says pending after the delivery: on crypto-native, part of the amount has arrived and the rest has not
+ * (J-merchant-04 step 5), or a transfer is not yet final. Nothing is booked, and no dedupe marker is written, so the
+ * next delivery (the rest, or this transfer seen deeper) still acts.
+ */
+function stillPending(adapter: RailAdapter, event: RailEvent, paymentId: string): WebhookOutcome {
+  return { railId: adapter.id, eventId: event.eventId, type: event.type, duplicate: false, paymentId, applied: false };
 }
 
 export async function markFailed(svc: PayServiceInternal, paymentId: string, failureCode: string): Promise<void> {

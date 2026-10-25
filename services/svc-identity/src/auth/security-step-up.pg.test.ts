@@ -138,8 +138,8 @@ if (!(await postgresAvailable(URL))) {
     mint(user, REMOVE, 'account.passkey.remove', fields, fields.credentialId);
 
   describe('SecurityStepUp.require', () => {
-    it('names the 13 STP-3 scopes, the security lock unlock and new-device approval, and each has a door the guard can bind', () => {
-      expect(new Set(SECURITY_STEP_UP_SCOPES).size).toBe(17);
+    it('names the 13 STP-3 scopes, the security lock unlock, new-device approval and recovery keys, and each has a door the guard can bind', () => {
+      expect(new Set(SECURITY_STEP_UP_SCOPES).size).toBe(18);
       for (const scope of SECURITY_STEP_UP_SCOPES) expect(doorForScope(scope)?.scope).toBe(scope);
     });
 

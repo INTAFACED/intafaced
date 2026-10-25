@@ -24,6 +24,8 @@ export interface ConfirmedTransfer {
   readonly confirmations: number;
 }
 
+type CreditInput = { address: string; assetId: string; amount: Amount; from?: string; confirmations?: number; txHash?: string };
+
 export interface ChainSendRequest {
   readonly to: string;
   readonly assetId: string;
@@ -75,6 +77,12 @@ export interface CryptoChainPort {
    * address nothing points at.
    */
   inboundTransfer(address: string): Promise<ConfirmedTransfer | null>;
+  /**
+   * Every inbound transfer to an acceptance address, oldest first, in whatever
+   * asset and at whatever depth. A payer can pay one payment in several
+   * transfers (J-merchant-04 step 5); the rail adds up what is final.
+   */
+  inboundTransfers(address: string): Promise<readonly ConfirmedTransfer[]>;
   send(request: ChainSendRequest): Promise<{ txHash: string }>;
   /**
    * The outbound transfer already journalled for this business key.
@@ -115,7 +123,7 @@ export class MemoryChain implements CryptoChainPort {
   readonly posture = 'sandbox' as const;
   readonly description = 'in-memory reference chain (MemoryChain) — no transaction reaches any chain';
 
-  private readonly transfers = new Map<string, ConfirmedTransfer>();
+  private readonly transfers = new Map<string, ConfirmedTransfer[]>();
   private readonly sent = new Map<string, { txHash: string }>();
   private readonly outbound: Array<ChainSendRequest & { txHash: string }> = [];
   private nonce = 0;
@@ -129,7 +137,12 @@ export class MemoryChain implements CryptoChainPort {
 
   async inboundTransfer(address: string): Promise<ConfirmedTransfer | null> {
     this.takeCallError();
-    return this.transfers.get(address) ?? null;
+    return this.transfers.get(address)?.[0] ?? null;
+  }
+
+  async inboundTransfers(address: string): Promise<readonly ConfirmedTransfer[]> {
+    this.takeCallError();
+    return [...(this.transfers.get(address) ?? [])];
   }
 
   async lookupSend(idempotencyKey: string): Promise<ChainSendLookup> {
@@ -166,21 +179,41 @@ export class MemoryChain implements CryptoChainPort {
 
   // ── Test / dev controls ────────────────────────────────────────────────────
 
-  /** Simulate a payer sending funds to an acceptance address. */
-  credit(input: { address: string; assetId: string; amount: Amount; from?: string; confirmations?: number; txHash?: string }): void {
-    this.transfers.set(input.address, {
+  /** Simulate a payer sending funds to an acceptance address: the only transfer there, replacing any before it. */
+  credit(input: CreditInput): void {
+    this.transfers.set(input.address, [this.transferOf(input)]);
+  }
+
+  /**
+   * Simulate one more transfer to an address (a payer paying in parts). The same transaction hash again is the same
+   * transfer seen again and replaces it; a new hash is added after the others.
+   */
+  creditAnother(input: CreditInput & { txHash: string }): void {
+    const transfer = this.transferOf(input);
+    const known = this.transfers.get(input.address) ?? [];
+    const at = known.findIndex((t) => t.txHash === transfer.txHash);
+    this.transfers.set(input.address, at === -1 ? [...known, transfer] : known.map((t, i) => (i === at ? transfer : t)));
+  }
+
+  /** Deepen (or shallow) the transfers at an address, or only the one with `txHash` — drives the confirmation branch. */
+  setConfirmations(address: string, confirmations: number, txHash?: string): void {
+    const existing = this.transfers.get(address);
+    if (existing) {
+      this.transfers.set(
+        address,
+        existing.map((t) => (txHash === undefined || t.txHash === txHash ? { ...t, confirmations } : t)),
+      );
+    }
+  }
+
+  private transferOf(input: CreditInput): ConfirmedTransfer {
+    return {
       txHash: input.txHash ?? `0xin${(++this.nonce).toString(16).padStart(8, '0')}`,
       from: input.from ?? '0xpayer',
       assetId: input.assetId,
       amount: input.amount,
       confirmations: input.confirmations ?? 12,
-    });
-  }
-
-  /** Deepen (or shallow) an existing transfer — drives the confirmation branch. */
-  setConfirmations(address: string, confirmations: number): void {
-    const existing = this.transfers.get(address);
-    if (existing) this.transfers.set(address, { ...existing, confirmations });
+    };
   }
 
   /** The next broadcast throws, once. Rail failure on the way OUT. */
@@ -281,6 +314,11 @@ export class UnconfiguredChain implements CryptoChainPort {
     // a chain we cannot watch is inviting them to send funds nothing is looking
     // for — the one outcome worse than declining the payment.
     throw new ChainNotConfiguredError('derive an acceptance address');
+  }
+
+  async inboundTransfers(): Promise<readonly ConfirmedTransfer[]> {
+    // NOT empty, for the same reason as `inboundTransfer` below.
+    throw new ChainNotConfiguredError('read inbound transfers');
   }
 
   async inboundTransfer(): Promise<ConfirmedTransfer | null> {
