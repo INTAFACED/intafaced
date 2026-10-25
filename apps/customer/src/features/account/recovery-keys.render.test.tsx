@@ -44,6 +44,12 @@ const oneKey = {
 };
 
 const settle = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+// Making a key and its fingerprint runs on the platform's crypto, which answers on its own schedule: one tick is not
+// enough on a loaded machine, so wait for what the step leads to (up to 5 s) and let the assertion name a miss.
+async function settleUntil(done: () => boolean) {
+  for (const started = Date.now(); !done() && Date.now() - started < 5000;) await settle();
+}
+const shows = (text: string) => () => Boolean(host.textContent?.includes(text));
 async function show(list: unknown) {
   world.list = { ok: true, data: list };
   root = createRoot(host);
@@ -94,14 +100,14 @@ describe('recovery keys in Security', () => {
     ];
     typeInto('label', 'Sister');
     await act(async () => host.querySelector<HTMLFormElement>('form[aria-label="Make a recovery key"]')!.requestSubmit());
-    await settle();
+    await settleUntil(shows('Confirm to add this recovery key.'));
     const add = world.asked.find((a) => a.procedure === 'recovery.keys.add')!.input as Record<string, unknown>;
     expect(Object.keys(add).sort()).toEqual(['clientRequestId', 'kind', 'label', 'publicKey']);
     expect(Object.keys(add.publicKey as object).sort()).toEqual(['crv', 'kty', 'x', 'y']);
     expect(host.textContent).toContain('Confirm to add this recovery key.');
     typeInto('code', '123456');
     await act(async () => host.querySelector<HTMLFormElement>('form[aria-label="Confirm it is you"]')!.requestSubmit());
-    await settle();
+    await settleUntil(() => host.querySelector('textarea') !== null);
     const begin = world.asked.find((a) => a.procedure === 'stepUp.begin')!.input as { target: string; fields: Record<string, string> };
     expect(begin.target).toBe(await recoveryKeyFingerprint(add.publicKey as never));
     expect(begin.fields).toEqual({ change: 'add', target: begin.target, clientRequestId: add.clientRequestId });
@@ -122,10 +128,10 @@ describe('recovery keys in Security', () => {
     ];
     typeInto('label', 'Friend');
     await act(async () => host.querySelector<HTMLFormElement>('form[aria-label="Make a recovery key"]')!.requestSubmit());
-    await settle();
+    await settleUntil(shows('Confirm to add this recovery key.'));
     typeInto('code', '123456');
     await act(async () => host.querySelector<HTMLFormElement>('form[aria-label="Confirm it is you"]')!.requestSubmit());
-    await settle();
+    await settleUntil(shows('We could not tell whether this key was added.'));
     expect(host.querySelector<HTMLTextAreaElement>('textarea')!.value.startsWith(RECOVERY_KEY_PREFIX)).toBe(true);
     expect(host.textContent).toContain('We could not tell whether this key was added.');
     expect(host.querySelector<HTMLButtonElement>('form[aria-label="Make a recovery key"] button')!.disabled).toBe(true);
