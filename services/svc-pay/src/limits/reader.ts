@@ -77,6 +77,8 @@ export function createWithdrawalLimitReader(deps: WithdrawalLimitReaderDeps): Wi
       };
     },
     async published() {
+      // Enforced but with no tier source, the guard refuses every withdrawal: say so, never show figures as the live limit.
+      if (deps.mode === 'required' && !deps.tierOf) throw new PayGuardRefusal(GUARD_WITHDRAWAL_TIER_UNWIRED, 'unavailable');
       const rows = await deps.source.list(deps.sql);
       return {
         enforced: deps.mode === 'required',

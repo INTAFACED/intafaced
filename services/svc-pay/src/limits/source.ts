@@ -1,6 +1,7 @@
 import { parseAmount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import type { WithdrawalLimit, WithdrawalLimits } from './config.js';
+import { listLimits } from './change-store.js';
 
 /**
  * Where the guard finds the owner-set figure for a KYC tier and asset. A missing
@@ -31,12 +32,7 @@ export function createSqlLimitSource(): LimitSource {
       return { perTx: parseAmount(row.per_tx), rolling24h: parseAmount(row.rolling_24h) };
     },
     async list(q) {
-      const rows = await q<Array<{ tier: string; asset_id: string; per_tx: string; rolling_24h: string }>>`
-        SELECT tier, asset_id, per_tx, rolling_24h FROM pay.withdrawal_limits
-        WHERE per_tx IS NOT NULL AND rolling_24h IS NOT NULL
-        ORDER BY tier, asset_id
-      `;
-      return rows.map((r) => ({ tier: r.tier, assetId: r.asset_id, perTx: parseAmount(r.per_tx), rolling24h: parseAmount(r.rolling_24h) }));
+      return (await listLimits(q)).flatMap((r) => (r.figures ? [{ tier: r.tier, assetId: r.assetId, ...r.figures }] : []));
     },
   };
 }
@@ -45,7 +41,10 @@ export function createSqlLimitSource(): LimitSource {
 export function staticLimitSource(limits: WithdrawalLimits): LimitSource {
   return {
     get: async (tier, assetId, _q) => limits.byTier.get(tier)?.get(assetId),
+    // Sorted by tier, then asset, like the table's own list.
     list: async (_q) =>
-      [...limits.byTier].flatMap(([tier, assets]) => [...assets].map(([assetId, limit]) => ({ tier, assetId, ...limit }))),
+      [...limits.byTier]
+        .flatMap(([tier, assets]) => [...assets].map(([assetId, limit]) => ({ tier, assetId, ...limit })))
+        .sort((a, b) => (a.tier === b.tier ? (a.assetId < b.assetId ? -1 : 1) : a.tier < b.tier ? -1 : 1)),
   };
 }

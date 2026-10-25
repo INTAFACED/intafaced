@@ -83,9 +83,10 @@ test(`${J}, part of #1 (I-kyc-compliance-04, withdrawal limits): owner limits no
   const none = rung('none').locator('.verification__limits');
   await expect(none.locator('[data-limits="unset"]')).toHaveText('Limit not set');
   await expect(none.locator('li')).toHaveCount(0);
-  // A level with figures lists each coin's figures as the owner set them.
-  const set = page.locator('.verification__limits [data-limits="set"] li').first();
-  if (await set.count()) await expect(set).toHaveText(/^[A-Z0-9]+: up to \d+(\.\d+)? per withdrawal and \d+(\.\d+)? in 24 hours$/);
+  // A level with figures lists each coin's figures as the owner set them (the gates publish TEST figures for basic).
+  await expect(rung('basic').locator('.verification__limits [data-limits="set"] li').first()).toHaveText(
+    /^[A-Z0-9]+: up to \d+(\.\d+)? per withdrawal and \d+(\.\d+)? in 24 hours$/,
+  );
 });
 
 test(`${J} #2: guided verification resumes at the step left, a country with no document list says so, an over-size file names the cap`, async ({

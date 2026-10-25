@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import { StatusTag } from '@intafaced/ui';
 import {
   KYC_LADDER_LEVELS,
@@ -7,19 +6,13 @@ import {
   type KycLadderLevel,
   type KycLadderRung,
 } from '@intafaced/contracts/identity-kyc-levels';
+import { payWithdrawalTierLimitsOutputSchema, type PayWithdrawalTierLimits } from '@intafaced/contracts/pay-withdrawal-tier-limits';
 import { useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Loading } from '../../shared/ui';
 import { verificationLadderCopy as copy } from './verification-ladder-copy';
 
 const rank = (level: KycLadderLevel) => KYC_LADDER_LEVELS.indexOf(level);
-
-/** svc-pay `withdrawal.tierLimits` (D-148): only figures the owner set; a level with none has no limit set. */
-const amount = z.string().regex(/^\d+(\.\d+)?$/);
-const tierLimitsSchema = z.object({
-  enforced: z.boolean(),
-  limits: z.array(z.object({ tier: z.string(), assetId: z.string().min(1), perTx: amount, rolling24h: amount })),
-});
 
 /** A refusal at every level, from the region or the module. The matrix code stays in a data attribute. */
 function blockedKey(code: string): 'module_blocked' | 'region_blocked' | 'unavailable' {
@@ -53,10 +46,13 @@ export function VerificationLadder({
     (signal) => api.query('identity', 'kyc.levels.describe', {}, kycLevelsDescribeOutputSchema, { signal }),
     `verification-ladder:${userId}:${statusTier ?? 'reading'}`,
   );
-  const limits = useResource(
-    (signal) => api.query('pay', 'withdrawal.tierLimits', {}, tierLimitsSchema, { signal }),
-    `verification-ladder-limits:${userId}:${statusTier ?? 'reading'}`,
-  ).resource;
+  // The owner's figures are the same for every customer, so one read serves every level (svc-pay, D-148).
+  const { resource: limits, reload: reloadLimits } = useResource(
+    (signal) => api.query('pay', 'withdrawal.tierLimits', {}, payWithdrawalTierLimitsOutputSchema, { signal }),
+    `verification-ladder-limits:${userId}`,
+  );
+  const limitsByTier = new Map<string, PayWithdrawalTierLimits['limits']>();
+  if (limits.status === 'ready') for (const l of limits.data.limits) limitsByTier.set(l.tier, [...(limitsByTier.get(l.tier) ?? []), l]);
   if (resource.status === 'loading') return <Loading />;
   if (resource.status === 'failed')
     return (
@@ -157,31 +153,33 @@ export function VerificationLadder({
                   <Copy k="limitsReading" />
                 </p>
               ) : limits.status === 'failed' ? (
-                <p className="muted" data-limits="failed">
-                  <Copy k="limitsFailed" />
+                <p className="muted" data-limits="failed" data-code={limits.failure.code ?? limits.failure.reason}>
+                  <Copy k="limitsFailed" />{' '}
+                  <button type="button" className="text-link" onClick={reloadLimits}>
+                    <Copy k="limitsRetry" />
+                  </button>
                 </p>
+              ) : limitsByTier.get(rung.level)?.length ? (
+                <>
+                  <ul data-limits="set">
+                    {limitsByTier.get(rung.level)!.map((l) => (
+                      <li key={l.assetId}>
+                        <Copy k="limitRow" params={{ asset: l.assetId, perTx: l.perTx, rolling: l.rolling24h }} />
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="muted">
+                    <Copy k={limits.data.enforced ? 'limitOthersRefused' : 'limitsNotApplied'} />
+                  </p>
+                </>
               ) : (
                 <>
-                  {limits.data.limits.some((l) => l.tier === rung.level) ? (
-                    <ul data-limits="set">
-                      {limits.data.limits
-                        .filter((l) => l.tier === rung.level)
-                        .map((l) => (
-                          <li key={l.assetId}>
-                            <Copy k="limitRow" params={{ asset: l.assetId, perTx: l.perTx, rolling: l.rolling24h }} />
-                          </li>
-                        ))}
-                    </ul>
-                  ) : (
-                    <p data-limits="unset">
-                      <Copy k="limitUnset" />
-                    </p>
-                  )}
-                  {!limits.data.enforced && (
-                    <p className="muted">
-                      <Copy k="limitsNotApplied" />
-                    </p>
-                  )}
+                  <p data-limits="unset">
+                    <Copy k="limitUnset" />
+                  </p>
+                  <p className="muted">
+                    <Copy k={limits.data.enforced ? 'limitUnsetRefused' : 'limitsNotApplied'} />
+                  </p>
                 </>
               )}
             </div>

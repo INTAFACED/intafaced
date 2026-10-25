@@ -1,4 +1,5 @@
 import { WITHDRAWAL_STATUSES, isCancellable, shownStatus } from './withdrawals/status.js';
+import { payWithdrawalTierLimitsOutputSchema } from '@intafaced/contracts/pay-withdrawal-tier-limits';
 import { INTERNAL_RAIL } from './withdrawals/internal.js';
 import { ELIGIBILITY_REASONS } from './withdrawals/eligibility.js';
 import { WithdrawalQuoteError, withdrawalQuoteToTrpcError } from './withdrawals/quotes/errors.js';
@@ -2319,12 +2320,7 @@ export function createPayRouter(
        */
       tierLimits: scopedProcedure('trade:read')
         .input(z.object({}).strict().optional())
-        .output(
-          z.object({
-            enforced: z.boolean(),
-            limits: z.array(z.object({ tier: z.string(), assetId: assetIdSchema, perTx: amountSchema, rolling24h: amountSchema })),
-          }),
-        )
+        .output(payWithdrawalTierLimitsOutputSchema)
         .query(() => wrap(async () => userMoney.withdrawalTierLimits())),
 
       /**
