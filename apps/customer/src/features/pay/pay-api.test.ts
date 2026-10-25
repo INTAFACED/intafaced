@@ -1457,6 +1457,49 @@ describe('reporting a sensitive payment-note remark (P-ads-merchant-19, J-p2p-04
     ]);
   });
 
+  it('sends a lost report again as it was, with no device journal holding the resend back', async () => {
+    const bodies: unknown[] = [];
+    let lose = true;
+    const api = createApiClient({
+      fetch: async (_url, options) => {
+        bodies.push(JSON.parse(String(options?.body)));
+        if (lose) {
+          lose = false;
+          return new Response(JSON.stringify({ error: { message: 'Connection ended' } }), { status: 503 });
+        }
+        return response(opened);
+      },
+    });
+    const pay = createPersonalPayApi(api, userId, createPayMutationGuard());
+    expect(await pay.reportSensitiveRemark(tradeId, caseId, 'USDT for order 12')).toMatchObject({ ok: false });
+    expect(await pay.reportSensitiveRemark(tradeId, caseId, 'USDT for order 12')).toEqual({ ok: true, data: opened });
+    expect(bodies).toEqual([
+      { caseId, tradeId, remark: 'USDT for order 12' },
+      { caseId, tradeId, remark: 'USDT for order 12' },
+    ]);
+  });
+
+  it('reads the person’s own case on the order, or null', async () => {
+    const urls: string[] = [];
+    const answer = (body: unknown) =>
+      createApiClient({
+        fetch: async (url) => {
+          urls.push(decodeURIComponent(String(url)));
+          return response(body);
+        },
+      });
+    expect(await createPersonalPayApi(answer(opened), userId, createPayMutationGuard()).remarkCase(tradeId)).toEqual({
+      ok: true,
+      data: opened,
+    });
+    expect(urls[0]).toContain('trades.remarkCase');
+    expect(urls[0]).toContain(tradeId);
+    expect(await createPersonalPayApi(answer(null), userId, createPayMutationGuard()).remarkCase(tradeId)).toEqual({
+      ok: true,
+      data: null,
+    });
+  });
+
   it('passes a refusal through with its code, and refuses an answer that is not a case', async () => {
     const refusing = createApiClient({
       fetch: async () =>

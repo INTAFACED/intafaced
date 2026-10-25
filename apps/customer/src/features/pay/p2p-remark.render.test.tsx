@@ -23,7 +23,7 @@ afterEach(() => {
 
 const SELLER = '11111111-1111-4111-8111-111111111111';
 const BUYER = '22222222-2222-4222-8222-222222222222';
-const trade = (status: Trade['status'] = 'fiat_sent'): Trade => ({
+const trade = (status: Trade['status'] = 'fiat_sent', escrowedAt: string | null = '2026-10-24T12:00:01.000Z'): Trade => ({
   id: '0b6f1c1e-4a7d-4c55-9d1e-2f6f0e8a1b2c',
   offerId: '33333333-3333-4333-8333-333333333333',
   sellerId: SELLER,
@@ -38,11 +38,14 @@ const trade = (status: Trade['status'] = 'fiat_sent'): Trade => ({
   resolution: null,
   deadlineAt: null,
   createdAt: '2026-10-24T12:00:00.000Z',
-  escrowedAt: '2026-10-24T12:00:01.000Z',
+  escrowedAt,
   resolvedAt: null,
   settledAt: null,
   mismatch: null,
 });
+/** A pay client whose own-case read answers `own` (none by default). */
+const payWith = (methods: Record<string, unknown>, own: RemarkCase | null = null) =>
+  ({ remarkCase: async () => ({ ok: true as const, data: own }), ...methods }) as unknown as PersonalPayApi;
 const reported = (caseId: string): RemarkCase => ({
   id: caseId,
   tradeId: trade().id,
@@ -82,7 +85,7 @@ async function type(value: string) {
 describe('Report a sensitive payment-note remark (J-p2p-04 #5)', () => {
   it('stays off until a remark is quoted, then sends it trimmed and shows the open case', async () => {
     const reportSensitiveRemark = vi.fn(async (_trade: string, caseId: string) => ({ ok: true as const, data: reported(caseId) }));
-    await render(<ReportRemark trade={trade()} pay={{ reportSensitiveRemark } as unknown as PersonalPayApi} />);
+    await render(<ReportRemark trade={trade()} pay={payWith({ reportSensitiveRemark })} userId={SELLER} />);
     expect(button().disabled).toBe(true);
     expect(host.textContent).toContain('Quote the remark from the payment note.');
     await type('  USDT for order 12  ');
@@ -94,22 +97,25 @@ describe('Report a sensitive payment-note remark (J-p2p-04 #5)', () => {
     expect(result.getAttribute('data-case-id')).toBe(reportSensitiveRemark.mock.calls[0]![1]);
   });
 
-  it('a resend of the same quote is the same case id; a changed quote is a new one', async () => {
+  it('a resend of the same quote, spaces aside, is the same case id; a changed quote is a new one', async () => {
     const reportSensitiveRemark = vi.fn(async () => ({
       ok: false as const,
       reason: 'uncertain' as const,
       message: 'Connection ended',
       status: 503,
     }));
-    await render(<ReportRemark trade={trade()} pay={{ reportSensitiveRemark } as unknown as PersonalPayApi} />);
+    await render(<ReportRemark trade={trade()} pay={payWith({ reportSensitiveRemark })} userId={SELLER} />);
     await type('USDT');
     await act(async () => button().click());
+    await act(async () => button().click());
+    await type('USDT ');
     await act(async () => button().click());
     await type('USDT please');
     await act(async () => button().click());
     const ids = reportSensitiveRemark.mock.calls.map((call) => (call as unknown[])[1]);
     expect(ids[0]).toBe(ids[1]);
-    expect(ids[2]).not.toBe(ids[0]);
+    expect(ids[2]).toBe(ids[0]);
+    expect(ids[3]).not.toBe(ids[0]);
   });
 
   it('stays off past 280 characters, and says a repeat report and a refused quote in its own words', async () => {
@@ -117,7 +123,7 @@ describe('Report a sensitive payment-note remark (J-p2p-04 #5)', () => {
       .fn()
       .mockResolvedValueOnce({ ok: false, reason: 'error', message: 'service text', code: 'p2p.remark_case_exists', status: 409 })
       .mockResolvedValueOnce({ ok: false, reason: 'error', message: 'service text', code: 'p2p.remark_invalid', status: 400 });
-    await render(<ReportRemark trade={trade()} pay={{ reportSensitiveRemark } as unknown as PersonalPayApi} />);
+    await render(<ReportRemark trade={trade()} pay={payWith({ reportSensitiveRemark })} userId={SELLER} />);
     await type('x'.repeat(281));
     expect(button().disabled).toBe(true);
     expect(host.textContent).toContain('Quote at most 280 characters.');
@@ -129,9 +135,23 @@ describe('Report a sensitive payment-note remark (J-p2p-04 #5)', () => {
     expect(host.textContent).not.toContain('service text');
   });
 
-  it('is not offered before the order is funded', async () => {
-    await render(<ReportRemark trade={trade('created')} pay={{} as PersonalPayApi} />);
+  it('shows the case already reported on a later visit, instead of the form', async () => {
+    await render(<ReportRemark trade={trade()} pay={payWith({}, reported('99999999-9999-4999-8999-999999999999'))} userId={SELLER} />);
+    expect(host.querySelector('[data-testid="order-remark-case"]')!.getAttribute('data-case-id')).toBe(
+      '99999999-9999-4999-8999-999999999999',
+    );
     expect(host.querySelector('[data-testid="order-remark-report"]')).toBeNull();
+  });
+
+  it('is not offered on an order that was never funded, open or cancelled', async () => {
+    await render(<ReportRemark trade={trade('created', null)} pay={payWith({})} userId={SELLER} />);
+    expect(host.querySelector('[data-testid="order-remark-report"]')).toBeNull();
+    act(() => root?.unmount());
+    await render(<ReportRemark trade={trade('cancelled', null)} pay={payWith({})} userId={SELLER} />);
+    expect(host.querySelector('[data-testid="order-remark-report"]')).toBeNull();
+    act(() => root?.unmount());
+    await render(<ReportRemark trade={trade('cancelled')} pay={payWith({})} userId={SELLER} />);
+    expect(host.querySelector('[data-testid="order-remark-report"]')).not.toBeNull();
   });
 });
 

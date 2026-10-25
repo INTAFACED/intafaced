@@ -1248,7 +1248,6 @@ type MismatchRow = {
   reported_at: Date;
 };
 
-/** The order's amount report, read with `db` (the order's transaction, or the pool). */
 interface RemarkCaseRow {
   id: string;
   trade_id: string;
@@ -1274,6 +1273,7 @@ function toRemarkCase(row: RemarkCaseRow): RemarkCase {
   };
 }
 
+/** The order's amount report, read with `db` (the order's transaction, or the pool). */
 async function readMismatch(db: Sql, tradeId: string): Promise<MismatchReport | null> {
   const [row] = await db<MismatchRow[]>`
     SELECT trade_id, kind, amount_received::text, expected::text, classification, tolerance_bps, reported_at
@@ -3326,6 +3326,15 @@ export class P2pService {
         async (tx) => {
           const trade = await this.lockTrade(tx, input.tradeId);
           if (trade.buyerId !== input.reporterId && trade.sellerId !== input.reporterId) throw unknownTrade(input.tradeId);
+          // No payment note exists on an order that was never funded: the buyer pays only once the coin is held.
+          if (trade.escrowedAt === null) {
+            throw new TradeStateError(
+              `Trade ${input.tradeId} is ${trade.status} and was never funded: there is no payment note to report`,
+              isTerminal(trade.status) ? 'p2p.trade_terminal' : 'p2p.invalid_transition',
+              trade.status,
+              'escrowed',
+            );
+          }
           const [existing] = await tx<RemarkCaseRow[]>`
             SELECT * FROM p2p.remark_cases WHERE trade_id = ${input.tradeId} AND reporter_id = ${input.reporterId}
           `;
@@ -3339,9 +3348,12 @@ export class P2pService {
           const [row] = await tx<RemarkCaseRow[]>`
             INSERT INTO p2p.remark_cases (id, trade_id, reporter_id, reported_id, reporter_role, remark, opened_at)
             VALUES (${input.caseId}, ${input.tradeId}, ${input.reporterId}, ${reportedId}, ${reporterRole}, ${remark}, ${openedAt})
+            ON CONFLICT DO NOTHING
             RETURNING *
           `;
-          return { report: toRemarkCase(row!), fresh: true };
+          // The case id is already another report's (another order, or another person): never theirs to replay.
+          if (!row) throw new P2pError('That report id is already in use; start the report again', 'p2p.remark_case_exists');
+          return { report: toRemarkCase(row), fresh: true };
         },
         { isolation: 'read committed', maxAttempts: 5 },
       ),
@@ -3355,6 +3367,18 @@ export class P2pService {
       }
     }
     return done.report;
+  }
+
+  /** The caller's own remark case on this order, or null. A caller who is not a party gets not found. */
+  async ownRemarkCase(tradeId: string, userId: string): Promise<RemarkCase | null> {
+    const [trade] = await this.sql<{ buyer_id: string; seller_id: string }[]>`
+      SELECT buyer_id, seller_id FROM p2p.p2p_trades WHERE id = ${tradeId}
+    `;
+    if (!trade || (trade.buyer_id !== userId && trade.seller_id !== userId)) throw unknownTrade(tradeId);
+    const [row] = await this.sql<RemarkCaseRow[]>`
+      SELECT * FROM p2p.remark_cases WHERE trade_id = ${tradeId} AND reporter_id = ${userId}
+    `;
+    return row ? toRemarkCase(row) : null;
   }
 
   /** The open remark cases, oldest first: the queue staff read. Callers gate on the moderator check first. */
