@@ -816,8 +816,22 @@ test(`${J} part of #7 compliance decides in the founder console: the proof saved
     await apply('still waiting for a second founder');
     expect((await client.get('/api/v1/vip/applications')).body.applications.map((x) => x.status)).toEqual(['pending']);
 
-    // Founder B approves exactly that hash in Freezes & approvals; A applies it.
+    // Founder B first checks what the request is: the same decision and reason in the room give the same hash.
     const approver = await founderSignIn(b, 'b');
+    await b.goto(`${ADMIN}/trade-ops/vip-applications`);
+    await b
+      .locator('[data-room=vip-applications]')
+      .getByRole('row')
+      .filter({ hasText: client.userId })
+      .getByRole('button', { name: 'Open' })
+      .click();
+    const bPanel = b.locator('[data-vip-desk=open]');
+    await bPanel.getByLabel(/^Reason \(12 to 500/).fill(reason);
+    await bPanel.getByRole('button', { name: 'Work out the hash to check' }).click();
+    await expect(bPanel.locator('[data-vip-desk=check]')).toContainText(payloadHash);
+    await expect(bPanel.locator('[data-vip-desk=check]')).toContainText('test-vip-1 for 1 day');
+
+    // B approves exactly that hash in Freezes & approvals; A applies it.
     await b.goto(`${ADMIN}/trade-ops/approvals`);
     await b.getByLabel('Approval id', { exact: true }).fill(approvalId);
     await b.getByLabel('Payload hash you reviewed').fill(payloadHash);

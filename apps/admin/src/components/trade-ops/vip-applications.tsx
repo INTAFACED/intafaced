@@ -177,7 +177,9 @@ function VipApplicationPanel({ application, list, onChanged }: { application: Vi
   const [reason, setReason] = useState('');
   const [decision, setDecision] = useState<VipDecision>('approve');
   const [busy, setBusy] = useState(false);
-  const [proof, setProof] = useState<Outcome<VipProofFile> | null>(null);
+  // Only the outcome's words are kept: the file's bytes go to the download and are dropped here.
+  const [proof, setProof] = useState<Outcome<{ fileName: string }> | null>(null);
+  const [check, setCheck] = useState<Outcome<{ payloadHash: string; trial: VipTrialRules | null }> | null>(null);
   const [proposed, setProposed] = useState<Outcome<Proposed> | null>(null);
   const [approvalId, setApprovalId] = useState('');
   const reasonOk = reason.trim().length >= 12 && reason.trim().length <= 500;
@@ -188,9 +190,23 @@ function VipApplicationPanel({ application, list, onChanged }: { application: Vi
   async function openProof() {
     setBusy(true);
     const out = await tradeOpsAction<VipProofFile>('vip-applications', { action: 'proof', applicationId: application.id, reason });
-    setProof(out);
+    if (out.kind === 'ok') setProof({ ...out, data: { fileName: save(out.data) } });
+    else setProof(out);
     setBusy(false);
-    if (out.kind === 'ok') save(out.data);
+  }
+
+  async function workOutHash() {
+    setBusy(true);
+    setCheck(
+      await tradeOpsAction('vip-applications', {
+        action: 'hash',
+        kind,
+        applicationId: application.id,
+        ...(kind === 'review' ? { decision } : {}),
+        reason,
+      }),
+    );
+    setBusy(false);
   }
 
   async function propose() {
@@ -257,7 +273,15 @@ function VipApplicationPanel({ application, list, onChanged }: { application: Vi
         getRowId={(e) => String(e.n)}
       />
       <Field label="Reason (12 to 500 characters, kept in the audit and bound to the approval)" density="dense">
-        <Input value={reason} onValueChange={setReason} density="dense" autoComplete="off" />
+        <Input
+          value={reason}
+          onValueChange={(v) => {
+            setReason(v);
+            setCheck(null);
+          }}
+          density="dense"
+          autoComplete="off"
+        />
       </Field>
       <div className="flex flex-wrap items-center gap-3">
         <Button
@@ -289,6 +313,7 @@ function VipApplicationPanel({ application, list, onChanged }: { application: Vi
                 onValueChange={(v) => {
                   setDecision(String(v) as VipDecision);
                   setProposed(null);
+                  setCheck(null);
                 }}
               >
                 <SelectTrigger size={32}>
@@ -319,6 +344,33 @@ function VipApplicationPanel({ application, list, onChanged }: { application: Vi
               Ask a second founder to approve
             </Button>
           </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              size={32}
+              variant="secondary"
+              shape="rounded"
+              loading={busy}
+              disabled={!reasonOk || grantBlocked}
+              onClick={() => void workOutHash()}
+            >
+              Work out the hash to check
+            </Button>
+            <span className="text-sm text-fg-2">
+              Approving a request another founder filed? Enter the decision and reason they gave you: the hash must match the
+              request&apos;s.
+            </span>
+          </div>
+          {check && check.kind !== 'ok' ? <OutcomeNotice outcome={check} /> : null}
+          {check?.kind === 'ok' ? (
+            <KeyValue
+              density="dense"
+              data-vip-desk="check"
+              items={[
+                { label: 'Hash of exactly this', value: check.data.payloadHash, mono: true },
+                { label: 'It grants', value: check.data.trial ? trialText(check.data.trial) : 'No trial' },
+              ]}
+            />
+          ) : null}
           {proposed ? <OutcomeNotice outcome={proposed} doneText="Request filed" /> : null}
           {proposed?.kind === 'ok' ? (
             <KeyValue
@@ -363,16 +415,24 @@ function VipApplicationPanel({ application, list, onChanged }: { application: Vi
   );
 }
 
-/** Hand the file to the browser as a download: never opened or rendered in the console. */
-function save(file: VipProofFile) {
+/** The extension the checked type gets: the saved name never claims a type the bytes were not checked as. */
+const EXTENSION: Record<string, string> = { 'application/pdf': '.pdf', 'image/png': '.png', 'image/jpeg': '.jpg' };
+
+/** Hand the file to the browser as a download: never opened or rendered in the console. Returns the name it was saved as. */
+function save(file: VipProofFile): string {
+  const ext = EXTENSION[file.contentType] ?? '.bin';
+  const base = file.fileName.replace(/\.[^.]*$/, '') || 'proof';
+  const name = `${base}${ext}`;
   const bytes = Uint8Array.from(atob(file.bytesBase64), (c) => c.charCodeAt(0));
   const url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
   const a = document.createElement('a');
   a.href = url;
-  a.download = file.fileName;
+  a.download = name;
   a.rel = 'noopener';
   document.body.appendChild(a);
   a.click();
   a.remove();
+  // Long enough for every browser to start the download from the URL; revoking at once cancels it in some.
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  return name;
 }

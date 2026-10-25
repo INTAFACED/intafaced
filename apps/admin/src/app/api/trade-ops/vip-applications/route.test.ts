@@ -156,6 +156,20 @@ describe('VIP applications route', () => {
     expect(sent!.payloadHash).toBe(vipTrialGrantPayloadHash({ applicationId: APP, reason: REASON, trial: TRIAL }));
   });
 
+  it('works out the hash a request for exactly this decision carries, so the approver can check it, and files nothing', async () => {
+    fetchMock.mockImplementation(async () => data(list('pending')));
+    const approve = await (await post({ action: 'hash', kind: 'review', applicationId: APP, decision: 'approve', reason: REASON })).json();
+    expect(approve).toMatchObject({
+      kind: 'ok',
+      data: { payloadHash: 'sha256:f340afb02be7d0797824dd75c7678d2cffa9ac246cb1c43de5d37fad25a66916', trial: TRIAL },
+    });
+    const reject = await (await post({ action: 'hash', kind: 'review', applicationId: APP, decision: 'reject', reason: REASON })).json();
+    expect(reject).toMatchObject({
+      data: { payloadHash: 'sha256:31253482667c472e5415384d9aa70430e776047c578bcd4ad06f0b1177050ab9', trial: null },
+    });
+    expect(urls().every((u) => u.includes('admin.vipApplications.list'))).toBe(true);
+  });
+
   it('decides nothing while the request still waits for a second founder', async () => {
     fetchMock.mockImplementation(async (url: URL) =>
       String(url).includes('actionApproval.get') ? data(approval('PENDING')) : data(list('pending')),

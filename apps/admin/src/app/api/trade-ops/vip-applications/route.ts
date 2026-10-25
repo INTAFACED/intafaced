@@ -22,6 +22,9 @@ import { vipReviewPayloadHash, vipTrialGrantPayloadHash } from '@/lib/trade-ops/
  *   POST { action: 'propose', kind: 'review', applicationId, decision, reason } file the approval a decision needs
  *   POST { action: 'propose', kind: 'grant', applicationId, reason }        file the approval a trial grant needs
  *   POST { action: 'apply', kind, applicationId, decision?, reason, approvalId } apply it once APPROVED
+ *   POST { action: 'hash', kind, applicationId, decision?, reason }          the hash a request for exactly this would
+ *                                                                            carry, so the approving founder can check
+ *                                                                            what they approve (nothing is filed)
  *
  * A proposal is bound to the application's status now and, for an approval, to the trial the owner publishes now: the
  * room reads both fresh before it files one, and svc-trade checks them again when it is applied. A grant while no trial
@@ -48,7 +51,8 @@ async function handler(ctx: TradeCtx, body: Record<string, unknown>): Promise<Ou
     if (status !== null && !VIP_STATUSES.includes(status as VipStatus)) return refused('trade_ops.vip_bad_status', 'Unknown status.', 400);
     return readVipApplications(ctx, status as VipStatus | null);
   }
-  if (action !== 'proof' && action !== 'propose' && action !== 'apply') return refused('trade_ops.bad_action', 'Unknown VIP action.', 400);
+  if (action !== 'proof' && action !== 'propose' && action !== 'apply' && action !== 'hash')
+    return refused('trade_ops.bad_action', 'Unknown VIP action.', 400);
   if (typeof body.applicationId !== 'string' || !UUID.test(body.applicationId))
     return refused('trade_ops.vip_bad_application', 'Choose an application.', 400);
   const applicationId = body.applicationId.toLowerCase();
@@ -67,6 +71,17 @@ async function handler(ctx: TradeCtx, body: Record<string, unknown>): Promise<Ou
   const now = await current(ctx, applicationId);
   if (now.kind !== 'ok') return now;
   const { application, trialRules } = now.data;
+
+  if (action === 'hash') {
+    if (kind === 'grant' && !trialRules)
+      return refused('vip.trial_unset', 'The owner has not published a VIP trial (tier and days), so no grant can be approved.', 409);
+    const trial = kind === 'review' && decision === 'reject' ? null : trialRules;
+    const payloadHash =
+      kind === 'review'
+        ? vipReviewPayloadHash({ applicationId, decision: decision as VipDecision, reason: reason.reason, trial: trialRules })
+        : vipTrialGrantPayloadHash({ applicationId, reason: reason.reason, trial: trialRules! });
+    return ok({ payloadHash, trial }, now.asOf);
+  }
 
   if (action === 'propose') {
     if (kind === 'review') {
