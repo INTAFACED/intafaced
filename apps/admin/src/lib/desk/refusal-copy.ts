@@ -1135,6 +1135,26 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'This attempt is not waiting for an essay score any more: it was scored already.',
     next: 'Read the quiz again. Nothing was changed.',
   },
+  'academy.prerequisite_cycle': {
+    title: 'That would make a loop',
+    body: 'With this set, an item would end up requiring itself, directly or through other items, so no learner could open any of them.',
+    next: 'Remove one of the items that leads back. Nothing was saved.',
+  },
+  'academy.window_invalid': {
+    title: 'That date or window does not work',
+    body: 'Academy found the dates out of order: for example a learner’s own due date not after the assignment’s, an assignment with no due date to move, or a window that ends before it starts.',
+    next: 'Check the dates and try again. Nothing was saved.',
+  },
+  'academy.enrolment_required': {
+    title: 'Not enrolled',
+    body: 'That account is not enrolled in this course.',
+    next: 'Check the learner’s account id. Nothing was changed.',
+  },
+  'academy.prerequisite_unmeasured': {
+    title: 'That item cannot be required',
+    body: 'A lesson, video, file or link records no completion on a course staff made, so no learner could ever meet it.',
+    next: 'Require an assignment or a quiz instead. Nothing was saved.',
+  },
   'academy.pacing_locked': {
     title: 'Pacing is fixed',
     body: 'Learners have enrolled in this course, so its pacing stays as it was when they joined.',

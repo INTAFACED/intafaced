@@ -794,6 +794,8 @@ export const academyAssignmentViewSchema = z.object({
   grade: academyLearnerGradeSchema.nullable(),
   /** The version the next hand-in takes; a retry of a lost hand-in sends the version it was made with. */
   nextVersion: z.number().int().positive(),
+  /** AC-release-access-02: this learner's own later due date, with the reason staff gave; null when they have none. */
+  extension: z.object({ dueAt: isoInstant, reason: z.string().min(1) }).nullable(),
 });
 export type AcademyAssignmentView = z.infer<typeof academyAssignmentViewSchema>;
 

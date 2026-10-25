@@ -160,6 +160,7 @@ export type RefusalKey =
   | 'refEnrolmentClosed'
   | 'refItemNotOpen'
   | 'refNotReleasedYet'
+  | 'refItemPrerequisite'
   | 'refCompletionRuleUnmet'
   | 'refRequestReused'
   | 'refAttemptClosed'
@@ -236,6 +237,8 @@ export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): R
     case 'academy.programme_not_found':
       return 'refProgrammeNotFound';
     case 'academy.prerequisite_unmet':
+      // An assignment or quiz of a course staff made names the items it needs (AC-release-access-02).
+      if (/\bitems=/.test(failure.message)) return 'refItemPrerequisite';
       return missingProgrammes(failure.message).length > 0 ? 'refPrerequisite' : 'refPrerequisiteUnnamed';
     case 'academy.video_storage_unconfigured':
       return 'refVideoStorageUnconfigured';

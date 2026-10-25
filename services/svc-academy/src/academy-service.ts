@@ -47,6 +47,7 @@ import { CourseMedia, type ReadBackFn } from './curriculum/media.js';
 import { CourseAssignments, type PutObjectFn } from './curriculum/assignments.js';
 import { CourseQuizzes } from './curriculum/course-quizzes.js';
 import { CourseRelease } from './curriculum/course-release.js';
+import { CourseItemRules } from './curriculum/course-item-rules.js';
 import { PeerReviews, type GetObjectFn } from './curriculum/peer-review.js';
 import { AssignmentGrading } from './curriculum/grading.js';
 import { LearnHub } from './curriculum/learn-hub.js';
@@ -418,6 +419,7 @@ export class AcademyService {
   readonly courseQuizzes: CourseQuizzes;
   /** AC-release-access-01: scheduled release and pacing on a course staff made. The router calls it directly. */
   readonly courseRelease: CourseRelease;
+  readonly courseItemRules: CourseItemRules;
 
   constructor(
     private readonly sql: Sql,
@@ -469,6 +471,7 @@ export class AcademyService {
     this.courseMessages = new CourseMessages(sql, this.options.messageMaxChars ?? null);
     this.courseQuizzes = new CourseQuizzes(sql);
     this.courseRelease = new CourseRelease(sql);
+    this.courseItemRules = new CourseItemRules(sql);
     this.discussion = new CourseDiscussion(sql, {
       postMaxChars: this.options.postMaxChars ?? null,
       imageMaxBytes: this.options.postImageMaxBytes ?? null,

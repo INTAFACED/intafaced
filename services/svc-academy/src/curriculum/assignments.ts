@@ -29,7 +29,8 @@ import type {
   AcademyWithdrawAssignmentInput,
 } from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
-import { assertItemReleased } from './course-release.js';
+import { assertItemOpen } from './course-release.js';
+import { dueFor } from './course-item-rules.js';
 import { isVideoStorageConfigured, signPutObjectUrl, type VideoStorageConfig } from '../video/storage.js';
 import { canonicalPrice } from './courses.js';
 import { FILE_SIGNATURES, signatureMatches } from './media.js';
@@ -316,8 +317,8 @@ export class CourseAssignments {
     if (!row || row.kind !== 'assignment' || row.revision === null || row.course_state !== 'published')
       throw new AcademyError('no assignment is open at that address', 'academy.assignment_not_found');
     if (!row.enrolled) throw new AcademyError(`academy.enrolment_required course=${row.course_slug}`, 'academy.enrolment_required');
-    // A section scheduled for later keeps its assignment closed until it opens for this learner (AC-release-access-01).
-    await assertItemReleased(sql, row.item_id, userId, new Date());
+    // A section scheduled for later, or an unmet prerequisite, keeps the assignment closed (AC-release-access-01, 02).
+    await assertItemOpen(sql, row.item_id, userId, new Date());
     return row;
   }
 
@@ -336,6 +337,11 @@ export class CourseAssignments {
       LIMIT ${SUBMISSIONS_SHOWN}
     `;
     const brief = this.briefOf(row);
+    // A later due date staff granted this learner (AC-release-access-02): their hand-ins are late only after it.
+    const [extension] = await sql<Array<{ due_at: Date; reason: string }>>`
+      SELECT due_at, reason FROM academy.course_item_extensions WHERE item_id = ${itemId} AND user_id = ${userId}
+    `;
+    const dueAt = dueFor(row.due_at, extension?.due_at ?? null);
     return {
       itemId: row.item_id,
       courseSlug: row.course_slug,
@@ -352,10 +358,11 @@ export class CourseAssignments {
         file:
           s.file_id === null ? null : fileOf({ id: s.file_id, file_name: s.file_name!, content_type: s.content_type!, bytes: s.bytes! }),
         submittedAt: s.submitted_at.toISOString(),
-        late: row.due_at !== null && s.submitted_at.getTime() > row.due_at.getTime(),
+        late: dueAt !== null && s.submitted_at.getTime() > dueAt.getTime(),
       })),
       grade: await learnerGradeOf(sql, itemId, userId),
       nextVersion: (rows[0]?.version ?? 0) + 1,
+      extension: extension ? { dueAt: extension.due_at.toISOString(), reason: extension.reason } : null,
     };
   }
 }

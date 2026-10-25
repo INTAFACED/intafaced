@@ -40,7 +40,7 @@ import type {
 } from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
 import { answerFits, scoreAttempt, scoreQuestion } from './course-quiz-score.js';
-import { assertItemReleased } from './course-release.js';
+import { assertItemOpen } from './course-release.js';
 
 type Db = Sql | TransactionSql;
 
@@ -648,8 +648,8 @@ export class CourseQuizzes {
     if (!row || row.kind !== 'quiz' || row.state !== 'published' || row.course_state !== 'published')
       throw new AcademyError('no quiz is open at that address', 'academy.assessment_unpublished');
     if (!row.enrolled) throw new AcademyError(`academy.enrolment_required course=${row.course_slug}`, 'academy.enrolment_required');
-    // A section scheduled for later keeps its quiz closed until it opens for this learner (AC-release-access-01).
-    await assertItemReleased(sql, row.item_id, userId, now);
+    // A section scheduled for later, or an unmet prerequisite, keeps the quiz closed (AC-release-access-01, 02).
+    await assertItemOpen(sql, row.item_id, userId, now);
     return row;
   }
 
