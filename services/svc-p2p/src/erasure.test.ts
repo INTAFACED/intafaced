@@ -492,6 +492,20 @@ describe('p2p export and erasure', () => {
       expect(second.erased.every((l) => l.rows === 0)).toBe(true);
     });
 
+    it('names a sensitive-remark case for both parties and leaves the row (P-ads-merchant-19)', async () => {
+      const { trade } = await completedTrade();
+      await p2p.reportSensitiveRemark({ caseId: crypto.randomUUID(), tradeId: trade.id, reporterId: MAKER, remark: 'USDT' });
+
+      for (const userId of [TAKER, MAKER]) {
+        const report = await erasure.eraseFor(userId);
+        expect(report.retained.find((line) => line.category === 'reports of a sensitive payment-note remark')).toMatchObject({
+          rows: 1,
+          reason: expect.stringContaining('staff decide it'),
+        });
+      }
+      expect(await sql`SELECT 1 FROM p2p.remark_cases WHERE trade_id = ${trade.id}`).toHaveLength(1);
+    });
+
     it('names an order review and leaves the row', async () => {
       const { trade } = await completedTrade();
       const review = await p2p.leaveOrderReview({

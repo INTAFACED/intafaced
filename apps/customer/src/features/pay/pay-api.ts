@@ -1051,6 +1051,17 @@ export function createPersonalPayApi(
         undefined,
         p2pCurrent,
       ),
+    /**
+     * P-ads-merchant-19: a party reports a sensitive remark the other wrote in the payment note. Moves nothing; a case
+     * opens and the other party is told. `caseId` is made once per form, so a lost reply sent again answers the same case.
+     */
+    reportSensitiveRemark: (tradeId: string, caseId: string, remark: string) =>
+      guard.run(
+        `${userId}:remark:${tradeId}`,
+        () => api.mutate('p2p', 'trades.reportSensitiveRemark', { caseId, tradeId, remark }, s.remarkCaseSchema),
+        undefined,
+        p2pCurrent,
+      ),
     /** P-trade-orders-20: the seller reports what arrived in their bank. Moves nothing; svc-p2p classifies it. */
     reportMismatch: (tradeId: string, kind: s.TradeMismatch['kind'], amountReceived: string) =>
       guard.run(

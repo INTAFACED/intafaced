@@ -234,6 +234,8 @@ export type P2pErrorCode =
   | 'p2p.remind_too_early'
   | 'p2p.remind_rate_limited'
   | 'p2p.mismatch_report_exists'
+  | 'p2p.remark_case_exists'
+  | 'p2p.remark_invalid'
   | 'rail.bank'
   | 'p2p.method_not_rail_validated'
   | 'p2p.rail_mismatch'
@@ -915,6 +917,28 @@ export interface MethodRemovalImpact {
   ads: MethodRemovalAd[];
 }
 
+/** P-ads-merchant-19: a case opened by a party's report of a sensitive remark in an order's payment note. */
+export interface RemarkCase {
+  readonly id: string;
+  readonly tradeId: string;
+  readonly reporterId: string;
+  readonly reportedId: string;
+  readonly reporterRole: 'buyer' | 'seller';
+  readonly remark: string;
+  readonly status: 'open';
+  readonly openedAt: Date;
+}
+
+/** A remark-case notice the sweep could not hand over, with the reason. */
+export interface RemarkCaseSweepFailure {
+  readonly caseId: string;
+  readonly code: string | null;
+  readonly error: string;
+}
+
+/** The longest remark a report quotes; the database checks the same. */
+export const REMARK_MAX = 280;
+
 /** One removal notice the sweep could not hand to the bus. */
 export interface OfferPauseSweepFailure {
   readonly instrumentId: string;
@@ -1225,6 +1249,31 @@ type MismatchRow = {
 };
 
 /** The order's amount report, read with `db` (the order's transaction, or the pool). */
+interface RemarkCaseRow {
+  id: string;
+  trade_id: string;
+  reporter_id: string;
+  reported_id: string;
+  reporter_role: 'buyer' | 'seller';
+  remark: string;
+  status: 'open';
+  opened_at: Date;
+  handed_at: Date | null;
+}
+
+function toRemarkCase(row: RemarkCaseRow): RemarkCase {
+  return {
+    id: row.id,
+    tradeId: row.trade_id,
+    reporterId: row.reporter_id,
+    reportedId: row.reported_id,
+    reporterRole: row.reporter_role,
+    remark: row.remark,
+    status: row.status,
+    openedAt: row.opened_at,
+  };
+}
+
 async function readMismatch(db: Sql, tradeId: string): Promise<MismatchReport | null> {
   const [row] = await db<MismatchRow[]>`
     SELECT trade_id, kind, amount_received::text, expected::text, classification, tolerance_bps, reported_at
@@ -3256,6 +3305,104 @@ export class P2pService {
   /** An order's amount report, or null. Reads only; callers filter parties first. */
   async mismatchReport(tradeId: string): Promise<MismatchReport | null> {
     return readMismatch(this.sql, tradeId);
+  }
+
+  // ── Sensitive remarks in a payment note (P-ads-merchant-19) ───────────────────
+
+  /**
+   * J-p2p-04 #5: a party to an order reports a sensitive remark the other party wrote in the payment note (a coin name,
+   * "crypto", anything the method row's note rules forbid). A case opens against the other party, under the order's
+   * lock, one per (order, reporter): the same report again (a lost reply) returns the first, a different one refuses
+   * `p2p.remark_case_exists`. The case row is the outbox of the notice that tells the reported party; nothing moves.
+   */
+  async reportSensitiveRemark(input: { caseId: string; tradeId: string; reporterId: string; remark: string }): Promise<RemarkCase> {
+    const remark = input.remark.trim();
+    if (remark.length === 0 || remark.length > REMARK_MAX) {
+      throw new P2pError(`A reported remark is 1 to ${REMARK_MAX} characters, quoted from the payment note`, 'p2p.remark_invalid');
+    }
+    const done = await withSpan('p2p.reportSensitiveRemark', async () =>
+      transaction(
+        this.sql,
+        async (tx) => {
+          const trade = await this.lockTrade(tx, input.tradeId);
+          if (trade.buyerId !== input.reporterId && trade.sellerId !== input.reporterId) throw unknownTrade(input.tradeId);
+          const [existing] = await tx<RemarkCaseRow[]>`
+            SELECT * FROM p2p.remark_cases WHERE trade_id = ${input.tradeId} AND reporter_id = ${input.reporterId}
+          `;
+          if (existing) {
+            if (existing.id === input.caseId && existing.remark === remark) return { report: toRemarkCase(existing), fresh: false };
+            throw new P2pError('You already reported a remark on this order; open a dispute to add to it', 'p2p.remark_case_exists');
+          }
+          const reporterRole = trade.sellerId === input.reporterId ? 'seller' : 'buyer';
+          const reportedId = reporterRole === 'seller' ? trade.buyerId : trade.sellerId;
+          const openedAt = await txNow(tx);
+          const [row] = await tx<RemarkCaseRow[]>`
+            INSERT INTO p2p.remark_cases (id, trade_id, reporter_id, reported_id, reporter_role, remark, opened_at)
+            VALUES (${input.caseId}, ${input.tradeId}, ${input.reporterId}, ${reportedId}, ${reporterRole}, ${remark}, ${openedAt})
+            RETURNING *
+          `;
+          return { report: toRemarkCase(row!), fresh: true };
+        },
+        { isolation: 'read committed', maxAttempts: 5 },
+      ),
+    );
+    // Owed from the commit above; the sweep hands it over if this process dies first or the bus is down.
+    if (done.fresh) {
+      try {
+        await this.handOverRemarkCase(done.report);
+      } catch (err) {
+        recordSwallowed('p2p.remark_case_opened.publish', err);
+      }
+    }
+    return done.report;
+  }
+
+  /** The open remark cases, oldest first: the queue staff read. Callers gate on the moderator check first. */
+  async listRemarkCases(limit: number): Promise<RemarkCase[]> {
+    const lim = assertSweepSettlementsLimit(limit);
+    const rows = await this.sql<RemarkCaseRow[]>`
+      SELECT * FROM p2p.remark_cases WHERE status = 'open' ORDER BY opened_at ASC, id ASC LIMIT ${lim}
+    `;
+    return rows.map(toRemarkCase);
+  }
+
+  private async handOverRemarkCase(report: RemarkCase) {
+    await this.bus.publish(
+      'p2pRemarkCaseOpened',
+      {
+        caseId: report.id,
+        tradeId: report.tradeId,
+        reportedId: report.reportedId,
+        reporterRole: report.reporterRole,
+        openedAt: report.openedAt.toISOString(),
+      },
+      { idempotencyKey: `p2p.remark_case.opened:${report.id}` },
+    );
+    await this.sql`UPDATE p2p.remark_cases SET handed_at = now() WHERE id = ${report.id} AND handed_at IS NULL`;
+  }
+
+  /** Hand over every remark-case notice still owed, oldest first. */
+  async sweepRemarkCases(limit?: number): Promise<{ sent: number; failures: RemarkCaseSweepFailure[] }> {
+    const lim = assertSweepSettlementsLimit(limit);
+    const owed = await this.sql<RemarkCaseRow[]>`
+      SELECT * FROM p2p.remark_cases WHERE handed_at IS NULL ORDER BY opened_at ASC LIMIT ${lim}
+    `;
+    let sent = 0;
+    const failures: RemarkCaseSweepFailure[] = [];
+    for (const row of owed) {
+      try {
+        await this.handOverRemarkCase(toRemarkCase(row));
+        sent++;
+      } catch (err) {
+        const code = (err as { code?: unknown })?.code;
+        failures.push({
+          caseId: row.id,
+          code: typeof code === 'string' ? code : null,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    return { sent, failures };
   }
 
   // ── Payment validation through a bank rail (P-trade-orders-11) ──────────────

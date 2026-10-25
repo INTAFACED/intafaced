@@ -123,6 +123,7 @@ test('J-p2p-04 #1 the catalogue shows each method per country with what it asks 
     sellerId: me.body.result.data.userId,
     offerId: offer.id,
     tradeId: trade.id,
+    buyer,
     sellerPasskey: s.passkey().saved(),
   });
 
@@ -398,9 +399,32 @@ test('J-p2p-04 #4 removing a method an ad uses lists the ads first; confirming p
     .toBe(1);
 });
 
-test('J-p2p-04 #5 reporting a sensitive remark in a payment note opens a case and tells the reported party', async () => {
+test('J-p2p-04 #5 reporting a sensitive remark in a payment note opens a case and tells the reported party', async ({ page }) => {
+  test.setTimeout(120_000);
   const state = journey();
+  // The open order from #1: the buyer pays by this journey's TEST transfer and the seller quotes what the note said.
+  await signIn(page, state.seller);
+  await page.goto(`/p2p/orders/${state.tradeId}`);
+  const report = page.getByTestId('order-remark-report');
+  await expect(report).toBeVisible();
+  await report.locator('summary').click();
+  const quote = 'TEST: USDT for P2P order';
+  await report.getByLabel('The remark, as written').fill(quote);
+  await report.getByRole('button', { name: 'Report the remark' }).click();
+  const opened = page.getByTestId('order-remark-case');
+  await expect(opened).toContainText('A case is open for staff to decide.');
+  const caseId = await opened.getAttribute('data-case-id');
+  expect(caseId).toMatch(/^[0-9a-f-]{36}$/);
+
+  // A second report on the same order is refused by name; the same report again answers the same case.
   const s = await seller(state);
-  const res = await s.bare.mutate('trades.reportSensitiveRemark', { tradeId: state.tradeId, reason: 'TEST sensitive remark' });
-  expect(res.status, 'svc-p2p has no sensitive-remark report yet (P-ads-merchant-19 report slice)').toBe(200);
+  expect(
+    refusalCode(await s.raw.mutate('trades.reportSensitiveRemark', { caseId: randomUUID(), tradeId: state.tradeId, remark: 'again' })),
+  ).toBe('p2p.remark_case_exists');
+  expect(await s.mutate('trades.reportSensitiveRemark', { caseId, tradeId: state.tradeId, remark: quote })).toMatchObject({
+    id: caseId,
+    reporterRole: 'seller',
+    status: 'open',
+  });
+  run.write({ remarkCaseId: caseId });
 });
