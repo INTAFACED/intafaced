@@ -65,6 +65,31 @@ describe('owned withdrawal network boundary', () => {
     ]);
     expect(requests.every((request) => request.method === 'GET' && request.url.includes('withdrawal.history'))).toBe(true);
   });
+  it('reads what came back from one withdrawal by its id: null when nothing did, and refuses another account’s row', async () => {
+    const urls: string[] = [];
+    let answer: unknown[] = [];
+    const api = createApiClient({
+      canWrite: () => false,
+      fetch: async (url) => {
+        urls.push(String(url));
+        return page(answer);
+      },
+    });
+    const reads = createWithdrawalReads(api, owner, () => true);
+    answer = [{ ...item, status: 'settled' }];
+    expect(await reads.returnOf(id)).toEqual({ ok: true, data: null });
+    answer = [
+      { ...item, status: 'settled', returned: true, returnedFunds: { amount: '40', reasonCode: 'network_returned', credited: true } },
+    ];
+    const back = await reads.returnOf(id.toUpperCase());
+    expect(back.ok && back.data).toMatchObject({ reasonCode: 'network_returned', credited: true });
+    expect(back.ok && back.data && parseAmount(back.data.amount)).toBe(parseAmount('40'));
+    expect(JSON.parse(new URL(urls[0]!, 'http://isolated').searchParams.get('input')!)).toEqual({ id, limit: 1 });
+    answer = [{ ...item, userId: other, returnedFunds: { amount: '40', reasonCode: null, credited: true } }];
+    expect(await reads.returnOf(id)).toMatchObject({ ok: false, code: 'withdrawal.owner_or_original_invalid' });
+    answer = [{ ...item, returnedFunds: { amount: '-1', reasonCode: null, credited: true } }];
+    expect(await reads.returnOf(id)).toMatchObject({ ok: false });
+  });
   it.each([
     { userId: other },
     { amount: 1 },
