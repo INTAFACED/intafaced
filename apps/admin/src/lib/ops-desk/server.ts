@@ -42,6 +42,7 @@ const SERVICE: Readonly<Record<ReadSpec['module'], string>> = {
   protocol: 'svc-protocol',
   indexer: 'svc-indexer',
   dex: 'svc-dex',
+  campaigns: 'svc-campaigns',
 };
 
 function outcomeOf(spec: ReadSpec, result: FounderCallResult<ReadData>, asOf: string): ReadOutcome {
