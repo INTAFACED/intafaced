@@ -59,6 +59,9 @@ export interface IfcDiscountSource {
   discountBps(userId: string): Promise<number>;
 }
 
+/** How long the discount read may take before the order refuses: it sits on the order path. */
+const DISCOUNT_READ_MS = 2_000;
+
 /** svc-token's `GET /internal/stake/:userId`, signed as svc-trade. Fails closed: a discount is never invented. */
 export function createIfcDiscountSource(
   baseUrl: string,
@@ -74,6 +77,7 @@ export function createIfcDiscountSource(
       try {
         response = await fetch(target, {
           method: 'GET',
+          signal: AbortSignal.timeout(DISCOUNT_READ_MS),
           headers: {
             'content-type': 'application/json',
             ...authHeaders('', { method: 'GET', url: new URL(target), contentType: 'application/json' }),
