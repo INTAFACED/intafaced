@@ -122,6 +122,9 @@ import {
   academyCourseItemRulesInputSchema,
   academySetCourseItemPrerequisitesInputSchema,
   academyGrantCourseExtensionInputSchema,
+  academyCourseGradebookSchema,
+  academyCourseGradebookInputSchema,
+  academySaveGradingPolicyInputSchema,
   academyCourseQuizAttemptSchema,
   academyAnswerCourseQuizInputSchema,
   academyFinishCourseQuizInputSchema,
@@ -1053,6 +1056,8 @@ function toTrpcError(err: unknown): TRPCError {
 
     case 'academy.prerequisite_cycle':
     case 'academy.prerequisite_unmeasured':
+    case 'academy.weights_invalid':
+    case 'academy.grading_policy_invalid':
     case 'academy.window_invalid':
     case 'academy.ip_rule_invalid':
     case 'academy.reason_required':
@@ -3415,6 +3420,20 @@ export function createAcademyRouter(
         .output(academyCourseItemRulesSchema)
         .mutation(({ input, ctx }) =>
           guard(() => academy.courseItemRules.grantExtension({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
+
+      /** AC-assignments-04: the grading policy, the course's graded items and each enrolled learner's scores. */
+      courseGradebook: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyCourseGradebookInputSchema)
+        .output(academyCourseGradebookSchema)
+        .query(({ input }) => guard(() => academy.courseGradebook.view(input.courseId))),
+
+      /** AC-assignments-04: types with weights adding up to exactly 1 and dropped lowest, over the revision read. */
+      saveGradingPolicy: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySaveGradingPolicyInputSchema)
+        .output(academyCourseGradebookSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.courseGradebook.savePolicy({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
         ),
 
       /** AC-assignments-01: an assignment item's brief, who saved it, and how many learners handed in. */
