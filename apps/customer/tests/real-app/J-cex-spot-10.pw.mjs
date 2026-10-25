@@ -1,8 +1,23 @@
+import { createHash } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { approverSessions, makeContext, setFeeDiscountSchedule, setFeeSchedule } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { EDGE, api, bestPrices, fromUnits, fund, journeyState, otherTrader, times, toUnits } from './stack.mjs';
-import { awayBid, confirm, deskPath, free, fundedTrader, held, openDesk, openOrders, placements, reviewSheet, signIn } from './desk.mjs';
+import {
+  awayBid,
+  confirm,
+  deskPath,
+  free,
+  fundedTrader,
+  held,
+  openDesk,
+  openOrders,
+  placements,
+  reviewSheet,
+  signIn,
+  signUp,
+  verify,
+} from './desk.mjs';
 import { draftNotice, publishNotice } from './notices.mjs';
 
 // J-cex-spot-10, in the running app (docs/roadmap/journeys.json): a person sees what they pay, what tier they are in,
@@ -584,6 +599,85 @@ test(`${J} part of #7 opens VIP benefits: each tier's published benefits, the pe
   // With no programme there is no table, and the page says so.
   await page.reload();
   await expect(page.locator('[data-benefits=not-set]')).toHaveText('Benefits not set: no tier has published benefits beyond its rates.');
+});
+
+/** TEST application rules, never owner values: PDF or PNG proofs up to 256 KB. */
+const TEST_APPLICATION = { proofTypes: ['application/pdf', 'image/png'], maxBytes: 256 * 1024 };
+/** A TEST proof: the smallest well-formed PDF header and a line naming it TEST. */
+const TEST_PDF = Buffer.from('%PDF-1.4\n% TEST proof of VIP status elsewhere, not a real statement\n%%EOF\n');
+
+test(`${J} part of #7 applies with a proof file: a type not accepted is refused naming the accepted ones, a PDF waits for review`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  // Its own fresh applicant: an application is never deleted, so a step re-run alone must not meet the last one.
+  const who = await signUp(page, 'vipapply');
+  await verify(page, who);
+  const client = await api(who);
+  const tiered = tiersAt(new Date(Date.now() + 3_600_000));
+  await publish({ ...tiered, tierProgram: { ...tiered.tierProgram, application: TEST_APPLICATION } }, 'TEST VIP application rules');
+  try {
+    const before = await client.get('/api/v1/vip/applications');
+    expect(before.status, JSON.stringify(before.body).slice(0, 300)).toBe(200);
+    expect(before.body).toEqual({ rules: TEST_APPLICATION, closed: null, applications: [] });
+    await signIn(page, who);
+    await page.goto('/fees/my-tier');
+    const card = page.locator('[data-tier-page=vip-apply]');
+    await expect(card.getByRole('heading', { level: 2, name: 'Apply for a VIP tier' })).toBeVisible();
+    await expect(card.locator('[data-vip=rules]')).toHaveText('Accepted files: PDF, PNG, up to 256 KB.');
+    await expect(card.locator('[data-vip=none]')).toHaveText('You have not applied.');
+    const file = card.getByLabel('Proof file');
+    const send = card.getByRole('button', { name: 'Send application' });
+
+    // A type the owner does not accept: the service refuses it and the card names what is accepted.
+    await file.setInputFiles({ name: 'statement.txt', mimeType: 'text/plain', buffer: Buffer.from('TEST statement') });
+    let answer = page.waitForResponse((r) => r.url().endsWith('/api/v1/vip/applications') && r.request().method() === 'POST');
+    await send.click();
+    expect((await answer).status()).toBe(400);
+    await expect(card.locator('[data-vip-result=refused]')).toHaveText('Not sent: text/plain is not an accepted file. Accepted: PDF, PNG.');
+
+    // Named a PDF but not one: refused by its bytes, not its name.
+    await file.setInputFiles({ name: 'statement.pdf', mimeType: 'application/pdf', buffer: Buffer.from('TEST not a pdf') });
+    answer = page.waitForResponse((r) => r.url().endsWith('/api/v1/vip/applications') && r.request().method() === 'POST');
+    await send.click();
+    expect((await answer).status()).toBe(400);
+    await expect(card.locator('[data-vip-result=refused]')).toHaveText('Not sent: this file is not a PDF. Accepted: PDF, PNG.');
+    expect((await client.get('/api/v1/vip/applications')).body.applications).toEqual([]);
+
+    // A PDF: kept, waiting for review, and the form gives way to the waiting line.
+    await file.setInputFiles({ name: 'statement.pdf', mimeType: 'application/pdf', buffer: TEST_PDF });
+    await card.getByLabel('Note for the reviewer (optional)').fill('TEST: VIP at another venue');
+    answer = page.waitForResponse((r) => r.url().endsWith('/api/v1/vip/applications') && r.request().method() === 'POST');
+    await send.click();
+    expect((await answer).status()).toBe(201);
+    await expect(card.locator('[data-vip-result=sent]')).toHaveText('Application sent: statement.pdf is waiting for review.');
+    await expect(card.locator('[data-vip=waiting]')).toBeVisible();
+    await expect(card.locator('form')).toHaveCount(0);
+    await expect(card.locator('tr[data-vip-application=pending] td').last()).toHaveText('Waiting for review');
+
+    // The person's read is metadata: the file's name, type, size and digest, never its bytes.
+    const after = await client.get('/api/v1/vip/applications');
+    expect(after.body.applications).toHaveLength(1);
+    const [kept] = after.body.applications;
+    expect(kept).toMatchObject({
+      status: 'pending',
+      note: 'TEST: VIP at another venue',
+      proof: {
+        fileName: 'statement.pdf',
+        contentType: 'application/pdf',
+        byteLength: TEST_PDF.length,
+        sha256: createHash('sha256').update(TEST_PDF).digest('hex'),
+      },
+    });
+    expect(JSON.stringify(after.body)).not.toContain(TEST_PDF.toString('base64'));
+  } finally {
+    await publish(SCHEDULE, 'application rules off');
+  }
+  // With no rules published, applications are not open, and the waiting application is still listed.
+  await page.reload();
+  const card = page.locator('[data-tier-page=vip-apply]');
+  await expect(card.locator('[data-vip=not-open]')).toHaveText('Applications are not open: no accepted proof file is published.');
+  await expect(card.locator('tr[data-vip-application=pending]')).toHaveCount(1);
 });
 
 test(`${J} #8 looks at the fee currency row: disabled with its reason, and no request is sent`, async ({ page }) => {

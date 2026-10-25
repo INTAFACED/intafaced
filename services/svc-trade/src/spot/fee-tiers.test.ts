@@ -69,6 +69,7 @@ describe('the tier programme in the fee schedule', () => {
       volumeQuotes: ['USDT', 'USDC'],
       snapshotTimeUtc: '07:00',
       benefits: null,
+      application: null,
     });
     expect(program({ snapshotTimeUtc: null }).snapshotTimeUtc).toBeNull();
     const none = schedule(undefined);
