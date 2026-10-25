@@ -1,0 +1,151 @@
+import { useMemo } from 'react';
+import { REWARD_STATUSES, myRewardsSchema, type MyReward, type MyRewards } from '@intafaced/contracts/campaigns-catalogue';
+import { useApi } from '../session/session';
+import { useResource } from '../../shared/resource';
+import { DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
+import { rewardsHubCopy } from './rewards-hub-copy';
+
+/**
+ * My Rewards hub on /uc/promotion (CM-rewards-hub-01, J-campaigns-03): every campaign reward of the signed-in account in
+ * plain status words, with the real reason, the time left on a hold and the transaction of a posted one. Everything is
+ * read from svc-campaigns on each visit; totals come from the rows it returns. A failed read shows the error and no
+ * number at all, never an earlier one.
+ */
+
+const UNITS = [
+  ['day', 86_400],
+  ['hour', 3_600],
+  ['minute', 60],
+  ['second', 1],
+] as const;
+
+function useFormat() {
+  const { renderedLocale } = rewardsHubCopy.useCopy();
+  return useMemo(() => {
+    const time = new Intl.DateTimeFormat(renderedLocale, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZoneName: 'short',
+    });
+    return {
+      when: (isoTime: string) => time.format(new Date(isoTime)),
+      /** Time left, rounded up in the largest unit that has at least one whole of it. */
+      left: (seconds: number) => {
+        const s = Math.max(1, Math.ceil(seconds));
+        const [unit, size] = UNITS.find(([, n]) => s >= n)!;
+        return new Intl.NumberFormat(renderedLocale, { style: 'unit', unit, unitDisplay: 'long' }).format(Math.ceil(s / size));
+      },
+    };
+  }, [renderedLocale]);
+}
+
+export function RewardsHub() {
+  const api = useApi();
+  const { t } = rewardsHubCopy.useCopy();
+  const rewards = useResource((signal) => api.query('campaigns', 'rewards.mine', {}, myRewardsSchema, { signal }), 'rewards-hub');
+  const r = rewards.resource;
+  return (
+    <section className="rewards-hub" aria-label={t('title')} data-testid="rewards-hub" data-state={r.status}>
+      <Panel title={t('title')}>
+        <p className="muted">{t('intro')}</p>
+        {r.status === 'loading' ? (
+          <Loading label={t('loading')} />
+        ) : r.status === 'failed' ? (
+          <div data-testid="rewards-failed">
+            <Failure result={r.failure} retry={rewards.reload} />
+          </div>
+        ) : r.data.rewards.length === 0 ? (
+          <div data-testid="rewards-empty">
+            <EmptyState
+              title={t('emptyTitle')}
+              action={
+                <a className="text-link" href="/campaigns">
+                  {t('campaigns')}
+                </a>
+              }
+            >
+              {t('emptyBody')}
+            </EmptyState>
+          </div>
+        ) : (
+          <Rewards data={r.data} />
+        )}
+      </Panel>
+    </section>
+  );
+}
+
+function Rewards({ data }: { data: MyRewards }) {
+  const { t } = rewardsHubCopy.useCopy();
+  const totals = REWARD_STATUSES.flatMap((status) => data.totals.filter((line) => line.status === status));
+  return (
+    <>
+      <dl className="rewards-hub__totals" aria-label={t('totalsLabel')} data-testid="rewards-totals">
+        {totals.map((line) => (
+          <div key={`${line.status}:${line.asset}`} data-testid="rewards-total" data-status={line.status} data-asset={line.asset}>
+            <dt>{t(`total_${line.status}`)}</dt>
+            <dd>
+              <strong lang="zxx" data-testid="rewards-total-amount">
+                {line.amount} {line.asset}
+              </strong>{' '}
+              <span className="muted">{t('totalCount', { count: String(line.count) })}</span>
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <DataTable label={t('listLabel')} headers={[t('colCampaign'), t('colAmount'), t('colStatus'), t('colDetail')]}>
+        {data.rewards.map((reward) => (
+          <Row key={reward.rewardKey} reward={reward} />
+        ))}
+      </DataTable>
+    </>
+  );
+}
+
+function Row({ reward: r }: { reward: MyReward }) {
+  const { t } = rewardsHubCopy.useCopy();
+  const { when, left } = useFormat();
+  const reason = r.reason ?? '';
+  const why =
+    r.state === 'held' && r.holdUntil
+      ? t('why_held', { left: left((new Date(r.holdUntil).getTime() - Date.now()) / 1000), when: when(r.holdUntil) })
+      : r.state === 'posted' && r.postedAt
+        ? t('why_posted', { when: when(r.postedAt) })
+        : r.state === 'held' || r.state === 'posted'
+          ? ''
+          : t(`why_${r.state}`, { reason });
+  return (
+    <tr data-testid="reward-row" data-status={r.status} data-state={r.state} data-reward-key={r.rewardKey} data-campaign={r.campaignId}>
+      <td>
+        <a className="text-link" href={`/campaigns/${encodeURIComponent(r.campaignId)}`} lang="und">
+          {r.campaignName}
+        </a>
+      </td>
+      <td lang="zxx" data-testid="reward-amount">
+        {r.amount} {r.asset}
+      </td>
+      <td data-testid="reward-status">{t(`status_${r.status}`)}</td>
+      <td>
+        <span data-testid="reward-why" data-reason={r.reason ?? ''} data-until={r.holdUntil ?? ''}>
+          {why}
+        </span>
+        {r.ledgerTxId ? (
+          <>
+            {' '}
+            <a
+              className="text-link"
+              data-testid="reward-tx"
+              data-tx={r.ledgerTxId}
+              href={`/money/activity/${encodeURIComponent(r.ledgerTxId)}`}
+            >
+              {t('txLink', { tx: r.ledgerTxId })}
+            </a>
+          </>
+        ) : null}
+      </td>
+    </tr>
+  );
+}

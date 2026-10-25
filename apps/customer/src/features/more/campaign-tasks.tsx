@@ -31,6 +31,7 @@ const CLAIM_CODES = [
   'campaigns.reward_saga_unwired',
   'campaigns.participant_unread',
   'campaigns.claim_window_unset',
+  'campaigns.hold_period_unset',
   'campaigns.reward_unset',
 ] as const;
 type ClaimCode = (typeof CLAIM_CODES)[number];
@@ -214,6 +215,11 @@ function Reward({
         <strong data-testid="task-reward-amount">{t('rewardAmount', { amount: r.amount, asset: r.asset })}</strong>:{' '}
         <span data-testid="task-reward-state">{t(`state_${r.state}`)}</span>
       </p>
+      {r.state === 'held' && r.holdUntil ? (
+        <p data-testid="task-reward-held-until" data-until={r.holdUntil}>
+          {t('rewardHeldUntil', { when: when(r.holdUntil) })}
+        </p>
+      ) : null}
       {r.ledgerTxId ? (
         <p>
           <span data-testid="task-reward-tx" data-tx={r.ledgerTxId}>

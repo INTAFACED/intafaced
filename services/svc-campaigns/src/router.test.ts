@@ -78,12 +78,14 @@ function setup(schedule: string | undefined = undefined) {
         ledgerTxId: 'tx_1',
         createdAt: '2026-10-24T12:00:00.000Z',
         postedAt: '2026-10-24T12:00:00.000Z',
+        holdUntil: null,
         rollback: { windowSeconds: null, closesAt: null, blocker: 'campaigns.reclaim_unavailable' },
         attempts: [],
       },
       created: true,
     })),
     progress: vi.fn(),
+    myRewards: vi.fn(async () => ({ rewards: [], totals: [] })),
   };
   return {
     drops,
@@ -134,6 +136,16 @@ describe('campaigns router', () => {
       api(await ctx(['campaigns:write'])).tasks.claim({ campaignId: 'cmp_1', accountId: 'someone-else' } as never),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
     await expect(api(await ctx(['campaigns:read'])).tasks.claim({ campaignId: 'cmp_1' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+
+  it('reads My Rewards for the signed-in account only, behind campaigns:read', async () => {
+    const { tasks, api } = setup();
+    expect(await api(await ctx(['campaigns:read'])).rewards.mine({})).toEqual({ rewards: [], totals: [] });
+    expect(tasks.myRewards).toHaveBeenCalledWith({ accountId: ME });
+    await expect(api(await ctx(['campaigns:read'])).rewards.mine({ accountId: 'someone-else' } as never)).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
+    await expect(api(await ctx([], { signedOut: true })).rewards.mine({})).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
   });
 
   it('asks for an eligibility review for the signed-in account only, behind campaigns:write', async () => {

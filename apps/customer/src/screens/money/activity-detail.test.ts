@@ -39,6 +39,10 @@ describe('finding a transaction', () => {
     expect(findGroup(items, 'order:o1')?.lines).toHaveLength(2);
     expect(findGroup(items, 'f2')?.id).toBe('order:o1');
   });
+  it('finds a row by the ledger transaction of one of its lines, after row and line ids', () => {
+    expect(findGroup(items, 'tx1')?.main.id).toBe('l1');
+    expect(findGroup([item({ id: 'tx1', txId: 'other' }), item({ id: 'l2', txId: 'tx1' })], 'tx1')?.main.id).toBe('tx1');
+  });
   it('says nothing for an unknown or empty id', () => {
     expect(findGroup(items, 'zzz')).toBeNull();
     expect(findGroup(items, '')).toBeNull();
