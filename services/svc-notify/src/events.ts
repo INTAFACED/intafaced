@@ -555,7 +555,7 @@ export async function subscribeNotificationEvents(
           kind: 'p2p.offer.paused',
           titleKey: 'notify.p2p.offer.paused.title',
           bodyKey: 'notify.p2p.offer.paused.body',
-          params: { instrumentId: payload.instrumentId, count: String(payload.offerIds.length) },
+          params: { instrumentId: payload.instrumentId, methodId: payload.methodId, count: String(payload.offerIds.length) },
           href: '/uc/ad',
           severity: 'action',
           sourceSubject: p2pOfferPaused.subject,

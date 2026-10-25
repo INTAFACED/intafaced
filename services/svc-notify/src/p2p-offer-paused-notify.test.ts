@@ -3,6 +3,7 @@ import { MemoryEventBus, p2pOfferPaused } from '@intafaced/events';
 import { MemoryNotifyStore } from './store.js';
 import { NotifyService, type CreateResult } from './notify-service.js';
 import { subscribeNotificationEvents } from './events.js';
+import { renderInboxCopy } from './channels/render.js';
 
 const MAKER = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
@@ -40,7 +41,25 @@ describe('ads-paused notice to the maker (P-ads-merchant-18, J-p2p-04 #4)', () =
       sourceSubject: p2pOfferPaused.subject,
       sourceIdempotencyKey: `${INSTRUMENT}:maker`,
     });
-    expect(row.params).toEqual({ instrumentId: INSTRUMENT, count: '2' });
+    expect(row.params).toEqual({ instrumentId: INSTRUMENT, methodId: 'sepa', count: '2' });
+    expect(renderInboxCopy(row, 'en')).toEqual({
+      title: 'Ads paused: payment method removed',
+      body: 'You removed the only payment method 2 of your ads could be paid with, so they are paused. Add a payment method for their currency, then resume them from My offers.',
+    });
+  });
+
+  it('says "it" when one ad was paused', async () => {
+    const store = new MemoryNotifyStore();
+    const notify = new NotifyService(store, { fanoutEnabled: true });
+    const bus = new MemoryEventBus('svc-p2p');
+    await subscribeNotificationEvents(bus, notify);
+
+    await bus.publish('p2pOfferPaused', paused(INSTRUMENT, ['3c8b3e3f-6c9f-4e77-9f3a-4b8b2a0c3d4e']));
+
+    const row = (await notify.list({ userId: MAKER, limit: 10, unreadOnly: false })).items[0]!;
+    expect(renderInboxCopy(row, 'en').body).toBe(
+      'You removed the only payment method 1 of your ads could be paid with, so it is paused. Add a payment method for its currency, then resume it from My offers.',
+    );
   });
 
   it('keeps two removals apart', async () => {
