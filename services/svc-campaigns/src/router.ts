@@ -29,6 +29,8 @@ import {
   campaignUpdateInputSchema,
   campaignViewSchema,
   myCampaignsSchema,
+  myRewardsInputSchema,
+  myRewardsSchema,
   payoutRecordListSchema,
   potFundingApproveInputSchema,
   potFundingRequestInputSchema,
@@ -71,6 +73,7 @@ const STATUS: Record<CampaignsRefusalCode | CampaignRefusalCode, TRPCError['code
   'campaigns.review_not_needed': 'CONFLICT',
   'campaigns.tasks_invalid': 'BAD_REQUEST',
   'campaigns.claim_window_unset': 'PRECONDITION_FAILED',
+  'campaigns.hold_period_unset': 'PRECONDITION_FAILED',
   'campaigns.no_tasks': 'NOT_FOUND',
   'campaigns.not_joined': 'PRECONDITION_FAILED',
   'campaigns.tasks_incomplete': 'PRECONDITION_FAILED',
@@ -201,6 +204,20 @@ export function createCampaignsRouter(drops: DropService, campaigns: CampaignSer
         .mutation(async ({ ctx, input }) => {
           try {
             return await tasks.claim({ campaignId: input.campaignId, accountId: ctx.principal!.userId });
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+    }),
+
+    rewards: router({
+      /** My Rewards hub: the caller's own rewards in plain status words, with totals summed from those rows. */
+      mine: scopedProcedure('campaigns:read', guard)
+        .input(myRewardsInputSchema)
+        .output(myRewardsSchema)
+        .query(async ({ ctx }) => {
+          try {
+            return await tasks.myRewards({ accountId: ctx.principal!.userId });
           } catch (err) {
             mapError(err);
           }

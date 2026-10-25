@@ -40,6 +40,7 @@ export const CAMPAIGN_REFUSAL_CODES = [
   'campaigns.review_not_needed',
   'campaigns.tasks_invalid',
   'campaigns.claim_window_unset',
+  'campaigns.hold_period_unset',
   'campaigns.no_tasks',
   'campaigns.not_joined',
   'campaigns.tasks_incomplete',
@@ -174,13 +175,16 @@ export const taskStepSchema = z
 export type TaskStep = z.infer<typeof taskStepSchema>;
 
 /**
- * A task campaign's steps, claim window and verification gate. The claim window (seconds after the last step completes)
- * is an operator value per campaign: blank refuses activation `campaigns.claim_window_unset`, never a default.
+ * A task campaign's steps, claim window, risk-review hold and verification gate. The claim window (seconds after the last
+ * step completes) and the hold (seconds a claimed reward waits on hold before it is paid; 0 pays at once) are operator
+ * values per campaign: blank refuses activation `campaigns.claim_window_unset` or `campaigns.hold_period_unset`, never a
+ * default.
  */
 export const campaignTasksSchema = z
   .object({
     steps: z.array(taskStepSchema).min(1).max(10),
     claimWindowSeconds: z.number().int().min(1).max(31_536_000).nullable(),
+    holdSeconds: z.number().int().min(0).max(31_536_000).nullable().default(null),
     kycGate: z.enum(KYC_GATES),
   })
   .strict();
@@ -343,8 +347,11 @@ export type CampaignCalendar = z.infer<typeof campaignCalendarSchema>;
  * key posts again later. `pending_retry`: the platform posting freeze refused it, the same key posts again after it lifts.
  * `unknown`: the answer was lost; only the same key is ever posted again. `withheld`: the account is frozen, nothing is
  * posted. `failed`: a definite refusal proved nothing was booked. `forfeited`: claimed after the claim window closed.
+ * `held`: claimed and on hold for the campaign's risk-review period; it is released (to `qualified`, then posted) once
+ * when the hold ends, or withheld if the account is no longer active then.
  */
 export const REWARD_STATES = [
+  'held',
   'qualified',
   'posting',
   'posted',
@@ -360,7 +367,7 @@ export type RewardState = (typeof REWARD_STATES)[number];
 /** One line of the redemption log: every attempt, with its outcome and typed reason. */
 export const redemptionAttemptSchema = z.object({
   at: iso,
-  outcome: z.enum(['qualified', 'posted', 'refused', 'unknown', 'withheld', 'forfeited']),
+  outcome: z.enum(['held', 'released', 'qualified', 'posted', 'refused', 'unknown', 'withheld', 'forfeited']),
   reason: z.string().nullable(),
 });
 export type RedemptionAttempt = z.infer<typeof redemptionAttemptSchema>;
@@ -378,6 +385,8 @@ export const rewardRecordSchema = z.object({
   ledgerTxId: z.string().nullable(),
   createdAt: iso,
   postedAt: iso.nullable(),
+  /** When a held reward's risk-review hold ends; null when the campaign pays at once. */
+  holdUntil: iso.nullable(),
   /**
    * The rollback window (an owner value; null reads "not set") and when it closes for this reward. A value-moving
    * rollback needs a reversing recipe that does not exist yet, so it is never available here.
@@ -437,6 +446,40 @@ export const taskClaimResultSchema = z.object({
   created: z.boolean(),
 });
 export type TaskClaimResult = z.infer<typeof taskClaimResultSchema>;
+
+/**
+ * My Rewards hub (CM-rewards-hub-01, J-campaigns-03): every reward of the signed-in account, in plain status words.
+ * `on_hold`: held for review, or withheld while the account is not active. `still_open`: qualified and not booked yet
+ * (being posted, waiting for the pot, the platform posting freeze, or an answer that was lost). `posted`: booked, with the
+ * ledger transaction. `closed`: forfeited or failed, never paid. Totals are summed from the reward rows on each read, never
+ * stored.
+ */
+export const REWARD_STATUSES = ['on_hold', 'still_open', 'posted', 'closed'] as const;
+export type RewardStatus = (typeof REWARD_STATUSES)[number];
+export const REWARD_STATUS_OF = {
+  held: 'on_hold',
+  withheld: 'on_hold',
+  qualified: 'still_open',
+  posting: 'still_open',
+  pending_funding: 'still_open',
+  pending_retry: 'still_open',
+  unknown: 'still_open',
+  posted: 'posted',
+  failed: 'closed',
+  forfeited: 'closed',
+} as const satisfies Record<RewardState, RewardStatus>;
+
+export const myRewardSchema = rewardRecordSchema.extend({ campaignName: z.string(), status: z.enum(REWARD_STATUSES) });
+export type MyReward = z.infer<typeof myRewardSchema>;
+export const myRewardsSchema = z.object({
+  rewards: z.array(myRewardSchema),
+  /** One line per status and asset that has a reward, summed over every reward of the account. */
+  totals: z.array(z.object({ status: z.enum(REWARD_STATUSES), asset, amount: campaignDecimal, count: z.number().int().positive() })),
+  /** True when the account has more rewards than `rewards` lists (the newest ones are listed). */
+  more: z.boolean(),
+});
+export type MyRewards = z.infer<typeof myRewardsSchema>;
+export const myRewardsInputSchema = z.object({}).strict();
 
 /** Operator reward records (founder-ops and finance): every intent with its account, newest first. */
 export const payoutRecordSchema = rewardRecordSchema.extend({ accountId: z.string() });

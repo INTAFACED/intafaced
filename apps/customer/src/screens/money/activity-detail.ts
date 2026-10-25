@@ -10,11 +10,19 @@ export function idFromPath(raw: string): string {
   }
 }
 
-/** The row for an address: either the row's own id, or the id of any one of its ledger lines. */
+/**
+ * The row for an address: the row's own id, the id of any one of its ledger lines, or else the ledger transaction one of
+ * its lines belongs to (a reward record links its posting by transaction).
+ */
 export function findGroup(items: readonly ActivityItem[], id: string): ActivityGroup | null {
   if (!id) return null;
   const { groups } = groupActivity(items);
-  return groups.find((group) => group.id === id) ?? groups.find((group) => group.lines.some((line) => line.id === id)) ?? null;
+  return (
+    groups.find((group) => group.id === id) ??
+    groups.find((group) => group.lines.some((line) => line.id === id)) ??
+    groups.find((group) => group.lines.some((line) => line.txId === id)) ??
+    null
+  );
 }
 
 /** The address of a row's own page. */
