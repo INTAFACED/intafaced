@@ -81,13 +81,13 @@ interface CaseRow {
 }
 
 /**
- * Open the case for a record just inserted as pending. A resubmission follows the person's newest rejected case that
- * no other case follows yet. Writes history version 1, to be published as `kycSubmitted`.
+ * Open the case for a record just inserted as pending. A resubmission follows the person's newest rejected case at the
+ * same level that no other case follows yet. Writes history version 1, to be published as `kycSubmitted`.
  */
-export async function openKycCase(tx: Sql, record: { id: string; userId: string; createdAt: Date }): Promise<string> {
+export async function openKycCase(tx: Sql, record: { id: string; userId: string; tier: string; createdAt: Date }): Promise<string> {
   const [previous] = await tx<Array<{ id: string }>>`
-    SELECT c.id FROM kyc_cases c
-    WHERE c.user_id = ${record.userId} AND c.state = 'rejected'
+    SELECT c.id FROM kyc_cases c JOIN kyc_records r ON r.id = c.record_id
+    WHERE c.user_id = ${record.userId} AND c.state = 'rejected' AND r.tier = ${record.tier}
       AND NOT EXISTS (SELECT 1 FROM kyc_cases n WHERE n.previous_case_id = c.id)
     ORDER BY c.created_at DESC, c.id DESC LIMIT 1`;
   const [opened] = await tx<Array<{ id: string }>>`
@@ -143,9 +143,10 @@ export async function approveKycCase(tx: Sql, record: KycCaseRecord, decision: {
 }
 
 /**
- * Move the record's case to rejected with a listed reason, with its history row (published as `kycRejected`). Call
- * it before moving the record, with the record as read under its lock. A case already rejected with the same code is the same decision and returns;
- * with another code it is refused (`kyc.case_state`), so a retry never rewrites the reason the customer read.
+ * Move the record's case to rejected with a listed reason, with its history row (published as `kycRejected`). Pass
+ * the record as the caller read it under its lock, before it moved. A case already rejected with the same code is the
+ * same decision and returns; with another code it is refused (`kyc.case_state`), so a retry never rewrites the reason
+ * the customer read.
  */
 export async function rejectKycCase(
   tx: Sql,
@@ -172,47 +173,74 @@ export async function rejectKycCase(
     VALUES (${row.id}, ${version}, 'rejected', ${decision.reasonCode}, ${decision.at})`;
 }
 
-/** A person's cases, newest first, with their history and the owner's current text for each reason. */
+/**
+ * Before a reject spends its four-eyes approval: a record already rejected with another code, or before reasons
+ * existed, would be refused afterwards (`kyc.case_state`), so it is refused here first. The decision's own transaction
+ * checks again under its lock.
+ */
+export async function assertRejectable(sql: Sql, recordId: string, reasonCode: string): Promise<void> {
+  const [row] = await sql<Array<{ status: string; reason_code: string | null }>>`
+    SELECT r.status, c.reason_code FROM kyc_records r LEFT JOIN kyc_cases c ON c.record_id = r.id WHERE r.id = ${recordId}`;
+  if (row?.status === 'rejected' && row.reason_code !== reasonCode)
+    throw new KycCaseError(
+      row.reason_code === null
+        ? 'This case was rejected before reject reasons existed; a reason cannot be added afterwards'
+        : `This case is already rejected with ${row.reason_code}`,
+      'kyc.case_state',
+    );
+}
+
+/**
+ * A person's cases, newest first, with their history and the owner's current text for each reason, read in one
+ * statement so a case and its steps always agree. An approval whose level has lapsed (`kyc_records.expires_at` passed)
+ * reads as expired, with an expired step at the lapse time; nothing is written for it.
+ */
 export async function listKycCases(sql: Sql, userId: string, limit: number, reasons: KycRejectReasons): Promise<KycCase[]> {
-  const cases = await sql<
+  const rows = await sql<
     Array<{
       id: string;
       record_id: string;
-      tier: 'basic' | 'full' | 'institutional';
+      tier: KycCase['tier'];
       jurisdiction: string;
       state: KycCaseState;
       version: number;
       previous_case_id: string | null;
       created_at: Date;
       decided_at: Date | null;
+      expires_at: Date | null;
+      lapsed: boolean;
       reason_code: string | null;
       customer_note: string | null;
       note_visible: boolean;
+      history: Array<{ version: number; state: KycCaseState; at: string }>;
     }>
   >`
     SELECT c.id, c.record_id, r.tier, r.jurisdiction, c.state, c.version, c.previous_case_id, c.created_at, c.decided_at,
-           c.reason_code, c.customer_note, c.note_visible
+           r.expires_at, (c.state = 'approved' AND r.expires_at IS NOT NULL AND r.expires_at <= now()) AS lapsed,
+           c.reason_code, c.customer_note, c.note_visible,
+           COALESCE((SELECT json_agg(json_build_object('version', e.version, 'state', e.state, 'at', e.at) ORDER BY e.version)
+                     FROM kyc_case_events e WHERE e.case_id = c.id), '[]'::json) AS history
     FROM kyc_cases c JOIN kyc_records r ON r.id = c.record_id
     WHERE c.user_id = ${userId}
     ORDER BY c.created_at DESC, c.id DESC LIMIT ${limit}`;
-  if (cases.length === 0) return [];
-  const events = await sql<Array<{ case_id: string; version: number; state: KycCaseState; at: Date }>>`
-    SELECT case_id, version, state, at FROM kyc_case_events WHERE case_id IN ${sql(cases.map((c) => c.id))} ORDER BY case_id, version`;
-  return cases.map((c) => {
+  return rows.map((c) => {
     const listed = c.reason_code ? reasons.get(c.reason_code) : undefined;
+    const history = c.history.map((e) => ({ version: e.version, state: e.state, at: new Date(e.at).toISOString() }));
+    if (c.lapsed && c.expires_at) history.push({ version: c.version + 1, state: 'expired', at: c.expires_at.toISOString() });
     return {
       id: c.id,
       recordId: c.record_id,
       tier: c.tier,
       jurisdiction: c.jurisdiction,
-      state: c.state,
+      state: c.lapsed ? 'expired' : c.state,
       version: c.version,
       followsCaseId: c.previous_case_id,
       submittedAt: c.created_at.toISOString(),
       decidedAt: c.decided_at?.toISOString() ?? null,
+      expiresAt: c.expires_at?.toISOString() ?? null,
       reason: c.reason_code ? { code: c.reason_code, text: listed?.reason ?? null, guidance: listed?.guidance ?? null } : null,
       note: c.note_visible && c.customer_note ? c.customer_note : null,
-      history: events.filter((e) => e.case_id === c.id).map((e) => ({ version: e.version, state: e.state, at: e.at.toISOString() })),
+      history,
     };
   });
 }
@@ -224,19 +252,20 @@ export interface KycCaseRelayDeps {
 }
 
 /**
- * Publish the history rows not yet published, oldest first, one row per short transaction: claimed under SKIP LOCKED
- * and marked only after its publish returns, so a crash in between publishes again with the same business key and
- * never loses it. A row whose publish throws is left for the next run and the others still go out; the first error is
- * thrown once the run is over.
+ * Publish the history rows not yet published, case by case, oldest first. One case per short transaction: the case row
+ * is the claim (SKIP LOCKED), its rows go out in version order, and each is marked only after its publish returns, so
+ * a crash in between publishes again with the same business key and never loses one, and a case's events never pass
+ * each other. A case whose publish throws is left for the next run and the other cases still go out; the first error
+ * is thrown once the run is over.
  */
 export async function relayKycCaseEvents(deps: KycCaseRelayDeps, limit = 50): Promise<number> {
-  const due = await deps.sql<Array<{ id: string }>>`
-    SELECT id FROM kyc_case_events WHERE published_at IS NULL ORDER BY at, version LIMIT ${limit}`;
+  const due = await deps.sql<Array<{ case_id: string }>>`
+    SELECT case_id FROM kyc_case_events WHERE published_at IS NULL GROUP BY case_id ORDER BY min(at), case_id LIMIT ${limit}`;
   let published = 0;
   let failure: unknown;
-  for (const { id } of due) {
+  for (const { case_id } of due) {
     try {
-      published += await relayOne(deps, id);
+      published += await relayCase(deps, case_id);
     } catch (err) {
       failure ??= err;
     }
@@ -245,40 +274,35 @@ export async function relayKycCaseEvents(deps: KycCaseRelayDeps, limit = 50): Pr
   return published;
 }
 
-async function relayOne(deps: KycCaseRelayDeps, id: string): Promise<number> {
+async function relayCase(deps: KycCaseRelayDeps, caseId: string): Promise<number> {
   return deps.sql.begin(async (tx) => {
-    const [row] = await tx<
-      Array<{
-        case_id: string;
-        version: number;
-        state: KycCaseState;
-        reason_code: string | null;
-        at: Date;
-        published_at: Date | null;
-        user_id: string;
-        previous_case_id: string | null;
-      }>
-    >`
-      SELECT e.case_id, e.version, e.state, e.reason_code, e.at, e.published_at, c.user_id, c.previous_case_id
-      FROM kyc_case_events e JOIN kyc_cases c ON c.id = e.case_id
-      WHERE e.id = ${id} FOR UPDATE OF e SKIP LOCKED`;
-    // Another run holds it, or it went out already: nothing to do here.
-    if (!row || row.published_at) return 0;
-    const at = new Date(row.at).toISOString();
-    if (row.state === 'submitted') {
-      await deps.bus.publish(
-        'kycSubmitted',
-        { userId: row.user_id, caseId: row.case_id, version: row.version, previousCaseId: row.previous_case_id, submittedAt: at },
-        { idempotencyKey: `identity.kyc.submitted:${row.case_id}:${row.version}` },
-      );
-    } else if (row.state === 'rejected' && row.reason_code) {
-      await deps.bus.publish(
-        'kycRejected',
-        { userId: row.user_id, caseId: row.case_id, version: row.version, reasonCode: row.reason_code, rejectedAt: at },
-        { idempotencyKey: `identity.kyc.rejected:${row.case_id}:${row.version}` },
-      );
+    const [held] = await tx<Array<{ user_id: string; previous_case_id: string | null }>>`
+      SELECT user_id, previous_case_id FROM kyc_cases WHERE id = ${caseId} FOR UPDATE SKIP LOCKED`;
+    // Another run, or a transition, holds it: the next run sends what is still due.
+    if (!held) return 0;
+    const rows = await tx<Array<{ id: string; version: number; state: KycCaseState; reason_code: string | null; at: Date }>>`
+      SELECT id, version, state, reason_code, at FROM kyc_case_events
+      WHERE case_id = ${caseId} AND published_at IS NULL ORDER BY version`;
+    let sent = 0;
+    for (const row of rows) {
+      const at = new Date(row.at).toISOString();
+      if (row.state === 'submitted') {
+        await deps.bus.publish(
+          'kycSubmitted',
+          { userId: held.user_id, caseId, version: row.version, previousCaseId: held.previous_case_id, submittedAt: at },
+          { idempotencyKey: `identity.kyc.submitted:${caseId}:${row.version}` },
+        );
+        sent += 1;
+      } else if (row.state === 'rejected' && row.reason_code) {
+        await deps.bus.publish(
+          'kycRejected',
+          { userId: held.user_id, caseId, version: row.version, reasonCode: row.reason_code, rejectedAt: at },
+          { idempotencyKey: `identity.kyc.rejected:${caseId}:${row.version}` },
+        );
+        sent += 1;
+      }
+      await tx`UPDATE kyc_case_events SET published_at = ${deps.now()} WHERE id = ${row.id}`;
     }
-    await tx`UPDATE kyc_case_events SET published_at = ${deps.now()} WHERE id = ${id}`;
-    return row.state === 'submitted' || row.state === 'rejected' ? 1 : 0;
+    return sent;
   });
 }
