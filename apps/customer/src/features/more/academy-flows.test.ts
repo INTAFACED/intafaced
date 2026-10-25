@@ -323,7 +323,7 @@ describe('refusal wording', () => {
     const item = failure('academy.prerequisite_unmet', 'academy.prerequisite_unmet items=0f8fad5b-d9cb-469f-a165-70867728950e');
     expect(academyRefusalText(item, academyLmsCopy.t)).toContain('needs an earlier assignment or quiz of the course first');
     expect(academyRefusalText(failure('academy.not_released_yet', 'academy.not_released_yet opens=x'), academyLmsCopy.t)).toContain(
-      'has not opened for you yet',
+      'it opens on a set date',
     );
   });
 
