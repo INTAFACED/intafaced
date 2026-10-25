@@ -300,3 +300,177 @@ test(`${J} #3 with an access code and an IP filter set, a start without the code
   expect(unreadable.status).toBe(412);
   expect(unreadable.body?.error?.data?.cause?.code).toBe('academy.ip_unreadable');
 });
+
+// Steps 4 and 5 work on courses of their own: a published course's outline is not edited, and the first course was opened
+// for learners in step 1.
+const SLUG_B = `test-j12b-${RUN}`;
+const SLUG_C = `test-j12c-${RUN}`;
+const itemPage = (page, courseId, itemId) => page.goto(`/academy-ops/catalogue/courses/${courseId}/items/${itemId}`);
+
+/** A local date and time a day from now, as a datetime-local field takes it. */
+function tomorrow() {
+  const at = new Date(Date.now() + 24 * 3600_000);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
+}
+
+/** A draft course with one assignment, made through Academy's admin door; answers the course and the assignment's ids. */
+async function draftWithAssignment(slug, title) {
+  const course = await staff('mutate', 'admin.createCourse', {
+    slug,
+    title,
+    summary: 'TEST A course a founder adds graded work to.',
+    thumbnailUrl: null,
+    pricing: 'free',
+    price: null,
+    priceAsset: null,
+  });
+  const outline = await staff('mutate', 'admin.saveOutline', {
+    courseId: course.id,
+    revision: course.revision,
+    sections: [{ title: 'TEST Hand in', items: [{ kind: 'assignment', title: 'TEST Size write-up', indent: 0, url: null }] }],
+  });
+  return { courseId: course.id, itemId: outline.outline[0].items[0].id };
+}
+
+/** A learner signs up and enrols on a course's free track through their own API. */
+async function learnerOn(browser, prefix, slug) {
+  const page = await (await browser.newContext({ baseURL: ORIGIN })).newPage();
+  const who = await signUp(page, prefix);
+  await page.context().close();
+  const res = await learnerWrite(who, 'enrolAuthoredCourse', { slug, track: 'audit' });
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return who;
+}
+
+const assignmentOf = async (who, itemId) => (await api(who)).get(trpc('assignment', { itemId }));
+
+/** Hands in text as the learner's next version. */
+async function handIn(who, itemId, text) {
+  const view = (await assignmentOf(who, itemId)).body.result.data;
+  const sent = await learnerWrite(who, 'submitAssignment', { itemId, version: view.nextVersion, text, fileId: null });
+  expect(sent.status, JSON.stringify(sent.body).slice(0, 300)).toBe(200);
+}
+
+test(`${J} #4 an assignment with a due date is duplicated and both exist; deleting one with hand-ins keeps them readable`, async ({
+  browser,
+}) => {
+  test.setTimeout(240_000);
+  const { courseId, itemId } = await draftWithAssignment(SLUG_B, `TEST J-academy-12 course B ${RUN}`);
+  const page = await console_(browser);
+  await itemPage(page, courseId, itemId);
+  const editor = page.getByTestId('assignment-editor');
+  await editor.getByLabel('Instructions', { exact: true }).fill('TEST Size one trade so a stop costs one percent, with your working.');
+  await editor.getByLabel('Points', { exact: true }).fill('10');
+  await editor.getByLabel('Due', { exact: true }).fill(tomorrow());
+  await editor.getByRole('combobox', { name: 'Text answer', exact: true }).selectOption('required');
+  await editor.getByRole('combobox', { name: 'File answer', exact: true }).selectOption('off');
+  await editor.getByRole('button', { name: 'Save assignment' }).click();
+  await expect(page.getByTestId('course-desk-outcome')).toContainText('Done: assignment saved');
+
+  // Duplicate: the copy comes right after it, with the same brief and due date, and both are in the outline.
+  await page.getByRole('button', { name: 'Duplicate this item' }).click();
+  await expect.poll(async () => (await staff('query', 'admin.course', { courseId })).outline[0].items.length, { timeout: 15_000 }).toBe(2);
+  const [original, copy] = (await staff('query', 'admin.course', { courseId })).outline[0].items;
+  expect(original.id).toBe(itemId);
+  expect(copy).toMatchObject({ kind: 'assignment', title: 'TEST Size write-up' });
+  const [first, second] = [
+    await staff('query', 'admin.assignment', { itemId }),
+    await staff('query', 'admin.assignment', { itemId: copy.id }),
+  ];
+  expect(second.brief).toEqual(first.brief);
+  expect(second.brief.dueAt).not.toBeNull();
+
+  // The course opens; a learner hands in to the copy; staff delete (withdraw) the copy, and the hand-in stays readable.
+  const current = await staff('query', 'admin.course', { courseId });
+  await staff('mutate', 'admin.setCourseState', {
+    courseId,
+    to: 'published',
+    revision: current.course.revision,
+    reason: `TEST ${J}: open course B`,
+  });
+  const learner = await learnerOn(browser, 'ja12d', SLUG_B);
+  await handIn(learner, copy.id, 'TEST I risk ten on a thousand with the stop one percent away.');
+  await itemPage(page, courseId, copy.id);
+  await editor.getByLabel('Reason to withdraw', { exact: true }).fill(`TEST ${J}: delete the copy`);
+  await editor.getByRole('button', { name: 'Withdraw assignment' }).click();
+  await expect(editor.getByText(/Withdrawn/).first()).toBeVisible();
+  const kept = await assignmentOf(learner, copy.id);
+  expect(kept.status, JSON.stringify(kept.body).slice(0, 300)).toBe(200);
+  expect(JSON.stringify(kept.body.result.data)).toContain('TEST I risk ten on a thousand with the stop one percent away.');
+  // The original is untouched and still takes hand-ins.
+  expect((await staff('query', 'admin.assignment', { itemId })).withdrawnAt).toBeNull();
+  run.courseB = courseId;
+  run.workB = itemId;
+  run.learnerB = learner;
+  await page.context().close();
+});
+
+test(`${J} #5 a rubric totals the chosen levels as a decimal string; a peer step with no review count refuses to publish`, async ({
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  needs('courseB', 'workB', 'learnerB');
+  const page = await console_(browser);
+
+  // A draft course whose assignment has peer review on and no review count is not published.
+  const c = await draftWithAssignment(SLUG_C, `TEST J-academy-12 course C ${RUN}`);
+  await staff('mutate', 'admin.saveAssignment', {
+    itemId: c.itemId,
+    revision: 0,
+    instructions: 'TEST Explain your stop.',
+    points: '10',
+    dueAt: null,
+    text: 'required',
+    file: 'off',
+  });
+  await itemPage(page, c.courseId, c.itemId);
+  const steps = page.getByTestId('assignment-review-steps');
+  await steps.getByLabel('Peer review', { exact: true }).check();
+  await steps.getByLabel('Reviews each learner gives', { exact: true }).fill('');
+  await steps.getByLabel('Criterion 1', { exact: true }).fill('TEST Sizing');
+  await steps.getByLabel('Criterion 1 levels', { exact: true }).fill('0, 0.5, 1.5');
+  await steps.getByRole('button', { name: 'Save review steps' }).click();
+  await expect(page.getByTestId('course-desk-outcome')).toContainText('Done: review steps saved');
+  await page.goto(`/academy-ops/catalogue/courses/${c.courseId}`);
+  await page.getByLabel('Reason', { exact: true }).fill(`TEST ${J}: try to open course C`);
+  await page.getByRole('button', { name: 'Publish', exact: true }).click();
+  await expect(page.getByTestId('course-desk-outcome')).toContainText('Peer review has no review count');
+  expect((await staff('query', 'admin.course', { courseId: c.courseId })).course.state).toBe('draft');
+
+  // On course B, a two-criterion rubric with decimal levels and one peer review each.
+  await itemPage(page, run.courseB, run.workB);
+  await steps.getByLabel('Peer review', { exact: true }).check();
+  await steps.getByLabel('Reviews each learner gives', { exact: true }).fill('1');
+  await steps.getByLabel('Criterion 1', { exact: true }).fill('TEST Sizing');
+  await steps.getByLabel('Criterion 1 levels', { exact: true }).fill('0, 0.5, 1.5');
+  await steps.getByRole('button', { name: 'Add criterion' }).click();
+  await steps.getByLabel('Criterion 2', { exact: true }).fill('TEST Working shown');
+  await steps.getByLabel('Criterion 2 levels', { exact: true }).fill('0, 1');
+  await steps.getByRole('button', { name: 'Save review steps' }).click();
+  await expect(page.getByTestId('course-desk-outcome')).toContainText('Done: review steps saved');
+
+  // Two learners hand in and review each other: 1.5 + 1 and 0.5 + 0.
+  const other = await learnerOn(browser, 'ja12e', SLUG_B);
+  await handIn(run.learnerB, run.workB, 'TEST B sizes from the stop distance.');
+  await handIn(other, run.workB, 'TEST E sizes by a fixed amount.');
+  for (const [who, marks] of [
+    [run.learnerB, ['1.5', '1']],
+    [other, ['0.5', '0']],
+  ]) {
+    const state = await learnerWrite(who, 'peerReview', { itemId: run.workB });
+    expect(state.status, JSON.stringify(state.body).slice(0, 300)).toBe(200);
+    const task = state.body.result.data.task;
+    expect(task).toMatchObject({ kind: 'peer' });
+    const sent = await learnerWrite(who, 'submitPeerReview', { itemId: run.workB, taskId: task.id, marks });
+    expect(sent.status, JSON.stringify(sent.body).slice(0, 300)).toBe(200);
+  }
+
+  // The grader sees each hand-in's rubric total as a decimal string, exactly.
+  await itemPage(page, run.courseB, run.workB);
+  await page.getByRole('link', { name: 'Grade hand-ins', exact: true }).click({ timeout: 10_000 });
+  const queue = page.getByTestId('grading-queue');
+  await expect(queue.locator('[data-grading-row]').filter({ hasText: 'TEST E sizes' })).toContainText('mean rubric total 2.5');
+  await expect(queue.locator('[data-grading-row]').filter({ hasText: 'TEST B sizes' })).toContainText('mean rubric total 0.5');
+  await page.context().close();
+});
