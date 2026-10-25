@@ -178,7 +178,7 @@ export const en = {
   },
   'notify.p2p.remark_case.opened.title': 'A payment-note remark was reported',
   'notify.p2p.remark_case.opened.body':
-    'The other person on this order reported something written in a payment note. A case is open for staff to decide. In a payment note, write only what the payment method asks for.',
+    'The other person on this order reported a remark in a payment note. A case is open for staff to decide.',
   'notify.identity.kyc.approved.title': 'Verification approved',
   'notify.identity.kyc.approved.body': 'You are verified at the {tier} tier.',
   'notify.identity.security.totp_added.title': 'Authenticator app turned on',
