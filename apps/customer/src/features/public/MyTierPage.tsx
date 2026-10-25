@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { useDataEnv, useSource } from '../../data/hooks';
 import { refusalCopy } from '../../data';
 import type { Loadable } from '../../data/types';
@@ -7,6 +7,7 @@ import { safeReturnTo } from '../../app/navigation';
 import { useSession } from '../session/session';
 import { feeTierFetcher, snapshotTime, type FeeTier, type FeeTierBenefits } from './fee-tier';
 import { feeTierCopy } from './fee-tier-copy';
+import { VipApply } from './VipApply';
 import './public-pages.css';
 
 /**
@@ -54,10 +55,11 @@ export function MyTierPage() {
 function SignedInTier() {
   const env = useDataEnv();
   const source = useMemo(() => env.poller.source<FeeTier | null>('my-fee-tier', feeTierFetcher(env.api), { intervalMs: 15_000 }), [env]);
-  return <MyTierView load={useSource(source)} />;
+  return <MyTierView load={useSource(source)} apply={<VipApply />} />;
 }
 
-export function MyTierView({ load }: { load: Loadable<FeeTier | null> }) {
+/** `apply` is the VIP application, shown under the benefits it applies for. */
+export function MyTierView({ load, apply }: { load: Loadable<FeeTier | null>; apply?: ReactNode }) {
   const copy = feeTierCopy.useCopy();
   return (
     <div className="pub-page" data-room="my-tier">
@@ -81,7 +83,7 @@ export function MyTierView({ load }: { load: Loadable<FeeTier | null> }) {
           <p>{copy.t('blankBody')}</p>
         </section>
       ) : null}
-      {load.status === 'ready' && load.data ? <Tier tier={load.data} /> : null}
+      {load.status === 'ready' && load.data ? <Tier tier={load.data} apply={apply} /> : null}
       <p>
         <a className="text-link" href="/fees">
           {copy.t('feesLink')} →
@@ -91,7 +93,7 @@ export function MyTierView({ load }: { load: Loadable<FeeTier | null> }) {
   );
 }
 
-function Tier({ tier }: { tier: FeeTier }) {
+function Tier({ tier, apply }: { tier: FeeTier; apply?: ReactNode }) {
   const copy = feeTierCopy.useCopy();
   const name = (tierId: string) => (tierId === 'regular' ? copy.t('regular') : tierId);
   const { program, volume } = tier;
@@ -164,6 +166,7 @@ function Tier({ tier }: { tier: FeeTier }) {
         yours={tier.tier}
         name={name}
       />
+      {apply}
       <section className="pub-card" aria-label={copy.t('snapshotsTitle')} data-tier-page="snapshots">
         <h2>{copy.t('snapshotsTitle')}</h2>
         {tier.snapshots.length === 0 ? (

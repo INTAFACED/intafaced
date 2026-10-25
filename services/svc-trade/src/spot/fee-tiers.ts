@@ -14,6 +14,7 @@
  */
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { FeeScheduleError, REGULAR_FEE_TIER, TRADE_FEE_SCHEDULE_ENV, type FeeScheduleRow } from './fee-schedule.js';
+import { RECOGNISED_PROOF_TYPES, VIP_PROOF_MAX_BYTES_CEILING, type VipApplicationRules } from './vip-applications.js';
 
 /** The tier a programme gives at `minVolume30d` or more, in counted quote units. */
 export interface FeeTierThreshold {
@@ -31,6 +32,8 @@ export interface FeeTierProgram {
   readonly snapshotTimeUtc: string | null;
   /** What each tier gives beyond its rates (SP-fees-vip-03 benefits), or null: the owner published no benefits table. */
   readonly benefits: readonly FeeTierBenefits[] | null;
+  /** The owner's rules for VIP applications (vip-applications.ts), or null: applications are not open. */
+  readonly application: VipApplicationRules | null;
 }
 
 /**
@@ -118,7 +121,34 @@ export function parseTierProgram(raw: unknown, rows: readonly FeeScheduleRow[] |
   });
   if (new Set(thresholds.map((t) => t.tierId)).size !== thresholds.length) throw blank('.thresholds repeats a tier');
   const benefits = parseBenefits(obj.benefits, thresholds, blank);
-  return { thresholds, volumeQuotes, snapshotTimeUtc: obj.snapshotTimeUtc as string | null, benefits };
+  const application = parseApplication(obj.application, blank);
+  return { thresholds, volumeQuotes, snapshotTimeUtc: obj.snapshotTimeUtc as string | null, benefits, application };
+}
+
+/**
+ * `tierProgram.application`: the proof file types accepted (only types this service recognises from a file's bytes)
+ * and the largest file. Absent or null: applications are not open. Anything else refuses the schedule as blank.
+ */
+function parseApplication(raw: unknown, blank: (message: string) => FeeScheduleError): VipApplicationRules | null {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== 'object' || Array.isArray(raw)) throw blank('.application must be an object or null');
+  const obj = raw as Record<string, unknown>;
+  const extra = Object.keys(obj).filter((key) => key !== 'proofTypes' && key !== 'maxBytes');
+  if (extra.length > 0) throw blank(`.application has unknown fields: ${extra.join(', ')}`);
+  if (!Array.isArray(obj.proofTypes) || obj.proofTypes.length === 0) throw blank('.application.proofTypes must name the accepted types');
+  const recognised = Object.keys(RECOGNISED_PROOF_TYPES);
+  const proofTypes = obj.proofTypes.map((type, index) => {
+    if (typeof type !== 'string' || !recognised.includes(type)) {
+      throw blank(`.application.proofTypes[${index}] must be one of ${recognised.join(', ')}: only these are checked against the file`);
+    }
+    return type;
+  });
+  if (new Set(proofTypes).size !== proofTypes.length) throw blank('.application.proofTypes repeats a type');
+  const max = obj.maxBytes;
+  if (typeof max !== 'number' || !Number.isSafeInteger(max) || max < 1 || max > VIP_PROOF_MAX_BYTES_CEILING) {
+    throw blank(`.application.maxBytes must be a whole number of bytes from 1 to ${VIP_PROOF_MAX_BYTES_CEILING}`);
+  }
+  return { proofTypes, maxBytes: max };
 }
 
 /**
