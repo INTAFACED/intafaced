@@ -273,6 +273,8 @@ const en = {
   refSignInRequired: 'This lesson has a prerequisite, so whether it is open depends on your own record. Sign in to read it.',
   refCurriculumNotFound: 'There is no published lesson at this address.',
   refCourseNotFound: 'There is no published course at this address.',
+  refNotReleasedYet:
+    'This part of the course is scheduled and has not opened for you yet. The course page shows when it opens, in your time.',
   refItemNotOpen: 'This item is closed right now: it opens on a later date, or its window has ended.',
   refCompletionRuleUnmet: 'Academy refused: this item’s course rule is not met, so it cannot be marked complete.',
   refRequestReused: 'Academy refused: that request was already used for another item. Reload the page and try again.',
@@ -939,6 +941,8 @@ const es: Record<keyof typeof en, string> = {
     'Esta lección tiene un requisito previo, por lo que su apertura depende de tu propio registro. Inicia sesión para leerla.',
   refCurriculumNotFound: 'No hay ninguna lección publicada en esta dirección.',
   refCourseNotFound: 'No hay ningún curso publicado en esta dirección.',
+  refNotReleasedYet:
+    'Esta parte del curso está programada y aún no se ha abierto para ti. La página del curso muestra cuándo se abre, en tu hora.',
   refItemNotOpen: 'Este elemento está cerrado ahora: se abre en una fecha posterior o su plazo ha terminado.',
   refCompletionRuleUnmet:
     'Academy lo rechazó: no se cumple la regla del curso para este elemento, así que no se puede marcar como completado.',
@@ -1607,6 +1611,8 @@ const fr: Record<keyof typeof en, string> = {
   refSignInRequired: 'Cette leçon a un prérequis : son ouverture dépend de votre propre dossier. Connectez-vous pour la lire.',
   refCurriculumNotFound: 'Aucune leçon publiée à cette adresse.',
   refCourseNotFound: 'Aucun cours publié à cette adresse.',
+  refNotReleasedYet:
+    'Cette partie du cours est programmée et n’est pas encore ouverte pour vous. La page du cours indique quand elle ouvre, à votre heure.',
   refItemNotOpen: 'Cet élément est fermé pour le moment : il ouvre à une date ultérieure ou sa période est terminée.',
   refCompletionRuleUnmet:
     'Academy a refusé : la règle du cours pour cet élément n’est pas remplie, il ne peut donc pas être marqué terminé.',

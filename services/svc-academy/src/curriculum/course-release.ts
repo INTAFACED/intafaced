@@ -37,17 +37,24 @@ export function opensAt(rule: AcademySectionReleaseRule, enrolledAt: Date | null
   return enrolledAt === null ? null : new Date(enrolledAt.getTime() + rule.days * DAY_MS);
 }
 
-/** Refuses `academy.not_released_yet` while the item's section has not opened for this learner. Writes nothing. */
+/**
+ * Refuses `academy.not_released_yet` while the item's section has not opened for this learner. Work the learner already
+ * began there (a hand-in, a quiz attempt, a survey answer) stays theirs to read and finish when staff move the date later.
+ * Writes nothing.
+ */
 export async function assertItemReleased(sql: Db, itemId: string, userId: string, now: Date): Promise<void> {
-  const [row] = await sql<Array<{ release_at: Date | null; after_days: number | null; enrolled_at: Date | null }>>`
+  const [row] = await sql<Array<{ release_at: Date | null; after_days: number | null; enrolled_at: Date | null; begun: boolean }>>`
     SELECT r.release_at, r.after_days,
       (SELECT e.enrolled_at FROM academy.course_enrolments e
-        WHERE e.course_id = i.course_id AND e.user_id = ${userId} AND e.left_at IS NULL) AS enrolled_at
+        WHERE e.course_id = i.course_id AND e.user_id = ${userId} AND e.left_at IS NULL) AS enrolled_at,
+      (EXISTS (SELECT 1 FROM academy.assignment_submissions s WHERE s.item_id = i.id AND s.user_id = ${userId})
+        OR EXISTS (SELECT 1 FROM academy.course_quiz_attempts t WHERE t.item_id = i.id AND t.user_id = ${userId})
+        OR EXISTS (SELECT 1 FROM academy.course_survey_takers k WHERE k.item_id = i.id AND k.user_id = ${userId})) AS begun
     FROM academy.course_items i JOIN academy.course_section_releases r ON r.section_id = i.section_id
     WHERE i.id = ${itemId}
   `;
   const rule = row ? ruleOf(row) : null;
-  if (rule === null) return;
+  if (rule === null || row!.begun) return;
   const at = opensAt(rule, row!.enrolled_at);
   if (at === null || at.getTime() > now.getTime())
     throw new AcademyError(`academy.not_released_yet opens=${at?.toISOString() ?? 'after enrolment'}`, 'academy.not_released_yet');
@@ -72,7 +79,8 @@ export class CourseRelease {
       `;
       if (!section) throw new AcademyError('no section of this course has that id', 'academy.outline_item_unknown');
       const stored = ruleOf(section);
-      if (JSON.stringify(stored) === JSON.stringify(input.rule === null ? null : normal(input.rule))) return this.viewIn(tx, input.courseId);
+      if (JSON.stringify(stored) === JSON.stringify(input.rule === null ? null : normal(input.rule)))
+        return this.viewIn(tx, input.courseId);
       if (input.rule === null) {
         await tx`DELETE FROM academy.course_section_releases WHERE section_id = ${input.sectionId}`;
       } else {

@@ -71,7 +71,7 @@ export function AcademyCoursePreview({ courseId, initial }: { courseId: string; 
                         {' '}
                         {s.release.at === null
                           ? `opens ${s.release.afterEnrolmentDays} days after each learner enrols`
-                          : `opens ${s.release.at} (UTC)`}
+                          : `opens ${formatWhen(s.release.at)}`}
                       </span>
                     )}
                     <ul className="dk-stack">

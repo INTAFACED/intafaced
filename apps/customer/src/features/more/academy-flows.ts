@@ -159,6 +159,7 @@ export type RefusalKey =
   | 'refCourseNotFound'
   | 'refEnrolmentClosed'
   | 'refItemNotOpen'
+  | 'refNotReleasedYet'
   | 'refCompletionRuleUnmet'
   | 'refRequestReused'
   | 'refAttemptClosed'
@@ -256,6 +257,8 @@ export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): R
       return 'refEnrolmentClosed';
     case 'academy.window_invalid':
       return 'refItemNotOpen';
+    case 'academy.not_released_yet':
+      return 'refNotReleasedYet';
     case 'academy.completion_rule_unmet':
       return 'refCompletionRuleUnmet';
     case 'academy.request_reused':

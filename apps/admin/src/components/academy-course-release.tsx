@@ -43,7 +43,8 @@ const ruleWords = (s: Section) =>
 
 function SectionForm({ section, busy, onSave }: { section: Section; busy: boolean; onSave: (body: Record<string, unknown>) => void }) {
   const [mode, setMode] = useState<Mode>(section.rule?.kind ?? 'none');
-  const [at, setAt] = useState(section.rule?.kind === 'at' ? localInput(section.rule.at) : '');
+  const storedAt = section.rule?.kind === 'at' ? section.rule.at : null;
+  const [at, setAt] = useState(storedAt === null ? '' : localInput(storedAt));
   const [days, setDays] = useState(section.rule?.kind === 'after_enrolment' ? String(section.rule.days) : '');
   const [reason, setReason] = useState('');
   const id = section.sectionId;
@@ -59,12 +60,17 @@ function SectionForm({ section, busy, onSave }: { section: Section; busy: boolea
         onSubmit={(e) => {
           e.preventDefault();
           // A blank or unreadable date is sent as it is, so the form names the mistake rather than guessing an instant.
+          // The field shows minutes only, so an untouched field keeps the stored instant to the second.
           const instant = at === '' ? '' : new Date(at);
+          const unchanged = storedAt !== null && at === localInput(storedAt);
           const rule =
             mode === 'none'
               ? null
               : mode === 'at'
-                ? { kind: 'at', at: instant instanceof Date && !Number.isNaN(instant.getTime()) ? instant.toISOString() : at }
+                ? {
+                    kind: 'at',
+                    at: unchanged ? storedAt : instant instanceof Date && !Number.isNaN(instant.getTime()) ? instant.toISOString() : at,
+                  }
                 : { kind: 'after_enrolment', days: days.trim() === '' ? null : Number(days.trim()) };
           onSave({ sectionId: id, rule, reason });
         }}

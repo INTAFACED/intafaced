@@ -204,6 +204,24 @@ describe('a section released after enrolment (AC-release-access-01)', () => {
     await enrol(new Date(NOW.getTime() - 8 * DAY));
     await expect(quizzes().learnerView({ itemId: quiz.id, userId: L })).resolves.toMatchObject({ itemId: quiz.id });
   });
+  it('keeps work a learner already began readable when staff move the section later', async () => {
+    const { courseId, sections, quiz } = await course();
+    await enrol(NOW);
+    await quizzes().start({ itemId: quiz.id, userId: L, accessCode: null, clientAddress: null, now: NOW });
+    await release().setSectionRelease({
+      courseId,
+      sectionId: sections[1]!,
+      rule: { kind: 'after_enrolment', days: 7 },
+      reason: 'TEST moved later',
+      operatorId: A,
+      now: NOW,
+    });
+    await expect(quizzes().learnerView({ itemId: quiz.id, userId: L })).resolves.toMatchObject({ itemId: quiz.id });
+    // Another learner who has not begun is refused.
+    const other = '88888888-8888-4888-8888-888888888888';
+    await learners().enrol({ userId: other, slug: 'risk-basics', track: 'audit', now: NOW });
+    await expect(quizzes().learnerView({ itemId: quiz.id, userId: other })).rejects.toMatchObject({ code: 'academy.not_released_yet' });
+  });
 });
 
 describe('a section released at an instant (AC-release-access-01)', () => {

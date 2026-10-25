@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS "academy"."course_section_releases" (
 );
 
 CREATE TABLE IF NOT EXISTS "academy"."course_pacing" (
-  "course_id"  uuid PRIMARY KEY REFERENCES "academy"."courses" ("id"),
+  "course_id"  uuid PRIMARY KEY REFERENCES "academy"."courses" ("id") ON DELETE CASCADE,
   "pacing"     text NOT NULL,
   "set_by"     uuid NOT NULL,
   "set_at"     timestamptz NOT NULL,

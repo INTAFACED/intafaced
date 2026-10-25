@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ACADEMY_COURSE_PACING } from './academy-course-release.js';
 
 /**
  * AC-course-structure-01: a course is a record staff create on the Academy desk. Its slug is fixed at creation; its details
@@ -521,7 +522,7 @@ export const academyCourseLearnerViewSchema = z.object({
   priceAsset: z.string().nullable(),
   state: z.enum(ACADEMY_COURSE_STATES),
   /** How the course is paced; null while staff have not said. */
-  pacing: z.enum(['self_paced', 'instructor_paced']).nullable(),
+  pacing: z.enum(ACADEMY_COURSE_PACING).nullable(),
   sections: z.array(
     z.object({
       title: z.string().min(1),

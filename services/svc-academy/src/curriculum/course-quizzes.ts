@@ -337,14 +337,14 @@ export class CourseQuizzes {
     now: Date;
   }): Promise<AcademyCourseQuizAttempt> {
     // Checked outside the hold: hashing a typed code takes time and reads only the stored hash.
-    const checked = await this.learnerRow(this.sql, input.itemId, input.userId);
+    const checked = await this.learnerRow(this.sql, input.itemId, input.userId, false, input.now);
     if ((checked.quiz_kind ?? 'quiz') === 'survey')
       throw new AcademyError('a survey is answered with submitCourseSurvey, not started', 'academy.quiz_not_found');
     if (checked.access_code_hash !== null && !(input.accessCode && (await accessCodeMatches(input.accessCode, checked.access_code_hash))))
       throw new AcademyError('academy.access_code_invalid', 'academy.access_code_invalid');
     // Read again holding the item, as a take-down or a question change does, so neither slips in before the attempt lands.
     return this.sql.begin(async (tx) => {
-      const row = await this.learnerRow(tx, input.itemId, input.userId, true);
+      const row = await this.learnerRow(tx, input.itemId, input.userId, true, input.now);
       if (row.access_code_hash !== checked.access_code_hash || (row.quiz_kind ?? 'quiz') !== 'quiz')
         throw new AcademyError('academy.access_code_invalid the quiz changed; start again', 'academy.access_code_invalid');
       if (row.ip_allow !== null) {
@@ -374,7 +374,7 @@ export class CourseQuizzes {
 
   /** The caller's newest attempt on this quiz, or null. One past its deadline is finished here with what was saved. */
   async current(input: { itemId: string; userId: string; now: Date }): Promise<AcademyCourseQuizAttempt | null> {
-    const row = await this.learnerRow(this.sql, input.itemId, input.userId);
+    const row = await this.learnerRow(this.sql, input.itemId, input.userId, false, input.now);
     return this.sql.begin(async (tx) => {
       await this.hold(tx, input.userId, row.item_id);
       await this.settleOpen(tx, input.userId, row.item_id, input.now);
@@ -490,7 +490,7 @@ export class CourseQuizzes {
     answers: Record<string, AcademyCourseQuizAnswer>;
     now: Date;
   }): Promise<{ itemId: string; anonymous: boolean; submittedAt: string }> {
-    const row = await this.learnerRow(this.sql, input.itemId, input.userId);
+    const row = await this.learnerRow(this.sql, input.itemId, input.userId, false, input.now);
     if ((row.quiz_kind ?? 'quiz') !== 'survey')
       throw new AcademyError('a graded quiz is started, not sent as a survey', 'academy.quiz_not_found');
     const questions = questionsOf(row);
@@ -633,7 +633,7 @@ export class CourseQuizzes {
     return { show, reviewMode: quiz.review_mode };
   }
 
-  private async learnerRow(sql: Db, itemId: string, userId: string, lock = false): Promise<LearnerRow> {
+  private async learnerRow(sql: Db, itemId: string, userId: string, lock = false, now = new Date()): Promise<LearnerRow> {
     const [row] = await sql<LearnerRow[]>`
       SELECT ${columns(sql)}, c.slug AS course_slug, c.title AS course_title, c.state AS course_state,
         EXISTS (SELECT 1 FROM academy.course_enrolments e
@@ -649,7 +649,7 @@ export class CourseQuizzes {
       throw new AcademyError('no quiz is open at that address', 'academy.assessment_unpublished');
     if (!row.enrolled) throw new AcademyError(`academy.enrolment_required course=${row.course_slug}`, 'academy.enrolment_required');
     // A section scheduled for later keeps its quiz closed until it opens for this learner (AC-release-access-01).
-    await assertItemReleased(sql, row.item_id, userId, new Date());
+    await assertItemReleased(sql, row.item_id, userId, now);
     return row;
   }
 
