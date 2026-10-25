@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import {
   CAMPAIGN_TYPES,
   PARKED_CAMPAIGN_TYPES,
@@ -205,6 +205,9 @@ export function CampaignBuilder({ initial }: { initial: CampaignDetailView | nul
   const [fields, setFields] = useState<Fields>(fieldsOf(first));
   const [reply, setReply] = useState<CampaignDeskReply | null>(null);
   const [busy, setBusy] = useState(false);
+  // True once the form answers typing: a value typed before then would not reach a save.
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(true), []);
   const set = (patch: Partial<Fields>) => setFields((f) => ({ ...f, ...patch }));
 
   const reload = useCallback(async (id: string) => {
@@ -250,7 +253,7 @@ export function CampaignBuilder({ initial }: { initial: CampaignDetailView | nul
 
   const missing = view?.campaign.kind === 'ok' && view.campaign.data === null;
   return (
-    <div className="dk" data-testid="campaign-builder" data-step={step} data-campaign-id={campaign?.id ?? ''}>
+    <div className="dk" data-testid="campaign-builder" data-step={step} data-campaign-id={campaign?.id ?? ''} data-ready={ready}>
       <div className="adm-pagehead">
         <div>
           <h1>{campaign ? campaign.name : 'New campaign'}</h1>
