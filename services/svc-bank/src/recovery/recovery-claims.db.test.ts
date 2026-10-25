@@ -198,7 +198,7 @@ describe('recovery claims', () => {
     await expect(as(STRANGER).recovery.claims.execute({ claimId: opened.claimId, signatures: SIGNATURES })).rejects.toMatchObject(
       refused('bank.recovery_claim_not_found', 'NOT_FOUND'),
     );
-    const [{ n }] = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM bank.recovery_claims`;
+    const [{ n }] = await sql<[{ n: number }]>`SELECT count(*)::int AS n FROM bank.recovery_claims`;
     expect(n).toBe(1);
   });
 
@@ -220,7 +220,7 @@ describe('recovery claims', () => {
     );
     expect(await bal(userAvailable(OWNER, 'USDT'))).toBe('100');
     expect(await bal(userAvailable(HEIR, 'USDT'))).toBe('0');
-    const [{ n }] = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM bank.recovery_sweeps`;
+    const [{ n }] = await sql<[{ n: number }]>`SELECT count(*)::int AS n FROM bank.recovery_sweeps`;
     expect(n).toBe(0);
   });
 
@@ -271,7 +271,7 @@ describe('recovery claims', () => {
     expect(later.sweeps.map((s) => [s.assetId, s.amount, s.status])).toEqual([['USDT', '12', 'posted']]);
     expect(later.claim.round).toBe(2);
     expect(await bal(userAvailable(HEIR, 'USDT'))).toBe('117');
-    const [{ key }] = await sql<Array<{ key: string }>>`SELECT idempotency_key AS key FROM bank.recovery_sweeps WHERE round = 1`;
+    const [{ key }] = await sql<[{ key: string }]>`SELECT idempotency_key AS key FROM bank.recovery_sweeps WHERE round = 1`;
     expect(key.endsWith(':1')).toBe(true);
   });
 
@@ -326,7 +326,7 @@ describe('recovery claims', () => {
     });
     const pending = await sql<Array<{ status: string }>>`SELECT status FROM bank.recovery_sweeps ORDER BY account_key`;
     expect(pending.map((r) => r.status)).toContain('pending');
-    const [{ status, round }] = await sql<Array<{ status: string; round: number }>>`SELECT status, round FROM bank.recovery_claims`;
+    const [{ status, round }] = await sql<[{ status: string; round: number }]>`SELECT status, round FROM bank.recovery_claims`;
     expect({ status, round }).toEqual({ status: 'open', round: 0 });
 
     // Value arriving before the resume waits for the next round: the resumed round keeps its planned amounts.
