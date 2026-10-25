@@ -10,21 +10,22 @@ import { fromU, toU } from './world.mjs';
 const uuid = (prefix, n) => hex(prefix, n);
 /** A TEST logo rule (100 KB), as the local stack publishes it; not an owner value. */
 const TEST_LOGO_RULES = { logoMaxBytes: 100_000, logoTypes: ['image/png', 'image/jpeg', 'image/webp'] };
-/** The stand-in platform takes crypto only, as the local stack does; the rest name what they need. */
+/** The stand-in platform takes crypto and TEST bank transfers, as the local stack does; the rest name what they need. */
 const TEST_METHOD_CONNECTION = {
   crypto: { state: 'connected' },
   card: { state: 'not_connected', notice: 'rail.card' },
   bank_debit: { state: 'not_connected', notice: 'rail.bank' },
   pay_later: { state: 'not_connected', notice: 'rail.card' },
+  bank_transfer: { state: 'connected' },
 };
-const TEST_METHOD_CURRENCIES = { crypto: 'crypto', card: 'fiat', bank_debit: 'fiat', pay_later: 'fiat' };
+const TEST_METHOD_CURRENCIES = { crypto: 'crypto', card: 'fiat', bank_debit: 'fiat', pay_later: 'fiat', bank_transfer: 'fiat' };
 const testCheckoutMethods = (state) => {
   const saved = state.checkoutMethods;
   const rules =
     saved?.rules ??
-    ['crypto', 'card', 'bank_debit', 'pay_later'].map((method) => ({
+    ['crypto', 'card', 'bank_debit', 'pay_later', 'bank_transfer'].map((method) => ({
       method,
-      enabled: method === 'crypto',
+      enabled: method === 'crypto' || method === 'bank_transfer',
       ruleAsset: null,
       minAmount: null,
       maxAmount: null,

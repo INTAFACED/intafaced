@@ -4,7 +4,7 @@ import { useResource, type Resource } from '../../../../shared/resource';
 import { PaySection } from '../../components';
 import { Facts, Gate, HaltBanner, Money, MoneyLines, NotConfigured, PortalFailure, PortalLoading } from '../components';
 import type { ListState } from '../hooks';
-import { isUuid, paymentLinks, paymentRefunds, shortId } from '../model';
+import { isUuid, nameHold, paymentLinks, paymentRefunds, shortId } from '../model';
 import { paymentLabel } from '../presentation';
 import { portalRefusal } from '../refusal';
 import type { PortalApi } from '../api';
@@ -363,6 +363,7 @@ export function PaymentDetailView({
         {(p) => {
           const events = history.status === 'ready' ? history.data : [];
           const links = paymentLinks(events);
+          const held = nameHold(p.status, events);
           const customerRef = p.customerRef?.trim() || links.customerRef;
           const fee = feeSummary(p);
           const derived = paymentRefunds(events);
@@ -435,6 +436,11 @@ export function PaymentDetailView({
                 {p.failure && (
                   <p className="pp-callout" role="note">
                     {t('pay_whyFailed')} {p.failure.message}
+                  </p>
+                )}
+                {held && (
+                  <p className="pp-callout" role="note" data-testid="payment-name-hold">
+                    {t('pay_heldTitle')} {t(`pay_held_${held}`)}
                   </p>
                 )}
               </PaySection>

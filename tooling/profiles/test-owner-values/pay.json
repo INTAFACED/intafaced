@@ -68,8 +68,18 @@
     },
     "PAY_CHECKOUT_SUCCESS_RATES": {
       "service": "pay",
-      "value": "crypto-native:0.9",
-      "note": "TEST success fraction smart routing reads for the crypto rail. Not an owner decision or a measured rate."
+      "value": "crypto-native:0.9,bank-transfer-sandbox:0.9",
+      "note": "TEST success fraction smart routing reads for the crypto rail and the TEST bank. Not an owner decision or a measured rate."
+    },
+    "PAY_CHECKOUT_RAILS": {
+      "service": "pay",
+      "value": "crypto-native:crypto,bank-transfer-sandbox:bank_transfer",
+      "note": "TEST: hosted checkout takes crypto and pushed transfers to the TEST bank, which exists only on the local stack."
+    },
+    "PAY_PAYER_NAME_MATCH_RULE": {
+      "service": "pay",
+      "value": "exact_normalised",
+      "note": "TEST rule a bank transfer's sending name is checked under (RC-merchant-09). Not an owner decision; blank holds every bank transfer."
     }
   }
 }

@@ -10,6 +10,8 @@
  *                                         deliver a signed TEST chain transfer to a deposit address svc-pay issued
  *   node tooling/scripts/local-test-stack.mjs chain-reorg <address> --tx <label>
  *                                         the TEST chain takes that transfer back (a reorg), as the watcher would report it
+ *   node tooling/scripts/local-test-stack.mjs bank-transfer <reference> <CCY> <amount> --tx <label> [--payer <name>]
+ *                                         the TEST bank reports a pushed transfer quoting a hosted checkout's reference
  *   node tooling/scripts/local-test-stack.mjs status
  *
  * What it starts, all bound to 127.0.0.1, state in ~/.intafaced/local-test-stack/:
@@ -282,6 +284,7 @@ const SECRET_NAMES = [
   'edgeAuthority',
   'payCryptoWebhook',
   'payCardWebhook',
+  'payBankTransferWebhook', // pay's TEST bank webhook key (J-merchant-04 step 6); the `bank-transfer` command signs with it
   'identityTotp', // identity's TOTP sealing key; lets the labelled local test operators enrol a second factor
   'identityFlowSubject', // identity's key for sign-up and recovery flows (address identifier and code hash)
   'notifyStatusLink', // notify's key for the signed links in status subscription mail
@@ -2219,6 +2222,73 @@ async function cmdChainReorg(rawArgs) {
   say(`  answer    ${text}`);
 }
 
+/**
+ * `bank-transfer <reference> <CCY> <amount> --tx <label> [--payer <name>]`: the TEST bank reports a pushed transfer quoting
+ * the reference a hosted checkout showed (J-merchant-04 step 6), to svc-pay's own `/webhooks/bank-transfer-sandbox`, signed
+ * with this stack's TEST bank secret. `--payer` is the name on the sending account as the bank reports it; leave it out
+ * for a bank that reports none. The transfer id comes from the reference and the label, so the same label is the same
+ * transfer, never a second one. svc-pay checks the name and decides; nothing here touches the ledger.
+ */
+async function cmdBankTransfer(rawArgs) {
+  const args = [...rawArgs];
+  const option = (name) => {
+    const at = args.indexOf(name);
+    if (at === -1) return undefined;
+    const value = args[at + 1];
+    args.splice(at, 2);
+    if (value === undefined) fail(`${name} needs a value`, 2);
+    return value;
+  };
+  const label = option('--tx');
+  const payer = option('--payer');
+  const usage =
+    'usage: node tooling/scripts/local-test-stack.mjs bank-transfer <reference> <CCY> <decimal-amount> --tx <label> [--payer <name>]';
+  if (args.some((arg) => arg.startsWith('--'))) fail(`unknown option: ${args.find((arg) => arg.startsWith('--'))}`, 2);
+  const [reference, currencyRaw, amountStr, ...extra] = args;
+  if (!reference || !currencyRaw || !amountStr || !label || extra.length > 0) fail(usage, 2);
+  if (!/^BT[0-9A-F]{12}$/.test(reference)) fail(`bad reference: ${reference} (the hosted checkout shows one like BT1A2B3C4D5E6F)`, 2);
+  const currency = currencyRaw.toUpperCase();
+  if (!/^[A-Z0-9]{2,12}$/.test(currency)) fail(`bad currency: ${currencyRaw}`, 2);
+  if (!AMOUNT_RE.test(amountStr)) fail(`amount must be a plain decimal string like 100 or 12.5 (got "${amountStr}")`, 2);
+  if (!/^[A-Za-z0-9-]{4,64}$/.test(label)) fail('--tx must be 4-64 letters, digits or dashes', 2);
+  if (payer !== undefined && (!payer.trim() || payer.length > 140)) fail('--payer must be 1-140 characters', 2);
+
+  // Guards: this only ever talks to the local stack's own svc-pay.
+  if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
+  if (readJson(P.marker).kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
+  if (!ownedAlive(readProcs().pay)) fail('refusing: the local stack svc-pay is not running. Run: pnpm local:stack');
+  assertActiveLocalStack({ stateDir: STATE, services: ['pay'] });
+  const secret = readJson(P.secrets).payBankTransferWebhook;
+  if (!secret) fail('refusing: this stack has no TEST bank webhook secret. Run: pnpm local:stack --rebuild');
+
+  const transferId = `bt:${crypto.createHash('sha256').update(`local-test-bank-transfer:${reference}:${label}`).digest('hex').slice(0, 32)}`;
+  const body = JSON.stringify({
+    id: transferId,
+    type: 'captured',
+    ref: reference,
+    amount: amountStr,
+    assetId: currency,
+    occurredAt: new Date().toISOString(),
+    ...(payer === undefined ? {} : { payerName: payer }),
+  });
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const signature = crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
+  const res = await fetch(`${urlOf('pay')}/webhooks/bank-transfer-sandbox`, {
+    method: 'POST',
+    redirect: 'error',
+    headers: { 'content-type': 'application/json', 'x-bank-signature': signature, 'x-bank-timestamp': timestamp },
+    body,
+  });
+  const text = await res.text();
+  if (res.status !== 200) fail(`svc-pay refused the TEST bank delivery (${res.status}): ${text.slice(0, 400)}`);
+  say('TEST bank transfer delivered to svc-pay (TEST bank, not real money)');
+  say(`  reference ${reference}`);
+  say(`  amount    ${amountStr} ${currency}`);
+  say(`  from      ${payer ?? '(no name reported)'}`);
+  say(`  transfer  ${transferId}   (label ${label})`);
+  say(`  answer    ${text}`);
+}
+
 /** Env each local service would get. Starts nothing. Placeholder secrets only. */
 export function localTestServiceEnvs(secrets = PLAN_SECRETS) {
   return serviceDefs(secrets).map((service) => ({ name: service.name, env: service.env() }));
@@ -2261,6 +2331,7 @@ async function runCli() {
   else if (cmd === 'seed-withdrawal') await cmdSeedWithdrawal(rest);
   else if (cmd === 'chain-deposit') await cmdChainDeposit(rest);
   else if (cmd === 'chain-reorg') await cmdChainReorg(rest);
+  else if (cmd === 'bank-transfer') await cmdBankTransfer(rest);
   else if (cmd === 'age-linked-accounts') cmdAgeLinkedAccounts(rest);
   else if (cmd === 'expire-address-approvals') cmdExpireAddressApprovals(rest);
   else if (cmd === 'expire-deposit-addresses') cmdExpireDepositAddresses(rest);

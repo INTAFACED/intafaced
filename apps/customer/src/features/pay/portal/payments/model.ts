@@ -111,6 +111,7 @@ export function paymentSteps(events: readonly PaymentEvent[]): PaymentStep[] {
         'refund.reversed': 'refund_reversed',
         disputed: 'disputed',
         failed: 'failed',
+        'payer_name.held': 'held_name',
       } as const
     )[e.event as 'created'];
     if (!kind) continue;

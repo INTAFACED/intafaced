@@ -142,6 +142,7 @@ describe('the payment methods a hosted checkout offers (M-adv-payments-core-11, 
         { rule: rule('card', false), connection: { state: 'not_connected', notice: 'rail.card' }, currencies: 'fiat' },
         { rule: rule('bank_debit', false), connection: { state: 'not_connected', notice: 'rail.bank' }, currencies: 'fiat' },
         { rule: rule('pay_later', false), connection: { state: 'not_connected', notice: 'rail.card' }, currencies: 'fiat' },
+        { rule: rule('bank_transfer', false), connection: { state: 'not_connected', notice: 'rail.bank' }, currencies: 'fiat' },
       ],
     });
     expect(await as(viewer).merchantCheckoutMethods.preview({ country: 'de', currency: 'usdt' })).toEqual({
@@ -150,17 +151,24 @@ describe('the payment methods a hosted checkout offers (M-adv-payments-core-11, 
         { method: 'card', reason: 'off' },
         { method: 'bank_debit', reason: 'off' },
         { method: 'pay_later', reason: 'off' },
+        { method: 'bank_transfer', reason: 'off' },
       ],
     });
   });
 
   it('saves the order once per request; the preview offers in that order with bank debit naming rail.bank', async () => {
-    const methods = [rule('bank_debit', true), rule('crypto', true), rule('card', true), rule('pay_later', false)];
+    const methods = [
+      rule('bank_debit', true),
+      rule('crypto', true),
+      rule('card', true),
+      rule('pay_later', false),
+      rule('bank_transfer', false),
+    ];
     const input = { requestId: nid(), expectedVersion: 0, methods };
     const saved = await as(owner).merchantCheckoutMethods.save(input);
     expect(saved.replayed).toBe(false);
     expect(saved.methods).toMatchObject({ status: 'saved', version: 1 });
-    expect(saved.methods.methods.map((m) => m.rule.method)).toEqual(['bank_debit', 'crypto', 'card', 'pay_later']);
+    expect(saved.methods.methods.map((m) => m.rule.method)).toEqual(['bank_debit', 'crypto', 'card', 'pay_later', 'bank_transfer']);
     expect(await as(owner).merchantCheckoutMethods.save(input)).toEqual({ methods: saved.methods, replayed: true });
     expect((await refusal(() => as(owner).merchantCheckoutMethods.save({ ...input, methods: [...methods].reverse() }))).cause).toBe(
       'pay.request_id_reused',
@@ -173,6 +181,7 @@ describe('the payment methods a hosted checkout offers (M-adv-payments-core-11, 
       leftOut: [
         { method: 'crypto', reason: 'currency' },
         { method: 'pay_later', reason: 'off' },
+        { method: 'bank_transfer', reason: 'off' },
       ],
     });
     expect((await as(viewer).merchantCheckoutMethods.preview({ country: 'DE', currency: 'USDT' })).offered).toEqual([
@@ -192,6 +201,7 @@ describe('the payment methods a hosted checkout offers (M-adv-payments-core-11, 
         rule('card', true),
         rule('bank_debit', false),
         rule('pay_later', false),
+        rule('bank_transfer', false),
       ],
     });
     rails = WITH_CARD;
@@ -235,7 +245,7 @@ describe('the payment methods a hosted checkout offers (M-adv-payments-core-11, 
         as(admin).merchantCheckoutMethods.save({
           requestId: nid(),
           expectedVersion: 0,
-          methods: [methods[0]!, methods[0]!, methods[1]!, methods[2]!],
+          methods: [methods[0]!, methods[0]!, methods[1]!, methods[2]!, methods[3]!],
         }),
       ),
     ).toMatchObject({ code: 'BAD_REQUEST' });
@@ -269,6 +279,7 @@ describe('the payment methods a hosted checkout offers (M-adv-payments-core-11, 
       ['card', false],
       ['bank_debit', false],
       ['pay_later', false],
+      ['bank_transfer', false],
     ]);
     await sql`DELETE FROM pay.checkout_methods WHERE merchant_id = ${otherMerchant}`;
   });
@@ -287,7 +298,13 @@ describe('the payment methods a hosted checkout offers (M-adv-payments-core-11, 
     });
 
     it('takes the only payable method; bank debit first and on still pays a USDT link by crypto', async () => {
-      await setMethods([rule('bank_debit', true), rule('crypto', true), rule('card', false), rule('pay_later', false)]);
+      await setMethods([
+        rule('bank_debit', true),
+        rule('crypto', true),
+        rule('card', false),
+        rule('pay_later', false),
+        rule('bank_transfer', false),
+      ]);
       const token = await link(merchant, '100', 'USDT');
       expect(await checkoutMethodFor(sql, CRYPTO_ONLY, { linkToken: token, geoCountry: 'de' }, now)).toBe('crypto');
       expect(await checkoutMethodFor(sql, CRYPTO_ONLY, { linkToken: token, geoCountry: 'DE', method: 'crypto' }, now)).toBe('crypto');
@@ -308,7 +325,13 @@ describe('the payment methods a hosted checkout offers (M-adv-payments-core-11, 
         code: 'pay.checkout_no_method',
         detail: { offer: { offered: [{ method: 'bank_debit', connection: { state: 'not_connected', notice: 'rail.bank' } }] } },
       });
-      await setMethods([rule('card', true), rule('bank_debit', true), rule('crypto', true), rule('pay_later', true)]);
+      await setMethods([
+        rule('card', true),
+        rule('bank_debit', true),
+        rule('crypto', true),
+        rule('pay_later', true),
+        rule('bank_transfer', false),
+      ]);
       const both: MethodRails = new Map([...WITH_CARD, ['pay_later', { countries: ['DE'] }]]);
       expect(await refusal(() => checkoutMethodFor(sql, both, { linkToken: eur, geoCountry: 'DE' }, now))).toMatchObject({
         code: 'pay.checkout_method_required',
@@ -332,6 +355,7 @@ describe('the payment methods a hosted checkout offers (M-adv-payments-core-11, 
               { method: 'card', reason: 'country' },
               { method: 'crypto', reason: 'currency' },
               { method: 'pay_later', reason: 'country' },
+              { method: 'bank_transfer', reason: 'off' },
             ],
           },
         },
@@ -344,6 +368,7 @@ describe('the payment methods a hosted checkout offers (M-adv-payments-core-11, 
         rule('card', false),
         rule('bank_debit', false),
         rule('pay_later', false),
+        rule('bank_transfer', false),
       ]);
       const open = await link(merchant, null, 'USDT');
       expect(

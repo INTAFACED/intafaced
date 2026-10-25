@@ -31,6 +31,8 @@ export const METHOD_CATALOGUE: Readonly<Record<CheckoutMethodId, CatalogueEntry>
   bank_debit: { currencies: 'fiat', notice: 'rail.bank' },
   // Instalments are paid by card through an outside provider: the card rail is the missing piece.
   pay_later: { currencies: 'fiat', notice: 'rail.card' },
+  // A push the payer sends from their own bank with the payment's reference (J-merchant-04 step 6).
+  bank_transfer: { currencies: 'fiat', notice: 'rail.bank' },
 };
 
 const FIAT = new Set(FIAT_CURRENCIES.map((c) => c.code.toUpperCase()));

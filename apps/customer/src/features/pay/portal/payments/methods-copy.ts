@@ -11,6 +11,7 @@ const en = {
   method_card: 'Card',
   method_bank_debit: 'Bank debit',
   method_pay_later: 'Pay later',
+  method_bank_transfer: 'Bank transfer',
   forCrypto: 'For payments in a crypto asset, like USDT.',
   forFiat: 'For payments in a currency, like EUR.',
   available: 'Available',
