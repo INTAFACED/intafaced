@@ -131,9 +131,9 @@ const en = {
   sDone: '{amount} {asset} reached the other account at once, with no fee.',
   sOpen: 'See this withdrawal',
   sUnknown:
-    'We didn’t get an answer, so we don’t know yet whether it was sent. Confirm again: it finishes this same withdrawal and never sends twice.',
+    'We didn’t get an answer, so it may or may not have been sent. Confirm again: it finishes this same withdrawal and never sends twice.',
   sRefused: 'The transfer was refused and nothing moved.',
-  sScreening: 'Nothing was sent: screening a send against sanctions lists isn’t connected yet, so every send waits until it is.',
+  sScreening: 'Nothing was sent: no sanctions screening service is connected, and every send needs one.',
   sReference: 'Reference: {code}',
   aEyebrow: 'Money',
   aTitle: 'Withdrawal addresses',
@@ -424,10 +424,9 @@ const es = {
   sDone: '{amount} {asset} llegó a la otra cuenta al instante, sin comisión.',
   sOpen: 'Ver este retiro',
   sUnknown:
-    'No recibimos respuesta, así que aún no sabemos si se envió. Confirma de nuevo: termina este mismo retiro y nunca envía dos veces.',
+    'No recibimos respuesta, así que puede que se haya enviado o no. Confirma de nuevo: termina este mismo retiro y nunca envía dos veces.',
   sRefused: 'La transferencia fue rechazada y no se movió nada.',
-  sScreening:
-    'No se envió nada: la revisión de un envío frente a listas de sanciones aún no está conectada, así que todo envío espera hasta que lo esté.',
+  sScreening: 'No se envió nada: no hay ningún servicio de revisión de sanciones conectado, y todo envío lo necesita.',
   sReference: 'Referencia: {code}',
   aEyebrow: 'Dinero',
   aTitle: 'Direcciones de retiro',
@@ -720,10 +719,9 @@ const fr = {
   sDone: '{amount} {asset} est arrivé sur l’autre compte aussitôt, sans frais.',
   sOpen: 'Voir ce retrait',
   sUnknown:
-    'Nous n’avons pas reçu de réponse, nous ne savons donc pas encore si l’envoi a eu lieu. Confirme à nouveau : cela termine ce même retrait et n’envoie jamais deux fois.',
+    'Nous n’avons pas reçu de réponse : l’envoi a peut-être eu lieu, ou pas. Confirme à nouveau : cela termine ce même retrait et n’envoie jamais deux fois.',
   sRefused: 'Le transfert a été refusé et rien n’a bougé.',
-  sScreening:
-    'Rien n’a été envoyé : le contrôle d’un envoi face aux listes de sanctions n’est pas encore connecté, donc tout envoi attend qu’il le soit.',
+  sScreening: 'Rien n’a été envoyé : aucun service de contrôle des sanctions n’est connecté, et chaque envoi en a besoin.',
   sReference: 'Référence : {code}',
   aEyebrow: 'Argent',
   aTitle: 'Adresses de retrait',

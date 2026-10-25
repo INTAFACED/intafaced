@@ -5,6 +5,7 @@ import { useSession } from '../session/session';
 /** The rail svc-pay records for a send to another account's platform address (W-withdraw-14). */
 export const INTERNAL_RAIL = 'internal';
 
+// hand-declared-ok: svc-pay declares `withdrawal.destination`'s output in its router; there is no contracts schema for it.
 /** svc-pay `withdrawal.destination`: where an address leads. It never names the other account. */
 export const withdrawDestinationSchema = z.union([
   z.object({ kind: z.enum(['internal', 'self', 'external']) }),
