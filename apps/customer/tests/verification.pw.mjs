@@ -35,6 +35,24 @@ const row = (extra = {}) => ({
   ...extra,
 });
 const reply = (r, data) => r.fulfill({ status: 200, json: { result: { data } } });
+// The ladder below the records (I-kyc-compliance-04/05): nothing published, every feature open from basic.
+const LEVELS = ['none', 'basic', 'full', 'institutional'];
+const ladder = (held) => ({
+  held,
+  region: 'DE',
+  regionResolved: true,
+  levels: LEVELS.map((level) => ({
+    level,
+    current: level === held,
+    features: ['deposit', 'withdraw', 'trade', 'card', 'earn', 'rewards'].map((feature) =>
+      level === 'none'
+        ? { feature, state: 'needs_level', level: 'basic', perOffer: false }
+        : { feature, state: 'allowed', perOffer: false },
+    ),
+    requirements: { published: false },
+    reviewHours: null,
+  })),
+});
 const fail = (r, status = 503, code = 'ISOLATED_REFUSAL') =>
   r.fulfill({ status, json: { error: { message: 'Isolated response lost', data: { cause: { code } } } } });
 function held() {
@@ -86,6 +104,7 @@ async function network(context, options = {}) {
     if (procedure === 'kyc.status')
       return reply(route, { tier: state.tier, records: state.rows.filter((r) => r.userId === actor).slice(0, input.limit) });
     if (procedure === 'kyc.submit') return reply(route, row({ userId: actor, tier: input.tier, jurisdiction: input.jurisdiction }));
+    if (procedure === 'kyc.levels.describe') return reply(route, ladder(state.tier));
     if (procedure === 'help.list' || procedure === 'notices.list') return reply(route, []);
     return fail(route);
   });
