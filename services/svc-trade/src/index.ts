@@ -500,6 +500,8 @@ export const appRouter = createTradeRouter(
     trade,
     ledger,
     approvals: tradeOpsApprovals,
+    feeSchedule,
+    vipProofKey: parseVipProofKey(env.TRADE_VIP_PROOF_KEY),
   }),
   new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),
   new SupportTradeSummaryReader({ sql }),
