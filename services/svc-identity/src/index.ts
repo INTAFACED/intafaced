@@ -1,3 +1,4 @@
+import { parseKycRequirementsByLevel, parseKycReviewHoursByLevel } from './kyc/levels.js';
 import { readFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -595,6 +596,11 @@ export const appRouter = mergeRouters(
     directRegister: isExplicitDevOrTest(process.env.APP_ENV),
     founderEnrolment: { invites: founderEnrolmentConfig(env.IDENTITY_FOUNDER_INVITE_HASHES, env.IDENTITY_FOUNDER_INVITE_EXPIRES_AT) },
     webauthnEnabled: env.WEBAUTHN_ENABLED,
+    // Parsed at start: a malformed published list or review time stops the service rather than showing a wrong one.
+    kycLadder: {
+      requirements: parseKycRequirementsByLevel(env.IDENTITY_KYC_REQUIREMENTS_BY_LEVEL),
+      reviewHours: parseKycReviewHoursByLevel(env.IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL),
+    },
     social,
     referral,
     share,

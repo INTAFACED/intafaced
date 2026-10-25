@@ -6,6 +6,16 @@
       "value": "standard:spot+convert+algo+copy,managed:spot,spot:spot",
       "note": "Which trading features a main account may turn on for each sub-account kind. Futures is refused in code until derivatives eligibility is readable."
     },
+    "IDENTITY_KYC_REQUIREMENTS_BY_LEVEL": {
+      "service": "identity",
+      "value": "{\"basic\":[\"legal_name\",\"date_of_birth\",\"residential_address\",\"id_document\"]}",
+      "note": "TEST: basic asks for four things and the higher levels publish nothing, so the ladder shows a published list and the unpublished state (J-identity-08 #1)."
+    },
+    "IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL": {
+      "service": "identity",
+      "value": "basic=24",
+      "note": "TEST: basic states a 24 hour review time and the higher levels state none, so the ladder shows both (J-identity-08 #1)."
+    },
     "IDENTITY_MFA_RESET_WAIT_SECONDS": {
       "service": "identity",
       "value": "20",

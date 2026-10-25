@@ -5,6 +5,7 @@ import type { ApiClient } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Dialog, EmptyState, Failure, Field, Loading, Page } from '../../shared/ui';
 import { verificationCopy as copy } from './verification-copy';
+import { VerificationLadder } from './VerificationLadder';
 import {
   finishVerification,
   readVerification,
@@ -591,6 +592,15 @@ export function Verification() {
             </a>
           </section>
         </div>
+        <VerificationLadder
+          verifyDisabled={blocked}
+          onVerify={(level) => {
+            const parsed = requestedTier.safeParse(level);
+            if (!parsed.success) return;
+            setTier(parsed.data);
+            jump();
+          }}
+        />
         {privateVisible && review && same(review) && (
           <Dialog title={t('reviewTitle')} onClose={close}>
             <div className="verification__review stack">

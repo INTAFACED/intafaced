@@ -235,6 +235,20 @@ const schema = serviceEnvSchema
        */
       IDENTITY_DORMANCY_DAYS: z.string().optional(),
       /**
+       * Owner setting (I-kyc-compliance-05): what each verification level asks for, a JSON object of level -> requirement
+       * keys from `KYC_REQUIREMENT_KEYS` (`@intafaced/contracts/identity-kyc-levels`), for example
+       * `{"basic":["legal_name","date_of_birth","id_document"]}`. NO DEFAULT. A level left out is unpublished and
+       * /verification says none are published for it, never an empty list. Parsed at start by
+       * `parseKycRequirementsByLevel`; an empty list, an unknown key or malformed JSON stops the service.
+       */
+      IDENTITY_KYC_REQUIREMENTS_BY_LEVEL: z.string().optional(),
+      /**
+       * Owner setting (I-kyc-compliance-05): the review time the owner states per verification level, `level=hours`
+       * pairs, for example `basic=24,full=72` (whole hours, 1 to 8760). NO DEFAULT. A level left out has no stated review
+       * time and /verification says so. Parsed at start by `parseKycReviewHoursByLevel`; malformed stops the service.
+       */
+      IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL: z.string().optional(),
+      /**
        * Owner setting for account limit overrides (J-ops-console-04 #12): a JSON object
        * `{ "maxLifetimeHours": "<whole hours>", "ceilings": { "<rail>": { "<asset>": "<decimal>" } } }`. NO DEFAULT. Blank,
        * not JSON or invalid means unset: every override refuses `identity.limit_ceiling_unset` and the console says "not

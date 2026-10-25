@@ -1,4 +1,6 @@
 import { SecurityLockError } from './auth/security-lock.js';
+import { createKycLevelsRouter } from './kyc/levels-router.js';
+import { EMPTY_KYC_LADDER_SETTINGS, type KycLadderSettings } from './kyc/levels.js';
 import { z } from 'zod';
 import { router, publicProcedure, protectedProcedure, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts';
 import { rankPerksSchema, rankStateSchema, accountControlResultSchema } from '@intafaced/contracts';
@@ -725,6 +727,8 @@ export function createIdentityRouter(
      */
     founderEnrolment?: { invites?: FounderEnrolmentConfig | undefined; now?: () => Date };
     webauthnEnabled?: boolean;
+    /** The owner's published verification requirements and review times (I-kyc-compliance-05). Absent = none published. */
+    kycLadder?: KycLadderSettings;
     /** Social sign-in. Absent means no provider is registered: every start answers `idp.social`. */
     social?: SocialSignin;
     /**
@@ -2071,6 +2075,11 @@ export function createIdentityRouter(
      * record from `pending`, without changing what approval means.
      */
     kyc: router({
+      /** The verification ladder: what each level unlocks, asks for and how long review takes (I-kyc-compliance-04/05). */
+      levels: createKycLevelsRouter({
+        kycTier: (userId) => auth.kycTier(userId),
+        settings: options.kycLadder ?? EMPTY_KYC_LADDER_SETTINGS,
+      }),
       /**
        * A user asks to be verified. Grants nothing.
        *
