@@ -825,16 +825,8 @@ test(`${J} #8 gradebook weights that add up wrongly refuse and the right set sav
   await expect(page.getByTestId('course-desk-outcome')).toHaveAttribute('data-code', 'academy.weights_invalid');
   await expect(page.getByTestId('policy-now')).toContainText('No policy yet');
 
-  // After a refusal the form shows the stored state again (no policy yet); the founder fills the right set.
-  await policy.getByLabel('Type 1 name', { exact: true }).fill('Homework');
+  // The form keeps what was typed: the founder corrects the first weight only.
   await policy.getByLabel('Type 1 weight', { exact: true }).fill('0.6');
-  await policy.getByLabel('Type 1 drop lowest', { exact: true }).fill('1');
-  for (const title of ['TEST One', 'TEST Two', 'TEST Three']) await policy.getByLabel(`Type 1 holds ${title}`, { exact: true }).check();
-  await policy.getByRole('button', { name: 'Add type' }).click();
-  await policy.getByLabel('Type 2 name', { exact: true }).fill('Quizzes');
-  await policy.getByLabel('Type 2 weight', { exact: true }).fill('0.4');
-  await policy.getByLabel('Type 2 holds TEST Quiz', { exact: true }).check();
-  await policy.getByLabel('Policy reason', { exact: true }).fill(`TEST ${J}: homework and quizzes`);
   await policy.getByRole('button', { name: 'Save grading policy' }).click();
   await expect(page.getByTestId('course-desk-outcome')).toContainText('Done: grading policy saved');
   await expect(page.getByTestId('policy-now')).toContainText('Revision 1');

@@ -8,10 +8,10 @@
  * (course-gradebook-math.ts): nothing here stores a learner's score. No money moves.
  */
 import type { Sql, TransactionSql } from 'postgres';
-import { formatAmount, parseAmount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, SCALE } from '@intafaced/ledger-client';
 import type { AcademyCourseGradebook, AcademyGradeType, AcademySaveGradingPolicyInput } from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
-import { fractionOf, fractionText, typeAverage, weightedTotal, weightsSumToOne, type Fraction } from './course-gradebook-math.js';
+import { fractionOf, fractionText, typeAverage, weightedTotal, weightSum, type Fraction } from './course-gradebook-math.js';
 
 type Db = Sql | TransactionSql;
 type ItemRow = { id: string; title: string; kind: 'assignment' | 'quiz'; scoring_policy: string | null };
@@ -60,9 +60,12 @@ export class CourseGradebook {
       if (revision !== input.revision)
         throw new AcademyError(`the grading policy is at revision ${revision}, not ${input.revision}`, 'academy.revision_stale');
       const types = normal(input.types);
-      if (!weightsSumToOne(types.map((t) => t.weight))) {
-        const sum = formatAmount(types.reduce((total, t) => total + parseAmount(t.weight), 0n));
-        throw new AcademyError(`academy.weights_invalid sum=${sum}: the weights must add up to exactly 1`, 'academy.weights_invalid');
+      const sum = weightSum(types.map((t) => t.weight));
+      if (sum !== SCALE) {
+        throw new AcademyError(
+          `academy.weights_invalid sum=${formatAmount(sum)}: the weights must add up to exactly 1`,
+          'academy.weights_invalid',
+        );
       }
       const gradable = new Set((await this.items(tx, input.courseId)).map((i) => i.id));
       const seen = new Set<string>();
@@ -119,18 +122,17 @@ export class CourseGradebook {
     const learners = await sql<Array<{ user_id: string }>>`
       SELECT user_id FROM academy.course_enrolments WHERE course_id = ${courseId} AND left_at IS NULL ORDER BY enrolled_at, user_id
     `;
-    // An assignment's newest grade (as the learner reads it), and who has handed in at all.
-    const grades = await sql<Array<{ item_id: string; user_id: string; score: string; points: string }>>`
-      SELECT DISTINCT ON (s.item_id, s.user_id) s.item_id, s.user_id, g.score::text AS score, g.points::text AS points
+    // Each learner's newest hand-in and its newest grade, as the learner's own grades page reads it: a newer hand-in
+    // waiting for a grade is pending, never the older grade.
+    const handIns = await sql<Array<{ item_id: string; user_id: string; state: string; score: string | null; points: string | null }>>`
+      SELECT DISTINCT ON (s.item_id, s.user_id) s.item_id, s.user_id, s.state, g.score::text AS score, g.points::text AS points
       FROM academy.assignment_submissions s
       JOIN academy.course_items i ON i.id = s.item_id
-      JOIN academy.assignment_grade_events g ON g.submission_id = s.id
+      LEFT JOIN LATERAL (
+        SELECT score, points FROM academy.assignment_grade_events WHERE submission_id = s.id ORDER BY n DESC LIMIT 1
+      ) g ON TRUE
       WHERE i.course_id = ${courseId}
-      ORDER BY s.item_id, s.user_id, s.version DESC, g.n DESC
-    `;
-    const handedIn = await sql<Array<{ item_id: string; user_id: string }>>`
-      SELECT DISTINCT s.item_id, s.user_id FROM academy.assignment_submissions s JOIN academy.course_items i ON i.id = s.item_id
-      WHERE i.course_id = ${courseId} AND s.state NOT IN ('draft', 'withdrawn')
+      ORDER BY s.item_id, s.user_id, s.version DESC
     `;
     const attempts = await sql<
       Array<{ item_id: string; user_id: string; number: number; state: string; score: number | null; max_score: number | null }>
@@ -142,10 +144,10 @@ export class CourseGradebook {
 
     const cells = new Map<string, Cell>();
     const key = (itemId: string, userId: string) => `${itemId}:${userId}`;
-    for (const h of handedIn) cells.set(key(h.item_id, h.user_id), { state: 'pending', score: null });
-    for (const g of grades) {
-      const score = fractionOf(g.score, g.points);
-      if (score !== null) cells.set(key(g.item_id, g.user_id), { state: 'graded', score });
+    for (const h of handIns) {
+      const score = h.score !== null && h.points !== null ? fractionOf(h.score, h.points) : null;
+      if (score !== null) cells.set(key(h.item_id, h.user_id), { state: 'graded', score });
+      else if (h.state !== 'draft' && h.state !== 'withdrawn') cells.set(key(h.item_id, h.user_id), { state: 'pending', score: null });
     }
     const quizPolicy = new Map(items.filter((i) => i.kind === 'quiz').map((i) => [i.id, i.scoring_policy]));
     const graded = new Map<string, Array<{ number: number; score: Fraction }>>();
@@ -153,7 +155,7 @@ export class CourseGradebook {
       if (!quizPolicy.has(a.item_id)) continue;
       const k = key(a.item_id, a.user_id);
       const score = a.state === 'graded' && a.score !== null && a.max_score ? fractionOf(String(a.score), String(a.max_score)) : null;
-      if (score !== null) graded.set(k, [...(graded.get(k) ?? []), { number: a.number, score }]);
+      if (score !== null) (graded.get(k) ?? graded.set(k, []).get(k)!).push({ number: a.number, score });
       else if (a.state === 'pending_review' && !cells.has(k)) cells.set(k, { state: 'pending', score: null });
     }
     for (const [k, list] of graded) {

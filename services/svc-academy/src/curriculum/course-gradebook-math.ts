@@ -49,5 +49,8 @@ export function weightedTotal(types: ReadonlyArray<{ weight: string; average: Fr
   return weights === 0n ? null : sum / weights;
 }
 
+/** Decimal weights added up, as a fraction. */
+export const weightSum = (weights: readonly string[]): Fraction => weights.reduce((total, w) => total + parseAmount(w), 0n);
+
 /** Whether decimal weights add up to exactly 1. */
-export const weightsSumToOne = (weights: readonly string[]): boolean => weights.reduce((total, w) => total + parseAmount(w), 0n) === SCALE;
+export const weightsSumToOne = (weights: readonly string[]): boolean => weightSum(weights) === SCALE;

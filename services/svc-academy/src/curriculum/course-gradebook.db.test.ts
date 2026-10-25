@@ -186,6 +186,14 @@ describe('grading policy and gradebook (AC-assignments-04)', () => {
     expect(await db.sql`SELECT revision FROM academy.course_grading_policy_events`).toHaveLength(1);
   });
 
+  it('reads a newer hand-in waiting for a grade as pending, not the older grade', async () => {
+    const ids = await course();
+    await graded(ids.one, '4');
+    await assignments().submit({ itemId: ids.one, version: 2, text: 'TEST second try', fileId: null, userId: L, now: NOW });
+    const row = (await book().view(ids.courseId)).learners.find((l) => l.userId === L)!;
+    expect(row.items.find((i) => i.itemId === ids.one)).toEqual({ itemId: ids.one, state: 'pending', score: null });
+  });
+
   it('refuses a lesson, an item in two types, a type that drops every score, and two types of one name', async () => {
     const ids = await course();
     const save = (types: Parameters<CourseGradebook['savePolicy']>[0]['types']) =>

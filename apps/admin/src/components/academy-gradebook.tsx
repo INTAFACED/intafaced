@@ -22,10 +22,18 @@ import { Failed, Outcome } from '@/components/academy-courses-desk';
 type Item = AcademyCourseGradebook['items'][number];
 type DraftType = { name: string; weight: string; dropLowest: string; itemIds: string[] };
 
-const draftOf = (book: AcademyCourseGradebook): DraftType[] =>
-  book.policy
-    ? book.policy.types.map((t) => ({ name: t.name, weight: t.weight, dropLowest: String(t.dropLowest), itemIds: [...t.itemIds] }))
+/** The stored policy as the form holds it; an item no longer gradable (removed, or now a survey) has no box, so it is left out. */
+const draftOf = (book: AcademyCourseGradebook): DraftType[] => {
+  const gradable = new Set(book.items.map((i) => i.itemId));
+  return book.policy
+    ? book.policy.types.map((t) => ({
+        name: t.name,
+        weight: t.weight,
+        dropLowest: String(t.dropLowest),
+        itemIds: t.itemIds.filter((id) => gradable.has(id)),
+      }))
     : [{ name: '', weight: '', dropLowest: '0', itemIds: [] }];
+};
 
 function PolicyForm({
   book,
@@ -47,7 +55,7 @@ function PolicyForm({
         e.preventDefault();
         onSave({
           revision: book.policy?.revision ?? 0,
-          // A blank drop count is sent as it is, so svc-academy's check names it rather than the form guessing 0.
+          // A blank drop count is never read as 0: it is sent blank and the console refuses the request as incomplete.
           types: types.map((t) => ({
             name: t.name,
             weight: t.weight.trim(),
@@ -199,7 +207,7 @@ export function AcademyGradebook({ courseId, initial }: { courseId: string; init
     const answer = await postGradebookChange({ op: 'savePolicy', courseId, ...body });
     setReply(answer);
     setBusy(false);
-    // Whatever the answer, the page shows the gradebook as svc-academy holds it now.
+    // Whatever the answer, the page shows the gradebook as svc-academy holds it now; a refused form keeps what was typed.
     await reload();
   };
 
@@ -231,7 +239,7 @@ export function AcademyGradebook({ courseId, initial }: { courseId: string; init
             {book.items.length === 0 ? (
               <p className="dk-muted">The course has no assignment with a brief or graded quiz yet.</p>
             ) : (
-              <PolicyForm key={`${book.policy?.revision ?? 0}-${view?.asOf}`} book={book} busy={busy} onSave={(b) => void send(b)} />
+              <PolicyForm key={book.policy?.revision ?? 0} book={book} busy={busy} onSave={(b) => void send(b)} />
             )}
           </section>
           <section className="dk-stack" aria-labelledby="h-gradebook">
