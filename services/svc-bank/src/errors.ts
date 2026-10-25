@@ -898,7 +898,24 @@ export type BankErrorCode =
   /** The reminder rule changed since the revision the write read. */
   | 'bank.reminder_revision_conflict'
   /** No bus is wired for standing-order notices, so owed ones stay owed. */
-  | 'bank.scheduled_notify_unwired';
+  | 'bank.scheduled_notify_unwired'
+  // ── Recovery claims (RC-identity-08, J-identity-05 #7) ─────────────────
+  /** Identity could not answer which accounts a person may claim, or whether a claim's signatures count; nothing moved. */
+  | 'bank.recovery_unavailable'
+  /** An API key or a sub-account asked: only the heir at their own keyboard opens or executes a claim. */
+  | 'bank.recovery_delegated'
+  /** Staff asked: staff never claim or sweep a customer's balances, whatever their scopes. */
+  | 'bank.recovery_staff_forbidden'
+  /** The account is not one identity lists for this heir now. */
+  | 'bank.recovery_estate_not_found'
+  /** No claim by that id belongs to the caller. */
+  | 'bank.recovery_claim_not_found'
+  /** The account already has a claim under another notice or heir. The first claim stands. */
+  | 'bank.recovery_claim_conflict'
+  /** Identity refused the claim; the message names identity's code. Nothing moved. */
+  | 'bank.recovery_claim_refused'
+  /** Some of the owner's value is held, staked or pledged, so nothing is swept until it is free. */
+  | 'bank.recovery_blocked';
 
 export class BankError extends Error {
   constructor(

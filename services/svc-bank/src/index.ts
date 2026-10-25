@@ -36,6 +36,7 @@ import { createIdentityPartyHandles } from './transfers/party-handles.js';
 import { createIdentitySecurityLock, unconfiguredSecurityLock } from './security-lock.js';
 import { createIdentityApprovalMail, unconfiguredApprovalMail } from './ramps/address-approval.js';
 import { createIdentityTrustedDevices, unconfiguredTrustedDevices } from './ramps/trusted-devices.js';
+import { createIdentityRecovery, unconfiguredIdentityRecovery } from './recovery/identity-recovery.js';
 import { eventPersonalRequestNotices } from './transfers/request-notices.js';
 import { eventPersonalTransferNotices } from './transfers/transfer-notices.js';
 import { eventScheduledNotices } from './rules/scheduled-notices.js';
@@ -131,6 +132,11 @@ const bus = await JetStreamEventBus.connect({
 const assetRegistry = createLedgerAssetRegistry(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s);
 const bank = createBankServices(sql, ledger, history, {
   nativeAssetId: env.TOKEN_ASSET_ID,
+  // Recovery claims (RC-identity-08): identity says which accounts a heir may claim and whether a claim's signatures
+  // count. No IDENTITY_URL refuses every claim with `bank.recovery_unavailable`, never "claimable".
+  identityRecovery: env.IDENTITY_URL
+    ? createIdentityRecovery(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, undefined, ledgerS2s)
+    : unconfiguredIdentityRecovery(),
   payeeCoolingHours: env.BANK_PAYEE_COOLING_HOURS,
   scheduleEditCutoffMinutes: env.BANK_SCHEDULE_EDIT_CUTOFF_MINUTES,
   holdCancelHours: env.BANK_GLOBAL_HOLD_CANCEL_HOURS,
