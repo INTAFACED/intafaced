@@ -200,6 +200,8 @@ const offerOutput = z.object({
   acceptsNonInstant: z.boolean(),
   terms: z.string(),
   status: z.enum(['active', 'paused', 'closed']),
+  /** P-ads-merchant-18: why the service paused the ad (`method_removed`); null when active, closed or paused by hand. */
+  pauseReason: z.enum(['method_removed']).nullable(),
   createdAt: z.string(),
 });
 
@@ -684,6 +686,8 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.erase_raced':
       case 'p2p.appeal_used':
       case 'p2p.review_exists':
+      // P-ads-merchant-18: the method is the last payable one of an active sell ad; the person confirms pausing them.
+      case 'p2p.method_in_use':
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
       case 'p2p.receipt_quota_reached':
         return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
@@ -1302,7 +1306,19 @@ export function createP2pRouter(
       get: merchantApiProcedure('p2p:read')
         .input(z.object({ offerId: z.string().guid() }))
         .output(offerOutput)
-        .query(async ({ input }) => guard(async () => presentOffer(await p2p.getOffer(input.offerId)))),
+        .query(async ({ ctx, input }) => guard(async () => presentOffer(await p2p.getOffer(input.offerId, ctx.principal.userId)))),
+
+      /** P-ads-merchant-18: the caller's own ads in one status, newest first; the board lists active ads only. */
+      mine: merchantApiProcedure('p2p:read')
+        .input(z.object({ status: z.enum(['active', 'paused']), limit: z.number().int().min(1).max(200).optional() }))
+        .output(z.array(offerOutput))
+        .query(async ({ ctx, input }) =>
+          guard(async () => {
+            const offers = await p2p.listOwnOffers(ctx.principal.userId, input.status, input.limit);
+            const [counts, settlements] = await Promise.all([p2p.releasedTradeCounts(offers.map((o) => o.id)), boardSettlements(offers)]);
+            return offers.map((offer) => toOfferOut(offer, counts.get(offer.id) ?? 0, settlements));
+          }),
+        ),
 
       close: merchantApiProcedure('p2p:write')
         .input(z.object({ offerId: z.string().guid() }))
@@ -2281,9 +2297,34 @@ export function createP2pRouter(
           }),
         ),
 
-      /** Removal is a state change. An in-flight trade keeps working. */
+      /**
+       * P-ads-merchant-18: the caller's active sell ads that list this method, and which of them it is the last payable
+       * method for (`pauses`). Read before removing, so the warning names the ads. Ad ids and coins only.
+       */
+      removalImpact: merchantApiProcedure('p2p:read')
+        .input(z.object({ instrumentId: z.string().guid() }))
+        .output(
+          z.object({
+            instrumentId: z.string(),
+            methodId: z.string(),
+            fiatCurrency: z.string(),
+            ads: z.array(z.object({ offerId: z.string(), asset: z.string(), fiatCurrency: z.string(), pauses: z.boolean() })),
+          }),
+        )
+        .query(async ({ ctx, input }) => guard(async () => p2p.methodRemovalImpact(input.instrumentId, ctx.principal.userId))),
+
+      /**
+       * Removal is a state change. An in-flight trade keeps working. When the method is the last payable one of an active
+       * sell ad, the removal is refused `p2p.method_in_use` unless `pauseAds` confirms pausing those ads.
+       */
       remove: merchantApiProcedure('p2p:write')
-        .input(z.object({ instrumentId: z.string().guid(), stepUpApprovalId: z.string().min(1).max(200).optional() }))
+        .input(
+          z.object({
+            instrumentId: z.string().guid(),
+            stepUpApprovalId: z.string().min(1).max(200).optional(),
+            pauseAds: z.boolean().optional(),
+          }),
+        )
         .output(instrumentHeaderOutput)
         .mutation(async ({ ctx, input }) =>
           guard(async () => {
@@ -2293,7 +2334,13 @@ export function createP2pRouter(
               details: undefined,
               approvalId: input.stepUpApprovalId,
             });
-            return toHeaderOut(await instruments.removeInstrument({ instrumentId: input.instrumentId, ownerId: ctx.principal.userId }));
+            return toHeaderOut(
+              await p2p.removeMethod({
+                instrumentId: input.instrumentId,
+                ownerId: ctx.principal.userId,
+                pauseAds: input.pauseAds === true,
+              }),
+            );
           }),
         ),
 
@@ -3704,6 +3751,7 @@ function toOfferOut(
     acceptsNonInstant: offer.acceptsNonInstant,
     terms: offer.terms,
     status: offer.status,
+    pauseReason: offer.pauseReason ?? null,
     createdAt: offer.createdAt.toISOString(),
   };
 }

@@ -65,6 +65,8 @@ export const offerSchema = z.object({
   acceptsNonInstant: z.boolean().optional(),
   terms: z.string(),
   status: z.enum(['active', 'paused', 'closed']),
+  /** P-ads-merchant-18: why the service paused the ad; null when it was not the service (or it is not paused). */
+  pauseReason: z.enum(['method_removed']).nullable().optional(),
   createdAt: z.string(),
   /** Board reads, floating ads only: the market reference, or null when no market feed prices the pair. */
   referencePrice: amount.nullable().optional(),
@@ -722,3 +724,11 @@ export type TakeQuote = z.infer<typeof takeQuoteSchema>;
 export type Reputation = z.infer<typeof reputationSchema>;
 export type Merchant = z.infer<typeof merchantSchema>;
 export type Payment = z.infer<typeof paymentSchema>;
+
+/** P-ads-merchant-18: the person's active sell ads that list a method, and which ones lose their last payable method. */
+export const methodRemovalImpactSchema = z.object({
+  instrumentId: id,
+  methodId: z.string(),
+  fiatCurrency: z.string(),
+  ads: z.array(z.object({ offerId: id, asset, fiatCurrency: z.string(), pauses: z.boolean() })),
+});
