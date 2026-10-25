@@ -161,6 +161,12 @@ export const remarkCaseSchema = z.object({
   openedAt: z.string(),
 });
 export type RemarkCase = z.infer<typeof remarkCaseSchema>;
+/** svc-p2p `trades.remarkCase`: the person's own report on the order, and whether the other party reported them (no quote). */
+export const remarkCasesOnSchema = z.object({
+  mine: remarkCaseSchema.nullable(),
+  againstMe: z.object({ caseId: id, openedAt: z.string() }).nullable(),
+});
+export type RemarkCasesOn = z.infer<typeof remarkCasesOnSchema>;
 /**
  * svc-p2p `trades.reportMismatch` and `trades.get` `mismatch`: the seller's report of what arrived, and the owner's band
  * it was classified by (`reported` when the band is blank and a person decides).

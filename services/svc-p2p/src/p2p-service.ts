@@ -3369,16 +3369,27 @@ export class P2pService {
     return done.report;
   }
 
-  /** The caller's own remark case on this order, or null. A caller who is not a party gets not found. */
-  async ownRemarkCase(tradeId: string, userId: string): Promise<RemarkCase | null> {
+  /**
+   * The remark cases on this order as the caller may see them: their own report in full, and whether the other party
+   * reported them (when and under which case, never the quote). A caller who is not a party gets not found.
+   */
+  async remarkCasesOn(
+    tradeId: string,
+    userId: string,
+  ): Promise<{ mine: RemarkCase | null; againstMe: { caseId: string; openedAt: Date } | null }> {
     const [trade] = await this.sql<{ buyer_id: string; seller_id: string }[]>`
       SELECT buyer_id, seller_id FROM p2p.p2p_trades WHERE id = ${tradeId}
     `;
     if (!trade || (trade.buyer_id !== userId && trade.seller_id !== userId)) throw unknownTrade(tradeId);
-    const [row] = await this.sql<RemarkCaseRow[]>`
-      SELECT * FROM p2p.remark_cases WHERE trade_id = ${tradeId} AND reporter_id = ${userId}
+    const rows = await this.sql<RemarkCaseRow[]>`
+      SELECT * FROM p2p.remark_cases WHERE trade_id = ${tradeId} AND (reporter_id = ${userId} OR reported_id = ${userId})
     `;
-    return row ? toRemarkCase(row) : null;
+    const mine = rows.find((row) => row.reporter_id === userId);
+    const against = rows.find((row) => row.reported_id === userId);
+    return {
+      mine: mine ? toRemarkCase(mine) : null,
+      againstMe: against ? { caseId: against.id, openedAt: against.opened_at } : null,
+    };
   }
 
   /** The open remark cases, oldest first: the queue staff read. Callers gate on the moderator check first. */

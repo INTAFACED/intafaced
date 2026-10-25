@@ -1479,7 +1479,7 @@ describe('reporting a sensitive payment-note remark (P-ads-merchant-19, J-p2p-04
     ]);
   });
 
-  it('reads the person’s own case on the order, or null', async () => {
+  it('reads the person’s own case on the order and whether they were reported', async () => {
     const urls: string[] = [];
     const answer = (body: unknown) =>
       createApiClient({
@@ -1488,15 +1488,17 @@ describe('reporting a sensitive payment-note remark (P-ads-merchant-19, J-p2p-04
           return response(body);
         },
       });
-    expect(await createPersonalPayApi(answer(opened), userId, createPayMutationGuard()).remarkCase(tradeId)).toEqual({
+    const mine = { mine: opened, againstMe: null };
+    expect(await createPersonalPayApi(answer(mine), userId, createPayMutationGuard()).remarkCase(tradeId)).toEqual({
       ok: true,
-      data: opened,
+      data: mine,
     });
     expect(urls[0]).toContain('trades.remarkCase');
     expect(urls[0]).toContain(tradeId);
-    expect(await createPersonalPayApi(answer(null), userId, createPayMutationGuard()).remarkCase(tradeId)).toEqual({
+    const against = { mine: null, againstMe: { caseId, openedAt: '2026-10-25T10:00:00.000Z' } };
+    expect(await createPersonalPayApi(answer(against), userId, createPayMutationGuard()).remarkCase(tradeId)).toEqual({
       ok: true,
-      data: null,
+      data: against,
     });
   });
 

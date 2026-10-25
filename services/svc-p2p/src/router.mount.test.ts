@@ -2310,11 +2310,11 @@ describe('svc-p2p mount — sensitive-remark cases (P-ads-merchant-19, J-p2p-04 
     expect(seen).toHaveLength(3);
   });
 
-  it('reads the caller’s own case or null, and lists the open cases to moderators only', async () => {
-    let own: typeof opened | null = opened;
+  it('reads the caller’s own case and whether they were reported, and lists the open cases to moderators only', async () => {
+    let seen: { mine: typeof opened | null; againstMe: { caseId: string; openedAt: Date } | null } = { mine: opened, againstMe: null };
     let listed = 0;
     const p2p = stubP2p({
-      ownRemarkCase: async (tradeId: string, userId: string) => (tradeId === TRADE && userId === USER ? own : null),
+      remarkCasesOn: async (tradeId: string, userId: string) => (tradeId === TRADE && userId === USER ? seen : null),
       listRemarkCases: async () => {
         listed += 1;
         return [opened];
@@ -2322,9 +2322,15 @@ describe('svc-p2p mount — sensitive-remark cases (P-ads-merchant-19, J-p2p-04 
     });
     const MODERATOR = '77777777-7777-4777-8777-777777777777';
     const caller = createP2pRouter(p2p, stubInstruments(), undefined, { moderatorUserIds: [MODERATOR] }).createCaller(writer());
-    expect(await caller.trades.remarkCase({ tradeId: TRADE })).toMatchObject({ id: CASE, remark: 'USDT' });
-    own = null;
-    expect(await caller.trades.remarkCase({ tradeId: TRADE })).toBeNull();
+    expect(await caller.trades.remarkCase({ tradeId: TRADE })).toEqual({
+      mine: expect.objectContaining({ id: CASE, remark: 'USDT' }),
+      againstMe: null,
+    });
+    seen = { mine: null, againstMe: { caseId: CASE, openedAt: opened.openedAt } };
+    expect(await caller.trades.remarkCase({ tradeId: TRADE })).toEqual({
+      mine: null,
+      againstMe: { caseId: CASE, openedAt: '2026-10-25T10:00:00.000Z' },
+    });
     await expect(caller.disputes.remarkCases({ limit: 10 })).rejects.toMatchObject({ cause: { code: 'p2p.not_a_moderator' } });
     expect(listed).toBe(0);
     const moderator = createP2pRouter(p2p, stubInstruments(), undefined, { moderatorUserIds: [USER] }).createCaller(writer());

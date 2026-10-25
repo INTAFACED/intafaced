@@ -11,6 +11,7 @@ const en = {
   reported: 'You reported this remark. A case is open for staff to decide.',
   exists: 'You already reported a remark on this order. Add anything more in a dispute.',
   invalid: 'Quote the remark in 1 to {max} characters.',
+  againstMe: 'The other person on this order reported a remark in a payment note. A case is open for staff to decide.',
 } as const;
 const es = {
   noteTitle: 'Qué escribir en el concepto del pago',
@@ -24,6 +25,8 @@ const es = {
   reported: 'Informaste de este comentario. Hay un caso abierto para que decida el personal.',
   exists: 'Ya informaste de un comentario en este pedido. Añade lo que falte en una disputa.',
   invalid: 'Cita el comentario en 1 a {max} caracteres.',
+  againstMe:
+    'La otra persona de este pedido informó de un comentario en el concepto del pago. Hay un caso abierto para que decida el personal.',
 } as const;
 const fr = {
   noteTitle: 'Quoi écrire dans le libellé du paiement',
@@ -37,5 +40,7 @@ const fr = {
   reported: 'Vous avez signalé cette remarque. Un dossier est ouvert pour que l’équipe décide.',
   exists: 'Vous avez déjà signalé une remarque sur cette commande. Ajoutez le reste dans un litige.',
   invalid: 'Citez la remarque en 1 à {max} caractères.',
+  againstMe:
+    'L’autre personne de cette commande a signalé une remarque dans le libellé du paiement. Un dossier est ouvert pour que l’équipe décide.',
 } as const;
 export const remarkCopy = defineCopy('pay.p2p.remark', en, { es, fr });

@@ -44,8 +44,11 @@ const trade = (status: Trade['status'] = 'fiat_sent', escrowedAt: string | null 
   mismatch: null,
 });
 /** A pay client whose own-case read answers `own` (none by default). */
-const payWith = (methods: Record<string, unknown>, own: RemarkCase | null = null) =>
-  ({ remarkCase: async () => ({ ok: true as const, data: own }), ...methods }) as unknown as PersonalPayApi;
+const payWith = (
+  methods: Record<string, unknown>,
+  mine: RemarkCase | null = null,
+  againstMe: { caseId: string; openedAt: string } | null = null,
+) => ({ remarkCase: async () => ({ ok: true as const, data: { mine, againstMe } }), ...methods }) as unknown as PersonalPayApi;
 const reported = (caseId: string): RemarkCase => ({
   id: caseId,
   tradeId: trade().id,
@@ -141,6 +144,19 @@ describe('Report a sensitive payment-note remark (J-p2p-04 #5)', () => {
       '99999999-9999-4999-8999-999999999999',
     );
     expect(host.querySelector('[data-testid="order-remark-report"]')).toBeNull();
+  });
+
+  it('tells the reported party a case is open, without the quote, and still lets them report once themselves', async () => {
+    await render(
+      <ReportRemark
+        trade={trade()}
+        pay={payWith({}, null, { caseId: '99999999-9999-4999-8999-999999999999', openedAt: '2026-10-25T10:00:00.000Z' })}
+        userId={BUYER}
+      />,
+    );
+    const notice = host.querySelector('[data-testid="order-remark-against-me"]')!;
+    expect(notice.textContent).toContain('The other person on this order reported a remark in a payment note.');
+    expect(host.querySelector('[data-testid="order-remark-report"]')).not.toBeNull();
   });
 
   it('is not offered on an order that was never funded, open or cancelled', async () => {
