@@ -202,6 +202,35 @@ describe('svc-p2p method rules: cash in person and payment notes (P-ads-merchant
     expect(parseAmount(row!.remaining_amt)).toBe(parseAmount('500'));
   });
 
+  it('refuses to resume a paused floating ad whose method the operator made cash during the pause', async () => {
+    const offer = await sellOffer(['sepa'], 'float');
+    await p2p.pauseOffer(offer.id, MAKER);
+    await instruments.registerMethodSchema({ methodId: 'sepa', country: 'FR', label: 'Cash in FR', fields: FIELDS, cashRules: CASH });
+    const err = await refusal(p2p.resumeOffer(offer.id, MAKER));
+    expect((err as P2pError).code).toBe('p2p.floating_not_allowed_for_method');
+    const [row] = await sql<{ status: string }[]>`SELECT status FROM p2p.offers WHERE id = ${offer.id}`;
+    expect(row!.status).toBe('paused');
+  });
+
+  it('the database refuses a cash release window that is not a whole number of seconds in bounds, or not a number', async () => {
+    for (const window of ['600.5', '299', '86401', '"600"']) {
+      await expect(
+        sql.unsafe(
+          `UPDATE p2p.payment_method_schemas SET cash_rules = '{"meetingGuidance":"m","proof":"p","releaseWindowSeconds":${window}}'::jsonb WHERE method_id = 'cash'`,
+        ),
+      ).rejects.toThrow(/payment_method_schemas_cash_rules_ck/);
+    }
+  });
+
+  it('lists a stored row whose rules are past today’s bounds instead of refusing the whole catalogue', async () => {
+    const words = JSON.stringify(Array.from({ length: 25 }, (_, i) => `w${i}`));
+    await sql.unsafe(
+      `UPDATE p2p.payment_method_schemas SET note_rules = '{"guidance":"Old rule","forbidden":${words}}'::jsonb WHERE method_id = 'sepa'`,
+    );
+    const listed = await instruments.listMethodSchemas({ country: 'DE', limit: 10 });
+    expect(listed.find((row) => row.methodId === 'sepa')?.noteRules?.forbidden).toHaveLength(25);
+  });
+
   it('an order paid in cash in person takes the row’s release window, copied at take', async () => {
     const offer = await sellOffer(['sepa', 'cash']);
     const trade = await take(offer.id, 'cash');

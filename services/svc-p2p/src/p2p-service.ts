@@ -2285,6 +2285,8 @@ export class P2pService {
     ) {
       throw noReference(preview.asset, preview.fiatCurrency, 'resumed');
     }
+    // P-ads-merchant-19: nor while it lists a method the operator made cash in person during the pause (a locked price).
+    if (preview.status === 'paused') await this.assertFloatingAllowed({ priceType: preview.priceType, methods: preview.methods });
     // P-ads-merchant-18: a paused sell ad comes back only while one of its methods still has a live destination, read under
     // the maker's instrument key so a removal running at the same moment either pauses it after this or is seen here.
     const rows = await transaction(

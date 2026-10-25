@@ -20,8 +20,12 @@ ALTER TABLE "p2p"."payment_method_schemas" ADD CONSTRAINT "payment_method_schema
     OR (
       jsonb_typeof("cash_rules"->'meetingGuidance') = 'string'
       AND jsonb_typeof("cash_rules"->'proof') = 'string'
-      AND jsonb_typeof("cash_rules"->'releaseWindowSeconds') = 'number'
-      AND ("cash_rules"->>'releaseWindowSeconds')::numeric BETWEEN 300 AND 86400
+      AND CASE
+        WHEN jsonb_typeof("cash_rules"->'releaseWindowSeconds') = 'number'
+          THEN ("cash_rules"->>'releaseWindowSeconds')::numeric BETWEEN 300 AND 86400
+           AND ("cash_rules"->>'releaseWindowSeconds')::numeric = trunc(("cash_rules"->>'releaseWindowSeconds')::numeric)
+        ELSE false
+      END
     )
   );
 

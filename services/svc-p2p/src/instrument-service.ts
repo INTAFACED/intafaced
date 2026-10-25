@@ -1418,8 +1418,10 @@ function toSchema(row: SchemaRow): MethodSchema {
     enabled: row.enabled,
     settlement: settlementOf(row),
     kind: row.cash_rules == null ? 'transfer' : 'cash_in_person',
-    noteRules: row.note_rules == null ? null : parseNoteRules(row.note_rules as MethodNoteRules),
-    cashRules: row.cash_rules == null ? null : parseCashRules(row.cash_rules as MethodCashRules),
+    // Stored rules were checked on the way in and their shape by the database; a read does not re-judge them against
+    // today's bounds, so one row never takes the whole catalogue (or the operator's fix for it) down.
+    noteRules: row.note_rules == null ? null : storedNoteRules(row.note_rules as MethodNoteRules),
+    cashRules: row.cash_rules == null ? null : storedCashRules(row.cash_rules as MethodCashRules),
   };
 }
 
@@ -1441,7 +1443,15 @@ function parseSettlement(input: MethodSettlement): MethodSettlement {
   return { instant: false, windowSeconds: window };
 }
 
-/** An operator's payment-note rules, checked before they are stored and again when read. */
+function storedNoteRules(row: MethodNoteRules): MethodNoteRules {
+  return { guidance: String(row.guidance), forbidden: Array.isArray(row.forbidden) ? row.forbidden.map(String) : [] };
+}
+
+function storedCashRules(row: MethodCashRules): MethodCashRules {
+  return { meetingGuidance: String(row.meetingGuidance), proof: String(row.proof), releaseWindowSeconds: Number(row.releaseWindowSeconds) };
+}
+
+/** An operator's payment-note rules, checked before they are stored. */
 function parseNoteRules(input: MethodNoteRules): MethodNoteRules {
   const guidance = typeof input?.guidance === 'string' ? input.guidance.trim() : '';
   const forbidden = Array.isArray(input?.forbidden) ? input.forbidden.map((word) => (typeof word === 'string' ? word.trim() : '')) : null;

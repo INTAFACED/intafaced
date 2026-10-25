@@ -79,6 +79,9 @@ const en = {
   cashMeeting: 'Meeting',
   cashProof: 'Proof',
   cashRelease: 'Once the buyer marks the order paid, the seller has {minutes} minutes to release.',
+  cashReleaseSeconds: 'Once the buyer marks the order paid, the seller has {seconds} seconds to release.',
+  cashReleaseHours: 'Once the buyer marks the order paid, the seller has {hours} hours to release.',
+  cashReleaseHoursMinutes: 'Once the buyer marks the order paid, the seller has {hours} hours {minutes} minutes to release.',
   noteTitle: 'Payment note',
   noteForbidden: 'Never write',
 } as const;
@@ -163,6 +166,10 @@ const es: Record<keyof typeof en, string> = {
   cashMeeting: 'Encuentro',
   cashProof: 'Comprobación',
   cashRelease: 'Cuando el comprador marca el pedido como pagado, el vendedor tiene {minutes} minutos para liberar.',
+  cashReleaseSeconds: 'Cuando el comprador marca el pedido como pagado, el vendedor tiene {seconds} segundos para liberar.',
+  cashReleaseHours: 'Cuando el comprador marca el pedido como pagado, el vendedor tiene {hours} horas para liberar.',
+  cashReleaseHoursMinutes:
+    'Cuando el comprador marca el pedido como pagado, el vendedor tiene {hours} horas {minutes} minutos para liberar.',
   noteTitle: 'Concepto del pago',
   noteForbidden: 'No escribas nunca',
 };
@@ -252,6 +259,10 @@ const fr: Record<keyof typeof en, string> = {
   cashMeeting: 'Rencontre',
   cashProof: 'Preuve',
   cashRelease: 'Une fois que l’acheteur a marqué la commande payée, le vendeur a {minutes} minutes pour libérer.',
+  cashReleaseSeconds: 'Une fois que l’acheteur a marqué la commande payée, le vendeur a {seconds} secondes pour libérer.',
+  cashReleaseHours: 'Une fois que l’acheteur a marqué la commande payée, le vendeur a {hours} heures pour libérer.',
+  cashReleaseHoursMinutes:
+    'Une fois que l’acheteur a marqué la commande payée, le vendeur a {hours} heures {minutes} minutes pour libérer.',
   noteTitle: 'Note de paiement',
   noteForbidden: 'N’écrivez jamais',
 };

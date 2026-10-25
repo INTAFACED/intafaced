@@ -9,21 +9,13 @@ import { StepUpConfirm } from '../../money/StepUpConfirm';
 import { PayFailure, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from '../components';
 import { payCopy } from '../copy';
 import type { PersonalPayApi } from '../pay-api';
-import type { MethodField } from '../schemas';
+import type { z } from 'zod';
+import type { MethodField, methodSchema } from '../schemas';
 import { methodsCopy } from './payment-methods-copy';
 
-type Method = {
-  methodId: string;
-  country: string;
-  label: string;
-  fields: MethodField[];
-  enabled: boolean;
-  settlement?: Settlement;
-  noteRules?: NoteRules | null;
-  cashRules?: CashRules | null;
-};
-type NoteRules = { guidance: string; forbidden: string[] };
-type CashRules = { meetingGuidance: string; proof: string; releaseWindowSeconds: number };
+type Method = z.infer<typeof methodSchema>;
+type NoteRules = NonNullable<Method['noteRules']>;
+type CashRules = NonNullable<Method['cashRules']>;
 type Settlement = { instant: true } | { instant: false; windowSeconds: number | null };
 type MethodsT = ReturnType<typeof methodsCopy.useCopy>['t'];
 
@@ -393,9 +385,21 @@ function CashRulesView({ rules }: { rules: CashRules }) {
       <p>
         {t('cashProof')}: {rules.proof}
       </p>
-      <p data-testid="catalogue-cash-release">{t('cashRelease', { minutes: String(Math.ceil(rules.releaseWindowSeconds / 60)) })}</p>
+      <p data-testid="catalogue-cash-release">{releaseText(rules.releaseWindowSeconds, t)}</p>
     </div>
   );
+}
+
+/**
+ * The seller's release window in words. A deadline is never shown longer than it is: whole minutes round down, and the
+ * seconds show when they are not whole minutes.
+ */
+function releaseText(seconds: number, t: MethodsT) {
+  if (seconds % 60 !== 0) return t('cashReleaseSeconds', { seconds: String(seconds) });
+  const minutes = seconds / 60;
+  if (minutes < 60) return t('cashRelease', { minutes: String(minutes) });
+  if (minutes % 60 === 0) return t('cashReleaseHours', { hours: String(minutes / 60) });
+  return t('cashReleaseHoursMinutes', { hours: String(Math.floor(minutes / 60)), minutes: String(minutes % 60) });
 }
 
 /** P-ads-merchant-19: what the payer writes in the payment note, and the words that never go in it. */
