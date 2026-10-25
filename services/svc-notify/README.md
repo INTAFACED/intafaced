@@ -466,6 +466,7 @@ _None._
 | `intafaced.p2p.trade.disputed`                | `notify-p2p-trade-disputed`        | Inbox row for the opener only (no counterparty on payload)                                                    |
 | `intafaced.p2p.trade_fiat.sent`               | `notify-p2p-trade-fiat-sent`       | Inbox row `p2p.trade.fiat_sent` for the seller when the buyer marks the order paid                            |
 | `intafaced.p2p.offer.paused`                  | `notify-p2p-offer-paused`          | Inbox row `p2p.offer.paused` for the maker when removing a payment method paused their ads                    |
+| `intafaced.p2p.remark_case.opened`            | `notify-p2p-remark-case-opened`    | Inbox row `p2p.remark_case.opened` for the reported party when a payment-note remark is reported              |
 | `intafaced.identity.kyc.approved`             | `notify-kyc-approved`              | Inbox row when verification tier is granted                                                                   |
 | `intafaced.identity.security_factor.updated`  | `notify-security-factor-changed`   | Inbox row when a sign-in factor is turned on, off, replaced, added or removed                                 |
 | `intafaced.identity.rank.updated`             | `notify-rank-updated`              | Inbox row when rank changes                                                                                   |

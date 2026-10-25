@@ -176,6 +176,9 @@ export const en = {
     other:
       'You removed the only payment method {count} of your ads could be paid with, so they are paused. Add a payment method for their currency, then resume them from My offers.',
   },
+  'notify.p2p.remark_case.opened.title': 'A payment-note remark was reported',
+  'notify.p2p.remark_case.opened.body':
+    'The other person on this order reported something written in a payment note. A case is open for staff to decide. In a payment note, write only what the payment method asks for.',
   'notify.identity.kyc.approved.title': 'Verification approved',
   'notify.identity.kyc.approved.body': 'You are verified at the {tier} tier.',
   'notify.identity.security.totp_added.title': 'Authenticator app turned on',

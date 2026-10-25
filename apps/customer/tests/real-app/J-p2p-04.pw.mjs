@@ -437,12 +437,33 @@ test('J-p2p-04 #5 reporting a sensitive remark in a payment note opens a case an
   });
   run.write({ remarkCaseId: caseId });
 
-  // The buyer, who is the reported party, sees on the order that a case is open, without the quote.
+  // The buyer, who is the reported party, is told once in the inbox.
+  const buyer = await api(state.buyer);
+  const notices = async () => {
+    const res = await buyer.get(`/api/notify/trpc/notify.list?input=${encodeURIComponent(JSON.stringify({ limit: 100 }))}`);
+    expect(res.status).toBe(200);
+    return res.body.result.data.items.filter((n) => n.kind === 'p2p.remark_case.opened' && n.params?.caseId === caseId);
+  };
+  await expect
+    .poll(async () => (await notices()).length, {
+      timeout: 30_000,
+      message: 'the reported party’s p2p.remark_case.opened inbox notice (svc-notify durable notify-p2p-remark-case-opened)',
+    })
+    .toBe(1);
+
+  // In the app the notice opens the order, which shows that a case is open, without the quote.
   const buyerContext = await browser.newContext();
   try {
     const buyerPage = await buyerContext.newPage();
     await signIn(buyerPage, state.buyer);
-    await buyerPage.goto(`/p2p/orders/${state.tradeId}`);
+    await buyerPage.goto('/notifications');
+    const notice = buyerPage.getByText('A payment-note remark was reported');
+    await expect(notice).toBeVisible();
+    await expect(
+      buyerPage.getByText('The other person on this order reported a remark in a payment note.', { exact: false }),
+    ).toBeVisible();
+    await notice.click();
+    await expect(buyerPage).toHaveURL(new RegExp(`/p2p/orders/${state.tradeId}`));
     const against = buyerPage.getByTestId('order-remark-against-me');
     await expect(against).toHaveAttribute('data-case-id', caseId);
     await expect(against).toContainText('The other person on this order reported a remark in a payment note.');
