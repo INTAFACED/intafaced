@@ -262,6 +262,11 @@ export class P2pErasure {
           `;
           erased.push({ category: 'offers (never traded)', rows: offers.length });
 
+          // P-ads-merchant-18: the record of each payment-method removal that paused this person's ads, which is also
+          // the outbox of its notice. It names nobody else, so it goes; a notice not yet handed over goes with it.
+          const removals = await tx`DELETE FROM p2p.method_removal_pauses WHERE maker_id = ${userId} RETURNING instrument_id`;
+          erased.push({ category: 'ads paused by a removed payment method', rows: removals.length });
+
           // THE ACCOUNT NUMBER. Removal is a state change and not a DELETE —
           // `payment_instruments_details_ck` makes `status = 'removed'` and
           // `details IS NULL` the same fact at the database, so this cannot

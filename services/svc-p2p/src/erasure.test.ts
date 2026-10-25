@@ -357,6 +357,7 @@ describe('p2p export and erasure', () => {
       expect(report.erased).toEqual([
         { category: 'reputation', rows: 1 },
         { category: 'offers (never traded)', rows: 1 },
+        { category: 'ads paused by a removed payment method', rows: 0 },
         { category: 'payment instrument details', rows: 1 },
         { category: 'payment details frozen onto trades', rows: 1 },
       ]);

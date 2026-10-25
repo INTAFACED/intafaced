@@ -1029,7 +1029,7 @@ export const p2pOfferPaused = defineEvent(
     instrumentId: z.string().guid(),
     makerId: userIdSchema,
     methodId: z.string().min(1).max(64),
-    offerIds: z.array(z.string().guid()).min(1).max(500),
+    offerIds: z.array(z.string().guid()).min(1).max(1000),
     reason: z.literal('method_removed'),
     pausedAt: z.string().datetime({ offset: true }),
   }),

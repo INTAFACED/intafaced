@@ -1693,12 +1693,93 @@ describe('svc-p2p payment instruments', () => {
       expect(notices()).toHaveLength(0);
     });
 
+    it('a confirmation for other ads does not cover one posted since, and a refused removal spends no confirmation', async () => {
+      const only = await sellerInstrument();
+      const shown = await sellAd([METHOD]);
+      expect((await p2p.methodRemovalImpact(only.id, SELLER)).ads.map((ad) => ad.offerId)).toEqual([shown.id]);
+      const postedSince = await sellAd([METHOD]);
+      const confirmations = vi.fn(async () => undefined);
+      const counted = createP2pRouter(p2p, instruments, new P2pErasure(sql), {
+        blockRfq: new BlockRfqService(new MemoryBlockQuoteStore()),
+        takeGate: metTakeGate(),
+        takeStepUp: confirmedTakeStepUp(),
+        releaseStepUp: confirmedReleaseStepUp(),
+        instrumentStepUp: { assertConfirmed: confirmations },
+        instrumentKeyProvider: 'local-test',
+      });
+      const raw = encodePrincipal({
+        sub: SELLER,
+        userId: SELLER,
+        sid: '99999999-9999-4999-8999-999999999999',
+        scopes: ['p2p:read', 'p2p:write'],
+        tier: 'basic',
+        mfa: false,
+        expiresAt: new Date(Date.now() + 60_000),
+      } as unknown as Principal);
+      const seller = counted.createCaller(
+        edgeContext({
+          headers: {
+            'x-intafaced-principal': raw,
+            'x-intafaced-principal-sig': signPrincipalHeader(raw, EDGE_SECRET, 'DE'),
+            'x-intafaced-region': 'DE',
+          },
+          id: 'req-counted',
+        }),
+      );
+      await expect(seller.instruments.remove({ instrumentId: only.id, pauseOfferIds: [shown.id] })).rejects.toMatchObject({
+        cause: { code: 'p2p.method_in_use' },
+      });
+      expect(confirmations).not.toHaveBeenCalled();
+      await expect(p2p.removeMethod({ instrumentId: only.id, ownerId: SELLER, pauseOfferIds: [shown.id] })).rejects.toMatchObject({
+        code: 'p2p.method_in_use',
+      });
+      expect((await p2p.getOffer(shown.id, SELLER)).status).toBe('active');
+      expect((await p2p.getOffer(postedSince.id, SELLER)).status).toBe('active');
+      expect(await instruments.listInstruments(SELLER, false, 50)).toHaveLength(1);
+
+      await seller.instruments.remove({ instrumentId: only.id, pauseOfferIds: [shown.id, postedSince.id] });
+      expect(confirmations).toHaveBeenCalledTimes(1);
+      expect((await p2p.getOffer(postedSince.id, SELLER)).status).toBe('paused');
+    });
+
+    it('posting an ad and removing its only method at once never leaves an active ad nobody can pay', async () => {
+      for (let round = 0; round < 5; round++) {
+        await db!.truncateAll();
+        await registerMethod();
+        const only = await sellerInstrument();
+        const [posted, removed] = await Promise.allSettled([
+          sellAd([METHOD]),
+          p2p.removeMethod({ instrumentId: only.id, ownerId: SELLER, pauseOfferIds: [] }),
+        ]);
+        // Under the maker's instrument key one goes first: the post sees the method gone, or the removal sees the ad.
+        expect([posted.status, removed.status].sort()).toEqual(['fulfilled', 'rejected']);
+        if (posted.status === 'rejected') expect(posted.reason).toMatchObject({ code: 'p2p.offer_method_no_destination' });
+        else expect(removed).toMatchObject({ reason: { code: 'p2p.method_in_use' } });
+        const unpayable = await sql`
+          SELECT o.id FROM p2p.offers o
+           WHERE o.status = 'active' AND NOT EXISTS (
+             SELECT 1 FROM p2p.payment_instruments i WHERE i.owner_id = o.maker_id AND i.status = 'active'
+           )
+        `;
+        expect(unpayable).toHaveLength(0);
+      }
+    });
+
+    it('erasing the maker erases the record of their removals', async () => {
+      const only = await sellerInstrument();
+      const ad = await sellAd([METHOD]);
+      await p2p.removeMethod({ instrumentId: only.id, ownerId: SELLER, pauseOfferIds: [ad.id] });
+      const report = await new P2pErasure(sql).eraseFor(SELLER);
+      expect(report.erased).toContainEqual({ category: 'ads paused by a removed payment method', rows: 1 });
+      expect(await owed()).toHaveLength(0);
+    });
+
     it('confirmed, the method goes, its ads pause with the reason, the maker is told once, and an ad with another method stays up', async () => {
       const only = await sellerInstrument();
       await secondInstrument();
       const alone = await sellAd([METHOD]);
       const covered = await sellAd([METHOD, SECOND]);
-      const removed = await callerFor(SELLER).instruments.remove({ instrumentId: only.id, pauseAds: true });
+      const removed = await callerFor(SELLER).instruments.remove({ instrumentId: only.id, pauseOfferIds: [alone.id] });
       expect(removed.status).toBe('removed');
 
       const pausedAd = await callerFor(SELLER).offers.get({ offerId: alone.id });
@@ -1723,7 +1804,7 @@ describe('svc-p2p payment instruments', () => {
       expect(notices()).toHaveLength(1);
     });
 
-    it('ads in another currency, buy ads and paused ads are not touched', async () => {
+    it('ads in another currency and buy ads are not touched; an ad paused by hand is not asked about but takes the reason', async () => {
       const usd = await sellerInstrument();
       await sellerInstrument({ fiatCurrency: 'EUR' });
       const euro = await sellAd([METHOD], 'EUR');
@@ -1741,16 +1822,18 @@ describe('svc-p2p payment instruments', () => {
       const byHand = await sellAd([METHOD]);
       await p2p.pauseOffer(byHand.id, SELLER);
       expect((await p2p.methodRemovalImpact(usd.id, SELLER)).ads).toEqual([]);
-      await p2p.removeMethod({ instrumentId: usd.id, ownerId: SELLER, pauseAds: false });
+      await p2p.removeMethod({ instrumentId: usd.id, ownerId: SELLER, pauseOfferIds: [] });
       expect((await p2p.getOffer(euro.id, SELLER)).status).toBe('active');
       expect((await p2p.getOffer(buy.id, SELLER)).status).toBe('active');
-      expect(await p2p.getOffer(byHand.id, SELLER)).toMatchObject({ status: 'paused', pauseReason: null });
+      // Already off the board, so nothing was asked and no notice is owed; it now says why resuming needs a method first.
+      expect(await p2p.getOffer(byHand.id, SELLER)).toMatchObject({ status: 'paused', pauseReason: 'method_removed' });
+      expect(await owed()).toHaveLength(0);
     });
 
     it('the ad resumes only once a method is payable again, and resuming clears the reason', async () => {
       const only = await sellerInstrument();
       const ad = await sellAd([METHOD]);
-      await p2p.removeMethod({ instrumentId: only.id, ownerId: SELLER, pauseAds: true });
+      await p2p.removeMethod({ instrumentId: only.id, ownerId: SELLER, pauseOfferIds: [ad.id] });
       await expect(callerFor(SELLER).offers.resume({ offerId: ad.id })).rejects.toMatchObject({
         cause: { code: 'p2p.offer_method_no_destination' },
       });
@@ -1764,7 +1847,7 @@ describe('svc-p2p payment instruments', () => {
     it('closing a paused ad clears the reason, and pausing by hand never sets one', async () => {
       const only = await sellerInstrument();
       const ad = await sellAd([METHOD]);
-      await p2p.removeMethod({ instrumentId: only.id, ownerId: SELLER, pauseAds: true });
+      await p2p.removeMethod({ instrumentId: only.id, ownerId: SELLER, pauseOfferIds: [ad.id] });
       expect(await p2p.closeOffer(ad.id, SELLER)).toMatchObject({ status: 'closed', pauseReason: null });
     });
 
@@ -1772,7 +1855,7 @@ describe('svc-p2p payment instruments', () => {
       const only = await sellerInstrument();
       const ad = await sellAd([METHOD]);
       const publish = vi.spyOn(bus, 'publish').mockRejectedValueOnce(new Error('bus unavailable'));
-      await p2p.removeMethod({ instrumentId: only.id, ownerId: SELLER, pauseAds: true });
+      await p2p.removeMethod({ instrumentId: only.id, ownerId: SELLER, pauseOfferIds: [ad.id] });
       publish.mockRestore();
       expect(await p2p.getOffer(ad.id, SELLER)).toMatchObject({ status: 'paused', pauseReason: 'method_removed' });
       expect(notices()).toHaveLength(0);
@@ -1785,9 +1868,9 @@ describe('svc-p2p payment instruments', () => {
 
     it('a removal already done answers not found, and pauses nothing twice', async () => {
       const only = await sellerInstrument();
-      await sellAd([METHOD]);
-      await p2p.removeMethod({ instrumentId: only.id, ownerId: SELLER, pauseAds: true });
-      await expect(p2p.removeMethod({ instrumentId: only.id, ownerId: SELLER, pauseAds: true })).rejects.toMatchObject({
+      const ad = await sellAd([METHOD]);
+      await p2p.removeMethod({ instrumentId: only.id, ownerId: SELLER, pauseOfferIds: [ad.id] });
+      await expect(p2p.removeMethod({ instrumentId: only.id, ownerId: SELLER, pauseOfferIds: [ad.id] })).rejects.toMatchObject({
         code: 'p2p.instrument_not_found',
       });
       expect(await owed()).toHaveLength(1);
@@ -1799,8 +1882,8 @@ describe('svc-p2p payment instruments', () => {
       const second = await secondInstrument();
       const ad = await sellAd([METHOD, SECOND]);
       const results = await Promise.allSettled([
-        p2p.removeMethod({ instrumentId: first.id, ownerId: SELLER, pauseAds: false }),
-        p2p.removeMethod({ instrumentId: second.id, ownerId: SELLER, pauseAds: false }),
+        p2p.removeMethod({ instrumentId: first.id, ownerId: SELLER, pauseOfferIds: [] }),
+        p2p.removeMethod({ instrumentId: second.id, ownerId: SELLER, pauseOfferIds: [] }),
       ]);
       // Under the maker's instrument key one goes first; the other then sees it is the ad's last method and asks.
       expect(results.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
@@ -1812,7 +1895,7 @@ describe('svc-p2p payment instruments', () => {
     it('the maker finds the paused ad in their own list and reads it as stored; anyone else gets not found', async () => {
       const only = await sellerInstrument();
       const ad = await sellAd([METHOD]);
-      await p2p.removeMethod({ instrumentId: only.id, ownerId: SELLER, pauseAds: true });
+      await p2p.removeMethod({ instrumentId: only.id, ownerId: SELLER, pauseOfferIds: [ad.id] });
       expect((await callerFor(SELLER).offers.mine({ status: 'paused', limit: 50 })).map((o) => [o.id, o.pauseReason])).toEqual([
         [ad.id, 'method_removed'],
       ]);
@@ -1830,7 +1913,7 @@ describe('svc-p2p payment instruments', () => {
       await expect(callerFor(BUYER).trades.paymentInstrument({ tradeId: trade.id })).resolves.toBeTruthy();
 
       // The ad it was the only method for pauses with it (J-p2p-04 #4); the order already taken carries on.
-      await callerFor(SELLER).instruments.remove({ instrumentId: created.id, pauseAds: true });
+      await callerFor(SELLER).instruments.remove({ instrumentId: created.id, pauseOfferIds: [trade.offerId] });
 
       // The buyer is mid-payment. A removal must not blank the screen they are
       // copying an account number out of.
@@ -2121,7 +2204,7 @@ describe('svc-p2p payment instruments', () => {
       const created = await sellerInstrument();
       const { trade } = await liveTrade();
 
-      await callerFor(SELLER).instruments.remove({ instrumentId: created.id, pauseAds: true });
+      await callerFor(SELLER).instruments.remove({ instrumentId: created.id, pauseOfferIds: [trade.offerId] });
 
       // The live row is wiped; the trade's own frozen copy is a separate one and
       // survives until the retention sweep. Wiping on removal must not become a

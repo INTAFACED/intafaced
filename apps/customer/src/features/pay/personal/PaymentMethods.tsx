@@ -211,8 +211,9 @@ function RemoveMethod({ pay, instrumentId, onRemoved }: { pay: PersonalPayApi; i
       ready={approval !== undefined && impact !== null}
       notReadyReason={t('stepUpFirst')}
       perform={async () => {
-        const pauseAds = (impact?.ads ?? []).some((ad) => ad.pauses);
-        const result = await pay.removeInstrument(instrumentId, approval ?? undefined, pauseAds);
+        // The ads shown pausing are the ones agreed to: svc-p2p refuses if any other would pause.
+        const pausing = (impact?.ads ?? []).filter((ad) => ad.pauses).map((ad) => ad.offerId);
+        const result = await pay.removeInstrument(instrumentId, approval ?? undefined, pausing);
         // A confirmation is spent once, kept or refused: the next try asks again.
         if (!result.ok) {
           setApproval(undefined);
