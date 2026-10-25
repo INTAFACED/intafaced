@@ -39,6 +39,12 @@ export const DESK_ROOMS: readonly DeskRoom[] = [
     label: 'Freezes & approvals',
     job: 'Trading restrictions per account; second-person approvals.',
   },
+  {
+    id: 'vip-applications',
+    href: '/trade-ops/vip-applications',
+    label: 'VIP applications',
+    job: 'Decide applications for a VIP fee tier with a second founder; grant the trial the owner publishes.',
+  },
   { id: 'orders', href: '/trade-ops/orders', label: 'Orders', job: 'Open orders across accounts; open one; seeded or customer.' },
   { id: 'positions', href: '/trade-ops/positions', label: 'Positions', job: 'Look up positions and their margin state.' },
   {
