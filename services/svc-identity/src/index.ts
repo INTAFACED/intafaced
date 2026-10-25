@@ -96,7 +96,7 @@ import { createMfaResetRouter } from './mfa-reset-router.js';
 import { createSupportRecoveryRouter } from './support-recovery-router.js';
 import { createRecoveryKeysRouter } from './recovery-keys-router.js';
 import { createDeathNoticesRouter } from './death-notices-router.js';
-import { relayDeathNoticeEvents, verifyRecoveryClaim } from './auth/death-notices.js';
+import { listRecoveryEstates, relayDeathNoticeEvents, verifyRecoveryClaim } from './auth/death-notices.js';
 import { registerRecoveryClaimVerifyRoute } from './auth/recovery-claim-verify.js';
 import { RecoveryKeys } from './auth/recovery-keys.js';
 import { createTrustedDevicesRouter } from './trusted-devices-router.js';
@@ -889,6 +889,7 @@ registerTrustedDeviceReadRoute(app, {
 /** Whether a recovery claim holds, for svc-bank before it sweeps a dead owner's trading balances to the heir (RC-identity-08). */
 registerRecoveryClaimVerifyRoute(app, {
   verify: (input) => verifyRecoveryClaim(sql, input),
+  estates: (heirUserId) => listRecoveryEstates(sql, heirUserId),
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
   ...(doorS2s ? { s2s: doorS2s } : {}),

@@ -31,6 +31,7 @@ import {
   type RecoveryClaimRefusal,
   type RecoveryClaimVerdict,
   type RecoveryClaimVerifyRequest,
+  type RecoveryEstate,
 } from '@intafaced/contracts/identity-recovery';
 import type { EventBus } from '@intafaced/events';
 import type { Sql } from 'postgres';
@@ -419,4 +420,26 @@ export async function verifyRecoveryClaim(sql: Sql, input: RecoveryClaimVerifyRe
     if (signers.size < plan.threshold) return refuse('identity.recovery_signatures_short');
     return { ok: true, noticeId: notice.id, threshold: plan.threshold, signerKeyIds: [...signers].sort() };
   });
+}
+
+/**
+ * The accounts `heirUserId` may claim (RC-identity-08): the owner named them, a death notice is confirmed, the account is
+ * still in the freeze that confirmation made, and the plan was set before the notice. The same rules as
+ * `verifyRecoveryClaim`, so the claim room never offers an account the check would refuse for those reasons.
+ */
+export async function listRecoveryEstates(sql: Sql, heirUserId: string): Promise<RecoveryEstate[]> {
+  const rows = await sql<Array<{ user_id: string; handle: string; notice_id: string; threshold: number; live_keys: number }>>`
+    SELECT u.id AS user_id, u.handle, n.id AS notice_id, p.threshold,
+      (SELECT count(*)::int FROM recovery_keys k
+        WHERE k.user_id = u.id AND k.revoked_at IS NULL AND k.created_at < n.created_at) AS live_keys
+    FROM recovery_plans p
+    JOIN users u ON u.id = p.user_id
+    JOIN death_notices n ON n.subject_user_id = u.id AND n.status = 'confirmed'
+    JOIN users h ON h.id = p.heir_user_id
+    WHERE p.heir_user_id = ${heirUserId.toLowerCase()} AND h.status = 'active'
+      AND p.threshold IS NOT NULL AND p.updated_at < n.created_at
+      AND u.status = 'frozen' AND u.identity_control_version = n.frozen_control_version
+    ORDER BY n.decided_at, u.id
+    LIMIT 20`;
+  return rows.map((r) => ({ userId: r.user_id, handle: r.handle, noticeId: r.notice_id, threshold: r.threshold, liveKeys: r.live_keys }));
 }

@@ -21,6 +21,7 @@ import {
   confirmDeathNotice,
   deathNoticePayloadHash,
   listDeathNotices,
+  listRecoveryEstates,
   recordDeathNotice,
   rejectDeathNotice,
   relayDeathNoticeEvents,
@@ -388,6 +389,22 @@ if (!available) {
       const claim = { userId: owner.userId, heirUserId: heir.userId, claimId: randomUUID() };
       return { owner, heir, sister, friend, noticeId, claim };
     }
+
+    it('lists the accounts a heir may claim, by the same rules as the check', async () => {
+      const { owner, heir, noticeId } = await estate();
+      expect(await listRecoveryEstates(db.sql, heir.userId)).toEqual([
+        { userId: owner.userId, handle: owner.handle, noticeId, threshold: 2, liveKeys: 2 },
+      ]);
+      // Nobody else sees it, and an estate with no confirmed notice is not listed.
+      expect(await listRecoveryEstates(db.sql, owner.userId)).toEqual([]);
+      const pending = await estate({ confirm: false });
+      expect(await listRecoveryEstates(db.sql, pending.heir.userId)).toEqual([]);
+      // A key added after the notice does not count as live; a restore takes the account off the list.
+      await addKey(owner.userId, 'Late');
+      expect((await listRecoveryEstates(db.sql, heir.userId))[0]!.liveKeys).toBe(2);
+      await db.sql`UPDATE users SET status = 'active', identity_control_version = identity_control_version + 1 WHERE id = ${owner.userId}`;
+      expect(await listRecoveryEstates(db.sql, heir.userId)).toEqual([]);
+    });
 
     it('answers yes for enough distinct live keys signing this claim for the named heir', async () => {
       const { sister, friend, noticeId, claim } = await estate();

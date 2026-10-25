@@ -142,6 +142,27 @@ export function recoveryClaimMessage(claim: { userId: string; heirUserId: string
 
 /** `POST`, service credentials, svc-bank only. */
 export const RECOVERY_CLAIM_VERIFY_PATH = '/internal/recovery-claims/verify' as const;
+
+/**
+ * `GET`, service credentials, svc-bank only: the accounts a person may claim as heir. Each is an account whose owner
+ * named this person, with a confirmed death notice, still in the freeze that confirmation made, and a setup the owner
+ * made before the notice. The heir's claim room lists these; nothing else names a dead owner's account to anyone.
+ */
+export const RECOVERY_ESTATES_PATH = '/internal/recovery-claims/estates/:heirUserId' as const;
+export function recoveryEstatesPath(heirUserId: string): string {
+  return `/internal/recovery-claims/estates/${encodeURIComponent(heirUserId)}`;
+}
+export const recoveryEstateSchema = z
+  .object({
+    userId: z.string().guid(),
+    handle: z.string(),
+    noticeId: z.string().guid(),
+    threshold: z.number().int().min(1),
+    liveKeys: z.number().int().min(0),
+  })
+  .strict();
+export type RecoveryEstate = z.infer<typeof recoveryEstateSchema>;
+export const recoveryEstatesSchema = z.object({ estates: z.array(recoveryEstateSchema) }).strict();
 export const RECOVERY_CLAIM_SIGNATURES_MAX = 32;
 
 export const recoveryClaimSignatureSchema = z

@@ -2,12 +2,16 @@
  * The recovery claim check for svc-bank (`POST /internal/recovery-claims/verify`, `recoveryClaimVerdictSchema`). Before
  * it sweeps a dead owner's trading balances to the heir (RC-identity-08), svc-bank asks here whether the account has a
  * confirmed death notice and whether enough of the owner's live recovery keys signed this claim. Only svc-bank may ask;
- * a refusal is answered as a verdict, so the caller refuses the claim with its code.
+ * a refusal is answered as a verdict, so the caller refuses the claim with its code. The estates read answers which
+ * accounts a person may claim as heir, for the claim room.
  */
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import type { ServiceBodyBindMode } from '@intafaced/contracts';
 import {
   RECOVERY_CLAIM_VERIFY_PATH,
+  RECOVERY_ESTATES_PATH,
+  type RecoveryEstate,
   recoveryClaimVerifyRequestSchema,
   type RecoveryClaimVerdict,
   type RecoveryClaimVerifyRequest,
@@ -21,6 +25,7 @@ export function registerRecoveryClaimVerifyRoute(
   app: FastifyInstance,
   opts: {
     verify: (input: RecoveryClaimVerifyRequest) => Promise<RecoveryClaimVerdict>;
+    estates: (heirUserId: string) => Promise<RecoveryEstate[]>;
     internalSecret: string | undefined;
     bodyBind?: ServiceBodyBindMode;
     s2s?: IdentityS2s;
@@ -39,5 +44,21 @@ export function registerRecoveryClaimVerifyRoute(
       return reply.code(400).send({ error: 'invalid recovery claim', code: 'identity.recovery_claim_invalid' });
     }
     return opts.verify(parsed.data);
+  });
+
+  const estateParams = z.object({ heirUserId: z.string().guid() }).strict();
+  app.get(RECOVERY_ESTATES_PATH, async (req, reply) => {
+    const { service } = serviceOfRequest(req, opts.internalSecret, opts.bodyBind, opts.s2s);
+    if (service === null) {
+      return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
+    }
+    if (!RECOVERY_CLAIM_VERIFIERS.has(service)) {
+      return reply.code(403).send({ error: 'this service may not check recovery claims', code: 'identity.recovery_verifier_refused' });
+    }
+    const parsed = estateParams.safeParse(req.params);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'invalid account id', code: 'identity.recovery_claim_invalid' });
+    }
+    return { estates: await opts.estates(parsed.data.heirUserId) };
   });
 }

@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
-import { retainRawBody, serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { retainRawBody, serviceAuthHeaders, serviceAuthHeadersForBody } from '@intafaced/contracts';
 import {
   RECOVERY_CLAIM_VERIFY_PATH,
   recoveryClaimVerdictSchema,
+  recoveryEstatesPath,
+  recoveryEstatesSchema,
+  type RecoveryEstate,
   type RecoveryClaimVerdict,
   type RecoveryClaimVerifyRequest,
 } from '@intafaced/contracts/identity-recovery';
@@ -27,10 +30,16 @@ function body(over: Partial<RecoveryClaimVerifyRequest> = {}): RecoveryClaimVeri
   };
 }
 
-async function app(verify: (input: RecoveryClaimVerifyRequest) => Promise<RecoveryClaimVerdict>, secret: string | null = SECRET) {
+const ESTATE: RecoveryEstate = { userId: USER, handle: 'TESTowner', noticeId: NOTICE, threshold: 2, liveKeys: 2 };
+
+async function app(
+  verify: (input: RecoveryClaimVerifyRequest) => Promise<RecoveryClaimVerdict>,
+  secret: string | null = SECRET,
+  estates: (heirUserId: string) => Promise<RecoveryEstate[]> = async () => [ESTATE],
+) {
   const server = Fastify({ logger: false });
   retainRawBody(server);
-  registerRecoveryClaimVerifyRoute(server, { verify, internalSecret: secret ?? undefined });
+  registerRecoveryClaimVerifyRoute(server, { verify, estates, internalSecret: secret ?? undefined });
   await server.ready();
   return server;
 }
@@ -98,5 +107,30 @@ describe('POST /internal/recovery-claims/verify', () => {
   it('refuses everything when no service secret is configured', async () => {
     const server = await app(async () => OK, null);
     expect((await server.inject(post(body()))).statusCode).toBe(401);
+  });
+});
+
+describe('GET /internal/recovery-claims/estates/:heirUserId', () => {
+  const get = (url: string, service = 'svc-bank') => ({ method: 'GET' as const, url, headers: serviceAuthHeaders(service, SECRET) });
+
+  it('needs service credentials, only svc-bank may ask, and the id must be an id', async () => {
+    const asked: string[] = [];
+    const server = await app(
+      async () => OK,
+      SECRET,
+      async (heir) => {
+        asked.push(heir);
+        return [ESTATE];
+      },
+    );
+    expect((await server.inject({ method: 'GET', url: recoveryEstatesPath(HEIR) })).statusCode).toBe(401);
+    const other = await server.inject(get(recoveryEstatesPath(HEIR), 'svc-trade'));
+    expect(other.statusCode).toBe(403);
+    expect((await server.inject(get(recoveryEstatesPath('not-an-id')))).statusCode).toBe(400);
+    expect(asked).toHaveLength(0);
+    const ok = await server.inject(get(recoveryEstatesPath(HEIR)));
+    expect(ok.statusCode).toBe(200);
+    expect(recoveryEstatesSchema.parse(ok.json())).toEqual({ estates: [ESTATE] });
+    expect(asked).toEqual([HEIR]);
   });
 });
