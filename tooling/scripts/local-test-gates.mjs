@@ -634,6 +634,10 @@ async function signInPair(ctx, ops, saveSteps) {
       async tradeOpsToken() {
         return mintOperatorToken(ctx, op, ['admin:read', 'admin:write']);
       },
+      /** Same session as compliance: the trade desk's VIP application review also needs `admin:compliance`. */
+      async complianceToken() {
+        return mintOperatorToken(ctx, op, ['admin:read', 'admin:write', 'admin:compliance']);
+      },
       /** Same session with the CRM scopes svc-ops checks before it asks identity whether the caller is a founder. */
       async crmToken() {
         return mintOperatorToken(ctx, op, ['ops:read', 'ops:write']);
@@ -1434,7 +1438,7 @@ export function vipTrialGrantPayloadHash({ applicationId, reason, trial }) {
  */
 export async function reviewVipApplication(ctx, { applicationId, decision, reason, sessions = null }) {
   const pair = sessions ?? (await approverSessions(ctx));
-  const list = data(await ctx.edge.query('trade', 'admin.vipApplications.list', { status: 'pending' }, await pair.a.tradeOpsToken()));
+  const list = data(await ctx.edge.query('trade', 'admin.vipApplications.list', { status: 'pending' }, await pair.a.complianceToken()));
   if (!list) throw new Error('trade admin.vipApplications.list gave no answer');
   const body = { applicationId, decision, reason: reason ?? `${MARKERS.label}: TEST VIP review` };
   const ids = await twoPerson(ctx, pair, {
@@ -1450,7 +1454,7 @@ export async function reviewVipApplication(ctx, { applicationId, decision, reaso
     'trade',
     'admin.vipApplications.review',
     { ...body, approvalId: ids.approvalId, operationId: ids.operationId },
-    await pair.a.tradeOpsToken(),
+    await pair.a.complianceToken(),
   );
 }
 
@@ -1463,7 +1467,7 @@ export async function grantVipTrial(ctx, { applicationId, reason, sessions = nul
   const pair = sessions ?? (await approverSessions(ctx));
   const body = { applicationId, reason: reason ?? `${MARKERS.label}: TEST VIP trial` };
   const list = data(
-    await ctx.edge.query('trade', 'admin.vipApplications.list', { status: 'approved_no_trial' }, await pair.a.tradeOpsToken()),
+    await ctx.edge.query('trade', 'admin.vipApplications.list', { status: 'approved_no_trial' }, await pair.a.complianceToken()),
   );
   if (!list) throw new Error('trade admin.vipApplications.list gave no answer');
   if (!list.trialRules) {
@@ -1472,7 +1476,7 @@ export async function grantVipTrial(ctx, { applicationId, reason, sessions = nul
       'trade',
       'admin.vipApplications.grantTrial',
       { ...body, approvalId: 'none-proposed', operationId: 'none-proposed' },
-      await pair.a.tradeOpsToken(),
+      await pair.a.complianceToken(),
     );
   }
   const ids = await twoPerson(ctx, pair, {
@@ -1488,7 +1492,7 @@ export async function grantVipTrial(ctx, { applicationId, reason, sessions = nul
     'trade',
     'admin.vipApplications.grantTrial',
     { ...body, approvalId: ids.approvalId, operationId: ids.operationId },
-    await pair.a.tradeOpsToken(),
+    await pair.a.complianceToken(),
   );
 }
 

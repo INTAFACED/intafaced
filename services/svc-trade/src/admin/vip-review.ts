@@ -126,6 +126,12 @@ export function vipTrialGrantPayload(input: { applicationId: string; reason: str
   return { actionType: VIP_TRIAL_GRANT_ACTION, applicationId: input.applicationId, reason: input.reason, trial: input.trial };
 }
 
+/** Deciding an application is compliance's: `admin:write` and `admin:compliance`, as opening its proof. */
+function requireCompliance(principal: Principal): void {
+  requireOperatorWrite(principal);
+  requireScope(principal, 'admin:compliance');
+}
+
 export class VipReviewAdmin {
   constructor(private readonly deps: VipReviewDeps) {}
 
@@ -207,9 +213,11 @@ export class VipReviewAdmin {
     principal: Principal,
     input: { applicationId: string; decision: VipDecision; reason: string; approvalId: string; operationId: string },
   ): Promise<VipReviewResult> {
-    requireOperatorWrite(principal);
+    requireCompliance(principal);
     const reason = requireReason(input.reason);
-    const replay = await this.replay(input.approvalId, input.applicationId);
+    const decided: readonly VipApplicationStatus[] = input.decision === 'reject' ? ['rejected'] : ['approved', 'approved_no_trial'];
+    const expected = { statuses: decided, reason };
+    const replay = await this.replay(input.approvalId, input.applicationId, expected);
     if (replay) return replay;
     const current = await this.row(input.applicationId);
     if (current.status !== 'pending') {
@@ -218,6 +226,7 @@ export class VipReviewAdmin {
     const at = this.deps.now();
     const schedule = await this.deps.scheduleAt(at);
     const trial = input.decision === 'approve' ? trialRulesOf(schedule) : null;
+    if (trial) await this.noTrialInForce(this.deps.sql, current.user_id, at);
     const consumed = await consumeApproval(this.deps.approvals, {
       approvalId: input.approvalId,
       actionType: VIP_REVIEW_ACTION,
@@ -228,13 +237,15 @@ export class VipReviewAdmin {
     });
     this.twoPeople(principal, consumed.approverId);
     const status: VipApplicationStatus = input.decision === 'reject' ? 'rejected' : trial ? 'approved' : 'approved_no_trial';
-    await this.deps.sql.begin(async (tx) => {
+    const write = this.deps.sql.begin(async (tx) => {
       const q = tx as unknown as Sql;
+      if (trial) await this.lockPerson(q, current.user_id);
       const [locked] = await q<Array<{ status: VipApplicationStatus }>>`
         SELECT status FROM trade.vip_applications WHERE id = ${input.applicationId} FOR UPDATE`;
       if (locked?.status !== 'pending') {
         throw new TradeOpsError('vip.application_decided', `the application is ${locked?.status ?? 'gone'}, not waiting for review`);
       }
+      if (trial) await this.noTrialInForce(q, current.user_id, at);
       await q`UPDATE trade.vip_applications SET status = ${status}, updated_at = ${at.toISOString()} WHERE id = ${input.applicationId}`;
       await q`
         INSERT INTO trade.vip_application_events (application_id, status, actor_id, actor_role, reason, approver_id, approval_id, created_at)
@@ -255,6 +266,7 @@ export class VipReviewAdmin {
         at,
       );
     });
+    await this.settled(write, input.approvalId, input.applicationId, expected);
     return this.result(input.applicationId);
   }
 
@@ -266,9 +278,10 @@ export class VipReviewAdmin {
     principal: Principal,
     input: { applicationId: string; reason: string; approvalId: string; operationId: string },
   ): Promise<VipReviewResult> {
-    requireOperatorWrite(principal);
+    requireCompliance(principal);
     const reason = requireReason(input.reason);
-    const replay = await this.replay(input.approvalId, input.applicationId);
+    const expected = { statuses: ['approved'] as const, reason };
+    const replay = await this.replay(input.approvalId, input.applicationId, expected);
     if (replay) return replay;
     const current = await this.row(input.applicationId);
     if (current.status !== 'approved_no_trial') {
@@ -283,6 +296,7 @@ export class VipReviewAdmin {
     if (!trial) {
       throw new TradeOpsError('vip.trial_unset', 'the owner has not published a VIP trial (tier and days), so none can be granted');
     }
+    await this.noTrialInForce(this.deps.sql, current.user_id, at);
     const consumed = await consumeApproval(this.deps.approvals, {
       approvalId: input.approvalId,
       actionType: VIP_TRIAL_GRANT_ACTION,
@@ -292,13 +306,15 @@ export class VipReviewAdmin {
       operationId: input.operationId,
     });
     this.twoPeople(principal, consumed.approverId);
-    await this.deps.sql.begin(async (tx) => {
+    const write = this.deps.sql.begin(async (tx) => {
       const q = tx as unknown as Sql;
+      await this.lockPerson(q, current.user_id);
       const [locked] = await q<Array<{ status: VipApplicationStatus }>>`
         SELECT status FROM trade.vip_applications WHERE id = ${input.applicationId} FOR UPDATE`;
       if (locked?.status !== 'approved_no_trial') {
         throw new TradeOpsError('vip.trial_not_owed', `the application is ${locked?.status ?? 'gone'}: it is not owed a trial`);
       }
+      await this.noTrialInForce(q, current.user_id, at);
       await this.insertTrial(q, current.user_id, input.applicationId, trial, scheduleVersionOf(schedule), principal.userId, at);
       await q`UPDATE trade.vip_applications SET status = 'approved', updated_at = ${at.toISOString()} WHERE id = ${input.applicationId}`;
       await q`
@@ -319,6 +335,7 @@ export class VipReviewAdmin {
         at,
       );
     });
+    await this.settled(write, input.approvalId, input.applicationId, expected);
     return this.result(input.applicationId);
   }
 
@@ -329,13 +346,60 @@ export class VipReviewAdmin {
     }
   }
 
-  /** The decision an approval already made for this application, or null; one made for another refuses. */
-  private async replay(approvalId: string, applicationId: string): Promise<VipReviewResult | null> {
-    const [event] = await this.deps.sql<Array<{ application_id: string }>>`
-      SELECT application_id::text AS application_id FROM trade.vip_application_events WHERE approval_id = ${approvalId}`;
+  /**
+   * The decision an approval already made for this application, or null. One made for another application, or for
+   * another decision or reason, refuses: the same approval answers only the request it was consumed for.
+   */
+  private async replay(
+    approvalId: string,
+    applicationId: string,
+    expected: { statuses: readonly VipApplicationStatus[]; reason: string },
+  ): Promise<VipReviewResult | null> {
+    const [event] = await this.deps.sql<Array<{ application_id: string; status: VipApplicationStatus; reason: string | null }>>`
+      SELECT application_id::text AS application_id, status, reason FROM trade.vip_application_events WHERE approval_id = ${approvalId}`;
     if (!event) return null;
     if (event.application_id !== applicationId) throw new TradeOpsError('approval_reused', 'approval was already consumed');
+    if (!expected.statuses.includes(event.status) || event.reason !== expected.reason) {
+      throw new TradeOpsError('approval_mismatch', 'this approval was used for another decision or reason');
+    }
     return this.result(applicationId);
+  }
+
+  /**
+   * Wait for a decision's write. The same approval sent twice at once (a double click, a client retry) passes the
+   * replay check twice and identity answers both consumes; the second write then finds the decision made, or meets the
+   * approval's unique index. If that decision is this approval's own, answer it instead of refusing.
+   */
+  private async settled(
+    write: Promise<unknown>,
+    approvalId: string,
+    applicationId: string,
+    expected: { statuses: readonly VipApplicationStatus[]; reason: string },
+  ): Promise<void> {
+    try {
+      await write;
+    } catch (error) {
+      const raced =
+        (error instanceof TradeOpsError && (error.code === 'vip.application_decided' || error.code === 'vip.trial_not_owed')) ||
+        (error as { code?: string }).code === '23505';
+      if (raced && (await this.replay(approvalId, applicationId, expected))) return;
+      throw error;
+    }
+  }
+
+  /** One trial decision per person at a time, so two applications cannot each grant a trial in force. */
+  private async lockPerson(q: Sql, userId: string): Promise<void> {
+    await q`SELECT pg_advisory_xact_lock(hashtextextended(${`trade.vip_trial:${userId}`}, 0))`;
+  }
+
+  /** A person with a trial in force is granted no second one: a new trial waits until it ends, and a fresh review. */
+  private async noTrialInForce(q: Sql, userId: string, at: Date): Promise<void> {
+    const [active] = await q<Array<{ ends_at: Date }>>`
+      SELECT ends_at FROM trade.vip_trials WHERE user_id = ${userId} AND starts_at <= ${at.toISOString()} AND ends_at > ${at.toISOString()}
+       ORDER BY ends_at DESC LIMIT 1`;
+    if (active) {
+      throw new TradeOpsError('vip.trial_active', `this person has a VIP trial in force until ${active.ends_at.toISOString()}`);
+    }
   }
 
   private async insertTrial(
@@ -352,7 +416,7 @@ export class VipReviewAdmin {
     await q`
       INSERT INTO trade.vip_trials (id, trial_key, user_id, application_id, tier_id, days, starts_at, ends_at, schedule_version, granted_by)
       VALUES (${randomUUID()}, ${`vip-trial:${userId}:${applicationId}`}, ${userId}, ${applicationId}, ${trial.tierId}, ${trial.days},
-              ${at.toISOString()}::timestamptz, ${at.toISOString()}::timestamptz + make_interval(days => ${trial.days}::int),
+              ${at.toISOString()}::timestamptz, ${at.toISOString()}::timestamptz + make_interval(hours => ${trial.days * 24}::int),
               ${scheduleVersion}, ${grantedBy})`;
   }
 

@@ -4,6 +4,7 @@
  * `vip.trial_unset`, a trial granted is the tier an order is charged at while it lasts, the same approval again answers
  * what it decided, and every refusal writes nothing. TEST rules, a TEST key and TEST people only.
  */
+import postgres from 'postgres';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { AuthError } from '@intafaced/auth';
 import type { TestDatabase } from '@intafaced/db';
@@ -27,7 +28,7 @@ const KEY = Buffer.alloc(32, 7);
 const PDF = Buffer.from('%PDF-1.7 TEST proof of status, never a real statement');
 const OP = '33333333-3333-4333-8333-333333333333';
 const APPROVER = '44444444-4444-4444-8444-444444444444';
-const writer = () => principalFor(OP, ['admin:read', 'admin:write']);
+const writer = () => principalFor(OP, ['admin:read', 'admin:write', 'admin:compliance']);
 const compliance = () => principalFor(OP, ['admin:read', 'admin:compliance']);
 const REASON = 'TEST statement checked against the venue';
 const DAY = 86_400_000;
@@ -335,6 +336,94 @@ describe('deciding a VIP application', () => {
     const reader = principalFor(OP, ['admin:read']);
     expect(await refusal(admin.review(reader, { applicationId: id, decision: 'reject', reason: REASON, ...again }))).not.toBe('');
     expect(await refusal(admin.grantTrial(writer(), { applicationId: id, reason: REASON, ...again }))).toBe('vip.trial_not_owed');
+  });
+
+  it('refuses a decider without the compliance scope, writing nothing', async () => {
+    const { admin, approvals } = desk(TRIAL);
+    const id = await apply();
+    const before = await counts();
+    const ids = approveReview(approvals, id, 'reject', null);
+    const writeOnly = principalFor(OP, ['admin:read', 'admin:write']);
+    expect(await refusal(admin.review(writeOnly, { applicationId: id, decision: 'reject', reason: REASON, ...ids }))).toBe('scope.denied');
+    expect(await counts()).toEqual(before);
+  });
+
+  it('answers the same approval sent twice at once with its one decision', async () => {
+    const { admin, approvals } = desk(TRIAL);
+    const id = await apply();
+    const ids = approveReview(approvals, id, 'approve', { tierId: 'test-vip-2', days: 30 });
+    // Identity answers a consume of the same approval and operation again, as the real one does.
+    const once = approvals.consume.bind(approvals);
+    let first: Awaited<ReturnType<typeof once>> | undefined;
+    approvals.consume = async (input) => (first ??= await once(input));
+    const both = await Promise.all([
+      admin.review(writer(), { applicationId: id, decision: 'approve', reason: REASON, ...ids }),
+      admin.review(writer(), { applicationId: id, decision: 'approve', reason: REASON, ...ids }),
+    ]);
+    expect(both.map((r) => r.application.status)).toEqual(['approved', 'approved']);
+    expect(await counts()).toMatchObject({ events: 2, trials: 1 });
+  });
+
+  it('refuses the same approval sent again for another decision or reason', async () => {
+    const { admin, approvals } = desk(TRIAL);
+    const id = await apply();
+    const ids = approveReview(approvals, id, 'reject', null);
+    await admin.review(writer(), { applicationId: id, decision: 'reject', reason: REASON, ...ids });
+    expect(await refusal(admin.review(writer(), { applicationId: id, decision: 'approve', reason: REASON, ...ids }))).toBe(
+      'approval_mismatch',
+    );
+    expect(await refusal(admin.review(writer(), { applicationId: id, decision: 'reject', reason: 'TEST another reason', ...ids }))).toBe(
+      'approval_mismatch',
+    );
+  });
+
+  it('grants no second trial while one is in force, before any approval is consumed', async () => {
+    const { admin, approvals } = desk(TRIAL);
+    const trial = { tierId: 'test-vip-2', days: 30 };
+    const first = await apply();
+    await admin.review(writer(), {
+      applicationId: first,
+      decision: 'approve',
+      reason: REASON,
+      ...approveReview(approvals, first, 'approve', trial),
+    });
+    const second = await apply(ALICE, 'vip-request-2');
+    const before = await counts();
+    const ids = approveReview(approvals, second, 'approve', trial);
+    expect(await refusal(admin.review(writer(), { applicationId: second, decision: 'approve', reason: REASON, ...ids }))).toBe(
+      'vip.trial_active',
+    );
+    expect(await counts()).toEqual(before);
+    // Once it has ended, a fresh review can grant one, with the approval that was not spent.
+    clock = new Date(clock.getTime() + 31 * DAY);
+    const granted = await admin.review(writer(), { applicationId: second, decision: 'approve', reason: REASON, ...ids });
+    expect(granted.application.trial).toMatchObject(trial);
+  });
+
+  it('spans whole 24-hour days whatever the session time zone', async () => {
+    const id = await apply();
+    // A connection whose time zone has a clock change inside the trial: still exactly 30 × 24 hours, and the CHECK holds.
+    const newYork = postgres(db!.url, { max: 1, connection: { TimeZone: 'America/New_York' } });
+    try {
+      const approvals = new MemoryApprovalBook();
+      const admin = new VipReviewAdmin({
+        sql: newYork,
+        approvals,
+        proofKey: KEY,
+        scheduleAt: async () => schedule({ tierId: 'test-vip-1', days: 30 }),
+        now: () => clock,
+      });
+      const at = clock;
+      const result = await admin.review(writer(), {
+        applicationId: id,
+        decision: 'approve',
+        reason: REASON,
+        ...approveReview(approvals, id, 'approve', { tierId: 'test-vip-1', days: 30 }),
+      });
+      expect(Date.parse(result.application.trial!.endsAt) - at.getTime()).toBe(30 * DAY);
+    } finally {
+      await newYork.end();
+    }
   });
 
   it('keeps the history forward-only: a decision cannot go back, and a trial row never changes', async () => {

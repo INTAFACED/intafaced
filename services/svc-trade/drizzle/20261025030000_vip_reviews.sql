@@ -4,7 +4,8 @@
 -- Compliance decides a pending application with a second operator's approval (identity's action approval, consumed
 -- once). An approval grants the trial the owner publishes (`tierProgram.trial`); with none published the application
 -- is `approved_no_trial` and the grant refuses `vip.trial_unset` until one is. A trial is a time-limited fee tier,
--- keyed `vip-trial:<userId>:<applicationId>`, one per application. It moves no money.
+-- keyed `vip-trial:<userId>:<applicationId>`, one per application, its span whole 24-hour days (not calendar days in
+-- the session's time zone). It moves no money.
 
 -- Who decided, with whose approval: the second operator and the approval consumed are on the decision's event.
 ALTER TABLE "trade"."vip_application_events" ADD COLUMN IF NOT EXISTS "approver_id" text;
@@ -48,7 +49,7 @@ CREATE TABLE IF NOT EXISTS "trade"."vip_trials" (
   "granted_by"        text NOT NULL CONSTRAINT "vip_trials_granted_by_ck" CHECK (length(btrim("granted_by")) > 0),
   "created_at"        timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT "vip_trials_key_ck" CHECK ("trial_key" = 'vip-trial:' || "user_id"::text || ':' || "application_id"::text),
-  CONSTRAINT "vip_trials_span_ck" CHECK ("ends_at" = "starts_at" + make_interval(days => "days"))
+  CONSTRAINT "vip_trials_span_ck" CHECK ("ends_at" = "starts_at" + make_interval(hours => "days" * 24))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS "vip_trials_key_idx" ON "trade"."vip_trials" ("trial_key");
 CREATE UNIQUE INDEX IF NOT EXISTS "vip_trials_application_idx" ON "trade"."vip_trials" ("application_id");

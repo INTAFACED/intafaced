@@ -71,8 +71,9 @@ export function registerFeeTierRest(app: FastifyInstance, deps: FeeTierRestDeps)
       trialsInForce(deps.sql, userId, at),
     ]);
     const tier = tierOf(schedule, inForce, trials);
-    // The VIP trial the tier comes from (vip-review.ts), or none.
-    const trial = trialGiving(tier, trials);
+    // The VIP trial the tier comes from (vip-review.ts), or none. A snapshot that gives the same tier is named instead:
+    // the tier does not end with the trial.
+    const trial = inForce?.tierId === tier ? null : trialGiving(tier, trials);
     // The snapshot the tier comes from, or none: a snapshot whose tier the programme in force no longer names gives
     // regular, and is not shown as where the tier came from (it stays in the rows below).
     const source = inForce && inForce.tierId === tier ? inForce : null;
