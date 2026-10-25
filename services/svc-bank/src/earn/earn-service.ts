@@ -13,10 +13,11 @@ import {
   type LedgerClient,
 } from '@intafaced/ledger-client';
 import { isDefiniteLedgerRefusal } from '../ledger-outcome.js';
-import { BankError } from '../errors.js';
+import { BankError, type BankErrorCode } from '../errors.js';
+import { RecipientStateUnavailableError, type RecipientStatePort } from '../recipient-state.js';
 import { assertEarnPoolsListLimit } from '../catalog-list-limit.js';
 import { assertEarnInterestListLimit, assertEarnPositionsListLimit } from '../owner-list-limit.js';
-import { assertEarnResumePendingLimit } from '../job-batch-limit.js';
+import { assertEarnRenewBatchLimit, assertEarnResumePendingLimit } from '../job-batch-limit.js';
 import { stakePrincipalForAccrual } from './accrue-principal.js';
 import { accrualBoundary, accrualDate, dailyInterest, planAccrual, type AccruingPosition } from './interest.js';
 import { withMoneySpan } from '../tracing.js';
@@ -56,6 +57,14 @@ export interface PoolRecord {
 /** Where a saving stands in the daily accrual (`EarnService.accrualStates`). */
 export type AccrualState = 'waiting' | 'accruing' | 'pool_closed' | 'below_unit';
 
+/** A saving's accrual state, payout schedule and renewed terms (`EarnService.accrualStates`). */
+export interface PositionStanding {
+  accruesFrom: Date;
+  accrual: AccrualState;
+  nextPayoutOn: string | null;
+  renewals: number;
+}
+
 export interface PositionRecord {
   id: string;
   poolId: string;
@@ -66,6 +75,8 @@ export interface PositionRecord {
   maturesAt: Date | null;
   /** `pending` is the claim before activate — not interest-eligible, not listable as open. */
   status: 'pending' | 'active' | 'closed';
+  /** A fixed-term saving the saver asked to renew for another term when this one ends (BK-earn-03). */
+  autoRenew: boolean;
 }
 
 interface PoolRow {
@@ -88,6 +99,7 @@ interface PositionRow {
   opened_at: Date;
   matures_at: Date | null;
   status: 'pending' | 'active' | 'closed';
+  auto_renew: boolean;
 }
 
 function toPool(row: PoolRow): PoolRecord {
@@ -113,6 +125,8 @@ function toPosition(row: PositionRow): PositionRecord {
     openedAt: row.opened_at,
     maturesAt: row.matures_at,
     status: row.status,
+    // Strictly true: a row read without the column is not renewing.
+    autoRenew: row.auto_renew === true,
   };
 }
 
@@ -124,7 +138,22 @@ export interface EarnServiceOptions {
    * anything is written, so every caller (router, auto-invest) respects it.
    */
   supplyGate?: { assertSupplyOpen(assetId: string): Promise<void> };
+  /**
+   * Whether a saver's account is active, asked of identity before auto-renew starts a new term (BK-earn-03): a frozen
+   * account's saving is not relocked. Unset = no saving renews, and the job names `bank.recipient_check_unset`.
+   */
+  accounts?: RecipientStatePort;
 }
+
+/** What one run of the renewal job did: the terms each saving started, and the savings it left with the reason. */
+export interface RenewalReport {
+  renewed: Array<{ positionId: string; terms: number[]; maturesAt: Date }>;
+  skipped: Array<{ positionId: string; code: BankErrorCode }>;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** A saving whose terms ended many times over while the job was stopped renews this many per run, then the next run. */
+const MAX_TERMS_PER_RUN = 100;
 
 export interface AccrualResult {
   poolId: string;
@@ -161,9 +190,21 @@ export interface AccrueAllReport {
   failures: Array<{ poolId: string; reason: string; code?: string }>;
 }
 
+/** Why identity's answer stops a renewal, or null when the account is active. */
+async function accountBlock(accounts: RecipientStatePort, userId: string): Promise<BankErrorCode | null> {
+  try {
+    return (await accounts.statusOf(userId)) === 'active' ? null : 'bank.account_not_active';
+  } catch (err) {
+    return err instanceof RecipientStateUnavailableError && err.reason === 'unset'
+      ? 'bank.recipient_check_unset'
+      : 'bank.recipient_check_unavailable';
+  }
+}
+
 export class EarnService {
   private readonly nativeAssetId: string;
   private readonly supplyGate: EarnServiceOptions['supplyGate'];
+  private readonly accounts: EarnServiceOptions['accounts'];
 
   constructor(
     private readonly sql: Sql,
@@ -172,6 +213,7 @@ export class EarnService {
   ) {
     this.nativeAssetId = options.nativeAssetId;
     this.supplyGate = options.supplyGate;
+    this.accounts = options.accounts;
   }
 
   // ── Pools ──────────────────────────────────────────────────────────────────
@@ -552,7 +594,7 @@ export class EarnService {
   async resumePending(limit?: number): Promise<Array<{ positionId: string; outcome: 'completed' | 'failed'; reason?: string }>> {
     const batch = assertEarnResumePendingLimit(limit);
     const rows = await this.sql<PositionRow[]>`
-      SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status
+      SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status, auto_renew
         FROM bank.earn_positions
        WHERE status = 'pending'
        ORDER BY opened_at ASC
@@ -591,7 +633,7 @@ export class EarnService {
 
   async position(positionId: string): Promise<PositionRecord> {
     const rows = await this.sql<PositionRow[]>`
-      SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status
+      SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status, auto_renew
         FROM bank.earn_positions WHERE id = ${positionId}
     `;
     const row = rows[0];
@@ -603,7 +645,7 @@ export class EarnService {
   async positionsInPool(userId: string, poolId: string, limit?: number): Promise<PositionRecord[]> {
     const page = assertEarnPositionsListLimit(limit);
     const rows = await this.sql<PositionRow[]>`
-      SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status
+      SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status, auto_renew
         FROM bank.earn_positions WHERE user_id = ${userId} AND pool_id = ${poolId} AND status = 'active'
        ORDER BY opened_at DESC
        LIMIT ${page}
@@ -631,28 +673,44 @@ export class EarnService {
   }
 
   /**
-   * Where each open position stands in the daily accrual (BK-earn-01, crypto-credit-earn-048), by position id. A day pays
-   * the positions opened before it began (`accrueInner`), so a position first earns on the UTC day after it opened:
-   * `accruesFrom` is that day's midnight.
+   * Where each open position stands in the daily accrual (BK-earn-01, crypto-credit-earn-048) and its payout schedule
+   * (BK-earn-03, crypto-credit-earn-044), by position id. A day pays the positions opened before it began
+   * (`accrueInner`), so a position first earns on the UTC day after it opened: `accruesFrom` is that day's midnight.
    *
    * - `pool_closed`: the pool is closed, and the daily job pays only open pools (`openPoolsForAccrual`).
    * - `below_unit`: a day's interest on it at the pool's rate rounds down to nothing, so no day pays it (`planAccrual`).
    * - `waiting`: its first full UTC day has not begun, and no day that counted it has been paid.
    * - `accruing`: its first day has begun, or the bank already paid a day that counted it (a day on or after its first,
    *   planned after it opened, with its owner among the payees: a job run ahead of the clock).
+   *
+   * The bank pays interest once a UTC day, to the main balance, so nothing compounds. `nextPayoutOn` is the first day
+   * from today, and from the position's first day, that the bank has not yet paid its pool; null when no day pays it
+   * (`pool_closed`, `below_unit`). `renewals` counts the terms auto-renew started.
    */
-  async accrualStates(
-    positions: readonly PositionRecord[],
-    now: Date = new Date(),
-  ): Promise<Map<string, { accruesFrom: Date; accrual: AccrualState }>> {
-    const out = new Map<string, { accruesFrom: Date; accrual: AccrualState }>();
+  async accrualStates(positions: readonly PositionRecord[], now: Date = new Date()): Promise<Map<string, PositionStanding>> {
+    const out = new Map<string, PositionStanding>();
     if (positions.length === 0) return out;
-    const DAY = 24 * 60 * 60 * 1000;
-    const poolRows = await this.sql<Array<{ id: string; apr_bps: string; status: 'open' | 'closed' }>>`
-      SELECT id, apr_bps, status FROM bank.earn_pools WHERE id = ANY(${[...new Set(positions.map((position) => position.poolId))]}::uuid[])
-    `;
+    const poolIds = [...new Set(positions.map((position) => position.poolId))];
+    // A day is done once it posted, or was recorded with nothing to post; a claim still holding a plan is not.
+    const [poolRows, paid, renewals] = await Promise.all([
+      this.sql<Array<{ id: string; apr_bps: string; status: 'open' | 'closed' }>>`
+        SELECT id, apr_bps, status FROM bank.earn_pools WHERE id = ANY(${poolIds}::uuid[])
+      `,
+      this.sql<Array<{ pool_id: string; last: string }>>`
+        SELECT pool_id, max(accrual_date)::text AS last FROM bank.interest_accruals
+         WHERE pool_id = ANY(${poolIds}::uuid[]) AND (ledger_tx_id IS NOT NULL OR planned_payouts IS NULL)
+         GROUP BY pool_id
+      `,
+      this.sql<Array<{ position_id: string; count: number }>>`
+        SELECT position_id, count(*)::int AS count FROM bank.earn_renewals
+         WHERE position_id = ANY(${positions.map((position) => position.id)}::uuid[])
+         GROUP BY position_id
+      `,
+    ]);
     const pools = new Map(poolRows.map((row) => [row.id, { aprBps: Number(row.apr_bps), status: row.status }]));
-    const first = (position: PositionRecord) => new Date(accrualBoundary(position.openedAt).getTime() + DAY);
+    const lastPaid = new Map(paid.map((row) => [row.pool_id, row.last]));
+    const renewed = new Map(renewals.map((row) => [row.position_id, row.count]));
+    const first = (position: PositionRecord) => new Date(accrualBoundary(position.openedAt).getTime() + DAY_MS);
     // Only a position whose first day is still ahead needs the record: the clock settles every other one.
     const ahead = positions.filter((position) => first(position) > now);
     const paidAhead = new Set<string>();
@@ -670,6 +728,7 @@ export class EarnService {
       `;
       for (const row of rows) paidAhead.add(row.id);
     }
+    const today = accrualDate(now);
     for (const position of positions) {
       const pool = pools.get(position.poolId)!;
       const accruesFrom = first(position);
@@ -677,7 +736,15 @@ export class EarnService {
       if (pool.status !== 'open') accrual = 'pool_closed';
       else if (dailyInterest(position.principal, pool.aprBps) === 0n) accrual = 'below_unit';
       else accrual = position.status === 'active' && (now >= accruesFrom || paidAhead.has(position.id)) ? 'accruing' : 'waiting';
-      out.set(position.id, { accruesFrom, accrual });
+      let nextPayoutOn: string | null = null;
+      if (accrual === 'waiting' || accrual === 'accruing') {
+        const last = lastPaid.get(position.poolId);
+        // ISO dates order as strings: the latest of the first day, today and the day after the last one paid.
+        const days = [accrualDate(accruesFrom), today];
+        if (last) days.push(accrualDate(new Date(Date.parse(`${last}T00:00:00Z`) + DAY_MS)));
+        nextPayoutOn = days.sort().at(-1)!;
+      }
+      out.set(position.id, { accruesFrom, accrual, nextPayoutOn, renewals: renewed.get(position.id) ?? 0 });
     }
     return out;
   }
@@ -685,7 +752,7 @@ export class EarnService {
   async positionsOf(userId: string, limit?: number): Promise<PositionRecord[]> {
     const page = assertEarnPositionsListLimit(limit);
     const rows = await this.sql<PositionRow[]>`
-      SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status
+      SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status, auto_renew
         FROM bank.earn_positions WHERE user_id = ${userId} AND status = 'active' ORDER BY opened_at DESC
        LIMIT ${page}
     `;
@@ -759,7 +826,7 @@ export class EarnService {
       this.sql,
       async (tx) => {
         const rows = await tx<PositionRow[]>`
-          SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status
+          SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status, auto_renew
             FROM bank.earn_positions WHERE id = ${positionId} FOR UPDATE
         `;
         const row = rows[0];
@@ -794,6 +861,165 @@ export class EarnService {
         await tx`UPDATE bank.earn_positions SET status = 'closed', closed_at = now() WHERE id = ${positionId}`;
 
         return { ...toPosition(row), status: 'closed' as const };
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
+  }
+
+  // ── Fixed-term auto-renew (BK-earn-03, crypto-credit-earn-057) ─────────────
+
+  /**
+   * The saver's choice for a fixed-term saving: start a new term of the same length, with the same amount, when this
+   * one ends. Only an open fixed-term saving whose term has not ended takes it; turning it on in a pool closed to new
+   * savings refuses `bank.pool_closed`, since that pool takes no new term. Turning it off is always allowed. The same
+   * choice twice is a no-op. Moves no money.
+   */
+  async setAutoRenew(positionId: string, on: boolean, now: Date = new Date()): Promise<PositionRecord> {
+    return transaction(
+      this.sql,
+      async (tx) => {
+        const rows = await tx<PositionRow[]>`
+          SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status, auto_renew
+            FROM bank.earn_positions WHERE id = ${positionId} FOR UPDATE
+        `;
+        const row = rows[0];
+        if (!row) throw new BankError(`Position ${positionId} not found`, 'bank.position_not_found');
+        if (row.status === 'closed') throw new BankError('Position is already closed', 'bank.position_closed');
+        if (row.status === 'pending') {
+          throw new BankError(`Position ${positionId} is still pending — resume the deposit first`, 'bank.position_pending');
+        }
+        if (!row.matures_at) {
+          throw new BankError('Only a fixed-term saving renews: a flexible saving has no term to end', 'bank.auto_renew_fixed_only');
+        }
+        if (on && row.matures_at <= now) {
+          throw new BankError(
+            `This saving's term ended on ${row.matures_at.toISOString()}; take it back or save again`,
+            'bank.position_matured',
+          );
+        }
+        if (on) {
+          const pools = await tx<Array<{ status: 'open' | 'closed'; name: string }>>`
+            SELECT status, name FROM bank.earn_pools WHERE id = ${row.pool_id}
+          `;
+          if (pools[0]?.status !== 'open') throw new BankError(`Pool "${pools[0]?.name ?? row.pool_id}" is closed`, 'bank.pool_closed');
+        }
+        if (row.auto_renew !== on) await tx`UPDATE bank.earn_positions SET auto_renew = ${on} WHERE id = ${positionId}`;
+        return { ...toPosition(row), autoRenew: on };
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
+  }
+
+  /**
+   * The renewal job: every open saving with auto-renew on whose term ended by `at` starts its next term, each term the
+   * pool's length counted from the end of the one before, so a late run does not shorten or stretch a term. Each term
+   * is one `earn_renewals` row keyed (position, term), the relock key `earn-relock:<positionId>:<term>`: a run that
+   * fires twice, or two runs at once, renew once. A run that finds several terms ended renews each in turn.
+   *
+   * Nothing posts. The principal never left the saving's stake pot, and the interest of each day was already paid to
+   * the main balance, so the new term holds the same amount and only the maturity moves. A crash anywhere leaves the
+   * saving either renewed or not, never half: the row and the new maturity commit together.
+   *
+   * A saving in a pool closed to new savings is not due: the pool takes no new term, and the saving can be taken back.
+   * Skipped, with the reason, and left as they are (withdrawable, since the term ended): an account identity does not
+   * answer is active, frozen, closed or unknown (`bank.account_not_active`), or not reachable
+   * (`bank.recipient_check_unavailable`), so a freeze pauses the renewal and a later run renews once the account is
+   * active again; a stake pot that does not hold the recorded principal (`bank.earn_principal_mismatch`: a take back
+   * whose ledger post landed and whose close did not, which its replay finishes); and a saving whose renewal failed
+   * (its code, or `bank.earn_renew_failed`), so one saving cannot stop the rest. With no identity wired the job
+   * refuses `bank.recipient_check_unset`: a bank that cannot tell a frozen account from an active one relocks nobody.
+   *
+   * `limit` is how many savings one run renews or fails. Skipped savings stay due, so the run walks past them by id
+   * instead of letting them fill every run's first page.
+   */
+  async renewDue(input: { at?: Date; poolId?: string; limit?: number }): Promise<RenewalReport> {
+    const at = input.at ?? new Date();
+    const limit = assertEarnRenewBatchLimit(input.limit);
+    const accounts = this.accounts;
+    if (!accounts) {
+      throw new BankError(
+        'svc-bank cannot ask identity whether a saver’s account is active, so no fixed-term saving renews',
+        'bank.recipient_check_unset',
+      );
+    }
+    const report: RenewalReport = { renewed: [], skipped: [] };
+    let acted = 0;
+    let after: string | null = null;
+    while (acted < limit) {
+      const page: Array<{ id: string; user_id: string }> = await this.sql<Array<{ id: string; user_id: string }>>`
+        SELECT p.id, p.user_id FROM bank.earn_positions p JOIN bank.earn_pools pl ON pl.id = p.pool_id
+         WHERE p.status = 'active' AND p.auto_renew AND p.matures_at <= ${at} AND pl.status = 'open'
+           ${input.poolId ? this.sql`AND p.pool_id = ${input.poolId}` : this.sql``}
+           ${after ? this.sql`AND p.id > ${after}` : this.sql``}
+         ORDER BY p.id ASC
+         LIMIT ${limit}
+      `;
+      if (page.length === 0) break;
+      after = page[page.length - 1]!.id;
+      const users = [...new Set(page.map((row) => row.user_id))];
+      const blocks = new Map(await Promise.all(users.map(async (userId) => [userId, await accountBlock(accounts, userId)] as const)));
+      for (const position of page) {
+        if (acted >= limit) break;
+        const blocked = blocks.get(position.user_id);
+        if (blocked) {
+          report.skipped.push({ positionId: position.id, code: blocked });
+          continue;
+        }
+        acted += 1;
+        try {
+          const outcome = await this.renewOne(position.id, at);
+          if ('code' in outcome) report.skipped.push({ positionId: position.id, code: outcome.code });
+          else if (outcome.terms.length > 0) report.renewed.push({ positionId: position.id, ...outcome });
+        } catch (err) {
+          report.skipped.push({ positionId: position.id, code: err instanceof BankError ? err.code : 'bank.earn_renew_failed' });
+        }
+      }
+      if (page.length < limit) break;
+    }
+    return report;
+  }
+
+  private async renewOne(positionId: string, at: Date): Promise<{ terms: number[]; maturesAt: Date } | { code: BankErrorCode }> {
+    return transaction(
+      this.sql,
+      async (tx) => {
+        const rows = await tx<PositionRow[]>`
+          SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status, auto_renew
+            FROM bank.earn_positions WHERE id = ${positionId} FOR UPDATE
+        `;
+        const row = rows[0];
+        // Taken back, or the choice turned off, since the list was read: nothing is due.
+        if (!row || row.status !== 'active' || !row.auto_renew || !row.matures_at || row.matures_at > at) {
+          return { terms: [], maturesAt: row?.matures_at ?? at };
+        }
+        const pools = await tx<Array<{ status: 'open' | 'closed'; kind: 'flexible' | 'fixed'; term_days: number | null }>>`
+          SELECT status, kind, term_days FROM bank.earn_pools WHERE id = ${row.pool_id}
+        `;
+        const pool = pools[0];
+        if (!pool || pool.status !== 'open') return { code: 'bank.pool_closed' as const };
+        if (pool.kind !== 'fixed' || !pool.term_days || pool.term_days <= 0) return { code: 'bank.auto_renew_fixed_only' as const };
+        // The new term holds what the pot holds. A pot that disagrees is a take back the ledger finished and this table
+        // did not: relocking it would lock its own replay out, so it stays as it is.
+        const book = (await this.ledger.balance(earnStakeAccount(row.user_id, row.asset_id, row.id))).amount;
+        if (book !== parseAmount(row.principal)) return { code: 'bank.earn_principal_mismatch' as const };
+        const last = await tx<Array<{ term: number | null }>>`
+          SELECT max(term) AS term FROM bank.earn_renewals WHERE position_id = ${positionId}
+        `;
+        let term = last[0]?.term ?? 0;
+        let maturesAt = row.matures_at;
+        const terms: number[] = [];
+        while (maturesAt <= at && terms.length < MAX_TERMS_PER_RUN) {
+          term += 1;
+          const next = new Date(maturesAt.getTime() + pool.term_days * DAY_MS);
+          await tx`
+            INSERT INTO bank.earn_renewals (position_id, term, previous_matures_at, matures_at, principal)
+            VALUES (${positionId}, ${term}, ${maturesAt}, ${next}, ${row.principal}::numeric)
+          `;
+          terms.push(term);
+          maturesAt = next;
+        }
+        await tx`UPDATE bank.earn_positions SET matures_at = ${maturesAt} WHERE id = ${positionId}`;
+        return { terms, maturesAt };
       },
       { isolation: 'read committed', maxAttempts: 5 },
     );

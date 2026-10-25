@@ -39,6 +39,12 @@ export const positionSchema = z.object({
   /** The UTC midnight the position first earns from (BK-earn-01): a day pays positions opened before it began. */
   accruesFrom: z.string(),
   accrual: z.enum(['waiting', 'accruing', 'pool_closed', 'below_unit']),
+  /** A fixed-term saving the saver asked to renew when its term ends (BK-earn-03). */
+  autoRenew: z.boolean(),
+  /** How many new terms auto-renew has started; `maturesAt` is the end of the current one. */
+  renewals: z.number().int().nonnegative(),
+  /** The next UTC day the bank pays this saving's interest (a date); null when no day pays it. */
+  nextPayoutOn: z.string().date().nullable(),
 });
 /**
  * What a pool publishes beyond its rate and term (svc-bank `earn.router.ts`, BK-earn-02 and BK-earn-05): how interest is
@@ -999,6 +1005,7 @@ export const bankWrites = {
   }),
   'earn.deposit': z.object({ positionId: z.string(), maturesAt: z.string().nullable() }),
   'earn.withdraw': z.object({ positionId: z.string(), principal: money }),
+  'earn.setAutoRenew': z.object({ positionId: z.string(), autoRenew: z.boolean(), maturesAt: z.string().nullable() }),
   'loans.open': z.object({ loanId: z.string(), status: z.string(), ltvBps: z.number().int(), drawLedgerTxId: z.string() }),
   'loans.addCollateral': z.object({ ledgerTxId: z.string(), sequence: z.number().int() }),
   'loans.releaseExcess': z.object({ ledgerTxId: z.string(), sequence: z.number().int() }),
@@ -1082,6 +1089,10 @@ export function bankWriteForReview(procedure: BankWrite, input: Record<string, u
       case 'earn.deposit':
       case 'earn.withdraw':
         return (data as { positionId: string }).positionId === input.positionId;
+      case 'earn.setAutoRenew': {
+        const row = data as z.infer<(typeof bankWrites)['earn.setAutoRenew']>;
+        return row.positionId === input.positionId && row.autoRenew === input.on && row.maturesAt !== null;
+      }
       case 'autoInvest.createDca': {
         const row = data as z.infer<typeof ruleSchema>;
         return (

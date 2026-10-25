@@ -57,6 +57,32 @@ const en = {
   subjectPool: 'the pool',
   subjectPosition: 'your savings',
   subjectPolicy: 'the auto earn setting',
+  fixedTerm: '{days}-day term, locked until {date}.',
+  fixedEnded: 'Its term ended on {date}: you can take it back.',
+  renewedCount: 'Terms started by auto-renew: {count}.',
+  renewOn: 'Auto-renew is on: when this term ends on {date}, a new {days}-day term starts with the same amount.',
+  renewOff: 'Auto-renew is off: you can take this back when the term ends on {date}.',
+  renewClosed: 'Auto-renew is off: this pool takes no new terms.',
+  renewOnClosed:
+    'Auto-renew is on, but this pool takes no new terms: this saving will not renew, and you can take it back once its term ends ({date}).',
+  renewDue: 'Auto-renew is on: a new {days}-day term with the same amount starts when the bank’s renewal next runs.',
+  renewOffEnded: 'Auto-renew is off: nothing renews.',
+  renewTurnOn: 'Turn on auto-renew',
+  renewTurnOff: 'Turn off auto-renew',
+  renewOnTitle: 'Renew this saving when its term ends',
+  renewOffTitle: 'Stop renewing this saving',
+  renewEnds: 'Term ends',
+  renewOnNote:
+    'A new term of the same length starts at this pool’s fixed rate, with the same amount, from the moment this one ends. No money moves.',
+  renewOnTakeBack: 'Turn it off before the term ends if you want to take the saving back then.',
+  renewOffNote: 'Nothing renews: the saving can be taken back once this term ends.',
+  scheduleTitle: 'Payout schedule',
+  scheduleDaily: 'Interest is paid every day (UTC) to your main {asset} balance.',
+  scheduleThroughTerm: 'A fixed term is paid each day of the term, not in one payment at its end.',
+  scheduleNext: 'Next payout: {date}.',
+  scheduleNone: 'No payout is due on this saving.',
+  compounding: 'No compounding: interest paid to your main balance is not added to this saving and earns nothing here.',
+  subjectRenew: 'your savings',
 } as const;
 
 const es: { [K in keyof typeof en]: string } = {
@@ -118,6 +144,34 @@ const es: { [K in keyof typeof en]: string } = {
   subjectPool: 'el fondo',
   subjectPosition: 'tus ahorros',
   subjectPolicy: 'la configuración del ahorro automático',
+  fixedTerm: 'Plazo de {days} días, bloqueado hasta {date}.',
+  fixedEnded: 'Su plazo terminó el {date}: puedes retirarlo.',
+  renewedCount: 'Plazos empezados por la renovación automática: {count}.',
+  renewOn:
+    'Renovación automática activada: cuando este plazo termine el {date}, empieza un plazo nuevo de {days} días con la misma cantidad.',
+  renewOff: 'Renovación automática desactivada: puedes retirarlo cuando el plazo termine el {date}.',
+  renewClosed: 'Renovación automática desactivada: este fondo no admite plazos nuevos.',
+  renewOnClosed:
+    'Renovación automática activada, pero este fondo no admite plazos nuevos: este ahorro no se renovará y podrás retirarlo cuando termine su plazo ({date}).',
+  renewDue:
+    'Renovación automática activada: un plazo nuevo de {days} días con la misma cantidad empieza la próxima vez que el banco haga las renovaciones.',
+  renewOffEnded: 'Renovación automática desactivada: nada se renueva.',
+  renewTurnOn: 'Activar la renovación automática',
+  renewTurnOff: 'Desactivar la renovación automática',
+  renewOnTitle: 'Renovar este ahorro cuando termine su plazo',
+  renewOffTitle: 'Dejar de renovar este ahorro',
+  renewEnds: 'El plazo termina',
+  renewOnNote:
+    'Un plazo nuevo de la misma duración empieza al tipo fijo de este fondo, con la misma cantidad, en cuanto termine este. No se mueve dinero.',
+  renewOnTakeBack: 'Desactívala antes de que termine el plazo si quieres retirar el ahorro entonces.',
+  renewOffNote: 'Nada se renueva: el ahorro se puede retirar cuando termine este plazo.',
+  scheduleTitle: 'Calendario de pagos',
+  scheduleDaily: 'El interés se paga cada día (UTC) a tu saldo principal en {asset}.',
+  scheduleThroughTerm: 'Un plazo fijo se paga cada día del plazo, no en un solo pago al final.',
+  scheduleNext: 'Próximo pago: {date}.',
+  scheduleNone: 'No hay ningún pago pendiente para este ahorro.',
+  compounding: 'Sin capitalización: el interés pagado a tu saldo principal no se suma a este ahorro y aquí no gana nada.',
+  subjectRenew: 'tus ahorros',
 };
 
 const fr: { [K in keyof typeof en]: string } = {
@@ -179,6 +233,35 @@ const fr: { [K in keyof typeof en]: string } = {
   subjectPool: 'le fonds',
   subjectPosition: 'ton épargne',
   subjectPolicy: 'le réglage d’épargne automatique',
+  fixedTerm: 'Durée de {days} jours, bloquée jusqu’au {date}.',
+  fixedEnded: 'Sa durée a pris fin le {date} : tu peux la reprendre.',
+  renewedCount: 'Durées ouvertes par le renouvellement automatique : {count}.',
+  renewOn:
+    'Renouvellement automatique activé : quand cette durée prend fin le {date}, une nouvelle durée de {days} jours commence avec le même montant.',
+  renewOff: 'Renouvellement automatique désactivé : tu peux la reprendre quand la durée prend fin le {date}.',
+  renewClosed: 'Renouvellement automatique désactivé : ce fonds n’ouvre plus de nouvelles durées.',
+  renewOnClosed:
+    'Renouvellement automatique activé, mais ce fonds n’ouvre plus de nouvelles durées : cette épargne ne sera pas renouvelée et tu pourras la reprendre à la fin de sa durée ({date}).',
+  renewDue:
+    'Renouvellement automatique activé : une nouvelle durée de {days} jours avec le même montant commence au prochain passage des renouvellements de la banque.',
+  renewOffEnded: 'Renouvellement automatique désactivé : rien ne se renouvelle.',
+  renewTurnOn: 'Activer le renouvellement automatique',
+  renewTurnOff: 'Désactiver le renouvellement automatique',
+  renewOnTitle: 'Renouveler cette épargne à la fin de sa durée',
+  renewOffTitle: 'Ne plus renouveler cette épargne',
+  renewEnds: 'Fin de la durée',
+  renewOnNote:
+    'Une nouvelle durée de même longueur commence au taux fixe de ce fonds, avec le même montant, dès que celle-ci prend fin. Aucun argent ne bouge.',
+  renewOnTakeBack: 'Désactive-le avant la fin de la durée si tu veux reprendre l’épargne à ce moment-là.',
+  renewOffNote: 'Rien ne se renouvelle : l’épargne peut être reprise à la fin de cette durée.',
+  scheduleTitle: 'Calendrier des versements',
+  scheduleDaily: 'Les intérêts sont versés chaque jour (UTC) sur ton solde principal en {asset}.',
+  scheduleThroughTerm: 'Une durée fixe est versée chaque jour de la durée, pas en une fois à la fin.',
+  scheduleNext: 'Prochain versement : {date}.',
+  scheduleNone: 'Aucun versement n’est prévu pour cette épargne.',
+  compounding:
+    'Pas d’intérêts composés : les intérêts versés sur ton solde principal ne s’ajoutent pas à cette épargne et n’y rapportent rien.',
+  subjectRenew: 'ton épargne',
 };
 
 export const earnPoolActionsCopy = defineCopy('customer.money.earn-pool-actions', en, { es, fr });
