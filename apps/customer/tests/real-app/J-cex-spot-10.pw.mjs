@@ -539,6 +539,52 @@ test(`${J} #6 crosses the threshold during the day: the tier changes at the next
   }
 });
 
+/** A TEST benefits table, never owner values: the VIP tier fills some cells, the regular tier none. */
+const NOT_SET = { prioritySupport: null, vipPortal: null, ambassador: null, subAccountCap: null, withdrawalLimit24h: null };
+const TEST_BENEFITS = [
+  { tierId: 'regular', ...NOT_SET },
+  {
+    ...NOT_SET,
+    tierId: 'test-vip-1',
+    prioritySupport: true,
+    vipPortal: false,
+    subAccountCap: 20,
+    withdrawalLimit24h: { asset: 'USDT', amount: '250000' },
+  },
+];
+
+test(`${J} part of #7 opens VIP benefits: each tier's published benefits, the person's own tier marked, a blank cell "not set"`, async ({
+  page,
+}) => {
+  test.setTimeout(150_000);
+  const who = account();
+  const client = await api(who);
+  const tiered = tiersAt(new Date(Date.now() + 3_600_000));
+  await publish({ ...tiered, tierProgram: { ...tiered.tierProgram, benefits: TEST_BENEFITS } }, 'TEST benefits table');
+  try {
+    const read = await myTier(client);
+    expect(read.program.benefits).toEqual(TEST_BENEFITS);
+    // The person's tier is whatever their last snapshot gave (#6 may have raised it): their row is the one marked.
+    const mine = read.tier;
+    const label = (tierId) => (tierId === 'regular' ? 'Regular' : tierId);
+    await signIn(page, who);
+    await page.goto('/fees/my-tier');
+    const table = page.locator('[data-tier-page=benefits]');
+    await expect(table.getByRole('heading', { level: 2, name: 'VIP benefits' })).toBeVisible();
+    await expect(table.locator('tr[aria-current=true]')).toHaveAttribute('data-benefits', mine);
+    await expect(table.locator(`tr[data-benefits="${mine}"] th`)).toHaveText(`${label(mine)} (yours)`);
+    const regular = table.locator('tr[data-benefits=regular]');
+    await expect(regular.locator('td')).toHaveText(['not set', 'not set', 'not set', 'not set', 'not set']);
+    const vip = table.locator('tr[data-benefits=test-vip-1]');
+    await expect(vip.locator('td')).toHaveText(['Yes', 'No', 'not set', '20', 'up to 250000 USDT']);
+  } finally {
+    await publish(SCHEDULE, 'benefits table off');
+  }
+  // With no programme there is no table, and the page says so.
+  await page.reload();
+  await expect(page.locator('[data-benefits=not-set]')).toHaveText('Benefits not set: no tier has published benefits beyond its rates.');
+});
+
 test(`${J} #8 looks at the fee currency row: disabled with its reason, and no request is sent`, async ({ page }) => {
   const who = account();
   // Every request the desk sends that names a fee currency: there must be none.

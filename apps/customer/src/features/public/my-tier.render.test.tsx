@@ -57,6 +57,41 @@ describe('/fees/my-tier', () => {
     );
   });
 
+  it('lists the published benefits by tier, marks the person\'s own row, and says "not set" for a blank cell', () => {
+    const blank = { prioritySupport: null, vipPortal: null, ambassador: null, subAccountCap: null, withdrawalLimit24h: null };
+    const withBenefits = feeTierSchema.parse({
+      ...tier,
+      program: {
+        ...tier.program,
+        benefits: [
+          { tierId: 'regular', ...blank },
+          {
+            ...blank,
+            tierId: 'test-vip-1',
+            prioritySupport: true,
+            vipPortal: false,
+            subAccountCap: 20,
+            withdrawalLimit24h: { asset: 'USDT', amount: '250000' },
+          },
+        ],
+      },
+    });
+    const html = renderToString(<MyTierView load={ready(withBenefits)} />);
+    expect(html).toContain('VIP benefits');
+    expect(html).toMatch(/data-benefits="regular"><th scope="row">Regular<\/th><td data-benefit="prioritySupport">not set<\/td>/);
+    expect(html).toMatch(/data-benefits="test-vip-1" aria-current="true"><th scope="row">test-vip-1 \(yours\)<\/th>/);
+    expect(html).toContain(
+      '<td data-benefit="prioritySupport">Yes</td><td data-benefit="vipPortal">No</td><td data-benefit="ambassador">not set</td>',
+    );
+    expect(html).toContain('<td data-benefit="subAccountCap">20</td><td data-benefit="withdrawalLimit24h">up to 250000 USDT</td>');
+  });
+
+  it('says the benefits are not set when the owner published no table', () => {
+    expect(renderToString(<MyTierView load={ready(tier)} />)).toContain(
+      'Benefits not set: no tier has published benefits beyond its rates.',
+    );
+  });
+
   it('with no thresholds says so and shows everyone regular, and with no snapshot time says none runs', () => {
     const none = renderToString(
       <MyTierView

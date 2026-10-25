@@ -68,6 +68,7 @@ describe('the tier programme in the fee schedule', () => {
       ],
       volumeQuotes: ['USDT', 'USDC'],
       snapshotTimeUtc: '07:00',
+      benefits: null,
     });
     expect(program({ snapshotTimeUtc: null }).snapshotTimeUtc).toBeNull();
     const none = schedule(undefined);
@@ -113,6 +114,60 @@ describe('the tier programme in the fee schedule', () => {
     expect(() =>
       parseFeeScheduleJson(JSON.stringify({ published: true, version: 'flat', makerBps: '8', takerBps: '10', tierProgram: PROGRAM })),
     ).toThrow(/needs a rows schedule/);
+  });
+});
+
+describe("the owner's benefits table", () => {
+  const ROW = {
+    tierId: 'regular',
+    prioritySupport: null,
+    vipPortal: null,
+    ambassador: null,
+    subAccountCap: null,
+    withdrawalLimit24h: null,
+  };
+
+  it('reads a row per tier, each cell set or not set, and an absent or null table as none', () => {
+    const benefits = [
+      ROW,
+      {
+        ...ROW,
+        tierId: 'test-vip-1',
+        prioritySupport: true,
+        vipPortal: false,
+        subAccountCap: 20,
+        withdrawalLimit24h: { asset: 'USDT', amount: '250000.50' },
+      },
+    ];
+    expect(program({ benefits }).benefits).toEqual([
+      ROW,
+      {
+        tierId: 'test-vip-1',
+        prioritySupport: true,
+        vipPortal: false,
+        ambassador: null,
+        subAccountCap: 20,
+        withdrawalLimit24h: { asset: 'USDT', amount: '250000.5' },
+      },
+    ]);
+    expect(program().benefits).toBeNull();
+    expect(program({ benefits: null }).benefits).toBeNull();
+  });
+
+  it.each([
+    ['a cell left out', [{ tierId: 'regular', prioritySupport: null }], /must be set or null/],
+    ['a tier the programme does not name', [{ ...ROW, tierId: 'test-vip-9' }], /tierId must be/],
+    ['a repeated tier', [ROW, ROW], /repeats a tier/],
+    ['an unknown field', [{ ...ROW, cashback: '1' }], /unknown fields: cashback/],
+    ['a flag as text', [{ ...ROW, vipPortal: 'yes' }], /vipPortal must be true, false or null/],
+    ['a fractional cap', [{ ...ROW, subAccountCap: 2.5 }], /subAccountCap must be a whole number/],
+    ['a limit as a number', [{ ...ROW, withdrawalLimit24h: { asset: 'USDT', amount: 1000 } }], /amount must be a decimal string/],
+    ['a zero limit', [{ ...ROW, withdrawalLimit24h: { asset: 'USDT', amount: '0' } }], /amount must be above zero/],
+    ['an empty table', [], /non-empty array or null/],
+  ])('refuses %s as a blank schedule', (_name, benefits, message) => {
+    const refused = refusal({ benefits });
+    expect(refused.code).toBe('trade.fee_schedule_blank');
+    expect(refused.message).toMatch(message);
   });
 });
 
