@@ -41,7 +41,9 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe('campaigns desk', () => {
   it('reads the list and the calendar as the founder', async () => {
-    const fn = vi.fn(async (url: string, _i?: RequestInit) => (url.includes('calendar') ? ok({ timeZone: 'UTC', entries: [] }) : ok([campaign])));
+    const fn = vi.fn(async (url: string, _i?: RequestInit) =>
+      url.includes('calendar') ? ok({ timeZone: 'UTC', entries: [] }) : ok([campaign]),
+    );
     vi.stubGlobal('fetch', fn);
     const view = await loadCampaignsDesk(ctx);
     expect(fn.mock.calls.map((c) => c[0]).sort()).toEqual([
@@ -54,7 +56,10 @@ describe('campaigns desk', () => {
   });
 
   it('a malformed list is a failed part, never an empty desk', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ok([{ ...campaign, budget: { asset: 'USDT', limit: 1000, left: '1' } }])));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok([{ ...campaign, budget: { asset: 'USDT', limit: 1000, left: '1' } }])),
+    );
     expect((await loadCampaignsDesk(ctx)).campaigns.kind).toBe('failed');
   });
 
@@ -89,8 +94,14 @@ describe('campaigns desk', () => {
   });
 
   it('a move that may have arrived is an unknown outcome', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new Error('reset'))));
-    expect((await moveCampaign(ctx, { id: 'cmp_1', action: 'activate', revision: 3 })).reply).toMatchObject({ ok: false, changed: 'unknown' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Promise.reject(new Error('reset'))),
+    );
+    expect((await moveCampaign(ctx, { id: 'cmp_1', action: 'activate', revision: 3 })).reply).toMatchObject({
+      ok: false,
+      changed: 'unknown',
+    });
   });
 
   it('a done move returns the campaign as stored', async () => {

@@ -50,7 +50,8 @@ async function opsCampaign(id) {
 }
 async function platformZone() {
   const { ctx, pair } = await operators();
-  return data(await ctx.edge.query('campaigns', 'ops.campaigns.calendar', undefined, await pair.a.campaignsOpsToken()), 'calendar').timeZone;
+  return data(await ctx.edge.query('campaigns', 'ops.campaigns.calendar', undefined, await pair.a.campaignsOpsToken()), 'calendar')
+    .timeZone;
 }
 
 async function founderPage(browser, key) {
@@ -93,7 +94,8 @@ test(`${J} #1 the campaigns desk shows what svc-campaigns holds, with honest emp
   const { page } = await founderPage(browser, 'a');
   await openDesk(page);
   const desk = page.getByTestId('campaigns-desk');
-  for (const part of ['campaigns-overview', 'campaigns-drafts', 'campaigns-all', 'campaigns-calendar']) await expect(desk.getByTestId(part)).toBeVisible();
+  for (const part of ['campaigns-overview', 'campaigns-drafts', 'campaigns-all', 'campaigns-calendar'])
+    await expect(desk.getByTestId(part)).toBeVisible();
   await expect(desk.getByRole('link', { name: 'New campaign' })).toBeVisible();
   const listed = await opsList();
   // Every count is the service's: one per state it holds, and they sum to its list. On a fresh stack there is none.
@@ -103,7 +105,9 @@ test(`${J} #1 the campaigns desk shows what svc-campaigns holds, with honest emp
     await expect(desk.getByTestId('campaigns-drafts')).toContainText('No draft.');
     await expect(desk.getByTestId('campaigns-calendar')).toContainText('No campaign has a time frame yet.');
   } else {
-    const counts = await desk.getByTestId('campaigns-count').evaluateAll((els) => els.map((e) => [e.dataset.state, Number(e.querySelector('dd').textContent)]));
+    const counts = await desk
+      .getByTestId('campaigns-count')
+      .evaluateAll((els) => els.map((e) => [e.dataset.state, Number(e.querySelector('dd').textContent)]));
     const byState = {};
     for (const c of listed) byState[c.state] = (byState[c.state] ?? 0) + 1;
     expect(Object.fromEntries(counts)).toEqual(byState);
@@ -181,7 +185,9 @@ test(`${J} #5 exclusions and a listed region scope with a blank list refuse acti
   await saveStep(page, 'who');
   expect((await opsCampaign(id)).participation).toEqual({ exclusions: ['business'], regionScope: 'listed', restrictedRegions: null });
   await check(page);
-  await expect(page.locator('[data-testid="campaign-gate-blank"][data-code="campaigns.region_list_unset"]')).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('[data-testid="campaign-gate-blank"][data-code="campaigns.region_list_unset"]')).toBeVisible({
+    timeout: 30_000,
+  });
   await expect(page.locator('[data-testid="campaign-gate-blank"][data-code="campaigns.rules_unset"]')).toHaveCount(0);
 
   // A code that is not a region is named before anything is sent; a real list clears the blank.
@@ -191,13 +197,19 @@ test(`${J} #5 exclusions and a listed region scope with a blank list refuse acti
   await expect(page.getByTestId('campaign-outcome')).toContainText('"Iran" is not a two-letter region code');
   await page.getByLabel('Restricted regions').fill('KP, ir');
   await saveStep(page, 'who');
-  expect((await opsCampaign(id)).participation).toEqual({ exclusions: ['business'], regionScope: 'listed', restrictedRegions: ['IR', 'KP'] });
+  expect((await opsCampaign(id)).participation).toEqual({
+    exclusions: ['business'],
+    regionScope: 'listed',
+    restrictedRegions: ['IR', 'KP'],
+  });
   await check(page);
   await expect(blanks(page).first()).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('[data-testid="campaign-gate-blank"][data-code="campaigns.region_list_unset"]')).toHaveCount(0);
 });
 
-test(`${J} #7 the time frame, budget and reward clear their own blanks; with all set, the request waits for approval`, async ({ browser }) => {
+test(`${J} #7 the time frame, budget and reward clear their own blanks; with all set, the request waits for approval`, async ({
+  browser,
+}) => {
   const { id } = state('id');
   const { page, founder } = await founderPage(browser, 'a');
   await openBuilder(page, id);
@@ -236,7 +248,12 @@ test(`${J} #7 the time frame, budget and reward clear their own blanks; with all
   await expect(page.getByTestId('campaign-summary').getByTestId('campaign-state')).toHaveAttribute('data-state', 'pending_approval');
   await expect(page.getByTestId('campaign-waits-approval')).toBeVisible();
   const asked = await opsCampaign(id);
-  expect(asked).toMatchObject({ state: 'pending_approval', submittedBy: founder.userId, approvedBy: null, budget: { asset: 'USDT', limit: '1000', left: '1000' } });
+  expect(asked).toMatchObject({
+    state: 'pending_approval',
+    submittedBy: founder.userId,
+    approvedBy: null,
+    budget: { asset: 'USDT', limit: '1000', left: '1000' },
+  });
   run.write({ revision: asked.revision });
 });
 
@@ -285,10 +302,13 @@ test(`${J} #10 the calendar lists every campaign by its time frame`, async ({ br
   const answer = data(await ctx.edge.query('campaigns', 'ops.campaigns.calendar', undefined, await pair.a.campaignsOpsToken()), 'calendar');
   await expect(calendar.getByTestId('campaign-calendar-entry')).toHaveCount(answer.entries.length);
   // By start, as the service orders them.
-  const shown = await calendar.getByTestId('campaign-calendar-entry').evaluateAll((els) => els.map((e) => e.getAttribute('data-campaign-id')));
+  const shown = await calendar
+    .getByTestId('campaign-calendar-entry')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-campaign-id')));
   expect(shown).toEqual(answer.entries.map((e) => e.id));
   const entry = calendar.locator(`[data-testid="campaign-calendar-entry"][data-campaign-id="${id}"]`);
   await expect(entry).toContainText(name);
   await expect(entry.getByTestId('campaign-state')).toHaveAttribute('data-state', 'active');
-  if (answer.timeZone) await expect(calendar.getByTestId('campaigns-calendar-zone')).toContainText(`Platform time zone: ${answer.timeZone}`);
+  if (answer.timeZone)
+    await expect(calendar.getByTestId('campaigns-calendar-zone')).toContainText(`Platform time zone: ${answer.timeZone}`);
 });

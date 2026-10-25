@@ -6,7 +6,14 @@ import type { Campaign, CampaignState } from '@intafaced/contracts/campaigns-cat
 import { Chip, type ChipTone } from '@/components/chip';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
 import { fetchCampaignsDesk } from '@/lib/campaigns-ops/builder-browser';
-import { countsByState, STATE_LABEL, STEP_LABEL, resumeStep, type CampaignDeskReply, type CampaignsDeskView } from '@/lib/campaigns-ops/builder-model';
+import {
+  countsByState,
+  STATE_LABEL,
+  STEP_LABEL,
+  resumeStep,
+  type CampaignDeskReply,
+  type CampaignsDeskView,
+} from '@/lib/campaigns-ops/builder-model';
 import './desk.css';
 
 /**
@@ -221,7 +228,15 @@ function Calendar({ view }: { view: CampaignsDeskView }) {
   );
 }
 
-export function CampaignsDeskScreen({ view, loading, onRefresh }: { view: CampaignsDeskView | null; loading: boolean; onRefresh: () => void }) {
+export function CampaignsDeskScreen({
+  view,
+  loading,
+  onRefresh,
+}: {
+  view: CampaignsDeskView | null;
+  loading: boolean;
+  onRefresh: () => void;
+}) {
   const rows = view && view.campaigns.kind === 'ok' ? view.campaigns.data : null;
   return (
     <div className="dk" data-testid="campaigns-desk">
@@ -229,8 +244,8 @@ export function CampaignsDeskScreen({ view, loading, onRefresh }: { view: Campai
         <div>
           <h1>Campaigns</h1>
           <p>
-            Build a campaign, send it for approval and take it live. One founder writes and asks; a different founder approves
-            that revision. A budget is a limit the rewards draw on, never a balance: nothing is paid until a customer qualifies.
+            Build a campaign, send it for approval and take it live. One founder writes and asks; a different founder approves that
+            revision. A budget is a limit the rewards draw on, never a balance: nothing is paid until a customer qualifies.
           </p>
         </div>
       </div>

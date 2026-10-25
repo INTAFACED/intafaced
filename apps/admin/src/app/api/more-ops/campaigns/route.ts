@@ -32,7 +32,14 @@ const ID = /^[A-Za-z0-9_-]{1,128}$/;
 
 const incomplete = (body: string) =>
   Response.json(
-    { ok: false, title: 'That request is not complete', body, next: 'Nothing was changed. Correct it and try again.', code: null, changed: 'no' },
+    {
+      ok: false,
+      title: 'That request is not complete',
+      body,
+      next: 'Nothing was changed. Correct it and try again.',
+      code: null,
+      changed: 'no',
+    },
     { status: 400, headers: NO_STORE },
   );
 

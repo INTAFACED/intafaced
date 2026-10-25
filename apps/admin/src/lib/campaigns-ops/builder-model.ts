@@ -1,4 +1,10 @@
-import type { Campaign, CampaignCalendar, CampaignDefinitionInput, CampaignGate, CampaignState } from '@intafaced/contracts/campaigns-catalogue';
+import type {
+  Campaign,
+  CampaignCalendar,
+  CampaignDefinitionInput,
+  CampaignGate,
+  CampaignState,
+} from '@intafaced/contracts/campaigns-catalogue';
 import type { Part } from '@/lib/desk/part';
 
 /**

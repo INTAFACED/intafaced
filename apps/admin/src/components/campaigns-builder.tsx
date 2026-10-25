@@ -230,7 +230,12 @@ export function CampaignBuilder({ initial }: { initial: CampaignDetailView | nul
     }
     setBusy(true);
     const answer = campaign
-      ? await postCampaignChange({ op: 'update', id: campaign.id, revision: campaign.revision, definition: { ...definitionOf(campaign), ...patch } })
+      ? await postCampaignChange({
+          op: 'update',
+          id: campaign.id,
+          revision: campaign.revision,
+          definition: { ...definitionOf(campaign), ...patch },
+        })
       : await postCampaignChange({ op: 'create', definition: { name: fields.name.trim(), type: fields.type, rules: fields.rules } });
     setReply(answer);
     if (answer.ok) {
@@ -258,8 +263,8 @@ export function CampaignBuilder({ initial }: { initial: CampaignDetailView | nul
         <div>
           <h1>{campaign ? campaign.name : 'New campaign'}</h1>
           <p>
-            Every step saves the draft. Leave at any point: the draft is listed on the desk and resumes at the first step still
-            blank. A second founder approves the revision before it goes live.
+            Every step saves the draft. Leave at any point: the draft is listed on the desk and resumes at the first step still blank. A
+            second founder approves the revision before it goes live.
           </p>
         </div>
       </div>
@@ -268,7 +273,9 @@ export function CampaignBuilder({ initial }: { initial: CampaignDetailView | nul
         {view && <span className="dk-asof">As of {formatAsOf(view.asOf)} (when this console read svc-campaigns)</span>}
       </div>
       {missing && <PartFailed title="No such campaign" message="svc-campaigns lists no campaign with this id." code="campaign.unknown" />}
-      {view?.campaign.kind === 'failed' && <PartFailed title="Campaign unavailable" message={view.campaign.message} code={view.campaign.code} />}
+      {view?.campaign.kind === 'failed' && (
+        <PartFailed title="Campaign unavailable" message={view.campaign.message} code={view.campaign.code} />
+      )}
       <nav aria-label="Builder steps" className="dk-row" data-testid="campaign-steps">
         {BUILDER_STEPS.map((s) => (
           <button
@@ -314,7 +321,13 @@ export function CampaignBuilder({ initial }: { initial: CampaignDetailView | nul
                 </div>
                 <div className="adm-field">
                   <label htmlFor="cmp-rules">Rules customers read</label>
-                  <textarea id="cmp-rules" rows={4} maxLength={4000} value={fields.rules} onChange={(e) => set({ rules: e.target.value })} />
+                  <textarea
+                    id="cmp-rules"
+                    rows={4}
+                    maxLength={4000}
+                    value={fields.rules}
+                    onChange={(e) => set({ rules: e.target.value })}
+                  />
                 </div>
               </>
             )}
@@ -340,18 +353,33 @@ export function CampaignBuilder({ initial }: { initial: CampaignDetailView | nul
                 <fieldset className="adm-field">
                   <legend>Regions</legend>
                   <label>
-                    <input type="radio" name="cmp-scope" checked={fields.regionScope === 'platform'} onChange={() => set({ regionScope: 'platform' })} />{' '}
+                    <input
+                      type="radio"
+                      name="cmp-scope"
+                      checked={fields.regionScope === 'platform'}
+                      onChange={() => set({ regionScope: 'platform' })}
+                    />{' '}
                     Every region the platform serves
                   </label>
                   <label>
-                    <input type="radio" name="cmp-scope" checked={fields.regionScope === 'listed'} onChange={() => set({ regionScope: 'listed' })} />{' '}
+                    <input
+                      type="radio"
+                      name="cmp-scope"
+                      checked={fields.regionScope === 'listed'}
+                      onChange={() => set({ regionScope: 'listed' })}
+                    />{' '}
                     Every region except a restricted list
                   </label>
                 </fieldset>
                 {fields.regionScope === 'listed' && (
                   <div className="adm-field">
                     <label htmlFor="cmp-regions">Restricted regions</label>
-                    <input id="cmp-regions" value={fields.regions} placeholder="DE, FR" onChange={(e) => set({ regions: e.target.value })} />
+                    <input
+                      id="cmp-regions"
+                      value={fields.regions}
+                      placeholder="DE, FR"
+                      onChange={(e) => set({ regions: e.target.value })}
+                    />
                     <p className="dk-muted">Two-letter codes. The list is a compliance value: left blank, the campaign cannot go live.</p>
                   </div>
                 )}
@@ -362,7 +390,12 @@ export function CampaignBuilder({ initial }: { initial: CampaignDetailView | nul
                 <div className="dk-row">
                   <div className="adm-field">
                     <label htmlFor="cmp-starts">Starts (UTC)</label>
-                    <input id="cmp-starts" type="datetime-local" value={fields.startsAt} onChange={(e) => set({ startsAt: e.target.value })} />
+                    <input
+                      id="cmp-starts"
+                      type="datetime-local"
+                      value={fields.startsAt}
+                      onChange={(e) => set({ startsAt: e.target.value })}
+                    />
                   </div>
                   <div className="adm-field">
                     <label htmlFor="cmp-ends">Ends (UTC)</label>
@@ -402,11 +435,21 @@ export function CampaignBuilder({ initial }: { initial: CampaignDetailView | nul
                 <div className="dk-row">
                   <div className="adm-field">
                     <label htmlFor="cmp-budget-limit">Budget limit</label>
-                    <input id="cmp-budget-limit" inputMode="decimal" value={fields.budgetLimit} onChange={(e) => set({ budgetLimit: e.target.value })} />
+                    <input
+                      id="cmp-budget-limit"
+                      inputMode="decimal"
+                      value={fields.budgetLimit}
+                      onChange={(e) => set({ budgetLimit: e.target.value })}
+                    />
                   </div>
                   <div className="adm-field">
                     <label htmlFor="cmp-budget-asset">Budget asset</label>
-                    <input id="cmp-budget-asset" maxLength={12} value={fields.budgetAsset} onChange={(e) => set({ budgetAsset: e.target.value })} />
+                    <input
+                      id="cmp-budget-asset"
+                      maxLength={12}
+                      value={fields.budgetAsset}
+                      onChange={(e) => set({ budgetAsset: e.target.value })}
+                    />
                   </div>
                 </div>
                 <p className="dk-muted">
@@ -416,11 +459,21 @@ export function CampaignBuilder({ initial }: { initial: CampaignDetailView | nul
                 <div className="dk-row">
                   <div className="adm-field">
                     <label htmlFor="cmp-reward-amount">Reward per customer</label>
-                    <input id="cmp-reward-amount" inputMode="decimal" value={fields.rewardAmount} onChange={(e) => set({ rewardAmount: e.target.value })} />
+                    <input
+                      id="cmp-reward-amount"
+                      inputMode="decimal"
+                      value={fields.rewardAmount}
+                      onChange={(e) => set({ rewardAmount: e.target.value })}
+                    />
                   </div>
                   <div className="adm-field">
                     <label htmlFor="cmp-reward-asset">Reward asset</label>
-                    <input id="cmp-reward-asset" maxLength={12} value={fields.rewardAsset} onChange={(e) => set({ rewardAsset: e.target.value })} />
+                    <input
+                      id="cmp-reward-asset"
+                      maxLength={12}
+                      value={fields.rewardAsset}
+                      onChange={(e) => set({ rewardAsset: e.target.value })}
+                    />
                   </div>
                 </div>
               </>

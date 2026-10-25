@@ -42,9 +42,29 @@ describe('campaign builder model', () => {
   });
 
   it('the stored definition goes back whole, tasks included, with the budget limit and never what is left', () => {
-    const tasks = { steps: [{ title: 't', event: 'trade.fill' as const, market: null, side: null, count: 1, streakDays: null }], claimWindowSeconds: 60, holdSeconds: 0, lock: null, kycGate: 'none' as const };
-    const d = definitionOf(draft({ rules: 'r', budget: { asset: 'USDT', limit: '10', left: '4' }, tasks, windows: { weekdays: [1], hours: { from: '09:00', to: '17:00' } } }));
-    expect(d).toMatchObject({ name: 'TEST', rules: 'r', budget: { asset: 'USDT', limit: '10' }, tasks, weekdays: [1], hours: { from: '09:00', to: '17:00' } });
+    const tasks = {
+      steps: [{ title: 't', event: 'trade.fill' as const, market: null, side: null, count: 1, streakDays: null }],
+      claimWindowSeconds: 60,
+      holdSeconds: 0,
+      lock: null,
+      kycGate: 'none' as const,
+    };
+    const d = definitionOf(
+      draft({
+        rules: 'r',
+        budget: { asset: 'USDT', limit: '10', left: '4' },
+        tasks,
+        windows: { weekdays: [1], hours: { from: '09:00', to: '17:00' } },
+      }),
+    );
+    expect(d).toMatchObject({
+      name: 'TEST',
+      rules: 'r',
+      budget: { asset: 'USDT', limit: '10' },
+      tasks,
+      weekdays: [1],
+      hours: { from: '09:00', to: '17:00' },
+    });
     expect(d.budget).not.toHaveProperty('left');
   });
 
