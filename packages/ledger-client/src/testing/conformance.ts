@@ -616,6 +616,19 @@ export function runLedgerConformance(name: string, createHarness: () => Promise<
         expect(await heldTotal(USER_A, 'BTC')).toBe('0');
       });
 
+      it('withdrawal: a settled one that came back credits available once', async () => {
+        await fund(USER_A, 'BTC', '1');
+        const w = { userId: USER_A, assetId: 'BTC', amount: amt('0.5'), rail: 'crypto-native', withdrawalId: 'c-wd-ret:0' };
+
+        await ledger.post(recipes.withdrawHold(w));
+        await ledger.post(recipes.withdrawSettle(w));
+        await ledger.post(recipes.withdrawReturned({ ...w, amount: amt('0.2') }));
+        await ledger.post(recipes.withdrawReturned({ ...w, amount: amt('0.2') })); // retry
+
+        expect(await balanceOf(USER_A, 'BTC')).toBe('0.7');
+        expect(await heldTotal(USER_A, 'BTC')).toBe('0');
+      });
+
       it('fee charge: the IFC discount branch charges less', async () => {
         await fund(USER_A, 'IFC', '1000');
         await ledger.post(

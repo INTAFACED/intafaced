@@ -226,6 +226,7 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
     { name: 'withdrawHold', post: recipes.withdrawHold(withdraw) },
     { name: 'withdrawSettle', post: recipes.withdrawSettle(withdraw) },
     { name: 'withdrawReverse', post: recipes.withdrawReverse(withdraw) },
+    { name: 'withdrawReturned', post: recipes.withdrawReturned(withdraw) },
     { name: 'tradeFill', post: recipes.tradeFill({ ...fill, makerFeeBps: 0, takerFeeBps: 0 }) },
     { name: 'tradeFill', post: recipes.tradeFill({ ...fill, makerFeeBps: 10, takerFeeBps: 10 }) },
     { name: 'orderHold', post: recipes.orderHold(hold) },
