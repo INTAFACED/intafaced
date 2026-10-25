@@ -102,7 +102,7 @@ describe('VIP application', () => {
 
   it('says the proof key is missing before anyone chooses a file', () => {
     view(ready({ rules: null, closed: 'vip.proof_key_unset', applications: [] }));
-    expect(text('[data-vip=not-open]')).toBe('Applications are not open: proof files cannot be stored safely yet.');
+    expect(text('[data-vip=not-open]')).toBe('Applications are not open: no key to store proof files safely is set.');
     expect(host.querySelector('form')).toBeNull();
   });
 
