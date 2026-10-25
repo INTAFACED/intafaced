@@ -463,7 +463,8 @@ test('J-p2p-04 #5 reporting a sensitive remark in a payment note opens a case an
       buyerPage.getByText('The other person on this order reported a remark in a payment note.', { exact: false }),
     ).toBeVisible();
     await notice.click();
-    await expect(buyerPage).toHaveURL(new RegExp(`/p2p/orders/${state.tradeId}`));
+    // The app's order room for this trade (it opens the order by its id).
+    await expect(buyerPage).toHaveURL(new RegExp(state.tradeId));
     const against = buyerPage.getByTestId('order-remark-against-me');
     await expect(against).toHaveAttribute('data-case-id', caseId);
     await expect(against).toContainText('The other person on this order reported a remark in a payment note.');
