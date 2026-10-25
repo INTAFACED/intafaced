@@ -126,14 +126,17 @@ async function attachBus(): Promise<void> {
 }
 await attachBus();
 
-// The reconciler: releases held rewards whose hold ended, then posts open rewards and fundings again under their own
-// keys. Blank owner value: none runs, and a held reward stays held.
+// The reconciler: releases held rewards whose hold ended, decides locked rewards and bonuses that are due, then posts
+// open rewards, outcomes and fundings again under their own keys. Blank owner value: none runs, and a held reward stays
+// held and a locked one locked.
 const reconciler =
   saga && reconcileAfterSeconds
     ? setInterval(() => {
         tasks
           .releaseHolds()
           .catch((err: unknown) => app.log.error({ err }, 'reward hold release failed'))
+          .then(() => tasks.settleLocks())
+          .catch((err: unknown) => app.log.error({ err }, 'locked reward settle failed'))
           .then(() => saga.reconcile())
           .catch((err: unknown) => app.log.error({ err }, 'reward reconcile failed'));
       }, reconcileAfterSeconds * 1000)

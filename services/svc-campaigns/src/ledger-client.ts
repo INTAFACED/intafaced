@@ -2,9 +2,10 @@ import { createHttpLedgerClient, type HttpLedgerOptions, type LedgerClient } fro
 import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 
 /**
- * svc-campaigns' client for svc-ledger: the shared HTTP client, signed as `svc-campaigns`. It posts two recipes only,
- * `rewardPay` (a claimed task reward, from the one reward pot) and `sweepFeesToRewards` (an approved pot funding), and
- * reads back only its own keys (`getTxByKey`). No database transaction is open around a post (`payouts.ts`).
+ * svc-campaigns' client for svc-ledger: the shared HTTP client, signed as `svc-campaigns`. It posts only `rewardPay` (a
+ * claimed task reward, from the one reward pot), `sweepFeesToRewards` (an approved pot funding) and the locked reward
+ * recipes (`campaignRewardLock`, `campaignRewardUnlock`, `campaignRewardForfeit`), and reads back only its own keys
+ * (`getTxByKey`). No database transaction is open around a post (`payouts.ts`).
  *
  *   - post: 10s per attempt, 2 retries, 25s for the whole call. Retrying is safe: the key is the intent's business key,
  *     written with its terms before the first call, so a retry carries the same body and the ledger answers it with the
