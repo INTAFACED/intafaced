@@ -39,7 +39,7 @@ const en = {
   why_locked:
     'Locked until you complete “{step}” ({done} of {target}) by {when}, {left} left. Then it is paid to your balance; if not, it is forfeited. Until then it is not in your balance and cannot be withdrawn.',
   why_bonus:
-    'A bonus for {products}. It is not in your balance and cannot be withdrawn. Using it inside those products is not connected yet. It expires on {when}, {left} left, and is then forfeited.',
+    'A bonus for {products}. It is not in your balance and cannot be withdrawn. Those products do not draw on it: no rail spends a bonus. It expires on {when}, {left} left, and is then forfeited.',
   why_settling_unlock: 'Its condition was met; it is being paid to your balance.',
   why_settling_forfeit: 'Its time ran out; it is being forfeited.',
   why_lock_condition_failed: 'Forfeited: “{step}” was not completed by {when}. It is not given again.',
@@ -90,9 +90,9 @@ const es: { [K in keyof typeof en]: string } = {
   total_locked: 'Bloqueado, no retirable',
   status_locked: 'Bloqueada',
   why_locked:
-    'Bloqueada hasta que completes «{step}» ({done} de {target}) antes del {when}; quedan {left}. Entonces se abona en tu saldo; si no, se pierde. Hasta entonces no está en tu saldo y no se puede retirar.',
+    'Bloqueada hasta que completes «{step}» ({done} de {target}) antes del {when}; quedan {left}. Entonces se abona en tu saldo; si no, se pierde. Mientras tanto no está en tu saldo y no se puede retirar.',
   why_bonus:
-    'Un bono para {products}. No está en tu saldo y no se puede retirar. Usarlo en esos productos aún no está conectado. Caduca el {when}, quedan {left}, y entonces se pierde.',
+    'Un bono para {products}. No está en tu saldo y no se puede retirar. Esos productos no lo usan: ningún carril gasta un bono. Caduca el {when}, quedan {left}, y entonces se pierde.',
   why_settling_unlock: 'Se cumplió su condición; se está abonando en tu saldo.',
   why_settling_forfeit: 'Se acabó su plazo; se está dando por perdida.',
   why_lock_condition_failed: 'Perdida: «{step}» no se completó antes del {when}. No se vuelve a dar.',
@@ -147,7 +147,7 @@ const fr: { [K in keyof typeof en]: string } = {
   why_locked:
     'Bloquée jusqu’à ce que vous terminiez « {step} » ({done} sur {target}) avant le {when} ; il reste {left}. Elle est alors versée sur votre solde ; sinon, elle est perdue. D’ici là, elle n’est pas sur votre solde et ne peut pas être retirée.',
   why_bonus:
-    'Un bonus pour {products}. Il n’est pas sur votre solde et ne peut pas être retiré. Son utilisation dans ces produits n’est pas encore branchée. Il expire le {when}, il reste {left}, puis il est perdu.',
+    'Un bonus pour {products}. Il n’est pas sur votre solde et ne peut pas être retiré. Ces produits ne le prélèvent pas : aucun rail ne dépense un bonus. Il expire le {when}, il reste {left}, puis il est perdu.',
   why_settling_unlock: 'Sa condition est remplie ; elle est en cours de versement sur votre solde.',
   why_settling_forfeit: 'Son délai est écoulé ; elle est en cours d’annulation.',
   why_lock_condition_failed: 'Perdue : « {step} » n’a pas été terminé avant le {when}. Elle n’est pas redonnée.',
