@@ -2,16 +2,15 @@ import { defineCopy } from '../../../shared/i18n';
 
 // P-ads-merchant-18 and -19: the payment methods a person gets paid with in P2P, and the catalogue they come from.
 const en = {
-  stepUpWhy: 'Buyers pay to the methods you save, so adding or removing one needs a fresh check that it’s you.',
+  stepUpWhy: 'Buyers pay to the methods you save, so each one you add or remove needs a fresh check that it’s you.',
   stepUpCode: 'Authenticator code',
   stepUpCodeHint: 'The 6 digits your authenticator app shows now.',
   stepUpCodeShort: 'Enter the 6 digits from your authenticator app.',
   stepUpNoFactor:
     'Your account has no passkey or authenticator app, so this change cannot be confirmed. Add one in Security first; sending it now is refused.',
   stepUpSendSave: 'Save without confirming',
+  addSaving: 'Saving',
   stepUpSendRemove: 'Remove without confirming',
-  stepUpChecking: 'Checking whether you confirmed recently',
-  stepUpCovered: 'You confirmed it’s you here, so changes to your payment methods need no new check until {time}.',
   stepUpDone: 'Confirmed. You can go ahead.',
   stepUpNone: 'Not confirmed. The change will be refused unless your account needs no check.',
   stepUpFirst: 'Confirm it’s you first.',
@@ -79,9 +78,8 @@ const es: Record<keyof typeof en, string> = {
   stepUpNoFactor:
     'Tu cuenta no tiene llave de acceso ni app de autenticación, así que este cambio no se puede confirmar. Añade una en Seguridad primero; enviarlo ahora se rechaza.',
   stepUpSendSave: 'Guardar sin confirmar',
+  addSaving: 'Guardando',
   stepUpSendRemove: 'Quitar sin confirmar',
-  stepUpChecking: 'Comprobando si lo confirmaste hace poco',
-  stepUpCovered: 'Confirmaste que eres tú aquí, así que los cambios en tus métodos de pago no piden otra comprobación hasta las {time}.',
   stepUpDone: 'Confirmado. Puedes continuar.',
   stepUpNone: 'Sin confirmar. El cambio se rechazará salvo que tu cuenta no necesite comprobación.',
   stepUpFirst: 'Primero confirma que eres tú.',
@@ -152,10 +150,8 @@ const fr: Record<keyof typeof en, string> = {
   stepUpNoFactor:
     'Votre compte n’a ni clé d’accès ni application d’authentification, donc ce changement ne peut pas être confirmé. Ajoutez-en une dans Sécurité d’abord ; l’envoyer maintenant est refusé.',
   stepUpSendSave: 'Enregistrer sans confirmer',
+  addSaving: 'Enregistrement',
   stepUpSendRemove: 'Retirer sans confirmer',
-  stepUpChecking: 'Vérification d’une confirmation récente',
-  stepUpCovered:
-    'Vous avez confirmé que c’est vous ici : les changements de vos moyens de paiement ne demandent pas de nouvelle vérification avant {time}.',
   stepUpDone: 'Confirmé. Vous pouvez continuer.',
   stepUpNone: 'Non confirmé. Le changement sera refusé sauf si votre compte ne demande aucune vérification.',
   stepUpFirst: 'Confirmez d’abord que c’est vous.',

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SAME_PERSON_ACTION_TYPES, SAME_PERSON_APPROVAL_TTL_SECONDS } from './action-approval.js';
+import { p2pInstrumentDetailsDigest } from './p2p-rule-class.js';
 import {
   CUSTOMER_STEP_UP_CHALLENGE_TTL_SECONDS,
   CUSTOMER_STEP_UP_DOORS,
@@ -93,24 +94,43 @@ describe('customer step-up binding', () => {
     expect(bindCustomerStepUp(ACTOR, { ...request, fields: { tradeId, amount: '10' } })).toEqual({ ok: false, code: 'step_up.fields' });
   });
 
-  it('binds a P2P payment-method change to the method and the kind of change, the method as its target', () => {
+  it('binds a P2P payment-method change to the method, the kind of change and the digest of its details', async () => {
     const instrumentId = '7c1e0b6f-4a7d-4c55-9d1e-2f6f0e8a1b2c';
+    const detailsDigest = await p2pInstrumentDetailsDigest({ iban: 'DE89370400440532013000', account_holder: 'TEST Name' });
     const request = {
       scope: 'p2p.step_up.instruments.change',
       purpose: 'instruments.change',
       target: instrumentId,
-      fields: { instrumentId, change: 'create' },
+      fields: { instrumentId, change: 'create', detailsDigest },
     };
     expect(bindCustomerStepUp(ACTOR, request)).toMatchObject({
       ok: true,
-      payloadHash: customerStepUpPayloadHash('p2p.step_up.instruments.change', { actor: ACTOR, instrumentId, change: 'create' }),
+      payloadHash: customerStepUpPayloadHash('p2p.step_up.instruments.change', {
+        actor: ACTOR,
+        instrumentId,
+        change: 'create',
+        detailsDigest,
+      }),
     });
-    // Another method as the target, or details the change does not hash, is not this change.
+    // A removal sends no details: the digest is empty, and still named.
+    expect(bindCustomerStepUp(ACTOR, { ...request, fields: { instrumentId, change: 'remove', detailsDigest: '' } })).toMatchObject({
+      ok: true,
+    });
+    // Another method as the target, a missing digest, or the details themselves, is not this change.
     expect(bindCustomerStepUp(ACTOR, { ...request, target: '9d1e2f6f-0b6f-4c1e-8a7d-4c552f6f0e8a' })).toMatchObject({ ok: false });
-    expect(bindCustomerStepUp(ACTOR, { ...request, fields: { instrumentId, change: 'create', iban: 'X' } })).toEqual({
+    expect(bindCustomerStepUp(ACTOR, { ...request, fields: { instrumentId, change: 'create' } })).toMatchObject({ ok: false });
+    expect(bindCustomerStepUp(ACTOR, { ...request, fields: { instrumentId, change: 'create', detailsDigest, iban: 'X' } })).toEqual({
       ok: false,
       code: 'step_up.fields',
     });
+  });
+
+  it('digests payment details by sorted key, so key order does not matter and any changed value does', async () => {
+    const a = await p2pInstrumentDetailsDigest({ iban: 'DE89370400440532013000', account_holder: 'TEST Name' });
+    expect(a).toMatch(/^[0-9a-f]{64}$/);
+    expect(await p2pInstrumentDetailsDigest({ account_holder: 'TEST Name', iban: 'DE89370400440532013000' })).toBe(a);
+    expect(await p2pInstrumentDetailsDigest({ account_holder: 'TEST Name', iban: 'DE89370400440532013001' })).not.toBe(a);
+    expect(await p2pInstrumentDetailsDigest(undefined)).toBe('');
   });
 
   it('sorts payroll lines by space id then amount string', () => {

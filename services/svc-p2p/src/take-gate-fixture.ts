@@ -64,8 +64,5 @@ export function confirmedReleaseStepUp(): ReleaseStepUp {
 export function confirmedInstrumentStepUp(): InstrumentStepUp {
   return {
     async assertConfirmed() {},
-    async window() {
-      return { confirmedUntil: null };
-    },
   };
 }

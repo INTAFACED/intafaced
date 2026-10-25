@@ -272,15 +272,15 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     fixed: {},
   },
   {
-    // svc-p2p instrumentStepUpPayloadHash: the payment method (instrument) and whether it is added, changed or removed.
-    // The details are not hashed: they are the person's own, typed in the same session, and the own-name and format rules
-    // check them at the change itself.
+    // svc-p2p instrumentStepUpPayloadHash: the payment method (instrument), whether it is added, changed or removed, and
+    // the digest of the details it saves (`p2pInstrumentDetailsDigest`; empty when the change sends none), so one
+    // confirmation approves one account number. Identity never sees the details themselves.
     scope: 'p2p.step_up.instruments.change',
     purpose: 'instruments.change',
-    clientFields: ['instrumentId', 'change'],
+    clientFields: ['instrumentId', 'change', 'detailsDigest'],
     targetField: 'instrumentId',
     targetRequired: true,
-    emptyOk: [],
+    emptyOk: ['detailsDigest'],
     decimalFields: [],
     fixed: {},
   },

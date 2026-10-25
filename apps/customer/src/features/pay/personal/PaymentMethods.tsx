@@ -3,9 +3,9 @@ import { Button, DataTable, ReviewDialog as Dialog } from '@intafaced/ui';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import { uiCopy } from '../../../shared/ui-copy';
+import { p2pInstrumentDetailsDigest } from '@intafaced/contracts/p2p-rule-class';
 import type { StepUpBegin } from '../../account/security-step-up';
 import { StepUpConfirm } from '../../money/StepUpConfirm';
-import { formatDateTime } from '../portal/ui/format';
 import { PayFailure, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from '../components';
 import { payCopy } from '../copy';
 import type { PersonalPayApi } from '../pay-api';
@@ -27,24 +27,22 @@ const STEP_UP_REFUSALS = {
   'p2p.instrument_kms_required': 'keyOff',
 } as const;
 
-/** What the person confirms for one change: the method's id and the kind of change; svc-p2p hashes the same. */
-const changeStepUp = (instrumentId: string, change: 'create' | 'remove'): StepUpBegin => ({
+/**
+ * What the person confirms for one change: the method's id, the kind of change and the digest of the details it saves
+ * (empty for a removal). svc-p2p hashes the same from the request, so the confirmation approves this account number only.
+ */
+const changeStepUp = (instrumentId: string, change: 'create' | 'remove', detailsDigest: string): StepUpBegin => ({
   scope: 'p2p.step_up.instruments.change',
   purpose: 'instruments.change',
   target: instrumentId,
-  fields: { instrumentId, change },
+  fields: { instrumentId, change, detailsDigest },
 });
-
-/** A confirmation from this session that still has half a minute to run, or null when the next change asks again. */
-function liveUntil(window: ApiResult<{ confirmedUntil: string | null }>): string | null {
-  if (!window.ok || !window.data.confirmedUntil) return null;
-  return Date.parse(window.data.confirmedUntil) > Date.now() + 30_000 ? window.data.confirmedUntil : null;
-}
 
 /**
  * P2P payment methods (P-ads-merchant-18, -19; J-p2p-04): what each method asks for per country, adding one in the
- * person's own name, and the ones they hold. Saved values never come back here: the list shows the person's own labels,
- * and a buyer sees the details only on an order placed with them.
+ * person's own name, and the ones they hold. Every add and removal is confirmed with a passkey or authenticator code.
+ * Whole saved values never come back here: the list shows the person's own labels, "Show details" reads them masked
+ * through svc-p2p's logged read, and a buyer sees the details only on an order placed with them.
  */
 export function PaymentMethods({ pay, userId }: { pay: PersonalPayApi; userId: string | null }) {
   const { t } = methodsCopy.useCopy();
@@ -122,16 +120,10 @@ function fieldsOf(resource: ReturnType<typeof useResource<Method[]>>['resource']
   return methodsIn(resource.data, country).find((method) => method.methodId === methodId)?.fields ?? null;
 }
 
-/** A sensitive value as its last four characters; a short one shows none of itself. */
-function masked(value: string): string {
-  const compact = value.replace(/\s+/g, '');
-  return compact.length > 6 ? `•••• ${compact.slice(-4)}` : '••••';
-}
-
 /**
- * The person's own saved details, masked (J-p2p-04 #3). They are read only when asked for, through svc-p2p's logged
- * read: every look at an account number is recorded, the owner's included. The account holder is shown whole; every
- * field the method marks sensitive, and every field when the method's fields are unread, shows only its last four.
+ * The person's own saved details, masked (J-p2p-04 #3), read only when asked for. svc-p2p masks them (the account holder
+ * whole, every other value as its last four) and logs the read like any other, so the whole account number never
+ * reaches the browser on this path.
  */
 function SavedDetails({ pay, instrumentId, fields }: { pay: PersonalPayApi; instrumentId: string; fields: MethodField[] | null }) {
   const { t } = methodsCopy.useCopy();
@@ -140,7 +132,7 @@ function SavedDetails({ pay, instrumentId, fields }: { pay: PersonalPayApi; inst
   useEffect(() => () => void (alive.current = false), []);
   async function show() {
     setShown('loading');
-    const result = await pay.revealInstrument(instrumentId);
+    const result = await pay.maskedInstrument(instrumentId);
     if (alive.current) setShown(result);
   }
   if (shown === null)
@@ -155,68 +147,66 @@ function SavedDetails({ pay, instrumentId, fields }: { pay: PersonalPayApi; inst
         {t('detailsLoading')}
       </p>
     );
-  if (!shown.ok) return <PayFailure result={shown} />;
+  const hide = (
+    <Button variant="ghost" onClick={() => setShown(null)}>
+      {t('detailsHide')}
+    </Button>
+  );
+  if (!shown.ok)
+    return (
+      <div className="stack">
+        <PayFailure result={shown} />
+        {hide}
+      </div>
+    );
   return (
     <div className="stack" data-testid="saved-method-details">
       <dl className="pay-details">
-        {Object.entries(shown.data.details).map(([key, value]) => {
-          const spec = fields?.find((field) => field.key === key);
-          const open = spec !== undefined && (spec.holderName === true || spec.sensitive === false);
-          return (
-            <div key={key} style={{ display: 'contents' }}>
-              <dt>{spec?.label ?? key}</dt>
-              <dd lang="zxx" data-field={key}>
-                {open ? value : masked(value)}
-              </dd>
-            </div>
-          );
-        })}
+        {Object.entries(shown.data.details).map(([key, value]) => (
+          <div key={key} style={{ display: 'contents' }}>
+            <dt>{fields?.find((field) => field.key === key)?.label ?? key}</dt>
+            <dd lang="zxx" data-field={key}>
+              {value}
+            </dd>
+          </div>
+        ))}
       </dl>
       <small className="muted">{t('detailsLogged')}</small>
-      <Button variant="ghost" onClick={() => setShown(null)}>
-        {t('detailsHide')}
-      </Button>
+      {hide}
     </div>
   );
 }
 
-/** Removing a saved method, confirmed with a passkey or authenticator code unless this session's last one still covers it. */
+/** Removing a saved method, confirmed with a passkey or authenticator code each time. */
 function RemoveMethod({ pay, instrumentId, onRemoved }: { pay: PersonalPayApi; instrumentId: string; onRemoved: () => void }) {
-  const { t, requestedLocale } = methodsCopy.useCopy();
+  const { t } = methodsCopy.useCopy();
   // undefined: not confirmed yet; null: no factor on the account, so the removal goes without one and svc-p2p decides.
   const [approval, setApproval] = useState<string | null | undefined>(undefined);
-  const covered = useResource((signal) => pay.instrumentStepUpWindow(signal), `pay:instrument-step-up:${instrumentId}`);
-  const coveredUntil = covered.resource.status === 'ready' ? liveUntil({ ok: true, data: covered.resource.data }) : null;
   return (
     <ReviewedAction
       title={payCopy.t('removeDestination')}
       description={payCopy.t('thisRemovesTheDestinationFromFutureTrades')}
       review={
-        approval === undefined && coveredUntil ? (
-          <p className="muted" role="status" data-testid="method-remove-covered">
-            {t('stepUpCovered', { time: formatDateTime(coveredUntil, requestedLocale)?.short ?? coveredUntil })}
-          </p>
-        ) : approval === undefined ? (
+        approval === undefined ? (
           <StepUpConfirm
-            request={() => changeStepUp(instrumentId, 'remove')}
+            request={() => changeStepUp(instrumentId, 'remove', '')}
             words={stepUpWords(t, 'stepUpSendRemove')}
             disabled={false}
             onApproved={(id) => setApproval(id)}
           />
         ) : (
-          <p className="muted" role="status">
+          <p className="muted" role="status" data-testid="method-remove-confirmed">
             {approval ? t('stepUpDone') : t('stepUpNone')}
           </p>
         )
       }
-      ready={approval !== undefined || coveredUntil !== null}
+      ready={approval !== undefined}
       notReadyReason={t('stepUpFirst')}
       perform={async () => {
         const result = await pay.removeInstrument(instrumentId, approval ?? undefined);
-        // A confirmation is spent once, kept or refused: the next try asks again, and reads the window again.
+        // A confirmation is spent once, kept or refused: the next try asks again.
         if (!result.ok) {
           setApproval(undefined);
-          covered.reload();
           const words = result.code ? STEP_UP_REFUSALS[result.code as keyof typeof STEP_UP_REFUSALS] : undefined;
           if (words) return { ...result, message: t(words) };
         }
@@ -376,7 +366,7 @@ function AddMethod({
   disabled: boolean;
   onSaved: () => void;
 }) {
-  const { t, requestedLocale } = methodsCopy.useCopy();
+  const { t } = methodsCopy.useCopy();
   const fiat = useResource((signal) => pay.fiat(signal), 'pay:p2p-fiat');
   const countries = useMemo(
     () => [...new Set(methods.map((method) => method.country).filter((code) => code !== EVERYWHERE))].sort(),
@@ -393,8 +383,8 @@ function AddMethod({
   const [refused, setRefused] = useState<Refusal | null>(null);
   const [failure, setFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null);
   const [saved, setSaved] = useState(false);
-  // Whether this session's last confirmation still covers a save: read each time the review opens.
-  const [covered, setCovered] = useState<string | null | 'loading'>('loading');
+  // The digest of exactly the details under review, which the confirmation names; null while it is worked out.
+  const [digest, setDigest] = useState<string | null>(null);
   const reviewToken = useRef(0);
   // The new destination's id, minted once per form and kept until a save is answered: a resend after a lost answer is
   // the same destination, and pay-api settles a lost answer by finding this id in the person's list.
@@ -414,28 +404,33 @@ function AddMethod({
     setSaved(false);
   }
 
+  /** The details as the save sends them: each declared field, trimmed, the blank ones left out. */
+  function values(of: Method): Record<string, string> {
+    return Object.fromEntries(
+      of.fields.map((field) => [field.key, (details[field.key] ?? '').trim()] as const).filter(([, value]) => value !== ''),
+    );
+  }
+
   async function review() {
+    if (!method) return;
     const token = ++reviewToken.current;
     setReviewing(true);
-    setCovered('loading');
-    const window = await pay.instrumentStepUpWindow(AbortSignal.timeout(10_000));
-    if (reviewToken.current === token) setCovered(liveUntil(window));
+    setDigest(null);
+    const named = await p2pInstrumentDetailsDigest(values(method));
+    if (reviewToken.current === token) setDigest(named);
   }
 
   async function save(stepUpApprovalId?: string) {
     if (!method || busy) return;
     setBusy(true);
     try {
-      const values = Object.fromEntries(
-        method.fields.map((field) => [field.key, (details[field.key] ?? '').trim()] as const).filter(([, value]) => value !== ''),
-      );
       const result = await pay.addInstrument({
         instrumentId: instrumentId.current,
         methodId: method.methodId,
         country,
         fiatCurrency,
         label: label.trim(),
-        details: values,
+        details: values(method),
         ...(stepUpApprovalId ? { stepUpApprovalId } : {}),
       });
       setReviewing(false);
@@ -589,31 +584,24 @@ function AddMethod({
                   </div>
                 ))}
             </dl>
-            {covered === 'loading' ? (
-              <p className="muted" role="status">
-                {t('stepUpChecking')}
-              </p>
-            ) : covered ? (
-              <p className="muted" role="status" data-testid="method-add-covered">
-                {t('stepUpCovered', { time: formatDateTime(covered, requestedLocale)?.short ?? covered })}
-              </p>
-            ) : (
+            {/* Confirming saves: the passkey or code approves exactly these details. */}
+            {digest === null ? null : (
               <StepUpConfirm
-                request={() => changeStepUp(instrumentId.current, 'create')}
+                request={() => changeStepUp(instrumentId.current, 'create', digest)}
                 words={stepUpWords(t, 'stepUpSendSave')}
                 disabled={busy}
                 onApproved={(id) => void save(id ?? undefined)}
               />
             )}
+            {busy ? (
+              <p className="muted" role="status">
+                {t('addSaving')}
+              </p>
+            ) : null}
             <div className="actions">
-              <Button variant="ghost" disabled={busy} onClick={() => setReviewing(false)}>
+              <Button variant="ghost" disabled={busy} onClick={() => (reviewToken.current++, setReviewing(false))}>
                 {t('addCancel')}
               </Button>
-              {covered && covered !== 'loading' ? (
-                <Button variant="primary" disabled={busy} onClick={() => void save()} data-testid="method-add-confirm">
-                  {t('addReviewTitle')}
-                </Button>
-              ) : null}
             </div>
           </div>
         </Dialog>

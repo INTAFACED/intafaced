@@ -755,6 +755,21 @@ export class InstrumentService {
     });
   }
 
+  /**
+   * The owner's own details, masked (J-p2p-04 #3): the account holder whole, since it is the person's own verified name,
+   * and every other value as its last four characters at most (`maskedValue`). Logged as a reveal in the same statement
+   * as any read, because a mask is still the data. The full values never leave the service on this path: a person who
+   * only wants to tell their methods apart never puts a whole account number in their browser.
+   */
+  async revealOwnMasked(input: { instrumentId: string; viewerId: string }): Promise<RevealedInstrument> {
+    const revealed = await this.revealOwn(input);
+    const schema = await this.lookupSchema(revealed.methodId, revealed.country);
+    const holders = new Set((schema?.fields ?? []).filter((field) => field.holderName === true).map((field) => field.key));
+    const details: Record<string, string> = {};
+    for (const [key, value] of Object.entries(revealed.details)) details[key] = holders.has(key) ? value : maskedValue(value);
+    return { ...revealed, details };
+  }
+
   /** "Who has looked at my account details, and when." Owner-scoped. */
   async accessLogFor(ownerId: string, limit?: number): Promise<AccessLogEntry[]> {
     const lim = assertAccessLogLimit(limit);
@@ -1394,3 +1409,12 @@ function isUniqueViolation(err: unknown): boolean {
 
 export { InstrumentError };
 export type { InstrumentDetails, MethodSchema, FieldSpec };
+
+/**
+ * A saved value as the owner's masked view shows it: `•••• ` and its last four characters, with spaces dropped. A value
+ * of six characters or fewer shows none of itself, so the mask never gives most of a short value away.
+ */
+export function maskedValue(value: string): string {
+  const compact = value.replace(/\s+/g, '');
+  return compact.length > 6 ? `•••• ${compact.slice(-4)}` : '••••';
+}
