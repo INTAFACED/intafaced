@@ -326,6 +326,11 @@ export const tradeSchema = z.object({
   fee: z.object({ cost: decimal, currency: z.string(), rate: decimal.nullable() }).nullable(),
   /** A maker rebate paid on this fill (in the asset the maker paid), never a negative fee. Absent when none. */
   rebate: z.object({ cost: decimal, currency: z.string(), rate: decimal }).optional(),
+  /**
+   * The order chose to pay its fees in the platform token, and this fill took the fee in the asset it received instead,
+   * for this reason (`trade.fee_ifc_insufficient`, …). Absent when the fill paid as chosen, or no token was chosen.
+   */
+  feeFallback: z.string().optional(),
   /** Unix ms when this fills read was assembled. Absent on older wires. */
   serverTime: timestampMs.optional(),
 });
@@ -453,8 +458,9 @@ export const createOrderRequestSchema = z
     /** A label for the caller's own books. Never part of the idempotency key. */
     tag: z.string().min(1).max(16).optional(),
     /**
-     * The asset fees are paid in. Spot charges the fee in the asset received and has no fee token, so any other value
-     * is refused by the service (`trade.fee_currency_unsupported`), never silently dropped.
+     * The asset fees are paid in: the asset the order receives (the default), or the platform token on a plain spot
+     * market or limit order when the owner publishes its terms. Anything else is refused by the service
+     * (`trade.fee_currency_unsupported`, `trade.fee_currency_ifc_unset`, …), never silently dropped.
      */
     feeCurrency: z.string().min(1).max(32).optional(),
     /** The instant after which the caller no longer wants this order created. Past it, the service refuses the create before any hold. */

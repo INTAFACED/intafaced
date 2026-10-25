@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
-import { approverSessions, makeContext, setFeeSchedule } from '../../../../tooling/scripts/local-test-gates.mjs';
+import { randomUUID } from 'node:crypto';
+import { approverSessions, makeContext, setFeeDiscountSchedule, setFeeSchedule } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { EDGE, api, bestPrices, fromUnits, fund, journeyState, otherTrader, times, toUnits } from './stack.mjs';
-import { awayBid, deskPath, fundedTrader, held, openDesk, openOrders, signIn } from './desk.mjs';
+import { awayBid, confirm, deskPath, free, fundedTrader, held, openDesk, openOrders, placements, reviewSheet, signIn } from './desk.mjs';
 import { draftNotice, publishNotice } from './notices.mjs';
 
 // J-cex-spot-10, in the running app (docs/roadmap/journeys.json): a person sees what they pay, what tier they are in,
@@ -10,8 +11,8 @@ import { draftNotice, publishNotice } from './notices.mjs';
 // two-person door (`setFeeSchedule`), as TEST versions: the default pair group keeps the stack's own regular rates
 // (maker 0.08%, taker 0.10%), so every other journey on the stack trades at the rates it always did. TEST groups hold
 // markets no other journey trades: ETH/USDC at zero fee, and IFC/USDT, which #3 leaves blank for a moment. #5-#6 add a
-// TEST tier programme only for as long as they run, and #11 once more. Steps 7 and 9 join this file with the slices that build
-// them.
+// TEST tier programme only for as long as they run, and #11 once more. #9 adds TEST terms for paying fees in IFC and a
+// TEST stake-discount ladder, and takes the terms away again. Step 7 joins this file with the slice that builds it.
 const J = 'J-cex-spot-10';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
@@ -555,7 +556,7 @@ test(`${J} #8 looks at the fee currency row: disabled with its reason, and no re
   const choice = row.getByRole('button', { name: 'Pay fees in another asset' });
   await expect(choice).toBeDisabled();
   await expect(choice).toHaveAccessibleDescription(
-    'Not offered on spot: there is no fee token to pay fees in. The fee comes out of the BTC this order receives.',
+    'Not offered now: no fee token terms are published. The fee comes out of the BTC this order receives.',
   );
   // It stays reachable from the keyboard, and pressing or clicking it does nothing.
   await choice.focus();
@@ -581,9 +582,105 @@ test(`${J} #8 looks at the fee currency row: disabled with its reason, and no re
     clientOrderId,
   });
   expect(sent.status).toBe(400);
-  expect(JSON.stringify(sent.body)).toContain('trade.fee_currency_unsupported');
+  expect(JSON.stringify(sent.body)).toContain('trade.fee_currency_ifc_unset');
   expect(held(await client.balances(), 'USDT')).toBe(before);
   expect((await openOrders(who, 'BTC/USDT')).filter((o) => o.clientOrderId === clientOrderId)).toEqual([]);
+});
+
+/**
+ * TEST terms for #9, not owner prices: one BTC is worth 100 000 IFC and one USDT 2 IFC. With the stack's taker 0.10%, a
+ * buy of 0.001 BTC owes 0.000001 BTC, which is 0.1 IFC before the stake discount.
+ */
+const IFC_TERMS = { tokenAsset: 'IFC', perUnit: { BTC: '100000', USDT: '2' } };
+/** TEST stake-discount ladder: nothing off below 100 IFC staked, 20% off from 100. Not an owner decision. */
+const TEST_LADDER = {
+  basis: 'staked',
+  tiers: [
+    { minStake: '0', discountBps: 0 },
+    { minStake: '100', discountBps: 2000 },
+  ],
+};
+
+test(`${J} #9 chooses to pay trading fees in IFC: the published discount with its decay, the fee posting in IFC`, async ({ page }) => {
+  // A ladder, a stake, a schedule version and its restore around one desk order.
+  test.setTimeout(240_000);
+  const who = account();
+  const client = await api(who);
+  const { ctx, sessions } = await ops();
+  await setFeeDiscountSchedule(ctx, TEST_LADDER, { sessions });
+  // A TEST stake of 100 IFC puts the account on the 20% step.
+  fund(who.email, 'IFC', '150');
+  const staked = await client.post('/api/token/trpc/stake', { amount: '100', tier: 'flex', stakeId: randomUUID() });
+  expect(staked.status, JSON.stringify(staked.body).slice(0, 300)).toBe(200);
+
+  await publish({ ...SCHEDULE, ifcFee: IFC_TERMS }, 'TEST terms for paying fees in IFC');
+  try {
+    expect((await published()).body.feeToken).toEqual({ asset: 'IFC', perUnit: IFC_TERMS.perUnit });
+    const sent = placements(page);
+    await openDesk(page, who);
+    await page.mouse.move(0, 600);
+    await tab(page, 'Market').click();
+    await checkOf(page, () => buyForm(page).getByRole('textbox', { name: 'Amount' }).fill('0.001'));
+
+    // Offered, with the person's own discount and the published ladder it comes from.
+    const row = buyForm(page).locator('[data-fee-currency]');
+    await expect(row).toHaveAttribute('data-fee-token', 'offered', { timeout: 20_000 });
+    const choice = row.getByRole('button', { name: 'Pay fees in IFC' });
+    await expect(choice).toHaveAttribute('aria-pressed', 'false');
+    await expect(row).toContainText('Fees in BTC');
+    await expect(row).toContainText(`Pay this fee in IFC instead, ${pct(2000)} off with your stake.`);
+    await expect(row.locator('[data-fee-ladder]')).toHaveText(`Discount by stake: from 0 IFC ${pct(0)}, from 100 IFC ${pct(2000)}.`);
+    await choice.click();
+    await expect(choice).toHaveAttribute('aria-pressed', 'true');
+    await expect(row).toHaveAttribute('data-fee-currency', 'IFC');
+    await expect(row).toContainText('Fees in IFC');
+    await expect(row).toContainText(/If your IFC is short when it fills, the fee comes out of the BTC instead\./);
+
+    const before = await client.balances();
+    await page.getByRole('button', { name: 'Buy BTC' }).click();
+    const review = reviewSheet(page);
+    await expect(review).toBeVisible();
+    await expect(review.locator('[data-review-fee-currency=IFC]')).toContainText(`IFC, ${pct(2000)} off with your stake`);
+    await confirm(page, 'buy');
+    expect(sent.at(-1)).toMatchObject({ symbol: 'BTC/USDT', side: 'buy', type: 'market', amount: '0.001', feeCurrency: 'IFC' });
+
+    // Every fill took its fee in IFC: 0.10% of the BTC, at 100 000 IFC a BTC, 20% off. All 0.001 BTC arrived.
+    let order;
+    await expect
+      .poll(
+        async () => {
+          const { body } = await client.get('/api/v1/orders/closed?symbol=BTC%2FUSDT&limit=20');
+          order = (Array.isArray(body) ? body : []).find((o) => o.clientOrderId === sent.at(-1).clientOrderId);
+          return order?.status ?? null;
+        },
+        { timeout: 30_000 },
+      )
+      .toBe('closed');
+    const fills = await fillsOf(client, 'BTC/USDT', order.id);
+    let feeIfc = 0n;
+    let bought = 0n;
+    for (const fill of fills) {
+      expect(fill.fee.currency).toBe('IFC');
+      expect(fill.feeFallback).toBeUndefined();
+      expect(toUnits(fill.fee.cost)).toBe(times(fill.amount, '80'));
+      feeIfc += toUnits(fill.fee.cost);
+      bought += toUnits(fill.amount);
+    }
+    expect(bought).toBe(toUnits('0.001'));
+    expect(feeIfc).toBe(toUnits('0.08'));
+    // The ledger agrees: the IFC fee left once, and the BTC came in whole.
+    await expect.poll(async () => free(await client.balances(), 'IFC'), { timeout: 20_000 }).toBe(free(before, 'IFC') - feeIfc);
+    const after = await client.balances();
+    expect(toUnits(after.BTC.total) - toUnits(before.BTC?.total ?? '0')).toBe(bought);
+
+    // Trade history shows the fee posting in IFC.
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
+    await tab(page, 'Trade history').click();
+    await expect(page.locator(`tr[data-fill="${fills[0].id}"] td[class*=dk-num]`).last()).toContainText(/^0\.0\d+ IFC/);
+  } finally {
+    await publish(SCHEDULE, 'no fee token terms again');
+  }
 });
 
 test(`${J} #10 a fee change is on the notice board before it takes effect, and an order placed before then keeps its fees`, async ({

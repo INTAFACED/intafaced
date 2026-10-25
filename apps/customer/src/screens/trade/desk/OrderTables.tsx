@@ -18,6 +18,14 @@ import { canEditStop, exitKindKey } from './order-kind';
 import { orderTag } from './tif';
 import { OrderChanges } from './OrderChanges';
 
+/** Why a fill whose order chose the platform token took the fee in what it received (svc-trade fee-ifc.ts). */
+const FEE_FALLBACK: Record<string, 'Fee fallback insufficient' | 'Fee fallback rebate' | 'Fee fallback dust' | 'Fee fallback no price'> = {
+  'trade.fee_ifc_insufficient': 'Fee fallback insufficient',
+  'trade.fee_ifc_rebate_fill': 'Fee fallback rebate',
+  'trade.fee_ifc_dust': 'Fee fallback dust',
+  'trade.fee_ifc_index_unset': 'Fee fallback no price',
+};
+
 /**
  * The order and trade tables shared by the desk's bottom strip and the Activity screen (Orders and Trades tabs), so the
  * two never drift apart: same columns, same cancel button, same formatting.
@@ -459,6 +467,12 @@ export function FillsTable({
         <td className="dk-num if-num" data-fee={zeroFee ? 'zero' : undefined}>
           {zeroFee ? t('Zero fee') : fill.fee ? `${fmtAmount(fill.fee.cost, { places: 8 })} ${fill.fee.currency}` : '—'}
           {!activity && !zeroFee && rate ? <span className="dk-unit"> {fmtPct(rate, { signed: false })}</span> : null}
+          {fill.feeFallback && fill.fee && FEE_FALLBACK[fill.feeFallback] ? (
+            <span className="dk-fee-fallback" data-fee-fallback={fill.feeFallback}>
+              {' · '}
+              {t(FEE_FALLBACK[fill.feeFallback]!, { asset: fill.fee.currency })}
+            </span>
+          ) : null}
           {rebate ? (
             <span className="dk-rebate" data-rebate={rebate.cost}>
               {' '}

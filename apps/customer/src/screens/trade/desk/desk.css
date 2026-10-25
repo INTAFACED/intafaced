@@ -980,6 +980,18 @@
     flex-basis: 100%;
     color: var(--if-fg-3);
   }
+  /* Offered: a real toggle, in the accent colour, with its pressed state drawn as well as announced. */
+  .dk-fee-asset-choice[aria-pressed] {
+    color: var(--if-accent);
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .dk-fee-asset-choice[aria-pressed='true'] {
+    font-weight: 600;
+  }
+  .dk-fee-fallback {
+    color: var(--if-fg-3);
+  }
 
   /* Table extras: order tag, row actions, cancel all, edit dialog */
   .dk-tag {

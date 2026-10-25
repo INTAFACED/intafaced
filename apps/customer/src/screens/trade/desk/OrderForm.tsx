@@ -7,7 +7,8 @@ import { fitsPlaces } from '../../../features/account/trading-settings';
 import { draftSchema, isStopType, type Draft, type Preview, type TradeApi } from '../../../features/trade/trade-api';
 import type { BookPick } from './OrderBook';
 import { deskCopy } from './copy';
-import { useDeskApi, useMyFees, useOpenOrders, useRefreshPrivate } from './data';
+import { useDeskApi, useFeeToken, useMyFees, useOpenOrders, useRefreshPrivate } from './data';
+import { feeTokenChoice, type FeeTokenChoice } from './fee-token';
 import {
   Amount,
   AlertDialog,
@@ -198,6 +199,9 @@ function SideForm({
   const restingSeen = useRef(false);
   const openOrders = useOpenOrders();
   const myFees = useMyFees();
+  const feeToken = useFeeToken();
+  // The person's choice to pay fees in the platform token. Sent only while the choice is offered for this order.
+  const [payInToken, setPayInToken] = useState(false);
   const [review, setReview] = useState<{ draft: Draft; preview: Preview; changed: boolean } | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [busy, setBusy] = useState(false);
@@ -325,6 +329,8 @@ function SideForm({
   );
   // The asset the fee comes out of: the order check's own answer once it has one, else the asset the order receives.
   const receiveAsset = (live.state === 'ok' ? live.preview.feeAsset : null) ?? (side === 'buy' ? market.base : market.quote);
+  const tokenChoice = feeTokenChoice(feeToken, receiveAsset, type, signedIn);
+  const feeCurrency = payInToken && tokenChoice.kind === 'offered' ? tokenChoice.token : null;
 
   // A market buy is held at the service's price protection (best ask plus the slippage cap), so Max is sized from it.
   // It is learnt from the order check, or from one small probe check on the Market tab; never guessed.
@@ -399,7 +405,17 @@ function SideForm({
     setFailure(null);
     setStatus(null);
     // The number is given once per draft: a repeat review of the same order keeps it, so a send that was lost cannot become a second order.
-    const { clientOrderId: _unnumbered, ...body } = draftOf({ market, side, type, tif, expireAt, tag, checked, clientOrderId: '' });
+    const { clientOrderId: _unnumbered, ...body } = draftOf({
+      market,
+      side,
+      type,
+      tif,
+      expireAt,
+      tag,
+      feeCurrency,
+      checked,
+      clientOrderId: '',
+    });
     const fresh = { ...body, clientOrderId: reviewIdFor(userId ?? '', body) };
     const parsed = draftSchema.safeParse(fresh);
     if (!parsed.success) setFailure({ kind: 'network' });
@@ -786,24 +802,7 @@ function SideForm({
           </span>
         ) : null}
       </p>
-      {/* Spot takes the fee out of the asset the order receives and has no fee token, so the choice is shown, disabled,
-          with its reason, and nothing is sent (the service refuses any other fee currency: trade.fee_currency_unsupported). */}
-      <div className="dk-fee-asset" data-fee-currency={receiveAsset}>
-        <span>{t('Fees in', { asset: receiveAsset })}</span>
-        {/* aria-disabled, not disabled: it stays in the tab order, so a keyboard or screen-reader user reaches the reason. */}
-        <button
-          type="button"
-          className="dk-fee-asset-choice"
-          aria-disabled="true"
-          aria-describedby={`dk-fee-asset-why-${side}`}
-          onClick={(event) => event.preventDefault()}
-        >
-          {t('Pay fees in another asset')}
-        </button>
-        <span id={`dk-fee-asset-why-${side}`} className="dk-fee-asset-why">
-          {t('Fee currency reason', { asset: receiveAsset })}
-        </span>
-      </div>
+      <FeeCurrencyRow side={side} receiveAsset={receiveAsset} choice={tokenChoice} chosen={feeCurrency !== null} onChoose={setPayInToken} />
       {signedIn ? (
         <Button
           type="submit"
@@ -880,7 +879,7 @@ function SideForm({
               <AlertDialogTitle>{side === 'buy' ? t('Review buy') : t('Review sell')}</AlertDialogTitle>
               <AlertDialogDescription>{review.changed ? t('Review changed') : t('Review intro')}</AlertDialogDescription>
             </AlertDialogHeader>
-            <ReviewRows market={market} review={review} side={side} />
+            <ReviewRows market={market} review={review} side={side} tokenChoice={tokenChoice} />
             <AlertDialogFooter>
               <Button variant="secondary" size={40} disabled={busy} onClick={() => setReview(null)}>
                 {t('Cancel')}
@@ -896,7 +895,105 @@ function SideForm({
   );
 }
 
-function ReviewRows({ market, review, side }: { market: DeskMarket; review: { draft: Draft; preview: Preview }; side: Side }) {
+/**
+ * The asset the fee comes out of, and the platform token when the owner publishes its terms (fee-token.ts). Offered: a
+ * toggle that says the stake discount and the published ladder. Not offered: the same control, aria-disabled, with its
+ * reason, and nothing is sent (the service refuses the token on that order too).
+ */
+function FeeCurrencyRow({
+  side,
+  receiveAsset,
+  choice,
+  chosen,
+  onChoose,
+}: {
+  side: Side;
+  receiveAsset: string;
+  choice: FeeTokenChoice;
+  chosen: boolean;
+  onChoose: (on: boolean) => void;
+}) {
+  const { t } = deskCopy.useCopy();
+  const why = `dk-fee-asset-why-${side}`;
+  if (choice.kind === 'offered') {
+    const discount = fmtPct(bpsToRatio(choice.discountBps), { signed: false });
+    return (
+      <div className="dk-fee-asset" data-fee-currency={chosen ? choice.token : receiveAsset} data-fee-token="offered">
+        <span>{t('Fees in', { asset: chosen ? choice.token : receiveAsset })}</span>
+        <button
+          type="button"
+          className="dk-fee-asset-choice"
+          aria-pressed={chosen}
+          aria-describedby={why}
+          onClick={() => onChoose(!chosen)}
+        >
+          {t('Pay fees in token', { token: choice.token })}
+        </button>
+        <span id={why} className="dk-fee-asset-why">
+          {chosen
+            ? t('Fee token on', { token: choice.token, discount, staked: fmtAmount(choice.staked, { places: 8 }), asset: receiveAsset })
+            : t('Fee token offer', { token: choice.token, discount })}
+          {choice.ladder && choice.ladder.length > 0 ? (
+            <span className="dk-fee-ladder" data-fee-ladder>
+              {' '}
+              {t('Fee token ladder', {
+                steps: choice.ladder
+                  .map((step) =>
+                    t('Fee token step', {
+                      stake: fmtAmount(step.minStake, { places: 8 }),
+                      token: choice.token,
+                      discount: fmtPct(bpsToRatio(step.discountBps), { signed: false }),
+                    }),
+                  )
+                  .join(', '),
+              })}
+            </span>
+          ) : null}
+        </span>
+      </div>
+    );
+  }
+  const reason =
+    choice.reason === 'no_terms'
+      ? t('Fee currency reason', { asset: receiveAsset })
+      : choice.reason === 'no_price'
+        ? t('Fee token no price', { token: choice.token ?? '', asset: receiveAsset })
+        : choice.reason === 'signed_out'
+          ? t('Fee token signed out', { token: choice.token ?? '', asset: receiveAsset })
+          : choice.reason === 'order_type'
+            ? t('Fee token order type', { token: choice.token ?? '', asset: receiveAsset })
+            : t('Fee token no discount', { token: choice.token ?? '', asset: receiveAsset });
+  return (
+    <div className="dk-fee-asset" data-fee-currency={receiveAsset} data-fee-token={choice.reason}>
+      <span>{t('Fees in', { asset: receiveAsset })}</span>
+      {/* aria-disabled, not disabled: it stays in the tab order, so a keyboard or screen-reader user reaches the reason. */}
+      <button
+        type="button"
+        className="dk-fee-asset-choice"
+        aria-disabled="true"
+        aria-describedby={why}
+        onClick={(event) => event.preventDefault()}
+      >
+        {choice.token ? t('Pay fees in token', { token: choice.token }) : t('Pay fees in another asset')}
+      </button>
+      <span id={why} className="dk-fee-asset-why">
+        {reason}
+      </span>
+    </div>
+  );
+}
+
+function ReviewRows({
+  market,
+  review,
+  side,
+  tokenChoice,
+}: {
+  market: DeskMarket;
+  review: { draft: Draft; preview: Preview };
+  side: Side;
+  tokenChoice: FeeTokenChoice;
+}) {
   const { t } = deskCopy.useCopy();
   const { draft, preview } = review;
   const limit = draft.type !== 'market';
@@ -1037,6 +1134,18 @@ function ReviewRows({ market, review, side }: { market: DeskMarket; review: { dr
           {rate ? ` (${t('Review fee rate', { rate })})` : ''}
         </dd>
       </div>
+      {draft.feeCurrency ? (
+        <div data-review-fee-currency={draft.feeCurrency}>
+          <dt>{t('Review fee currency')}</dt>
+          <dd>
+            {t('Review fee token', {
+              token: draft.feeCurrency,
+              discount: tokenChoice.kind === 'offered' ? fmtPct(bpsToRatio(tokenChoice.discountBps), { signed: false }) : '—',
+              asset: preview.feeAsset ?? '',
+            })}
+          </dd>
+        </div>
+      ) : null}
       {preview.feeRole ? (
         <div>
           <dt>{t('Review fee role')}</dt>

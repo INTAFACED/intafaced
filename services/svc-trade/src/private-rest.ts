@@ -880,6 +880,8 @@ export function presentCcxtMyTrade(fill: FillRecord, symbol: string) {
     ...(fill.rebate
       ? { rebate: { cost: formatAmount(fill.rebate.amount), currency: fill.rebate.asset, rate: bpsToFeeRate(fill.rebate.bps) } }
       : {}),
+    // The order chose to pay in the platform token and this fill took the fee in what it received instead: why.
+    ...(fill.feeFallback ? { feeFallback: fill.feeFallback } : {}),
   };
 }
 
@@ -1648,7 +1650,9 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         fees[symbol] = { makerBps: row.makerBps, takerBps: row.takerBps };
       }
       const spotSymbols = listed.filter((market) => market.kind === 'spot').map((market) => market.symbol);
-      return reply.code(200).send({ version: schedule.version, fees, ...publicFeeSchedule(schedule, spotSymbols) });
+      // Paying a spot fee in the platform token: the owner's terms as published, or null (the desk then says why not).
+      const feeToken = schedule.ifcFee ? { asset: schedule.ifcFee.tokenAsset, perUnit: schedule.ifcFee.perUnit } : null;
+      return reply.code(200).send({ version: schedule.version, fees, ...publicFeeSchedule(schedule, spotSymbols), feeToken });
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;

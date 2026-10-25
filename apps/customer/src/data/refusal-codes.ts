@@ -220,6 +220,10 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.invalid_tag': 'tagInvalid',
   'trade.invalid_expiry': 'expiryInvalid',
   'trade.fee_currency_unsupported': 'optionUnsupported',
+  // Paying the fee in the platform token: terms or a price not published is set-up, the stake read is a retry.
+  'trade.fee_currency_ifc_unset': 'notSetUp',
+  'trade.fee_ifc_index_unset': 'notSetUp',
+  'trade.fee_ifc_discount_unavailable': 'tryAgain',
   'trade.orders_paused': 'ordersPaused',
   'trade.below_min_notional': 'belowMinimum',
   'trade.below_min_qty': 'belowMinimum',

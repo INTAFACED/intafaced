@@ -229,6 +229,16 @@ describe('toCcxtOrderStatus / presentCcxtOrder / presentCcxtMyTrade / fees', () 
     expect(presentCcxtMyTrade({ ...fakeFill({}), rebate: null }, 'BTC/USDT')).not.toHaveProperty('rebate');
   });
 
+  it('presents a fee paid in the platform token in that token, and why a fill that chose it paid in what it received', () => {
+    const paid = presentCcxtMyTrade({ ...fakeFill({ feeAsset: 'IFC', feeAmount: parseAmount('80'), feeBps: 10 }) }, 'BTC/USDT');
+    expect(tradeSchema.safeParse(paid).success).toBe(true);
+    expect(paid.fee).toMatchObject({ cost: '80', currency: 'IFC' });
+    expect(paid).not.toHaveProperty('feeFallback');
+    const fellBack = presentCcxtMyTrade({ ...fakeFill({}), feeFallback: 'trade.fee_ifc_insufficient' }, 'BTC/USDT');
+    expect(tradeSchema.safeParse(fellBack).success).toBe(true);
+    expect(fellBack).toMatchObject({ feeFallback: 'trade.fee_ifc_insufficient' });
+  });
+
   it('presents TradingFee from market maker/taker bps (decimal rates, percentage true)', () => {
     const m = fakeMarket({ symbol: 'BTC/USDT', makerBps: 10, takerBps: 20 });
     const wire = presentCcxtTradingFee(m);
@@ -2225,6 +2235,7 @@ describe('private REST — mount boundary + order write path', () => {
         },
       ],
       tiers: ['regular'],
+      feeToken: null,
     });
     await app.close();
   });
@@ -2309,6 +2320,27 @@ describe('private REST — mount boundary + order write path', () => {
     await app.close();
   });
 
+  it('GET /fees/published: the owner terms for paying a spot fee in the platform token, as published', async () => {
+    const app = await build(
+      deps({
+        markets: async () => [fakeMarket({ id: market.id, symbol: 'BTC/USDT' })],
+        feeSchedule: parseFeeScheduleJson(
+          JSON.stringify({
+            published: true,
+            version: 'desk',
+            makerBps: '8',
+            takerBps: '10',
+            ifcFee: { tokenAsset: 'IFC', perUnit: { BTC: '50000', USDT: '2' } },
+          }),
+        ),
+      }),
+    );
+    const res = await app.inject({ method: 'GET', url: '/api/v1/fees/published' });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().feeToken).toEqual({ asset: 'IFC', perUnit: { BTC: '50000', USDT: '2' } });
+    await app.close();
+  });
+
   it('GET /fees/published: an empty listing answers the version with no rates', async () => {
     const app = await build(
       deps({
@@ -2330,6 +2362,7 @@ describe('private REST — mount boundary + order write path', () => {
         },
       ],
       tiers: ['regular'],
+      feeToken: null,
     });
     await app.close();
   });

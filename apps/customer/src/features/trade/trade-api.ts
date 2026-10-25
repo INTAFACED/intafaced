@@ -186,6 +186,8 @@ export const draftSchema = z
     stpMode: z.literal('cancel_maker').optional(),
     /** The person's own label for the order (1 to 16 characters). Shown on the order; never part of its identity. */
     tag: z.string().min(1).max(16).optional(),
+    /** The platform token to pay this order's fees in, on a plain limit or market order. Absent: the asset it receives. */
+    feeCurrency: z.string().min(1).max(32).optional(),
     /**
      * An OCO or a buy bracket. A bracket: the order above is its entry. A sell OCO: the order above is its take-profit leg.
      * A buy OCO: the order above is a limit buy at the stop-loss limit (where its one hold is sized); `stopLoss` is the trigger.
@@ -256,10 +258,13 @@ export type Draft = z.infer<typeof draftSchema>;
  * The advisory preview: the order itself, plus its exit legs so the service can price their fees. The service
  * names a bracket's exit `bracket_exit`; the prices ride as the decimal strings the person entered.
  */
-export function previewBody(draft: Draft): Omit<Draft, 'exit' | 'stpMode' | 'tag' | 'close'> & { exit?: Record<string, string> } {
-  // The preview takes only what prices the order: a self-trade mode and a tag change neither, and it refuses unknown fields.
+export function previewBody(
+  draft: Draft,
+): Omit<Draft, 'exit' | 'stpMode' | 'tag' | 'close' | 'feeCurrency'> & { exit?: Record<string, string> } {
+  // The preview takes only what prices the order: a self-trade mode, a tag and the fee currency change none of it (the
+  // rate is the same; the token conversion happens at the fill), and it refuses unknown fields.
   // An OTO's close is not placed until the buy fills, so the preview prices the buy alone.
-  const { exit, stpMode: _stpMode, tag: _tag, close: _close, ...order } = draft;
+  const { exit, stpMode: _stpMode, tag: _tag, close: _close, feeCurrency: _feeCurrency, ...order } = draft;
   if (!exit) return order;
   const { kind, takeProfit, stopLoss, stopLossLimit } = exit;
   return {
