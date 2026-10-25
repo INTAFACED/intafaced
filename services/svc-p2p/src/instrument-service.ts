@@ -617,8 +617,8 @@ export class InstrumentService {
    * still has somewhere to send the money. `purgeExpiredSnapshots` clears that
    * copy once the trade has been closed for the retention window.
    */
-  async removeInstrument(input: { instrumentId: string; ownerId: string }): Promise<InstrumentHeader> {
-    const rows = await this.sql<InstrumentRow[]>`
+  async removeInstrument(input: { instrumentId: string; ownerId: string }, db: Sql = this.sql): Promise<InstrumentHeader> {
+    const rows = await db<InstrumentRow[]>`
       UPDATE p2p.payment_instruments
          SET status = 'removed', details = NULL, removed_at = now(), updated_at = now()
        WHERE id = ${input.instrumentId} AND owner_id = ${input.ownerId} AND status = 'active'
@@ -685,10 +685,19 @@ export class InstrumentService {
    * Method ids are already stored lowercased; returned keys match `methodIdKey`.
    * A destination whose method has no enabled schema is not payable: the
    * operator registry is the rail, not a leftover instrument row.
+   *
+   * `db` reads inside the caller's transaction; `exceptInstrumentId` answers as if that one destination were already
+   * gone (P-ads-merchant-18: which ads a removal would take off the board).
    */
-  async liveMethodKeys(ownerId: string, fiatCurrency: string): Promise<ReadonlySet<string>> {
+  async liveMethodKeys(
+    ownerId: string,
+    fiatCurrency: string,
+    opts: { db?: Sql; exceptInstrumentId?: string } = {},
+  ): Promise<ReadonlySet<string>> {
     const fiat = fiatCurrency.trim().toUpperCase();
-    const rows = await this.sql<Array<{ method_id: string }>>`
+    const db = opts.db ?? this.sql;
+    const except = opts.exceptInstrumentId;
+    const rows = await db<Array<{ method_id: string }>>`
       SELECT DISTINCT i.method_id
         FROM p2p.payment_instruments i
         JOIN p2p.payment_method_schemas s
@@ -698,6 +707,7 @@ export class InstrumentService {
        WHERE i.owner_id = ${ownerId}
          AND i.fiat_currency = ${fiat}
          AND i.status = 'active'
+         ${except === undefined ? db`` : db`AND i.id <> ${except}`}
     `;
     return new Set(rows.map((r) => methodIdKey(r.method_id)));
   }
