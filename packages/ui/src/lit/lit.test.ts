@@ -27,6 +27,20 @@ const contrast = (a: string, b: string) => {
   return (hi + 0.05) / (lo + 0.05);
 };
 
+/** An rgba() role laid over an opaque hex surface, as the hex the eye sees. */
+const over = (rgba: string, base: string) => {
+  const m = /^rgba\((\d+), (\d+), (\d+), ([\d.]+)\)$/.exec(rgba);
+  if (!m) throw new Error(`not an rgba: ${rgba}`);
+  const a = Number(m[4]);
+  return (
+    '#' +
+    [1, 3, 5]
+      .map((i, k) => Math.round(Number(m[k + 1]) * a + parseInt(hex(base).slice(i, i + 2), 16) * (1 - a)))
+      .map((c) => c.toString(16).padStart(2, '0'))
+      .join('')
+  );
+};
+
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
     if (name === 'node_modules' || name === '.next' || name === 'dist') continue;
@@ -70,7 +84,7 @@ describe('lit tokens: lit.ts and lit.css cannot drift', () => {
   });
 
   it('colour roles hold one value type in every skin (image roles are named in contracts)', () => {
-    const imageRoles = new Set(['field', 'glass-bg', 'primary-bg', 'secondary-bg', 'key-bg', 'key-lit-bg']);
+    const imageRoles = new Set(['field', 'sheen', 'glass-bg', 'primary-bg', 'secondary-bg', 'key-bg', 'key-lit-bg']);
     const isImage = (x: string) => /gradient\(/.test(x);
     for (const r of roleNames) {
       if (imageRoles.has(r)) continue;
@@ -141,8 +155,22 @@ describe('lit tokens: contrast at the worst point (text sits on opaque surfaces)
     expect(contrast(m['on-accent'], m['accent-fill-2'])).toBeGreaterThanOrEqual(4.5);
   });
 
+  it("a control's edge meets 3:1 against every solid surface it sits on (SC 1.4.11)", () => {
+    const L = { ...lit, ...litLight };
+    for (const s of ['solid-bg', 'solid-bg-raised', 'solid-bg-sunken', 'control-bg'] as const) {
+      expect(contrast(over(lit['control-rim'], lit[s]), lit[s]), `dark rim on ${s}`).toBeGreaterThanOrEqual(3);
+      expect(contrast(over(L['control-rim'], L[s]), L[s]), `light rim on ${s}`).toBeGreaterThanOrEqual(3);
+    }
+  });
+
   it('the risk band and refusals never use a brand colour, in either scheme', () => {
-    const brand = new Set<string>([lit.accent, lit['accent-text'], ...Object.values(accentTextLight)]);
+    const brand = new Set<string>([
+      lit.accent,
+      lit['accent-text'],
+      lit['accent-fill'],
+      lit['accent-fill-2'],
+      ...Object.values(accentTextLight),
+    ]);
     for (const a of accents) for (const x of Object.values(accentSets[a])) brand.add(x);
     for (const m of [lit, { ...lit, ...litLight }]) {
       for (const r of ['legal-bg', 'legal-fg', 'legal-border', 'refusal-bg', 'refusal-fg', 'refusal-border'] as const) {

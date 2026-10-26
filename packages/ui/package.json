@@ -14,6 +14,11 @@
       "types": "./dist/tokens.d.ts",
       "default": "./dist/tokens.js"
     },
+    "./a11y": {
+      "types": "./dist/a11y/index.d.ts",
+      "default": "./dist/a11y/index.js"
+    },
+    "./a11y/a11y.css": "./src/a11y/a11y.css",
     "./tokens.css": "./src/tokens.css",
     "./theme/tokens.css": "./src/theme/tokens.css",
     "./theme/customer-legacy.css": "./src/theme/customer-legacy.css",
@@ -23,7 +28,13 @@
       "types": "./dist/lit/index.d.ts",
       "default": "./dist/lit/index.js"
     },
-    "./lit/lit.css": "./src/lit/lit.css"
+    "./lit/lit.css": "./src/lit/lit.css",
+    "./lit/components.css": "./src/lit/components/components.css",
+    "./lit/templates": {
+      "types": "./dist/lit/templates/index.d.ts",
+      "default": "./dist/lit/templates/index.js"
+    },
+    "./lit/templates.css": "./src/lit/templates/templates.css"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
