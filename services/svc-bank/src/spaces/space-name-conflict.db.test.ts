@@ -31,10 +31,10 @@ describe('bank.spaces.create name conflict (Postgres)', () => {
   beforeAll(async () => {
     db = await createTestDatabase({ service: 'bank', url: DB_URL, migrations });
     spaces = new SpaceService(db.sql, new MemoryLedger());
-  });
+  }, 120_000);
   afterAll(async () => {
     await db?.drop();
-  });
+  }, 30_000);
 
   it('a second space with the same name in the same asset refuses bank.space_name_taken (409), one row stored', async () => {
     await spaces.create({ userId: ALICE, assetId: 'USDT', name: 'Holiday' });
@@ -44,6 +44,13 @@ describe('bank.spaces.create name conflict (Postgres)', () => {
     expect(toTrpcError(err).code).toBe('CONFLICT');
     const rows = await db.sql`SELECT 1 FROM bank.spaces WHERE user_id = ${ALICE} AND asset_id = 'USDT' AND name = 'Holiday'`;
     expect(rows).toHaveLength(1);
+  });
+
+  it('an archived space still holds its name: the refusal is the same typed conflict', async () => {
+    const old = await spaces.create({ userId: ALICE, assetId: 'USDT', name: 'Car' });
+    await db.sql`UPDATE bank.spaces SET archived_at = now() WHERE id = ${old.id}`;
+    const err = await spaces.create({ userId: ALICE, assetId: 'USDT', name: 'Car' }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: 'bank.space_name_taken' });
   });
 
   it('the same name in another asset or for another user is allowed', async () => {

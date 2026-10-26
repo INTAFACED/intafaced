@@ -359,7 +359,10 @@ export class SpaceService {
       // Same customer, currency and name: a typed conflict the customer can fix by renaming, not a raw 23505 as a 500.
       const e = err as { code?: string; constraint_name?: string };
       if (e?.code === '23505' && e.constraint_name === 'spaces_user_asset_name_idx') {
-        throw new BankError(`A space named "${input.name}" already exists for ${input.assetId}`, 'bank.space_name_taken');
+        throw new BankError(
+          `A space named "${input.name}" already exists for ${input.assetId}, perhaps archived: rename it, or restore that space`,
+          'bank.space_name_taken',
+        );
       }
       throw err;
     }
