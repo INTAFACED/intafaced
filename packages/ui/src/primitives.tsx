@@ -24,7 +24,7 @@ export function directionOf(change: number | string): Direction {
     if (!Number.isFinite(change) || change === 0) return 'flat';
     return change > 0 ? 'up' : 'down';
   }
-  const m = /^\s*([+\-\u2212])?(\d*)(?:\.(\d*))?\s*$/.exec(change);
+  const m = /^\s*([+\-\u2212])?(\d*)(?:\.(\d*))?\s*%?\s*$/.exec(change);
   if (!m || (!m[2] && !m[3]) || /^0*$/.test(`${m[2]}${m[3] ?? ''}`)) return 'flat';
   return m[1] === '-' || m[1] === '\u2212' ? 'down' : 'up';
 }
