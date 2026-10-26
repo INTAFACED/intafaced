@@ -166,6 +166,11 @@ const messages = {
   'Work severity action': 'To do',
   'Work severity warning': 'Warning',
   'Work severity info': 'Waiting',
+  'Where your money is': 'Where your money is',
+  'Sphere other': 'Other',
+  'Sphere percent': '{value}%',
+  'Sphere under one percent': 'under 1%',
+  'Sphere no split': 'The split shows once every holding has a price.',
 } as const;
 
 export const homeCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy('customer.home', messages, {
@@ -339,6 +344,11 @@ export const homeCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCo
     'Work severity action': 'Por hacer',
     'Work severity warning': 'Aviso',
     'Work severity info': 'En espera',
+    'Where your money is': 'Dónde está tu dinero',
+    'Sphere other': 'Otros',
+    'Sphere percent': '{value} %',
+    'Sphere under one percent': 'menos del 1 %',
+    'Sphere no split': 'El reparto aparece cuando todos tus activos tienen precio.',
   },
   fr: {
     Home: 'Accueil',
@@ -512,6 +522,11 @@ export const homeCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCo
     'Work severity action': 'À faire',
     'Work severity warning': 'Alerte',
     'Work severity info': 'En attente',
+    'Where your money is': 'Où est votre argent',
+    'Sphere other': 'Autres',
+    'Sphere percent': '{value} %',
+    'Sphere under one percent': 'moins de 1 %',
+    'Sphere no split': 'La répartition s’affiche dès que chaque avoir a un prix.',
   },
 });
 

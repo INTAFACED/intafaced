@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { templates, type TemplateId } from '../contracts.js';
 import { Bars, Parts } from '../components/b2-charts.js';
-import { Review } from './frame.js';
+import { Region, Review, RoomFrame } from './frame.js';
 import { LEGAL_MOMENTS, resolveLegal } from './legal/registry.js';
 import { RegistryLegalSlot as LegalSlot } from './legal/LegalSlot.js';
 import { formatMoney, reconcileParts, sumDecimals } from './money.js';
@@ -149,7 +149,10 @@ describe('legal slots come only from the registry', () => {
 
   it('draws through the kit slot, which the look gate finds by moment and market', () => {
     const out = html(<LegalSlot moment="crypto-risk-band" market="uk" on="2026-10-26" onLink={() => {}} />);
-    expect(out).toContain('class="lit-legal lt-legal-band lt-legal-bold"');
+    expect(out).toContain('class="lit-legal lt-legal-band"');
+    expect(out).toContain('data-bold="true"');
+    // English fixed text keeps its own direction inside a right-to-left page.
+    expect(out).toContain('lang="en" dir="ltr"');
     expect(out).toContain('data-type="risk-band"');
     expect(out).toContain('data-moment="crypto-risk-band"');
     expect(out).toContain('data-jurisdiction="uk"');
@@ -247,6 +250,7 @@ describe('every template draws every state, on Simple and Pro', () => {
           expect(out).not.toMatch(/£\d/);
         }
         if (state === 'confirm' && id === 'flow') expect(out).toContain('data-moment="scam-stop"');
+        if (state === 'gated') expect(out).toContain('class="lit-gate"');
         if (state === 'refused') expect(out).toContain('data-refusal="parked"');
         if (state === 'stale') expect(out).toContain('Figures as of 10:43, updated 4 min ago');
       });
@@ -351,6 +355,104 @@ describe('states never contradict themselves', () => {
     expect(html(<OverviewTemplate title="Home" state={states[3]} hero={null} needsYou={null} />)).toContain('Refresh to see needs you');
   });
 
+  it('behind a gate, no region of a ready room disappears: data shows locked, controls stay visible', () => {
+    const LIVE = new Set(['rooms', 'help', 'index', 'contact', 'filters', 'toc']);
+    const regions = (out: string) => new Set([...out.matchAll(/data-region="([^"]+)"/g)].map((m) => m[1] ?? ''));
+    for (const [id, room] of Object.entries(ROOMS)) {
+      for (const mode of ['simple', 'pro'] as const) {
+        const ready = regions(html(room({ mode, state: 'ready', market: 'uk' })));
+        const gated = regions(html(room({ mode, state: 'gated', market: 'uk' })));
+        for (const r of ready) {
+          // Live regions draw outside the Gate as plain content (lt-live), so they carry no region tag there;
+          // in-flight movements are figures, which a gated room never shows.
+          if (LIVE.has(r) || r === 'in-flight') continue;
+          expect(gated.has(r), `${id} ${mode} ${r}`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('behind a gate, a data region never draws its figures, labelled or not', () => {
+    const out = html(
+      <RoomFrame
+        template="overview"
+        title="T"
+        state={{ kind: 'gated', gate: 'not-verified', refusal: { variant: 'refused', title: 'Verify', body: 'B' } }}
+      >
+        <Region name="a" data>
+          <p>FIGURE-A</p>
+        </Region>
+        <Region name="b" data label="Balance">
+          <p>FIGURE-B</p>
+        </Region>
+      </RoomFrame>,
+    );
+    expect(out).not.toContain('FIGURE');
+    expect(out).toContain('lt-locked');
+  });
+
+  it('the risk band slot tells the focus tracker it covers the top; direction colours stay inside rooms', () => {
+    const out = html(ROOMS.overview({ mode: 'simple', state: 'ready', market: 'uk' }));
+    expect(out).toContain('class="lt-band-slot" data-obscures="top"');
+    const css = readFileSync(fileURLToPath(new URL('./templates.css', import.meta.url)), 'utf8');
+    expect(css).not.toMatch(/^\[data-dir=/m);
+  });
+
+  it('behind a gate, tabs and section indexes stay live, outside the gate, before its card', () => {
+    for (const [room, marker] of [
+      ['catalogue', 'Flexible'],
+      ['reading', 'aria-label="On this page"'],
+      ['settings', 'aria-label="Settings sections"'],
+    ] as const) {
+      const out = html(ROOMS[room]({ mode: 'simple', state: 'gated', market: 'uk' }));
+      const gate = out.indexOf('class="lit-gate');
+      const at = out.indexOf(marker);
+      expect(gate, room).toBeGreaterThan(-1);
+      expect(at, room).toBeGreaterThan(-1);
+      expect(at, room).toBeLessThan(gate);
+    }
+    // A side-column room gates only its main area: the index keeps its grid column beside it.
+    const settings = html(ROOMS.settings({ mode: 'simple', state: 'gated', market: 'uk' }));
+    expect(settings).toMatch(/lt-grid-settings"><section[^>]*data-region="index"[\s\S]*class="lt-gate-area"/);
+  });
+
+  it('behind a gate, reading keeps "Talk to a person" live and draws no empty index', async () => {
+    const out = html(ROOMS.reading({ mode: 'simple', state: 'gated', market: 'uk' }));
+    // The inert room's own markup: from its opening div to the div that closes it.
+    const open = out.lastIndexOf('<div', out.indexOf('lit-gate__room'));
+    let depth = 0;
+    let end = open;
+    for (const m of out.slice(open).matchAll(/<div\b|<\/div>/g)) {
+      depth += m[0] === '<div' ? 1 : -1;
+      if (depth === 0) {
+        end = open + (m.index ?? 0);
+        break;
+      }
+    }
+    const inert = out.slice(open, end);
+    expect(inert).toContain('data-region="body"');
+    expect(out).toContain('Talk to a person');
+    expect(inert).not.toContain('Talk to a person');
+    const { ReadingTemplate } = await import('./templates.js');
+    const gated = { kind: 'gated', gate: 'not-verified', refusal: { variant: 'refused', title: 'V', body: 'B' } } as const;
+    const empty = html(<ReadingTemplate title="Fees" state={gated} body={null} toc={null} />);
+    expect(empty).not.toContain('data-region="toc"');
+  });
+
+  it('behind a gate, "Talk to a person" stays outside the inert room', () => {
+    const out = html(ROOMS.flow({ mode: 'simple', state: 'gated', market: 'uk' }));
+    // The live help sits after the Gate, in its own lt-live block, never inside the inert room.
+    const live = out.lastIndexOf('class="lt-live"');
+    const room = out.slice(out.indexOf('lit-gate__room'), live);
+    expect(room).not.toContain('Talk to a person');
+    expect(out.slice(live)).toContain('Talk to a person');
+    // The card comes before the room, in the flow.
+    expect(out.indexOf('lit-gate__card')).toBeLessThan(out.indexOf('lit-gate__room'));
+    expect(out).toContain('>Verify now</a>');
+    // Controls stay named and dimmed behind the gate, never folded into a lock.
+    expect(out).toMatch(/data-region="actions" data-dimmed="true"[^>]*>[\s\S]*Continue/);
+  });
+
   it('room actions leave whole-room states, so the state has the only primary', () => {
     for (const state of ['empty', 'confirm', 'money-status', 'receipt'] as const) {
       const out = html(ROOMS.overview({ mode: 'simple', state, market: 'uk' }));
@@ -360,6 +462,7 @@ describe('states never contradict themselves', () => {
 
   it('a send carries the scam warning before its button; a buy from your own balance does not', () => {
     const send = html(ROOMS.flow({ mode: 'simple', state: 'confirm', market: 'uk' }));
+    expect(send).toContain('data-slot="scam-warning"');
     expect(send.indexOf('data-moment="scam-stop"')).toBeLessThan(send.indexOf('Send £250.00 to Aisha Khan'));
     expect(html(ROOMS.monitor({ mode: 'simple', state: 'confirm', market: 'uk' }))).not.toContain('scam-stop');
   });

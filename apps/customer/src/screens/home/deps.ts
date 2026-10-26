@@ -28,7 +28,7 @@ export { DerivedTotalTag } from '../money/total-note';
 export { groupActivity } from '../money/activity-view';
 export { detailHref } from '../money/activity-detail';
 export type { HomeHolding, HomePortfolio } from '../money/portfolio-source';
-export { compareDecimal, dec, decOrNull, ratio, roundScaled, sub, toFixedString } from '../../data/decimal';
+export { compareDecimal, dec, decOrNull, ratio, roundScaled, str, sub, toFixedString } from '../../data/decimal';
 
 export { isHiddenPath } from '../../app/feature-registry';
 export { coinHref, defaultDeskPair } from '../../app/navigation';

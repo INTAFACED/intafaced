@@ -174,12 +174,14 @@ export type FigureProps = {
 const partClass = (t: string) =>
   t === 'currency' || t === 'unit' ? 'lit-figure__unit' : t === 'decimal' || t === 'fraction' ? 'lit-figure__minor' : undefined;
 
-/** A money figure: the unit and the minor part drawn quieter, read aloud as one value. */
+/** A money figure: the unit and the minor part drawn quieter, read aloud as one value. The number is always left to right, also on a right-to-left page; its marks follow the page. */
 export function Figure({ parts, size = 'figure', test, stale, className }: FigureProps) {
   return (
     <span className={clsx('lit-figure', className)} data-slot="money" data-size={size}>
-      <span className="lit-sr">{parts.map((p) => p.value).join('')}</span>
-      <span aria-hidden="true">
+      <span className="lit-sr" dir="ltr" data-ltr="">
+        {parts.map((p) => p.value).join('')}
+      </span>
+      <span aria-hidden="true" dir="ltr" data-ltr="">
         {parts.map((p, i) => (
           <span key={i} className={partClass(p.type)}>
             {p.value}
@@ -208,14 +210,16 @@ export type ChangeProps = {
   className?: string;
 };
 
-/** Up or down as words and an arrow, never colour alone. */
+/** Up or down as words and an arrow, never colour alone. The figures are left to right on any page. */
 export function Change({ text, dir, spoken, className }: ChangeProps) {
   const arrow = dir === 'up' ? '▲' : dir === 'down' ? '▼' : '';
   return (
     <span className={clsx('lit-change', className)} data-dir={dir}>
       {arrow && <span aria-hidden="true">{arrow} </span>}
       <span className="lit-sr">{spoken} </span>
-      {text}
+      <span dir="ltr" data-ltr="">
+        {text}
+      </span>
     </span>
   );
 }

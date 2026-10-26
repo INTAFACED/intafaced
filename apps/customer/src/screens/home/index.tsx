@@ -1,4 +1,4 @@
-import { Suspense, lazy, useMemo } from 'react';
+import { Fragment, Suspense, lazy, useMemo } from 'react';
 import { ChevronRight, Eye, EyeOff } from 'lucide-react';
 import './home.css';
 import { clockTime } from './clock';
@@ -43,6 +43,7 @@ import { TotalFigure, TotalUnitNote } from './TotalFigure';
 import { HOME_LINKS } from './links';
 import { useStartedTile } from './started-data';
 import { CustomiseHome } from './CustomiseHome';
+import { LitSphere } from './LitSphere';
 import { HomeNotices } from './Notices';
 import { useHomeLayout } from './tiles-data';
 import { shownTiles } from './tiles';
@@ -337,9 +338,17 @@ function HomeSimple() {
                 return <WorkList key={id} hidden={hideBalances} />;
               case 'holdings':
                 return portfolio.status === 'loading' ? (
-                  <HoldingsSkeleton key={id} />
+                  // the sphere's section keeps its place while the holdings load (no split, no figures), so it doesn't
+                  // arrive late and push the rows below it down
+                  <Fragment key={id}>
+                    <LitSphere portfolio={portfolio} hidden={hideBalances} />
+                    <HoldingsSkeleton />
+                  </Fragment>
                 ) : portfolio.status === 'ready' && portfolio.data.holdings.length > 0 ? (
-                  <HoldingsCard key={id} portfolio={portfolio.data} hidden={hideBalances} />
+                  <Fragment key={id}>
+                    <LitSphere portfolio={portfolio} hidden={hideBalances} />
+                    <HoldingsCard portfolio={portfolio.data} hidden={hideBalances} />
+                  </Fragment>
                 ) : null;
               case 'markets':
                 return showMarkets ? (

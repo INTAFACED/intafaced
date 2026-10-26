@@ -88,7 +88,7 @@ describe('components', () => {
     expect(out).toContain('<span class="lit-figure__unit">£</span>');
     expect(out).toContain('<span class="lit-figure__minor">36</span>');
     expect(out).toContain('>TEST<');
-    expect(out).toContain('<span class="lit-sr">£12,480.36</span>');
+    expect(out).toContain('<span class="lit-sr" dir="ltr" data-ltr="">£12,480.36</span>');
   });
 
   it('Figure keeps the locale order of the parts (unit after the number)', () => {
@@ -100,7 +100,7 @@ describe('components', () => {
       { type: 'currency', value: '€' },
     ];
     const out = html(<Figure parts={eur} />);
-    expect(out).toContain('<span class="lit-sr">12,5\u00a0€</span>');
+    expect(out).toContain('<span class="lit-sr" dir="ltr" data-ltr="">12,5\u00a0€</span>');
     expect(out.indexOf('lit-figure__unit')).toBeGreaterThan(out.indexOf('>12<'));
   });
 
@@ -189,5 +189,22 @@ describe('components', () => {
     expect(out).not.toContain('lit-gate__veil');
     expect(out).toContain('data-material="solid"');
     expect(out).not.toContain('skeleton');
+  });
+
+  it('money figures and changes read left to right on a right-to-left page', () => {
+    const fig = html(
+      <Figure
+        parts={[
+          { type: 'currency', value: '£' },
+          { type: 'integer', value: '45' },
+          { type: 'fraction', value: '.53' },
+        ]}
+        test
+      />,
+    );
+    expect(fig.match(/dir="ltr" data-ltr=""/g)).toHaveLength(2);
+    expect(fig).not.toMatch(/lit-figure__marks"[^>]*dir=/);
+    const change = html(<Change text="+£45.53 (+0.37%)" dir="up" spoken="up" />);
+    expect(change).toContain('<span dir="ltr" data-ltr="">+£45.53 (+0.37%)</span>');
   });
 });

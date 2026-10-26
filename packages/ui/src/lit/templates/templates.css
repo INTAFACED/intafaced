@@ -42,11 +42,6 @@
   min-block-size: var(--lit-legal-band-min-h);
 }
 
-/* The rule's text is bold where the rule says so (COBS 4.12A.11R band, EU credit warning). */
-.lt-legal-bold {
-  font-weight: 700;
-}
-
 /* ---- title row, stale line ---- */
 
 .lt-title-row {
@@ -121,15 +116,16 @@
   overflow-wrap: break-word;
 }
 
-/* Bare regions: controls that sit on the page, not in a panel. */
+/* Bare regions: controls that sit on the page, not in a panel. Locked behind a gate, they take a panel like the
+   rest, so no locked outline sits bare on the page. */
 .lt-region:is(
-  [data-region='actions'],
-  [data-region='filters'],
-  [data-region='export'],
-  [data-region='tools'],
-  [data-region='meta'],
-  [data-region='rooms']
-) {
+    [data-region='actions'],
+    [data-region='filters'],
+    [data-region='export'],
+    [data-region='tools'],
+    [data-region='meta'],
+    [data-region='rooms']
+  ):not(:has(> .lt-locked)) {
   background: none;
   border: 0;
   box-shadow: none;
@@ -362,12 +358,53 @@
 }
 
 /*
- * Gated: the room's layout stays behind one gate card (product law: never an empty page). Data regions become
- * locked outlines with their heading and a lock, never skeleton bars, so a gate never reads as loading. Controls
- * that need the gate are dimmed; help and navigation stay at full strength.
+ * Gated: the room's layout stays under the kit's Gate (veil, inert, one card; product law: never an empty page).
+ * Data regions become locked outlines with their heading and a lock, never skeleton bars or figures, so a gate
+ * never reads as loading. Help and navigation sit outside the Gate at full strength.
  */
-.lt-region[data-dimmed] {
+/* The gate card lines up with the room's start edge, like everything else in it. Its copy takes the direction of
+   its own words, so English copy on a right-to-left page keeps its full stop at the end. */
+.lt-room .lit-gate__card {
+  align-self: flex-start;
+}
+.lt-room .lit-gate__card [data-part] {
+  unicode-bidi: plaintext;
+}
+
+/* A side-column template gates only its main area (GateArea); the live column keeps its place. */
+.lt-gate-cols,
+.lt-reading-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-section);
+}
+@container room (min-width: 1024px) {
+  .lt-grid-settings > .lt-gate-area {
+    grid-column: 2 / -1;
+  }
+  .lt-grid-settings .lt-gate-cols {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(13.75rem, 18.75rem);
+  }
+}
+
+/* Controls behind a gate stay, named and dimmed as disabled (about 4:1), so a customer sees what verifying unlocks;
+   the room is inert, so none of them can be used. */
+.lit-gate__room :is(button, a[href], select, input, textarea, [role='tab']) {
   opacity: 0.45;
+}
+/* A disabled primary loses its light, so it never looks more pressable than its siblings. */
+.lit-gate__room .lt-button-primary {
+  background: var(--lit-secondary-bg);
+  color: var(--lit-secondary-fg);
+  box-shadow: none;
+  border-color: var(--lit-line-strong);
+}
+
+.lt-live {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
 }
 
 .lt-locked {
@@ -375,6 +412,9 @@
   align-items: center;
   gap: var(--lit-gap-item);
   min-block-size: var(--lit-row-h);
+  padding-inline: var(--lit-pad-panel);
+  border: 1px dashed var(--lit-text-3);
+  border-radius: var(--lit-radius-control);
   color: var(--lit-text-2);
   font-weight: 600;
 }
@@ -404,10 +444,6 @@
   border: 0;
   box-shadow: none;
   padding: 0;
-}
-
-.lt-gate > .lt-refusal {
-  box-shadow: var(--lit-glass-shadow);
 }
 
 .lt-refusal,
@@ -786,6 +822,36 @@
   overflow-x: auto;
   scrollbar-width: none;
 }
+/* A row that scrolls (tabs, a room's section index: add lt-scroll-row) fades at its far end until it is scrolled
+   there, so a cut tab reads as "more", not as broken. The timeline is inactive when nothing overflows, so a row
+   that fits never fades. */
+.lt-tabs,
+.lt-scroll-row {
+  animation: lt-tabs-more linear both;
+  animation-timeline: scroll(self inline);
+}
+@keyframes lt-tabs-more {
+  0%,
+  95% {
+    mask-image: linear-gradient(to right, black calc(100% - 2.5rem), transparent); /* look-drift-allow: mask alpha, not a colour; LTR end */
+  }
+  100% {
+    mask-image: none;
+  }
+}
+[dir='rtl'] .lt-tabs,
+[dir='rtl'] .lt-scroll-row {
+  animation-name: lt-tabs-more-rtl;
+}
+@keyframes lt-tabs-more-rtl {
+  0%,
+  95% {
+    mask-image: linear-gradient(to left, black calc(100% - 2.5rem), transparent); /* look-drift-allow: mask alpha, not a colour; RTL end */
+  }
+  100% {
+    mask-image: none;
+  }
+}
 
 .lt-tab {
   display: inline-flex;
@@ -1042,11 +1108,11 @@
   unicode-bidi: plaintext;
   text-align: start;
 }
-
-/* The fixed legal texts are English: read left to right (so "end" is the right edge), placed from the page's start. */
-[dir='rtl'] .lt-band-slot .lit-legal {
-  direction: ltr;
-  text-align: end;
+/* With plaintext, "start" follows the words, so English on a right-to-left page would sit at the left. These lines
+   follow the page instead, under the amount or title above them. */
+[dir='rtl'] :is(.lt-refusal-body, .lt-empty-body, .lt-receipt-where, .lt-receipt-to, .lt-kv-note, .lt-held),
+[dir='rtl'] .lt-room .lit-gate__card [data-part] {
+  text-align: right; /* look-drift-allow: the page's start in RTL; plaintext would resolve start from the words */
 }
 
 /* ---- segmented switch (Buy or Sell) ---- */
@@ -1110,12 +1176,13 @@
   font-size: var(--lit-type-label-size);
 }
 
-/* Direction: a credit and a bid read up, a debit and an ask read down, with a sign as well as colour. */
-[data-dir='up'] {
+/* Direction: a credit and a bid read up, a debit and an ask read down, with a sign as well as colour. Only inside a
+   template room, and with no specificity, so a kit component that sets data-dir (Change) keeps its own rules. */
+:where(.lt-room) :where([data-dir='up']) {
   color: var(--lit-up-text);
 }
 
-[data-dir='down'] {
+:where(.lt-room) :where([data-dir='down']) {
   color: var(--lit-down-text);
 }
 
