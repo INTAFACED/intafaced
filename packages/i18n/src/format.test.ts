@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FIAT_CURRENCIES } from '@intafaced/config/fiat';
 import {
   formatCompact,
+  formatCompactToParts,
   formatIban,
   formatMoney,
   formatMoneyToParts,
@@ -19,13 +20,17 @@ import { SUPPORTED_LOCALES, intlTagFor } from './locales.js';
 // ── Signs, rounding and parts ───────────────────────────────────────────────
 
 describe('rounding', () => {
-  it('cuts toward zero with "down", so a balance never shows more than is there', () => {
-    expect(formatMoney('0.129', 'USD', 'en', { rounding: 'down' })).toBe('$0.12');
-    expect(formatMoney('-0.129', 'USD', 'en', { rounding: 'down' })).toBe('-$0.12');
-    expect(formatMoney('9.999', 'USD', 'en', { rounding: 'down' })).toBe('$9.99');
-    expect(formatMoney('0.123456789', 'BTC', 'en', { rounding: 'down' })).toBe('0.12345678 BTC');
-    expect(formatNumber('1.99', 'en', { maxFractionDigits: 0, rounding: 'down' })).toBe('1');
-    expect(formatPercent('0.123456', 'en', { rounding: 'down' })).toBe('12.34%');
+  it('floors with "floor", so a balance never shows more than is there, overdrawn or not', () => {
+    expect(formatMoney('0.129', 'USD', 'en', { rounding: 'floor' })).toBe('$0.12');
+    expect(formatMoney('-0.121', 'USD', 'en', { rounding: 'floor' })).toBe('-$0.13');
+    expect(formatMoney('-0.12', 'USD', 'en', { rounding: 'floor' })).toBe('-$0.12');
+    expect(formatMoney('-0.001', 'USD', 'en', { rounding: 'floor' })).toBe('-$0.01');
+    expect(formatMoney('9.999', 'USD', 'en', { rounding: 'floor' })).toBe('$9.99');
+    expect(formatMoney('-9.991', 'USD', 'en', { rounding: 'floor' })).toBe('-$10.00');
+    expect(formatMoney('0.123456789', 'BTC', 'en', { rounding: 'floor' })).toBe('0.12345678 BTC');
+    expect(formatNumber('1.99', 'en', { maxFractionDigits: 0, rounding: 'floor' })).toBe('1');
+    expect(formatNumber(1.99, 'en', { maxFractionDigits: 0, rounding: 'floor' })).toBe('1');
+    expect(formatPercent('0.123456', 'en', { rounding: 'floor' })).toBe('12.34%');
   });
 
   it('keeps half-up as the default', () => {
@@ -49,6 +54,12 @@ describe('signDisplay', () => {
     expect(formatMoney('0', 'USD', 'en', { signDisplay: 'always' })).toBe('+$0.00');
     expect(formatMoney('-12', 'USD', 'en', { signDisplay: 'never' })).toBe('$12.00');
     expect(formatMoney('0.5', 'USDC', 'en', { signDisplay: 'exceptZero' })).toBe('+0.5 USDC');
+    expect(formatNumber(5, 'en', { signDisplay: 'exceptZero' })).toBe('+5');
+  });
+
+  it('keeps the plural a currency name has, when the integer part is zero', () => {
+    expect(formatMoney('-0.5', 'USD', 'en', { display: 'name' })).toBe('-0.50 US dollars');
+    expect(formatMoney('0', 'USD', 'en', { display: 'name', signDisplay: 'always' })).toBe('+0.00 US dollars');
   });
 
   it('puts the sign where the locale puts it, even when the integer part is zero', () => {
@@ -62,7 +73,7 @@ describe('signDisplay', () => {
     expect(types.indexOf('minusSign')).toBeLessThan(types.indexOf('integer'));
     expect(parts.find((p) => p.type === 'integer')?.value).toBe('٠');
     expect(parts.find((p) => p.type === 'fraction')?.value).toBe('٥٠');
-    expect(joinParts(parts)).toContain('؜');
+    expect(joinParts(parts)).toContain('\u061c');
   });
 
   it('keeps the old boolean spelling on percent', () => {
@@ -111,6 +122,24 @@ describe('formatCompact', () => {
     expect(formatCompact('999999.999999999999', 'en')).toBe('1M');
   });
 
+  it('rounds, not cuts, where the locale writes every digit of a thousand', () => {
+    expect(formatCompact('1234.56', 'de', { currency: 'EUR' })).toMatch(/^1235\s€$/);
+    expect(formatCompact('1234.7', 'ja')).toBe('1235');
+    expect(formatCompact('12345.6', 'ja')).toBe('1.2万');
+  });
+
+  it('switches to the short form at the shown value, not the raw one', () => {
+    expect(formatCompact('999.996', 'en', { currency: 'USD' })).toBe('$1K');
+    expect(formatCompact('999.994', 'en', { currency: 'USD' })).toBe('$999.99');
+    expect(formatCompactToParts('-98765432', 'en', { currency: 'USDC' }).map((p) => p.type)).toEqual([
+      'minusSign',
+      'integer',
+      'compact',
+      'literal',
+      'unit',
+    ]);
+  });
+
   it('answers with the standard form below a thousand', () => {
     expect(formatCompact('999.5', 'en', { currency: 'USD' })).toBe('$999.50');
     expect(formatCompact('12.3456', 'en')).toBe('12.35');
@@ -120,9 +149,9 @@ describe('formatCompact', () => {
 
 describe('direction and identifiers', () => {
   it('isolates a run of text for plain-text sinks', () => {
-    expect(isolate('0x12ab…9f3c')).toBe('⁦0x12ab…9f3c⁩');
-    expect(isolate('محمد', 'auto')).toBe('⁨محمد⁩');
-    expect(isolate('שלום', 'rtl')).toBe('⁧שלום⁩');
+    expect(isolate('0x12ab…9f3c')).toBe('\u20660x12ab…9f3c\u2069');
+    expect(isolate('محمد', 'auto')).toBe('\u2068محمد\u2069');
+    expect(isolate('שלום', 'rtl')).toBe('\u2067שלום\u2069');
   });
 
   it('prints an IBAN in groups of four', () => {
@@ -180,7 +209,7 @@ function makeCase(next: () => number): Case {
     currency: next() < 0.5 ? pick(TICKERS) : pick(FIAT),
     locale: pick(SUPPORTED_LOCALES).code,
     maxFrac: Math.floor(next() * 19),
-    rounding: next() < 0.5 ? 'half-up' : 'down',
+    rounding: next() < 0.5 ? 'half-up' : 'floor',
   };
 }
 
@@ -247,8 +276,12 @@ describe('formatMoney properties (2,000 seeded cases)', () => {
       const label = `${JSON.stringify(c)} -> ${joinParts(parts)}`;
       // Shown is a multiple of the display step.
       expect(shown % step, label).toBe(0n);
-      if (c.rounding === 'down') {
-        expect(shown <= abs && abs - shown < step, label).toBe(true);
+      if (c.rounding === 'floor') {
+        // Toward minus infinity: never above the real value, by less than one step.
+        const negative = c.amount.startsWith('-');
+        const signedShown = negative ? -shown : shown;
+        const signedTrue = negative ? -abs : abs;
+        expect(signedShown <= signedTrue && signedTrue - signedShown < step, label).toBe(true);
       } else {
         const diff = shown > abs ? shown - abs : abs - shown;
         expect(diff * 2n <= step, label).toBe(true);
@@ -292,7 +325,9 @@ describe('formatPercent properties (500 seeded cases)', () => {
       const step = 10n ** BigInt(18 - c.maxFrac);
       const label = `${amount} ${c.locale} -> ${joinParts(parts)}`;
       expect(parts.filter((p) => p.type === 'percentSign').length, label).toBe(1);
-      if (c.rounding === 'down') expect(shown <= hundredfold && hundredfold - shown < step, label).toBe(true);
+      const signedShown = negative ? -shown : shown;
+      const signedTrue = negative ? -hundredfold : hundredfold;
+      if (c.rounding === 'floor') expect(signedShown <= signedTrue && signedTrue - signedShown < step, label).toBe(true);
       else expect((shown > hundredfold ? shown - hundredfold : hundredfold - shown) * 2n <= step, label).toBe(true);
       const signs = parts.filter((p) => p.type === 'minusSign' || p.type === 'plusSign').map((p) => p.type);
       expect(signs, label).toEqual(shown === 0n ? [] : [negative ? 'minusSign' : 'plusSign']);

@@ -76,10 +76,11 @@ function splitDecimal(input: string): DecimalParts {
  *
  * - `'half-up'`: to the nearest, a tie away from zero. The default for prices
  *   and history rows.
- * - `'down'`: toward zero. For an available balance or a withdrawable amount,
- *   so the screen never shows more than the user can move.
+ * - `'floor'`: toward minus infinity. For an available balance or a
+ *   withdrawable amount, so the screen never shows more than is there, an
+ *   overdrawn balance included ("-0.121" at 2 places is "-0.13").
  */
-export type Rounding = 'half-up' | 'down';
+export type Rounding = 'half-up' | 'floor';
 
 /**
  * Which sign a figure shows. A value whose shown digits are all zero never
@@ -95,16 +96,14 @@ export type SignDisplay = 'auto' | 'exceptZero' | 'always' | 'never';
 /**
  * Round a decimal string to `digits` fraction digits, with the carry
  * propagated into the integer part as a BigInt. String and BigInt only.
- * Both modes work on the magnitude, so they are symmetric around zero.
+ * Half-up works on the magnitude (a tie goes away from zero); floor cuts a
+ * positive value and pushes a negative one away from zero.
  */
 function roundDecimal(value: DecimalParts, digits: number, rounding: Rounding = 'half-up'): DecimalParts {
   if (value.frac.length <= digits) return value;
 
   const keep = value.frac.slice(0, digits);
-  if (rounding === 'down') return { ...value, frac: keep };
-
-  const nextDigit = value.frac.charAt(digits);
-  const roundUp = nextDigit >= '5';
+  const roundUp = rounding === 'floor' ? value.negative && /[1-9]/.test(value.frac.slice(digits)) : value.frac.charAt(digits) >= '5';
   if (!roundUp) return { ...value, frac: keep };
 
   if (digits === 0) {
@@ -191,15 +190,7 @@ function toLocaleDigits(digits: string, tag: string): string {
  * marks some locales put around a sign (U+200E, U+200F, U+061C): never strip
  * them, and never compare formatted strings to hand-typed ones in RTL tests.
  */
-export type FormatPartType =
-  'integer' | 'group' | 'decimal' | 'fraction' | 'minusSign' | 'plusSign' | 'currency' | 'unit' | 'percentSign' | 'compact' | 'literal';
-
-export interface FormatPart {
-  readonly type: FormatPartType;
-  readonly value: string;
-}
-
-const PART_TYPES = new Set<string>([
+const INTL_PART_TYPES = [
   'integer',
   'group',
   'decimal',
@@ -210,7 +201,16 @@ const PART_TYPES = new Set<string>([
   'percentSign',
   'compact',
   'literal',
-]);
+] as const;
+
+export type FormatPartType = (typeof INTL_PART_TYPES)[number] | 'unit';
+
+export interface FormatPart {
+  readonly type: FormatPartType;
+  readonly value: string;
+}
+
+const PART_TYPES = new Set<string>(INTL_PART_TYPES);
 
 function toPart(part: Intl.NumberFormatPart): FormatPart {
   return { type: PART_TYPES.has(part.type) ? (part.type as FormatPartType) : 'literal', value: part.value };
@@ -231,6 +231,12 @@ function shownSign(negative: boolean, isZero: boolean, display: SignDisplay): Sh
   return display === 'auto' ? 'none' : 'plus';
 }
 
+/** The integer to hand `Intl`: a BigInt, or the number zero when only `-0` can carry the minus. */
+function signedWhole(whole: bigint, sign: ShownSign): bigint | number {
+  if (sign !== 'minus') return whole;
+  return whole === 0n ? -0 : -whole;
+}
+
 interface ExactRender {
   /** The figure's parts, sign and currency placed by the locale. */
   readonly parts: FormatPart[];
@@ -245,10 +251,11 @@ interface ExactRender {
  * integer part.
  *
  * `options` give the figure's style; this function adds the digits and the sign
- * handling. A zero integer part has no sign in BigInt, so when a sign must
- * show on "0.50" the locale's template is taken from a stand-in 1 and its
- * digit swapped for the locale's zero: "-$0.50" in English, "-0,50 $" in German,
- * and a direction-marked minus in Arabic each come out where that locale puts them.
+ * handling. A zero integer part has no sign in BigInt, so a signed "0.50"
+ * takes its template from the number zero (`-0` for a minus, which `Intl`
+ * signs): "-$0.50" in English, "-0,50 $" in German and a direction-marked
+ * minus in Arabic each come out where that locale puts them, and a currency
+ * name keeps the plural it has for zero.
  *
  * Strings and not `Intl`'s own string input, on purpose: engines before
  * Safari 15.4 (the iOS web view floor is still 14 today) convert a string
@@ -272,15 +279,13 @@ function renderExact(
   const isZero = wholeValue === 0n && !/[1-9]/.test(frac);
   const sign = shownSign(rounded.negative, isZero, signDisplay);
 
-  const standIn = wholeValue === 0n && sign !== 'none';
-  const magnitude = standIn ? 1n : wholeValue;
   const nf = numberFormat(tag, {
     ...options,
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
     signDisplay: sign === 'plus' ? 'always' : 'auto',
   });
-  const raw = nf.formatToParts(sign === 'minus' ? -magnitude : magnitude);
+  const raw = nf.formatToParts(signedWhole(wholeValue, sign));
 
   let lastInteger = -1;
   for (let i = 0; i < raw.length; i++) {
@@ -291,8 +296,7 @@ function renderExact(
   for (let i = 0; i < raw.length; i++) {
     const part = raw[i];
     if (!part) continue;
-    if (standIn && part.type === 'integer') parts.push({ type: 'integer', value: localeDigits(tag)[0] ?? '0' });
-    else parts.push(toPart(part));
+    parts.push(toPart(part));
     if (i === lastInteger && frac.length > 0) {
       parts.push({ type: 'decimal', value: decimalSeparator(tag) }, { type: 'fraction', value: toLocaleDigits(frac, tag) });
     }
@@ -316,7 +320,7 @@ export interface MoneyFormatOptions {
    */
   readonly display?: CurrencyDisplay;
   readonly useGrouping?: boolean;
-  /** Defaults to `'half-up'`. Use `'down'` for an available balance. */
+  /** Defaults to `'half-up'`. Use `'floor'` for an available balance. */
   readonly rounding?: Rounding;
   /** Defaults to `'auto'`. */
   readonly signDisplay?: SignDisplay;
@@ -378,9 +382,12 @@ export interface NumberFormatOptions {
   readonly maxFractionDigits?: number;
   readonly useGrouping?: boolean;
   readonly notation?: 'standard' | 'compact';
-  /** Decimal strings only. Defaults to `'half-up'`. */
+  /**
+   * Defaults to `'half-up'`. Exact for decimal strings; a `number` passes it
+   * to `Intl`, which engines before Safari 15.4 ignore. Money is a string.
+   */
   readonly rounding?: Rounding;
-  /** Decimal strings only. Defaults to `'auto'`. */
+  /** Defaults to `'auto'`. */
   readonly signDisplay?: SignDisplay;
 }
 
@@ -405,6 +412,8 @@ export function formatNumber(value: string | number | bigint, locale: string = D
       maximumFractionDigits: options.maxFractionDigits ?? Math.max(options.minFractionDigits ?? 0, 3),
       useGrouping: options.useGrouping ?? true,
       notation: options.notation ?? 'standard',
+      signDisplay: options.signDisplay ?? 'auto',
+      ...(options.rounding === 'floor' ? { roundingMode: 'floor' as const } : {}),
     }).format(value);
   }
   return joinParts(formatNumberToParts(value, locale, options));
@@ -422,37 +431,48 @@ export interface CompactFormatOptions {
 }
 
 /**
- * A short figure for volumes and market caps: "$1.2M", "1,2 Mio. $", "12万".
+ * A short figure for volumes and market caps as parts: "$1.2M", "1,2 Mio. $",
+ * "12万". See `formatCompact`.
  *
- * Exact without floats: a value of 1,000 or more is cut to its integer part
- * and handed to `Intl` as a BigInt. That never changes the shown digits,
- * because compact display rounds at a power of ten no smaller than ten, so
- * every rounding boundary is a whole number. Below 1,000 there is nothing to
- * shorten and the standard formatter answers. Rounding is always half-up: a
- * compact figure is never a balance anyone withdraws against.
+ * Exact without floats. Where the locale shortens the value, its integer part
+ * goes to `Intl` as a BigInt: that never changes the shown digits, because a
+ * shortened figure rounds at a power of ten no smaller than ten, so every
+ * rounding boundary is a whole number. Where the locale shows every integer
+ * digit instead (German below a million, Japanese below 10,000), the value is
+ * first rounded half-up to a whole number on the digit string. A value under
+ * 1,000 at its normal precision has nothing to shorten, and the standard
+ * formatter answers. Always half-up: a compact figure is never a balance
+ * anyone withdraws against.
  */
-export function formatCompact(value: string, locale: string = DEFAULT_LOCALE, options: CompactFormatOptions = {}): string {
+export function formatCompactToParts(value: string, locale: string = DEFAULT_LOCALE, options: CompactFormatOptions = {}): FormatPart[] {
   const parts = splitDecimal(value);
   const tag = intlTagFor(locale);
   const code = options.currency?.trim().toUpperCase();
   const known = code ? fiat(code) : undefined;
   const signDisplay = options.signDisplay ?? 'auto';
-  const whole = BigInt(parts.whole);
 
-  if (whole < 1000n) {
-    if (code) return formatMoney(value, code, locale, { signDisplay, ...(known ? {} : { maxFractionDigits: 2 }) });
-    return formatNumber(value, locale, { maxFractionDigits: 2, signDisplay });
+  const standardFrac = known ? known.minorUnits : 2;
+  if (BigInt(roundDecimal(parts, standardFrac).whole) < 1000n) {
+    if (code) return formatMoneyToParts(value, code, locale, { signDisplay, ...(known ? {} : { maxFractionDigits: 2 }) });
+    return formatNumberToParts(value, locale, { maxFractionDigits: 2, signDisplay });
   }
 
   const sign = shownSign(parts.negative, false, signDisplay);
-  const intlSign: Intl.NumberFormatOptions['signDisplay'] = sign === 'plus' ? 'always' : 'auto';
-  const signed = sign === 'minus' ? -whole : whole;
-  if (known) {
-    const style = { style: 'currency', currency: known.code, currencyDisplay: options.display ?? 'symbol' } as const;
-    return numberFormat(tag, { ...style, notation: 'compact', signDisplay: intlSign }).format(signed);
+  const style: Intl.NumberFormatOptions = known
+    ? { style: 'currency', currency: known.code, currencyDisplay: options.display ?? 'symbol' }
+    : { style: 'decimal' };
+  const nf = numberFormat(tag, { ...style, notation: 'compact', signDisplay: sign === 'plus' ? 'always' : 'auto' });
+  let raw = nf.formatToParts(signedWhole(BigInt(parts.whole), sign));
+  if (!raw.some((part) => part.type === 'compact')) {
+    raw = nf.formatToParts(signedWhole(BigInt(roundDecimal(parts, 0).whole), sign));
   }
-  const text = numberFormat(tag, { notation: 'compact', signDisplay: intlSign }).format(signed);
-  return code ? `${text} ${code}` : text;
+  const out = raw.map(toPart);
+  return code && !known ? [...out, { type: 'literal', value: ' ' }, { type: 'unit', value: code }] : out;
+}
+
+/** A short figure for volumes and market caps: "$1.2M", "1,2 Mio. $", "12万". */
+export function formatCompact(value: string, locale: string = DEFAULT_LOCALE, options: CompactFormatOptions = {}): string {
+  return joinParts(formatCompactToParts(value, locale, options));
 }
 
 // ── Percent ─────────────────────────────────────────────────────────────────
@@ -484,25 +504,17 @@ export function formatPercentToParts(
   const signDisplay: SignDisplay =
     signOption === true ? 'exceptZero' : signOption === false || signOption === undefined ? 'auto' : signOption;
 
-  // The digits, unsigned, through the decimal path; then the locale's percent
-  // template (sign and % placement, "%5" in Turkish, "5 %" in French) from a
-  // stand-in, its integer swapped for those digits.
-  const magnitude = { ...value, negative: false };
-  const figure = renderExact(
-    magnitude,
-    tag,
-    { style: 'decimal', useGrouping: true },
-    minFrac,
-    maxFrac,
-    options.rounding ?? 'half-up',
-    'never',
-  );
+  // The digits, without a sign, through the decimal path; then the locale's percent
+  // template (sign and % placement, "%5" in Turkish, "5 %" in French) from
+  // zero, its integer swapped for those digits.
+  // The value keeps its sign so floor rounds a negative away from zero.
+  const figure = renderExact(value, tag, { style: 'decimal', useGrouping: true }, minFrac, maxFrac, options.rounding ?? 'half-up', 'never');
   const sign = shownSign(value.negative, figure.isZero, signDisplay);
   const template = numberFormat(tag, {
     style: 'percent',
     maximumFractionDigits: 0,
     signDisplay: sign === 'plus' ? 'always' : 'auto',
-  }).formatToParts(sign === 'minus' ? -1n : 1n);
+  }).formatToParts(sign === 'minus' ? -0 : 0);
 
   const parts: FormatPart[] = [];
   let placed = false;
@@ -512,8 +524,6 @@ export function formatPercentToParts(
       placed = true;
       continue;
     }
-    if (part.type === 'group') continue;
-    if (sign === 'none' && (part.type === 'minusSign' || part.type === 'plusSign')) continue;
     parts.push(toPart(part));
   }
   return parts;
@@ -531,8 +541,8 @@ export function formatPercent(ratio: string | number, locale: string = DEFAULT_L
 
 // ── Direction ───────────────────────────────────────────────────────────────
 
-const ISOLATE_OPEN = { ltr: '⁦', rtl: '⁧', auto: '⁨' } as const;
-const POP_ISOLATE = '⁩';
+const ISOLATE_OPEN = { ltr: '\u2066', rtl: '\u2067', auto: '\u2068' } as const;
+const POP_ISOLATE = '\u2069';
 
 /**
  * Keep a run of text in its own direction inside the other one, for sinks
