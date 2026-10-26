@@ -449,7 +449,7 @@ export function FillsTable({
         <td className="if-num">{dayTime(fill.timestamp, timeZone)}</td>
         {activity ? (
           <td>
-            <span className="dk-trade-what" data-side={fill.side}>
+            <span data-testid="dk-trade-what" className="dk-trade-what" data-side={fill.side}>
               {t(fill.side === 'buy' ? 'Bought {amount} {asset}' : 'Sold {amount} {asset}', { amount, asset: baseOf(fill.symbol) })}
             </span>
             <span className="dk-trade-sub">{typeWord ? `${fill.symbol} · ${typeWord}` : fill.symbol}</span>
@@ -521,7 +521,7 @@ export function FillsTable({
                 <tr key={`order:${group.order}`} className="dk-fill-order" data-order={group.order ?? undefined}>
                   <td className="if-num">{dayTime(first.timestamp, timeZone)}</td>
                   <td>
-                    <span className="dk-trade-what" data-side={first.side}>
+                    <span data-testid="dk-trade-what" className="dk-trade-what" data-side={first.side}>
                       {t(first.side === 'buy' ? 'Bought {amount} {asset}' : 'Sold {amount} {asset}', {
                         amount: fmtAmount(group.amount, { places: 8 }),
                         asset: baseOf(first.symbol),

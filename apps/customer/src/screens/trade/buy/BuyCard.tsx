@@ -112,7 +112,7 @@ export function BuyCard({
   const coin = coins.find((option) => option.base === base) ?? coins[0] ?? null;
 
   const frame = (children: React.ReactNode) => (
-    <section className="buy-card" data-compact={compact || undefined} aria-label={t('Buy or sell')}>
+    <section data-testid="buy-card" className="buy-card" data-compact={compact || undefined} aria-label={t('Buy or sell')}>
       {children}
     </section>
   );
@@ -591,17 +591,17 @@ function BuyForm({
 
       <div className="buy-form__rows">
         {lockAsset ? (
-          <div className="buy-row" data-static="true">
+          <div data-testid="buy-row" className="buy-row" data-static="true">
             <CoinIcon asset={coin.base} size={32} />
-            <span className="buy-row__text">
+            <span data-testid="buy-row__text" className="buy-row__text">
               <span className="buy-row__label">{buying ? t('Coin row buy') : t('Coin row sell')}</span>
               <span className="buy-row__value">{coin.base}</span>
             </span>
           </div>
         ) : (
-          <button type="button" className="buy-row" onClick={() => setPickerOpen(true)} aria-label={t('Change coin')}>
+          <button type="button" data-testid="buy-row" className="buy-row" onClick={() => setPickerOpen(true)} aria-label={t('Change coin')}>
             <CoinIcon asset={coin.base} size={32} />
-            <span className="buy-row__text">
+            <span data-testid="buy-row__text" className="buy-row__text">
               <span className="buy-row__label">{buying ? t('Coin row buy') : t('Coin row sell')}</span>
               <span className="buy-row__value" data-testid="coin-row">
                 {coin.base}
@@ -611,8 +611,8 @@ function BuyForm({
             <ChevronRight size={20} aria-hidden="true" className="buy-row__chev" />
           </button>
         )}
-        <div className="buy-row" data-static="true">
-          <span className="buy-row__text">
+        <div data-testid="buy-row" className="buy-row" data-static="true">
+          <span data-testid="buy-row__text" className="buy-row__text">
             <span className="buy-row__label">{buying ? t('Pay with') : t('Receive in')}</span>
             {payChoices.length > 1 ? (
               <Select

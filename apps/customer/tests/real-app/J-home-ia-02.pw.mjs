@@ -22,8 +22,8 @@ const mainNav = (page) => page.getByRole('navigation', { name: 'Main navigation'
 /** The rows of one top-bar door's dropdown, as { href, group } (group is the Advanced heading when the row sits under it). */
 async function dropdown(page, door) {
   const item = mainNav(page)
-    .locator('.tb-item')
-    .filter({ has: page.locator('.tb-tab', { hasText: new RegExp(`^${door}$`) }) });
+    .getByTestId('tb-item')
+    .filter({ has: page.locator('[data-testid="tb-tab"]', { hasText: new RegExp(`^${door}$`) }) });
   await item.hover();
   const menu = item.getByRole('group', { name: door });
   await expect(menu).toBeVisible();
@@ -38,7 +38,7 @@ async function dropdown(page, door) {
 async function search(page, words) {
   const box = page.getByRole('combobox', { name: 'Search markets' });
   await box.fill(words);
-  const panel = page.locator('.tb-search-panel');
+  const panel = page.getByTestId('tb-search-panel');
   await expect(panel).toBeVisible();
   return panel;
 }
@@ -59,7 +59,7 @@ test(`${J} #1 the top bar has five doors with full dropdowns, the same five on t
   await signIn(page, who);
   await chooseLayout(page, 'Pro');
   // Five doors (owner decision 2026-10-26, "One Money door"): Assets and Bank are one Money door.
-  await expect(mainNav(page).locator('.tb-tab')).toHaveText(['Home', 'Money', 'Trade', 'Pay', 'More']);
+  await expect(mainNav(page).getByTestId('tb-tab')).toHaveText(['Home', 'Money', 'Trade', 'Pay', 'More']);
 
   // Every door's rows open live rooms; Money holds the holdings and the bank's rooms alike.
   const money = await dropdown(page, 'Money');
