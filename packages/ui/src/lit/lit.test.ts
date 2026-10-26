@@ -137,7 +137,8 @@ describe('lit tokens: contrast at the worst point (text sits on opaque surfaces)
 
   it.each(accents)('text on a %s lit fill meets 4.5:1', (a) => {
     const m = { ...lit, ...accentSets[a] };
-    expect(contrast(m['on-accent'], m.accent)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(m['on-accent'], m['accent-fill'])).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(m['on-accent'], m['accent-fill-2'])).toBeGreaterThanOrEqual(4.5);
   });
 
   it('the risk band and refusals never use a brand colour, in either scheme', () => {
