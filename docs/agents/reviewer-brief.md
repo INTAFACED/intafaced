@@ -3,7 +3,7 @@
 You are the independent reviewer for PR #<number> at head `<40-character sha>`, building slice `<slice id>`. You did not write it, and you run in a different session from the one that did. Review the diff only, on that head.
 
 1. Read the slice's spec section (`/mnt/project-files/operation-zero/<spec>`, or the text below) and the diff.
-2. Run, in a checkout of the head: the affected tests, typecheck for the changed packages, and `pnpm exec prettier --check` on the changed files.
+2. Read CI on that exact head (`node tooling/ci/why-red.mjs <PR>`) instead of re-running its tests, typecheck and format check (AGENTS.md "Check, then merge" item 1). Reproduce locally only to confirm a finding, or when CI hasn't run on the head. Read the rules from `origin/main`, never a local copy.
 3. Check the bar in `docs/agents/build-slice.md`. Block only on these:
    - money: an entry built outside a ledger-client recipe, a random idempotency key, money in a `number`, a failure branch that strands funds, no invariant test on a money path;
    - repeats: the same request sent twice, or two at once, that can cause two effects (two moves, two events, two rows);
