@@ -6,10 +6,109 @@
     <meta name="theme-color" content="#000000" />
     <meta name="description" content="Your money, trading and payments in one place." />
     <title>Intafaced</title>
+    <style>
+      /*
+       * Home's frame: drawn from this file alone while the app's code downloads, only where the boot script
+       * (src/app/boot.ts) marks the page as Simple Home. It holds no figures and no words but the wordmark; the script
+       * takes the mark off as soon as the app draws anything beyond its loading state.
+       */
+      #boot-frame,
+      html[data-boot='home'] #root {
+        display: none;
+      }
+      html[data-boot='home'] #boot-frame {
+        display: block;
+      }
+      #boot-frame {
+        min-block-size: 100dvh;
+        background: var(--if-bg, #000);
+      }
+      #boot-frame .bf-top {
+        display: flex;
+        align-items: center;
+        block-size: 48px;
+        padding-inline: var(--if-space-4, 16px);
+        border-block-end: 1px solid var(--if-line, #2e2e2e);
+        color: var(--if-text, #fff);
+        /* the system face: the app's web font would start downloading here and slow the app's own code */
+        font:
+          700 1.0625rem / 1 system-ui,
+          sans-serif;
+        letter-spacing: -0.02em;
+      }
+      #boot-frame .bf-top span {
+        color: var(--if-accent-text, #c8f64a);
+      }
+      #boot-frame .bf-body {
+        display: grid;
+        gap: 12px;
+        max-inline-size: 1200px;
+        margin-inline: auto;
+        padding: 24px var(--if-space-4, 16px);
+      }
+      #boot-frame i {
+        display: block;
+        block-size: 16px;
+        border-radius: 6px;
+        background: var(--if-panel, #121212);
+      }
+      #boot-frame .bf-figure {
+        inline-size: min(70%, 300px);
+        block-size: 48px;
+      }
+      #boot-frame .bf-label {
+        inline-size: min(45%, 180px);
+      }
+      #boot-frame .bf-line {
+        inline-size: min(60%, 240px);
+      }
+      #boot-frame .bf-keys {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-block-start: 4px;
+      }
+      #boot-frame .bf-keys i {
+        inline-size: 72px;
+        block-size: 40px;
+        border-radius: 999px;
+      }
+      #boot-frame .bf-head {
+        inline-size: 140px;
+        block-size: 24px;
+        margin-block-start: 28px;
+      }
+      #boot-frame .bf-card {
+        block-size: 144px;
+        border-radius: 16px;
+      }
+      @media (prefers-reduced-motion: no-preference) {
+        #boot-frame i {
+          animation: bf-pulse 1.6s ease-in-out infinite;
+        }
+      }
+      @keyframes bf-pulse {
+        50% {
+          opacity: 0.55;
+        }
+      }
+    </style>
   </head>
   <body>
+    <div id="boot-frame" aria-hidden="true">
+      <div class="bf-top">intafaced<span>·</span></div>
+      <div class="bf-body">
+        <i class="bf-label"></i>
+        <i class="bf-figure"></i>
+        <i class="bf-line"></i>
+        <div class="bf-keys"><i></i><i></i><i></i><i></i><i></i></div>
+        <i class="bf-head"></i>
+        <i class="bf-card"></i>
+        <i class="bf-head"></i>
+        <i class="bf-card"></i>
+      </div>
+    </div>
     <div id="root"></div>
-    <script src="/assets/no-eval-v1.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
