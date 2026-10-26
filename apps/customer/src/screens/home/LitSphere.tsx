@@ -5,8 +5,7 @@ import { isLook } from '../../app/look';
 import { homeCopy } from './copy';
 import { fmtUsd, type HomePortfolio, type Loadable } from './deps';
 import { sphereShares, type SpherePart } from './lit-shares';
-// the kit's role tokens; flat values unless data-look="lit" (the lead's wiring PR moves this to the app shell)
-import '@intafaced/ui/lit/lit.css';
+// the kit's role tokens (@intafaced/ui/lit/lit.css) load once at the app shell, in main.tsx
 import './lit-spike.css';
 
 const PRESET = FX_PRESETS['sphere-home-blue'];
