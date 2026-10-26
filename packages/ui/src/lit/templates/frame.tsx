@@ -86,12 +86,9 @@ export function Region({ name, data = false, primary = false, ghost = 'rows', la
   let body: React.ReactNode = children;
   if (held !== undefined) body = <p className="lt-held">{held}</p>;
   else if (data && state.kind === 'loading') body = <Skeleton shape={ghost} />;
-  // Behind a gate a data region never draws figures: a labelled one shows its locked outline, an unlabelled one
-  // (which has no name to show) draws nothing. The Gate makes the room inert either way.
-  else if (data && state.kind === 'gated') {
-    if (!label) return null;
-    body = <Locked shape={ghost} label={label} />;
-  }
+  // Behind a gate a data region shows its locked outline, never figures, and never vanishes (product law: a gated
+  // control is shown locked, not hidden). The Gate makes the room inert.
+  else if (data && state.kind === 'gated') body = <Locked shape={ghost} label={label} />;
   return (
     <section className="lt-region" data-region={name} data-held={held !== undefined || undefined} aria-label={label}>
       {body}

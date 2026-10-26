@@ -355,6 +355,23 @@ describe('states never contradict themselves', () => {
     expect(html(<OverviewTemplate title="Home" state={states[3]} hero={null} needsYou={null} />)).toContain('Refresh to see needs you');
   });
 
+  it('behind a gate, no region of a ready room disappears: data shows locked, controls stay visible', () => {
+    const LIVE = new Set(['rooms', 'help', 'index', 'contact']);
+    const regions = (out: string) => new Set([...out.matchAll(/data-region="([^"]+)"/g)].map((m) => m[1] ?? ''));
+    for (const [id, room] of Object.entries(ROOMS)) {
+      for (const mode of ['simple', 'pro'] as const) {
+        const ready = regions(html(room({ mode, state: 'ready', market: 'uk' })));
+        const gated = regions(html(room({ mode, state: 'gated', market: 'uk' })));
+        for (const r of ready) {
+          // Live regions draw outside the Gate as plain content (lt-live), so they carry no region tag there;
+          // in-flight movements are figures, which a gated room never shows.
+          if (LIVE.has(r) || r === 'in-flight') continue;
+          expect(gated.has(r), `${id} ${mode} ${r}`).toBe(true);
+        }
+      }
+    }
+  });
+
   it('behind a gate, a data region never draws its figures, labelled or not', () => {
     const out = html(
       <RoomFrame

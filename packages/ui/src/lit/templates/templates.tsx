@@ -41,7 +41,7 @@ export function OverviewTemplate(p: OverviewProps) {
           <Region name="hero" data primary ghost="figure" label="Balance">
             {p.hero}
           </Region>
-          <Region name="actions" data ghost="keys">
+          <Region name="actions" data label="Actions" ghost="keys">
             {p.actions}
           </Region>
           <Region name="needs-you" data ghost="rows" label="Needs you">
@@ -102,7 +102,7 @@ export function RecordListTemplate(p: RecordListProps) {
           {p.filters}
         </Region>
         {isPro(p) ? <Region name="tools">{p.tools}</Region> : null}
-        <Region name="export" data ghost="keys">
+        <Region name="export" data label="Export" ghost="keys">
           {p.export}
         </Region>
       </div>
@@ -156,7 +156,7 @@ export function MonitorTemplate(p: MonitorProps) {
           </div>
         ) : null}
       </Region>
-      <Region name="actions" data ghost="keys">
+      <Region name="actions" data label="Actions" ghost="keys">
         {p.actions}
       </Region>
       <div className="lt-grid lt-grid-main-side">
@@ -237,7 +237,7 @@ export function FlowTemplate(p: FlowProps) {
               {p.advanced}
             </Region>
           ) : null}
-          <Region name="actions" data>
+          <Region name="actions" data label="Actions">
             {p.actions}
           </Region>
         </div>
@@ -409,7 +409,7 @@ export interface ReadingProps extends RoomProps {
 export function ReadingTemplate(p: ReadingProps) {
   return (
     <RoomFrame {...p} template="reading" liveAfter={p.contact}>
-      <Region name="meta" data ghost="text">
+      <Region name="meta" data label="Details" ghost="text">
         {p.meta}
       </Region>
       <div className="lt-grid lt-grid-reading-toc">
