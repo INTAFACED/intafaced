@@ -40,8 +40,8 @@ export function YourCrypto({ holdings, hidden }: { holdings: HomeHolding[]; hidd
   // An account with nothing at all says so in one line; one that holds only cash has no crypto card to show.
   if (holdings.length === 0)
     return (
-      <section className="home-watch home-yours" aria-labelledby="home-yours-title">
-        <div className="home-watch__head">
+      <section data-testid="home-yours" className="home-watch home-yours" aria-labelledby="home-yours-title">
+        <div data-testid="home-watch__head" className="home-watch__head">
           <h2 id="home-yours-title">{t('Your crypto')}</h2>
         </div>
         <p className="home-side__empty">{t('No coins yet')}</p>
@@ -49,8 +49,8 @@ export function YourCrypto({ holdings, hidden }: { holdings: HomeHolding[]; hidd
     );
   if (crypto.length === 0) return null;
   return (
-    <section className="home-watch home-yours" aria-labelledby="home-yours-title">
-      <div className="home-watch__head">
+    <section data-testid="home-yours" className="home-watch home-yours" aria-labelledby="home-yours-title">
+      <div data-testid="home-watch__head" className="home-watch__head">
         <h2 id="home-yours-title">{t('Your crypto')}</h2>
       </div>
       <ul className="home-watch__list">
@@ -59,10 +59,12 @@ export function YourCrypto({ holdings, hidden }: { holdings: HomeHolding[]; hidd
           const pct = changeRatio(holding);
           return (
             <li key={holding.asset} className="home-watch__item">
-              <a className="home-watch__row" href={coinHref(holding.asset, 'simple')}>
+              <a data-testid="home-watch__row" className="home-watch__row" href={coinHref(holding.asset, 'simple')}>
                 <CoinIcon asset={holding.asset} size={28} />
                 <span className="home-watch__name">
-                  <span className="home-watch__ticker">{name ? `${holding.asset} · ${name}` : holding.asset}</span>
+                  <span data-testid="home-watch__ticker" className="home-watch__ticker">
+                    {name ? `${holding.asset} · ${name}` : holding.asset}
+                  </span>
                   <Amount
                     className="home-yours__amount"
                     value={`${fmtAmount(holding.total, { round: 'down' })} ${holding.asset}`}
@@ -93,12 +95,12 @@ export function YourCrypto({ holdings, hidden }: { holdings: HomeHolding[]; hidd
 
 export function YourCryptoSkeleton() {
   return (
-    <section className="home-watch home-yours" aria-hidden="true">
-      <div className="home-watch__head">
+    <section data-testid="home-yours" className="home-watch home-yours" aria-hidden="true">
+      <div data-testid="home-watch__head" className="home-watch__head">
         <Skeleton width={96} height={20} className={IN_PANEL} />
       </div>
       {[0, 1, 2].map((index) => (
-        <div className="home-watch__row home-yours__skeleton" key={index}>
+        <div data-testid="home-watch__row" className="home-watch__row home-yours__skeleton" key={index}>
           <Skeleton width={28} height={28} circle className={IN_PANEL} />
           <Skeleton width={96} height={36} className={IN_PANEL} />
           <Skeleton width={72} height={36} className={IN_PANEL} />

@@ -158,7 +158,7 @@ function Header({
 
   if (variant === 'panel')
     return (
-      <div role="row" className="mkt-header mkt-header--panel">
+      <div role="row" data-testid="mkt-header" className="mkt-header mkt-header--panel">
         <div role="columnheader" aria-sort={sortAria('name')} className="mkt-panel__head-left">
           {sortable('name', t('Name'))}
           <span aria-hidden="true">/</span>
@@ -173,7 +173,7 @@ function Header({
     );
 
   return (
-    <div role="row" className="mkt-header">
+    <div role="row" data-testid="mkt-header" className="mkt-header">
       {columns.map((column) => {
         const key = SORT_KEY[column];
         const label = t(columnLabelKey(column));
