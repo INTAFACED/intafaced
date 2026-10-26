@@ -101,7 +101,7 @@
   }
   .pay-steps > li[data-state='done']::before {
     background: var(--if-lime);
-    color: var(--if-bg);
+    color: var(--if-on-lime);
   }
   .pay-steps > li[data-state='current'] {
     color: var(--if-fg);

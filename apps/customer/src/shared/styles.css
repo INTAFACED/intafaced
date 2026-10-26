@@ -140,10 +140,10 @@ body {
 }
 .button--primary {
   background: var(--if-lime);
-  color: #111;
+  color: var(--if-on-lime);
 }
 .button--primary:hover:not(:disabled) {
-  background: #d6fa78;
+  background: var(--if-lime-hover);
 }
 .button--secondary {
   background: var(--color-surface-raised);
@@ -503,7 +503,7 @@ html[data-theme='light'] .button--danger {
   left: 12px;
   top: -100px;
   background: var(--if-lime);
-  color: #000;
+  color: var(--if-on-lime);
   padding: var(--if-space-3);
 }
 .skip-link:focus {
