@@ -14,6 +14,7 @@ on:
   pull_request:
     paths:
       - 'apps/customer/**'
+      - 'apps/admin/**'
       - 'packages/ui/**'
       - 'tooling/ci/look-gate/**'
       - '.github/workflows/look-gate.yml'
@@ -56,9 +57,9 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           pnpm install --frozen-lockfile
 
-      - name: Build the Customer app and the kit gallery
+      - name: Build the Customer app, the founder console and the kit gallery
         run: |
-          pnpm turbo run build --filter=@intafaced/customer
+          pnpm turbo run build --filter=@intafaced/customer --filter=@intafaced/admin
           pnpm --filter @intafaced/ui gallery:build
 
       # Main's rules: its copy of tooling/ci/look-gate sits next to the pull request's, so relative imports still resolve.

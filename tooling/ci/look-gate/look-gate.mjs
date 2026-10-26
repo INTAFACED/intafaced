@@ -28,14 +28,16 @@
  * Reports for two weeks; then a failure on the kit gallery or on a page drawn in the new look blocks a pull request
  * that changes the kit, a baseline, a legal-slot file or a migrated room (policy.mjs). CI runs main's copy.
  *
- * Not checked yet, said so in every report: the founder console (apps/admin) shots. Rooms whose calls have
- * no fixture in look-fixtures.mjs still show their refuse state.
+ * The founder console (apps/admin) is shot too, signed in as a TEST founder against a stand-in Edge (admin.mjs), at a
+ * phone and a computer with no variants: its baselines catch a kit change that moves it. Rooms whose calls have no
+ * fixture in look-fixtures.mjs still show their refuse state, said so in every report.
  *
- *   node tooling/ci/look-gate/look-gate.mjs [--shard 1/4] [--out <dir>] [--only gallery|customer] [--routes /a,/b]
+ *   node tooling/ci/look-gate/look-gate.mjs [--shard 1/4] [--out <dir>] [--only gallery|customer|admin] [--routes /a,/b]
  *        [--update-baselines] [--changed-from origin/main]
  *   node tooling/ci/look-gate/look-gate.mjs --self-test
  */
 import { execFileSync } from 'node:child_process';
+import { createDecipheriv } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, appendFileSync, statSync } from 'node:fs';
 import http from 'node:http';
 import { dirname, extname, join, resolve, sep } from 'node:path';
@@ -46,6 +48,7 @@ import * as policy from './policy.mjs';
 import { sweepRoutes } from '../../../apps/customer/tests/real-app/routes.mjs';
 import * as world from '../../../apps/customer/tests/real-app/look-fixtures.mjs';
 import { fixtureAnswer as answerAt } from './fixture-answer.mjs';
+import { adminRoutes, edgeAnswer, sealSession, startAdmin } from './admin.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const VIEWPORTS = { phone: { width: 390, height: 844 }, computer: { width: 1440, height: 900 } };
@@ -82,8 +85,10 @@ function args(argv) {
       if (!(k >= 1 && n >= k)) throw new Error(`--shard wants k/n, got ${argv[i]}`);
       out.shard = [k, n];
     } else if (a === '--out') out.out = resolve(argv[++i]);
-    else if (a === '--only') out.only = argv[++i];
-    else if (a === '--routes') out.routes = argv[++i].split(',');
+    else if (a === '--only') {
+      out.only = argv[++i];
+      if (!['gallery', 'customer', 'admin'].includes(out.only)) throw new Error(`--only takes gallery, customer or admin, not ${out.only}`);
+    } else if (a === '--routes') out.routes = argv[++i].split(',');
     else if (a === '--update-baselines') out.update = true;
     else if (a === '--changed-from') out.changedFrom = argv[++i];
     else if (a === '--self-test') out.selfTest = true;
@@ -107,7 +112,7 @@ export function roomName(route) {
 }
 
 /** A static server for a built folder, with the production headers and a report endpoint. SPA fallback to index.html. */
-function serve(dir, reports) {
+function serve(dir, reports, port) {
   const headers = securityHeaders({ reportUri: REPORT_PATH });
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
@@ -141,18 +146,29 @@ function serve(dir, reports) {
     res.writeHead(200, { ...headers, 'content-type': MIME[extname(target)] ?? 'application/octet-stream', 'cache-control': 'no-store' });
     res.end(readFileSync(target));
   });
-  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ server, origin: `http://127.0.0.1:${server.address().port}` })));
+  // A fixed port: a room can print its own address (Receive's QR code holds a link), so a port drawn per run would
+  // change the shot.
+  return new Promise((ok, fail) => {
+    server.once('error', (error) => fail(new Error(`the look gate needs port ${port}: ${error.message}`)));
+    server.listen(port, '127.0.0.1', () => ok({ server, origin: `http://127.0.0.1:${port}` }));
+  });
 }
 
 const INIT = `(() => {
   Math.random = (${policy.mulberry32.toString()})(${SEED});
+  // Ids drawn for a form (a request id) come from the same seed, so a shot never shows a fresh one.
+  if (window.crypto?.randomUUID) {
+    let n = 0;
+    crypto.randomUUID = () => '00000000-0000-4000-8000-' + String(++n).padStart(12, '0');
+  }
   window.__lookCsp = [];
   document.addEventListener('securitypolicyviolation', (e) => {
     window.__lookCsp.push({ directive: e.effectiveDirective, blocked: e.blockedURI, source: e.sourceFile, line: e.lineNumber, sample: e.sample });
   });
 })();`;
 
-const FREEZE_CSS = `*, *::before, *::after { animation-duration: 0s !important; animation-delay: 0s !important; transition: none !important; caret-color: transparent !important; }`;
+// Scrollbars hidden too: an overlay scrollbar fades on its own clock, so a shot could catch it half drawn.
+const FREEZE_CSS = `*, *::before, *::after { animation-duration: 0s !important; animation-delay: 0s !important; transition: none !important; caret-color: transparent !important; } * { scrollbar-width: none !important; }`;
 const HIDE_TEXT_CSS = `* { color: transparent !important; -webkit-text-fill-color: transparent !important; text-shadow: none !important; text-decoration-color: transparent !important; } ::placeholder { color: transparent !important; }`;
 
 /** Text boxes, money figures, controls, legal slots and font probes, measured in the page. Runs in the browser. */
@@ -332,7 +348,10 @@ async function settle(page) {
   return false;
 }
 
-/** Tab through the first stops; a focused box under a `data-obscures` bar fails. Runs in the browser after each Tab. */
+/**
+ * Tab through the first stops; a focused box a `data-obscures` bar paints over fails (inside the bar's band and under
+ * it in the stacking order). Runs in the browser after each Tab.
+ */
 function focusState() {
   const el = document.activeElement;
   if (!el || el === document.body) return null;
@@ -341,7 +360,19 @@ function focusState() {
   const bottoms = [...document.querySelectorAll('[data-obscures="bottom"]')].map((b) => b.getBoundingClientRect().top);
   const top = Math.max(0, ...tops);
   const bottom = Math.min(innerHeight, ...bottoms);
-  const covered = (tops.length || bottoms.length) && (r.top < top - 0.5 || r.bottom > bottom + 0.5) && !el.closest('[data-obscures]');
+  const under = (tops.length || bottoms.length) && (r.top < top - 0.5 || r.bottom > bottom + 0.5) && !el.closest('[data-obscures]');
+  // Under a bar's band is not yet hidden: the bar must paint over it there. A control stacked above the bar (the skip
+  // link, fixed at z-index 100) stays seen. Probe its centre and corners inside the band.
+  const xs = [r.left + 2, (r.left + r.right) / 2, r.right - 2];
+  const ys = [r.top + 2, (r.top + r.bottom) / 2, r.bottom - 2].filter((y) => y < top || y > bottom);
+  const covered =
+    under &&
+    ys.some((y) =>
+      xs.some((x) => {
+        const hit = x >= 0 && y >= 0 && x < innerWidth && y < innerHeight ? document.elementFromPoint(x, y) : null;
+        return hit && !el.contains(hit) && !!hit.closest('[data-obscures]');
+      }),
+    );
   return {
     name: `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ''} "${(el.textContent || el.getAttribute('aria-label') || '').trim().slice(0, 30)}"`,
     covered: !!covered,
@@ -404,12 +435,14 @@ async function prepare(page, target = {}) {
       ['intafaced.customer.view.v1', world.VIEW],
     );
   const signedIn = Boolean(target.customer) && !world.SIGNED_OUT.includes(target.path);
-  await page.route('**/api/**', (route) => {
-    const request = route.request();
-    const answer = target.customer ? fixtureAnswer(request.url(), request.method(), request.postData(), { signedIn }) : null;
-    if (answer) return route.fulfill({ status: answer.status, contentType: 'application/json', body: JSON.stringify(answer.json) });
-    return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify(REFUSAL) });
-  });
+  // The console's own /api is its server talking to the stand-in Edge (admin.mjs), which already refuses.
+  if (!target.admin)
+    await page.route('**/api/**', (route) => {
+      const request = route.request();
+      const answer = target.customer ? fixtureAnswer(request.url(), request.method(), request.postData(), { signedIn }) : null;
+      if (answer) return route.fulfill({ status: answer.status, contentType: 'application/json', body: JSON.stringify(answer.json) });
+      return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify(REFUSAL) });
+    });
   await page.routeWebSocket(/\/ws(\/|$)/, (ws) => ws.close({ code: 1011, reason: REFUSAL.code }));
 }
 
@@ -429,6 +462,8 @@ async function check(context, origin, target, vpName, opts, registry) {
   try {
     await page.goto(origin + target.path, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
+    if (target.admin && target.path !== '/login' && new URL(page.url()).pathname === '/login')
+      add('signin', ['landed on /login: the console refused the TEST founder session (admin.mjs seals it as founder-session.ts)']);
     row.lit = await page.evaluate(() => !!document.querySelector('[data-look="lit"], [data-moment][data-jurisdiction]'));
     await page.addStyleTag({ content: FREEZE_CSS });
     // A lazy room shows its loading line first; measure what it settles on.
@@ -782,6 +817,19 @@ function importsLit(folder) {
   }
 }
 
+/**
+ * Old-room focus debt, for stage C: each control an old room's bar paints over when it takes focus, once. Report only;
+ * the same finding on a new-look page blocks with the rest.
+ */
+export function focusDebt(rows, litTargets) {
+  const seen = new Map();
+  for (const r of rows)
+    if (!litTargets.has(r.target) && !r.target.startsWith('kit '))
+      for (const f of r.findings.focus ?? []) seen.set(`${r.target}: ${f}`, `${r.target} (${r.viewport}): ${f}`);
+  if (!seen.size) return [];
+  return [`## Old-room focus debt (stage C): ${seen.size}`, '', ...[...seen.values()].map((l) => `- ${l.replace(/\|/g, '/')}`), ''];
+}
+
 function report(rows, opts, meta) {
   const failing = rows.filter((r) => Object.keys(r.findings).length);
   // A target is drawn in the new look when any of its shots found it so: its variant and error rows count too.
@@ -802,8 +850,9 @@ function report(rows, opts, meta) {
     '',
     `Verdict: **${v.mode}**${v.why ? ` (${v.why})` : ''}${v.blocking?.length ? `; blocking paths changed: ${v.blocking.slice(0, 5).join(', ')}` : ''}.`,
     '',
-    `Not checked yet: founder console (apps/admin) shots; rooms with no fixture in apps/customer/tests/real-app/look-fixtures.mjs show their refuse state. Legal registry: ${meta.registry ? REGISTRY_PATH : 'not on this branch'}.`,
+    `Not checked yet: rooms with no fixture in apps/customer/tests/real-app/look-fixtures.mjs show their refuse state. Legal registry: ${meta.registry ? REGISTRY_PATH : 'not on this branch'}.`,
     '',
+    ...focusDebt(rows, litTargets),
     '| Page | Viewport | Findings | Notes |',
     '| --- | --- | --- | --- |',
     ...rows.map(
@@ -836,10 +885,10 @@ async function main(opts) {
 
   if (!existsSync(join(ROOT, I18N_FIXTURES)))
     throw new Error(`no @intafaced/i18n build for the 130% copy pass (${I18N_FIXTURES}): pnpm --filter @intafaced/i18n build`);
-  if (opts.only !== 'customer') {
+  if (!opts.only || opts.only === 'gallery') {
     if (!existsSync(join(galleryDist, 'index.html')))
       throw new Error(`no kit gallery build in ${galleryDist}: pnpm --filter @intafaced/ui gallery:build`);
-    const g = await serve(galleryDist, reports);
+    const g = await serve(galleryDist, reports, 47301);
     servers.push(g.server);
     const page = await browser.newPage();
     await page.goto(g.origin + '/', { waitUntil: 'networkidle' });
@@ -855,10 +904,10 @@ async function main(opts) {
         baselines: 'packages/ui/look-baselines',
       });
   }
-  if (opts.only !== 'gallery') {
+  if (!opts.only || opts.only === 'customer') {
     if (!existsSync(join(customerDist, 'index.html')))
       throw new Error(`no Customer build in ${customerDist}: pnpm turbo run build --filter=@intafaced/customer`);
-    const c = await serve(customerDist, reports);
+    const c = await serve(customerDist, reports, 47300);
     servers.push(c.server);
     for (const route of opts.routes ?? customerRoutes())
       targets.push({
@@ -868,6 +917,21 @@ async function main(opts) {
         room: roomName(route),
         baselines: 'apps/customer/look-baselines',
         customer: true,
+      });
+  }
+  // `--routes` narrows a run to those Customer rooms, so the console runs only when asked for or in a whole run.
+  if (opts.only === 'admin' || (!opts.only && !opts.routes)) {
+    const a = await startAdmin(ROOT, { now: FROZEN.getTime() });
+    servers.push({ close: a.stop });
+    for (const route of adminRoutes(ROOT))
+      targets.push({
+        name: `admin ${route}`,
+        origin: a.origin,
+        path: route,
+        room: `admin-${roomName(route)}`,
+        baselines: 'apps/admin/look-baselines',
+        admin: true,
+        cookie: a.cookie,
       });
   }
 
@@ -889,10 +953,12 @@ async function main(opts) {
           timezoneId: 'UTC',
           locale: 'en-GB',
         });
+        if (target.cookie) await context.addCookies([target.cookie]);
         out.push(await check(context, target.origin, target, vpName, opts, registry));
         await context.close();
       }
-      out.push(...(await variants(browser, target.origin, target, opts)));
+      // The console's baselines are what it checks; its variants belong to its own redesign.
+      if (!target.admin) out.push(...(await variants(browser, target.origin, target, opts)));
       perTarget[i] = out;
       process.stdout.write('.');
     }
@@ -1100,6 +1166,29 @@ function selfTest() {
   );
   ok(world.SIGNED_OUT.includes('/') && world.SIGNED_OUT.every((r) => customerRoutes().includes(r)), 'signed-out rooms are swept routes');
   eq(roomName('/trade/spot/BTC-USDT'), 'trade-spot-btc-usdt', 'route room');
+  eq(
+    focusDebt(
+      [
+        { target: '/pay', viewport: 'phone', findings: { focus: ['a "Send" is under a fixed bar'] } },
+        { target: '/pay', viewport: 'phone rtl', findings: { focus: ['a "Send" is under a fixed bar'] } },
+        { target: '/lit', viewport: 'phone', findings: { focus: ['a "x" is under a fixed bar'] } },
+      ],
+      new Set(['/lit']),
+    ).length,
+    4,
+    'old-room focus debt: one line per control, new-look pages left to the blocking list',
+  );
+  // The founder console: its rooms, the founder check the stand-in Edge answers, and a cookie the console can open.
+  const consoleRooms = adminRoutes(ROOT);
+  ok(['/', '/login', '/ledger'].every((r) => consoleRooms.includes(r)) && !consoleRooms.some((r) => /[[(]/.test(r)), 'console rooms');
+  eq(edgeAnswer('/api/identity/trpc/accountControls.operatorStatus?input=%7B%7D').json.result.data.status, 'enabled', 'founder check');
+  eq(edgeAnswer('/api/ops/trpc/consoleMode.get').status, 503, 'every other console call is refused');
+  const sealKey = Buffer.alloc(32, 7);
+  const sealed = Buffer.from(sealSession({ a: 1 }, sealKey, 'http://127.0.0.1:1'), 'base64url');
+  const opened = createDecipheriv('aes-256-gcm', sealKey, sealed.subarray(0, 12));
+  opened.setAuthTag(sealed.subarray(12, 28));
+  opened.setAAD(Buffer.from('__Host-intafaced-admin\nhttp://127.0.0.1:1\nv1'));
+  eq(JSON.parse(Buffer.concat([opened.update(sealed.subarray(28)), opened.final()]).toString()), { a: 1 }, 'the session seal opens');
   eq(
     ['Send money', 'Bitcoin', 'BTC', 'BTC-USDT', '12,481.91', 'intafaced·', '⟦Šéñð ~·⟧', 'Send'].map(isCopy),
     [true, true, false, false, false, false, false, true],
