@@ -365,6 +365,7 @@
 /* Legal slot: opaque, neutral, bordered, never faded, never smaller than body text */
 .lit-legal {
   min-height: var(--lit-legal-band-min-h);
+  text-align: start;
   padding: 10px 14px;
   border: 1px solid var(--lit-legal-border);
   border-radius: 10px;
@@ -588,4 +589,41 @@
   font-size: var(--lit-type-heading-size);
   line-height: var(--lit-type-heading-line);
   font-weight: var(--lit-type-heading-weight);
+}
+
+/* Gated: the room stays visible under the veil; the card sits over it */
+.lit-gate {
+  position: relative;
+  isolation: isolate;
+}
+.lit-gate__room {
+  pointer-events: none;
+  user-select: none;
+}
+.lit-gate::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: var(--lit-veil);
+  border-radius: var(--lit-radius-panel);
+}
+.lit-gate__card {
+  position: absolute;
+  z-index: 2;
+  inset-block-start: var(--lit-gap-section);
+  inset-inline: var(--lit-pad-panel);
+  max-width: 440px;
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+}
+.lit-gate__card [data-part='title'] {
+  font-size: var(--lit-type-heading-size);
+  line-height: var(--lit-type-heading-line);
+  font-weight: var(--lit-type-heading-weight);
+}
+.lit-gate__card [data-part='body'] {
+  color: var(--lit-text-2);
 }

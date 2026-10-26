@@ -5,7 +5,7 @@
  */
 import * as React from 'react';
 import { clsx } from 'clsx';
-import { doors as doorOrder, type Door, type LegalSlotProps, type Refusal } from '../contracts.js';
+import { doors as doorOrder, type Door, type GateReason, type LegalSlotProps, type Refusal } from '../contracts.js';
 
 type Div = React.HTMLAttributes<HTMLDivElement>;
 
@@ -510,6 +510,42 @@ export function RiskMoment({
             {proceed.label}
           </Button>
         </div>
+      </Surface>
+    </div>
+  );
+}
+
+/**
+ * The gated state. Not a skeleton: the room's real layout stays visible under the veil and inert, and the gate
+ * card says who it is gated on and the one next step.
+ */
+export function Gate({
+  reason,
+  title,
+  body,
+  action,
+  children,
+  className,
+}: {
+  reason: GateReason;
+  title: string;
+  body: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  const titleId = React.useId();
+  return (
+    <div className={clsx('lit-gate', className)} data-gate={reason}>
+      <div className="lit-gate__room" inert aria-hidden="true">
+        {children}
+      </div>
+      <Surface layer="sheet" className="lit-gate__card" role="region" aria-labelledby={titleId}>
+        <div id={titleId} data-part="title">
+          {title}
+        </div>
+        <div data-part="body">{body}</div>
+        {action}
       </Surface>
     </div>
   );

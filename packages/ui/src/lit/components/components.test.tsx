@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { roleNames, typeRoles } from '../contracts.js';
 import {
+  Gate,
   ActionKey,
   Button,
   Change,
@@ -172,5 +173,16 @@ describe('components', () => {
     const tones = [...out.matchAll(/data-tone="([a-z]+)"/g)].map((m) => m[1]);
     expect(tones).toEqual(['secondary', 'secondary']);
     expect(out).toContain('role="dialog"');
+  });
+
+  it('Gate keeps the room visible and inert under the card, never a skeleton', () => {
+    const out = html(
+      <Gate reason="not-verified" title="Verify to send" body="It takes about two minutes.">
+        <div>room</div>
+      </Gate>,
+    );
+    expect(out).toContain('data-gate="not-verified"');
+    expect(out).toMatch(/class="lit-gate__room" inert="" aria-hidden="true"><div>room<\/div>/);
+    expect(out).not.toContain('skeleton');
   });
 });
