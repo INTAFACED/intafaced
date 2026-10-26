@@ -121,12 +121,15 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
+        # look-baselines.mjs is the guard's one import (what a look baseline is); it comes from main the same way.
         run: |
-          if git cat-file -e origin/main:tooling/ci/test-diff-guard.mjs 2>/dev/null; then
-            git show origin/main:tooling/ci/test-diff-guard.mjs > "$RUNNER_TEMP/test-diff-guard.mjs"
-          else
-            cp tooling/ci/test-diff-guard.mjs "$RUNNER_TEMP/test-diff-guard.mjs"
-          fi
+          for f in test-diff-guard.mjs look-baselines.mjs; do
+            if git cat-file -e "origin/main:tooling/ci/$f" 2>/dev/null; then
+              git show "origin/main:tooling/ci/$f" > "$RUNNER_TEMP/$f"
+            else
+              cp "tooling/ci/$f" "$RUNNER_TEMP/$f"
+            fi
+          done
           node "$RUNNER_TEMP/test-diff-guard.mjs"
 
       # The per-service Definition of Done (`pnpm gate`) used to be its own
