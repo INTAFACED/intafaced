@@ -94,4 +94,5 @@ export async function setFxAccent(accent: string, hot?: string): Promise<void> {
 }
 
 export { LitFx, type LitFxProps } from './LitFx.js';
+export { sharesFromPercents, sphereCallouts } from './sphere-layout.js';
 export { FX_PRESETS, LIT_BLUE, type FxPreset, type FxPresetName } from './posters/presets.js';

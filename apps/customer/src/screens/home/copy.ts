@@ -166,6 +166,8 @@ const messages = {
   'Work severity action': 'To do',
   'Work severity warning': 'Warning',
   'Work severity info': 'Waiting',
+  'Where your money is': 'Where your money is',
+  'Sphere other': 'Other',
 } as const;
 
 export const homeCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy('customer.home', messages, {
@@ -339,6 +341,8 @@ export const homeCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCo
     'Work severity action': 'Por hacer',
     'Work severity warning': 'Aviso',
     'Work severity info': 'En espera',
+    'Where your money is': 'Dónde está tu dinero',
+    'Sphere other': 'Otros',
   },
   fr: {
     Home: 'Accueil',
@@ -512,6 +516,8 @@ export const homeCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCo
     'Work severity action': 'À faire',
     'Work severity warning': 'Alerte',
     'Work severity info': 'En attente',
+    'Where your money is': 'Où est votre argent',
+    'Sphere other': 'Autres',
   },
 });
 

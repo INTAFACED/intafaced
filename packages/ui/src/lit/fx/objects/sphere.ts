@@ -16,6 +16,7 @@ import {
   Vector4,
 } from 'three';
 import type { FxFactory, FxScene } from '../engine.js';
+import { SPHERE_SPAN } from '../sphere-layout.js';
 import { dotTexture, raw } from './shared.js';
 
 export interface SphereOptions {
@@ -38,8 +39,8 @@ export interface SphereOptions {
   onFrame?(points: Array<[number, number]>): void;
 }
 
-/** The lit crescent runs from -SPAN to +SPAN radians around the bottom of the sphere. */
-const SPAN = 1.2;
+/** The lit crescent's half-width in radians (sphere-layout.ts places the page's labels with the same value). */
+const SPAN = SPHERE_SPAN;
 
 export function sharesAddUp(shares: readonly number[]): boolean {
   const sum = shares.reduce((a, b) => a + b, 0);

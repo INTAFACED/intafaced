@@ -4,7 +4,7 @@ import { seededRandom } from './random.js';
 
 const here = new URL('./', import.meta.url);
 /** Files the page loads before first paint. three.js may only arrive through the lazy `import('./engine.js')`. */
-const eager = ['index.ts', 'tier.ts', 'random.ts', 'LitFx.tsx', 'posters/presets.ts'];
+const eager = ['index.ts', 'tier.ts', 'random.ts', 'LitFx.tsx', 'posters/presets.ts', 'sphere-layout.ts'];
 
 describe('light objects entry', () => {
   it('never imports three.js before first paint', () => {

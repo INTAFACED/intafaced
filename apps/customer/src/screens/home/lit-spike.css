@@ -4,10 +4,16 @@
  * navigation layer (the top bar); the actions panel is a solid content-layer panel; nothing blurred sits over the
  * moving sphere.
  */
+/* "Where your money is": bounded on wide screens, so the sphere stays an object rather than a wide empty band */
+[data-look='lit'] .home-lit-where {
+  margin-block-start: var(--if-space-4);
+}
 [data-look='lit'] .home-lit-sphere {
   position: relative;
   block-size: 16.25rem;
+  max-inline-size: 36rem;
   margin-block-start: var(--if-space-2);
+  margin-inline: auto;
   overflow: hidden;
   border-radius: var(--lit-radius-panel);
   background: var(--lit-solid-bg);
@@ -55,4 +61,36 @@
 /* today's change line has a fixed height, so its wrapped tag would run under the sphere */
 [data-look='lit'] .home-change {
   block-size: auto;
+}
+
+/* each part's label sits at its segment's middle (sphereCallouts); the canvas is physical, so the list is too */
+[data-look='lit'] .home-lit-callouts {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  direction: ltr;
+  pointer-events: none;
+}
+[data-look='lit'] .home-lit-callout {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  visibility: hidden;
+  white-space: nowrap;
+  font: 500 var(--if-text-xs) / var(--if-leading-xs) var(--lit-font-ui);
+  color: var(--lit-text-2);
+  --dx: var(--if-space-2);
+  transform: translate(calc(var(--x) * 1px), calc(var(--y) * 1px)) translate(var(--dx), -50%);
+}
+[data-look='lit'] .home-lit-callout[data-side='start'] {
+  --dx: calc(-100% - var(--if-space-2));
+}
+[data-look='lit'] .home-lit-callout[data-placed] {
+  visibility: visible;
+}
+[data-look='lit'] .home-lit-callout__pct {
+  color: var(--lit-text-1);
+  font-family: var(--lit-font-figure);
 }
