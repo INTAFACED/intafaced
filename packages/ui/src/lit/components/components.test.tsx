@@ -161,7 +161,8 @@ describe('components', () => {
     expect(set).toContain('<button type="button" class="lit-legal__more">');
     const rtl = html(<LegalSlot {...base} text="Warning." missing="-" bold lang="en" dir="ltr" />);
     expect(rtl).toContain('data-bold="true"');
-    expect(rtl).toContain('<span lang="en" dir="ltr">Warning.</span>');
+    expect(rtl).toMatch(/lang="en" dir="ltr" role="region"/);
+    expect(rtl).toContain('<span data-part="text">Warning.</span>');
     expect(html(<LegalSlot {...base} text="" missing="Not set yet." />)).toContain('Not set yet.');
   });
 
@@ -176,7 +177,7 @@ describe('components', () => {
     expect(out).toContain('role="dialog"');
   });
 
-  it('Gate keeps the room visible and inert under the card, never a skeleton', () => {
+  it('Gate puts its card in the flow above the room, which stays visible and inert, never a skeleton', () => {
     const out = html(
       <Gate reason="not-verified" title="Verify to send" body="It takes about two minutes.">
         <div>room</div>
@@ -184,6 +185,8 @@ describe('components', () => {
     );
     expect(out).toContain('data-gate="not-verified"');
     expect(out).toMatch(/class="lit-gate__room" inert=""><div>room<\/div>/);
+    expect(out.indexOf('lit-gate__card')).toBeLessThan(out.indexOf('lit-gate__room'));
+    expect(out).not.toContain('lit-gate__veil');
     expect(out).toContain('data-material="solid"');
     expect(out).not.toContain('skeleton');
   });

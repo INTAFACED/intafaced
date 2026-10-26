@@ -440,7 +440,7 @@ export function LegalSlot({
   text: string | null;
   /** The rule sets the warning in bold (the risk band). */
   bold?: boolean;
-  /** Language and direction of the fixed text, so English kept in a right-to-left page keeps its punctuation. */
+  /** Language and direction of the fixed text and its link, set on the whole band, so English kept in a right-to-left page keeps its punctuation and its start edge. */
   lang?: string;
   dir?: 'ltr' | 'rtl' | 'auto';
   /** Accessible name of the region, for example "Risk warning". */
@@ -459,16 +459,12 @@ export function LegalSlot({
       data-text-id={textId}
       data-missing={text ? undefined : true}
       data-bold={bold || undefined}
+      lang={text ? lang : undefined}
+      dir={text ? dir : undefined}
       role="region"
       aria-label={label}
     >
-      {text ? (
-        <span lang={lang} dir={dir}>
-          {text}
-        </span>
-      ) : (
-        missing
-      )}
+      {text ? <span data-part="text">{text}</span> : missing}
       {text && learnMore && (
         <>
           {' '}
@@ -542,10 +538,6 @@ export function Gate({
   const titleId = React.useId();
   return (
     <div className={clsx('lit-gate', className)} data-gate={reason}>
-      <div className="lit-gate__room" inert>
-        {children}
-      </div>
-      <div className="lit-gate__veil" aria-hidden="true" />
       <Surface className="lit-gate__card" role="region" aria-labelledby={titleId}>
         <div id={titleId} data-part="title">
           {title}
@@ -553,6 +545,9 @@ export function Gate({
         <div data-part="body">{body}</div>
         {action}
       </Surface>
+      <div className="lit-gate__room" inert>
+        {children}
+      </div>
     </div>
   );
 }
