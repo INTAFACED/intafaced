@@ -67,6 +67,9 @@ export const WHOLE_ROOM_STATES: ReadonlySet<RoomState['kind']> = WHOLE_ROOM;
 export function Region({ name, data = false, primary = false, ghost = 'rows', ghostCount, label, live = false, children }: RegionProps) {
   const { state, gateArea } = React.useContext(RoomContext);
   if (live && state.kind === 'gated' && !gateArea) return null;
+  // A live region with nothing in it (a reading index the room didn't pass) draws nothing behind a gate, never an
+  // empty box: there is nothing to reach, and the gate says why.
+  if (live && state.kind === 'gated' && children === null) return null;
   // `undefined` means the room doesn't use this region; `null` means its data isn't here yet, so a data region
   // still draws its skeleton while loading and its locked outline behind a gate.
   const unused = children === undefined || children === false;

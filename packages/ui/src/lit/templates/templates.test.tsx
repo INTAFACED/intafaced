@@ -409,6 +409,29 @@ describe('states never contradict themselves', () => {
     expect(settings).toMatch(/lt-grid-settings"><section[^>]*data-region="index"[\s\S]*class="lt-gate-area"/);
   });
 
+  it('behind a gate, reading keeps "Talk to a person" live and draws no empty index', async () => {
+    const out = html(ROOMS.reading({ mode: 'simple', state: 'gated', market: 'uk' }));
+    // The inert room's own markup: from its opening div to the div that closes it.
+    const open = out.lastIndexOf('<div', out.indexOf('lit-gate__room'));
+    let depth = 0;
+    let end = open;
+    for (const m of out.slice(open).matchAll(/<div\b|<\/div>/g)) {
+      depth += m[0] === '<div' ? 1 : -1;
+      if (depth === 0) {
+        end = open + (m.index ?? 0);
+        break;
+      }
+    }
+    const inert = out.slice(open, end);
+    expect(inert).toContain('data-region="body"');
+    expect(out).toContain('Talk to a person');
+    expect(inert).not.toContain('Talk to a person');
+    const { ReadingTemplate } = await import('./templates.js');
+    const gated = { kind: 'gated', gate: 'not-verified', refusal: { variant: 'refused', title: 'V', body: 'B' } } as const;
+    const empty = html(<ReadingTemplate title="Fees" state={gated} body={null} toc={null} />);
+    expect(empty).not.toContain('data-region="toc"');
+  });
+
   it('behind a gate, "Talk to a person" stays outside the inert room', () => {
     const out = html(ROOMS.flow({ mode: 'simple', state: 'gated', market: 'uk' }));
     // The live help sits after the Gate, in its own lt-live block, never inside the inert room.
