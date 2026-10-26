@@ -328,7 +328,7 @@ function HomeSimple() {
           </div>
 
           <Balance portfolio={portfolio} hidden={hideBalances} />
-          <LitSphere portfolio={portfolio} />
+          <LitSphere portfolio={portfolio} hidden={hideBalances} />
           <ActionPills loading={portfolio.status === 'loading'} mode={actionMode} />
           {main.map((id) => {
             switch (id) {

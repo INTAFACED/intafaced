@@ -179,7 +179,8 @@ export const sphere: FxFactory<SphereOptions> = (ctx, o): FxScene => {
         o.onFrame(
           anchors.map((a) => {
             v.set(a[0], a[1], a[2]).normalize().multiplyScalar(b);
-            v.applyEuler(grp.rotation).add(grp.position).project(camera);
+            // the shader cuts segments by world angle after the tilt, so anchors are placed in world space too
+            v.add(grp.position).project(camera);
             return [(v.x * 0.5 + 0.5) * w, (-v.y * 0.5 + 0.5) * h];
           }),
         );

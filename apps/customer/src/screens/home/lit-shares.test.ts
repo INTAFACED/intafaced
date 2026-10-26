@@ -28,6 +28,20 @@ describe('sphereShares', () => {
     expect(sum(parts!)).toBeCloseTo(1, 12);
   });
 
+  it('accepts half-up drift of one unit per holding, however many holdings there are', () => {
+    const twelfth = '0.083333333333333334';
+    const parts = sphereShares(Array.from({ length: 12 }, (_, i) => holding(`A${i}`, twelfth)));
+    expect(parts).not.toBeNull();
+    expect(sum(parts!)).toBeCloseTo(1, 12);
+  });
+
+  it('keeps whole percents, so a share moving by a millionth draws the same split', () => {
+    const before = sphereShares([holding('BTC', '0.409123'), holding('ETH', '0.590877')]);
+    const after = sphereShares([holding('BTC', '0.409125'), holding('ETH', '0.590875')]);
+    expect(after).toEqual(before);
+    expect(before).toEqual([0.59, 0.41]);
+  });
+
   it('draws no segments when any holding has no known share', () => {
     expect(sphereShares([holding('BTC', '0.9'), holding('XYZ', null)])).toBeNull();
     expect(sphereShares([])).toBeNull();

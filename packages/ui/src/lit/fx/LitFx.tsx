@@ -116,10 +116,12 @@ export function LitFx<K extends FxKind>({ kind, options, poster, className, styl
             pointerEvents: 'none',
             mixBlendMode: 'screen',
             opacity: live ? 0 : 1,
+            // live frames can differ from the poster (a holdings split it can't know), so the hand-over fades
+            transition: 'opacity 240ms ease-out',
           }}
         />
       ) : null}
-      <canvas ref={canvas} style={{ ...fill, mixBlendMode: 'screen', opacity: live ? 1 : 0 }} />
+      <canvas ref={canvas} style={{ ...fill, mixBlendMode: 'screen', opacity: live ? 1 : 0, transition: 'opacity 240ms ease-out' }} />
     </div>
   );
 }

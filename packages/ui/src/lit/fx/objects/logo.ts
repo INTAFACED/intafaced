@@ -164,7 +164,7 @@ export const logo: FxFactory<LogoOptions> = (ctx, o) => {
     exposure: EXPOSURE,
     animated: true,
     tick(t) {
-      const on = o.land && t > 0 ? Math.min(1, Math.max(0, (t - t0) / 1.1)) : 1;
+      const on = o.land && !ctx.still ? Math.min(1, Math.max(0, (t - t0) / 1.1)) : 1;
       const e = 1 - Math.pow(1 - on, 3);
       MU.uOn.value = e;
       L.intensity = 5 * e * LEGACY;

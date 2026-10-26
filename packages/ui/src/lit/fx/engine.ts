@@ -40,6 +40,8 @@ export interface FxContext {
   tier: FxTier;
   /** Device pixels per CSS pixel this object renders at (already capped). */
   dpr: number;
+  /** Drawn once at t = 0 (posters, reduced motion): an object that plays in shows its settled state. */
+  still: boolean;
 }
 
 export interface FxBloom {
@@ -115,6 +117,9 @@ let lost = false;
 const views = new Set<View>();
 let raf = 0;
 let lastAmbient = 0;
+/** Set once a software renderer was refused: later mounts refuse before creating a context. */
+let refusedRenderer = '';
+const scratch = new Vector2();
 
 /** The renderer string, for tests that must fail loudly when WebGL silently changes. */
 export function engineInfo(): { renderer: string; views: number; lost: boolean } {
@@ -151,6 +156,8 @@ function getRenderer(): WebGLRenderer {
   const info = gl.getExtension('WEBGL_debug_renderer_info');
   rendererName = String(info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
   canvas.addEventListener('webglcontextlost', (event) => {
+    // a renderer already given up (a refused software one) has no views to tell
+    if (renderer?.domElement !== canvas) return;
     event.preventDefault();
     lost = true;
     for (const v of views) {
@@ -159,6 +166,7 @@ function getRenderer(): WebGLRenderer {
     }
   });
   canvas.addEventListener('webglcontextrestored', () => {
+    if (renderer?.domElement !== canvas) return;
     lost = false;
     for (const v of views) build(v);
     schedule();
@@ -211,7 +219,7 @@ function measure(v: View): void {
 
 function build(v: View): void {
   const r = getRenderer();
-  const fx = v.make({ rand: seededRandom(v.opts.seed ?? FX_SEED), tier: v.opts.tier, dpr: v.baseDpr });
+  const fx = v.make({ rand: seededRandom(v.opts.seed ?? FX_SEED), tier: v.opts.tier, dpr: v.baseDpr, still: v.opts.still });
   v.fx = fx;
   v.dpr = v.baseDpr * (fx.resolution ?? 1);
   fx.prepare?.(r);
@@ -234,12 +242,12 @@ function draw(v: View, now: number): void {
   if (!r || !fx) return;
   const t = v.opts.still ? 0 : (now - v.t0) / 1000;
   fx.tick(t, v.w, v.h);
-  const size = r.getSize(new Vector2());
+  const size = r.getSize(scratch);
   const bitmap = v.present instanceof ImageBitmapRenderingContext;
   // a bitmap is the whole canvas, so the canvas takes each object's size; a copy reads a corner of a canvas that only grows
   if (bitmap ? size.x !== v.wpx || size.y !== v.hpx : size.x < v.wpx || size.y < v.hpx)
     r.setSize(bitmap ? v.wpx : Math.max(size.x, v.wpx), bitmap ? v.hpx : Math.max(size.y, v.hpx), false);
-  const height = r.getSize(new Vector2()).y;
+  const height = r.getSize(scratch).y;
   r.setViewport(0, 0, v.wpx, v.hpx);
   r.setScissor(0, 0, v.wpx, v.hpx);
   // take four's r128 settings: ACES and sRGB output, which three applies only to built-in materials drawn on the
@@ -331,11 +339,20 @@ export async function mountView(
   make: (ctx: FxContext) => FxScene,
   opts: ViewOptions,
 ): Promise<() => void> {
+  if (!opts.forced && refusedRenderer) throw new Error(`software renderer: ${refusedRenderer}`);
   const r = getRenderer();
-  if (!opts.forced && isSoftwareRenderer(rendererName)) throw new Error(`software renderer: ${rendererName}`);
+  if (!opts.forced && isSoftwareRenderer(rendererName)) {
+    // free the context now rather than keep a refused renderer for the whole session
+    refusedRenderer = rendererName;
+    if (!views.size) {
+      r.dispose();
+      r.forceContextLoss();
+      renderer = null;
+    }
+    throw new Error(`software renderer: ${refusedRenderer}`);
+  }
   const present = zeroCopy() ? canvas.getContext('bitmaprenderer') : canvas.getContext('2d', { alpha: false });
   if (!present) throw new Error('canvas context unavailable');
-  void r;
   hookPage();
   const dprCap = opts.tier === 'lite' ? 1 : 1.5;
   const v: View = {
@@ -371,11 +388,18 @@ export async function mountView(
       schedule();
     }),
   };
-  await yieldToMain();
-  build(v);
-  await yieldToMain();
-  await precompile(v);
-  await yieldToMain();
+  try {
+    await yieldToMain();
+    build(v);
+    await yieldToMain();
+    await precompile(v);
+    await yieldToMain();
+    if (lost || !v.fx) throw new Error('context-lost');
+  } catch (error) {
+    // a start-up that fails part-way frees what it built; nothing was observed yet
+    teardown(v);
+    throw error;
+  }
   // the clock starts at the first frame, so that frame is t = 0: the poster's frame
   v.t0 = performance.now();
   views.add(v);

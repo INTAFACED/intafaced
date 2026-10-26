@@ -11,9 +11,10 @@ const PRESET = FX_PRESETS['sphere-home-blue'];
  * Redesign stage A0: the light sphere under the total, only with the Lit glass look on (`?look=lit`). Decorative:
  * the holdings it splits into are listed in text on this screen. Off-look Home renders nothing here.
  */
-export function LitSphere({ portfolio }: { portfolio: Loadable<HomePortfolio> }) {
+export function LitSphere({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hidden: boolean }) {
   if (!isLook('lit')) return null;
-  const shares = portfolio.status === 'ready' ? sphereShares(portfolio.data.holdings) : null;
+  // hidden balances hide the portfolio's make-up too
+  const shares = portfolio.status === 'ready' && !hidden ? sphereShares(portfolio.data.holdings) : null;
   return (
     <div className="home-lit-sphere">
       <LitFx kind="sphere" options={shares ? { ...PRESET.options, shares } : PRESET.options} poster={poster} />

@@ -24,6 +24,7 @@ import {
   SRGBColorSpace,
   type Texture,
 } from 'three';
+import type { WebGLRenderer } from 'three';
 import type { FxFactory } from '../engine.js';
 import { legacyLit } from './legacy.js';
 import { raw } from './shared.js';
@@ -76,6 +77,7 @@ export const coin: FxFactory<CoinOptions> = (ctx, o) => {
   // r128 read this one as linear, so no colour space is set
   const et = new CanvasTexture(ec);
   let envMap: Texture | null = null;
+  let baker: WebGLRenderer | null = null;
   // the PMREM bake needs the renderer; it runs on first tick through `bake`
   const env = new Scene();
   env.add(new Mesh(new SphereGeometry(10, 32, 16), new MeshBasicMaterial({ map: et, side: BackSide })));
@@ -176,6 +178,16 @@ export const coin: FxFactory<CoinOptions> = (ctx, o) => {
   );
   halo.position.z = -1.2;
   scene.add(halo);
+  function bake(renderer: WebGLRenderer): void {
+    baker = renderer;
+    const pm = new PMREMGenerator(renderer);
+    envMap = pm.fromScene(env, 0.02).texture;
+    pm.dispose();
+    face.envMap = envMap;
+    side.envMap = envMap;
+    face.needsUpdate = true;
+    side.needsUpdate = true;
+  }
   return {
     scene,
     camera,
@@ -183,14 +195,7 @@ export const coin: FxFactory<CoinOptions> = (ctx, o) => {
     exposure: EXPOSURE,
     animated: true,
     prepare(renderer) {
-      if (envMap) return;
-      const pm = new PMREMGenerator(renderer);
-      envMap = pm.fromScene(env, 0.02).texture;
-      pm.dispose();
-      face.envMap = envMap;
-      side.envMap = envMap;
-      face.needsUpdate = true;
-      side.needsUpdate = true;
+      if (!envMap) bake(renderer);
     },
     tick(t) {
       grp.rotation.y = -0.5 + Math.sin(t * 0.45) * 0.42;
@@ -200,6 +205,15 @@ export const coin: FxFactory<CoinOptions> = (ctx, o) => {
     setColor(accent) {
       HU.uAcc.value.copy(raw(accent));
       back.color.copy(raw(accent));
+      // the accent is also in the reflections: repaint the strip and bake the environment again
+      x.fillStyle = accent;
+      x.fillRect(150, 50, 90, 30);
+      et.needsUpdate = true;
+      if (baker) {
+        const old = envMap;
+        bake(baker);
+        old?.dispose();
+      }
     },
     dispose() {
       envMap?.dispose();

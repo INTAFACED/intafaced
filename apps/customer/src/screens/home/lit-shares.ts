@@ -15,10 +15,11 @@ export function sphereShares(holdings: HomePortfolio['holdings']): number[] | nu
   const rest = sorted.slice(3).reduce((sum, s) => sum + dec(s)!, 0n);
   const parts = rest > 0n ? [...top, rest] : top;
   const total = parts.reduce((a, b) => a + b, 0n);
-  // ratio() rounds each share half-up, so the sum may miss 1 by a few units in the last place; more than that is a bug
-  if (total <= 0n || (total > one ? total - one : one - total) > BigInt(parts.length)) return null;
-  const fractions = parts.map((p) => Number((p * 1_000_000n) / total) / 1_000_000);
-  const drift = 1 - fractions.reduce((a, b) => a + b, 0);
-  fractions[0]! += drift;
-  return fractions;
+  // ratio() rounds each holding's share half-up, so the sum may miss 1 by up to one unit in the last place per
+  // holding; more than that is a bug
+  if (total <= 0n || (total > one ? total - one : one - total) > BigInt(holdings.length)) return null;
+  // whole percents: the drawing can't show finer, and price ticks that move a share a little don't redraw the scene
+  const percents = parts.map((p) => Number((p * 200n + total) / (2n * total)));
+  percents[0]! += 100 - percents.reduce((a, b) => a + b, 0);
+  return percents.map((p) => p / 100);
 }
