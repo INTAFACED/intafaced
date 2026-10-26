@@ -134,9 +134,10 @@ jobs:
 
       # The redesign's drift lint, from main like the guard above: changed lines in apps/customer and packages/ui/src/lit take
       # their look from role tokens (no raw colours, pixel sizes or left/right sides). It ratchets: lines already on
-      # main are not judged. Owner decision 2026-10-26 (redesign plan v2, lane B0).
+      # main are not judged. Owner decision 2026-10-26 (redesign plan v2, lane B0). It runs when the guard above fails
+      # too, so one run names both kinds of finding.
       - name: Look drift (rules from main)
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && !cancelled()
         run: |
           if git cat-file -e origin/main:tooling/ci/look-drift.mjs 2>/dev/null; then
             git show origin/main:tooling/ci/look-drift.mjs > "$RUNNER_TEMP/look-drift.mjs"
