@@ -28,7 +28,7 @@
   }
   .if-desk :focus-visible,
   .dk-review :focus-visible {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: 2px;
   }
   .if-desk :where(h1, h2, p, ul, dl, dd) {
@@ -221,7 +221,7 @@
     color: var(--if-fg-3);
   }
   .dk-mk-search:focus-within {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: 2px;
   }
   .dk-mk-chips,
@@ -794,7 +794,7 @@
     color: var(--if-fg);
   }
   .dk-type-more:focus-visible {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: 2px;
   }
   .dk-type-menu {
@@ -1021,7 +1021,7 @@
     color: var(--if-fg);
   }
   .dk-cancel-all:focus-visible {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: 2px;
   }
   .dk-deadman-other {
@@ -1120,7 +1120,7 @@
     color: var(--if-fg);
   }
   .dk-feed:focus-visible {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: 2px;
   }
   .dk-feed-dot {

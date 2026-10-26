@@ -22,7 +22,7 @@
     color: var(--if-fg-3);
   }
   .pay-text:focus-visible {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: 4px;
     border-radius: var(--if-r-sm);
   }
@@ -333,7 +333,7 @@
   }
   .pay-recent__link:focus-visible,
   .pay-recent .pay-chip:focus-visible {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: 2px;
     border-radius: var(--if-r-sm);
   }

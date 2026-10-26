@@ -21,7 +21,7 @@
   }
   .plo :where(a, button):focus-visible,
   .plo-grouped :where(a, button):focus-visible {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: 4px;
   }
   .plo-content {

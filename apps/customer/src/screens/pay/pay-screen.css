@@ -29,7 +29,7 @@
   }
   .if-pay a:focus-visible,
   .if-pay button:focus-visible {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: 2px;
   }
 
@@ -146,7 +146,7 @@
     color: var(--if-fg-3);
   }
   .pay-to__input:focus-visible {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: 4px;
   }
   .pay-to__status {

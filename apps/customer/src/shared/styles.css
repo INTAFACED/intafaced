@@ -69,7 +69,7 @@ body {
 :where(.legacy-room) select:focus-visible,
 :where(.legacy-room) textarea:focus-visible,
 :where(.legacy-room) [tabindex]:focus-visible {
-  outline: 2px solid var(--if-lime);
+  outline: 2px solid var(--if-focus);
   outline-offset: 3px;
 }
 :where(.legacy-room) button:disabled {

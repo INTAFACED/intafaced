@@ -81,7 +81,7 @@
   cursor: pointer;
 }
 .prediction-room summary:focus-visible {
-  outline: 2px solid var(--if-lime);
+  outline: 2px solid var(--if-focus);
   outline-offset: 3px;
 }
 .prediction-room-requirements > div {
