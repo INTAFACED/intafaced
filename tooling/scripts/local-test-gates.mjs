@@ -416,7 +416,7 @@ function decodeJwtPayload(token) {
 
 // ── Context ─────────────────────────────────────────────────────────────────
 
-export async function makeContext({ home = os.homedir(), log = say } = {}) {
+export async function makeContext({ home = os.homedir(), log = say, shareSessions = false } = {}) {
   const { paths, marker } = assertLocalTarget({ home });
   assertActiveLocalStack({ stateDir: paths.stateDir });
   const p = gatePaths(home);
@@ -435,6 +435,8 @@ export async function makeContext({ home = os.homedir(), log = say } = {}) {
     url,
     edge: new Edge(url('edge'), `http://${HOST}:${marker.ports.customer ?? 3210}`),
     guard: paths,
+    /** Set: approverSessions and operatorSessions sign each pair in once for this context (see `shared`). */
+    sessionCache: shareSessions ? {} : null,
   };
 }
 
@@ -461,14 +463,33 @@ function saveOperators(ctx, ops) {
   });
 }
 
-const stepNow = () => Math.floor(Date.now() / 30_000);
+const STEP_MS = 30_000;
+/** The longest Edge keeps a session's authority, tier included (services/svc-edge/src/live-authority.ts, AUTHORITY_POSITIVE_CACHE_MAX_MS). */
+export const EDGE_AUTHORITY_CACHE_MAX_MS = 1000;
+const stepNow = () => Math.floor(Date.now() / STEP_MS);
+/** Identity accepts a code one step either side of its own clock (services/svc-identity/src/auth/totp.ts, matchTotpStep). */
+export const TOTP_SKEW_STEPS = 1;
+
+/**
+ * Which TOTP step to sign in with next: the first one after the last this operator used (identity refuses a step at or
+ * before the last one it consumed), and never one before the current step. The step after the current one is inside
+ * the skew window identity accepts, so a second sign-in in the same 30 seconds takes that one instead of waiting
+ * (failure it prevents: every sign-in after the first waited for the clock, about 30 s each, 5.5 of the 12 minutes the
+ * journeys run spent opening the TEST markets in run 541). Null while both are spent: the caller waits for the clock.
+ */
+export function nextTotpStep(lastStep, current) {
+  const last = Number(lastStep ?? 0);
+  // An unreadable last step (a hand-edited file) counts as none, as before: the current step, never an endless wait.
+  const step = Number.isFinite(last) ? Math.max(last + 1, current) : current;
+  return step <= current + TOTP_SKEW_STEPS ? step : null;
+}
 
 /** A TOTP code for a step strictly after the last one this operator used (identity refuses replays). */
 async function freshCode(ctx, op) {
-  while (stepNow() <= Number(op.lastStep ?? 0)) await sleep(1000);
-  const code = ctx.totp.totp(op.totpSecret);
-  op.lastStep = stepNow();
-  return code;
+  let step;
+  while ((step = nextTotpStep(op.lastStep, stepNow())) === null) await sleep(1000);
+  op.lastStep = step;
+  return ctx.totp.totp(op.totpSecret, { at: new Date(step * STEP_MS) });
 }
 
 async function operatorLogin(ctx, op) {
@@ -539,10 +560,29 @@ async function mintSessionToken(ctx, op, scopes, ttlSeconds) {
   );
 }
 
+/**
+ * With `shareSessions` (the CLI's commands), one sign-in per pair serves every step of the command: `apply` signed the
+ * founders in once per step, about a dozen times, and each sign-in needs its own TOTP step. Without it (journey files
+ * hold their own pair), every call signs in afresh, as before. A sign-in that fails is not kept, so the next call tries
+ * again.
+ */
+function shared(ctx, key, signIn) {
+  if (!ctx.sessionCache) return signIn();
+  if (!ctx.sessionCache[key]) {
+    ctx.sessionCache[key] = signIn().catch((err) => {
+      delete ctx.sessionCache[key];
+      throw err;
+    });
+  }
+  return ctx.sessionCache[key];
+}
+
 /** Sign both operators in with their second factor. Returns { a, b } sessions with minted tokens. */
 export async function operatorSessions(ctx) {
-  const ops = await ensureOperators(ctx);
-  return signInPair(ctx, ops, () => saveOperators(ctx, ops));
+  return shared(ctx, 'operators', async () => {
+    const ops = await ensureOperators(ctx);
+    return signInPair(ctx, ops, () => saveOperators(ctx, ops));
+  });
 }
 
 /** The vault's two enrolled LOCAL TEST founders as sign-ins keyed `a`/`b` (the keys their TOTP steps use), or none. */
@@ -562,11 +602,13 @@ export function founderSignIns(vault) {
 export async function approverSessions(ctx) {
   const pair = founderSignIns(readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), null));
   if (pair.length === 0) return operatorSessions(ctx);
-  const stepsFile = path.join(ctx.paths.stateDir, FOUNDER_STEPS_NAME);
-  const steps = readJson(stepsFile, {});
-  const ops = {};
-  for (const { key, ...f } of pair) ops[key] = { ...f, lastStep: Number(steps[key] ?? 0) };
-  return signInPair(ctx, ops, () => writePrivate(stepsFile, { ...readJson(stepsFile, {}), a: ops.a.lastStep, b: ops.b.lastStep }));
+  return shared(ctx, 'founders', () => {
+    const stepsFile = path.join(ctx.paths.stateDir, FOUNDER_STEPS_NAME);
+    const steps = readJson(stepsFile, {});
+    const ops = {};
+    for (const { key, ...f } of pair) ops[key] = { ...f, lastStep: Number(steps[key] ?? 0) };
+    return signInPair(ctx, ops, () => writePrivate(stepsFile, { ...readJson(stepsFile, {}), a: ops.a.lastStep, b: ops.b.lastStep }));
+  });
 }
 
 /**
@@ -1937,17 +1979,28 @@ export async function submitOwnedAccounts(ctx, { users, approved, pending }, { f
     if (!u) continue;
     const has = approved.get(u.id) ?? new Set();
     if (has.has('full') || has.has('institutional') || pendingUsers.has(u.id)) continue;
-    const totpCode = acct.key ? await founderTotp(ctx, acct.key, acct.totpSecret) : undefined;
-    const login = await ctx.edge.mutate('identity', 'auth.login', {
-      identifier: acct.email,
-      password: acct.password,
-      deviceKey: LOCAL_TEST_DEVICE_KEY,
-      ...(totpCode ? { totpCode } : {}),
-    });
-    const token = data(login)?.accessToken;
+    // A founder already signed in for this command submits from that session (its own), so it spends no new step.
+    const own =
+      acct.key && ctx.sessionCache
+        ? await approverSessions(ctx).then(
+            (pair) => pair[acct.key],
+            () => null,
+          )
+        : null;
+    let token = own?.op.userId === u.id ? own.token : null;
     if (!token) {
-      out.push({ handle: u.handle, ok: false, why: `login refused: ${refusalText(login)}` });
-      continue;
+      const totpCode = acct.key ? await founderTotp(ctx, acct.key, acct.totpSecret) : undefined;
+      const login = await ctx.edge.mutate('identity', 'auth.login', {
+        identifier: acct.email,
+        password: acct.password,
+        deviceKey: LOCAL_TEST_DEVICE_KEY,
+        ...(totpCode ? { totpCode } : {}),
+      });
+      token = data(login)?.accessToken;
+      if (!token) {
+        out.push({ handle: u.handle, ok: false, why: `login refused: ${refusalText(login)}` });
+        continue;
+      }
     }
     const sub = await ctx.edge.mutate('identity', 'kyc.submit', { tier: 'full', jurisdiction: MARKERS.kycJurisdiction }, token);
     out.push({ handle: u.handle, ok: Boolean(data(sub)?.id), why: data(sub)?.id ? 'submitted' : refusalText(sub) });
@@ -2052,7 +2105,7 @@ async function main() {
   const cmd = process.argv[2] ?? 'status';
   let ctx;
   try {
-    ctx = await makeContext();
+    ctx = await makeContext({ shareSessions: true });
   } catch (err) {
     die(String(err.message ?? err));
   }
@@ -2100,6 +2153,9 @@ async function main() {
       for (const a of v.approved) say(`  verify    ${a.handle} ${a.tier}: ${a.ok ? 'approved' : a.why}`);
       if (v.stillWithoutFull.length)
         say(`  still without a verified tier (they must submit the request themselves): ${v.stillWithoutFull.join(', ')}`);
+      // The founders' sessions are shared from before verify, and Edge may hold a session's tier for up to a second
+      // (EDGE_AUTHORITY_POSITIVE_CACHE_MS, at most 1000): let that pass, so svc-p2p reads the tier verify just approved.
+      await sleep(EDGE_AUTHORITY_CACHE_MAX_MS + 100);
       // After verify: svc-p2p refuses an operator without a verified tier, and a fresh stack's founders have none
       // before it (every journeys shard stopped here in run 231).
       for (const r of await publishP2pMethods(ctx))
