@@ -79,8 +79,8 @@ export type SkeletonShape = 'figure' | 'rows' | 'chart' | 'grid' | 'text' | 'for
  * A placeholder in the content's final shape, so nothing jumps when data arrives and nothing flashes "no
  * records". `busy` pulses (while loading); without it, it is the still ghost a gated room shows behind its gate.
  */
-export function Skeleton({ shape, busy = true }: { shape: SkeletonShape; busy?: boolean }) {
-  const count = { rows: 5, text: 6, grid: 3, form: 3, keys: 4, figure: 1, chart: 1 }[shape];
+export function Skeleton({ shape, busy = true, count: given }: { shape: SkeletonShape; busy?: boolean; count?: number }) {
+  const count = given ?? { rows: 5, text: 6, grid: 3, form: 3, keys: 4, figure: 1, chart: 1 }[shape];
   return (
     <div className="lt-ghost" data-ghost={shape} data-busy={busy || undefined} aria-hidden="true">
       {Array.from({ length: count }, (_, i) => (

@@ -391,20 +391,22 @@ describe('states never contradict themselves', () => {
     expect(out).toContain('lt-locked');
   });
 
-  it('behind a gate, catalogue filters and the reading index stay live, before the card', () => {
+  it('behind a gate, tabs and section indexes stay live, outside the gate, before its card', () => {
     for (const [room, marker] of [
       ['catalogue', 'Flexible'],
       ['reading', 'aria-label="On this page"'],
+      ['settings', 'aria-label="Settings sections"'],
     ] as const) {
       const out = html(ROOMS[room]({ mode: 'simple', state: 'gated', market: 'uk' }));
-      const live = out.indexOf('class="lt-live"');
-      const card = out.indexOf('lit-gate__card');
-      expect(live, room).toBeGreaterThan(-1);
-      expect(live, room).toBeLessThan(card);
-      const at = out.indexOf(marker, live);
-      expect(at, room).toBeGreaterThan(live);
-      expect(at, room).toBeLessThan(card);
+      const gate = out.indexOf('class="lit-gate');
+      const at = out.indexOf(marker);
+      expect(gate, room).toBeGreaterThan(-1);
+      expect(at, room).toBeGreaterThan(-1);
+      expect(at, room).toBeLessThan(gate);
     }
+    // A side-column room gates only its main area: the index keeps its grid column beside it.
+    const settings = html(ROOMS.settings({ mode: 'simple', state: 'gated', market: 'uk' }));
+    expect(settings).toMatch(/lt-grid-settings"><section[^>]*data-region="index"[\s\S]*class="lt-gate-area"/);
   });
 
   it('behind a gate, "Talk to a person" stays outside the inert room', () => {

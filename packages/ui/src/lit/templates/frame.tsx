@@ -30,6 +30,8 @@ interface RoomContextValue {
   now?: Date;
   market?: Market;
   legalValues?: RoomProps['legalValues'];
+  /** The template places the Gate itself (a GateArea), so live regions stay in their own grid column. */
+  gateArea?: boolean;
 }
 
 const RoomContext = React.createContext<RoomContextValue>({ state: { kind: 'ready' } });
@@ -51,6 +53,8 @@ export interface RegionProps {
    * outside the Gate (RoomFrame's `liveBefore` / `liveAfter`), so here it draws nothing.
    */
   live?: boolean;
+  /** How many skeleton items while loading, when the region's real count is known (flow has two buttons). */
+  ghostCount?: number;
   children?: React.ReactNode;
 }
 
@@ -60,9 +64,9 @@ const WHOLE_ROOM = new Set<RoomState['kind']>(['empty', 'refused', 'money-status
 export const WHOLE_ROOM_STATES: ReadonlySet<RoomState['kind']> = WHOLE_ROOM;
 
 /** One region of a template. Rooms never render these directly; templates do. */
-export function Region({ name, data = false, primary = false, ghost = 'rows', label, live = false, children }: RegionProps) {
-  const { state } = React.useContext(RoomContext);
-  if (live && state.kind === 'gated') return null;
+export function Region({ name, data = false, primary = false, ghost = 'rows', ghostCount, label, live = false, children }: RegionProps) {
+  const { state, gateArea } = React.useContext(RoomContext);
+  if (live && state.kind === 'gated' && !gateArea) return null;
   // `undefined` means the room doesn't use this region; `null` means its data isn't here yet, so a data region
   // still draws its skeleton while loading and its locked outline behind a gate.
   const unused = children === undefined || children === false;
@@ -86,12 +90,12 @@ export function Region({ name, data = false, primary = false, ghost = 'rows', la
   let body: React.ReactNode = children;
   let dimmed = false;
   if (held !== undefined) body = <p className="lt-held">{held}</p>;
-  else if (data && state.kind === 'loading') body = <Skeleton shape={ghost} />;
+  else if (data && state.kind === 'loading') body = <Skeleton shape={ghost} count={ghostCount} />;
   // Behind a gate a data region shows its locked outline, never figures, and never vanishes (product law: a gated
   // control is shown locked, not hidden). The Gate makes the room inert.
   // Controls (ghost "keys") stay, named and disabled, so a customer sees what verifying unlocks.
   else if (data && state.kind === 'gated' && ghost === 'keys' && children !== null) dimmed = true;
-  else if (data && state.kind === 'gated') body = <Locked shape={ghost} label={label} />;
+  else if (data && state.kind === 'gated' && !live) body = <Locked shape={ghost} label={label} />;
   return (
     <section
       className="lt-region"
@@ -358,6 +362,42 @@ function ago(asOf: string, now: Date, locale?: string, timeZone?: string): strin
   return clock(asOf, now, locale, timeZone);
 }
 
+/** The kit Gate with the room's refusal: one card in the flow, then the inert room. */
+function RoomGate({ state, children }: { state: Extract<RoomState, { kind: 'gated' }>; children: React.ReactNode }) {
+  return (
+    <Gate
+      reason={state.gate}
+      title={state.refusal.title}
+      body={state.refusal.body}
+      action={
+        state.refusal.action ? (
+          <a className="lt-button lt-button-primary" href={state.refusal.action.href}>
+            {state.refusal.action.label}
+          </a>
+        ) : undefined
+      }
+    >
+      {children}
+    </Gate>
+  );
+}
+
+/**
+ * Where a template with a side column (a settings index, a reading index) puts its gate: around the main area only,
+ * so the live column keeps its place in the grid. Ungated it adds no box.
+ */
+export function GateArea({ children }: { children: React.ReactNode }) {
+  const { state } = React.useContext(RoomContext);
+  if (state.kind !== 'gated') return <>{children}</>;
+  return (
+    <div className="lt-gate-area">
+      <RoomGate state={state}>
+        <div className="lt-gate-cols">{children}</div>
+      </RoomGate>
+    </div>
+  );
+}
+
 export interface RoomFrameProps extends RoomProps {
   template: TemplateId;
   children: React.ReactNode;
@@ -365,6 +405,8 @@ export interface RoomFrameProps extends RoomProps {
   liveBefore?: React.ReactNode;
   /** ...and after it ("Talk to a person"), so a gated customer can always reach a person. */
   liveAfter?: React.ReactNode;
+  /** The template places a GateArea itself; RoomFrame then draws no Gate of its own. */
+  gateArea?: boolean;
 }
 
 /**
@@ -377,7 +419,15 @@ export function RoomFrame(props: RoomFrameProps) {
   const loading = state.kind === 'loading';
   return (
     <RoomContext.Provider
-      value={{ state, locale: props.locale, timeZone: props.timeZone, now: props.now, market, legalValues: props.legalValues }}
+      value={{
+        state,
+        locale: props.locale,
+        timeZone: props.timeZone,
+        now: props.now,
+        market,
+        legalValues: props.legalValues,
+        gateArea: props.gateArea,
+      }}
     >
       <div
         className="lt-room"
@@ -421,23 +471,12 @@ export function RoomFrame(props: RoomFrameProps) {
             Loading {title}
           </p>
         ) : null}
-        {state.kind === 'gated' ? (
+        {state.kind === 'gated' && !props.gateArea ? (
           <div className="lt-body">
             {props.liveBefore ? <div className="lt-live">{props.liveBefore}</div> : null}
-            <Gate
-              reason={state.gate}
-              title={state.refusal.title}
-              body={state.refusal.body}
-              action={
-                state.refusal.action ? (
-                  <a className="lt-button lt-button-primary" href={state.refusal.action.href}>
-                    {state.refusal.action.label}
-                  </a>
-                ) : undefined
-              }
-            >
+            <RoomGate state={state}>
               <div className="lt-body">{props.children}</div>
-            </Gate>
+            </RoomGate>
             {props.liveAfter ? <div className="lt-live">{props.liveAfter}</div> : null}
           </div>
         ) : (

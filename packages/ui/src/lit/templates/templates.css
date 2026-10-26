@@ -116,15 +116,16 @@
   overflow-wrap: break-word;
 }
 
-/* Bare regions: controls that sit on the page, not in a panel. */
+/* Bare regions: controls that sit on the page, not in a panel. Locked behind a gate, they take a panel like the
+   rest, so no locked outline sits bare on the page. */
 .lt-region:is(
-  [data-region='actions'],
-  [data-region='filters'],
-  [data-region='export'],
-  [data-region='tools'],
-  [data-region='meta'],
-  [data-region='rooms']
-) {
+    [data-region='actions'],
+    [data-region='filters'],
+    [data-region='export'],
+    [data-region='tools'],
+    [data-region='meta'],
+    [data-region='rooms']
+  ):not(:has(> .lt-locked)) {
   background: none;
   border: 0;
   box-shadow: none;
@@ -157,6 +158,31 @@
   align-items: center;
 }
 
+/* Filters stay on one row that scrolls (with the end fade) rather than wrapping raggedly over several. */
+.lt-toolbar {
+  flex-wrap: nowrap;
+}
+.lt-toolbar > [data-region='filters'] {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  animation: lt-tabs-more linear both;
+  animation-timeline: scroll(self inline);
+}
+[dir='rtl'] .lt-toolbar > [data-region='filters'] {
+  animation-name: lt-tabs-more-rtl;
+}
+.lt-toolbar > [data-region='filters'] > * {
+  flex-wrap: nowrap;
+}
+.lt-toolbar > [data-region='filters'] > * > * {
+  flex: none;
+  white-space: nowrap;
+}
+.lt-toolbar > [data-region='export'] {
+  flex: none;
+}
 .lt-toolbar > [data-region='export'] {
   margin-inline-start: auto;
 }
@@ -361,10 +387,42 @@
  * Data regions become locked outlines with their heading and a lock, never skeleton bars or figures, so a gate
  * never reads as loading. Help and navigation sit outside the Gate at full strength.
  */
+/* The gate card lines up with the room's start edge, like everything else in it. Its copy takes the direction of
+   its own words, so English copy on a right-to-left page keeps its full stop at the end. */
+.lt-room .lit-gate__card {
+  align-self: flex-start;
+}
+.lt-room .lit-gate__card [data-part] {
+  unicode-bidi: plaintext;
+}
+
+/* A side-column template gates only its main area (GateArea); the live column keeps its place. */
+.lt-gate-cols,
+.lt-reading-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-section);
+}
+@container room (min-width: 1024px) {
+  .lt-grid-settings > .lt-gate-area {
+    grid-column: 2 / -1;
+  }
+  .lt-grid-settings .lt-gate-cols {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(13.75rem, 18.75rem);
+  }
+}
+
 /* Controls behind a gate stay, named and dimmed as disabled (about 4:1), so a customer sees what verifying unlocks;
    the room is inert, so none of them can be used. */
 .lit-gate__room :is(button, a[href], select, input, textarea, [role='tab']) {
   opacity: 0.45;
+}
+/* A disabled primary loses its light, so it never looks more pressable than its siblings. */
+.lit-gate__room .lt-button-primary {
+  background: var(--lit-secondary-bg);
+  color: var(--lit-secondary-fg);
+  box-shadow: none;
 }
 
 .lt-live {

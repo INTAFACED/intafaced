@@ -5,7 +5,7 @@
  */
 import * as React from 'react';
 import { Stepper } from '../components/b2-basics.js';
-import { Region, RoomFrame, WHOLE_ROOM_STATES } from './frame.js';
+import { GateArea, Region, RoomFrame, WHOLE_ROOM_STATES } from './frame.js';
 import type { RoomProps } from './types.js';
 
 type Slot = React.ReactNode;
@@ -237,7 +237,7 @@ export function FlowTemplate(p: FlowProps) {
               {p.advanced}
             </Region>
           ) : null}
-          <Region name="actions" data ghost="keys" label="Actions">
+          <Region name="actions" data ghost="keys" ghostCount={2} label="Actions">
             {p.actions}
           </Region>
         </div>
@@ -267,17 +267,19 @@ export interface SettingsProps extends RoomProps {
 
 export function SettingsTemplate(p: SettingsProps) {
   return (
-    <RoomFrame {...p} template="settings" liveBefore={p.index}>
+    <RoomFrame {...p} template="settings" gateArea>
       <div className="lt-grid lt-grid-settings">
         <Region name="index" label="Sections" ghost="rows" live>
           {p.index}
         </Region>
-        <Region name="sections" data primary ghost="rows" label="Settings">
-          {p.sections}
-        </Region>
-        <Region name="explain" ghost="text" label="What this means">
-          {p.explain}
-        </Region>
+        <GateArea>
+          <Region name="sections" data primary ghost="rows" label="Settings">
+            {p.sections}
+          </Region>
+          <Region name="explain" ghost="text" label="What this means">
+            {p.explain}
+          </Region>
+        </GateArea>
       </div>
     </RoomFrame>
   );
@@ -408,21 +410,25 @@ export interface ReadingProps extends RoomProps {
 /** Simple and Pro show the same content here; Pro only changes density. */
 export function ReadingTemplate(p: ReadingProps) {
   return (
-    <RoomFrame {...p} template="reading" liveBefore={p.toc} liveAfter={p.contact}>
-      <Region name="meta" data label="Details" ghost="text">
-        {p.meta}
-      </Region>
+    <RoomFrame {...p} template="reading" gateArea>
       <div className="lt-grid lt-grid-reading-toc">
         <Region name="toc" data ghost="rows" label="On this page" live>
           {p.toc}
         </Region>
-        <Region name="body" data primary ghost="text" label="Article">
-          {p.body}
-        </Region>
+        <GateArea>
+          <div className="lt-reading-main">
+            <Region name="meta" data label="Details" ghost="text">
+              {p.meta}
+            </Region>
+            <Region name="body" data primary ghost="text" label="Article">
+              {p.body}
+            </Region>
+            <Region name="related" data ghost="rows" label="Related">
+              {p.related}
+            </Region>
+          </div>
+        </GateArea>
       </div>
-      <Region name="related" data ghost="rows" label="Related">
-        {p.related}
-      </Region>
       <Region name="contact" live>
         {p.contact}
       </Region>
