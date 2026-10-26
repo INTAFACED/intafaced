@@ -17,7 +17,9 @@ A new role, type role, slot or component name goes through `contracts.ts` (ask B
 
 ## Rules every component and template keeps
 
-- Read only `--lit-*` roles. No raw colour, size or shadow in a component.
+- Read only `--lit-*` roles. No raw colour or shadow in a component. Spacing that scales with density reads the density roles (`gap-item`, `pad-panel`, `control-h`...); only the kit's own sheet may keep structural px (hairlines, icon boxes, hit targets), never a room or template.
+- Logical sides only (`inset-inline`, `margin-inline-start`, `border-inline-start`), never left or right.
+- No copy in the kit: every word a customer sees arrives as a prop, from the i18n catalogue or the legal text registry.
 - Roles that depend on where the light is (rims, corner glow) are colours; the component draws the gradient, with its own light angle or corner, because a custom property is resolved where it is declared (`:root`), not where it is used.
 - Image roles (`field`, `glass-bg`, `primary-bg`, `secondary-bg`, `key-bg`, `key-lit-bg`) are a colour when flat and a gradient when lit: use them only with the `background` shorthand.
 - Glass (`glass-bg`, `glass-blur`) only on the nav and sheet layers. Content panels are solid, and money sits on them.

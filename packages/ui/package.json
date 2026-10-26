@@ -24,6 +24,7 @@
       "default": "./dist/lit/index.js"
     },
     "./lit/lit.css": "./src/lit/lit.css",
+    "./lit/components.css": "./src/lit/components/components.css",
     "./lit/templates": {
       "types": "./dist/lit/templates/index.d.ts",
       "default": "./dist/lit/templates/index.js"

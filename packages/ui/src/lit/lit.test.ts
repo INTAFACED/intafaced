@@ -70,7 +70,7 @@ describe('lit tokens: lit.ts and lit.css cannot drift', () => {
   });
 
   it('colour roles hold one value type in every skin (image roles are named in contracts)', () => {
-    const imageRoles = new Set(['field', 'glass-bg', 'primary-bg', 'secondary-bg', 'key-bg', 'key-lit-bg']);
+    const imageRoles = new Set(['field', 'sheen', 'glass-bg', 'primary-bg', 'secondary-bg', 'key-bg', 'key-lit-bg']);
     const isImage = (x: string) => /gradient\(/.test(x);
     for (const r of roleNames) {
       if (imageRoles.has(r)) continue;
@@ -142,7 +142,13 @@ describe('lit tokens: contrast at the worst point (text sits on opaque surfaces)
   });
 
   it('the risk band and refusals never use a brand colour, in either scheme', () => {
-    const brand = new Set<string>([lit.accent, lit['accent-text'], ...Object.values(accentTextLight)]);
+    const brand = new Set<string>([
+      lit.accent,
+      lit['accent-text'],
+      lit['accent-fill'],
+      lit['accent-fill-2'],
+      ...Object.values(accentTextLight),
+    ]);
     for (const a of accents) for (const x of Object.values(accentSets[a])) brand.add(x);
     for (const m of [lit, { ...lit, ...litLight }]) {
       for (const r of ['legal-bg', 'legal-fg', 'legal-border', 'refusal-bg', 'refusal-fg', 'refusal-border'] as const) {

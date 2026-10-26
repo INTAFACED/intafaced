@@ -6,15 +6,14 @@
  *
  * - `flat`: the look switched off. Every role resolves to today's `--if-*` tokens, so a room built on a template
  *   shows its new layout in today's skin, with no glass, glow or blur. Hex values never appear here.
- * - `lit`: the Lit glass skin, dark, blue (the default accent). Provenance: take four's `lit.css` in the private
- *   design repo, each material measured from one of Nino's reference crops (b1-14 glass kit, b2-07 metal and dark
- *   pills, b1-09 corner light, b1-02 fine print), re-keyed from ember to blue. PROVISIONAL until stage A1
- *   (take four re-lit in blue inside the budgets) is judged against the crops; names won't change, values may.
+ * - `lit`: the Lit glass skin, dark, blue (the default accent). Each material is measured from the owner's
+ *   reference set (kept outside this repo). PROVISIONAL until the blue re-light is judged against those
+ *   references; names won't change, values may.
  * - `litLight`: light values for the same roles. Not shipped (dark first, 26 Oct 2026); written now so contrast
  *   tests run on both schemes.
  * - `accentSets` and `solid`: per-accent light colours, and the Solid surfaces mode (no translucency, no blur).
  *
- * Budgets the values keep (plan v2 section 3): money and text sit on opaque content panels (`solid-bg`), glass
+ * Budgets the values keep: money and text sit on opaque content panels (`solid-bg`), glass
  * and blur are only on the nav and sheet layers, and text roles meet 4.5:1 on every solid surface.
  */
 import { cssValue } from '../theme/tokens.js';
@@ -55,6 +54,8 @@ export const flat: RoleMap = {
   'solid-rim-dim': v('line'),
   'solid-wall': 'transparent',
   'solid-shadow': 'none',
+  sheen: 'linear-gradient(transparent, transparent)',
+  'fill-shadow': 'none',
   'corner-glow': 'transparent',
   'glass-bg': v('popover'),
   'glass-blur': 'none',
@@ -146,6 +147,9 @@ export const lit: RoleMap = {
   'solid-rim-dim': 'rgba(255, 255, 255, 0.04)',
   'solid-wall': '#0A0C11',
   'solid-shadow': '0 4px 0 0 var(--lit-solid-wall), 0 5px 0 0 rgba(0, 0, 0, 0.5), 0 34px 60px -26px rgba(0, 0, 0, 0.95)',
+  sheen: 'linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.012) 70%)',
+  'fill-shadow':
+    'inset 0 1px 0 rgba(255, 255, 255, 0.36), 0 3px 0 0 var(--lit-accent-fill-2), 0 0 14px color-mix(in srgb, var(--lit-accent) 40%, transparent), 0 0 40px color-mix(in srgb, var(--lit-accent) 16%, transparent)',
   'corner-glow': 'color-mix(in srgb, var(--lit-accent) 30%, transparent)',
   'glass-bg': 'linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.015) 70%), rgba(13, 15, 21, 0.7)',
   'glass-blur': 'blur(24px) saturate(150%)',
@@ -312,6 +316,7 @@ export const solid: Partial<RoleMap> = {
   field: 'none',
   'glass-bg': 'var(--lit-solid-bg)',
   'glass-blur': 'none',
+  sheen: 'linear-gradient(transparent, transparent)',
   'corner-glow': 'transparent',
 };
 

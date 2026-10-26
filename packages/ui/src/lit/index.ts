@@ -4,3 +4,4 @@
  */
 export * from './contracts.js';
 export { flat, lit, litLight, accentSets, accentTextLight, solid, pro, litType, renderLitCss } from './tokens.js';
+export * from './components/index.js';
