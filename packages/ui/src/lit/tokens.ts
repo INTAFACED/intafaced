@@ -174,8 +174,8 @@ export const lit: RoleMap = {
   'key-lit-shadow':
     'inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 3px 0 0 #0A0C11, 0 0 22px color-mix(in srgb, var(--lit-accent) 45%, transparent), 0 0 60px color-mix(in srgb, var(--lit-accent) 18%, transparent)',
   'control-bg': '#0A0C11',
-  'control-rim': 'rgba(255, 255, 255, 0.12)',
-  'control-rim-active': 'rgba(255, 255, 255, 0.32)',
+  'control-rim': 'rgba(255, 255, 255, 0.36)',
+  'control-rim-active': 'rgba(255, 255, 255, 0.56)',
   focus: '#FFFFFF',
   'legal-bg': '#16181D',
   'legal-fg': '#FFFFFF',
@@ -251,8 +251,8 @@ export const litLight: Partial<RoleMap> = {
   'secondary-fg': '#0B0D12',
   'key-bg': 'linear-gradient(180deg, #FFFFFF, #F1F3F7)',
   'control-bg': '#FFFFFF',
-  'control-rim': 'rgba(10, 13, 20, 0.16)',
-  'control-rim-active': 'rgba(10, 13, 20, 0.4)',
+  'control-rim': 'rgba(10, 13, 20, 0.48)',
+  'control-rim-active': 'rgba(10, 13, 20, 0.68)',
   focus: '#0B0D12',
   'legal-bg': '#FFFFFF',
   'legal-fg': '#0B0D12',
@@ -409,7 +409,7 @@ ${L.replace('])', "][data-surfaces='solid'])")} {
 ${decl(roleVars(solid))}
 }
 
-@media (prefers-contrast: more), (forced-colors: active) {
+@media (prefers-contrast: more), (forced-colors: active), (prefers-reduced-transparency: reduce) {
   ${L} {
 ${decl(roleVars(solid)).replace(/^/gm, '  ')}
   }

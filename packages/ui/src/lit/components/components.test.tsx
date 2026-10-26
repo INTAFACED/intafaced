@@ -64,6 +64,8 @@ describe('components', () => {
   it('Button defaults to secondary so a primary is always a choice', () => {
     expect(html(<Button>Go</Button>)).toContain('data-tone="secondary"');
     expect(html(<Button tone="primary">Go</Button>)).toContain('data-tone="primary"');
+    // test locators read the kit's data-slot and data-variant, like the flat Button
+    expect(html(<Button tone="primary">Go</Button>)).toContain('data-slot="button" data-variant="primary"');
   });
 
   it('ActionKey keeps its label as text and hides the icon from assistive tech', () => {

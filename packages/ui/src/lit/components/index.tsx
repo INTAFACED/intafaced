@@ -66,6 +66,8 @@ export function Button({ tone = 'secondary', size = 'md', block, className, type
       {...rest}
       type={type}
       className={clsx('lit-button', className)}
+      data-slot="button"
+      data-variant={tone}
       data-tone={tone}
       data-size={size}
       data-block={block || undefined}
@@ -175,7 +177,7 @@ const partClass = (t: string) =>
 /** A money figure: the unit and the minor part drawn quieter, read aloud as one value. */
 export function Figure({ parts, size = 'figure', test, stale, className }: FigureProps) {
   return (
-    <span className={clsx('lit-figure', className)} data-size={size}>
+    <span className={clsx('lit-figure', className)} data-slot="money" data-size={size}>
       <span className="lit-sr">{parts.map((p) => p.value).join('')}</span>
       <span aria-hidden="true">
         {parts.map((p, i) => (

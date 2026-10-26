@@ -188,8 +188,8 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 3px 0 0 #0a0c11, 0 0 22px color-mix(in srgb, var(--lit-accent) 45%, transparent),
     0 0 60px color-mix(in srgb, var(--lit-accent) 18%, transparent);
   --lit-control-bg: #0a0c11;
-  --lit-control-rim: rgba(255, 255, 255, 0.12);
-  --lit-control-rim-active: rgba(255, 255, 255, 0.32);
+  --lit-control-rim: rgba(255, 255, 255, 0.36);
+  --lit-control-rim-active: rgba(255, 255, 255, 0.56);
   --lit-focus: #ffffff;
   --lit-legal-bg: #16181d;
   --lit-legal-fg: #ffffff;
@@ -324,8 +324,8 @@
   --lit-secondary-fg: #0b0d12;
   --lit-key-bg: linear-gradient(180deg, #ffffff, #f1f3f7);
   --lit-control-bg: #ffffff;
-  --lit-control-rim: rgba(10, 13, 20, 0.16);
-  --lit-control-rim-active: rgba(10, 13, 20, 0.4);
+  --lit-control-rim: rgba(10, 13, 20, 0.48);
+  --lit-control-rim-active: rgba(10, 13, 20, 0.68);
   --lit-focus: #0b0d12;
   --lit-legal-bg: #ffffff;
   --lit-legal-fg: #0b0d12;
@@ -369,7 +369,7 @@
   --lit-corner-glow: transparent;
 }
 
-@media (prefers-contrast: more), (forced-colors: active) {
+@media (prefers-contrast: more), (forced-colors: active), (prefers-reduced-transparency: reduce) {
   :root:where([data-look='lit']) {
     --lit-field: none;
     --lit-glass-bg: var(--lit-solid-bg);
