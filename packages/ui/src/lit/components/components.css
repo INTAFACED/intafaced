@@ -40,8 +40,8 @@
   pointer-events: none;
   background: linear-gradient(var(--lit-light-angle, 0deg), var(--lit-solid-rim-dim), var(--lit-solid-rim));
   -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
+    linear-gradient(currentColor 0 0) content-box,
+    linear-gradient(currentColor 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
 }

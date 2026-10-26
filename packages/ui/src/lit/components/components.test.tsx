@@ -25,9 +25,9 @@ const css = readFileSync(join(here, 'components.css'), 'utf8');
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 
 describe('the component sheet reads only lit roles', () => {
-  it('holds no raw colour of its own (the #000 mask colour aside)', () => {
+  it('holds no raw colour of its own', () => {
     const hex = css.match(/#[0-9a-f]{3,8}\b/gi) ?? [];
-    expect(hex.filter((h) => h !== '#000')).toEqual([]);
+    expect(hex).toEqual([]);
     expect(css.match(/\b(rgba?|hsla?|oklch|lab)\(/gi) ?? []).toEqual([]);
     expect(css.match(/[:,\s](black|white)\b(?!-)/gi) ?? []).toEqual([]);
   });
