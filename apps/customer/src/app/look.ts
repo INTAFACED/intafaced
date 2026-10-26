@@ -3,12 +3,13 @@
  * back off. Off by default, so every journey on main sees today's app. It only sets `data-look` on the root element;
  * everything the look changes is scoped to `[data-look='lit']`.
  */
-const KEY = 'intafaced.look';
+/** Where the choice is remembered; boot.ts reads it too, to set the look before the first paint. */
+export const LOOK_KEY = 'intafaced.look';
 export type LookId = 'lit';
 
 function stored(): string | null {
   try {
-    return localStorage.getItem(KEY);
+    return localStorage.getItem(LOOK_KEY);
   } catch {
     return null;
   }
@@ -16,8 +17,8 @@ function stored(): string | null {
 
 function store(value: LookId | null): void {
   try {
-    if (value) localStorage.setItem(KEY, value);
-    else localStorage.removeItem(KEY);
+    if (value) localStorage.setItem(LOOK_KEY, value);
+    else localStorage.removeItem(LOOK_KEY);
   } catch {
     // private mode or blocked storage: the switch lasts for this page only
   }
