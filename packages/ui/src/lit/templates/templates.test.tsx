@@ -391,6 +391,22 @@ describe('states never contradict themselves', () => {
     expect(out).toContain('lt-locked');
   });
 
+  it('behind a gate, catalogue filters and the reading index stay live, before the card', () => {
+    for (const [room, marker] of [
+      ['catalogue', 'Flexible'],
+      ['reading', 'aria-label="On this page"'],
+    ] as const) {
+      const out = html(ROOMS[room]({ mode: 'simple', state: 'gated', market: 'uk' }));
+      const live = out.indexOf('class="lt-live"');
+      const card = out.indexOf('lit-gate__card');
+      expect(live, room).toBeGreaterThan(-1);
+      expect(live, room).toBeLessThan(card);
+      const at = out.indexOf(marker, live);
+      expect(at, room).toBeGreaterThan(live);
+      expect(at, room).toBeLessThan(card);
+    }
+  });
+
   it('behind a gate, "Talk to a person" stays outside the inert room', () => {
     const out = html(ROOMS.flow({ mode: 'simple', state: 'gated', market: 'uk' }));
     // The live help sits after the Gate, in its own lt-live block, never inside the inert room.
