@@ -408,12 +408,12 @@ export interface ReadingProps extends RoomProps {
 /** Simple and Pro show the same content here; Pro only changes density. */
 export function ReadingTemplate(p: ReadingProps) {
   return (
-    <RoomFrame {...p} template="reading" liveAfter={p.contact}>
+    <RoomFrame {...p} template="reading" liveBefore={p.toc} liveAfter={p.contact}>
       <Region name="meta" data label="Details" ghost="text">
         {p.meta}
       </Region>
       <div className="lt-grid lt-grid-reading-toc">
-        <Region name="toc" data ghost="rows" label="On this page">
+        <Region name="toc" data ghost="rows" label="On this page" live>
           {p.toc}
         </Region>
         <Region name="body" data primary ghost="text" label="Article">

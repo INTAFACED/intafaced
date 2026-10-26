@@ -819,6 +819,36 @@
   overflow-x: auto;
   scrollbar-width: none;
 }
+/* A row that scrolls (tabs, a room's section index: add lt-scroll-row) fades at its far end until it is scrolled
+   there, so a cut tab reads as "more", not as broken. The timeline is inactive when nothing overflows, so a row
+   that fits never fades. */
+.lt-tabs,
+.lt-scroll-row {
+  animation: lt-tabs-more linear both;
+  animation-timeline: scroll(self inline);
+}
+@keyframes lt-tabs-more {
+  0%,
+  95% {
+    mask-image: linear-gradient(to right, black calc(100% - 2.5rem), transparent); /* look-drift-allow: mask alpha, not a colour; LTR end */
+  }
+  100% {
+    mask-image: none;
+  }
+}
+[dir='rtl'] .lt-tabs,
+[dir='rtl'] .lt-scroll-row {
+  animation-name: lt-tabs-more-rtl;
+}
+@keyframes lt-tabs-more-rtl {
+  0%,
+  95% {
+    mask-image: linear-gradient(to left, black calc(100% - 2.5rem), transparent); /* look-drift-allow: mask alpha, not a colour; RTL end */
+  }
+  100% {
+    mask-image: none;
+  }
+}
 
 .lt-tab {
   display: inline-flex;

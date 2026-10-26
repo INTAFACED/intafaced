@@ -356,7 +356,7 @@ describe('states never contradict themselves', () => {
   });
 
   it('behind a gate, no region of a ready room disappears: data shows locked, controls stay visible', () => {
-    const LIVE = new Set(['rooms', 'help', 'index', 'contact', 'filters']);
+    const LIVE = new Set(['rooms', 'help', 'index', 'contact', 'filters', 'toc']);
     const regions = (out: string) => new Set([...out.matchAll(/data-region="([^"]+)"/g)].map((m) => m[1] ?? ''));
     for (const [id, room] of Object.entries(ROOMS)) {
       for (const mode of ['simple', 'pro'] as const) {

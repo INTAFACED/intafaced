@@ -791,7 +791,7 @@ function Settings(c: Ctx) {
         },
       })}
       index={
-        <nav aria-label="Settings sections" className="gallery-index">
+        <nav aria-label="Settings sections" className="gallery-index lt-scroll-row">
           {['Profile', 'Security', 'API keys', 'Display', 'Notifications', 'Limits'].map((s) => (
             <a key={s} href={`#${s}`} aria-current={s === 'API keys' ? 'page' : undefined}>
               {t(s)}
@@ -1031,7 +1031,7 @@ function Reading(c: Ctx) {
       })}
       meta={<p className="gallery-label">{t('Updated 20 Oct 2026 · 3 min read')}</p>}
       toc={
-        <nav className="gallery-index" aria-label="On this page">
+        <nav className="gallery-index lt-scroll-row" aria-label="On this page">
           {['Sending money', 'Buying crypto', 'Withdrawing'].map((s) => (
             <a key={s} href={`#${s}`}>
               {t(s)}
