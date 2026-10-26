@@ -4,19 +4,117 @@
  * navigation layer (the top bar); the actions panel is a solid content-layer panel; nothing blurred sits over the
  * moving sphere.
  */
-/* "Where your money is": bounded on wide screens, so the sphere stays an object rather than a wide empty band */
+/* "Where your money is" (stage A's Alloc): a legend column on the start side, the sphere on the end side, bottom-
+   aligned and bleeding off the panel; bounded on wide screens and aligned with the column, so it stays an object */
 [data-look='lit'] .home-lit-where {
   margin-block-start: var(--if-space-4);
 }
-[data-look='lit'] .home-lit-sphere {
+[data-look='lit'] .home-lit-where__panel {
   position: relative;
-  block-size: 16.25rem;
+  block-size: 14rem;
   max-inline-size: 36rem;
   margin-block-start: var(--if-space-2);
-  margin-inline: auto;
   overflow: hidden;
   border-radius: var(--lit-radius-panel);
   background: var(--lit-solid-bg);
+  /* the canvas and the lines are physical, so the panel is too; text inside keeps its own direction */
+  direction: ltr;
+}
+[data-look='lit'] .home-lit-sphere {
+  position: absolute;
+  inset-block-start: -1.625rem;
+  /* beside the legend on a phone, centred in the panel once it is wide enough */
+  inset-inline-start: max(7rem, calc(50% - 7.1875rem));
+  inline-size: 14.375rem;
+  block-size: 16.375rem;
+  /* the objects draw on black: screened onto the panel, the black drops out; the bloom's faint haze then fades out
+     at the box's sides instead of ending on a straight edge (any opaque role works as a mask) */
+  mix-blend-mode: screen;
+  -webkit-mask-image: linear-gradient(90deg, transparent, var(--lit-page) 20% 80%, transparent);
+  mask-image: linear-gradient(90deg, transparent, var(--lit-page) 20% 80%, transparent);
+}
+[data-look='lit'] .home-lit-leaders {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+[data-look='lit'] .home-lit-leaders path {
+  fill: none;
+  stroke: var(--lit-text-3);
+  stroke-width: 1;
+}
+[data-look='lit'] .home-lit-leaders circle {
+  fill: var(--lit-text-1);
+}
+[data-look='lit'] .home-lit-legend {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* rows from the bottom up (--row 0 is the lowest), one every 3rem, so four fit the panel's height */
+[data-look='lit'] .home-lit-legend__part {
+  position: absolute;
+  inset-block-end: calc(1.75rem + var(--row) * 3rem);
+  inset-inline-start: var(--if-space-4);
+  inline-size: 6.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--if-space-1);
+}
+[data-look='lit'] .home-lit-legend__head {
+  display: flex;
+  align-items: center;
+  gap: var(--if-space-2);
+  font: 500 var(--if-text-xs) / var(--if-leading-xs) var(--lit-font-ui);
+  color: var(--lit-text-1);
+  white-space: nowrap;
+}
+[data-look='lit'] .home-lit-legend__name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+[data-look='lit'] .home-lit-legend__pct,
+[data-look='lit'] .home-lit-legend__value {
+  font-family: var(--lit-font-figure);
+  font-variant-numeric: tabular-nums;
+}
+[data-look='lit'] .home-lit-legend__value {
+  font-size: var(--if-text-sm);
+  font-weight: 500;
+  color: var(--lit-text-1);
+}
+/* no split (a holding without a price): the reason, where the legend would be */
+[data-look='lit'] .home-lit-where__note {
+  position: absolute;
+  inset-block-end: var(--if-space-4);
+  inset-inline-start: var(--if-space-4);
+  inline-size: 7.5rem;
+  margin: 0;
+  font: var(--if-text-xs) / var(--if-leading-xs) var(--lit-font-ui);
+  color: var(--lit-text-2);
+  direction: initial;
+}
+/* each chip is its segment's colour, as objects/sphere.ts draws them: accent, hot, then the accent darker twice */
+[data-look='lit'] .home-lit-legend__chip {
+  flex: none;
+  inline-size: 0.4375rem;
+  block-size: 0.4375rem;
+  background: var(--lit-accent);
+}
+[data-look='lit'] [data-seg='1'] .home-lit-legend__chip {
+  background: var(--lit-accent-hot);
+}
+[data-look='lit'] [data-seg='2'] .home-lit-legend__chip {
+  background: color-mix(in srgb, var(--lit-accent) 50%, var(--lit-page));
+}
+[data-look='lit'] [data-seg='3'] .home-lit-legend__chip {
+  background: color-mix(in srgb, var(--lit-accent) 28%, var(--lit-page));
 }
 
 /* the navigation layer: the one blurred surface (over scrolling page content, never over the sphere) */
@@ -61,36 +159,4 @@
 /* today's change line has a fixed height, so its wrapped tag would run under the sphere */
 [data-look='lit'] .home-change {
   block-size: auto;
-}
-
-/* each part's label sits at its segment's middle (sphereCallouts); the canvas is physical, so the list is too */
-[data-look='lit'] .home-lit-callouts {
-  position: absolute;
-  inset: 0;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  direction: ltr;
-  pointer-events: none;
-}
-[data-look='lit'] .home-lit-callout {
-  position: absolute;
-  inset-block-start: 0;
-  inset-inline-start: 0;
-  visibility: hidden;
-  white-space: nowrap;
-  font: 500 var(--if-text-xs) / var(--if-leading-xs) var(--lit-font-ui);
-  color: var(--lit-text-2);
-  --dx: var(--if-space-2);
-  transform: translate(calc(var(--x) * 1px), calc(var(--y) * 1px)) translate(var(--dx), -50%);
-}
-[data-look='lit'] .home-lit-callout[data-side='start'] {
-  --dx: calc(-100% - var(--if-space-2));
-}
-[data-look='lit'] .home-lit-callout[data-placed] {
-  visibility: visible;
-}
-[data-look='lit'] .home-lit-callout__pct {
-  color: var(--lit-text-1);
-  font-family: var(--lit-font-figure);
 }

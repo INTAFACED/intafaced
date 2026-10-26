@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { Fragment, useMemo } from 'react';
 import { ChevronRight, Eye, EyeOff } from 'lucide-react';
 import './home.css';
 import { clockTime } from './clock';
@@ -328,7 +328,6 @@ function HomeSimple() {
           </div>
 
           <Balance portfolio={portfolio} hidden={hideBalances} />
-          <LitSphere portfolio={portfolio} hidden={hideBalances} />
           <ActionPills loading={portfolio.status === 'loading'} mode={actionMode} />
           {main.map((id) => {
             switch (id) {
@@ -338,7 +337,10 @@ function HomeSimple() {
                 return portfolio.status === 'loading' ? (
                   <HoldingsSkeleton key={id} />
                 ) : portfolio.status === 'ready' && portfolio.data.holdings.length > 0 ? (
-                  <HoldingsCard key={id} portfolio={portfolio.data} hidden={hideBalances} />
+                  <Fragment key={id}>
+                    <LitSphere portfolio={portfolio} hidden={hideBalances} />
+                    <HoldingsCard portfolio={portfolio.data} hidden={hideBalances} />
+                  </Fragment>
                 ) : null;
               case 'markets':
                 return showMarkets ? (
