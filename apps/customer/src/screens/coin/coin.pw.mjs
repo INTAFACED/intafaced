@@ -103,7 +103,7 @@ test('Simple, loaded, 1440x900: grid, header, chart, range pills, stats, holding
 
   // Range pills: five, in order, 1D pressed; each loads the candles the spec names.
   expect(await texts(page.getByTestId('coin-ranges').locator('button'))).toEqual(['1D', '1W', '1M', '1Y', 'All']);
-  await expect(page.locator('[data-testid="coin-ranges"] button', { hasText: '1D' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('coin-ranges').locator('button', { hasText: '1D' })).toHaveAttribute('aria-pressed', 'true');
 
   // Line chart present, with the attribution the licence asks for, no volume pane (one canvas pair for the pane).
   expect(Math.round((await box(page.getByTestId('chart-area'))).height)).toBe(360);
@@ -180,11 +180,11 @@ test('recent activity: no BTC fill in a short list says none; in a full page of 
   // A short list (fewer than the 100 the call returns) with no BTC: that is everything, so "none yet" is true.
   await mock(page, { fills: () => [fill(1, 'ETH/USDT'), fill(2, 'ETH/USDT')] });
   await open(page, '/coin/BTC');
-  await expect(page.getByTestId('recent').locator('[data-slot="state-block"][data-kind="empty"]')).toContainText('No BTC activity yet');
+  await expect(page.getByTestId('coin-recent__empty')).toContainText('No BTC activity yet');
   // A full page of ETH fills: older BTC fills may exist, so it must not claim none, and View all is offered.
   await mock(page, { fills: () => Array.from({ length: 100 }, (_, index) => fill(index + 1, 'ETH/USDT')) });
   await open(page, '/coin/BTC');
-  const empty = page.getByTestId('recent').locator('[data-slot="state-block"][data-kind="empty"]');
+  const empty = page.getByTestId('coin-recent__empty');
   await expect(empty).toContainText('No BTC trades in your latest 100');
   await expect(empty).not.toContainText('No BTC activity yet');
   await expect(empty.locator('a')).toHaveText('View all');
@@ -212,10 +212,10 @@ test('the coin bar stays under the top bar when the page scrolls, and About scro
   await page.mouse.wheel(0, 700);
   await page.waitForTimeout(300);
   expect(Math.round((await box(page.getByTestId('coin-bar'))).y)).toBe(48);
-  await page.locator('[data-testid="coin-bar__tabs"] button', { hasText: 'About' }).click();
-  await expect(page.locator('[data-testid="coin-bar__tabs"] button', { hasText: 'About' })).toHaveAttribute('aria-current', 'true');
+  await page.getByTestId('coin-bar__tabs').locator('button', { hasText: 'About' }).click();
+  await expect(page.getByTestId('coin-bar__tabs').locator('button', { hasText: 'About' })).toHaveAttribute('aria-current', 'true');
   await shot(page, 'simple-scrolled-about');
-  await page.locator('[data-testid="coin-bar__tabs"] button', { hasText: 'Overview' }).click();
+  await page.getByTestId('coin-bar__tabs').locator('button', { hasText: 'Overview' }).click();
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeLessThan(5);
 });
 
@@ -247,7 +247,7 @@ test('range pills are a ToggleGroup: arrow keys move between them, Enter picks, 
   const api = await mock(page);
   await open(page);
   await ready(page);
-  const pill = (label) => page.locator('[data-testid="coin-ranges"] button', { hasText: new RegExp(`^${label}$`) });
+  const pill = (label) => page.getByTestId('coin-ranges').locator('button', { hasText: new RegExp(`^${label}$`) });
   await pill('1D').focus();
   await page.keyboard.press('ArrowRight');
   expect(await page.evaluate(() => document.activeElement?.textContent)).toBe('1W');
@@ -400,8 +400,8 @@ test('empty: a market that has never traded says so, with the pills still usable
   await expectPrice(page, '$67,812.40');
   // Nothing to measure a change against: a dash, never a made-up number.
   await expect(page.getByTestId('change')).toContainText('—');
-  await page.locator('[data-testid="coin-ranges"] button', { hasText: '1W' }).click();
-  await expect(page.locator('[data-testid="coin-ranges"] button', { hasText: '1W' })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByTestId('coin-ranges').locator('button', { hasText: '1W' }).click();
+  await expect(page.getByTestId('coin-ranges').locator('button', { hasText: '1W' })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('chart-empty')).toBeVisible();
   await shot(page, 'empty-chart');
 });
@@ -414,7 +414,7 @@ test('a market younger than a day: the change says since when, the stats say the
   await expect(page.getByTestId('stat-young')).toContainText('This market is less than a day old, so these figures start at');
   await expect(page.getByTestId('change')).toContainText(/Since \d{1,2} \w{3}, \d{2}:\d{2}/);
   // 1Y and All: one daily or weekly candle cannot be drawn, so the next finer candles are read until there is a line.
-  await page.locator('[data-testid="coin-ranges"] button', { hasText: 'All' }).click();
+  await page.getByTestId('coin-ranges').locator('button', { hasText: 'All' }).click();
   await expect(page.getByTestId('coin-chart').locator('canvas').first()).toBeAttached();
   expect(await page.getByTestId('chart-empty').count()).toBe(0);
   await expect(page.getByTestId('change')).toContainText('All time');
@@ -429,7 +429,7 @@ test('a market younger than a day: the change says since when, the stats say the
       asked.some((call) => call.timeframe === timeframe && call.limit === limit),
       `${timeframe}x${limit}`,
     ).toBe(true);
-  await page.locator('[data-testid="coin-ranges"] button', { hasText: '1Y' }).click();
+  await page.getByTestId('coin-ranges').locator('button', { hasText: '1Y' }).click();
   await expect(page.getByTestId('change')).toContainText(/Since \d{1,2} \w{3}, \d{2}:\d{2}/);
   await shot(page, 'young-market');
 });

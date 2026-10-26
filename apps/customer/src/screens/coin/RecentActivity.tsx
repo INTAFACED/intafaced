@@ -42,6 +42,7 @@ export function RecentActivity({ asset }: { asset: string }) {
                 <StateBlock
                   kind="empty"
                   className="coin-recent__empty"
+                  testId="coin-recent__empty"
                   title={t('No latest activity', { asset, count: FILLS_PAGE })}
                   body={t('No latest activity body', { asset })}
                   action={{ label: t('View all'), href: `/money/activity?tab=all&asset=${encodeURIComponent(asset)}` }}
@@ -51,6 +52,7 @@ export function RecentActivity({ asset }: { asset: string }) {
               <StateBlock
                 kind="empty"
                 className="coin-recent__empty"
+                testId="coin-recent__empty"
                 title={t('No activity yet', { asset })}
                 body={t('No activity body', { asset })}
               />
