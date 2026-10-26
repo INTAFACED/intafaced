@@ -40,6 +40,7 @@ import { fileURLToPath } from 'node:url';
 import { securityHeaders } from '../../../apps/customer/deployment/render-security-headers.mjs';
 import { crop, decodePng, encodePng } from './png.mjs';
 import * as policy from './policy.mjs';
+import { sweepRoutes } from '../../../apps/customer/tests/real-app/routes.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const VIEWPORTS = { phone: { width: 390, height: 844 }, computer: { width: 1440, height: 900 } };
@@ -85,14 +86,8 @@ function args(argv) {
   return out;
 }
 
-/** Every route the Customer app's navigation and menus name (the same list as tests/real-app/look-sweep.mjs). */
-export function customerRoutes() {
-  const text = ['apps/customer/src/app/navigation.ts', 'apps/customer/src/app/menus.ts']
-    .map((f) => readFileSync(join(ROOT, f), 'utf8'))
-    .join('\n');
-  const named = [...text.matchAll(/'(\/[a-z0-9/-]*)'/g)].map((m) => m[1]).filter((r) => r !== '//');
-  return [...new Set([...named, '/trade/spot/BTC-USDT', '/coin/BTC'])].sort();
-}
+/** Every route the Customer app's navigation and menus name: the room report's own list. */
+export const customerRoutes = sweepRoutes;
 
 /** The baseline room name of a route: `/` is `root`, `/trade/spot/BTC-USDT` is `trade-spot-btc-usdt`. */
 export function roomName(route) {
@@ -129,7 +124,12 @@ function serve(dir, reports) {
       res.writeHead(503, { ...headers, 'content-type': 'application/json' }).end(JSON.stringify(REFUSAL));
       return;
     }
-    let target = resolve(dir, `.${decodeURIComponent(url.pathname)}`);
+    let target;
+    try {
+      target = resolve(dir, `.${decodeURIComponent(url.pathname)}`);
+    } catch {
+      return void res.writeHead(400, headers).end();
+    }
     if (!target.startsWith(dir + sep) && target !== dir) return void res.writeHead(403, headers).end();
     if (!existsSync(target) || statSync(target).isDirectory()) target = join(dir, 'index.html');
     res.writeHead(200, { ...headers, 'content-type': MIME[extname(target)] ?? 'application/octet-stream', 'cache-control': 'no-store' });
@@ -139,14 +139,7 @@ function serve(dir, reports) {
 }
 
 const INIT = `(() => {
-  let a = ${SEED} >>> 0;
-  Math.random = () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+  Math.random = (${policy.mulberry32.toString()})(${SEED});
   window.__lookCsp = [];
   document.addEventListener('securitypolicyviolation', (e) => {
     window.__lookCsp.push({ directive: e.effectiveDirective, blocked: e.blockedURI, source: e.sourceFile, line: e.lineNumber, sample: e.sample });
@@ -158,14 +151,21 @@ const HIDE_TEXT_CSS = `* { color: transparent !important; -webkit-text-fill-colo
 
 /** Text boxes, money figures, controls, legal slots and font probes, measured in the page. Runs in the browser. */
 function measure({ maxText }) {
+  // Any computed colour (rgb, color(srgb ...), oklch, a color-mix result) as sRGB 0-255 and alpha 0-1, read back from
+  // a canvas so the browser does the conversion.
+  const ctx = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d', { willReadFrequently: true });
+  const seenColours = new Map();
   const rgba = (s) => {
-    const m = /rgba?\(([^)]+)\)/.exec(s);
-    if (!m) return null;
-    const [r, g, b, a = 1] = m[1]
-      .split(/[ ,/]+/)
-      .filter(Boolean)
-      .map(Number);
-    return [r, g, b, a];
+    if (!s) return null;
+    if (seenColours.has(s)) return seenColours.get(s);
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.fillStyle = '#000';
+    ctx.fillStyle = s;
+    ctx.fillRect(0, 0, 1, 1);
+    const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+    const out = [r, g, b, a / 255];
+    seenColours.set(s, out);
+    return out;
   };
   const visible = (el) => {
     const r = el.getBoundingClientRect();
@@ -375,6 +375,14 @@ function fontProbes(texts) {
   return picked.slice(0, 40);
 }
 
+/** The same start for every page: frozen clock, seeded random, CSP listener, every service call refused. */
+async function prepare(page) {
+  await page.clock.setFixedTime(FROZEN);
+  await page.addInitScript({ content: INIT });
+  await page.route('**/api/**', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify(REFUSAL) }));
+  await page.routeWebSocket(/\/ws(\/|$)/, (ws) => ws.close({ code: 1011, reason: REFUSAL.code }));
+}
+
 async function check(context, origin, target, vpName, opts, registry) {
   const page = await context.newPage();
   const errors = [];
@@ -385,15 +393,13 @@ async function check(context, origin, target, vpName, opts, registry) {
         .slice(0, 160),
     ),
   );
-  await page.clock.setFixedTime(FROZEN);
-  await page.addInitScript({ content: INIT });
-  await page.route('**/api/**', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify(REFUSAL) }));
-  await page.routeWebSocket(/\/ws(\/|$)/, (ws) => ws.close({ code: 1011, reason: REFUSAL.code })).catch(() => {});
+  await prepare(page);
   const row = { target: target.name, viewport: vpName, findings: {}, notes: [] };
   const add = (kind, items) => items.length && (row.findings[kind] = items);
   try {
     await page.goto(origin + target.path, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
+    row.lit = await page.evaluate(() => !!document.querySelector('[data-look="lit"], [data-moment][data-jurisdiction]'));
     await page.addStyleTag({ content: FREEZE_CSS });
     // A lazy room shows its loading line first; measure what it settles on.
     await page
@@ -422,7 +428,7 @@ async function check(context, origin, target, vpName, opts, registry) {
       mkdirSync(join(opts.out, 'blank', target.room), { recursive: true });
       writeFileSync(join(opts.out, 'blank', target.room, `${vpName}.png`), blankPng);
     }
-    row.lit = m.lit;
+    row.lit ||= m.lit;
 
     // axe
     const { default: AxeBuilder } = await import('@axe-core/playwright');
@@ -536,12 +542,10 @@ async function check(context, origin, target, vpName, opts, registry) {
     else {
       const a = decodePng(readFileSync(basePath));
       const b = decodePng(seen);
-      const d = a.width === b.width && a.height === b.height ? policy.pixelDiff(a.data, b.data, a) : { sizeChanged: true };
+      const diff = new Uint8Array(b.data);
+      const d = a.width === b.width && a.height === b.height ? policy.pixelDiff(a.data, b.data, a, 2, diff) : { sizeChanged: true };
       if (d.sizeChanged) add('baseline', [`size ${a.width}x${a.height} → ${b.width}x${b.height}`]);
       else if (d.differing > 0) {
-        const diff = new Uint8Array(b.data);
-        for (let i = 0; i < diff.length; i += 4)
-          if (Math.max(...[0, 1, 2, 3].map((k) => Math.abs(a.data[i + k] - b.data[i + k]))) > 2) diff.set([255, 0, 80, 255], i);
         writeFileSync(shotPath.replace(/\.png$/, '.diff.png'), encodePng({ width: b.width, height: b.height, data: diff }));
         add('baseline', [`${d.differing} pixels differ (diff in the artifact)`]);
       }
@@ -576,16 +580,13 @@ async function variants(browser, origin, target) {
     const page = await context.newPage();
     const row = { target: target.name, viewport: `phone ${name}`, findings: {}, notes: [] };
     try {
-      await page.clock.setFixedTime(FROZEN);
-      await page.addInitScript({ content: INIT });
-      await page.route('**/api/**', (route) =>
-        route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify(REFUSAL) }),
-      );
+      await prepare(page);
       await page.goto(origin + target.path, { waitUntil: 'domcontentloaded', timeout: 30_000 });
       await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
+      await page.addStyleTag({ content: FREEZE_CSS });
       if (setup.attr) await page.evaluate(() => document.documentElement.setAttribute('dir', 'rtl'));
       if (setup.css) await page.addStyleTag({ content: setup.css });
-      await page.waitForTimeout(200);
+      if (!(await settle(page))) row.notes.push('layout still moving after 6 s');
       const { default: AxeBuilder } = await import('@axe-core/playwright');
       const axeBuilder = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']);
       if (target.scope) axeBuilder.include(target.scope);
@@ -616,13 +617,15 @@ async function variants(browser, origin, target) {
   return out;
 }
 
+/** The pull request's changed paths, or null when git cannot say (no base, a shallow clone): never an empty list. */
 function changedFiles(base) {
   try {
     return execFileSync('git', ['diff', '--name-only', `${base}...HEAD`], { cwd: ROOT, encoding: 'utf8' })
       .split('\n')
       .filter(Boolean);
-  } catch {
-    return [];
+  } catch (error) {
+    console.error(`::warning::look gate: could not list the changed paths against ${base}: ${String(error.message).split('\n')[0]}`);
+    return null;
   }
 }
 
@@ -642,7 +645,9 @@ function importsLit(folder) {
 
 function report(rows, opts, meta) {
   const failing = rows.filter((r) => Object.keys(r.findings).length);
-  const blockable = failing.filter((r) => r.target.startsWith('kit ') || r.lit || r.findings.legal);
+  // A target is drawn in the new look when any of its shots found it so: its variant and error rows count too.
+  const litTargets = new Set(rows.filter((r) => r.lit).map((r) => r.target));
+  const blockable = failing.filter((r) => r.target.startsWith('kit ') || litTargets.has(r.target) || r.findings.legal);
   const kinds = {};
   for (const r of failing) for (const k of Object.keys(r.findings)) kinds[k] = (kinds[k] ?? 0) + 1;
   const changed = opts.changedFrom ? changedFiles(opts.changedFrom) : [];
@@ -656,7 +661,7 @@ function report(rows, opts, meta) {
         .join(', ') || 'none'
     }). Blockable (kit gallery or new-look pages): ${blockable.length}.`,
     '',
-    `Verdict: **${v.mode}**${v.why ? ` (${v.why})` : ''}${v.blocking.length ? `; blocking paths changed: ${v.blocking.slice(0, 5).join(', ')}` : ''}.`,
+    `Verdict: **${v.mode}**${v.why ? ` (${v.why})` : ''}${v.blocking?.length ? `; blocking paths changed: ${v.blocking.slice(0, 5).join(', ')}` : ''}.`,
     '',
     `Not checked yet: founder console (apps/admin) shots; filled-in states from contract fixtures (rooms show their refuse state); 130% copy. Legal registry: ${meta.registry ? REGISTRY_PATH : 'not on this branch'}.`,
     '',
@@ -919,9 +924,24 @@ function selfTest() {
     'a baseline change blocks',
   );
   eq(policy.verdict({ failures: 0, changed: ['packages/ui/src/lit/x.css'], today: '2026-12-01' }).mode, 'pass', 'nothing failing passes');
+  eq(policy.verdict({ failures: 2, changed: null, today: '2026-12-01' }).mode, 'block', 'unreadable changed paths never pass silently');
+  eq(policy.verdict({ failures: 2, changed: null, today: '2026-11-01' }).mode, 'report', 'but only report while report-only');
   eq(roomName('/'), 'root', 'root room');
   eq(roomName('/trade/spot/BTC-USDT'), 'trade-spot-btc-usdt', 'route room');
-  ok(customerRoutes().length > 50, 'routes are read from navigation');
+  ok(customerRoutes().length > 50 && customerRoutes().includes('/coin/BTC'), 'routes are the room report list');
+  const fakeMark = new Uint8Array(8);
+  eq(
+    policy.pixelDiff(
+      new Uint8Array([0, 0, 0, 255, 9, 9, 9, 255]),
+      new Uint8Array([0, 0, 0, 255, 90, 9, 9, 255]),
+      { width: 2, height: 1 },
+      2,
+      fakeMark,
+    ).differing,
+    1,
+    'diff counted once',
+  );
+  eq([...fakeMark], [0, 0, 0, 0, 255, 0, 80, 255], 'and the differing pixel is marked');
   const h = securityHeaders({ reportUri: REPORT_PATH })['Content-Security-Policy'];
   ok(/script-src 'self';/.test(h) && /font-src 'self';/.test(h), 'the gate serves the production policy');
   console.log(`✓ look-gate --self-test OK (${n} checks)`);

@@ -25,6 +25,11 @@ export function migratedRoomOf(path, importsLit) {
  */
 export function verdict({ failures, changed, today, importsLit = () => false }) {
   if (failures === 0) return { mode: 'pass', blocking: [] };
+  // The changed paths could not be read (no base to diff against): never a silent pass once the gate blocks.
+  if (changed === null)
+    return today < BLOCKING_FROM
+      ? { mode: 'report', why: `report-only until ${BLOCKING_FROM}; the changed paths could not be read`, blocking: [] }
+      : { mode: 'block', why: 'the changed paths could not be read, so every failure counts', blocking: [] };
   const blocking = changed.filter((f) => BLOCKING_PATHS.some((re) => re.test(f)) || migratedRoomOf(f, importsLit));
   if (today < BLOCKING_FROM) return { mode: 'report', why: `report-only until ${BLOCKING_FROM}`, blocking };
   if (blocking.length === 0) return { mode: 'report', why: 'no blocking path changed', blocking };
@@ -62,7 +67,12 @@ export function minimumFor({ fontSize, fontWeight }) {
  */
 export function worstContrast(text, pixels) {
   let worst = { ratio: Infinity, at: null };
+  const seen = new Set();
   for (let i = 0; i < pixels.length; i += 4) {
+    // Glass is many pixels of few colours: each colour is judged once.
+    const key = (pixels[i] << 16) | (pixels[i + 1] << 8) | pixels[i + 2];
+    if (seen.has(key)) continue;
+    seen.add(key);
     const bg = [pixels[i], pixels[i + 1], pixels[i + 2]];
     const fg = text[3] === undefined || text[3] >= 1 ? text.slice(0, 3) : over(text, bg);
     const ratio = contrast(fg, bg);
@@ -148,7 +158,7 @@ export function judgeLegal(slot, registry, { bodySize = 16 } = {}) {
  * Compare two same-sized RGBA images. A pixel differs when any channel moves by more than `tolerance`; the images
  * match only when no pixel differs (both come from the one pinned image, so rendering is deterministic).
  */
-export function pixelDiff(a, b, { width, height }, tolerance = 2) {
+export function pixelDiff(a, b, { width, height }, tolerance = 2, mark = null) {
   if (a.length !== b.length || a.length !== width * height * 4) return { sizeChanged: true, differing: width * height };
   let differing = 0;
   for (let i = 0; i < a.length; i += 4) {
@@ -157,8 +167,11 @@ export function pixelDiff(a, b, { width, height }, tolerance = 2) {
       Math.abs(a[i + 1] - b[i + 1]) > tolerance ||
       Math.abs(a[i + 2] - b[i + 2]) > tolerance ||
       Math.abs(a[i + 3] - b[i + 3]) > tolerance
-    )
+    ) {
       differing++;
+      // `mark`, a copy of the new shot, gets every differing pixel painted for the diff image.
+      if (mark) mark.set([255, 0, 80, 255], i);
+    }
   }
   return { sizeChanged: false, differing };
 }
