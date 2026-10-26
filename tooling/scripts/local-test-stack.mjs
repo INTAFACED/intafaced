@@ -1556,9 +1556,9 @@ function indexWithBanner(dist) {
   return html.replace(/<body([^>]*)>/i, (m) => `${m}${BANNER_HTML}`);
 }
 
-/** Where the Customer app's browser sends Content-Security-Policy violation reports on this stack. */
 /** What nginx's /api/ location adds to Edge's answers (security-headers-api.conf). */
 const API_SECURITY = apiSecurityHeaders();
+/** Where the Customer app's browser sends Content-Security-Policy violation reports on this stack. */
 const CSP_REPORT_PATH = '/__csp-report';
 
 /**
