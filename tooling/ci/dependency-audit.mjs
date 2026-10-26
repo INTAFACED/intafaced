@@ -175,9 +175,9 @@ export function judge(seenIds, known, strict) {
   return { added, stale, fail: strict && (added.length > 0 || stale.length > 0) };
 }
 
-/** The files a PR changes against `base`, or null when git cannot say (then the run stays strict). */
+/** The files a PR changes against `base` (a rename lists both paths), or null when git cannot say (then the run stays strict). */
 function changedSince(base) {
-  const diff = spawnSync('git', ['diff', '--name-only', base, 'HEAD'], { cwd: ROOT, encoding: 'utf8' });
+  const diff = spawnSync('git', ['diff', '--name-only', '--no-renames', base, 'HEAD'], { cwd: ROOT, encoding: 'utf8' });
   if (diff.status !== 0) return null;
   return diff.stdout.split('\n').filter(Boolean);
 }
