@@ -1,7 +1,6 @@
 // Test harness only. Mounts the Markets screen with the real theme and providers but without the app shell,
 // signed in as a labelled fake user (add ?signedout=1 to stay signed out). Every API call is answered by the
 // Playwright test (no service is contacted).
-import '../../../../shared/tokens.css';
 import '../../../../shared/styles.css';
 import '../../../../features/public/public.css';
 import '../../../../app/redesign.css';
