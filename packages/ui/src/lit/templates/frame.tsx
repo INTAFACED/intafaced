@@ -58,9 +58,11 @@ export const WHOLE_ROOM_STATES: ReadonlySet<RoomState['kind']> = WHOLE_ROOM;
 /** One region of a template. Rooms never render these directly; templates do. */
 export function Region({ name, data = false, primary = false, ghost = 'rows', label, live = false, children }: RegionProps) {
   const { state } = React.useContext(RoomContext);
-  if (children === undefined || children === null || children === false) {
-    if (!(primary && WHOLE_ROOM.has(state.kind))) return null;
-  }
+  // `undefined` means the room doesn't use this region; `null` means its data isn't here yet, so a data region
+  // still draws its skeleton while loading and its locked outline behind a gate.
+  const unused = children === undefined || children === false;
+  const waiting = children === null && data && (state.kind === 'loading' || state.kind === 'gated');
+  if ((unused || children === null) && !waiting && !(primary && WHOLE_ROOM.has(state.kind))) return null;
   if (primary && WHOLE_ROOM.has(state.kind)) {
     return (
       <section className="lt-region" data-region={name} data-holds-state="" aria-label={label}>

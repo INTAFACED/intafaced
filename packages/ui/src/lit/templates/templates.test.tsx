@@ -292,6 +292,29 @@ describe('states never contradict themselves', () => {
     expect(html(ROOMS.flow({ mode: 'simple', state: 'receipt', market: 'uk' }))).not.toContain('lt-stepper');
   });
 
+  it('a data slot passed as null still draws its skeleton while loading and its outline behind a gate', async () => {
+    const { OverviewTemplate } = await import('./templates.js');
+    const room = (state: 'loading' | 'gated') =>
+      html(
+        <OverviewTemplate
+          title="Home"
+          state={
+            state === 'loading'
+              ? { kind: 'loading' }
+              : { kind: 'gated', gate: 'not-verified', refusal: { variant: 'refused', title: 'Verify', body: 'Verify first.' } }
+          }
+          hero={null}
+          needsYou={null}
+          sections={null}
+        />,
+      );
+    expect(room('loading')).toContain('data-region="hero"');
+    expect(room('loading')).toContain('data-busy="true"');
+    expect(room('gated')).toContain('class="lt-locked"');
+    expect(room('gated')).toContain('data-region="sections"');
+    expect(html(<OverviewTemplate title="Home" state={{ kind: 'ready' }} hero={null} />)).not.toContain('data-region="hero"');
+  });
+
   it('room actions leave whole-room states, so the state has the only primary', () => {
     for (const state of ['empty', 'confirm', 'money-status', 'receipt'] as const) {
       const out = html(ROOMS.overview({ mode: 'simple', state, market: 'uk' }));
