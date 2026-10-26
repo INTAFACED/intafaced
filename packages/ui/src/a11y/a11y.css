@@ -38,6 +38,14 @@
   min-inline-size: 24px;
 }
 
+/* Inline targets inside a sentence (a "learn more" in the risk band) are exempt from SC 2.5.8 and keep the
+   line's own height. Mark one that isn't inside p or li with data-inline. */
+:where(:root[data-look='lit']) :where(p, li, dd, [data-inline]) :where(button, a, [role='button']),
+:where(:root[data-look='lit']) :where([data-inline]) {
+  min-block-size: auto;
+  min-inline-size: auto;
+}
+
 /* Forced colours (Windows high contrast): shadows and gradients are dropped, so give every surface and
    control a real border in system colours, and make lit keys read as buttons, not as blank tiles. */
 @media (forced-colors: active) {

@@ -40,6 +40,12 @@ export function isLargeText(fontSizePx: number, fontWeight: number): boolean {
   return fontSizePx >= 24 || (fontSizePx >= 56 / 3 && fontWeight >= 700);
 }
 
+/** A CSS number such as "245" or "0.64", read digit by digit: the kit keeps parseFloat out of its source. */
+function cssNumber(text: string): number {
+  const [whole = '', frac = ''] = text.split('.');
+  return parseInt(whole || '0', 10) + (frac ? parseInt(frac, 10) / 10 ** frac.length : 0);
+}
+
 /** `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()` and `rgba()` (comma or space syntax). Throws on anything else, out-of-range channels included. */
 export function parseColor(input: string): Rgba {
   const text = input.trim().toLowerCase();
@@ -52,8 +58,9 @@ export function parseColor(input: string): Rgba {
   }
   const fn = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)$/.exec(text);
   if (fn) {
-    const alpha = fn[4] === undefined ? 1 : fn[4].endsWith('%') ? parseFloat(fn[4]) / 100 : parseFloat(fn[4]);
-    const color = { r: parseFloat(fn[1] ?? '0'), g: parseFloat(fn[2] ?? '0'), b: parseFloat(fn[3] ?? '0'), a: alpha };
+    const alphaText = fn[4];
+    const alpha = alphaText === undefined ? 1 : alphaText.endsWith('%') ? cssNumber(alphaText.slice(0, -1)) / 100 : cssNumber(alphaText);
+    const color = { r: cssNumber(fn[1] ?? '0'), g: cssNumber(fn[2] ?? '0'), b: cssNumber(fn[3] ?? '0'), a: alpha };
     const inRange = [color.r, color.g, color.b].every((c) => c >= 0 && c <= 255) && color.a >= 0 && color.a <= 1;
     if (inRange) return color;
   }

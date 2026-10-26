@@ -54,6 +54,8 @@ describe('contrast', () => {
     expect(() => parseColor('color-mix(in srgb, red, blue)')).toThrow();
     expect(() => parseColor('rgba(0, 0, 0, 50)')).toThrow();
     expect(() => parseColor('rgb(300, 0, 0)')).toThrow();
+    expect(parseColor('rgba(1.5, 0.25, 10, 0.05)')).toEqual({ r: 1.5, g: 0.25, b: 10, a: 0.05 });
+    expect(parseColor('rgb(0 0 0 / 7.5%)').a).toBeCloseTo(0.075, 10);
   });
 
   it('paints a translucent colour over its backdrop before measuring', () => {
@@ -257,6 +259,11 @@ describe('a11y.css', () => {
     expect(rules).toContain(`var(${OBSCURED_TOP_VAR}`);
     expect(rules).toContain(`var(${OBSCURED_BOTTOM_VAR}`);
     expect(rules).toContain('var(--lit-legal-band-min-h');
+  });
+
+  it('exempts inline targets inside a sentence from the 24 px floor', () => {
+    expect(rules).toMatch(/:where\(p, li, dd, \[data-inline\]\)[^{]*\{\s*min-block-size: auto;/);
+    expect(rules.indexOf('min-block-size: auto')).toBeGreaterThan(rules.indexOf('min-block-size: 24px'));
   });
 
   it('never mirrors with transform, which would wipe a component rotate', () => {
