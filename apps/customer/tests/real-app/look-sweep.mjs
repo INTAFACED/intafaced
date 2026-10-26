@@ -1,8 +1,8 @@
 import { test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ROOT } from './stack.mjs';
+import { sweepRoutes } from './routes.mjs';
 import { signUp, verify, signIn } from './desk.mjs';
 
 // The room report: every customer room at one width, measured for contrast (axe), horizontal overflow, overlapping
@@ -12,14 +12,7 @@ import { signUp, verify, signIn } from './desk.mjs';
 // Titles do not start with "J-", so the journey scoreboard and Main trust ignore it. One TEST person, signed up and
 // verified at the start, so rooms open as a customer sees them; if that fails, the sweep runs signed out and says so.
 
-/** Every route the app's navigation and menus name, plus rooms they reach only by a parameter. */
-export function sweepRoutes() {
-  const text = ['apps/customer/src/app/navigation.ts', 'apps/customer/src/app/menus.ts']
-    .map((f) => readFileSync(join(ROOT, f), 'utf8'))
-    .join('\n');
-  const named = [...text.matchAll(/'(\/[a-z0-9/-]*)'/g)].map((m) => m[1]).filter((r) => r !== '//');
-  return [...new Set([...named, '/trade/spot/BTC-USDT', '/coin/BTC'])].sort();
-}
+export { sweepRoutes };
 
 /** What one room shows, measured in the page. Runs in the browser. */
 function measure() {
