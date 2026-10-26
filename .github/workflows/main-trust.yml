@@ -11,13 +11,14 @@ name: Main trust
 #
 # No test is skipped, disabled or quarantined. See tooling/ci/main-trust.mjs.
 #
-# After a post-merge check on main finishes (Order-path CX-8, Customer Money browser checks, Real-app journeys), it
+# After a post-merge check on main finishes (Order-path CX-8, Customer Money browser checks, Real-app journeys, and
+# PR checks, whose Dependency audit holds main to the full advisory ratchet), it
 # opens one issue naming the breaking commit when a check that passed before is broken, and closes it when the check
 # passes again. It only reads runs and writes issues: no schedule, nothing blocks a merge. See
 # tooling/ci/post-merge-trust.mjs.
 on:
   workflow_run:
-    workflows: [CI, Order-path CX-8, Customer Money browser checks, Real-app journeys]
+    workflows: [CI, Order-path CX-8, Customer Money browser checks, Real-app journeys, PR checks]
     types: [completed]
     branches: [main]
 
