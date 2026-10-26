@@ -25,7 +25,7 @@ function preset<K extends FxKind>(p: FxPreset<K>): FxPreset<K> {
 
 export const FX_PRESETS = {
   /** Home: "Where your money is", the sphere lit from below beside its legend; mood 0 until the screen passes today's change. */
-  'sphere-home-blue': preset({ kind: 'sphere', width: 1200, height: 260, options: { ...LIT_BLUE, mood: 0, dist: 5.1, y: 0.02 } }),
+  'sphere-home-blue': preset({ kind: 'sphere', width: 1200, height: 288, options: { ...LIT_BLUE, mood: 0, dist: 5.1, y: 0.02 } }),
 } as const;
 
 export type FxPresetName = keyof typeof FX_PRESETS;

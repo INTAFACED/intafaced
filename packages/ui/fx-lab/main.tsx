@@ -29,6 +29,8 @@ const all: Array<{ [K in FxKind]: { kind: K; w: number; h: number; options: FxKi
 const only = q.get('kind');
 const presetName = q.get('preset') as keyof typeof FX_PRESETS | null;
 const preset = presetName ? FX_PRESETS[presetName] : null;
+// posters.mjs records what each poster was rendered from (posters/<name>.json, checked by presets.test.ts)
+(window as unknown as { __fxPreset: (name: string) => unknown }).__fxPreset = (name) => FX_PRESETS[name as keyof typeof FX_PRESETS] ?? null;
 const shown = (preset ? [{ kind: preset.kind, w: preset.width, h: preset.height, options: preset.options }] : all)
   .filter((o) => !only || o.kind === only)
   .map((o) => ({ ...o, w: Number(q.get('w') ?? o.w), h: Number(q.get('h') ?? o.h) }));

@@ -11,7 +11,7 @@ import './lit-spike.css';
 
 const PRESET = FX_PRESETS['sphere-home-blue'];
 
-type Leaders = { d: string; ends: Array<[number, number]> };
+type Leaders = { d: string; starts: Array<[number, number]>; ends: Array<[number, number]>; rtl: boolean };
 
 /** The sphere box's size in CSS pixels, for finding where its segments sit; follows the box as it mounts and resizes. */
 function useBoxSize() {
@@ -29,35 +29,56 @@ function useBoxSize() {
 }
 
 /**
- * Leader lines from each legend row to its segment: out of the row, across, then once down (or up) onto the segment.
- * Rows sit bottom-up in the order of their segments from the left, so no two lines cross.
+ * Leader lines from each legend row to its segment: out of the row's inline end, across, then once down (or up) onto
+ * the segment, ending on a ringed node there. Rows run from the segment nearest the legend (lowest row) to the farthest
+ * (top row), so no two lines cross; under right-to-left the legend and the lines mirror.
  */
 function useLeaders(panel: RefObject<HTMLDivElement | null>, sphere: HTMLDivElement | null, points: Array<[number, number]>) {
   const [leaders, setLeaders] = useState<Leaders | null>(null);
+  // the panel's size and direction: a legend that re-wraps, or a page that turns right-to-left, moves the lines
+  const [layout, setLayout] = useState('');
   const key = points.map(([x, y]) => `${Math.round(x)},${Math.round(y)}`).join(' ');
   // the points are a new array each render; the effect follows their rounded values and reads the latest ones
   const latest = useRef(points);
   latest.current = points;
   useLayoutEffect(() => {
     const host = panel.current;
+    if (!host) return;
+    const read = () => setLayout(`${host.clientWidth}x${host.clientHeight} ${getComputedStyle(host).direction}`);
+    read();
+    const observer = new ResizeObserver(read);
+    observer.observe(host);
+    for (const part of host.querySelectorAll('.home-lit-legend__part')) observer.observe(part);
+    // a language switch can turn the page right-to-left without resizing anything
+    const direction = new MutationObserver(read);
+    direction.observe(document.documentElement, { attributes: true, attributeFilter: ['dir', 'lang'] });
+    return () => {
+      observer.disconnect();
+      direction.disconnect();
+    };
+  }, [panel, key]);
+  useLayoutEffect(() => {
+    const host = panel.current;
     if (!host || !sphere || key === '') return setLeaders(null);
+    const rtl = layout.endsWith('rtl');
     const origin = host.getBoundingClientRect();
     const at = sphere.getBoundingClientRect();
     const targets = new Map(latest.current.map((point, i) => [String(i), point]));
     let d = '';
+    const starts: Leaders['starts'] = [];
     const ends: Leaders['ends'] = [];
     for (const row of host.querySelectorAll<HTMLElement>('[data-leader-from]')) {
       const target = targets.get(row.dataset.leaderFrom ?? '');
       if (!target) continue;
       const r = row.getBoundingClientRect();
-      const [startX, startY] = [r.right - origin.left, r.top + r.height / 2 - origin.top];
+      const [startX, startY] = [(rtl ? r.left : r.right) - origin.left, r.top + r.height / 2 - origin.top];
       const [x, y] = [at.left - origin.left + target[0], at.top - origin.top + target[1]];
-      // stop just short of the rim, so the line points at the light rather than drawing on it
-      d += `M${startX},${startY} H${x} V${y > startY ? y - 10 : y + 10} `;
-      ends.push([startX, startY]);
+      d += `M${startX},${startY} H${x} V${y} `;
+      starts.push([startX, startY]);
+      ends.push([x, y]);
     }
-    setLeaders({ d: d.trim(), ends });
-  }, [panel, sphere, key]);
+    setLeaders({ d: d.trim(), starts, ends, rtl });
+  }, [panel, sphere, key, layout]);
   return leaders;
 }
 
@@ -73,14 +94,20 @@ export function LitSphere({ portfolio, hidden }: { portfolio: Loadable<HomePortf
   const { el, ref, size } = useBoxSize();
   const look = isLook('lit');
   const parts = look && portfolio.status === 'ready' && !hidden ? sphereShares(portfolio.data.holdings) : null;
-  // holdings shown but not all priced: say why there is no split (with balances hidden, say nothing)
-  const unsplit = look && !parts && !hidden && portfolio.status === 'ready' && portfolio.data.holdings.length > 0;
+  // a holding without a price: say why there is no split (with balances hidden, say nothing)
+  const unsplit =
+    look &&
+    !parts &&
+    !hidden &&
+    portfolio.status === 'ready' &&
+    portfolio.data.holdings.some((h) => h.share === null || h.usdValue === null);
   const shares = parts ? sharesFromPercents(parts.map((p) => p.percent)) : null;
   const points = shares && size ? sphereCallouts(shares, size.w, size.h, PRESET.options) : [];
   const leaders = useLeaders(panel, el, points);
   if (!look) return null;
-  // the lowest legend row goes to the leftmost segment
-  const order = parts ? parts.map((_, i) => i).sort((a, b) => (points[a]?.[0] ?? a) - (points[b]?.[0] ?? b)) : [];
+  // the lowest legend row goes to the segment nearest the legend: the leftmost, or the rightmost under right-to-left
+  const near = (i: number) => (leaders?.rtl ? -1 : 1) * (points[i]?.[0] ?? i);
+  const order = parts ? parts.map((_, i) => i).sort((a, b) => near(a) - near(b)) : [];
   const name = (part: SpherePart) => (part.kind === 'cash' ? t('Cash') : part.kind === 'other' ? t('Sphere other') : part.asset);
   return (
     <section className="home-lit-where" aria-labelledby="home-lit-where-title">
@@ -95,8 +122,11 @@ export function LitSphere({ portfolio, hidden }: { portfolio: Loadable<HomePortf
           <>
             <svg className="home-lit-leaders" aria-hidden="true">
               {leaders ? <path d={leaders.d} /> : null}
+              {leaders?.starts.map(([x, y], i) => (
+                <circle key={`from-${i}`} className="home-lit-leaders__from" cx={x} cy={y} r={2} />
+              ))}
               {leaders?.ends.map(([x, y], i) => (
-                <circle key={i} cx={x} cy={y} r={2} />
+                <circle key={`to-${i}`} className="home-lit-leaders__to" cx={x} cy={y} r={3.5} />
               ))}
             </svg>
             <ol className="home-lit-legend">

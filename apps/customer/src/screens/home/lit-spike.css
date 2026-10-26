@@ -4,8 +4,9 @@
  * navigation layer (the top bar); the actions panel is a solid content-layer panel; nothing blurred sits over the
  * moving sphere.
  */
-/* "Where your money is" (stage A's Alloc): a legend column on the start side, the sphere on the end side, bottom-
-   aligned and bleeding off the panel; bounded on wide screens and aligned with the column, so it stays an object */
+/* "Where your money is" (stage A's Alloc): a legend column pinned to the top of the inline-start side, the sphere
+   anchored at the bottom of the inline-end side and bleeding off it; bounded on wide screens and aligned with the
+   column. Under right-to-left it all mirrors (the leader lines follow in LitSphere.tsx). */
 [data-look='lit'] .home-lit-where {
   margin-block-start: var(--if-space-4);
 }
@@ -17,16 +18,13 @@
   overflow: hidden;
   border-radius: var(--lit-radius-panel);
   background: var(--lit-solid-bg);
-  /* the canvas and the lines are physical, so the panel is too; text inside keeps its own direction */
-  direction: ltr;
 }
 [data-look='lit'] .home-lit-sphere {
   position: absolute;
-  inset-block-start: -1.625rem;
-  /* beside the legend on a phone, centred in the panel once it is wide enough */
-  inset-inline-start: max(7rem, calc(50% - 7.1875rem));
-  inline-size: 14.375rem;
-  block-size: 16.375rem;
+  inset-block-end: -1.5rem;
+  inset-inline-end: -1rem;
+  inline-size: 16rem;
+  block-size: 18rem;
   /* the objects draw on black: screened onto the panel, the black drops out; the bloom's faint haze then fades out
      at the box's sides instead of ending on a straight edge (any opaque role works as a mask) */
   mix-blend-mode: screen;
@@ -46,8 +44,14 @@
   stroke: var(--lit-text-3);
   stroke-width: 1;
 }
-[data-look='lit'] .home-lit-leaders circle {
+[data-look='lit'] .home-lit-leaders__from {
   fill: var(--lit-text-1);
+}
+/* the node on the segment: a ring, so the light shows through it */
+[data-look='lit'] .home-lit-leaders__to {
+  fill: var(--lit-solid-bg);
+  stroke: var(--lit-text-1);
+  stroke-width: 1.5;
 }
 [data-look='lit'] .home-lit-legend {
   position: absolute;
@@ -56,10 +60,10 @@
   padding: 0;
   list-style: none;
 }
-/* rows from the bottom up (--row 0 is the lowest), one every 3rem, so four fit the panel's height */
+/* rows pinned to the top inset, one every 3rem; --row 0 (the segment nearest the legend) is the lowest */
 [data-look='lit'] .home-lit-legend__part {
   position: absolute;
-  inset-block-end: calc(1.75rem + var(--row) * 3rem);
+  inset-block-start: calc(var(--if-space-4) + (var(--rows) - 1 - var(--row)) * 3rem);
   inset-inline-start: var(--if-space-4);
   inline-size: 6.5rem;
   display: flex;
@@ -73,6 +77,8 @@
   font: 500 var(--if-text-xs) / var(--if-leading-xs) var(--lit-font-ui);
   color: var(--lit-text-1);
   white-space: nowrap;
+  /* room between the figure and the leader's start dot */
+  padding-inline-end: var(--if-space-2);
 }
 [data-look='lit'] .home-lit-legend__name {
   flex: 1;
@@ -98,9 +104,9 @@
   margin: 0;
   font: var(--if-text-xs) / var(--if-leading-xs) var(--lit-font-ui);
   color: var(--lit-text-2);
-  direction: initial;
 }
-/* each chip is its segment's colour, as objects/sphere.ts draws them: accent, hot, then the accent darker twice */
+/* each chip keys its segment (objects/sphere.ts: accent, hot, then the accent darker twice); the darker two are lifted
+   towards the accent so every chip keeps 3:1 or more on the panel */
 [data-look='lit'] .home-lit-legend__chip {
   flex: none;
   inline-size: 0.4375rem;
@@ -111,10 +117,10 @@
   background: var(--lit-accent-hot);
 }
 [data-look='lit'] [data-seg='2'] .home-lit-legend__chip {
-  background: color-mix(in srgb, var(--lit-accent) 50%, var(--lit-page));
+  background: color-mix(in srgb, var(--lit-accent) 85%, var(--lit-page));
 }
 [data-look='lit'] [data-seg='3'] .home-lit-legend__chip {
-  background: color-mix(in srgb, var(--lit-accent) 28%, var(--lit-page));
+  background: color-mix(in srgb, var(--lit-accent) 70%, var(--lit-page));
 }
 
 /* the navigation layer: the one blurred surface (over scrolling page content, never over the sphere) */

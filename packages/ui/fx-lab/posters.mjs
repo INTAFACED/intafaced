@@ -3,7 +3,7 @@
 //   pnpm --filter @intafaced/ui fx:posters
 // Set FX_CHROMIUM to a Chromium binary when the one Playwright expects is not installed.
 import { spawn } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from '@playwright/test';
@@ -33,6 +33,10 @@ try {
     await page.waitForSelector('[data-fx-live]', { timeout: 60000 });
     const box = page.locator('.box').first();
     await box.screenshot({ path: join(out, `${name}.jpg`), type: 'jpeg', quality: 82 });
+    // what the poster was rendered from, so presets.test.ts can tell when a preset changed without a new poster
+    const preset = await page.evaluate((n) => window.__fxPreset?.(n), name);
+    if (!preset) throw new Error(`the lab did not report preset ${name}`);
+    writeFileSync(join(out, `${name}.json`), JSON.stringify(preset, null, 2) + '\n');
     console.log(`poster ${name}.jpg`);
     await page.close();
   }
