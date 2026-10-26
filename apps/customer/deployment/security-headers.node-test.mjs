@@ -106,7 +106,10 @@ test('nginx accepts the config with the snippets in place', (t) => {
       .replaceAll('/etc/nginx/snippets/', `${join(temp, 'snippets')}/`)
       .replace('/usr/share/nginx/html', temp)
       .replaceAll('svc-edge:4000', '127.0.0.1:1')
-      .replaceAll('svc-ws:4014', '127.0.0.1:1');
+      .replaceAll('svc-ws:4014', '127.0.0.1:1')
+      // nginx -t binds the listen sockets; port 80 needs root, which a CI runner's user is not.
+      .replace(/listen 80;/, 'listen 127.0.0.1:18080;')
+      .replace(/listen \[::\]:80;/, 'listen 127.0.0.1:18081;');
     const config = join(temp, 'nginx.conf');
     writeFileSync(
       config,
