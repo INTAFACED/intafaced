@@ -266,7 +266,9 @@ export function LinksView({
                             <a className="text-link" href={`/pay/links/${encodeURIComponent(link.id)}`}>
                               {link.label}
                             </a>
-                            <small className="pay-cell-note pp-mono">{link.prefix}</small>
+                            <small data-testid="pp-mono" className="pay-cell-note pp-mono">
+                              {link.prefix}
+                            </small>
                           </>
                         ),
                       },
@@ -369,7 +371,12 @@ function LinkDetail({ selected, now, pay, merchantId, portal, retry }: LinkDetai
     <>
       <Facts
         items={[
-          [t('linkId'), <span className="pp-mono pp-copy">{selected.id}</span>],
+          [
+            t('linkId'),
+            <span data-testid="pp-mono" className="pp-mono pp-copy">
+              {selected.id}
+            </span>,
+          ],
           [t('linkLabel'), selected.label],
           [t('status'), <LinkChip value={linkState(selected, now)} />],
           [
@@ -782,7 +789,7 @@ export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayA
           {t('linkOwnerOnly')}
         </p>
       )}
-      <div className="form-stack pp-form">
+      <div data-testid="form-stack" className="form-stack pp-form">
         <fieldset className="pp-group">
           <legend>{t('groupCheckout')}</legend>
           {portal && (
@@ -932,7 +939,12 @@ export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayA
             <LinkAddress url={addressOf(created) ?? ''} />
             <Facts
               items={[
-                [t('linkId'), <span className="pp-copy pp-mono">{created.id}</span>],
+                [
+                  t('linkId'),
+                  <span data-testid="pp-mono" className="pp-copy pp-mono">
+                    {created.id}
+                  </span>,
+                ],
                 [t('expiry'), <DateTime value={created.expiresAt} />],
                 [t('maxUses'), created.maxUses ?? t('noUseCap')],
               ]}

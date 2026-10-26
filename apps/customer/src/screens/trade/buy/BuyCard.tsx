@@ -180,17 +180,21 @@ function ReceiptView({ receipt, coin, compact, onDone }: { receipt: Receipt; coi
       </span>
       {none ? (
         <>
-          <h2 className="buy-receipt__title">{t('Not filled title')}</h2>
+          <h2 data-testid="buy-receipt__title" className="buy-receipt__title">
+            {t('Not filled title')}
+          </h2>
           <p className="buy-receipt__body">{t('Not filled body')}</p>
         </>
       ) : open ? (
         <>
-          <h2 className="buy-receipt__title">{t('Still working title')}</h2>
+          <h2 data-testid="buy-receipt__title" className="buy-receipt__title">
+            {t('Still working title')}
+          </h2>
           <p className="buy-receipt__body">{t('Still working body')}</p>
         </>
       ) : (
         <>
-          <h2 className="buy-receipt__title">
+          <h2 data-testid="buy-receipt__title" className="buy-receipt__title">
             {selling
               ? t('You sold {amount} {coin}', { amount: filled, coin: coin.base })
               : t('You bought {amount} {coin}', { amount: filled, coin: coin.base })}

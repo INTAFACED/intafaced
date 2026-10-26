@@ -54,7 +54,9 @@ async function phone(page, name) {
   await snap(page, `${name}-phone`);
 }
 async function axe(page) {
-  expect((await new AxeBuilder({ page }).include('.pp').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
+  expect(
+    (await new AxeBuilder({ page }).include('[data-testid="pp"]').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations,
+  ).toEqual([]);
 }
 
 test('onboarding: direct step routes, unpublished pricing, and unsaved draft protection', async ({ page }) => {

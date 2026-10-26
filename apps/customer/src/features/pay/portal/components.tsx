@@ -275,7 +275,7 @@ export function BackLink({ href, children }: { href: string; children: ReactNode
 /** A summary line of key facts (B5): label and value pairs, ids copyable by selection. */
 export function Facts({ items }: { items: ReadonlyArray<readonly [string, ReactNode]> }) {
   return (
-    <dl className="pp-facts">
+    <dl data-testid="pp-facts" className="pp-facts">
       {items.map(([label, value]) => (
         <div key={label}>
           <dt>{label}</dt>
