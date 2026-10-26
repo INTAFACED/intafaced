@@ -195,15 +195,15 @@ export function resolveLegal(
 ): Resolved {
   const moment = LEGAL_MOMENTS[id];
   if (market === 'unset') {
-    const rules = [moment.uk, moment.eu].filter((w) => w.status !== 'not-applicable');
-    return { status: 'missing', rule: null, reason: rules.length === 0 ? 'lawyer' : 'market-unset' };
+    // A moment no market carries needs nothing, decided market or not.
+    if (moment.uk.status === 'not-applicable' && moment.eu.status === 'not-applicable') return { status: 'not-applicable' };
+    return { status: 'missing', rule: null, reason: 'market-unset' };
   }
   const wording = market === 'uk' ? moment.uk : moment.eu;
   if (wording.status === 'not-applicable') return { status: 'not-applicable' };
   if (wording.status === 'lawyer') return { status: 'missing', rule: wording.rule, reason: 'lawyer' };
-  if ((wording.from && on < wording.from) || (wording.until && on >= wording.until)) {
-    return { status: 'missing', rule: wording.rule, reason: 'lawyer' };
-  }
+  // Outside its dates the rule isn't in force, so the slot carries nothing (not a wording gap).
+  if ((wording.from && on < wording.from) || (wording.until && on >= wording.until)) return { status: 'not-applicable' };
   let unfilled = false;
   const runs = wording.runs.map((run) => ({
     ...run,

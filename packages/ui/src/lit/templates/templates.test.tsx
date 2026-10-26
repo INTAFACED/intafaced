@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { templates, type TemplateId } from '../contracts.js';
-import { Parts } from '../components/b2-charts.js';
+import { Bars, Parts } from '../components/b2-charts.js';
 import { Review } from './frame.js';
 import { LEGAL_MOMENTS, resolveLegal } from './legal/registry.js';
 import { LegalSlot } from './legal/LegalSlot.js';
@@ -56,6 +56,23 @@ describe('chart parts reconcile to the total they show (plan v2 row 9)', () => {
     expect(out).toContain('£1');
     expect(out).toContain('Other');
     expect(out).toContain('£2');
+  });
+});
+
+describe('bars', () => {
+  it('a negative bar hangs below zero instead of vanishing', () => {
+    const out = html(
+      <Bars
+        label="P&L"
+        asset="GBP"
+        bars={[
+          { label: 'a', value: '10' },
+          { label: 'b', value: '-5' },
+        ]}
+      />,
+    );
+    expect(out).toContain('data-negative="true"');
+    expect(out).not.toMatch(/height="0"/);
   });
 });
 
@@ -126,7 +143,7 @@ describe('legal slots come only from the registry', () => {
   });
 
   it('dated wording applies only from its date', () => {
-    expect(resolveLegal('credit-warning', 'eu', '2026-11-19').status).toBe('missing');
+    expect(resolveLegal('credit-warning', 'eu', '2026-11-19').status).toBe('not-applicable');
     expect(resolveLegal('credit-warning', 'eu', '2026-11-20')).toMatchObject({ status: 'fixed' });
   });
 
@@ -145,6 +162,16 @@ describe('legal slots come only from the registry', () => {
   });
 });
 
+describe("times show in the customer's zone and locale", () => {
+  it('today shows the time, another day adds the date', async () => {
+    const { clock } = await import('./frame.js');
+    const now = new Date('2026-10-26T12:00:00Z');
+    expect(clock('2026-10-26T10:42:00Z', now, 'en-GB', 'UTC')).toBe('10:42');
+    expect(clock('2026-10-26T10:42:00Z', now, 'en-GB', 'Asia/Tokyo')).toBe('19:42');
+    expect(clock('2026-10-25T10:42:00Z', now, 'en-GB', 'UTC')).toBe('25 Oct, 10:42');
+  });
+});
+
 describe('a review with a blank line refuses instead of confirming', () => {
   const review: ReviewData = {
     lines: [{ label: 'Fee', value: null }],
@@ -158,6 +185,11 @@ describe('a review with a blank line refuses instead of confirming', () => {
     expect(out).toContain('Can’t send yet');
     expect(out).not.toContain('Send £250.00 to Aisha Khan');
     expect(out).toContain('data-unset="true"');
+  });
+
+  it('marks an illustrative amount TEST', () => {
+    const out = html(<Review review={{ ...review, lines: [{ label: 'Fee', value: { value: '1.00', asset: 'GBP', test: true } }] }} />);
+    expect(out).toMatch(/£1\.00 <span class="lt-test">TEST<\/span>/);
   });
 
   it('names the outcome on the button when complete, beside Edit', () => {

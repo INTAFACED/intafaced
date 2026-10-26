@@ -11,7 +11,15 @@ import { formatMoney } from './money.js';
 import type { Movement, MovementStep, Notice, Refusal, ReviewData, ReviewLine, RoomProps, RoomState } from './types.js';
 import type { TemplateId } from '../contracts.js';
 
-const RoomContext = React.createContext<RoomState>({ kind: 'ready' });
+interface RoomContextValue {
+  state: RoomState;
+  locale?: string;
+  /** IANA zone the customer's times show in; the browser's own when not given. */
+  timeZone?: string;
+  now?: Date;
+}
+
+const RoomContext = React.createContext<RoomContextValue>({ state: { kind: 'ready' } });
 
 /** How a region looks while it has no data yet: the skeleton and the ghost take the region's final shape. */
 export type GhostShape = SkeletonShape;
@@ -32,7 +40,7 @@ const WHOLE_ROOM = new Set<RoomState['kind']>(['empty', 'refused', 'money-status
 
 /** One region of a template. Rooms never render these directly; templates do. */
 export function Region({ name, data = false, primary = false, ghost = 'rows', label, children }: RegionProps) {
-  const state = React.useContext(RoomContext);
+  const { state } = React.useContext(RoomContext);
   let body: React.ReactNode = children;
   if (primary && WHOLE_ROOM.has(state.kind)) body = <StateView state={state} />;
   else if (data && state.kind === 'loading') body = <Skeleton shape={ghost} />;
@@ -84,18 +92,36 @@ const STATUS_WORD: Record<Movement['status'], string> = {
   unknown: 'We’re checking',
 };
 
-function time(iso: string | undefined): string | undefined {
-  return iso ? iso.slice(11, 16) : undefined;
+/**
+ * A time in the customer's zone: "10:42" today, "25 Oct, 10:42" on another day. Stands in until B4's formatter in
+ * packages/i18n lands.
+ */
+export function clock(iso: string, now: Date, locale = 'en-GB', timeZone?: string): string {
+  const at = new Date(iso);
+  const day = new Intl.DateTimeFormat(locale, { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
+  const hm = new Intl.DateTimeFormat(locale, { timeZone, hour: '2-digit', minute: '2-digit' }).format(at);
+  if (day.format(at) === day.format(now)) return hm;
+  return `${new Intl.DateTimeFormat(locale, { timeZone, day: 'numeric', month: 'short' }).format(at)}, ${hm}`;
+}
+
+function useClock(): (iso: string) => string {
+  const { locale, timeZone, now } = React.useContext(RoomContext);
+  return (iso) => clock(iso, now ?? new Date(), locale, timeZone);
+}
+
+function TestMark({ money }: { money: { test?: boolean } }) {
+  return money.test ? <span className="lt-test">TEST</span> : null;
 }
 
 function Steps({ steps }: { steps: readonly MovementStep[] }) {
+  const time = useClock();
   return (
     <ol className="lt-steps">
       {steps.map((s) => (
         <li key={s.label} className="lt-step" data-step={s.state}>
           <span className="lt-step-dot" aria-hidden="true" />
           <span className="lt-step-label">{s.label}</span>
-          <span className="lt-step-at">{time(s.at) ?? (s.state === 'current' ? 'Now' : '')}</span>
+          <span className="lt-step-at">{s.at ? time(s.at) : s.state === 'current' ? 'Now' : ''}</span>
         </li>
       ))}
     </ol>
@@ -110,7 +136,7 @@ export function Receipt({ movement }: { movement: Movement }) {
       <p className="lt-figure lt-figure-hero" dir="ltr">
         {formatMoney(movement.amount)}
       </p>
-      {movement.amount.test ? <span className="lt-test">TEST</span> : null}
+      <TestMark money={movement.amount} />
       {movement.counterparty ? <p className="lt-receipt-to">{movement.counterparty}</p> : null}
       {movement.status === 'failed' && movement.whereNow ? <p className="lt-receipt-where">{movement.whereNow}</p> : null}
       {movement.status === 'unknown' ? (
@@ -135,9 +161,14 @@ export function Receipt({ movement }: { movement: Movement }) {
   );
 }
 
-function lineValue(line: ReviewLine): string {
-  if (line.value === null) return 'Not set';
-  return typeof line.value === 'string' ? line.value : formatMoney(line.value);
+function LineValue({ line }: { line: ReviewLine }) {
+  if (line.value === null) return <>Not set</>;
+  if (typeof line.value === 'string') return <>{line.value}</>;
+  return (
+    <span dir="ltr">
+      {formatMoney(line.value)} <TestMark money={line.value} />
+    </span>
+  );
 }
 
 /** True when every line the customer is agreeing to has a value. */
@@ -156,7 +187,7 @@ export function Review({ review, onConfirm, onEdit }: { review: ReviewData; onCo
           <div key={l.label} data-total={l === review.total || undefined} data-unset={l.value === null || undefined}>
             <dt>{l.label}</dt>
             <dd>
-              {lineValue(l)}
+              <LineValue line={l} />
               {l.note ? <span className="lt-kv-note">{l.note}</span> : null}
             </dd>
           </div>
@@ -189,7 +220,7 @@ export function StateView({ state }: { state: RoomState }) {
     case 'receipt':
       return <Receipt movement={state.movement} />;
     case 'confirm':
-      return <Review review={state.review} />;
+      return <Review review={state.review} onConfirm={state.onConfirm} onEdit={state.onEdit} />;
     default:
       return null;
   }
@@ -205,7 +236,7 @@ function InFlight({ items }: { items: readonly Movement[] }) {
           <li key={m.id} data-status={m.status}>
             <span className="lt-inflight-what">{m.title}</span>
             <span className="lt-inflight-amount" dir="ltr">
-              {formatMoney(m.amount)}
+              {formatMoney(m.amount)} <TestMark money={m.amount} />
             </span>
             <span className="lt-inflight-dots" aria-label={STATUS_WORD[m.status]}>
               {m.steps.map((s) => (
@@ -236,11 +267,11 @@ const BAND_MOMENTS = new Set(
     .map((m) => m.id),
 );
 
-function ago(asOf: string, now: Date): string {
+function ago(asOf: string, now: Date, locale?: string, timeZone?: string): string {
   const mins = Math.max(0, Math.round((now.getTime() - Date.parse(asOf)) / 60_000));
   if (mins < 1) return 'just now';
   if (mins < 60) return `${mins} min ago`;
-  return `at ${asOf.slice(11, 16)}`;
+  return clock(asOf, now, locale, timeZone);
 }
 
 export interface RoomFrameProps extends RoomProps {
@@ -257,7 +288,7 @@ export function RoomFrame(props: RoomFrameProps) {
   const band = legal.filter((m) => BAND_MOMENTS.has(m));
   const loading = state.kind === 'loading';
   return (
-    <RoomContext.Provider value={state}>
+    <RoomContext.Provider value={{ state, locale: props.locale, timeZone: props.timeZone, now: props.now }}>
       <div
         className="lt-room"
         data-template={template}
@@ -269,7 +300,7 @@ export function RoomFrame(props: RoomFrameProps) {
         {band.length > 0 ? (
           <div className="lt-band-slot">
             {band.map((m) => (
-              <LegalSlot key={m} moment={m} market={market} onLink={props.onRiskSummary} />
+              <LegalSlot key={m} moment={m} market={market} values={props.legalValues} onLink={props.onRiskSummary} />
             ))}
           </div>
         ) : null}
@@ -282,7 +313,7 @@ export function RoomFrame(props: RoomFrameProps) {
         </header>
         {state.kind === 'ready' && state.stale ? (
           <p className="lt-stale" data-region="stale">
-            Updated {ago(state.stale.asOf, props.now ?? new Date())}
+            Updated {ago(state.stale.asOf, props.now ?? new Date(), props.locale, props.timeZone)}
             {state.stale.onRefresh ? (
               <button type="button" className="lt-link" onClick={state.stale.onRefresh}>
                 Refresh

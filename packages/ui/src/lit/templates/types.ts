@@ -84,7 +84,7 @@ export type RoomState =
   | { kind: 'refused'; refusal: Refusal }
   | { kind: 'gated'; gate: GateReason; refusal: Refusal }
   | { kind: 'money-status'; movement: Movement }
-  | { kind: 'confirm'; review: ReviewData }
+  | { kind: 'confirm'; review: ReviewData; onConfirm?: () => void; onEdit?: () => void }
   | { kind: 'receipt'; movement: Movement };
 
 export type RoomStateKind = RoomState['kind'];
@@ -132,6 +132,10 @@ export interface RoomProps {
   locale?: string;
   /** The clock for "updated N min ago"; screenshots freeze it. */
   now?: Date;
+  /** IANA zone for times; the browser's own when not given. */
+  timeZone?: string;
+  /** Live values a fixed legal text states ({percent} in the CFD warning); blank refuses. */
+  legalValues?: Readonly<Record<string, string | undefined>>;
 }
 
 export type { TemplateId };

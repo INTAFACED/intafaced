@@ -84,16 +84,30 @@ export function AreaChart(props: SeriesProps) {
 }
 
 export function Bars({ label, bars, asset }: { label: string; bars: readonly { label: string; value: DecimalString }[]; asset: string }) {
-  const ys = bars.map((b) => Math.max(0, plot(b.value)));
-  const max = Math.max(...ys, 1);
+  // Negative bars hang below a zero baseline, so a loss never draws as nothing.
+  const ys = bars.map((b) => plot(b.value));
+  const max = Math.max(0, ...ys);
+  const min = Math.min(0, ...ys);
+  const span = max - min || 1;
+  const y = (v: number) => H - PAD - ((v - min) * (H - 2 * PAD)) / span;
   const w = (W - 2 * PAD) / Math.max(1, bars.length);
   return (
     <figure className="lt-chart lt-bars">
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={label}>
         {ys.map((v, i) => {
-          const h = (v * (H - 2 * PAD)) / max;
+          const top = Math.min(y(v), y(0));
+          const h = Math.abs(y(v) - y(0));
           return (
-            <rect key={bars[i]!.label} className="lt-bar" x={PAD + i * w + w * 0.15} y={H - PAD - h} width={w * 0.7} height={h} rx={4} />
+            <rect
+              key={bars[i]!.label}
+              className="lt-bar"
+              data-negative={v < 0 || undefined}
+              x={PAD + i * w + w * 0.15}
+              y={top}
+              width={w * 0.7}
+              height={h}
+              rx={4}
+            />
           );
         })}
       </svg>
