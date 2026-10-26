@@ -391,6 +391,13 @@ describe('states never contradict themselves', () => {
     expect(out).toContain('lt-locked');
   });
 
+  it('the risk band slot tells the focus tracker it covers the top; direction colours stay inside rooms', () => {
+    const out = html(ROOMS.overview({ mode: 'simple', state: 'ready', market: 'uk' }));
+    expect(out).toContain('class="lt-band-slot" data-obscures="top"');
+    const css = readFileSync(fileURLToPath(new URL('./templates.css', import.meta.url)), 'utf8');
+    expect(css).not.toMatch(/^\[data-dir=/m);
+  });
+
   it('behind a gate, tabs and section indexes stay live, outside the gate, before its card', () => {
     for (const [room, marker] of [
       ['catalogue', 'Flexible'],

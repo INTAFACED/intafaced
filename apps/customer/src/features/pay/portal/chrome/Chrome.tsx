@@ -232,7 +232,7 @@ function PortalSearch() {
 export function MerchantTopBar({ path, account }: { path: string; account: ReactNode }) {
   const { t } = chromeCopy.useCopy();
   return (
-    <header className="pfo-top">
+    <header className="pfo-top" data-obscures="top">
       <div className="pfo-phone">
         <PhoneMenu key={path} here={path} />
       </div>
