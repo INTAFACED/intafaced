@@ -5,6 +5,7 @@
  */
 import * as React from 'react';
 import { Skeleton, type SkeletonShape } from '../components/b2-basics.js';
+import { Gate } from '../components/index.js';
 import { BAND_MOMENTS, RegistryLegalSlot } from './legal/LegalSlot.js';
 import { formatMoney } from './money.js';
 import type {
@@ -45,7 +46,10 @@ export interface RegionProps {
   ghost?: GhostShape;
   /** Landmark label when the region is a section; behind a gate it heads the locked outline. */
   label?: string;
-  /** Stays usable behind a gate ("Talk to a person", a door's room tabs). */
+  /**
+   * Stays usable behind a gate ("Talk to a person", a door's room tabs). Behind a gate the template renders it
+   * outside the Gate (RoomFrame's `liveBefore` / `liveAfter`), so here it draws nothing.
+   */
   live?: boolean;
   children?: React.ReactNode;
 }
@@ -58,6 +62,7 @@ export const WHOLE_ROOM_STATES: ReadonlySet<RoomState['kind']> = WHOLE_ROOM;
 /** One region of a template. Rooms never render these directly; templates do. */
 export function Region({ name, data = false, primary = false, ghost = 'rows', label, live = false, children }: RegionProps) {
   const { state } = React.useContext(RoomContext);
+  if (live && state.kind === 'gated') return null;
   // `undefined` means the room doesn't use this region; `null` means its data isn't here yet, so a data region
   // still draws its skeleton while loading and its locked outline behind a gate.
   const unused = children === undefined || children === false;
@@ -81,18 +86,13 @@ export function Region({ name, data = false, primary = false, ghost = 'rows', la
   let body: React.ReactNode = children;
   if (held !== undefined) body = <p className="lt-held">{held}</p>;
   else if (data && state.kind === 'loading') body = <Skeleton shape={ghost} />;
-  // Behind a gate a labelled data region shows its locked outline; an unlabelled one holds controls, dimmed.
-  else if (data && state.kind === 'gated' && label) body = <Locked shape={ghost} label={label} />;
-  const dimmed = state.kind === 'gated' && !live && !(data && label);
+  // Behind a gate a data region shows only its locked outline, never figures; the Gate makes it all inert.
+  else if (data && state.kind === 'gated') {
+    if (!label && children === null) return null;
+    body = <Locked shape={ghost} label={label} />;
+  }
   return (
-    <section
-      className="lt-region"
-      data-region={name}
-      data-held={held !== undefined || undefined}
-      data-dimmed={dimmed || undefined}
-      inert={dimmed || undefined}
-      aria-label={label}
-    >
+    <section className="lt-region" data-region={name} data-held={held !== undefined || undefined} aria-label={label}>
       {body}
     </section>
   );
@@ -198,7 +198,10 @@ export function Receipt({ movement }: { movement: Movement }) {
     >
       <p className="lt-receipt-status">{statusWord(movement)}</p>
       <p className="lt-figure lt-figure-hero">
-        <bdi dir="ltr">{formatMoney(movement.amount)}</bdi> <TestMark money={movement.amount} />
+        <bdi dir="ltr" data-ltr="">
+          {formatMoney(movement.amount)}
+        </bdi>{' '}
+        <TestMark money={movement.amount} />
       </p>
       {movement.counterparty ? <p className="lt-receipt-to">{movement.counterparty}</p> : null}
       {movement.status === 'failed' && movement.whereNow ? <p className="lt-receipt-where">{movement.whereNow}</p> : null}
@@ -230,7 +233,7 @@ function LineValue({ line }: { line: ReviewLine }) {
   if (line.value === null) return <>Not set</>;
   if (typeof line.value === 'string') return <>{line.value}</>;
   return (
-    <span dir="ltr">
+    <span dir="ltr" data-ltr="">
       {formatMoney(line.value)} <TestMark money={line.value} />
     </span>
   );
@@ -260,9 +263,19 @@ export function Review({ review, onConfirm, onEdit }: { review: ReviewData; onCo
           </div>
         ))}
       </dl>
-      {legal.map((m) => (
-        <RegistryLegalSlot key={m} moment={m} market={market} values={legalValues} />
-      ))}
+      {legal.length > 0 ? (
+        <div className="lt-live">
+          {legal.map((m) =>
+            m === 'scam-stop' ? (
+              <div key={m} data-slot="scam-warning">
+                <RegistryLegalSlot moment={m} market={market} values={legalValues} />
+              </div>
+            ) : (
+              <RegistryLegalSlot key={m} moment={m} market={market} values={legalValues} />
+            ),
+          )}
+        </div>
+      ) : null}
       {complete ? (
         <div className="lt-actions lt-review-actions">
           <button type="button" className="lt-button lt-button-primary" onClick={onConfirm}>
@@ -305,7 +318,7 @@ function InFlight({ items }: { items: readonly Movement[] }) {
         {items.map((m) => (
           <li key={m.id} data-status={m.status}>
             <span className="lt-inflight-what">{m.title}</span>
-            <span className="lt-inflight-amount" dir="ltr">
+            <span className="lt-inflight-amount" dir="ltr" data-ltr="">
               {formatMoney(m.amount)} <TestMark money={m.amount} />
             </span>
             <span className="lt-inflight-dots" aria-label={statusWord(m)}>
@@ -341,6 +354,10 @@ function ago(asOf: string, now: Date, locale?: string, timeZone?: string): strin
 export interface RoomFrameProps extends RoomProps {
   template: TemplateId;
   children: React.ReactNode;
+  /** Live regions drawn outside the Gate when gated: before it (a door's room tabs, a section index)... */
+  liveBefore?: React.ReactNode;
+  /** ...and after it ("Talk to a person"), so a gated customer can always reach a person. */
+  liveAfter?: React.ReactNode;
 }
 
 /**
@@ -392,17 +409,33 @@ export function RoomFrame(props: RoomFrameProps) {
         ) : null}
         <Notices notices={props.notices ?? []} />
         {state.kind === 'ready' && state.partial ? <RefusalBox refusal={state.partial.missing} /> : null}
-        {state.kind === 'gated' ? (
-          <div className="lt-gate" data-gate={state.gate}>
-            <RefusalBox refusal={state.refusal} />
-          </div>
-        ) : null}
         {loading ? (
           <p className="lt-sr" role="status">
             Loading {title}
           </p>
         ) : null}
-        <div className="lt-body">{props.children}</div>
+        {state.kind === 'gated' ? (
+          <div className="lt-body">
+            {props.liveBefore ? <div className="lt-live">{props.liveBefore}</div> : null}
+            <Gate
+              reason={state.gate}
+              title={state.refusal.title}
+              body={state.refusal.body}
+              action={
+                state.refusal.action ? (
+                  <a className="lt-button lt-button-primary" href={state.refusal.action.href}>
+                    {state.refusal.action.label}
+                  </a>
+                ) : undefined
+              }
+            >
+              <div className="lt-body">{props.children}</div>
+            </Gate>
+            {props.liveAfter ? <div className="lt-live">{props.liveAfter}</div> : null}
+          </div>
+        ) : (
+          <div className="lt-body">{props.children}</div>
+        )}
         <InFlight items={props.inFlight ?? []} />
       </div>
     </RoomContext.Provider>

@@ -32,7 +32,7 @@ export interface OverviewProps extends RoomProps {
 
 export function OverviewTemplate(p: OverviewProps) {
   return (
-    <RoomFrame {...p} template="overview">
+    <RoomFrame {...p} template="overview" liveBefore={p.rooms}>
       <Region name="rooms" ghost="keys" live>
         {p.rooms}
       </Region>
@@ -225,7 +225,7 @@ function stepNow(p: FlowProps): number | null {
 export function FlowTemplate(p: FlowProps) {
   const current = stepNow(p);
   return (
-    <RoomFrame {...p} template="flow">
+    <RoomFrame {...p} template="flow" liveAfter={p.help}>
       {p.steps && current !== null ? <Stepper labels={p.steps.labels} current={current} /> : null}
       <div className="lt-grid lt-grid-flow">
         <div className="lt-col-main">
@@ -267,7 +267,7 @@ export interface SettingsProps extends RoomProps {
 
 export function SettingsTemplate(p: SettingsProps) {
   return (
-    <RoomFrame {...p} template="settings">
+    <RoomFrame {...p} template="settings" liveBefore={p.index}>
       <div className="lt-grid lt-grid-settings">
         <Region name="index" label="Sections" ghost="rows" live>
           {p.index}
@@ -408,7 +408,7 @@ export interface ReadingProps extends RoomProps {
 /** Simple and Pro show the same content here; Pro only changes density. */
 export function ReadingTemplate(p: ReadingProps) {
   return (
-    <RoomFrame {...p} template="reading">
+    <RoomFrame {...p} template="reading" liveAfter={p.contact}>
       <Region name="meta" data ghost="text">
         {p.meta}
       </Region>

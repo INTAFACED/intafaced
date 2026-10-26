@@ -42,11 +42,6 @@
   min-block-size: var(--lit-legal-band-min-h);
 }
 
-/* The rule's text is bold where the rule says so (COBS 4.12A.11R band, EU credit warning). */
-.lt-legal-bold {
-  font-weight: 700;
-}
-
 /* ---- title row, stale line ---- */
 
 .lt-title-row {
@@ -362,12 +357,14 @@
 }
 
 /*
- * Gated: the room's layout stays behind one gate card (product law: never an empty page). Data regions become
- * locked outlines with their heading and a lock, never skeleton bars, so a gate never reads as loading. Controls
- * that need the gate are dimmed; help and navigation stay at full strength.
+ * Gated: the room's layout stays under the kit's Gate (veil, inert, one card; product law: never an empty page).
+ * Data regions become locked outlines with their heading and a lock, never skeleton bars or figures, so a gate
+ * never reads as loading. Help and navigation sit outside the Gate at full strength.
  */
-.lt-region[data-dimmed] {
-  opacity: 0.45;
+.lt-live {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
 }
 
 .lt-locked {
@@ -404,10 +401,6 @@
   border: 0;
   box-shadow: none;
   padding: 0;
-}
-
-.lt-gate > .lt-refusal {
-  box-shadow: var(--lit-glass-shadow);
 }
 
 .lt-refusal,
@@ -1041,12 +1034,6 @@
 .lt-held {
   unicode-bidi: plaintext;
   text-align: start;
-}
-
-/* The fixed legal texts are English: read left to right (so "end" is the right edge), placed from the page's start. */
-[dir='rtl'] .lt-band-slot .lit-legal {
-  direction: ltr;
-  text-align: end;
 }
 
 /* ---- segmented switch (Buy or Sell) ---- */

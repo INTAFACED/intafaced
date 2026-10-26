@@ -110,7 +110,7 @@ export function KeyValue({ rows, label }: { rows: readonly KeyValueRow[]; label?
         <div key={r.label} data-total={r.total || undefined} data-unset={r.unset || undefined}>
           <dt>{r.label}</dt>
           <dd>
-            <bdi className={r.ltr ? 'lt-mono' : undefined} dir={r.ltr ? 'ltr' : undefined}>
+            <bdi className={r.ltr ? 'lt-mono' : undefined} dir={r.ltr ? 'ltr' : undefined} data-ltr={r.ltr ? '' : undefined}>
               {r.value}
             </bdi>
             {r.note ? <span className="lt-kv-note">{r.note}</span> : null}

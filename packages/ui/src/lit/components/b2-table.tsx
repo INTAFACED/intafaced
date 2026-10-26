@@ -54,10 +54,14 @@ export function Table<Row>({ caption, columns, rows, rowKey, mode = 'simple', ro
                     {/* The cell lays out from the page's direction; its text is isolated so it keeps its own. */}
                     {i === 0 && rowHref ? (
                       <a className="lt-row-link" href={rowHref(row)}>
-                        <bdi dir={c.ltr ? 'ltr' : undefined}>{content}</bdi>
+                        <bdi dir={c.ltr ? 'ltr' : undefined} data-ltr={c.ltr ? '' : undefined}>
+                          {content}
+                        </bdi>
                       </a>
                     ) : (
-                      <bdi dir={c.ltr ? 'ltr' : undefined}>{content}</bdi>
+                      <bdi dir={c.ltr ? 'ltr' : undefined} data-ltr={c.ltr ? '' : undefined}>
+                        {content}
+                      </bdi>
                     )}
                   </td>
                 );
