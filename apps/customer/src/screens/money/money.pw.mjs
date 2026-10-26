@@ -200,8 +200,12 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
   await expect(page.getByTestId('money-change')).not.toContainText('from price moves'); // the bank's own figure, not a derivation
 
   // Unpriced coins: "Excludes 1 coin" with the list in a tooltip.
-  await expect(page.getByTestId('money-head').getByTestId('money-note')).toContainText('Excludes 1 coin (no USD price)');
-  await expect(page.getByTestId('money-head').getByTestId('money-note')).toContainText('Not counted: ZED');
+  await expect(page.getByTestId('money-head').locator(':is([data-testid="money-note"], [data-testid="derived-total-note"])')).toContainText(
+    'Excludes 1 coin (no USD price)',
+  );
+  await expect(page.getByTestId('money-head').locator(':is([data-testid="money-note"], [data-testid="derived-total-note"])')).toContainText(
+    'Not counted: ZED',
+  );
 
   // Actions: only live ones, Buy is the one primary. Simple Buy and Sell open the Buy card (critic H1).
   expect(await texts(page.locator('[data-testid="money-actions"] > *'))).toEqual(['Buy', 'Sell', 'Convert', 'Send', 'Receive']);

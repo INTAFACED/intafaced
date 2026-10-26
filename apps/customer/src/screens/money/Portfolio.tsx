@@ -192,7 +192,7 @@ function Headline({ view, hidden, copy, pro }: { view: MoneyView; hidden: boolea
           <InfoTip text={t('Today change rule')} label={t('Today change rule label')} />
         </p>
       ) : null}
-      <DerivedTotalNote source={view.source} data-testid="money-note" className="money-note" />
+      <DerivedTotalNote source={view.source} className="money-note" />
       {unpriced > 0 ? (
         <p data-testid="money-note" className="money-note">
           {unpriced === 1 ? t('Asset not counted') : t('Assets not counted', { count: unpriced })}
