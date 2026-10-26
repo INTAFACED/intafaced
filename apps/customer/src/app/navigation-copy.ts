@@ -148,7 +148,6 @@ const messages = {
   'Your tier, the volume counted toward the next one, and the snapshots':
     'Your tier, the volume counted toward the next one, and the snapshots',
   Money: 'Money',
-  Assets: 'Assets',
   'Holdings and available funds': 'Holdings and available funds',
   Holdings: 'Holdings',
   'Your assets in one ledger': 'Your assets in one ledger',
@@ -563,7 +562,6 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     'Your tier, the volume counted toward the next one, and the snapshots':
       'Tu nivel, el volumen contado para el siguiente y las instantáneas',
     Money: 'Dinero',
-    Assets: 'Activos',
     'Holdings and available funds': 'Activos y fondos disponibles',
     Holdings: 'Activos',
     'Your assets in one ledger': 'Tus activos en un único libro contable',
@@ -908,7 +906,6 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     'My fee tier': 'Mon niveau de frais',
     'Your tier, the volume counted toward the next one, and the snapshots': 'Votre niveau, le volume compté pour le suivant et les relevés',
     Money: 'Argent',
-    Assets: 'Actifs',
     'Holdings and available funds': 'Avoirs et fonds disponibles',
     Holdings: 'Avoirs',
     'Your assets in one ledger': 'Vos actifs dans un seul registre comptable',

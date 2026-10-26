@@ -1,12 +1,12 @@
 .token-governance {
   display: grid;
-  gap: 24px;
+  gap: var(--if-space-6);
   min-width: 0;
 }
 .token-governance-layout {
   display: grid;
   grid-template-columns: minmax(260px, 352px) minmax(0, 1fr);
-  gap: var(--spacing-32);
+  gap: var(--if-space-8);
   align-items: start;
 }
 .token-governance-layout > *,
@@ -17,18 +17,18 @@
 .token-proposal-row {
   display: flex;
   justify-content: space-between;
-  gap: var(--spacing-12);
+  gap: var(--if-space-3);
   align-items: start;
 }
 .token-governance-heading {
   align-items: center;
-  margin-bottom: var(--spacing-16);
+  margin-bottom: var(--if-space-4);
 }
 .token-governance-filters {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--spacing-12);
-  margin-bottom: var(--spacing-16);
+  gap: var(--if-space-3);
+  margin-bottom: var(--if-space-4);
 }
 .token-proposal-list {
   display: grid;
@@ -36,7 +36,7 @@
 .token-proposal-row {
   width: 100%;
   min-height: 72px;
-  padding: var(--spacing-16) var(--spacing-12);
+  padding: var(--if-space-4) var(--if-space-3);
   border-radius: 0;
   border-bottom: 1px solid var(--color-divider);
   text-align: start;
@@ -47,7 +47,7 @@
 }
 .token-proposal-row > span:first-child {
   display: grid;
-  gap: var(--spacing-8);
+  gap: var(--if-space-2);
   min-width: 0;
 }
 .token-proposal-row strong,
@@ -59,38 +59,38 @@
   width: 76px;
   flex-shrink: 0;
   text-align: end;
-  font-size: 13px;
+  font-size: var(--if-text-sm);
 }
 .token-proposal-row code {
-  font-size: 12px;
+  font-size: var(--if-text-xs);
   color: var(--color-muted);
 }
 .token-proposal-row small {
   color: var(--color-muted);
 }
 .token-proposal-title {
-  font-size: 24px;
+  font-size: var(--if-text-xl);
   line-height: 32px;
   font-weight: 500;
-  margin-bottom: var(--spacing-12);
+  margin-bottom: var(--if-space-3);
 }
 .token-proposal-body,
 .token-ballot-review pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   overflow: auto;
-  padding: var(--spacing-16);
+  padding: var(--if-space-4);
   background: var(--color-shell);
-  border-radius: var(--radius-4);
+  border-radius: var(--if-r-xs);
   font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 24px;
+  font-size: var(--if-text-base);
+  line-height: var(--if-leading-md);
   max-height: 420px;
 }
 .token-proposal-section {
   display: grid;
-  gap: var(--spacing-12);
-  margin-top: 24px;
+  gap: var(--if-space-3);
+  margin-top: var(--if-space-6);
 }
 .token-tally {
   display: grid;
@@ -99,8 +99,8 @@
 .token-tally > div {
   display: flex;
   justify-content: space-between;
-  gap: var(--spacing-16);
-  padding: var(--spacing-12) 0;
+  gap: var(--if-space-4);
+  padding: var(--if-space-3) 0;
   border-bottom: 1px solid var(--color-divider);
   align-items: baseline;
 }
@@ -109,7 +109,7 @@
 }
 .token-tally dd {
   margin: 0;
-  font-size: 20px;
+  font-size: var(--if-text-lg);
   font-weight: 500;
   overflow-wrap: anywhere;
   min-width: 0;
@@ -120,11 +120,11 @@
   overflow-wrap: anywhere;
 }
 .token-ballot-context .more-details {
-  margin-bottom: var(--spacing-16);
+  margin-bottom: var(--if-space-4);
 }
 .token-ballot-review {
   display: grid;
-  gap: var(--spacing-16);
+  gap: var(--if-space-4);
   min-width: 0;
 }
 .token-ballot-review .more-details {
@@ -133,7 +133,7 @@
 .token-create > summary {
   cursor: pointer;
   font-weight: 500;
-  padding: var(--spacing-16) 0;
+  padding: var(--if-space-4) 0;
 }
 @media (max-width: 900px) {
   .token-governance-layout {
@@ -149,8 +149,8 @@
     grid-template-columns: minmax(0, 1fr);
   }
   .token-proposal-title {
-    font-size: 20px;
-    line-height: 28px;
+    font-size: var(--if-text-lg);
+    line-height: var(--if-leading-lg);
   }
   .token-proposal-section .actions > .button,
   .token-ballot-context .actions > .button {
@@ -159,11 +159,11 @@
   .token-tally > div {
     flex-direction: column;
     align-items: stretch;
-    gap: var(--spacing-8);
+    gap: var(--if-space-2);
   }
   .token-tally dt {
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--if-text-sm);
+    line-height: var(--if-leading-base);
   }
   .token-tally dd {
     font-size: 18px;
@@ -174,7 +174,7 @@
 }
 @media (max-width: 360px) {
   .token-tally dd {
-    font-size: 16px;
-    line-height: 24px;
+    font-size: var(--if-text-md);
+    line-height: var(--if-leading-md);
   }
 }

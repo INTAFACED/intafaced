@@ -2,15 +2,15 @@
 .money-earn-compare__picker {
   display: flex;
   flex-wrap: wrap;
-  gap: 0 24px;
-  margin: 0 0 12px;
+  gap: 0 var(--if-space-6);
+  margin: 0 0 var(--if-space-3);
   padding: 0;
   border: 0;
 }
 .money-earn-compare__pick {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--if-space-2);
   min-width: 0;
 }
 .money-table-scroll {
@@ -21,13 +21,13 @@
 .money-earn-history__table {
   width: 100%;
   border-collapse: collapse;
-  font-size: var(--text-14);
+  font-size: var(--if-text-base);
 }
 .money-earn-compare__table th,
 .money-earn-compare__table td,
 .money-earn-history__table th,
 .money-earn-history__table td {
-  padding: 8px 12px;
+  padding: var(--if-space-2) var(--if-space-3);
   border-bottom: 1px solid var(--color-divider);
   text-align: left;
   vertical-align: top;
@@ -35,7 +35,7 @@
 .money-earn-compare__table caption {
   caption-side: bottom;
   text-align: left;
-  padding-top: 8px;
+  padding-top: var(--if-space-2);
 }
 .money-earn-compare__table tr[data-differs='true'] td {
   font-weight: 600;
@@ -47,45 +47,45 @@
 .money-earn-facts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 12px 24px;
+  gap: var(--if-space-3) var(--if-space-6);
   margin: 0;
 }
 .money-earn-facts dt {
   color: var(--color-muted);
-  font-size: var(--text-14);
+  font-size: var(--if-text-base);
 }
 .money-earn-facts dd {
-  margin: 4px 0 0;
+  margin: var(--if-space-1) 0 0;
 }
 .money-earn-history {
-  margin: 0 0 12px;
+  margin: 0 0 var(--if-space-3);
 }
 .money-earn-history svg {
   display: block;
   width: 100%;
   height: 160px;
-  color: var(--color-accent);
+  color: var(--if-accent-text);
   border-bottom: 1px solid var(--color-divider);
 }
 /* The pool page's calculator (BK-earn-03): two fields side by side where there is room, stacked on a phone. */
 .money-earn-calculator {
-  margin: 0 0 16px;
+  margin: 0 0 var(--if-space-4);
 }
 .money-earn-calculator__fields {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
-  gap: 12px;
+  gap: var(--if-space-3);
 }
 /* A saving's term, auto-renew choice and payout schedule (BK-earn-03). */
 .money-earn-term,
 .money-earn-schedule {
   display: grid;
-  gap: 4px;
-  margin: 8px 0;
-  padding-top: 8px;
+  gap: var(--if-space-1);
+  margin: var(--if-space-2) 0;
+  padding-top: var(--if-space-2);
   border-top: 1px solid var(--color-divider);
 }
 .money-earn-schedule h4 {
   margin: 0;
-  font-size: var(--text-14);
+  font-size: var(--if-text-base);
 }

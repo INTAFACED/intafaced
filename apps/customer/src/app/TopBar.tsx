@@ -245,21 +245,12 @@ export function TopBar({
   useBannerOffset();
   const notificationsLive = isFeatureLive('notifications');
   const tabs = tabSpecs(layoutMode, Boolean(session) || restoring);
-  const moreTab = tabs.find((tab) => tab.door === 'More')!;
   const here = typeof location === 'undefined' ? path : path + location.search;
   const signIn = `/login?redirect=${encodeURIComponent(safeReturnTo(currentReturnLocation()))}`;
   if (isMerchantArea(path)) return <MerchantTopBar path={path} account={<AccountButton onSignOut={onSignOut} />} />;
   return (
     <>
       <header className="tb">
-        <a
-          className="tb-more"
-          href={moreTab.href}
-          aria-label={doorLabel('More', language)}
-          aria-current={door === 'More' ? 'page' : undefined}
-        >
-          <ShellIcon name="grid" size={18} />
-        </a>
         <a className="tb-brand" href="/home" aria-label={t('Go to Home')}>
           <Wordmark />
         </a>
@@ -306,7 +297,7 @@ export function TopBar({
   );
 }
 
-/** Phone (< 768): the doors move to a bottom bar, Home, Bank, Trade, Pay, Assets. */
+/** Phone (< 768): the five doors move to a bottom bar, in the computer's order: Home, Money, Trade, Pay, More. */
 export function MobileTabs({ door, language }: { door: Door | undefined; language: Parameters<typeof doorLabel>[1] }) {
   const { t } = shellCopy.useCopy();
   const { layoutMode } = usePreferences();

@@ -122,6 +122,27 @@ describe('contrast (WCAG 2.2 AA) on the surfaces the tokens sit on', () => {
     expect(contrast(t['on-down']!, t['down']!)).toBeGreaterThanOrEqual(4.5);
   });
 
+  it('keeps faint text (fg-3) at WCAG AA on the surfaces text sits on', () => {
+    for (const surface of ['bg', 'panel', 'hover', 'field'] as const) {
+      expect(contrast(colors['fg-3'], colors[surface]), surface).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it('defines the focus ring the screens use', () => {
+    expect(css).toContain('--if-focus: var(--if-lime);');
+    expect(themeCss).toContain('--color-focus: var(--if-focus);');
+  });
+
+  it('gives the accent as text its own name, today the same lime', () => {
+    expect(css).toContain('--if-accent-text: var(--if-lime);');
+    expect(themeCss).toContain('--color-accent-text: var(--if-accent-text);');
+    // Today it is the lime, so the lime is held to AA on the surfaces accent text sits on.
+    expect(aliases['accent-text']).toBe('var(--if-lime)');
+    for (const surface of ['bg', 'panel', 'hover', 'field'] as const) {
+      expect(contrast(colors.lime, colors[surface]), surface).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
   it('only overrides tokens that exist', () => {
     for (const key of Object.keys(redUpOverrides)) expect(key in colors).toBe(true);
   });
@@ -221,7 +242,8 @@ describe('theme.css (Tailwind @theme mapping)', () => {
 });
 
 describe('looks: stable names, values per look', () => {
-  const names = new Set([...Object.keys(cssVars()), ...Object.keys(legacyVars)]);
+  // Only --if-* names: customer-legacy.css loads after tokens.css, so a look could not override an older name.
+  const names = new Set(Object.keys(cssVars()));
 
   it('has the default look, which keeps the values written in tokens.ts', () => {
     expect(looks[defaultLook]).toEqual({});

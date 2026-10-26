@@ -19,7 +19,7 @@
     box-sizing: border-box;
   }
   .if-desk--state {
-    padding: 64px 24px;
+    padding: var(--if-space-16) var(--if-space-6);
     background: var(--if-bg);
   }
   .if-desk :where(a) {
@@ -28,7 +28,7 @@
   }
   .if-desk :focus-visible,
   .dk-review :focus-visible {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: 2px;
   }
   .if-desk :where(h1, h2, p, ul, dl, dd) {
@@ -57,7 +57,7 @@
     min-height: 0;
   }
   .dk-tabs {
-    padding: 0 16px;
+    padding: 0 var(--if-space-4);
     flex-shrink: 0;
   }
   .dk-tabs--grow {
@@ -69,9 +69,9 @@
     display: flex;
     align-items: stretch;
     height: 44px;
-    padding: 0 16px;
+    padding: 0 var(--if-space-4);
     border-bottom: 1px solid var(--if-line);
-    font: 500 14px/20px var(--if-font-ui);
+    font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     flex-shrink: 0;
   }
   .dk-tab-title span {
@@ -84,9 +84,9 @@
   .dk-ticker {
     display: flex;
     align-items: center;
-    gap: 24px;
+    gap: var(--if-space-6);
     height: 48px;
-    padding: 0 16px;
+    padding: 0 var(--if-space-4);
     min-width: 0;
     overflow: hidden;
     background: var(--if-bg);
@@ -94,11 +94,11 @@
   .dk-ticker-pair {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--if-space-2);
     flex-shrink: 0;
   }
   .dk-pair {
-    font: 600 20px/28px var(--if-font-ui);
+    font: 600 var(--if-text-lg)/var(--if-leading-lg) var(--if-font-ui);
   }
   .dk-icon-btn {
     display: inline-flex;
@@ -108,7 +108,7 @@
     height: 28px;
     padding: 0;
     border: 0;
-    border-radius: 8px;
+    border-radius: var(--if-r-sm);
     background: transparent;
     color: var(--if-fg-2);
     cursor: pointer;
@@ -125,13 +125,13 @@
     display: flex;
     flex-direction: column;
     justify-content: center;
-    gap: 2px;
+    gap: var(--if-space-0-5);
     min-width: 120px;
     flex-shrink: 0;
   }
   .dk-last {
     align-self: flex-start;
-    font: 600 16px/20px var(--if-font-ui);
+    font: 600 var(--if-text-md)/var(--if-leading-base) var(--if-font-ui);
     color: var(--if-fg);
   }
   .dk-last[data-direction='up'],
@@ -143,27 +143,27 @@
     color: var(--if-down-text);
   }
   .dk-change {
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
   }
   .dk-stats {
     display: flex;
-    gap: 24px;
+    gap: var(--if-space-6);
     min-width: 0;
     overflow: hidden;
   }
   .dk-stat {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--if-space-0-5);
     min-width: 0;
     white-space: nowrap;
   }
   .dk-stat-label {
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .dk-stat-value {
-    font: 500 12px/16px var(--if-font-ui);
+    font: 500 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg);
   }
 
@@ -198,12 +198,12 @@
   .dk-mk-search {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--if-space-2);
     height: 32px;
-    margin: 12px 16px 0;
-    padding: 0 8px;
+    margin: var(--if-space-3) var(--if-space-4) 0;
+    padding: 0 var(--if-space-2);
     border: 1px solid var(--if-line);
-    border-radius: 8px;
+    border-radius: var(--if-r-sm);
     background: var(--if-field);
     color: var(--if-fg-2);
     flex-shrink: 0;
@@ -214,36 +214,36 @@
     background: transparent;
     border: 0;
     color: var(--if-fg);
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     outline: none;
   }
   .dk-mk-search input::placeholder {
     color: var(--if-fg-3);
   }
   .dk-mk-search:focus-within {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: 2px;
   }
   .dk-mk-chips,
   .dk-chips {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .dk-mk-chips {
-    padding: 12px 16px 0;
+    padding: var(--if-space-3) var(--if-space-4) 0;
     flex-shrink: 0;
   }
   .dk-mk-chips button,
   .dk-chips button,
   .dk-more {
     height: 28px;
-    padding: 0 8px;
+    padding: 0 var(--if-space-2);
     border: 0;
-    border-radius: 4px;
+    border-radius: var(--if-r-xs);
     background: transparent;
     color: var(--if-fg-2);
-    font: 500 13px/18px var(--if-font-ui);
+    font: 500 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
     cursor: pointer;
     transition:
       background-color var(--if-t-fast) var(--if-ease),
@@ -267,19 +267,19 @@
   .dk-mk-head {
     display: flex;
     justify-content: space-between;
-    gap: 8px;
-    padding: 12px 16px 8px;
+    gap: var(--if-space-2);
+    padding: var(--if-space-3) var(--if-space-4) var(--if-space-2);
     flex-shrink: 0;
   }
   .dk-mk-head button {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--if-space-1);
     padding: 0;
     border: 0;
     background: transparent;
     color: var(--if-fg-2);
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     cursor: pointer;
   }
   .dk-mk-head button:hover {
@@ -302,7 +302,7 @@
     display: flex;
     align-items: center;
     min-height: 48px;
-    padding: 0 16px 0 8px;
+    padding: 0 var(--if-space-4) 0 var(--if-space-2);
     transition: background-color var(--if-t-fast) var(--if-ease);
   }
   .dk-mk-row:hover,
@@ -314,48 +314,48 @@
     color: var(--if-line-stronger);
   }
   .dk-mk-star[aria-pressed='true'] {
-    color: var(--if-lime);
+    color: var(--if-accent-text);
   }
   .dk-mk-link {
     display: flex;
     flex: 1;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--if-space-2);
     min-width: 0;
     min-height: 48px;
-    padding: 4px 0;
+    padding: var(--if-space-1) 0;
   }
   .dk-mk-name,
   .dk-mk-figures {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--if-space-0-5);
     min-width: 0;
   }
   .dk-mk-figures {
     align-items: flex-end;
   }
   .dk-mk-pair {
-    font: 500 13px/18px var(--if-font-ui);
+    font: 500 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
     color: var(--if-fg);
   }
   .dk-mk-sub {
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .dk-mk-price {
-    font: 400 13px/18px var(--if-font-ui);
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
     color: var(--if-fg);
   }
   .dk-mk-change {
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
   }
   .dk-mk-skeleton {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    padding: 0 16px;
+    gap: var(--if-space-1);
+    padding: 0 var(--if-space-4);
   }
 
   /* Keep the complete ticket and monitoring tabs reachable in the desktop viewport. */
@@ -376,9 +376,9 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--if-space-3);
     height: 40px;
-    padding: 0 12px;
+    padding: 0 var(--if-space-3);
     flex-shrink: 0;
     overflow-x: auto;
   }
@@ -398,25 +398,25 @@
   .dk-info {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding: 16px;
+    gap: var(--if-space-3);
+    padding: var(--if-space-4);
     max-width: 480px;
   }
   .dk-info h2 {
-    font: 600 16px/24px var(--if-font-ui);
+    font: 600 var(--if-text-md)/var(--if-leading-md) var(--if-font-ui);
   }
   .dk-info dl > div {
     display: flex;
     justify-content: space-between;
-    padding: 8px 0;
+    padding: var(--if-space-2) 0;
     border-bottom: 1px solid var(--if-line);
-    font: 400 13px/18px var(--if-font-ui);
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
   }
   .dk-info dt {
     color: var(--if-fg-2);
   }
   .dk-info p {
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
 
@@ -432,12 +432,12 @@
     align-items: center;
     justify-content: space-between;
     height: 40px;
-    padding: 0 12px;
+    padding: 0 var(--if-space-3);
     flex-shrink: 0;
   }
   .dk-bk-views {
     display: flex;
-    gap: 4px;
+    gap: var(--if-space-1);
   }
   .dk-bk-views button {
     display: inline-flex;
@@ -447,7 +447,7 @@
     height: 28px;
     padding: 0;
     border: 0;
-    border-radius: 4px;
+    border-radius: var(--if-r-xs);
     background: transparent;
     cursor: pointer;
   }
@@ -471,8 +471,8 @@
     grid-template-columns: 1fr 1fr 1fr;
     align-items: center;
     height: 24px;
-    padding: 0 12px;
-    font: 400 12px/16px var(--if-font-ui);
+    padding: 0 var(--if-space-3);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
     flex-shrink: 0;
   }
@@ -505,8 +505,8 @@
     grid-template-columns: 1fr 1fr 1fr;
     align-items: center;
     height: 22px;
-    padding: 0 12px;
-    font: 400 12px/22px var(--if-font-ui);
+    padding: 0 var(--if-space-3);
+    font: 400 var(--if-text-xs)/22px var(--if-font-ui);
     color: var(--if-fg);
     cursor: pointer;
     flex-shrink: 0;
@@ -560,18 +560,18 @@
     display: flex;
     align-items: center;
     height: 40px;
-    padding: 0 12px;
+    padding: 0 var(--if-space-3);
     flex-shrink: 0;
-    font: 600 20px/28px var(--if-font-ui);
+    font: 600 var(--if-text-lg)/var(--if-leading-lg) var(--if-font-ui);
     color: var(--if-fg);
   }
   .dk-bk-arrow {
-    margin-left: 6px;
-    font-size: 12px;
+    margin-left: var(--if-space-1-5);
+    font-size: var(--if-text-xs);
   }
   .dk-bk-note {
-    padding: 4px 12px;
-    font: 400 12px/16px var(--if-font-ui);
+    padding: var(--if-space-1) var(--if-space-3);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .dk-bk-ratio {
@@ -579,11 +579,11 @@
     align-items: center;
     justify-content: space-between;
     height: 24px;
-    margin: 4px 12px 8px;
-    padding: 0 8px;
-    border-radius: 4px;
+    margin: var(--if-space-1) var(--if-space-3) var(--if-space-2);
+    padding: 0 var(--if-space-2);
+    border-radius: var(--if-r-xs);
     background: linear-gradient(to right, var(--if-up-bg) var(--buy), var(--if-down-bg) var(--buy));
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
   }
@@ -596,32 +596,32 @@
   .dk-bk-skeleton {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    padding: 8px 12px;
+    gap: var(--if-space-1);
+    padding: var(--if-space-2) var(--if-space-3);
   }
 
   /* Order form */
   .dk-order-body {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding: 10px 14px 12px;
+    gap: var(--if-space-3);
+    padding: var(--if-space-2-5) var(--if-space-3-5) var(--if-space-3);
   }
   .dk-forms {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 20px;
+    gap: var(--if-space-5);
   }
   .dk-form {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--if-space-1);
     min-width: 0;
   }
   .dk-percents {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .dk-percents button {
     display: inline-flex;
@@ -630,10 +630,10 @@
     height: 28px;
     padding: 0;
     border: 0;
-    border-radius: 4px;
+    border-radius: var(--if-r-xs);
     background: var(--if-field);
     color: var(--if-fg-2);
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     cursor: pointer;
     transition:
       background-color var(--if-t-fast) var(--if-ease),
@@ -650,13 +650,13 @@
   .dk-avail {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--if-space-1);
   }
   .dk-avail > div {
     display: flex;
     justify-content: space-between;
-    gap: 8px;
-    font: 400 12px/16px var(--if-font-ui);
+    gap: var(--if-space-2);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
   }
   .dk-avail dt {
     color: var(--if-fg-2);
@@ -665,14 +665,14 @@
     color: var(--if-fg);
   }
   .dk-fees {
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .dk-reason {
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--if-space-2);
     min-height: 16px;
   }
   /* A refusal or an outcome floats over what is below the ticket instead of pushing the desk down: the layout never moves. */
@@ -683,8 +683,8 @@
     left: 0;
     right: 0;
     z-index: 20;
-    padding: 8px 28px 8px 12px;
-    border-radius: 8px;
+    padding: var(--if-space-2) var(--if-space-7) var(--if-space-2) var(--if-space-3);
+    border-radius: var(--if-r-sm);
     background: var(--if-panel);
     box-shadow: 0 6px 18px rgb(0 0 0 / 0.5);
   }
@@ -701,7 +701,7 @@
     border: 0;
     background: transparent;
     color: var(--if-fg-2);
-    font: 400 16px/20px var(--if-font-ui);
+    font: 400 var(--if-text-md)/var(--if-leading-base) var(--if-font-ui);
     cursor: pointer;
   }
   .dk-dismiss:hover {
@@ -709,7 +709,7 @@
   }
   .dk-note {
     padding: 0;
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .dk-note p {
@@ -720,16 +720,16 @@
     color: var(--if-fg);
   }
   .dk-note-ref {
-    font-size: 12px;
+    font-size: var(--if-text-xs);
     color: var(--if-fg-3);
   }
   .dk-note--bad,
   .dk-note--warn {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    padding: 8px 12px;
-    border-radius: 8px;
+    gap: var(--if-space-1);
+    padding: var(--if-space-2) var(--if-space-3);
+    border-radius: var(--if-r-sm);
     background: var(--if-panel);
   }
   .dk-note--bad {
@@ -744,10 +744,10 @@
   .dk-note-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-12, 12px);
+    gap: var(--space-12, var(--if-space-3));
   }
   .dk-note-small {
-    font-size: 12px;
+    font-size: var(--if-text-xs);
     opacity: 0.8;
   }
   .dk-link {
@@ -755,8 +755,8 @@
     padding: 0;
     border: 0;
     background: transparent;
-    color: var(--if-lime);
-    font: 500 12px/16px var(--if-font-ui);
+    color: var(--if-accent-text);
+    font: 500 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     text-decoration: underline;
     cursor: pointer;
   }
@@ -770,8 +770,8 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    column-gap: 20px;
-    padding-right: 14px;
+    column-gap: var(--if-space-5);
+    padding-right: var(--if-space-3-5);
     border-bottom: 1px solid var(--if-line);
   }
   .dk-order-head .dk-tabs {
@@ -780,13 +780,13 @@
   .dk-type-more {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--if-space-1);
     height: 36px;
     padding: 0;
     border: 0;
     background: transparent;
     color: var(--if-fg-2);
-    font: 500 13px/16px var(--if-font-ui);
+    font: 500 var(--if-text-sm)/var(--if-leading-xs) var(--if-font-ui);
     cursor: pointer;
   }
   .dk-type-more:hover,
@@ -794,7 +794,7 @@
     color: var(--if-fg);
   }
   .dk-type-more:focus-visible {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: 2px;
   }
   .dk-type-menu {
@@ -802,44 +802,44 @@
   }
   .dk-type-reason {
     margin: 0;
-    padding: 6px 12px 10px;
-    font: 400 12px/16px var(--if-font-ui);
+    padding: var(--if-space-1-5) var(--if-space-3) var(--if-space-2-5);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .dk-tif {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--if-space-2);
     margin-left: auto;
     min-width: 0;
   }
   .dk-tif-label {
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
     white-space: nowrap;
   }
   .dk-expiry {
-    margin-left: 8px;
+    margin-left: var(--if-space-2);
   }
   .dk-expiry-input {
     height: 28px;
-    padding-inline: 8px;
+    padding-inline: var(--if-space-2);
     border: 1px solid var(--if-line);
     border-radius: 6px;
     background: var(--if-bg);
     color: inherit;
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
   }
   .dk-order-opts {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px 16px;
-    padding: 0 12px 8px;
+    gap: var(--if-space-2) var(--if-space-4);
+    padding: 0 var(--if-space-3) var(--if-space-2);
   }
   .dk-rules {
-    padding: 0 12px 8px;
-    font: 400 12px/16px var(--if-font-ui);
+    padding: 0 var(--if-space-3) var(--if-space-2);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .dk-rules-summary {
@@ -848,8 +848,8 @@
   .dk-rules dl > div {
     display: flex;
     justify-content: space-between;
-    gap: 8px;
-    padding: 4px 0;
+    gap: var(--if-space-2);
+    padding: var(--if-space-1) 0;
   }
   .dk-rules dd {
     margin: 0;
@@ -861,7 +861,7 @@
   }
   .dk-opt-note {
     min-width: 0;
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .dk-order-opts .dk-opt {
@@ -872,20 +872,20 @@
     max-width: 100%;
   }
   .dk-expiry-note {
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-down-text);
   }
   .dk-hfilters {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px 16px;
-    padding: 8px 12px;
+    gap: var(--if-space-2) var(--if-space-4);
+    padding: var(--if-space-2) var(--if-space-3);
   }
   .dk-hfilter {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .dk-order-link {
     color: inherit;
@@ -900,9 +900,9 @@
   .dk-changes-trigger {
     border: 0;
     background: none;
-    padding: 0 4px;
+    padding: 0 var(--if-space-1);
     color: var(--if-text-secondary);
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     text-decoration: underline;
     cursor: pointer;
   }
@@ -912,47 +912,47 @@
   }
   .dk-changes-pop {
     min-width: 240px;
-    padding: 12px;
+    padding: var(--if-space-3);
   }
   .dk-changes-title {
-    margin: 0 0 8px;
-    font: 500 12px/16px var(--if-font-ui);
+    margin: 0 0 var(--if-space-2);
+    font: 500 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
   }
   .dk-changes-note,
   .dk-changes-list {
     margin: 0;
     padding: 0;
     list-style: none;
-    font: 400 12px/18px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-sm) var(--if-font-ui);
     color: var(--if-text-secondary);
   }
   .dk-hfilter-trigger {
     min-width: 112px;
     height: 28px;
-    padding-inline: 10px;
-    font: 400 12px/16px var(--if-font-ui);
+    padding-inline: var(--if-space-2-5);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
   }
   .dk-hfilter-clear {
     border: 0;
     background: none;
     padding: 0;
     color: var(--if-fg-2);
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     text-decoration: underline;
     cursor: pointer;
   }
   .dk-tif-trigger {
     min-width: 172px;
     height: 28px;
-    padding-inline: 10px;
-    font: 400 12px/16px var(--if-font-ui);
+    padding-inline: var(--if-space-2-5);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
   }
 
   /* Fee line: this order's rate, then the listed pair */
   .dk-fees {
     display: flex;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .dk-fees-mine {
     color: var(--if-fg-3);
@@ -963,8 +963,8 @@
     flex-wrap: wrap;
     align-items: baseline;
     justify-content: space-between;
-    gap: 4px 8px;
-    font: 400 12px/16px var(--if-font-ui);
+    gap: var(--if-space-1) var(--if-space-2);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .dk-fee-asset-choice {
@@ -982,7 +982,7 @@
   }
   /* Offered: a real toggle, in the accent colour, with its pressed state drawn as well as announced. */
   .dk-fee-asset-choice[aria-pressed] {
-    color: var(--if-accent);
+    color: var(--if-accent-text);
     text-decoration: underline;
     cursor: pointer;
   }
@@ -995,25 +995,25 @@
 
   /* Table extras: order tag, row actions, cancel all, edit dialog */
   .dk-tag {
-    margin-left: 6px;
-    padding: 0 6px;
-    border-radius: 4px;
+    margin-left: var(--if-space-1-5);
+    padding: 0 var(--if-space-1-5);
+    border-radius: var(--if-r-xs);
     background: var(--if-field);
     color: var(--if-fg-2);
-    font: 500 12px/16px var(--if-font-ui);
+    font: 500 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     white-space: nowrap;
   }
   .dk-bt-actions {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .dk-cancel-all {
-    padding: 0 12px;
+    padding: 0 var(--if-space-3);
     border: 0;
     background: transparent;
     color: var(--if-fg-2);
-    font: 500 12px/16px var(--if-font-ui);
+    font: 500 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     cursor: pointer;
     white-space: nowrap;
   }
@@ -1021,13 +1021,13 @@
     color: var(--if-fg);
   }
   .dk-cancel-all:focus-visible {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: 2px;
   }
   .dk-deadman-other {
     width: 120px;
     height: 32px;
-    padding: 0 8px;
+    padding: 0 var(--if-space-2);
     border: 1px solid var(--if-line, currentColor);
     border-radius: 6px;
     background: transparent;
@@ -1043,17 +1043,17 @@
   .dk-scopes {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    margin: 12px 0 4px;
+    gap: var(--if-space-2);
+    margin: var(--if-space-3) 0 var(--if-space-1);
     padding: 0;
     border: 0;
   }
   .dk-scope {
     display: flex;
     align-items: flex-start;
-    gap: 8px;
+    gap: var(--if-space-2);
     color: var(--if-fg);
-    font: 400 14px/20px var(--if-font-ui);
+    font: 400 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     cursor: pointer;
   }
   /* The app resets native inputs to appearance: none, which leaves a radio or checkbox with no size: keep the browser's own. */
@@ -1071,14 +1071,14 @@
   .dk-scope-note {
     display: block;
     color: var(--if-fg-2);
-    font-size: 12px;
-    line-height: 16px;
+    font-size: var(--if-text-xs);
+    line-height: var(--if-leading-xs);
   }
   .dk-batch {
-    margin: 8px 0 0;
+    margin: var(--if-space-2) 0 0;
     padding: 0;
     list-style: none;
-    font: 400 13px/18px var(--if-font-ui);
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
   }
   .dk-batch-good {
     color: var(--if-fg);
@@ -1089,11 +1089,11 @@
   .dk-edit .dk-edit-fields {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    margin: 12px 0 4px;
+    gap: var(--if-space-2);
+    margin: var(--if-space-3) 0 var(--if-space-1);
   }
   .dk-edit .dk-note {
-    margin-top: 8px;
+    margin-top: var(--if-space-2);
   }
 
   /* Data status chip (ticker strip, right edge) */
@@ -1105,14 +1105,14 @@
   .dk-feed {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--if-space-1-5);
     height: 28px;
-    padding: 0 10px;
+    padding: 0 var(--if-space-2-5);
     border: 0;
     border-radius: 14px;
     background: var(--if-field);
     color: var(--if-fg-2);
-    font: 500 12px/16px var(--if-font-ui);
+    font: 500 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     cursor: pointer;
     white-space: nowrap;
   }
@@ -1120,7 +1120,7 @@
     color: var(--if-fg);
   }
   .dk-feed:focus-visible {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: 2px;
   }
   .dk-feed-dot {
@@ -1140,16 +1140,16 @@
   }
   .dk-feed-pop {
     width: 280px;
-    padding: 12px 14px;
+    padding: var(--if-space-3) var(--if-space-3-5);
   }
   .dk-feed-title {
-    margin: 0 0 8px;
-    font: 500 13px/18px var(--if-font-ui);
+    margin: 0 0 var(--if-space-2);
+    font: 500 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
   }
   .dk-feed-list {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: var(--if-space-1-5);
     margin: 0;
     padding: 0;
     list-style: none;
@@ -1157,8 +1157,8 @@
   .dk-feed-list li {
     display: flex;
     justify-content: space-between;
-    gap: 12px;
-    font: 400 12px/16px var(--if-font-ui);
+    gap: var(--if-space-3);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
   }
   .dk-feed-list li > span:first-child {
     color: var(--if-fg-2);
@@ -1170,8 +1170,8 @@
     color: var(--if-warn);
   }
   .dk-feed-note {
-    margin: 10px 0 0;
-    font: 400 12px/16px var(--if-font-ui);
+    margin: var(--if-space-2-5) 0 0;
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-3);
   }
 
@@ -1191,8 +1191,8 @@
   .dk-viewall {
     display: inline-flex;
     align-items: center;
-    padding: 0 16px;
-    font: 400 13px/18px var(--if-font-ui);
+    padding: 0 var(--if-space-4);
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
     color: var(--if-fg-2);
     white-space: nowrap;
   }
@@ -1203,30 +1203,30 @@
     flex: 1;
     min-height: 0;
     overflow-x: auto;
-    padding: 0 16px 16px;
+    padding: 0 var(--if-space-4) var(--if-space-4);
   }
   .dk-bt-skeleton {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding-top: 12px;
+    gap: var(--if-space-2);
+    padding-top: var(--if-space-3);
   }
   .dk-table {
     width: 100%;
     border-collapse: collapse;
-    font: 400 13px/18px var(--if-font-ui);
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
     white-space: nowrap;
   }
   .dk-table th {
     height: 32px;
-    padding: 0 8px;
+    padding: 0 var(--if-space-2);
     text-align: left;
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .dk-table td {
     height: 40px;
-    padding: 0 8px;
+    padding: 0 var(--if-space-2);
     color: var(--if-fg);
   }
   .dk-table .dk-num {
@@ -1253,7 +1253,7 @@
   }
   .dk-trade-sub {
     display: block;
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .dk-table[data-layout='activity'] td {
@@ -1265,7 +1265,7 @@
     color: var(--if-fg-2);
   }
   .dk-table[data-layout='activity'] tr.dk-fill-part td:nth-child(2) {
-    padding-left: 24px;
+    padding-left: var(--if-space-6);
   }
   .dk-unit {
     color: var(--if-fg-2);
@@ -1273,10 +1273,10 @@
   .dk-bt-cancel {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .dk-bt-note {
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .dk-bt-note--bad {
@@ -1322,18 +1322,18 @@
   .dk-review-rows > div {
     display: flex;
     justify-content: space-between;
-    gap: 16px;
-    padding: 8px 0;
+    gap: var(--if-space-4);
+    padding: var(--if-space-2) 0;
     border-bottom: 1px solid var(--if-line);
   }
   .dk-review-rows dt {
     color: var(--if-fg-2);
-    font-size: 13px;
+    font-size: var(--if-text-sm);
   }
   .dk-review-rows dd {
     margin: 0;
     text-align: right;
-    font-size: 14px;
+    font-size: var(--if-text-base);
     font-variant-numeric: tabular-nums;
   }
   .dk-picker-pop {
@@ -1349,8 +1349,8 @@
     height: 36px;
   }
   .dk-tabs {
-    gap: 20px;
-    padding: 0 14px;
+    gap: var(--if-space-5);
+    padding: 0 var(--if-space-3-5);
   }
   .dk-order {
     border-top: 1px solid var(--if-line);
@@ -1359,21 +1359,21 @@
     height: 24px;
   }
   .dk-mk-search {
-    margin: 10px 12px 0;
+    margin: var(--if-space-2-5) var(--if-space-3) 0;
   }
   .dk-mk-chips {
-    gap: 2px;
-    padding: 8px 12px 0;
+    gap: var(--if-space-0-5);
+    padding: var(--if-space-2) var(--if-space-3) 0;
     overflow-x: auto;
   }
   .dk-mk-chips button {
-    font-size: 12px;
+    font-size: var(--if-text-xs);
   }
   .dk-mk-head {
-    padding: 10px 12px 6px;
+    padding: var(--if-space-2-5) var(--if-space-3) var(--if-space-1-5);
   }
   .dk-mk-row {
-    padding-right: 12px;
+    padding-right: var(--if-space-3);
     border-left: 2px solid transparent;
   }
   .dk-mk-row[data-selected] {
@@ -1382,13 +1382,13 @@
   }
   .dk-mk-pair,
   .dk-mk-price {
-    font-size: 12px;
+    font-size: var(--if-text-xs);
   }
   .dk-chart-bar {
     height: 34px;
   }
   .dk-bottom-body {
-    padding: 0 14px 12px;
+    padding: 0 var(--if-space-3-5) var(--if-space-3);
   }
   @media (min-width: 1180px) and (max-width: 1359px) {
     .dk-grid {
@@ -1398,13 +1398,13 @@
       width: 24px;
     }
     .dk-mk-head {
-      gap: 4px;
+      gap: var(--if-space-1);
     }
     .dk-mk-head button {
-      font-size: 12px;
+      font-size: var(--if-text-xs);
     }
     .dk-forms {
-      gap: 14px;
+      gap: var(--if-space-3-5);
     }
   }
 
@@ -1420,7 +1420,7 @@
       display: inline-flex;
     }
     .dk-stats {
-      gap: 16px;
+      gap: var(--if-space-4);
     }
   }
   @media (max-width: 899px) {
@@ -1443,17 +1443,17 @@
 @layer utilities {
   .if-desk .dk-tabs [data-slot='tabs-tab'] {
     height: 36px;
-    font-size: 13px;
+    font-size: var(--if-text-sm);
   }
   .if-desk .dk-form [data-slot='amount-input'] > div:first-child {
-    padding-inline: 10px;
+    padding-inline: var(--if-space-2-5);
   }
   .if-desk .dk-form [data-slot='amount-input'] input {
-    font-size: 14px;
+    font-size: var(--if-text-base);
   }
   .if-desk .dk-form [data-slot='amount-input'] label,
   .if-desk .dk-form [data-slot='amount-input'] span {
-    font-size: 12px;
+    font-size: var(--if-text-xs);
   }
 }
 
@@ -1461,26 +1461,26 @@
 .dk-ledger {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--if-space-2);
 }
 .dk-ledger-head {
   display: flex;
-  gap: 8px;
+  gap: var(--if-space-2);
   justify-content: flex-end;
 }
 .dk-ledger-ref {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 12px;
+  font-size: var(--if-text-xs);
 }
 .dk-statement-days {
   display: flex;
-  gap: 12px;
+  gap: var(--if-space-3);
   flex-wrap: wrap;
 }
 .dk-statement-days label {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--if-space-1);
 }
 .dk-statement-days input {
   appearance: auto;

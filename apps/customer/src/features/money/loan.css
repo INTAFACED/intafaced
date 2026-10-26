@@ -1,26 +1,26 @@
 .money-loan-record h3 {
-  font-size: var(--text-24);
+  font-size: var(--if-text-xl);
   line-height: var(--leading-32);
   font-weight: var(--font-weight-semibold);
 }
 .money-loan-risk {
   display: flex;
   align-items: center;
-  gap: var(--spacing-32);
-  padding: var(--spacing-24, 24px) 0;
+  gap: var(--if-space-8);
+  padding: var(--spacing-24, var(--if-space-6)) 0;
   border-top: 1px solid var(--color-divider);
   border-bottom: 1px solid var(--color-divider);
 }
 .money-loan-risk-value {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-8);
+  gap: var(--if-space-2);
   width: 180px;
   flex-shrink: 0;
 }
 .money-loan-risk h4 {
   color: var(--color-muted);
-  font-size: var(--text-14);
+  font-size: var(--if-text-base);
   line-height: var(--leading-22);
   font-weight: var(--font-weight-regular);
 }
@@ -31,24 +31,24 @@
   overflow-wrap: anywhere;
 }
 .money-loan-risk .money-loan-risk-message {
-  font-size: var(--text-20);
-  line-height: var(--leading-28);
+  font-size: var(--if-text-lg);
+  line-height: var(--if-leading-lg);
 }
 .money-loan-risk-detail {
   min-width: 0;
   font-size: var(--text-15);
-  line-height: var(--leading-24);
+  line-height: var(--if-leading-md);
 }
 .money-loan-status {
-  font-size: var(--text-14);
+  font-size: var(--if-text-base);
   line-height: var(--leading-22);
 }
 @media (max-width: 600px) {
   .money-loan-risk {
     flex-direction: column;
     align-items: stretch;
-    gap: var(--spacing-12);
-    padding: var(--spacing-20) 0;
+    gap: var(--if-space-3);
+    padding: var(--if-space-5) 0;
   }
   .money-loan-risk-value {
     width: auto;
@@ -56,7 +56,7 @@
   .money-loan-record > .actions {
     flex-direction: column;
     align-items: stretch;
-    gap: var(--spacing-12);
+    gap: var(--if-space-3);
   }
   .money-loan-record > .actions .button {
     scroll-margin-bottom: calc(84px + env(safe-area-inset-bottom));

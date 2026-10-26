@@ -61,7 +61,7 @@ export function Field({
         aria-labelledby={input['aria-label'] ? undefined : `${id}-label`}
         aria-invalid={Boolean(error)}
         aria-describedby={describedBy}
-        className="h-10 w-full min-w-0 rounded-sm border border-transparent bg-field px-3 text-base font-normal text-fg placeholder:text-fg-2 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime disabled:opacity-40 aria-invalid:border-down-text"
+        className="h-10 w-full min-w-0 rounded-sm border border-transparent bg-field px-3 text-base font-normal text-fg placeholder:text-fg-2 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:opacity-40 aria-invalid:border-down-text"
       />
       {(hint || error) && (
         <small id={`${id}-help`} className={error ? 'text-down-text' : 'text-fg-2'}>

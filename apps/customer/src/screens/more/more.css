@@ -7,7 +7,7 @@
   .if-more {
     width: min(var(--if-container-max), calc(100% - 56px));
     margin: 0 auto;
-    padding: 32px 0 64px;
+    padding: var(--if-space-8) 0 var(--if-space-16);
     color: var(--if-fg);
     font-family: var(--if-font-ui);
   }
@@ -22,42 +22,42 @@
     list-style: none;
   }
   .if-more :focus-visible {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: 2px;
   }
   .more-title {
-    font: 700 28px/36px var(--if-font-ui);
+    font: 700 var(--if-text-2xl)/36px var(--if-font-ui);
     letter-spacing: -0.02em;
   }
   .more-section {
-    margin-top: 32px;
+    margin-top: var(--if-space-8);
   }
   .more-h2 {
-    font: 600 16px/24px var(--if-font-ui);
+    font: 600 var(--if-text-md)/var(--if-leading-md) var(--if-font-ui);
   }
   .more-note {
-    margin-top: 4px;
-    font: 400 13px/18px var(--if-font-ui);
+    margin-top: var(--if-space-1);
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .more-index {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 24px;
-    margin-top: 16px;
+    gap: var(--if-space-6);
+    margin-top: var(--if-space-4);
   }
   .more-h3 {
     margin: 0;
-    font: 600 14px/20px var(--if-font-ui);
+    font: 600 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .more-index ul {
-    margin-top: 8px;
+    margin-top: var(--if-space-2);
   }
   .more-index a {
     display: block;
-    padding: 6px 0;
-    font: 400 14px/20px var(--if-font-ui);
+    padding: var(--if-space-1-5) 0;
+    font: 400 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     color: var(--if-fg);
     text-decoration: none;
   }
@@ -67,18 +67,18 @@
   .more-hub-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 24px;
-    margin-top: 12px;
+    gap: var(--if-space-6);
+    margin-top: var(--if-space-3);
   }
   .more-tile {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: var(--if-space-4);
     height: 88px;
-    padding: 20px;
+    padding: var(--if-space-5);
     background: var(--if-panel);
     border: 1px solid var(--if-line);
-    border-radius: 16px;
+    border-radius: var(--if-r-lg);
     color: inherit;
     text-decoration: none;
     transition:
@@ -95,25 +95,25 @@
     flex: none;
     width: 40px;
     height: 40px;
-    border-radius: 999px;
+    border-radius: var(--if-r-pill);
     background: var(--if-field);
     color: var(--if-fg);
   }
   .more-tile__text {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--if-space-0-5);
     min-width: 0;
   }
   .more-tile__title {
-    font: 500 16px/24px var(--if-font-ui);
+    font: 500 var(--if-text-md)/var(--if-leading-md) var(--if-font-ui);
     color: var(--if-fg);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .more-tile__line {
-    font: 400 13px/18px var(--if-font-ui);
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
     color: var(--if-fg-2);
     overflow: hidden;
     text-overflow: ellipsis;

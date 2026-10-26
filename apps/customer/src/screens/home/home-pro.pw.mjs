@@ -83,7 +83,7 @@ async function mock(page, overrides = {}) {
   };
 }
 const pro = (page) => page.addInitScript((key) => localStorage.setItem(key, JSON.stringify({ layoutMode: 'pro' })), PREFERENCES_KEY);
-/** A device that chose Simple before. Pro is the default (preferences.ts), so Simple is always a stored choice. Set once, so a reload keeps what the page stored. */
+/** A device that chose Simple before (Simple is also the default, preferences.ts). Set once, so a reload keeps what the page stored. */
 const simple = (page) =>
   page.addInitScript(
     (key) => localStorage.getItem(key) ?? localStorage.setItem(key, JSON.stringify({ layoutMode: 'simple' })),
@@ -370,8 +370,9 @@ test('the switch is hidden below 1000px, where the top bar has no room for it', 
 test('below 1000px the same switch is in the account menu, so Pro can always be left (review M2)', async ({ page }) => {
   await mock(page);
   await page.setViewportSize({ width: 390, height: 844 });
+  await pro(page); // a device that chose Pro: a new device opens in Simple
   await open(page);
-  await expect(page.locator('.if-home-pro')).toBeVisible(); // Pro by default on a new device
+  await expect(page.locator('.if-home-pro')).toBeVisible();
   await page.getByRole('button', { name: 'Account menu' }).click();
   const group = page.getByRole('group', { name: 'Simple or Pro layout' });
   await expect(group).toBeVisible();

@@ -23,7 +23,12 @@
     "./theme/tokens.css": "./src/theme/tokens.css",
     "./theme/customer-legacy.css": "./src/theme/customer-legacy.css",
     "./theme/theme.css": "./src/theme/theme.css",
-    "./theme/base.css": "./src/theme/base.css"
+    "./theme/base.css": "./src/theme/base.css",
+    "./lit": {
+      "types": "./dist/lit/index.d.ts",
+      "default": "./dist/lit/index.js"
+    },
+    "./lit/lit.css": "./src/lit/lit.css"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

@@ -120,12 +120,12 @@ export function visibleSections(live: Live = registry, tiles: readonly Tile[] = 
 }
 
 /** A group of the All services index: one of the app's doors, or the rooms that sit outside every door. */
-export type ServiceGroupId = Exclude<Door, 'More'> | 'More' | 'Account' | 'Web3' | 'Information';
+export type ServiceGroupId = Door | 'Account' | 'Web3' | 'Information';
 export interface ServiceGroup {
   id: ServiceGroupId;
   rooms: Room[];
 }
-const GROUP_ORDER: readonly ServiceGroupId[] = ['Home', 'Assets', 'Bank', 'Trade', 'Pay', 'More', 'Web3', 'Account', 'Information'];
+const GROUP_ORDER: readonly ServiceGroupId[] = ['Home', 'Money', 'Trade', 'Pay', 'More', 'Web3', 'Account', 'Information'];
 /** The rooms of a group that are real, signed-in pages or the public information pages: no alias, parameter route, detail page or founder desk. */
 function groupOf(room: Room): ServiceGroupId | undefined {
   if (room.alias || room.hidden || room.area === 'team' || /[:*]/.test(room.path)) return undefined;

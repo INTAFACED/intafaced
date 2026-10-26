@@ -14,10 +14,17 @@ test.beforeAll(async ({ browser }) => {
   test.setTimeout(120_000);
   const page = await browser.newPage();
   who = await signUp(page, 'hmt');
+  // The app opens in Simple (owner decision 2026-10-26); this person picks Pro, a choice their account keeps for every device.
+  await page.goto('/view');
+  const pro = page.getByRole('group', { name: 'Default view' }).getByRole('button', { name: 'Pro', exact: true });
+  const written = page.waitForResponse((res) => res.url().includes('preferences.set') && res.request().method() === 'POST');
+  await pro.click();
+  await expect(pro).toHaveAttribute('aria-pressed', 'true');
+  expect((await written).status()).toBe(200);
   await page.close();
 });
 
-/** A device: its own browser context, signed in as the person, on Pro Home. */
+/** A device: its own browser context, signed in as the person, on Pro Home (the account's choice). */
 async function device(browser) {
   const context = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();

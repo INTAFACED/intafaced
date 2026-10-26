@@ -1,50 +1,50 @@
 .api-keys {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--if-space-6);
   min-width: 0;
 }
 .api-keys__head {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
+  gap: var(--if-space-2);
 }
 .api-keys__safety ul,
 .api-keys__blocked ul {
   margin: 0;
-  padding-left: 20px;
+  padding-left: var(--if-space-5);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--if-space-1-5);
 }
 .api-keys__table-wrap {
   overflow-x: auto;
   border: 1px solid var(--color-border);
-  border-radius: 12px;
+  border-radius: var(--if-r-md);
 }
 .api-keys__table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 14px;
+  font-size: var(--if-text-base);
 }
 .api-keys__table th,
 .api-keys__table td {
   text-align: left;
-  padding: 10px 12px;
+  padding: var(--if-space-2-5) var(--if-space-3);
   border-bottom: 1px solid var(--color-border);
   vertical-align: top;
   overflow-wrap: anywhere;
 }
 .api-keys__form {
-  gap: 16px;
+  gap: var(--if-space-4);
 }
 .api-keys__form textarea {
   font: inherit;
   font-family: var(--font-mono, monospace);
-  padding: 8px;
+  padding: var(--if-space-2);
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--if-r-sm);
   background: var(--color-surface);
   color: inherit;
 }
@@ -55,12 +55,12 @@
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--if-space-2-5);
 }
 .api-keys__presets {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: var(--if-space-4);
 }
 .api-keys__scope-list {
   list-style: none;
@@ -68,18 +68,18 @@
   padding: 0;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 6px 16px;
+  gap: var(--if-space-1-5) var(--if-space-4);
 }
 .api-keys__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: var(--if-space-3);
 }
 .api-keys__key {
   display: block;
-  padding: 12px;
+  padding: var(--if-space-3);
   border: 1px dashed var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--if-r-sm);
   overflow-wrap: anywhere;
 }
 .api-keys__warning {
@@ -87,7 +87,7 @@
 }
 .api-keys__stored {
   display: flex;
-  gap: 8px;
+  gap: var(--if-space-2);
   align-items: center;
 }
 /* The app resets native inputs to no size and no look; draw real ticks and radios again. */
@@ -96,7 +96,7 @@
   appearance: auto;
   width: 16px;
   height: 16px;
-  margin: 0 6px 0 0;
+  margin: 0 var(--if-space-1-5) 0 0;
   vertical-align: middle;
   accent-color: var(--if-lime);
 }

@@ -124,7 +124,7 @@ describe('Input states', () => {
 
   it('has the lime focus ring on the wrapper', () => {
     const out = html(<Input value="" onValueChange={noop} aria-label="a" />);
-    expect(out).toContain('has-[input:focus-visible]:outline-lime');
+    expect(out).toContain('has-[input:focus-visible]:outline-focus');
   });
 });
 
