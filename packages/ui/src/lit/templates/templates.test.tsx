@@ -147,6 +147,18 @@ describe('legal slots come only from the registry', () => {
     expect(resolveLegal('credit-warning', 'eu', '2026-11-20')).toMatchObject({ status: 'fixed' });
   });
 
+  it('the look gate can find and judge each slot', () => {
+    const out = html(<LegalSlot moment="crypto-risk-band" market="uk" on="2026-10-26" />);
+    expect(out).toContain('data-legal-slot="crypto-risk-band"');
+    expect(out).toContain('data-legal-slot-type="risk-band"');
+    expect(out).not.toContain('data-legal-slot-state');
+    expect(html(<LegalSlot moment="crypto-risk-band" market="unset" />)).toContain('data-legal-slot-state="refused"');
+  });
+
+  it('legal/registry.json is the registry as plain data, for the look gate (vitest -u rewrites it)', async () => {
+    await expect(`${JSON.stringify(LEGAL_MOMENTS, null, 2)}\n`).toMatchFileSnapshot('./legal/registry.json');
+  });
+
   it('every moment says what it is in both markets', () => {
     for (const m of Object.values(LEGAL_MOMENTS)) {
       expect(['fixed', 'lawyer', 'not-applicable']).toContain(m.uk.status);

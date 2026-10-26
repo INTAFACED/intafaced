@@ -1,6 +1,6 @@
 import * as React from 'react';
 import type { LegalMomentId, Market } from '../types.js';
-import { resolveLegal, type TextRun } from './registry.js';
+import { LEGAL_MOMENTS, resolveLegal, type TextRun } from './registry.js';
 
 const MISSING: Record<'market-unset' | 'lawyer' | 'value-unset', string> = {
   'market-unset': 'The market this account is served from isn’t set yet, so this notice can’t be shown.',
@@ -55,6 +55,9 @@ export function LegalSlot({ moment, market, on, values, onLink }: LegalSlotProps
       data-slot="legal"
       data-moment={moment}
       data-legal-status={r.status}
+      data-legal-slot={moment}
+      data-legal-slot-type={LEGAL_MOMENTS[moment].type}
+      data-legal-slot-state={r.status === 'missing' ? 'refused' : undefined}
       role={band ? 'region' : undefined}
       aria-label={band ? 'Risk warning' : undefined}
     >
