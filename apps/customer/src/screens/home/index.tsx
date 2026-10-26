@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { Suspense, lazy, useMemo } from 'react';
 import { ChevronRight, Eye, EyeOff } from 'lucide-react';
 import './home.css';
 import { clockTime } from './clock';
@@ -27,13 +27,13 @@ import {
   type Loadable,
   type HomePortfolio,
   type TickerRow,
+  Loading,
 } from './deps';
 import { InfoTip } from './InfoTip';
 import { IN_PANEL, STATE_IN_COLUMN } from './panel';
 import { MarketsFailure, MarketsRow, MarketsSkeleton, MoversHeading, MoversRow, MoversSkeleton } from './MarketsSection';
 import { YourCrypto, YourCryptoSkeleton } from './YourCrypto';
 import { listings, topCards, topMovers } from './select';
-import { HomePro } from './HomePro';
 import { Watchlist } from './Watchlist';
 import { GetStarted } from './GetStarted';
 import { LearnStrip } from './LearnStrip';
@@ -48,6 +48,9 @@ import { useHomeLayout } from './tiles-data';
 import { shownTiles } from './tiles';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 import { useSession } from '../../features/session/session';
+
+// Pro Home carries Trade's client; Simple Home (the default) does not load it.
+const HomePro = lazy(() => import('./HomePro').then((module) => ({ default: module.HomePro })));
 
 /** Simple Home: Buy and Sell open the Buy card (Pro Home goes to the desk, `HomePro.tsx`). */
 const ACTIONS = [
@@ -414,5 +417,11 @@ function HomeSimple() {
 /** The layout preference decides which Home is drawn (UI-SPEC 3.3); a switch in the top bar flips it at once. */
 export default function Home() {
   const { layoutMode } = usePreferences();
-  return layoutMode === 'pro' ? <HomePro /> : <HomeSimple />;
+  return layoutMode === 'pro' ? (
+    <Suspense fallback={<Loading />}>
+      <HomePro />
+    </Suspense>
+  ) : (
+    <HomeSimple />
+  );
 }
