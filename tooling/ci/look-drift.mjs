@@ -14,7 +14,12 @@
  *   3. a physical side instead of a logical one: `margin-left`, `padding-right`, `border-left`, `left:`/`right:`,
  *      `text-align: left`, `float: right`, physical corner radii, their camelCase style keys (`marginLeft`), and the
  *      Tailwind classes (`ml-2`, `pr-4`, `left-0`, `border-l`, `rounded-tl`, `text-right`). Use `*-inline-start`,
- *      `inset-inline-*`, `text-align: start`, `ms-2`, `pe-4`, `start-0`, `border-s`, `rounded-ss`, `text-end`.
+ *      `inset-inline-*`, `text-align: start`, `ms-2`, `pe-4`, `start-0`, `border-s`, `rounded-ss`, `text-end`;
+ *   4. in the new look only (the kit under `packages/ui/src/lit/` and a migrated room: a folder under
+ *      `apps/customer/src/{screens,features}/` whose files import the lit kit, as the look gate counts them), a top or
+ *      bottom side instead of a block one: `margin-top`, `padding-bottom`, `border-top`, `top:`/`bottom:`, `marginTop`,
+ *      and the Tailwind classes (`mt-2`, `pb-4`, `top-0`, `border-b`). Use `*-block-start`/`*-block-end`,
+ *      `inset-block-*`, `mbs-2`, `pbe-4`, `inset-bs-0`, `border-be` (B4's rule: the look turns with the writing mode).
  * Colours and sizes come from `var(--lit-*)` (packages/ui/src/lit/contracts.ts) or today's `var(--if-*)`.
  *
  * It ratchets: lines already on main are not judged, so code other threads add comes in on the system while the
@@ -65,6 +70,17 @@ const CSS_RULES = [
   ],
 ];
 
+/** Rule 4, block sides, judged only in the new look (see `blockSides`). A physical corner is rule 3's, never also 4's. */
+const CSS_BLOCK =
+  /(?:^|[\s;{])(?:margin|padding|border|scroll-margin|scroll-padding)-(?:top|bottom)(?!\w|-(?:left|right)-)|(?:^|[\s;{])(?:top|bottom)\s*:/;
+const TS_BLOCK = [
+  // A style key or a style write, not a measurement read (`const { marginTop } = getComputedStyle(el)`).
+  /\b(?:margin|padding|border|scrollMargin|scrollPadding)(?:Top|Bottom)(?:Width|Color|Style)?\s*:|\.style\.(?:margin|padding|border)(?:Top|Bottom)\w*\s*=/,
+  /['"`][^'"`]*\b(?:margin|padding|border)-(?:top|bottom)(?!\w|-(?:left|right)-)[^'"`]*['"`]/,
+];
+const TW_BLOCK =
+  /(?<![\w-])-?(?:(?:mt|mb|pt|pb|top|bottom|scroll-mt|scroll-mb|scroll-pt|scroll-pb)-(?:\d[\w./]*|px|auto|full|\[[^\]]+\]|\([^)]+\))|(?:border-t|border-b|rounded-t|rounded-b)(?:-[\w./[\]()%-]+)?)(?![\w-])/;
+
 const TW_PHYSICAL =
   /(?<![\w-])-?(?:(?:ml|mr|pl|pr|left|right|scroll-ml|scroll-mr|scroll-pl|scroll-pr)-(?:\d[\w./]*|px|auto|full|\[[^\]]+\])|(?:border-l|border-r|rounded-l|rounded-r|rounded-tl|rounded-tr|rounded-bl|rounded-br)(?:-[\w./[\]%-]+)?)(?![\w-])|(?<![\w-])(?:text|float|clear)-(?:left|right)(?![\w-])/;
 /** Rule checks for one line of TS/TSX/MJS: style strings, style keys and class names, not ordinary code. */
@@ -110,7 +126,7 @@ function cssDeclarations(code) {
 }
 
 /** Findings for one line. `kind` is 'css' or 'ts'; `state` carries whether we are inside an @media/@container block. */
-export function judgeLine(line, kind, state = { query: 0 }) {
+export function judgeLine(line, kind, state = { query: 0 }, { newLook = false } = {}) {
   if (ALLOW.test(line)) return [];
   const code =
     kind === 'css'
@@ -136,11 +152,14 @@ export function judgeLine(line, kind, state = { query: 0 }) {
       if (rule === 'pixel size' && query) continue;
       if (re.test(rule === 'pixel size' ? weights : decl)) found.add(rule);
     }
+    if (newLook && CSS_BLOCK.test(decl)) found.add('top or bottom side');
     return [...found];
   }
   for (const [rule, re] of TS_RULES) if (re.test(code)) found.add(rule);
   for (const m of code.matchAll(TS_BARE_HEX)) if (!LINK_BEFORE.test(code.slice(0, m.index))) found.add('raw colour');
   if (CLASS_CONTEXT.test(code) && classStrings(code).some((c) => TW_PHYSICAL.test(c))) found.add('physical side');
+  if (newLook && (TS_BLOCK.some((re) => re.test(code)) || (CLASS_CONTEXT.test(code) && classStrings(code).some((c) => TW_BLOCK.test(c)))))
+    found.add('top or bottom side');
   return [...found];
 }
 
@@ -171,10 +190,47 @@ function withoutComments(line, kind, state) {
   return out;
 }
 
-/** Judge a file's lines; `only` limits findings to these 1-based line numbers (null = all). */
-export function judgeFile(path, text, only = null) {
+/**
+ * A room folder under apps/customer/src/{screens,features}/, as the look gate's `migratedRoomOf` (look-gate/policy.mjs)
+ * reads it. Copied, not imported: CI runs this file alone from main.
+ */
+const ROOM = /^(apps\/customer\/src\/(?:screens|features)\/[^/]+)\//;
+
+/** Whether rule 4 (block sides) applies: the lit kit, or a migrated room (a folder in `rooms`). */
+export function blockSides(path, rooms) {
+  return path.startsWith('packages/ui/src/lit/') || rooms.has(ROOM.exec(path)?.[1]);
+}
+
+/** The migrated room folders: those with a file whose import statement takes the lit kit (the PR's head tree). */
+function litRooms() {
+  let out = '';
+  try {
+    out = git([
+      'grep',
+      '-l',
+      '-E',
+      '^\\s*(import\\b.*|\\}\\s*)from\\s+[\'"]@intafaced/ui/(src/)?lit\\b',
+      '--',
+      'apps/customer/src/screens',
+      'apps/customer/src/features',
+    ]);
+  } catch (error) {
+    // git grep exits 1 when nothing matches: no room is migrated yet. Anything else is a broken check, never a pass.
+    if (error.status !== 1) throw error;
+  }
+  return new Set(
+    out
+      .split('\n')
+      .map((p) => ROOM.exec(p)?.[1])
+      .filter(Boolean),
+  );
+}
+
+/** Judge a file's lines; `only` limits findings to these 1-based line numbers (null = all). `rooms`: the migrated rooms. */
+export function judgeFile(path, text, only = null, rooms = new Set()) {
   if (!SCOPE.test(path) || NOT_JUDGED.test(path)) return { findings: [], allowed: [] };
   const kind = path.endsWith('.css') ? 'css' : 'ts';
+  const look = { newLook: blockSides(path, rooms) };
   const findings = [];
   const allowed = [];
   const state = { query: 0 };
@@ -214,7 +270,7 @@ export function judgeFile(path, text, only = null) {
       allowed.push({ path, line: n, text: line.trim().slice(0, 140) });
       return;
     }
-    for (const rule of judgeLine(code, kind, state))
+    for (const rule of judgeLine(code, kind, state, look))
       if (!(rule === 'pixel size' && PX_ALLOWED.test(path))) findings.push({ path, line: n, rule, text: line.trim().slice(0, 140) });
   });
   return { findings, allowed };
@@ -322,7 +378,29 @@ function selfTest() {
   eq(ts(`  <div style={{ marginTop: '-8px' }} />`), ['pixel size'], 'negative px string');
   eq(ts(`  const wide = window.matchMedia('(min-width: 768px)');`), [], 'a media query string');
   eq(ts(`  const s = 'margin-left: 4px';`), ['pixel size', 'physical side'], 'CSS inside a string');
-  // Files
+  // Block sides, the new look only
+  const litCss = (l) => judgeLine(l, 'css', { query: 0 }, { newLook: true });
+  const litTs = (l) => judgeLine(l, 'ts', { query: 0 }, { newLook: true });
+  eq(css('  margin-top: var(--lit-gap);'), [], 'a top side passes in an old room');
+  eq(litCss('  margin-top: var(--lit-gap);'), ['top or bottom side'], 'margin-top in the new look');
+  eq(litCss('  padding-bottom: 0;'), ['top or bottom side'], 'padding-bottom');
+  eq(litCss('  border-top: 1px solid var(--lit-line);'), ['top or bottom side'], 'border-top');
+  eq(litCss('  position: sticky; top: 0;'), ['top or bottom side'], 'top:');
+  eq(litCss('  border-top-left-radius: var(--lit-r);'), ['physical side'], 'a corner is one finding, not two');
+  eq(litCss('  margin-block-start: var(--lit-gap); inset-block-end: 0;'), [], 'block sides pass');
+  eq(litCss('  vertical-align: top; background-position: bottom;'), [], 'top as a value is not a side');
+  eq(litCss('  --lit-gap-top: 1rem;'), [], 'a custom property name is not a side');
+  eq(litTs(`  <div className="mt-2 pb-4 border-b" />`), ['top or bottom side'], 'tailwind mt/pb/border-b');
+  eq(litTs(`  <div className="mbs-2 pbe-4 inset-bs-0 border-be rounded-ss" />`), [], 'tailwind block logical');
+  eq(litTs(`  <div style={{ marginTop: 4 }} />`), ['top or bottom side'], 'style marginTop');
+  eq(litTs(`  const rect = { top: 0, bottom: 10 };`), [], 'geometry objects are not judged');
+  eq(litTs(`  <p className="top-note" />`), [], 'a class named top-note');
+  eq(litCss('  border-bottom-color: var(--lit-line); border-top-width: 1px;'), ['top or bottom side'], 'border longhands');
+  eq(litTs(`  const s = 'border-top-left-radius: 1rem';`), [], 'a corner in a string is not a block side');
+  eq(litTs(`  <div className="mt-(--lit-gap) top-(--lit-gap)" />`), ['top or bottom side'], 'tailwind variable values');
+  eq(litTs(`  const { marginTop } = getComputedStyle(el);`), [], 'a measurement read is not a style');
+  eq(litTs(`  el.style.marginTop = '0';`), ['top or bottom side'], 'a style write');
+  eq(ts(`  <div className="mt-2" />`), [], 'tailwind mt passes in an old room');
   const f = (path, text, only) => judgeFile(path, text, only).findings.length;
   eq(f('apps/customer/src/x.css', 'a { color: #fff; }'), 1, 'new file judged');
   eq(f('packages/ui/src/lit/templates/balance.css', '.b { padding: 12px; }'), 1, 'a template is judged');
@@ -334,6 +412,17 @@ function selfTest() {
   eq(f('packages/ui/src/lit/components/key.css', '.k { margin-left: var(--lit-gap); }'), 1, 'a lit component may not use physical sides');
   eq(f('packages/ui/src/lit/components/key.css', '.k { color: #fff; }'), 1, 'a lit component may not use raw colours');
   eq(f('packages/ui/src/lit/components/key.tsx', `<i className="border-l" />`), 1, 'a lit component may not use a Tailwind physical side');
+  const rooms = new Set(['apps/customer/src/screens/home']);
+  const b = (path, text) => judgeFile(path, text, null, rooms).findings.map((x) => x.rule);
+  eq(b('apps/customer/src/screens/home/home.css', '.h { margin-top: 0; }'), ['top or bottom side'], 'a migrated room');
+  eq(b('apps/customer/src/screens/money/money.css', '.m { margin-top: 0; }'), [], 'a room not migrated');
+  eq(b('packages/ui/src/lit/components/key.css', '.k { padding-bottom: 0; }'), ['top or bottom side'], 'the lit kit');
+  eq(
+    b('apps/customer/src/app/App.tsx', "import { X } from '@intafaced/ui/lit';\nconst s = { marginTop: 4 };"),
+    [],
+    'the app shell is old look',
+  );
+  eq(blockSides('apps/customer/src/app/App.tsx', rooms), false, 'the app shell is not a room');
   eq(f('apps/customer/src/screens/home/home.test.tsx', `expect(x).toBe('#fff')`), 0, 'tests not judged');
   eq(f('apps/customer/src/screens/home/home.fixtures.mjs', `const c = '#fff';`), 0, 'fixtures not judged');
   eq(f('services/svc-bank/src/x.ts', `const c = '#fff';`), 0, 'out of scope');
@@ -401,8 +490,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const files = git(['ls-files', 'apps/customer', 'packages/ui/src/lit']).split('\n').filter(Boolean);
     const byRule = new Map();
     const byArea = new Map();
+    const rooms = litRooms();
     for (const path of files) {
-      const { findings } = judgeFile(path, readFileSync(path, 'utf8'));
+      const { findings } = judgeFile(path, readFileSync(path, 'utf8'), null, rooms);
       for (const x of findings) {
         byRule.set(x.rule, (byRule.get(x.rule) ?? 0) + 1);
         const area = path.split('/').slice(0, 4).join('/');
@@ -417,8 +507,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const base = process.env.GUARD_BASE || 'origin/main';
   const findings = [];
   const allowed = [];
+  const rooms = litRooms();
   for (const { path, only } of changed(base)) {
-    const r = judgeFile(path, readFileSync(path, 'utf8'), only);
+    const r = judgeFile(path, readFileSync(path, 'utf8'), only, rooms);
     findings.push(...r.findings);
     allowed.push(...r.allowed);
   }
@@ -436,7 +527,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   }
   console.error(
     "\n  Use the kit's role tokens (var(--lit-*) from packages/ui/src/lit/contracts.ts, or var(--if-*)) and logical sides" +
-      ' (margin-inline-start, ms-*, text-end). A raw value that must stay ends its line with "look-drift-allow: <reason>".',
+      ' (margin-inline-start, ms-*, text-end; in the new look also margin-block-start, mbs-*, inset-bs-*). A raw value that' +
+      ' must stay ends its line with "look-drift-allow: <reason>".',
   );
   process.exit(1);
 }
