@@ -1,0 +1,69 @@
+/*
+ * Redesign stage A0, the Lit glass look on Home (only under data-look="lit"; nothing here applies by default).
+ * Materials from take four (project-state design/new-look/redesign/lit-glass/lit.css), inside the GPU budget:
+ * blur only on the navigation layer (the top bar), the actions panel is glass without blur because it sits in the
+ * content layer, and nothing blurred sits over the moving sphere.
+ */
+:root[data-look='lit'] {
+  --lit-acc: #3f7dff;
+  --lit-hot: #c7dbff;
+  --lit-wall: #0d1016;
+}
+
+[data-look='lit'] .home-lit-sphere {
+  position: relative;
+  height: 260px;
+  margin-top: var(--if-space-2);
+  overflow: hidden;
+  border-radius: var(--if-r-lg);
+  background: #000;
+}
+
+/* the navigation layer: the one blurred surface (over scrolling page content, never over the sphere) */
+[data-look='lit'] .tb {
+  background: rgb(10 12 18 / 0.72);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  backdrop-filter: blur(24px) saturate(150%);
+}
+
+/* thick glass in the content layer: tinted body, lit lip, rim brighter towards the light, a wall underneath */
+[data-look='lit'] .home-actions {
+  position: relative;
+  padding: var(--if-space-3);
+  border-radius: 24px;
+  background:
+    radial-gradient(90% 70% at 50% -10%, color-mix(in srgb, var(--lit-acc) 12%, transparent), transparent 70%),
+    linear-gradient(180deg, rgb(255 255 255 / 0.055), rgb(255 255 255 / 0.015) 70%), rgb(17 19 26 / 0.92);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.07),
+    0 4px 0 0 var(--lit-wall),
+    0 5px 0 0 rgb(0 0 0 / 0.5),
+    0 34px 60px -26px rgb(0 0 0 / 0.95);
+  isolation: isolate;
+}
+[data-look='lit'] .home-actions::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: linear-gradient(0deg, rgb(255 255 255 / 0.04), rgb(255 255 255 / 0.07) 45%, rgb(255 255 255 / 0.26));
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+/* the metal pill (b2-07 "Sign up", measured #DADADA -> #FEFEFE -> #DADADA): the one main action */
+[data-look='lit'] .home-actions > :first-child {
+  border-radius: 999px;
+  color: #0b0b0b;
+  background: linear-gradient(90deg, #a8a8a8 0%, #dcdcdc 20%, #f7f7f7 45%, #ebebeb 56%, #d2d2d2 78%, #acacac 100%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.95),
+    inset 0 -1px 0 rgb(0 0 0 / 0.4),
+    inset 0 -3px 5px rgb(0 0 0 / 0.14),
+    0 10px 30px -12px rgb(255 255 255 / 0.22);
+}

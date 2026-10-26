@@ -43,6 +43,7 @@ import { TotalFigure, TotalUnitNote } from './TotalFigure';
 import { HOME_LINKS } from './links';
 import { useStartedTile } from './started-data';
 import { CustomiseHome } from './CustomiseHome';
+import { LitSphere } from './LitSphere';
 import { HomeNotices } from './Notices';
 import { useHomeLayout } from './tiles-data';
 import { shownTiles } from './tiles';
@@ -327,6 +328,7 @@ function HomeSimple() {
           </div>
 
           <Balance portfolio={portfolio} hidden={hideBalances} />
+          <LitSphere portfolio={portfolio} />
           <ActionPills loading={portfolio.status === 'loading'} mode={actionMode} />
           {main.map((id) => {
             switch (id) {
