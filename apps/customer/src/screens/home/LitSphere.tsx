@@ -3,6 +3,8 @@ import poster from '@intafaced/ui/lit/fx/posters/sphere-home-blue.jpg';
 import { isLook } from '../../app/look';
 import type { HomePortfolio, Loadable } from './deps';
 import { sphereShares } from './lit-shares';
+// the kit's role tokens; flat values unless data-look="lit" (the lead's wiring PR moves this to the app shell)
+import '@intafaced/ui/lit/lit.css';
 import './lit-spike.css';
 
 const PRESET = FX_PRESETS['sphere-home-blue'];

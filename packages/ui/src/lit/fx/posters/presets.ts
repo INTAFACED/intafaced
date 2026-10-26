@@ -17,7 +17,7 @@ export interface FxPreset<K extends FxKind = FxKind> {
 }
 
 /** Lit glass blue, the default accent (Nino, 26 Oct 2026). Other accents are a switch and get posters with it. */
-export const LIT_BLUE = { color: '#3f7dff', hot: '#c7dbff' } as const;
+export const LIT_BLUE = { color: '#3f7dff', hot: '#c7dbff' } as const; // look-drift-allow: the baked poster accent, take four blue
 
 function preset<K extends FxKind>(p: FxPreset<K>): FxPreset<K> {
   return p;

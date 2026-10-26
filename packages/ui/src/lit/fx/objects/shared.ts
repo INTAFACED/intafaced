@@ -17,10 +17,10 @@ export function dotTexture(): CanvasTexture {
   const g = c.getContext('2d');
   if (g) {
     const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-    gr.addColorStop(0, 'rgba(255,255,255,1)');
-    gr.addColorStop(0.25, 'rgba(255,255,255,.85)');
-    gr.addColorStop(0.6, 'rgba(255,255,255,.12)');
-    gr.addColorStop(1, 'rgba(255,255,255,0)');
+    gr.addColorStop(0, 'rgba(255,255,255,1)'); // look-drift-allow: pixel painted into a WebGL texture, CSS roles cannot reach it
+    gr.addColorStop(0.25, 'rgba(255,255,255,.85)'); // look-drift-allow: pixel painted into a WebGL texture, CSS roles cannot reach it
+    gr.addColorStop(0.6, 'rgba(255,255,255,.12)'); // look-drift-allow: pixel painted into a WebGL texture, CSS roles cannot reach it
+    gr.addColorStop(1, 'rgba(255,255,255,0)'); // look-drift-allow: pixel painted into a WebGL texture, CSS roles cannot reach it
     g.fillStyle = gr;
     g.fillRect(0, 0, 64, 64);
   }

@@ -56,7 +56,7 @@ export const logo: FxFactory<LogoOptions> = (ctx, o) => {
     curveSegments: 24,
   });
   tg.translate(0, 0, -0.22);
-  tile.add(new Mesh(tg, legacyLit(new MeshStandardMaterial({ color: raw('#0a0807'), roughness: 0.22, metalness: 0.35 }), EXPOSURE)));
+  tile.add(new Mesh(tg, legacyLit(new MeshStandardMaterial({ color: raw('#0a0807'), roughness: 0.22, metalness: 0.35 }), EXPOSURE))); // look-drift-allow: pixel painted into a WebGL texture, CSS roles cannot reach it
   const L = new PointLight(acc, 0, 3.2, 1.6);
   L.position.set(0, 0, 0.35);
   tile.add(L);

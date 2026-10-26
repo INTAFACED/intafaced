@@ -60,17 +60,17 @@ export const coin: FxFactory<CoinOptions> = (ctx, o) => {
   const camera = new PerspectiveCamera(26, 1, 0.1, 100);
   camera.position.set(0, 0, 6.4);
   const acc = raw(o.color);
-  const metal = raw(o.metal ?? '#F2A541');
+  const metal = raw(o.metal ?? '#F2A541'); // look-drift-allow: pixel painted into a WebGL texture, CSS roles cannot reach it
   // environment: a studio strip and the accent from behind, baked once into a PMREM map
   const [ec, x] = canvas(256, 128);
   const gr = x.createLinearGradient(0, 0, 0, 128);
-  gr.addColorStop(0, '#2a2a2a');
-  gr.addColorStop(0.45, '#0a0a0a');
-  gr.addColorStop(0.55, '#050505');
-  gr.addColorStop(1, '#000');
+  gr.addColorStop(0, '#2a2a2a'); // look-drift-allow: pixel painted into a WebGL texture, CSS roles cannot reach it
+  gr.addColorStop(0.45, '#0a0a0a'); // look-drift-allow: pixel painted into a WebGL texture, CSS roles cannot reach it
+  gr.addColorStop(0.55, '#050505'); // look-drift-allow: pixel painted into a WebGL texture, CSS roles cannot reach it
+  gr.addColorStop(1, '#000'); // look-drift-allow: pixel painted into a WebGL texture, CSS roles cannot reach it
   x.fillStyle = gr;
   x.fillRect(0, 0, 256, 128);
-  x.fillStyle = '#fff';
+  x.fillStyle = '#fff'; // look-drift-allow: pixel painted into a WebGL texture, CSS roles cannot reach it
   x.fillRect(40, 30, 50, 10);
   x.fillStyle = o.color;
   x.fillRect(150, 50, 90, 30);
@@ -84,11 +84,11 @@ export const coin: FxFactory<CoinOptions> = (ctx, o) => {
   // face: minted relief drawn to a canvas, used as colour and bump
   const [fc, f] = canvas(512, 512);
   const fg = f.createRadialGradient(200, 180, 20, 256, 256, 260);
-  fg.addColorStop(0, '#ffffff');
-  fg.addColorStop(1, '#bdbdbd');
+  fg.addColorStop(0, '#ffffff'); // look-drift-allow: pixel painted into a WebGL texture, CSS roles cannot reach it
+  fg.addColorStop(1, '#bdbdbd'); // look-drift-allow: pixel painted into a WebGL texture, CSS roles cannot reach it
   f.fillStyle = fg;
   f.fillRect(0, 0, 512, 512);
-  f.strokeStyle = '#7a7a7a';
+  f.strokeStyle = '#7a7a7a'; // look-drift-allow: pixel painted into a WebGL texture, CSS roles cannot reach it
   f.lineWidth = 10;
   f.beginPath();
   f.arc(256, 256, 226, 0, Math.PI * 2);
@@ -117,8 +117,8 @@ export const coin: FxFactory<CoinOptions> = (ctx, o) => {
       f.fillRect(266 + dx, 356 + dy, 18, 40);
     }
   };
-  glyph(6, 6, '#6e6e6e');
-  glyph(0, 0, '#f4f4f4');
+  glyph(6, 6, '#6e6e6e'); // look-drift-allow: pixel painted into a WebGL texture, CSS roles cannot reach it
+  glyph(0, 0, '#f4f4f4'); // look-drift-allow: pixel painted into a WebGL texture, CSS roles cannot reach it
   const ft = new CanvasTexture(fc);
   ft.center.set(0.5, 0.5);
   ft.rotation = Math.PI / 2;
@@ -141,7 +141,7 @@ export const coin: FxFactory<CoinOptions> = (ctx, o) => {
   // reeded edge
   const [rc, rx] = canvas(512, 8);
   for (let i = 0; i < 512; i += 4) {
-    rx.fillStyle = i % 8 ? '#9a9a9a' : '#ffffff';
+    rx.fillStyle = i % 8 ? '#9a9a9a' : '#ffffff'; // look-drift-allow: pixel painted into a WebGL texture, CSS roles cannot reach it
     rx.fillRect(i, 0, 4, 8);
   }
   const rt = new CanvasTexture(rc);
