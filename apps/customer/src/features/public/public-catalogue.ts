@@ -17,8 +17,7 @@ export function roomsForDoor(door: PublicDoor, locale?: UiLocale): CatalogueEntr
   const seen = new Set<string>();
   const entries: CatalogueEntry[] = [];
   for (const room of rooms) {
-    if (!room.door || publicDoorOf(room.door) !== door || room.alias || room.hidden || room.business || !SIGNED_IN_AREAS.has(room.area))
-      continue;
+    if (room.door !== door || room.alias || room.hidden || room.business || !SIGNED_IN_AREAS.has(room.area)) continue;
     if (seen.has(room.path)) continue;
     seen.add(room.path);
     entries.push({ path: room.path, title: roomTitle(room, locale), description: roomDescription(room, locale) });
@@ -26,11 +25,8 @@ export function roomsForDoor(door: PublicDoor, locale?: UiLocale): CatalogueEntr
   return entries;
 }
 
-/** The public pages keep four groups; the app's Assets and Bank doors both read as "Money" there. */
-export type PublicDoor = 'Money' | 'Trade' | 'Pay' | 'More';
-export function publicDoorOf(door: Door): PublicDoor | 'Home' {
-  return door === 'Assets' || door === 'Bank' ? 'Money' : door;
-}
+/** The public pages group rooms by the app's own doors, Home aside. */
+export type PublicDoor = Exclude<Door, 'Home'>;
 export const DOOR_ORDER = ['Money', 'Trade', 'Pay', 'More'] as const satisfies readonly PublicDoor[];
 
 export interface DoorSummary {

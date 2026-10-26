@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { api, fund, journeyState, toUnits } from './stack.mjs';
-import { awayBid, confirm, deskPath, free, held, openDesk, openOrders, reviewLimit, signIn, signUp, verify } from './desk.mjs';
+import { awayBid, chosePro, confirm, deskPath, free, held, openDesk, openOrders, reviewLimit, signIn, signUp, verify } from './desk.mjs';
 
 // J-wallet-01, in the running app (docs/roadmap/journeys.json): I see what I hold and what I can actually withdraw.
 // One test per step, titled "J-wallet-01 #<n>", run in order on one verified TEST account funded with TEST 500 USDT.
@@ -12,6 +12,8 @@ const J = 'J-wallet-01';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
+// Available, In orders and Locked are the Pro columns of Money; the app opens in Simple, so this person chose Pro.
+test.beforeEach(({ page }) => chosePro(page));
 
 function account() {
   const who = run.read().account;
@@ -49,7 +51,7 @@ test(`${J} #1 opens Assets: available, in orders and locked add up to the ledger
   run.reset({ account: who });
   await signIn(page, who);
   await page.goto('/');
-  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Assets' }).click();
+  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Money' }).click();
   await expect(page).toHaveURL(/\/money(\?|$)/);
   const usdt = await moneyAgreesWithLedger(page);
   expect(usdt).toMatchObject({ free: expect.stringMatching(/^500(\.0+)?$/), total: expect.stringMatching(/^500(\.0+)?$/) });

@@ -143,7 +143,7 @@ const open = async (page, path = '/money') => {
   await page.goto(path);
   await page.locator('.if-money').waitFor();
 };
-// A first visit lands on Pro (PLT-0009, shared/preferences.ts), so a case about Simple says so.
+// A first visit lands on Simple (shared/preferences.ts); a case about either mode says which it needs.
 const PREFERENCES_KEY = 'intafaced.customer.view.v1';
 const layout = (page, layoutMode, extra = {}) =>
   // Runs on every load, so it keeps what the page saved meanwhile (a case that reloads checks the saved choice).
