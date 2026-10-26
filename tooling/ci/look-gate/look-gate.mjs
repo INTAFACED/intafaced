@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
  * LOOK GATE — renders the kit gallery and every Customer room from their built folders, under the production security
- * headers, and checks what a person would see. No service runs: every `/api/` call answers a typed refusal, so each room
- * shows its honest refuse state, the state every room must have.
+ * headers, and checks what a person would see. No service runs. A Customer room is the TEST account's
+ * (apps/customer/tests/real-app/look-fixtures.mjs: signed in, with the screen tests' wire fixtures), and every `/api/`
+ * call that account has no fixture for answers a typed refusal, so a room without fixtures shows its honest refuse state.
  *
  * Each page is opened at a phone (390x844) and a computer (1440x900), with the clock frozen, Math.random seeded, motion
  * reduced and animations stopped, then checked for:
@@ -25,8 +26,8 @@
  * Reports for two weeks; then a failure on the kit gallery or on a page drawn in the new look blocks a pull request
  * that changes the kit, a baseline, a legal-slot file or a migrated room (policy.mjs). CI runs main's copy.
  *
- * Not checked yet, said so in every report: the founder console (apps/admin) shots, filled-in states from contract
- * fixtures (rooms show their refuse state), 130% copy.
+ * Not checked yet, said so in every report: the founder console (apps/admin) shots, 130% copy. Rooms whose calls have
+ * no fixture in look-fixtures.mjs still show their refuse state.
  *
  *   node tooling/ci/look-gate/look-gate.mjs [--shard 1/4] [--out <dir>] [--only gallery|customer] [--routes /a,/b]
  *        [--update-baselines] [--changed-from origin/main]
@@ -41,10 +42,13 @@ import { securityHeaders } from '../../../apps/customer/deployment/render-securi
 import { crop, decodePng, encodePng } from './png.mjs';
 import * as policy from './policy.mjs';
 import { sweepRoutes } from '../../../apps/customer/tests/real-app/routes.mjs';
+import * as world from '../../../apps/customer/tests/real-app/look-fixtures.mjs';
+import { fixtureAnswer as answerAt } from './fixture-answer.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const VIEWPORTS = { phone: { width: 390, height: 844 }, computer: { width: 1440, height: 900 } };
-const FROZEN = new Date('2026-01-15T12:00:00Z');
+// After the newest date in the screen fixtures the TEST account is built from (look-fixtures.mjs).
+const FROZEN = new Date('2026-10-21T12:00:00Z');
 const SEED = 20261026;
 const REPORT_PATH = '/__csp-report';
 const REFUSAL = { code: 'look_gate.no_services', message: 'The look gate renders rooms without services.' };
@@ -375,11 +379,35 @@ function fontProbes(texts) {
   return picked.slice(0, 40);
 }
 
-/** The same start for every page: frozen clock, seeded random, CSP listener, every service call refused. */
-async function prepare(page) {
+/** The TEST account's answer at the gate's frozen time (fixture-answer.mjs). */
+const fixtureAnswer = (href, method, body, { signedIn }) => answerAt(href, method, body, { signedIn, now: FROZEN.getTime() });
+
+/**
+ * The same start for every page: frozen clock, seeded random, CSP listener, no socket. A Customer room is the TEST
+ * account's (signed in unless look-fixtures.mjs lists it as signed out, in its default view); every service call that
+ * account has no fixture for is refused.
+ */
+async function prepare(page, target = {}) {
   await page.clock.setFixedTime(FROZEN);
   await page.addInitScript({ content: INIT });
-  await page.route('**/api/**', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify(REFUSAL) }));
+  if (target.customer)
+    await page.addInitScript(
+      ([key, view]) => {
+        try {
+          localStorage.getItem(key) ?? localStorage.setItem(key, JSON.stringify(view));
+        } catch {
+          // A frame with no storage (about:blank, sandboxed) keeps the app's own default.
+        }
+      },
+      ['intafaced.customer.view.v1', world.VIEW],
+    );
+  const signedIn = Boolean(target.customer) && !world.SIGNED_OUT.includes(target.path);
+  await page.route('**/api/**', (route) => {
+    const request = route.request();
+    const answer = target.customer ? fixtureAnswer(request.url(), request.method(), request.postData(), { signedIn }) : null;
+    if (answer) return route.fulfill({ status: answer.status, contentType: 'application/json', body: JSON.stringify(answer.json) });
+    return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify(REFUSAL) });
+  });
   await page.routeWebSocket(/\/ws(\/|$)/, (ws) => ws.close({ code: 1011, reason: REFUSAL.code }));
 }
 
@@ -393,7 +421,7 @@ async function check(context, origin, target, vpName, opts, registry) {
         .slice(0, 160),
     ),
   );
-  await prepare(page);
+  await prepare(page, target);
   const row = { target: target.name, viewport: vpName, findings: {}, notes: [] };
   const add = (kind, items) => items.length && (row.findings[kind] = items);
   try {
@@ -580,7 +608,7 @@ async function variants(browser, origin, target) {
     const page = await context.newPage();
     const row = { target: target.name, viewport: `phone ${name}`, findings: {}, notes: [] };
     try {
-      await prepare(page);
+      await prepare(page, target);
       await page.goto(origin + target.path, { waitUntil: 'domcontentloaded', timeout: 30_000 });
       await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
       await page.addStyleTag({ content: FREEZE_CSS });
@@ -663,7 +691,7 @@ function report(rows, opts, meta) {
     '',
     `Verdict: **${v.mode}**${v.why ? ` (${v.why})` : ''}${v.blocking?.length ? `; blocking paths changed: ${v.blocking.slice(0, 5).join(', ')}` : ''}.`,
     '',
-    `Not checked yet: founder console (apps/admin) shots; filled-in states from contract fixtures (rooms show their refuse state); 130% copy. Legal registry: ${meta.registry ? REGISTRY_PATH : 'not on this branch'}.`,
+    `Not checked yet: founder console (apps/admin) shots; 130% copy; rooms with no fixture in apps/customer/tests/real-app/look-fixtures.mjs show their refuse state. Legal registry: ${meta.registry ? REGISTRY_PATH : 'not on this branch'}.`,
     '',
     '| Page | Viewport | Findings | Notes |',
     '| --- | --- | --- | --- |',
@@ -720,7 +748,14 @@ async function main(opts) {
     const c = await serve(customerDist, reports);
     servers.push(c.server);
     for (const route of opts.routes ?? customerRoutes())
-      targets.push({ name: route, origin: c.origin, path: route, room: roomName(route), baselines: 'apps/customer/look-baselines' });
+      targets.push({
+        name: route,
+        origin: c.origin,
+        path: route,
+        room: roomName(route),
+        baselines: 'apps/customer/look-baselines',
+        customer: true,
+      });
   }
 
   const [k, n] = opts.shard;
@@ -927,6 +962,30 @@ function selfTest() {
   eq(policy.verdict({ failures: 2, changed: null, today: '2026-12-01' }).mode, 'block', 'unreadable changed paths never pass silently');
   eq(policy.verdict({ failures: 2, changed: null, today: '2026-11-01' }).mode, 'report', 'but only report while report-only');
   eq(roomName('/'), 'root', 'root room');
+  // The TEST account: signed in, its fixtures wrapped as tRPC results, at the frozen time, and nothing it has no fixture for.
+  const api = (path, method = 'GET', body = null, signedIn = true) => fixtureAnswer('http://x' + path, method, body, { signedIn });
+  eq(api('/api/identity/trpc/auth.refresh', 'POST', '{}')?.json.result.data.userId, world.session(0).userId, 'signed in');
+  eq(api('/api/identity/trpc/auth.refresh', 'POST', '{}', false), null, 'signed out leaves the refresh refused');
+  eq(api('/api/bank/trpc/auth.refresh', 'POST', '{}'), null, 'only identity signs in');
+  const balance = api('/api/v1/account/balance')?.json;
+  eq([balance?.timestamp, balance?.balances.USDT.total], [FROZEN.getTime(), '4100.00'], 'REST fixture at the frozen time');
+  const one = api('/api/bank/trpc/activity.list?input=' + encodeURIComponent(JSON.stringify({ limit: 1 })))?.json.result.data;
+  eq(one?.items.length, 1, 'tRPC input reaches the fixture');
+  eq(api('/api/v1/ohlcv/BTC-USDT')?.json.at(-1)[4], '67812.40', 'candles by symbol');
+  eq(api('/api/bank/trpc/transfers.create', 'POST', '{}'), null, 'a call with no fixture is refused');
+  eq([api('/api/v1/constructor'), api('/api/bank/trpc/constructor')], [null, null], 'no prototype key is a fixture');
+  eq(api('/api/identity/trpc/me')?.status, 200, 'a module answers its own procedure');
+  eq(api('/api/trade/trpc/me'), null, 'and no other module answers it');
+  eq(api('/api/pay/trpc/workItems.list')?.json.result.data.items, [], 'every owner answers the work list');
+  eq(api('/api/v1/orders/open', 'DELETE'), null, 'only reads are fixtures');
+  eq(api('/api/bank/trpc/%E0'), null, 'a malformed call is refused');
+  const money = (input) => api('/api/bank/trpc/activity.list?input=' + encodeURIComponent(JSON.stringify(input)))?.json.result.data;
+  ok(money({}).nextCursor && money({ cursor: money({}).nextCursor }).nextCursor === null, 'the history pages end');
+  ok(
+    money({ direction: 'out' }).items.every((i) => i.direction === 'out'),
+    'the history filters by direction',
+  );
+  ok(world.SIGNED_OUT.includes('/') && world.SIGNED_OUT.every((r) => customerRoutes().includes(r)), 'signed-out rooms are swept routes');
   eq(roomName('/trade/spot/BTC-USDT'), 'trade-spot-btc-usdt', 'route room');
   ok(customerRoutes().length > 50 && customerRoutes().includes('/coin/BTC'), 'routes are the room report list');
   const fakeMark = new Uint8Array(8);
