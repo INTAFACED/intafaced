@@ -2,7 +2,8 @@
 /**
  * LOOK DRIFT — new customer-app and UI-kit code takes its look from the kit's role tokens, never from raw values.
  *
- * Reads the diff against origin/main and, in `apps/customer/**` and `packages/ui/**`, fails on any ADDED line (and
+ * Reads the diff against origin/main and, in `apps/customer/**` and `packages/ui/src/lit/templates/**` (the rooms and
+ * the templates rooms are built from), fails on any ADDED line (and
  * every line of a NEW file) that carries:
  *   1. a raw colour: `#hex`, `rgb()`/`hsl()`/`oklch()`… with literal numbers, a named colour as a CSS value, or a
  *      Tailwind palette or arbitrary colour (`bg-red-500`, `text-white`, `bg-[#123]`);
@@ -33,7 +34,9 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
-const SCOPE = /^(?:apps\/customer|packages\/ui)\/.+\.(?:css|tsx?|mjs)$/;
+// The rooms and the templates rooms are built from. The kit's own components and token files are the system: they may
+// hold structural values (hairlines, icon boxes), and the kit's component tests reject raw colours there.
+const SCOPE = /^(?:apps\/customer\/|packages\/ui\/src\/lit\/templates\/).+\.(?:css|tsx?|mjs)$/;
 const NOT_JUDGED =
   /^packages\/ui\/src\/(?:theme\/|tokens\.|lit\/tokens\.ts$|lit\/lit\.css$)|\.generated\.|(?:\.|\/)(?:test|spec|fixtures?|pw|stories)\.|\/__tests__\/|\/tests\/|(?:^|[./])playwright\.config\.|(?:^|[./])vitest[\w.]*\.config\.|(?:^|[./])vite\.config\.|\.d\.ts$/;
 const ALLOW = /look-drift-allow:\s*\S.{3,}/;
@@ -192,7 +195,16 @@ function git(args) {
 function changed(base) {
   const out = [];
   let file = null;
-  for (const l of git(['diff', '-M', '-U0', '--diff-filter=AMR', `${base}...HEAD`, '--', 'apps/customer', 'packages/ui']).split('\n')) {
+  for (const l of git([
+    'diff',
+    '-M',
+    '-U0',
+    '--diff-filter=AMR',
+    `${base}...HEAD`,
+    '--',
+    'apps/customer',
+    'packages/ui/src/lit/templates',
+  ]).split('\n')) {
     if (l.startsWith('diff --git ')) {
       file = { path: null, only: new Set() };
       out.push(file);
@@ -281,10 +293,12 @@ function selfTest() {
   // Files
   const f = (path, text, only) => judgeFile(path, text, only).findings.length;
   eq(f('apps/customer/src/x.css', 'a { color: #fff; }'), 1, 'new file judged');
+  eq(f('packages/ui/src/lit/templates/balance.css', '.b { padding: 12px; }'), 1, 'a template is judged');
+  eq(f('packages/ui/src/components/table.css', '.t { padding: 12px; }'), 0, 'kit components are the system');
   eq(f('apps/customer/src/x.css', 'a { color: #fff; }\nb { color: var(--if-fg); }', new Set([2])), 0, 'only changed lines');
   eq(f('packages/ui/src/theme/tokens.css', ':root { --if-bg: #000; }'), 0, 'token definitions not judged');
   eq(f('packages/ui/src/lit/lit.css', ':root { --lit-page: #05070d; }'), 0, 'lit token values not judged');
-  eq(f('packages/ui/src/lit/components/key.css', '.k { color: #fff; }'), 1, 'lit component judged');
+  eq(f('packages/ui/src/lit/components/key.css', '.k { inline-size: 18px; }'), 0, 'a lit component may hold structural px');
   eq(f('apps/customer/src/screens/home/home.test.tsx', `expect(x).toBe('#fff')`), 0, 'tests not judged');
   eq(f('apps/customer/src/screens/home/home.fixtures.mjs', `const c = '#fff';`), 0, 'fixtures not judged');
   eq(f('services/svc-bank/src/x.ts', `const c = '#fff';`), 0, 'out of scope');
@@ -320,7 +334,7 @@ if (process.argv.includes('--self-test')) {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   if (process.argv.includes('--all')) {
-    const files = git(['ls-files', 'apps/customer', 'packages/ui']).split('\n').filter(Boolean);
+    const files = git(['ls-files', 'apps/customer', 'packages/ui/src/lit/templates']).split('\n').filter(Boolean);
     const byRule = new Map();
     const byArea = new Map();
     for (const path of files) {
@@ -331,7 +345,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         byArea.set(area, (byArea.get(area) ?? 0) + 1);
       }
     }
-    console.log('look-drift --all (report only): lines with raw values across apps/customer and packages/ui');
+    console.log('look-drift --all (report only): lines with raw values across apps/customer and the lit templates');
     for (const [rule, n] of byRule) console.log(`  ${rule}: ${n}`);
     for (const [area, n] of [...byArea].sort((a, b) => b[1] - a[1]).slice(0, 25)) console.log(`    ${String(n).padStart(6)}  ${area}`);
     process.exit(0);
