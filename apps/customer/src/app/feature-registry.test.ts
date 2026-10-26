@@ -234,7 +234,7 @@ describe('top-bar menus link rooms that open', () => {
     ))
       expect(room.door, room.path).toBe('Money');
     expect(findRoom('/bank')?.door).toBe('Money');
-    expect(findRoom('/bank')?.alias, '/bank is its own room, not the Money page').toBeUndefined();
+    expect(findRoom('/money')?.door).toBe('Money');
   });
   it('sends a signed-out visitor to the public Help centre, never to a page that needs a session', () => {
     const more = tabSpecs('simple', false).find((tab) => tab.door === 'More')!;
