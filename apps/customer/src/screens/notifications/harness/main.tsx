@@ -1,7 +1,6 @@
 // Test harness only. Mounts the real top-bar bell and the Notifications screen with the real theme and providers but without
 // the app shell, signed in as a labelled fake user. Every API call is answered by the Playwright test (no service is contacted).
 // Other routes show a stand-in so a clicked notification visibly lands somewhere.
-import '../../../shared/tokens.css';
 import '../../../shared/styles.css';
 import '../../../features/public/public.css';
 import '../../../app/redesign.css';

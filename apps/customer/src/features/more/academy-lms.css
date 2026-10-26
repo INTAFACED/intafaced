@@ -1,45 +1,45 @@
 .academy-lms-bar {
   height: 8px;
-  border-radius: 4px;
+  border-radius: var(--if-r-xs);
   background: var(--color-divider);
   overflow: hidden;
 }
 .academy-lms-bar > span {
   display: block;
   height: 100%;
-  background: var(--color-accent);
+  background: var(--if-lime);
 }
 .academy-lms-chip {
   display: inline-flex;
   align-items: center;
   min-height: 24px;
-  padding: 2px 10px;
+  padding: var(--if-space-0-5) var(--if-space-2-5);
   border: 1px solid var(--color-divider);
-  border-radius: 12px;
-  font-size: 13px;
-  line-height: 20px;
+  border-radius: var(--if-r-md);
+  font-size: var(--if-text-sm);
+  line-height: var(--if-leading-base);
   color: var(--color-muted);
   white-space: nowrap;
 }
 .academy-lms-chip[data-status='recorded'],
 .academy-lms-chip[data-status='earned'] {
-  border-color: var(--color-accent);
+  border-color: var(--if-lime);
   color: var(--color-text);
 }
 .academy-lms-chip[data-status='ready'] {
-  border-color: var(--color-accent);
+  border-color: var(--if-lime);
   color: var(--color-text);
 }
 .academy-lms-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 16px;
+  gap: var(--if-space-4);
 }
 .academy-lms-card {
   display: grid;
-  gap: 12px;
+  gap: var(--if-space-3);
   align-content: start;
-  padding: 20px;
+  padding: var(--if-space-5);
   border: 1px solid var(--color-divider);
   border-radius: 10px;
   background: var(--color-surface-raised);
@@ -51,20 +51,20 @@
   margin: 0;
 }
 .academy-lms-card--resume {
-  border-left: 2px solid var(--color-accent);
+  border-left: 2px solid var(--if-lime);
 }
 .academy-lms-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 12px;
-  font-size: 13px;
-  line-height: 20px;
+  gap: var(--if-space-1) var(--if-space-3);
+  font-size: var(--if-text-sm);
+  line-height: var(--if-leading-base);
   color: var(--color-muted);
 }
 .academy-lms-stack {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 16px;
+  gap: var(--if-space-4);
 }
 .academy-lms-rows {
   list-style: none;
@@ -74,9 +74,9 @@
 .academy-lms-rows > li {
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr) auto;
-  gap: 12px;
+  gap: var(--if-space-3);
   align-items: center;
-  padding: 14px 0;
+  padding: var(--if-space-3-5) 0;
   border-top: 1px solid var(--color-divider);
 }
 .academy-lms-rows > li > span:first-child {
@@ -87,24 +87,24 @@
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--if-space-3);
 }
 .academy-lms-crumbs {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 8px;
-  font-size: 13px;
+  gap: var(--if-space-1) var(--if-space-2);
+  font-size: var(--if-text-sm);
   color: var(--color-muted);
 }
 .academy-lms-disabled {
   display: grid;
-  gap: 6px;
+  gap: var(--if-space-1-5);
   justify-items: start;
 }
 .academy-lms-assessment {
   display: grid;
-  gap: 16px;
-  padding: 20px;
+  gap: var(--if-space-4);
+  padding: var(--if-space-5);
   border: 1px solid var(--color-divider);
   border-radius: 10px;
   min-width: 0;
@@ -120,54 +120,54 @@
   border: 0;
   min-width: 0;
   display: grid;
-  gap: 8px;
+  gap: var(--if-space-2);
 }
 .academy-lms-assessment legend {
   padding: 0;
-  margin-bottom: 8px;
+  margin-bottom: var(--if-space-2);
   font-weight: 600;
   overflow-wrap: anywhere;
 }
 .academy-lms-choice {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: var(--if-space-3);
   min-height: 44px;
-  padding: 10px 12px;
+  padding: var(--if-space-2-5) var(--if-space-3);
   border: 1px solid var(--color-divider);
-  border-radius: 8px;
+  border-radius: var(--if-r-sm);
   cursor: pointer;
   overflow-wrap: anywhere;
 }
 .academy-lms-choice:has(input:checked) {
-  border-color: var(--color-accent);
+  border-color: var(--if-lime);
 }
 .academy-lms-choice:has(input:focus-visible) {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--if-focus);
   outline-offset: 2px;
 }
 .academy-lms-choice input {
   flex: none;
   width: 20px;
   height: 20px;
-  margin: 2px 0 0;
+  margin: var(--if-space-0-5) 0 0;
 }
 .academy-lms-result {
   display: grid;
-  gap: 8px;
-  padding: 16px;
-  border: 1px solid var(--color-accent);
-  border-radius: 8px;
+  gap: var(--if-space-2);
+  padding: var(--if-space-4);
+  border: 1px solid var(--if-lime);
+  border-radius: var(--if-r-sm);
 }
 .academy-lms-result:focus {
   outline: none;
 }
 .academy-lms-result:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--if-focus);
   outline-offset: 2px;
 }
 .academy-lms-chip[data-status='passed'] {
-  border-color: var(--color-accent);
+  border-color: var(--if-lime);
   color: var(--color-text);
 }
 .academy-lms-chip[data-status='failed'],
@@ -177,22 +177,22 @@
 }
 .academy-lms-form {
   display: grid;
-  gap: 16px;
+  gap: var(--if-space-4);
 }
 .academy-lms-form > .academy-learning-actions {
   align-items: flex-start;
 }
 @media (max-width: 480px) {
   .academy-lms-assessment {
-    padding: 16px;
+    padding: var(--if-space-4);
   }
 }
 .academy-cert-sheet {
   display: grid;
-  gap: 16px;
+  gap: var(--if-space-4);
   justify-items: center;
   text-align: center;
-  padding: 40px 24px;
+  padding: var(--if-space-10) var(--if-space-6);
   border: 2px solid var(--color-divider);
   border-radius: 6px;
   background: var(--color-surface-raised);
@@ -204,11 +204,11 @@
   margin: 0;
 }
 .academy-cert-sheet h2 {
-  font-size: 28px;
+  font-size: var(--if-text-2xl);
   line-height: 36px;
 }
 .academy-cert-sheet code {
-  font-size: 13px;
+  font-size: var(--if-text-sm);
 }
 .academy-cert-sheet[aria-disabled='true'] {
   border-style: dashed;
@@ -222,7 +222,7 @@
     grid-column: 2;
   }
   .academy-cert-sheet {
-    padding: 24px 16px;
+    padding: var(--if-space-6) var(--if-space-4);
   }
 }
 @media print {
@@ -239,7 +239,7 @@
     border: 2px solid #000;
     background: #fff;
     color: #000;
-    padding: 48px;
+    padding: var(--if-space-12);
   }
 }
 
@@ -255,7 +255,7 @@
   background: var(--color-surface, transparent);
 }
 .academy-video-frame:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--if-focus);
 }
 .academy-video-frame:fullscreen {
   align-content: center;
@@ -283,10 +283,10 @@
   padding: 0.25rem 0.5rem;
 }
 .academy-video-transcript button:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--if-focus);
 }
 .academy-video-transcript li[aria-current='true'] {
-  border-left: 3px solid var(--color-accent);
+  border-left: 3px solid var(--if-lime);
   font-weight: 600;
 }
 

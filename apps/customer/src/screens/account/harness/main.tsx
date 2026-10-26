@@ -1,6 +1,5 @@
 // Test harness only. Mounts the Account screen with the real theme and providers but without the app shell,
 // signed in as a labelled fake user. Every API call is answered by the Playwright test (no service is contacted).
-import '../../../shared/tokens.css';
 import '../../../shared/styles.css';
 import '../../../features/public/public.css';
 import '../../../app/redesign.css';

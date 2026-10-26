@@ -1,5 +1,4 @@
 // Test harness only. Mounts the More screen with the real theme and providers but without the app shell. No API is used.
-import '../../../shared/tokens.css';
 import '../../../shared/styles.css';
 import '../../../features/public/public.css';
 import '../../../app/redesign.css';

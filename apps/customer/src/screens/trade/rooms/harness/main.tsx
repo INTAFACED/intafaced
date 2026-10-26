@@ -1,7 +1,6 @@
 // Test harness only. Mounts one trade room (?room=options|execution|otc) with the real theme and providers but without
 // the app shell, signed in as a labelled fake user (add &signedout=1 to stay signed out). Every API call is answered by
 // the Playwright test (no service is contacted). The path and search come from the address bar, like the real app.
-import '../../../../shared/tokens.css';
 import '../../../../shared/styles.css';
 import '../../../../features/public/public.css';
 import '../../../../app/redesign.css';

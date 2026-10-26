@@ -1,7 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { SessionProvider } from './features/session/session';
-import './shared/tokens.css';
 import './shared/styles.css';
 import './app/redesign.css';
 import './app/shell.css';

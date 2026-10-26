@@ -16,6 +16,7 @@
     },
     "./tokens.css": "./src/tokens.css",
     "./theme/tokens.css": "./src/theme/tokens.css",
+    "./theme/customer-legacy.css": "./src/theme/customer-legacy.css",
     "./theme/theme.css": "./src/theme/theme.css",
     "./theme/base.css": "./src/theme/base.css"
   },
