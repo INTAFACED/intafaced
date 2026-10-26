@@ -43,14 +43,18 @@ export function CoinBar({
   };
 
   return (
-    <div className="coin-bar">
+    <div data-testid="coin-bar" className="coin-bar">
       <div className="coin-bar__id">
         <CoinIcon asset={asset} size={32} />
         <span className="coin-bar__names">
           <span className="coin-bar__name" data-testid="coin-name">
             {name ?? asset}
           </span>
-          {name ? <span className="coin-bar__ticker">{asset}</span> : null}
+          {name ? (
+            <span data-testid="coin-bar__ticker" className="coin-bar__ticker">
+              {asset}
+            </span>
+          ) : null}
         </span>
         {star ? (
           <button
@@ -65,7 +69,7 @@ export function CoinBar({
         ) : null}
       </div>
       {hasAbout ? (
-        <nav className="coin-bar__tabs" aria-label={t('Coin sections')}>
+        <nav data-testid="coin-bar__tabs" className="coin-bar__tabs" aria-label={t('Coin sections')}>
           <button type="button" aria-current={section === 'overview' ? 'true' : undefined} onClick={() => go('overview')}>
             {t('Overview')}
           </button>

@@ -94,6 +94,7 @@ function NavTab({ tab, current, language }: { tab: TabSpec; current: Door | unde
   return (
     <li
       ref={wrapper}
+      data-testid="tb-item"
       className={`tb-item ${open ? 'tb-item--open' : ''}`}
       onMouseEnter={show}
       onMouseLeave={hideSoon}
@@ -112,6 +113,7 @@ function NavTab({ tab, current, language }: { tab: TabSpec; current: Door | unde
     >
       <a
         ref={link}
+        data-testid="tb-tab"
         className="tb-tab"
         href={tab.href}
         aria-current={current === tab.door ? 'page' : undefined}

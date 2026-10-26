@@ -76,8 +76,8 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
               <nav className="tb-nav" aria-label={t('shellNav')}>
                 <ul>
                   {NAV.map((item) => (
-                    <li key={item.key} className="tb-item">
-                      <a className="tb-tab" href={item.href} aria-current={item.match(path) ? 'page' : undefined}>
+                    <li key={item.key} data-testid="tb-item" className="tb-item">
+                      <a data-testid="tb-tab" className="tb-tab" href={item.href} aria-current={item.match(path) ? 'page' : undefined}>
                         {t(item.key)}
                       </a>
                     </li>

@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { accents, roleNames, roleVar, templateSlots, templates, typeRoles } from './contracts.js';
@@ -8,6 +9,7 @@ import { looks } from '../theme/tokens.js';
 import { accentSets, accentTextLight, flat, flatTypeMap, lit, litLight } from './tokens.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
+const require = createRequire(import.meta.url);
 const css = readFileSync(join(here, 'lit.css'), 'utf8');
 const themeTokens = readFileSync(join(here, '../theme/tokens.css'), 'utf8');
 
@@ -202,5 +204,25 @@ describe('the founder console never reaches the lit kit', () => {
       (f) => /\.(tsx?|css|mjs|js)$/.test(f) && /@intafaced\/ui\/lit|ui\/src\/lit/.test(readFileSync(f, 'utf8')),
     );
     expect(hits).toEqual([]);
+  });
+});
+
+describe('lit fonts are self-hosted and named as the roles name them', () => {
+  const fonts = readFileSync(join(here, 'fonts.css'), 'utf8');
+  it('imports only pinned local packages, never a URL', () => {
+    expect(fonts).not.toMatch(/https?:\/\//);
+    expect([...fonts.matchAll(/@import '([^']+)'/g)].map((m) => m[1])).toEqual([
+      '@fontsource-variable/geist/index.css',
+      '@fontsource-variable/geist-mono/index.css',
+    ]);
+  });
+  it('the font roles lead with the families those packages declare', () => {
+    expect(lit['font-ui'].startsWith("'Geist Variable'")).toBe(true);
+    expect(lit['font-figure'].startsWith("'Geist Variable'")).toBe(true);
+    expect(lit['font-mono'].startsWith("'Geist Mono Variable'")).toBe(true);
+    for (const pkg of ['geist', 'geist-mono']) {
+      const css = readFileSync(require.resolve(`@fontsource-variable/${pkg}/index.css`), 'utf8');
+      expect(css).toContain(pkg === 'geist' ? "font-family: 'Geist Variable'" : "font-family: 'Geist Mono Variable'");
+    }
   });
 });
