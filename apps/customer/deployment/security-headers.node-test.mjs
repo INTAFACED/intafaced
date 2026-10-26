@@ -194,3 +194,17 @@ test('the template substitutes only its two CUSTOMER_CSP_ placeholders, so nginx
   assert.match(dockerfile, /NGINX_ENVSUBST_FILTER=\^CUSTOMER_CSP_/);
   assert.match(dockerfile, /NGINX_ENVSUBST_OUTPUT_DIR=\/etc\/nginx\/snippets/);
 });
+
+test('securityHeaders gives a non-nginx server the same headers, word for word', async () => {
+  const { securityHeaders } = await import('./render-security-headers.mjs');
+  const fromNginx = Object.fromEntries(headers(renderSecurityHeaders({})).map(([k, v]) => [k, v]));
+  const local = Object.fromEntries(Object.entries(securityHeaders()).map(([k, v]) => [k.toLowerCase(), v]));
+  assert.deepEqual(local, fromNginx, 'with no origins it equals the container render');
+  const withMedia = securityHeaders({ mediaSrc: "'self' blob: http://127.0.0.1:3240", reportUri: '/__csp-report' });
+  const csp = withMedia['Content-Security-Policy'];
+  assert.match(csp, /media-src 'self' blob: http:\/\/127\.0\.0\.1:3240;/);
+  assert.match(csp, /script-src 'self';/);
+  assert.match(csp, /; report-uri \/__csp-report$/);
+  assert.throws(() => securityHeaders({ connectSrc: "'self'; script-src *" }), /does not belong/);
+  assert.throws(() => securityHeaders({ reportUri: 'https://evil.test/r' }), /same-origin path/);
+});
