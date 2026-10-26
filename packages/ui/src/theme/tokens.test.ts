@@ -11,6 +11,7 @@ import {
   defaultLook,
   legacyVars,
   looks,
+  renderLegacyCss,
   radii,
   redUpOverrides,
   renderTokensCss,
@@ -196,19 +197,31 @@ describe('theme.css (Tailwind @theme mapping)', () => {
     expect(clashes).toEqual([]);
   });
 
+  it('customer-legacy.css is exactly what tokens.ts generates', () => {
+    expect(read('customer-legacy.css')).toBe(renderLegacyCss());
+  });
+
   it("is the customer app's one token source: the old stylesheet is gone and nothing imports it", () => {
     const app = join(here, '../../../../apps/customer');
     if (!existsSync(app)) return; // package used outside the monorepo
     expect(existsSync(join(app, 'src/shared/tokens.css'))).toBe(false);
-    const importers = walk(join(app, 'src')).filter(
-      (f) => /\.(tsx?|mjs|css)$/.test(f) && /shared\/tokens\.css/.test(readFileSync(f, 'utf8')),
-    );
-    expect(importers).toEqual([]);
+    const skip = new Set(['node_modules', 'dist', 'test-results', 'playwright-report']);
+    const files = (dir: string, out: string[] = []): string[] => {
+      for (const name of readdirSync(dir)) {
+        if (skip.has(name)) continue;
+        const full = join(dir, name);
+        if (statSync(full).isDirectory()) files(full, out);
+        else if (/\.(tsx?|m?js|css|html)$/.test(name)) out.push(full);
+      }
+      return out;
+    };
+    expect(files(app).filter((f) => /shared\/tokens\.css/.test(readFileSync(f, 'utf8')))).toEqual([]);
+    expect(readFileSync(join(app, 'src/app/redesign.css'), 'utf8')).toContain("@import '@intafaced/ui/theme/customer-legacy.css';");
   });
 });
 
 describe('looks: stable names, values per look', () => {
-  const names = new Set(Object.keys(cssVars()));
+  const names = new Set([...Object.keys(cssVars()), ...Object.keys(legacyVars)]);
 
   it('has the default look, which keeps the values written in tokens.ts', () => {
     expect(looks[defaultLook]).toEqual({});

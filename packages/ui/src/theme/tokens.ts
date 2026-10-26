@@ -218,9 +218,10 @@ export const aliases = {
 
 /**
  * The customer app's older names. They lived in apps/customer/src/shared/tokens.css until 26 Oct 2026 and are
- * emitted here, with today's values, so that file could go. Where a value equals a kit token it points at that
- * token, so a look change reaches these names too. They are being replaced by `--if-*` names area by area
- * (tooling/scripts/look-codemod.mjs); write no new uses.
+ * generated into `customer-legacy.css` (customer app only, so they never reach the founder console), with
+ * today's values, so that file could go. Where a value is a kit token's in the same role (page background,
+ * accent) it points at that token, so a look change reaches it; the rest keep their own value until their
+ * uses move to `--if-*` names area by area. Write no new uses.
  */
 export const legacyVars = {
   '--color-background': 'var(--if-bg)',
@@ -318,17 +319,17 @@ export function cssVars(): Record<string, string> {
   out['--if-t-menu'] = motion.menu;
   out['--if-t-tab'] = motion.tab;
   out['--if-t-flash'] = motion.flash;
-  for (const [k, v] of Object.entries(legacyVars)) out[k] = v;
   return out;
 }
 
-/** A custom property name; `tokens.test.ts` checks that every name a look sets is one `cssVars()` emits. */
+/** A custom property name; `tokens.test.ts` checks that every name a look sets is one `cssVars()` or `legacyVars` has. */
 export type TokenName = `--${string}`;
 
 /**
  * Looks: one value map per look, under the same names. The default look's values are the ones written above,
  * so its entry is empty. A new look lists only the names whose value it changes; `tokens.test.ts` fails if it
- * names a token that does not exist. Each entry is emitted as `:root[data-look='<id>']`.
+ * names a token that does not exist. Each entry is emitted as `:root:where([data-look='<id>'])`: same weight as
+ * `:root` and written before the red-for-up block, so user preferences (red for up, the light theme) still win.
  */
 export const looks = {
   /** Black, lime and Inter, measured from okx.com on 2026-10-13 (see the provenance note at the top). */
@@ -350,9 +351,13 @@ const decl = (vars: Record<string, string>, indent = '  ') =>
 export function renderTokensCss(): string {
   const redUp: Record<string, string> = {};
   for (const [k, v] of Object.entries(redUpOverrides)) redUp[`--if-${k}`] = v;
-  const lookBlocks = Object.entries(looks as Record<string, Record<string, string>>)
+  const all = looks as Record<string, Record<string, string>>;
+  if (Object.keys(all[defaultLook] ?? {}).length > 0) {
+    throw new Error(`look ${defaultLook} is the default: write its values in the token maps above, not in looks`);
+  }
+  const lookBlocks = Object.entries(all)
     .filter(([id, vars]) => id !== defaultLook && Object.keys(vars).length > 0)
-    .map(([id, vars]) => `\n/* Look "${id}": same names, its own values. */\n:root[data-look='${id}'] {\n${decl(vars)}\n}\n`)
+    .map(([id, vars]) => `\n/* Look "${id}": same names, its own values. */\n:root:where([data-look='${id}']) {\n${decl(vars)}\n}\n`)
     .join('');
   return `/**
  * INTAFACED customer-app design tokens (UI-SPEC section 2).
@@ -377,6 +382,20 @@ ${decl(redUp)}
     --if-t-tab: 0ms;
     --if-t-flash: 0ms;
   }
+}
+`;
+}
+
+/** The exact text of customer-legacy.css: the customer app's older names, loaded by the customer app only. */
+export function renderLegacyCss(): string {
+  return `/**
+ * The customer app's older token names, loaded by the customer app only (app/redesign.css).
+ * GENERATED from src/theme/tokens.ts (legacyVars) by src/theme/generate.ts.
+ * Do not edit by hand: theme/tokens.test.ts fails if the two drift. Write no new uses: use --if-* names.
+ */
+
+:root {
+${decl(legacyVars)}
 }
 `;
 }
