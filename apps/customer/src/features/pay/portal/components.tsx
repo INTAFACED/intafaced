@@ -59,7 +59,7 @@ export function PortalFailure({ result, retry, notLive }: { result: Failed; retr
   // The same refusal, twice on one page, is said once.
   if (once && !once.claim(key, id)) return null;
   return (
-    <div className="failure" role={result.reason === 'uncertain' ? 'alert' : 'status'}>
+    <div data-testid="failure" className="failure" role={result.reason === 'uncertain' ? 'alert' : 'status'}>
       <h3>{refusalTitle(result)}</h3>
       <p>{refusalText(result)}</p>
       {result.requestId && (

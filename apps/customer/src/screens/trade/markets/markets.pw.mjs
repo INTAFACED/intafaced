@@ -46,7 +46,7 @@ async function mock(page, overrides = {}) {
 }
 const open = async (page, query = '') => {
   await page.goto(`/${query}`);
-  await page.locator('.if-markets').waitFor();
+  await page.getByTestId('if-markets').waitFor();
 };
 const pro = (page) => page.addInitScript(() => localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ layoutMode: 'pro' })));
 const texts = (locator) => locator.evaluateAll((nodes) => nodes.map((node) => node.textContent.trim()));
@@ -64,7 +64,7 @@ test('ready state at 1440x900: layout, words, numbers, keyboard path', async ({ 
   await mock(page);
   await open(page);
   await ready(page);
-  const root = page.locator('.if-markets');
+  const root = page.getByTestId('if-markets');
 
   // Only open, real, orderable markets: the simulated, halted and locked ones are not listed.
   expect(await rowSymbols(page)).toEqual(DEFAULT_ORDER);
@@ -72,28 +72,28 @@ test('ready state at 1440x900: layout, words, numbers, keyboard path', async ({ 
 
   // Order on the page: cards -> tabs -> chips -> table.
   const ys = await page.evaluate(() =>
-    ['.mkt-cards', '.mkt-tabs', '.mkt-chips', '.mkt-header'].map(
+    ['[data-testid="mkt-cards"]', '[data-testid="mkt-tabs"]', '[data-testid="mkt-chips"]', '[data-testid="mkt-header"]'].map(
       (selector) => document.querySelector(selector).getBoundingClientRect().top,
     ),
   );
   expect([...ys].sort((a, b) => a - b)).toEqual(ys);
 
   // Cards: Popular, New listings, Top gainers; one row per coin; 224 high; three across.
-  expect(await texts(page.locator('.mkt-card__head h2'))).toEqual(['Popular', 'New listings', 'Top gainers']);
-  expect(await texts(page.locator('[data-card="popular"] .mkt-card__name'))).toEqual(['BTC/USDT', 'ETH/USDT', 'SOL/USDT']);
-  expect(await texts(page.locator('[data-card="new"] .mkt-card__name'))).toEqual(['IFC/USDT', 'SOL/USDT']);
-  expect(await texts(page.locator('[data-card="gainers"] .mkt-card__name'))).toEqual(['BTC/USDT', 'XRP/USDT', 'SOL/USDT']);
+  expect(await texts(page.getByTestId('mkt-card__head').locator('h2'))).toEqual(['Popular', 'New listings', 'Top gainers']);
+  expect(await texts(page.locator('[data-card="popular"] [data-testid="mkt-card__name"]'))).toEqual(['BTC/USDT', 'ETH/USDT', 'SOL/USDT']);
+  expect(await texts(page.locator('[data-card="new"] [data-testid="mkt-card__name"]'))).toEqual(['IFC/USDT', 'SOL/USDT']);
+  expect(await texts(page.locator('[data-card="gainers"] [data-testid="mkt-card__name"]'))).toEqual(['BTC/USDT', 'XRP/USDT', 'SOL/USDT']);
   expect(await texts(page.locator('[data-card="gainers"] [data-slot="pct"]'))).toEqual(['+2.75%', '+2.15%', '+1.75%']);
-  const card = await box(page, '.mkt-card');
+  const card = await box(page, '[data-testid="mkt-card"]');
   expect(Math.round(card.height)).toBe(224);
-  expect(Math.round((await box(page, '.if-markets')).width)).toBe(1392);
+  expect(Math.round((await box(page, '[data-testid="if-markets"]')).width)).toBe(1392);
   expect(Math.round(card.width)).toBe(Math.round((1392 - 48) / 3));
-  expect(Math.round((await box(page, '.mkt-card__row')).height)).toBe(52);
+  expect(Math.round((await box(page, '[data-testid="mkt-card__row"]')).height)).toBe(52);
 
   // Tabs and chips.
   expect(await texts(page.locator('[data-slot="tabs-tab"]'))).toEqual(['Favorites', 'Spot']);
   await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('Spot');
-  expect(await texts(page.locator('.mkt-chips [data-slot="toggle-group-item"]'))).toEqual([
+  expect(await texts(page.getByTestId('mkt-chips').locator('[data-slot="toggle-group-item"]'))).toEqual([
     'All',
     'Gainers',
     'Losers',
@@ -103,7 +103,7 @@ test('ready state at 1440x900: layout, words, numbers, keyboard path', async ({ 
   ]);
 
   // Header: 40 px, names in the OKX order (minus market cap); rows are 60 px.
-  expect(await texts(page.locator('.mkt-header [role="columnheader"]'))).toEqual([
+  expect(await texts(page.getByTestId('mkt-header').locator('[role="columnheader"]'))).toEqual([
     'Name',
     'Price',
     '24h change',
@@ -112,23 +112,23 @@ test('ready state at 1440x900: layout, words, numbers, keyboard path', async ({ 
     '24h volume',
     'Action',
   ]);
-  expect(Math.round((await box(page, '.mkt-header')).height)).toBe(40);
+  expect(Math.round((await box(page, '[data-testid="mkt-header"]')).height)).toBe(40);
   const row = await box(page, '[role="row"][data-symbol]');
   expect(Math.round(row.height)).toBe(60);
   expect(Math.round(row.width)).toBe(1392);
 
   // First row figures, from the wire numbers (no floats): open 66000.00, last 67812.40.
   const btc = page.locator('[data-symbol="BTC/USDT"]');
-  await expect(btc.locator('.mkt-name__ticker')).toHaveText('BTC/USDT');
-  await expect(btc.locator('.mkt-name__full')).toHaveText('Bitcoin');
+  await expect(btc.getByTestId('mkt-name__ticker')).toHaveText('BTC/USDT');
+  await expect(btc.getByTestId('mkt-name__full')).toHaveText('Bitcoin');
   await expect(btc.locator('[data-slot="price"]')).toHaveText('$67,812.40');
   await expect(btc.locator('[data-slot="pct"]')).toHaveText('▲+2.75%'); // the arrow is a second cue beside the sign
   await expect(page.locator('[data-symbol="IFC/USDT"] [data-slot="pct"]')).toHaveText('▼−2.14%');
   await expect(page.locator('[data-symbol="IFC/USDT"] [data-slot="price"]')).toHaveText('$0.4120');
   await expect(btc.locator('[data-slot="volume"]')).toHaveText('$91.2M');
-  await expect(btc.locator('.mkt-range__ends')).toHaveText('$65,800.00$68,200.00');
-  await expect(btc.locator('.mkt-range__marker')).toHaveAttribute('style', /left: 8\d\.\d+%/);
-  expect(await page.locator('.mkt-row [data-slot="sparkline"] polyline').count()).toBe(8);
+  await expect(btc.getByTestId('mkt-range__ends')).toHaveText('$65,800.00$68,200.00');
+  await expect(btc.getByTestId('mkt-range__marker')).toHaveAttribute('style', /left: 8\d\.\d+%/);
+  expect(await page.getByTestId('mkt-row').locator('[data-slot="sparkline"] polyline').count()).toBe(8);
 
   // Simple mode (default), signed in: the row and the Buy button open the coin page (it needs a session).
   await expect(btc.locator('[data-row-link]')).toHaveAttribute('href', '/coin/BTC');
@@ -145,13 +145,13 @@ test('ready state at 1440x900: layout, words, numbers, keyboard path', async ({ 
 
   // Numbers are right-aligned in the header and the cells.
   const align = await page.evaluate(() => [
-    getComputedStyle(document.querySelector('.mkt-head--num')).textAlign,
-    getComputedStyle(document.querySelector('.mkt-cell--num')).justifyContent,
+    getComputedStyle(document.querySelector('[data-testid="mkt-head--num"]')).textAlign,
+    getComputedStyle(document.querySelector('[data-testid="mkt-cell--num"]')).justifyContent,
   ]);
   expect(align).toEqual(['right', 'flex-end']);
 
   // Keyboard: Tab reaches the tabs, search, chips, sort buttons, then the first row (link, star, Buy).
-  await page.locator('.harness-bar a').last().focus();
+  await page.getByTestId('harness-bar').locator('a').last().focus();
   const path = [];
   for (let step = 0; step < 40; step++) {
     await page.keyboard.press('Tab');
@@ -164,7 +164,7 @@ test('ready state at 1440x900: layout, words, numbers, keyboard path', async ({ 
         href: node.getAttribute('href'),
         outline: `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`,
         after: getComputedStyle(node, '::after').outlineStyle,
-        inside: Boolean(node.closest('.if-markets')),
+        inside: Boolean(node.closest('[data-testid="if-markets"]')),
       };
     });
     if (!stop.inside) break;
@@ -256,7 +256,7 @@ test('chips filter by change, newness and currency; pressing the chosen currency
   await mock(page);
   await open(page);
   await ready(page);
-  const chip = (name) => page.locator('.mkt-chips [data-slot="toggle-group-item"]', { hasText: new RegExp(`^${name}$`) });
+  const chip = (name) => page.getByTestId('mkt-chips').locator('[data-slot="toggle-group-item"]', { hasText: new RegExp(`^${name}$`) });
   await chip('Gainers').click();
   expect(await rowSymbols(page)).toEqual(['BTC/USDT', 'BTC/USDC', 'XRP/USDT', 'SOL/USDT', 'ETH/USDT', 'ETH/USDC']);
   await chip('Losers').click();
@@ -290,7 +290,7 @@ test('search opens inline, matches names and pairs, says so when nothing matches
   await input.fill('eth/usdc');
   expect(await rowSymbols(page)).toEqual(['ETH/USDC']);
   await input.fill('zzz');
-  await expect(page.locator('.mkt-empty')).toContainText('No markets match “zzz”.');
+  await expect(page.getByTestId('mkt-empty')).toContainText('No markets match “zzz”.');
   await page.screenshot({ path: join(shots, 'markets-state-no-match.png') });
   await page.getByRole('button', { name: 'Clear search' }).click();
   expect(await rowSymbols(page)).toEqual(DEFAULT_ORDER);
@@ -306,7 +306,7 @@ test('favourites: an empty tab shows a way forward; a star saves to the device s
   await open(page);
   await ready(page);
   await page.getByRole('tab', { name: 'Favorites' }).click();
-  await expect(page.locator('.mkt-empty')).toContainText('Star a market to keep it here.');
+  await expect(page.getByTestId('mkt-empty')).toContainText('Star a market to keep it here.');
   await page.waitForTimeout(300); // the tab underline slides for 150 ms
   await page.screenshot({ path: join(shots, 'markets-state-favorites-empty.png') });
   await page.getByRole('button', { name: 'Browse markets' }).click();
@@ -340,34 +340,39 @@ test('signed out: the star leads to sign-in and comes back; Favorites says to lo
   await expect(star).toHaveAttribute('href', '/login?redirect=%2Ftrade%3Fsignedout%3D1');
   // The coin page needs a session, so a signed-out visitor's rows open the public Buy card instead of a sign-in wall.
   await expect(page.locator('[data-symbol="BTC/USDT"] [data-row-link]')).toHaveAttribute('href', '/trade/buy?asset=BTC');
-  expect(await page.locator('.if-markets a[href^="/coin/"]').count()).toBe(0);
+  expect(await page.getByTestId('if-markets').locator('a[href^="/coin/"]').count()).toBe(0);
   await page.getByRole('tab', { name: 'Favorites' }).click();
-  await expect(page.locator('.mkt-empty')).toContainText('Log in to keep your favorites here.');
-  await expect(page.locator('.mkt-empty a')).toHaveText('Log in');
+  await expect(page.getByTestId('mkt-empty')).toContainText('Log in to keep your favorites here.');
+  await expect(page.getByTestId('mkt-empty').locator('a')).toHaveText('Log in');
 });
 
 test('loading shows final-size skeleton rows and cards, and nothing moves when data arrives', async ({ page }) => {
   const api = await mock(page, { markets: null, tickers: null });
   await open(page);
   await expect(page.locator('[data-slot="skeleton"]').first()).toBeVisible();
-  expect(await page.locator('.mkt-row [data-slot="skeleton"]').count()).toBeGreaterThan(0);
-  expect(await page.locator('.mkt-row').count()).toBe(8);
-  expect(Math.round((await box(page, '.mkt-row')).height)).toBe(60);
-  expect(await page.locator('.mkt-card [data-slot="skeleton"]').count()).toBeGreaterThan(0);
-  expect(await page.locator('.mkt-card').count()).toBe(3);
+  expect(await page.getByTestId('mkt-row').locator('[data-slot="skeleton"]').count()).toBeGreaterThan(0);
+  expect(await page.getByTestId('mkt-row').count()).toBe(8);
+  expect(Math.round((await box(page, '[data-testid="mkt-row"]')).height)).toBe(60);
+  expect(await page.getByTestId('mkt-card').locator('[data-slot="skeleton"]').count()).toBeGreaterThan(0);
+  expect(await page.getByTestId('mkt-card').count()).toBe(3);
   // Skeletons inside a card are the field colour; the kit's own is the panel colour and would vanish there (critic M4).
   expect(
     await page
-      .locator('.mkt-card [data-slot="skeleton"]')
+      .getByTestId('mkt-card')
+      .locator('[data-slot="skeleton"]')
       .first()
       .evaluate((node) => getComputedStyle(node).backgroundColor),
   ).toBe('rgb(33, 33, 33)');
   await expect(page.locator('[role="table"]')).toHaveAttribute('aria-busy', 'true');
   const layout = () =>
     page.evaluate(() =>
-      ['.mkt-cards', '.mkt-tabs', '.mkt-chips', '.mkt-header', '.mkt-row'].map((s) =>
-        Math.round(document.querySelector(s).getBoundingClientRect().top),
-      ),
+      [
+        '[data-testid="mkt-cards"]',
+        '[data-testid="mkt-tabs"]',
+        '[data-testid="mkt-chips"]',
+        '[data-testid="mkt-header"]',
+        '[data-testid="mkt-row"]',
+      ].map((s) => Math.round(document.querySelector(s).getBoundingClientRect().top)),
     );
   const before = await layout();
   await page.screenshot({ path: join(shots, 'markets-state-loading.png') });
@@ -419,8 +424,8 @@ test('failed prices: the list stays, prices show a dash, and a notice offers "Tr
   await mock(page, { tickers: 'error' });
   await open(page);
   await ready(page);
-  await expect(page.locator('.mkt-notice')).toContainText('Couldn’t load prices.');
-  await expect(page.locator('.mkt-cards')).toHaveCount(0); // cards are only prices, so they wait for them
+  await expect(page.getByTestId('mkt-notice')).toContainText('Couldn’t load prices.');
+  await expect(page.getByTestId('mkt-cards')).toHaveCount(0); // cards are only prices, so they wait for them
   await expect(page.locator('[data-symbol="BTC/USDT"] [data-slot="price"]')).toHaveText('—');
   await expect(page.locator('[data-symbol="BTC/USDT"] [data-slot="pct"]')).toHaveText('—');
   await page.screenshot({ path: join(shots, 'markets-state-prices-failed.png') });
@@ -436,7 +441,7 @@ test('quiet filters: Gainers with nothing up says so in one line', async ({ page
   );
   await mock(page, { tickers: () => down });
   await open(page, '?filter=gainers');
-  await expect(page.locator('.mkt-empty')).toContainText('Nothing is gaining right now.');
+  await expect(page.getByTestId('mkt-empty')).toContainText('Nothing is gaining right now.');
 });
 
 test('past 50 rows only the visible rows are drawn, and scrolling reaches the last one', async ({ page }) => {
@@ -480,7 +485,7 @@ test('responsive: no horizontal page scroll at 1280x800 and below', async ({ pag
     await ready(page);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     const wide = await page.evaluate(() =>
-      [...document.querySelectorAll('.if-markets *')]
+      [...document.querySelectorAll('[data-testid="if-markets"] *')]
         .filter((node) => node.getBoundingClientRect().right > innerWidth + 1)
         .slice(0, 4)
         .map((node) => node.className || node.tagName),
@@ -505,21 +510,21 @@ test('a market younger than a day: its own row says "since HH:MM"; the headers s
   await open(page);
   await ready(page);
   const clock = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' }).format(started);
-  const heads = await texts(page.locator('.mkt-header [role="columnheader"]'));
+  const heads = await texts(page.getByTestId('mkt-header').locator('[role="columnheader"]'));
   expect(heads.join(' | ')).toContain('24h change');
   expect(heads.join(' | ')).not.toContain('since');
-  await expect(page.locator('[data-symbol="BTC/USDT"] .mkt-since').first()).toHaveText(`since ${clock}`);
-  await expect(page.locator('[data-symbol="ETH/USDT"] .mkt-since')).toHaveCount(0);
+  await expect(page.locator('[data-symbol="BTC/USDT"] [data-testid="mkt-since"]').first()).toHaveText(`since ${clock}`);
+  await expect(page.locator('[data-symbol="ETH/USDT"] [data-testid="mkt-since"]')).toHaveCount(0);
 });
 
 test('with two top cards, the two share the row (no empty third) (critic M8)', async ({ page }) => {
   await mock(page);
   await open(page);
   await ready(page);
-  const cards = page.locator('.mkt-card');
+  const cards = page.getByTestId('mkt-card');
   const count = await cards.count();
   const widths = await cards.evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().width)));
-  const row = await page.locator('.mkt-cards').evaluate((node) => Math.round(node.getBoundingClientRect().width));
+  const row = await page.getByTestId('mkt-cards').evaluate((node) => Math.round(node.getBoundingClientRect().width));
   // However many cards are drawn (one to three), together with their gaps they fill the row.
   expect(widths.reduce((a, b) => a + b, 0) + (count - 1) * 24).toBeGreaterThanOrEqual(row - 2);
 });
@@ -533,8 +538,8 @@ for (const mode of ['simple', 'pro']) {
     await ready(page);
     for (const symbol of ['BTC/USDT', 'BTC/USDC']) {
       const row = page.locator(`[role="row"][data-symbol="${symbol}"]`);
-      const identity = await row.locator('.mkt-name__ticker').evaluate((node) => {
-        const quote = node.querySelector('.mkt-name__quote');
+      const identity = await row.getByTestId('mkt-name__ticker').evaluate((node) => {
+        const quote = node.querySelector('[data-testid="mkt-name__quote"]');
         const rect = node.getBoundingClientRect();
         const ink = document.createRange();
         ink.selectNodeContents(quote);

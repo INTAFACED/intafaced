@@ -119,7 +119,7 @@ export function BuyCard({
 
   if (markets.status === 'loading')
     return frame(
-      <div className="buy-card__skeleton" aria-busy="true">
+      <div data-testid="buy-card__skeleton" className="buy-card__skeleton" aria-busy="true">
         <Skeleton height={40} width={200} circle />
         <Skeleton height={56} className="buy-card__field" />
         <Skeleton height={112} className="buy-card__field" />
@@ -536,7 +536,7 @@ function BuyForm({
 
   return (
     <div className="buy-form">
-      <div className="buy-form__top">
+      <div data-testid="buy-form__top" className="buy-form__top">
         <SegmentedControl
           size={40}
           fullWidth={compact}

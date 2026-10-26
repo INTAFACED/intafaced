@@ -60,7 +60,7 @@ test(`${J} #2 picks 1h, then another interval from More, and the pressed one is 
   await page.getByRole('button', { name: /More/ }).first().click();
   await page.getByRole('menuitem', { name: '30m', exact: true }).click();
   await expect(title(page)).toHaveText('BTC/USDT · 30m');
-  await expect(page.locator('.cw-more[data-active]').first()).toContainText('30m');
+  await expect(page.locator('[data-testid="cw-more"][data-active]').first()).toContainText('30m');
   await expect(pressedInterval(page)).toHaveCount(0);
   await expect.poll(async () => Number(await canvas(page).getAttribute('data-bars'))).toBeGreaterThan(0);
 });

@@ -175,7 +175,7 @@ export function DeadMan({ onChanged }: { onChanged: () => void }) {
                 {unreadable ? t('Dead man unreadable') : t('Dead man loading')}
               </p>
             ) : choices.length === 0 ? (
-              <p className="dk-note dk-note--bad" role="status">
+              <p data-testid="dk-note--bad" className="dk-note dk-note--bad" role="status">
                 {t('Dead man not published')}
               </p>
             ) : (
@@ -212,6 +212,7 @@ export function DeadMan({ onChanged }: { onChanged: () => void }) {
             ) : null}
             {note ? (
               <p
+                data-testid={note.tone === 'good' ? undefined : 'dk-note--bad'}
                 className={note.tone === 'good' ? 'dk-note dk-note--good' : 'dk-note dk-note--bad'}
                 role={note.tone === 'good' ? 'status' : 'alert'}
               >

@@ -152,7 +152,7 @@ export function LeaderPage({ leaderRef, onFollow }: { leaderRef: string; onFollo
       <PageSection title={t('Performance')} headingLevel={2}>
         <dl className="cb-metrics">
           {(profile.data?.metrics ?? []).map((m) => (
-            <div key={m.key} className="cb-metric" data-metric={m.key}>
+            <div key={m.key} data-testid="cb-metric" className="cb-metric" data-metric={m.key}>
               <dt>{t(METRIC_WORD[m.key] as 'Win rate')}</dt>
               <dd>
                 {m.definition === null ? (

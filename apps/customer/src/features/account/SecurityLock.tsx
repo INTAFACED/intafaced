@@ -115,7 +115,7 @@ export function SecurityLock() {
   if (resource.status === 'loading') return <Loading />;
   if (resource.status === 'failed') {
     return (
-      <section className="security__lock security__card" aria-label={t('title')} lang={languageFor('title')}>
+      <section data-testid="security__lock" className="security__lock security__card" aria-label={t('title')} lang={languageFor('title')}>
         <h2>{t('title')}</h2>
         <p>{t('body')}</p>
         <Failure result={resource.failure} retry={reload} />
@@ -126,11 +126,11 @@ export function SecurityLock() {
   if (!state) return null;
   const stage = lockStage(state);
   return (
-    <section className="security__lock security__card" aria-label={t('title')} lang={languageFor('title')}>
+    <section data-testid="security__lock" className="security__lock security__card" aria-label={t('title')} lang={languageFor('title')}>
       <h2>{t('title')}</h2>
       <p>{t('body')}</p>
       <p className="muted">{t('scope')}</p>
-      <p className="security__lock-state" role="status">
+      <p data-testid="security__lock-state" className="security__lock-state" role="status">
         <strong>
           {stage === 'open'
             ? t('open')
@@ -143,7 +143,7 @@ export function SecurityLock() {
       </p>
       {stage !== 'open' && <p className="muted">{t('waitNote')}</p>}
       {note && (
-        <p className="notice" role="status">
+        <p data-testid="notice" className="notice" role="status">
           {note}
         </p>
       )}
