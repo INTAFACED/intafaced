@@ -11,7 +11,7 @@ export function InfoTip({ text, label, side = 'bottom' }: { text: string; label:
   return (
     <>
       <Tooltip>
-        <TooltipTrigger className="if-tip" render={<button type="button" aria-label={label} aria-describedby={id} />}>
+        <TooltipTrigger data-testid="if-tip" className="if-tip" render={<button type="button" aria-label={label} aria-describedby={id} />}>
           <Info size={16} aria-hidden="true" />
         </TooltipTrigger>
         <TooltipContent side={side} align={side === 'right' ? 'start' : 'center'}>

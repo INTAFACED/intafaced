@@ -46,6 +46,10 @@ function cssNumber(text: string): number {
   return parseInt(whole || '0', 10) + (frac ? parseInt(frac, 10) / 10 ** frac.length : 0);
 }
 
+/** A CSS number ("245", "0.64", ".5"); "." and "1.2.3" don't match, so they reach the one refusal below. */
+const NUMBER = String.raw`(?:\d+(?:\.\d*)?|\.\d+)`;
+const RGB_FUNCTION = new RegExp(String.raw`^rgba?\(\s*(${NUMBER})[\s,]+(${NUMBER})[\s,]+(${NUMBER})(?:\s*[,/]\s*(${NUMBER}%?))?\s*\)$`);
+
 /** `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()` and `rgba()` (comma or space syntax). Throws on anything else, out-of-range channels included. */
 export function parseColor(input: string): Rgba {
   const text = input.trim().toLowerCase();
@@ -56,7 +60,7 @@ export function parseColor(input: string): Rgba {
     const channel = (i: number): number => parseInt(full.slice(i, i + 2), 16);
     return { r: channel(0), g: channel(2), b: channel(4), a: full.length === 8 ? channel(6) / 255 : 1 };
   }
-  const fn = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)$/.exec(text);
+  const fn = RGB_FUNCTION.exec(text);
   if (fn) {
     const alphaText = fn[4];
     const alpha = alphaText === undefined ? 1 : alphaText.endsWith('%') ? cssNumber(alphaText.slice(0, -1)) / 100 : cssNumber(alphaText);

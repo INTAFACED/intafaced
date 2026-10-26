@@ -119,7 +119,7 @@ function local(at) {
   return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
 }
 const inHours = (h) => new Date(Date.now() + h * 3600_000);
-const row = (page, id) => page.locator('article.money-standing-record').filter({ hasText: id });
+const row = (page, id) => page.locator('article[data-testid="money-standing-record"]').filter({ hasText: id });
 
 /** The transfers room's schedule form, from the main balance to the trip space, filled up to the review. */
 async function scheduleInApp(page, { cadence, amount, startsAt, endsAt }) {
@@ -200,7 +200,7 @@ test(`${J} #2 edits a standing order's amount and end date: revision 2 is shown,
   // The instruction's own view shows the new revision and no end date.
   await page.goto('/bank/transfers');
   await row(page, order.id).getByRole('button', { name: 'Execution history' }).click();
-  const facts = page.locator('.money-selected-instruction .money-standing-facts');
+  const facts = page.getByTestId('money-selected-instruction').getByTestId('money-standing-facts');
   await expect(facts).toContainText('15');
   await expect(facts).toContainText('No end date');
   await expect(facts.locator('div').filter({ hasText: 'Revision' }).locator('dd')).toHaveText('2');
@@ -301,7 +301,7 @@ test(`${J} #3 a due one-off posts once and completes, and a run with too little 
   await page.goto('/bank/transfers');
   await expect(row(page, due)).toContainText('once · completed');
   await row(page, short).getByRole('button', { name: 'Execution history' }).click();
-  const history = page.locator('.money-selected-instruction .money-execution-history');
+  const history = page.getByTestId('money-selected-instruction').getByTestId('money-execution-history');
   await expect(history).toContainText('rejected');
   await expect(history).toContainText('ledger.insufficient_funds');
   await expect(history).toContainText('No ledger reference recorded');
@@ -525,7 +525,7 @@ test(`${J} #5 opens the calendar: standing orders and direct debits on their dat
 
   // Filter by kind: direct debits off leaves the standing orders showing.
   await page.getByRole('button', { name: 'Direct debits', exact: true }).click();
-  await expect(page.locator('[data-testid="cal-list"] tr[data-source="direct_debits"]')).toHaveCount(0);
+  await expect(page.getByTestId('cal-list').locator('tr[data-source="direct_debits"]')).toHaveCount(0);
   await expect(page.getByTestId(`cal-row-${due}:0`)).toBeVisible();
   await page.getByRole('button', { name: 'Direct debits', exact: true }).click();
 

@@ -54,6 +54,10 @@ describe('contrast', () => {
     expect(() => parseColor('color-mix(in srgb, red, blue)')).toThrow();
     expect(() => parseColor('rgba(0, 0, 0, 50)')).toThrow();
     expect(() => parseColor('rgb(300, 0, 0)')).toThrow();
+    expect(() => parseColor('rgb(., 0, 0)')).toThrow('Not a colour');
+    expect(() => parseColor('rgba(1.2.3, 0, 0, 1)')).toThrow('Not a colour');
+    expect(parseColor('rgba(0, 0, 0, 50%)').a).toBe(0.5);
+    expect(parseColor('rgba(0, 0, 0, .5)').a).toBe(0.5);
     expect(parseColor('rgba(1.5, 0.25, 10, 0.05)')).toEqual({ r: 1.5, g: 0.25, b: 10, a: 0.05 });
     expect(parseColor('rgb(0 0 0 / 7.5%)').a).toBeCloseTo(0.075, 10);
   });

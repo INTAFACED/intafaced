@@ -208,7 +208,9 @@ their own balance. So the formatting path works on digits:
    value — half-up, exact, and correct in the cases `toFixed` gets wrong (`(2.675).toFixed(2)` is
    `'2.67'`; ours is `2.68`);
 3. format the **integer part** with `Intl.NumberFormat` over a `BigInt`, via `formatToParts`, so
-   locale grouping, currency placement and sign position come from `Intl` and not from us;
+   locale grouping, currency placement and sign position come from `Intl` and not from us
+   (grouping is the locale's own rule, so Polish writes 8906 and only groups from five digits;
+   `useGrouping: false` turns it off);
 4. splice the fraction digits back in, transliterated into the locale's numbering system and
    separated by the locale's decimal separator — both asked of `Intl`, never hardcoded.
 

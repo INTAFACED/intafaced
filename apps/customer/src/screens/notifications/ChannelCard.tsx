@@ -86,15 +86,17 @@ export function ChannelCard({
   };
 
   return (
-    <li className="nf-channelcard" data-channel={channel}>
+    <li data-testid="nf-channelcard" className="nf-channelcard" data-channel={channel}>
       <div className="nf-channelcard__head">
         <span className="nf-text">
-          <span className="nf-title">{channelWord}</span>
-          <span className="nf-body nf-body--wrap" id={`${id}-state`}>
+          <span data-testid="nf-title" className="nf-title">
+            {channelWord}
+          </span>
+          <span data-testid="nf-body" className="nf-body nf-body--wrap" id={`${id}-state`}>
             {stateText}
           </span>
         </span>
-        <span className="nf-channel__state" aria-live="polite">
+        <span data-testid="nf-channel__state" className="nf-channel__state" aria-live="polite">
           {saved ? copy.t('saved') : ''}
         </span>
         <Switch

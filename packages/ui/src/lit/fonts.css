@@ -1,0 +1,7 @@
+/*
+ * Lit glass faces, self-hosted from pinned packages (OFL-1.1); never loaded from a CDN.
+ * Family names match the font roles in tokens.ts ('Geist Variable', 'Geist Mono Variable').
+ * Load order in the app: lit/fonts.css with lit/lit.css, then lit/components.css.
+ */
+@import '@fontsource-variable/geist/index.css';
+@import '@fontsource-variable/geist-mono/index.css';

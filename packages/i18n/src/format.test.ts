@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { FIAT_CURRENCIES } from '@intafaced/config/fiat';
 import {
+  AmountFormatError,
   formatCompact,
   formatCompactToParts,
   formatIban,
@@ -60,6 +61,95 @@ describe('signDisplay', () => {
   it('keeps the plural a currency name has, when the integer part is zero', () => {
     expect(formatMoney('-0.5', 'USD', 'en', { display: 'name' })).toBe('-0.50 US dollars');
     expect(formatMoney('0', 'USD', 'en', { display: 'name', signDisplay: 'always' })).toBe('+0.00 US dollars');
+  });
+
+  it("takes a currency name's plural from the shown figure, fraction included", () => {
+    expect(formatMoney('1.5', 'USD', 'en', { display: 'name' })).toBe('1.50 US dollars');
+    expect(formatMoney('1', 'USD', 'en', { display: 'name', maxFractionDigits: 0 })).toBe('1 US dollar');
+    expect(formatMoney('1.5', 'EUR', 'ru', { display: 'name' })).toBe(
+      new Intl.NumberFormat(intlTagFor('ru'), { style: 'currency', currency: 'EUR', currencyDisplay: 'name' }).format(1.5),
+    );
+    // A million or more keeps its plural operands: French says "de" before a round million.
+    expect(formatMoney('1000000', 'EUR', 'fr', { display: 'name', maxFractionDigits: 0 })).toBe(
+      new Intl.NumberFormat(intlTagFor('fr'), {
+        style: 'currency',
+        currency: 'EUR',
+        currencyDisplay: 'name',
+        maximumFractionDigits: 0,
+      }).format(1e6),
+    );
+    expect(formatMoney('123456789000001', 'USD', 'ru', { display: 'name', maxFractionDigits: 0 })).toMatch(/доллар США$/);
+  });
+
+  it('matches Intl on currency names wherever Intl is still exact (300 seeded cases)', () => {
+    const next = rng(6457);
+    const locales = ['en', 'ru', 'pl', 'fr', 'ar', 'cs', 'lv', 'he'];
+    for (let i = 0; i < 300; i++) {
+      const locale = locales[Math.floor(next() * locales.length)] ?? 'en';
+      const whole = String(Math.floor(next() * 10 ** Math.floor(next() * 9)));
+      const digits = Math.floor(next() * 3);
+      const frac = digits ? String(Math.floor(next() * 10 ** digits)).padStart(digits, '0') : '';
+      const amount = frac ? `${whole}.${frac}` : whole;
+      const expected = new Intl.NumberFormat(intlTagFor(locale), {
+        style: 'currency',
+        currency: 'EUR',
+        currencyDisplay: 'name',
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits,
+      }).format(Number(amount));
+      expect(formatMoney(amount, 'EUR', locale, { display: 'name', minFractionDigits: digits, maxFractionDigits: digits }), amount).toBe(
+        expected,
+      );
+    }
+  });
+
+  it('pluralises a currency name after rounding carries into the integer, and past a million', () => {
+    expect(formatMoney('0.999', 'USD', 'en', { display: 'name' })).toBe('1.00 US dollars');
+    expect(formatMoney('0.6', 'USD', 'en', { display: 'name', maxFractionDigits: 0 })).toBe('1 US dollar');
+    const exact = (n: number, locale: string, digits: number): string =>
+      new Intl.NumberFormat(intlTagFor(locale), {
+        style: 'currency',
+        currency: 'EUR',
+        currencyDisplay: 'name',
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits,
+      }).format(n);
+    for (const [amount, n] of [
+      ['1234567.5', 1234567.5],
+      ['21000001', 21000001],
+      ['5000000', 5000000],
+      ['1000002.25', 1000002.25],
+    ] as const) {
+      const digits = amount.split('.')[1]?.length ?? 0;
+      for (const locale of ['ru', 'pl', 'fr', 'lv', 'cs']) {
+        expect(
+          formatMoney(amount, 'EUR', locale, { display: 'name', minFractionDigits: digits, maxFractionDigits: digits }),
+          `${amount} ${locale}`,
+        ).toBe(exact(n, locale, digits));
+      }
+    }
+  });
+
+  it('refuses a currency name with more than six fraction digits shown, not asked for', () => {
+    expect(() => formatMoney('1.1234567', 'USD', 'en', { display: 'name', maxFractionDigits: 7 })).toThrow(AmountFormatError);
+    expect(formatMoney('1.5', 'USD', 'en', { display: 'name', maxFractionDigits: 18 })).toBe('1.50 US dollars');
+  });
+
+  it("groups by the locale's own rule: Polish groups from five digits", () => {
+    expect(formatMoney('8906.4', 'EUR', 'pl')).toBe(
+      new Intl.NumberFormat(intlTagFor('pl'), { style: 'currency', currency: 'EUR' }).format(8906.4),
+    );
+    expect(formatMoney('8906.4', 'EUR', 'pl')).not.toMatch(/8\s906/);
+    expect(formatMoney('89064', 'EUR', 'pl')).toMatch(/89\s064/);
+    expect(formatNumber('8906', 'pl', { useGrouping: false })).toBe('8906');
+    expect(formatNumber('1234', 'en')).toBe('1,234');
+  });
+
+  it('refuses a percent of a ratio too big for toFixed, or one that is not finite', () => {
+    expect(() => formatPercent(1e21, 'en')).toThrow(AmountFormatError);
+    expect(formatPercent('10000000000000000000', 'en')).toBe('1,000,000,000,000,000,000,000%');
+    expect(() => formatPercent(Number.NaN, 'en')).toThrow(AmountFormatError);
+    expect(() => formatPercent(Number.POSITIVE_INFINITY, 'en')).toThrow(AmountFormatError);
   });
 
   it('puts the sign where the locale puts it, even when the integer part is zero', () => {

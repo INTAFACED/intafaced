@@ -95,7 +95,7 @@ function List({ current }: { current: () => boolean }) {
                 </div>
                 <ul className="withdrawal-list" data-testid="approval-list">
                   {requests.map((request) => (
-                    <li className="withdrawal-row" key={request.id}>
+                    <li data-testid="withdrawal-row" className="withdrawal-row" key={request.id}>
                       <div className="withdrawal-row-main">
                         <strong className="numeric" lang="und" data-withdrawal-amount>
                           {hideBalances ? `•••• ${request.assetId}` : amount(request.amount, request.assetId)}
@@ -235,7 +235,7 @@ function Detail({ id, current }: { id: string; current: () => boolean }) {
                   <span className="numeric">{t('tally', { count: request.approvalCount, required: request.requiredApprovals })}</span>
                 </div>
                 <p className="muted">{t('statusNote')}</p>
-                <dl className="withdrawal-facts">
+                <dl data-testid="withdrawal-facts" className="withdrawal-facts">
                   {facts(request).map(([label, value]) => (
                     <div key={label}>
                       <dt>{label}</dt>

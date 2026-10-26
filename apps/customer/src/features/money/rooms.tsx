@@ -101,7 +101,7 @@ const bankLabels = {
 } as const;
 export function BankNavigation({ current }: { current: string }) {
   return (
-    <nav className="money-bank-nav" aria-label={copyText('rooms.bank.rooms')}>
+    <nav data-testid="money-bank-nav" className="money-bank-nav" aria-label={copyText('rooms.bank.rooms')}>
       {bankRooms.map((room) => (
         <a
           key={room}
@@ -334,7 +334,7 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
           {(rows) =>
             rows.length ? (
               rows.map((row) => (
-                <div className="money-space-row" key={row.assetId}>
+                <div data-testid="money-space-row" className="money-space-row" key={row.assetId}>
                   <strong>{row.assetId}</strong>
                   <span className="numeric">{funds(row.balance, row.assetId)}</span>
                 </div>
@@ -480,7 +480,11 @@ function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
   return (
     <div className="money-standing-orders" lang={languageFor('instructions')} dir={directionFor('instructions')}>
       {selected && (
-        <section className="money-selected-instruction" aria-labelledby="money-selected-instruction-heading">
+        <section
+          data-testid="money-selected-instruction"
+          className="money-selected-instruction"
+          aria-labelledby="money-selected-instruction-heading"
+        >
           <header>
             <h2 id="money-selected-instruction-heading" ref={heading} tabIndex={-1}>
               <Copy k="outcomes" />
@@ -539,7 +543,7 @@ function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
             <>
               {other.length ? (
                 other.map((row, index) => (
-                  <article className="money-record money-standing-record" key={`${row.id}:${index}`}>
+                  <article data-testid="money-standing-record" className="money-record money-standing-record" key={`${row.id}:${index}`}>
                     <header>
                       <div>
                         <h3 lang="und" dir="auto">
@@ -1702,7 +1706,7 @@ function Analytics() {
                 title={copyText('rooms.movement', { value1: summary.assetId })}
                 description={copyText('rooms.to.2', { value1: date(summary.from), value2: date(summary.to) })}
               >
-                <div className="money-movement-stats">
+                <div data-testid="money-movement-stats" className="money-movement-stats">
                   <div>
                     <span>
                       <Text k="rooms.inflow" />
@@ -1735,7 +1739,7 @@ function Analytics() {
                     <Section title={copyText('rooms.outflow.categories')}>
                       {split.outflow.length ? (
                         split.outflow.map((row) => (
-                          <div className="money-space-row" key={row.category}>
+                          <div data-testid="money-space-row" className="money-space-row" key={row.category}>
                             <span>{row.category === 'deposits' ? copyText('rooms.deposit.outflow') : categoryLabel(row.category)}</span>
                             <strong className="numeric">{funds(row.amount, summary.assetId)}</strong>
                           </div>
@@ -1748,7 +1752,7 @@ function Analytics() {
                     </Section>
                     {split.moneyInDeposits !== null && (
                       <Section title={copyText('rooms.money.in.deposits')}>
-                        <div className="money-space-row">
+                        <div data-testid="money-space-row" className="money-space-row">
                           <span>{categoryLabel('deposits')}</span>
                           <strong className="numeric">{funds(split.moneyInDeposits, summary.assetId)}</strong>
                         </div>
@@ -1860,7 +1864,12 @@ function BankOverview() {
                 )}
                 {overview.holdings.length ? (
                   overview.holdings.map((holding) => (
-                    <a className="money-holding" href={`/portfolio/${encodeURIComponent(holding.assetId)}`} key={holding.assetId}>
+                    <a
+                      data-testid="money-holding"
+                      className="money-holding"
+                      href={`/portfolio/${encodeURIComponent(holding.assetId)}`}
+                      key={holding.assetId}
+                    >
                       <span className="money-asset-mark" aria-hidden="true">
                         {holding.assetId.slice(0, 1)}
                       </span>
@@ -1970,7 +1979,12 @@ function BankOverview() {
                 <>
                   {overview.spaces.data.length ? (
                     overview.spaces.data.map((space) => (
-                      <a className="money-space-row" href={`/bank/spaces?space=${encodeURIComponent(space.id)}`} key={space.id}>
+                      <a
+                        data-testid="money-space-row"
+                        className="money-space-row"
+                        href={`/bank/spaces?space=${encodeURIComponent(space.id)}`}
+                        key={space.id}
+                      >
                         <div>
                           <strong lang="und">{space.name}</strong>
                           <small>
