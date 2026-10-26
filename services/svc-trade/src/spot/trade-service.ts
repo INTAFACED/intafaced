@@ -60,9 +60,7 @@ import { NoopDropCopyIngest, type DropCopyFillWire, type DropCopyHitchSource, ty
 import { NoSubAccounts, type SubAccountOwnershipSource } from './sub-account-ownership.js';
 import { type EmailProofSource } from './email-proof.js';
 import {
-  MatchingNoBookError,
   type EngineCancellation,
-  type EngineDepth,
   type EngineFill,
   type EngineSubmitRequest,
   type EngineSubmitResult,
@@ -1823,7 +1821,7 @@ export class TradeService {
     if (limits.maxOrder == null) return;
     let reference = price;
     if (reference == null) {
-      const depth = await this.bookDepth(market.id);
+      const depth = await this.matching.depth(market.id, 1);
       const bid = depth.bids[0];
       reference = bid ? parseAmount(bid[0]) : null;
     }
@@ -1889,39 +1887,22 @@ export class TradeService {
     return (await operatorSlippageCapBps(this.sql, marketId)) ?? this.slippageCapBps;
   }
 
-  /**
-   * Top of book for order placement. Matching 404 (the engine holds no book) is
-   * the named refusal `trade.no_book`, not a 500. Every caller reads this before
-   * any hold or order row, so a refusal leaves nothing behind. Any other
-   * matching error passes through unchanged.
-   */
-  private async bookDepth(marketId: string): Promise<EngineDepth> {
-    try {
-      return await this.matching.depth(marketId, 1);
-    } catch (err) {
-      if (err instanceof MatchingNoBookError) {
-        throw new TradeError(`${marketId}: matching holds no book — refusing order`, 'trade.no_book');
-      }
-      throw err;
-    }
-  }
-
   private async bestAsk(marketId: string): Promise<Amount | null> {
-    const depth = await this.bookDepth(marketId);
+    const depth = await this.matching.depth(marketId, 1);
     const best = depth.asks[0];
     return best ? parseAmount(best[0]) : null;
   }
 
   /** Best bid and ask in one depth read, for the operator price band. */
   private async touch(marketId: string): Promise<Touch> {
-    const depth = await this.bookDepth(marketId);
+    const depth = await this.matching.depth(marketId, 1);
     const bid = depth.bids[0];
     const ask = depth.asks[0];
     return { bid: bid ? parseAmount(bid[0]) : null, ask: ask ? parseAmount(ask[0]) : null };
   }
 
   private async bestBid(marketId: string): Promise<Amount | null> {
-    const depth = await this.bookDepth(marketId);
+    const depth = await this.matching.depth(marketId, 1);
     const best = depth.bids[0];
     return best ? parseAmount(best[0]) : null;
   }
