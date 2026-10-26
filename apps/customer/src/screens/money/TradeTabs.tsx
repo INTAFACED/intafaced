@@ -39,11 +39,16 @@ export function TradesPanel({ asset = null }: { asset?: string | null }) {
   const precision = usePrecision();
   const orders = useOrderIndex();
   return (
-    <div className="money-trade-tab">
+    <div data-testid="money-trade-tab" className="money-trade-tab">
       <LoadState load={fills} thing="trades">
         {(all) => {
           const rows = asset ? all.filter((fill) => symbolHasAsset(fill.symbol, asset)) : all;
-          const note = all.length >= FILLS_PAGE ? <p className="money-act-note">{t('Latest trades note', { count: FILLS_PAGE })}</p> : null;
+          const note =
+            all.length >= FILLS_PAGE ? (
+              <p data-testid="money-act-note" className="money-act-note">
+                {t('Latest trades note', { count: FILLS_PAGE })}
+              </p>
+            ) : null;
           if (rows.length > 0)
             return (
               <>
@@ -58,6 +63,7 @@ export function TradesPanel({ asset = null }: { asset?: string | null }) {
               {why === 'asset-latest' && asset ? (
                 <StateBlock
                   kind="empty"
+                  testId="money-state"
                   className="money-state"
                   title={money.t('No {asset} trades in your latest {count}', { asset, count: FILLS_PAGE })}
                   body={money.t('No {asset} trades latest body')}
@@ -65,12 +71,19 @@ export function TradesPanel({ asset = null }: { asset?: string | null }) {
               ) : why === 'asset' && asset ? (
                 <StateBlock
                   kind="empty"
+                  testId="money-state"
                   className="money-state"
                   title={money.t('No {asset} trades', { asset })}
                   body={money.t('No {asset} trades body', { asset })}
                 />
               ) : (
-                <StateBlock kind="empty" className="money-state" title={money.t('No trades yet')} body={money.t('No trades yet body')} />
+                <StateBlock
+                  kind="empty"
+                  testId="money-state"
+                  className="money-state"
+                  title={money.t('No trades yet')}
+                  body={money.t('No trades yet body')}
+                />
               )}
               {why === 'asset-latest' ? note : null}
             </>
@@ -88,22 +101,26 @@ export function OrdersPanel() {
   const refresh = useRefreshPrivate();
   const precision = usePrecision();
   return (
-    <div className="money-trade-tab">
-      <h2 className="money-trade-tab__head">{t('Open orders')}</h2>
+    <div data-testid="money-trade-tab" className="money-trade-tab">
+      <h2 data-testid="money-trade-tab__head" className="money-trade-tab__head">
+        {t('Open orders')}
+      </h2>
       <LoadState load={open} thing="orders">
         {(rows) =>
           rows.length === 0 ? (
-            <StateBlock kind="empty" className="money-state money-state--compact" title={t('No open orders')} />
+            <StateBlock kind="empty" testId="money-state" className="money-state money-state--compact" title={t('No open orders')} />
           ) : (
             <OrdersTable rows={rows} withAction precision={precision} onChanged={refresh} />
           )
         }
       </LoadState>
-      <h2 className="money-trade-tab__head">{t('Order history')}</h2>
+      <h2 data-testid="money-trade-tab__head" className="money-trade-tab__head">
+        {t('Order history')}
+      </h2>
       <LoadState load={closed} thing="orders">
         {(rows) =>
           rows.length === 0 ? (
-            <StateBlock kind="empty" className="money-state money-state--compact" title={t('No order history')} />
+            <StateBlock kind="empty" testId="money-state" className="money-state money-state--compact" title={t('No order history')} />
           ) : (
             <OrdersTable rows={rows} withAction={false} precision={precision} onChanged={refresh} />
           )

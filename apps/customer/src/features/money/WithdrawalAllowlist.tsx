@@ -221,7 +221,7 @@ function Entries({ current }: { current: () => boolean }) {
             {entries.length ? (
               <ul className="withdrawal-list" data-testid="allowlist-entries">
                 {entries.map((entry) => (
-                  <li className="withdrawal-row" key={entry.id}>
+                  <li data-testid="withdrawal-row" className="withdrawal-row" key={entry.id}>
                     <div className="withdrawal-row-main">
                       <strong>{entry.label}</strong>
                       <span className="numeric" lang="und" data-withdrawal-private>
@@ -453,7 +453,7 @@ function Changes({ current }: { current: () => boolean }) {
           changes.length ? (
             <ul className="withdrawal-list" data-testid="allowlist-changes">
               {changes.map((change) => (
-                <li className="withdrawal-row" key={change.id}>
+                <li data-testid="withdrawal-row" className="withdrawal-row" key={change.id}>
                   <div className="withdrawal-row-main">
                     <strong>{t(`${change.op}_op` as 'add_op')}</strong>
                     {subjectOf(change)}
@@ -533,7 +533,7 @@ function Detail({ id, current }: { id: string; current: () => boolean }) {
                 <span className="numeric">{t('tally', { count: change.approvalCount, required: change.requiredApprovals })}</span>
               </div>
               <p className="muted">{t('hashNote')}</p>
-              <dl className="withdrawal-facts">
+              <dl data-testid="withdrawal-facts" className="withdrawal-facts">
                 {facts.map(([label, value]) => (
                   <div key={label}>
                     <dt>{label}</dt>
