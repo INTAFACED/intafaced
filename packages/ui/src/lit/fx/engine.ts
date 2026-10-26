@@ -140,8 +140,9 @@ function getRenderer(): WebGLRenderer {
   if (renderer) return renderer;
   // An OffscreenCanvas hands each frame over as an ImageBitmap with no copy (Chrome 69, Safari 17, Firefox 105).
   // Older engines copy from a hidden canvas instead, which on a software-composited page reads pixels back.
-  const canvas: HTMLCanvasElement | OffscreenCanvas =
-    typeof OffscreenCanvas === 'function' && offscreenWebgl2() ? new OffscreenCanvas(1, 1) : document.createElement('canvas');
+  // `data-fx-present="copy"` on the root forces the copy path, to measure both on one device.
+  const bitmap = document.documentElement.dataset.fxPresent !== 'copy' && typeof OffscreenCanvas === 'function' && offscreenWebgl2();
+  const canvas: HTMLCanvasElement | OffscreenCanvas = bitmap ? new OffscreenCanvas(1, 1) : document.createElement('canvas');
   const r = new WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'default' });
   r.setPixelRatio(1);
   r.setClearColor(0x000000, 1);

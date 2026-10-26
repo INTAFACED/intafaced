@@ -11,6 +11,9 @@ const q = new URLSearchParams(location.search);
 const still = q.has('still');
 if (still) document.documentElement.setAttribute('data-fx-still', '');
 if (q.has('nb')) document.documentElement.dataset.fxBloom = 'off';
+if (q.get('present') === 'copy') document.documentElement.dataset.fxPresent = 'copy';
+const tier = q.get('tier');
+if (tier) document.documentElement.dataset.fxTier = tier;
 
 const all: Array<{ [K in FxKind]: { kind: K; w: number; h: number; options: FxKinds[K] } }[FxKind]> = [
   {
