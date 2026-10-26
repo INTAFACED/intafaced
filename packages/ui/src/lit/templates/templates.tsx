@@ -5,7 +5,7 @@
  */
 import * as React from 'react';
 import { Stepper } from '../components/b2-basics.js';
-import { Region, RoomFrame, WHOLE_ROOM_STATES } from './frame.js';
+import { GateArea, Region, RoomFrame, WHOLE_ROOM_STATES } from './frame.js';
 import type { RoomProps } from './types.js';
 
 type Slot = React.ReactNode;
@@ -32,7 +32,7 @@ export interface OverviewProps extends RoomProps {
 
 export function OverviewTemplate(p: OverviewProps) {
   return (
-    <RoomFrame {...p} template="overview">
+    <RoomFrame {...p} template="overview" liveBefore={p.rooms}>
       <Region name="rooms" ghost="keys" live>
         {p.rooms}
       </Region>
@@ -41,7 +41,7 @@ export function OverviewTemplate(p: OverviewProps) {
           <Region name="hero" data primary ghost="figure" label="Balance">
             {p.hero}
           </Region>
-          <Region name="actions" data ghost="keys">
+          <Region name="actions" data label="Actions" ghost="keys">
             {p.actions}
           </Region>
           <Region name="needs-you" data ghost="rows" label="Needs you">
@@ -102,7 +102,7 @@ export function RecordListTemplate(p: RecordListProps) {
           {p.filters}
         </Region>
         {isPro(p) ? <Region name="tools">{p.tools}</Region> : null}
-        <Region name="export" data ghost="keys">
+        <Region name="export" data label="Export" ghost="keys">
           {p.export}
         </Region>
       </div>
@@ -156,7 +156,7 @@ export function MonitorTemplate(p: MonitorProps) {
           </div>
         ) : null}
       </Region>
-      <Region name="actions" data ghost="keys">
+      <Region name="actions" data label="Actions" ghost="keys">
         {p.actions}
       </Region>
       <div className="lt-grid lt-grid-main-side">
@@ -225,7 +225,7 @@ function stepNow(p: FlowProps): number | null {
 export function FlowTemplate(p: FlowProps) {
   const current = stepNow(p);
   return (
-    <RoomFrame {...p} template="flow">
+    <RoomFrame {...p} template="flow" liveAfter={p.help}>
       {p.steps && current !== null ? <Stepper labels={p.steps.labels} current={current} /> : null}
       <div className="lt-grid lt-grid-flow">
         <div className="lt-col-main">
@@ -237,7 +237,7 @@ export function FlowTemplate(p: FlowProps) {
               {p.advanced}
             </Region>
           ) : null}
-          <Region name="actions" data>
+          <Region name="actions" data ghost="keys" ghostCount={2} label="Actions">
             {p.actions}
           </Region>
         </div>
@@ -267,17 +267,19 @@ export interface SettingsProps extends RoomProps {
 
 export function SettingsTemplate(p: SettingsProps) {
   return (
-    <RoomFrame {...p} template="settings">
+    <RoomFrame {...p} template="settings" gateArea>
       <div className="lt-grid lt-grid-settings">
         <Region name="index" label="Sections" ghost="rows" live>
           {p.index}
         </Region>
-        <Region name="sections" data primary ghost="rows" label="Settings">
-          {p.sections}
-        </Region>
-        <Region name="explain" ghost="text" label="What this means">
-          {p.explain}
-        </Region>
+        <GateArea>
+          <Region name="sections" data primary ghost="rows" label="Settings">
+            {p.sections}
+          </Region>
+          <Region name="explain" ghost="text" label="What this means">
+            {p.explain}
+          </Region>
+        </GateArea>
       </div>
     </RoomFrame>
   );
@@ -308,8 +310,8 @@ export function CatalogueTemplate(p: CatalogueProps) {
     );
   }
   return (
-    <RoomFrame {...p} template="catalogue">
-      <Region name="filters" ghost="keys">
+    <RoomFrame {...p} template="catalogue" liveBefore={p.filters}>
+      <Region name="filters" ghost="keys" live>
         {p.filters}
       </Region>
       {!isPro(p) ? (
@@ -408,21 +410,25 @@ export interface ReadingProps extends RoomProps {
 /** Simple and Pro show the same content here; Pro only changes density. */
 export function ReadingTemplate(p: ReadingProps) {
   return (
-    <RoomFrame {...p} template="reading">
-      <Region name="meta" data ghost="text">
-        {p.meta}
-      </Region>
+    <RoomFrame {...p} template="reading" gateArea>
       <div className="lt-grid lt-grid-reading-toc">
-        <Region name="toc" data ghost="rows" label="On this page">
+        <Region name="toc" data ghost="rows" label="On this page" live>
           {p.toc}
         </Region>
-        <Region name="body" data primary ghost="text" label="Article">
-          {p.body}
-        </Region>
+        <GateArea>
+          <div className="lt-reading-main">
+            <Region name="meta" data label="Details" ghost="text">
+              {p.meta}
+            </Region>
+            <Region name="body" data primary ghost="text" label="Article">
+              {p.body}
+            </Region>
+            <Region name="related" data ghost="rows" label="Related">
+              {p.related}
+            </Region>
+          </div>
+        </GateArea>
       </div>
-      <Region name="related" data ghost="rows" label="Related">
-        {p.related}
-      </Region>
       <Region name="contact" live>
         {p.contact}
       </Region>

@@ -58,7 +58,10 @@ export function RegistryLegalSlot({ moment, market, on, values, onLink }: Regist
   return (
     <LegalSlot
       {...common}
-      className={[band ? 'lt-legal-band' : '', bold ? 'lt-legal-bold' : ''].join(' ').trim() || undefined}
+      className={band ? 'lt-legal-band' : undefined}
+      bold={bold}
+      lang="en"
+      dir="ltr"
       text={body}
       missing=""
       learnMore={link && onLink ? { label: link.text, onOpen: onLink } : undefined}
