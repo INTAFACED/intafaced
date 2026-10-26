@@ -313,6 +313,23 @@ describe('states never contradict themselves', () => {
     expect(room('gated')).toContain('class="lt-locked"');
     expect(room('gated')).toContain('data-region="sections"');
     expect(html(<OverviewTemplate title="Home" state={{ kind: 'ready' }} hero={null} />)).not.toContain('data-region="hero"');
+    const missing = { variant: 'unreachable' as const, title: 'Prices down', body: 'Back soon.' };
+    const partial = html(
+      <OverviewTemplate
+        title="Home"
+        state={{ kind: 'ready', partial: { missing, regions: { hero: 'Balance unavailable' } } }}
+        hero={null}
+      />,
+    );
+    expect(partial).toContain('Balance unavailable');
+    const stale = html(
+      <OverviewTemplate
+        title="Home"
+        state={{ kind: 'ready', stale: { asOf: '2026-10-26T10:43:00Z', regions: { hero: 'Refresh to see it' } } }}
+        hero={null}
+      />,
+    );
+    expect(stale).toContain('Refresh to see it');
   });
 
   it('room actions leave whole-room states, so the state has the only primary', () => {

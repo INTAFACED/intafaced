@@ -61,7 +61,8 @@ export function Region({ name, data = false, primary = false, ghost = 'rows', la
   // `undefined` means the room doesn't use this region; `null` means its data isn't here yet, so a data region
   // still draws its skeleton while loading and its locked outline behind a gate.
   const unused = children === undefined || children === false;
-  const waiting = children === null && data && (state.kind === 'loading' || state.kind === 'gated');
+  const held = state.kind === 'ready' ? (state.partial?.regions?.[name] ?? state.stale?.regions?.[name]) : undefined;
+  const waiting = children === null && ((data && (state.kind === 'loading' || state.kind === 'gated')) || held !== undefined);
   if ((unused || children === null) && !waiting && !(primary && WHOLE_ROOM.has(state.kind))) return null;
   if (primary && WHOLE_ROOM.has(state.kind)) {
     return (
@@ -71,7 +72,6 @@ export function Region({ name, data = false, primary = false, ghost = 'rows', la
     );
   }
   if (data && WHOLE_ROOM.has(state.kind)) return null;
-  const held = state.kind === 'ready' ? (state.partial?.regions?.[name] ?? state.stale?.regions?.[name]) : undefined;
   let body: React.ReactNode = children;
   if (held !== undefined) body = <p className="lt-held">{held}</p>;
   else if (data && state.kind === 'loading') body = <Skeleton shape={ghost} />;
