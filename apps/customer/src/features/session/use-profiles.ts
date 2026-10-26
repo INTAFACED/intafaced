@@ -2,7 +2,8 @@ import { useMemo } from 'react';
 import type { ApiClient } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
-import { bankReads } from '../money/contracts';
+import { z } from 'zod';
+import { businessSchema } from '../money/business-schema';
 import { businessProfiles, resolveProfile, type BusinessProfile, type ProfileNotice } from './profiles';
 
 /** Rows asked of the bank for the person's business accounts. */
@@ -28,7 +29,7 @@ export function useProfiles(api: ApiClient, userId: string | null): Profiles {
   const { resource, reload } = useResource(
     (signal) =>
       userId
-        ? api.query('bank', 'business.list', { limit: BUSINESS_PAGE }, bankReads['business.list'], { signal })
+        ? api.query('bank', 'business.list', { limit: BUSINESS_PAGE }, z.array(businessSchema), { signal })
         : Promise.resolve({ ok: true as const, data: [] }),
     `profiles:${userId ?? 'anon'}`,
   );
