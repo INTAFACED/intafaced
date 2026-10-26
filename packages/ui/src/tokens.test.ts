@@ -134,6 +134,7 @@ describe('primitives', () => {
     expect(directionOf('+3')).toBe('up');
     expect(directionOf('.')).toBe('flat');
     expect(directionOf('1e5')).toBe('flat');
+    expect(directionOf('+2.3%')).toBe('up');
   });
 });
 
