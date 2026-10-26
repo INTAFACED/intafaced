@@ -45,14 +45,14 @@ function Page() {
   return (
     <TooltipProvider>
       <div className="if-app" onClick={follow}>
-        <header data-testid="tb" className="tb">
+        <header className="tb">
           <a className="tb-brand" href="/home">
             intafaced
           </a>
           <nav className="tb-nav" aria-label="Harness stand-in for the top bar">
             <a href="/money">Money</a> <a href="/more">More</a>
           </nav>
-          <div data-testid="tb-right" className="tb-right" style={{ marginLeft: 'auto' }}>
+          <div className="tb-right" style={{ marginLeft: 'auto' }}>
             <BellPopover path={path} />
           </div>
         </header>
