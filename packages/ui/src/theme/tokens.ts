@@ -162,6 +162,31 @@ export const radii = {
   pill: '999px',
 } as const;
 
+/**
+ * Spacing scale for gaps, padding and margins (`--if-space-<step>`). Steps follow the 4 px unit agents know from
+ * Tailwind (`space-3` = 3 units = 12 px today; `-0-5`, `-1-5`, `-2-5`, `-3-5` are the half steps). The names are
+ * stable; a look may retune the values. tooling/scripts/look-codemod.mjs moves hand-typed px onto this scale.
+ */
+export const space = {
+  '0-5': '2px',
+  '1': '4px',
+  '1-5': '6px',
+  '2': '8px',
+  '2-5': '10px',
+  '3': '12px',
+  '3-5': '14px',
+  '4': '16px',
+  '5': '20px',
+  '6': '24px',
+  '7': '28px',
+  '8': '32px',
+  '10': '40px',
+  '12': '48px',
+  '14': '56px',
+  '16': '64px',
+  '24': '96px',
+} as const;
+
 export const shadows = {
   /** Menus, popovers and dialogs. No other shadow exists. */
   menu: '0 8px 24px rgba(0, 0, 0, 0.5)',
@@ -236,62 +261,23 @@ export const legacyVars = {
   '--color-mix-secondary': '#858585',
   '--color-divider': '#262626',
   '--color-border': '#303030',
-  '--color-search-border': '#3A3A3A',
   '--color-destination-border': '#30352B',
   '--font-sans': 'Inter',
-  '--text-13': '13px',
   '--text-14': '14px',
   '--text-15': '15px',
-  '--text-16': '16px',
   '--text-18': '18px',
-  '--text-20': '20px',
-  '--text-24': '24px',
-  '--text-60': '60px',
   '--font-weight-regular': '400',
   '--font-weight-medium': '500',
   '--font-weight-semibold': '600',
-  '--tracking-section': '-0.02em',
-  '--tracking-value': '-0.04em',
-  '--tracking-holding-value': '-0.015em',
-  '--leading-20': '20px',
   '--leading-22': '22px',
-  '--leading-24': '24px',
-  '--leading-26': '26px',
-  '--leading-28': '28px',
   '--leading-32': '32px',
-  '--leading-68': '68px',
-  '--container-rail': '208px',
-  '--container-overview': '672px',
-  '--container-actions': '352px',
-  '--container-search': '432px',
-  '--container-content': '1088px',
-  '--container-review-desktop': '1440px',
   '--spacing-2': '2px',
   '--spacing-4': '4px',
   '--spacing-8': '8px',
-  '--spacing-10': '10px',
   '--spacing-12': '12px',
-  '--spacing-14': '14px',
-  '--spacing-16': '16px',
-  '--spacing-20': '20px',
   '--spacing-28': '28px',
-  '--spacing-32': '32px',
-  '--spacing-40': '40px',
   '--spacing-44': '44px',
-  '--spacing-48': '48px',
-  '--spacing-52': '52px',
-  '--spacing-56': '56px',
-  '--spacing-64': '64px',
   '--spacing-72': '72px',
-  '--spacing-76': '76px',
-  '--spacing-80': '80px',
-  '--spacing-84': '84px',
-  '--radius-4': '4px',
-  '--radius-8': '8px',
-  '--radius-10': '10px',
-  '--radius-12': '12px',
-  '--radius-16': '16px',
-  '--radius-26': '26px',
   '--radius-28': '28px',
 } as const;
 
@@ -312,6 +298,8 @@ export function cssVars(): Record<string, string> {
   }
   out['--if-tracking-tight'] = trackingTight;
   for (const [k, v] of Object.entries(radii)) out[`--if-r-${k}`] = v;
+  // Smallest first: integer-like keys would otherwise be listed before the half steps.
+  for (const [k, v] of Object.entries(space).sort((x, y) => parseFloat(x[1]) - parseFloat(y[1]))) out[`--if-space-${k}`] = v;
   for (const [k, v] of Object.entries(sizes)) out[`--if-${k}`] = v;
   out['--if-shadow-menu'] = shadows.menu;
   out['--if-ease'] = motion.ease;
@@ -322,7 +310,7 @@ export function cssVars(): Record<string, string> {
   return out;
 }
 
-/** A custom property name; `tokens.test.ts` checks that every name a look sets is one `cssVars()` or `legacyVars` has. */
+/** A custom property name; `tokens.test.ts` checks that every name a look sets is one `cssVars()` emits (never an older name). */
 export type TokenName = `--${string}`;
 
 /**

@@ -221,7 +221,8 @@ describe('theme.css (Tailwind @theme mapping)', () => {
 });
 
 describe('looks: stable names, values per look', () => {
-  const names = new Set([...Object.keys(cssVars()), ...Object.keys(legacyVars)]);
+  // Only --if-* names: customer-legacy.css loads after tokens.css, so a look could not override an older name.
+  const names = new Set(Object.keys(cssVars()));
 
   it('has the default look, which keeps the values written in tokens.ts', () => {
     expect(looks[defaultLook]).toEqual({});

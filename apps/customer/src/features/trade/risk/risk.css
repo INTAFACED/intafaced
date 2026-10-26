@@ -1,12 +1,12 @@
 @layer components {
   .risk-room {
     display: grid;
-    gap: 24px;
+    gap: var(--if-space-6);
     max-width: 640px;
   }
   .risk-section {
     display: grid;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .risk-section h2,
   .risk-section h3 {
@@ -17,24 +17,24 @@
     margin: 0;
     padding: 0;
     display: grid;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .risk-pick {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--if-space-3);
     min-height: 44px;
   }
   .risk-actions {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 12px;
+    gap: var(--if-space-3);
   }
   .risk-note {
     margin: 0;
-    padding: 8px 12px;
-    border-radius: var(--if-r-sm, 8px);
+    padding: var(--if-space-2) var(--if-space-3);
+    border-radius: var(--if-r-sm, var(--if-r-sm));
     border: 1px solid var(--if-line, currentColor);
   }
 }
