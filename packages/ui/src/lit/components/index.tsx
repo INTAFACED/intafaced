@@ -432,9 +432,17 @@ export function LegalSlot({
   label,
   missing,
   learnMore,
+  bold,
+  lang,
+  dir,
   className,
 }: LegalSlotProps & {
   text: string | null;
+  /** The rule sets the warning in bold (the risk band). */
+  bold?: boolean;
+  /** Language and direction of the fixed text, so English kept in a right-to-left page keeps its punctuation. */
+  lang?: string;
+  dir?: 'ltr' | 'rtl' | 'auto';
   /** Accessible name of the region, for example "Risk warning". */
   label: string;
   /** Shown when `text` is null: the refusal in words. */
@@ -450,6 +458,9 @@ export function LegalSlot({
       data-jurisdiction={jurisdiction}
       data-text-id={textId}
       data-missing={text ? undefined : true}
+      data-bold={bold || undefined}
+      lang={lang}
+      dir={dir}
       role="region"
       aria-label={label}
     >

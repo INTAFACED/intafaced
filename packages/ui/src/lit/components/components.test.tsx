@@ -158,6 +158,9 @@ describe('components', () => {
     expect(set).not.toContain('data-missing');
     expect(set).toContain('aria-label="Risk warning"');
     expect(set).toContain('<button type="button" class="lit-legal__more">');
+    const rtl = html(<LegalSlot {...base} text="Warning." missing="-" bold lang="en" dir="ltr" />);
+    expect(rtl).toContain('data-bold="true"');
+    expect(rtl).toContain('lang="en" dir="ltr"');
   });
 
   it('RiskMoment gives both choices the same weight', () => {

@@ -390,6 +390,12 @@
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+.lit-legal[data-bold] {
+  font-weight: 600;
+}
+.lit-legal[data-bold] .lit-legal__more {
+  font-weight: 400;
+}
 .lit-legal[data-missing] {
   border-style: dashed;
 }
