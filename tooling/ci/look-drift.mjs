@@ -21,7 +21,11 @@
  * rest moves room by room. `--all` reports the whole tree's count (how far the migration has to go) and never fails.
  *
  * Not judged: the files that define the token values (`packages/ui/src/theme/**`, `packages/ui/src/tokens.*`,
- * `packages/ui/src/lit/tokens.ts`, `packages/ui/src/lit/lit.css`), generated files, tests and fixtures, images.
+ * `packages/ui/src/lit/tokens.ts`, `packages/ui/src/lit/lit.css`), generated files, tests and fixtures, the kit's TEST
+ * galleries (`__gallery__/`, outside the app bundle, as for the money-as-float scan), comments (including every line of
+ * a block comment that spans lines), images. `.js`, `.jsx` and `.scss` are not judged: nothing in these folders is written in
+ * them (in `apps/customer` only vendored bundles and the tiny classic scripts under `public/` are `.js`), so a minified
+ * vendor file would only drown the report. A room written in one of them would need adding here first.
  * A line that must carry a raw value (a third party's brand colour drawn as is) ends with a comment
  * `look-drift-allow: <reason>`; the run prints every such line so the reviewer sees them.
  *
@@ -39,7 +43,7 @@ import { readFileSync } from 'node:fs';
 const SCOPE = /^(?:apps\/customer\/|packages\/ui\/src\/lit\/).+\.(?:css|tsx?|mjs)$/;
 const PX_ALLOWED = /^packages\/ui\/src\/lit\/(?!templates\/)/;
 const NOT_JUDGED =
-  /^packages\/ui\/src\/(?:theme\/|tokens\.|lit\/tokens\.ts$|lit\/lit\.css$)|\.generated\.|(?:\.|\/)(?:test|spec|fixtures?|pw|stories)\.|\/__tests__\/|\/tests\/|(?:^|[./])playwright\.config\.|(?:^|[./])vitest[\w.]*\.config\.|(?:^|[./])vite\.config\.|\.d\.ts$/;
+  /^packages\/ui\/src\/(?:theme\/|tokens\.|lit\/tokens\.ts$|lit\/lit\.css$)|\.generated\.|(?:\.|\/)(?:test|spec|fixtures?|pw|stories)\.|\/__tests__\/|\/__gallery__\/|\/tests\/|(?:^|[./])playwright\.config\.|(?:^|[./])vitest[\w.]*\.config\.|(?:^|[./])vite\.config\.|\.d\.ts$/;
 const ALLOW = /look-drift-allow:\s*\S.{3,}/;
 
 const NAMED =
@@ -140,6 +144,33 @@ export function judgeLine(line, kind, state = { query: 0 }) {
   return [...found];
 }
 
+/**
+ * The line without its comments, carrying an open block comment across lines in `state.comment`. Quotes are respected, and
+ * in TS a `//` ends the line (judgeLine strips it), so a comment opener inside a string or after `//` opens nothing.
+ */
+function withoutComments(line, kind, state) {
+  let out = '';
+  let quote = null;
+  for (let k = 0; k < line.length; k++) {
+    const c = line[k];
+    if (state.comment) {
+      if (c === '*' && line[k + 1] === '/') ((state.comment = false), k++);
+      continue;
+    }
+    if (quote) {
+      out += c;
+      if (c === '\\') out += line[++k] ?? '';
+      else if (c === quote) quote = null;
+    } else if (c === '/' && line[k + 1] === '*') ((state.comment = true), k++);
+    else if (kind === 'ts' && c === '/' && line[k + 1] === '/') return out + line.slice(k);
+    else {
+      if (c === '"' || c === "'" || (kind === 'ts' && c === '`')) quote = c;
+      out += c;
+    }
+  }
+  return out;
+}
+
 /** Judge a file's lines; `only` limits findings to these 1-based line numbers (null = all). */
 export function judgeFile(path, text, only = null) {
   if (!SCOPE.test(path) || NOT_JUDGED.test(path)) return { findings: [], allowed: [] };
@@ -147,6 +178,7 @@ export function judgeFile(path, text, only = null) {
   const findings = [];
   const allowed = [];
   const state = { query: 0 };
+  const comments = { comment: false };
   // CSS only: which brace depths opened an @media or @container block, read past strings and comments.
   let depth = 0;
   let pendingQuery = false;
@@ -176,12 +208,13 @@ export function judgeFile(path, text, only = null) {
         }
       }
     }
+    const code = withoutComments(line, kind, comments);
     if (only && !only.has(n)) return;
     if (ALLOW.test(line)) {
       allowed.push({ path, line: n, text: line.trim().slice(0, 140) });
       return;
     }
-    for (const rule of judgeLine(line, kind, state))
+    for (const rule of judgeLine(code, kind, state))
       if (!(rule === 'pixel size' && PX_ALLOWED.test(path))) findings.push({ path, line: n, rule, text: line.trim().slice(0, 140) });
   });
   return { findings, allowed };
@@ -320,6 +353,35 @@ function selfTest() {
     1,
     'braces in strings are not counted',
   );
+  eq(
+    f(
+      'packages/ui/src/lit/templates/templates.css',
+      '/*\n * Rooms are 720px wide on a phone,\n * and the band was #fff once.\n */\n.a { color: var(--lit-text-1); }',
+    ),
+    0,
+    'every line of a CSS block comment that spans lines is skipped',
+  );
+  eq(f('apps/customer/src/x.css', '/* open\n  still 12px\n*/ a { padding: 12px; }'), 1, 'code after a block comment closes is judged');
+  eq(
+    f('apps/customer/src/x.tsx', 'const a = 1; /* was\n  #fff and ml-2\n*/\nconst s = { marginLeft: 4 };'),
+    1,
+    'a TS block comment that spans lines is skipped, the code after it is not',
+  );
+  eq(
+    f('apps/customer/src/x.tsx', "const g = '/*'; const c = 'drop-shadow(0 0 4px #3f7dff)';"),
+    2,
+    'a comment opener in a string opens nothing (px and colour found)',
+  );
+  eq(
+    f('apps/customer/src/x.tsx', "// see /* here\nconst c = 'drop-shadow(0 0 4px #3f7dff)';"),
+    2,
+    'a comment opener after // opens nothing (px and colour found)',
+  );
+  eq(f('packages/ui/src/lit/templates/__gallery__/gallery.css', '.g { padding: 24px; color: #fff; }'), 0, 'the TEST gallery is not judged');
+  eq(f('packages/ui/src/components/__gallery__/KitSections.tsx', `<i style={{ color: '#fff' }} />`), 0, 'the kit gallery is not judged');
+  eq(f('packages/ui/src/lit/fx/glow.css', '.g { box-shadow: 0 0 2rem rgba(63, 125, 255, 0.4); }'), 1, 'lit/fx colours come from roles');
+  eq(f('packages/ui/src/lit/fx/glow.css', '.g { box-shadow: 0 0 2rem var(--lit-glow); }'), 0, 'lit/fx role colour passes');
+  eq(f('apps/customer/public/assets/vendor.js', "a.style.color='#fff'"), 0, '.js is not judged (see the header)');
   eq(f('apps/customer/src/features/more/playwright.config.ts', `viewport: '1280px'`), 0, 'a playwright config is not judged');
   eq(
     judgeFile('apps/customer/src/x.css', 'a { color: #fff; } /* look-drift-allow: exact partner mark colour */').allowed.length,
