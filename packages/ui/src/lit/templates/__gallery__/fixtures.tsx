@@ -464,6 +464,18 @@ function Overview(c: Ctx) {
 }
 
 const ACTIVITY = [
+  // The same movement as the status card: the original amount, one status, newest first, and no direction colour
+  // (it left and came back, as its card says).
+  {
+    id: '5',
+    date: '26 Oct',
+    what: 'ETH withdrawal',
+    type: 'Withdraw',
+    status: 'failed' as const,
+    amount: '-0.1',
+    asset: 'ETH',
+    ref: 'LGR-9C1-0AE',
+  },
   {
     id: '1',
     date: '26 Oct',
@@ -486,17 +498,6 @@ const ACTIVITY = [
   },
   { id: '3', date: '24 Oct', what: 'Bitcoin', type: 'Buy', status: 'done' as const, amount: '-150.00', asset: 'GBP', ref: 'LGR-3B4-118' },
   { id: '4', date: '23 Oct', what: 'Savings', type: 'Move', status: 'done' as const, amount: '-50.00', asset: 'GBP', ref: 'LGR-8D1-220' },
-  // The same movement as the status card: the original amount, with one status.
-  {
-    id: '5',
-    date: '26 Oct',
-    what: 'ETH withdrawal',
-    type: 'Withdraw',
-    status: 'failed' as const,
-    amount: '-0.1',
-    asset: 'ETH',
-    ref: 'LGR-9C1-0AE',
-  },
 ];
 
 function RecordList(c: Ctx) {
@@ -568,7 +569,7 @@ function RecordList(c: Ctx) {
                 key: 'amount',
                 label: t('Amount'),
                 cell: (r) => (
-                  <span data-dir={r.amount.startsWith('-') ? 'down' : 'up'}>
+                  <span data-dir={r.status === 'failed' ? undefined : r.amount.startsWith('-') ? 'down' : 'up'}>
                     {formatMoney({ value: r.amount, asset: r.asset }, { signed: true })}
                   </span>
                 ),
