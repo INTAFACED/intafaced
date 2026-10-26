@@ -332,6 +332,25 @@ describe('states never contradict themselves', () => {
     expect(stale).toContain('Refresh to see it');
   });
 
+  it('every labelled data region stays on screen with null data, in loading, gated, partial and stale', async () => {
+    const { OverviewTemplate } = await import('./templates.js');
+    const missing = { variant: 'unreachable' as const, title: 'Prices down', body: 'Back soon.' };
+    const states = [
+      { kind: 'loading' },
+      { kind: 'gated', gate: 'not-verified', refusal: missing },
+      { kind: 'ready', partial: { missing } },
+      { kind: 'ready', stale: { asOf: '2026-10-26T10:43:00Z' } },
+    ] as const;
+    for (const state of states) {
+      const out = html(<OverviewTemplate title="Home" state={state} hero={null} needsYou={null} sections={null} watching={null} />);
+      for (const region of ['hero', 'needs-you', 'sections', 'watching'])
+        expect(out, `${state.kind} ${region}`).toContain(`data-region="${region}"`);
+    }
+    const partial = html(<OverviewTemplate title="Home" state={states[2]} hero={null} needsYou={null} />);
+    expect(partial).toContain('Needs you can’t be shown right now');
+    expect(html(<OverviewTemplate title="Home" state={states[3]} hero={null} needsYou={null} />)).toContain('Refresh to see needs you');
+  });
+
   it('room actions leave whole-room states, so the state has the only primary', () => {
     for (const state of ['empty', 'confirm', 'money-status', 'receipt'] as const) {
       const out = html(ROOMS.overview({ mode: 'simple', state, market: 'uk' }));

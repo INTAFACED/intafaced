@@ -61,7 +61,13 @@ export function Region({ name, data = false, primary = false, ghost = 'rows', la
   // `undefined` means the room doesn't use this region; `null` means its data isn't here yet, so a data region
   // still draws its skeleton while loading and its locked outline behind a gate.
   const unused = children === undefined || children === false;
-  const held = state.kind === 'ready' ? (state.partial?.regions?.[name] ?? state.stale?.regions?.[name]) : undefined;
+  let held = state.kind === 'ready' ? (state.partial?.regions?.[name] ?? state.stale?.regions?.[name]) : undefined;
+  // A labelled data region whose data hasn't come in a partial or stale room keeps its place with an honest line,
+  // never vanishing (product law: nothing hidden without a reason).
+  if (held === undefined && children === null && data && label && state.kind === 'ready') {
+    if (state.partial) held = `${label} can’t be shown right now`;
+    else if (state.stale) held = `Refresh to see ${label.toLowerCase()}`;
+  }
   const waiting = children === null && ((data && (state.kind === 'loading' || state.kind === 'gated')) || held !== undefined);
   if ((unused || children === null) && !waiting && !(primary && WHOLE_ROOM.has(state.kind))) return null;
   if (primary && WHOLE_ROOM.has(state.kind)) {
