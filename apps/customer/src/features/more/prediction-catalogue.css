@@ -77,7 +77,7 @@
   padding: var(--if-space-3) 0;
   font-size: var(--if-text-base);
   line-height: var(--if-leading-base);
-  color: var(--if-lime);
+  color: var(--if-accent-text);
   cursor: pointer;
 }
 .prediction-room summary:focus-visible {

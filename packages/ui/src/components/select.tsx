@@ -95,7 +95,7 @@ export function SelectItem({ className, children, ...props }: SelectPrimitive.It
   return (
     <SelectPrimitive.Item data-slot="select-item" className={cn(itemRow, 'pr-9', className)} {...props}>
       <SelectPrimitive.ItemText className="truncate">{children}</SelectPrimitive.ItemText>
-      <SelectPrimitive.ItemIndicator className="absolute right-3 inline-flex items-center text-lime">
+      <SelectPrimitive.ItemIndicator className="absolute right-3 inline-flex items-center text-accent-text">
         <Check size={16} strokeWidth={2} aria-hidden="true" />
       </SelectPrimitive.ItemIndicator>
     </SelectPrimitive.Item>

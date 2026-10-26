@@ -381,7 +381,7 @@
   }
   .mkt-star--on,
   .mkt-star--on:hover {
-    color: var(--if-lime);
+    color: var(--if-accent-text);
   }
   .mkt-range {
     width: 100%;

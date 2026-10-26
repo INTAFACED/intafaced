@@ -420,7 +420,7 @@
   }
   .home-star--on,
   .home-star--on:hover {
-    color: var(--if-lime);
+    color: var(--if-accent-text);
   }
   .home-card__star {
     position: absolute;

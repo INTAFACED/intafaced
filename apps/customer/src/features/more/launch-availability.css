@@ -102,7 +102,7 @@
 .launch-room-details summary {
   min-height: 44px;
   padding: var(--if-space-3) 0;
-  color: var(--if-lime);
+  color: var(--if-accent-text);
   cursor: pointer;
 }
 .launch-room-details summary:focus-visible {

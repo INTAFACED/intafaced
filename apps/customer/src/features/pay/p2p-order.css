@@ -35,7 +35,7 @@
     .p2p-order-role .button {
       flex: 0 0 auto;
       padding-inline: var(--if-space-3);
-      color: var(--if-lime);
+      color: var(--if-accent-text);
     }
     .p2p-order-reference {
       font-size: var(--if-text-base);
@@ -88,7 +88,7 @@
     .p2p-outcome-details > summary {
       min-height: 44px;
       padding-block: var(--if-space-3);
-      color: var(--if-lime);
+      color: var(--if-accent-text);
       cursor: pointer;
     }
     .p2p-order-other .field {

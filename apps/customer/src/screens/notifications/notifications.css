@@ -407,7 +407,7 @@
     white-space: nowrap;
   }
   .nf-pill--ok {
-    color: var(--if-lime);
+    color: var(--if-accent-text);
     border-color: currentColor;
   }
   .nf-tablewrap {

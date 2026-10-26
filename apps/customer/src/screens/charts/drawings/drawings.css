@@ -60,7 +60,7 @@
   .dw-tool[aria-pressed='true'],
   .dw-toggle[aria-pressed='true'] {
     border-color: var(--if-lime);
-    color: var(--if-lime);
+    color: var(--if-accent-text);
   }
   .dw-toggle:disabled,
   .dw-tool:disabled {
@@ -105,7 +105,7 @@
     border: 0;
     background: none;
     padding: 0;
-    color: var(--if-lime);
+    color: var(--if-accent-text);
     font: inherit;
     text-decoration: underline;
     cursor: pointer;

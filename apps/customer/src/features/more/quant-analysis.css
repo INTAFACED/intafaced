@@ -112,7 +112,7 @@
 .quant-history-evidence summary {
   min-height: 44px;
   padding: var(--if-space-3) 0;
-  color: var(--if-lime);
+  color: var(--if-accent-text);
   cursor: pointer;
 }
 .quant-history-evidence summary:focus-visible,
@@ -161,7 +161,7 @@
 .quant-catalogue summary {
   min-height: 44px;
   padding: var(--if-space-3) 0;
-  color: var(--if-lime);
+  color: var(--if-accent-text);
   cursor: pointer;
 }
 .quant-latest-failure {

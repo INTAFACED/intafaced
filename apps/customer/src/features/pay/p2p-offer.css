@@ -122,7 +122,7 @@
     .p2p-offer-inspect {
       width: 164px;
       min-height: 44px;
-      color: var(--if-lime);
+      color: var(--if-accent-text);
     }
     .p2p-offer-filters,
     .p2p-offer-known {
@@ -133,7 +133,7 @@
       min-height: 44px;
       padding-block: var(--if-space-3);
       cursor: pointer;
-      color: var(--if-lime);
+      color: var(--if-accent-text);
     }
     .p2p-offer-original {
       display: flex;

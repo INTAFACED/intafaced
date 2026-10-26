@@ -74,7 +74,7 @@ function FavoriteStar({ asset, favorite }: { asset: string; favorite: FavoriteCo
     <Button
       variant="ghost"
       size={28}
-      className={`w-7 shrink-0 px-0 ${favorite.on ? 'text-lime' : ''}`}
+      className={`w-7 shrink-0 px-0 ${favorite.on ? 'text-accent-text' : ''}`}
       aria-pressed={favorite.on}
       aria-label={favorite.on ? t('Remove {asset} from favorites', { asset }) : t('Add {asset} to favorites', { asset })}
       onClick={favorite.onToggle}

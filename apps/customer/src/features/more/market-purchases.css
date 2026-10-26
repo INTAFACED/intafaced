@@ -72,7 +72,7 @@
   min-height: 44px;
 }
 .market-purchases-row-header > .button[aria-pressed='true'] {
-  color: var(--if-lime);
+  color: var(--if-accent-text);
   background: var(--color-selected);
 }
 .market-purchases-inspection {

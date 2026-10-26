@@ -52,7 +52,7 @@
   border-radius: var(--if-r-sm);
 }
 .money-activity-row[aria-pressed='true'] .money-activity-icon {
-  color: var(--if-lime);
+  color: var(--if-accent-text);
 }
 .money-activity-icon {
   width: 32px;
@@ -500,7 +500,7 @@
 .money-ramp-direction .button[aria-pressed='true'],
 .money-selected-ramp > header .button--ghost,
 .money-rail-window > .money-section > header .button--ghost {
-  color: var(--if-lime);
+  color: var(--if-accent-text);
 }
 .money-ramp-direction .button[aria-pressed='true'] {
   background: var(--color-selected);
@@ -715,7 +715,7 @@
 .money-selected-card > header > .button--ghost,
 .money-card-continuation .button--ghost,
 .money-owner-cards > .money-section > header .button--ghost {
-  color: var(--if-lime);
+  color: var(--if-accent-text);
 }
 .money-selected-card h2,
 .money-card-history h3 {
@@ -1033,7 +1033,7 @@
   border-bottom: 1px solid var(--color-divider);
 }
 .money-holding:hover strong {
-  color: var(--if-lime);
+  color: var(--if-accent-text);
 }
 /* Bank overview holding row: asset mark, name, then quantity with available / held. */
 .money-asset-mark {
@@ -1123,7 +1123,7 @@
   color: var(--color-muted);
 }
 .money-bank-nav a[aria-current='page'] {
-  color: var(--if-lime);
+  color: var(--if-accent-text);
   box-shadow: 0 2px 0 var(--if-lime);
 }
 .money-record {
@@ -1183,7 +1183,7 @@
   overflow-wrap: anywhere;
 }
 .money-repeat-rule > header .money-repeat-active {
-  color: var(--if-lime);
+  color: var(--if-accent-text);
 }
 .money-repeat-coverage {
   font-size: var(--if-text-xs);
@@ -1520,7 +1520,7 @@
   font-size: var(--if-text-sm);
   line-height: var(--if-leading-base);
   font-weight: 500;
-  color: var(--if-lime);
+  color: var(--if-accent-text);
 }
 .money-selected-space h2 {
   font-size: var(--if-text-xl);

@@ -61,6 +61,7 @@
   --if-alloc-6: #2e2e2e;
   --if-base: var(--if-bg);
   --if-focus: var(--if-lime);
+  --if-accent-text: var(--if-lime);
   --if-font-ui: 'Inter Variable', Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --if-font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   --if-text-2xs: 12px;

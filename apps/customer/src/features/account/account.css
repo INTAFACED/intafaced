@@ -131,6 +131,7 @@ html[data-theme='light'] {
   --color-destination-border: #c1ceb0;
   --color-positive: #3c6500;
   --color-negative: #ba243b;
+  --if-accent-text: #365900;
   color-scheme: light;
 }
 html[data-theme='light'] .text-link,

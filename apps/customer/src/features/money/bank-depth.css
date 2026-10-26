@@ -105,7 +105,7 @@
   padding: 0;
   border: 0;
   background: none;
-  color: var(--if-lime);
+  color: var(--if-accent-text);
   font-size: var(--if-text-sm);
   cursor: pointer;
 }
@@ -153,7 +153,7 @@
   height: 40px;
   border-radius: var(--if-r-pill);
   background: var(--color-selected);
-  color: var(--if-lime);
+  color: var(--if-accent-text);
   font-weight: var(--font-weight-semibold);
 }
 .bd-chips {
@@ -181,7 +181,7 @@
 }
 .bd-chip[aria-pressed='true'] {
   border-color: var(--if-lime);
-  color: var(--if-lime);
+  color: var(--if-accent-text);
 }
 .bd-chip[disabled] {
   opacity: 0.6;
@@ -230,7 +230,7 @@
   letter-spacing: 0.08em;
 }
 .bd-card__state {
-  color: var(--if-lime);
+  color: var(--if-accent-text);
 }
 .bd-card__pan {
   font-size: var(--if-text-lg);
@@ -379,7 +379,7 @@
 }
 .bd-steps li[aria-current='step'] .bd-steps__n {
   border-color: var(--if-lime);
-  color: var(--if-lime);
+  color: var(--if-accent-text);
 }
 .bd-methods {
   display: flex;
@@ -433,7 +433,7 @@
 }
 .badge[data-state='live'] {
   border-color: var(--if-lime);
-  color: var(--if-lime);
+  color: var(--if-accent-text);
 }
 
 @media (max-width: 760px) {

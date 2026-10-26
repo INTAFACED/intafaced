@@ -314,7 +314,7 @@
     color: var(--if-line-stronger);
   }
   .dk-mk-star[aria-pressed='true'] {
-    color: var(--if-lime);
+    color: var(--if-accent-text);
   }
   .dk-mk-link {
     display: flex;
@@ -755,7 +755,7 @@
     padding: 0;
     border: 0;
     background: transparent;
-    color: var(--if-lime);
+    color: var(--if-accent-text);
     font: 500 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     text-decoration: underline;
     cursor: pointer;
@@ -982,7 +982,7 @@
   }
   /* Offered: a real toggle, in the accent colour, with its pressed state drawn as well as announced. */
   .dk-fee-asset-choice[aria-pressed] {
-    color: var(--if-accent);
+    color: var(--if-accent-text);
     text-decoration: underline;
     cursor: pointer;
   }

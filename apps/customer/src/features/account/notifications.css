@@ -52,7 +52,7 @@
   color: var(--color-muted);
 }
 .notifications-item.unread .notifications-meta span {
-  color: var(--if-lime);
+  color: var(--if-accent-text);
 }
 .notifications-item .actions {
   gap: var(--if-space-3);
