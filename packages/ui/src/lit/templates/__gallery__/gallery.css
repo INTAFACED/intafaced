@@ -1,6 +1,7 @@
 /* Templates gallery page. Kit tokens, then the Lit roles, then the templates. Dev tool only. */
 @import '../../../theme/tokens.css';
 @import '../../lit.css';
+@import '../../components/components.css';
 @import '../templates.css';
 
 html,

@@ -1,6 +1,7 @@
 import * as React from 'react';
+import { LegalSlot } from '../../components/index.js';
 import type { LegalMomentId, Market } from '../types.js';
-import { LEGAL_MOMENTS, resolveLegal, type TextRun } from './registry.js';
+import { LEGAL_MOMENTS, resolveLegal } from './registry.js';
 
 const MISSING: Record<'market-unset' | 'lawyer' | 'value-unset', string> = {
   'market-unset': 'The market this account is served from isn’t set yet, so this notice can’t be shown.',
@@ -8,29 +9,14 @@ const MISSING: Record<'market-unset' | 'lawyer' | 'value-unset', string> = {
   'value-unset': 'A figure this notice must state isn’t set yet.',
 };
 
-function Runs({ runs, onLink }: { runs: readonly TextRun[]; onLink?: () => void }) {
-  return (
-    <>
-      {runs.map((run, i) => {
-        let node: React.ReactNode = run.text;
-        if (run.link) {
-          node = onLink ? (
-            <button type="button" className="lt-legal-link" onClick={onLink}>
-              {run.text}
-            </button>
-          ) : (
-            <span className="lt-legal-link">{run.text}</span>
-          );
-        }
-        if (run.underline && !run.link) node = <u>{node}</u>;
-        if (run.bold) node = <strong>{node}</strong>;
-        return <React.Fragment key={i}>{node}</React.Fragment>;
-      })}
-    </>
-  );
-}
+/** Moments drawn as the risk band at the top of the room. */
+export const BAND_MOMENTS: ReadonlySet<LegalMomentId> = new Set(
+  Object.values(LEGAL_MOMENTS)
+    .filter((m) => m.placement === 'frame-top')
+    .map((m) => m.id),
+);
 
-export interface LegalSlotProps {
+export interface RegistryLegalSlotProps {
   moment: LegalMomentId;
   market: Market;
   /** ISO date the screen is shown on; dated wording switches on it. Defaults to today. */
@@ -41,36 +27,41 @@ export interface LegalSlotProps {
 }
 
 /**
- * One legal moment in the market in force. Fixed text renders exactly as the rule gives it; anything else renders
- * the designed "wording missing" refusal in the same slot, so the layout never moves and nothing is invented.
+ * One legal moment in the market in force, drawn by the kit's LegalSlot. This wrapper alone reads the registry:
+ * fixed text goes in exactly as the rule gives it (the rule's link becomes the kit's learn-more button), and
+ * anything else becomes the designed "wording missing" refusal in the same slot, so nothing is invented.
  */
-export function LegalSlot({ moment, market, on, values, onLink }: LegalSlotProps) {
+export function RegistryLegalSlot({ moment, market, on, values, onLink }: RegistryLegalSlotProps) {
   const today = on ?? new Date().toISOString().slice(0, 10);
   const r = resolveLegal(moment, market, today, values);
   if (r.status === 'not-applicable') return null;
-  const band = moment === 'crypto-risk-band' || moment === 'credit-warning' || moment === 'cfd-warning';
+  const band = BAND_MOMENTS.has(moment);
+  const common = {
+    type: LEGAL_MOMENTS[moment].type,
+    moment,
+    jurisdiction: market,
+    textId: `${moment}.${market}`,
+    label: band ? 'Risk warning' : 'Legal notice',
+  };
+  if (r.status === 'missing') {
+    const ref = r.rule ? ` Ref ${r.rule}` : '';
+    return <LegalSlot {...common} className={band ? 'lt-legal-band' : undefined} text={null} missing={`${MISSING[r.reason]}${ref}`} />;
+  }
+  const link = r.runs.find((run) => run.link);
+  // Without a handler the link's words stay in the text, so the fixed wording is never cut short.
+  const body = r.runs
+    .filter((run) => !run.link || !onLink)
+    .map((run) => run.text)
+    .join('')
+    .trim();
+  const bold = r.runs.some((run) => run.bold);
   return (
-    <div
-      className={band ? 'lt-legal lt-legal-band' : 'lt-legal'}
-      data-slot="legal"
-      data-moment={moment}
-      data-legal-status={r.status}
-      data-legal-slot={moment}
-      data-legal-slot-type={LEGAL_MOMENTS[moment].type}
-      data-legal-slot-state={r.status === 'missing' ? 'refused' : undefined}
-      role={band ? 'region' : undefined}
-      aria-label={band ? 'Risk warning' : undefined}
-    >
-      {r.status === 'fixed' ? (
-        <p className="lt-legal-text" lang="en" dir="ltr">
-          <Runs runs={r.runs} onLink={onLink} />
-        </p>
-      ) : (
-        <p className="lt-legal-text lt-legal-missing">
-          {MISSING[r.reason]}
-          {r.rule ? <span className="lt-ref"> Ref {r.rule}</span> : null}
-        </p>
-      )}
-    </div>
+    <LegalSlot
+      {...common}
+      className={[band ? 'lt-legal-band' : '', bold ? 'lt-legal-bold' : ''].join(' ').trim() || undefined}
+      text={body}
+      missing=""
+      learnMore={link && onLink ? { label: link.text, onOpen: onLink } : undefined}
+    />
   );
 }

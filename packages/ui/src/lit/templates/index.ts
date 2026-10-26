@@ -5,7 +5,7 @@
  */
 export * from './templates.js';
 export { Receipt, Review, RefusalBox, Region, RoomFrame, StateView, reviewComplete } from './frame.js';
-export { LegalSlot } from './legal/LegalSlot.js';
+export { RegistryLegalSlot, BAND_MOMENTS, type RegistryLegalSlotProps } from './legal/LegalSlot.js';
 export { LEGAL_MOMENTS, resolveLegal, type LegalMoment, type LegalSlotType, type TextRun, type Wording } from './legal/registry.js';
 export { formatMoney, isDecimal, reconcileParts, sumDecimals, sumMoney, subtractDecimals, type Part } from './money.js';
 export * from './types.js';

@@ -9,7 +9,7 @@ import { templates, type TemplateId } from '../contracts.js';
 import { Bars, Parts } from '../components/b2-charts.js';
 import { Review } from './frame.js';
 import { LEGAL_MOMENTS, resolveLegal } from './legal/registry.js';
-import { LegalSlot } from './legal/LegalSlot.js';
+import { RegistryLegalSlot as LegalSlot } from './legal/LegalSlot.js';
 import { formatMoney, reconcileParts, sumDecimals } from './money.js';
 import { HOLDINGS, ROOMS, galleryStates } from './__gallery__/fixtures.js';
 import type { ReviewData } from './types.js';
@@ -126,7 +126,7 @@ describe('legal slots come only from the registry', () => {
   it('with the market unset, a market-dependent slot shows the designed refusal, never invented text', () => {
     expect(resolveLegal('crypto-risk-band', 'unset', '2026-10-26')).toEqual({ status: 'missing', rule: null, reason: 'market-unset' });
     const out = html(<LegalSlot moment="crypto-risk-band" market="unset" on="2026-10-26" />);
-    expect(out).toContain('data-legal-status="missing"');
+    expect(out).toContain('data-missing="true"');
     expect(out).not.toContain('Don’t invest');
   });
 
@@ -147,12 +147,22 @@ describe('legal slots come only from the registry', () => {
     expect(resolveLegal('credit-warning', 'eu', '2026-11-20')).toMatchObject({ status: 'fixed' });
   });
 
-  it('the look gate can find and judge each slot', () => {
+  it('draws through the kit slot, which the look gate finds by moment and market', () => {
+    const out = html(<LegalSlot moment="crypto-risk-band" market="uk" on="2026-10-26" onLink={() => {}} />);
+    expect(out).toContain('class="lit-legal lt-legal-band lt-legal-bold"');
+    expect(out).toContain('data-type="risk-band"');
+    expect(out).toContain('data-moment="crypto-risk-band"');
+    expect(out).toContain('data-jurisdiction="uk"');
+    expect(out).not.toContain('data-missing');
+    // The rule's link is the kit's learn-more button, with the rule's exact words.
+    expect(out).toContain('>Take 2 mins to learn more</button>');
+    expect(html(<LegalSlot moment="crypto-risk-band" market="unset" />)).toContain('data-missing="true"');
+  });
+
+  it('without a handler the link words stay in the fixed text', () => {
     const out = html(<LegalSlot moment="crypto-risk-band" market="uk" on="2026-10-26" />);
-    expect(out).toContain('data-legal-slot="crypto-risk-band"');
-    expect(out).toContain('data-legal-slot-type="risk-band"');
-    expect(out).not.toContain('data-legal-slot-state');
-    expect(html(<LegalSlot moment="crypto-risk-band" market="unset" />)).toContain('data-legal-slot-state="refused"');
+    expect(out).toContain('goes wrong. Take 2 mins to learn more<');
+    expect(out).not.toContain('<button');
   });
 
   it('legal/registry.json is the registry as plain data, for the look gate (vitest -u rewrites it)', async () => {

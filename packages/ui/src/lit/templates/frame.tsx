@@ -5,8 +5,7 @@
  */
 import * as React from 'react';
 import { Skeleton, type SkeletonShape } from '../components/b2-basics.js';
-import { LegalSlot } from './legal/LegalSlot.js';
-import { LEGAL_MOMENTS } from './legal/registry.js';
+import { BAND_MOMENTS, RegistryLegalSlot } from './legal/LegalSlot.js';
 import { formatMoney } from './money.js';
 import type { Movement, MovementStep, Notice, Refusal, ReviewData, ReviewLine, RoomProps, RoomState } from './types.js';
 import type { TemplateId } from '../contracts.js';
@@ -261,12 +260,6 @@ function Notices({ notices }: { notices: readonly Notice[] }) {
   );
 }
 
-const BAND_MOMENTS = new Set(
-  Object.values(LEGAL_MOMENTS)
-    .filter((m) => m.placement === 'frame-top')
-    .map((m) => m.id),
-);
-
 function ago(asOf: string, now: Date, locale?: string, timeZone?: string): string {
   const mins = Math.max(0, Math.round((now.getTime() - Date.parse(asOf)) / 60_000));
   if (mins < 1) return 'just now';
@@ -300,7 +293,7 @@ export function RoomFrame(props: RoomFrameProps) {
         {band.length > 0 ? (
           <div className="lt-band-slot">
             {band.map((m) => (
-              <LegalSlot key={m} moment={m} market={market} values={props.legalValues} onLink={props.onRiskSummary} />
+              <RegistryLegalSlot key={m} moment={m} market={market} values={props.legalValues} onLink={props.onRiskSummary} />
             ))}
           </div>
         ) : null}
