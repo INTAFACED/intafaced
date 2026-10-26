@@ -612,3 +612,9 @@
   padding: var(--if-space-2) var(--if-space-3);
   list-style: none;
 }
+
+/* Seeded red for the B0 gates: must fail look drift. */
+.seeded-red {
+  color: #3f7dff;
+  margin-left: 12px;
+}
