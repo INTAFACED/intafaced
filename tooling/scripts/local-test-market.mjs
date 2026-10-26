@@ -762,6 +762,13 @@ export const TAPE_RETIME_ROUTE = '/internal/local-test/tape-retime';
 /** Requests a second `history` sends: below Edge's local budget of 1200 a minute per address (local-stack-services/edge.mjs, EDGE_RATE_LIMIT_MAX), with room left. */
 export const HISTORY_REQUESTS_PER_SECOND = 14;
 /**
+ * Edge's local budget window (local-stack-services/edge.mjs, EDGE_RATE_LIMIT_WINDOW_MS). `history` ends by waiting out
+ * the rest of one window after its last request, so whatever runs next on the same address starts with the whole budget
+ * (failure it prevents: run 552 on main, the first journey on a shard right after `history` was refused
+ * edge.rate_limited once the step stopped ending with an 80-second wait for the first market maker trade).
+ */
+export const HISTORY_EDGE_WINDOW_MS = 60_000;
+/**
  * Markets per `history` batch request. Fewer requests leave Edge's budget room, more lanes side by side keep svc-trade
  * busy. On a 4-core machine (26 Oct), six markets took 6.1 minutes at one request per order, 7.7 in one request for
  * all six, and 4.7 at three per request in two lanes, where svc-trade's own speed sets the pace.
@@ -852,11 +859,13 @@ async function runHistory(opts, home) {
   // that started next could not even sign in). So requests go out at most HISTORY_REQUESTS_PER_SECOND, and a 429 waits for
   // the time Edge names, then sends the same request again: the same client ids, so svc-trade returns the same orders.
   let nextSlot = 0;
+  let lastEdgeAt = 0;
   const pace = async () => {
     const now = Date.now();
     const at = Math.max(now, nextSlot);
     nextSlot = at + Math.ceil(1000 / HISTORY_REQUESTS_PER_SECOND);
     if (at > now) await sleep(at - now);
+    lastEdgeAt = Date.now();
   };
   const orderBody = (m, side, price, amount, tif) => ({
     symbol: m.symbol,
@@ -1017,6 +1026,11 @@ async function runHistory(opts, home) {
   for (const b of books) results.push(await retime(b).catch((err) => (log(`${b.m.symbol}: ${err.message}`), false)));
   fs.mkdirSync(p.runDir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(p.walkFile, JSON.stringify({ seed: opts.seed, steps }), { mode: 0o600 });
+  const rest = lastEdgeAt === 0 ? 0 : HISTORY_EDGE_WINDOW_MS - (Date.now() - lastEdgeAt);
+  if (rest > 0) {
+    log(`Waiting ${Math.ceil(rest / 1000)}s for Edge's one-minute budget to start fresh for what runs next`);
+    await sleep(rest);
+  }
   return results.every(Boolean) ? 0 : 1;
 }
 
