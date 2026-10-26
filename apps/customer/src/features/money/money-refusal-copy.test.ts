@@ -143,7 +143,7 @@ describe('reading a refusal that has come back', () => {
     expect(settled.refusedFirst).toBe(true);
     expect(settled.outcome).toMatchObject({
       reason: 'error',
-      message: expect.stringMatching(/restore that space\. Nothing was changed\.$/),
+      message: expect.stringMatching(/Pick another name\. Nothing was changed\.$/),
     });
   });
   it('reads a shared pot refusal as changing nothing, and a viewer’s refused transfer as sending nothing', () => {
