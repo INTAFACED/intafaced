@@ -23,11 +23,13 @@ export const preloadMerchantChrome = () => import('../features/pay/portal/chrome
 const MerchantTopBar = lazy(preloadMerchantChrome);
 const GroupedMenu = lazy(() => import('../features/pay/portal/home-layout/Navigation').then((m) => ({ default: m.GroupedMenu })));
 
-/** Sets `--if-banner-offset` to the local stack's banner height (28 px), or 0 when there is no banner. */
+/** Sets `--if-banner-offset` to the local stack's banner height (28 px), or 0 when there is no banner, and marks the banner as covering the top edge. */
 export function useBannerOffset() {
   useEffect(() => {
     const apply = () => {
       const banner = document.getElementById('local-test-stack-banner');
+      // The fixed banner covers the top edge too, so the Lit look's focus padding counts it (a11y trackObscuringBars).
+      if (banner && !banner.hasAttribute('data-obscures')) banner.setAttribute('data-obscures', 'top');
       document.documentElement.style.setProperty(
         '--if-banner-offset',
         banner ? `${Math.round(banner.getBoundingClientRect().height)}px` : '0px',

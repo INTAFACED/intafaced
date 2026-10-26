@@ -1,5 +1,17 @@
 import { useEffect } from 'react';
-import { trackObscuringBars, useSolidSurfacesRoot } from '@intafaced/ui/a11y';
+import {
+  SURFACES_ATTRIBUTE,
+  readSurfacesSetting,
+  resolveSurfaces,
+  systemAsksForSolid,
+  trackObscuringBars,
+  useSolidSurfacesRoot,
+} from '@intafaced/ui/a11y';
+
+/** Puts `data-surfaces` on the root at once, from the saved setting and the system, so the first paint is right. */
+export function applyLookSurfaces(root: HTMLElement = document.documentElement): void {
+  root.setAttribute(SURFACES_ATTRIBUTE, resolveSurfaces(readSurfacesSetting(), systemAsksForSolid()));
+}
 
 /**
  * The access hooks of the Lit glass look (`@intafaced/ui/a11y`, README there), mounted once beside the app where
