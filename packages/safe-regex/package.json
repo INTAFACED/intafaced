@@ -19,7 +19,7 @@
     "clean": "rimraf dist .turbo"
   },
   "dependencies": {
-    "re2js": "^2.8.6"
+    "re2js": "^2.9.0"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
