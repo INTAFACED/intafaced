@@ -101,7 +101,12 @@ export function AntiPhishing() {
   if (resource.status === 'failed' && !unreadable) {
     const refusal = antiPhishingRefusal(resource.failure);
     return (
-      <section className="security__anti-phishing security__card" aria-label={t('title')} lang={languageFor('title')}>
+      <section
+        data-testid="security__anti-phishing"
+        className="security__anti-phishing security__card"
+        aria-label={t('title')}
+        lang={languageFor('title')}
+      >
         <h2>{t('title')}</h2>
         <p>{t('body')}</p>
         {refusal ? (
@@ -118,7 +123,12 @@ export function AntiPhishing() {
   if (!view) return null;
   const problemText = problem ? t(problem) : null;
   return (
-    <section className="security__anti-phishing security__card" aria-label={t('title')} lang={languageFor('title')}>
+    <section
+      data-testid="security__anti-phishing"
+      className="security__anti-phishing security__card"
+      aria-label={t('title')}
+      lang={languageFor('title')}
+    >
       <h2>{t('title')}</h2>
       <p>{t('body')}</p>
       <p className="muted">{t('carried')}</p>
@@ -132,9 +142,12 @@ export function AntiPhishing() {
       ) : (
         <p className="muted">{t('none')}</p>
       )}
-      <figure className="security__mail-preview" aria-label={t('previewTitle')}>
+      <figure data-testid="security__mail-preview" className="security__mail-preview" aria-label={t('previewTitle')}>
         <figcaption>
-          {t('previewTitle')} <span className="security__ref">{t('previewSample')}</span>
+          {t('previewTitle')}{' '}
+          <span data-testid="security__ref" className="security__ref">
+            {t('previewSample')}
+          </span>
         </figcaption>
         <p>{view.code ? t('previewLine', { code: view.code }) : t('previewNone')}</p>
       </figure>

@@ -175,7 +175,12 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
   const last = waysIn(methods) <= 1;
 
   return (
-    <section className="security__signin-methods security__card" aria-label={t('title')} lang={languageFor('title')}>
+    <section
+      data-testid="security__signin-methods"
+      className="security__signin-methods security__card"
+      aria-label={t('title')}
+      lang={languageFor('title')}
+    >
       <h2>{t('title')}</h2>
       <p>{t('body')}</p>
       {note && (
@@ -225,8 +230,8 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
           </div>
         </form>
       )}
-      <ul className="security__rows">
-        <li className="security__row security__row--method" aria-label={t('password')}>
+      <ul data-testid="security__rows" className="security__rows">
+        <li data-testid="security__row" className="security__row security__row--method" aria-label={t('password')}>
           <div>
             <strong>{t('password')}</strong> <span className="muted">{methods.password ? t('passwordOn') : t('passwordOff')}</span>
           </div>
@@ -260,7 +265,7 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
             </Button>
           )}
         </li>
-        <li className="security__row security__row--method" aria-label={t('emailCode')}>
+        <li data-testid="security__row" className="security__row security__row--method" aria-label={t('emailCode')}>
           <div>
             <strong>{t('emailCode')}</strong>{' '}
             <span className="muted">
@@ -281,13 +286,13 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
             </Button>
           )}
         </li>
-        <li className="security__row security__row--method" aria-label={t('passkeys')}>
+        <li data-testid="security__row" className="security__row security__row--method" aria-label={t('passkeys')}>
           <div>
             <strong>{t('passkeys')}</strong>{' '}
             <span className="muted">{methods.passkeys > 0 ? t('passkeyCount', { count: methods.passkeys }) : t('noPasskeys')}</span>
           </div>
         </li>
-        <li className="security__row security__row--method" aria-label={t('wallets')}>
+        <li data-testid="security__row" className="security__row security__row--method" aria-label={t('wallets')}>
           <div>
             <strong>{t('wallets')}</strong>
             {methods.wallets.length === 0 && <span className="muted"> {t('noWallets')}</span>}
@@ -295,7 +300,7 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
               <ul className="security__wallets">
                 {methods.wallets.map((wallet) => (
                   <li key={wallet.address}>
-                    <span lang="zxx" className="security__ref" title={wallet.address}>
+                    <span lang="zxx" data-testid="security__ref" className="security__ref" title={wallet.address}>
                       {shortAddress(wallet.address)}
                     </span>{' '}
                     <span className="muted">{t('walletLinked', { time: stamp(wallet.linkedAt, timeZone) })}</span>{' '}
@@ -316,7 +321,7 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
             {t('linkWallet')}
           </Button>
         </li>
-        <li className="security__row security__row--method" aria-label={t('phone')}>
+        <li data-testid="security__row" className="security__row security__row--method" aria-label={t('phone')}>
           <div>
             <strong>{t('phone')}</strong> <span className="muted">{t('noPhone')}</span>
           </div>
@@ -347,7 +352,7 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
             </Button>
           )}
         </li>
-        <li className="security__row security__row--method" aria-label={t('social')}>
+        <li data-testid="security__row" className="security__row security__row--method" aria-label={t('social')}>
           <div>
             <strong>{t('social')}</strong>
             {methods.providers.length === 0 && <span className="muted"> {t('noSocial')}</span>}
@@ -355,7 +360,7 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
               <ul className="security__wallets">
                 {methods.providers.map((provider) => (
                   <li key={provider}>
-                    <span lang="zxx" className="security__ref">
+                    <span lang="zxx" data-testid="security__ref" className="security__ref">
                       {provider}
                     </span>{' '}
                     <Button

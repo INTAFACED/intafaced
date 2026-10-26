@@ -67,7 +67,7 @@ export function ReviewForm({
         {task.text ?? t('rvNoText')}
       </p>
       {task.file && (
-        <p className="academy-lms-meta">
+        <p data-testid="academy-lms-meta" className="academy-lms-meta">
           <span lang="und">
             {task.file.fileName
               ? t('rvFile', { name: task.file.fileName, size: byteSize(task.file.bytes) })
@@ -83,7 +83,7 @@ export function ReviewForm({
       {task.criteria.map((criterion, i) => (
         <fieldset key={criterion.name} className="academy-lms-stack">
           <legend lang="und">{criterion.name}</legend>
-          <span className="academy-lms-meta">
+          <span data-testid="academy-lms-meta" className="academy-lms-meta">
             {criterion.levels.map((level) => (
               <label key={level} className="academy-lms-choice">
                 <input

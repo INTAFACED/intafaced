@@ -157,7 +157,7 @@ function CategoryPage({ id }: { id: string }) {
             </div>
           )}
           {category.sections.map((section) => (
-            <article className="help__row" key={section.id}>
+            <article data-testid="help__row" className="help__row" key={section.id}>
               <div className="help__row-heading">
                 <h2 lang="und">{section.name}</h2>
                 <a href={helpSectionHref(section.id)} className="help__link text-link" aria-label={`${t('openSection')}: ${section.name}`}>
@@ -222,7 +222,7 @@ function SectionPage({ id }: { id: string }) {
               const title = row.title ?? row.id;
               const first = row.body ? supportKbParagraphs(row.body)[0] : undefined;
               return (
-                <article className="help__row" key={row.id}>
+                <article data-testid="help__row" className="help__row" key={row.id}>
                   <div className="help__row-heading">
                     <h2 lang={row.language ?? 'und'}>{title}</h2>
                     <a href={helpHref(row.id)} className="help__link text-link" aria-label={`${t('readAnswer')}: ${title}`}>

@@ -332,7 +332,7 @@ export function Account() {
           <section className="subaccounts__identity" aria-label={t('handle')}>
             <div>
               <span className="muted">{t('handle')}</span>
-              <p className="subaccounts__ref" lang="zxx">
+              <p data-testid="subaccounts__ref" className="subaccounts__ref" lang="zxx">
                 @{identity.handle}
               </p>
             </div>
@@ -342,7 +342,7 @@ export function Account() {
         <section className="subaccounts__identity" aria-label={t('owner')}>
           <div>
             <span className="muted">{t('owner')}</span>
-            <p className="subaccounts__ref" lang="zxx">
+            <p data-testid="subaccounts__ref" className="subaccounts__ref" lang="zxx">
               {userId}
             </p>
           </div>
@@ -354,7 +354,7 @@ export function Account() {
         {showSubaccounts && (
           <>
             <div className="subaccounts__columns">
-              <section className="subaccounts__list" aria-labelledby="subaccount-list-heading">
+              <section data-testid="subaccounts__list" className="subaccounts__list" aria-labelledby="subaccount-list-heading">
                 <header className="subaccounts__heading">
                   <h2 id="subaccount-list-heading">{t('list')}</h2>
                   <Button className="subaccounts__jump" disabled={blocked('create')} onClick={jump}>
@@ -384,7 +384,7 @@ export function Account() {
                           <div className="subaccounts__details">
                             <strong lang="und">{row.label}</strong>
                             {row.nickname !== null && (
-                              <span className="subaccounts__ref muted" lang="und">
+                              <span data-testid="subaccounts__ref" className="subaccounts__ref muted" lang="und">
                                 {t('nickname', { name: row.nickname })}
                               </span>
                             )}
@@ -393,14 +393,19 @@ export function Account() {
                                 {row.purpose}
                               </p>
                             )}
-                            <span className="subaccounts__ref muted">
+                            <span data-testid="subaccounts__ref" className="subaccounts__ref muted">
                               {t(KIND_KEYS[row.kind] as 'kindStandard')}
                               {row.frozen ? ` · ${t('frozen')}` : ''}
                             </span>
-                            <span className="subaccounts__ref muted" lang="zxx">
+                            <span data-testid="subaccounts__ref" className="subaccounts__ref muted" lang="zxx">
                               {row.id}
                             </span>
-                            <time className="subaccounts__ref muted" dateTime={row.createdAt} lang={requestedLocale}>
+                            <time
+                              data-testid="subaccounts__ref"
+                              className="subaccounts__ref muted"
+                              dateTime={row.createdAt}
+                              lang={requestedLocale}
+                            >
                               {t('created', { time: stamp(row.createdAt, timeZone) })}
                             </time>
                           </div>
@@ -438,7 +443,7 @@ export function Account() {
                   </>
                 )}
               </section>
-              <section className="subaccounts__create" aria-labelledby="subaccount-create-heading">
+              <section data-testid="subaccounts__create" className="subaccounts__create" aria-labelledby="subaccount-create-heading">
                 <header>
                   <h2 id="subaccount-create-heading">{t('createTitle')}</h2>
                   <p className="muted">{t('createBody')}</p>
@@ -509,7 +514,7 @@ export function Account() {
                     ownIntent = intent && sameActor(intent) ? intent : null;
                   const sending = busy && ownIntent === active;
                   return (
-                    <article className="subaccounts__request" key={record.requestId}>
+                    <article data-testid="subaccounts__request" className="subaccounts__request" key={record.requestId}>
                       <h2>{t(sending ? 'sending' : record.kind === 'create' ? 'unknownCreate' : 'unknownRevoke')}</h2>
                       {!sending && (
                         <p role="status" className="muted">
@@ -532,14 +537,14 @@ export function Account() {
                         {record.target && (
                           <div>
                             <dt>{t('target')}</dt>
-                            <dd className="subaccounts__ref" lang="zxx">
+                            <dd data-testid="subaccounts__ref" className="subaccounts__ref" lang="zxx">
                               {record.target}
                             </dd>
                           </div>
                         )}
                         <div>
                           <dt>{t('request')}</dt>
-                          <dd className="subaccounts__ref" lang="zxx">
+                          <dd data-testid="subaccounts__ref" className="subaccounts__ref" lang="zxx">
                             {record.requestId}
                           </dd>
                         </div>
@@ -558,7 +563,7 @@ export function Account() {
                   );
                 })}
                 {visibleReceipts.map((receipt) => (
-                  <article className="subaccounts__request" key={receipt.record.requestId}>
+                  <article data-testid="subaccounts__request" className="subaccounts__request" key={receipt.record.requestId}>
                     <h2>
                       {t(
                         receipt.result === 'noChange'
@@ -595,14 +600,14 @@ export function Account() {
                       {(receipt.id || receipt.record.target) && (
                         <div>
                           <dt>{t('target')}</dt>
-                          <dd className="subaccounts__ref" lang="zxx">
+                          <dd data-testid="subaccounts__ref" className="subaccounts__ref" lang="zxx">
                             {receipt.id ?? receipt.record.target}
                           </dd>
                         </div>
                       )}
                       <div>
                         <dt>{t('request')}</dt>
-                        <dd className="subaccounts__ref" lang="zxx">
+                        <dd data-testid="subaccounts__ref" className="subaccounts__ref" lang="zxx">
                           {receipt.record.requestId}
                         </dd>
                       </div>
@@ -610,7 +615,7 @@ export function Account() {
                     {!receipt.answer.ok && (
                       <div className="stack">
                         <RefusalSentence receipt={receipt} />
-                        <p className="subaccounts__ref" lang="zxx">
+                        <p data-testid="subaccounts__ref" className="subaccounts__ref" lang="zxx">
                           HTTP {receipt.answer.status} · {receipt.answer.code}
                         </p>
                       </div>
@@ -647,14 +652,14 @@ export function Account() {
                   <dl>
                     <div>
                       <dt>{t('owner')}</dt>
-                      <dd className="subaccounts__ref" lang="zxx">
+                      <dd data-testid="subaccounts__ref" className="subaccounts__ref" lang="zxx">
                         {visibleReview.owner}
                       </dd>
                     </div>
                     {visibleReview.row && (
                       <div>
                         <dt>{t('target')}</dt>
-                        <dd className="subaccounts__ref" lang="zxx">
+                        <dd data-testid="subaccounts__ref" className="subaccounts__ref" lang="zxx">
                           {visibleReview.row.id}
                         </dd>
                       </div>

@@ -37,7 +37,7 @@ test(`${J} #1 signs in with the email or the handle and a password; an unknown n
 }) => {
   const who = await account(browser);
   await page.goto('/login');
-  const refusal = page.locator('.failure');
+  const refusal = page.getByTestId('failure');
   await fillSignIn(page, `nobody-${who.handle}@local-test.invalid`, who.password);
   await expect(refusal).toContainText('Those details did not work');
   await expect(refusal).toContainText('Check what you typed');
@@ -70,7 +70,7 @@ test(`${J} #8 a private address while signed out goes to sign-in and back to tha
 test(`${J} #2 several wrong passwords give a typed lockout with the minutes left`, async ({ page, browser }) => {
   const who = await account(browser);
   await page.goto('/login');
-  const refusal = page.locator('.failure');
+  const refusal = page.getByTestId('failure');
   // The stack's TEST owner value: ten wrong passwords in fifteen minutes, then a pause.
   for (let i = 0; i < 10; i++) {
     await fillSignIn(page, who.email, `${who.password}-wrong-${i}`);
@@ -207,7 +207,7 @@ test(`${J} #7 a frozen account is named after the right password, with the way t
   const who = await account(browser);
   await staffFreeze(who);
   await page.goto('/login');
-  const refusal = page.locator('.failure');
+  const refusal = page.getByTestId('failure');
   // A wrong password learns nothing about the account's state.
   await fillSignIn(page, who.email, `${who.password}-wrong`);
   await expect(refusal).toContainText('Those details did not work');
@@ -245,8 +245,8 @@ test.describe('passkeys', () => {
       // Both get a challenge and a list of credentials, so the browser prompt opens for each.
       expect(body.challenge).toBeTruthy();
       expect(body.allowCredentials.length).toBeGreaterThan(0);
-      await expect(page.locator('.failure')).toBeVisible();
-      answers.push(await page.locator('.failure').textContent());
+      await expect(page.getByTestId('failure')).toBeVisible();
+      answers.push(await page.getByTestId('failure').textContent());
     }
     expect(answers[1]).toBe(answers[0]);
 

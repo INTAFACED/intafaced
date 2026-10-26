@@ -60,7 +60,12 @@ export function MfaResetWaiting() {
   if (resource.status === 'loading' && !note) return <Loading />;
   if (resource.status === 'failed') {
     return (
-      <section className="security__mfa-reset security__card" aria-label={t('title')} lang={languageFor('title')}>
+      <section
+        data-testid="security__card"
+        className="security__mfa-reset security__card"
+        aria-label={t('title')}
+        lang={languageFor('title')}
+      >
         <h2>{t('title')}</h2>
         {note && (
           <p className="notice" role="status">
@@ -74,7 +79,12 @@ export function MfaResetWaiting() {
   const waiting = resource.status === 'ready' ? resource.data.waiting : null;
   if (!waiting && !note) return null;
   return (
-    <section className="security__mfa-reset security__card" aria-label={t('title')} lang={languageFor('title')}>
+    <section
+      data-testid="security__card"
+      className="security__mfa-reset security__card"
+      aria-label={t('title')}
+      lang={languageFor('title')}
+    >
       <h2>{t('title')}</h2>
       {waiting && (
         <>

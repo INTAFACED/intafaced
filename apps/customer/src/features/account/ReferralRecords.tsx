@@ -285,7 +285,7 @@ function OwnerRecords({ userId }: { userId: string }) {
                 </Button>
                 {chainOpen && (
                   <>
-                    <ol className="referral-chain">
+                    <ol data-testid="referral-chain" className="referral-chain">
                       {rows.map((id) => (
                         <li key={id} title={id}>
                           <Copy k="member" params={{ ref: shortReference(id) }} />

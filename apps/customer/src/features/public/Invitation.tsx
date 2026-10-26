@@ -378,7 +378,7 @@ export function Invitation() {
       </section>
       <div className="invitation__content">
         {!parsed.success && (
-          <section className="invitation__card">
+          <section data-testid="invitation__card" className="invitation__card">
             <h2>{t(capability ? 'invalid' : 'missing')}</h2>
             <p className="muted">{t(capability ? 'invalidBody' : 'missingBody')}</p>
             <a className="button button--primary" href="/uc/promotion">
@@ -387,7 +387,7 @@ export function Invitation() {
           </section>
         )}
         {parsed.success && !userId && (
-          <section className="invitation__card">
+          <section data-testid="invitation__card" className="invitation__card">
             <h2>{t('returnTitle')}</h2>
             <p className="muted">{t('returnBody')}</p>
             <a className="button button--primary" href={`/login?invite=${encodeURIComponent(parsed.data)}`}>
@@ -399,7 +399,7 @@ export function Invitation() {
           </section>
         )}
         {parsed.success && userId && !visibleReview && !busy && !unknowns.length && !latestReceipt && (
-          <section className="invitation__card">
+          <section data-testid="invitation__card" className="invitation__card">
             <h2>{t('before')}</h2>
             <p className="muted">{t('consequence')}</p>
             <div ref={reviewButton}>
@@ -410,7 +410,7 @@ export function Invitation() {
           </section>
         )}
         {visibleReview && (
-          <section className="invitation__card" aria-labelledby="invitation-review-title">
+          <section data-testid="invitation__card" className="invitation__card" aria-labelledby="invitation-review-title">
             <div>
               <p className="eyebrow">{t('reviewEyebrow')}</p>
               <h2 id="invitation-review-title" ref={reviewHeading} tabIndex={-1}>
@@ -419,7 +419,7 @@ export function Invitation() {
             </div>
             <div className="invitation__owner">
               <span className="muted">{t('owner')}</span>
-              <span className="invitation__private" lang="zxx">
+              <span data-testid="invitation__private" className="invitation__private" lang="zxx">
                 {visibleReview.owner}
               </span>
               <p className="muted">{t('held')}</p>
@@ -436,7 +436,7 @@ export function Invitation() {
           </section>
         )}
         {busy && !pendingRecord && (
-          <section className="invitation__card" aria-busy="true">
+          <section data-testid="invitation__card" className="invitation__card" aria-busy="true">
             <h2>{t('pending')}</h2>
             <p role="status">{t('pendingBody')}</p>
           </section>
@@ -444,8 +444,19 @@ export function Invitation() {
         {unknowns.map((record, index) => {
           const sending = busy && pendingRecord?.localRef === record.localRef;
           return (
-            <section className="invitation__card" key={record.localRef} aria-busy={sending} aria-label={t(sending ? 'pending' : 'unknown')}>
-              <h2 className="invitation__outcome" ref={index === 0 ? outcomeHeading : undefined} tabIndex={-1}>
+            <section
+              data-testid="invitation__card"
+              className="invitation__card"
+              key={record.localRef}
+              aria-busy={sending}
+              aria-label={t(sending ? 'pending' : 'unknown')}
+            >
+              <h2
+                data-testid="invitation__outcome"
+                className="invitation__outcome"
+                ref={index === 0 ? outcomeHeading : undefined}
+                tabIndex={-1}
+              >
                 {t(sending ? 'pending' : 'unknown')}
               </h2>
               <p role="status">{t(sending ? 'pendingBody' : 'paused')}</p>
@@ -473,8 +484,18 @@ export function Invitation() {
           </div>
         )}
         {visibleReceipts.map((receipt) => (
-          <section className="invitation__card" key={receipt.record.localRef} aria-label={t(knownTitle(receipt))}>
-            <h2 className="invitation__outcome" ref={unknowns.length === 0 ? outcomeHeading : undefined} tabIndex={-1}>
+          <section
+            data-testid="invitation__card"
+            className="invitation__card"
+            key={receipt.record.localRef}
+            aria-label={t(knownTitle(receipt))}
+          >
+            <h2
+              data-testid="invitation__outcome"
+              className="invitation__outcome"
+              ref={unknowns.length === 0 ? outcomeHeading : undefined}
+              tabIndex={-1}
+            >
               {t(knownTitle(receipt))}
             </h2>
             <p role="status">{t(knownBody(receipt))}</p>
@@ -507,8 +528,8 @@ export function Invitation() {
           </section>
         ))}
         {userId && (journal.failed || (privateVisible && problem)) && (
-          <section className="invitation__card">
-            <h2 className="invitation__outcome" ref={outcomeHeading} tabIndex={-1}>
+          <section data-testid="invitation__card" className="invitation__card">
+            <h2 data-testid="invitation__outcome" className="invitation__outcome" ref={outcomeHeading} tabIndex={-1}>
               {t(journal.failed ? 'storage' : problem!)}
             </h2>
             {privateVisible && preflightFailure && (
@@ -522,7 +543,7 @@ export function Invitation() {
           </section>
         )}
         {userId && !visibleReview && (
-          <section className="invitation__current" aria-labelledby="invitation-current-title">
+          <section data-testid="invitation__current" className="invitation__current" aria-labelledby="invitation-current-title">
             <h2 id="invitation-current-title">{t('current')}</h2>
             <p className="muted">{t('currentBody')}</p>
             <Button disabled={visibleRead?.status === 'loading'} onClick={() => void readCurrent()}>
@@ -541,7 +562,7 @@ export function Invitation() {
                   <dl>
                     <div>
                       <dt>{t('referrer')}</dt>
-                      <dd lang="zxx" className="invitation__private">
+                      <dd lang="zxx" data-testid="invitation__private" className="invitation__private">
                         {visibleRead.data.referrerId}
                       </dd>
                     </div>

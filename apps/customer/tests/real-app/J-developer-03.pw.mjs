@@ -37,7 +37,7 @@ async function fill({ name, preset = 'Trade', ips = '', passkey = false }) {
 async function keysInList() {
   await page.goto('/uc/safe/api-keys');
   await expect(page.getByRole('heading', { name: 'Keys on this account' })).toBeVisible();
-  return page.locator('.api-keys__table tbody tr');
+  return page.getByTestId('api-keys__table').locator('tbody tr');
 }
 
 test.beforeAll(async ({ browser }) => {
@@ -79,7 +79,7 @@ test(`${J} #3 The read-only preset ticks only read scopes and says what the key 
   await expect(page.getByText('It cannot place or cancel orders or change anything.')).toBeVisible();
   // Withdrawal is never offered, and the room says why.
   await expect(page.locator('input[name=scope][value="trade:withdraw"]')).toHaveCount(0);
-  await expect(page.locator('.api-keys__blocked')).toContainText(
+  await expect(page.getByTestId('api-keys__blocked')).toContainText(
     'trade:withdraw: Only while you are signed in on a device, never by a key.',
   );
 });
@@ -99,7 +99,7 @@ test(`${J} #5 Create bot-1 with an IP list: the secret once, then the record wit
   await fill({ name: 'bot-1', ips: '203.0.113.7', passkey: true });
   await expect(page.getByRole('heading', { name: 'Your new key' })).toBeVisible();
   await expect(page.getByText('Copy this key now. It is shown once and cannot be shown again.')).toBeVisible();
-  const key = (await page.locator('.api-keys__key code').textContent())?.trim();
+  const key = (await page.getByTestId('api-keys__key').locator('code').textContent())?.trim();
   expect(key).toMatch(/^ifc_[A-Za-z0-9_-]{20,}$/);
   const done = page.getByRole('button', { name: 'Done' });
   await expect(done).toBeDisabled();
@@ -107,7 +107,7 @@ test(`${J} #5 Create bot-1 with an IP list: the secret once, then the record wit
   await done.click();
 
   await expect(page).toHaveURL(/\/uc\/safe\/api-keys$/);
-  const rows = page.locator('.api-keys__table tbody tr');
+  const rows = page.getByTestId('api-keys__table').locator('tbody tr');
   await expect(rows).toHaveCount(1);
   const row = rows.first();
   await expect(row.getByRole('rowheader')).toHaveText('bot-1');

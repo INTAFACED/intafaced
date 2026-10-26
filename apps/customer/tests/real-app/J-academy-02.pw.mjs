@@ -199,7 +199,9 @@ test(`${J} #6 Start course opens the first open item with the outline: typed ite
     const outline = page.locator(`[data-academy-outline="${second}"]`);
     await expect(outline.locator('[data-outline-item]')).toHaveCount(items.length);
     await expect(outline.locator(`[data-outline-item="${items[0]}"] a`)).toHaveAttribute('aria-current', 'page');
-    await expect(outline.locator(`[data-outline-item="${items[0]}"] .academy-lms-meta`)).toContainText(/Playbook|Workbook|Lesson/);
+    await expect(outline.locator(`[data-outline-item="${items[0]}"] [data-testid="academy-lms-meta"]`)).toContainText(
+      /Playbook|Workbook|Lesson/,
+    );
     const locked = outline.locator(`[data-outline-item="${items[2]}"]`);
     await expect(locked).toHaveAttribute('data-outline-state', 'locked');
     await expect(locked.getByRole('link')).toHaveCount(0);

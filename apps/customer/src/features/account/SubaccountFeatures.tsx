@@ -73,9 +73,9 @@ export function SubaccountFeatures({ subAccountId }: { subAccountId: string }) {
         (held.balances.length === 0 ? (
           <p>{t('balancesEmpty')}</p>
         ) : (
-          <ul className="security__rows">
+          <ul data-testid="security__rows" className="security__rows">
             {held.balances.map((balance) => (
-              <li key={balance.assetId} className="security__row">
+              <li key={balance.assetId} data-testid="security__row" className="security__row">
                 {balance.amount} {balance.assetId}
               </li>
             ))}
@@ -89,11 +89,11 @@ export function SubaccountFeatures({ subAccountId }: { subAccountId: string }) {
         <>
           {!view.published && <p className="notice">{t('unpublished')}</p>}
           {view.frozen && <p className="notice">{t('frozenNote')}</p>}
-          <ul className="security__rows">
+          <ul data-testid="security__rows" className="security__rows">
             {view.features.map((row) => {
               const name = t(`feature_${row.feature}` as 'feature_spot');
               return (
-                <li key={row.feature} className="security__row">
+                <li key={row.feature} data-testid="security__row" className="security__row">
                   <span>
                     {name}: {row.enabled ? t('on') : t('off')}
                     {row.feature === 'futures' && !row.enabled && <> · {t('futuresParked')}</>}

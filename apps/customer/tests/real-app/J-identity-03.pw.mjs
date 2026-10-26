@@ -126,7 +126,7 @@ test(`${J} #4 signs in with the new password; the old one fails; every other dev
   await page.fill('input[name=identifier]', who.email);
   await page.fill('input[name=password]', who.password);
   await page.getByRole('button', { name: /^sign in$/i }).click();
-  await expect(page.locator('.failure')).toContainText('Those details did not work');
+  await expect(page.getByTestId('failure')).toContainText('Those details did not work');
   await page.fill('input[name=password]', fresh);
   await page.getByRole('button', { name: /^sign in$/i }).click();
   await expect(page).not.toHaveURL(/\/login/);

@@ -12,7 +12,7 @@ function person(prefix) {
 }
 
 async function createInPage(page, label) {
-  const form = page.locator('.subaccounts__create');
+  const form = page.getByTestId('subaccounts__create');
   await form.getByLabel('Label').fill(label);
   await form.getByRole('button', { name: 'Review subaccount' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Create subaccount' }).click();
@@ -26,7 +26,7 @@ test(`${J}, part of #1: create a sub-account; at the account's limit the refusal
   await signUpInBrowser(page, who);
   await page.goto('/uc/account');
   await createInPage(page, 'Grid one');
-  await expect(page.locator('.subaccounts__request').last()).toContainText('The service created the original strategy subaccount.');
+  await expect(page.getByTestId('subaccounts__request').last()).toContainText('The service created the original strategy subaccount.');
 
   // Fill the account up to the stack's cap through the same front door, until identity refuses with its limit.
   const me = await api(who);
@@ -40,10 +40,10 @@ test(`${J}, part of #1: create a sub-account; at the account's limit the refusal
 
   await page.reload();
   await createInPage(page, 'One too many');
-  const receipt = page.locator('.subaccounts__request').last();
+  const receipt = page.getByTestId('subaccounts__request').last();
   await expect(receipt.getByRole('heading')).toHaveText('Creation was refused before insertion');
   await expect(receipt).toContainText('This account already holds the most sub-accounts allowed. Revoke one you no longer use');
   await expect(page.getByText('Creation is not confirmed')).toHaveCount(0);
   // A refusal leaves nothing pending, so the next creation can be reviewed straight away.
-  await expect(page.locator('.subaccounts__create').getByRole('button', { name: 'Review subaccount' })).toBeEnabled();
+  await expect(page.getByTestId('subaccounts__create').getByRole('button', { name: 'Review subaccount' })).toBeEnabled();
 });

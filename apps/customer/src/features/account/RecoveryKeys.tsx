@@ -186,7 +186,12 @@ export function RecoveryKeys() {
   );
 
   return (
-    <section className="security__recovery-keys security__card" aria-label={t('title')} lang={languageFor('title')}>
+    <section
+      data-testid="security__recovery-keys"
+      className="security__recovery-keys security__card"
+      aria-label={t('title')}
+      lang={languageFor('title')}
+    >
       <h2>{t('title')}</h2>
       <p>{t('body')}</p>
       <p>
@@ -306,9 +311,9 @@ export function RecoveryKeys() {
 
       <h3>{t('keysTitle')}</h3>
       {current.keys.length > 0 && (
-        <ul className="security__rows">
+        <ul data-testid="security__rows" className="security__rows">
           {current.keys.map((key) => (
-            <li key={key.id} className="security__row" aria-label={key.label}>
+            <li key={key.id} data-testid="security__row" className="security__row" aria-label={key.label}>
               <div>
                 <strong>{key.label}</strong>{' '}
                 <span className="muted">

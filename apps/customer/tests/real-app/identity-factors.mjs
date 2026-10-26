@@ -27,7 +27,7 @@ export async function addPasskey(page) {
   await page.goto('/uc/safe');
   await page.getByRole('button', { name: 'Add passkey' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Add passkey' }).click();
-  await expect(page.locator('.security__passkeys')).toContainText('Added');
+  await expect(page.getByTestId('security__passkeys')).toContainText('Added');
 }
 
 /** Sets up an authenticator app from Security; returns its key and the 30-second step its confirming code used. */
@@ -45,7 +45,7 @@ export async function addAuthenticator(page, totp) {
   } while (Math.floor(Date.now() / 30_000) !== step);
   await page.getByLabel('Six-digit authenticator code').fill(code);
   await page.getByRole('button', { name: 'Confirm authenticator' }).click();
-  await expect(page.locator('.security__authenticator')).toContainText('accepted');
+  await expect(page.getByTestId('security__authenticator')).toContainText('accepted');
   return { secret, step };
 }
 

@@ -101,9 +101,9 @@ export function SubaccountDelete({ subAccountId, onDeleted }: { subAccountId: st
           ) : (
             <>
               <p>{t('stillOpen')}</p>
-              <ul className="security__rows">
+              <ul data-testid="security__rows" className="security__rows">
                 {data.blockers.map((blocker) => (
-                  <li key={blocker.code} className="security__row">
+                  <li key={blocker.code} data-testid="security__row" className="security__row">
                     {t((BLOCKER_KEYS[blocker.code] ?? 'blockOther') as 'blockOrder', { count: blocker.count })}
                   </li>
                 ))}
@@ -113,9 +113,9 @@ export function SubaccountDelete({ subAccountId, onDeleted }: { subAccountId: st
           {data.balances.length > 0 && (
             <>
               <h3>{t('balancesTitle')}</h3>
-              <ul className="security__rows">
+              <ul data-testid="security__rows" className="security__rows">
                 {data.balances.map((balance) => (
-                  <li key={balance.assetId} className="security__row">
+                  <li key={balance.assetId} data-testid="security__row" className="security__row">
                     {balance.amount} {balance.assetId}
                   </li>
                 ))}

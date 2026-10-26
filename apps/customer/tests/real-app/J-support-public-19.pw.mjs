@@ -143,8 +143,8 @@ test(`${J} #1 define components and groups and a manual outside entry: it shows 
   // The visitor sees the same component, and the same state, on /status.
   const visitor = await browser.newPage({ baseURL: ORIGIN });
   await visitor.goto('/status');
-  await expect(visitor.locator('[data-testid="status-component-sms-gateway"]')).toContainText('SMS gateway');
-  await expect(visitor.locator('[data-testid="status-component-sms-gateway"]')).toContainText(/operational/i);
+  await expect(visitor.getByTestId('status-component-sms-gateway')).toContainText('SMS gateway');
+  await expect(visitor.getByTestId('status-component-sms-gateway')).toContainText(/operational/i);
 
   // Past the staleness window the reading no longer counts: No data, with the stale reading and its age still shown.
   await page.waitForTimeout((TEST_STALENESS_SECONDS + 2) * 1000);
@@ -153,7 +153,7 @@ test(`${J} #1 define components and groups and a manual outside entry: it shows 
   await expect(outside).toContainText('No data');
   await expect(outside.getByTestId('status-visible-reading')).toContainText(`Operational from ${OUTSIDE_SOURCE}, `);
   await visitor.reload();
-  await expect(visitor.locator('[data-testid="status-component-sms-gateway"]')).toContainText(/no data/i);
+  await expect(visitor.getByTestId('status-component-sms-gateway')).toContainText(/no data/i);
   await visitor.context().close();
   await page.context().close();
 });

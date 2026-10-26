@@ -64,7 +64,7 @@ export function MyLearningView({ courses }: { courses: readonly AcademyMyCourse[
                     <a className="academy-learning-link" href={academyCourseHref(row.slug)}>
                       {pathLabel(t, row.slug)}
                     </a>
-                    <span className="academy-lms-meta">
+                    <span data-testid="academy-lms-meta" className="academy-lms-meta">
                       <span>
                         <Copy k="myProgress" params={{ completed: row.completed, items: row.items }} />
                       </span>

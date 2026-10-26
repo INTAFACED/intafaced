@@ -136,7 +136,7 @@ export function AcademyProgrammePage({ slug }: { slug: string }) {
                       <span>{index + 1}</span>
                       <div>
                         <strong>{pathLabel(t, course.slug)}</strong>
-                        <div className="academy-lms-meta">
+                        <div data-testid="academy-lms-meta" className="academy-lms-meta">
                           <span className="academy-lms-chip" data-status={course.state === 'not_enrolled' ? 'open' : 'recorded'}>
                             <Copy k={COURSE_STATES[course.state]} />
                           </span>

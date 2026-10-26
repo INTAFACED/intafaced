@@ -55,7 +55,7 @@ async function mock(page, overrides = {}) {
 
 const open = async (page, path) => {
   await page.goto(path);
-  await page.locator('.acct').waitFor();
+  await page.getByTestId('acct').waitFor();
 };
 const snap = async (page, name) => {
   await page.mouse.move(0, 0);
@@ -82,10 +82,10 @@ test('layout: 220 px sub-nav, 760 px content, current link marked, links stay on
   const errors = watch(page);
   await mock(page);
   await open(page, '/uc/account');
-  const nav = page.locator('.acct-nav');
+  const nav = page.getByTestId('acct-nav');
   expect(Math.round((await nav.boundingBox()).width)).toBe(220);
-  expect(Math.round((await page.locator('.acct-body').boundingBox()).width)).toBe(760);
-  const links = page.locator('.acct-nav a');
+  expect(Math.round((await page.getByTestId('acct-body').boundingBox()).width)).toBe(760);
+  const links = page.getByTestId('acct-nav').locator('a');
   expect(await links.allTextContents()).toEqual(['Account', 'Security', 'Verification', 'Display']);
   expect(await links.evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().height)))).toEqual([
     40, 40, 40, 40,
@@ -96,14 +96,14 @@ test('layout: 220 px sub-nav, 760 px content, current link marked, links stay on
     '/verification',
     '/view',
   ]);
-  await expect(page.locator('.acct-nav a[aria-current="page"]')).toHaveText('Account');
+  await expect(page.getByTestId('acct-nav').locator('a[aria-current="page"]')).toHaveText('Account');
   // Walking the sub-nav changes the content and the marked link without a reload.
   await links.nth(1).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Security' })).toBeVisible();
-  await expect(page.locator('.acct-nav a[aria-current="page"]')).toHaveText('Security');
+  await expect(page.getByTestId('acct-nav').locator('a[aria-current="page"]')).toHaveText('Security');
   await links.nth(3).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Display' })).toBeVisible();
-  await expect(page.locator('.acct-nav a[aria-current="page"]')).toHaveText('Display');
+  await expect(page.getByTestId('acct-nav').locator('a[aria-current="page"]')).toHaveText('Display');
   expect(await noOverflow(page)).toBe(true);
   expect(errors).toEqual([]);
 });
@@ -117,19 +117,21 @@ test('account: ID in mono with Copy, rank card, no old cross-links, plain words'
   await expect(handle).toContainText('@test_friend');
   const id = page.locator('section[aria-label="Account ID"]');
   await expect(id).toContainText('Account ID');
-  await expect(id.locator('.subaccounts__ref')).toHaveText('00000000-0000-4000-8000-000000000001');
-  expect(await id.locator('.subaccounts__ref').evaluate((node) => getComputedStyle(node).fontFamily)).toMatch(/mono/i);
+  await expect(id.getByTestId('subaccounts__ref')).toHaveText('00000000-0000-4000-8000-000000000001');
+  expect(await id.getByTestId('subaccounts__ref').evaluate((node) => getComputedStyle(node).fontFamily)).toMatch(/mono/i);
   await id.getByRole('button', { name: 'Copy account ID' }).click();
   await expect(id.getByRole('button', { name: 'Copy account ID' })).toHaveText('Copied');
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('00000000-0000-4000-8000-000000000001');
-  await expect(page.locator('.rank-perks')).toContainText('Rank 2');
+  await expect(page.getByTestId('rank-perks')).toContainText('Rank 2');
   // Perks of hidden features and the strategy subaccounts are not shown; the fee discount reads as a percent.
-  await expect(page.locator('.rank-perks')).toContainText('Trading fee discount');
-  await expect(page.locator('.rank-perks')).toContainText('0.5%');
-  await expect(page.locator('.rank-perks')).not.toContainText(/Card level|Copy follower cap|Lobby host|OTC access|Launchpad|P2P limit/);
-  await expect(page.locator('.subaccounts__list, .subaccounts__create')).toHaveCount(0);
-  expect(await page.locator('.acct-body a[href="/uc/safe"], .acct-body a[href="/verification"]').count()).toBe(0);
-  expect(await page.locator('.acct').innerText()).not.toMatch(forbidden);
+  await expect(page.getByTestId('rank-perks')).toContainText('Trading fee discount');
+  await expect(page.getByTestId('rank-perks')).toContainText('0.5%');
+  await expect(page.getByTestId('rank-perks')).not.toContainText(/Card level|Copy follower cap|Lobby host|OTC access|Launchpad|P2P limit/);
+  await expect(page.locator('[data-testid="subaccounts__list"], [data-testid="subaccounts__create"]')).toHaveCount(0);
+  expect(
+    await page.locator('[data-testid="acct-body"] a[href="/uc/safe"], [data-testid="acct-body"] a[href="/verification"]').count(),
+  ).toBe(0);
+  expect(await page.getByTestId('acct').innerText()).not.toMatch(forbidden);
   await shootBoth(page, 'account-loaded');
   expect(errors).toEqual([]);
 });
@@ -138,19 +140,19 @@ test('account: loading, error and empty states sit inside their cards', async ({
   const errors = watch(page);
   const api = await mock(page, { 'rank.get': null });
   await open(page, '/uc/account');
-  await expect(page.locator('.rank-perks')).toContainText('Loading your rank');
+  await expect(page.getByTestId('rank-perks')).toContainText('Loading your rank');
   await shootBoth(page, 'account-loading');
   await api.release();
-  await expect(page.locator('.rank-perks')).toContainText('Rank 2');
+  await expect(page.getByTestId('rank-perks')).toContainText('Rank 2');
   // Strategy subaccounts are a hidden feature, so there is no empty list to show.
-  await expect(page.locator('.subaccounts__list')).toHaveCount(0);
+  await expect(page.getByTestId('subaccounts__list')).toHaveCount(0);
   await shootBoth(page, 'account-empty');
   // Error: the rank read fails; the rest of the page still works.
   const failed = await page.context().newPage();
   await mock(failed, { 'rank.get': 'refuse' });
   await failed.goto('/uc/account');
-  await failed.locator('.acct').waitFor();
-  await expect(failed.locator('.rank-perks')).toContainText('Couldn’t read your rank');
+  await failed.getByTestId('acct').waitFor();
+  await expect(failed.getByTestId('rank-perks')).toContainText('Couldn’t read your rank');
   await expect(failed.locator('section[aria-label="Account ID"]')).toContainText('Account ID');
   await shootBoth(failed, 'account-error');
   expect(errors).toEqual([]);
@@ -168,11 +170,11 @@ test('security: passkeys visible, sessions with Sign out, Sign out everywhere, n
   await expect(seats.getByRole('button', { name: /^Sign out session / })).toHaveCount(2);
   await expect(page.getByRole('button', { name: 'Sign out everywhere', exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Authenticator app', exact: true })).toBeVisible();
-  await expect(page.locator('.acct')).not.toContainText('Status is not available here');
-  expect(await page.locator('.acct').innerText()).not.toMatch(forbidden);
+  await expect(page.getByTestId('acct')).not.toContainText('Status is not available here');
+  expect(await page.getByTestId('acct').innerText()).not.toMatch(forbidden);
   // Raw session and passkey codes are not drawn on screen (they stay in the accessible names).
   const visibleIds = await page
-    .locator('.identity-sessions__ref, .security__rows .security__ref')
+    .locator('[data-testid="identity-sessions__ref"], [data-testid="security__rows"] [data-testid="security__ref"]')
     .evaluateAll((nodes) => nodes.filter((node) => node.getBoundingClientRect().width > 2).length);
   expect(visibleIds).toBe(0);
   await shootBoth(page, 'security-loaded');
@@ -195,12 +197,12 @@ test('security: empty and error states', async ({ page }) => {
   const keys = page.getByRole('region', { name: 'Passkeys', exact: true });
   await expect(keys).toContainText('No passkeys yet');
   await expect(keys.getByRole('button', { name: 'Add passkey', exact: true })).toBeVisible();
-  await expect(page.locator('.identity-sessions')).toContainText('No active sessions');
+  await expect(page.getByTestId('identity-sessions')).toContainText('No active sessions');
   await shootBoth(page, 'security-empty');
   const failed = await page.context().newPage();
   await mock(failed, { 'webauthn.list': 'refuse', listSessions: 'refuse' });
   await failed.goto('/uc/safe');
-  await failed.locator('.acct').waitFor();
+  await failed.getByTestId('acct').waitFor();
   await expect(
     failed.getByRole('region', { name: 'Passkeys', exact: true }).getByRole('button', { name: /try again|retry/i }),
   ).toBeVisible();
@@ -233,22 +235,22 @@ for (const [tier, tag, status] of [
     // Order: level, then the request form, then the requests.
     const top = async (selector) => Math.round((await page.locator(selector).boundingBox()).y);
     const [tierTop, formTop, recordsTop] = [
-      await top('.verification__tier'),
-      await top('.verification__request'),
-      await top('.verification__records'),
+      await top('[data-testid="verification__tier"]'),
+      await top('[data-testid="verification__request"]'),
+      await top('[data-testid="verification__records"]'),
     ];
     expect(tierTop).toBeLessThan(formTop);
     expect(formTop).toBeLessThan(recordsTop);
-    await expect(page.locator('.verification__request')).toContainText(
+    await expect(page.getByTestId('verification__request')).toContainText(
       'Sending this asks for a review. It doesn’t change your level unless it’s approved.',
     );
-    await expect(page.locator('.acct')).not.toContainText('Submitting does not approve');
+    await expect(page.getByTestId('acct')).not.toContainText('Submitting does not approve');
     // Only levels above the current one can be asked for, and the orphan "Read current records" button is gone.
     const asks = { none: ['Basic', 'Full', 'Institutional'], basic: ['Full', 'Institutional'], full: ['Institutional'] };
-    expect(await page.locator('.verification__request select option').allTextContents()).toEqual(asks[tier]);
+    expect(await page.getByTestId('verification__request').locator('select option').allTextContents()).toEqual(asks[tier]);
     await expect(page.getByRole('button', { name: 'Read current records' })).toHaveCount(0);
-    await expect(page.locator('.verification__request a.text-link')).toHaveAttribute('href', '/support');
-    expect(await page.locator('.acct').innerText()).not.toMatch(forbidden);
+    await expect(page.getByTestId('verification__request').locator('a[data-testid="text-link"]')).toHaveAttribute('href', '/support');
+    expect(await page.getByTestId('acct').innerText()).not.toMatch(forbidden);
     await shootBoth(page, `verification-${tier}`);
     expect(errors).toEqual([]);
   });
@@ -257,13 +259,13 @@ for (const [tier, tag, status] of [
 test('verification: empty and error states', async ({ page }) => {
   await mock(page, { 'kyc.status': () => kyc('none', []) });
   await open(page, '/verification');
-  await expect(page.locator('.verification__records')).toContainText('No requests yet');
+  await expect(page.getByTestId('verification__records')).toContainText('No requests yet');
   await shootBoth(page, 'verification-empty');
   const failed = await page.context().newPage();
   await mock(failed, { 'kyc.status': 'refuse' });
   await failed.goto('/verification');
-  await failed.locator('.acct').waitFor();
-  await expect(failed.locator('.verification__list')).toContainText(/Couldn.t|can.t|try again/i);
+  await failed.getByTestId('acct').waitFor();
+  await expect(failed.getByTestId('verification__list')).toContainText(/Couldn.t|can.t|try again/i);
   await shootBoth(failed, 'verification-error');
 });
 
@@ -272,14 +274,14 @@ test('verification: loading state', async ({ page }) => {
   await open(page, '/verification');
   await shootBoth(page, 'verification-loading');
   await api.release();
-  await expect(page.locator('.verification__level-tag')).toHaveText('Basic');
+  await expect(page.getByTestId('verification__level-tag')).toHaveText('Basic');
 });
 
 test('display: dark only, six choices that save to this device, no internal words', async ({ page }) => {
   const errors = watch(page);
   await mock(page);
   await open(page, '/view');
-  const body = page.locator('.acct-body');
+  const body = page.getByTestId('acct-body');
   await expect(body.getByRole('heading', { level: 1, name: 'Display' })).toBeVisible();
   // Dark only: no theme choice at all.
   await expect(body.getByLabel('Theme')).toHaveCount(0);
@@ -315,7 +317,7 @@ test('display: dark only, six choices that save to this device, no internal word
 test('keyboard: Tab reaches the sub-nav links first and the focus ring shows', async ({ page }) => {
   await mock(page);
   await open(page, '/uc/safe');
-  await page.locator('.harness-bar a').last().focus();
+  await page.locator('[data-testid="harness-bar"] a').last().focus();
   await page.keyboard.press('Tab');
   const focused = await page.evaluate(() => ({
     text: document.activeElement?.textContent,

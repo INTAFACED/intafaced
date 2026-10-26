@@ -84,7 +84,7 @@ export function ReferrerChange({ offerToken }: { offerToken: string | null }) {
           <dl>
             <div>
               <dt>{t('toReferrer')}</dt>
-              <dd lang="zxx" className="invitation__private">
+              <dd lang="zxx" data-testid="invitation__private" className="invitation__private">
                 {latest.toReferrerId}
               </dd>
             </div>

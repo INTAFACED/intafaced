@@ -87,7 +87,7 @@ export function AttemptHistory({ history, onRetry }: { history: History; onRetry
                   <span>{history.data.length - index}</span>
                   <div>
                     <strong>{t('attemptRow', { number: history.data.length - index })}</strong>
-                    <div className="academy-lms-meta">
+                    <div data-testid="academy-lms-meta" className="academy-lms-meta">
                       <span>
                         {attempt.hiddenUntil === null
                           ? t('attemptScore', { score: attempt.score, maxScore: attempt.maxScore })
@@ -156,7 +156,7 @@ export function TimedQuizView(props: TimedQuizViewProps) {
     review?.questions?.find((q) => q.id === questionId)?.choices.find((c) => c.id === choiceId)?.text ?? choiceId ?? '';
   return (
     <div className="academy-lms-stack" data-quiz={quiz.slug} data-quiz-state={open ? 'open' : attempt?.result ? 'finished' : 'ready'}>
-      <div className="academy-lms-meta">
+      <div data-testid="academy-lms-meta" className="academy-lms-meta">
         <span>{t('assessmentPassMark', { passMark: quiz.passMark, maxScore })}</span>
         <span>
           {quiz.timeLimitSeconds === null ? t('quizNoTimeLimit') : t('quizTimeLimit', { minutes: Math.ceil(quiz.timeLimitSeconds / 60) })}
@@ -173,7 +173,7 @@ export function TimedQuizView(props: TimedQuizViewProps) {
             props.onFinish();
           }}
         >
-          <div className="academy-lms-meta">
+          <div data-testid="academy-lms-meta" className="academy-lms-meta">
             <strong>{t('quizAttemptNumber', { number: attempt.number })}</strong>
             {props.secondsLeft !== null && (
               <span role="timer" data-seconds-left={props.secondsLeft}>
@@ -256,7 +256,7 @@ export function TimedQuizView(props: TimedQuizViewProps) {
                       {review.questions.map((q) => (
                         <li key={q.id} data-review-question={q.id} data-review-correct={q.correct}>
                           <span lang="und">{q.prompt}</span>
-                          <div className="academy-lms-meta">
+                          <div data-testid="academy-lms-meta" className="academy-lms-meta">
                             <span>
                               {q.chosenChoiceId === null
                                 ? t('quizNoAnswer')

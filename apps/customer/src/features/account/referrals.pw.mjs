@@ -87,7 +87,7 @@ test('native App reads owned links, ordered ancestors and exact native-asset acc
   await signIn(page);
   await expect(page.getByRole('region', { name: 'Your recorded referrer' })).toContainText(parent);
   await page.getByRole('button', { name: 'Show referral chain · 2 records' }).click();
-  await expect(page.locator('.referral-chain li')).toHaveText([parent, other]);
+  await expect(page.getByTestId('referral-chain').locator('li')).toHaveText([parent, other]);
   await expect(accruals(page)).toContainText('0.000000000000000007 BTC');
   await expect(accruals(page)).toContainText('12.34567890123456789 USDC');
   await accruals(page).getByRole('button', { name: 'Inspect accrual' }).first().click();

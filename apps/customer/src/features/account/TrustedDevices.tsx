@@ -106,7 +106,7 @@ export function TrustedDevices({ onChanged }: { onChanged?: () => void }) {
   if (resource.status === 'loading') return <Loading />;
   if (resource.status === 'failed') {
     return (
-      <section className="security__card" aria-label={t('title')} lang={languageFor('title')}>
+      <section data-testid="security__card" className="security__card" aria-label={t('title')} lang={languageFor('title')}>
         <h2>{t('title')}</h2>
         <Failure result={resource.failure} retry={reload} />
       </section>
@@ -116,7 +116,12 @@ export function TrustedDevices({ onChanged }: { onChanged?: () => void }) {
   if (!state) return null;
   const worded = failure ? trustedDeviceCode(failure.code) : undefined;
   return (
-    <section className="security__trusted-devices security__card" aria-label={t('title')} lang={languageFor('title')}>
+    <section
+      data-testid="security__card"
+      className="security__trusted-devices security__card"
+      aria-label={t('title')}
+      lang={languageFor('title')}
+    >
       <h2>{t('title')}</h2>
       <p>{t('body')}</p>
       <p className="muted" role="status">
@@ -139,9 +144,9 @@ export function TrustedDevices({ onChanged }: { onChanged?: () => void }) {
         <div className="stack">
           <h3>{t('waitingTitle')}</h3>
           <p className="muted">{t('waitingBody')}</p>
-          <ul className="security__rows">
+          <ul data-testid="security__rows" className="security__rows">
             {state.waiting.map((row) => (
-              <li key={row.flowId} className="security__row">
+              <li key={row.flowId} data-testid="security__row" className="security__row">
                 <span>{t('waitingRow', { device: row.label, time: stamp(row.createdAt, timeZone) })}</span>
                 <Button
                   variant="secondary"
@@ -159,11 +164,16 @@ export function TrustedDevices({ onChanged }: { onChanged?: () => void }) {
       {state.devices.length === 0 ? (
         <p className="muted">{t('empty')}</p>
       ) : (
-        <ul className="security__rows">
+        <ul data-testid="security__rows" className="security__rows">
           {state.devices.map((device) => (
-            <li key={device.id} className="security__row">
+            <li key={device.id} data-testid="security__row" className="security__row">
               <div>
-                <strong>{device.label}</strong> {device.current && <span className="security__ref">{t('thisDevice')}</span>}
+                <strong>{device.label}</strong>{' '}
+                {device.current && (
+                  <span data-testid="security__ref" className="security__ref">
+                    {t('thisDevice')}
+                  </span>
+                )}
                 <span className="muted">
                   {' · '}
                   {t('firstSeen', { time: stamp(device.firstSeenAt, timeZone) })}

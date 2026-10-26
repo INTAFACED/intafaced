@@ -183,7 +183,12 @@ export function PasskeyNames({ revision = 0 }: { revision?: number } = {}) {
     t('usedFor', { list: purposes.length === 0 ? t('everyAction') : purposes.map((purpose) => t(purpose)).join(', ') });
 
   return (
-    <section className="security__passkey-names security__card" aria-label={t('title')} lang={languageFor('title')}>
+    <section
+      data-testid="security__passkey-names"
+      className="security__passkey-names security__card"
+      aria-label={t('title')}
+      lang={languageFor('title')}
+    >
       <h2>{t('title')}</h2>
       <p>{t('body')}</p>
       <p className="muted">{list.maxPerAccount === null ? t('noLimit') : t('limit', { count: list.maxPerAccount })}</p>
@@ -207,10 +212,11 @@ export function PasskeyNames({ revision = 0 }: { revision?: number } = {}) {
       {list.passkeys.length === 0 ? (
         <EmptyState title={t('empty')} />
       ) : (
-        <ul className="security__rows">
+        <ul data-testid="security__rows" className="security__rows">
           {list.passkeys.map((key) => (
             <li
               key={key.credentialId}
+              data-testid="security__row"
               className={
                 editing && 'credentialId' in editing && editing.credentialId === key.credentialId
                   ? 'security__row security__row--editing'
@@ -218,7 +224,10 @@ export function PasskeyNames({ revision = 0 }: { revision?: number } = {}) {
               }
             >
               <div>
-                <strong>{key.label ?? t('unnamed')}</strong> <span className="security__ref">{t(key.kind)}</span>
+                <strong>{key.label ?? t('unnamed')}</strong>{' '}
+                <span data-testid="security__ref" className="security__ref">
+                  {t(key.kind)}
+                </span>
                 <span className="muted">
                   {' · '}
                   {t('added', { time: stamp(key.createdAt, timeZone) })}

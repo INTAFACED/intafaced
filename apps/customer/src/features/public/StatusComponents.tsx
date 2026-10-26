@@ -180,7 +180,7 @@ function IncidentCard({
         {incident.impact ? ` · ${copy.t(`impact_${incident.impact}` as CopyKey)}` : null} · {copy.t('incidentAffects')}:{' '}
         {affected.length ? affected.join(', ') : copy.t('incidentNoComponent')}
       </p>
-      <ol className="status-timeline">
+      <ol data-testid="status-timeline" className="status-timeline">
         {[...incident.updates].reverse().map((update) => (
           <li key={update.id}>
             <span className="muted">{whenUtc(update.publishedAt)}</span> <span>{update.body}</span>

@@ -12,22 +12,28 @@ export default function MoreScreen(_props: ScreenProps) {
   const groupLabel = (id: ServiceGroupId) => (id === 'Account' || id === 'Web3' || id === 'Information' ? t(id) : doorLabel(id, language));
   return (
     <div className="if-more">
-      <h1 className="more-title">{t('More')}</h1>
+      <h1 data-testid="more-title" className="more-title">
+        {t('More')}
+      </h1>
       {visibleSections().map(({ section, tiles }) => (
         <section key={section} className="more-section" aria-labelledby={`more-${section}`}>
-          <h2 className="more-h2" id={`more-${section}`}>
+          <h2 data-testid="more-h2" className="more-h2" id={`more-${section}`}>
             {t(section)}
           </h2>
           <ul className="more-hub-grid">
             {tiles.map(({ id, href, icon: Icon, title, line }) => (
               <li key={id}>
-                <a className="more-tile" href={href} data-tile={id}>
-                  <span className="more-tile__icon" aria-hidden="true">
+                <a data-testid="more-tile" className="more-tile" href={href} data-tile={id}>
+                  <span data-testid="more-tile__icon" className="more-tile__icon" aria-hidden="true">
                     <Icon size={24} strokeWidth={1.75} />
                   </span>
                   <span className="more-tile__text">
-                    <span className="more-tile__title">{t(title)}</span>
-                    <span className="more-tile__line">{t(line)}</span>
+                    <span data-testid="more-tile__title" className="more-tile__title">
+                      {t(title)}
+                    </span>
+                    <span data-testid="more-tile__line" className="more-tile__line">
+                      {t(line)}
+                    </span>
                   </span>
                 </a>
               </li>
@@ -36,7 +42,7 @@ export default function MoreScreen(_props: ScreenProps) {
         </section>
       ))}
       <section className="more-section" aria-labelledby="more-all-services">
-        <h2 className="more-h2" id="more-all-services">
+        <h2 data-testid="more-h2" className="more-h2" id="more-all-services">
           {t('All services')}
         </h2>
         <p className="more-note">{t('Every page in the app, by area')}</p>

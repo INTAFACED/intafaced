@@ -205,7 +205,7 @@ export function IdentitySessions() {
   const knownGuard =
     result && result.marker?.requestId === journal.marker?.requestId && (result.answer.ok || result.answer.reason !== 'uncertain');
   return (
-    <section className="stack identity-sessions" aria-label={t('title')} lang={languageFor('title')}>
+    <section data-testid="identity-sessions" className="stack identity-sessions" aria-label={t('title')} lang={languageFor('title')}>
       <h3>
         <Copy k="title" />
       </h3>

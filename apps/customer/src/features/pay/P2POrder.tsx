@@ -217,7 +217,7 @@ export function P2POrder({
           return (
             <div className="p2p-order-columns">
               <div className="p2p-order-core">
-                <header className="p2p-order-identity">
+                <header data-testid="p2p-order-identity" className="p2p-order-identity">
                   <div className="p2p-order-role">
                     <strong>
                       <Copy k={seller ? 'seller' : 'buyer'} />
@@ -233,7 +233,7 @@ export function P2POrder({
                     <Copy k="reported" /> · <TradeStatus status={trade.status} display={trade.displayStatus} />
                   </p>
                 </header>
-                <div className="p2p-order-quantities">
+                <div data-testid="p2p-order-quantities" className="p2p-order-quantities">
                   <div>
                     <p className="muted">
                       <Copy k={held ? 'escrow' : 'quantity'} />

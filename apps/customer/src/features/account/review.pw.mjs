@@ -137,12 +137,12 @@ test('actual App keeps explicit Paper context through Execution and every Quant 
   }, userId);
   await page.getByRole('link', { name: 'Open Quant studio' }).click();
   await expect(page).toHaveURL(/\/quant\/studio\?simulated=true$/);
-  await page.locator('.more-toolbar').getByRole('link', { name: 'Sandbox', exact: true }).click();
+  await page.getByTestId('more-toolbar').getByRole('link', { name: 'Sandbox', exact: true }).click();
   await expect(page).toHaveURL(/\/quant\?simulated=true$/);
-  await page.locator('.more-toolbar').getByRole('link', { name: 'Backtest', exact: true }).click();
+  await page.getByTestId('more-toolbar').getByRole('link', { name: 'Backtest', exact: true }).click();
   await expect(page).toHaveURL(/\/quant\/backtest\?simulated=true$/);
-  await page.locator('.more-toolbar').getByRole('link', { name: 'Studio', exact: true }).click();
-  await page.locator('.more-toolbar').getByRole('link', { name: 'Execution', exact: true }).click();
+  await page.getByTestId('more-toolbar').getByRole('link', { name: 'Studio', exact: true }).click();
+  await page.getByTestId('more-toolbar').getByRole('link', { name: 'Execution', exact: true }).click();
   await expect(page).toHaveURL(/\/execution\?simulated=true$/);
   await expect(page.getByRole('checkbox', { name: /Simulated/ })).toBeChecked();
   expect(writes).toBe(0);

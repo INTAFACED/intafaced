@@ -62,7 +62,7 @@ export function Devices({ onChanged }: { onChanged?: () => void }) {
   const devices = byFamily(resource.data.sessions);
   const others = devices.filter((device) => !device.isCurrent).length;
   return (
-    <section className="security__devices security__card" aria-label={t('title')} lang={languageFor('title')}>
+    <section data-testid="security__card" className="security__devices security__card" aria-label={t('title')} lang={languageFor('title')}>
       <h2>{t('title')}</h2>
       <p>{t('body')}</p>
       {note && (
@@ -74,13 +74,18 @@ export function Devices({ onChanged }: { onChanged?: () => void }) {
       {devices.length === 0 ? (
         <EmptyState title={t('empty')} />
       ) : (
-        <ul className="security__rows">
+        <ul data-testid="security__rows" className="security__rows">
           {devices.map((device) => {
             const name = deviceName(device) ?? t('unknownDevice');
             return (
-              <li key={device.familyId} className="security__row">
+              <li key={device.familyId} data-testid="security__row" className="security__row">
                 <div>
-                  <strong>{name}</strong> {device.isCurrent && <span className="security__ref">{t('thisDevice')}</span>}
+                  <strong>{name}</strong>{' '}
+                  {device.isCurrent && (
+                    <span data-testid="security__ref" className="security__ref">
+                      {t('thisDevice')}
+                    </span>
+                  )}
                   <span className="muted">
                     {' · '}
                     {t('lastActive', { time: stamp(device.lastUsedAt, timeZone) })}

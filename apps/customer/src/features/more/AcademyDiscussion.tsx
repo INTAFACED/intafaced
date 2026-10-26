@@ -184,7 +184,7 @@ export function AcademyDiscussionPage({ courseSlug }: { courseSlug: string }) {
                               {topic.general ? t('discussionTopicGeneral') : topic.title}
                             </span>
                           </Button>
-                          <span className="academy-lms-meta">
+                          <span data-testid="academy-lms-meta" className="academy-lms-meta">
                             {topic.pinned && <span className="academy-lms-chip">{t('discussionPinned')}</span>}
                             <span>{postsText(topic.posts, t)}</span>
                           </span>
@@ -240,7 +240,7 @@ function TopicPosts({
                 <a className="academy-learning-link" href={academyDiscussionHref(courseSlug, post.id)} lang="und">
                   {post.title}
                 </a>
-                <div className="academy-lms-meta">
+                <div data-testid="academy-lms-meta" className="academy-lms-meta">
                   <span className="academy-lms-chip">
                     {post.kind === 'question' ? t('discussionKindQuestion') : t('discussionKindDiscussion')}
                   </span>
@@ -414,7 +414,7 @@ export function AcademyDiscussionThread({ courseSlug, postId }: { courseSlug: st
             <div className="academy-lms-stack" data-discussion-thread={post.id}>
               <Panel title={<span lang="und">{post.title}</span>}>
                 <div className="academy-lms-stack">
-                  <div className="academy-lms-meta">
+                  <div data-testid="academy-lms-meta" className="academy-lms-meta">
                     <span className="academy-lms-chip">
                       {post.kind === 'question' ? t('discussionKindQuestion') : t('discussionKindDiscussion')}
                     </span>
@@ -426,7 +426,7 @@ export function AcademyDiscussionThread({ courseSlug, postId }: { courseSlug: st
                     {post.body}
                   </p>
                   {post.hasImage && <PostImage postId={post.id} />}
-                  <div className="academy-lms-meta">
+                  <div data-testid="academy-lms-meta" className="academy-lms-meta">
                     <Button
                       variant="secondary"
                       disabled={busy}
@@ -459,7 +459,7 @@ export function AcademyDiscussionThread({ courseSlug, postId }: { courseSlug: st
                       {replies.map((reply) => (
                         <li key={reply.id} data-discussion-reply={reply.id} data-accepted={String(reply.accepted)}>
                           <div className="academy-lms-stack">
-                            <div className="academy-lms-meta">
+                            <div data-testid="academy-lms-meta" className="academy-lms-meta">
                               {reply.accepted && (
                                 <span className="academy-lms-chip" data-testid="reply-accepted">
                                   {t('discussionAccepted')}
@@ -472,7 +472,7 @@ export function AcademyDiscussionThread({ courseSlug, postId }: { courseSlug: st
                             <p lang="und" className="academy-discussion-body">
                               {reply.body}
                             </p>
-                            <div className="academy-lms-meta">
+                            <div data-testid="academy-lms-meta" className="academy-lms-meta">
                               <Button
                                 variant="secondary"
                                 disabled={busy}

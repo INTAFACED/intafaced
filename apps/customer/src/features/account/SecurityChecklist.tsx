@@ -34,14 +34,19 @@ export function SecurityChecklist({ revision = 0 }: { revision?: number } = {}) 
   if (!status) return null;
   const hasSecondStep = status.checklist.some((item) => item.key === 'second_factor' && item.done);
   return (
-    <section className="security__checklist security__card" aria-label={t('title')} lang={languageFor('title')}>
+    <section
+      data-testid="security__checklist"
+      className="security__checklist security__card"
+      aria-label={t('title')}
+      lang={languageFor('title')}
+    >
       <h2>{t('title')}</h2>
       <p>{t('body')}</p>
-      <ul className="security__rows">
+      <ul data-testid="security__rows" className="security__rows">
         {status.checklist.map((item) => {
           const more = detail(status, item.key, t);
           return (
-            <li key={item.key} className="security__row" data-done={item.done}>
+            <li key={item.key} data-testid="security__row" className="security__row" data-done={item.done}>
               <div>
                 <strong>{t(item.key)}</strong> <span className="badge">{item.done ? t('done') : t('pending')}</span>
                 {more && <span className="muted"> · {more}</span>}
@@ -54,9 +59,9 @@ export function SecurityChecklist({ revision = 0 }: { revision?: number } = {}) 
       {/* With no second step on yet, the service lets the password alone change sign-in methods; say so plainly. */}
       <h3>{hasSecondStep ? t('requiredTitle') : t('requiredTitleNoFactor')}</h3>
       {!hasSecondStep && <p className="muted">{t('noFactorYet')}</p>}
-      <ul className="security__rows">
+      <ul data-testid="security__rows" className="security__rows">
         {status.secondStepRequired.floor.map((action) => (
-          <li key={action} className="security__row">
+          <li key={action} data-testid="security__row" className="security__row">
             <span>{t(action)}</span> <span className="badge">{t('required')}</span>
           </li>
         ))}

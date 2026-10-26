@@ -21,7 +21,7 @@ async function atVerification(page) {
   await signUpInBrowser(page, person());
   await page.goto('/verification');
   const ladder = page.getByRole('region', { name: 'What each level unlocks' });
-  return { ladder, rung: (level) => ladder.locator(`.verification__rung[data-level="${level}"]`) };
+  return { ladder, rung: (level) => ladder.locator(`[data-testid="verification__rung"][data-level="${level}"]`) };
 }
 
 test(`${J}, part of #1 (I-kyc-compliance-04): a ladder of levels, and every gated feature says which level unlocks it`, async ({
@@ -29,9 +29,9 @@ test(`${J}, part of #1 (I-kyc-compliance-04): a ladder of levels, and every gate
 }) => {
   test.setTimeout(90_000);
   const { ladder, rung } = await atVerification(page);
-  await expect(ladder.locator('.verification__rung')).toHaveCount(LEVELS.length);
+  await expect(ladder.getByTestId('verification__rung')).toHaveCount(LEVELS.length);
   for (const [i, level] of LEVELS.entries())
-    await expect(ladder.locator('.verification__rung').nth(i)).toHaveAttribute('data-level', level);
+    await expect(ladder.getByTestId('verification__rung').nth(i)).toHaveAttribute('data-level', level);
   // Level none is where the person stands.
   await expect(rung('none')).toHaveAttribute('aria-current', 'step');
   await expect(rung('none')).toContainText('Your level');
@@ -60,16 +60,16 @@ test(`${J}, part of #1 (I-kyc-compliance-05): requirements not published say non
   test.setTimeout(90_000);
   const { rung } = await atVerification(page);
   // The stack's TEST owner values publish basic's list and review time only (tooling/profiles/test-owner-values/identity.json).
-  const basic = rung('basic').locator('.verification__requirements');
+  const basic = rung('basic').getByTestId('verification__requirements');
   await expect(basic).toHaveAttribute('data-published', 'true');
   await expect(basic.locator('li')).toHaveText(['Legal name', 'Date of birth', 'Home address', 'Photo ID']);
-  await expect(rung('basic').locator('.verification__review-time')).toHaveText('Review usually takes up to 24 hours.');
+  await expect(rung('basic').getByTestId('verification__review-time')).toHaveText('Review usually takes up to 24 hours.');
   for (const level of ['full', 'institutional']) {
-    const list = rung(level).locator('.verification__requirements');
+    const list = rung(level).getByTestId('verification__requirements');
     await expect(list).toHaveAttribute('data-published', 'false');
     await expect(list).toHaveText('No requirements are published for this level yet.');
     await expect(list.locator('li')).toHaveCount(0);
-    await expect(rung(level).locator('.verification__review-time')).toContainText('No review time is stated.');
+    await expect(rung(level).getByTestId('verification__review-time')).toContainText('No review time is stated.');
   }
 });
 

@@ -295,6 +295,7 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
               <Copy k="filters" />
             </summary>
             <form
+              data-testid="pay-filters"
               className="pay-filters"
               onSubmit={(event) => {
                 event.preventDefault();
@@ -404,7 +405,13 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
                           const own = isOwnOffer(offer, userId);
                           const record = traders[offer.makerId.toLowerCase()];
                           return (
-                            <li key={offer.id} className="p2p-offer-row" data-offer-id={offer.id} data-own={own ? 'true' : undefined}>
+                            <li
+                              key={offer.id}
+                              data-testid="p2p-offer-row"
+                              className="p2p-offer-row"
+                              data-offer-id={offer.id}
+                              data-own={own ? 'true' : undefined}
+                            >
                               <div className="p2p-offer-maker">
                                 <strong>
                                   <OfferSide offer={offer} own={own} />

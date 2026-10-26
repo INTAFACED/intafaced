@@ -139,11 +139,11 @@ test('J-p2p-02 #2 the seller opens the order: the buyer by handle, the exact qua
   await signIn(page, state.seller);
   await page.goto(`/uc/order?tradeId=${state.tradeId}`);
   const order = page.getByRole('main');
-  await expect(order.locator('.p2p-order-identity')).toContainText('You are the seller');
-  await expect(order.locator('.p2p-order-quantities')).toContainText('10');
-  await expect(order.locator('.p2p-order-quantities')).toContainText('USDT');
-  await expect(order.locator('.p2p-order-quantities')).toContainText('9.2');
-  await expect(order.locator('.p2p-order-quantities')).toContainText('EUR');
+  await expect(order.getByTestId('p2p-order-identity')).toContainText('You are the seller');
+  await expect(order.getByTestId('p2p-order-quantities')).toContainText('10');
+  await expect(order.getByTestId('p2p-order-quantities')).toContainText('USDT');
+  await expect(order.getByTestId('p2p-order-quantities')).toContainText('9.2');
+  await expect(order.getByTestId('p2p-order-quantities')).toContainText('EUR');
   // The release clock: the buyer marked it paid, so the seller has until the deadline to release or dispute.
   const path = order.getByTestId('escrow-path');
   await expect(path).toContainText('Waiting for you to release');
@@ -296,7 +296,7 @@ test('J-p2p-02 #5 the seller ticks the five checks, confirms with a passkey and 
   await expect(confirm).toBeEnabled();
   await confirm.dblclick();
   await expect(review).toHaveCount(0);
-  await expect(order.locator('.p2p-order-identity')).toContainText('Completed');
+  await expect(order.getByTestId('p2p-order-identity')).toContainText('Completed');
 
   // One release on the ledger: a second press returns the same order, and nothing more moves.
   const released = await s.query('trades.get', { tradeId: state.tradeId });
@@ -320,7 +320,7 @@ test('J-p2p-02 #6 the completed order says Completed, its fee is the published r
   await signIn(page, state.seller);
   await page.goto(`/uc/order?tradeId=${state.tradeId}`);
   const order = page.getByRole('main');
-  await expect(order.locator('.p2p-order-identity')).toContainText('Completed');
+  await expect(order.getByTestId('p2p-order-identity')).toContainText('Completed');
   const result = order.getByTestId('order-result');
   await expect(result).toContainText(`${trade.fee} USDT (`);
   // Nothing of this order is held any more.

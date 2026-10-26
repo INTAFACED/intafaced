@@ -134,6 +134,7 @@ function MerchantBalance({ pay }: { pay: BusinessPayApi }) {
     <div className="stack">
       <PaySection title={payCopy.t('merchantLedgerBalance')} description={payCopy.t('clearingAndAvailableAreReadProjectionsOf')}>
         <form
+          data-testid="pay-filters"
           className="pay-filters"
           onSubmit={(event) => {
             event.preventDefault();

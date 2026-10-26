@@ -117,6 +117,7 @@ export function CustomersView({
       </Gate>
       <PaySection title={t('customersTitle')} description={t('customersBody')}>
         <form
+          data-testid="pay-filters"
           className="pay-filters"
           role="search"
           aria-label={t('customersSearchLabel')}

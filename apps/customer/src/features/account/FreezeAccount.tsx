@@ -71,7 +71,12 @@ export function FreezeAccount() {
 
   if (current.frozen && current.since && current.reason) {
     return (
-      <section className="security__freeze security__card" aria-label={t('frozenTitle')} lang={languageFor('frozenTitle')}>
+      <section
+        data-testid="security__card"
+        className="security__freeze security__card"
+        aria-label={t('frozenTitle')}
+        lang={languageFor('frozenTitle')}
+      >
         <h2>{t('frozenTitle')}</h2>
         {note && (
           <p className="notice" role="status">
@@ -85,7 +90,7 @@ export function FreezeAccount() {
 
   const refusal = failure && failure.code ? FREEZE_REFUSAL_KEYS[failure.code] : undefined;
   return (
-    <section className="security__freeze security__card" aria-label={t('title')} lang={languageFor('title')}>
+    <section data-testid="security__card" className="security__freeze security__card" aria-label={t('title')} lang={languageFor('title')}>
       <h2>{t('title')}</h2>
       <p>{t('body')}</p>
       <p>{t('consequences')}</p>

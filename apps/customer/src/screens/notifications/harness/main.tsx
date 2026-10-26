@@ -49,7 +49,7 @@ function Page() {
           <a className="tb-brand" href="/home">
             intafaced
           </a>
-          <nav className="tb-nav" aria-label="Harness stand-in for the top bar">
+          <nav data-testid="tb-nav" className="tb-nav" aria-label="Harness stand-in for the top bar">
             <a href="/money">Money</a> <a href="/more">More</a>
           </nav>
           <div className="tb-right" style={{ marginLeft: 'auto' }}>

@@ -485,7 +485,7 @@ export function AcademyLearning({
                             ))}
                           </ul>
                         </section>
-                        <article className="more-body" lang={lesson.locale}>
+                        <article data-testid="more-body" className="more-body" lang={lesson.locale}>
                           <LessonBody body={lesson.body} title={lesson.title} />
                         </article>
                         <section>

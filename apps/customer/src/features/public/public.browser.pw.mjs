@@ -123,7 +123,7 @@ test('published help uses available translations and marks English article fallb
     ]);
   });
   await page.goto('/help');
-  const article = page.locator('.help-articles article');
+  const article = page.getByTestId('help-articles').locator('article');
   await expect(article.getByRole('heading')).toHaveText('Iniciar sesión');
   await expect(article.getByRole('heading')).toHaveAttribute('lang', 'es');
   await expect(article.locator('p')).toHaveAttribute('lang', 'en');

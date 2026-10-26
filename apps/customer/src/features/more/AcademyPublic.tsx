@@ -157,7 +157,7 @@ function PublicCatalogue() {
                   <a className="academy-learning-link" href={`/academy/${encodeURIComponent(row.slug)}`} lang="und">
                     {row.title}
                   </a>
-                  <span className="academy-lms-meta">
+                  <span data-testid="academy-lms-meta" className="academy-lms-meta">
                     <span>{pathLabel(t, row.path)}</span>
                     <span>{kindLabel(t, row.kind)}</span>
                     <span>
@@ -212,7 +212,7 @@ function PublicReader({ slug }: { slug: string }) {
             <span aria-hidden="true">/</span>
             <span>{isAcademyPath(data.path) ? pathLabel(t, data.path) : data.path}</span>
           </nav>
-          <div className="academy-lms-meta">
+          <div data-testid="academy-lms-meta" className="academy-lms-meta">
             <span>{kindLabel(t, data.kind)}</span>
             <span>
               <Copy k="minutes" params={{ minutes: data.estimatedMinutes }} />
@@ -228,7 +228,7 @@ function PublicReader({ slug }: { slug: string }) {
               </ul>
             </section>
           )}
-          <article className="more-body" lang="und">
+          <article data-testid="more-body" className="more-body" lang="und">
             <LessonBody body={data.body} title={data.title} />
           </article>
           <p className="muted">
