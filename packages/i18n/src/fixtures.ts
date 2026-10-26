@@ -32,6 +32,7 @@ const ACCENTED: Readonly<Record<string, string>> = {
   j: 'ĵ',
   k: 'ķ',
   l: 'ļ',
+  m: 'ɱ',
   n: 'ñ',
   o: 'ó',
   r: 'ŕ',
@@ -74,13 +75,16 @@ export function pseudoLocalize(text: string, options: PseudoOptions = {}): strin
 
   let out = '';
   let visible = 0;
-  for (const piece of text.split(/(\{[a-zA-Z0-9_]+\})/)) {
-    if (/^\{[a-zA-Z0-9_]+\}$/.test(piece)) {
+  // Same placeholder shape as `t.ts`. A capturing split puts placeholders at odd indices.
+  const pieces = text.split(/(\{\w+\})/);
+  for (let index = 0; index < pieces.length; index++) {
+    const piece = pieces[index] ?? '';
+    if (index % 2 === 1) {
       out += piece;
       continue;
     }
     for (const ch of piece) {
-      out += ch === 'm' ? 'ɱ' : (ACCENTED[ch] ?? ch);
+      out += ACCENTED[ch] ?? ch;
       visible += 1;
     }
   }
@@ -158,11 +162,17 @@ export const RTL_SAMPLES: Readonly<Record<'ar' | 'he', RtlSample>> = {
   },
 };
 
+/** Shown beside every fixture figure in a shot: illustrative numbers carry TEST (AGENTS.md product law). */
+export const FIXTURE_LABEL = 'TEST';
+
 /**
- * Values that must stay left-to-right inside right-to-left text, with the
+ * TEST values that must stay left-to-right inside right-to-left text, with the
  * neighbours that make them jump when they are not isolated: a minus sign, a
  * ticker after a number, an address next to a word. Render each inside
  * `RTL_SAMPLES.*.paragraph`-style copy and check the shot reads in order.
+ * None is a real account: the IBAN is the ISO 13616 documentation example and
+ * the address is the EIP-55 test vector. A harness shows `FIXTURE_LABEL`
+ * beside them.
  */
 export const BIDI_TRAPS = {
   address: '0x52908400098527886E0F7030069857D2E4169EE7',

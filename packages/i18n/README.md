@@ -247,3 +247,14 @@ Nothing in the library does I/O. Catalogs are data; loading them is the app's jo
 
 Copy in this package obeys Doctrine §0.7: user-facing strings name only _Identity Blueprint_,
 _Sovereign Intelligence_, and _Neural Engine_ — never a third-party system.
+
+---
+
+## Layout fixtures (test only)
+
+`@intafaced/i18n/fixtures` is for harnesses, the kit gallery and the look gate, never for a screen:
+`pseudoLocalize` and `pseudoCatalog` make copy about 30% longer, accented and bracketed so clipping
+shows; `RTL_SAMPLES` gives short Arabic and Hebrew interface strings for `dir="rtl"` shots;
+`BIDI_TRAPS` holds TEST values that must stay left-to-right (an address, an IBAN, a negative
+amount). The samples are fixture text, not reviewed translations. `fixtures.test.ts` fails if any
+shipped source in `apps/`, `services/` or `packages/` imports the module.

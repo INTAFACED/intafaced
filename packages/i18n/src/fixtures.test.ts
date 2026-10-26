@@ -58,18 +58,25 @@ describe('RTL samples', () => {
 
   it('never reach a product source', () => {
     const root = fileURLToPath(new URL('../../..', import.meta.url));
+    // Test, harness and gallery files may use fixtures; anything shipped may not.
+    const exempt = /(\.(test|spec|pw)\.|playwright|\/harness\/|\/gallery\/|^packages\/i18n\/)/;
+    const importsFixtures = /@intafaced\/i18n\/(src\/)?fixtures|i18n\/src\/fixtures/;
     const hits: string[] = [];
+    let scanned = 0;
     const walk = (dir: string): void => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
-        if (['node_modules', 'dist', '.turbo', 'coverage', '.git'].includes(entry.name)) continue;
+        if (['node_modules', 'dist', '.turbo', 'coverage', '.git', '.next'].includes(entry.name)) continue;
         const path = join(dir, entry.name);
+        const relative = path.slice(root.length).replace(/^\//, '');
         if (entry.isDirectory()) walk(path);
-        else if (/\.(ts|tsx|mjs|js)$/.test(entry.name) && !/\.(test|spec|pw)\.|playwright|harness|gallery/.test(path)) {
-          if (readFileSync(path, 'utf8').includes('@intafaced/i18n/fixtures')) hits.push(path.slice(root.length));
+        else if (/\.[cm]?[jt]sx?$/.test(entry.name) && !exempt.test(relative)) {
+          scanned += 1;
+          if (importsFixtures.test(readFileSync(path, 'utf8'))) hits.push(relative);
         }
       }
     };
-    for (const top of ['apps', 'services']) walk(join(root, top));
+    for (const top of ['apps', 'services', 'packages']) walk(join(root, top));
+    expect(scanned).toBeGreaterThan(1000);
     expect(hits).toEqual([]);
   });
 });
