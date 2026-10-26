@@ -4,16 +4,19 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BOOT_SCRIPT, VIEW_KEY, homeBoot } from './boot';
+import { LOOK_KEY, resolveLook } from './look';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const html = document.documentElement;
 
 /** Runs the boot script as the browser would, on a page with an empty #root. */
-function boot(path: string, view?: object) {
+function boot(path: string, view?: object, look?: string) {
   history.replaceState(null, '', path);
   localStorage.clear();
   if (view) localStorage.setItem(VIEW_KEY, JSON.stringify(view));
+  if (look) localStorage.setItem(LOOK_KEY, look);
   html.removeAttribute('data-boot');
+  html.removeAttribute('data-look');
   document.body.innerHTML = '<div id="boot-frame"></div><div id="root"></div>';
   new Function(BOOT_SCRIPT)();
   return document.getElementById('root')!;
@@ -23,6 +26,7 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 afterEach(() => {
   vi.useRealTimers();
   html.removeAttribute('data-boot');
+  html.removeAttribute('data-look');
   localStorage.clear();
 });
 
@@ -47,13 +51,23 @@ describe('the boot script', () => {
     expect(html.getAttribute('data-boot')).toBe('home');
   });
 
-  it("keeps the frame through the app's loading state, and drops it when the app draws its own content", async () => {
+  it("keeps the frame through the shell and its loading state, and drops it when Home's root is in #root", async () => {
     const root = boot('/home');
     root.innerHTML =
-      '<div class="legacy-room"><div class="page"><div class="loading" role="status"><span></span>Opening room…</div></div></div>';
+      '<header class="tb">intafaced</header><main><div class="legacy-room"><div class="page"><div class="loading" role="status"><span></span>Opening room…</div></div></div></main>';
     await flush();
     expect(html.getAttribute('data-boot')).toBe('home');
-    root.innerHTML = '<header class="tb">intafaced</header><main><h2>Needs you</h2></main>';
+    root.querySelector('main')!.innerHTML = '<div data-testid="if-home" class="if-home"></div>';
+    await flush();
+    expect(html.hasAttribute('data-boot')).toBe(false);
+  });
+
+  it('drops the frame for content that is not Home once no loading state is left', async () => {
+    const root = boot('/');
+    root.innerHTML = '<header class="tb">intafaced</header><main><div class="loading">Loading…</div></main>';
+    await flush();
+    expect(html.getAttribute('data-boot')).toBe('home');
+    root.querySelector('main')!.innerHTML = '<div class="legacy-room"><h1>Your money, trading and payments</h1></div>';
     await flush();
     expect(html.hasAttribute('data-boot')).toBe(false);
   });
@@ -76,13 +90,14 @@ describe('the boot script', () => {
   });
 
   it('notices a text-only change inside #root', async () => {
-    const root = boot('/home');
-    root.innerHTML = '<div class="loading">Opening room…</div>';
+    const root = boot('/');
+    root.innerHTML = '<div></div>';
     await flush();
     expect(html.getAttribute('data-boot')).toBe('home');
-    root.querySelector('.loading')!.parentElement!.append(document.createTextNode(''));
+    root.firstElementChild!.append(document.createTextNode(''));
     await flush();
-    root.lastChild!.textContent = 'Needs you';
+    expect(html.getAttribute('data-boot')).toBe('home');
+    root.firstElementChild!.lastChild!.textContent = 'Sign in';
     await flush();
     expect(html.hasAttribute('data-boot')).toBe(false);
   });
@@ -91,11 +106,19 @@ describe('the boot script', () => {
     expect(readFileSync(join(here, '../shared/preferences.ts'), 'utf8')).toContain(`const key = '${VIEW_KEY}';`);
   });
 
-  it('drops the frame for any content that is not the loading state, a signed-out landing page included', async () => {
-    const root = boot('/');
-    root.innerHTML = '<div class="legacy-room"><h1>Your money, trading and payments</h1></div>';
-    await flush();
-    expect(html.hasAttribute('data-boot')).toBe(false);
+  it('sets the look the app will set, on every path, before the first paint', () => {
+    for (const [path, stored, expected] of [
+      ['/home', 'lit', 'lit'],
+      ['/trade', 'lit', 'lit'],
+      ['/home', null, null],
+      ['/home?look=lit', null, 'lit'],
+      ['/home?look=off', 'lit', null],
+      ['/home?look=other', 'lit', 'lit'],
+    ] as const) {
+      boot(path, undefined, stored ?? undefined);
+      expect(html.getAttribute('data-look'), `${path} ${stored}`).toBe(expected);
+      expect(resolveLook(location.search), `${path} ${stored}`).toBe(expected);
+    }
   });
 });
 

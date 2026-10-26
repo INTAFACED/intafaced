@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Plugin } from 'vite';
+import { LOOK_KEY } from './look';
 
 /** Where the layout preference lives (shared/preferences.ts, held equal by boot.test.ts); Simple unless it says Pro. */
 export const VIEW_KEY = 'intafaced.customer.view.v1';
@@ -10,11 +11,13 @@ const FRAME_CAP_MS = 8000;
 
 /**
  * The boot script: a classic, same-origin file (the CSP allows no inline script) that runs before the app's module.
- * On Simple Home's paths it marks the page (`data-boot="home"`), so index.html's static frame shows and #root waits
- * hidden, and it takes the mark off as soon as the app shows more than its loading state (in practice its first commit,
- * the shell). Pro Home has another layout, so it gets no frame (a Pro choice kept only on the account, not yet on this
- * device, shows the Simple frame until the app runs). It reads nothing but the path, the layout preference and #root's
- * text. On any error of its own, a resource that fails to load, an uncaught error or after FRAME_CAP_MS, it takes the
+ * It sets the remembered look on the root first, as look.ts will (`?look=` wins; it stores nothing itself), so the
+ * first paint already has the look's shapes. On Simple Home's paths it marks the page (`data-boot="home"`), so
+ * index.html's static frame shows and #root waits hidden, and it takes the mark off once Home's root is in #root, or
+ * once #root shows something other than Home with no loading state left (a signed-out landing page, a refusal). Pro
+ * Home has another layout, so it gets no frame (a Pro choice kept only on the account, not yet on this device, shows
+ * the Simple frame until the app runs). It reads nothing but the path, the query, the look and layout preferences and
+ * #root. On any error of its own, a resource that fails to load, an uncaught error or after FRAME_CAP_MS, it takes the
  * mark off, so a failed start shows the app's own state rather than a skeleton that never ends.
  *
  * It preloads nothing: measured on the phone profiles, fetching Home's chunk alongside the entry moved LCP by nothing
@@ -23,21 +26,26 @@ const FRAME_CAP_MS = 8000;
 export const BOOT_SCRIPT = `(function () {
   var html = document.documentElement;
   try {
+    var look = new URLSearchParams(location.search).get('look');
+    if (look !== 'lit' && look !== 'off') {
+      try { look = localStorage.getItem(${JSON.stringify(LOOK_KEY)}); } catch (e) {}
+    }
+    if (look === 'lit') html.setAttribute('data-look', 'lit');
+  } catch (e) {}
+  try {
     if (${JSON.stringify(HOME_PATHS)}.indexOf(location.pathname) < 0) return;
     var view = {};
     try { view = JSON.parse(localStorage.getItem(${JSON.stringify(VIEW_KEY)}) || '{}') || {}; } catch (e) {}
     if (view.layoutMode === 'pro') return;
     html.setAttribute('data-boot', 'home');
-    // #root's text is empty or only the loading label until the app has drawn something of its own; checked once per
-    // DOM batch, and the watch ends with the frame
+    // Home's root ends the frame; before it, the shell and its loading states ("Opening room…") are still the frame's
+    // to cover, and any other content with no loading state left is not Home. Checked once per DOM batch, and the
+    // watch ends with the frame
     var settle = function () {
       var root = document.getElementById('root');
       if (!root) return false;
-      var loading = root.querySelector('.loading');
-      var text = root.textContent.trim();
-      if (text === '' || (loading && text === loading.textContent.trim())) return false;
-      html.removeAttribute('data-boot');
-      return true;
+      if (root.querySelector('[data-testid="if-home"]')) return true;
+      return !root.querySelector('.loading') && root.textContent.trim() !== '';
     };
     var done = function () {
       html.removeAttribute('data-boot');

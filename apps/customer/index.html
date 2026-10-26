@@ -9,8 +9,9 @@
     <style>
       /*
        * Home's frame: drawn from this file alone while the app's code downloads, only where the boot script
-       * (src/app/boot.ts) marks the page as Simple Home. It holds no figures and no words but the wordmark; the script
-       * takes the mark off as soon as the app draws anything beyond its loading state.
+       * (src/app/boot.ts) marks the page as Simple Home. It holds no figures and no words but the wordmark, and puts
+       * its blocks where Home's own loading state draws them (home.css: one column below 80rem, main and side columns
+       * from there), so the hand-over moves nothing. The script takes the mark off once Home's root is in the page.
        */
       #boot-frame,
       html[data-boot='home'] #root {
@@ -28,7 +29,7 @@
         display: flex;
         align-items: center;
         block-size: 3rem;
-        padding-inline: var(--if-space-4);
+        padding-inline: var(--if-space-6);
         border-block-end: 1px solid var(--if-line);
         color: var(--if-text);
         /* the system face: the app's web font would start downloading here and slow the app's own code */
@@ -40,48 +41,158 @@
       #boot-frame .bf-top span {
         color: var(--if-accent-text);
       }
+      /* .if-home and .home-grid */
       #boot-frame .bf-body {
         display: grid;
-        gap: var(--if-space-3);
-        max-inline-size: 75rem;
+        grid-template-columns: minmax(0, 792fr) minmax(0, 408fr);
+        column-gap: var(--if-space-6);
+        align-items: start;
+        inline-size: min(var(--if-container-max), calc(100% - 3.5rem));
         margin-inline: auto;
-        padding: var(--if-space-6) var(--if-space-4);
+        padding-block-start: var(--if-space-8);
       }
       #boot-frame i {
         display: block;
-        block-size: 1rem;
-        border-radius: var(--if-r-xs);
+        border-radius: var(--if-r-sm);
         background: var(--if-panel);
       }
-      #boot-frame .bf-figure {
-        inline-size: min(70%, 18.75rem);
-        block-size: 3rem;
+      #boot-frame .bf-panel {
+        border-radius: var(--if-r-lg);
+        background: var(--if-panel);
       }
+      #boot-frame .bf-panel i {
+        background: var(--if-field);
+      }
+      /* the balance: label row, total, change */
       #boot-frame .bf-label {
-        inline-size: min(45%, 11.25rem);
+        display: flex;
+        align-items: center;
+        block-size: 1.625rem;
+      }
+      #boot-frame .bf-label i {
+        inline-size: 7.5rem;
+        block-size: 1rem;
+      }
+      #boot-frame .bf-figure {
+        inline-size: 15rem;
+        block-size: 3.5rem;
+        margin-block-start: var(--if-space-1);
       }
       #boot-frame .bf-line {
-        inline-size: min(60%, 15rem);
+        inline-size: 11.25rem;
+        block-size: 1.25rem;
+        margin-block-start: var(--if-space-2);
       }
+      /* the action keys, at their loading widths: four and one on a phone */
       #boot-frame .bf-keys {
         display: flex;
         flex-wrap: wrap;
         gap: var(--if-space-2);
-        margin-block-start: var(--if-space-1);
+        margin-block-start: var(--if-space-6);
       }
       #boot-frame .bf-keys i {
-        inline-size: 4.5rem;
+        inline-size: 4rem;
         block-size: 2.5rem;
         border-radius: var(--if-r-pill);
       }
+      #boot-frame .bf-keys i:nth-child(2) {
+        inline-size: 3.75rem;
+      }
+      #boot-frame .bf-keys i:nth-child(3),
+      #boot-frame .bf-keys i:nth-child(5) {
+        inline-size: 5.5rem;
+      }
+      #boot-frame .bf-keys i:nth-child(4) {
+        inline-size: 4.5rem;
+      }
+      /* the look's actions panel (lit-spike.css): the keys sit on one solid panel */
+      html[data-look='lit'] #boot-frame .bf-keys {
+        padding: var(--if-space-3);
+        border-radius: 1.5rem;
+        background: var(--if-panel);
+      }
+      html[data-look='lit'] #boot-frame .bf-keys i {
+        background: var(--if-field);
+      }
+      /* section heads (Needs you, Markets) and their bodies */
       #boot-frame .bf-head {
         inline-size: 8.75rem;
         block-size: 1.5rem;
-        margin-block-start: var(--if-space-7);
+        margin-block: var(--if-space-10) var(--if-space-1);
       }
-      #boot-frame .bf-card {
+      #boot-frame .bf-work {
+        display: grid;
+        gap: var(--if-space-5);
+        block-size: 7.5rem;
+        padding: var(--if-space-4);
+      }
+      #boot-frame .bf-work i {
+        inline-size: 11.25rem;
+        block-size: 2.25rem;
+      }
+      #boot-frame .bf-holdings {
         block-size: 9rem;
-        border-radius: var(--if-r-lg);
+        margin-block-start: var(--if-space-8);
+      }
+      #boot-frame .bf-cards {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: var(--if-space-4);
+        margin-block-start: var(--if-space-4);
+      }
+      #boot-frame .bf-cards .bf-panel {
+        block-size: 11rem;
+      }
+      #boot-frame .bf-side {
+        display: grid;
+        gap: var(--if-space-6);
+      }
+      #boot-frame .bf-side .bf-panel {
+        block-size: 13.5rem;
+      }
+      #boot-frame .bf-side .bf-panel + .bf-panel {
+        block-size: 11.5rem;
+      }
+      #boot-frame .bf-doors {
+        display: none;
+      }
+      @media (max-width: 79.99rem) {
+        #boot-frame .bf-body {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        #boot-frame .bf-side {
+          display: none;
+        }
+      }
+      /* the phone: a narrower page, a taller label row, two cards a row and the doors bar at the foot */
+      @media (max-width: 47.99rem) {
+        #boot-frame .bf-top {
+          padding-inline: var(--if-space-4);
+        }
+        #boot-frame .bf-body {
+          inline-size: calc(100% - 2rem);
+          padding-block-start: var(--if-space-6);
+        }
+        #boot-frame .bf-label {
+          block-size: 2.75rem;
+        }
+        #boot-frame .bf-cards {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        #boot-frame .bf-doors {
+          display: flex;
+          justify-content: space-around;
+          align-items: center;
+          position: fixed;
+          inset: auto 0 0;
+          block-size: 3.8125rem;
+          border-block-start: 1px solid var(--if-line);
+          background: var(--if-bg);
+        }
+        #boot-frame .bf-doors i {
+          inline-size: 1.25rem;
+          block-size: 1.25rem;
+        }
       }
       @media (prefers-reduced-motion: no-preference) {
         #boot-frame i {
@@ -99,15 +210,28 @@
     <div id="boot-frame" aria-hidden="true">
       <div class="bf-top">intafaced<span>·</span></div>
       <div class="bf-body">
-        <i class="bf-label"></i>
-        <i class="bf-figure"></i>
-        <i class="bf-line"></i>
-        <div class="bf-keys"><i></i><i></i><i></i><i></i><i></i></div>
-        <i class="bf-head"></i>
-        <i class="bf-card"></i>
-        <i class="bf-head"></i>
-        <i class="bf-card"></i>
+        <div class="bf-main">
+          <div class="bf-label"><i></i></div>
+          <i class="bf-figure"></i>
+          <i class="bf-line"></i>
+          <div class="bf-keys"><i></i><i></i><i></i><i></i><i></i></div>
+          <i class="bf-head"></i>
+          <div class="bf-work bf-panel"><i></i><i></i></div>
+          <div class="bf-holdings bf-panel"></div>
+          <i class="bf-head"></i>
+          <div class="bf-cards">
+            <div class="bf-panel"></div>
+            <div class="bf-panel"></div>
+            <div class="bf-panel"></div>
+            <div class="bf-panel"></div>
+          </div>
+        </div>
+        <div class="bf-side">
+          <div class="bf-panel"></div>
+          <div class="bf-panel"></div>
+        </div>
       </div>
+      <div class="bf-doors"><i></i><i></i><i></i><i></i><i></i></div>
     </div>
     <div id="root"></div>
     <script src="/assets/no-eval-v1.js"></script>
