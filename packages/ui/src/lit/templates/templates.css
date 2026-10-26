@@ -361,8 +361,9 @@
  * Data regions become locked outlines with their heading and a lock, never skeleton bars or figures, so a gate
  * never reads as loading. Help and navigation sit outside the Gate at full strength.
  */
-/* Controls behind a gate stay, named and disabled, so a customer sees what verifying unlocks. */
-.lt-region[data-dimmed] {
+/* Controls behind a gate stay, named and dimmed as disabled (about 4:1), so a customer sees what verifying unlocks;
+   the room is inert, so none of them can be used. */
+.lit-gate__room :is(button, a[href], select, input, textarea, [role='tab']) {
   opacity: 0.45;
 }
 
