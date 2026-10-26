@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { balancesSchema, ohlcvSchema, tickerSchema } from '@intafaced/exchange-contract/schemas';
 import type { ApiClient, ApiResult } from '../shared/api';
 import { decimalSchema } from '../shared/money';
-import { listingSchema } from '../features/trade/trade-api';
+import { listingSchema } from '../features/trade/listing';
 import type { BalanceEntry, OhlcvRow, RawTicker } from './derive';
 import type { Fetcher } from './poll';
 import type { MarketRow, Timeframe } from './types';

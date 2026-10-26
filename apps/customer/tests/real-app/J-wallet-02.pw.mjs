@@ -249,7 +249,7 @@ test(`${J} #7 the credit lands in the inbox once, however often the chain delive
   const { account: who, credited, credits } = state();
   if (!credited || !credits) throw new Error(`${J} #5 credited nothing, so there is no notice to read`);
   await signIn(page, who);
-  const notice = page.locator('.nf-row', { hasText: 'Deposit credited' });
+  const notice = page.getByTestId('nf-row').filter({ hasText: 'Deposit credited' });
   // The notice is filed from the bus after the credit; read the inbox again until it is there. A credit whose
   // announcement missed the first pass goes out on svc-pay's next one (every 60 s), so wait longer than that.
   await expect(async () => {

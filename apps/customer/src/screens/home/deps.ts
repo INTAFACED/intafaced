@@ -2,6 +2,7 @@
 // @intafaced/ui (B1), the data layer in ../../data (B3) and the feature registry (B2).
 export { Amount, Button, ChangeText, CoinIcon, HeroNumber, Money, Pct, Skeleton, Sparkline, StateBlock, StatusTag } from '@intafaced/ui';
 export { Tooltip, TooltipContent, TooltipTrigger } from '@intafaced/ui';
+export { Loading } from '../../shared/ui';
 
 export {
   direction,

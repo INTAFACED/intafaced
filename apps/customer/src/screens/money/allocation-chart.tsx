@@ -81,7 +81,7 @@ export function AllocationBar({ rows }: { rows: readonly MoneyRow[] }) {
         : t('Share of your total by place');
 
   return (
-    <section className="money-alloc" aria-label={t('Where your money is')}>
+    <section data-testid="money-alloc" className="money-alloc" aria-label={t('Where your money is')}>
       <div className="money-alloc__switch" role="group" aria-label={t('Group by')}>
         {GROUPINGS.map((option) => (
           <button
@@ -101,16 +101,17 @@ export function AllocationBar({ rows }: { rows: readonly MoneyRow[] }) {
         </p>
       ) : (
         <>
-          <div className="money-alloc__bar" aria-hidden="true">
+          <div data-testid="money-alloc__bar" className="money-alloc__bar" aria-hidden="true">
             {shown.map((slice, index) => (
               <span
                 key={slice.key}
+                data-testid="money-alloc__seg"
                 className="money-alloc__seg"
                 style={{ flexGrow: weight(slice.share), background: `var(--if-alloc-${index + 1})` }}
               />
             ))}
           </div>
-          <ul className="money-alloc__legend" aria-hidden="true">
+          <ul data-testid="money-alloc__legend" className="money-alloc__legend" aria-hidden="true">
             {shown.map((slice, index) => (
               <li key={slice.key} data-group={slice.key}>
                 <span className="money-alloc__dot" style={{ background: `var(--if-alloc-${index + 1})` }} />
