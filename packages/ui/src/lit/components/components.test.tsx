@@ -3,25 +3,42 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { roleNames } from '../contracts.js';
-import { ActionKey, Button, Change, Dock, Figure, Logo, RefusalBox, Surface, type DoorLink } from './index.js';
+import { roleNames, typeRoles } from '../contracts.js';
+import {
+  ActionKey,
+  Button,
+  Change,
+  Dock,
+  Field,
+  Figure,
+  LegalSlot,
+  Logo,
+  Rail,
+  RefusalBox,
+  RiskMoment,
+  Surface,
+  type DoorLink,
+} from './index.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const css = readFileSync(join(here, 'components.css'), 'utf8');
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 
 describe('the component sheet reads only lit roles', () => {
-  it('holds no raw colour of its own outside hairline white/black alphas', () => {
+  it('holds no raw colour of its own (the #000 mask colour aside)', () => {
     const hex = css.match(/#[0-9a-f]{3,8}\b/gi) ?? [];
     expect(hex.filter((h) => h !== '#000')).toEqual([]);
+    expect(css.match(/\b(rgba?|hsla?|oklch|lab)\(/gi) ?? []).toEqual([]);
+    expect(css.match(/[:,\s](black|white)\b(?!-)/gi) ?? []).toEqual([]);
   });
 
   it('every --lit-* it reads is a declared role or type role', () => {
     const declared = new Set<string>(roleNames.map((r) => `--lit-${r}`));
+    for (const t of Object.keys(typeRoles)) for (const k of ['size', 'line', 'weight', 'tracking']) declared.add(`--lit-type-${t}-${k}`);
     const used = new Set([...css.matchAll(/var\((--lit-[a-z0-9-]+)/g)].map((m) => m[1]!));
     // local knobs a component sets for itself (light angle, corner), never colours
     const local = new Set(['--lit-light-angle', '--lit-corner-x', '--lit-corner-y', '--lit-tag-c']);
-    for (const u of used) if (!u.startsWith('--lit-type-') && !local.has(u)) expect(declared.has(u), u).toBe(true);
+    for (const u of used) if (!local.has(u)) expect(declared.has(u), u).toBe(true);
   });
 
   it('uses no backdrop blur except through the nav and sheet layers', () => {
@@ -55,7 +72,7 @@ describe('components', () => {
     expect(out).toContain('>12,480<');
     expect(out).toContain('>.36<');
     expect(out).toContain('>TEST<');
-    expect(out).toContain('aria-label="£12,480.36"');
+    expect(out).toContain('<span class="lit-sr">£12,480.36</span>');
   });
 
   it('Change says the direction in words, not only colour', () => {
@@ -85,6 +102,7 @@ describe('components', () => {
       { door: 'pay', label: 'Pay', href: '/pay', icon: null },
     ];
     const out = html(<Dock links={links} current="home" />);
+    expect(html(<Rail links={links} current="pay" />)).toMatch(/^<nav aria-label="Main">/);
     const order = [...out.matchAll(/href="\/([a-z]+)"/g)].map((m) => m[1]);
     expect(order).toEqual(['home', 'money', 'trade', 'pay', 'more']);
     expect(out).toContain('aria-current="page"');
@@ -93,5 +111,30 @@ describe('components', () => {
 
   it('Logo mark has an accessible name when it stands alone', () => {
     expect(html(<Logo variant="mark" />)).toContain('aria-label="INTAFACED"');
+  });
+
+  it('Field keeps a caller description next to its own hint', () => {
+    const out = html(<Field label="Amount" hint="Max 500" aria-describedby="terms" id="a" />);
+    expect(out).toContain('aria-describedby="terms a-hint"');
+  });
+
+  it('LegalSlot holds no copy of its own and stays visible when its text is unset', () => {
+    const missing = html(<LegalSlot type="risk-band" moment="first-buy" jurisdiction="uk" textId="risk.band" />);
+    expect(missing).toContain('data-missing="true"');
+    expect(missing).toContain('risk.band');
+    const set = html(<LegalSlot type="risk-band" moment="first-buy" jurisdiction="uk" textId="risk.band" text="Warning." />);
+    expect(set).not.toContain('data-missing');
+    expect(set).toContain('aria-label="Risk warning"');
+  });
+
+  it('RiskMoment gives both choices the same weight', () => {
+    const out = html(
+      <RiskMoment title="Before you buy" proceed={{ label: 'Continue', onChoose: () => {} }} leave={{ label: 'Leave', onChoose: () => {} }}>
+        Body
+      </RiskMoment>,
+    );
+    const tones = [...out.matchAll(/data-tone="([a-z]+)"/g)].map((m) => m[1]);
+    expect(tones).toEqual(['secondary', 'secondary']);
+    expect(out).toContain('role="dialog"');
   });
 });

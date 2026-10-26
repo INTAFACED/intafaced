@@ -25,9 +25,7 @@
   position: relative;
   border-radius: var(--lit-radius-panel);
   padding: var(--lit-pad-panel);
-  background:
-    radial-gradient(70% 60% at var(--lit-corner-x, 0%) var(--lit-corner-y, 0%), var(--lit-corner-glow), transparent 72%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.012) 70%), var(--lit-solid-bg);
+  background: var(--lit-sheen), var(--lit-solid-bg);
   box-shadow: var(--lit-solid-lip), var(--lit-solid-shadow);
   isolation: isolate;
 }
@@ -47,14 +45,14 @@
 }
 .lit-surface[data-material='raised'] {
   border-radius: var(--lit-radius-tile);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.012) 70%), var(--lit-solid-bg-raised);
+  background: var(--lit-sheen), var(--lit-solid-bg-raised);
 }
+/* Only the corner material pools light; it reads the root glow, so nesting never dims it. */
 .lit-surface[data-material='corner'] {
   border-radius: var(--lit-radius-tile);
-  --lit-corner-glow-strength: 1;
-}
-.lit-surface[data-material='solid'] {
-  --lit-corner-glow: transparent;
+  background:
+    radial-gradient(70% 60% at var(--lit-corner-x, 0%) var(--lit-corner-y, 0%), var(--lit-corner-glow), transparent 72%), var(--lit-sheen),
+    var(--lit-solid-bg);
 }
 .lit-surface[data-layer='nav'],
 .lit-surface[data-layer='sheet'] {
@@ -117,7 +115,8 @@
 }
 
 /* Focus: never the lit or selected colour. */
-.lit-root :focus-visible {
+.lit-root :focus-visible,
+:root:where([data-look='lit']) :focus-visible {
   outline: 2px solid var(--lit-focus);
   outline-offset: 2px;
 }
@@ -186,9 +185,7 @@
 .lit-segmented button[aria-selected='true'] {
   color: var(--lit-on-accent);
   background: linear-gradient(180deg, var(--lit-accent-fill), var(--lit-accent-fill-2));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.35),
-    0 0 14px color-mix(in srgb, var(--lit-accent) 45%, transparent);
+  box-shadow: var(--lit-fill-shadow);
 }
 
 /* Field */
@@ -472,11 +469,7 @@
 .lit-door[aria-current='page'] {
   color: var(--lit-on-accent);
   background: linear-gradient(180deg, var(--lit-accent-fill), var(--lit-accent-fill-2));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.38),
-    0 3px 0 0 color-mix(in srgb, var(--lit-accent) 45%, black),
-    0 0 14px color-mix(in srgb, var(--lit-accent) 40%, transparent),
-    0 0 40px color-mix(in srgb, var(--lit-accent) 16%, transparent);
+  box-shadow: var(--lit-fill-shadow);
 }
 
 .lit-logo {
@@ -535,4 +528,43 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+/* Visually hidden, still read aloud */
+.lit-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* First-buy risk moment: an overlay with equal-weight choices */
+.lit-moment-scrim {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: var(--lit-scrim);
+}
+.lit-moment {
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.lit-moment [data-part='choices'] {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.lit-moment [data-part='title'] {
+  font-size: var(--lit-type-heading-size);
+  line-height: var(--lit-type-heading-line);
+  font-weight: var(--lit-type-heading-weight);
 }

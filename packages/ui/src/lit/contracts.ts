@@ -83,6 +83,8 @@ export const roles = {
   'solid-rim-dim': 'Rim colour on the side away from the light',
   'solid-wall': 'The visible wall under a panel (thickness)',
   'solid-shadow': 'Drop shadow stack under a panel',
+  sheen: 'Top highlight laid over a solid panel (a background layer)',
+  'fill-shadow': 'Highlight, drop and glow of a lit fill (selected segment, current door)',
   'corner-glow': 'Colour of the light pooling in a tile corner (components place it; `transparent` when flat)',
   'glass-bg': 'Nav and sheet layers only: translucent body',
   'glass-blur': 'backdrop-filter value for nav and sheet; `none` in solid mode',

@@ -5,7 +5,7 @@
  */
 import * as React from 'react';
 import { clsx } from 'clsx';
-import { doors as doorOrder, type Door, type Refusal } from '../contracts.js';
+import { doors as doorOrder, type Door, type LegalSlotProps, type Refusal } from '../contracts.js';
 
 type Div = React.HTMLAttributes<HTMLDivElement>;
 
@@ -93,16 +93,19 @@ export type SwitchProps = Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'o
   label: string;
 };
 
-export function Switch({ checked, onChange, label, className, ...rest }: SwitchProps) {
+export function Switch({ checked, onChange, label, className, onClick, ...rest }: SwitchProps) {
   return (
     <button
       {...rest}
       type="button"
       role="switch"
       aria-checked={checked}
-      aria-label={label}
+      aria-label={rest['aria-label'] ?? label}
       className={clsx('lit-switch', className)}
-      onClick={() => onChange(!checked)}
+      onClick={(e) => {
+        onClick?.(e);
+        if (!e.defaultPrevented) onChange(!checked);
+      }}
     />
   );
 }
@@ -132,11 +135,12 @@ export type FieldProps = React.InputHTMLAttributes<HTMLInputElement> & { label: 
 export function Field({ label, hint, error, id, className, ...rest }: FieldProps) {
   const auto = React.useId();
   const inputId = id ?? auto;
-  const describedBy = [hint ? `${inputId}-hint` : null, error ? `${inputId}-error` : null].filter(Boolean).join(' ') || undefined;
+  const describedBy =
+    [rest['aria-describedby'], hint ? `${inputId}-hint` : null, error ? `${inputId}-error` : null].filter(Boolean).join(' ') || undefined;
   return (
     <div className={clsx('lit-field-control', className)}>
       <label htmlFor={inputId}>{label}</label>
-      <input {...rest} id={inputId} aria-invalid={error ? true : undefined} aria-describedby={describedBy} />
+      <input {...rest} id={inputId} aria-invalid={error ? true : rest['aria-invalid']} aria-describedby={describedBy} />
       {hint && (
         <span id={`${inputId}-hint`} data-part="hint">
           {hint}
@@ -172,7 +176,8 @@ export function Figure({ text, unit, decimal = '.', size = 'figure', test, stale
   const major = at >= 0 ? text.slice(0, at) : text;
   const minor = at >= 0 ? text.slice(at) : '';
   return (
-    <span className={clsx('lit-figure', className)} data-size={size} aria-label={rest['aria-label'] ?? `${unit ?? ''}${text}`}>
+    <span className={clsx('lit-figure', className)} data-size={size}>
+      <span className="lit-sr">{rest['aria-label'] ?? `${unit ?? ''}${text}`}</span>
       {unit && (
         <span className="lit-figure__unit" aria-hidden="true">
           {unit}
@@ -207,22 +212,11 @@ export function Change({ text, dir, className }: ChangeProps) {
   return (
     <span className={clsx('lit-change', className)} data-dir={dir}>
       {arrow && <span aria-hidden="true">{arrow} </span>}
-      <span className="sr-only" style={srOnly}>
-        {word}{' '}
-      </span>
+      <span className="lit-sr">{word} </span>
       {text}
     </span>
   );
 }
-
-const srOnly: React.CSSProperties = {
-  position: 'absolute',
-  width: 1,
-  height: 1,
-  overflow: 'hidden',
-  clip: 'rect(0 0 0 0)',
-  whiteSpace: 'nowrap',
-};
 
 /** Mono fine print for codes and scales. Never legal text. */
 export const FinePrint = ({ className, ...rest }: React.HTMLAttributes<HTMLSpanElement>) => (
@@ -314,16 +308,20 @@ function orderedDoors(links: readonly DoorLink[]): DoorLink[] {
   });
 }
 
+function DoorLinks({ links, current }: { links: readonly DoorLink[]; current: Door }) {
+  return orderedDoors(links).map((l) => (
+    <a key={l.door} className="lit-door" href={l.href} aria-current={l.door === current ? 'page' : undefined}>
+      <span aria-hidden="true">{l.icon}</span>
+      {l.label}
+    </a>
+  ));
+}
+
 export function Dock({ links, current, label = 'Main' }: { links: readonly DoorLink[]; current: Door; label?: string }) {
   return (
     <nav aria-label={label}>
       <Surface layer="nav" className="lit-dock">
-        {orderedDoors(links).map((l) => (
-          <a key={l.door} className="lit-door" href={l.href} aria-current={l.door === current ? 'page' : undefined}>
-            <span aria-hidden="true">{l.icon}</span>
-            {l.label}
-          </a>
-        ))}
+        <DoorLinks links={links} current={current} />
       </Surface>
     </nav>
   );
@@ -343,18 +341,13 @@ export function Rail({
   label?: string;
 }) {
   return (
-    <Surface layer="nav" className="lit-rail">
-      {brand}
-      <nav aria-label={label} style={{ display: 'contents' }}>
-        {orderedDoors(links).map((l) => (
-          <a key={l.door} className="lit-door" href={l.href} aria-current={l.door === current ? 'page' : undefined}>
-            <span aria-hidden="true">{l.icon}</span>
-            {l.label}
-          </a>
-        ))}
-      </nav>
-      {footer}
-    </Surface>
+    <nav aria-label={label}>
+      <Surface layer="nav" className="lit-rail">
+        {brand}
+        <DoorLinks links={links} current={current} />
+        {footer}
+      </Surface>
+    </nav>
   );
 }
 
@@ -416,6 +409,86 @@ export function Stage({
     <div className={clsx('lit-stage', className)} style={style}>
       <img src={poster} alt={alt} />
       {children}
+    </div>
+  );
+}
+
+/** The page root for lit rooms: type, colour and the focus ring. Pair it with data-look="lit" on :root. */
+export const Root = ({ className, ...rest }: Div) => <div {...rest} className={clsx('lit-root', className)} />;
+
+/**
+ * One legal slot. The kit never holds legal copy: the caller resolves `textId` from the legal text registry and
+ * passes `text`. With no text the slot stays visible and says so, never an invented warning.
+ */
+export function LegalSlot({
+  type,
+  moment,
+  jurisdiction,
+  textId,
+  text,
+  learnMore,
+  className,
+}: LegalSlotProps & { text?: string; learnMore?: { label: string; onOpen: () => void }; className?: string }) {
+  return (
+    <div
+      className={clsx('lit-legal', className)}
+      data-type={type}
+      data-moment={moment}
+      data-jurisdiction={jurisdiction}
+      data-missing={text ? undefined : true}
+      role={type === 'risk-band' ? 'region' : undefined}
+      aria-label={type === 'risk-band' ? 'Risk warning' : undefined}
+    >
+      {text ?? `Legal text ${textId} is not set for ${jurisdiction}.`}
+      {text && learnMore && (
+        <>
+          {' '}
+          <a
+            href="#"
+            onClick={(e) => {
+              e.preventDefault();
+              learnMore.onOpen();
+            }}
+          >
+            {learnMore.label}
+          </a>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** First-buy risk moment: an overlay whose two choices carry equal weight. No 3D, no glow on either. */
+export function RiskMoment({
+  title,
+  children,
+  proceed,
+  leave,
+  className,
+}: {
+  title: string;
+  children: React.ReactNode;
+  proceed: { label: string; onChoose: () => void };
+  leave: { label: string; onChoose: () => void };
+  className?: string;
+}) {
+  const titleId = React.useId();
+  return (
+    <div className="lit-moment-scrim">
+      <Surface layer="sheet" role="dialog" aria-modal="true" aria-labelledby={titleId} className={clsx('lit-moment', className)}>
+        <div id={titleId} data-part="title">
+          {title}
+        </div>
+        <div>{children}</div>
+        <div data-part="choices">
+          <Button tone="secondary" onClick={leave.onChoose}>
+            {leave.label}
+          </Button>
+          <Button tone="secondary" onClick={proceed.onChoose}>
+            {proceed.label}
+          </Button>
+        </div>
+      </Surface>
     </div>
   );
 }

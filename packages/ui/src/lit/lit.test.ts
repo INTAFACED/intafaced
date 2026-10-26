@@ -70,7 +70,7 @@ describe('lit tokens: lit.ts and lit.css cannot drift', () => {
   });
 
   it('colour roles hold one value type in every skin (image roles are named in contracts)', () => {
-    const imageRoles = new Set(['field', 'glass-bg', 'primary-bg', 'secondary-bg', 'key-bg', 'key-lit-bg']);
+    const imageRoles = new Set(['field', 'sheen', 'glass-bg', 'primary-bg', 'secondary-bg', 'key-bg', 'key-lit-bg']);
     const isImage = (x: string) => /gradient\(/.test(x);
     for (const r of roleNames) {
       if (imageRoles.has(r)) continue;
