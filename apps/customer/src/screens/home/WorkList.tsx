@@ -43,11 +43,11 @@ const SEVERITY = {
  * room. With the owner values blank the list is refused with its code; an owner that has not answered is named, so an
  * empty list never claims "nothing needs you" on a missing answer.
  */
-export function WorkList({ hidden, className = 'home-section' }: { hidden: boolean; className?: string }) {
+export function WorkList({ hidden, className = 'home-section', testId }: { hidden: boolean; className?: string; testId?: string }) {
   const { t } = homeCopy.useCopy();
   const { list, retry } = useWorkList();
   return (
-    <section className={`${className} home-work`} aria-labelledby="home-work-title">
+    <section data-testid={testId} className={`${className} home-work`} aria-labelledby="home-work-title">
       <div className="home-section__head">
         <h2 className="home-h2" id="home-work-title">
           {t('Needs you')}
@@ -64,7 +64,7 @@ function Body({ list, hidden, retry }: { list: List; hidden: boolean; retry: () 
     return (
       <div className="home-work__rows" aria-hidden="true">
         {[0, 1].map((index) => (
-          <div className="home-work__row" key={index}>
+          <div data-testid="home-work__row" className="home-work__row" key={index}>
             <Skeleton width={180} height={36} className={IN_PANEL} />
           </div>
         ))}
@@ -127,7 +127,7 @@ function Row({ item, hidden }: { item: WorkItem; hidden: boolean }) {
   const severity = SEVERITY[item.severity];
   return (
     <li>
-      <a className="home-work__row" href={item.link} data-kind={item.kind} data-severity={item.severity}>
+      <a data-testid="home-work__row" className="home-work__row" href={item.link} data-kind={item.kind} data-severity={item.severity}>
         <span className="home-work__what">
           <span className="home-work__title">{t(known ?? KIND_TITLE[item.kind])}</span>
           <span className="home-work__meta">
