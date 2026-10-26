@@ -41,6 +41,11 @@ describe('the component sheet reads only lit roles', () => {
     for (const u of used) if (!local.has(u)) expect(declared.has(u), u).toBe(true);
   });
 
+  it('uses logical sides only, so right-to-left needs nothing', () => {
+    expect(css.match(/\b(margin|padding|border|inset)-(left|right)\b/g) ?? []).toEqual([]);
+    expect(css.match(/(^|[;{\s])(left|right)\s*:/gm) ?? []).toEqual([]);
+  });
+
   it('uses no backdrop blur except through the nav and sheet layers', () => {
     const blocks = css.split('}').filter((b) => /backdrop-filter/.test(b));
     for (const b of blocks) expect(b, b).toMatch(/data-layer='(nav|sheet)'/);
@@ -68,16 +73,37 @@ describe('components', () => {
   });
 
   it('Figure splits the minor part, labels TEST, and reads as one value', () => {
-    const out = html(<Figure text="12,480.36" unit="£" test size="hero" />);
-    expect(out).toContain('>12,480<');
-    expect(out).toContain('>.36<');
+    const gbp = [
+      { type: 'currency', value: '£' },
+      { type: 'integer', value: '12' },
+      { type: 'group', value: ',' },
+      { type: 'integer', value: '480' },
+      { type: 'decimal', value: '.' },
+      { type: 'fraction', value: '36' },
+    ];
+    const out = html(<Figure parts={gbp} test size="hero" />);
+    expect(out).toContain('<span class="lit-figure__unit">£</span>');
+    expect(out).toContain('<span class="lit-figure__minor">36</span>');
     expect(out).toContain('>TEST<');
     expect(out).toContain('<span class="lit-sr">£12,480.36</span>');
   });
 
+  it('Figure keeps the locale order of the parts (unit after the number)', () => {
+    const eur = [
+      { type: 'integer', value: '12' },
+      { type: 'decimal', value: ',' },
+      { type: 'fraction', value: '5' },
+      { type: 'literal', value: '\u00a0' },
+      { type: 'currency', value: '€' },
+    ];
+    const out = html(<Figure parts={eur} />);
+    expect(out).toContain('<span class="lit-sr">12,5\u00a0€</span>');
+    expect(out.indexOf('lit-figure__unit')).toBeGreaterThan(out.indexOf('>12<'));
+  });
+
   it('Change says the direction in words, not only colour', () => {
-    expect(html(<Change text="£84.10" dir="up" />)).toContain('up');
-    expect(html(<Change text="£6.40" dir="down" />)).toContain('down');
+    expect(html(<Change text="£84.10" dir="up" spoken="en hausse" />)).toContain('<span class="lit-sr">en hausse </span>');
+    expect(html(<Change text="£6.40" dir="down" spoken="down" />)).toContain('▼');
   });
 
   it('RefusalBox names the blocker, keeps the code small, and draws hold and pause apart', () => {
@@ -101,12 +127,12 @@ describe('components', () => {
       { door: 'trade', label: 'Trade', href: '/trade', icon: null },
       { door: 'pay', label: 'Pay', href: '/pay', icon: null },
     ];
-    const out = html(<Dock links={links} current="home" />);
-    expect(html(<Rail links={links} current="pay" />)).toMatch(/^<nav aria-label="Main">/);
+    const out = html(<Dock links={links} current="home" label="Main" />);
+    expect(html(<Rail links={links} current="pay" label="Main" />)).toMatch(/^<nav aria-label="Main">/);
     const order = [...out.matchAll(/href="\/([a-z]+)"/g)].map((m) => m[1]);
     expect(order).toEqual(['home', 'money', 'trade', 'pay', 'more']);
     expect(out).toContain('aria-current="page"');
-    expect(() => html(<Dock links={links.slice(1)} current="home" />)).toThrow(/more door/);
+    expect(() => html(<Dock links={links.slice(1)} current="home" label="Main" />)).toThrow(/more door/);
   });
 
   it('Logo mark has an accessible name when it stands alone', () => {
@@ -118,13 +144,18 @@ describe('components', () => {
     expect(out).toContain('aria-describedby="terms a-hint"');
   });
 
-  it('LegalSlot holds no copy of its own and stays visible when its text is unset', () => {
-    const missing = html(<LegalSlot type="risk-band" moment="first-buy" jurisdiction="uk" textId="risk.band" />);
+  it('LegalSlot holds no copy of its own, and an unset text shows a refusal in words, never the id', () => {
+    const base = { type: 'risk-band', moment: 'first-buy', jurisdiction: 'uk', textId: 'risk.band', label: 'Risk warning' } as const;
+    const missing = html(<LegalSlot {...base} text={null} missing="This warning isn't available yet." />);
     expect(missing).toContain('data-missing="true"');
-    expect(missing).toContain('risk.band');
-    const set = html(<LegalSlot type="risk-band" moment="first-buy" jurisdiction="uk" textId="risk.band" text="Warning." />);
+    expect(missing).toContain('data-text-id="risk.band"');
+    expect(missing.replace(/data-text-id="[^"]*"/, '')).not.toContain('risk.band');
+    const set = html(
+      <LegalSlot {...base} text="Warning." missing="-" learnMore={{ label: 'Take 2 mins to learn more', onOpen: () => {} }} />,
+    );
     expect(set).not.toContain('data-missing');
     expect(set).toContain('aria-label="Risk warning"');
+    expect(set).toContain('<button type="button" class="lit-legal__more">');
   });
 
   it('RiskMoment gives both choices the same weight', () => {

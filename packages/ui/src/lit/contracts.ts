@@ -14,7 +14,7 @@
 /** The `data-look` value that switches the skin on. */
 export const LIT_LOOK = 'lit' as const;
 
-/** `data-accent` on the root. Blue is the default (Nino, 26 Oct 2026); the others are a switch. */
+/** `data-accent` on the root. Blue is the default (owner decision, 26 Oct 2026); the others are a switch. */
 export const accents = ['blue', 'ember', 'violet', 'emerald'] as const;
 export type Accent = (typeof accents)[number];
 export const defaultAccent: Accent = 'blue';
@@ -31,7 +31,7 @@ export type SurfaceMode = (typeof surfaceModes)[number];
 export const schemes = ['dark', 'light'] as const;
 export type Scheme = (typeof schemes)[number];
 
-/** Simple is the default for everyone; Pro is the switch that turns on the trading desk (OWNER 74.1). */
+/** Simple is the default for everyone; Pro is the switch that turns on the trading desk. */
 export const modes = ['simple', 'pro'] as const;
 export type Mode = (typeof modes)[number];
 
@@ -174,7 +174,7 @@ export const typeRoles = {
 } as const;
 export type TypeRole = keyof typeof typeRoles;
 
-/** Every room is built from one of these (ROOM-INVENTORY.md, 26 Oct 2026). */
+/** Every room is built from one of these (the room inventory, 26 Oct 2026). */
 export const templates = {
   reading: 'Reading and status pages (help, status, docs, fees)',
   overview: 'Balance or business home (home, money, pay)',
@@ -188,7 +188,7 @@ export const templates = {
 export type TemplateId = keyof typeof templates;
 
 /**
- * The states every template draws (ROOM-INVENTORY.md "States"). The warning band is not a state: it is the
+ * The states every template draws (the room inventory's states). The warning band is not a state: it is the
  * fixed `legal` slot on every template. The first-buy warning is a risk moment (an overlay), not a state.
  */
 export const templateStates = ['ready', 'loading', 'empty', 'refused', 'gated', 'money-status', 'confirm', 'receipt'] as const;
@@ -220,7 +220,7 @@ export interface Refusal {
 export type Jurisdiction = 'uk' | 'eu' | 'unset';
 
 /**
- * Legal slot types (the slot types of RULES-AND-TRUST.md section B). What a slot is for is its `moment`
+ * Legal slot types (the legal and trust rules' slot types). What a slot is for is its `moment`
  * (for example `crypto-risk-band`, `first-buy`, `scam-stop`, `payee-check`, `cooling-off`, `credit-band`,
  * `mica-marketing`, `withdrawal-button`, `talk-to-a-person`, `regulated-status`); the registry in
  * `./templates/` holds the exact texts. Text comes only from the registry, never from a room.
@@ -313,6 +313,6 @@ export const components = {
 } as const;
 export type ComponentName = keyof typeof components;
 
-/** The five doors, in order (OWNER 74.4). */
+/** The five doors, in order. */
 export const doors = ['home', 'money', 'trade', 'pay', 'more'] as const;
 export type Door = (typeof doors)[number];

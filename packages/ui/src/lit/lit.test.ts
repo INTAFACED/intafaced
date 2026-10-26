@@ -142,7 +142,13 @@ describe('lit tokens: contrast at the worst point (text sits on opaque surfaces)
   });
 
   it('the risk band and refusals never use a brand colour, in either scheme', () => {
-    const brand = new Set<string>([lit.accent, lit['accent-text'], ...Object.values(accentTextLight)]);
+    const brand = new Set<string>([
+      lit.accent,
+      lit['accent-text'],
+      lit['accent-fill'],
+      lit['accent-fill-2'],
+      ...Object.values(accentTextLight),
+    ]);
     for (const a of accents) for (const x of Object.values(accentSets[a])) brand.add(x);
     for (const m of [lit, { ...lit, ...litLight }]) {
       for (const r of ['legal-bg', 'legal-fg', 'legal-border', 'refusal-bg', 'refusal-fg', 'refusal-border'] as const) {

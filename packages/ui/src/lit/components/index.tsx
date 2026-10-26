@@ -155,40 +155,35 @@ export function Field({ label, hint, error, id, className, ...rest }: FieldProps
   );
 }
 
+/** A typed part of a formatted number (packages/i18n `formatMoneyToParts` and friends return these). */
+export type FigurePart = { readonly type: string; readonly value: string };
+
 export type FigureProps = {
-  /** Already formatted by packages/i18n from a decimal string, e.g. "12,480.36". Never a number. */
-  text: string;
-  /** Currency symbol or unit, shown small before the figure. */
-  unit?: string;
-  /** Decimal separator in `text`, so the minor part can be drawn quieter. */
-  decimal?: string;
+  /** From packages/i18n's *ToParts formatters, from a decimal string; never a number. Locale order is kept. */
+  parts: readonly FigurePart[];
   size?: 'hero' | 'figure' | 'body';
   /** Illustrative figure: shows the TEST label. */
   test?: boolean;
   /** Older than its freshness limit: shows its age in words, never hidden. */
   stale?: string;
   className?: string;
-  'aria-label'?: string;
 };
 
-export function Figure({ text, unit, decimal = '.', size = 'figure', test, stale, className, ...rest }: FigureProps) {
-  const at = text.lastIndexOf(decimal);
-  const major = at >= 0 ? text.slice(0, at) : text;
-  const minor = at >= 0 ? text.slice(at) : '';
+const partClass = (t: string) =>
+  t === 'currency' || t === 'unit' ? 'lit-figure__unit' : t === 'decimal' || t === 'fraction' ? 'lit-figure__minor' : undefined;
+
+/** A money figure: the unit and the minor part drawn quieter, read aloud as one value. */
+export function Figure({ parts, size = 'figure', test, stale, className }: FigureProps) {
   return (
     <span className={clsx('lit-figure', className)} data-size={size}>
-      <span className="lit-sr">{rest['aria-label'] ?? `${unit ?? ''}${text}`}</span>
-      {unit && (
-        <span className="lit-figure__unit" aria-hidden="true">
-          {unit}
-        </span>
-      )}
-      <span aria-hidden="true">{major}</span>
-      {minor && (
-        <span className="lit-figure__minor" aria-hidden="true">
-          {minor}
-        </span>
-      )}
+      <span className="lit-sr">{parts.map((p) => p.value).join('')}</span>
+      <span aria-hidden="true">
+        {parts.map((p, i) => (
+          <span key={i} className={partClass(p.type)}>
+            {p.value}
+          </span>
+        ))}
+      </span>
       {(test || stale) && (
         <span className="lit-figure__marks">
           {test && <span className="lit-test">TEST</span>}
@@ -203,16 +198,21 @@ export function Figure({ text, unit, decimal = '.', size = 'figure', test, stale
   );
 }
 
-export type ChangeProps = { text: string; dir: 'up' | 'down' | 'flat'; className?: string };
+export type ChangeProps = {
+  text: string;
+  dir: 'up' | 'down' | 'flat';
+  /** The direction in the reader's language ("up", "down", "no change"), from the i18n catalogue. */
+  spoken: string;
+  className?: string;
+};
 
 /** Up or down as words and an arrow, never colour alone. */
-export function Change({ text, dir, className }: ChangeProps) {
+export function Change({ text, dir, spoken, className }: ChangeProps) {
   const arrow = dir === 'up' ? '▲' : dir === 'down' ? '▼' : '';
-  const word = dir === 'up' ? 'up' : dir === 'down' ? 'down' : 'no change';
   return (
     <span className={clsx('lit-change', className)} data-dir={dir}>
       {arrow && <span aria-hidden="true">{arrow} </span>}
-      <span className="lit-sr">{word} </span>
+      <span className="lit-sr">{spoken} </span>
       {text}
     </span>
   );
@@ -317,7 +317,7 @@ function DoorLinks({ links, current }: { links: readonly DoorLink[]; current: Do
   ));
 }
 
-export function Dock({ links, current, label = 'Main' }: { links: readonly DoorLink[]; current: Door; label?: string }) {
+export function Dock({ links, current, label }: { links: readonly DoorLink[]; current: Door; label: string }) {
   return (
     <nav aria-label={label}>
       <Surface layer="nav" className="lit-dock">
@@ -332,13 +332,13 @@ export function Rail({
   current,
   brand,
   footer,
-  label = 'Main',
+  label,
 }: {
   links: readonly DoorLink[];
   current: Door;
   brand?: React.ReactNode;
   footer?: React.ReactNode;
-  label?: string;
+  label: string;
 }) {
   return (
     <nav aria-label={label}>
@@ -352,7 +352,7 @@ export function Rail({
 }
 
 /**
- * The stand-in mark (three slanted panes, take four's `FX.markPath()`) until the brand kit arrives; the kit swaps
+ * The stand-in mark (three slanted panes) until the brand kit arrives; the kit swaps
  * this one path. The 3D logo (`./fx`) extrudes the same path. viewBox -1 -1 2 2.
  */
 export const MARK_PATH =
@@ -417,8 +417,9 @@ export function Stage({
 export const Root = ({ className, ...rest }: Div) => <div {...rest} className={clsx('lit-root', className)} />;
 
 /**
- * One legal slot. The kit never holds legal copy: the caller resolves `textId` from the legal text registry and
- * passes `text`. With no text the slot stays visible and says so, never an invented warning.
+ * One legal slot. The kit holds no copy: the caller resolves `textId` from the legal text registry for the
+ * reader's language and passes `text`, `label` and, when the text is unset, `missing` (a designed refusal in
+ * words). The id stays in a data attribute, never on screen.
  */
 export function LegalSlot({
   type,
@@ -426,39 +427,47 @@ export function LegalSlot({
   jurisdiction,
   textId,
   text,
+  label,
+  missing,
   learnMore,
   className,
-}: LegalSlotProps & { text?: string; learnMore?: { label: string; onOpen: () => void }; className?: string }) {
+}: LegalSlotProps & {
+  text: string | null;
+  /** Accessible name of the region, for example "Risk warning". */
+  label: string;
+  /** Shown when `text` is null: the refusal in words. */
+  missing: string;
+  learnMore?: { label: string; onOpen: () => void };
+  className?: string;
+}) {
   return (
     <div
       className={clsx('lit-legal', className)}
       data-type={type}
       data-moment={moment}
       data-jurisdiction={jurisdiction}
+      data-text-id={textId}
       data-missing={text ? undefined : true}
-      role={type === 'risk-band' ? 'region' : undefined}
-      aria-label={type === 'risk-band' ? 'Risk warning' : undefined}
+      role="region"
+      aria-label={label}
     >
-      {text ?? `Legal text ${textId} is not set for ${jurisdiction}.`}
+      {text ?? missing}
       {text && learnMore && (
         <>
           {' '}
-          <a
-            href="#"
-            onClick={(e) => {
-              e.preventDefault();
-              learnMore.onOpen();
-            }}
-          >
+          <button type="button" className="lit-legal__more" onClick={learnMore.onOpen}>
             {learnMore.label}
-          </a>
+          </button>
         </>
       )}
     </div>
   );
 }
 
-/** First-buy risk moment: an overlay whose two choices carry equal weight. No 3D, no glow on either. */
+/**
+ * First-buy risk moment: an overlay whose two choices carry equal weight. No 3D, no glow on either. Focus moving
+ * in and staying inside, and Escape, belong to the host (templates lane) until the kit has a dialog primitive.
+ */
 export function RiskMoment({
   title,
   children,

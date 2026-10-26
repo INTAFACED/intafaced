@@ -1,6 +1,8 @@
 /**
- * Lit glass component sheet (B1). Reads only --lit-* roles from lit.css; structural sizes (hairlines, icon
- * boxes) live here because the kit is the system. Rooms never restyle these classes.
+ * Lit glass component sheet. Reads only --lit-* roles from lit.css. Spacing that scales with density reads the
+ * density roles; structural sizes (hairlines, icon boxes, hit targets, a control's inner padding) stay raw px
+ * here because the kit is the system. Logical sides only, so right-to-left needs nothing. Rooms never restyle
+ * these classes.
  * Load order in the app: theme/tokens.css, lit/lit.css, then this file.
  */
 
@@ -170,7 +172,7 @@
 }
 .lit-segmented button {
   flex: 1;
-  min-height: 32px;
+  min-height: calc(var(--lit-control-h) - 16px);
   min-width: 24px;
   border: 0;
   border-radius: calc(var(--lit-radius-control) - 4px);
@@ -255,7 +257,7 @@
 .lit-figure__marks {
   display: inline-flex;
   gap: 6px;
-  margin-left: 10px;
+  margin-inline-start: 10px;
   align-self: center;
 }
 .lit-change {
@@ -371,6 +373,17 @@
   font-size: var(--lit-type-body-size);
   line-height: var(--lit-type-body-line);
 }
+.lit-legal__more {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  color: var(--lit-legal-fg);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 .lit-legal a {
   color: var(--lit-legal-fg);
   font-weight: 600;
@@ -384,18 +397,18 @@
 /* Refusals: the blocker in words, neutral */
 .lit-refusal {
   display: flex;
-  gap: 12px;
-  padding: 14px 16px;
+  gap: var(--lit-gap-item);
+  padding: var(--lit-pad-panel);
   border-radius: var(--lit-radius-tile);
   background: var(--lit-refusal-bg);
   color: var(--lit-refusal-fg);
   box-shadow: inset 0 0 0 1px var(--lit-refusal-border);
 }
 .lit-refusal[data-variant='platform-pause'] {
-  border-left: 3px solid var(--lit-warn-text);
+  border-inline-start: 3px solid var(--lit-warn-text);
 }
 .lit-refusal[data-variant='account-hold'] {
-  border-left: 3px solid var(--lit-text-1);
+  border-inline-start: 3px solid var(--lit-text-1);
 }
 .lit-refusal [data-part='title'] {
   font-weight: 500;
@@ -412,8 +425,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
-  padding: 32px 16px;
+  gap: var(--lit-gap-item);
+  padding: var(--lit-gap-section) var(--lit-pad-panel);
   text-align: center;
   color: var(--lit-text-2);
 }
@@ -426,8 +439,7 @@
 /* Navigation: five doors, always fully visible */
 .lit-dock {
   position: fixed;
-  left: 14px;
-  right: 14px;
+  inset-inline: 14px;
   bottom: max(14px, env(safe-area-inset-bottom));
   z-index: 30;
   display: flex;
@@ -442,7 +454,7 @@
   flex-direction: column;
   gap: 4px;
   width: 224px;
-  padding: 20px 14px;
+  padding: var(--lit-pad-panel) 14px;
 }
 .lit-door {
   display: flex;
@@ -503,7 +515,7 @@
   content: '';
   position: absolute;
   top: 4px;
-  left: 4px;
+  inset-inline-start: 4px;
   width: 24px;
   height: 24px;
   border-radius: 50%;
@@ -514,6 +526,9 @@
   transform: translateX(20px);
   background: radial-gradient(circle at 48% 42%, var(--lit-accent-hot), var(--lit-accent) 60%);
   box-shadow: 0 0 16px var(--lit-accent);
+}
+.lit-switch[aria-checked='true']:dir(rtl)::after {
+  transform: translateX(-20px);
 }
 
 /* Stage: poster first; the 3D object mounts over it; never on confirm or review */
@@ -556,7 +571,7 @@
   max-width: 480px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--lit-gap-item);
 }
 .lit-moment [data-part='choices'] {
   display: grid;

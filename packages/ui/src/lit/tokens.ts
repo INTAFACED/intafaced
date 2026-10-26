@@ -6,15 +6,14 @@
  *
  * - `flat`: the look switched off. Every role resolves to today's `--if-*` tokens, so a room built on a template
  *   shows its new layout in today's skin, with no glass, glow or blur. Hex values never appear here.
- * - `lit`: the Lit glass skin, dark, blue (the default accent). Provenance: take four's `lit.css` in the private
- *   design repo, each material measured from one of Nino's reference crops (b1-14 glass kit, b2-07 metal and dark
- *   pills, b1-09 corner light, b1-02 fine print), re-keyed from ember to blue. PROVISIONAL until stage A1
- *   (take four re-lit in blue inside the budgets) is judged against the crops; names won't change, values may.
+ * - `lit`: the Lit glass skin, dark, blue (the default accent). Each material is measured from the owner's
+ *   reference set (kept outside this repo). PROVISIONAL until the blue re-light is judged against those
+ *   references; names won't change, values may.
  * - `litLight`: light values for the same roles. Not shipped (dark first, 26 Oct 2026); written now so contrast
  *   tests run on both schemes.
  * - `accentSets` and `solid`: per-accent light colours, and the Solid surfaces mode (no translucency, no blur).
  *
- * Budgets the values keep (plan v2 section 3): money and text sit on opaque content panels (`solid-bg`), glass
+ * Budgets the values keep: money and text sit on opaque content panels (`solid-bg`), glass
  * and blur are only on the nav and sheet layers, and text roles meet 4.5:1 on every solid surface.
  */
 import { cssValue } from '../theme/tokens.js';
