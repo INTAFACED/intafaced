@@ -64,7 +64,7 @@ export function RemindSeller({ trade, pay, onSent }: { trade: Trade; pay: Person
       <p className="muted">{note}</p>
       {reminders?.lastAt ? <p className="muted">{t('sentToSeller', { time: time(reminders.lastAt) })}</p> : null}
       {refusal ? (
-        <p className="failure" role="status">
+        <p data-testid="failure" className="failure" role="status">
           {refusal}
         </p>
       ) : failure ? (

@@ -68,7 +68,7 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
             <a href="#main" className="skip-link">
               {t('skip')}
             </a>
-            <header className="tb web3-bar">
+            <header data-testid="tb" className="tb web3-bar">
               <a className="tb-brand" href="/home" aria-label={t('shellHome')}>
                 <Wordmark />
               </a>
@@ -84,7 +84,7 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
                   ))}
                 </ul>
               </nav>
-              <div className="tb-right web3-chips">
+              <div data-testid="tb-right" className="tb-right web3-chips">
                 <span className="web3-chip" data-chip="network" role="status" title={chip}>
                   {chip}
                 </span>

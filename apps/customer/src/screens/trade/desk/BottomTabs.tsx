@@ -87,7 +87,7 @@ export const BottomTabs = memo(function BottomTabs({
 
   return (
     <Tabs value={tab} onValueChange={(value) => onTab(value as Tab)} className="dk-panel dk-bottom">
-      <div className="dk-bottom-head">
+      <div data-testid="dk-bottom-head" className="dk-bottom-head">
         <TabsList divider className="dk-tabs dk-tabs--grow" aria-label={t('Orders and trades')}>
           <TabsTab value="open">{t('Open orders')}</TabsTab>
           <TabsTab value="history">{t('Order history')}</TabsTab>
@@ -116,12 +116,12 @@ export const BottomTabs = memo(function BottomTabs({
           </a>
         ) : null}
       </div>
-      <TabsPanel value="open" className="dk-bottom-body">
+      <TabsPanel value="open" data-testid="dk-bottom-body" className="dk-bottom-body">
         <LoadState load={openOrders} thing="orders">
           {(rows) => (rows.length === 0 ? <StateBlock kind="empty" title={t('No open orders')} /> : orderTable(rows, true))}
         </LoadState>
       </TabsPanel>
-      <TabsPanel value="history" className="dk-bottom-body">
+      <TabsPanel value="history" data-testid="dk-bottom-body" className="dk-bottom-body">
         <LoadState load={closed} thing="orders">
           {(rows) => {
             if (rows.length === 0) return <StateBlock kind="empty" title={t('No order history')} />;
@@ -135,19 +135,19 @@ export const BottomTabs = memo(function BottomTabs({
           }}
         </LoadState>
       </TabsPanel>
-      <TabsPanel value="trades" className="dk-bottom-body">
+      <TabsPanel value="trades" data-testid="dk-bottom-body" className="dk-bottom-body">
         <LoadState load={fills} thing="trades">
           {(rows) =>
             rows.length === 0 ? <StateBlock kind="empty" title={t('No trade history')} /> : <FillsTable rows={rows} precision={precision} />
           }
         </LoadState>
       </TabsPanel>
-      <TabsPanel value="assets" className="dk-bottom-body">
+      <TabsPanel value="assets" data-testid="dk-bottom-body" className="dk-bottom-body">
         <LoadState load={balances} thing="assets">
           {(held) => {
             const assets = [market.base, market.quote];
             return (
-              <table className="dk-table">
+              <table data-testid="dk-table" className="dk-table">
                 <thead>
                   <tr>
                     <th>{t('Asset')}</th>
@@ -198,11 +198,11 @@ export const BottomTabs = memo(function BottomTabs({
         </LoadState>
       </TabsPanel>
       {userId ? (
-        <TabsPanel value="ledger" className="dk-bottom-body">
+        <TabsPanel value="ledger" data-testid="dk-bottom-body" className="dk-bottom-body">
           {tab === 'ledger' ? <LedgerTab balances={balances} /> : null}
         </TabsPanel>
       ) : null}
-      <TabsPanel value="positions" className="dk-bottom-body">
+      <TabsPanel value="positions" data-testid="dk-bottom-body" className="dk-bottom-body">
         <StateBlock kind="empty" title={t('Positions not applicable')} body={t('Positions not applicable note')} />
       </TabsPanel>
       {editing && editingMarket ? (

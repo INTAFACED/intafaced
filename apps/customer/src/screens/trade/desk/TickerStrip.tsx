@@ -51,10 +51,12 @@ export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite,
         ? t('Trading mode no orders', { state: t(`Mode ${mode.mode}`) })
         : t('Trading mode value', { state: mode.kind === 'unlisted' ? t('Mode unlisted') : t('Mode other') });
   return (
-    <header className="dk-ticker" aria-label={t('Spot desk')}>
+    <header data-testid="dk-ticker" className="dk-ticker" aria-label={t('Spot desk')}>
       <div className="dk-ticker-pair">
         <CoinIcon asset={market.base} size={24} />
-        <h1 className="dk-pair">{pair}</h1>
+        <h1 data-testid="dk-pair" className="dk-pair">
+          {pair}
+        </h1>
         {picker}
         <button
           type="button"
@@ -75,6 +77,7 @@ export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite,
         ) : (
           <>
             <span
+              data-testid="dk-last"
               className="dk-last if-num"
               data-direction={colour ?? undefined}
               data-flash={flash ?? undefined}
@@ -86,7 +89,7 @@ export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite,
           </>
         )}
       </div>
-      <div className="dk-stats">
+      <div data-testid="dk-stats" className="dk-stats">
         {/* First, so a narrow strip clips a volume figure before it hides that the market is halted. */}
         <Stat label={t('Trading mode')} value={modeText} loading={false} />
         <Stat

@@ -96,7 +96,7 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
   );
 
   return (
-    <div className="if-desk" data-market={market.symbol}>
+    <div data-testid="if-desk" className="if-desk" data-market={market.symbol}>
       <TickerStrip
         market={market}
         ticker={ticker}
@@ -108,7 +108,7 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
       />
       <EmailProofNotice />
       <div className="dk-grid">
-        <aside className="dk-panel dk-left" aria-label={t('Markets')}>
+        <aside data-testid="dk-left" className="dk-panel dk-left" aria-label={t('Markets')}>
           <div className="dk-fill">
             <div className="dk-tab-title">
               <span>{t('Markets')}</span>
@@ -116,7 +116,7 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
             <MarketsPanel selected={market.symbol} />
           </div>
         </aside>
-        <div className="dk-centre">
+        <div data-testid="dk-centre" className="dk-centre">
           <ChartPanel market={market} openOrders={openOrders} fills={fills} />
           <OrderPanel
             market={market}
@@ -147,23 +147,23 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
 
 function DeskSkeleton() {
   return (
-    <div className="if-desk" role="status" aria-busy="true">
-      <div className="dk-ticker">
+    <div data-testid="if-desk" className="if-desk" role="status" aria-busy="true">
+      <div data-testid="dk-ticker" className="dk-ticker">
         <Skeleton width={160} height={24} className="bg-field" />
       </div>
       <div className="dk-grid">
-        <div className="dk-panel dk-left">
+        <div data-testid="dk-left" className="dk-panel dk-left">
           <Skeleton height={500} className="bg-field" />
         </div>
-        <div className="dk-centre">
-          <div className="dk-panel dk-chart">
+        <div data-testid="dk-centre" className="dk-centre">
+          <div data-testid="dk-chart" className="dk-panel dk-chart">
             <Skeleton height={440} className="bg-field" />
           </div>
-          <div className="dk-panel dk-order">
+          <div data-testid="dk-order" className="dk-panel dk-order">
             <Skeleton height={330} className="bg-field" />
           </div>
         </div>
-        <div className="dk-panel dk-book">
+        <div data-testid="dk-book" className="dk-panel dk-book">
           <Skeleton height={500} className="bg-field" />
         </div>
       </div>
@@ -182,14 +182,14 @@ export default function TradeDeskScreen({ params, search }: ScreenProps) {
   if (markets.status === 'loading') return <DeskSkeleton />;
   if (markets.status === 'error')
     return (
-      <div className="if-desk if-desk--state">
+      <div data-testid="if-desk" className="if-desk if-desk--state">
         <StateBlock kind="error" title={t('Couldn’t load this market')} onRetry={markets.retry} retryLabel={t('Try again')} />
       </div>
     );
   if (markets.status === 'refused') {
     const words = refusalCopy(markets.code, { pair });
     return (
-      <div className="if-desk if-desk--state">
+      <div data-testid="if-desk" className="if-desk if-desk--state">
         <StateBlock kind="refused" title={words.title} body={words.body} action={words.action} />
       </div>
     );
@@ -197,7 +197,7 @@ export default function TradeDeskScreen({ params, search }: ScreenProps) {
   const market = markets.status === 'ready' ? findMarket(markets.data, pair) : undefined;
   if (!market || markets.status !== 'ready')
     return (
-      <div className="if-desk if-desk--state">
+      <div data-testid="if-desk" className="if-desk if-desk--state">
         <StateBlock
           kind="empty"
           title={t('Market not found title')}

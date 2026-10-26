@@ -307,7 +307,7 @@ function ConversationReply({ courseSlug, onSent }: { courseSlug: string; onSent:
         </Button>
         {outcome?.kind === 'done' && <ServiceOffNotice code="vendor.email" action={t('teamContactMailAction')} role="status" />}
         {outcome?.kind === 'uncertain' && (
-          <p role="status" className="failure">
+          <p role="status" data-testid="failure" className="failure">
             {t('teamContactUncertain')}
           </p>
         )}

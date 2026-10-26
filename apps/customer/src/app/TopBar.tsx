@@ -132,7 +132,7 @@ function NavTab({ tab, current, language }: { tab: TabSpec; current: Door | unde
       </a>
       {hasMenu && open && (
         // TODO(B1): swap to the Base UI NavigationMenu in @intafaced/ui (same rows, same copy).
-        <div className="tb-popover tb-menu" id={menuId} role="group" aria-label={doorLabel(tab.door, language)}>
+        <div data-testid="tb-menu" className="tb-popover tb-menu" id={menuId} role="group" aria-label={doorLabel(tab.door, language)}>
           {groupedPay ? (
             <Suspense fallback={null}>
               <GroupedMenu here={location.pathname} close={() => setOpen(false)} />
@@ -265,7 +265,7 @@ export function TopBar({
     );
   return (
     <>
-      <header className="tb" data-obscures="top">
+      <header data-testid="tb" className="tb" data-obscures="top">
         <a className="tb-brand" href="/home" aria-label={t('Go to Home')}>
           <Wordmark />
         </a>
@@ -276,7 +276,7 @@ export function TopBar({
             ))}
           </ul>
         </nav>
-        <div className="tb-right">
+        <div data-testid="tb-right" className="tb-right">
           {/* The bar has room for the switch from 1280 px; narrower, it is in the account menu, or signed out in the row below. */}
           <ShellSwitch current="exchange" here={here} className="max-[1280px]:hidden" />
           <TopSearch />
