@@ -146,6 +146,9 @@
     top: calc(100% - 4px);
     left: -16px;
     width: 340px;
+    /* Money and Trade list 13 and 14 rows in Pro: a short screen scrolls the menu, so every row stays reachable. */
+    max-height: calc(100vh - 64px - var(--if-banner-offset, 0px));
+    overflow-y: auto;
   }
   .tb-menu-item {
     display: flex;

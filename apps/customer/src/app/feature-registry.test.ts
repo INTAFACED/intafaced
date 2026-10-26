@@ -229,7 +229,10 @@ describe('top-bar menus link rooms that open', () => {
       }
   });
   it('gives every money room, the Bank rooms included, the one Money door', () => {
-    for (const room of rooms.filter((r) => r.area === 'money' && r.door && r.door !== 'Trade')) expect(room.door, room.path).toBe('Money');
+    for (const room of rooms.filter((r) =>
+      /^\/(bank|money|portfolio)(\/|$)|^\/uc\/(recharge|withdraw|assets|money|record)(\/|$)/.test(r.path),
+    ))
+      expect(room.door, room.path).toBe('Money');
     expect(findRoom('/bank')?.door).toBe('Money');
     expect(findRoom('/bank')?.alias, '/bank is its own room, not the Money page').toBeUndefined();
   });
