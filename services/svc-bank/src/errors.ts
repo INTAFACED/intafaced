@@ -841,6 +841,8 @@ export type BankErrorCode =
   | 'bank.space_limit_unset'
   /** The account already holds the owner's number of live named spaces. */
   | 'bank.space_limit_reached'
+  /** The customer already has a space with this name in this currency (`spaces_user_asset_name_idx`); rename and retry. */
+  | 'bank.space_name_taken'
   /** A pot change that cannot be: a goal of zero or less, a lock date not in the future or earlier than the lock, or the primary space (BK-pots-02). */
   | 'bank.space_change_invalid'
   /** The owner has not set how long an early unlock waits (`BANK_SPACE_UNLOCK_WAIT_HOURS`), so the pot stays locked to its date (BK-pots-02). */
