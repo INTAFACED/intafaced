@@ -50,19 +50,14 @@ export function Table<Row>({ caption, columns, rows, rowKey, mode = 'simple', ro
               {cols.map((c, i) => {
                 const content = c.cell(row);
                 return (
-                  <td
-                    key={c.key}
-                    data-label={c.label}
-                    data-align={c.align ?? 'start'}
-                    className={c.ltr ? 'lt-mono' : undefined}
-                    dir={c.ltr ? 'ltr' : 'auto'}
-                  >
+                  <td key={c.key} data-label={c.label} data-align={c.align ?? 'start'} className={c.ltr ? 'lt-mono' : undefined}>
+                    {/* The cell lays out from the page's direction; its text is isolated so it keeps its own. */}
                     {i === 0 && rowHref ? (
                       <a className="lt-row-link" href={rowHref(row)}>
-                        {content}
+                        <bdi dir={c.ltr ? 'ltr' : undefined}>{content}</bdi>
                       </a>
                     ) : (
-                      content
+                      <bdi dir={c.ltr ? 'ltr' : undefined}>{content}</bdi>
                     )}
                   </td>
                 );

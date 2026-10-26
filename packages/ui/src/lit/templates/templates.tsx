@@ -1,12 +1,11 @@
 /**
- * The eight templates every customer room is built from (ROOM-INVENTORY.md; spec in project-state
- * design/new-look/redesign/templates/SPEC.md). A template fixes structure: its regions, their order on phone and
+ * The eight templates every customer room is built from (every room in the redesign's inventory). A template fixes structure: its regions, their order on phone and
  * computer, which regions Simple and Pro show, the legal slots and the states. Rooms pass data and copy as slot
  * content, never styling. Layout follows the template's own width (container queries in templates.css).
  */
 import * as React from 'react';
 import { Stepper } from '../components/b2-basics.js';
-import { Region, RoomFrame } from './frame.js';
+import { Region, RoomFrame, WHOLE_ROOM_STATES } from './frame.js';
 import type { RoomProps } from './types.js';
 
 type Slot = React.ReactNode;
@@ -34,7 +33,7 @@ export interface OverviewProps extends RoomProps {
 export function OverviewTemplate(p: OverviewProps) {
   return (
     <RoomFrame {...p} template="overview">
-      <Region name="rooms" ghost="keys">
+      <Region name="rooms" ghost="keys" live>
         {p.rooms}
       </Region>
       <div className="lt-grid lt-grid-main-side">
@@ -42,18 +41,18 @@ export function OverviewTemplate(p: OverviewProps) {
           <Region name="hero" data primary ghost="figure" label="Balance">
             {p.hero}
           </Region>
-          <Region name="actions" ghost="keys">
+          <Region name="actions" data ghost="keys">
             {p.actions}
           </Region>
           <Region name="needs-you" data ghost="rows" label="Needs you">
             {p.needsYou}
           </Region>
           {isPro(p) ? (
-            <Region name="pro" data ghost="chart">
+            <Region name="pro" data ghost="chart" label="Performance">
               {p.pro}
             </Region>
           ) : null}
-          <Region name="sections" data ghost="rows">
+          <Region name="sections" data ghost="rows" label="Activity">
             {p.sections}
           </Region>
         </div>
@@ -103,9 +102,11 @@ export function RecordListTemplate(p: RecordListProps) {
           {p.filters}
         </Region>
         {isPro(p) ? <Region name="tools">{p.tools}</Region> : null}
-        <Region name="export">{p.export}</Region>
+        <Region name="export" data ghost="keys">
+          {p.export}
+        </Region>
       </div>
-      <Region name="summary" data ghost="figure">
+      <Region name="summary" data ghost="figure" label="Summary">
         {p.summary}
       </Region>
       <div className={p.detail ? 'lt-grid lt-grid-list-detail' : 'lt-grid'}>
@@ -155,7 +156,7 @@ export function MonitorTemplate(p: MonitorProps) {
           </div>
         ) : null}
       </Region>
-      <Region name="actions" ghost="keys">
+      <Region name="actions" data ghost="keys">
         {p.actions}
       </Region>
       <div className="lt-grid lt-grid-main-side">
@@ -164,11 +165,11 @@ export function MonitorTemplate(p: MonitorProps) {
             {p.chart}
           </Region>
           {isPro(p) ? (
-            <Region name="pro" data ghost="chart">
+            <Region name="pro" data ghost="chart" label="More charts">
               {p.pro}
             </Region>
           ) : null}
-          <Region name="panels" data ghost="grid">
+          <Region name="panels" data ghost="grid" label="Details">
             {p.panels}
           </Region>
         </div>
@@ -176,7 +177,7 @@ export function MonitorTemplate(p: MonitorProps) {
           <Region name="explain" ghost="text" label="What this means">
             {p.explain}
           </Region>
-          <Region name="related" data ghost="rows">
+          <Region name="related" data ghost="rows" label="Related">
             {p.related}
           </Region>
         </div>
@@ -202,17 +203,37 @@ export interface FlowProps extends RoomProps {
   help?: Slot;
 }
 
+/**
+ * Where the stepper stands follows the state, so it never contradicts it: empty is the first step, confirm is the
+ * last (review), and once money has moved (status, receipt) the steps are over and the stepper goes.
+ */
+function stepNow(p: FlowProps): number | null {
+  if (!p.steps) return null;
+  switch (p.state.kind) {
+    case 'money-status':
+    case 'receipt':
+      return null;
+    case 'empty':
+      return 0;
+    case 'confirm':
+      return p.steps.labels.length - 1;
+    default:
+      return p.steps.current;
+  }
+}
+
 export function FlowTemplate(p: FlowProps) {
+  const current = stepNow(p);
   return (
     <RoomFrame {...p} template="flow">
-      {p.steps && p.state.kind !== 'receipt' ? <Stepper labels={p.steps.labels} current={p.steps.current} /> : null}
+      {p.steps && current !== null ? <Stepper labels={p.steps.labels} current={current} /> : null}
       <div className="lt-grid lt-grid-flow">
         <div className="lt-col-main">
-          <Region name="step" data primary ghost="form">
+          <Region name="step" data primary ghost="form" label="This step">
             {p.step}
           </Region>
           {isPro(p) ? (
-            <Region name="advanced" data ghost="form">
+            <Region name="advanced" data ghost="form" label="Advanced">
               {p.advanced}
             </Region>
           ) : null}
@@ -224,7 +245,9 @@ export function FlowTemplate(p: FlowProps) {
           <Region name="summary" data ghost="rows" label="Summary">
             {p.summary}
           </Region>
-          <Region name="help">{p.help}</Region>
+          <Region name="help" live>
+            {p.help}
+          </Region>
         </div>
       </div>
     </RoomFrame>
@@ -246,10 +269,10 @@ export function SettingsTemplate(p: SettingsProps) {
   return (
     <RoomFrame {...p} template="settings">
       <div className="lt-grid lt-grid-settings">
-        <Region name="index" label="Sections" ghost="rows">
+        <Region name="index" label="Sections" ghost="rows" live>
           {p.index}
         </Region>
-        <Region name="sections" data primary ghost="rows">
+        <Region name="sections" data primary ghost="rows" label="Settings">
           {p.sections}
         </Region>
         <Region name="explain" ghost="text" label="What this means">
@@ -277,7 +300,7 @@ export function CatalogueTemplate(p: CatalogueProps) {
     return (
       <RoomFrame {...p} template="catalogue">
         <div className="lt-grid lt-grid-reading">
-          <Region name="item" data primary ghost="text">
+          <Region name="item" data primary ghost="text" label="Product">
             {p.item}
           </Region>
         </div>
@@ -290,7 +313,7 @@ export function CatalogueTemplate(p: CatalogueProps) {
         {p.filters}
       </Region>
       {!isPro(p) ? (
-        <Region name="featured" data ghost="figure">
+        <Region name="featured" data ghost="figure" label="Featured">
           {p.featured}
         </Region>
       ) : null}
@@ -317,14 +340,24 @@ export interface DeskProps extends RoomProps {
 
 /**
  * Pro is the desk. In Simple the room stays visible (never hidden): chart first, the ticket, and nothing else.
- * Every panel has an explicit grid area (auto-placement broke a fixed row in take four).
+ * Every panel has an explicit grid area (auto-placement can break a fixed row).
  */
 export function DeskTemplate(p: DeskProps) {
   const pro = isPro(p);
+  if (WHOLE_ROOM_STATES.has(p.state.kind)) {
+    // A whole-room state takes the main column, never the narrow ticket column.
+    return (
+      <RoomFrame {...p} template="desk">
+        <div className="lt-grid lt-grid-reading">
+          <Region name="ticket" primary label="Order" />
+        </div>
+      </RoomFrame>
+    );
+  }
   return (
     <RoomFrame {...p} template="desk">
       <div className="lt-desk" data-desk={pro ? 'pro' : 'simple'}>
-        <Region name="instrument" data ghost="figure">
+        <Region name="instrument" data ghost="figure" label="Price">
           {p.instrument}
         </Region>
         {pro ? (
@@ -376,19 +409,23 @@ export interface ReadingProps extends RoomProps {
 export function ReadingTemplate(p: ReadingProps) {
   return (
     <RoomFrame {...p} template="reading">
-      <Region name="meta">{p.meta}</Region>
+      <Region name="meta" data ghost="text">
+        {p.meta}
+      </Region>
       <div className="lt-grid lt-grid-reading-toc">
-        <Region name="toc" label="On this page">
+        <Region name="toc" data ghost="rows" label="On this page">
           {p.toc}
         </Region>
-        <Region name="body" data primary ghost="text">
+        <Region name="body" data primary ghost="text" label="Article">
           {p.body}
         </Region>
       </div>
       <Region name="related" data ghost="rows" label="Related">
         {p.related}
       </Region>
-      <Region name="contact">{p.contact}</Region>
+      <Region name="contact" live>
+        {p.contact}
+      </Region>
       <Region name="footer">{p.footer}</Region>
     </RoomFrame>
   );

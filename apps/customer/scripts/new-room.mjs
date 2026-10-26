@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The room scaffold (Lit glass plan v2, lane B2): a new customer room is born on one of the eight templates.
+// The room scaffold (Lit glass redesign): a new customer room is born on one of the eight templates.
 //
 //   pnpm --filter @intafaced/customer room:new -- --path /money/statements --template record-list --area money --name Statements [--dry-run]
 //

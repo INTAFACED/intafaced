@@ -5,7 +5,7 @@
  */
 import * as React from 'react';
 import { AreaChart, Bars, LineChart, Parts } from '../../components/b2-charts.js';
-import { EqualChoice, KeyValue, StatusChip, Tabs } from '../../components/b2-basics.js';
+import { EqualChoice, KeyValue, Segmented, StatusChip, Tabs } from '../../components/b2-basics.js';
 import { Table } from '../../components/b2-table.js';
 import { Receipt } from '../frame.js';
 import { formatMoney } from '../money.js';
@@ -20,7 +20,7 @@ import {
   SettingsTemplate,
 } from '../templates.js';
 import type { Mode, TemplateId } from '../../contracts.js';
-import type { Market, Movement, Refusal, ReviewData, RoomState } from '../types.js';
+import type { Market, Movement, Refusal, RegionHolds, ReviewData, RoomState } from '../types.js';
 import { t } from './copy.js';
 
 export const galleryStates = [
@@ -66,26 +66,107 @@ const SENT: Movement = {
   next: 'Most payments arrive within 2 hours. We’ll tell you when it lands.',
 };
 
-const FAILED: Movement = {
-  ...SENT,
+const RETURNED: Movement = {
   id: 'mv-2',
   title: 'ETH withdrawal',
+  direction: 'out',
   amount: { value: '0.1', asset: 'ETH', test: true },
   counterparty: 'to 0x9f3c…a1b2',
   status: 'failed',
+  returned: true,
   steps: [
     { label: 'Requested', at: '2026-10-26T10:40:00Z', state: 'done' },
     { label: 'Sent to network', at: '2026-10-26T10:44:00Z', state: 'failed' },
     { label: 'Returned', at: '2026-10-26T10:51:00Z', state: 'done' },
   ],
-  whereNow: '0.1 ETH came back to your balance at 10:51. Nothing was lost.',
+  whereNow: 'The 0.1 ETH came back to your balance at 10:51. Nothing was lost.',
   reference: 'LGR-9C1-0AE',
+  next: 'You can try again. Check the address first: the network refused this one.',
+};
+
+const BOUGHT: Movement = {
+  id: 'mv-3',
+  title: 'Bought Bitcoin',
+  direction: 'move',
+  amount: { value: '0.00123395', asset: 'BTC', test: true },
+  counterparty: 'for £100.50',
+  status: 'pending',
+  steps: [
+    { label: 'Order placed', at: '2026-10-26T10:45:00Z', state: 'done' },
+    { label: 'Filled', state: 'current' },
+    { label: 'In your balance', state: 'todo' },
+  ],
+  reference: 'LGR-4B8-77C',
+  next: 'It shows in your balance as soon as the order fills, usually within a minute.',
+};
+
+const BOUGHT_DONE: Movement = {
+  ...BOUGHT,
+  status: 'done',
+  steps: [
+    { label: 'Order placed', at: '2026-10-26T10:45:00Z', state: 'done' },
+    { label: 'Filled', at: '2026-10-26T10:45:00Z', state: 'done' },
+    { label: 'In your balance', at: '2026-10-26T10:45:00Z', state: 'done' },
+  ],
+  next: 'It’s in your balance now.',
+};
+
+const ORDER: Movement = {
+  id: 'mv-4',
+  title: 'Buy 0.01 BTC',
+  direction: 'move',
+  amount: { value: '0.01', asset: 'BTC', test: true },
+  counterparty: 'at 81,040.00 USDT, total 811.21 USDT',
+  status: 'pending',
+  steps: [
+    { label: 'Placed', at: '2026-10-26T10:46:00Z', state: 'done' },
+    { label: 'Filling', state: 'current' },
+    { label: 'Filled', state: 'todo' },
+  ],
+  reference: 'LGR-0D5-31A',
+  next: 'A limit order waits in the book until the price reaches it. You can cancel it from Orders.',
+};
+
+const ORDER_DONE: Movement = {
+  ...ORDER,
+  status: 'done',
+  steps: [
+    { label: 'Placed', at: '2026-10-26T10:46:00Z', state: 'done' },
+    { label: 'Filling', at: '2026-10-26T10:46:00Z', state: 'done' },
+    { label: 'Filled', at: '2026-10-26T10:46:00Z', state: 'done' },
+  ],
+  next: 'The 0.01 BTC is in your spot balance.',
+};
+
+const EARNING: Movement = {
+  id: 'mv-5',
+  title: 'Into USDC flexible',
+  direction: 'move',
+  amount: { value: '500.00', asset: 'USDC', test: true },
+  counterparty: 'at 3.10% a year',
+  status: 'pending',
+  steps: [
+    { label: 'Requested', at: '2026-10-26T10:46:00Z', state: 'done' },
+    { label: 'Earning', state: 'current' },
+  ],
+  reference: 'LGR-2E7-905',
+  next: 'Rewards start tomorrow. You can take it out at any time.',
+};
+
+const EARNING_DONE: Movement = {
+  ...EARNING,
+  status: 'done',
+  steps: [
+    { label: 'Requested', at: '2026-10-26T10:46:00Z', state: 'done' },
+    { label: 'Earning', at: '2026-10-26T10:46:00Z', state: 'done' },
+  ],
+  next: 'It’s earning now. Rewards are paid daily.',
 };
 
 const REVIEW: ReviewData = {
   lines: [
     { label: 'You send', value: gbp('250.00') },
-    { label: 'Fee', value: gbp('0.00'), note: 'Faster Payments, TEST' },
+    { label: 'Fee', value: gbp('0.00'), note: 'Faster Payments' },
   ],
   total: { label: 'Total', value: gbp('250.00') },
   recipientGets: { label: 'Aisha Khan gets', value: gbp('250.00') },
@@ -104,13 +185,52 @@ const REVIEW_BLANK: ReviewData = {
   lines: [REVIEW.lines[0]!, { label: 'Fee', value: null }],
 };
 
-const PARKED: Refusal = {
-  variant: 'parked',
-  title: 'Bank transfers aren’t connected yet',
-  body: 'We can’t take bank transfers until our banking partner is switched on. Card and crypto top-ups still work.',
-  reference: 'Ref rail.bank',
-  action: { label: 'Use card instead', href: '#card' },
+/** Buying from your own balance: no money leaves to someone else, so no scam warning; the band carries the risk. */
+const REVIEW_BUY: ReviewData = {
+  lines: [
+    { label: 'You pay', value: gbp('100.00') },
+    { label: 'Price', value: '£81,040.00 per BTC, TEST', note: 'Holds for 30 seconds' },
+    { label: 'Fee', value: gbp('0.50') },
+  ],
+  total: { label: 'Total', value: gbp('100.50') },
+  recipientGets: { label: 'You get', value: { value: '0.00123395', asset: 'BTC', test: true } },
+  confirmLabel: 'Buy 0.00123395 BTC for £100.50',
+  missing: { variant: 'refused', title: 'Can’t buy yet', body: 'The fee isn’t set, so the total can’t be shown.' },
+  legal: [],
 };
+
+const REVIEW_ORDER: ReviewData = {
+  lines: [
+    { label: 'Buy', value: { value: '0.01', asset: 'BTC', test: true } },
+    { label: 'Limit price', value: { value: '81040.00', asset: 'USDT', test: true } },
+    { label: 'Fee', value: { value: '0.81', asset: 'USDT', test: true }, note: '0.10% of 810.40 USDT' },
+  ],
+  total: { label: 'Total', value: { value: '811.21', asset: 'USDT', test: true } },
+  confirmLabel: 'Place order: buy 0.01 BTC',
+  missing: { variant: 'refused', title: 'Can’t place this order yet', body: 'The fee isn’t set.' },
+  legal: [],
+};
+
+const REVIEW_EARN: ReviewData = {
+  lines: [
+    { label: 'You put in', value: { value: '500.00', asset: 'USDC', test: true } },
+    { label: 'Rate', value: '3.10% a year, TEST', note: 'Changes daily; never guaranteed' },
+    { label: 'Fee', value: { value: '0.00', asset: 'USDC', test: true } },
+  ],
+  total: { label: 'Total', value: { value: '500.00', asset: 'USDC', test: true } },
+  arrival: { label: 'Leaving', value: 'At any time' },
+  confirmLabel: 'Put 500.00 USDC in USDC flexible',
+  missing: { variant: 'refused', title: 'Can’t start yet', body: 'The rate isn’t set.' },
+  legal: [],
+};
+
+const parked = (title: string, body: string, ref: string, action?: Refusal['action']): Refusal => ({
+  variant: 'parked',
+  title,
+  body,
+  reference: `Ref ${ref}`,
+  action,
+});
 
 const GATE: Refusal = {
   variant: 'refused',
@@ -126,32 +246,46 @@ const PRICES_DOWN: Refusal = {
   reference: 'Ref prices.down',
 };
 
-function stateFor(
-  kind: GalleryState,
-  empty: { title: string; body?: string; action?: { label: string; href: string } },
-  review: ReviewData = REVIEW,
-): RoomState {
+const BTC_PRICE_DOWN: Refusal = {
+  variant: 'unreachable',
+  title: 'The Bitcoin price is unavailable right now',
+  body: 'Buying and selling pause until it’s back. What you hold is safe: 0.0712 BTC.',
+  reference: 'Ref prices.down',
+};
+
+/** What one gallery room says in each state: its own copy, never another room's. */
+interface RoomCopy {
+  empty: { title: string; body?: string; action?: { label: string; href: string } };
+  refused: Refusal;
+  partial: { missing: Refusal; regions?: RegionHolds };
+  staleRegions?: RegionHolds;
+  review?: ReviewData;
+  status?: Movement;
+  receipt?: Movement;
+}
+
+function stateFor(kind: GalleryState, copy: RoomCopy): RoomState {
   switch (kind) {
     case 'ready':
       return { kind: 'ready' };
     case 'stale':
-      return { kind: 'ready', stale: { asOf: '2026-10-26T10:43:00Z', onRefresh: () => {} } };
+      return { kind: 'ready', stale: { asOf: '2026-10-26T10:43:00Z', onRefresh: () => {}, regions: copy.staleRegions } };
     case 'partial':
-      return { kind: 'ready', partial: { missing: PRICES_DOWN } };
+      return { kind: 'ready', partial: copy.partial };
     case 'loading':
       return { kind: 'loading' };
     case 'empty':
-      return { kind: 'empty', ...empty };
+      return { kind: 'empty', ...copy.empty };
     case 'refused':
-      return { kind: 'refused', refusal: PARKED };
+      return { kind: 'refused', refusal: copy.refused };
     case 'gated':
       return { kind: 'gated', gate: 'not-verified', refusal: GATE };
     case 'money-status':
-      return { kind: 'money-status', movement: FAILED };
+      return { kind: 'money-status', movement: copy.status ?? RETURNED };
     case 'confirm':
-      return { kind: 'confirm', review };
+      return { kind: 'confirm', review: copy.review ?? REVIEW };
     case 'receipt':
-      return { kind: 'receipt', movement: SENT };
+      return { kind: 'receipt', movement: copy.receipt ?? SENT };
   }
 }
 
@@ -159,10 +293,22 @@ function Test() {
   return <span className="lt-test">TEST</span>;
 }
 
+/** A row value that is an illustrative figure: the figure and its TEST label stay together. */
+function tv(value: string, dir?: 'up' | 'down') {
+  return (
+    <>
+      <bdi dir="ltr" data-dir={dir}>
+        {value}
+      </bdi>{' '}
+      <Test />
+    </>
+  );
+}
+
 function Money({ value, asset = 'GBP', hero = false }: { value: string; asset?: string; hero?: boolean }) {
   return (
-    <p className={hero ? 'lt-figure lt-figure-hero' : 'lt-figure'} dir="ltr">
-      {formatMoney({ value, asset })} <Test />
+    <p className={hero ? 'lt-figure lt-figure-hero' : 'lt-figure'}>
+      <bdi dir="ltr">{formatMoney({ value, asset })}</bdi> <Test />
     </p>
   );
 }
@@ -179,10 +325,8 @@ function Keys({ labels }: { labels: readonly string[] }) {
   );
 }
 
-function Rows({ rows }: { rows: readonly [string, string, React.ReactNode?][] }) {
-  return (
-    <KeyValue rows={rows.map(([label, value, note]) => ({ label: t(label), value, note: typeof note === 'string' ? note : undefined }))} />
-  );
+function Rows({ rows }: { rows: readonly [string, React.ReactNode, string?][] }) {
+  return <KeyValue rows={rows.map(([label, value, note]) => ({ label: t(label), value, note }))} />;
 }
 
 function H({ children }: { children: string }) {
@@ -195,6 +339,10 @@ const series = (base: number, n = 24, amp = 0.04) =>
     // TEST curve: a fixed shape, no randomness, so shots repeat.
     value: (base * (1 + amp * Math.sin(i / 2.3) + (amp / 2) * Math.cos(i / 1.1) + (i * amp) / n)).toFixed(2),
   }));
+
+/** Drawing only: a line's colour says which way it went over the period it shows. */
+const toneOf = (points: readonly { value: string }[]) =>
+  parseFloat(points[points.length - 1]!.value) >= parseFloat(points[0]!.value) ? ('up' as const) : ('down' as const);
 
 interface Ctx {
   mode: Mode;
@@ -228,13 +376,21 @@ function Overview(c: Ctx) {
     <OverviewTemplate
       {...base(c, 'Home', { legal: ['crypto-risk-band'] })}
       state={stateFor(c.state, {
-        title: t('Your balance is £0.00'),
-        body: t('Add money to get started. Nothing is charged to look around.'),
-        action: { label: 'Add money', href: '#add' },
+        empty: {
+          title: t('Your balance is £0.00'),
+          body: t('Add money to get started. Nothing is charged to look around.'),
+          action: { label: 'Add money', href: '#add' },
+        },
+        refused: parked(
+          t('Your balance can’t be shown yet'),
+          t('Home isn’t connected to your account yet. Your money is safe, and nothing has moved.'),
+          'home.ledger',
+        ),
+        partial: { missing: PRICES_DOWN, regions: { watching: t('Prices unavailable') } },
       })}
       hero={
         <>
-          <p className="gallery-label">{t('Your money')}</p>
+          <p className="gallery-label">{t(partial ? 'Your cash' : 'Your money')}</p>
           <Money value={partial ? '5460.12' : '12480.36'} hero />
           {partial ? null : (
             <Parts
@@ -267,17 +423,18 @@ function Overview(c: Ctx) {
           <H>Recent activity</H>
           <Rows
             rows={[
-              ['Card top-up', '+£200.00'],
-              ['Aisha Khan', '−£250.00'],
-              ['Bitcoin', '−£150.00'],
+              ['Card top-up', tv('+£200.00', 'up')],
+              ['Aisha Khan', tv('−£250.00', 'down')],
+              ['Bitcoin', tv('−£150.00', 'down')],
             ]}
           />
         </>
       }
       pro={
         <>
-          <H>Value over time</H>
-          <AreaChart label="Total value, last 24 days, TEST" points={series(12000)} asset="GBP" />
+          <H>Value, last 24 days</H>
+          <AreaChart label="Total value, last 24 days, TEST" points={series(12000)} asset="GBP" tone={toneOf(series(12000))} />
+          <Test />
         </>
       }
       watching={
@@ -285,11 +442,10 @@ function Overview(c: Ctx) {
           <H>Watching</H>
           <Rows
             rows={[
-              ['BTC', '£81,040.00'],
-              ['ETH', '£2,914.50'],
+              ['BTC', tv('£81,040.00')],
+              ['ETH', tv('£2,914.50')],
             ]}
           />
-          <Test />
         </>
       }
       rooms={
@@ -308,11 +464,39 @@ function Overview(c: Ctx) {
 }
 
 const ACTIVITY = [
-  { id: '1', date: '26 Oct', what: 'Card top-up', type: 'Add money', status: 'done' as const, amount: '200.00', ref: 'LGR-1A2-001' },
-  { id: '2', date: '25 Oct', what: 'Aisha Khan', type: 'Send', status: 'pending' as const, amount: '-250.00', ref: 'LGR-7Q2-4F2' },
-  { id: '3', date: '24 Oct', what: 'Bitcoin', type: 'Buy', status: 'done' as const, amount: '-150.00', ref: 'LGR-3B4-118' },
-  { id: '4', date: '23 Oct', what: 'Savings', type: 'Move', status: 'done' as const, amount: '-50.00', ref: 'LGR-8D1-220' },
-  { id: '5', date: '21 Oct', what: 'ETH withdrawal', type: 'Withdraw', status: 'failed' as const, amount: '0.00', ref: 'LGR-9C1-0AE' },
+  {
+    id: '1',
+    date: '26 Oct',
+    what: 'Card top-up',
+    type: 'Add money',
+    status: 'done' as const,
+    amount: '200.00',
+    asset: 'GBP',
+    ref: 'LGR-1A2-001',
+  },
+  {
+    id: '2',
+    date: '25 Oct',
+    what: 'Aisha Khan',
+    type: 'Send',
+    status: 'pending' as const,
+    amount: '-250.00',
+    asset: 'GBP',
+    ref: 'LGR-7Q2-4F2',
+  },
+  { id: '3', date: '24 Oct', what: 'Bitcoin', type: 'Buy', status: 'done' as const, amount: '-150.00', asset: 'GBP', ref: 'LGR-3B4-118' },
+  { id: '4', date: '23 Oct', what: 'Savings', type: 'Move', status: 'done' as const, amount: '-50.00', asset: 'GBP', ref: 'LGR-8D1-220' },
+  // The same movement as the status card: the original amount, with one status.
+  {
+    id: '5',
+    date: '26 Oct',
+    what: 'ETH withdrawal',
+    type: 'Withdraw',
+    status: 'failed' as const,
+    amount: '-0.1',
+    asset: 'ETH',
+    ref: 'LGR-9C1-0AE',
+  },
 ];
 
 function RecordList(c: Ctx) {
@@ -320,9 +504,21 @@ function RecordList(c: Ctx) {
     <RecordListTemplate
       {...base(c, 'Activity')}
       state={stateFor(c.state, {
-        title: t('No activity yet'),
-        body: t('Your payments will show here.'),
-        action: { label: 'Add money', href: '#add' },
+        empty: { title: t('No activity yet'), body: t('Your payments will show here.'), action: { label: 'Add money', href: '#add' } },
+        refused: parked(
+          t('Your activity can’t load yet'),
+          t('The statement service isn’t connected yet. Every payment is still recorded, and will show here once it is.'),
+          'activity.statements',
+        ),
+        partial: {
+          missing: {
+            variant: 'unreachable',
+            title: t('Payment details can’t load right now'),
+            body: t('The list is complete. Each payment’s details will come back shortly.'),
+            reference: 'Ref activity.detail',
+          },
+          regions: { detail: t('Details unavailable') },
+        },
       })}
       filters={
         <div className="lt-actions">
@@ -359,14 +555,25 @@ function RecordList(c: Ctx) {
               {
                 key: 'status',
                 label: t('Status'),
-                cell: (r) => <StatusChip status={r.status} label={r.status === 'failed' ? 'Failed, refunded' : undefined} />,
+                cell: (r) => (
+                  <StatusChip
+                    status={r.status}
+                    returned={r.status === 'failed'}
+                    label={r.status === 'failed' ? t('Returned') : undefined}
+                  />
+                ),
               },
               { key: 'ref', label: t('Ledger ref'), cell: (r) => r.ref, pro: true, ltr: true },
               {
                 key: 'amount',
                 label: t('Amount'),
-                cell: (r) => formatMoney({ value: r.amount, asset: 'GBP' }, { signed: true }),
+                cell: (r) => (
+                  <span data-dir={r.amount.startsWith('-') ? 'down' : 'up'}>
+                    {formatMoney({ value: r.amount, asset: r.asset }, { signed: true })}
+                  </span>
+                ),
                 align: 'end',
+                ltr: true,
               },
             ]}
           />
@@ -379,20 +586,40 @@ function RecordList(c: Ctx) {
 }
 
 function Monitor(c: Ctx) {
+  const price = series(80000, 24, 0.05);
   return (
     <MonitorTemplate
       {...base(c, 'Bitcoin', { legal: ['crypto-risk-band'] })}
       state={stateFor(c.state, {
-        title: t('You don’t hold any Bitcoin'),
-        body: t('Buy some to see your position here.'),
-        action: { label: 'Buy Bitcoin', href: '#buy' },
+        empty: {
+          title: t('You don’t hold any Bitcoin'),
+          body: t('Buy some to see your position here.'),
+          action: { label: 'Buy Bitcoin', href: '#buy' },
+        },
+        refused: parked(
+          t('Bitcoin isn’t open yet'),
+          t('Buying and selling Bitcoin opens when our crypto partner is switched on in your region.'),
+          'rail.crypto',
+        ),
+        partial: {
+          missing: BTC_PRICE_DOWN,
+          regions: {
+            figures: t('Price unavailable'),
+            chart: t('Chart unavailable until the price is back'),
+            actions: t('Buying and selling pause until the price is back'),
+          },
+        },
+        staleRegions: { actions: t('Refresh the price to buy or sell') },
+        review: REVIEW_BUY,
+        status: BOUGHT,
+        receipt: BOUGHT_DONE,
       })}
       figures={[
         <>
           <p className="gallery-label">{t('Price')}</p>
           <Money value="81040.00" />
-          <span className="gallery-change" data-dir="up" dir="ltr">
-            +2.14% {t('today')}
+          <span className="gallery-change" data-dir="up">
+            <bdi dir="ltr">+2.14%</bdi> {t('today')}
           </span>
         </>,
         <>
@@ -401,24 +628,30 @@ function Monitor(c: Ctx) {
         </>,
         <>
           <p className="gallery-label">{t('Worth')}</p>
-          <Money value="5770.24" />
+          <Money value="5770.05" />
         </>,
         <>
           <p className="gallery-label">{t('24h volume')}</p>
-          <Money value="1820400000.00" asset="USD" />
+          <Money value="1438200000.00" />
         </>,
       ]}
       actions={<EqualChoice choices={[{ label: t('Buy') }, { label: t('Sell') }]} />}
       chart={
-        <LineChart
-          label="Bitcoin price, last 24 days, TEST"
-          points={series(80000, 24, 0.05)}
-          asset="GBP"
-          tone="up"
-          live={c.state === 'ready'}
-        />
+        <>
+          <p className="gallery-label">
+            {t('Price, last 24 days')} <Test />
+          </p>
+          <LineChart label="Bitcoin price, last 24 days, TEST" points={price} asset="GBP" tone={toneOf(price)} live={c.state === 'ready'} />
+        </>
       }
-      pro={<Bars label="Daily volume, TEST" asset="USD" bars={series(1.8e9, 14, 0.3).map((p) => ({ label: p.at, value: p.value }))} />}
+      pro={
+        <>
+          <p className="gallery-label">
+            {t('Daily volume, last 14 days')} <Test />
+          </p>
+          <Bars label="Daily volume, TEST" asset="GBP" bars={series(1.4e9, 14, 0.3).map((p) => ({ label: p.at, value: p.value }))} />
+        </>
+      }
       panels={
         <>
           <H>About Bitcoin</H>
@@ -453,22 +686,41 @@ function Monitor(c: Ctx) {
 }
 
 function Flow(c: Ctx) {
-  const review = c.state === 'refused' ? REVIEW_BLANK : REVIEW;
   return (
     <FlowTemplate
       {...base(c, 'Send money')}
-      state={stateFor(
-        c.state,
-        { title: t('No one to send to yet'), body: t('Add a payee to send money.'), action: { label: 'Add a payee', href: '#payee' } },
-        review,
-      )}
+      state={stateFor(c.state, {
+        empty: {
+          title: t('No one to send to yet'),
+          body: t('Add a payee to send money.'),
+          action: { label: 'Add a payee', href: '#payee' },
+        },
+        refused: parked(
+          t('Bank transfers aren’t connected yet'),
+          t('We can’t send to bank accounts until our banking partner is switched on. Sending to another account here still works.'),
+          'rail.bank',
+          { label: t('Send to an account here'), href: '#internal' },
+        ),
+        partial: {
+          missing: {
+            variant: 'unreachable',
+            title: t('We can’t check the payee’s name right now'),
+            body: t('You can still send. Before you confirm, we’ll show that the name wasn’t checked.'),
+            reference: 'Ref payee-check.down',
+          },
+          regions: { step: t('Name check unavailable') },
+        },
+        review: c.state === 'refused' ? REVIEW_BLANK : REVIEW,
+        status: RETURNED,
+        receipt: SENT,
+      })}
       steps={{ labels: [t('Who and how much'), t('Payee check'), t('Purpose'), t('Review')], current: 1 }}
       step={
         <>
           <H>Payee check</H>
           <p>{t('The name on the account matches Aisha Khan.')}</p>
           <StatusChip status="done" label={t('Name matches')} />
-          <div style={{ marginBlockStart: 16 }}>
+          <div className="gallery-gap">
             <Money value="250.00" hero />
           </div>
         </>
@@ -497,11 +749,10 @@ function Flow(c: Ctx) {
           <Rows
             rows={[
               ['To', 'Aisha Khan'],
-              ['Amount', '£250.00'],
-              ['Fee', '£0.00'],
+              ['Amount', tv('£250.00')],
+              ['Fee', tv('£0.00')],
             ]}
           />
-          <Test />
         </>
       }
       help={
@@ -514,14 +765,34 @@ function Flow(c: Ctx) {
 }
 
 function Settings(c: Ctx) {
+  const partial = c.state === 'partial';
   return (
     <SettingsTemplate
-      {...base(c, 'Security')}
-      state={stateFor(c.state, { title: t('No devices signed in'), body: t('Sign in on a device to see it here.') })}
+      {...base(c, 'API keys')}
+      state={stateFor(c.state, {
+        empty: {
+          title: t('No API keys yet'),
+          body: t('Create a key to connect a trading tool. Each key does only what you allow.'),
+          action: { label: 'Create a key', href: '#create' },
+        },
+        refused: parked(
+          t('API keys aren’t available yet'),
+          t('The developer API opens when it passes its security review. Your account works as usual without it.'),
+          'api.review',
+        ),
+        partial: {
+          missing: {
+            variant: 'unreachable',
+            title: t('Key activity can’t load right now'),
+            body: t('Your keys and what they can do are shown. When each was last used will come back shortly.'),
+            reference: 'Ref api.activity',
+          },
+        },
+      })}
       index={
         <nav aria-label="Settings sections" className="gallery-index">
-          {['Profile', 'Security', 'Display', 'Notifications', 'Limits', 'Close account'].map((s) => (
-            <a key={s} href={`#${s}`} aria-current={s === 'Security' ? 'page' : undefined}>
+          {['Profile', 'Security', 'API keys', 'Display', 'Notifications', 'Limits'].map((s) => (
+            <a key={s} href={`#${s}`} aria-current={s === 'API keys' ? 'page' : undefined}>
               {t(s)}
             </a>
           ))}
@@ -529,38 +800,25 @@ function Settings(c: Ctx) {
       }
       sections={
         <>
-          <H>Sign-in</H>
+          <H>Your keys</H>
           <Rows
             rows={[
-              ['Two-step sign-in', 'On'],
-              ['Passkeys', '2 devices'],
-              ['Withdrawal allowlist', 'Off'],
+              ['Trading key', 'Trade, no withdrawals', partial ? t('Last used: unavailable') : t('Last used today at 07:12')],
+              ['Read-only key', 'Read only', partial ? t('Last used: unavailable') : t('Last used 20 Oct')],
             ]}
           />
           {c.mode === 'pro' ? (
             <>
-              <H>API keys</H>
-              <Rows
-                rows={[
-                  ['Trading key', 'Created 12 Oct'],
-                  ['Read-only key', 'Created 3 Oct'],
-                ]}
-              />
+              <H>Allowed addresses</H>
+              <Rows rows={[['Trading key', '203.0.113.7']]} />
             </>
           ) : null}
-          <H>Devices</H>
-          <Rows
-            rows={[
-              ['iPhone, London', 'This device'],
-              ['Chrome on Mac', '07:12'],
-            ]}
-          />
         </>
       }
       explain={
         <p>
           {t(
-            'Two-step sign-in asks for a second proof when you sign in on a new device, so a stolen password alone can’t open your account.',
+            'A key lets a tool act for you. Give each key only what the tool needs: a key that can’t withdraw can’t move your money out, even if it leaks.',
           )}
         </p>
       }
@@ -573,7 +831,7 @@ function Catalogue(c: Ctx) {
     <article key={name} className="gallery-card">
       <h3>{t(name)}</h3>
       <p className="lt-figure">
-        {figure} <Test />
+        <bdi>{t(figure)}</bdi> <Test />
       </p>
       <p className="gallery-risk">{t(risk)}</p>
       <span className="gallery-chip">{t('Not regulated')}</span>
@@ -583,8 +841,24 @@ function Catalogue(c: Ctx) {
     <CatalogueTemplate
       {...base(c, 'Earn', { legal: ['crypto-risk-band'] })}
       state={stateFor(c.state, {
-        title: t('No products in your region yet'),
-        body: t('We’ll show products here when they open where you live.'),
+        empty: { title: t('No products in your region yet'), body: t('We’ll show products here when they open where you live.') },
+        refused: parked(
+          t('Earn isn’t open yet'),
+          t('Earn opens when our lending partner is switched on. Your crypto stays in your balance until then.'),
+          'earn.partner',
+        ),
+        partial: {
+          missing: {
+            variant: 'unreachable',
+            title: t('Today’s rates can’t load right now'),
+            body: t('Products are listed without rates until they’re back. Nothing you’ve put in is affected.'),
+            reference: 'Ref earn.rates',
+          },
+          regions: { featured: t('Rate unavailable'), items: t('Rates unavailable') },
+        },
+        review: REVIEW_EARN,
+        status: EARNING,
+        receipt: EARNING_DONE,
       })}
       filters={
         <Tabs
@@ -611,16 +885,15 @@ function Catalogue(c: Ctx) {
             ]}
             columns={[
               { key: 'name', label: t('Product'), cell: (r) => t(r.name) },
-              { key: 'rate', label: t('Rate a year'), cell: (r) => r.rate, align: 'end' },
+              { key: 'rate', label: t('Rate a year'), cell: (r) => tv(r.rate), align: 'end' },
               { key: 'term', label: t('Leaving'), cell: (r) => t(r.term) },
-              { key: 'fee', label: t('Fee'), cell: (r) => t(r.fee), align: 'end' },
+              { key: 'fee', label: t('Fee'), cell: (r) => tv(t(r.fee)), align: 'end' },
             ]}
           />
         ) : (
           <div className="gallery-grid">
             {card('ETH staking', '2.40% a year', 'Staked ETH takes 7 days to leave and can be cut if a validator misbehaves.')}
             {card('BTC fixed 30 days', '1.20% a year', 'Locked for 30 days. The value in pounds moves with the price.')}
-            {card('USDC flexible', '3.10% a year', 'Your USDC is lent out. You could lose it if a borrower fails.')}
           </div>
         )
       }
@@ -629,83 +902,107 @@ function Catalogue(c: Ctx) {
 }
 
 function Desk(c: Ctx) {
-  const book = (
-    <Rows
-      rows={[
-        ['81,052.10', '0.214'],
-        ['81,048.00', '0.051'],
-        ['81,040.00', 'Last'],
-        ['81,036.50', '0.330'],
-        ['81,031.20', '0.118'],
-      ]}
-    />
+  const pro = (rows: readonly [string, string, ('up' | 'down')?][]) => (
+    <Rows rows={rows.map(([a, b, dir]) => [a, tv(b, dir)] as [string, React.ReactNode])} />
   );
+  const chart = series(81000, 48, 0.01);
   return (
     <DeskTemplate
       {...base(c, 'Spot BTC-USDT', { legal: ['crypto-risk-band'] })}
       state={stateFor(c.state, {
-        title: t('No one is trading this market right now'),
-        body: t('Prices will show when the first orders arrive.'),
+        empty: { title: t('No one is trading this market right now'), body: t('Prices will show when the first orders arrive.') },
+        refused: parked(
+          t('Spot trading isn’t open yet'),
+          t('This market opens when trading is switched on in your region. You can still buy and sell from an asset’s page.'),
+          'trade.spot',
+          { label: t('Go to Bitcoin'), href: '#btc' },
+        ),
+        partial: {
+          missing: {
+            variant: 'unreachable',
+            title: t('Prices for BTC-USDT are unavailable right now'),
+            body: t('Trading pauses until they’re back. Your open orders stay in the book.'),
+            reference: 'Ref prices.down',
+          },
+          regions: {
+            instrument: t('Price unavailable'),
+            pairs: t('Prices unavailable'),
+            chart: t('Chart unavailable until prices are back'),
+            book: t('Order book unavailable'),
+            tape: t('Trades unavailable'),
+            ticket: t('Trading pauses until prices are back'),
+          },
+        },
+        staleRegions: { ticket: t('Refresh prices to trade') },
+        review: REVIEW_ORDER,
+        status: ORDER,
+        receipt: ORDER_DONE,
       })}
       instrument={
-        <div className="lt-actions" style={{ alignItems: 'baseline' }}>
+        <div className="lt-actions gallery-baseline">
           <strong>BTC-USDT</strong>
           <Money value="81040.00" asset="USDT" />
-          <span className="gallery-change" data-dir="up" dir="ltr">
-            +2.14%
+          <span className="gallery-change" data-dir="up">
+            <bdi dir="ltr">+2.14%</bdi> {t('24h')}
           </span>
         </div>
       }
-      pairs={
-        <Rows
-          rows={[
-            ['BTC-USDT', '81,040.00'],
-            ['ETH-USDT', '2,914.50'],
-            ['SOL-USDT', '142.18'],
-          ]}
-        />
-      }
+      pairs={pro([
+        ['BTC-USDT', '81,040.00', 'up'],
+        ['ETH-USDT', '2,914.50', 'down'],
+        ['SOL-USDT', '142.18', 'up'],
+      ])}
       chart={
-        <LineChart
-          label="BTC-USDT, last 24 hours, TEST"
-          points={series(81000, 48, 0.01)}
-          asset="USDT"
-          tone="up"
-          live={c.state === 'ready'}
-        />
-      }
-      book={book}
-      tape={
-        <Rows
-          rows={[
-            ['10:46:58', '81,040.00'],
-            ['10:46:51', '81,041.20'],
-          ]}
-        />
-      }
-      ticket={
         <>
-          <EqualChoice choices={[{ label: t('Buy') }, { label: t('Sell') }]} />
+          <p className="gallery-label">
+            {t('Last 24 hours')} <Test />
+          </p>
+          <LineChart label="BTC-USDT, last 24 hours, TEST" points={chart} asset="USDT" tone={toneOf(chart)} live={c.state === 'ready'} />
+        </>
+      }
+      book={pro([
+        ['Ask 81,052.10', '0.214', 'down'],
+        ['Ask 81,048.00', '0.051', 'down'],
+        ['Bid 81,036.50', '0.330', 'up'],
+        ['Bid 81,031.20', '0.118', 'up'],
+      ])}
+      tape={pro([
+        ['10:46:58 buy', '81,040.00', 'up'],
+        ['10:46:51 sell', '81,041.20', 'down'],
+      ])}
+      ticket={
+        <div className="gallery-ticket">
+          <Segmented
+            label={t('Side')}
+            value="buy"
+            options={[
+              { value: 'buy', label: t('Buy') },
+              { value: 'sell', label: t('Sell') },
+            ]}
+          />
+          <label className="lt-field">
+            <span>{t('Amount in BTC')}</span>
+            <input inputMode="decimal" placeholder="0.00" />
+          </label>
           <Rows
             rows={[
-              ['Available', '1,250.00 USDT'],
-              ['Fee', '0.10%'],
+              ['Available', tv('1,250.00 USDT')],
+              ['Fee', tv('0.10%')],
               ['Total', '—'],
             ]}
           />
-          <button type="button" className="lt-button lt-button-primary" style={{ inlineSize: '100%' }}>
+          <button type="button" className="lt-button lt-button-primary" disabled aria-describedby="ticket-hint">
             {t('Review order')}
           </button>
-        </>
+          <p className="lt-hint" id="ticket-hint">
+            {t('Enter an amount to review your order.')}
+          </p>
+        </div>
       }
-      orders={
-        <Rows
-          rows={[
-            ['Limit buy 0.01 BTC', 'Open'],
-            ['Market sell 0.005 BTC', 'Filled'],
-          ]}
-        />
-      }
+      orders={pro([
+        ['Limit buy 0.01 BTC, open', '81,000.00'],
+        ['Market sell 0.005 BTC, filled', '81,012.40'],
+      ])}
     />
   );
 }
@@ -714,7 +1011,23 @@ function Reading(c: Ctx) {
   return (
     <ReadingTemplate
       {...base(c, 'Fees')}
-      state={stateFor(c.state, { title: t('Nothing published yet'), body: t('Our fee schedule will show here once it is published.') })}
+      state={stateFor(c.state, {
+        empty: { title: t('Nothing published yet'), body: t('Our fee schedule will show here once it is published.') },
+        refused: parked(
+          t('The fee schedule isn’t published yet'),
+          t('Every fee shows on the review screen before you confirm. The full schedule appears here once it’s approved.'),
+          'fees.schedule',
+        ),
+        partial: {
+          missing: {
+            variant: 'unreachable',
+            title: t('Related guides can’t load right now'),
+            body: t('This page is complete. Links to related guides will come back shortly.'),
+            reference: 'Ref help.related',
+          },
+          regions: { related: t('Related guides unavailable') },
+        },
+      })}
       meta={<p className="gallery-label">{t('Updated 20 Oct 2026 · 3 min read')}</p>}
       toc={
         <nav className="gallery-index" aria-label="On this page">
@@ -730,15 +1043,11 @@ function Reading(c: Ctx) {
           <h2>{t('Sending money')}</h2>
           <p>
             {t(
-              'Sending pounds to a UK bank account is free. We show every fee before you confirm, and the total you pay never changes after you press Send.',
+              'We show every fee before you confirm, and the total you pay never changes after you press Send. The fee for each kind of payment appears here once the schedule is published.',
             )}
           </p>
           <h2>{t('Buying crypto')}</h2>
-          <p>
-            {t(
-              'Each buy shows the price, our spread and the fee as separate lines, and how long the quote holds. The fee figures here are TEST until the schedule is published.',
-            )}
-          </p>
+          <p>{t('Each buy shows the price, our spread and the fee as separate lines, and how long the quote holds.')}</p>
         </article>
       }
       related={

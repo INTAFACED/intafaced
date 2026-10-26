@@ -27,6 +27,39 @@ export function EqualChoice({ choices }: { choices: readonly { label: string; on
   );
 }
 
+/**
+ * One choice of two or more that stays selected (Buy or Sell on a ticket): a radio group drawn as one switch. The
+ * options keep equal size and style; only the selected one is marked, by a state the switch shows, not by colour.
+ */
+export function Segmented({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: readonly { value: string; label: string }[];
+  value: string;
+  onChange?: (value: string) => void;
+}) {
+  return (
+    <div className="lt-segmented" role="radiogroup" aria-label={label}>
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          role="radio"
+          aria-checked={o.value === value}
+          className="lt-segment"
+          onClick={() => onChange?.(o.value)}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /** The steps of a flow; on a phone only the current step's name shows, the others as bars. */
 export function Stepper({ labels, current }: { labels: readonly string[]; current: number }) {
   return (
@@ -47,7 +80,7 @@ export type SkeletonShape = 'figure' | 'rows' | 'chart' | 'grid' | 'text' | 'for
  * records". `busy` pulses (while loading); without it, it is the still ghost a gated room shows behind its gate.
  */
 export function Skeleton({ shape, busy = true }: { shape: SkeletonShape; busy?: boolean }) {
-  const count = { rows: 5, text: 6, grid: 6, form: 3, keys: 4, figure: 1, chart: 1 }[shape];
+  const count = { rows: 5, text: 6, grid: 3, form: 3, keys: 4, figure: 1, chart: 1 }[shape];
   return (
     <div className="lt-ghost" data-ghost={shape} data-busy={busy || undefined} aria-hidden="true">
       {Array.from({ length: count }, (_, i) => (
@@ -77,9 +110,9 @@ export function KeyValue({ rows, label }: { rows: readonly KeyValueRow[]; label?
         <div key={r.label} data-total={r.total || undefined} data-unset={r.unset || undefined}>
           <dt>{r.label}</dt>
           <dd>
-            <span className={r.ltr ? 'lt-mono' : undefined} dir={r.ltr ? 'ltr' : 'auto'}>
+            <bdi className={r.ltr ? 'lt-mono' : undefined} dir={r.ltr ? 'ltr' : undefined}>
               {r.value}
-            </span>
+            </bdi>
             {r.note ? <span className="lt-kv-note">{r.note}</span> : null}
           </dd>
         </div>
@@ -95,10 +128,13 @@ const STATUS_WORDS: Record<MoneyStatus, string> = {
   unknown: 'Checking',
 };
 
-/** Money status in words with a shape mark, never colour alone. `label` overrides the word ("Failed, refunded"). */
-export function StatusChip({ status, label }: { status: MoneyStatus; label?: string }) {
+/**
+ * Money status in words with a shape mark, never colour alone. `label` overrides the word. `returned` marks a
+ * failed movement whose money is back in the balance: neutral, never the failure red.
+ */
+export function StatusChip({ status, label, returned = false }: { status: MoneyStatus; label?: string; returned?: boolean }) {
   return (
-    <span className="lt-chip" data-status={status}>
+    <span className="lt-chip" data-status={status} data-returned={returned || undefined}>
       <span className="lt-chip-mark" aria-hidden="true" />
       {label ?? STATUS_WORDS[status]}
     </span>

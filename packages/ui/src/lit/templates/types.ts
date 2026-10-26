@@ -1,6 +1,6 @@
 /**
  * Data shapes the eight templates take. Rooms pass data and copy only: never class names, colours or sizes.
- * Spec: project-state design/new-look/redesign/templates/SPEC.md. Names that become shared contracts move to
+ * Names that become shared contracts move to
  * `../contracts.ts` through the kit's owner.
  */
 import type * as React from 'react';
@@ -45,8 +45,10 @@ export interface Movement {
   reference: string;
   /** ISO time it is expected to arrive. */
   expectedBy?: string;
-  /** What happens next, in plain words. */
+  /** What happens next, in plain words, for this movement's own state (never a pending line on a returned one). */
   next?: string;
+  /** A failed movement whose money is back in the balance: shown as "Returned to your balance", in a neutral tone. */
+  returned?: boolean;
 }
 
 /** One line of a review. `null` means the value is not set: the confirm button becomes the refusal. */
@@ -67,7 +69,18 @@ export interface ReviewData {
   editLabel?: string;
   /** Shown instead of the button when a line is null. */
   missing: Refusal;
+  /**
+   * Legal moments shown between the last line and the buttons, each in its own bordered slot. Defaults to the
+   * scam warning (`scam-stop`), which every outgoing confirm carries; pass `[]` only where no money leaves.
+   */
+  legal?: readonly LegalMomentId[];
 }
+
+/**
+ * Regions a ready room can't fill right now, by region name, with what each says instead ("Price unavailable",
+ * "Refresh prices to trade"). The region keeps its place and shows those words, never its last figures.
+ */
+export type RegionHolds = Readonly<Record<string, string>>;
 
 /** A notice above the room: an account hold, a platform pause or an incident. Most serious first. */
 export interface Notice {
@@ -78,7 +91,13 @@ export interface Notice {
 
 /** The state a room is in. Stale and partial are modifiers on ready. */
 export type RoomState =
-  | { kind: 'ready'; stale?: { asOf: string; onRefresh?: () => void }; partial?: { missing: Refusal } }
+  | {
+      kind: 'ready';
+      /** Data older than it should be: an "as of" strip, figures marked stale, and `regions` held until a refresh. */
+      stale?: { asOf: string; onRefresh?: () => void; regions?: RegionHolds };
+      /** Part of the data is missing: the refusal names what, and `regions` blank the parts that depend on it. */
+      partial?: { missing: Refusal; regions?: RegionHolds };
+    }
   | { kind: 'loading' }
   | { kind: 'empty'; title: string; body?: string; action?: { label: string; href: string } }
   | { kind: 'refused'; refusal: Refusal }
@@ -109,7 +128,7 @@ export type LegalMomentId =
   | 'talk-to-a-person'
   | 'asset-documents';
 
-/** The market in force. `unset` until the owner decides which market launches (RULES-AND-TRUST, header). */
+/** The market in force. `unset` until the owner decides which market launches (an open owner decision). */
 export type Market = Jurisdiction;
 
 /** Props every template takes. */
@@ -121,7 +140,7 @@ export interface RoomProps {
   roomAction?: React.ReactNode;
   state: RoomState;
   mode?: Mode;
-  /** Legal moments this room carries (RULES-AND-TRUST section B). */
+  /** Legal moments this room carries (the rules that apply to its moments). */
   legal?: readonly LegalMomentId[];
   market?: Market;
   /** Opens the risk summary from the band's fixed link. */

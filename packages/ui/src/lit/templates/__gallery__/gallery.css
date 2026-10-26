@@ -127,3 +127,33 @@ body {
 .gallery-frame {
   --lit-topbar-h: 0px;
 }
+
+.gallery-gap {
+  margin-block-start: var(--lit-gap-section);
+}
+
+.gallery-baseline {
+  align-items: baseline;
+}
+
+.gallery-ticket {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+}
+
+.gallery-ticket > .lt-button {
+  inline-size: 100%;
+}
+
+/* Section navs: a scrolling row on a phone, so the content isn't pushed below the fold. */
+@container room (max-width: 599px) {
+  .gallery-index {
+    flex-direction: row;
+    gap: var(--lit-gap-item);
+    overflow-x: auto;
+  }
+  .gallery-index a {
+    flex: none;
+  }
+}

@@ -50,7 +50,7 @@ export type Reconciled =
   { ok: true; parts: readonly Part[] } | { ok: false; reason: 'parts-exceed-total' | 'negative-part' | 'mixed-assets' };
 
 /**
- * A chart's parts must add up to the total it shows (plan v2 row 9). Parts short of the total gain an "other"
+ * A chart's parts must add up to the total it shows. Parts short of the total gain an "other"
  * part for the difference; parts over the total, or a negative part, can't be drawn honestly and are refused.
  */
 export function reconcileParts(total: DecimalString, parts: readonly Part[], otherLabel = 'Other'): Reconciled {

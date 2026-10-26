@@ -2,7 +2,7 @@
  * Owner: lane B2 (templates). LineChart, AreaChart, Bars and Parts: plain SVG, every chart with its data as a
  * table (its text equivalent, and Pro's "table behind the chart"). Values arrive as decimal strings; they become
  * floats here only to place pixels (the kit's rule: floats for drawing only). Parts never draws a whole its
- * parts don't add up to: it adds "Other" for the difference or refuses (plan v2 row 9).
+ * parts don't add up to: it adds "Other" for the difference or refuses.
  */
 import * as React from 'react';
 import { formatMoney, reconcileParts, type Part } from '../templates/money.js';

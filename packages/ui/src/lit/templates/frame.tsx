@@ -7,7 +7,18 @@ import * as React from 'react';
 import { Skeleton, type SkeletonShape } from '../components/b2-basics.js';
 import { BAND_MOMENTS, RegistryLegalSlot } from './legal/LegalSlot.js';
 import { formatMoney } from './money.js';
-import type { Movement, MovementStep, Notice, Refusal, ReviewData, ReviewLine, RoomProps, RoomState } from './types.js';
+import type {
+  LegalMomentId,
+  Market,
+  Movement,
+  MovementStep,
+  Notice,
+  Refusal,
+  ReviewData,
+  ReviewLine,
+  RoomProps,
+  RoomState,
+} from './types.js';
 import type { TemplateId } from '../contracts.js';
 
 interface RoomContextValue {
@@ -16,6 +27,8 @@ interface RoomContextValue {
   /** IANA zone the customer's times show in; the browser's own when not given. */
   timeZone?: string;
   now?: Date;
+  market?: Market;
+  legalValues?: RoomProps['legalValues'];
 }
 
 const RoomContext = React.createContext<RoomContextValue>({ state: { kind: 'ready' } });
@@ -30,26 +43,63 @@ export interface RegionProps {
   /** Where a whole-room state (empty, refused, money status, confirm, receipt) is drawn. One per template. */
   primary?: boolean;
   ghost?: GhostShape;
-  /** Landmark label when the region is a section. */
+  /** Landmark label when the region is a section; behind a gate it heads the locked outline. */
   label?: string;
+  /** Stays usable behind a gate ("Talk to a person", a door's room tabs). */
+  live?: boolean;
   children?: React.ReactNode;
 }
 
 const WHOLE_ROOM = new Set<RoomState['kind']>(['empty', 'refused', 'money-status', 'confirm', 'receipt']);
 
+/** States drawn across the whole room, in its primary region. */
+export const WHOLE_ROOM_STATES: ReadonlySet<RoomState['kind']> = WHOLE_ROOM;
+
 /** One region of a template. Rooms never render these directly; templates do. */
-export function Region({ name, data = false, primary = false, ghost = 'rows', label, children }: RegionProps) {
+export function Region({ name, data = false, primary = false, ghost = 'rows', label, live = false, children }: RegionProps) {
   const { state } = React.useContext(RoomContext);
+  if (children === undefined || children === null || children === false) {
+    if (!(primary && WHOLE_ROOM.has(state.kind))) return null;
+  }
+  if (primary && WHOLE_ROOM.has(state.kind)) {
+    return (
+      <section className="lt-region" data-region={name} data-holds-state="" aria-label={label}>
+        <StateView state={state} />
+      </section>
+    );
+  }
+  if (data && WHOLE_ROOM.has(state.kind)) return null;
+  const held = state.kind === 'ready' ? (state.partial?.regions?.[name] ?? state.stale?.regions?.[name]) : undefined;
   let body: React.ReactNode = children;
-  if (primary && WHOLE_ROOM.has(state.kind)) body = <StateView state={state} />;
+  if (held !== undefined) body = <p className="lt-held">{held}</p>;
   else if (data && state.kind === 'loading') body = <Skeleton shape={ghost} />;
-  else if (data && state.kind === 'gated') body = <Skeleton shape={ghost} busy={false} />;
-  else if (data && WHOLE_ROOM.has(state.kind)) return null;
-  if (body === undefined || body === null || body === false) return null;
+  // Behind a gate a labelled data region shows its locked outline; an unlabelled one holds controls, dimmed.
+  else if (data && state.kind === 'gated' && label) body = <Locked shape={ghost} label={label} />;
+  const dimmed = state.kind === 'gated' && !live && !(data && label);
   return (
-    <section className="lt-region" data-region={name} aria-label={label}>
+    <section
+      className="lt-region"
+      data-region={name}
+      data-held={held !== undefined || undefined}
+      data-dimmed={dimmed || undefined}
+      inert={dimmed || undefined}
+      aria-label={label}
+    >
       {body}
     </section>
+  );
+}
+
+/** A region behind a gate: its outline, its heading and a lock. No skeleton bars, so it never reads as loading. */
+function Locked({ shape, label }: { shape: GhostShape; label?: string }) {
+  return (
+    <div className="lt-locked" data-ghost={shape}>
+      <svg className="lt-lock" viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M4.5 7V5a3.5 3.5 0 0 1 7 0v2" fill="none" stroke="currentColor" strokeWidth="1.5" />
+        <rect x="3" y="7" width="10" height="7" rx="1.5" fill="currentColor" />
+      </svg>
+      <span>{label ?? 'Locked'}</span>
+    </div>
   );
 }
 
@@ -91,6 +141,8 @@ const STATUS_WORD: Record<Movement['status'], string> = {
   unknown: 'We’re checking',
 };
 
+const statusWord = (m: Movement) => (m.status === 'failed' && m.returned ? 'Returned to your balance' : STATUS_WORD[m.status]);
+
 /**
  * A time in the customer's zone: "10:42" today, "25 Oct, 10:42" on another day. Stands in until B4's formatter in
  * packages/i18n lands.
@@ -130,12 +182,16 @@ function Steps({ steps }: { steps: readonly MovementStep[] }) {
 /** The shared receipt: one movement, with the ledger as its source. Opens from every room's In-flight lane. */
 export function Receipt({ movement }: { movement: Movement }) {
   return (
-    <article className="lt-receipt" data-status={movement.status} aria-label={movement.title}>
-      <p className="lt-receipt-status">{STATUS_WORD[movement.status]}</p>
-      <p className="lt-figure lt-figure-hero" dir="ltr">
-        {formatMoney(movement.amount)}
+    <article
+      className="lt-receipt"
+      data-status={movement.status}
+      data-returned={movement.returned || undefined}
+      aria-label={movement.title}
+    >
+      <p className="lt-receipt-status">{statusWord(movement)}</p>
+      <p className="lt-figure lt-figure-hero">
+        <bdi dir="ltr">{formatMoney(movement.amount)}</bdi> <TestMark money={movement.amount} />
       </p>
-      <TestMark money={movement.amount} />
       {movement.counterparty ? <p className="lt-receipt-to">{movement.counterparty}</p> : null}
       {movement.status === 'failed' && movement.whereNow ? <p className="lt-receipt-where">{movement.whereNow}</p> : null}
       {movement.status === 'unknown' ? (
@@ -151,8 +207,10 @@ export function Receipt({ movement }: { movement: Movement }) {
         </div>
         {movement.next ? (
           <div>
-            <dt>What happens next</dt>
-            <dd>{movement.next}</dd>
+            <dt>Next</dt>
+            <dd>
+              <bdi>{movement.next}</bdi>
+            </dd>
           </div>
         ) : null}
       </dl>
@@ -177,6 +235,8 @@ export function reviewComplete(review: ReviewData): boolean {
 
 /** Check your answers: every fee line, the total, what arrives and when; one button that names the outcome. */
 export function Review({ review, onConfirm, onEdit }: { review: ReviewData; onConfirm?: () => void; onEdit?: () => void }) {
+  const { market = 'unset', legalValues } = React.useContext(RoomContext);
+  const legal: readonly LegalMomentId[] = review.legal ?? ['scam-stop'];
   const rows = [...review.lines, review.total, review.recipientGets, review.arrival].filter((l): l is ReviewLine => l !== undefined);
   const complete = reviewComplete(review);
   return (
@@ -192,13 +252,16 @@ export function Review({ review, onConfirm, onEdit }: { review: ReviewData; onCo
           </div>
         ))}
       </dl>
+      {legal.map((m) => (
+        <RegistryLegalSlot key={m} moment={m} market={market} values={legalValues} />
+      ))}
       {complete ? (
-        <div className="lt-actions">
-          <button type="button" className="lt-button lt-button-secondary" onClick={onEdit}>
-            {review.editLabel ?? 'Edit'}
-          </button>
+        <div className="lt-actions lt-review-actions">
           <button type="button" className="lt-button lt-button-primary" onClick={onConfirm}>
             {review.confirmLabel}
+          </button>
+          <button type="button" className="lt-button lt-button-secondary" onClick={onEdit}>
+            {review.editLabel ?? 'Edit'}
           </button>
         </div>
       ) : (
@@ -237,7 +300,7 @@ function InFlight({ items }: { items: readonly Movement[] }) {
             <span className="lt-inflight-amount" dir="ltr">
               {formatMoney(m.amount)} <TestMark money={m.amount} />
             </span>
-            <span className="lt-inflight-dots" aria-label={STATUS_WORD[m.status]}>
+            <span className="lt-inflight-dots" aria-label={statusWord(m)}>
               {m.steps.map((s) => (
                 <span key={s.label} data-step={s.state} />
               ))}
@@ -281,7 +344,9 @@ export function RoomFrame(props: RoomFrameProps) {
   const band = legal.filter((m) => BAND_MOMENTS.has(m));
   const loading = state.kind === 'loading';
   return (
-    <RoomContext.Provider value={{ state, locale: props.locale, timeZone: props.timeZone, now: props.now }}>
+    <RoomContext.Provider
+      value={{ state, locale: props.locale, timeZone: props.timeZone, now: props.now, market, legalValues: props.legalValues }}
+    >
       <div
         className="lt-room"
         data-template={template}
@@ -305,14 +370,17 @@ export function RoomFrame(props: RoomFrameProps) {
           {roomAction ? <div className="lt-room-action">{roomAction}</div> : null}
         </header>
         {state.kind === 'ready' && state.stale ? (
-          <p className="lt-stale" data-region="stale">
-            Updated {ago(state.stale.asOf, props.now ?? new Date(), props.locale, props.timeZone)}
+          <div className="lt-stale" data-region="stale" role="status">
+            <p>
+              Figures as of {clock(state.stale.asOf, props.now ?? new Date(), props.locale, props.timeZone)}, updated{' '}
+              {ago(state.stale.asOf, props.now ?? new Date(), props.locale, props.timeZone)}. They may have changed.
+            </p>
             {state.stale.onRefresh ? (
-              <button type="button" className="lt-link" onClick={state.stale.onRefresh}>
+              <button type="button" className="lt-button lt-button-secondary" onClick={state.stale.onRefresh}>
                 Refresh
               </button>
             ) : null}
-          </p>
+          </div>
         ) : null}
         <Notices notices={props.notices ?? []} />
         {state.kind === 'ready' && state.partial ? <RefusalBox refusal={state.partial.missing} /> : null}
@@ -326,9 +394,7 @@ export function RoomFrame(props: RoomFrameProps) {
             Loading {title}
           </p>
         ) : null}
-        <div className="lt-body" inert={state.kind === 'gated' || undefined}>
-          {props.children}
-        </div>
+        <div className="lt-body">{props.children}</div>
         <InFlight items={props.inFlight ?? []} />
       </div>
     </RoomContext.Provider>

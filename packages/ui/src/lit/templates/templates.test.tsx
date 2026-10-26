@@ -16,7 +16,7 @@ import type { ReviewData } from './types.js';
 
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 
-describe('chart parts reconcile to the total they show (plan v2 row 9)', () => {
+describe('chart parts reconcile to the total they show', () => {
   it('adds "Other" for the difference', () => {
     const r = reconcileParts('12480.36', [
       { label: 'Cash', value: '5460.12' },
@@ -241,13 +241,14 @@ describe('every template draws every state, on Simple and Pro', () => {
           expect(out).toContain('data-busy="true"');
         }
         if (state === 'gated') {
-          // The layout shows behind the gate, with no figures from the data.
-          expect(out).toContain('data-ghost=');
+          // The layout shows behind the gate as locked outlines: no figures, and no skeleton bars (never "loading").
+          expect(out).toContain('class="lt-locked"');
+          expect(out).not.toContain('lt-ghost-item');
           expect(out).not.toMatch(/£\d/);
-          expect(out).toContain('inert=""');
         }
+        if (state === 'confirm' && id === 'flow') expect(out).toContain('data-moment="scam-stop"');
         if (state === 'refused') expect(out).toContain('data-refusal="parked"');
-        if (state === 'stale') expect(out).toContain('Updated 4 min ago');
+        if (state === 'stale') expect(out).toContain('Figures as of 10:43, updated 4 min ago');
       });
     }
   }
@@ -259,6 +260,49 @@ describe('every template draws every state, on Simple and Pro', () => {
     expect((pro.match(/lt-figure-cell/g) ?? []).length).toBe(4);
     expect(html(ROOMS.desk({ mode: 'pro', state: 'ready', market: 'uk' }))).toContain('data-region="book"');
     expect(html(ROOMS.desk({ mode: 'simple', state: 'ready', market: 'uk' }))).not.toContain('data-region="book"');
+  });
+});
+
+describe('states never contradict themselves', () => {
+  it('partial blanks what depends on the missing data, and pauses trading', () => {
+    const out = html(ROOMS.desk({ mode: 'pro', state: 'partial', market: 'uk' }));
+    expect(out).toContain('Price unavailable');
+    expect(out).toContain('Trading pauses until prices are back');
+    expect(out).not.toContain('81,040.00');
+    expect(out).not.toContain('Review order');
+  });
+
+  it('stale holds trading until a refresh', () => {
+    const out = html(ROOMS.desk({ mode: 'simple', state: 'stale', market: 'uk' }));
+    expect(out).toContain('Refresh prices to trade');
+    expect(out).not.toContain('Review order');
+  });
+
+  it('returned money reads as returned, in a neutral tone, with its own next step', () => {
+    const out = html(ROOMS.flow({ mode: 'simple', state: 'money-status', market: 'uk' }));
+    expect(out).toContain('Returned to your balance');
+    expect(out).toContain('data-returned="true"');
+    expect(out).not.toContain('Didn’t go through');
+    expect(out).not.toContain('within 2 hours');
+  });
+
+  it('the flow stepper follows the state', () => {
+    expect(html(ROOMS.flow({ mode: 'simple', state: 'confirm', market: 'uk' }))).toContain('aria-label="Step 4 of 4"');
+    expect(html(ROOMS.flow({ mode: 'simple', state: 'empty', market: 'uk' }))).toContain('aria-label="Step 1 of 4"');
+    expect(html(ROOMS.flow({ mode: 'simple', state: 'receipt', market: 'uk' }))).not.toContain('lt-stepper');
+  });
+
+  it('room actions leave whole-room states, so the state has the only primary', () => {
+    for (const state of ['empty', 'confirm', 'money-status', 'receipt'] as const) {
+      const out = html(ROOMS.overview({ mode: 'simple', state, market: 'uk' }));
+      expect(out).not.toContain('data-region="actions"');
+    }
+  });
+
+  it('a send carries the scam warning before its button; a buy from your own balance does not', () => {
+    const send = html(ROOMS.flow({ mode: 'simple', state: 'confirm', market: 'uk' }));
+    expect(send.indexOf('data-moment="scam-stop"')).toBeLessThan(send.indexOf('Send £250.00 to Aisha Khan'));
+    expect(html(ROOMS.monitor({ mode: 'simple', state: 'confirm', market: 'uk' }))).not.toContain('scam-stop');
   });
 });
 

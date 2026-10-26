@@ -1,4 +1,4 @@
-// The route-to-template registry stays in step with the app's route table (Lit glass plan v2, row 22).
+// The route-to-template registry stays in step with the app's route table (Lit glass redesign).
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';

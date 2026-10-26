@@ -1,12 +1,11 @@
 /**
  * The legal slot registry, keyed by moment and market. Rooms say which moments they carry; this file alone says
- * the words. A FIXED text is copied character for character from the rule (sources in project-state
- * design/new-look/RULES-AND-TRUST.md, checked 26 Oct 2026). A moment whose words a lawyer must choose, or a market
+ * the words. A FIXED text is copied character for character from the rule (each wording names its rule; checked against the rules' texts 26 Oct 2026). A moment whose words a lawyer must choose, or a market
  * that is not decided yet, renders a designed "wording missing" refusal: never invented text.
  */
 import type { LegalMomentId, Market } from '../types.js';
 
-/** Slot kinds from RULES-AND-TRUST.md's legend. */
+/** Kinds of legal slot. */
 export type LegalSlotType =
   'risk-band' | 'popup' | 'disclosure' | 'legal-link' | 'equal-choice' | 'timer' | 'gate' | 'consent' | 'result' | 'button';
 
