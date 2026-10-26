@@ -82,7 +82,7 @@
   font-size: var(--if-text-base);
 }
 .p2p-chat-thread:focus-visible {
-  outline: 2px solid var(--if-lime);
+  outline: 2px solid var(--if-focus);
   outline-offset: 2px;
 }
 .p2p-chat-list {
@@ -185,7 +185,7 @@
   cursor: pointer;
 }
 .p2p-chat-quick button:focus-visible {
-  outline: 2px solid var(--if-lime);
+  outline: 2px solid var(--if-focus);
   outline-offset: 2px;
 }
 .p2p-chat-compose {
@@ -351,7 +351,7 @@
   color: var(--color-text);
 }
 .p2p-seg button:focus-visible {
-  outline: 2px solid var(--if-lime);
+  outline: 2px solid var(--if-focus);
   outline-offset: 2px;
 }
 .p2p-notice-row {

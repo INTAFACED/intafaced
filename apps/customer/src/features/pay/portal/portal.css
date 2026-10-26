@@ -52,7 +52,7 @@
     .pp select:focus-visible,
     .pp textarea:focus-visible,
     .pp [tabindex]:focus-visible {
-      outline: 2px solid var(--if-lime);
+      outline: 2px solid var(--if-focus);
       outline-offset: 2px;
     }
     .pp select,

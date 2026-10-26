@@ -46,7 +46,13 @@ export const colors = {
   fg: '#FFFFFF',
   /** MT §3 L60: table headers and labels. DESIGN.md says #A3A3A3 (recorded conflict C1). */
   'fg-2': '#909090',
-  'fg-3': '#6C6C6C',
+  /**
+   * Faint text. Was #6C6C6C (measured), which is 4.0:1 on black and 3.57:1 on `panel`, under WCAG AA; raised on
+   * 26 Oct 2026 to the darkest neutral grey that clears 4.5:1 on bg, panel, hover and field (tokens.test.ts checks
+   * it). It still fails on raised, menu and pill fills, so text there should use fg-2 or fg. It now sits close to fg-2; the
+   * next look decides the text ramp.
+   */
+  'fg-3': '#888888',
   /** Disabled text only. */
   'fg-disabled': '#5B5B5B',
   /** Hover, press and disabled fills for fields and chips on any surface. */
@@ -239,6 +245,8 @@ export const sizes = {
  */
 export const aliases = {
   base: 'var(--if-bg)',
+  /** The keyboard focus ring (2 px solid). Its own name so a look can change it without changing the accent. */
+  focus: 'var(--if-lime)',
 } as const;
 
 /**

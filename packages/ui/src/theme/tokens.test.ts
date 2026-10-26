@@ -122,6 +122,17 @@ describe('contrast (WCAG 2.2 AA) on the surfaces the tokens sit on', () => {
     expect(contrast(t['on-down']!, t['down']!)).toBeGreaterThanOrEqual(4.5);
   });
 
+  it('keeps faint text (fg-3) at WCAG AA on the surfaces text sits on', () => {
+    for (const surface of ['bg', 'panel', 'hover', 'field'] as const) {
+      expect(contrast(colors['fg-3'], colors[surface]), surface).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it('defines the focus ring the screens use', () => {
+    expect(css).toContain('--if-focus: var(--if-lime);');
+    expect(themeCss).toContain('--color-focus: var(--if-focus);');
+  });
+
   it('only overrides tokens that exist', () => {
     for (const key of Object.keys(redUpOverrides)) expect(key in colors).toBe(true);
   });

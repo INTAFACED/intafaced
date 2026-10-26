@@ -76,6 +76,7 @@
   --color-lime-press: var(--if-lime-press);
   --color-on-lime: var(--if-on-lime);
   --color-lime-soft: var(--if-lime-soft);
+  --color-focus: var(--if-focus);
   --color-warn: var(--if-warn);
   --color-warn-text: var(--if-warn-text);
   --color-scrim: var(--if-scrim);

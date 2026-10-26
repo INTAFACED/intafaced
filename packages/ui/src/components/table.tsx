@@ -172,7 +172,7 @@ function RowView<Row>({ row, index, body }: { row: Row; index: number; body: Bod
         rowHeightClass[density],
         'group/row transition-colors duration-(--if-t-fast) ease-if hover:bg-hover aria-selected:bg-hover',
         interactive &&
-          'cursor-default outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid focus-visible:outline-lime',
+          'cursor-default outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid focus-visible:outline-focus',
       )}
     >
       {selection === 'multiple' ? (

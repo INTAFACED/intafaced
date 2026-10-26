@@ -117,7 +117,7 @@
 }
 .quant-history-evidence summary:focus-visible,
 .quant-catalogue summary:focus-visible {
-  outline: 2px solid var(--if-lime);
+  outline: 2px solid var(--if-focus);
   outline-offset: 3px;
 }
 .quant-history-evidence > section {

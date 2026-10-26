@@ -107,7 +107,7 @@
   overflow-wrap: normal;
 }
 .market-purchases-exact-price:focus-visible {
-  outline: 2px solid var(--if-lime);
+  outline: 2px solid var(--if-focus);
   outline-offset: 4px;
   border-radius: var(--if-r-xs);
 }

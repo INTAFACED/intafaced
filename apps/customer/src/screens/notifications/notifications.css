@@ -30,7 +30,7 @@
     background: var(--if-hover);
   }
   .nf-row:focus-visible {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: -2px;
   }
   .nf-icon {
@@ -148,7 +148,7 @@
     background: var(--if-hover);
   }
   .nf-pop__all:focus-visible {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: -2px;
   }
 
@@ -168,7 +168,7 @@
     padding: 0;
   }
   .if-notify :focus-visible {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: 2px;
   }
   .nf-head {

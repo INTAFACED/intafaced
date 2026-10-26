@@ -94,7 +94,7 @@
   line-height: var(--if-leading-base);
 }
 .mining-room-health summary:focus-visible {
-  outline: 2px solid var(--if-lime);
+  outline: 2px solid var(--if-focus);
   outline-offset: 3px;
 }
 .mining-room-health-body {

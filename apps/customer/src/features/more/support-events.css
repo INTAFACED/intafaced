@@ -100,7 +100,7 @@
   padding: var(--if-space-3) 0;
 }
 .support-event-reference summary:focus-visible {
-  outline: var(--spacing-2) solid var(--if-lime);
+  outline: var(--spacing-2) solid var(--if-focus);
   outline-offset: var(--spacing-4);
 }
 .support-event-reference dl {
