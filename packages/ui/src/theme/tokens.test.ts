@@ -133,6 +133,16 @@ describe('contrast (WCAG 2.2 AA) on the surfaces the tokens sit on', () => {
     expect(themeCss).toContain('--color-focus: var(--if-focus);');
   });
 
+  it('gives the accent as text its own name, today the same lime', () => {
+    expect(css).toContain('--if-accent-text: var(--if-lime);');
+    expect(themeCss).toContain('--color-accent-text: var(--if-accent-text);');
+    // Today it is the lime, so the lime is held to AA on the surfaces accent text sits on.
+    expect(aliases['accent-text']).toBe('var(--if-lime)');
+    for (const surface of ['bg', 'panel', 'hover', 'field'] as const) {
+      expect(contrast(colors.lime, colors[surface]), surface).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
   it('only overrides tokens that exist', () => {
     for (const key of Object.keys(redUpOverrides)) expect(key in colors).toBe(true);
   });

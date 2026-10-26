@@ -104,7 +104,7 @@
   gap: var(--if-space-2);
   align-items: center;
   margin: 0;
-  color: var(--if-lime);
+  color: var(--if-accent-text);
   font-size: var(--if-text-sm);
 }
 .p2p-chat-new::before,

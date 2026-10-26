@@ -89,7 +89,7 @@
   min-height: 44px;
   padding: var(--if-space-3) 0;
   cursor: pointer;
-  color: var(--if-lime);
+  color: var(--if-accent-text);
   font-size: var(--if-text-base);
   line-height: var(--if-leading-base);
 }

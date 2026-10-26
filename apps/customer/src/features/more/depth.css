@@ -12,7 +12,7 @@
   white-space: nowrap;
 }
 .depth-pill--ready {
-  color: var(--if-lime);
+  color: var(--if-accent-text);
   border-color: var(--if-lime);
 }
 .depth-pill--paper {

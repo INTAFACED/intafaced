@@ -16,6 +16,9 @@
  *   *radius                                      -> --if-r-*
  *   var(--spacing-N | --text-N | --leading-N | --radius-N) in a property of that family, and var(--color-accent)
  *   anywhere: the customer app's older names, where the kit token has the same value.
+ *   text colours (color, caret-color, text-decoration-color, -webkit-text-fill-color, text-emphasis-color): the
+ *   accent (--if-lime, the shell's --tb-lime, the older --color-accent) -> --if-accent-text, today the same lime, so a
+ *   light theme can darken accent text without darkening fills. Not --if-accent: the founder console's is orange.
  * Lines with two declarations or a comment are left as written.
  * Widths, heights, borders, outlines, grid tracks and breakpoints are geometry and stay px.
  */
@@ -86,6 +89,10 @@ const LEGACY_SIZES = {
 // Only names the light theme (features/account/account.css) does not override; --color-background stays until light ships or goes.
 const LEGACY_COLOURS = { '--color-accent': '--if-lime' };
 
+// The accent's names, which as text colour move to the accent-text role (same value today). A fallback is kept.
+const ACCENT = /var\(--(?:if-lime|tb-lime|color-accent)(?=[\s,)])/g;
+const TEXT_COLOUR = /^(color|caret-color|text-decoration-color|-webkit-text-fill-color|text-emphasis-color)$/;
+
 const PX = /(^|[\s(,/])(\d+(?:\.\d+)?px)(?=$|[\s),/;!])/g;
 
 function familyOf(prop) {
@@ -126,7 +133,7 @@ export function transform(css, s) {
     .map((line) => {
       // One declaration per line, no comment on it (prettier's shape); anything else is left as written.
       if (line.includes('/*') || (line.match(/;/g) ?? []).length > 1) return line;
-      const m = line.match(/^(\s*)([a-z][a-z-]*)(\s*:\s*)(.*?)(;?\s*)$/);
+      const m = line.match(/^(\s*)(-?[a-z][a-z-]*)(\s*:\s*)(.*?)(;?\s*)$/);
       if (!m || /[{,]\s*$/.test(line) || /^\s*@/.test(line)) return line;
       const [, indent, prop, colon, value, tail] = m;
       let v;
@@ -140,7 +147,13 @@ export function transform(css, s) {
         });
       } else {
         const fam = familyOf(prop);
-        v = renameLegacy(value, fam ? [fam] : []);
+        v = value;
+        if (TEXT_COLOUR.test(prop))
+          v = v.replace(ACCENT, () => {
+            changed++;
+            return 'var(--if-accent-text';
+          });
+        v = renameLegacy(v, fam ? [fam] : []);
         if (fam) v = swap(v, s[fam]);
       }
       return v === value ? line : `${indent}${prop}${colon}${v}${tail}`;

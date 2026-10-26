@@ -101,7 +101,7 @@
 .support-status--pending,
 .support-status--on_hold {
   border-color: var(--if-lime);
-  color: var(--if-lime);
+  color: var(--if-accent-text);
 }
 .support-status--resolved,
 .support-status--closed {

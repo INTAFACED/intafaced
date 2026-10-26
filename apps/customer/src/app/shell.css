@@ -480,7 +480,7 @@
     margin: var(--if-space-2) var(--if-space-6) 0;
     border: 1px solid var(--tb-lime);
     border-radius: var(--if-r-xs);
-    color: var(--tb-lime);
+    color: var(--if-accent-text);
     font-size: var(--if-text-xs);
     line-height: var(--if-leading-xs);
   }
@@ -542,7 +542,7 @@
   }
   .tb-tag--live {
     border-color: var(--tb-lime);
-    color: var(--tb-lime);
+    color: var(--if-accent-text);
   }
   .tb-tag--hidden,
   .tb-tag--blocked {
@@ -607,7 +607,7 @@
       text-decoration: none;
     }
     .mobile-doors a[aria-current='page'] {
-      color: var(--tb-lime);
+      color: var(--if-accent-text);
     }
     .tb-search-panel {
       position: fixed;

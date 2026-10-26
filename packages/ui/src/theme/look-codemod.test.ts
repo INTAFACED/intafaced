@@ -56,8 +56,29 @@ describe('look codemod (tooling/scripts/look-codemod.mjs): px onto tokens of the
 
   it('moves the older customer names whose kit token has the same value', () => {
     expect(
-      run('.c {\n  padding: var(--spacing-12) var(--spacing-44);\n  font-size: var(--text-14);\n  color: var(--color-accent);\n}'),
-    ).toBe('.c {\n  padding: var(--if-space-3) var(--spacing-44);\n  font-size: var(--if-text-base);\n  color: var(--if-lime);\n}');
+      run('.c {\n  padding: var(--spacing-12) var(--spacing-44);\n  font-size: var(--text-14);\n  border-color: var(--color-accent);\n}'),
+    ).toBe('.c {\n  padding: var(--if-space-3) var(--spacing-44);\n  font-size: var(--if-text-base);\n  border-color: var(--if-lime);\n}');
+  });
+
+  it('moves the accent as text colour onto accent-text, and leaves accent fills and borders alone', () => {
+    expect(
+      run(
+        '.a {\n  color: var(--if-lime);\n  caret-color: var(--tb-lime);\n  text-decoration-color: var(--color-accent);\n  background: var(--if-lime);\n  border: 1px solid var(--if-lime);\n  color: var(--if-on-lime);\n  color: var(--if-lime-hover);\n}',
+      ),
+    ).toBe(
+      '.a {\n  color: var(--if-accent-text);\n  caret-color: var(--if-accent-text);\n  text-decoration-color: var(--if-accent-text);\n  background: var(--if-lime);\n  border: 1px solid var(--if-lime);\n  color: var(--if-on-lime);\n  color: var(--if-lime-hover);\n}',
+    );
+  });
+
+  it('keeps a fallback, covers the vendor text fill, counts each value once, and leaves --if-accent (orange in the console)', () => {
+    const out = transform(
+      '.b {\n  color: var(--if-lime, #c8f64a);\n  -webkit-text-fill-color: var(--tb-lime);\n  color: var(--color-accent);\n  color: var(--if-accent);\n  --x: var(--if-lime);\n}',
+      s,
+    );
+    expect(out.css).toBe(
+      '.b {\n  color: var(--if-accent-text, #c8f64a);\n  -webkit-text-fill-color: var(--if-accent-text);\n  color: var(--if-accent-text);\n  color: var(--if-accent);\n  --x: var(--if-lime);\n}',
+    );
+    expect(out.changed).toBe(3);
   });
 
   it('keeps --color-background, which the light theme still overrides', () => {

@@ -55,7 +55,7 @@
   color: var(--color-muted);
 }
 .price-alerts-status--active {
-  color: var(--if-lime);
+  color: var(--if-accent-text);
 }
 .price-alerts-quantity {
   font-variant-numeric: tabular-nums;

@@ -75,7 +75,7 @@
   font-size: 11px;
 }
 .trade-favorites button[aria-pressed='true'] {
-  color: var(--if-lime);
+  color: var(--if-accent-text);
 }
 .trade-chart {
   min-width: 0;
@@ -408,7 +408,7 @@
   color: var(--color-muted);
 }
 .trade-row-actions button:hover {
-  color: var(--if-lime);
+  color: var(--if-accent-text);
 }
 .trade-note {
   display: block;

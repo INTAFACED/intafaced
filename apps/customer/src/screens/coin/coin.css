@@ -90,7 +90,7 @@
     color: var(--if-fg);
   }
   .coin-star--on {
-    color: var(--if-lime);
+    color: var(--if-accent-text);
   }
   .coin-bar__tabs {
     display: flex;

@@ -84,7 +84,7 @@
   font-variant-numeric: tabular-nums;
 }
 .referral-link {
-  color: var(--if-lime);
+  color: var(--if-accent-text);
   align-self: flex-start;
   padding-inline: 0;
 }

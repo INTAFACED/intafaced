@@ -89,7 +89,7 @@
   color: var(--color-muted);
 }
 .subaccounts__status--active {
-  color: var(--if-lime);
+  color: var(--if-accent-text);
 }
 .subaccounts__row .button {
   width: 142px;

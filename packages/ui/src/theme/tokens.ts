@@ -247,6 +247,11 @@ export const aliases = {
   base: 'var(--if-bg)',
   /** The keyboard focus ring (2 px solid). Its own name so a look can change it without changing the accent. */
   focus: 'var(--if-lime)',
+  /**
+   * The accent used as text (links, active tabs, live labels, check marks). Its own name so a light theme can darken
+   * text without darkening accent fills, which stay `--if-lime`.
+   */
+  'accent-text': 'var(--if-lime)',
 } as const;
 
 /**

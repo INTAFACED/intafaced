@@ -72,7 +72,7 @@
   display: inline-flex;
   align-items: center;
   min-height: 44px;
-  color: var(--if-lime);
+  color: var(--if-accent-text);
 }
 .public-auth-feedback {
   margin-bottom: var(--if-space-6);
