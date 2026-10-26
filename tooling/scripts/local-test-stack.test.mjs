@@ -620,12 +620,13 @@ console.log('local-test-stack: customer folder override checks passed');
       probe.close(() => ok(pt));
     });
   });
+  // LOCAL_STACK_STATE would point the throwaway server at a running stack's record: send it to the temp folder.
+  const env = { ...process.env, HOME: home, LOCAL_STACK_STATE: join(home, 'state') };
   const server = spawn(process.execPath, [script, '__serve-customer', String(port)], {
-    env: { ...process.env, HOME: home },
+    env,
     stdio: 'ignore',
   });
-  const report = (args) =>
-    spawnSync(process.execPath, [script, 'csp-report', ...args], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
+  const report = (args) => spawnSync(process.execPath, [script, 'csp-report', ...args], { env, encoding: 'utf8' });
   try {
     let res;
     for (let i = 0; i < 50 && !res; i++) {

@@ -56,7 +56,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { securityHeaders } from '../../apps/customer/deployment/render-security-headers.mjs';
+import { apiSecurityHeaders, securityHeaders } from '../../apps/customer/deployment/render-security-headers.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveVideoStore } from './local-video-store.mjs';
 import academy from './local-stack-services/academy.mjs';
@@ -1320,6 +1320,8 @@ async function cmdStart(flags) {
   for (const b of [`${PG_BIN}/pg_ctl`, `${PG_BIN}/initdb`, `${PG_BIN}/psql`])
     if (!fs.existsSync(b)) fail(`missing ${b} (install PostgreSQL 16 via Homebrew)`);
   const secrets = loadOrCreateSecrets();
+  // Each stack starts with no recorded CSP violations, so `csp-report --fail` speaks only of this run.
+  fs.rmSync(P.cspViolations, { force: true });
   writePrivate(
     P.marker,
     JSON.stringify(
@@ -1555,6 +1557,8 @@ function indexWithBanner(dist) {
 }
 
 /** Where the Customer app's browser sends Content-Security-Policy violation reports on this stack. */
+/** What nginx's /api/ location adds to Edge's answers (security-headers-api.conf). */
+const API_SECURITY = apiSecurityHeaders();
 const CSP_REPORT_PATH = '/__csp-report';
 
 /**
@@ -1625,13 +1629,22 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
     if (p === CSP_REPORT_PATH && site === SITES.customer) {
       if (req.method !== 'POST') return send(res, 405, 'text/plain; charset=utf-8', 'method not allowed');
       let body = '';
+      req.setEncoding('utf8');
       req.on('data', (chunk) => {
         body += chunk;
         if (body.length > 64 * 1024) req.destroy();
       });
       req.on('end', () => {
         const rows = cspReportRows(body);
-        if (rows.length) fs.appendFileSync(P.cspViolations, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+        try {
+          if (rows.length) {
+            fs.mkdirSync(path.dirname(P.cspViolations), { recursive: true });
+            fs.appendFileSync(P.cspViolations, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+          }
+        } catch (error) {
+          // The record cannot be written: say so on every report rather than take the Customer site down.
+          console.error(`CSP report not recorded (${error.message}); csp-report cannot see it`);
+        }
         for (const r of rows) console.error(`CSP violation: ${r.directive} blocked ${r.blocked || '(inline)'} on ${r.page}`);
         send(res, 204, 'text/plain; charset=utf-8', '');
       });
@@ -1652,7 +1665,7 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
       headers['x-forwarded-for'] = req.socket.remoteAddress ?? HOST;
       headers['x-forwarded-proto'] = 'http';
       const up = http.request({ ...edge, method: req.method, path: req.url, headers }, (ur) => {
-        res.writeHead(ur.statusCode ?? 502, { ...ur.headers, 'cache-control': 'no-store' });
+        res.writeHead(ur.statusCode ?? 502, { ...ur.headers, ...API_SECURITY, 'cache-control': 'no-store' });
         ur.pipe(res);
       });
       up.on('error', () =>
@@ -1736,7 +1749,7 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
 /**
  * `csp-report [--fail] [--clear]`: the Content-Security-Policy violations the Customer app's browser reported to this
  * stack (csp-violations.jsonl), grouped by directive and blocked source. `--fail` exits 1 when there is any, so a journey
- * run that broke the production policy is red; `--clear` empties the record first-thing in a run.
+ * run that broke the production policy is red; `--clear` empties the record (`start` does too, so each stack starts clean).
  */
 function cmdCspReport(args) {
   if (args.includes('--clear')) {
@@ -1749,7 +1762,14 @@ function cmdCspReport(args) {
         .readFileSync(P.cspViolations, 'utf8')
         .split('\n')
         .filter(Boolean)
-        .map((l) => JSON.parse(l))
+        .map((l) => {
+          try {
+            return JSON.parse(l);
+          } catch {
+            // A line cut short (the server stopped mid-write) still means a violation was seen.
+            return { directive: 'unreadable record line', blocked: l.slice(0, 80), page: '?' };
+          }
+        })
     : [];
   if (rows.length === 0) {
     say('  csp-report: no Content-Security-Policy violations recorded');

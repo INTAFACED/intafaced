@@ -45,20 +45,36 @@ export function installSnippets(directory, env = {}) {
  */
 export function securityHeaders({ mediaSrc = "'self' blob:", connectSrc = "'self'", reportUri } = {}) {
   const values = { CUSTOMER_CSP_MEDIA_SRC: mediaSrc, CUSTOMER_CSP_CONNECT_SRC: connectSrc };
-  for (const [name, value] of Object.entries(values))
-    if (!/^[A-Za-z0-9 .:/*'-]+$/.test(value)) throw new Error(`${name} has a character that does not belong in a source list: ${value}`);
+  // Only what csp-origins.envsh can produce, plus plain http and ws origins for a local server: 'self', blob: and
+  // scheme://host[:port]. A keyword such as 'unsafe-eval', a bare * or a wildcard host is refused.
+  const SOURCE = /^(?:'self'|blob:|(?:https?|wss?):\/\/[A-Za-z0-9.-]+(?::\d{1,5})?)$/;
+  for (const [name, value] of Object.entries(values)) {
+    const bad = value.split(' ').find((s) => !SOURCE.test(s));
+    if (bad !== undefined) throw new Error(`${name} has a source the production policy cannot hold: ${bad || '(empty)'}`);
+  }
   const rendered = readFileSync(join(customer, 'security-headers.conf.template'), 'utf8')
     .replace(/#.*$/gm, '')
     .replace(/\$\{(CUSTOMER_CSP_[A-Z_]+)\}/g, (_, name) => {
       if (!(name in values)) throw new Error(`security-headers.conf.template uses \${${name}}, which this renderer does not know`);
       return values[name];
     });
-  const out = {};
-  for (const m of rendered.matchAll(/^add_header\s+(\S+)\s+"((?:[^"\\]|\\.)*)"\s+always;/gm)) out[m[1]] = m[2];
+  const out = addHeaders(rendered);
   if (!out['Content-Security-Policy']) throw new Error('security-headers.conf.template sets no Content-Security-Policy');
   if (reportUri) {
     if (!/^\/[\w/-]+$/.test(reportUri)) throw new Error(`reportUri must be a same-origin path, got ${reportUri}`);
     out['Content-Security-Policy'] += `; report-uri ${reportUri}`;
   }
   return out;
+}
+
+/** The `add_header Name "value" always;` lines of an nginx snippet, as `{ Name: value }`. */
+function addHeaders(snippet) {
+  const out = {};
+  for (const m of snippet.replace(/#.*$/gm, '').matchAll(/^add_header\s+(\S+)\s+"((?:[^"\\]|\\.)*)"\s+always;/gm)) out[m[1]] = m[2];
+  return out;
+}
+
+/** The headers nginx's /api/ location adds (security-headers-api.conf), for a server that is not nginx. */
+export function apiSecurityHeaders() {
+  return addHeaders(readFileSync(join(customer, 'security-headers-api.conf'), 'utf8'));
 }

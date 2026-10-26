@@ -205,6 +205,14 @@ test('securityHeaders gives a non-nginx server the same headers, word for word',
   assert.match(csp, /media-src 'self' blob: http:\/\/127\.0\.0\.1:3240;/);
   assert.match(csp, /script-src 'self';/);
   assert.match(csp, /; report-uri \/__csp-report$/);
-  assert.throws(() => securityHeaders({ connectSrc: "'self'; script-src *" }), /does not belong/);
+  for (const bad of ["'self'; script-src *", "'self' 'unsafe-eval'", '*', 'https://*.example.com', "'self'  blob:"])
+    assert.throws(() => securityHeaders({ connectSrc: bad }), /cannot hold/, bad);
+  assert.doesNotThrow(() => securityHeaders({ connectSrc: "'self' wss://lk.example.com https://s3.example.com:9000" }));
   assert.throws(() => securityHeaders({ reportUri: 'https://evil.test/r' }), /same-origin path/);
+});
+
+test('apiSecurityHeaders is the /api/ snippet', async () => {
+  const { apiSecurityHeaders } = await import('./render-security-headers.mjs');
+  const api = Object.entries(apiSecurityHeaders()).map(([k, v]) => [k.toLowerCase(), v]);
+  assert.deepEqual(api, headers(read('security-headers-api.conf')));
 });
