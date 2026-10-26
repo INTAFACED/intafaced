@@ -19,7 +19,8 @@ import { groups } from '../features/pay/portal/home-layout/groups';
 import { ShellSwitch } from '../features/protocol/ShellSwitch';
 
 // The merchant portal's chrome and menu load only when a merchant page or the Pay menu needs them.
-const MerchantTopBar = lazy(() => import('../features/pay/portal/chrome/Chrome').then((m) => ({ default: m.MerchantTopBar })));
+export const preloadMerchantChrome = () => import('../features/pay/portal/chrome/Chrome').then((m) => ({ default: m.MerchantTopBar }));
+const MerchantTopBar = lazy(preloadMerchantChrome);
 const GroupedMenu = lazy(() => import('../features/pay/portal/home-layout/Navigation').then((m) => ({ default: m.GroupedMenu })));
 
 /** Sets `--if-banner-offset` to the local stack's banner height (28 px), or 0 when there is no banner. */

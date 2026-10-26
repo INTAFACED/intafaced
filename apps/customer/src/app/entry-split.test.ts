@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -10,7 +10,7 @@ function resolve(from: string, spec: string): string | null {
   if (!spec.startsWith('.')) return null;
   const base = normalize(join(dirname(from), spec));
   for (const file of [base, `${base}.ts`, `${base}.tsx`, join(base, 'index.ts'), join(base, 'index.tsx')])
-    if (existsSync(file) && !file.endsWith('/')) return file;
+    if (existsSync(file) && statSync(file).isFile()) return file;
   return null;
 }
 

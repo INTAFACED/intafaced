@@ -3,6 +3,7 @@ import { Page, EmptyState, Button, Loading } from '../shared/ui';
 import { deskPairLabel, findRoom, resolveAlias, roomTitle, safeReturnTo, type Room } from './navigation';
 import { useLocation, useReturnLocation, currentReturnLocation, navigate } from './location';
 import { Shell } from './Shell';
+import { preloadMerchantChrome } from './TopBar';
 import { useSession } from '../features/session/session';
 import { ApplyView } from '../features/account/View';
 import { AccountViewSync } from '../features/account/ViewSync';
@@ -10,7 +11,7 @@ import { appCopy } from './app-copy';
 import { useKeepKeyboardFocusVisible } from '../shared/keyboard-focus';
 import { useCustomerRoomArrival } from './room-arrival';
 import { hiddenFeatureFor, isDevBuild, type Feature } from './feature-registry';
-import { LegacyRoom, type LegacyArea } from './LegacyRoom';
+import { LegacyRoom, preloadAccountRoutes, type LegacyArea } from './LegacyRoom';
 import { matchPath } from './path-match';
 import { preloadScreen, screens } from './screens';
 import { shellCopy } from './shell-copy';
@@ -20,9 +21,12 @@ import { rememberShellRoute } from '../features/protocol/shell-state';
 import { TeamDesk, teamConsoleHref } from './TeamDesk';
 
 // Rooms outside the customer doors load on demand, so a first visit to Home does not download them.
-const PublicRoutes = lazy(() => import('../features/public/PublicRoutes').then((m) => ({ default: m.PublicRoutes })));
-const ProtocolRoutes = lazy(() => import('../features/protocol/ProtocolRoutes').then((m) => ({ default: m.ProtocolRoutes })));
-const Web3Shell = lazy(() => import('./Web3Shell').then((m) => ({ default: m.Web3Shell })));
+const loadPublic = () => import('../features/public/PublicRoutes').then((m) => ({ default: m.PublicRoutes }));
+const loadProtocol = () => import('../features/protocol/ProtocolRoutes').then((m) => ({ default: m.ProtocolRoutes }));
+const loadWeb3Shell = () => import('./Web3Shell').then((m) => ({ default: m.Web3Shell }));
+const PublicRoutes = lazy(loadPublic);
+const ProtocolRoutes = lazy(loadProtocol);
+const Web3Shell = lazy(loadWeb3Shell);
 const DevFeatures = lazy(() => import('./DevFeatures').then((m) => ({ default: m.DevFeatures })));
 
 class RoomBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
@@ -100,9 +104,6 @@ export function App() {
   // One redirect rule per render, in this order: an alias row, signed-in `/`. No path is redirected for being hidden, in any
   // build, so the Docker image opens exactly what `vite dev` opens.
   const redirectTo = room?.alias ? resolveAlias(room, path, search) : path === '/' && session ? '/home' : undefined;
-  useEffect(() => {
-    if (room?.screen) preloadScreen(room.screen);
-  }, [room?.screen]);
   useCustomerRoomArrival(path, devFeatures || !room || !['public', 'team', 'web3'].includes(room.area), Boolean(redirectTo));
   const teamHref = room?.area === 'team' ? teamConsoleHref(current, import.meta.env.VITE_TEAM_URL, import.meta.env.DEV) : undefined;
   useEffect(() => {
@@ -143,6 +144,19 @@ export function App() {
   // The Academy opens for a visitor with no account too (J-academy-01): its signed-out view reads only published content.
   const needsSession =
     room && ['home', 'money', 'pay', 'more', 'person'].includes(room.area) && path !== '/pay/checkout' && !isAcademyPath(path);
+  // Start downloading the room's code before it can render: a signed-in room waits for the boot refresh, and the
+  // Web3 frame and its rooms are two chunks that would otherwise load one after the other. A signed-out visitor to
+  // a private room only sees "Sign in", so nothing is fetched for it.
+  const willRender = !needsSession || Boolean(session) || restoring;
+  useEffect(() => {
+    if (!room || !willRender) return;
+    const quiet = (load: () => Promise<unknown>) => void load().catch(() => undefined);
+    if (room.screen) preloadScreen(room.screen);
+    else if (room.area === 'public') quiet(loadPublic);
+    else if (room.area === 'web3') [loadWeb3Shell, loadProtocol].forEach(quiet);
+    else if (room.area === 'person') quiet(preloadAccountRoutes);
+    if (isMerchantArea(path)) quiet(preloadMerchantChrome);
+  }, [room, path, willRender]);
   const ribbon = dev && hidden && !devFeatures && !isMerchantArea(path) ? <DevRibbon feature={hidden} /> : null;
   const fallback = (
     <div className="legacy-room">

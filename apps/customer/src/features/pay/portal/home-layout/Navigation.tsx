@@ -5,8 +5,6 @@ import { layoutCopy as c } from './copy';
 
 import { groups, type NavGroup, type NavItem } from './groups';
 
-export { groups, type NavGroup, type NavItem, type NavOptions } from './groups';
-
 const matchOf = ([href, , options]: NavItem) => options?.match ?? href;
 const covers = (prefix: string, here: string) => here === prefix || here.startsWith(prefix + '/');
 
