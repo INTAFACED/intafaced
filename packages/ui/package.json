@@ -30,7 +30,12 @@
     },
     "./lit/lit.css": "./src/lit/lit.css",
     "./lit/components.css": "./src/lit/components/components.css",
-    "./lit/fonts.css": "./src/lit/fonts.css"
+    "./lit/fonts.css": "./src/lit/fonts.css",
+    "./lit/templates": {
+      "types": "./dist/lit/templates/index.d.ts",
+      "default": "./dist/lit/templates/index.js"
+    },
+    "./lit/templates.css": "./src/lit/templates/templates.css"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
