@@ -23,12 +23,7 @@
       "types": "./dist/lit/index.d.ts",
       "default": "./dist/lit/index.js"
     },
-    "./lit/lit.css": "./src/lit/lit.css",
-    "./a11y": {
-      "types": "./dist/a11y/index.d.ts",
-      "default": "./dist/a11y/index.js"
-    },
-    "./a11y/a11y.css": "./src/a11y/a11y.css"
+    "./lit/lit.css": "./src/lit/lit.css"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

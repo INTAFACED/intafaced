@@ -17,7 +17,8 @@
  * Budgets the values keep (plan v2 section 3): money and text sit on opaque content panels (`solid-bg`), glass
  * and blur are only on the nav and sheet layers, and text roles meet 4.5:1 on every solid surface.
  */
-import { accents, roleNames, roleVar, type Accent, type Role, type TypeRole } from './contracts.js';
+import { cssValue } from '../theme/tokens.js';
+import { accents, LIT_LOOK, roleNames, roleVar, type Accent, type Role, type TypeRole } from './contracts.js';
 
 type RoleMap = Record<Role, string>;
 
@@ -49,14 +50,17 @@ export const flat: RoleMap = {
   'solid-bg-sunken': v('field'),
   'solid-lip': '0 0 0 0 transparent',
   'solid-rim': v('line'),
+  'solid-rim-dim': v('line'),
   'solid-wall': 'transparent',
   'solid-shadow': 'none',
-  'corner-glow': 'none',
+  'corner-glow': 'transparent',
   'glass-bg': v('popover'),
   'glass-blur': 'none',
   'glass-rim': v('line-popup'),
+  'glass-rim-dim': v('line-popup'),
   'glass-shadow': v('shadow-menu'),
   scrim: v('scrim'),
+  veil: v('scrim'),
   'primary-bg': v('lime'),
   'primary-fg': v('on-lime'),
   'primary-shadow': 'none',
@@ -81,6 +85,11 @@ export const flat: RoleMap = {
   'error-text': v('error-text'),
   'test-tag-bg': v('field'),
   'test-tag-fg': v('fg-2'),
+  'status-pending': v('warn-text'),
+  'status-failed': v('error-text'),
+  'status-done': v('up-text'),
+  'status-unknown': v('fg-2'),
+  'status-stale': v('warn-text'),
   'font-ui': v('font-ui'),
   'font-mono': v('font-mono'),
   'font-figure': v('font-ui'),
@@ -120,7 +129,7 @@ export const lit: RoleMap = {
   'accent-deep': '#0B1F4D',
   'accent-pair': '#FF7A3D',
   'accent-text': '#6D9BFF',
-  'on-accent': '#FFFFFF',
+  'on-accent': '#04050A',
   up: '#43D9A3',
   down: '#FF5C5C',
   'up-text': '#43D9A3',
@@ -129,18 +138,19 @@ export const lit: RoleMap = {
   'solid-bg-raised': '#151821',
   'solid-bg-sunken': '#08090D',
   'solid-lip': 'inset 0 1px 0 rgba(255, 255, 255, 0.07)',
-  'solid-rim':
-    'linear-gradient(var(--lit-light-angle, 0deg), rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.07) 45%, rgba(255, 255, 255, 0.26))',
+  'solid-rim': 'rgba(255, 255, 255, 0.26)',
+  'solid-rim-dim': 'rgba(255, 255, 255, 0.04)',
   'solid-wall': '#0A0C11',
   'solid-shadow': '0 4px 0 0 var(--lit-solid-wall), 0 5px 0 0 rgba(0, 0, 0, 0.5), 0 34px 60px -26px rgba(0, 0, 0, 0.95)',
-  'corner-glow':
-    'radial-gradient(70% 60% at var(--lit-corner-x, 0%) var(--lit-corner-y, 0%), color-mix(in srgb, var(--lit-accent) 30%, transparent), transparent 72%)',
+  'corner-glow': 'color-mix(in srgb, var(--lit-accent) 30%, transparent)',
   'glass-bg': 'linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.015) 70%), rgba(13, 15, 21, 0.7)',
   'glass-blur': 'blur(24px) saturate(150%)',
-  'glass-rim': 'linear-gradient(0deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.07) 45%, rgba(255, 255, 255, 0.26))',
+  'glass-rim': 'rgba(255, 255, 255, 0.26)',
+  'glass-rim-dim': 'rgba(255, 255, 255, 0.04)',
   'glass-shadow':
     'inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 3px 0 0 #0A0C11, 0 4px 0 0 rgba(0, 0, 0, 0.5), 0 24px 48px -20px rgba(0, 0, 0, 0.9)',
   scrim: 'rgba(2, 3, 6, 0.72)',
+  veil: 'rgba(4, 5, 10, 0.6)',
   'primary-bg': 'linear-gradient(90deg, #A8A8A8 0%, #DCDCDC 20%, #F7F7F7 45%, #EBEBEB 56%, #D2D2D2 78%, #ACACAC 100%)',
   'primary-fg': '#0B0B0B',
   'primary-shadow':
@@ -169,6 +179,11 @@ export const lit: RoleMap = {
   'error-text': '#FF8A8A',
   'test-tag-bg': 'rgba(255, 255, 255, 0.08)',
   'test-tag-fg': '#A9AEBB',
+  'status-pending': '#FFC452',
+  'status-failed': '#FF8A8A',
+  'status-done': '#43D9A3',
+  'status-unknown': '#A9AEBB',
+  'status-stale': '#FFC452',
   'font-ui': "'Geist Variable', Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
   'font-mono': "'Geist Mono Variable', 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace",
   'font-figure': "'Geist Variable', Geist, ui-sans-serif, system-ui, sans-serif",
@@ -209,6 +224,20 @@ export const litLight: Partial<RoleMap> = {
   'solid-bg-sunken': '#E8EBF0',
   'solid-lip': 'inset 0 1px 0 rgba(255, 255, 255, 0.9)',
   'solid-wall': '#D5D9E1',
+  'solid-rim': 'rgba(255, 255, 255, 0.95)',
+  'solid-rim-dim': 'rgba(10, 13, 20, 0.1)',
+  'solid-shadow': '0 3px 0 0 var(--lit-solid-wall), 0 20px 40px -24px rgba(20, 30, 60, 0.35)',
+  'glass-rim': 'rgba(255, 255, 255, 0.95)',
+  'glass-rim-dim': 'rgba(10, 13, 20, 0.12)',
+  'glass-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 2px 0 0 #D5D9E1, 0 18px 36px -20px rgba(20, 30, 60, 0.35)',
+  scrim: 'rgba(10, 13, 20, 0.4)',
+  veil: 'rgba(236, 238, 243, 0.7)',
+  'primary-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 -1px 0 rgba(0, 0, 0, 0.25), 0 6px 18px -8px rgba(20, 30, 60, 0.35)',
+  'key-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 2px 0 0 #D5D9E1, 0 3px 0 0 rgba(20, 30, 60, 0.08)',
+  'key-lit-bg':
+    'radial-gradient(60% 60% at 50% 50%, color-mix(in srgb, var(--lit-accent) 22%, transparent), transparent 75%), linear-gradient(180deg, #FFFFFF, #F1F3F7)',
+  'key-lit-shadow':
+    'inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 2px 0 0 #D5D9E1, 0 0 18px color-mix(in srgb, var(--lit-accent) 30%, transparent)',
   'glass-bg': 'linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.5) 70%), rgba(236, 238, 243, 0.7)',
   'secondary-bg': 'linear-gradient(180deg, #FFFFFF, #EEF0F4)',
   'secondary-fg': '#0B0D12',
@@ -227,6 +256,11 @@ export const litLight: Partial<RoleMap> = {
   'error-text': '#B3261E',
   'test-tag-bg': 'rgba(10, 13, 20, 0.06)',
   'test-tag-fg': '#3D4350',
+  'status-pending': '#8A5A00',
+  'status-failed': '#B3261E',
+  'status-done': '#0B6C47',
+  'status-unknown': '#3D4350',
+  'status-stale': '#8A5A00',
 };
 
 /** The light colours per accent. Blue's values are the ones written in `lit`. */
@@ -250,7 +284,7 @@ export const solid: Partial<RoleMap> = {
   field: 'none',
   'glass-bg': 'var(--lit-solid-bg)',
   'glass-blur': 'none',
-  'corner-glow': 'none',
+  'corner-glow': 'transparent',
 };
 
 /** Pro density: more on screen, never smaller than legible. */
@@ -272,7 +306,7 @@ export const litType: Record<TypeRole, { size: string; line: string; weight: str
   label: { size: '13px', line: '18px', weight: '500', tracking: '0' },
   micro: { size: '11px', line: '14px', weight: '500', tracking: '0.08em' },
 };
-const flatTypeMap: Record<TypeRole, string> = {
+export const flatTypeMap: Record<TypeRole, string> = {
   hero: 'hero',
   figure: 'xl',
   title: '2xl',
@@ -284,7 +318,7 @@ const flatTypeMap: Record<TypeRole, string> = {
 
 const decl = (vars: Record<string, string>) =>
   Object.entries(vars)
-    .map(([k, val]) => `  ${k}: ${val.replace(/#[0-9A-Fa-f]{3,8}\b/g, (m) => m.toLowerCase())};`)
+    .map(([k, val]) => `  ${k}: ${cssValue(val)};`)
     .join('\n');
 const roleVars = (m: Partial<RoleMap>) => Object.fromEntries(Object.entries(m).map(([k, val]) => [roleVar(k as Role), val]));
 const typeVars = (flatMode: boolean) => {
@@ -299,7 +333,7 @@ const typeVars = (flatMode: boolean) => {
   return out;
 };
 
-const L = ":root:where([data-look='lit'])";
+const L = `:root:where([data-look='${LIT_LOOK}'])`;
 
 /** The exact text of lit.css. */
 export function renderLitCss(): string {

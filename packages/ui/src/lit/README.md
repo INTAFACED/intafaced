@@ -18,6 +18,8 @@ A new role, type role, slot or component name goes through `contracts.ts` (ask B
 ## Rules every component and template keeps
 
 - Read only `--lit-*` roles. No raw colour, size or shadow in a component.
+- Roles that depend on where the light is (rims, corner glow) are colours; the component draws the gradient, with its own light angle or corner, because a custom property is resolved where it is declared (`:root`), not where it is used.
+- Image roles (`field`, `glass-bg`, `primary-bg`, `secondary-bg`, `key-bg`, `key-lit-bg`) are a colour when flat and a gradient when lit: use them only with the `background` shorthand.
 - Glass (`glass-bg`, `glass-blur`) only on the nav and sheet layers. Content panels are solid, and money sits on them.
 - One primary button per view. The focus ring is never the lit or selected colour.
 - The `legal` slot renders first on every template; its text comes from the registry, never from a room, and is never faded, brand-coloured or smaller than body text.

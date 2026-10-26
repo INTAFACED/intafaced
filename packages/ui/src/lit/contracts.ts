@@ -36,6 +36,10 @@ export const modes = ['simple', 'pro'] as const;
 export type Mode = (typeof modes)[number];
 
 /**
+ * Image roles (`field`, `glass-bg`, `primary-bg`, `secondary-bg`, `key-bg`, `key-lit-bg`) hold a colour in the
+ * flat skin and a gradient in the lit skin, so they are only ever used with the `background` shorthand. Every
+ * other colour role is a plain colour in every skin. Shadow roles are `box-shadow` values.
+ *
  * Role tokens, emitted as `--lit-<name>`. Every lit component and template reads only these (plus layout
  * values from them); a raw colour, size or shadow in a component is a lint error. Each entry says what the
  * role is for, which is the contract: a later look changes values, never meaning.
@@ -73,18 +77,21 @@ export const roles = {
   'solid-bg-raised': 'Raised panel inside a panel (rows, tiles)',
   'solid-bg-sunken': 'Sunken well inside a panel (inputs, tracks)',
   'solid-lip': 'Inset highlight along the top edge of a panel (box-shadow part)',
-  'solid-rim': 'Rim gradient of a panel, brighter on the side the light comes from',
+  'solid-rim': 'Rim colour on the side the light comes from (components draw the gradient toward solid-rim-dim)',
+  'solid-rim-dim': 'Rim colour on the side away from the light',
   'solid-wall': 'The visible wall under a panel (thickness)',
   'solid-shadow': 'Drop shadow stack under a panel',
-  'corner-glow': 'Light pooling in the corner of a tile nearest the light',
+  'corner-glow': 'Colour of the light pooling in a tile corner (components place it; `transparent` when flat)',
   'glass-bg': 'Nav and sheet layers only: translucent body',
   'glass-blur': 'backdrop-filter value for nav and sheet; `none` in solid mode',
-  'glass-rim': 'Rim gradient of a glass layer',
+  'glass-rim': 'Rim colour of a glass layer on the lit side',
+  'glass-rim-dim': 'Rim colour of a glass layer away from the light',
   'glass-shadow': 'Shadow stack of a glass layer',
   scrim: 'Behind a sheet or dialog',
+  veil: 'Dims a gated room behind its gate; the layout stays visible',
 
   // Controls. One primary per view.
-  'primary-bg': 'The one primary button (metal pill)',
+  'primary-bg': 'The one primary button (metal pill). Image role: use with the `background` shorthand only',
   'primary-fg': 'Text on the primary button',
   'primary-shadow': 'Shadow stack of the primary button',
   'secondary-bg': 'Secondary button (dark pill)',
@@ -110,6 +117,11 @@ export const roles = {
   'error-text': 'An error as text',
   'test-tag-bg': 'The TEST label on illustrative figures',
   'test-tag-fg': 'TEST label text',
+  'status-pending': 'Money pending, as text or icon; meets 4.5:1',
+  'status-failed': 'Money failed, as text or icon; meets 4.5:1',
+  'status-done': 'Money done, as text or icon; meets 4.5:1',
+  'status-unknown': 'Money status unknown ("We are checking"), as text or icon; meets 4.5:1',
+  'status-stale': 'A figure older than its freshness limit, as text; meets 4.5:1',
 
   // Type
   'font-ui': 'Interface face',
@@ -179,48 +191,59 @@ export const templateStates = ['ready', 'loading', 'empty', 'refused', 'gated', 
 export type TemplateState = (typeof templateStates)[number];
 
 /** Money status, with the ledger as the source of truth. */
-export type MoneyStatus = 'pending' | 'failed' | 'done';
+export type MoneyStatus = 'pending' | 'failed' | 'done' | 'unknown';
 
 /** Who a room is gated on. The gated state keeps the room's layout visible behind the gate. */
 export type GateReason = 'signed-out' | 'not-verified' | 'no-business-account' | 'region';
 
-/** A refusal: the blocker in words, with the typed code as a small reference (never the code alone). */
+/**
+ * A refusal, in the app's own shape (`refusalCopy()` in apps/customer/src/data/refusals.ts), so a room passes it
+ * straight in: the blocker in words, the typed code only as a small reference. The variant decides the design:
+ * an account hold (svc-identity) and a platform-wide posting pause (svc-ledger) are worded and drawn apart.
+ */
+export type RefusalVariant = 'parked' | 'refused' | 'unreachable' | 'account-hold' | 'platform-pause';
 export interface Refusal {
-  code: string;
-  message: string;
-  /** One next step, when there is one. */
+  variant: RefusalVariant;
+  title: string;
+  body: string;
+  /** The typed code, shown small. */
+  reference?: string;
+  /** One next step, when there is one ("Try again" for unreachable). */
   action?: { label: string; href: string };
 }
 
 /** Jurisdictions a legal slot can serve. Which ones the product serves is an open owner question. */
-export type Jurisdiction = 'uk' | 'eu';
+export type Jurisdiction = 'uk' | 'eu' | 'unset';
 
-/** Legal slot kinds (RULES-AND-TRUST.md section A). Text comes only from the registry, never from a room. */
-export type LegalSlotKind =
-  | 'crypto-risk-band' // COBS 4.12A: fixed text, top, own border, bold and underlined as marked
-  | 'first-buy-warning' // risk moment overlay with equal-weight choices
-  | 'scam-stop' // APP scam warning before a payment
-  | 'payee-check' // Confirmation of Payee / VoP: match, close match, no match, unavailable
-  | 'leverage-warning' // leveraged products
-  | 'fee-disclosure';
+/**
+ * Legal slot types (the slot types of RULES-AND-TRUST.md section B). What a slot is for is its `moment`
+ * (for example `crypto-risk-band`, `first-buy`, `scam-stop`, `payee-check`, `cooling-off`, `credit-band`,
+ * `mica-marketing`, `withdrawal-button`, `talk-to-a-person`, `regulated-status`); the registry in
+ * `./templates/` holds the exact texts. Text comes only from the registry, never from a room.
+ */
+export type LegalSlotType =
+  'risk-band' | 'popup' | 'disclosure' | 'legal-link' | 'equal-choice' | 'timer' | 'gate' | 'consent' | 'result' | 'button';
 
 export interface LegalSlotProps {
-  kind: LegalSlotKind;
+  type: LegalSlotType;
+  moment: string;
+  /** `unset` while the market is an open owner question: market-dependent slots render the designed "wording missing" refusal. */
   jurisdiction: Jurisdiction;
   /** Registry key for the exact text. A slot whose text isn't settled for the market renders a designed refusal. */
   textId: string;
 }
 
 /** Slots each template exposes. `legal` is on every template and always renders first, above everything. */
+/** `notices` (account hold, platform pause, incident) and `in-flight` (the shared receipt lane) are on every template. */
 export const templateSlots = {
-  reading: ['legal', 'header', 'body', 'aside'],
-  overview: ['legal', 'header', 'hero', 'actions', 'sections'],
-  'record-list': ['legal', 'header', 'filters', 'summary', 'table', 'export'],
-  monitor: ['legal', 'header', 'figures', 'panels', 'charts'],
-  flow: ['legal', 'header', 'steps', 'form', 'review', 'receipt'],
-  settings: ['legal', 'header', 'sections'],
-  catalogue: ['legal', 'header', 'featured', 'filters', 'grid'],
-  desk: ['legal', 'instrument', 'chart', 'book', 'ticket', 'positions'],
+  reading: ['legal', 'notices', 'header', 'toc', 'body', 'aside', 'contact', 'in-flight'],
+  overview: ['legal', 'notices', 'header', 'hero', 'actions', 'needs-you', 'rooms', 'sections', 'in-flight'],
+  'record-list': ['legal', 'notices', 'header', 'filters', 'summary', 'table', 'detail', 'export', 'in-flight'],
+  monitor: ['legal', 'notices', 'header', 'figures', 'panels', 'charts', 'explain', 'in-flight'],
+  flow: ['legal', 'notices', 'header', 'steps', 'form', 'summary', 'review', 'actions', 'receipt', 'in-flight'],
+  settings: ['legal', 'notices', 'header', 'index', 'sections', 'explain', 'in-flight'],
+  catalogue: ['legal', 'notices', 'header', 'featured', 'filters', 'grid', 'item', 'in-flight'],
+  desk: ['legal', 'notices', 'instrument', 'pairs', 'chart', 'book', 'tape', 'ticket', 'orders', 'positions', 'in-flight'],
 } as const satisfies Record<TemplateId, readonly string[]>;
 export type TemplateSlot<T extends TemplateId> = (typeof templateSlots)[T][number];
 
@@ -230,13 +253,25 @@ export interface TemplateBase {
   refusal?: Refusal;
   gate?: GateReason;
   moneyStatus?: MoneyStatus;
-  /** Prices or balances older than their freshness limit: shown, marked stale, never hidden. */
-  stale?: boolean;
+  /** Prices or balances older than their freshness limit: shown, marked stale with their age, never hidden. */
+  stale?: { asOf: string };
+  /** Part of the data is missing (for example crypto prices down): totals never include an unknown part. */
+  partial?: { missing: Refusal };
   mode?: Mode;
   legal?: readonly LegalSlotProps[];
 }
 
-/** Component names the kit exports from `@intafaced/ui/lit` (APIs in `./components/`). */
+/**
+ * Templates lay out by their own width (container queries), not the viewport. Below `compact` is a phone
+ * column; from `expanded` the computer layout. Container queries can't read custom properties, so these are
+ * constants, not tokens.
+ */
+export const containerWidths = { compact: 600, expanded: 1024 } as const;
+
+/**
+ * Component names the kit exports from `@intafaced/ui/lit` (APIs in `./components/`). Builders: B1 owns the
+ * sheet; B2 builds the ones marked (B2) in `./components/` files it owns, because templates need them first.
+ */
 export const components = {
   Surface: 'A panel. material solid | raised | corner on the content layer; glass only with layer nav | sheet',
   Button: 'tone primary (metal, one per view) | secondary (dark pill) | quiet',
@@ -259,6 +294,18 @@ export const components = {
   Rail: 'Computer navigation: five doors on the slab',
   Logo: 'Mark, wordmark or lockup from one vector path; the brand kit swaps the path',
   Stage: 'Host for a 3D object (from ./fx), with poster first and a flat tier; never on confirm or review',
+  EqualChoice: '(B2) Two or more choices of equal weight: cooling-off, payee check, scam stop',
+  Table: '(B2) Table with a phone row form (rows become stacked cards under compact)',
+  Sheet: '(B2) Bottom sheet on phone, side sheet on computer; a glass layer',
+  Stepper: '(B2) Steps of a flow',
+  Skeleton: '(B2) Loading placeholder shaped like the content, never a flash of "no records"',
+  KeyValue: '(B2) Label and value rows (review, receipt, details)',
+  StatusChip: '(B2) Money status: pending, failed, done, unknown, with words not colour alone',
+  Tabs: "(B2) A door's room row",
+  LineChart: '(B2) Price or value over time',
+  AreaChart: '(B2) Value over time with a lit fill',
+  Bars: '(B2) Bars (volume, monthly totals)',
+  Parts: '(B2) Parts of a whole that reconcile to the total, with a list fallback',
 } as const;
 export type ComponentName = keyof typeof components;
 

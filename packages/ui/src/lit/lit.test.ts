@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { accents, roleNames, roleVar, templateSlots, templates, typeRoles } from './contracts.js';
 import { formattedLitCss } from './format.js';
-import { accentSets, accentTextLight, flat, lit, litLight } from './tokens.js';
+import { looks } from '../theme/tokens.js';
+import { accentSets, accentTextLight, flat, flatTypeMap, lit, litLight } from './tokens.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const css = readFileSync(join(here, 'lit.css'), 'utf8');
@@ -59,6 +60,31 @@ describe('lit tokens: lit.ts and lit.css cannot drift', () => {
     }
   });
 
+  it('the flat type roles point at text styles that exist today', () => {
+    for (const f of Object.values(flatTypeMap))
+      for (const p of ['text', 'leading', 'weight']) expect(themeTokens, `--if-${p}-${f}`).toContain(`--if-${p}-${f}:`);
+  });
+
+  it('lit is not also a theme look (one switch, one generator)', () => {
+    expect(Object.keys(looks)).not.toContain('lit');
+  });
+
+  it('colour roles hold one value type in every skin (image roles are named in contracts)', () => {
+    const imageRoles = new Set(['field', 'glass-bg', 'primary-bg', 'secondary-bg', 'key-bg', 'key-lit-bg']);
+    const isImage = (x: string) => /gradient\(/.test(x);
+    for (const r of roleNames) {
+      if (imageRoles.has(r)) continue;
+      for (const [skin, m] of [
+        ['flat', flat],
+        ['lit', lit],
+        ['light', litLight],
+      ] as const) {
+        const val = (m as Record<string, string | undefined>)[r];
+        if (val) expect(isImage(val), `${skin}.${r}`).toBe(false);
+      }
+    }
+  });
+
   it('light and accent sets only re-value known roles', () => {
     const known = new Set<string>(roleNames);
     for (const k of Object.keys(litLight)) expect(known.has(k), k).toBe(true);
@@ -69,7 +95,21 @@ describe('lit tokens: lit.ts and lit.css cannot drift', () => {
 describe('lit tokens: contrast at the worst point (text sits on opaque surfaces)', () => {
   const darkSurfaces = ['solid-bg', 'solid-bg-raised', 'solid-bg-sunken', 'page', 'refusal-bg'] as const;
   const lightSurfaces = ['solid-bg', 'solid-bg-raised', 'solid-bg-sunken', 'page', 'refusal-bg'] as const;
-  const textRoles = ['text-1', 'text-2', 'text-3', 'accent-text', 'up-text', 'down-text', 'warn-text', 'error-text'] as const;
+  const textRoles = [
+    'text-1',
+    'text-2',
+    'text-3',
+    'accent-text',
+    'up-text',
+    'down-text',
+    'warn-text',
+    'error-text',
+    'status-pending',
+    'status-failed',
+    'status-done',
+    'status-unknown',
+    'status-stale',
+  ] as const;
 
   it.each(textRoles)('dark: %s meets 4.5:1 on every solid surface', (t) => {
     for (const s of darkSurfaces) expect(contrast(lit[t], lit[s]), `${t} on ${s}`).toBeGreaterThanOrEqual(4.5);
@@ -95,16 +135,28 @@ describe('lit tokens: contrast at the worst point (text sits on opaque surfaces)
     expect(contrast(L['legal-border'], L['legal-bg'])).toBeGreaterThanOrEqual(3);
   });
 
-  it('the risk band and refusals never use a brand colour', () => {
-    for (const r of ['legal-bg', 'legal-fg', 'legal-border', 'refusal-bg', 'refusal-fg'] as const) {
-      expect(lit[r]).not.toContain('accent');
-      for (const a of accents) expect(Object.values(accentSets[a])).not.toContain(lit[r]);
+  it.each(accents)('text on a %s lit fill meets 4.5:1', (a) => {
+    const m = { ...lit, ...accentSets[a] };
+    expect(contrast(m['on-accent'], m.accent)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('the risk band and refusals never use a brand colour, in either scheme', () => {
+    const brand = new Set<string>([lit.accent, lit['accent-text'], ...Object.values(accentTextLight)]);
+    for (const a of accents) for (const x of Object.values(accentSets[a])) brand.add(x);
+    for (const m of [lit, { ...lit, ...litLight }]) {
+      for (const r of ['legal-bg', 'legal-fg', 'legal-border', 'refusal-bg', 'refusal-fg', 'refusal-border'] as const) {
+        expect(m[r], r).not.toContain('accent');
+        expect(brand.has(m[r]), r).toBe(false);
+      }
     }
   });
 
-  it('the focus ring is not a lit or selected colour', () => {
-    expect(lit.focus).not.toBe(lit.accent);
-    expect(contrast(lit.focus, lit['solid-bg'])).toBeGreaterThanOrEqual(3);
+  it('the focus ring is not a lit or selected colour, and is visible, in either scheme', () => {
+    for (const m of [lit, { ...lit, ...litLight }]) {
+      for (const r of ['accent', 'accent-text', 'control-rim-active', 'key-lit-bg'] as const) expect(m.focus, r).not.toBe(m[r]);
+      expect(contrast(m.focus, m['solid-bg'])).toBeGreaterThanOrEqual(3);
+      expect(contrast(m.focus, m.page)).toBeGreaterThanOrEqual(3);
+    }
   });
 });
 

@@ -30,14 +30,17 @@
   --lit-solid-bg-sunken: var(--if-field);
   --lit-solid-lip: 0 0 0 0 transparent;
   --lit-solid-rim: var(--if-line);
+  --lit-solid-rim-dim: var(--if-line);
   --lit-solid-wall: transparent;
   --lit-solid-shadow: none;
-  --lit-corner-glow: none;
+  --lit-corner-glow: transparent;
   --lit-glass-bg: var(--if-popover);
   --lit-glass-blur: none;
   --lit-glass-rim: var(--if-line-popup);
+  --lit-glass-rim-dim: var(--if-line-popup);
   --lit-glass-shadow: var(--if-shadow-menu);
   --lit-scrim: var(--if-scrim);
+  --lit-veil: var(--if-scrim);
   --lit-primary-bg: var(--if-lime);
   --lit-primary-fg: var(--if-on-lime);
   --lit-primary-shadow: none;
@@ -62,6 +65,11 @@
   --lit-error-text: var(--if-error-text);
   --lit-test-tag-bg: var(--if-field);
   --lit-test-tag-fg: var(--if-fg-2);
+  --lit-status-pending: var(--if-warn-text);
+  --lit-status-failed: var(--if-error-text);
+  --lit-status-done: var(--if-up-text);
+  --lit-status-unknown: var(--if-fg-2);
+  --lit-status-stale: var(--if-warn-text);
   --lit-font-ui: var(--if-font-ui);
   --lit-font-mono: var(--if-font-mono);
   --lit-font-figure: var(--if-font-ui);
@@ -130,7 +138,7 @@
   --lit-accent-deep: #0b1f4d;
   --lit-accent-pair: #ff7a3d;
   --lit-accent-text: #6d9bff;
-  --lit-on-accent: #ffffff;
+  --lit-on-accent: #04050a;
   --lit-up: #43d9a3;
   --lit-down: #ff5c5c;
   --lit-up-text: #43d9a3;
@@ -139,25 +147,19 @@
   --lit-solid-bg-raised: #151821;
   --lit-solid-bg-sunken: #08090d;
   --lit-solid-lip: inset 0 1px 0 rgba(255, 255, 255, 0.07);
-  --lit-solid-rim: linear-gradient(
-    var(--lit-light-angle, 0deg),
-    rgba(255, 255, 255, 0.04),
-    rgba(255, 255, 255, 0.07) 45%,
-    rgba(255, 255, 255, 0.26)
-  );
+  --lit-solid-rim: rgba(255, 255, 255, 0.26);
+  --lit-solid-rim-dim: rgba(255, 255, 255, 0.04);
   --lit-solid-wall: #0a0c11;
   --lit-solid-shadow: 0 4px 0 0 var(--lit-solid-wall), 0 5px 0 0 rgba(0, 0, 0, 0.5), 0 34px 60px -26px rgba(0, 0, 0, 0.95);
-  --lit-corner-glow: radial-gradient(
-    70% 60% at var(--lit-corner-x, 0%) var(--lit-corner-y, 0%),
-    color-mix(in srgb, var(--lit-accent) 30%, transparent),
-    transparent 72%
-  );
+  --lit-corner-glow: color-mix(in srgb, var(--lit-accent) 30%, transparent);
   --lit-glass-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.015) 70%), rgba(13, 15, 21, 0.7);
   --lit-glass-blur: blur(24px) saturate(150%);
-  --lit-glass-rim: linear-gradient(0deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.07) 45%, rgba(255, 255, 255, 0.26));
+  --lit-glass-rim: rgba(255, 255, 255, 0.26);
+  --lit-glass-rim-dim: rgba(255, 255, 255, 0.04);
   --lit-glass-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 3px 0 0 #0a0c11, 0 4px 0 0 rgba(0, 0, 0, 0.5), 0 24px 48px -20px rgba(0, 0, 0, 0.9);
   --lit-scrim: rgba(2, 3, 6, 0.72);
+  --lit-veil: rgba(4, 5, 10, 0.6);
   --lit-primary-bg: linear-gradient(90deg, #a8a8a8 0%, #dcdcdc 20%, #f7f7f7 45%, #ebebeb 56%, #d2d2d2 78%, #acacac 100%);
   --lit-primary-fg: #0b0b0b;
   --lit-primary-shadow:
@@ -189,6 +191,11 @@
   --lit-error-text: #ff8a8a;
   --lit-test-tag-bg: rgba(255, 255, 255, 0.08);
   --lit-test-tag-fg: #a9aebb;
+  --lit-status-pending: #ffc452;
+  --lit-status-failed: #ff8a8a;
+  --lit-status-done: #43d9a3;
+  --lit-status-unknown: #a9aebb;
+  --lit-status-stale: #ffc452;
   --lit-font-ui: 'Geist Variable', Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --lit-font-mono: 'Geist Mono Variable', 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   --lit-font-figure: 'Geist Variable', Geist, ui-sans-serif, system-ui, sans-serif;
@@ -281,6 +288,21 @@
   --lit-solid-bg-sunken: #e8ebf0;
   --lit-solid-lip: inset 0 1px 0 rgba(255, 255, 255, 0.9);
   --lit-solid-wall: #d5d9e1;
+  --lit-solid-rim: rgba(255, 255, 255, 0.95);
+  --lit-solid-rim-dim: rgba(10, 13, 20, 0.1);
+  --lit-solid-shadow: 0 3px 0 0 var(--lit-solid-wall), 0 20px 40px -24px rgba(20, 30, 60, 0.35);
+  --lit-glass-rim: rgba(255, 255, 255, 0.95);
+  --lit-glass-rim-dim: rgba(10, 13, 20, 0.12);
+  --lit-glass-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 2px 0 0 #d5d9e1, 0 18px 36px -20px rgba(20, 30, 60, 0.35);
+  --lit-scrim: rgba(10, 13, 20, 0.4);
+  --lit-veil: rgba(236, 238, 243, 0.7);
+  --lit-primary-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 -1px 0 rgba(0, 0, 0, 0.25), 0 6px 18px -8px rgba(20, 30, 60, 0.35);
+  --lit-key-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 2px 0 0 #d5d9e1, 0 3px 0 0 rgba(20, 30, 60, 0.08);
+  --lit-key-lit-bg:
+    radial-gradient(60% 60% at 50% 50%, color-mix(in srgb, var(--lit-accent) 22%, transparent), transparent 75%),
+    linear-gradient(180deg, #ffffff, #f1f3f7);
+  --lit-key-lit-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 2px 0 0 #d5d9e1, 0 0 18px color-mix(in srgb, var(--lit-accent) 30%, transparent);
   --lit-glass-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.5) 70%), rgba(236, 238, 243, 0.7);
   --lit-secondary-bg: linear-gradient(180deg, #ffffff, #eef0f4);
   --lit-secondary-fg: #0b0d12;
@@ -299,6 +321,11 @@
   --lit-error-text: #b3261e;
   --lit-test-tag-bg: rgba(10, 13, 20, 0.06);
   --lit-test-tag-fg: #3d4350;
+  --lit-status-pending: #8a5a00;
+  --lit-status-failed: #b3261e;
+  --lit-status-done: #0b6c47;
+  --lit-status-unknown: #3d4350;
+  --lit-status-stale: #8a5a00;
 }
 
 :root:where([data-look='lit'][data-theme='light'][data-accent='blue']) {
@@ -322,7 +349,7 @@
   --lit-field: none;
   --lit-glass-bg: var(--lit-solid-bg);
   --lit-glass-blur: none;
-  --lit-corner-glow: none;
+  --lit-corner-glow: transparent;
 }
 
 @media (prefers-contrast: more), (forced-colors: active) {
@@ -330,7 +357,7 @@
     --lit-field: none;
     --lit-glass-bg: var(--lit-solid-bg);
     --lit-glass-blur: none;
-    --lit-corner-glow: none;
+    --lit-corner-glow: transparent;
   }
 }
 
