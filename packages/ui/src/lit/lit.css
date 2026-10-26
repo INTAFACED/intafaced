@@ -20,6 +20,8 @@
   --lit-accent-deep: var(--if-lime-press);
   --lit-accent-pair: var(--if-lime);
   --lit-accent-text: var(--if-accent-text);
+  --lit-accent-fill: var(--if-lime);
+  --lit-accent-fill-2: var(--if-lime-press);
   --lit-on-accent: var(--if-on-lime);
   --lit-up: var(--if-up);
   --lit-down: var(--if-down);
@@ -138,7 +140,9 @@
   --lit-accent-deep: #0b1f4d;
   --lit-accent-pair: #ff7a3d;
   --lit-accent-text: #6d9bff;
-  --lit-on-accent: #04050a;
+  --lit-accent-fill: #2f5cbd;
+  --lit-accent-fill-2: #213f85;
+  --lit-on-accent: #ffffff;
   --lit-up: #43d9a3;
   --lit-down: #ff5c5c;
   --lit-up-text: #43d9a3;
@@ -252,6 +256,8 @@
   --lit-accent-deep: #5a1606;
   --lit-accent-pair: #ff2d55;
   --lit-accent-text: #ff8a4c;
+  --lit-accent-fill: #b3430a;
+  --lit-accent-fill-2: #7a2b05;
 }
 
 :root:where([data-look='lit'][data-accent='violet']) {
@@ -260,6 +266,8 @@
   --lit-accent-deep: #2c155b;
   --lit-accent-pair: #4d7cff;
   --lit-accent-text: #b98aff;
+  --lit-accent-fill: #7a3fd6;
+  --lit-accent-fill-2: #55289e;
 }
 
 :root:where([data-look='lit'][data-accent='emerald']) {
@@ -268,6 +276,8 @@
   --lit-accent-deep: #08382a;
   --lit-accent-pair: #2bb5ff;
   --lit-accent-text: #2ee0a0;
+  --lit-accent-fill: #0f7a55;
+  --lit-accent-fill-2: #0a5a3e;
 }
 
 /* Light values: written and tested, not shipped. */

@@ -64,7 +64,9 @@ export const roles = {
   'accent-deep': 'The deep end of the light (pools, shadows of lit things)',
   'accent-pair': 'The one complementary spark, at most once per screen',
   'accent-text': 'Accent used as text or icon on solid surfaces; meets 4.5:1',
-  'on-accent': 'Text on a lit key or lit door',
+  'accent-fill': 'Fill of a lit door or selected segment: the light, deep enough to carry text (top of its gradient)',
+  'accent-fill-2': 'Bottom of the lit fill gradient',
+  'on-accent': "Text on accent-fill; meets 4.5:1 at the fill's lightest point",
 
   // Direction of money
   up: 'Gains: chart lines and fills',

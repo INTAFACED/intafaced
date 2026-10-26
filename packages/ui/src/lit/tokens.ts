@@ -40,6 +40,8 @@ export const flat: RoleMap = {
   'accent-deep': v('lime-press'),
   'accent-pair': v('lime'),
   'accent-text': v('accent-text'),
+  'accent-fill': v('lime'),
+  'accent-fill-2': v('lime-press'),
   'on-accent': v('on-lime'),
   up: v('up'),
   down: v('down'),
@@ -129,7 +131,9 @@ export const lit: RoleMap = {
   'accent-deep': '#0B1F4D',
   'accent-pair': '#FF7A3D',
   'accent-text': '#6D9BFF',
-  'on-accent': '#04050A',
+  'accent-fill': '#2F5CBD',
+  'accent-fill-2': '#213F85',
+  'on-accent': '#FFFFFF',
   up: '#43D9A3',
   down: '#FF5C5C',
   'up-text': '#43D9A3',
@@ -266,9 +270,33 @@ export const litLight: Partial<RoleMap> = {
 /** The light colours per accent. Blue's values are the ones written in `lit`. */
 export const accentSets: Record<Accent, Partial<RoleMap>> = {
   blue: {},
-  ember: { accent: '#FF6A1A', 'accent-hot': '#FFC46B', 'accent-deep': '#5A1606', 'accent-pair': '#FF2D55', 'accent-text': '#FF8A4C' },
-  violet: { accent: '#A35CFF', 'accent-hot': '#EAD2FF', 'accent-deep': '#2C155B', 'accent-pair': '#4D7CFF', 'accent-text': '#B98AFF' },
-  emerald: { accent: '#2EE0A0', 'accent-hot': '#D2FFE9', 'accent-deep': '#08382A', 'accent-pair': '#2BB5FF', 'accent-text': '#2EE0A0' },
+  ember: {
+    accent: '#FF6A1A',
+    'accent-hot': '#FFC46B',
+    'accent-deep': '#5A1606',
+    'accent-pair': '#FF2D55',
+    'accent-text': '#FF8A4C',
+    'accent-fill': '#B3430A',
+    'accent-fill-2': '#7A2B05',
+  },
+  violet: {
+    accent: '#A35CFF',
+    'accent-hot': '#EAD2FF',
+    'accent-deep': '#2C155B',
+    'accent-pair': '#4D7CFF',
+    'accent-text': '#B98AFF',
+    'accent-fill': '#7A3FD6',
+    'accent-fill-2': '#55289E',
+  },
+  emerald: {
+    accent: '#2EE0A0',
+    'accent-hot': '#D2FFE9',
+    'accent-deep': '#08382A',
+    'accent-pair': '#2BB5FF',
+    'accent-text': '#2EE0A0',
+    'accent-fill': '#0F7A55',
+    'accent-fill-2': '#0A5A3E',
+  },
 };
 
 /** Light-scheme accent text per accent (4.5:1 on white). */
