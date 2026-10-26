@@ -126,7 +126,7 @@ test(`${J} #5 an action the shell cannot run because an outside service is off s
   await signUp(person, 'hmo');
   // Notifications: allowing this device needs the push delivery gateway, which the stack leaves unset.
   await person.goto('/notifications?view=settings');
-  const push = person.locator('.nf-channelcard[data-channel="push"]');
+  const push = person.locator('[data-testid="nf-channelcard"][data-channel="push"]');
   await push.getByRole('button', { name: 'Allow notifications on this device' }).click();
   const pushed = await expectServiceOff(push.locator('[data-not-connected]'), 'vendor.push', 'Registering this device');
   // Web3: staking needs the INTACHAIN launch go-ahead. Same component, same sentence, its own code.

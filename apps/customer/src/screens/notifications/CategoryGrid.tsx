@@ -70,7 +70,7 @@ export function CategoryTable({
   const copy = centreCopy.useCopy();
   const cell = (category: CategoryId, channel: CategoryChannel) => rows.find((row) => row.category === category && row.channel === channel);
   return (
-    <div className="nf-card nf-tablewrap" role="region" aria-label={copy.t('catTitle')} tabIndex={0}>
+    <div data-testid="nf-card" className="nf-card nf-tablewrap" role="region" aria-label={copy.t('catTitle')} tabIndex={0}>
       <table className="nf-table">
         <thead>
           <tr>
@@ -86,8 +86,12 @@ export function CategoryTable({
           {CATEGORY_IDS.map((category) => (
             <tr key={category}>
               <th scope="row">
-                <span className="nf-title">{copy.t(CATEGORY[category][0])}</span>
-                <span className="nf-body nf-body--wrap">{copy.t(CATEGORY[category][1])}</span>
+                <span data-testid="nf-title" className="nf-title">
+                  {copy.t(CATEGORY[category][0])}
+                </span>
+                <span data-testid="nf-body" className="nf-body nf-body--wrap">
+                  {copy.t(CATEGORY[category][1])}
+                </span>
               </th>
               {CATEGORY_CHANNELS.map((channel) => {
                 const row = cell(category, channel);
@@ -107,7 +111,11 @@ export function CategoryTable({
                       disabled={kind !== 'free'}
                       onCheckedChange={(enabled: boolean) => onSet(category, channel, enabled)}
                     />
-                    {kind === 'free' ? null : <span className="nf-body nf-body--wrap">{copy.t(CELL_REASON[kind])}</span>}
+                    {kind === 'free' ? null : (
+                      <span data-testid="nf-body" className="nf-body nf-body--wrap">
+                        {copy.t(CELL_REASON[kind])}
+                      </span>
+                    )}
                   </td>
                 );
               })}

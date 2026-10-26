@@ -52,8 +52,10 @@ export function TriggerLog({
             {state.page.items.map((row) => (
               <li key={`${row.alertId}:${row.seq ?? 1}`} className="nf-alertrow" data-testid="alert-trigger">
                 <div className="nf-text">
-                  <span className="nf-title">{marketLabel(row.marketId)}</span>
-                  <span className="nf-body nf-body--wrap">
+                  <span data-testid="nf-title" className="nf-title">
+                    {marketLabel(row.marketId)}
+                  </span>
+                  <span data-testid="nf-body" className="nf-body nf-body--wrap">
                     {copy.t('logRow', { side: copy.t(CONDITION_KEY[row.condition]), price: row.targetPrice, mark: row.markPrice })}
                   </span>
                   <span className="nf-muted">{copy.t('logWhen', { when: stamp(row.firedAt, timeZone) })}</span>
