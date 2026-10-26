@@ -34,7 +34,7 @@ export function LegacyRoom({ area, path }: { area: LegacyArea; path: string }) {
     <div className={area === 'pay' ? 'if-business' : 'legacy-room'}>
       <Suspense
         fallback={
-          <div className="page">
+          <div data-testid="page" className="page">
             <Loading label={t('Opening room')} />
           </div>
         }

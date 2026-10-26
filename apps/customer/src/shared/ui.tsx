@@ -54,7 +54,7 @@ export function Page({
   children: ReactNode;
 }) {
   return (
-    <div className="page">
+    <div data-testid="page" className="page">
       <header data-testid="page-heading" className="page-heading">
         <div>
           {eyebrow && <p className="eyebrow">{eyebrow}</p>}

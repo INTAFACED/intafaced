@@ -23,7 +23,7 @@ test(`${J} part of #4 a finance team member may ask for a payout, and is told on
   await page.getByLabel('Account ID *').fill(finance.userId);
   await page.getByRole('combobox', { name: /^Role \*/ }).selectOption({ label: 'Finance' });
   await page.getByRole('button', { name: 'Send invitation' }).click();
-  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
   await expect(
     page
       .getByRole('row')
@@ -40,7 +40,7 @@ test(`${J} part of #4 a finance team member may ask for a payout, and is told on
     await expect(accept).toBeVisible({ timeout: 3000 });
   }).toPass({ timeout: 30_000 });
   await accept.click();
-  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
   await expect(accept).toHaveCount(0);
   await page.goto('/pay/merchant');
   await expect(page.getByText('TEST Team Ltd').first()).toBeVisible();

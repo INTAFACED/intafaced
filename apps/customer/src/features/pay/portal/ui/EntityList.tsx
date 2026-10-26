@@ -28,7 +28,7 @@ export function EntityList<T>({
   const { t } = uiCopy.useCopy();
   return (
     <div className="pe-list">
-      <div className="pe-table">
+      <div data-testid="pe-table" className="pe-table">
         <DataTable label={label} headers={[...columns.map((c) => c.header), ...(href ? [<span className="pp-sr">{t('open')}</span>] : [])]}>
           {rows.map((row) => (
             <tr key={rowKey(row)} className={href ? 'pe-row' : undefined}>

@@ -451,7 +451,7 @@ function ConvertCard({
           <span className="buy-receipt__badge" aria-hidden="true" data-tone="ok">
             ✓
           </span>
-          <h2 className="buy-receipt__title">
+          <h2 data-testid="buy-receipt__title" className="buy-receipt__title">
             {t('Converted {from} to {to}', {
               from: `${fmtAmount(result.inAmount, { places: 18 })} ${result.inAsset}`,
               to: `${fmtAmount(result.outAmount, { places: 18 })} ${result.outAsset}`,
