@@ -361,38 +361,6 @@
  * Data regions become locked outlines with their heading and a lock, never skeleton bars or figures, so a gate
  * never reads as loading. Help and navigation sit outside the Gate at full strength.
  */
-.lt-legal-fixed {
-  display: contents;
-}
-
-/* The rule sets the risk warning in bold; the kit's bold is 600, the band's warning is 700 (its link stays 400). */
-.lt-legal-band.lit-legal[data-bold] {
-  font-weight: 700;
-}
-
-/* The card sits in the flow at the top of the room and covers nothing; the room follows below it, inert. No veil:
-   a locked name and its outline must stay readable (4.5:1 and 3:1). */
-.lt-body > .lit-gate {
-  grid-template-rows: auto auto;
-  row-gap: var(--lit-gap-section);
-}
-.lt-body > .lit-gate > .lit-gate__card {
-  grid-area: 1 / 1;
-  justify-self: stretch;
-  inline-size: auto;
-  margin-block: 0;
-}
-.lt-body > .lit-gate > .lit-gate__card > .lt-button {
-  align-self: flex-start;
-  min-inline-size: 12rem;
-}
-.lt-body > .lit-gate > .lit-gate__room {
-  grid-area: 2 / 1;
-}
-.lt-body > .lit-gate > .lit-gate__veil {
-  display: none;
-}
-
 /* Controls behind a gate stay, named and disabled, so a customer sees what verifying unlocks. */
 .lt-region[data-dimmed] {
   opacity: 0.45;

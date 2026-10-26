@@ -393,9 +393,13 @@ describe('states never contradict themselves', () => {
 
   it('behind a gate, "Talk to a person" stays outside the inert room', () => {
     const out = html(ROOMS.flow({ mode: 'simple', state: 'gated', market: 'uk' }));
-    const room = out.slice(out.indexOf('lit-gate__room'), out.indexOf('lit-gate__veil'));
+    // The live help sits after the Gate, in its own lt-live block, never inside the inert room.
+    const live = out.lastIndexOf('class="lt-live"');
+    const room = out.slice(out.indexOf('lit-gate__room'), live);
     expect(room).not.toContain('Talk to a person');
-    expect(out.slice(out.indexOf('lit-gate__card'))).toContain('Talk to a person');
+    expect(out.slice(live)).toContain('Talk to a person');
+    // The card comes before the room, in the flow.
+    expect(out.indexOf('lit-gate__card')).toBeLessThan(out.indexOf('lit-gate__room'));
     expect(out).toContain('>Verify now</a>');
     // Controls stay named and dimmed behind the gate, never folded into a lock.
     expect(out).toMatch(/data-region="actions" data-dimmed="true"[^>]*>[\s\S]*Continue/);
