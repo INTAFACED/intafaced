@@ -234,8 +234,8 @@ const parked = (title: string, body: string, ref: string, action?: Refusal['acti
 
 const GATE: Refusal = {
   variant: 'refused',
-  title: 'Verify your identity first',
-  body: 'You need a verified account to see this.',
+  title: 'Verify your identity to send and buy',
+  body: 'Your account stays as it is until then.',
   action: { label: 'Verify now', href: '#verify' },
 };
 

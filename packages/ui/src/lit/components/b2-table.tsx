@@ -50,16 +50,17 @@ export function Table<Row>({ caption, columns, rows, rowKey, mode = 'simple', ro
               {cols.map((c, i) => {
                 const content = c.cell(row);
                 return (
-                  <td key={c.key} data-label={c.label} data-align={c.align ?? 'start'} className={c.ltr ? 'lt-mono' : undefined}>
-                    {/* The cell lays out from the page's direction; its text is isolated so it keeps its own. */}
+                  <td key={c.key} data-label={c.label} data-align={c.align ?? 'start'}>
+                    {/* The cell lays out from the page's direction (its label mirrors); only the value is isolated, and only a
+                        left-to-right value takes the mono face. */}
                     {i === 0 && rowHref ? (
                       <a className="lt-row-link" href={rowHref(row)}>
-                        <bdi dir={c.ltr ? 'ltr' : undefined} data-ltr={c.ltr ? '' : undefined}>
+                        <bdi dir={c.ltr ? 'ltr' : undefined} data-ltr={c.ltr ? '' : undefined} className={c.ltr ? 'lt-mono' : undefined}>
                           {content}
                         </bdi>
                       </a>
                     ) : (
-                      <bdi dir={c.ltr ? 'ltr' : undefined} data-ltr={c.ltr ? '' : undefined}>
+                      <bdi dir={c.ltr ? 'ltr' : undefined} data-ltr={c.ltr ? '' : undefined} className={c.ltr ? 'lt-mono' : undefined}>
                         {content}
                       </bdi>
                     )}

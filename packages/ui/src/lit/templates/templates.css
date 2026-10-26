@@ -158,31 +158,6 @@
   align-items: center;
 }
 
-/* Filters stay on one row that scrolls (with the end fade) rather than wrapping raggedly over several. */
-.lt-toolbar {
-  flex-wrap: nowrap;
-}
-.lt-toolbar > [data-region='filters'] {
-  flex: 1 1 auto;
-  min-inline-size: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-  animation: lt-tabs-more linear both;
-  animation-timeline: scroll(self inline);
-}
-[dir='rtl'] .lt-toolbar > [data-region='filters'] {
-  animation-name: lt-tabs-more-rtl;
-}
-.lt-toolbar > [data-region='filters'] > * {
-  flex-wrap: nowrap;
-}
-.lt-toolbar > [data-region='filters'] > * > * {
-  flex: none;
-  white-space: nowrap;
-}
-.lt-toolbar > [data-region='export'] {
-  flex: none;
-}
 .lt-toolbar > [data-region='export'] {
   margin-inline-start: auto;
 }
@@ -423,6 +398,7 @@
   background: var(--lit-secondary-bg);
   color: var(--lit-secondary-fg);
   box-shadow: none;
+  border-color: var(--lit-line-strong);
 }
 
 .lt-live {
@@ -1131,6 +1107,12 @@
 .lt-held {
   unicode-bidi: plaintext;
   text-align: start;
+}
+/* With plaintext, "start" follows the words, so English on a right-to-left page would sit at the left. These lines
+   follow the page instead, under the amount or title above them. */
+[dir='rtl'] :is(.lt-refusal-body, .lt-empty-body, .lt-receipt-where, .lt-receipt-to, .lt-kv-note, .lt-held),
+[dir='rtl'] .lt-room .lit-gate__card [data-part] {
+  text-align: right; /* look-drift-allow: the page's start in RTL; plaintext would resolve start from the words */
 }
 
 /* ---- segmented switch (Buy or Sell) ---- */
