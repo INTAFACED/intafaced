@@ -141,7 +141,7 @@ async function mock(page, { bank = {}, rest = {} } = {}) {
 
 const open = async (page, path = '/money') => {
   await page.goto(path);
-  await page.locator('.if-money').waitFor();
+  await page.getByTestId('if-money').waitFor();
 };
 // A first visit lands on Simple (shared/preferences.ts); a case about either mode says which it needs.
 const PREFERENCES_KEY = 'intafaced.customer.view.v1';
@@ -190,38 +190,47 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
   page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
   const api = await mock(page);
   await open(page);
-  const root = page.locator('.if-money');
-  await expect(page.locator('.money-label')).toContainText('Est. total value');
+  const root = page.getByTestId('if-money');
+  await expect(page.getByTestId('money-label')).toContainText('Est. total value');
   await expectHero(page, '$12,481.91');
   await expect(root).toHaveAttribute('data-source', 'server');
-  await expect(page.locator('.money-change')).toContainText('+$206.26');
-  await expect(page.locator('.money-change')).toContainText('+1.68%');
-  await expect(page.locator('.money-change')).toContainText('Today');
-  await expect(page.locator('.money-change')).not.toContainText('from price moves'); // the bank's own figure, not a derivation
+  await expect(page.getByTestId('money-change')).toContainText('+$206.26');
+  await expect(page.getByTestId('money-change')).toContainText('+1.68%');
+  await expect(page.getByTestId('money-change')).toContainText('Today');
+  await expect(page.getByTestId('money-change')).not.toContainText('from price moves'); // the bank's own figure, not a derivation
 
   // Unpriced coins: "Excludes 1 coin" with the list in a tooltip.
-  await expect(page.locator('.money-head .money-note')).toContainText('Excludes 1 coin (no USD price)');
-  await expect(page.locator('.money-head .money-note')).toContainText('Not counted: ZED');
+  await expect(page.getByTestId('money-head').locator(':is([data-testid="money-note"], [data-testid="derived-total-note"])')).toContainText(
+    'Excludes 1 coin (no USD price)',
+  );
+  await expect(page.getByTestId('money-head').locator(':is([data-testid="money-note"], [data-testid="derived-total-note"])')).toContainText(
+    'Not counted: ZED',
+  );
 
   // Actions: only live ones, Buy is the one primary. Simple Buy and Sell open the Buy card (critic H1).
-  expect(await texts(page.locator('.money-actions > *'))).toEqual(['Buy', 'Sell', 'Convert', 'Send', 'Receive']);
-  expect(await page.locator('.money-actions a.bg-lime').count()).toBe(1);
-  await expect(page.locator('.money-actions a').nth(0)).toHaveAttribute('href', '/trade/buy?side=buy');
-  await expect(page.locator('.money-actions a').nth(1)).toHaveAttribute('href', '/trade/buy?side=sell');
-  expect(Math.round((await page.locator('.money-actions a').first().boundingBox()).height)).toBe(40);
+  expect(await texts(page.locator('[data-testid="money-actions"] > *'))).toEqual(['Buy', 'Sell', 'Convert', 'Send', 'Receive']);
+  expect(await page.getByTestId('money-actions').locator('a[data-variant="primary"]').count()).toBe(1);
+  await expect(page.getByTestId('money-actions').locator('a').nth(0)).toHaveAttribute('href', '/trade/buy?side=buy');
+  await expect(page.getByTestId('money-actions').locator('a').nth(1)).toHaveAttribute('href', '/trade/buy?side=sell');
+  expect(Math.round((await page.getByTestId('money-actions').locator('a').first().boundingBox()).height)).toBe(40);
 
   // Allocation bar and legend (percentages from the same decimal strings), plus the table for screen readers.
-  expect(Math.round((await page.locator('.money-alloc__bar').boundingBox()).height)).toBe(8);
-  expect(await texts(page.locator('.money-alloc__legend li'))).toEqual(['BTC54.33%', 'USDT32.85%', 'ETH12.82%', 'DOGE<0.01%']);
-  expect(await page.locator('.money-alloc__seg').count()).toBe(4);
+  expect(Math.round((await page.getByTestId('money-alloc__bar').boundingBox()).height)).toBe(8);
+  expect(await texts(page.getByTestId('money-alloc__legend').locator('li'))).toEqual([
+    'BTC54.33%',
+    'USDT32.85%',
+    'ETH12.82%',
+    'DOGE<0.01%',
+  ]);
+  expect(await page.getByTestId('money-alloc__seg').count()).toBe(4);
 
   // Cash and Crypto cards.
-  await expect(page.locator('#cash .money-card__head')).toContainText('Cash');
-  await expect(page.locator('#cash .money-card__head')).toContainText('$4,100.00');
-  await expect(page.locator('#crypto .money-card__head')).toContainText('Crypto');
-  await expect(page.locator('#crypto .money-card__head')).toContainText('$8,381.91');
-  expect(await texts(page.locator('#cash tbody tr .money-coin__text'))).toEqual(['USDT· 32.8%Tether']);
-  expect(await texts(page.locator('#crypto > .money-table tbody tr .money-coin__text'))).toEqual([
+  await expect(page.locator('#cash [data-testid="money-card__head"]')).toContainText('Cash');
+  await expect(page.locator('#cash [data-testid="money-card__head"]')).toContainText('$4,100.00');
+  await expect(page.locator('#crypto [data-testid="money-card__head"]')).toContainText('Crypto');
+  await expect(page.locator('#crypto [data-testid="money-card__head"]')).toContainText('$8,381.91');
+  expect(await texts(page.locator('#cash tbody tr [data-testid="money-coin__text"]'))).toEqual(['USDT· 32.8%Tether']);
+  expect(await texts(page.locator('#crypto > [data-testid="money-table"] tbody tr [data-testid="money-coin__text"]'))).toEqual([
     'BTC· 54.3%Bitcoin',
     'ETH· 12.8%Ethereum',
     'ZED',
@@ -233,21 +242,21 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
   expect(await texts(btc.locator('td').nth(3))).toEqual(['$6,781.24']);
   expect(await texts(btc.locator('td').nth(4))).toEqual(['▲+$181.24 (+2.75%)']);
   // No link to the old coin page (critic H3): the row's own buttons are the way on.
-  expect(await page.locator('.if-money a[href^="/coin/"]').count()).toBe(0);
+  expect(await page.getByTestId('if-money').locator('a[href^="/coin/"]').count()).toBe(0);
   // Unpriced rows show a dash, never zero.
   const zed = page.locator('#crypto tr[data-asset="ZED"]');
   expect(await texts(zed.locator('td').nth(2))).toEqual(['—']);
   await expect(zed.locator('td').nth(2)).toHaveAttribute('title', 'No price published');
   expect(await texts(zed.locator('td').nth(3))).toEqual(['—']);
   // Row actions come from the registry and the markets: Buy/Sell/Send for a listed coin, Send only for the rest.
-  expect(await texts(btc.locator('.money-row__actions > *'))).toEqual(['Buy', 'Sell', 'Send']);
-  await expect(btc.locator('.money-row__actions a').nth(0)).toHaveAttribute('href', '/trade/buy?asset=BTC&side=buy');
-  await expect(btc.locator('.money-row__actions a').nth(1)).toHaveAttribute('href', '/trade/buy?asset=BTC&side=sell');
-  await expect(btc.locator('.money-row__actions a').nth(2)).toHaveAttribute('href', '/pay/send?asset=BTC');
-  expect(await texts(zed.locator('.money-row__actions > *'))).toEqual(['Send']);
+  expect(await texts(btc.locator('[data-testid="money-row__actions"] > *'))).toEqual(['Buy', 'Sell', 'Send']);
+  await expect(btc.getByTestId('money-row__actions').locator('a').nth(0)).toHaveAttribute('href', '/trade/buy?asset=BTC&side=buy');
+  await expect(btc.getByTestId('money-row__actions').locator('a').nth(1)).toHaveAttribute('href', '/trade/buy?asset=BTC&side=sell');
+  await expect(btc.getByTestId('money-row__actions').locator('a').nth(2)).toHaveAttribute('href', '/pay/send?asset=BTC');
+  expect(await texts(zed.locator('[data-testid="money-row__actions"] > *'))).toEqual(['Send']);
   // A cash row also converts in place, with that coin as the one to give (PF-overview-03).
-  expect(await texts(page.locator('#cash tr[data-asset="USDT"] .money-row__actions > *'))).toEqual(['Convert', 'Send']);
-  await expect(page.locator('#cash tr[data-asset="USDT"] .money-row__actions a').nth(0)).toHaveAttribute(
+  expect(await texts(page.locator('#cash tr[data-asset="USDT"] [data-testid="money-row__actions"] > *'))).toEqual(['Convert', 'Send']);
+  await expect(page.locator('#cash tr[data-asset="USDT"] [data-testid="money-row__actions"] a').nth(0)).toHaveAttribute(
     'href',
     '/trade/convert?from=USDT',
   );
@@ -259,21 +268,21 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
   expect(Math.round((await btc.boundingBox()).height)).toBe(64);
 
   // Small balances fold away under the Crypto card.
-  await expect(page.locator('.money-small__trigger')).toContainText('Small balances');
-  await expect(page.locator('.money-small__trigger')).toContainText('1 coin under $1');
+  await expect(page.getByTestId('money-small__trigger')).toContainText('Small balances');
+  await expect(page.getByTestId('money-small__trigger')).toContainText('1 coin under $1');
   await expect(page.locator('tr[data-asset="DOGE"]')).toHaveCount(0);
-  await page.locator('.money-small__trigger').click();
+  await page.getByTestId('money-small__trigger').click();
   await expect(page.locator('tr[data-asset="DOGE"]')).toBeVisible();
   expect(await texts(page.locator('tr[data-asset="DOGE"] td').nth(3))).toEqual(['$0.6173']);
-  await page.locator('.money-small__trigger').click();
+  await page.getByTestId('money-small__trigger').click();
 
   // Named accounts, each with its balance (the main account is not one of them).
   await expect(page.locator('#accounts h2')).toHaveText('Your spaces');
-  expect(await texts(page.locator('.money-accounts__row'))).toEqual(['Rent300 USDT', 'Long term0.04 BTC']);
+  expect(await texts(page.getByTestId('money-accounts__row'))).toEqual(['Rent300 USDT', 'Long term0.04 BTC']);
 
   // Order on the page: value -> actions (right) -> allocation -> Cash -> Crypto -> accounts.
   const tops = await page.evaluate(() =>
-    ['[data-slot="hero-number"]', '.money-alloc', '#cash', '#crypto', '#accounts'].map(
+    ['[data-slot="hero-number"]', '[data-testid="money-alloc"]', '#cash', '#crypto', '#accounts'].map(
       (selector) => document.querySelector(selector).getBoundingClientRect().top,
     ),
   );
@@ -291,15 +300,15 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
   for (const value of await texts(page.locator('[data-slot="money"]'))) expect(value, `money shape: ${value}`).toMatch(moneyShape);
 
   // The total-value rule is available for assistive tech and as a tooltip below the number (not under the top bar).
-  await expect(page.locator('.money-label')).toContainText('USDT and USDC count as 1 USD');
-  await page.locator('.money-label .if-tip').hover();
+  await expect(page.getByTestId('money-label')).toContainText('USDT and USDC count as 1 USD');
+  await page.getByTestId('money-label').getByTestId('if-tip').hover();
   const openTip = page.locator('[data-slot="tooltip-content"][data-open]');
   await expect(openTip).toBeVisible();
   expect((await openTip.boundingBox()).y).toBeGreaterThanOrEqual(56);
   await page.mouse.move(0, 0);
 
   // Keyboard: eye -> the info tips -> pills -> row links (each followed by its actions).
-  await page.locator('.harness-bar a').last().focus();
+  await page.getByTestId('harness-bar').locator('a').last().focus();
   const path = [];
   for (let step = 0; step < 40; step++) {
     await page.keyboard.press('Tab');
@@ -310,7 +319,7 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
         name: node.getAttribute('aria-label') ?? node.textContent.trim().replace(/\s+/g, ' ').slice(0, 24),
         href: node.getAttribute('href'),
         outline: `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`,
-        inside: Boolean(node.closest('.if-money')),
+        inside: Boolean(node.closest('[data-testid="if-money"]')),
       };
     });
     if (!stop.inside) break;
@@ -348,10 +357,10 @@ test('portfolio screenshots: loaded, row actions shown, side by side with the OK
   await shootBoth(page, 'portfolio-loaded');
   await page.locator('#crypto tr[data-asset="BTC"]').hover();
   await page.screenshot({ path: join(shots, 'portfolio-loaded-row-hover-1440x900.png') });
-  await page.locator('.money-small__trigger').click();
+  await page.getByTestId('money-small__trigger').click();
   await page.mouse.move(0, 0);
   await page.screenshot({ path: join(shots, 'portfolio-small-balances-open-1440x900.png'), fullPage: true });
-  await page.locator('.money-small__trigger').click();
+  await page.getByTestId('money-small__trigger').click();
   await page.mouse.move(0, 0);
   await page.screenshot({ path: join(shots, 'portfolio-loaded-full-1440.png'), fullPage: true });
   if (referencePortfolio && existsSync(referencePortfolio)) {
@@ -372,10 +381,10 @@ test('an older bank without the summary: falls back to the data layer and shows 
   await open(page);
   // 4100 + 0.1 BTC + 0.5 ETH from the exchange balance and tickers: the same total the Home screen computes.
   await expectHero(page, '$12,481.29');
-  await expect(page.locator('.if-money')).toHaveAttribute('data-source', 'derived');
-  await expect(page.locator('.money-change')).toContainText('+$206.29');
-  await expect(page.locator('.money-change')).toContainText('Today, from price moves');
-  expect(await texts(page.locator('#crypto > .money-table tbody tr .money-coin__text'))).toEqual([
+  await expect(page.getByTestId('if-money')).toHaveAttribute('data-source', 'derived');
+  await expect(page.getByTestId('money-change')).toContainText('+$206.29');
+  await expect(page.getByTestId('money-change')).toContainText('Today, from price moves');
+  expect(await texts(page.locator('#crypto > [data-testid="money-table"] tbody tr [data-testid="money-coin__text"]'))).toEqual([
     'BTC· 54.3%Bitcoin',
     'ETH· 12.8%Ethereum',
   ]);
@@ -386,7 +395,7 @@ test('an older bank without the summary: falls back to the data layer and shows 
 test('the portfolio links to the profit and loss room', async ({ page }) => {
   await mock(page, {});
   await open(page);
-  const link = page.locator('a.money-pnl-link');
+  const link = page.locator('a[data-testid="money-pnl-link"]');
   await expect(link).toContainText('Profit and loss');
   await expect(link).toHaveAttribute('href', '/money/pnl');
 });
@@ -395,7 +404,7 @@ test('a dropped bank connection also falls back', async ({ page }) => {
   await mock(page, { bank: { 'portfolio.summary': 'error' } });
   await open(page);
   await expectHero(page, '$12,481.29');
-  await expect(page.locator('.if-money')).toHaveAttribute('data-source', 'derived');
+  await expect(page.getByTestId('if-money')).toHaveAttribute('data-source', 'derived');
 });
 
 test('prices down: the bank refusal reads in plain words, with no fallback guess', async ({ page }) => {
@@ -406,10 +415,10 @@ test('prices down: the bank refusal reads in plain words, with no fallback guess
   await expect(block).toContainText("Prices can't be loaded");
   await expect(block).toContainText('Try again in a minute');
   await expect(block).toContainText('Ref PRC-1');
-  const text = await page.locator('.if-money').innerText();
+  const text = await page.getByTestId('if-money').innerText();
   expect(text).not.toMatch(forbidden);
   expect(text).not.toContain('bank.prices_unavailable');
-  expect(await texts(page.locator('.money-actions > *'))).toEqual(['Receive']);
+  expect(await texts(page.locator('[data-testid="money-actions"] > *'))).toEqual(['Receive']);
   expect(api.calls('rest:account/balance')).toHaveLength(0);
   await shootBoth(page, 'portfolio-refused');
 });
@@ -420,24 +429,25 @@ test('account paused: the refusal has words and a reference, never the raw code'
   const block = page.locator('[data-slot="state-block"][data-kind="refused"]');
   await expect(block).toContainText('Paused for account checks');
   await expect(block).toContainText('Ref SCR-1');
-  expect(await page.locator('.if-money').innerText()).not.toMatch(forbidden);
+  expect(await page.getByTestId('if-money').innerText()).not.toMatch(forbidden);
 });
 
 test('loading shows final-size skeletons and nothing moves when data arrives', async ({ page }) => {
   const api = await mock(page, { bank: { 'portfolio.summary': null, 'spaces.list': null } });
   await open(page);
   await expect(page.locator('[data-slot="skeleton"]').first()).toBeVisible();
-  const hero = await page.locator('.money-total [data-slot="skeleton"]').boundingBox();
+  const hero = await page.getByTestId('money-total').locator('[data-slot="skeleton"]').boundingBox();
   expect([Math.round(hero.width), Math.round(hero.height)]).toEqual([240, 56]);
   const pills = await page
-    .locator('.money-actions [data-slot="skeleton"]')
+    .getByTestId('money-actions')
+    .locator('[data-slot="skeleton"]')
     .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().height)));
   expect(pills).toEqual([40, 40, 40, 40, 40]);
-  const before = await page.locator('.money-total').boundingBox();
+  const before = await page.getByTestId('money-total').boundingBox();
   await shootBoth(page, 'portfolio-loading');
   await api.release();
   await expectHero(page, '$12,481.91');
-  const after = await page.locator('.money-total').boundingBox();
+  const after = await page.getByTestId('money-total').boundingBox();
   expect(Math.round(after.y)).toBe(Math.round(before.y));
   expect(Math.round(after.height)).toBe(Math.round(before.height));
 });
@@ -451,7 +461,7 @@ test('an account with nothing in it: zero is right here, and there is a way forw
   await expect(block).toContainText('You don’t hold anything yet.');
   await expect(block.locator('a')).toHaveText('Buy crypto');
   await expect(block.locator('a')).toHaveAttribute('href', '/trade/buy?side=buy');
-  expect(await texts(page.locator('.money-actions > *'))).toEqual(['Receive']);
+  expect(await texts(page.locator('[data-testid="money-actions"] > *'))).toEqual(['Receive']);
   await expect(page.locator('#cash')).toHaveCount(0); // a card with no rows is omitted
   await shootBoth(page, 'portfolio-empty');
 });
@@ -470,7 +480,7 @@ test('cash only: no empty Crypto card and no meaningless "$0.00 today" line', as
   await open(page);
   await expectHero(page, '$250.00');
   await expect(page.locator('#crypto')).toHaveCount(0);
-  await expect(page.locator('.money-change')).toHaveCount(0);
+  await expect(page.getByTestId('money-change')).toHaveCount(0);
   await expect(page.locator('#accounts')).toHaveCount(0); // no named accounts, no section
   await shootBoth(page, 'portfolio-cash-only');
 });
@@ -479,7 +489,7 @@ test('a young market says "since HH:MM" instead of Today', async ({ page }) => {
   const windowStart = Date.UTC(2026, 9, 14, 8, 30);
   await mock(page, { bank: { 'portfolio.summary': () => summary({ windowStart }) } });
   await open(page);
-  await expect(page.locator('.money-change')).toContainText('since 08:30');
+  await expect(page.getByTestId('money-change')).toContainText('since 08:30');
 });
 
 test('the bank cannot list accounts: the page carries on without that section', async ({ page }) => {
@@ -496,11 +506,11 @@ test('hidden balances show bullets, prices and shares stay, and the choice is re
   await page.getByRole('button', { name: 'Hide balances' }).click();
   await expect(page.getByRole('button', { name: 'Show balances' })).toBeVisible();
   await expectHero(page, '$••••');
-  await expect(page.locator('.money-change [data-slot="change-text"]')).toContainText('••••');
-  await expect(page.locator('.money-change')).not.toContainText('206');
+  await expect(page.getByTestId('money-change').locator('[data-slot="change-text"]')).toContainText('••••');
+  await expect(page.getByTestId('money-change')).not.toContainText('206');
   expect(await texts(page.locator('#cash [data-slot="money"], #cash [data-slot="amount"]'))).toEqual(['••••', '••••', '••••', '••••']);
   for (const value of await texts(page.locator('[data-slot="money"], [data-slot="amount"]'))) expect(value).toMatch(moneyShape);
-  await expect(page.locator('.money-alloc__legend')).toContainText('54.33%');
+  await expect(page.getByTestId('money-alloc__legend')).toContainText('54.33%');
   await snap(page, 'portfolio-hidden-1440x900');
   await page.reload();
   await expectHero(page, '$••••');
@@ -530,7 +540,7 @@ test('portfolio responsive: no horizontal page scroll at 1280, 1180, 768 and 390
     await expectHero(page, '$12,481.91');
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     const wide = await page.evaluate(() =>
-      [...document.querySelectorAll('.if-money *')]
+      [...document.querySelectorAll('[data-testid="if-money"] *')]
         .filter((node) => node.getBoundingClientRect().right > innerWidth + 1)
         .slice(0, 4)
         .map((node) => node.className || node.tagName),
@@ -587,13 +597,13 @@ test('Pro Money: Available and In orders columns, 40 px rows, hero 32/40, Buy an
   await pro(page);
   await open(page);
   await expectHero(page, '$12,481.91');
-  await expect(page.locator('.if-money')).toHaveAttribute('data-density', 'pro');
+  await expect(page.getByTestId('if-money')).toHaveAttribute('data-density', 'pro');
   expect(
     await page
       .locator('[data-slot="hero-number"]')
       .evaluate((node) => getComputedStyle(node).fontSize + '/' + getComputedStyle(node).lineHeight),
   ).toBe('32px/40px');
-  expect(await seen(page.locator('#crypto > .money-table thead th'))).toEqual([
+  expect(await seen(page.locator('#crypto > [data-testid="money-table"] thead th'))).toEqual([
     'Coin',
     'Amount',
     'Price',
@@ -615,11 +625,11 @@ test('Pro Money: Available and In orders columns, 40 px rows, hero 32/40, Buy an
   expect(await texts(btc.locator('td[data-col="in-spaces"]'))).toEqual(['0']);
   expect(Math.round((await btc.boundingBox()).height)).toBe(40);
   // Pro means the desk.
-  await expect(page.locator('.money-actions a').nth(0)).toHaveAttribute('href', '/trade/spot/BTC-USDT');
-  await expect(btc.locator('.money-row__actions a').nth(0)).toHaveAttribute('href', '/trade/spot/BTC-USDT');
-  await expect(btc.locator('.money-row__actions a').nth(1)).toHaveAttribute('href', '/trade/spot/BTC-USDT?side=sell');
-  await expect(btc.locator('.money-row__actions')).toHaveCSS('opacity', '1'); // always shown in Pro
-  expect(await page.locator('.if-money').innerText()).not.toMatch(forbidden);
+  await expect(page.getByTestId('money-actions').locator('a').nth(0)).toHaveAttribute('href', '/trade/spot/BTC-USDT');
+  await expect(btc.getByTestId('money-row__actions').locator('a').nth(0)).toHaveAttribute('href', '/trade/spot/BTC-USDT');
+  await expect(btc.getByTestId('money-row__actions').locator('a').nth(1)).toHaveAttribute('href', '/trade/spot/BTC-USDT?side=sell');
+  await expect(btc.getByTestId('money-row__actions')).toHaveCSS('opacity', '1'); // always shown in Pro
+  expect(await page.getByTestId('if-money').innerText()).not.toMatch(forbidden);
   // Every column has its own width: the row actions never sit over In spaces (Phantom 24 Oct). Below 1280 the
   // rows drop their buttons; the page's own stay.
   for (const size of [
@@ -631,7 +641,7 @@ test('Pro Money: Available and In orders columns, 40 px rows, hero 32/40, Buy an
     for (const row of [usdt, btc]) {
       const spacesBox = await row.locator('td[data-col="in-spaces"]').boundingBox();
       expect(spacesBox, `${size.width}px`).not.toBeNull();
-      const actions = row.locator('.money-row__actions a');
+      const actions = row.getByTestId('money-row__actions').locator('a');
       if (size.width < 1280) {
         await expect(actions.first()).toBeHidden();
         continue;
@@ -642,10 +652,10 @@ test('Pro Money: Available and In orders columns, 40 px rows, hero 32/40, Buy an
     }
   }
   await page.setViewportSize({ width: 1440, height: 900 });
-  await expect(page.locator('.money-actions a').first()).toBeVisible();
+  await expect(page.getByTestId('money-actions').locator('a').first()).toBeVisible();
   // Profit and loss is its own panel, spaced below the last card, not glued to it.
-  const lastCard = await page.locator('.money-card').last().boundingBox();
-  const pnl = await page.locator('.money-pnl-link').boundingBox();
+  const lastCard = await page.getByTestId('money-card').last().boundingBox();
+  const pnl = await page.getByTestId('money-pnl-link').boundingBox();
   expect(lastCard).not.toBeNull();
   expect(pnl).not.toBeNull();
   expect(pnl.y - (lastCard.y + lastCard.height)).toBeGreaterThanOrEqual(24);
@@ -694,7 +704,7 @@ test('Pro Money with the bank summary missing: In spaces is a dash, never 0, and
   });
   await pro(page);
   await open(page);
-  await expect(page.locator('.if-money')).toHaveAttribute('data-source', 'derived');
+  await expect(page.getByTestId('if-money')).toHaveAttribute('data-source', 'derived');
   const usdt = page.locator('#cash tr[data-asset="USDT"]');
   expect(await texts(usdt.locator('td[data-col="in-spaces"]'))).toEqual(['—']);
   await expect(page.getByTestId('held-note')).toHaveCount(1);
@@ -705,7 +715,14 @@ test('Simple Money has no Available and In orders columns', async ({ page }) => 
   await simple(page);
   await mock(page);
   await open(page);
-  expect(await seen(page.locator('#crypto > .money-table thead th'))).toEqual(['Coin', 'Amount', 'Price', 'Value', 'Today', 'Actions']);
+  expect(await seen(page.locator('#crypto > [data-testid="money-table"] thead th'))).toEqual([
+    'Coin',
+    'Amount',
+    'Price',
+    'Value',
+    'Today',
+    'Actions',
+  ]);
 });
 
 test('Money lists the named accounts only when one of them holds something (critic M9)', async ({ page }) => {
@@ -746,8 +763,8 @@ test('activity Trades tab is built from fills: one row per trade with price, tot
   await open(page, '/money/activity?tab=trades');
   await expect(page.locator('h1')).toHaveText('Activity');
   await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('Trades');
-  expect(await texts(page.locator('.money-trade-tab thead th'))).toEqual(['Time', 'Trade', 'Price', 'Total', 'Fee']);
-  const rows = page.locator('.money-trade-tab tbody tr');
+  expect(await texts(page.getByTestId('money-trade-tab').locator('thead th'))).toEqual(['Time', 'Trade', 'Price', 'Total', 'Fee']);
+  const rows = page.getByTestId('money-trade-tab').locator('tbody tr');
   await expect(rows).toHaveCount(2);
   expect(await texts(rows.nth(0).locator('td'))).toEqual([
     '14 Oct, 08:02',
@@ -764,7 +781,7 @@ test('activity Trades tab is built from fills: one row per trade with price, tot
     '0.128 USDT',
   ]);
   expect(Math.round((await rows.first().boundingBox()).height)).toBe(48);
-  expect(await page.locator('.if-money').innerText()).not.toMatch(forbidden);
+  expect(await page.getByTestId('if-money').innerText()).not.toMatch(forbidden);
   // The ledger is not read for this tab, and the same request the desk makes feeds it.
   expect(api.calls('activity.list')).toHaveLength(0);
   expect(api.seen.filter((call) => call.procedure === 'rest:account/trades').length).toBeGreaterThan(0);
@@ -778,33 +795,33 @@ test('activity ?asset= narrows Trades and All to one coin, shows a removable chi
   const chip = (name) => page.getByRole('button', { name: `Remove ${name} filter` });
   // Trades: fills whose base or quote is the coin.
   await open(page, '/money/activity?tab=trades&asset=BTC');
-  await expect(page.locator('.money-trade-tab tbody tr')).toHaveCount(2);
+  await expect(page.getByTestId('money-trade-tab').locator('tbody tr')).toHaveCount(2);
   await expect(chip('BTC')).toHaveText('BTC');
   await open(page, '/money/activity?tab=trades&asset=USDT');
-  await expect(page.locator('.money-trade-tab tbody tr')).toHaveCount(2);
+  await expect(page.getByTestId('money-trade-tab').locator('tbody tr')).toHaveCount(2);
   await open(page, '/money/activity?tab=trades&asset=ETH');
   await expect(chip('ETH')).toBeVisible();
-  await expect(page.locator('.money-trade-tab tbody tr')).toHaveCount(0);
-  await expect(page.locator('.money-state')).toContainText('No ETH trades yet');
+  await expect(page.getByTestId('money-trade-tab').locator('tbody tr')).toHaveCount(0);
+  await expect(page.getByTestId('money-state')).toContainText('No ETH trades yet');
   // Unknown coin: a filter-aware empty state (every fill was seen), and the chip still removes the filter.
   await open(page, '/money/activity?tab=trades&asset=ZZZ');
-  await expect(page.locator('.money-state')).toContainText('No ZZZ trades yet');
+  await expect(page.getByTestId('money-state')).toContainText('No ZZZ trades yet');
   await chip('ZZZ').click();
   await expect(page).toHaveURL(/\/money\/activity\?tab=trades$/);
   await expect(chip('ZZZ')).toHaveCount(0);
-  await expect(page.locator('.money-trade-tab tbody tr')).toHaveCount(2);
+  await expect(page.getByTestId('money-trade-tab').locator('tbody tr')).toHaveCount(2);
   // All: a whole order stays together when any of its lines is in the coin (the BTC buy keeps its USDT lines).
   await open(page, '/money/activity?tab=all&asset=BTC');
-  await expect(page.locator('.money-act')).toHaveCount(1);
-  expect(await texts(page.locator('.money-act__title'))).toEqual(['Trade']);
-  expect(await texts(page.locator('.money-act__sub'))).toEqual(['Paid 678.124000 USDT · Fee 0.678100 USDT']);
+  await expect(page.getByTestId('money-act')).toHaveCount(1);
+  expect(await texts(page.getByTestId('money-act__title'))).toEqual(['Trade']);
+  expect(await texts(page.getByTestId('money-act__sub'))).toEqual(['Paid 678.124000 USDT · Fee 0.678100 USDT']);
   // ...and it looks back through older pages on its own (ETH is on both pages).
   await open(page, '/money/activity?tab=all&asset=ETH');
-  await expect(page.locator('.money-act')).toHaveCount(2);
+  await expect(page.getByTestId('money-act')).toHaveCount(2);
   await open(page, '/money/activity?tab=all&asset=ZZZ');
-  await expect(page.locator('.money-act')).toHaveCount(0);
-  await expect(page.locator('.money-state')).toContainText('No ZZZ activity');
-  await expect(page.locator('.money-state')).not.toContainText('No activity yet');
+  await expect(page.getByTestId('money-act')).toHaveCount(0);
+  await expect(page.getByTestId('money-state')).toContainText('No ZZZ activity');
+  await expect(page.getByTestId('money-state')).not.toContainText('No activity yet');
   await expect(page.getByRole('button', { name: 'Load more' })).toHaveCount(0);
   // Switching tab keeps the coin; removing the chip clears only the coin.
   await open(page, '/money/activity?tab=all&asset=BTC');
@@ -819,8 +836,8 @@ test('activity Orders tab shows open orders with Cancel and the order history (c
   await mock(page);
   await open(page, '/money/activity?tab=orders');
   await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('Orders');
-  expect(await texts(page.locator('.money-trade-tab__head'))).toEqual(['Open orders', 'Order history']);
-  const tables = page.locator('.money-trade-tab table');
+  expect(await texts(page.getByTestId('money-trade-tab__head'))).toEqual(['Open orders', 'Order history']);
+  const tables = page.getByTestId('money-trade-tab').locator('table');
   await expect(tables).toHaveCount(2);
   const open_ = tables.nth(0).locator('tbody tr');
   await expect(open_).toHaveCount(1);
@@ -845,35 +862,35 @@ test('All: the lines of one order share an orderId and are one row; a cancelled 
     bank: { 'activity.list': () => ({ items: [...holdLines(), ...buyLines()], nextCursor: null }) },
   });
   await open(page, ALL);
-  await expect(page.locator('.money-act')).toHaveCount(2);
-  expect(await texts(page.locator('.money-act__title'))).toEqual(['Trade', 'Order cancelled · nothing spent']);
-  expect(await texts(page.locator('.money-act [data-slot="amount"]'))).toEqual(['+0.0000999 BTC', '5 USDT']);
+  await expect(page.getByTestId('money-act')).toHaveCount(2);
+  expect(await texts(page.getByTestId('money-act__title'))).toEqual(['Trade', 'Order cancelled · nothing spent']);
+  expect(await texts(page.getByTestId('money-act').locator('[data-slot="amount"]'))).toEqual(['+0.0000999 BTC', '5 USDT']);
   // No Paid: a hold minus a release is never turned into a price. The set-aside and returned money is shown as it is.
-  expect(await texts(page.locator('.money-act__sub'))).toEqual(['Set aside 6.540908 USDT · Returned 0.032542 USDT']);
-  await expect(page.locator('.money-act-note')).toHaveCount(0);
-  expect(await page.locator('.if-money').innerText()).not.toContain('not listed');
+  expect(await texts(page.getByTestId('money-act__sub'))).toEqual(['Set aside 6.540908 USDT · Returned 0.032542 USDT']);
+  await expect(page.getByTestId('money-act-note')).toHaveCount(0);
+  expect(await page.getByTestId('if-money').innerText()).not.toContain('not listed');
   await snap(page, 'activity-all-trade-1440x900');
 });
 
 test('All: an older server with no orderId shows every line as its own row, with its real amount', async ({ page }) => {
   await mock(page, { bank: { 'activity.list': () => ({ items: olderServerLines(), nextCursor: null }) } });
   await open(page, ALL);
-  await expect(page.locator('.money-act')).toHaveCount(5);
-  expect(await texts(page.locator('.money-act__title'))).toEqual([
+  await expect(page.getByTestId('money-act')).toHaveCount(5);
+  expect(await texts(page.getByTestId('money-act__title'))).toEqual([
     'Other activity',
     'Trade',
     'Other activity',
     'Other activity',
     'Other activity',
   ]);
-  expect(await texts(page.locator('.money-act [data-slot="amount"]'))).toEqual([
+  expect(await texts(page.getByTestId('money-act').locator('[data-slot="amount"]'))).toEqual([
     '+0.032542 USDT',
     '+0.0000999 BTC',
     '−6.540908 USDT',
     '+5 USDT',
     '−5 USDT',
   ]);
-  await expect(page.locator('.money-act__sub')).toHaveCount(0);
+  await expect(page.getByTestId('money-act__sub')).toHaveCount(0);
 });
 
 test('All shows a resting order as one "Set aside" row, never as completed money gone', async ({ page }) => {
@@ -881,17 +898,17 @@ test('All shows a resting order as one "Set aside" row, never as completed money
     bank: { 'activity.list': () => ({ items: [holdLines()[1]], nextCursor: null }) },
   });
   await open(page, ALL);
-  expect(await texts(page.locator('.money-act__title'))).toEqual(['Set aside for an order']);
-  expect(await texts(page.locator('.money-act__hold'))).toEqual(['Set aside']);
-  await expect(page.locator('.money-act__done')).toHaveCount(0);
+  expect(await texts(page.getByTestId('money-act__title'))).toEqual(['Set aside for an order']);
+  expect(await texts(page.getByTestId('money-act__hold'))).toEqual(['Set aside']);
+  await expect(page.getByTestId('money-act__done')).toHaveCount(0);
 });
 
 test('Pro Activity rows are 40 px', async ({ page }) => {
   await mock(page);
   await pro(page);
   await open(page, ALL);
-  await expect(page.locator('.money-act')).toHaveCount(10);
-  expect(Math.round((await page.locator('.money-act').first().boundingBox()).height)).toBe(40);
+  await expect(page.getByTestId('money-act')).toHaveCount(10);
+  expect(Math.round((await page.getByTestId('money-act').first().boundingBox()).height)).toBe(40);
 });
 
 test('activity: rows in plain words, signed amounts, local time, completed', async ({ page }) => {
@@ -902,10 +919,10 @@ test('activity: rows in plain words, signed amounts, local time, completed', asy
   const api = await mock(page);
   await open(page, ALL);
   await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('All');
-  const rows = page.locator('.money-act');
+  const rows = page.getByTestId('money-act');
   // 12 ledger lines on page one are 10 rows: the fill's three lines are one Trade; the loose "other" line is listed.
   await expect(rows).toHaveCount(10);
-  expect(await texts(page.locator('.money-act__title'))).toEqual([
+  expect(await texts(page.getByTestId('money-act__title'))).toEqual([
     'Received from @maya',
     'Trade',
     'Sent to @ola',
@@ -917,9 +934,9 @@ test('activity: rows in plain words, signed amounts, local time, completed', asy
     'Withdrawal',
     'Other activity',
   ]);
-  expect(await texts(page.locator('.money-act__sub'))).toEqual(['Paid 678.124000 USDT · Fee 0.678100 USDT', 'Account: Rent']);
+  expect(await texts(page.getByTestId('money-act__sub'))).toEqual(['Paid 678.124000 USDT · Fee 0.678100 USDT', 'Account: Rent']);
   // Amounts carry their sign in text and their direction in colour.
-  expect(await texts(page.locator('.money-act [data-slot="amount"]'))).toEqual([
+  expect(await texts(page.getByTestId('money-act').locator('[data-slot="amount"]'))).toEqual([
     '+50 USDT',
     '+0.01 BTC',
     '−20 USDT',
@@ -936,10 +953,10 @@ test('activity: rows in plain words, signed amounts, local time, completed', asy
       .locator(selector)
       .first()
       .evaluate((node) => getComputedStyle(node).color);
-  expect(await colour('.money-act[data-kind="transfer_in"] [data-slot="amount"]')).toBe('rgb(37, 167, 80)');
-  expect(await colour('.money-act[data-kind="transfer_out"] [data-slot="amount"]')).toBe('rgb(224, 86, 122)');
+  expect(await colour('[data-testid="money-act"][data-kind="transfer_in"] [data-slot="amount"]')).toBe('rgb(37, 167, 80)');
+  expect(await colour('[data-testid="money-act"][data-kind="transfer_out"] [data-slot="amount"]')).toBe('rgb(224, 86, 122)');
   // Time in the viewer's zone (the test browser runs in UTC), same year without the year.
-  expect(await texts(page.locator('.money-act__time'))).toEqual([
+  expect(await texts(page.getByTestId('money-act__time'))).toEqual([
     '14 Oct, 09:15',
     '14 Oct, 08:02',
     '13 Oct, 17:40',
@@ -951,9 +968,9 @@ test('activity: rows in plain words, signed amounts, local time, completed', asy
     '8 Oct, 11:11',
     '7 Oct, 09:00',
   ]);
-  expect(new Set(await texts(page.locator('.money-act__done')))).toEqual(new Set(['Completed']));
+  expect(new Set(await texts(page.getByTestId('money-act__done')))).toEqual(new Set(['Completed']));
   expect(Math.round((await rows.first().boundingBox()).height)).toBe(48);
-  expect(await page.locator('.if-money').innerText()).not.toMatch(forbidden);
+  expect(await page.getByTestId('if-money').innerText()).not.toMatch(forbidden);
 
   // Paging: "Load more" asks for the next page with the cursor and appends it.
   await expect(page.getByRole('button', { name: 'Load more' })).toBeVisible();
@@ -961,7 +978,7 @@ test('activity: rows in plain words, signed amounts, local time, completed', asy
   await page.getByRole('button', { name: 'Load more' }).click();
   await expect(rows).toHaveCount(13);
   await expect(page.getByRole('button', { name: 'Load more' })).toHaveCount(0);
-  expect((await texts(page.locator('.money-act__time'))).at(-1)).toBe('30 Dec 2025, 10:00'); // another year shows the year
+  expect((await texts(page.getByTestId('money-act__time'))).at(-1)).toBe('30 Dec 2025, 10:00'); // another year shows the year
   // (React's dev double-mount may ask for page one twice; the second page is asked for once, with the cursor.)
   const asked = api.calls('activity.list').map((call) => call.input);
   expect(asked.filter((input) => input.cursor)).toEqual([{ limit: 50, cursor: 'cursor-2' }]);
@@ -972,7 +989,7 @@ test('activity: rows in plain words, signed amounts, local time, completed', asy
 test('activity screenshots at both sizes, and side by side with the OKX order centre', async ({ page }) => {
   await mock(page);
   await open(page, ALL);
-  await expect(page.locator('.money-act')).toHaveCount(10);
+  await expect(page.getByTestId('money-act')).toHaveCount(10);
   await shootBoth(page, 'activity-loaded');
   await page.screenshot({ path: join(shots, 'activity-loaded-full-1440.png'), fullPage: true });
   if (referenceActivity && existsSync(referenceActivity)) {
@@ -994,18 +1011,18 @@ test('activity tabs filter the rows, keep the address in step, and look further 
   await simple(page);
   const api = await mock(page);
   await open(page, ALL);
-  await expect(page.locator('.money-act')).toHaveCount(10);
+  await expect(page.getByTestId('money-act')).toHaveCount(10);
 
   await page.getByRole('tab', { name: 'Deposits' }).click();
   await expect(page).toHaveURL(/\/money\/activity\?tab=deposits$/);
   // Page one has two deposit-like rows; the tab asks for the next page on its own to find more.
-  await expect(page.locator('.money-act')).toHaveCount(3);
-  expect(await texts(page.locator('.money-act__title'))).toEqual(['Deposit', 'Welcome test funds', 'Deposit']);
+  await expect(page.getByTestId('money-act')).toHaveCount(3);
+  expect(await texts(page.getByTestId('money-act__title'))).toEqual(['Deposit', 'Welcome test funds', 'Deposit']);
   expect(api.calls('activity.list').filter((call) => call.input?.cursor)).toHaveLength(1);
 
   await page.getByRole('tab', { name: 'Transfers' }).click();
   await expect(page).toHaveURL(/tab=transfers$/);
-  expect(await texts(page.locator('.money-act__title'))).toEqual([
+  expect(await texts(page.getByTestId('money-act__title'))).toEqual([
     'Received from @maya',
     'Sent to @ola',
     'Received',
@@ -1014,7 +1031,7 @@ test('activity tabs filter the rows, keep the address in step, and look further 
   ]);
   await page.getByRole('tab', { name: 'Trades' }).click();
   await expect(page).toHaveURL(/\/money\/activity\?tab=trades$/);
-  await expect(page.locator('.money-trade-tab tbody tr')).toHaveCount(2);
+  await expect(page.getByTestId('money-trade-tab').locator('tbody tr')).toHaveCount(2);
 
   // Back and forward follow the tabs.
   await page.goBack();
@@ -1052,7 +1069,7 @@ test('a coin filter with no match in the pages read keeps Load more and does not
   expect(api.calls('activity.list').filter((call) => call.input?.cursor)).toHaveLength(4);
   // Pressing it reaches the older page, where the BTC line is.
   await more.click();
-  await expect(page.locator('.money-act')).toHaveCount(1);
+  await expect(page.getByTestId('money-act')).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Load more' })).toHaveCount(0);
   await expect(block).toHaveCount(0);
   // The Deposits tab, with no coin, is the same: thin tabs keep asking instead of claiming "No deposits yet".
@@ -1083,7 +1100,7 @@ test('Trades with a coin filter and a full page of other fills says "latest 100"
   const block = page.locator('[data-slot="state-block"][data-kind="empty"]');
   await expect(block).toContainText('No BTC trades in your latest 100');
   await expect(block).not.toContainText('No trades yet');
-  await expect(page.locator('.money-act-note')).toHaveText('Showing your latest 100 trades.');
+  await expect(page.getByTestId('money-act-note')).toHaveText('Showing your latest 100 trades.');
 });
 
 test('activity empty: a way forward', async ({ page }) => {
@@ -1126,7 +1143,7 @@ test('activity error: inside the page with Try again; refusal in plain words', a
   await shootBoth(page, 'activity-error');
   fail = false;
   await block.getByRole('button', { name: 'Try again' }).click();
-  await expect(page.locator('.money-act')).toHaveCount(10);
+  await expect(page.getByTestId('money-act')).toHaveCount(10);
 });
 
 test('activity refused: words and a reference, never the raw code', async ({ page }) => {
@@ -1135,18 +1152,18 @@ test('activity refused: words and a reference, never the raw code', async ({ pag
   const block = page.locator('[data-slot="state-block"][data-kind="refused"]');
   await expect(block).toContainText('Paused for account checks');
   await expect(block).toContainText('Ref SCR-1');
-  expect(await page.locator('.if-money').innerText()).not.toMatch(forbidden);
+  expect(await page.getByTestId('if-money').innerText()).not.toMatch(forbidden);
   await shootBoth(page, 'activity-refused');
 });
 
 test('activity loading shows 8 final-size skeleton rows; a failed "load more" keeps the rows', async ({ page }) => {
   const api = await mock(page, { bank: { 'activity.list': null } });
   await open(page, ALL);
-  expect(await page.locator('.money-act-skeleton__row').count()).toBe(8);
-  expect(Math.round((await page.locator('.money-act-skeleton__row').first().boundingBox()).height)).toBe(56);
+  expect(await page.getByTestId('money-act-skeleton__row').count()).toBe(8);
+  expect(Math.round((await page.getByTestId('money-act-skeleton__row').first().boundingBox()).height)).toBe(56);
   await shootBoth(page, 'activity-loading');
   await api.release();
-  await expect(page.locator('.money-act')).toHaveCount(10);
+  await expect(page.getByTestId('money-act')).toHaveCount(10);
 });
 
 test('a failed "load more" keeps what is on screen and offers to try again', async ({ page }) => {
@@ -1159,11 +1176,11 @@ test('a failed "load more" keeps what is on screen and offers to try again', asy
   });
   await open(page, ALL);
   await page.getByRole('button', { name: 'Load more' }).click();
-  await expect(page.locator('.money-more__note')).toHaveText('Couldn’t load more.');
-  await expect(page.locator('.money-act')).toHaveCount(10);
+  await expect(page.getByTestId('money-more__note')).toHaveText('Couldn’t load more.');
+  await expect(page.getByTestId('money-act')).toHaveCount(10);
   second = 'ok';
   await page.getByRole('button', { name: 'Try again' }).click();
-  await expect(page.locator('.money-act')).toHaveCount(13);
+  await expect(page.getByTestId('money-act')).toHaveCount(13);
 });
 
 test('activity detail: a private note is saved once and shows as saved', async ({ page }) => {
@@ -1243,7 +1260,7 @@ test('activity: this month is not offered as a statement', async ({ page }) => {
 test('activity: hide balances masks the amounts; no horizontal scroll at narrow widths', async ({ page }) => {
   await mock(page);
   await open(page, ALL);
-  await expect(page.locator('.money-act')).toHaveCount(10);
+  await expect(page.getByTestId('money-act')).toHaveCount(10);
   await page.evaluate(() => localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ hideBalances: true })));
   for (const size of [
     { width: 1280, height: 800 },
@@ -1253,11 +1270,11 @@ test('activity: hide balances masks the amounts; no horizontal scroll at narrow 
   ]) {
     await page.setViewportSize(size);
     await open(page, ALL);
-    await expect(page.locator('.money-act')).toHaveCount(10);
-    expect([...new Set(await texts(page.locator('.money-act [data-slot="amount"]')))]).toEqual(['••••']);
+    await expect(page.getByTestId('money-act')).toHaveCount(10);
+    expect([...new Set(await texts(page.getByTestId('money-act').locator('[data-slot="amount"]')))]).toEqual(['••••']);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     const wide = await page.evaluate(() =>
-      [...document.querySelectorAll('.if-money *')]
+      [...document.querySelectorAll('[data-testid="if-money"] *')]
         .filter((node) => node.getBoundingClientRect().right > innerWidth + 1)
         .slice(0, 4)
         .map((node) => node.className || node.tagName),
@@ -1269,14 +1286,14 @@ test('activity: hide balances masks the amounts; no horizontal scroll at narrow 
   await open(page, '/money/activity?tab=ledger');
   const active = page.locator('[data-slot="tabs-tab"][data-active]');
   await expect(active).toHaveText('Entries');
-  const [tabBox, rowBox] = [await active.boundingBox(), await page.locator('.money-tabs').boundingBox()];
+  const [tabBox, rowBox] = [await active.boundingBox(), await page.getByTestId('money-tabs').boundingBox()];
   // Within a pixel: the row scrolls by whole pixels and the tab edge can sit a fraction past it.
   expect(tabBox.x).toBeGreaterThanOrEqual(rowBox.x - 1);
   expect(tabBox.x + tabBox.width).toBeLessThanOrEqual(rowBox.x + rowBox.width + 1);
   // The Trades and Orders tabs do not scroll sideways either.
   for (const tab of ['/money/activity?tab=trades', '/money/activity?tab=orders']) {
     await open(page, tab);
-    await expect(page.locator('.money-trade-tab table').first()).toBeVisible();
+    await expect(page.getByTestId('money-trade-tab').locator('table').first()).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow, tab).toBeLessThanOrEqual(0);
   }

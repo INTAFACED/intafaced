@@ -164,7 +164,7 @@ function MoneyRooms({ path }: { path: string }) {
             <Text k="index.refreshing.quantities.cannot.prove.the.outcome.of" />
           </p>
           {pending.map((record, index) => (
-            <p className="money-reference" key={`${record.reference}:${index}`}>
+            <p data-testid="money-reference" className="money-reference" key={`${record.reference}:${index}`}>
               {record.title} · {record.reference === 'unreadable' ? <Text k="pending-outcomes.recovery.required" /> : record.procedure}
               <Text k="index.reference" />
               {record.reference}
