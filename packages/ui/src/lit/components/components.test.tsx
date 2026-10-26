@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { roleNames, typeRoles } from '../contracts.js';
 import {
+  Gate,
   ActionKey,
   Button,
   Change,
@@ -64,6 +65,8 @@ describe('components', () => {
   it('Button defaults to secondary so a primary is always a choice', () => {
     expect(html(<Button>Go</Button>)).toContain('data-tone="secondary"');
     expect(html(<Button tone="primary">Go</Button>)).toContain('data-tone="primary"');
+    // test locators read the kit's data-slot and data-variant, like the flat Button
+    expect(html(<Button tone="primary">Go</Button>)).toContain('data-slot="button" data-variant="primary"');
   });
 
   it('ActionKey keeps its label as text and hides the icon from assistive tech', () => {
@@ -156,6 +159,10 @@ describe('components', () => {
     expect(set).not.toContain('data-missing');
     expect(set).toContain('aria-label="Risk warning"');
     expect(set).toContain('<button type="button" class="lit-legal__more">');
+    const rtl = html(<LegalSlot {...base} text="Warning." missing="-" bold lang="en" dir="ltr" />);
+    expect(rtl).toContain('data-bold="true"');
+    expect(rtl).toContain('<span lang="en" dir="ltr">Warning.</span>');
+    expect(html(<LegalSlot {...base} text="" missing="Not set yet." />)).toContain('Not set yet.');
   });
 
   it('RiskMoment gives both choices the same weight', () => {
@@ -167,5 +174,17 @@ describe('components', () => {
     const tones = [...out.matchAll(/data-tone="([a-z]+)"/g)].map((m) => m[1]);
     expect(tones).toEqual(['secondary', 'secondary']);
     expect(out).toContain('role="dialog"');
+  });
+
+  it('Gate keeps the room visible and inert under the card, never a skeleton', () => {
+    const out = html(
+      <Gate reason="not-verified" title="Verify to send" body="It takes about two minutes.">
+        <div>room</div>
+      </Gate>,
+    );
+    expect(out).toContain('data-gate="not-verified"');
+    expect(out).toMatch(/class="lit-gate__room" inert=""><div>room<\/div>/);
+    expect(out).toContain('data-material="solid"');
+    expect(out).not.toContain('skeleton');
   });
 });

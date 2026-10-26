@@ -31,7 +31,7 @@ A new role, type role, slot or component name goes through `contracts.ts` (ask B
 
 ## Switches on the root element
 
-`data-look="lit"`, `data-accent="blue|ember|violet|emerald"` (blue default), `data-theme="light"` (not shipped), `data-surfaces="solid"` (also automatic with `prefers-contrast: more` or `forced-colors: active`), `data-mode="pro"`.
+`data-look="lit"`, `data-accent="blue|ember|violet|emerald"` (blue default), `data-theme="light"` (not shipped), `data-surfaces="solid"` (also automatic with `prefers-contrast: more`, `forced-colors: active` or `prefers-reduced-transparency: reduce`), `data-mode="pro"`.
 
 ## Changing a value
 
