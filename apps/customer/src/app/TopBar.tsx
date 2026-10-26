@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { Suspense, lazy, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { SegmentedControl, Tooltip, TooltipContent, TooltipTrigger, Wordmark } from '@intafaced/ui';
 import { useSession } from '../features/session/session';
@@ -14,10 +14,14 @@ import { shellCopy } from './shell-copy';
 import { AccountMenuBody } from './AccountMenu';
 import { ProfileChip } from './ProfileChip';
 import { TopSearch } from './TopSearch';
-import { MerchantTopBar } from '../features/pay/portal/chrome/Chrome';
 import { isMerchantArea } from '../features/pay/portal/chrome/model';
-import { GroupedMenu, groups } from '../features/pay/portal/home-layout/Navigation';
+import { groups } from '../features/pay/portal/home-layout/groups';
 import { ShellSwitch } from '../features/protocol/ShellSwitch';
+
+// The merchant portal's chrome and menu load only when a merchant page or the Pay menu needs them.
+export const preloadMerchantChrome = () => import('../features/pay/portal/chrome/Chrome').then((m) => ({ default: m.MerchantTopBar }));
+const MerchantTopBar = lazy(preloadMerchantChrome);
+const GroupedMenu = lazy(() => import('../features/pay/portal/home-layout/Navigation').then((m) => ({ default: m.GroupedMenu })));
 
 /** Sets `--if-banner-offset` to the local stack's banner height (28 px), or 0 when there is no banner. */
 export function useBannerOffset() {
@@ -128,7 +132,9 @@ function NavTab({ tab, current, language }: { tab: TabSpec; current: Door | unde
         // TODO(B1): swap to the Base UI NavigationMenu in @intafaced/ui (same rows, same copy).
         <div className="tb-popover tb-menu" id={menuId} role="group" aria-label={doorLabel(tab.door, language)}>
           {groupedPay ? (
-            <GroupedMenu here={location.pathname} close={() => setOpen(false)} />
+            <Suspense fallback={null}>
+              <GroupedMenu here={location.pathname} close={() => setOpen(false)} />
+            </Suspense>
           ) : (
             <>
               <ul>
@@ -249,7 +255,12 @@ export function TopBar({
   const tabs = tabSpecs(layoutMode, Boolean(session) || restoring);
   const here = typeof location === 'undefined' ? path : path + location.search;
   const signIn = `/login?redirect=${encodeURIComponent(safeReturnTo(currentReturnLocation()))}`;
-  if (isMerchantArea(path)) return <MerchantTopBar path={path} account={<AccountButton onSignOut={onSignOut} />} />;
+  if (isMerchantArea(path))
+    return (
+      <Suspense fallback={null}>
+        <MerchantTopBar path={path} account={<AccountButton onSignOut={onSignOut} />} />
+      </Suspense>
+    );
   return (
     <>
       <header className="tb">

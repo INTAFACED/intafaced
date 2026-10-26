@@ -1,11 +1,12 @@
 import { lazy, Suspense } from 'react';
 import { Loading } from '../shared/ui';
-import { AccountRoutes } from '../features/account/AccountRoutes';
 import { appCopy } from './app-copy';
 
 const TradeRoutes = lazy(() => import('../features/trade').then((module) => ({ default: module.TradeRoutes })));
 const PayRoutes = lazy(() => import('../features/pay').then((module) => ({ default: module.PayRoutes })));
 const MoneyRoutes = lazy(() => import('../features/money').then((module) => ({ default: module.MoneyRoutes })));
+export const preloadAccountRoutes = () => import('../features/account/AccountRoutes').then((module) => ({ default: module.AccountRoutes }));
+const AccountRoutes = lazy(preloadAccountRoutes);
 const MoreRoutes = lazy(() => import('../features/more').then((module) => ({ default: module.MoreRoutes })));
 
 export type LegacyArea = 'money' | 'trade' | 'pay' | 'more' | 'person';
