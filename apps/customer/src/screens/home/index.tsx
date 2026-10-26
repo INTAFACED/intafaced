@@ -27,6 +27,7 @@ import {
   type Loadable,
   type HomePortfolio,
   type TickerRow,
+  Loading,
 } from './deps';
 import { InfoTip } from './InfoTip';
 import { IN_PANEL, STATE_IN_COLUMN } from './panel';
@@ -417,7 +418,7 @@ function HomeSimple() {
 export default function Home() {
   const { layoutMode } = usePreferences();
   return layoutMode === 'pro' ? (
-    <Suspense fallback={null}>
+    <Suspense fallback={<Loading />}>
       <HomePro />
     </Suspense>
   ) : (

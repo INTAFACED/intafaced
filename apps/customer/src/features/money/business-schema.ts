@@ -14,3 +14,6 @@ export const businessSchema = z.object({
   status: z.enum(['active', 'closed']),
   createdAt: z.string(),
 });
+
+/** `bank.business.list`: the person's business accounts. */
+export const businessListSchema = z.array(businessSchema);

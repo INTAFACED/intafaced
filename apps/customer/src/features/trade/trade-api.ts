@@ -15,10 +15,9 @@ import {
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { decimalSchema, parseAmount, formatAmount } from '../../shared/money';
 import { dailyHistoryWindow, deriveUtc8Daily, DailyHistoryError } from './daily-history';
-import { listingSchema } from './listing';
+import { listingSchema, positive } from './listing';
 import { planZonedDaily, deriveZonedDaily, ZonedDailyError } from './zoned-daily-history';
 
-const positive = decimalSchema.refine((value) => parseAmount(value) > 0n, { error: () => copy.t('expectedAPositiveExactDecimalString') });
 export { listingSchema, type Listing } from './listing';
 export const orderSchema = contractOrderSchema.extend({
   amount: positive,

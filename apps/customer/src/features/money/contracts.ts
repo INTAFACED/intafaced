@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { transferQuoteSchema } from '../pay/schemas';
 import { decimalSchema as money, parseAmount, signedDecimalSchema } from '../../shared/money';
 import { spaceSchema } from './client';
-import { businessSchema } from './business-schema';
+import { businessListSchema, businessSchema } from './business-schema';
 
 export const scheduleSchema = z.object({
   id: z.string(),
@@ -956,7 +956,7 @@ export const bankReads = {
   }),
   'autoInvest.list': z.array(ruleSchema),
   'analytics.spend': analyticsSchema,
-  'business.list': z.array(businessSchema),
+  'business.list': businessListSchema,
   'business.pending': z.array(pendingApprovalSchema),
   'business.members': teamSchema,
   'business.myRole': z.object({ role: memberRoleSchema }),
