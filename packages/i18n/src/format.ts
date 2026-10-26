@@ -22,7 +22,11 @@
  *      obtained from `Intl` itself, never hardcoded.
  *
  * There is no `Number()`, no `parseFloat`, and no arithmetic on the value
- * anywhere in this file.
+ * anywhere in this file. (A currency name's plural form is picked from a small
+ * stand-in number that is never shown; see `pluralStandIn`.)
+ *
+ * The rules for rooms (which helper, floor for balances, parts for styling,
+ * isolation in right-to-left text) are in this package's README.md.
  *
  * Currency metadata is not reimplemented here — it lives in
  * `@intafaced/config`'s fiat registry (§6.2: "100+ fiat currencies = config,
@@ -237,11 +241,23 @@ function signedWhole(whole: bigint, sign: ShownSign): bigint | number {
   return whole === 0n ? -0 : -whole;
 }
 
+/**
+ * Grouping on means the locale's own rule, not every thousand: `useGrouping: true`
+ * is 'always' since ES2023, which groups "8 906" where Polish and Latvian write 8906.
+ */
+function grouping(on: boolean | undefined): Intl.NumberFormatOptions['useGrouping'] {
+  return on === false ? false : 'auto';
+}
+
 interface ExactRender {
   /** The figure's parts, sign and currency placed by the locale. */
   readonly parts: FormatPart[];
   /** True when every shown digit is zero. */
   readonly isZero: boolean;
+  /** The integer digits shown, without sign or grouping. */
+  readonly whole: string;
+  /** The fraction digits shown, in ASCII. */
+  readonly frac: string;
 }
 
 /**
@@ -301,7 +317,24 @@ function renderExact(
       parts.push({ type: 'decimal', value: decimalSeparator(tag) }, { type: 'fraction', value: toLocaleDigits(frac, tag) });
     }
   }
-  return { parts, isZero };
+  return { parts, isZero, whole: wholeValue.toString(), frac };
+}
+
+/** The most fraction digits a currency name can be pluralised for (every ISO currency has 0 to 4). */
+const NAME_MAX_FRACTION_DIGITS = 6;
+
+/**
+ * A short decimal string with the same CLDR plural operands as the shown
+ * figure, for the plural form of a currency name. No rule in CLDR reads more
+ * of the integer than `i % 1000000` and whether it is at least a million, so a
+ * figure of a million or more keeps its last six digits after a leading 1. The
+ * fraction is kept whole (six digits at most). It never reaches the screen:
+ * only the name is taken from it, and it is short enough that an engine which
+ * reads a string as a float still reads it exactly to the shown digits.
+ */
+function pluralStandIn(whole: string, frac: string): `${number}` {
+  const integer = whole.length > 6 ? `1${whole.slice(-6)}` : whole;
+  return (frac ? `${integer}.${frac}` : integer) as `${number}`;
 }
 
 // ── Money ───────────────────────────────────────────────────────────────────
@@ -314,9 +347,9 @@ export interface MoneyFormatOptions {
   /** Defaults to the currency's ISO minor units, or `DEFAULT_ASSET_DECIMALS`. Pass 18 to show everything. */
   readonly maxFractionDigits?: number;
   /**
-   * How the currency itself is shown. `'name'` leaves pluralisation of the
-   * currency name to `Intl`, which only sees the integer part — prefer
-   * `'symbol'` or `'code'` on money surfaces.
+   * How the currency itself is shown. `'name'` takes the name's plural form
+   * from the shown figure ("1.50 US dollars", "1 US dollar") and refuses more
+   * than six fraction digits.
    */
   readonly display?: CurrencyDisplay;
   readonly useGrouping?: boolean;
@@ -344,7 +377,7 @@ export function formatMoneyToParts(
 
   const maxFrac = options.maxFractionDigits ?? known?.minorUnits ?? DEFAULT_ASSET_DECIMALS;
   const minFrac = Math.min(options.minFractionDigits ?? known?.minorUnits ?? 0, maxFrac);
-  const useGrouping = options.useGrouping ?? true;
+  const useGrouping = grouping(options.useGrouping);
   const rounding = options.rounding ?? 'half-up';
   const signDisplay = options.signDisplay ?? 'auto';
 
@@ -358,7 +391,24 @@ export function formatMoneyToParts(
   }
 
   const style: Intl.NumberFormatOptions = { style: 'currency', currency: known.code, currencyDisplay: display, useGrouping };
-  return renderExact(value, tag, style, minFrac, maxFrac, rounding, signDisplay).parts;
+  const figure = renderExact(value, tag, style, minFrac, maxFrac, rounding, signDisplay);
+  if (display !== 'name') return figure.parts;
+
+  // `Intl` saw only the integer, so its name has the integer's plural ("1 US dollar"
+  // for 1.50). Take the name from the stand-in formatted with the shown fraction length.
+  const digits = figure.frac.length;
+  if (digits > NAME_MAX_FRACTION_DIGITS) {
+    throw new AmountFormatError(
+      `A currency name is shown with at most ${NAME_MAX_FRACTION_DIGITS} fraction digits, this figure has ${digits}`,
+    );
+  }
+  const named = numberFormat(tag, { ...style, minimumFractionDigits: digits, maximumFractionDigits: digits })
+    .formatToParts(pluralStandIn(figure.whole, figure.frac))
+    .find((part) => part.type === 'currency')?.value;
+  if (named === undefined || !figure.parts.some((part) => part.type === 'currency')) {
+    throw new AmountFormatError(`No currency name for ${known.code} in ${tag}`);
+  }
+  return figure.parts.map((part) => (part.type === 'currency' ? { ...part, value: named } : part));
 }
 
 /**
@@ -397,7 +447,7 @@ export function formatNumberToParts(value: string, locale: string = DEFAULT_LOCA
   const parts = splitDecimal(value);
   const maxFrac = options.maxFractionDigits ?? parts.frac.length;
   const minFrac = Math.min(options.minFractionDigits ?? 0, maxFrac);
-  const style: Intl.NumberFormatOptions = { style: 'decimal', useGrouping: options.useGrouping ?? true };
+  const style: Intl.NumberFormatOptions = { style: 'decimal', useGrouping: grouping(options.useGrouping) };
   return renderExact(parts, tag, style, minFrac, maxFrac, options.rounding ?? 'half-up', options.signDisplay ?? 'auto').parts;
 }
 
@@ -410,7 +460,7 @@ export function formatNumber(value: string | number | bigint, locale: string = D
     return numberFormat(intlTagFor(locale), {
       minimumFractionDigits: options.minFractionDigits ?? 0,
       maximumFractionDigits: options.maxFractionDigits ?? Math.max(options.minFractionDigits ?? 0, 3),
-      useGrouping: options.useGrouping ?? true,
+      useGrouping: grouping(options.useGrouping),
       notation: options.notation ?? 'standard',
       signDisplay: options.signDisplay ?? 'auto',
       ...(options.rounding === 'floor' ? { roundingMode: 'floor' as const } : {}),
@@ -489,6 +539,17 @@ export interface PercentFormatOptions {
   readonly rounding?: Rounding;
 }
 
+/**
+ * A ratio given as a number, as decimal digits. `toFixed` writes 1e21 and up in exponent form, and a
+ * float that size has lost its digits anyway, so it is refused like NaN: pass a decimal string.
+ */
+function ratioDigits(ratio: number): string {
+  const digits = ratio.toFixed(10);
+  if (!/^-?\d+\.\d+$/.test(digits))
+    throw new AmountFormatError(`A percent needs a finite ratio under 1e21 as a number, got ${ratio}; pass a decimal string`);
+  return digits;
+}
+
 /** Format a ratio as percent parts. See `formatPercent`. */
 export function formatPercentToParts(
   ratio: string | number,
@@ -496,7 +557,7 @@ export function formatPercentToParts(
   options: PercentFormatOptions = {},
 ): FormatPart[] {
   const tag = intlTagFor(locale);
-  const value = shiftRight(splitDecimal(typeof ratio === 'string' ? ratio : ratio.toFixed(10)), 2);
+  const value = shiftRight(splitDecimal(typeof ratio === 'string' ? ratio : ratioDigits(ratio)), 2);
 
   const maxFrac = options.maxFractionDigits ?? 2;
   const minFrac = Math.min(options.minFractionDigits ?? 0, maxFrac);
@@ -508,7 +569,15 @@ export function formatPercentToParts(
   // template (sign and % placement, "%5" in Turkish, "5 %" in French) from
   // zero, its integer swapped for those digits.
   // The value keeps its sign so floor rounds a negative away from zero.
-  const figure = renderExact(value, tag, { style: 'decimal', useGrouping: true }, minFrac, maxFrac, options.rounding ?? 'half-up', 'never');
+  const figure = renderExact(
+    value,
+    tag,
+    { style: 'decimal', useGrouping: grouping(undefined) },
+    minFrac,
+    maxFrac,
+    options.rounding ?? 'half-up',
+    'never',
+  );
   const sign = shownSign(value.negative, figure.isZero, signDisplay);
   const template = numberFormat(tag, {
     style: 'percent',
