@@ -1,9 +1,8 @@
-import { Component, Suspense, useEffect, type MouseEvent, type ReactNode } from 'react';
+import { Component, Suspense, lazy, useEffect, type MouseEvent, type ReactNode } from 'react';
 import { Page, EmptyState, Button, Loading } from '../shared/ui';
 import { deskPairLabel, findRoom, resolveAlias, roomTitle, safeReturnTo, type Room } from './navigation';
 import { useLocation, useReturnLocation, currentReturnLocation, navigate } from './location';
 import { Shell } from './Shell';
-import { PublicRoutes } from '../features/public/PublicRoutes';
 import { useSession } from '../features/session/session';
 import { ApplyView } from '../features/account/View';
 import { AccountViewSync } from '../features/account/ViewSync';
@@ -13,15 +12,18 @@ import { useCustomerRoomArrival } from './room-arrival';
 import { hiddenFeatureFor, isDevBuild, type Feature } from './feature-registry';
 import { LegacyRoom, type LegacyArea } from './LegacyRoom';
 import { matchPath } from './path-match';
-import { screens } from './screens';
-import { DevFeatures } from './DevFeatures';
+import { preloadScreen, screens } from './screens';
 import { shellCopy } from './shell-copy';
 import { isMerchantArea } from '../features/pay/portal/chrome/model';
 import { SessionNotice } from './SessionNotice';
-import { ProtocolRoutes } from '../features/protocol/ProtocolRoutes';
-import { Web3Shell } from './Web3Shell';
 import { rememberShellRoute } from '../features/protocol/shell-state';
 import { TeamDesk, teamConsoleHref } from './TeamDesk';
+
+// Rooms outside the customer doors load on demand, so a first visit to Home does not download them.
+const PublicRoutes = lazy(() => import('../features/public/PublicRoutes').then((m) => ({ default: m.PublicRoutes })));
+const ProtocolRoutes = lazy(() => import('../features/protocol/ProtocolRoutes').then((m) => ({ default: m.ProtocolRoutes })));
+const Web3Shell = lazy(() => import('./Web3Shell').then((m) => ({ default: m.Web3Shell })));
+const DevFeatures = lazy(() => import('./DevFeatures').then((m) => ({ default: m.DevFeatures })));
 
 class RoomBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   override state = { failed: false };
@@ -98,6 +100,9 @@ export function App() {
   // One redirect rule per render, in this order: an alias row, signed-in `/`. No path is redirected for being hidden, in any
   // build, so the Docker image opens exactly what `vite dev` opens.
   const redirectTo = room?.alias ? resolveAlias(room, path, search) : path === '/' && session ? '/home' : undefined;
+  useEffect(() => {
+    if (room?.screen) preloadScreen(room.screen);
+  }, [room?.screen]);
   useCustomerRoomArrival(path, devFeatures || !room || !['public', 'team', 'web3'].includes(room.area), Boolean(redirectTo));
   const teamHref = room?.area === 'team' ? teamConsoleHref(current, import.meta.env.VITE_TEAM_URL, import.meta.env.DEV) : undefined;
   useEffect(() => {
@@ -148,7 +153,12 @@ export function App() {
   );
   const area = room ? legacyArea(room) : undefined;
   let body: ReactNode;
-  if (devFeatures) body = <DevFeatures />;
+  if (devFeatures)
+    body = (
+      <Suspense fallback={fallback}>
+        <DevFeatures />
+      </Suspense>
+    );
   // A private room never paints, and never shows "Sign in to continue", until the boot refresh has answered.
   else if (needsSession && !session && restoring) body = fallback;
   // The service did not answer: the cookie is untouched, so offer Retry instead of pretending the person is signed out.
@@ -195,7 +205,9 @@ export function App() {
     <div className="legacy-room">
       {ribbon}
       <SessionNotice />
-      <PublicRoutes path={path} />
+      <Suspense fallback={fallback}>
+        <PublicRoutes path={path} />
+      </Suspense>
     </div>
   ) : room?.area === 'team' ? (
     // The app header stays so a founder who landed here can get back; the console itself is a separate deployment.
@@ -205,10 +217,12 @@ export function App() {
     </Shell>
   ) : room?.area === 'web3' ? (
     // Web3 rooms have their own frame and stay out of customerRoomHref, so they are never a sign-in return target.
-    <Web3Shell path={path}>
-      {ribbon}
-      <ProtocolRoutes path={path} />
-    </Web3Shell>
+    <Suspense fallback={fallback}>
+      <Web3Shell path={path}>
+        {ribbon}
+        <ProtocolRoutes path={path} />
+      </Web3Shell>
+    </Suspense>
   ) : (
     <Shell door={room?.door} path={path}>
       {ribbon}
