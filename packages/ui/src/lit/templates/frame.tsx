@@ -441,7 +441,7 @@ export function RoomFrame(props: RoomFrameProps) {
         aria-busy={loading || undefined}
       >
         {band.length > 0 ? (
-          <div className="lt-band-slot">
+          <div className="lt-band-slot" data-obscures="top">
             {band.map((m) => (
               <RegistryLegalSlot key={m} moment={m} market={market} values={props.legalValues} onLink={props.onRiskSummary} />
             ))}
