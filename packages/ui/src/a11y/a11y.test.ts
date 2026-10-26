@@ -40,8 +40,9 @@ describe('contrast', () => {
 
   it('knows large text by size and weight', () => {
     expect(isLargeText(24, 400)).toBe(true);
-    expect(isLargeText(18.5, 700)).toBe(true);
-    expect(isLargeText(18.5, 600)).toBe(false);
+    expect(isLargeText(18.67, 700)).toBe(true);
+    expect(isLargeText(18.6, 700)).toBe(false);
+    expect(isLargeText(20, 600)).toBe(false);
     expect(isLargeText(16, 900)).toBe(false);
   });
 
@@ -51,6 +52,8 @@ describe('contrast', () => {
     expect(parseColor('rgba(245, 240, 235, 0.64)')).toEqual({ r: 245, g: 240, b: 235, a: 0.64 });
     expect(parseColor('rgb(10 20 30 / 50%)')).toEqual({ r: 10, g: 20, b: 30, a: 0.5 });
     expect(() => parseColor('color-mix(in srgb, red, blue)')).toThrow();
+    expect(() => parseColor('rgba(0, 0, 0, 50)')).toThrow();
+    expect(() => parseColor('rgb(300, 0, 0)')).toThrow();
   });
 
   it('paints a translucent colour over its backdrop before measuring', () => {
@@ -92,6 +95,7 @@ describe('worstPixelContrast', () => {
 
   it('refuses a box outside the image', () => {
     expect(() => worstPixelContrast(parseColor('#fff'), panel(), { x: 20, y: 0, width: 5, height: 5 })).toThrow();
+    expect(() => worstPixelContrast(parseColor('#fff'), panel(), { x: Number.NaN, y: 0, width: 5, height: 5 })).toThrow();
   });
 });
 
@@ -151,7 +155,10 @@ describe('Solid surfaces', () => {
       }),
     };
     const attrs: Record<string, string> = {};
-    const root = { setAttribute: (name: string, value: string) => void (attrs[name] = value) };
+    const root = {
+      setAttribute: (name: string, value: string) => void (attrs[name] = value),
+      removeAttribute: (name: string) => void delete attrs[name],
+    };
 
     const stop = applySurfaces(root, 'auto', env);
     expect(attrs[SURFACES_ATTRIBUTE]).toBe('glass');
@@ -166,6 +173,7 @@ describe('Solid surfaces', () => {
     }
     stop();
     expect(listeners.size).toBe(0);
+    expect(attrs[SURFACES_ATTRIBUTE]).toBeUndefined();
   });
 
   it('treats an engine without matchMedia, or a query it rejects, as not asking', () => {
@@ -177,8 +185,14 @@ describe('Solid surfaces', () => {
     };
     expect(systemAsksForSolid(throwing)).toBe(false);
     const attrs: Record<string, string> = {};
-    applySurfaces({ setAttribute: (n, v) => void (attrs[n] = v) }, 'solid', throwing)();
+    const stop = applySurfaces(
+      { setAttribute: (n, v) => void (attrs[n] = v), removeAttribute: (n) => void delete attrs[n] },
+      'solid',
+      throwing,
+    );
     expect(attrs[SURFACES_ATTRIBUTE]).toBe('solid');
+    stop();
+    expect(attrs[SURFACES_ATTRIBUTE]).toBeUndefined();
   });
 });
 
@@ -228,7 +242,7 @@ describe('a11y.css', () => {
       .filter((selector) => selector && !selector.startsWith('@'));
     expect(selectors.length).toBeGreaterThan(8);
     for (const selector of selectors) {
-      for (const part of topLevelParts(selector)) expect(part, part).toMatch(/^:root:where\(\[data-look='lit'\]/);
+      for (const part of topLevelParts(selector)) expect(part, part).toMatch(/^:where\(:root\[data-look='lit'\]/);
     }
   });
 
@@ -243,6 +257,10 @@ describe('a11y.css', () => {
     expect(rules).toContain(`var(${OBSCURED_TOP_VAR}`);
     expect(rules).toContain(`var(${OBSCURED_BOTTOM_VAR}`);
     expect(rules).toContain('var(--lit-legal-band-min-h');
+  });
+
+  it('never mirrors with transform, which would wipe a component rotate', () => {
+    expect(rules).not.toMatch(/transform\s*:/);
   });
 
   it('gives controls a 24 px floor and covers forced colours', () => {

@@ -91,11 +91,13 @@ export function systemAsksForSolid(env: Environment = typeof window === 'undefin
 
 interface RootLike {
   setAttribute(name: string, value: string): void;
+  removeAttribute(name: string): void;
 }
 
 /**
  * Put the mode on `root` now and again whenever a system setting changes.
- * Returns the function that stops listening.
+ * Returns the function that stops listening and takes the attribute off, so
+ * nothing is left painting solid once nobody manages it.
  */
 export function applySurfaces(
   root: RootLike,
@@ -104,7 +106,7 @@ export function applySurfaces(
 ): () => void {
   const update = (): void => root.setAttribute(SURFACES_ATTRIBUTE, resolveSurfaces(setting, systemAsksForSolid(env)));
   update();
-  if (!env.matchMedia) return () => {};
+  if (!env.matchMedia) return () => root.removeAttribute(SURFACES_ATTRIBUTE);
   const lists = SOLID_SURFACES_QUERIES.flatMap((query) => {
     try {
       const list = env.matchMedia?.(query);
@@ -116,5 +118,6 @@ export function applySurfaces(
   for (const list of lists) list.addEventListener?.('change', update);
   return () => {
     for (const list of lists) list.removeEventListener?.('change', update);
+    root.removeAttribute(SURFACES_ATTRIBUTE);
   };
 }

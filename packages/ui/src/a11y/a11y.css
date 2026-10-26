@@ -5,22 +5,24 @@
  */
 
 /* SC 2.4.11 Focus not obscured: a focused control scrolls clear of the fixed bars. The real heights
-   come from trackObscuringBars() (the risk band grows with text size); the tokens are the fallback. */
-:root:where([data-look='lit']) {
+   come from trackObscuringBars() (the risk band grows with text size, and a measured bar already holds
+   its own safe-area padding); the tokens are the fallback until it has measured.
+   Every selector here has zero specificity (:where), so any component rule wins: these are floors. */
+:where(:root[data-look='lit']) {
   scroll-padding-block-start: calc(var(--a11y-obscured-top, calc(var(--lit-topbar-h, 0px) + var(--lit-legal-band-min-h, 0px))) + 8px);
-  scroll-padding-block-end: calc(var(--a11y-obscured-bottom, var(--lit-dock-h, 0px)) + 8px + env(safe-area-inset-bottom, 0px));
+  scroll-padding-block-end: calc(var(--a11y-obscured-bottom, calc(var(--lit-dock-h, 0px) + env(safe-area-inset-bottom, 0px))) + 8px);
 }
 
 /* SC 2.4.7 and 2.4.13: one ring for every focusable thing, with a page-coloured halo so it holds 3:1 on any
    glass or glow behind it. Components may draw their own on top; this is the floor. */
-:root:where([data-look='lit']) :where(:focus-visible) {
+:where(:root[data-look='lit']) :where(:focus-visible) {
   outline: 2px solid var(--lit-focus, CanvasText);
   outline-offset: 2px;
   box-shadow: 0 0 0 4px var(--lit-page, Canvas);
 }
 
 /* SC 2.5.8 Target size (minimum): 24 by 24 px for controls. Links inside running text are exempt. */
-:root:where([data-look='lit'])
+:where(:root[data-look='lit'])
   :where(
     button,
     [role='button'],
@@ -39,21 +41,21 @@
 /* Forced colours (Windows high contrast): shadows and gradients are dropped, so give every surface and
    control a real border in system colours, and make lit keys read as buttons, not as blank tiles. */
 @media (forced-colors: active) {
-  :root:where([data-look='lit']) :where(.lit-surface, .lit-key__face, .lit-segmented, .lit-field-control input) {
+  :where(:root[data-look='lit']) :where(.lit-surface, .lit-key__face, .lit-segmented, .lit-field-control input) {
     border: 1px solid CanvasText;
   }
-  :root:where([data-look='lit']) :where(.lit-button, .lit-key, [role='switch'], [role='tab']) {
+  :where(:root[data-look='lit']) :where(.lit-button, .lit-key, [role='switch'], [role='tab']) {
     border: 1px solid ButtonText;
     forced-color-adjust: auto;
   }
-  :root:where([data-look='lit']) :where([aria-pressed='true'], [aria-selected='true'], [aria-checked='true']) {
+  :where(:root[data-look='lit']) :where([aria-pressed='true'], [aria-selected='true'], [aria-checked='true']) {
     outline: 2px solid Highlight;
   }
-  :root:where([data-look='lit']) :where(:focus-visible) {
+  :where(:root[data-look='lit']) :where(:focus-visible) {
     outline-color: Highlight;
     box-shadow: none;
   }
-  :root:where([data-look='lit']) :where([data-fx], canvas) {
+  :where(:root[data-look='lit']) :where([data-fx], canvas) {
     forced-color-adjust: none;
     visibility: hidden;
   }
@@ -61,26 +63,26 @@
 
 /* Right to left. Values that are left-to-right by nature (addresses, hashes, IBANs, sort codes, order-book
    figures, chart axes) keep their order inside Arabic or Hebrew text. */
-:root:where([data-look='lit']) :where([data-ltr]) {
+:where(:root[data-look='lit']) :where([data-ltr]) {
   direction: ltr;
   unicode-bidi: isolate;
 }
 
 /* A user-written value of unknown direction (a name, a payee reference): isolate it, let it pick. */
-:root:where([data-look='lit']) :where([data-dir-auto]) {
+:where(:root[data-look='lit']) :where([data-dir-auto]) {
   unicode-bidi: isolate;
 }
 
 /* Icons that point along the reading direction (back, forward, chevrons) turn round in RTL. Clocks, play
    buttons, logos and charts never do (Apple HIG, right to left). */
-:root:where([data-look='lit'][dir='rtl']) :where([data-flip-rtl]),
-:root:where([data-look='lit']) :where([dir='rtl']) :where([data-flip-rtl]) {
-  transform: scaleX(-1);
+:where(:root[data-look='lit'][dir='rtl']) :where([data-flip-rtl]),
+:where(:root[data-look='lit']) :where([dir='rtl']) :where([data-flip-rtl]) {
+  scale: -1 1;
 }
 
 /* Text equivalents: the 3D objects are decoration (aria-hidden); what they show is said in text kept for
    screen readers, such as the holdings behind the sphere as a list. */
-:root:where([data-look='lit']) :where([data-sr-only]) {
+:where(:root[data-look='lit']) :where([data-sr-only]) {
   position: absolute;
   inline-size: 1px;
   block-size: 1px;

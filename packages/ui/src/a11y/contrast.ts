@@ -7,7 +7,7 @@
  * look gate hides the text, screenshots what is behind it, and asks this module
  * for the lowest ratio any backdrop pixel gives against the text colour.
  *
- * SC 1.4.3 needs 4.5:1 for body text and 3:1 for large text (24 px, or 18.5 px
+ * SC 1.4.3 needs 4.5:1 for body text and 3:1 for large text (24 px, or 18.67 px
  * bold); SC 1.4.11 needs 3:1 for a control's boundary and state. No rounding:
  * 4.499:1 fails.
  */
@@ -25,9 +25,9 @@ export interface Rgba extends Rgb {
 
 /** Minimum ratios, by what the colour is used for. */
 export const CONTRAST_MIN = {
-  /** SC 1.4.3, text under 24 px (18.5 px bold). */
+  /** SC 1.4.3, text under 24 px (18.67 px bold). */
   text: 4.5,
-  /** SC 1.4.3, text at 24 px or more (18.5 px bold). */
+  /** SC 1.4.3, text at 24 px or more (18.67 px bold). */
   largeText: 3,
   /** SC 1.4.11, a control's boundary, a focus ring, an icon that carries meaning. */
   nonText: 3,
@@ -35,12 +35,12 @@ export const CONTRAST_MIN = {
 
 export type ContrastUse = keyof typeof CONTRAST_MIN;
 
-/** Large text by SC 1.4.3: 24 px, or 18.5 px at weight 700 or more (18 pt and 14 pt bold). */
+/** Large text by SC 1.4.3: 18 pt (24 px), or 14 pt (18.67 px) at weight 700 or more. */
 export function isLargeText(fontSizePx: number, fontWeight: number): boolean {
-  return fontSizePx >= 24 || (fontSizePx >= 18.5 && fontWeight >= 700);
+  return fontSizePx >= 24 || (fontSizePx >= 56 / 3 && fontWeight >= 700);
 }
 
-/** `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()` and `rgba()` (comma or space syntax). Throws on anything else. */
+/** `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()` and `rgba()` (comma or space syntax). Throws on anything else, out-of-range channels included. */
 export function parseColor(input: string): Rgba {
   const text = input.trim().toLowerCase();
   const hex = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/.exec(text);
@@ -53,7 +53,9 @@ export function parseColor(input: string): Rgba {
   const fn = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)$/.exec(text);
   if (fn) {
     const alpha = fn[4] === undefined ? 1 : fn[4].endsWith('%') ? parseFloat(fn[4]) / 100 : parseFloat(fn[4]);
-    return { r: parseFloat(fn[1] ?? '0'), g: parseFloat(fn[2] ?? '0'), b: parseFloat(fn[3] ?? '0'), a: alpha };
+    const color = { r: parseFloat(fn[1] ?? '0'), g: parseFloat(fn[2] ?? '0'), b: parseFloat(fn[3] ?? '0'), a: alpha };
+    const inRange = [color.r, color.g, color.b].every((c) => c >= 0 && c <= 255) && color.a >= 0 && color.a <= 1;
+    if (inRange) return color;
   }
   throw new Error(`Not a colour this check reads: "${input}"`);
 }
@@ -120,6 +122,8 @@ export interface Box {
  * pixel counts: one bright glow behind one word fails the whole box.
  */
 export function worstPixelContrast(text: Rgba, image: PixelImage, box?: Box): WorstPixel {
+  if (box && ![box.x, box.y, box.width, box.height].every(Number.isFinite))
+    throw new Error('The box has a measurement that is not a number');
   const x0 = Math.max(0, Math.floor(box?.x ?? 0));
   const y0 = Math.max(0, Math.floor(box?.y ?? 0));
   const x1 = Math.min(image.width, Math.ceil((box?.x ?? 0) + (box?.width ?? image.width)));

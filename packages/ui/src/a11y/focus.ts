@@ -36,12 +36,15 @@ export function obscuredInsets(bars: Iterable<Bar>): { top: number; bottom: numb
 export function trackObscuringBars(root: HTMLElement = document.documentElement): () => void {
   if (typeof ResizeObserver === 'undefined' || typeof MutationObserver === 'undefined') return () => {};
 
+  let bars: HTMLElement[] = [];
+  let last = '';
   const measure = (): void => {
-    const bars = Array.from(root.querySelectorAll<HTMLElement>(`[${OBSCURES_ATTRIBUTE}]`), (el) => ({
-      edge: el.getAttribute(OBSCURES_ATTRIBUTE),
-      height: el.getBoundingClientRect().height,
-    }));
-    const { top, bottom } = obscuredInsets(bars);
+    const { top, bottom } = obscuredInsets(
+      bars.map((el) => ({ edge: el.getAttribute(OBSCURES_ATTRIBUTE), height: el.getBoundingClientRect().height })),
+    );
+    const next = `${top}|${bottom}`;
+    if (next === last) return;
+    last = next;
     root.style.setProperty(OBSCURED_TOP_VAR, `${top}px`);
     root.style.setProperty(OBSCURED_BOTTOM_VAR, `${bottom}px`);
   };
@@ -49,10 +52,20 @@ export function trackObscuringBars(root: HTMLElement = document.documentElement)
   const resize = new ResizeObserver(measure);
   const observeBars = (): void => {
     resize.disconnect();
-    for (const el of root.querySelectorAll(`[${OBSCURES_ATTRIBUTE}]`)) resize.observe(el);
+    bars = Array.from(root.querySelectorAll<HTMLElement>(`[${OBSCURES_ATTRIBUTE}]`));
+    for (const el of bars) resize.observe(el);
     measure();
   };
-  const mutations = new MutationObserver(observeBars);
+  // Live tickers change the DOM many times a second: re-scan only when a bar itself comes, goes or
+  // changes edge, never for other nodes.
+  const touchesBar = (node: Node): boolean =>
+    node instanceof Element && (node.hasAttribute(OBSCURES_ATTRIBUTE) || node.querySelector(`[${OBSCURES_ATTRIBUTE}]`) !== null);
+  const mutations = new MutationObserver((records) => {
+    const relevant = records.some(
+      (record) => record.type === 'attributes' || [...record.addedNodes].some(touchesBar) || [...record.removedNodes].some(touchesBar),
+    );
+    if (relevant) observeBars();
+  });
   mutations.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: [OBSCURES_ATTRIBUTE] });
   observeBars();
 
