@@ -77,7 +77,9 @@ export function KeyValue({ rows, label }: { rows: readonly KeyValueRow[]; label?
         <div key={r.label} data-total={r.total || undefined} data-unset={r.unset || undefined}>
           <dt>{r.label}</dt>
           <dd>
-            <span className={r.ltr ? 'lt-mono' : undefined}>{r.value}</span>
+            <span className={r.ltr ? 'lt-mono' : undefined} dir={r.ltr ? 'ltr' : 'auto'}>
+              {r.value}
+            </span>
             {r.note ? <span className="lt-kv-note">{r.note}</span> : null}
           </dd>
         </div>

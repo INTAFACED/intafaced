@@ -376,17 +376,7 @@
   pointer-events: none;
 }
 
-.lt-gate {
-  position: absolute;
-  inset-inline: 0;
-  inset-block-start: 96px;
-  display: flex;
-  justify-content: center;
-  padding-inline: var(--lit-pad-panel);
-}
-
 .lt-gate > .lt-refusal {
-  max-inline-size: 420px;
   box-shadow: var(--lit-glass-shadow);
 }
 
@@ -643,9 +633,6 @@
 }
 .lt-inflight {
   order: 3;
-}
-.lt-gate {
-  order: 4;
 }
 @container room (min-width: 1024px) {
   .lt-inflight {
@@ -989,4 +976,10 @@
 :is(.lt-parts-bar > span, .lt-parts-swatch)[data-part='4'],
 :is(.lt-parts-bar > span, .lt-parts-swatch)[data-part='5'] {
   background: var(--lit-text-3);
+}
+
+/* Figures are isolated left-to-right (a minus sign and currency stay in place) but sit where the page's text starts. */
+.lt-figure[dir='ltr'],
+.lt-parts-value[dir='ltr'] {
+  text-align: match-parent;
 }

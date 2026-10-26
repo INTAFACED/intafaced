@@ -107,7 +107,9 @@ export function Receipt({ movement }: { movement: Movement }) {
   return (
     <article className="lt-receipt" data-status={movement.status} aria-label={movement.title}>
       <p className="lt-receipt-status">{STATUS_WORD[movement.status]}</p>
-      <p className="lt-figure lt-figure-hero">{formatMoney(movement.amount)}</p>
+      <p className="lt-figure lt-figure-hero" dir="ltr">
+        {formatMoney(movement.amount)}
+      </p>
       {movement.amount.test ? <span className="lt-test">TEST</span> : null}
       {movement.counterparty ? <p className="lt-receipt-to">{movement.counterparty}</p> : null}
       {movement.status === 'failed' && movement.whereNow ? <p className="lt-receipt-where">{movement.whereNow}</p> : null}
@@ -202,7 +204,9 @@ function InFlight({ items }: { items: readonly Movement[] }) {
         {items.map((m) => (
           <li key={m.id} data-status={m.status}>
             <span className="lt-inflight-what">{m.title}</span>
-            <span className="lt-inflight-amount">{formatMoney(m.amount)}</span>
+            <span className="lt-inflight-amount" dir="ltr">
+              {formatMoney(m.amount)}
+            </span>
             <span className="lt-inflight-dots" aria-label={STATUS_WORD[m.status]}>
               {m.steps.map((s) => (
                 <span key={s.label} data-step={s.state} />
@@ -288,6 +292,11 @@ export function RoomFrame(props: RoomFrameProps) {
         ) : null}
         <Notices notices={props.notices ?? []} />
         {state.kind === 'ready' && state.partial ? <RefusalBox refusal={state.partial.missing} /> : null}
+        {state.kind === 'gated' ? (
+          <div className="lt-gate" data-gate={state.gate}>
+            <RefusalBox refusal={state.refusal} />
+          </div>
+        ) : null}
         {loading ? (
           <p className="lt-sr" role="status">
             Loading {title}
@@ -296,11 +305,6 @@ export function RoomFrame(props: RoomFrameProps) {
         <div className="lt-body" inert={state.kind === 'gated' || undefined}>
           {props.children}
         </div>
-        {state.kind === 'gated' ? (
-          <div className="lt-gate" data-gate={state.gate}>
-            <RefusalBox refusal={state.refusal} />
-          </div>
-        ) : null}
         <InFlight items={props.inFlight ?? []} />
       </div>
     </RoomContext.Provider>

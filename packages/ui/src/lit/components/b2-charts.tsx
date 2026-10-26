@@ -142,7 +142,9 @@ export function Parts({
           <li key={p.label}>
             <span className="lt-parts-swatch" data-part={i} aria-hidden="true" />
             <span>{p.label}</span>
-            <span className="lt-parts-value">{formatMoney({ value: p.value, asset })}</span>
+            <span className="lt-parts-value" dir="ltr">
+              {formatMoney({ value: p.value, asset })}
+            </span>
           </li>
         ))}
       </ul>

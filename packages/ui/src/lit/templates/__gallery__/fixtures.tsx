@@ -161,7 +161,7 @@ function Test() {
 
 function Money({ value, asset = 'GBP', hero = false }: { value: string; asset?: string; hero?: boolean }) {
   return (
-    <p className={hero ? 'lt-figure lt-figure-hero' : 'lt-figure'}>
+    <p className={hero ? 'lt-figure lt-figure-hero' : 'lt-figure'} dir="ltr">
       {formatMoney({ value, asset })} <Test />
     </p>
   );
@@ -391,7 +391,7 @@ function Monitor(c: Ctx) {
         <>
           <p className="gallery-label">{t('Price')}</p>
           <Money value="81040.00" />
-          <span className="gallery-change" data-dir="up">
+          <span className="gallery-change" data-dir="up" dir="ltr">
             +2.14% {t('today')}
           </span>
         </>,
@@ -651,7 +651,7 @@ function Desk(c: Ctx) {
         <div className="lt-actions" style={{ alignItems: 'baseline' }}>
           <strong>BTC-USDT</strong>
           <Money value="81040.00" asset="USDT" />
-          <span className="gallery-change" data-dir="up">
+          <span className="gallery-change" data-dir="up" dir="ltr">
             +2.14%
           </span>
         </div>

@@ -59,7 +59,7 @@ export function LegalSlot({ moment, market, on, values, onLink }: LegalSlotProps
       aria-label={band ? 'Risk warning' : undefined}
     >
       {r.status === 'fixed' ? (
-        <p className="lt-legal-text">
+        <p className="lt-legal-text" lang="en" dir="ltr">
           <Runs runs={r.runs} onLink={onLink} />
         </p>
       ) : (
