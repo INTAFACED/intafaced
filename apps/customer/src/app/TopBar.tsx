@@ -263,7 +263,7 @@ export function TopBar({
     );
   return (
     <>
-      <header className="tb">
+      <header className="tb" data-obscures="top">
         <a className="tb-brand" href="/home" aria-label={t('Go to Home')}>
           <Wordmark />
         </a>
@@ -317,7 +317,7 @@ export function MobileTabs({ door, language }: { door: Door | undefined; languag
   const { session, restoring } = useSession();
   const tabs = tabSpecs(layoutMode, Boolean(session) || restoring);
   return (
-    <nav className="mobile-doors" aria-label={t('Customer doors on phone')}>
+    <nav className="mobile-doors" data-obscures="bottom" aria-label={t('Customer doors on phone')}>
       {MOBILE_DOOR_ORDER.map((name) => tabs.find((tab) => tab.door === name)).flatMap((tab) =>
         tab
           ? [
