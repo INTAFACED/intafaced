@@ -35,7 +35,7 @@ import { readFileSync } from 'node:fs';
 
 const SCOPE = /^(?:apps\/customer|packages\/ui)\/.+\.(?:css|tsx?|mjs)$/;
 const NOT_JUDGED =
-  /^packages\/ui\/src\/(?:theme\/|tokens\.|lit\/tokens\.ts$|lit\/lit\.css$)|\.generated\.|(?:\.|\/)(?:test|spec|fixtures?|pw|stories)\.|\/__tests__\/|\/tests\/|\.playwright\.config\.|\.vite\.config\.|vite\.config\.|\.d\.ts$/;
+  /^packages\/ui\/src\/(?:theme\/|tokens\.|lit\/tokens\.ts$|lit\/lit\.css$)|\.generated\.|(?:\.|\/)(?:test|spec|fixtures?|pw|stories)\.|\/__tests__\/|\/tests\/|(?:^|[./])playwright\.config\.|(?:^|[./])vitest[\w.]*\.config\.|(?:^|[./])vite\.config\.|\.d\.ts$/;
 const ALLOW = /look-drift-allow:\s*\S.{3,}/;
 
 const NAMED =
@@ -49,8 +49,8 @@ const TW_COLOUR_PREFIX =
 const CSS_RULES = [
   ['raw colour', /(?<![\w&-])#[0-9a-fA-F]{3,8}\b/],
   ['raw colour', /\b(?:rgba?|hsla?|hwb|oklch|oklab|lab|lch)\(\s*[\d.]/],
-  ['raw colour', new RegExp(`(?:^|[:\\s,(])(?:${NAMED})\\s*(?:;|!|$|\\))`, 'i')],
-  ['pixel size', /(?<![\w.-])(?!0px\b|1px\b)\d*\.?\d+px\b/],
+  ['raw colour', new RegExp(`(?:^|[:\\s,(])(?:${NAMED})\\s*(?:;|!|$|\\)|})`, 'i')],
+  ['pixel size', /(?<![\w.])-?(?!0px\b|1px\b)\d*\.?\d+px\b/],
   [
     'physical side',
     /(?:^|[\s;{])(?:margin|padding|border|scroll-margin|scroll-padding)-(?:left|right)\b|(?:^|[\s;{])(?:left|right)\s*:|border-(?:top|bottom)-(?:left|right)-radius|(?:text-align|float|clear)\s*:\s*(?:left|right)\b/,
@@ -65,16 +65,18 @@ const TS_RULES = [
   ['raw colour', /['"`][^'"`]*\b(?:rgba?|hsla?|oklch|oklab)\(\s*[\d.][^'"`]*['"`]/],
   ['raw colour', new RegExp(`(?<![\\w-])(?:${TW_COLOUR_PREFIX})-(?:(?:${PALETTE})-\\d{2,3}|white|black)(?![\\w-])`)],
   ['raw colour', /-\[(?:#|rgba?\(|hsla?\()/],
-  ['pixel size', /['"`][^'"`]*(?<![\w.-])(?!0px\b|1px\b)\d*\.?\d+px\b[^'"`]*['"`]/],
+  ['pixel size', /['"`][^'"`]*(?<![\w.])-?(?!0px\b|1px\b)\d*\.?\d+px\b[^'"`]*['"`]/],
   ['pixel size', /-\[\d*\.?\d+px\]/],
   [
     'physical side',
     /\b(?:margin|padding|border|scrollMargin|scrollPadding)(?:Left|Right)\b|\bborder(?:Top|Bottom)(?:Left|Right)Radius\b|\b(?:textAlign|float)\s*:\s*['"](?:left|right)['"]/,
   ],
+  // CSS written inside a string: `'margin-left: 4px'`.
+  ['physical side', /['"`][^'"`]*\b(?:(?:margin|padding|border)-(?:left|right)\b|(?:text-align|float)\s*:\s*(?:left|right)\b)[^'"`]*['"`]/],
 ];
-/** A string that is only a hex colour, unless the line is a link or an anchor (`href="#add"`). */
-const TS_BARE_HEX = /['"`]#[0-9a-fA-F]{3,8}['"`]/;
-const LINK = /\b(?:href|to|hash|anchor|id|htmlFor)\s*[=:]/;
+/** A string that is only a hex colour, unless it is the value of a link or anchor attribute (`href="#add"`). */
+const TS_BARE_HEX = /['"`]#[0-9a-fA-F]{3,8}['"`]/g;
+const LINK_BEFORE = /\b(?:href|to|hash|anchor|id|htmlFor)\s*[=:]\s*\{?\s*$/;
 /** A class-name context on a TS line: only there are Tailwind side classes judged. */
 const CLASS_CONTEXT = /\bclassName\b|\bclass=|\b(?:cn|cx|clsx|cva|twMerge|tv)\(|\btw`/;
 
@@ -84,6 +86,18 @@ function classStrings(code) {
   for (const m of code.matchAll(/(?:\b(aria-[\w-]+|title|alt|placeholder|label|children)\s*[=:]\s*\{?\s*)?(["'`])((?:(?!\2).)*)\2/g))
     if (!m[1]) out.push(m[3]);
   return out;
+}
+
+/**
+ * The declaration part of a CSS line: the text after the last `{`, without attribute selectors. A line that is only a
+ * selector (`#add,` or `.a:hover {`) has none, so ids such as `#add` or `#face` are never read as colours; a value
+ * carried over from the line before (`#0a0a0a 3%,` in a gradient) still is.
+ */
+function cssDeclarations(code) {
+  const after = code.includes('{') ? code.slice(code.lastIndexOf('{') + 1) : code;
+  const text = after.replace(/\[[^\]]*\]/g, '');
+  const selectorOnly = !code.includes('{') && /,\s*$/.test(text) && !text.includes(';') && !/%|\(|\d(?:px|rem|em|deg)\b/.test(text);
+  return selectorOnly ? '' : text;
 }
 
 /** Findings for one line. `kind` is 'css' or 'ts'; `state` carries whether we are inside an @media/@container block. */
@@ -98,22 +112,25 @@ export function judgeLine(line, kind, state = { query: 0 }) {
             .replace(/\/\*.*?\*\//g, '')
             .replace(/(^|[^:])\/\/.*$/, '$1')
             // Tailwind breakpoint variants are queries: `min-[1000px]:hidden`.
-            .replace(/(?<![\w-])(?:min|max)-\[\d*\.?\d+px\]:/g, '');
+            .replace(/(?<![\w-])(?:min|max)-\[\d*\.?\d+px\]:/g, '')
+            // Media query strings (`matchMedia('(min-width: 768px)')`) cannot take custom properties.
+            .replace(/\((?:min-|max-)?(?:width|height)\s*:\s*\d*\.?\d+px\)/g, '()');
   const found = new Set();
   if (kind === 'css') {
-    const query = /@(?:media|container|supports)\b/.test(code) || state.query > 0;
+    const query = /@(?:media|container)\b/.test(code) || state.query > 0;
+    const decl = cssDeclarations(code);
     // Borders, outlines and focus rings of 2px or less are line weights the kit has no token for; they pass.
-    const weights = /^\s*(?:border|outline|text-decoration|text-underline|stroke|column-rule)[\w-]*\s*:/.test(code)
-      ? code.replace(/(?<![\w.-])(?:2|1\.5|0\.5)px\b/g, '')
-      : code;
+    const weights = /^\s*(?:border|outline|text-decoration|text-underline|stroke|column-rule)[\w-]*\s*:/.test(decl)
+      ? decl.replace(/(?<![\w.])-?(?:2|1\.5|0\.5)px\b/g, '')
+      : decl;
     for (const [rule, re] of CSS_RULES) {
       if (rule === 'pixel size' && query) continue;
-      if (re.test(rule === 'pixel size' ? weights : code)) found.add(rule);
+      if (re.test(rule === 'pixel size' ? weights : decl)) found.add(rule);
     }
     return [...found];
   }
   for (const [rule, re] of TS_RULES) if (re.test(code)) found.add(rule);
-  if (TS_BARE_HEX.test(code) && !LINK.test(code)) found.add('raw colour');
+  for (const m of code.matchAll(TS_BARE_HEX)) if (!LINK_BEFORE.test(code.slice(0, m.index))) found.add('raw colour');
   if (CLASS_CONTEXT.test(code) && classStrings(code).some((c) => TW_PHYSICAL.test(c))) found.add('physical side');
   return [...found];
 }
@@ -125,17 +142,34 @@ export function judgeFile(path, text, only = null) {
   const findings = [];
   const allowed = [];
   const state = { query: 0 };
+  // CSS only: which brace depths opened an @media or @container block, read past strings and comments.
   let depth = 0;
+  let pendingQuery = false;
+  let inComment = false;
   const queryDepths = [];
   text.split('\n').forEach((line, i) => {
     const n = i + 1;
     if (kind === 'css') {
-      const opens = (line.match(/{/g) ?? []).length;
-      const closes = (line.match(/}/g) ?? []).length;
-      if (/@(?:media|container|supports)\b/.test(line)) queryDepths.push(depth);
-      state.query = queryDepths.length;
-      depth += opens - closes;
-      while (queryDepths.length && depth <= queryDepths[queryDepths.length - 1]) queryDepths.pop();
+      if (/@(?:media|container)\b/.test(line)) pendingQuery = true;
+      state.query = queryDepths.length + (pendingQuery ? 1 : 0);
+      let quote = null;
+      for (let k = 0; k < line.length; k++) {
+        const c = line[k];
+        if (inComment) {
+          if (c === '*' && line[k + 1] === '/') ((inComment = false), k++);
+        } else if (quote) {
+          if (c === '\\') k++;
+          else if (c === quote) quote = null;
+        } else if (c === '/' && line[k + 1] === '*') ((inComment = true), k++);
+        else if (c === '"' || c === "'") quote = c;
+        else if (c === '{') {
+          if (pendingQuery) (queryDepths.push(depth), (pendingQuery = false));
+          depth++;
+        } else if (c === '}') {
+          depth--;
+          if (queryDepths.length && queryDepths[queryDepths.length - 1] === depth) queryDepths.pop();
+        }
+      }
     }
     if (only && !only.has(n)) return;
     if (ALLOW.test(line)) {
@@ -151,32 +185,33 @@ function git(args) {
   return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
 }
 
-/** Changed files in scope with the added line numbers (null = a new file, judge it all). */
+/**
+ * Changed files in scope with the added line numbers (null = a new file, judge it all). Renames are followed, so a
+ * moved file is judged only on the lines the move changed.
+ */
 function changed(base) {
   const out = [];
-  for (const row of git(['diff', '--name-status', '--no-renames', '--diff-filter=AM', `${base}...HEAD`]).split('\n')) {
-    if (!row) continue;
-    const [status, path] = row.split('\t');
-    if (!SCOPE.test(path) || NOT_JUDGED.test(path)) continue;
-    if (status === 'A') {
-      out.push({ path, only: null });
-      continue;
-    }
-    const only = new Set();
-    for (const l of git(['diff', '-U0', '--no-renames', `${base}...HEAD`, '--', path]).split('\n')) {
+  let file = null;
+  for (const l of git(['diff', '-M', '-U0', '--diff-filter=AMR', `${base}...HEAD`, '--', 'apps/customer', 'packages/ui']).split('\n')) {
+    if (l.startsWith('diff --git ')) {
+      file = { path: null, only: new Set() };
+      out.push(file);
+    } else if (!file) continue;
+    else if (l.startsWith('new file mode')) file.only = null;
+    else if (l.startsWith('+++ ')) file.path = l.slice(4).replace(/^b\//, '');
+    else if (l.startsWith('rename to ')) file.path = l.slice('rename to '.length);
+    else {
       const m = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(l);
-      if (!m) continue;
-      const start = Number(m[1]);
-      const len = m[2] === undefined ? 1 : Number(m[2]);
-      for (let k = 0; k < len; k++) only.add(start + k);
+      if (m && file.only) for (let k = 0; k < (m[2] === undefined ? 1 : Number(m[2])); k++) file.only.add(Number(m[1]) + k);
     }
-    out.push({ path, only });
   }
-  return out;
+  return out.filter((f) => f.path && SCOPE.test(f.path) && !NOT_JUDGED.test(f.path));
 }
 
 function selfTest() {
+  let fixtures = 0;
   const eq = (got, want, m) => {
+    fixtures++;
     if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(`${m}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
   };
   const css = (l) => judgeLine(l, 'css');
@@ -208,6 +243,14 @@ function selfTest() {
   eq(css('  color: #fff; /* look-drift-allow: the payment network asks for its exact mark colour */'), [], 'allowed');
   eq(css('  /* was #fff */ color: var(--lit-text-1);'), [], 'comment ignored');
   eq(css('  transition: transform 120ms var(--lit-ease);'), [], 'ms is not px');
+  eq(css('  margin-top: -12px;'), ['pixel size'], 'negative px');
+  eq(css('  transform: translateX(-4px);'), ['pixel size'], 'negative px in a function');
+  eq(css('  margin-block-start: -1px;'), [], 'negative hairline');
+  eq(css('a { color: white }'), ['raw colour'], 'named colour before a closing brace');
+  eq(css('#add-button { display: none; }'), [], 'an id selector is not a colour');
+  eq(css('a[href="#face"] { text-decoration: underline; }'), [], 'an attribute selector is not a colour');
+  eq(css('#add,'), [], 'a selector list line');
+  eq(css('    #0a0a0a 3%, #ececec 20%,'), ['raw colour'], 'a gradient carried over a line');
   // TS / TSX
   eq(ts(`  <div style={{ color: '#3f7dff' }} />`), ['raw colour'], 'inline hex');
   eq(ts(`  <a href="#add">Add</a>`), [], 'a fragment link is not a colour');
@@ -230,6 +273,11 @@ function selfTest() {
   eq(ts(`   * A handle like "#A1B2C3D4" a person can quote.`), [], 'doc comment ignored');
   eq(ts(`  <li className="tb-mode min-[1000px]:hidden">`), [], 'a breakpoint variant is a query');
   eq(ts(`  const url = 'https://x.test/#abc';`), [], 'url fragment');
+  eq(ts(`  <Link to="/x" style={{ color: '#ff0000' }}>`), ['raw colour'], 'a link on the line does not hide a colour');
+  eq(ts(`  const g = { from: '#fff', to: '#000' };`), ['raw colour'], 'a gradient object');
+  eq(ts(`  <div style={{ marginTop: '-8px' }} />`), ['pixel size'], 'negative px string');
+  eq(ts(`  const wide = window.matchMedia('(min-width: 768px)');`), [], 'a media query string');
+  eq(ts(`  const s = 'margin-left: 4px';`), ['pixel size', 'physical side'], 'CSS inside a string');
   // Files
   const f = (path, text, only) => judgeFile(path, text, only).findings.length;
   eq(f('apps/customer/src/x.css', 'a { color: #fff; }'), 1, 'new file judged');
@@ -246,11 +294,23 @@ function selfTest() {
     'px inside a query block passes, after it fails',
   );
   eq(
+    f('apps/customer/src/x.css', '@media (min-width: 768px)\n{\n  a { padding: 4px; }\n}\nb { padding: 4px; }'),
+    1,
+    'query brace on the next line',
+  );
+  eq(f('apps/customer/src/x.css', '@supports (display: grid) {\n  a { padding: 40px; }\n}'), 1, '@supports is not a query');
+  eq(
+    f('apps/customer/src/x.css', 'a::before { content: "{"; }\n@media (min-width: 9px) {\n a { padding: 4px; }\n}\nb { padding: 4px; }'),
+    1,
+    'braces in strings are not counted',
+  );
+  eq(f('apps/customer/src/features/more/playwright.config.ts', `viewport: '1280px'`), 0, 'a playwright config is not judged');
+  eq(
     judgeFile('apps/customer/src/x.css', 'a { color: #fff; } /* look-drift-allow: exact partner mark colour */').allowed.length,
     1,
     'allowed lines listed',
   );
-  console.log('✓ look-drift --self-test OK (59 fixtures)');
+  console.log(`✓ look-drift --self-test OK (${fixtures} fixtures)`);
 }
 
 if (process.argv.includes('--self-test')) {
