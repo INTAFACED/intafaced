@@ -67,7 +67,7 @@ export function Button({ tone = 'secondary', size = 'md', block, className, type
       type={type}
       className={clsx('lit-button', className)}
       data-slot="button"
-      data-variant={tone}
+      data-variant={tone === 'quiet' ? 'ghost' : tone}
       data-tone={tone}
       data-size={size}
       data-block={block || undefined}
@@ -270,7 +270,7 @@ export function RefusalBox({ refusal, className }: { refusal: Refusal; className
           </FinePrint>
         )}
         {refusal.action && (
-          <a className="lit-button" data-tone="quiet" href={refusal.action.href}>
+          <a className="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" href={refusal.action.href}>
             {refusal.action.label}
           </a>
         )}
@@ -459,12 +459,16 @@ export function LegalSlot({
       data-text-id={textId}
       data-missing={text ? undefined : true}
       data-bold={bold || undefined}
-      lang={lang}
-      dir={dir}
       role="region"
       aria-label={label}
     >
-      {text ?? missing}
+      {text ? (
+        <span lang={lang} dir={dir}>
+          {text}
+        </span>
+      ) : (
+        missing
+      )}
       {text && learnMore && (
         <>
           {' '}
@@ -517,7 +521,8 @@ export function RiskMoment({
 
 /**
  * The gated state. Not a skeleton: the room's real layout stays visible under the veil and inert, and the gate
- * card says who it is gated on and the one next step.
+ * card (an opaque panel, so its text never sits on the room) says who it is gated on and the one next step. The
+ * room, veil and card share one grid cell, so a short room grows to fit the card.
  */
 export function Gate({
   reason,
@@ -537,10 +542,11 @@ export function Gate({
   const titleId = React.useId();
   return (
     <div className={clsx('lit-gate', className)} data-gate={reason}>
-      <div className="lit-gate__room" inert aria-hidden="true">
+      <div className="lit-gate__room" inert>
         {children}
       </div>
-      <Surface layer="sheet" className="lit-gate__card" role="region" aria-labelledby={titleId}>
+      <div className="lit-gate__veil" aria-hidden="true" />
+      <Surface className="lit-gate__card" role="region" aria-labelledby={titleId}>
         <div id={titleId} data-part="title">
           {title}
         </div>

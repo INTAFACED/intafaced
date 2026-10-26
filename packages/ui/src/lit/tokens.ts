@@ -317,6 +317,7 @@ export const solid: Partial<RoleMap> = {
   'glass-bg': 'var(--lit-solid-bg)',
   'glass-blur': 'none',
   sheen: 'linear-gradient(transparent, transparent)',
+  veil: 'color-mix(in srgb, var(--lit-page) 86%, transparent)',
   'corner-glow': 'transparent',
 };
 
@@ -404,7 +405,7 @@ ${decl(roleVars(litLight))}
 }
 
 ${lightAccentBlocks}
-/* Solid surfaces: the in-app switch, and automatically for more contrast or forced colours. */
+/* Solid surfaces: the in-app switch, and automatically for more contrast, forced colours or reduced transparency. */
 ${L.replace('])', "][data-surfaces='solid'])")} {
 ${decl(roleVars(solid))}
 }

@@ -157,7 +157,7 @@ describe('lit tokens: contrast at the worst point (text sits on opaque surfaces)
 
   it("a control's edge meets 3:1 against every solid surface it sits on (SC 1.4.11)", () => {
     const L = { ...lit, ...litLight };
-    for (const s of ['solid-bg', 'solid-bg-raised', 'solid-bg-sunken'] as const) {
+    for (const s of ['solid-bg', 'solid-bg-raised', 'solid-bg-sunken', 'control-bg'] as const) {
       expect(contrast(over(lit['control-rim'], lit[s]), lit[s]), `dark rim on ${s}`).toBeGreaterThanOrEqual(3);
       expect(contrast(over(L['control-rim'], L[s]), L[s]), `light rim on ${s}`).toBeGreaterThanOrEqual(3);
     }

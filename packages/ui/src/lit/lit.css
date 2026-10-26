@@ -360,12 +360,13 @@
   --lit-accent-text: #00754b;
 }
 
-/* Solid surfaces: the in-app switch, and automatically for more contrast or forced colours. */
+/* Solid surfaces: the in-app switch, and automatically for more contrast, forced colours or reduced transparency. */
 :root:where([data-look='lit'][data-surfaces='solid']) {
   --lit-field: none;
   --lit-glass-bg: var(--lit-solid-bg);
   --lit-glass-blur: none;
   --lit-sheen: linear-gradient(transparent, transparent);
+  --lit-veil: color-mix(in srgb, var(--lit-page) 86%, transparent);
   --lit-corner-glow: transparent;
 }
 
@@ -375,6 +376,7 @@
     --lit-glass-bg: var(--lit-solid-bg);
     --lit-glass-blur: none;
     --lit-sheen: linear-gradient(transparent, transparent);
+    --lit-veil: color-mix(in srgb, var(--lit-page) 86%, transparent);
     --lit-corner-glow: transparent;
   }
 }

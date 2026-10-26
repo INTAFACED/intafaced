@@ -591,30 +591,29 @@
   font-weight: var(--lit-type-heading-weight);
 }
 
-/* Gated: the room stays visible under the veil; the card sits over it */
+/* Gated: the room stays visible under the veil; the card sits over it. One grid cell, so the gate grows to fit. */
 .lit-gate {
-  position: relative;
+  display: grid;
   isolation: isolate;
 }
-.lit-gate__room {
-  pointer-events: none;
-  user-select: none;
+.lit-gate > * {
+  grid-area: 1 / 1;
 }
-.lit-gate::after {
-  content: '';
-  position: absolute;
-  inset: 0;
+.lit-gate__room {
+  position: relative;
+  z-index: 0;
+}
+.lit-gate__veil {
   z-index: 1;
   background: var(--lit-veil);
   border-radius: var(--lit-radius-panel);
 }
 .lit-gate__card {
-  position: absolute;
   z-index: 2;
-  inset-block-start: var(--lit-gap-section);
-  inset-inline: var(--lit-pad-panel);
-  max-width: 440px;
-  margin-inline: auto;
+  align-self: start;
+  justify-self: center;
+  width: min(440px, calc(100% - 2 * var(--lit-pad-panel)));
+  margin-block: var(--lit-gap-section);
   display: flex;
   flex-direction: column;
   gap: var(--lit-gap-item);

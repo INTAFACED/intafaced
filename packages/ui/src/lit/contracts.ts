@@ -22,7 +22,8 @@ export const defaultAccent: Accent = 'blue';
 /**
  * `data-surfaces` on the root. `solid` replaces every glass and translucent surface with an opaque one and
  * turns blur off. It is the in-app switch for people who need it (Safari never exposes Reduce Transparency to
- * the web) and is also on whenever `prefers-contrast: more` or `forced-colors: active` matches.
+ * the web) and is also on whenever `prefers-contrast: more`, `forced-colors: active` or `prefers-reduced-transparency: reduce`
+ * matches.
  */
 export const surfaceModes = ['glass', 'solid'] as const;
 export type SurfaceMode = (typeof surfaceModes)[number];

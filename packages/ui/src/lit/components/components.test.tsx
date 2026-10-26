@@ -161,7 +161,8 @@ describe('components', () => {
     expect(set).toContain('<button type="button" class="lit-legal__more">');
     const rtl = html(<LegalSlot {...base} text="Warning." missing="-" bold lang="en" dir="ltr" />);
     expect(rtl).toContain('data-bold="true"');
-    expect(rtl).toContain('lang="en" dir="ltr"');
+    expect(rtl).toContain('<span lang="en" dir="ltr">Warning.</span>');
+    expect(html(<LegalSlot {...base} text="" missing="Not set yet." />)).toContain('Not set yet.');
   });
 
   it('RiskMoment gives both choices the same weight', () => {
@@ -182,7 +183,8 @@ describe('components', () => {
       </Gate>,
     );
     expect(out).toContain('data-gate="not-verified"');
-    expect(out).toMatch(/class="lit-gate__room" inert="" aria-hidden="true"><div>room<\/div>/);
+    expect(out).toMatch(/class="lit-gate__room" inert=""><div>room<\/div>/);
+    expect(out).toContain('data-material="solid"');
     expect(out).not.toContain('skeleton');
   });
 });
