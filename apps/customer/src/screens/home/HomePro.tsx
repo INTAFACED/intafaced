@@ -142,7 +142,6 @@ function ActionRow({ loading, mode }: { loading: boolean; mode: ActionMode }) {
             <Button
               key={action.label}
               variant={index === 0 ? 'primary' : 'secondary'}
-              data-variant={index === 0 ? 'primary' : 'secondary'}
               size={32}
               nativeButton={false}
               render={<a href={action.href} />}
@@ -378,7 +377,7 @@ function Assets({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hid
   const holdings = portfolio.status === 'ready' ? portfolio.data.holdings : [];
   const rows = holdings.slice(0, ASSET_ROWS);
   return (
-    <section data-testid="hp-panel" className="hp-panel" aria-labelledby="hp-assets-title">
+    <section data-testid="hp-assets-panel" className="hp-panel" aria-labelledby="hp-assets-title">
       <div className="hp-panel__head">
         <h2 id="hp-assets-title">{tp('Your assets')}</h2>
         <a data-testid="hp-link" className="hp-link" href="/money">

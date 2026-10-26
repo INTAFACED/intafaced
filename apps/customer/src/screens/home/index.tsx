@@ -89,7 +89,6 @@ function ActionPills({ loading, mode }: { loading: boolean; mode: ActionMode }) 
             <Button
               key={action.label}
               variant={index === 0 ? 'primary' : 'secondary'}
-              data-variant={index === 0 ? 'primary' : 'secondary'}
               size={40}
               nativeButton={false}
               render={<a href={action.href} />}
@@ -224,7 +223,7 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hi
         </p>
       ) : null}
       {unpriced > 0 ? (
-        <p data-testid="home-note" className="home-note">
+        <p data-testid="home-unpriced-note" className="home-note">
           {unpriced === 1 ? t('Asset not counted') : t('Assets not counted', { count: unpriced })}
           <InfoTip text={t('Not counted list', { assets: data.unpriced.join(', ') })} label={t('Not counted label')} />
         </p>

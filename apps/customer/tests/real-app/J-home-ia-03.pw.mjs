@@ -35,18 +35,11 @@ async function device(browser) {
 }
 
 /** The tiles Pro Home draws, top to bottom, by the tile each element is. */
-const TILE_OF = { 'hp-started': 'started', 'hp-activity': 'activity', 'hp-markets': 'markets' };
+const TILE_OF = { 'hp-started': 'started', 'hp-assets-panel': 'holdings', 'hp-activity': 'activity', 'hp-markets': 'markets' };
 async function drawnTiles(page) {
-  return page.locator('[data-testid="if-home-pro"] > *').evaluateAll(
-    (nodes, names) =>
-      nodes
-        .map((node) => {
-          for (const [cls, id] of Object.entries(names)) if (node.getAttribute('data-testid') === cls) return id;
-          return node.getAttribute('aria-labelledby') === 'hp-assets-title' ? 'holdings' : null;
-        })
-        .filter(Boolean),
-    TILE_OF,
-  );
+  return page
+    .locator('[data-testid="if-home-pro"] > *')
+    .evaluateAll((nodes, names) => nodes.map((node) => names[node.getAttribute('data-testid')]).filter(Boolean), TILE_OF);
 }
 
 async function openCustomise(page) {

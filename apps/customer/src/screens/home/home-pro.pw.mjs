@@ -106,7 +106,7 @@ const heroText = (page) =>
     return figure.trim();
   });
 const expectHero = (page, text) => expect.poll(() => heroText(page).catch(() => null), { timeout: 7000 }).toBe(text);
-const ready = (page) => expect(page.locator('[data-testid="hp-markets"] [role="row"][data-symbol]').first()).toBeVisible();
+const ready = (page) => expect(page.getByTestId('hp-markets').locator('[role="row"][data-symbol]').first()).toBeVisible();
 /** Nothing in Home Pro reaches past the window, and the page itself does not scroll sideways. */
 const noOverflow = async (page, label) => {
   const wide = await page.evaluate(() =>
@@ -150,8 +150,8 @@ test('ready state at 1440x900: summary, assets, markets, words, numbers', async 
   await expect(page.getByTestId('hp-stat__link')).toHaveAttribute('href', '/money/activity?tab=orders');
   // Only live actions, Buy is the one primary.
   expect(await texts(page.locator('[data-testid="hp-actions"] > *'))).toEqual(['Buy', 'Sell', 'Convert', 'Send', 'Receive']);
-  expect(await page.locator('[data-testid="hp-actions"] a[data-variant="primary"]').count()).toBe(1);
-  await expect(page.locator('[data-testid="hp-actions"] a').nth(0)).toHaveAttribute('href', '/trade/spot/BTC-USDT');
+  expect(await page.getByTestId('hp-actions').locator('a[data-variant="primary"]').count()).toBe(1);
+  await expect(page.getByTestId('hp-actions').locator('a').nth(0)).toHaveAttribute('href', '/trade/spot/BTC-USDT');
   expect(
     await page
       .locator('[data-testid="hp-actions"] > *')
@@ -188,20 +188,21 @@ test('ready state at 1440x900: summary, assets, markets, words, numbers', async 
   expect(new Set(rights).size).toBe(1);
 
   // Markets: the shared table in Pro form, columns from the OKX markets list, the action says "Trade".
-  const table = page.locator('[data-testid="hp-markets"] [role="table"]');
+  const table = page.getByTestId('hp-markets').locator('[role="table"]');
   expect(await texts(table.locator('[role="columnheader"]'))).toEqual(['Name', 'Price', '24h change', 'Last 24h', '24h range', 'Action']);
-  expect(await texts(page.locator('[data-testid="hp-markets"] [role="tab"]'))).toEqual(['Favorites', 'All', 'Gainers', 'Losers']);
-  await expect(page.locator('[data-testid="hp-markets"] [role="tab"][aria-selected="true"]')).toHaveText('All');
+  expect(await texts(page.getByTestId('hp-markets').locator('[role="tab"]'))).toEqual(['Favorites', 'All', 'Gainers', 'Losers']);
+  await expect(page.getByTestId('hp-markets').locator('[role="tab"][aria-selected="true"]')).toHaveText('All');
   const symbols = await page
-    .locator('[data-testid="hp-markets"] [role="row"][data-symbol]')
+    .getByTestId('hp-markets')
+    .locator('[role="row"][data-symbol]')
     .evaluateAll((nodes) => nodes.map((node) => node.dataset.symbol));
   expect(symbols.length).toBeGreaterThan(3);
   expect(symbols.length).toBeLessThanOrEqual(10);
-  await expect(page.locator('[data-testid="hp-markets"] [role="row"][data-symbol]').first()).toContainText('Trade');
-  await expect(page.locator('[data-testid="hp-markets"] [data-slot="sparkline"] polyline').first()).toBeVisible();
-  await expect(page.locator('[data-testid="hp-markets"] [data-testid="hp-link"]')).toHaveAttribute('href', '/trade');
+  await expect(page.getByTestId('hp-markets').locator('[role="row"][data-symbol]').first()).toContainText('Trade');
+  await expect(page.getByTestId('hp-markets').locator('[data-slot="sparkline"] polyline').first()).toBeVisible();
+  await expect(page.getByTestId('hp-markets').getByTestId('hp-link')).toHaveAttribute('href', '/trade');
   // The 24h-change column is signed; a star is on every row.
-  expect(await texts(page.locator('[data-testid="hp-markets"] [data-slot="pct"]'))).toContain('▲+2.75%');
+  expect(await texts(page.getByTestId('hp-markets').locator('[data-slot="pct"]'))).toContain('▲+2.75%');
 
   // Order on the page: summary -> assets -> markets.
   const ys = await page.evaluate(() =>
@@ -395,11 +396,11 @@ test('hidden balances show bullets and prices stay', async ({ page }) => {
   await ready(page);
   await page.getByRole('button', { name: 'Hide balances' }).click();
   await expectHero(page, '$••••');
-  expect(await texts(page.locator('[data-testid="hp-stat__value"] [data-slot="money"]'))).toEqual(['••••', '••••']);
+  expect(await texts(page.getByTestId('hp-stat__value').locator('[data-slot="money"]'))).toEqual(['••••', '••••']);
   await expect(page.getByTestId('hp-assets')).not.toContainText('6,781');
   await expect(page.getByTestId('hp-assets')).not.toContainText('0.5');
-  await expect(page.locator('[data-testid="hp-summary"] [data-slot="change-text"]')).not.toContainText('206');
-  await expect(page.locator('[data-testid="hp-markets"] [role="row"][data-symbol]').first()).toContainText('$'); // prices still show
+  await expect(page.getByTestId('hp-summary').locator('[data-slot="change-text"]')).not.toContainText('206');
+  await expect(page.getByTestId('hp-markets').locator('[role="row"][data-symbol]').first()).toContainText('$'); // prices still show
   for (const value of await texts(
     page.locator('[data-testid="if-home-pro"] [data-slot="money"], [data-testid="if-home-pro"] [data-slot="amount"]'),
   ))
@@ -412,13 +413,13 @@ test('loading shows final-size skeletons and nothing moves when data arrives', a
   const api = await mock(page, { balance: null, markets: null, tickers: null, ohlcv: null, 'orders/open': null });
   await openPro(page);
   await expect(page.locator('[data-slot="skeleton"]').first()).toBeVisible();
-  const hero = await page.locator('[data-testid="hp-total__figure"] [data-slot="skeleton"]').boundingBox();
+  const hero = await page.getByTestId('hp-total__figure').locator('[data-slot="skeleton"]').boundingBox();
   expect([Math.round(hero.width), Math.round(hero.height)]).toEqual([200, 40]);
-  expect(await page.locator('[data-testid="hp-assets"] [data-slot="skeleton"]').count()).toBeGreaterThan(5);
-  expect(await page.locator('[data-testid="hp-markets"] [role="table"] [data-slot="skeleton"]').count()).toBeGreaterThan(8);
+  expect(await page.getByTestId('hp-assets').locator('[data-slot="skeleton"]').count()).toBeGreaterThan(5);
+  expect(await page.getByTestId('hp-markets').locator('[role="table"] [data-slot="skeleton"]').count()).toBeGreaterThan(8);
   // A skeleton inside a panel is the field colour, not the panel's own (it would be invisible): summary, assets, markets.
   const panelColour = await page
-    .locator(':is([data-testid="hp-panel"], [data-testid="hp-markets"], [data-testid="hp-activity"], [data-testid="hp-work"])')
+    .locator(':is([data-testid="hp-assets-panel"], [data-testid="hp-markets"], [data-testid="hp-activity"], [data-testid="hp-work"])')
     .first()
     .evaluate((node) => getComputedStyle(node).backgroundColor);
   for (const selector of ['[data-testid="hp-summary"]', '[data-testid="hp-assets"]', '[data-testid="hp-markets"] [role="table"]'])
@@ -461,9 +462,7 @@ test('empty account: zero is shown once, with one plain line and only Add money,
   await mock(page, { balance: () => emptyBalances(), 'orders/open': () => [] });
   await openPro(page);
   await expectHero(page, '$0.00');
-  await expect(
-    page.locator(':is([data-testid="hp-total__note"], [data-testid="hp-summary"] [data-testid="derived-total-note"])'),
-  ).toHaveText(/Your account is empty/);
+  await expect(page.getByTestId('hp-total__note')).toHaveText(/Your account is empty/);
   expect(await texts(page.locator('[data-testid="hp-actions"] > *'))).toEqual(['Add money', 'Receive', 'Buy']);
   await expect(page.getByTestId('hp-assets')).toHaveCount(0); // nothing to list
   await ready(page); // markets still render
@@ -476,7 +475,7 @@ test('refused balance: plain panel with its words, no raw code, markets still re
     balance: { status: 403, json: { error: { message: 'denied', data: { intafacedCode: 'denied.screening_fixture' } } } },
   });
   await openPro(page);
-  const block = page.locator('[data-testid="hp-summary"] [data-slot="state-block"]');
+  const block = page.getByTestId('hp-summary').locator('[data-slot="state-block"]');
   await expect(block).toContainText('Paused for account checks');
   await expect(block).not.toContainText('denied.screening_fixture');
   await expect(block).not.toContainText(forbidden);
@@ -494,7 +493,7 @@ test('failed balance call offers "Try again", which works', async ({ page }) => 
     fail ? route.fulfill({ status: 500, body: 'no' }) : route.fulfill({ status: 200, json: balances() }),
   );
   await openPro(page);
-  const block = page.locator('[data-testid="hp-summary"] [data-slot="state-block"]');
+  const block = page.getByTestId('hp-summary').locator('[data-slot="state-block"]');
   await expect(block).toContainText('Couldn’t load your balance');
   await shotBoth(page, 'home-pro-error');
   fail = false;
@@ -507,16 +506,16 @@ test('a failed orders call just leaves the open orders count out', async ({ page
   await openPro(page);
   await expectHero(page, '$12,481.29');
   expect(await texts(page.getByTestId('hp-stat__label'))).toEqual(['Cash', 'Crypto']);
-  await expect(page.locator('[data-testid="hp-assets"] [role="row"][data-asset="BTC"]')).toBeVisible();
+  await expect(page.getByTestId('hp-assets').locator('[role="row"][data-asset="BTC"]')).toBeVisible();
   await ready(page);
 });
 
 test('failed markets call: the markets panel says so with "Try again"; the page does not go blank', async ({ page }) => {
   await mock(page, { markets: 'error' });
   await openPro(page);
-  await expect(page.locator('[data-testid="hp-markets"] [data-slot="state-block"]')).toContainText('Couldn’t load markets');
+  await expect(page.getByTestId('hp-markets').locator('[data-slot="state-block"]')).toContainText('Couldn’t load markets');
   await expect(
-    page.locator('[data-testid="hp-markets"] [data-slot="state-block"]').getByRole('button', { name: 'Try again' }),
+    page.getByTestId('hp-markets').locator('[data-slot="state-block"]').getByRole('button', { name: 'Try again' }),
   ).toBeVisible();
   await expect(page.getByTestId('hp-summary')).toBeVisible();
   await shotBoth(page, 'home-pro-markets-error');
@@ -527,10 +526,13 @@ test('markets tabs filter the table; Favorites is empty until a star is added', 
   await openPro(page);
   await ready(page);
   const symbolsOf = () =>
-    page.locator('[data-testid="hp-markets"] [role="row"][data-symbol]').evaluateAll((nodes) => nodes.map((node) => node.dataset.symbol));
+    page
+      .getByTestId('hp-markets')
+      .locator('[role="row"][data-symbol]')
+      .evaluateAll((nodes) => nodes.map((node) => node.dataset.symbol));
   const all = await symbolsOf();
   await page.getByRole('tab', { name: 'Favorites' }).click();
-  await expect(page.locator('[data-testid="hp-markets"] [data-slot="state-block"]')).toContainText('Star a market to keep it here.');
+  await expect(page.getByTestId('hp-markets').locator('[data-slot="state-block"]')).toContainText('Star a market to keep it here.');
   await page.getByRole('tab', { name: 'Gainers' }).click();
   const gainers = await symbolsOf();
   expect(gainers.length).toBeGreaterThan(0);
@@ -540,7 +542,7 @@ test('markets tabs filter the table; Favorites is empty until a star is added', 
   expect(await symbolsOf()).toEqual(['DOGE-USDT', 'IFC-USDT']);
   await page.getByRole('tab', { name: 'All' }).click();
   // A star puts the market into Favorites.
-  await page.locator('[data-testid="hp-markets"] [role="row"][data-symbol="ETH-USDT"] [aria-label^="Add"]').click();
+  await page.getByTestId('hp-markets').locator('[role="row"][data-symbol="ETH-USDT"] [aria-label^="Add"]').click();
   await page.getByRole('tab', { name: 'Favorites' }).click();
   expect(await symbolsOf()).toEqual(['ETH-USDT']);
   await shotBoth(page, 'home-pro-favorites');

@@ -164,11 +164,11 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
 
   // Actions: only live ones, Buy is the one primary.
   expect(await texts(page.locator('[data-testid="home-actions"] > *'))).toEqual(['Buy', 'Sell', 'Convert', 'Send', 'Receive']);
-  await expect(page.locator('[data-testid="home-actions"] a[data-variant="primary"]')).toHaveText('Buy');
-  expect(await page.locator('[data-testid="home-actions"] a[data-variant="primary"]').count()).toBe(1);
+  await expect(page.getByTestId('home-actions').locator('a[data-variant="primary"]')).toHaveText('Buy');
+  expect(await page.getByTestId('home-actions').locator('a[data-variant="primary"]').count()).toBe(1);
   // Simple Buy and Sell open the Buy card (M2 critic H1); Pro Home goes to the desk.
-  await expect(page.locator('[data-testid="home-actions"] a').nth(0)).toHaveAttribute('href', '/trade/buy');
-  await expect(page.locator('[data-testid="home-actions"] a').nth(1)).toHaveAttribute('href', '/trade/buy?side=sell');
+  await expect(page.getByTestId('home-actions').locator('a').nth(0)).toHaveAttribute('href', '/trade/buy');
+  await expect(page.getByTestId('home-actions').locator('a').nth(1)).toHaveAttribute('href', '/trade/buy?side=sell');
   // Critic H1: the Buy label is dark on lime (an unlayered rule once made it white, 1.25:1).
   const color = (selector) =>
     page
@@ -177,7 +177,7 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
       .evaluate((node) => getComputedStyle(node).color);
   expect(await color('[data-testid="home-actions"] [data-slot="button"]:first-child')).toBe('rgb(11, 11, 11)');
   // Critic H2: kit sizes are true px (the legacy 14 px root made every pill 35 tall).
-  expect(Math.round((await page.locator('[data-testid="home-actions"] a').first().boundingBox()).height)).toBe(40);
+  expect(Math.round((await page.getByTestId('home-actions').locator('a').first().boundingBox()).height)).toBe(40);
 
   // Cash / Crypto card
   await expect(page.getByTestId('home-holdings__row').nth(0)).toContainText('Cash');
@@ -193,7 +193,7 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
   await expect(cards.first()).toContainText('+2.75%');
   await expect(cards.nth(2)).toContainText('−2.14%');
   await expect(cards.first()).toHaveAttribute('href', '/coin/BTC');
-  expect(await page.locator('[data-testid="home-card"] [data-slot="sparkline"] polyline').count()).toBe(4);
+  expect(await page.getByTestId('home-card').locator('[data-slot="sparkline"] polyline').count()).toBe(4);
 
   // Top movers: up to 6, biggest move first, one per asset.
   expect(await texts(page.getByTestId('home-pill'))).toEqual([
@@ -208,23 +208,20 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
   const box = async (selector) => await page.locator(selector).first().boundingBox();
 
   // Right column, T2-A: "Your crypto" (icon, amount, value, today's change) above Popular, from the portfolio's holdings.
-  await expect(page.locator('[data-testid="home-yours"] [data-testid="home-watch__head"] h2')).toHaveText('Your crypto');
-  expect(await texts(page.locator('[data-testid="home-yours"] [data-testid="home-watch__ticker"]'))).toEqual([
-    'BTC · Bitcoin',
-    'ETH · Ethereum',
-  ]);
-  expect(await texts(page.locator('[data-testid="home-yours"] [data-slot="amount"]'))).toEqual(['0.1 BTC', '0.5 ETH']);
-  expect(await texts(page.locator('[data-testid="home-yours"] [data-slot="money"]'))).toEqual(['$6,781.24', '$1,600.05']);
-  expect(await texts(page.locator('[data-testid="home-yours"] [data-slot="pct"]'))).toEqual(['+2.75%', '+1.59%']);
-  await expect(page.locator('[data-testid="home-yours"] [data-testid="home-watch__row"]').first()).toHaveAttribute('href', '/coin/BTC');
+  await expect(page.getByTestId('home-yours').getByTestId('home-watch__head').locator('h2')).toHaveText('Your crypto');
+  expect(await texts(page.getByTestId('home-yours').getByTestId('home-watch__ticker'))).toEqual(['BTC · Bitcoin', 'ETH · Ethereum']);
+  expect(await texts(page.getByTestId('home-yours').locator('[data-slot="amount"]'))).toEqual(['0.1 BTC', '0.5 ETH']);
+  expect(await texts(page.getByTestId('home-yours').locator('[data-slot="money"]'))).toEqual(['$6,781.24', '$1,600.05']);
+  expect(await texts(page.getByTestId('home-yours').locator('[data-slot="pct"]'))).toEqual(['+2.75%', '+1.59%']);
+  await expect(page.getByTestId('home-yours').getByTestId('home-watch__row').first()).toHaveAttribute('href', '/coin/BTC');
   expect((await box('[data-testid="home-yours"]')).y).toBeLessThan((await box('[data-testid="home-watch"]')).y);
 
   // Freshness line (missing-function #4): when the prices were last fetched.
   await expect(page.getByTestId('home-fresh')).toHaveText(/^Prices updated \d\d:\d\d$/);
 
   // Side card: no favourites -> "Popular", every orderable asset once, max 8.
-  await expect(page.locator('[data-testid="home-watch"] [data-testid="home-watch__head"] h2')).toHaveText('Popular');
-  expect(await texts(page.locator('[data-testid="home-watch"] [data-testid="home-watch__ticker"]'))).toEqual(['XRP', 'DOGE']); // the cards' coins are not repeated (critic N3)
+  await expect(page.getByTestId('home-watch').getByTestId('home-watch__head').locator('h2')).toHaveText('Popular');
+  expect(await texts(page.getByTestId('home-watch').getByTestId('home-watch__ticker'))).toEqual(['XRP', 'DOGE']); // the cards' coins are not repeated (critic N3)
 
   // Geometry: container 1224, main 792, side 408, card 186 x 176, hero text 48/58.
   expect(Math.round((await box('[data-testid="if-home"]')).width)).toBe(1224);
@@ -268,7 +265,7 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
 
   // Keyboard: Tab from the top bar reaches eye -> the total's info tip -> its Assets link -> today's info tip -> the derived-total tip -> actions -> Cash -> Crypto -> 4 cards (each
   // followed by its star) -> movers -> Your crypto -> the watchlist rows (each followed by its star).
-  await page.locator('[data-testid="harness-bar"] a').last().focus();
+  await page.getByTestId('harness-bar').locator('a').last().focus();
   const path = [];
   for (let step = 0; step < 70; step++) {
     await page.keyboard.press('Tab');
@@ -335,14 +332,14 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
   // The total-value rule is available in the page for assistive tech and as a tooltip that opens on hover AND
   // keyboard focus (critic M5), fully below the top bar (critic H7: it hid behind the banner when it opened upward).
   await expect(page.getByTestId('home-label')).toContainText('USDT and USDC count as 1 USD');
-  await page.locator('[data-testid="home-label"] [data-testid="if-tip"]').hover();
+  await page.getByTestId('home-label').getByTestId('if-tip').hover();
   // The tip left open by the keyboard walk may still be fading out, so look at the open one only.
   const openTip = page.locator('[data-slot="tooltip-content"][data-open]');
   await expect(openTip).toBeVisible();
   expect((await openTip.boundingBox()).y).toBeGreaterThanOrEqual(56);
   await page.mouse.move(0, 0);
   await expect(page.locator('[data-slot="tooltip-content"]')).toHaveCount(0);
-  await page.locator('[data-testid="home-label"] [data-testid="if-tip"]').focus();
+  await page.getByTestId('home-label').getByTestId('if-tip').focus();
   await page.keyboard.press('Shift+Tab');
   await page.keyboard.press('Tab');
   await expect(page.locator('[data-slot="tooltip-content"]')).toBeVisible();
@@ -396,7 +393,7 @@ test('hidden balances show bullets, prices stay, and the choice is remembered', 
   await expect(page.getByRole('button', { name: 'Show balances' })).toBeVisible();
   await expectHero(page, '$••••');
   expect(await texts(page.getByTestId('home-holdings__value'))).toEqual(['••••', '••••']);
-  await expect(page.locator('[data-testid="home-change"] [data-slot="change-text"]')).toContainText('••••'); // the whole change line is a portfolio figure
+  await expect(page.getByTestId('home-change').locator('[data-slot="change-text"]')).toContainText('••••'); // the whole change line is a portfolio figure
   await expect(page.getByTestId('home-change')).not.toContainText('206'); // and no digit of it leaks
   await expect(page.getByTestId('home-card__price').first()).toHaveText('$67,812.40'); // prices still show
   expect(
@@ -414,8 +411,8 @@ test('loading shows final-size skeletons and nothing moves when data arrives', a
   const api = await mock(page, { balance: null, markets: null, tickers: null, ohlcv: null });
   await open(page);
   await expect(page.locator('[data-slot="skeleton"]').first()).toBeVisible();
-  expect(await page.locator('[data-testid="home-cards"] [data-slot="skeleton"]').count()).toBe(4);
-  const hero = await page.locator('[data-testid="home-total"] [data-slot="skeleton"]').boundingBox();
+  expect(await page.getByTestId('home-cards').locator('[data-slot="skeleton"]').count()).toBe(4);
+  const hero = await page.getByTestId('home-total').locator('[data-slot="skeleton"]').boundingBox();
   expect([Math.round(hero.width), Math.round(hero.height)]).toEqual([240, 56]);
   const layout = () =>
     page.evaluate(() =>
@@ -455,8 +452,8 @@ test('empty portfolio: zero is shown once, with one plain line and a way to star
   await expect(page.getByTestId('home-yours')).toContainText('Coins you hold show here.');
   // An empty account leads with Add money, then Receive; nothing to sell, send or convert.
   expect(await texts(page.locator('[data-testid="home-actions"] > *'))).toEqual(['Add money', 'Receive', 'Buy']);
-  await expect(page.locator('[data-testid="home-actions"] a[data-variant="primary"]')).toContainText('Add money');
-  await expect(page.locator('[data-testid="home-actions"] a').first()).toHaveAttribute('href', '/uc/recharge');
+  await expect(page.getByTestId('home-actions').locator('a[data-variant="primary"]')).toContainText('Add money');
+  await expect(page.getByTestId('home-actions').locator('a').first()).toHaveAttribute('href', '/uc/recharge');
   await expect(page.getByTestId('home-card').first()).toBeVisible();
   await page.screenshot({ path: join(shots, 'home-state-empty.png') });
 });
@@ -490,7 +487,7 @@ test('a brand-new account: Get started, honest empty panels, a filled Simple Hom
     'No activity',
   );
   await expect(page.getByTestId('home-yours')).toContainText('Coins you hold show here.');
-  await expect(page.locator('[data-testid="home-watch"] [data-testid="home-watch__head"] h2')).toHaveText('Popular');
+  await expect(page.getByTestId('home-watch').getByTestId('home-watch__head').locator('h2')).toHaveText('Popular');
   await expect(page.getByTestId('home-side__empty--hint')).toHaveText('Star a coin to build your own watchlist.');
   // The empty half is full: movers, a watchlist, and a Learn strip that opens the Academy.
   expect(await page.getByTestId('home-pill').count()).toBe(6);
@@ -530,7 +527,7 @@ test('Get started reads the real answers: done, in review, and "not done" until 
   await expect(started.locator('[data-step="verify"]')).toContainText('In review');
   await expect(started.locator('[data-step="secure"]')).toContainText('Done');
   await expect(started.getByTestId('home-started__count')).toHaveText('3 of 6 done');
-  expect(await started.locator('[data-testid="home-started__bar"] [data-on="true"]').count()).toBe(3);
+  expect(await started.getByTestId('home-started__bar').locator('[data-on="true"]').count()).toBe(3);
   await page.screenshot({ path: join(shots, 'home-started-partial.png') });
 });
 
@@ -656,8 +653,8 @@ test('a failed activity list says so, with Try again, and does not touch the res
   await mock(page, { ...newAccount, activity: 'error' });
   await open(page);
   await expect(page.getByTestId('home-main')).toContainText('Couldn’t load your activity.');
-  await expect(page.locator('[data-testid="home-started"] [data-step="trade"]')).toHaveAttribute('data-status', 'unknown');
-  await expect(page.locator('[data-testid="home-started"] [data-step="deposit"]')).toHaveAttribute('data-status', 'unknown');
+  await expect(page.getByTestId('home-started').locator('[data-step="trade"]')).toHaveAttribute('data-status', 'unknown');
+  await expect(page.getByTestId('home-started').locator('[data-step="deposit"]')).toHaveAttribute('data-status', 'unknown');
   await expect(page.getByTestId('home-card').first()).toBeVisible();
   await page.screenshot({ path: join(shots, 'home-new-account-error.png') });
   await page.unrouteAll();
@@ -735,12 +732,12 @@ test('Needs you never says "nothing" on a missing answer: a blank cap is refused
 test('unpriced assets are named, not counted, and never shown as zero', async ({ page }) => {
   await mock(page, { balance: () => balances({ XYZ: { free: '5', used: '0', total: '5' } }) });
   await open(page);
-  await expect(page.getByTestId('home-note')).toContainText('Excludes 1 coin (no USD price)');
-  await expect(page.getByTestId('home-note')).toContainText('Not counted: XYZ');
+  await expect(page.getByTestId('home-unpriced-note')).toContainText('Excludes 1 coin (no USD price)');
+  await expect(page.getByTestId('home-unpriced-note')).toContainText('Not counted: XYZ');
   await page.unrouteAll();
   await mock(page, { balance: () => balances({ XYZ: { free: '5', used: '0', total: '5' }, ABC: { free: '1', used: '0', total: '1' } }) });
   await page.reload();
-  await expect(page.getByTestId('home-note')).toContainText('Excludes 2 coins (no USD price)');
+  await expect(page.getByTestId('home-unpriced-note')).toContainText('Excludes 2 coins (no USD price)');
 });
 
 test('a window shorter than a day says "since HH:mm"', async ({ page }) => {
@@ -782,10 +779,10 @@ test('no orderable markets: Markets, Top movers and Watchlist are omitted', asyn
   await mock(page, { markets: [] });
   await open(page);
   await expectHero(page, '$4,100.00');
-  await expect(page.getByTestId('home-note')).toContainText('Excludes 2 coins (no USD price)');
+  await expect(page.getByTestId('home-unpriced-note')).toContainText('Excludes 2 coins (no USD price)');
   // Unpriced coins alone do not switch the Today change on (critic S4). The line itself stays for the derived-total tag.
-  await expect(page.locator('[data-testid="home-change"] [data-slot="change-text"]')).toHaveCount(0);
-  await expect(page.locator('[data-testid="home-change"] [data-testid="derived-total-note"]')).toContainText('Named spaces not included');
+  await expect(page.getByTestId('home-change').locator('[data-slot="change-text"]')).toHaveCount(0);
+  await expect(page.getByTestId('home-change').getByTestId('derived-total-note')).toContainText('Named spaces not included');
   expect(await texts(page.locator('[data-testid="home-actions"] > *'))).toEqual(['Send', 'Receive']); // nothing can be bought, sold or converted
   for (const selector of [
     '[data-testid="home-cards"]',
@@ -830,8 +827,8 @@ test('favourites from the existing device store become the Watchlist', async ({ 
   );
   await mock(page);
   await open(page);
-  await expect(page.locator('[data-testid="home-watch"] [data-testid="home-watch__head"] h2')).toHaveText('Watchlist');
-  expect(await texts(page.locator('[data-testid="home-watch"] [data-testid="home-watch__ticker"]'))).toEqual(['ETH', 'SOL']);
+  await expect(page.getByTestId('home-watch').getByTestId('home-watch__head').locator('h2')).toHaveText('Watchlist');
+  expect(await texts(page.getByTestId('home-watch').getByTestId('home-watch__ticker'))).toEqual(['ETH', 'SOL']);
   // No Edit button: the stars edit the watchlist (critic N6).
   await expect(page.locator('[data-testid="home-watch__head"] a, [data-testid="home-watch__head"] button')).toHaveCount(0);
 });
@@ -839,14 +836,14 @@ test('favourites from the existing device store become the Watchlist', async ({ 
 test('a star on a card or row adds the market to the watchlist and takes it off again', async ({ page }) => {
   await mock(page);
   await open(page);
-  await expect(page.locator('[data-testid="home-watch"] [data-testid="home-watch__head"] h2')).toHaveText('Popular');
+  await expect(page.getByTestId('home-watch').getByTestId('home-watch__head').locator('h2')).toHaveText('Popular');
   await page.getByRole('button', { name: 'Add ETH to watchlist' }).first().click();
-  await expect(page.locator('[data-testid="home-watch"] [data-testid="home-watch__head"] h2')).toHaveText('Watchlist');
-  expect(await texts(page.locator('[data-testid="home-watch"] [data-testid="home-watch__ticker"]'))).toEqual(['ETH']);
+  await expect(page.getByTestId('home-watch').getByTestId('home-watch__head').locator('h2')).toHaveText('Watchlist');
+  expect(await texts(page.getByTestId('home-watch').getByTestId('home-watch__ticker'))).toEqual(['ETH']);
   await expect(page.getByRole('button', { name: 'Remove ETH from watchlist' }).first()).toHaveAttribute('aria-pressed', 'true');
   expect(await page.evaluate(() => localStorage.getItem('trade-favorites:00000000-0000-4000-8000-000000000001'))).toBe('["ETH-USDT"]');
   await page.getByRole('button', { name: 'Remove ETH from watchlist' }).first().click();
-  await expect(page.locator('[data-testid="home-watch"] [data-testid="home-watch__head"] h2')).toHaveText('Popular');
+  await expect(page.getByTestId('home-watch').getByTestId('home-watch__head').locator('h2')).toHaveText('Popular');
 });
 
 test('with four markets or fewer, Top movers is left out because it would repeat the cards (critic M1)', async ({ page }) => {
