@@ -24,16 +24,20 @@ export function Watchlist({
   const { t } = copy;
   const points = sparklines.status === 'ready' ? sparklines.data : {};
   return (
-    <section className="home-watch" aria-labelledby="home-watch-title">
-      <div className="home-watch__head">
+    <section data-testid="home-watch" className="home-watch" aria-labelledby="home-watch-title">
+      <div data-testid="home-watch__head" className="home-watch__head">
         <h2 id="home-watch-title">{popular ? t('Popular') : t('Watchlist')}</h2>
         {/* No Edit button: the stars on each row edit the watchlist; a markets screen comes in M2 (critic N6). */}
       </div>
-      {popular && !loading ? <p className="home-side__empty home-side__empty--hint">{t('Watchlist hint')}</p> : null}
+      {popular && !loading ? (
+        <p data-testid="home-side__empty--hint" className="home-side__empty home-side__empty--hint">
+          {t('Watchlist hint')}
+        </p>
+      ) : null}
       {loading ? (
         <div aria-hidden="true">
           {[0, 1, 2, 3, 4, 5].map((index) => (
-            <div className="home-watch__row" key={index}>
+            <div data-testid="home-watch__row" className="home-watch__row" key={index}>
               <Skeleton width={28} height={28} circle className={IN_PANEL} />
               <Skeleton width={72} height={36} className={IN_PANEL} />
               <Skeleton width={64} height={24} className={IN_PANEL} />
@@ -48,10 +52,12 @@ export function Watchlist({
             const name = assetName(item.base, copy);
             return (
               <li key={item.symbol} className="home-watch__item">
-                <a className="home-watch__row" href={coinHref(item.base, 'simple')}>
+                <a data-testid="home-watch__row" className="home-watch__row" href={coinHref(item.base, 'simple')}>
                   <CoinIcon asset={item.base} size={28} />
                   <span className="home-watch__name">
-                    <span className="home-watch__ticker">{item.base}</span>
+                    <span data-testid="home-watch__ticker" className="home-watch__ticker">
+                      {item.base}
+                    </span>
                     {name ? <span className="home-watch__full">{name}</span> : null}
                   </span>
                   <Sparkline

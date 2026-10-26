@@ -60,9 +60,9 @@ test.afterAll(async () => {
 
 test(`${J} #1 with nothing published, Home draws no strip and no banner`, async () => {
   await openHome();
-  await expect(page.locator('.home-notices')).toHaveCount(0);
+  await expect(page.getByTestId('home-notices')).toHaveCount(0);
   await expect(page.getByRole('alert')).toHaveCount(0);
-  await expect(page.locator('.home-notice')).toHaveCount(0);
+  await expect(page.getByTestId('home-notice')).toHaveCount(0);
 });
 
 test(`${J} #4 a founder's draft never reaches the customer`, async () => {
@@ -83,7 +83,7 @@ test(`${J} #4 a founder's draft never reaches the customer`, async () => {
   });
   expect([announcement.status, maintenance.status]).toEqual(['draft', 'draft']);
   await openHome();
-  await expect(page.locator('.home-notices')).toHaveCount(0);
+  await expect(page.getByTestId('home-notices')).toHaveCount(0);
   await expect(page.getByText(`TEST announcement ${RUN}`)).toHaveCount(0);
   await expect(page.getByText(`TEST maintenance ${RUN}`)).toHaveCount(0);
 });

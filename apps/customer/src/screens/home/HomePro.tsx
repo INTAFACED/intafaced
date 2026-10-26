@@ -133,7 +133,7 @@ function ActionRow({ loading, mode }: { loading: boolean; mode: ActionMode }) {
   // The actions come in the order of the mode's list, as in Simple.
   const ordered = wanted ? [...live].sort((a, b) => wanted.indexOf(a.label) - wanted.indexOf(b.label)) : live;
   return (
-    <nav className="hp-actions" aria-label={tp('Quick actions')}>
+    <nav data-testid="hp-actions" className="hp-actions" aria-label={tp('Quick actions')}>
       {loading
         ? ordered.map((action) => (
             <Skeleton key={action.label} width={ACTION_WIDTH[action.label]} height={32} circle className={IN_PANEL} />
@@ -156,8 +156,12 @@ function ActionRow({ loading, mode }: { loading: boolean; mode: ActionMode }) {
 function Stat({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="hp-stat">
-      <span className="hp-stat__label">{label}</span>
-      <span className="hp-stat__value">{children}</span>
+      <span data-testid="hp-stat__label" className="hp-stat__label">
+        {label}
+      </span>
+      <span data-testid="hp-stat__value" className="hp-stat__value">
+        {children}
+      </span>
     </div>
   );
 }
@@ -177,7 +181,7 @@ function OrdersStat({ orders }: { orders: OpenOrders }) {
   return (
     <Stat label={label}>
       {target ? (
-        <a className="hp-stat__link" href={target} aria-label={t('Open orders count', { count: shown })}>
+        <a data-testid="hp-stat__link" className="hp-stat__link" href={target} aria-label={t('Open orders count', { count: shown })}>
           {shown}
         </a>
       ) : (
@@ -203,7 +207,7 @@ function Summary({
   const { timeZone, displayCurrency } = usePreferences();
 
   const label = (
-    <div className="hp-label">
+    <div data-testid="hp-label" className="hp-label">
       <span>{t('Est. total value')}</span>
       <button
         type="button"
@@ -225,10 +229,10 @@ function Summary({
 
   if (portfolio.status === 'loading')
     return (
-      <section className="hp-summary" aria-busy="true" aria-label={tp('Home summary')}>
+      <section data-testid="hp-summary" className="hp-summary" aria-busy="true" aria-label={tp('Home summary')}>
         <div className="hp-total">
           {label}
-          <div className="hp-total__figure">
+          <div data-testid="hp-total__figure" className="hp-total__figure">
             <Skeleton width={200} height={40} className={IN_PANEL} />
           </div>
           <div className="hp-total__change">
@@ -250,7 +254,7 @@ function Summary({
   if (portfolio.status === 'error' || portfolio.status === 'refused') {
     const refused = portfolio.status === 'refused' ? refusalCopy(portfolio.code) : null;
     return (
-      <section className="hp-summary hp-summary--block" aria-label={tp('Home summary')}>
+      <section data-testid="hp-summary" className="hp-summary hp-summary--block" aria-label={tp('Home summary')}>
         {portfolio.status === 'error' ? (
           <StateBlock
             kind="error"
@@ -277,14 +281,16 @@ function Summary({
   const empty = portfolio.status === 'empty' || portfolio.data.holdings.length === 0;
   if (empty)
     return (
-      <section className="hp-summary" aria-label={tp('Home summary')}>
+      <section data-testid="hp-summary" className="hp-summary" aria-label={tp('Home summary')}>
         <div className="hp-total">
           {label}
-          <div className="hp-total__figure">
+          <div data-testid="hp-total__figure" className="hp-total__figure">
             {/* The balance call answered with no assets, so zero is correct here and only here. */}
             <HeroNumber value="0.00" decimals={2} prefix="$" unit="USD" size="hero-pro" hidden={hidden} />
           </div>
-          <p className="hp-total__note">{t('No crypto yet')}</p>
+          <p data-testid="hp-total__note" className="hp-total__note">
+            {t('No crypto yet')}
+          </p>
         </div>
         <ActionRow loading={false} mode={actionMode} />
       </section>
@@ -301,13 +307,13 @@ function Summary({
   const hasCrypto = (dec(data.cryptoUsd) ?? 0n) > 0n;
   const unpriced = data.unpriced.length;
   return (
-    <section className="hp-summary" aria-label={tp('Home summary')}>
+    <section data-testid="hp-summary" className="hp-summary" aria-label={tp('Home summary')}>
       <div className="hp-total">
         {label}
-        <div className="hp-total__figure">
+        <div data-testid="hp-total__figure" className="hp-total__figure">
           <TotalFigure data={data} displayCurrency={displayCurrency} hidden={hidden} pro />
         </div>
-        <TotalUnitNote data={data} displayCurrency={displayCurrency} hidden={hidden} className="hp-total__note" />
+        <TotalUnitNote data={data} displayCurrency={displayCurrency} hidden={hidden} className="hp-total__note" testId="hp-total__note" />
         <div className="hp-total__change">
           {data.change24hUsd !== null && hasCrypto ? (
             <>
@@ -316,7 +322,7 @@ function Summary({
             </>
           ) : null}
           {unpriced > 0 ? (
-            <span className="hp-total__note">
+            <span data-testid="hp-total__note" className="hp-total__note">
               {unpriced === 1 ? t('Asset not counted') : t('Assets not counted', { count: unpriced })}
               <InfoTip text={t('Not counted list', { assets: data.unpriced.join(', ') })} label={t('Not counted label')} />
             </span>
@@ -342,7 +348,7 @@ function AssetsSkeleton() {
   return (
     <div aria-hidden="true">
       {[0, 1, 2].map((index) => (
-        <div className="hp-assets__row" key={index}>
+        <div data-testid="hp-assets__row" className="hp-assets__row" key={index}>
           <div className="hp-assets__cell hp-assets__cell--asset">
             <Skeleton width={28} height={28} circle className={IN_PANEL} />
             <Skeleton width={96} height={20} className={IN_PANEL} />
@@ -371,15 +377,21 @@ function Assets({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hid
   const holdings = portfolio.status === 'ready' ? portfolio.data.holdings : [];
   const rows = holdings.slice(0, ASSET_ROWS);
   return (
-    <section className="hp-panel" aria-labelledby="hp-assets-title">
+    <section data-testid="hp-assets-panel" className="hp-panel" aria-labelledby="hp-assets-title">
       <div className="hp-panel__head">
         <h2 id="hp-assets-title">{tp('Your assets')}</h2>
-        <a className="hp-link" href="/money">
+        <a data-testid="hp-link" className="hp-link" href="/money">
           {tp('View all assets')}
         </a>
       </div>
-      <div role="table" aria-label={tp('Your assets')} aria-busy={portfolio.status === 'loading' || undefined} className="hp-assets">
-        <div role="row" className="hp-assets__row hp-assets__row--head">
+      <div
+        role="table"
+        aria-label={tp('Your assets')}
+        aria-busy={portfolio.status === 'loading' || undefined}
+        data-testid="hp-assets"
+        className="hp-assets"
+      >
+        <div role="row" data-testid="hp-assets__row--head" className="hp-assets__row hp-assets__row--head">
           <div role="columnheader" className="hp-assets__cell hp-assets__cell--asset">
             {tp('Asset')}
           </div>
@@ -413,7 +425,7 @@ function Assets({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hid
                 </>
               );
               return (
-                <div role="row" className="hp-assets__row" key={holding.asset} data-asset={holding.asset}>
+                <div role="row" data-testid="hp-assets__row" className="hp-assets__row" key={holding.asset} data-asset={holding.asset}>
                   <div role="cell" className="hp-assets__cell hp-assets__cell--asset">
                     {/* The desk for coins with a market; cash has none, so no link (the coin page is M3). */}
                     {target ? (
@@ -522,12 +534,12 @@ function MarketsPanel() {
   ];
 
   return (
-    <section className="hp-panel hp-markets" aria-labelledby="hp-markets-title">
+    <section data-testid="hp-markets" className="hp-panel hp-markets" aria-labelledby="hp-markets-title">
       <div className="hp-panel__head">
         <h2 id="hp-markets-title">{t('Markets')}</h2>
         <div className="hp-panel__aside">
           {asOf !== null ? <span className="hp-fresh">{th('Prices updated {time}', { time: clockTime(asOf, timeZone) })}</span> : null}
-          <a className="hp-link" href="/trade">
+          <a data-testid="hp-link" className="hp-link" href="/trade">
             {t('See all markets')}
           </a>
         </div>
@@ -610,7 +622,7 @@ export function HomePro() {
   const showAssets = portfolio.status === 'loading' || (portfolio.status === 'ready' && portfolio.data.holdings.length > 0);
 
   return (
-    <div className="if-home-pro">
+    <div data-testid="if-home-pro" className="if-home-pro">
       <h1 className="if-sr">{t('Home')}</h1>
       <HomeNotices />
       {/* Above the summary, so it is there in every state of the account (an unverified one has no total row). */}
@@ -622,16 +634,18 @@ export function HomePro() {
         switch (id) {
           case 'started':
             return started.show ? (
-              <div className="hp-started" key={id}>
+              <div data-testid="hp-started" className="hp-started" key={id}>
                 <GetStarted steps={started.steps} onHide={started.hide} />
               </div>
             ) : null;
           case 'work':
-            return <WorkList key={id} hidden={hideBalances} className="hp-panel hp-work" />;
+            return <WorkList key={id} hidden={hideBalances} className="hp-panel hp-work" testId="hp-work" />;
           case 'holdings':
             return showAssets ? <Assets key={id} portfolio={portfolio} hidden={hideBalances} /> : null;
           case 'activity':
-            return <RecentActivity key={id} activity={activity} hidden={hideBalances} className="hp-panel hp-activity" />;
+            return (
+              <RecentActivity key={id} activity={activity} hidden={hideBalances} className="hp-panel hp-activity" testId="hp-activity" />
+            );
           case 'markets':
             return <MarketsPanel key={id} />;
           default:
