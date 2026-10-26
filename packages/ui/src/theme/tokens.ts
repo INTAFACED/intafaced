@@ -13,8 +13,13 @@
  * files. Screens do not change because they only use token names.
  *
  * `tokens.css` is generated from this file; `tokens.test.ts` fails if the two
- * drift. The older orange tokens in `../tokens.ts` (used by apps/admin) are a
- * different system and are not touched.
+ * drift. This is the customer app's one token source: the app loads no other
+ * token stylesheet. The older orange tokens in `../tokens.ts` are the founder
+ * console's (apps/admin) and are not loaded by the customer app.
+ *
+ * Names are stable; values belong to a look. The values written below are the
+ * default look. Another look sets new values for the same names in `looks`,
+ * and is switched on with `data-look="<id>"` on the root element.
  */
 
 /** Colour tokens. Key = `--if-<key>` and the Tailwind colour name. */
@@ -211,6 +216,85 @@ export const aliases = {
   base: 'var(--if-bg)',
 } as const;
 
+/**
+ * The customer app's older names. They lived in apps/customer/src/shared/tokens.css until 26 Oct 2026 and are
+ * generated into `customer-legacy.css` (customer app only, so they never reach the founder console), with
+ * today's values, so that file could go. Where a value is a kit token's in the same role (page background,
+ * accent) it points at that token, so a look change reaches it; the rest keep their own value until their
+ * uses move to `--if-*` names area by area. Write no new uses.
+ */
+export const legacyVars = {
+  '--color-background': 'var(--if-bg)',
+  '--color-shell': '#111111',
+  '--color-surface': '#0D0D0D',
+  '--color-surface-raised': '#171717',
+  '--color-selected': '#202020',
+  '--color-accent': 'var(--if-lime)',
+  '--color-text': '#F5F5F5',
+  '--color-muted': '#A3A3A3',
+  '--color-unavailable-text': '#B8B8B8',
+  '--color-mix-secondary': '#858585',
+  '--color-divider': '#262626',
+  '--color-border': '#303030',
+  '--color-search-border': '#3A3A3A',
+  '--color-destination-border': '#30352B',
+  '--font-sans': 'Inter',
+  '--text-13': '13px',
+  '--text-14': '14px',
+  '--text-15': '15px',
+  '--text-16': '16px',
+  '--text-18': '18px',
+  '--text-20': '20px',
+  '--text-24': '24px',
+  '--text-60': '60px',
+  '--font-weight-regular': '400',
+  '--font-weight-medium': '500',
+  '--font-weight-semibold': '600',
+  '--tracking-section': '-0.02em',
+  '--tracking-value': '-0.04em',
+  '--tracking-holding-value': '-0.015em',
+  '--leading-20': '20px',
+  '--leading-22': '22px',
+  '--leading-24': '24px',
+  '--leading-26': '26px',
+  '--leading-28': '28px',
+  '--leading-32': '32px',
+  '--leading-68': '68px',
+  '--container-rail': '208px',
+  '--container-overview': '672px',
+  '--container-actions': '352px',
+  '--container-search': '432px',
+  '--container-content': '1088px',
+  '--container-review-desktop': '1440px',
+  '--spacing-2': '2px',
+  '--spacing-4': '4px',
+  '--spacing-8': '8px',
+  '--spacing-10': '10px',
+  '--spacing-12': '12px',
+  '--spacing-14': '14px',
+  '--spacing-16': '16px',
+  '--spacing-20': '20px',
+  '--spacing-28': '28px',
+  '--spacing-32': '32px',
+  '--spacing-40': '40px',
+  '--spacing-44': '44px',
+  '--spacing-48': '48px',
+  '--spacing-52': '52px',
+  '--spacing-56': '56px',
+  '--spacing-64': '64px',
+  '--spacing-72': '72px',
+  '--spacing-76': '76px',
+  '--spacing-80': '80px',
+  '--spacing-84': '84px',
+  '--radius-4': '4px',
+  '--radius-8': '8px',
+  '--radius-10': '10px',
+  '--radius-12': '12px',
+  '--radius-16': '16px',
+  '--radius-26': '26px',
+  '--radius-28': '28px',
+} as const;
+
 /** Control heights in px (UI-SPEC §2.4). */
 export const controlHeights = [28, 32, 40, 48, 56] as const;
 
@@ -238,6 +322,23 @@ export function cssVars(): Record<string, string> {
   return out;
 }
 
+/** A custom property name; `tokens.test.ts` checks that every name a look sets is one `cssVars()` or `legacyVars` has. */
+export type TokenName = `--${string}`;
+
+/**
+ * Looks: one value map per look, under the same names. The default look's values are the ones written above,
+ * so its entry is empty. A new look lists only the names whose value it changes; `tokens.test.ts` fails if it
+ * names a token that does not exist. Each entry is emitted as `:root:where([data-look='<id>'])`: same weight as
+ * `:root` and written before the red-for-up block, so user preferences (red for up, the light theme) still win.
+ */
+export const looks = {
+  /** Black, lime and Inter, measured from okx.com on 2026-10-13 (see the provenance note at the top). */
+  'black-lime': {},
+} as const satisfies Record<string, Partial<Record<TokenName, string>>>;
+
+export type LookId = keyof typeof looks;
+export const defaultLook: LookId = 'black-lime';
+
 /** CSS is written with lowercase hex (what prettier produces), TS keeps the spec's uppercase. */
 export const cssValue = (v: string): string => v.replace(/#[0-9A-Fa-f]{3,8}\b/g, (m) => m.toLowerCase());
 
@@ -250,6 +351,14 @@ const decl = (vars: Record<string, string>, indent = '  ') =>
 export function renderTokensCss(): string {
   const redUp: Record<string, string> = {};
   for (const [k, v] of Object.entries(redUpOverrides)) redUp[`--if-${k}`] = v;
+  const all = looks as Record<string, Record<string, string>>;
+  if (Object.keys(all[defaultLook] ?? {}).length > 0) {
+    throw new Error(`look ${defaultLook} is the default: write its values in the token maps above, not in looks`);
+  }
+  const lookBlocks = Object.entries(all)
+    .filter(([id, vars]) => id !== defaultLook && Object.keys(vars).length > 0)
+    .map(([id, vars]) => `\n/* Look "${id}": same names, its own values. */\n:root:where([data-look='${id}']) {\n${decl(vars)}\n}\n`)
+    .join('');
   return `/**
  * INTAFACED customer-app design tokens (UI-SPEC section 2).
  * GENERATED from src/theme/tokens.ts by src/theme/generate.ts.
@@ -260,7 +369,7 @@ export function renderTokensCss(): string {
 :root {
 ${decl(cssVars())}
 }
-
+${lookBlocks}
 /* "Red for up" preference: the up/down pair swaps here, components never branch on it. */
 [data-up-color='red'] {
 ${decl(redUp)}
@@ -273,6 +382,20 @@ ${decl(redUp)}
     --if-t-tab: 0ms;
     --if-t-flash: 0ms;
   }
+}
+`;
+}
+
+/** The exact text of customer-legacy.css: the customer app's older names, loaded by the customer app only. */
+export function renderLegacyCss(): string {
+  return `/**
+ * The customer app's older token names, loaded by the customer app only (app/redesign.css).
+ * GENERATED from src/theme/tokens.ts (legacyVars) by src/theme/generate.ts.
+ * Do not edit by hand: theme/tokens.test.ts fails if the two drift. Write no new uses: use --if-* names.
+ */
+
+:root {
+${decl(legacyVars)}
 }
 `;
 }

@@ -1,10 +1,16 @@
+/**
+ * The customer app's older token names, loaded by the customer app only (app/redesign.css).
+ * GENERATED from src/theme/tokens.ts (legacyVars) by src/theme/generate.ts.
+ * Do not edit by hand: theme/tokens.test.ts fails if the two drift. Write no new uses: use --if-* names.
+ */
+
 :root {
-  --color-background: #000000;
+  --color-background: var(--if-bg);
   --color-shell: #111111;
   --color-surface: #0d0d0d;
   --color-surface-raised: #171717;
   --color-selected: #202020;
-  --color-accent: #c8f64a;
+  --color-accent: var(--if-lime);
   --color-text: #f5f5f5;
   --color-muted: #a3a3a3;
   --color-unavailable-text: #b8b8b8;

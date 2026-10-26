@@ -5,6 +5,7 @@
 @layer theme, base, components, utilities;
 @import 'tailwindcss/theme.css' layer(theme);
 @import '@intafaced/ui/theme/tokens.css';
+@import '@intafaced/ui/theme/customer-legacy.css';
 @import '@intafaced/ui/theme/theme.css';
 @import '@intafaced/ui/theme/base.css';
 @import 'tailwindcss/utilities.css' layer(utilities);

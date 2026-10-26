@@ -2,7 +2,6 @@
 // signed in as a labelled fake user (add ?signedout=1 to stay signed out). Every API call is answered by the
 // Playwright test (no service is contacted). The route comes from the address bar, like the real app, so a click
 // on a market in the list changes the pair without a reload.
-import '../../../../shared/tokens.css';
 import '../../../../shared/styles.css';
 import '../../../../features/public/public.css';
 import '../../../../app/redesign.css';

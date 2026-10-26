@@ -8,6 +8,10 @@ import {
   controlHeights,
   cssValue,
   cssVars,
+  defaultLook,
+  legacyVars,
+  looks,
+  renderLegacyCss,
   radii,
   redUpOverrides,
   renderTokensCss,
@@ -186,13 +190,45 @@ describe('theme.css (Tailwind @theme mapping)', () => {
     expect(code).not.toContain('preflight');
   });
 
-  it('does not reuse a custom property name from apps/customer/src/shared/tokens.css', () => {
-    const legacy = join(here, '../../../../apps/customer/src/shared/tokens.css');
-    if (!existsSync(legacy)) return; // package used outside the monorepo
-    const legacyNames = new Set([...readFileSync(legacy, 'utf8').matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]!));
+  it("does not reuse one of the customer app's older names as a theme key", () => {
+    const legacyNames = new Set(Object.keys(legacyVars));
     const mine = [...themeCss.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]!).filter((n) => !n.endsWith('*'));
     const clashes = mine.filter((n) => legacyNames.has(n));
     expect(clashes).toEqual([]);
+  });
+
+  it('customer-legacy.css is exactly what tokens.ts generates', () => {
+    expect(read('customer-legacy.css')).toBe(renderLegacyCss());
+  });
+
+  it("is the customer app's one token source: the old stylesheet is gone and nothing imports it", () => {
+    const app = join(here, '../../../../apps/customer');
+    if (!existsSync(app)) return; // package used outside the monorepo
+    expect(existsSync(join(app, 'src/shared/tokens.css'))).toBe(false);
+    const skip = new Set(['node_modules', 'dist', 'test-results', 'playwright-report']);
+    const files = (dir: string, out: string[] = []): string[] => {
+      for (const name of readdirSync(dir)) {
+        if (skip.has(name)) continue;
+        const full = join(dir, name);
+        if (statSync(full).isDirectory()) files(full, out);
+        else if (/\.(tsx?|m?js|css|html)$/.test(name)) out.push(full);
+      }
+      return out;
+    };
+    expect(files(app).filter((f) => /shared\/tokens\.css/.test(readFileSync(f, 'utf8')))).toEqual([]);
+    expect(readFileSync(join(app, 'src/app/redesign.css'), 'utf8')).toContain("@import '@intafaced/ui/theme/customer-legacy.css';");
+  });
+});
+
+describe('looks: stable names, values per look', () => {
+  const names = new Set([...Object.keys(cssVars()), ...Object.keys(legacyVars)]);
+
+  it('has the default look, which keeps the values written in tokens.ts', () => {
+    expect(looks[defaultLook]).toEqual({});
+  });
+
+  it.each(Object.entries(looks))('look %s sets only names that exist', (_id, vars) => {
+    expect(Object.keys(vars).filter((n) => !names.has(n))).toEqual([]);
   });
 });
 

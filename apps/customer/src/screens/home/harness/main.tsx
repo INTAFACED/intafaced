@@ -1,7 +1,6 @@
 // Test harness only. Mounts the Home screen with the real theme and providers but without the app shell,
 // signed in as a labelled fake user. Every API call is answered by the Playwright test (no service is contacted).
 // The app's global sheets load too, so a class-name clash with old screens (e.g. .home-hero) shows up here.
-import '../../../shared/tokens.css';
 import '../../../shared/styles.css';
 import '../../../features/public/public.css';
 import '../../../app/redesign.css';

@@ -1,7 +1,6 @@
 // Test harness only. Mounts the REAL top bar (with the Simple / Pro switch) over Home, or over the Trade markets
 // list with ?screen=trade, signed in as a labelled fake user. Every API call is answered by the Playwright test
 // (no service is contacted). The preference decides which Home is drawn, exactly as in the app.
-import '../../../shared/tokens.css';
 import '../../../shared/styles.css';
 import '../../../features/public/public.css';
 import '../../../app/redesign.css';
