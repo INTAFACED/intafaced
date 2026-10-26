@@ -221,6 +221,29 @@ because `Intl` only knows CLDR currency codes.
 shifts the decimal point rather than multiplying by 100. `formatDate`, `formatDateTime` and
 `formatRelativeTime` are thin, cached wrappers over `Intl`.
 
+What a money screen also needs, on the same exact path:
+
+- `rounding: 'down'` cuts toward zero, for an available or withdrawable balance, so a screen never
+  shows more than the user can move. The default stays half-up.
+- `signDisplay` (`'auto'`, `'exceptZero'` for P&L and change, `'always'`, `'never'`) puts the sign
+  where the locale puts it (`-0,50 $` in German, a direction-marked minus in Arabic), even when the
+  integer part is zero. A figure whose shown digits are all zero never shows a minus.
+- `formatMoneyToParts`, `formatNumberToParts` and `formatPercentToParts` return typed parts
+  (`integer`, `fraction`, `currency`, `unit` for a ticker, `minusSign`, `literal` for spaces and
+  direction marks) so a component can style the fraction or the ticker apart without re-parsing.
+  Joining them gives the string form exactly.
+- `formatCompact` gives "$1.2M" or "1,2 Mio. $" for volumes, exactly, without a float.
+- `isolate(text, 'ltr')` keeps an address or IBAN left-to-right inside right-to-left text where
+  only plain text fits (an `aria-label`, a notification). In markup use `<bdi dir="ltr">`.
+  `formatIban` prints an IBAN in groups of four; `shortenIdentifier` shortens an address in the
+  middle.
+
+Why not hand `Intl` the string itself, which modern engines format exactly? Safari before 15.4
+converts a string argument to a float without an error, and the iOS web view floor is still 14.
+`format.test.ts` runs 2,500 seeded cases (up to 38 whole and 18 fraction digits, every declared
+locale, fiat and tickers `Intl` rejects such as USDC) and checks that every digit survives and
+that rounding and signs are exactly as asked.
+
 ---
 
 ## The scanner
@@ -242,6 +265,7 @@ The gate that actually holds is the type system in this package.
 | `format.ts`                 | Money, number, percent, date and relative-time formatting              |
 | `t.ts`                      | `createTranslator`, interpolation, pluralisation, missing-key policy   |
 | `i18n.test.ts`              | The tests — including the compile-time assertions                      |
+| `format.test.ts`            | Rounding, signs, parts, compact, direction; seeded property cases      |
 
 Nothing in the library does I/O. Catalogs are data; loading them is the app's job.
 
