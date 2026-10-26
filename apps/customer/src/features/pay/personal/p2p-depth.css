@@ -234,7 +234,7 @@
   padding: 1px var(--if-space-2);
   border-radius: var(--radius-28);
   background: var(--if-lime);
-  color: var(--color-background);
+  color: var(--if-on-lime);
   font-size: var(--if-text-sm);
   font-weight: 600;
   white-space: nowrap;

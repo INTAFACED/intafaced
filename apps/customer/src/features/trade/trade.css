@@ -321,7 +321,7 @@
 }
 .trade-ticket-body > .tabs[aria-label='Order side'] button.selected {
   background: var(--if-lime);
-  color: #000;
+  color: var(--if-on-lime);
   font-weight: 600;
 }
 .trade-ticket-body .field {
