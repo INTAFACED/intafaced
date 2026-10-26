@@ -34,9 +34,10 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
-// The rooms and the templates rooms are built from. The kit's own components and token files are the system: they may
-// hold structural values (hairlines, icon boxes), and the kit's component tests reject raw colours there.
-const SCOPE = /^(?:apps\/customer\/|packages\/ui\/src\/lit\/templates\/).+\.(?:css|tsx?|mjs)$/;
+// The rooms, and the new look's kit and templates. The kit's own components (packages/ui/src/lit/ outside templates/)
+// may hold structural pixel sizes (hairlines, icon boxes); colours and sides are judged there too.
+const SCOPE = /^(?:apps\/customer\/|packages\/ui\/src\/lit\/).+\.(?:css|tsx?|mjs)$/;
+const PX_ALLOWED = /^packages\/ui\/src\/lit\/(?!templates\/)/;
 const NOT_JUDGED =
   /^packages\/ui\/src\/(?:theme\/|tokens\.|lit\/tokens\.ts$|lit\/lit\.css$)|\.generated\.|(?:\.|\/)(?:test|spec|fixtures?|pw|stories)\.|\/__tests__\/|\/tests\/|(?:^|[./])playwright\.config\.|(?:^|[./])vitest[\w.]*\.config\.|(?:^|[./])vite\.config\.|\.d\.ts$/;
 const ALLOW = /look-drift-allow:\s*\S.{3,}/;
@@ -61,10 +62,11 @@ const CSS_RULES = [
 ];
 
 const TW_PHYSICAL =
-  /(?<![\w-])-?(?:(?:ml|mr|pl|pr|left|right|scroll-ml|scroll-mr|scroll-pl|scroll-pr)-[\w./[\]%-]+|(?:border-l|border-r|rounded-l|rounded-r|rounded-tl|rounded-tr|rounded-bl|rounded-br)(?:-[\w./[\]%-]+)?)(?![\w-])|(?<![\w-])(?:text|float|clear)-(?:left|right)(?![\w-])/;
+  /(?<![\w-])-?(?:(?:ml|mr|pl|pr|left|right|scroll-ml|scroll-mr|scroll-pl|scroll-pr)-(?:\d[\w./]*|px|auto|full|\[[^\]]+\])|(?:border-l|border-r|rounded-l|rounded-r|rounded-tl|rounded-tr|rounded-bl|rounded-br)(?:-[\w./[\]%-]+)?)(?![\w-])|(?<![\w-])(?:text|float|clear)-(?:left|right)(?![\w-])/;
 /** Rule checks for one line of TS/TSX/MJS: style strings, style keys and class names, not ordinary code. */
 const TS_RULES = [
-  ['raw colour', /['"`][^'"`]*[\s(:,]#[0-9a-fA-F]{3,8}\b[^'"`]*['"`]/],
+  // A hex inside a string counts only when the string is CSS (`'drop-shadow(0 0 4px #3f7dff)'`), not copy (`'Order #123'`).
+  ['raw colour', /['"`](?=[^'"`]*(?:\(|\b[a-z-]+\s*:|\b(?:solid|dashed|dotted)\b))[^'"`]*[\s(:,]#[0-9a-fA-F]{3,8}\b[^'"`]*['"`]/],
   ['raw colour', /['"`][^'"`]*\b(?:rgba?|hsla?|oklch|oklab)\(\s*[\d.][^'"`]*['"`]/],
   ['raw colour', new RegExp(`(?<![\\w-])(?:${TW_COLOUR_PREFIX})-(?:(?:${PALETTE})-\\d{2,3}|white|black)(?![\\w-])`)],
   ['raw colour', /-\[(?:#|rgba?\(|hsla?\()/],
@@ -179,7 +181,8 @@ export function judgeFile(path, text, only = null) {
       allowed.push({ path, line: n, text: line.trim().slice(0, 140) });
       return;
     }
-    for (const rule of judgeLine(line, kind, state)) findings.push({ path, line: n, rule, text: line.trim().slice(0, 140) });
+    for (const rule of judgeLine(line, kind, state))
+      if (!(rule === 'pixel size' && PX_ALLOWED.test(path))) findings.push({ path, line: n, rule, text: line.trim().slice(0, 140) });
   });
   return { findings, allowed };
 }
@@ -195,16 +198,9 @@ function git(args) {
 function changed(base) {
   const out = [];
   let file = null;
-  for (const l of git([
-    'diff',
-    '-M',
-    '-U0',
-    '--diff-filter=AMR',
-    `${base}...HEAD`,
-    '--',
-    'apps/customer',
-    'packages/ui/src/lit/templates',
-  ]).split('\n')) {
+  for (const l of git(['diff', '-M', '-U0', '--diff-filter=AMR', `${base}...HEAD`, '--', 'apps/customer', 'packages/ui/src/lit']).split(
+    '\n',
+  )) {
     if (l.startsWith('diff --git ')) {
       file = { path: null, only: new Set() };
       out.push(file);
@@ -285,6 +281,9 @@ function selfTest() {
   eq(ts(`   * A handle like "#A1B2C3D4" a person can quote.`), [], 'doc comment ignored');
   eq(ts(`  <li className="tb-mode min-[1000px]:hidden">`), [], 'a breakpoint variant is a query');
   eq(ts(`  const url = 'https://x.test/#abc';`), [], 'url fragment');
+  eq(ts(`  const title = 'Order #123 is on its way';`), [], 'a number sign in copy');
+  eq(ts(`  <aside className="left-rail" />`), [], 'a class named left-rail');
+  eq(ts(`  <aside className="left-0 right-1/2 ml-auto pl-[var(--lit-gap)]" />`), ['physical side'], 'tailwind side values');
   eq(ts(`  <Link to="/x" style={{ color: '#ff0000' }}>`), ['raw colour'], 'a link on the line does not hide a colour');
   eq(ts(`  const g = { from: '#fff', to: '#000' };`), ['raw colour'], 'a gradient object');
   eq(ts(`  <div style={{ marginTop: '-8px' }} />`), ['pixel size'], 'negative px string');
@@ -299,6 +298,9 @@ function selfTest() {
   eq(f('packages/ui/src/theme/tokens.css', ':root { --if-bg: #000; }'), 0, 'token definitions not judged');
   eq(f('packages/ui/src/lit/lit.css', ':root { --lit-page: #05070d; }'), 0, 'lit token values not judged');
   eq(f('packages/ui/src/lit/components/key.css', '.k { inline-size: 18px; }'), 0, 'a lit component may hold structural px');
+  eq(f('packages/ui/src/lit/components/key.css', '.k { margin-left: var(--lit-gap); }'), 1, 'a lit component may not use physical sides');
+  eq(f('packages/ui/src/lit/components/key.css', '.k { color: #fff; }'), 1, 'a lit component may not use raw colours');
+  eq(f('packages/ui/src/lit/components/key.tsx', `<i className="border-l" />`), 1, 'a lit component may not use a Tailwind physical side');
   eq(f('apps/customer/src/screens/home/home.test.tsx', `expect(x).toBe('#fff')`), 0, 'tests not judged');
   eq(f('apps/customer/src/screens/home/home.fixtures.mjs', `const c = '#fff';`), 0, 'fixtures not judged');
   eq(f('services/svc-bank/src/x.ts', `const c = '#fff';`), 0, 'out of scope');
@@ -334,7 +336,7 @@ if (process.argv.includes('--self-test')) {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   if (process.argv.includes('--all')) {
-    const files = git(['ls-files', 'apps/customer', 'packages/ui/src/lit/templates']).split('\n').filter(Boolean);
+    const files = git(['ls-files', 'apps/customer', 'packages/ui/src/lit']).split('\n').filter(Boolean);
     const byRule = new Map();
     const byArea = new Map();
     for (const path of files) {
@@ -345,7 +347,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         byArea.set(area, (byArea.get(area) ?? 0) + 1);
       }
     }
-    console.log('look-drift --all (report only): lines with raw values across apps/customer and the lit templates');
+    console.log('look-drift --all (report only): lines with raw values across apps/customer and packages/ui/src/lit');
     for (const [rule, n] of byRule) console.log(`  ${rule}: ${n}`);
     for (const [area, n] of [...byArea].sort((a, b) => b[1] - a[1]).slice(0, 25)) console.log(`    ${String(n).padStart(6)}  ${area}`);
     process.exit(0);
