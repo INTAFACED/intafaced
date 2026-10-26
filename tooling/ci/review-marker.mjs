@@ -28,6 +28,7 @@
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { gateFilesTouched } from '../scripts/gate-file-guard.mjs';
+import { BASELINE } from './look-baselines.mjs';
 
 /** How long the seal waits for the review before it fails, and how often it looks. ci.yml's merge-seal timeout covers it. */
 const REVIEW_WAIT_MS = 20 * 60_000;
@@ -79,9 +80,6 @@ export const SECURITY_PATHS = [
 
 const LEDGER_CLIENT = '@intafaced/ledger-client';
 
-/** A look baseline image, as tooling/ci/test-diff-guard.mjs names them. */
-export const LOOK_BASELINE = /(?:^|\/)look-baselines\/[\w.-]+\/(?:[^/]+\/)*[^/]+\.png$/;
-
 /**
  * The folder a file's money check reads package.json from (`services/svc-pay`, `tooling/pay-sim`), or null for a file
  * at the top of the repo or of tooling/. A tooling folder with no package.json (tooling/scripts runs the local stack
@@ -109,7 +107,7 @@ export function reviewReason(files, manifests) {
   if (security) return `security: ${security}`;
   const gate = gateFilesTouched(files);
   if (gate.length > 0) return `gate file: ${gate[0].file}`;
-  const baseline = files.find((f) => LOOK_BASELINE.test(f));
+  const baseline = files.find((f) => BASELINE.test(f));
   if (baseline) return `look baseline: ${baseline}`;
   for (const root of new Set(files.map(packageRootOf).filter(Boolean))) {
     const found = manifests.get(root) ?? [];
