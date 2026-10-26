@@ -1,17 +1,21 @@
 import { createHash } from 'node:crypto';
 import type { Plugin } from 'vite';
 
-/** Where the layout preference lives (shared/preferences.ts); Simple unless it says Pro. */
-const VIEW_KEY = 'intafaced.customer.view.v1';
+/** Where the layout preference lives (shared/preferences.ts, held equal by boot.test.ts); Simple unless it says Pro. */
+export const VIEW_KEY = 'intafaced.customer.view.v1';
 /** The paths that draw Home: `/` sends a signed-in person there, and a signed-out one sees the frame only until the app runs. */
 const HOME_PATHS = ['/', '/home', '/home/'];
+/** The longest the frame may stand in for the app: past it, #root shows whatever the app has (its own loading or error). */
+const FRAME_CAP_MS = 8000;
 
 /**
  * The boot script: a classic, same-origin file (the CSP allows no inline script) that runs before the app's module.
  * On Simple Home's paths it marks the page (`data-boot="home"`), so index.html's static frame shows and #root waits
- * hidden, and it takes the mark off as soon as the app shows more than its loading state. Pro Home has another layout,
- * so it gets no frame. It reads nothing but the path, the layout preference and #root's text, and on any error leaves
- * the page as it would be without it.
+ * hidden, and it takes the mark off as soon as the app shows more than its loading state (in practice its first commit,
+ * the shell). Pro Home has another layout, so it gets no frame (a Pro choice kept only on the account, not yet on this
+ * device, shows the Simple frame until the app runs). It reads nothing but the path, the layout preference and #root's
+ * text. On any error of its own, a resource that fails to load, an uncaught error or after FRAME_CAP_MS, it takes the
+ * mark off, so a failed start shows the app's own state rather than a skeleton that never ends.
  *
  * It preloads nothing: measured on the phone profiles, fetching Home's chunk alongside the entry moved LCP by nothing
  * on fast 4G (CPU-bound) and made it later on slow 4G (the same bytes, competing with the entry).
@@ -35,10 +39,19 @@ export const BOOT_SCRIPT = `(function () {
       html.removeAttribute('data-boot');
       return true;
     };
+    var done = function () {
+      html.removeAttribute('data-boot');
+      watch.disconnect();
+      removeEventListener('error', done, true);
+      clearTimeout(cap);
+    };
     var watch = new MutationObserver(function () {
-      if (settle()) watch.disconnect();
+      if (settle()) done();
     });
-    watch.observe(document, { childList: true, subtree: true });
+    watch.observe(document, { childList: true, subtree: true, characterData: true });
+    // a script or stylesheet that fails to load, or an uncaught error, ends the frame (capture: load errors don't bubble)
+    addEventListener('error', done, true);
+    var cap = setTimeout(done, ${FRAME_CAP_MS});
   } catch (e) {
     html.removeAttribute('data-boot');
   }

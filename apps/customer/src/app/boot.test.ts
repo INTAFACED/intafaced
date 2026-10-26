@@ -2,10 +2,10 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
-import { BOOT_SCRIPT, homeBoot } from './boot';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { BOOT_SCRIPT, VIEW_KEY, homeBoot } from './boot';
 
-const VIEW_KEY = 'intafaced.customer.view.v1';
+const here = dirname(fileURLToPath(import.meta.url));
 const html = document.documentElement;
 
 /** Runs the boot script as the browser would, on a page with an empty #root. */
@@ -21,6 +21,7 @@ function boot(path: string, view?: object) {
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 afterEach(() => {
+  vi.useRealTimers();
   html.removeAttribute('data-boot');
   localStorage.clear();
 });
@@ -57,6 +58,39 @@ describe('the boot script', () => {
     expect(html.hasAttribute('data-boot')).toBe(false);
   });
 
+  it('drops the frame when a script fails to load, on an uncaught error, and after its time cap', async () => {
+    boot('/home');
+    const script = document.createElement('script');
+    document.head.append(script);
+    script.dispatchEvent(new Event('error'));
+    expect(html.hasAttribute('data-boot')).toBe(false);
+    boot('/home');
+    window.dispatchEvent(new Event('error'));
+    expect(html.hasAttribute('data-boot')).toBe(false);
+    vi.useFakeTimers();
+    boot('/home');
+    vi.advanceTimersByTime(7999);
+    expect(html.getAttribute('data-boot')).toBe('home');
+    vi.advanceTimersByTime(1);
+    expect(html.hasAttribute('data-boot')).toBe(false);
+  });
+
+  it('notices a text-only change inside #root', async () => {
+    const root = boot('/home');
+    root.innerHTML = '<div class="loading">Opening room…</div>';
+    await flush();
+    expect(html.getAttribute('data-boot')).toBe('home');
+    root.querySelector('.loading')!.parentElement!.append(document.createTextNode(''));
+    await flush();
+    root.lastChild!.textContent = 'Needs you';
+    await flush();
+    expect(html.hasAttribute('data-boot')).toBe(false);
+  });
+
+  it('reads the key the app keeps its layout preference under', () => {
+    expect(readFileSync(join(here, '../shared/preferences.ts'), 'utf8')).toContain(`const key = '${VIEW_KEY}';`);
+  });
+
   it('drops the frame for any content that is not the loading state, a signed-out landing page included', async () => {
     const root = boot('/');
     root.innerHTML = '<div class="legacy-room"><h1>Your money, trading and payments</h1></div>';
@@ -66,7 +100,7 @@ describe('the boot script', () => {
 });
 
 describe('index.html and the frame', () => {
-  const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../index.html'), 'utf8');
+  const source = readFileSync(join(here, '../../index.html'), 'utf8');
 
   it('shows the frame and hides #root only while the page is marked', () => {
     expect(source).toMatch(/#boot-frame,\s*html\[data-boot='home'\] #root \{\s*display: none;/);
@@ -79,9 +113,19 @@ describe('index.html and the frame', () => {
     expect(frame.replace(/<[^>]+>/g, '').replace(/\s+/g, '')).toBe('intafaced·');
   });
 
+  it('keeps the no-eval setting ahead of the app module', () => {
+    expect(source).toMatch(/<script src="\/assets\/no-eval-v1\.js"><\/script>\s*<script type="module"/);
+  });
+
+  it('takes every colour and size from the kit tokens or rem, never a hex or pixel value', () => {
+    const style = source.slice(source.indexOf('<style>'), source.indexOf('</style>'));
+    expect(style).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+    expect(style.replace(/1px solid/g, '')).not.toMatch(/\d+px/);
+  });
+
   it('draws the wordmark in the system face, so it starts no web font download', () => {
     const rule = source.slice(source.indexOf('#boot-frame .bf-top {'), source.indexOf('#boot-frame .bf-top span'));
-    expect(rule).toMatch(/font: 700 [^;]*system-ui, sans-serif;/);
+    expect(rule).toMatch(/font:\s+700 [^;]*system-ui,\s+sans-serif;/);
     expect(rule).not.toMatch(/--if-font|Inter/);
   });
 });

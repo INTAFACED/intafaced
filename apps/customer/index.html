@@ -19,17 +19,18 @@
       html[data-boot='home'] #boot-frame {
         display: block;
       }
+      /* sizes are the kit's tokens (index.css, render-blocking, so they are set before this paints) or rem */
       #boot-frame {
         min-block-size: 100dvh;
-        background: var(--if-bg, #000);
+        background: var(--if-bg);
       }
       #boot-frame .bf-top {
         display: flex;
         align-items: center;
-        block-size: 48px;
-        padding-inline: var(--if-space-4, 16px);
-        border-block-end: 1px solid var(--if-line, #2e2e2e);
-        color: var(--if-text, #fff);
+        block-size: 3rem;
+        padding-inline: var(--if-space-4);
+        border-block-end: 1px solid var(--if-line);
+        color: var(--if-text);
         /* the system face: the app's web font would start downloading here and slow the app's own code */
         font:
           700 1.0625rem / 1 system-ui,
@@ -37,50 +38,50 @@
         letter-spacing: -0.02em;
       }
       #boot-frame .bf-top span {
-        color: var(--if-accent-text, #c8f64a);
+        color: var(--if-accent-text);
       }
       #boot-frame .bf-body {
         display: grid;
-        gap: 12px;
-        max-inline-size: 1200px;
+        gap: var(--if-space-3);
+        max-inline-size: 75rem;
         margin-inline: auto;
-        padding: 24px var(--if-space-4, 16px);
+        padding: var(--if-space-6) var(--if-space-4);
       }
       #boot-frame i {
         display: block;
-        block-size: 16px;
-        border-radius: 6px;
-        background: var(--if-panel, #121212);
+        block-size: 1rem;
+        border-radius: var(--if-r-xs);
+        background: var(--if-panel);
       }
       #boot-frame .bf-figure {
-        inline-size: min(70%, 300px);
-        block-size: 48px;
+        inline-size: min(70%, 18.75rem);
+        block-size: 3rem;
       }
       #boot-frame .bf-label {
-        inline-size: min(45%, 180px);
+        inline-size: min(45%, 11.25rem);
       }
       #boot-frame .bf-line {
-        inline-size: min(60%, 240px);
+        inline-size: min(60%, 15rem);
       }
       #boot-frame .bf-keys {
         display: flex;
         flex-wrap: wrap;
-        gap: 8px;
-        margin-block-start: 4px;
+        gap: var(--if-space-2);
+        margin-block-start: var(--if-space-1);
       }
       #boot-frame .bf-keys i {
-        inline-size: 72px;
-        block-size: 40px;
-        border-radius: 999px;
+        inline-size: 4.5rem;
+        block-size: 2.5rem;
+        border-radius: var(--if-r-pill);
       }
       #boot-frame .bf-head {
-        inline-size: 140px;
-        block-size: 24px;
-        margin-block-start: 28px;
+        inline-size: 8.75rem;
+        block-size: 1.5rem;
+        margin-block-start: var(--if-space-7);
       }
       #boot-frame .bf-card {
-        block-size: 144px;
-        border-radius: 16px;
+        block-size: 9rem;
+        border-radius: var(--if-r-lg);
       }
       @media (prefers-reduced-motion: no-preference) {
         #boot-frame i {
@@ -109,6 +110,7 @@
       </div>
     </div>
     <div id="root"></div>
+    <script src="/assets/no-eval-v1.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
