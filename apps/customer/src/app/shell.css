@@ -146,6 +146,9 @@
     top: calc(100% - 4px);
     left: -16px;
     width: 340px;
+    /* Money and Trade list 13 and 14 rows in Pro: a short screen scrolls the menu, so every row stays reachable. */
+    max-height: calc(100vh - 64px - var(--if-banner-offset, 0px));
+    overflow-y: auto;
   }
   .tb-menu-item {
     display: flex;
@@ -294,20 +297,6 @@
     height: 32px;
     border-radius: var(--if-r-pill);
     color: var(--tb-fg-2);
-  }
-  /* The More grid: phone only (IA-SPEC 1.3, Option A). On wider screens More is a top-bar door. */
-  .tb-more {
-    display: none;
-    place-items: center;
-    width: 32px;
-    height: 32px;
-    border-radius: var(--if-r-pill);
-    color: var(--tb-fg-2);
-  }
-  .tb-more:hover,
-  .tb-more[aria-current='page'] {
-    color: var(--tb-fg);
-    background: var(--tb-hover);
   }
   .tb-menu-group {
     margin: var(--if-space-2) var(--if-space-3) var(--if-space-1);
@@ -578,9 +567,6 @@
     }
     .tb-nav {
       display: none;
-    }
-    .tb-more {
-      display: inline-grid;
     }
     .if-app {
       padding-bottom: var(--if-space-16);

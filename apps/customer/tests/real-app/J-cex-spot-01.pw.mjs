@@ -58,8 +58,9 @@ test(`${J} #1 signs up with an email and a password`, async ({ page }) => {
   await signUpInBrowser(page, who);
   await expect(page).not.toHaveURL(/\/register/);
   run.reset({ account: who });
-  // Signed in, and the way to Verify is shown (Home says it in Summary and again in Recent activity).
-  await expect(page.getByRole('region', { name: 'Summary' }).getByText('Verify your identity first')).toBeVisible();
+  // Signed in, and the way to Verify is shown: Home says it where the total would be (in Simple, where the app opens;
+  // Pro says it in its Summary).
+  await expect(page.getByRole('main').getByText('Verify your identity first').first()).toBeVisible();
   await expect(
     page
       .getByRole('link', { name: 'Verify now' })

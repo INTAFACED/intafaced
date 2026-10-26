@@ -80,7 +80,7 @@ function asked(page, input) {
   return { ...page, items: input.limit ? items.slice(0, input.limit) : items };
 }
 async function mock(page, overrides = {}) {
-  // A first visit lands on Pro (PLT-0009); this suite is about Simple Home, so choose it unless the test already stored a view.
+  // A first visit lands on Simple (preferences.ts); this suite is about Simple Home, so it says so unless the test already stored a view.
   await page.addInitScript(() => {
     const key = 'intafaced.customer.view.v1';
     const saved = JSON.parse(localStorage.getItem(key) ?? '{}');

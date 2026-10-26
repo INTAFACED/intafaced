@@ -164,19 +164,24 @@ describe('top-bar menus link rooms that open', () => {
     tabSpecs(mode)
       .find((tab) => tab.door === door)!
       .items.map((item) => menuItemWords(item, t, 'en').title);
-  it('has six doors in the order of the spec: Home, Assets, Bank, Trade, Pay, More', () => {
-    expect(tabSpecs('simple').map((tab) => tab.door)).toEqual(['Home', 'Assets', 'Bank', 'Trade', 'Pay', 'More']);
+  it('has five doors in the order the owner chose on 2026-10-26: Home, Money, Trade, Pay, More', () => {
+    for (const mode of ['simple', 'pro'] as const)
+      expect(tabSpecs(mode).map((tab) => tab.door)).toEqual(['Home', 'Money', 'Trade', 'Pay', 'More']);
   });
   it('matches the spec rows', () => {
     expect(titles('Home')).toEqual([]);
-    expect(titles('Assets')).toEqual(['Portfolio', 'Deposit', 'Withdraw', 'Transfers', 'Activity', 'Addresses', 'Profit and loss']);
-    expect(titles('Bank')).toEqual([
-      'Bank',
-      'Spaces',
+    expect(titles('Money')).toEqual([
+      'Portfolio',
+      'Deposit',
+      'Withdraw',
       'Transfers',
+      'Spaces',
+      'Cards',
       'Earn',
       'Loans',
-      'Cards',
+      'Activity',
+      'Profit and loss',
+      'Addresses',
       'Cash and crypto',
       'Spending',
       'Business approvals',
@@ -223,9 +228,13 @@ describe('top-bar menus link rooms that open', () => {
         );
       }
   });
-  it('gives every Bank room the Bank door and every other money room the Assets door', () => {
-    for (const room of rooms.filter((r) => r.path === '/bank' || r.path.startsWith('/bank/'))) expect(room.door, room.path).toBe('Bank');
-    expect(findRoom('/money')?.door).toBe('Assets');
+  it('gives every money room, the Bank rooms included, the one Money door', () => {
+    for (const room of rooms.filter((r) =>
+      /^\/(bank|money|portfolio)(\/|$)|^\/uc\/(recharge|withdraw|assets|money|record)(\/|$)/.test(r.path),
+    ))
+      expect(room.door, room.path).toBe('Money');
+    expect(findRoom('/bank')?.door).toBe('Money');
+    expect(findRoom('/money')?.door).toBe('Money');
   });
   it('sends a signed-out visitor to the public Help centre, never to a page that needs a session', () => {
     const more = tabSpecs('simple', false).find((tab) => tab.door === 'More')!;
@@ -240,8 +249,8 @@ describe('top-bar menus link rooms that open', () => {
     expect(tabSpecs('simple').find((tab) => tab.door === 'Trade')?.href).toBe('/trade');
     expect(tabSpecs('pro').find((tab) => tab.door === 'Trade')?.href).toBe('/trade/spot/BTC-USDT');
   });
-  it('puts Home, Bank, Trade, Pay and Assets on the phone bar, with More as the grid button', () => {
-    expect(MOBILE_DOOR_ORDER).toEqual(['Home', 'Bank', 'Trade', 'Pay', 'Assets']);
+  it('puts the same five doors on the phone bar, in the same order, More included', () => {
+    expect(MOBILE_DOOR_ORDER).toEqual(tabSpecs('simple').map((tab) => tab.door));
     for (const door of MOBILE_DOOR_ORDER)
       expect(
         tabSpecs('simple').some((tab) => tab.door === door),
