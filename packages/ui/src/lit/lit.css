@@ -35,6 +35,8 @@
   --lit-solid-rim-dim: var(--if-line);
   --lit-solid-wall: transparent;
   --lit-solid-shadow: none;
+  --lit-sheen: linear-gradient(transparent, transparent);
+  --lit-fill-shadow: none;
   --lit-corner-glow: transparent;
   --lit-glass-bg: var(--if-popover);
   --lit-glass-blur: none;
@@ -155,6 +157,10 @@
   --lit-solid-rim-dim: rgba(255, 255, 255, 0.04);
   --lit-solid-wall: #0a0c11;
   --lit-solid-shadow: 0 4px 0 0 var(--lit-solid-wall), 0 5px 0 0 rgba(0, 0, 0, 0.5), 0 34px 60px -26px rgba(0, 0, 0, 0.95);
+  --lit-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.012) 70%);
+  --lit-fill-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.36), 0 3px 0 0 var(--lit-accent-fill-2),
+    0 0 14px color-mix(in srgb, var(--lit-accent) 40%, transparent), 0 0 40px color-mix(in srgb, var(--lit-accent) 16%, transparent);
   --lit-corner-glow: color-mix(in srgb, var(--lit-accent) 30%, transparent);
   --lit-glass-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.015) 70%), rgba(13, 15, 21, 0.7);
   --lit-glass-blur: blur(24px) saturate(150%);
@@ -182,8 +188,8 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 3px 0 0 #0a0c11, 0 0 22px color-mix(in srgb, var(--lit-accent) 45%, transparent),
     0 0 60px color-mix(in srgb, var(--lit-accent) 18%, transparent);
   --lit-control-bg: #0a0c11;
-  --lit-control-rim: rgba(255, 255, 255, 0.12);
-  --lit-control-rim-active: rgba(255, 255, 255, 0.32);
+  --lit-control-rim: rgba(255, 255, 255, 0.36);
+  --lit-control-rim-active: rgba(255, 255, 255, 0.56);
   --lit-focus: #ffffff;
   --lit-legal-bg: #16181d;
   --lit-legal-fg: #ffffff;
@@ -318,8 +324,8 @@
   --lit-secondary-fg: #0b0d12;
   --lit-key-bg: linear-gradient(180deg, #ffffff, #f1f3f7);
   --lit-control-bg: #ffffff;
-  --lit-control-rim: rgba(10, 13, 20, 0.16);
-  --lit-control-rim-active: rgba(10, 13, 20, 0.4);
+  --lit-control-rim: rgba(10, 13, 20, 0.48);
+  --lit-control-rim-active: rgba(10, 13, 20, 0.68);
   --lit-focus: #0b0d12;
   --lit-legal-bg: #ffffff;
   --lit-legal-fg: #0b0d12;
@@ -354,19 +360,23 @@
   --lit-accent-text: #00754b;
 }
 
-/* Solid surfaces: the in-app switch, and automatically for more contrast or forced colours. */
+/* Solid surfaces: the in-app switch, and automatically for more contrast, forced colours or reduced transparency. */
 :root:where([data-look='lit'][data-surfaces='solid']) {
   --lit-field: none;
   --lit-glass-bg: var(--lit-solid-bg);
   --lit-glass-blur: none;
+  --lit-sheen: linear-gradient(transparent, transparent);
+  --lit-veil: color-mix(in srgb, var(--lit-page) 86%, transparent);
   --lit-corner-glow: transparent;
 }
 
-@media (prefers-contrast: more), (forced-colors: active) {
+@media (prefers-contrast: more), (forced-colors: active), (prefers-reduced-transparency: reduce) {
   :root:where([data-look='lit']) {
     --lit-field: none;
     --lit-glass-bg: var(--lit-solid-bg);
     --lit-glass-blur: none;
+    --lit-sheen: linear-gradient(transparent, transparent);
+    --lit-veil: color-mix(in srgb, var(--lit-page) 86%, transparent);
     --lit-corner-glow: transparent;
   }
 }

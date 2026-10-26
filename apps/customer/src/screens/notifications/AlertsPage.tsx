@@ -200,9 +200,11 @@ export default function AlertsPage() {
 
   if (mode !== 'Personal') {
     return (
-      <div className="if-notify">
+      <div data-testid="if-notify" className="if-notify">
         <div className="nf-head">
-          <h1 className="nf-h1">{copy.t('title')}</h1>
+          <h1 data-testid="nf-h1" className="nf-h1">
+            {copy.t('title')}
+          </h1>
         </div>
         <NotifyNav current="alerts" />
         <p className="nf-note" role="note">
@@ -375,9 +377,11 @@ export default function AlertsPage() {
   const priceId = `${id}-price`;
 
   return (
-    <div className="if-notify">
+    <div data-testid="if-notify" className="if-notify">
       <div className="nf-head">
-        <h1 className="nf-h1">{copy.t('title')}</h1>
+        <h1 data-testid="nf-h1" className="nf-h1">
+          {copy.t('title')}
+        </h1>
       </div>
       <NotifyNav current="alerts" />
       <p className="nf-intro">{copy.t('intro')}</p>
@@ -726,7 +730,12 @@ export default function AlertsPage() {
         onSave={saveWatchlist}
       />
 
-      <section className="nf-card" aria-label={copy.t('listLabel')} aria-busy={state.status === 'loading' || undefined}>
+      <section
+        data-testid="nf-card"
+        className="nf-card"
+        aria-label={copy.t('listLabel')}
+        aria-busy={state.status === 'loading' || undefined}
+      >
         <div className="nf-listhead">
           <h2 className="nf-h2 nf-h2--flush">{copy.t('listTitle')}</h2>
           <button type="button" className="nf-link nf-linkbutton" disabled={busy !== null} onClick={reload}>
@@ -797,20 +806,26 @@ export default function AlertsPage() {
                   return (
                     <li key={alert.id} className="nf-alertrow" data-testid="alert-row" data-status={alert.status}>
                       <div className="nf-text">
-                        <span className="nf-title">{alert.name ? alert.name : kind ? `${name} · ${kind}` : name}</span>
-                        <span className="nf-body nf-body--wrap">
+                        <span data-testid="nf-title" className="nf-title">
+                          {alert.name ? alert.name : kind ? `${name} · ${kind}` : name}
+                        </span>
+                        <span data-testid="nf-body" className="nf-body nf-body--wrap">
                           {copy.t('condition', {
                             side: conditionWords(alert.condition ?? (alert.direction === 'below' ? 'less_than' : 'greater_than')),
                             price: alert.targetPrice,
                           }) + (alert.kind === 'price' && market ? ` ${market.quote}` : '')}
                         </span>
                         {(alert.extras ?? []).map((extra, index) => (
-                          <span className="nf-body nf-body--wrap" key={index}>
+                          <span data-testid="nf-body" className="nf-body nf-body--wrap" key={index}>
                             {copy.t('listAnd', { side: conditionWords(extra.condition), price: extra.targetPrice }) +
                               (alert.kind === 'price' && market ? ` ${market.quote}` : '')}
                           </span>
                         ))}
-                        {alert.message ? <span className="nf-body nf-body--wrap">{alert.message}</span> : null}
+                        {alert.message ? (
+                          <span data-testid="nf-body" className="nf-body nf-body--wrap">
+                            {alert.message}
+                          </span>
+                        ) : null}
                         {alert.frequency === 'every_crossing' ? (
                           <span className="nf-body nf-body--wrap" data-testid="alert-repeats">
                             {copy.t('repeatList', { count: String(alert.fireCount ?? 0) }) +

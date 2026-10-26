@@ -1,6 +1,7 @@
 import { renderToString } from 'react-dom/server';
 import { describe, it, expect, vi } from 'vitest';
-import { activeGroup, currentItem, groups, LayoutNavigation } from './Navigation';
+import { groups } from './groups';
+import { activeGroup, currentItem, LayoutNavigation } from './Navigation';
 import { LayoutFrame } from './Frame';
 import { ExactMoneyContext, MoneyDisplay, paymentLabel, portalAmount } from '../presentation';
 import { paymentSchema } from '../schemas';
