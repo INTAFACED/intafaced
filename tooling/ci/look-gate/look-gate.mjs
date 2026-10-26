@@ -56,6 +56,9 @@ const VIEWPORTS = { phone: { width: 390, height: 844 }, computer: { width: 1440,
 const FROZEN = new Date('2026-10-21T12:00:00Z');
 const SEED = 20261026;
 const REPORT_PATH = '/__csp-report';
+// The gate's fixed ports: the app, the gallery, then the console and its stand-in Edge (admin.mjs). LOOK_GATE_PORT_BASE
+// moves them for a second run on the same machine; its shots then show other addresses, so no baseline comes from it.
+const PORT_BASE = Number(process.env.LOOK_GATE_PORT_BASE ?? 47300);
 const REFUSAL = { code: 'look_gate.no_services', message: 'The look gate renders rooms without services.' };
 const REGISTRY_PATH = 'packages/ui/src/lit/templates/legal/registry.json';
 
@@ -156,7 +159,7 @@ function serve(dir, reports, port) {
 
 const INIT = `(() => {
   Math.random = (${policy.mulberry32.toString()})(${SEED});
-  // Ids drawn for a form (a request id) come from the same seed, so a shot never shows a fresh one.
+  // Ids drawn for a form (a request id) count up per page, so a shot never shows a fresh one.
   if (window.crypto?.randomUUID) {
     let n = 0;
     crypto.randomUUID = () => '00000000-0000-4000-8000-' + String(++n).padStart(12, '0');
@@ -362,9 +365,15 @@ function focusState() {
   const bottom = Math.min(innerHeight, ...bottoms);
   const under = (tops.length || bottoms.length) && (r.top < top - 0.5 || r.bottom > bottom + 0.5) && !el.closest('[data-obscures]');
   // Under a bar's band is not yet hidden: the bar must paint over it there. A control stacked above the bar (the skip
-  // link, fixed at z-index 100) stays seen. Probe its centre and corners inside the band.
-  const xs = [r.left + 2, (r.left + r.right) / 2, r.right - 2];
-  const ys = [r.top + 2, (r.top + r.bottom) / 2, r.bottom - 2].filter((y) => y < top || y > bottom);
+  // link, fixed at z-index 100) stays seen.
+  // The middle of each overlap with a band, at its two ends and centre. elementFromPoint skips `pointer-events: none`
+  // layers, so a bar must take pointer events over the part that hides a control (the kit's bars do).
+  const inset = Math.min(2, r.width / 4);
+  const xs = [r.left + inset, (r.left + r.right) / 2, r.right - inset];
+  const ys = [
+    ...(r.top < top ? [(r.top + Math.min(r.bottom, top)) / 2] : []),
+    ...(r.bottom > bottom ? [(Math.max(r.top, bottom) + r.bottom) / 2] : []),
+  ];
   const covered =
     under &&
     ys.some((y) =>
@@ -817,6 +826,11 @@ function importsLit(folder) {
   }
 }
 
+/** Whether a row's findings count toward the verdict: the kit gallery, a page drawn in the new look, or a legal slot. */
+export function isBlockable(r, litTargets) {
+  return r.target.startsWith('kit ') || litTargets.has(r.target) || Boolean(r.findings.legal);
+}
+
 /**
  * Old-room focus debt, for stage C: each control an old room's bar paints over when it takes focus, once. Report only;
  * the same finding on a new-look page blocks with the rest.
@@ -824,8 +838,12 @@ function importsLit(folder) {
 export function focusDebt(rows, litTargets) {
   const seen = new Map();
   for (const r of rows)
-    if (!litTargets.has(r.target) && !r.target.startsWith('kit '))
-      for (const f of r.findings.focus ?? []) seen.set(`${r.target}: ${f}`, `${r.target} (${r.viewport}): ${f}`);
+    if (!isBlockable(r, litTargets))
+      for (const f of r.findings.focus ?? []) {
+        const key = `${r.target}: ${f}`;
+        // The first viewport that shows it, in row order (the plain phone before its variants).
+        if (!seen.has(key)) seen.set(key, `${r.target} (${r.viewport}): ${f}`);
+      }
   if (!seen.size) return [];
   return [`## Old-room focus debt (stage C): ${seen.size}`, '', ...[...seen.values()].map((l) => `- ${l.replace(/\|/g, '/')}`), ''];
 }
@@ -834,7 +852,7 @@ function report(rows, opts, meta) {
   const failing = rows.filter((r) => Object.keys(r.findings).length);
   // A target is drawn in the new look when any of its shots found it so: its variant and error rows count too.
   const litTargets = new Set(rows.filter((r) => r.lit).map((r) => r.target));
-  const blockable = failing.filter((r) => r.target.startsWith('kit ') || litTargets.has(r.target) || r.findings.legal);
+  const blockable = failing.filter((r) => isBlockable(r, litTargets));
   const kinds = {};
   for (const r of failing) for (const k of Object.keys(r.findings)) kinds[k] = (kinds[k] ?? 0) + 1;
   const changed = opts.changedFrom ? changedFiles(opts.changedFrom) : [];
@@ -853,6 +871,8 @@ function report(rows, opts, meta) {
     `Not checked yet: rooms with no fixture in apps/customer/tests/real-app/look-fixtures.mjs show their refuse state. Legal registry: ${meta.registry ? REGISTRY_PATH : 'not on this branch'}.`,
     '',
     ...focusDebt(rows, litTargets),
+    '## Every page',
+    '',
     '| Page | Viewport | Findings | Notes |',
     '| --- | --- | --- | --- |',
     ...rows.map(
@@ -888,7 +908,7 @@ async function main(opts) {
   if (!opts.only || opts.only === 'gallery') {
     if (!existsSync(join(galleryDist, 'index.html')))
       throw new Error(`no kit gallery build in ${galleryDist}: pnpm --filter @intafaced/ui gallery:build`);
-    const g = await serve(galleryDist, reports, 47301);
+    const g = await serve(galleryDist, reports, PORT_BASE + 1);
     servers.push(g.server);
     const page = await browser.newPage();
     await page.goto(g.origin + '/', { waitUntil: 'networkidle' });
@@ -907,7 +927,7 @@ async function main(opts) {
   if (!opts.only || opts.only === 'customer') {
     if (!existsSync(join(customerDist, 'index.html')))
       throw new Error(`no Customer build in ${customerDist}: pnpm turbo run build --filter=@intafaced/customer`);
-    const c = await serve(customerDist, reports, 47300);
+    const c = await serve(customerDist, reports, PORT_BASE);
     servers.push(c.server);
     for (const route of opts.routes ?? customerRoutes())
       targets.push({
@@ -921,7 +941,7 @@ async function main(opts) {
   }
   // `--routes` narrows a run to those Customer rooms, so the console runs only when asked for or in a whole run.
   if (opts.only === 'admin' || (!opts.only && !opts.routes)) {
-    const a = await startAdmin(ROOT, { now: FROZEN.getTime() });
+    const a = await startAdmin(ROOT, { now: FROZEN.getTime(), port: PORT_BASE + 10 });
     servers.push({ close: a.stop });
     for (const route of adminRoutes(ROOT))
       targets.push({
@@ -1174,9 +1194,9 @@ function selfTest() {
         { target: '/lit', viewport: 'phone', findings: { focus: ['a "x" is under a fixed bar'] } },
       ],
       new Set(['/lit']),
-    ).length,
-    4,
-    'old-room focus debt: one line per control, new-look pages left to the blocking list',
+    ).filter((l) => l.startsWith('- ')),
+    ['- /pay (phone): a "Send" is under a fixed bar'],
+    'old-room focus debt: one line per control at its first viewport, new-look pages left to the blocking list',
   );
   // The founder console: its rooms, the founder check the stand-in Edge answers, and a cookie the console can open.
   const consoleRooms = adminRoutes(ROOT);

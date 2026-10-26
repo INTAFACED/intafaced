@@ -63,8 +63,6 @@ export function edgeAnswer(path) {
   return { status: 503, json: REFUSAL };
 }
 
-const ADMIN_PORT = 47310;
-
 function listen(server, port) {
   return new Promise((ok, fail) => {
     server.once('error', (error) => fail(new Error(`the look gate needs port ${port} for the founder console: ${error.message}`)));
@@ -77,7 +75,7 @@ function listen(server, port) {
  * for a signed-in TEST founder. The console's server runs with its clock at `now` (frozen-clock.cjs), as the pages' is.
  * Throws, naming the build step, when there is no console build.
  */
-export async function startAdmin(root, { now }) {
+export async function startAdmin(root, { now, port: ADMIN_PORT }) {
   const dir = join(root, 'apps/admin');
   if (!existsSync(join(dir, '.next/BUILD_ID')))
     throw new Error(`no founder console build in ${dir}/.next: pnpm turbo run build --filter=@intafaced/admin`);
@@ -130,6 +128,8 @@ export async function startAdmin(root, { now }) {
     next.kill('SIGTERM');
     edge.close();
   };
+  // A gate run that throws never reaches stop(): the console must not outlive it and hold the port.
+  process.once('exit', () => next.kill('SIGTERM'));
   for (let i = 0; ; i++) {
     const up = await fetch(`${origin}/login`)
       .then((r) => r.status < 500)
