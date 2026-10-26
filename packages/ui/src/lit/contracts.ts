@@ -93,7 +93,7 @@ export const roles = {
   'glass-rim-dim': 'Rim colour of a glass layer away from the light',
   'glass-shadow': 'Shadow stack of a glass layer',
   scrim: 'Behind a sheet or dialog',
-  veil: 'Covers the bodies a gated room withholds (data-withheld); names, outlines and controls stay readable',
+  veil: 'Dims what sits behind a sheet or dialog; a gated room is never veiled, its withheld bodies keep their space and show nothing',
 
   // Controls. One primary per view.
   'primary-bg': 'The one primary button (metal pill). Image role: use with the `background` shorthand only',
@@ -293,7 +293,7 @@ export const components = {
   Holdings: 'Holdings list: the text equivalent of the sphere, always present',
   LegalSlot: 'Renders a legal slot from the registry',
   RiskMoment: 'First-buy warning overlay, equal-weight choices',
-  Gate: "The gated state: the gate card in the flow at the top, then the room's layout, inert, with names and disabled controls readable and only withheld bodies veiled",
+  Gate: "The gated state: the gate card in the flow at the top, then the room's layout, inert, with names and disabled controls readable and withheld bodies (data-withheld) kept blank",
   RefusalBox: 'Refused or parked, naming the blocker',
   EmptyState: 'Empty with one next step',
   Dock: 'Phone navigation: floating pill, five doors, always fully visible',

@@ -604,16 +604,9 @@
   flex-direction: column;
   gap: var(--lit-gap-item);
 }
-/* The room stays readable (names at text contrast, controls disabled but named); only bodies a template marks withheld are veiled. */
+/* The room stays readable (names at text contrast, controls disabled but named); a body a template marks withheld keeps its space and shows nothing. */
 .lit-gate__room [data-withheld] {
-  position: relative;
-}
-.lit-gate__room [data-withheld]::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: var(--lit-veil);
-  border-radius: inherit;
+  visibility: hidden;
 }
 .lit-gate__card [data-part='title'] {
   font-size: var(--lit-type-heading-size);
