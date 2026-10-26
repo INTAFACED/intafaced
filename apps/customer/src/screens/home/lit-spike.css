@@ -99,6 +99,35 @@
   font-weight: 500;
   color: var(--lit-text-1);
 }
+/* while the holdings load: the sphere dimmed with no split, and placeholder bars where the legend goes */
+[data-look='lit'] .home-lit-sphere {
+  transition: opacity 0.4s ease;
+}
+[data-look='lit'] .home-lit-where__panel[data-loading] .home-lit-sphere {
+  opacity: 0.35;
+}
+[data-look='lit'] .home-lit-legend__bar {
+  display: block;
+  inline-size: 5rem;
+  block-size: var(--if-leading-xs);
+  border-radius: var(--if-r-xs);
+  background: var(--lit-solid-bg-raised);
+}
+[data-look='lit'] .home-lit-legend__bar--value {
+  inline-size: 4rem;
+  block-size: var(--if-leading-sm);
+}
+@media (prefers-reduced-motion: no-preference) {
+  [data-look='lit'] .home-lit-legend__bar {
+    animation: home-lit-pulse 1.6s ease-in-out infinite;
+  }
+}
+@keyframes home-lit-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
 /* no split (a holding without a price): the reason, where the legend would be */
 [data-look='lit'] .home-lit-where__note {
   position: absolute;
