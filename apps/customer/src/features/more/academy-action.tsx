@@ -204,7 +204,7 @@ export function useAcademyAction() {
         </p>
       )}
       {snapshot.status === 'other' && !operation.current && (
-        <div className="failure" role="alert">
+        <div data-testid="failure" className="failure" role="alert">
           <h3>
             <Text k="common.outcome.not.confirmed" />
           </h3>
@@ -220,7 +220,7 @@ export function useAcademyAction() {
         </div>
       )}
       {snapshot.known && !snapshot.known.grant && (
-        <div className="failure">
+        <div data-testid="failure" className="failure">
           <p lang={copy.forLocale(language).languageFor('actionCleanup')}>{copy.t('actionCleanup')}</p>
           <Button lang={copy.forLocale(language).languageFor('cleanupAction')} onClick={() => void cleanup(snapshot.known!)}>
             {copy.t('cleanupAction')}
@@ -228,7 +228,7 @@ export function useAcademyAction() {
         </div>
       )}
       {snapshot.status === 'unreadable' && !snapshot.known && (
-        <div className="failure" role="alert">
+        <div data-testid="failure" className="failure" role="alert">
           <h3 lang={copy.forLocale(language).languageFor('storageTitle')}>{copy.t('storageTitle')}</h3>
           <p lang={copy.forLocale(language).languageFor('storageBody')}>{copy.t('storageBody')}</p>
           <Button variant="secondary" lang={copy.forLocale(language).languageFor('retryStorage')} onClick={redraw}>

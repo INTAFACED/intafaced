@@ -318,6 +318,7 @@ export function WorkbenchChart({
       <div className="wc-stage">
         <div
           ref={element}
+          data-testid="wc-host"
           className="wc-host"
           role="img"
           tabIndex={0}
@@ -340,7 +341,11 @@ export function WorkbenchChart({
         />
         {legend && focusBar ? (
           <div className="wc-legend" data-testid="chart-legend">
-            {settings.showTime && <span className="wc-time">{formatTime(Math.floor(focusBar.t / 1000))}</span>}
+            {settings.showTime && (
+              <span data-testid="wc-time" className="wc-time">
+                {formatTime(Math.floor(focusBar.t / 1000))}
+              </span>
+            )}
             <span>
               {labels.open} <b>{legend.open}</b>
             </span>

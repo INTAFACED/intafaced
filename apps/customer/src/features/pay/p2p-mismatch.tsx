@@ -72,7 +72,7 @@ export function ReportMismatch({ trade, pay, onReported }: { trade: Trade; pay: 
       </Button>
       {amount === '' ? <p className="muted">{t('amountMissing')}</p> : !wellFormed ? <p className="muted">{t('format')}</p> : null}
       {refusal ? (
-        <p className="failure" role="status">
+        <p data-testid="failure" className="failure" role="status">
           {refusal}
         </p>
       ) : failure ? (

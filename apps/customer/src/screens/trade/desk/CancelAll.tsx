@@ -73,6 +73,7 @@ export function CancelAll({ symbol, orders, onDone }: { symbol: string; orders: 
             </AlertDialogHeader>
             {note ? (
               <p
+                data-testid={note.tone === 'good' ? undefined : 'dk-note--bad'}
                 className={note.tone === 'good' ? 'dk-note dk-note--good' : 'dk-note dk-note--bad'}
                 role={note.tone === 'good' ? 'status' : 'alert'}
               >

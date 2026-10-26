@@ -264,12 +264,21 @@ export function StopEdit({
             <p className="dk-note dk-edit-help">{t('Edit stop explain')}</p>
           </div>
         )}
-        {review?.changed ? <p className="dk-note dk-note--warn">{t('Review changed')}</p> : null}
-        {review ? <p className="dk-note dk-note--warn">{t('Edit stop explain')}</p> : null}
+        {review?.changed ? (
+          <p data-testid="dk-note--warn" className="dk-note dk-note--warn">
+            {t('Review changed')}
+          </p>
+        ) : null}
+        {review ? (
+          <p data-testid="dk-note--warn" className="dk-note dk-note--warn">
+            {t('Edit stop explain')}
+          </p>
+        ) : null}
         {problem && !review && !finished ? <p className="dk-note">{problem}</p> : null}
         {unchanged && !finished ? <p className="dk-note">{t('Edit nothing changed')}</p> : null}
         {note ? (
           <p
+            data-testid={note.tone === 'good' ? undefined : 'dk-note--bad'}
             className={note.tone === 'good' ? 'dk-note dk-note--good' : 'dk-note dk-note--bad'}
             role={note.tone === 'good' ? 'status' : 'alert'}
           >
