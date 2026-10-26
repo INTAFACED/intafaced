@@ -11,7 +11,7 @@ import './lit-spike.css';
 
 const PRESET = FX_PRESETS['sphere-home-blue'];
 
-type Leaders = { d: string; starts: Array<[number, number]>; ends: Array<[number, number]>; rtl: boolean };
+type Leaders = { d: string; starts: Array<[number, number]>; ends: Array<[number, number]> };
 
 /** The sphere box's size in CSS pixels, for finding where its segments sit; follows the box as it mounts and resizes. */
 function useBoxSize() {
@@ -30,8 +30,9 @@ function useBoxSize() {
 
 /**
  * Leader lines from each legend row to its segment: out of the row's inline end, across, then once down (or up) onto
- * the segment, ending on a ringed node there. Rows run from the segment nearest the legend (lowest row) to the farthest
- * (top row), so no two lines cross; under right-to-left the legend and the lines mirror.
+ * the segment, ending on a ringed node there. The lowest row goes to the segment nearest the legend and the top row
+ * to the farthest, so no two lines cross; under right-to-left the rows keep their order and only x mirrors (the
+ * sphere's picture and the lines).
  */
 function useLeaders(panel: RefObject<HTMLDivElement | null>, sphere: HTMLDivElement | null, points: Array<[number, number]>) {
   const [leaders, setLeaders] = useState<Leaders | null>(null);
@@ -72,12 +73,13 @@ function useLeaders(panel: RefObject<HTMLDivElement | null>, sphere: HTMLDivElem
       if (!target) continue;
       const r = row.getBoundingClientRect();
       const [startX, startY] = [(rtl ? r.left : r.right) - origin.left, r.top + r.height / 2 - origin.top];
-      const [x, y] = [at.left - origin.left + target[0], at.top - origin.top + target[1]];
+      // the sphere box is mirrored under right-to-left (lit-spike.css), and its segments with it
+      const [x, y] = [at.left - origin.left + (rtl ? at.width - target[0] : target[0]), at.top - origin.top + target[1]];
       d += `M${startX},${startY} H${x} V${y} `;
       starts.push([startX, startY]);
       ends.push([x, y]);
     }
-    setLeaders({ d: d.trim(), starts, ends, rtl });
+    setLeaders({ d: d.trim(), starts, ends });
   }, [panel, sphere, key, layout]);
   return leaders;
 }
@@ -105,9 +107,10 @@ export function LitSphere({ portfolio, hidden }: { portfolio: Loadable<HomePortf
   const points = shares && size ? sphereCallouts(shares, size.w, size.h, PRESET.options) : [];
   const leaders = useLeaders(panel, el, points);
   if (!look) return null;
-  // the lowest legend row goes to the segment nearest the legend: the leftmost, or the rightmost under right-to-left
-  const near = (i: number) => (leaders?.rtl ? -1 : 1) * (points[i]?.[0] ?? i);
-  const order = parts ? parts.map((_, i) => i).sort((a, b) => near(a) - near(b)) : [];
+  // rows keep one order in both directions (the lowest row goes to the segment nearest the legend); right-to-left
+  // mirrors only x, the picture with the lines, so the order never waits on the measured direction
+  const x = (i: number) => points[i]?.[0] ?? i;
+  const order = parts ? parts.map((_, i) => i).sort((a, b) => x(a) - x(b)) : [];
   const name = (part: SpherePart) => (part.kind === 'cash' ? t('Cash') : part.kind === 'other' ? t('Sphere other') : part.asset);
   return (
     <section className="home-lit-where" aria-labelledby="home-lit-where-title">

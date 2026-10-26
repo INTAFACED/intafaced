@@ -31,6 +31,10 @@
   -webkit-mask-image: linear-gradient(90deg, transparent, var(--lit-page) 20% 80%, transparent);
   mask-image: linear-gradient(90deg, transparent, var(--lit-page) 20% 80%, transparent);
 }
+/* right-to-left mirrors the picture with the layout, so the legend's top row still reaches the farthest segment */
+[data-look='lit'] .home-lit-sphere:dir(rtl) {
+  transform: scaleX(-1);
+}
 [data-look='lit'] .home-lit-leaders {
   position: absolute;
   inset: 0;
