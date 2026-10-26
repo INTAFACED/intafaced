@@ -237,7 +237,7 @@ export function FlowTemplate(p: FlowProps) {
               {p.advanced}
             </Region>
           ) : null}
-          <Region name="actions" data label="Actions">
+          <Region name="actions" data ghost="keys" label="Actions">
             {p.actions}
           </Region>
         </div>
@@ -308,8 +308,8 @@ export function CatalogueTemplate(p: CatalogueProps) {
     );
   }
   return (
-    <RoomFrame {...p} template="catalogue">
-      <Region name="filters" ghost="keys">
+    <RoomFrame {...p} template="catalogue" liveBefore={p.filters}>
+      <Region name="filters" ghost="keys" live>
         {p.filters}
       </Region>
       {!isPro(p) ? (

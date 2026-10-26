@@ -55,16 +55,20 @@ export function RegistryLegalSlot({ moment, market, on, values, onLink }: Regist
     .join('')
     .trim();
   const bold = r.runs.some((run) => run.bold);
+  // The fixed English wording, its link included, reads left to right in English on any page (display: contents,
+  // so the wrapper adds no box).
   return (
-    <LegalSlot
-      {...common}
-      className={band ? 'lt-legal-band' : undefined}
-      bold={bold}
-      lang="en"
-      dir="ltr"
-      text={body}
-      missing=""
-      learnMore={link && onLink ? { label: link.text, onOpen: onLink } : undefined}
-    />
+    <div className="lt-legal-fixed" lang="en" dir="ltr">
+      <LegalSlot
+        {...common}
+        className={band ? 'lt-legal-band' : undefined}
+        bold={bold}
+        lang="en"
+        dir="ltr"
+        text={body}
+        missing=""
+        learnMore={link && onLink ? { label: link.text, onOpen: onLink } : undefined}
+      />
+    </div>
   );
 }

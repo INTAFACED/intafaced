@@ -84,13 +84,22 @@ export function Region({ name, data = false, primary = false, ghost = 'rows', la
   }
   if (data && WHOLE_ROOM.has(state.kind)) return null;
   let body: React.ReactNode = children;
+  let dimmed = false;
   if (held !== undefined) body = <p className="lt-held">{held}</p>;
   else if (data && state.kind === 'loading') body = <Skeleton shape={ghost} />;
   // Behind a gate a data region shows its locked outline, never figures, and never vanishes (product law: a gated
   // control is shown locked, not hidden). The Gate makes the room inert.
+  // Controls (ghost "keys") stay, named and disabled, so a customer sees what verifying unlocks.
+  else if (data && state.kind === 'gated' && ghost === 'keys' && children !== null) dimmed = true;
   else if (data && state.kind === 'gated') body = <Locked shape={ghost} label={label} />;
   return (
-    <section className="lt-region" data-region={name} data-held={held !== undefined || undefined} aria-label={label}>
+    <section
+      className="lt-region"
+      data-region={name}
+      data-held={held !== undefined || undefined}
+      data-dimmed={dimmed || undefined}
+      aria-label={label}
+    >
       {body}
     </section>
   );

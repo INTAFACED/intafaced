@@ -356,7 +356,7 @@ describe('states never contradict themselves', () => {
   });
 
   it('behind a gate, no region of a ready room disappears: data shows locked, controls stay visible', () => {
-    const LIVE = new Set(['rooms', 'help', 'index', 'contact']);
+    const LIVE = new Set(['rooms', 'help', 'index', 'contact', 'filters']);
     const regions = (out: string) => new Set([...out.matchAll(/data-region="([^"]+)"/g)].map((m) => m[1] ?? ''));
     for (const [id, room] of Object.entries(ROOMS)) {
       for (const mode of ['simple', 'pro'] as const) {
@@ -397,6 +397,8 @@ describe('states never contradict themselves', () => {
     expect(room).not.toContain('Talk to a person');
     expect(out.slice(out.indexOf('lit-gate__card'))).toContain('Talk to a person');
     expect(out).toContain('>Verify now</a>');
+    // Controls stay named and dimmed behind the gate, never folded into a lock.
+    expect(out).toMatch(/data-region="actions" data-dimmed="true"[^>]*>[\s\S]*Continue/);
   });
 
   it('room actions leave whole-room states, so the state has the only primary', () => {
