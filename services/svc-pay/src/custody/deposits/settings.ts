@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import type { Sql } from 'postgres';
-import { router, TRPCError, payAmountStringSchema } from '@intafaced/contracts';
+import {
+  PAY_CUSTODY_DEPOSIT_UNSUPPORTED_CASE_MAX,
+  PAY_CUSTODY_DEPOSIT_UNSUPPORTED_MAX,
+  router,
+  TRPCError,
+  payAmountStringSchema,
+} from '@intafaced/contracts';
 import { transaction } from '@intafaced/db';
 import {
   consumePayApproval,
@@ -55,8 +61,7 @@ const networkIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,32}$/);
 const labelSchema = z.string().trim().min(1).max(64);
 const haltNoteSchema = z.string().trim().min(1).max(280);
 /** One case custody will not credit on this network, as the owner writes it for customers. */
-const unsupportedCaseSchema = z.string().trim().min(1).max(280);
-export const MAX_UNSUPPORTED_CASES = 20;
+const unsupportedCaseSchema = z.string().trim().min(1).max(PAY_CUSTODY_DEPOSIT_UNSUPPORTED_CASE_MAX);
 const versionSchema = z.number().int().min(1).max(2_147_483_647);
 
 export const depositSettingSaveInputSchema = z
@@ -73,7 +78,7 @@ export const depositSettingSaveInputSchema = z
      */
     unsupportedCases: z
       .array(unsupportedCaseSchema)
-      .max(MAX_UNSUPPORTED_CASES)
+      .max(PAY_CUSTODY_DEPOSIT_UNSUPPORTED_MAX)
       .refine((cases) => new Set(cases).size === cases.length, 'each unsupported case once')
       .optional(),
     enabled: z.boolean(),
@@ -172,9 +177,9 @@ function canonical(minimum: string): string {
 }
 
 /**
- * What needs a second founder: switching a pair on or off, or, on a pair that is on, lowering the minimum or taking a case off the
- * unsupported list (customers stop being warned about it). Adding a case or rewording nothing away needs one founder. A new pair is
- * created off.
+ * What needs a second founder: switching a pair on or off, or, on a pair that is on, lowering the minimum or taking any case's exact
+ * words off the unsupported list (customers stop being warned in those words; a rewording counts too). Adding a case needs one
+ * founder. A new pair is created off.
  */
 export function depositSettingDualReasons(before: State | null, after: State): string[] {
   if (before === null) return [];

@@ -107,7 +107,17 @@ describe('custody deposit addresses (real Postgres)', () => {
       await expect(
         db.sql`UPDATE pay.custody_deposit_settings SET unsupported_cases = ${db.sql.array(Array.from({ length: 21 }, (_, i) => `TEST ${i}`))}::text[]`,
       ).rejects.toThrow();
-      await expect(db.sql.unsafe(`UPDATE pay.custody_deposit_settings SET unsupported_cases = ARRAY[NULL]::text[]`)).rejects.toThrow();
+      // Nor a null, blank, padded, overlong or repeated case: the catalogue svc-bank parses can never be broken by a row.
+      for (const bad of [
+        'ARRAY[NULL]::text[]',
+        "ARRAY['']",
+        "ARRAY['   ']",
+        "ARRAY[' padded']",
+        `ARRAY['${'x'.repeat(281)}']`,
+        "ARRAY['TEST a', 'TEST a']",
+      ]) {
+        await expect(db.sql.unsafe(`UPDATE pay.custody_deposit_settings SET unsupported_cases = ${bad}`)).rejects.toThrow();
+      }
     });
 
     it('leaves out a pair whose network is not routable, has no confirmation count or does not list the asset, and a disabled setting', async () => {

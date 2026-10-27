@@ -95,7 +95,7 @@ export class CustodyDepositService {
         estimatedArrivalMinutes: row.estimated_arrival_minutes,
         memoRequired: false,
         sharedAddressGroup: null,
-        // Sent only when the owner published some, so a bank that predates the list still reads the catalogue.
+        // Sent only when the owner published some: no list is no key, as the contract has it (an empty list is refused there).
         ...(row.unsupported_cases.length > 0 ? { unsupported: row.unsupported_cases } : {}),
       });
     }

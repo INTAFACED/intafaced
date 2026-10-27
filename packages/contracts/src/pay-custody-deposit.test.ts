@@ -53,6 +53,8 @@ describe('pay custody deposit contract', () => {
     expect(parse({ unsupported: ['TEST: a send from a smart contract'] })).toBe(true);
     expect(parse({ unsupported: [] })).toBe(false);
     expect(parse({ unsupported: [''] })).toBe(false);
+    expect(parse({ unsupported: [' padded'] })).toBe(false);
+    expect(parse({ unsupported: ['TEST same', 'TEST same'] })).toBe(false);
     expect(parse({ unsupported: ['x'.repeat(281)] })).toBe(false);
     expect(parse({ unsupported: Array.from({ length: 21 }, (_, i) => `TEST ${i}`) })).toBe(false);
   });
