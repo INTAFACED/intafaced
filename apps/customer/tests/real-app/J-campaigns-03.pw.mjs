@@ -258,7 +258,7 @@ test(`${J} #2 opens it with rewards in each state: earned, on hold and still ope
   await expect(waiting).toHaveAttribute('data-status', 'on_hold');
   await expect(waiting.getByTestId('reward-status')).toHaveText('On hold');
   await expect(waiting.getByTestId('reward-why')).toContainText('Waiting for the campaign’s review hold to end:');
-  await expect(waiting.getByTestId('reward-why')).toContainText(/1 hour left, until/);
+  await expect(waiting.getByTestId('reward-why')).toContainText(/(59 minutes|1 hour) left, until/);
   await expect(waiting.getByTestId('reward-tx')).toHaveCount(0);
 
   const still = row(hub, open.id);

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
-import { DEVICE_KEY, EDGE, ORIGIN, fromUnits, fund, journeyState, signOutBrowser, toUnits } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, fromUnits, fund, journeyState, json, signOutBrowser, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
 // J-bank-07, in the running app (docs/roadmap/journeys.json): I organise money in pots, goals and a shared account. Steps 1
@@ -38,22 +38,14 @@ test.describe.configure({ mode: 'default' });
 
 /** The person's own svc-bank API through Edge, with a session of its own (not the browser's). */
 async function bank(who) {
-  const res = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
+  const { status, body: login } = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
     method: 'POST',
     headers: { origin: ORIGIN, 'content-type': 'application/json' },
     body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
-  });
-  const text = await res.text();
-  const login = (() => {
-    try {
-      return JSON.parse(text);
-    } catch {
-      return undefined;
-    }
-  })();
+  }).then(json);
   const token = login?.result?.data?.accessToken;
   // The refusal's own words, so a red run names why (run 591 gave only "refused").
-  if (!token) throw new Error(`sign-in for ${who.email} refused: ${res.status} ${text.slice(0, 300)}`);
+  if (!token) throw new Error(`sign-in for ${who.email} refused: ${status} ${JSON.stringify(login).slice(0, 300)}`);
   const headers = { origin: ORIGIN, authorization: `Bearer ${token}` };
   const answer = async (res) => {
     const body = await res.json();

@@ -301,8 +301,8 @@ async function openFuturesAccess(page) {
 }
 
 /**
- * Waits until the TEST perp's book has an ask that a market open of `size` reaches within its protective limit (the mark
- * plus the slippage cap, which the preview names as `orderPrice`). The market maker re-quotes the perp every few seconds
+ * Waits until the TEST perp's book offers at least `size` within a market open's protective limit (the mark plus the
+ * slippage cap, which the preview names as `orderPrice`). The market maker re-quotes the perp every few seconds
  * and its quotes are sometimes all taken or a step past the cap; a market open sent then is refused
  * trade.futures_order_unfilled with nothing opened (run 591 on main), which is the service working, not this step.
  */
@@ -313,8 +313,11 @@ async function fillableAsk(who, size, leverage) {
       async () => {
         const { body } = await me.post('/api/v1/positions/preview', { symbol: FUTURES, side: 'long', size, leverage });
         if (!body?.orderPrice) return `no order price: ${JSON.stringify(body?.refusals ?? body).slice(0, 200)}`;
-        const { ask } = await bestPrices(FUTURES, 5, 0);
-        return toUnits(ask) <= toUnits(body.orderPrice) ? 'fillable' : `best ask ${ask} is past the limit ${body.orderPrice}`;
+        const { body: book } = await bestPrices(FUTURES, 20, 0);
+        const limit = toUnits(body.orderPrice);
+        const reachable = book.asks.filter(([price]) => toUnits(String(price)) <= limit);
+        const depth = reachable.reduce((sum, [, amount]) => sum + toUnits(String(amount)), 0n);
+        return depth >= toUnits(size) ? 'fillable' : `${fromUnits(depth)} on offer within the limit ${body.orderPrice}`;
       },
       { timeout: 60_000, intervals: [1_000], message: 'the TEST perp book has an ask a market open can fill' },
     )
@@ -338,12 +341,13 @@ test(`${J} #4 reads collateral apart: a TEST futures margin sits under Locked, n
   const ticket = page.getByRole('region', { name: 'Order ticket' });
   await ticket.getByRole('textbox', { name: 'Size' }).fill('0.001');
   await ticket.getByRole('textbox', { name: 'Leverage' }).fill('5');
-  await fillableAsk(who, '0.001', '5');
   await ticket.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('button', { name: 'Open long' }).click();
   const dialog = page.getByRole('alertdialog');
   const tier = dialog.getByRole('region', { name: 'New margin tier' });
   if ((await tier.count()) > 0) await tier.getByRole('checkbox').click();
+  // Checked last, so the book it saw is the one the order meets.
+  await fillableAsk(who, '0.001', '5');
   await dialog.getByRole('button', { name: 'Confirm open long' }).click();
   const filled = page.getByText('Order filled');
   await expect(filled.or(dialog.getByText('The numbers moved since you reviewed'))).toBeVisible({ timeout: 20_000 });
