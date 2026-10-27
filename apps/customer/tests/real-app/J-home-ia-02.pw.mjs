@@ -158,6 +158,37 @@ test(`${J} #4 typing "chain" lists the parked room and says it opens to its bloc
   await expect(page).toHaveURL(/\/chain$/);
 });
 
+/** Today's header-search misses as the founders read them (the stack's TEST founder, through Edge). */
+async function missesToday() {
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  const ctx = await gates.makeContext({ log: () => {} });
+  const founders = await gates.approverSessions(ctx);
+  const res = await ctx.edge.query('notify', 'navMetrics.searchMisses', { days: 1 }, founders.a.token);
+  const data = res.json?.result?.data;
+  if (!data) throw new Error(`search-miss read refused: ${res.status} ${res.text.slice(0, 300)}`);
+  expect(data.lowerBound).toBe(true);
+  return data.days.reduce((sum, row) => sum + row.count, 0);
+}
+
+test(`${J} #6 a search for something that does not exist says nothing was found, and the miss is counted for the founders without who searched`, async ({
+  page,
+}) => {
+  await signIn(page, who);
+  await page.goto('/home');
+  const before = await missesToday();
+  const words = `zq${Date.now().toString(36)} nowhere`;
+  const counted = page.waitForRequest((req) => req.url().includes('navMetrics.searchMiss') && req.method() === 'POST');
+  const panel = await search(page, words);
+  await expect(panel).toContainText(`No results for "${words}"`);
+  await page.getByRole('combobox', { name: 'Search markets' }).press('Enter');
+  // The count carries no words and no account: the request names neither.
+  const request = await counted;
+  expect(`${request.url()} ${request.postData() ?? ''}`).not.toContain(words.split(' ')[0]);
+  await expect(panel).toContainText(`No results for "${words}"`);
+  await expect(panel.getByRole('option', { name: 'Open Help' })).toBeVisible();
+  await expect.poll(missesToday).toBe(before + 1);
+});
+
 test(`${J} #8 a deep link while signed out: public rooms open, private rooms ask to sign in and come back to the same room`, async ({
   browser,
 }) => {

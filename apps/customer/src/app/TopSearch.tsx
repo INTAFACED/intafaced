@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
-import { useSession } from '../features/session/session';
+import { useApi, useSession } from '../features/session/session';
+import { z } from 'zod';
 import { CoinIcon } from '@intafaced/ui';
 import { fmtPrice, useMarkets, useTickers, type Loadable, type MarketRow, type TickerRow } from '../data';
 import { assetName, homeCopy } from '../screens/home/copy';
@@ -202,6 +203,8 @@ function SearchPanel({
     return isUsdQuote(market.quote) ? `$${price}` : `${price} ${market.quote}`;
   };
   const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  const loading = source.status === 'loading';
+  const api = useApi();
   const helpList = useMemo<Row[]>(() => {
     if (help.status === 'idle') return [];
     const articles =
@@ -254,6 +257,17 @@ function SearchPanel({
     return [...coins, ...markets, ...pages, ...helpList];
   }, [source, tickers, pages, helpList, layoutMode, query, signedIn]);
 
+  // A submitted search (Enter) that found nothing is counted once for the founders: no words, no account, no retry.
+  const counted = useRef<string | null>(null);
+  const found = rows.some((row) => row.group !== 'Help');
+  const settled = !loading && help.status !== 'loading' && words.length > 0;
+  function countMiss() {
+    const key = words.join(' ');
+    if (counted.current === key) return;
+    counted.current = key;
+    void api.mutate('notify', 'navMetrics.searchMiss', undefined, z.unknown()).catch(() => undefined);
+  }
+
   function choose(row: Row | undefined) {
     if (!row) return;
     close();
@@ -269,6 +283,8 @@ function SearchPanel({
       setActive(rows.length ? (active - 1 + rows.length) % rows.length : 0);
     } else if (event.key === 'Enter') {
       event.preventDefault();
+      // Nothing found: Enter keeps "No results" in view and counts the miss; Help stays one click away.
+      if (!found && settled) return countMiss();
       choose(rows[Math.min(active, rows.length - 1)]);
     }
   }
@@ -281,7 +297,6 @@ function SearchPanel({
   });
 
   const groups: Group[] = ['Coins', 'Markets', 'Pages', 'Help'];
-  const loading = source.status === 'loading';
   let index = -1;
   return (
     <div data-testid="tb-search-panel" className="tb-popover tb-search-panel" role="presentation">
@@ -335,7 +350,7 @@ function SearchPanel({
           );
         })}
       </ul>
-      {!rows.some((row) => row.group !== 'Help') && !loading && help.status !== 'loading' && words.length > 0 && (
+      {!found && settled && (
         <p className="tb-empty" role="status">
           {t('No results for "{query}"', { query })}
         </p>
