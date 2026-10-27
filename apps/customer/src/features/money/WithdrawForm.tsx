@@ -334,6 +334,8 @@ export function WithdrawForm() {
   }
 
   async function sendInside(token: string, send: OpenSend) {
+    // Kept in the tab before the ask leaves, so a reload or a crash while it is in flight finishes it, never starts another.
+    keepOpen(userId, { ...send, unanswered: true });
     const answer = await api.mutate(
       'pay',
       'withdrawal.create',
@@ -407,7 +409,19 @@ export function WithdrawForm() {
     // After an ask whose answer was lost, the earlier send may have been recorded, so no refusal of a retry is final: the
     // reference is kept until svc-pay records that withdrawal.
     const wasUnanswered = openOut !== null;
+    const open: OpenOut = {
+      assetId: input.assetId,
+      networkId: input.networkId,
+      destinationId,
+      amount: input.amount,
+      clientRef: input.clientRef,
+    };
+    // Kept in the tab before the ask leaves, so a reload or a crash while it is in flight finishes it, never starts another.
+    keepOut(userId, open);
     const answer = await createWithdrawSend(api).send(input, token);
+    const settled = answer.ok || (definite(answer) && !wasUnanswered);
+    // Only a recorded withdrawal or a definite first refusal lets the reference go, even if the page has gone since.
+    if (settled) keepOut(userId, null);
     if (!alive.current) return { ok: true, data: null };
     // The answer is shown on the page, with the balance and the limit line as svc-pay reads them now.
     held.reload();
@@ -416,11 +430,11 @@ export function WithdrawForm() {
       sendRef.current = null;
       setOpenOut(null);
       setOutcome({ kind: 'sent', record: answer.data });
-    } else if (definite(answer) && !wasUnanswered) {
+    } else if (settled) {
       sendRef.current = null;
       setOutcome({ kind: 'refused', failure: answer, asset: input.assetId });
     } else {
-      setOpenOut({ assetId: input.assetId, networkId: input.networkId, destinationId, amount: input.amount, clientRef: input.clientRef });
+      setOpenOut(open);
       setOutcome({ kind: 'unknown', failure: answer });
     }
     setQuote({ status: 'idle' });

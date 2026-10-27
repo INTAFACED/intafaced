@@ -180,6 +180,27 @@ describe('Withdraw to another INTAFACED account', () => {
     expect(sessionStorage.length).toBe(0);
   });
 
+  it('keeps a send whose ask is still in flight across a reload, and finishes it under the same reference', async () => {
+    query.mockResolvedValue({ ok: true, data: { kind: 'internal' } });
+    // The first ask never answers: the tab reloads (or crashes) while it is in flight.
+    mutate.mockReturnValueOnce(new Promise(() => {})).mockResolvedValueOnce(sent);
+    await fill(FRIEND, '10');
+    await click('Send inside INTAFACED');
+    await click('Confirm');
+    act(() => root?.unmount());
+    root = createRoot(host);
+    const again = root;
+    query.mockResolvedValue({ ok: true, data: { kind: 'unavailable', reason: 'unavailable' } });
+    await act(async () => again.render(<WithdrawForm />));
+    expect(input('Amount').value).toBe('10');
+    expect(input('Amount').readOnly).toBe(true);
+    await click('Confirm again to finish');
+    await click('Confirm');
+    expect(mutate).toHaveBeenCalledTimes(2);
+    expect(mutate.mock.calls[1]![2]).toEqual(mutate.mock.calls[0]![2]);
+    expect(sessionStorage.length).toBe(0);
+  });
+
   it('closes a lost send when svc-bank answers the retry with a refusal, since nothing moved', async () => {
     query.mockResolvedValue({ ok: true, data: { kind: 'internal' } });
     mutate

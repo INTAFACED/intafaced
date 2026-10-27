@@ -299,6 +299,49 @@ describe('sending crypto out (J-wallet-05)', () => {
     expect(sessionStorage.length).toBe(0);
   });
 
+  it('keeps a send whose ask is still in flight across a reload, and finishes it under the same reference', async () => {
+    mint.mockResolvedValue({ ok: true, data: { accessToken: 'one-use', expiresAt: '2026-10-23T05:10:00Z' } });
+    mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('25') });
+    // The first send never answers: the tab reloads (or crashes) while it is in flight.
+    mutate.mockReturnValueOnce(new Promise(() => {}));
+    mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('25') });
+    mutate.mockResolvedValueOnce({ ok: true, data: { id: '99999999-9999-4999-8999-999999999999' } });
+    await mount();
+    await type('Saved address', ROW.destinationId);
+    await type('Amount', '25');
+    await press('Get the fee');
+    await press('Confirm and send');
+    await confirmWithCode();
+    act(() => root?.unmount());
+    root = null;
+    await mount();
+    expect((field('Amount') as HTMLInputElement).value).toBe('25');
+    expect((field('Amount') as HTMLInputElement).readOnly).toBe(true);
+    await press('Get the fee');
+    await press('Confirm again to finish');
+    await confirmWithCode();
+    const sends = mutate.mock.calls.filter(([, procedure]) => procedure === 'withdrawal.create');
+    expect(sends).toHaveLength(2);
+    expect(sends[1]![2].clientRef).toBe(sends[0]![2].clientRef);
+    expect(text()).toContain('Withdrawal 99999999-9999-4999-8999-999999999999 is recorded.');
+    expect(sessionStorage.length).toBe(0);
+  });
+
+  it('lets the reference go on a definite first refusal, so nothing is kept in the tab', async () => {
+    mint.mockResolvedValue({ ok: true, data: { accessToken: 'one-use', expiresAt: '2026-10-23T05:10:00Z' } });
+    mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('25') });
+    mutate.mockResolvedValueOnce(refusal('pay.wallet_withdraw_unavailable', 400));
+    await mount();
+    await type('Saved address', ROW.destinationId);
+    await type('Amount', '25');
+    await press('Get the fee');
+    await press('Confirm and send');
+    await confirmWithCode();
+    expect(text()).toContain('Nothing was sent and nothing is held.');
+    expect(sessionStorage.length).toBe(0);
+    expect((field('Amount') as HTMLInputElement).readOnly).toBe(false);
+  });
+
   it('gives a send for other terms its own reference', async () => {
     mint.mockResolvedValue({ ok: true, data: { accessToken: 'one-use', expiresAt: '2026-10-23T05:10:00Z' } });
     mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('25') });
