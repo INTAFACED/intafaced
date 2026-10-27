@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { journeyState } from './stack.mjs';
+import { tableIn } from './tables.mjs';
 
 // J-campaigns-16, in the running app (docs/roadmap/journeys.json): build a campaign and take it live, as a founder on the
 // founder console's campaigns desk (/more-ops/campaigns). One test per step, titled "J-campaigns-16 #<n>". Founders A and
@@ -20,7 +21,7 @@ const draftName = () => run.read().name ?? 'TEST task campaign (made in #2)';
 test.describe.configure({ mode: 'default' });
 
 const builder = (page) => page.getByRole('form', { name: 'Campaign builder' });
-const campaigns = (page) => page.getByRole('table', { name: 'Campaigns' });
+const campaigns = (page) => tableIn(page, 'Campaigns');
 
 async function openDesk(page, founder = 'a') {
   await founderSignIn(page, founder);

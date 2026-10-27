@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { signIn, signUp } from './desk.mjs';
 import { toUnits } from './stack.mjs';
 import { installTestWallet } from './test-wallet.mjs';
+import { tableIn, bodyRows } from './tables.mjs';
 
 // J-dex-protocol-07, in the running app (docs/roadmap/journeys.json): find a token, read its page and judge how much to
 // trust it. One test per step, titled "J-dex-protocol-07 #<n>". Signed out unless a step says otherwise; a quick trade is a
@@ -23,7 +24,7 @@ async function openTokens(page) {
   await expect(page.getByRole('heading', { name: 'Tokens', level: 1 })).toBeVisible();
 }
 
-const tokenRows = (page) => page.getByRole('table', { name: 'Tokens' }).locator('tbody tr');
+const tokenRows = (page) => bodyRows(tableIn(page, 'Tokens'));
 
 test(`${J} #1 opens Tokens and the Trending tab: rows by growth for the window with the formula link; a saved filter survives reload; blocked storage still works`, async ({
   page,
@@ -32,7 +33,7 @@ test(`${J} #1 opens Tokens and the Trending tab: rows by growth for the window w
   await openTokens(page);
   await page.getByRole('tab', { name: 'Trending' }).click();
   await expect(page.getByRole('link', { name: 'How trending is worked out' })).toBeVisible();
-  const growth = await page.getByRole('table', { name: 'Tokens' }).getByTestId('token-growth').allInnerTexts();
+  const growth = await tableIn(page, 'Tokens').getByTestId('token-growth').allInnerTexts();
   const values = growth.map((text) => Number(text.replace(/[^\d.-]/g, '')));
   expect(values).toEqual([...values].sort((a, b) => b - a));
   await page.getByRole('combobox', { name: 'Window' }).selectOption('24h');
@@ -58,14 +59,11 @@ test(`${J} #2 opens New listings and Top traded: Top traded by volume, New by li
 }) => {
   await openTokens(page);
   await page.getByRole('tab', { name: 'Top traded' }).click();
-  const volumes = (await page.getByRole('table', { name: 'Tokens' }).getByTestId('token-volume').allInnerTexts()).map((t) =>
-    Number(t.replace(/[^\d.]/g, '')),
-  );
+  const volumes = (await tableIn(page, 'Tokens').getByTestId('token-volume').allInnerTexts()).map((t) => Number(t.replace(/[^\d.]/g, '')));
   expect(volumes).toEqual([...volumes].sort((a, b) => b - a));
   await page.getByRole('tab', { name: 'New listings' }).click();
-  const listed = await page
-    .getByRole('table', { name: 'Tokens' })
-    .locator('time')
+  const listed = await tableIn(page, 'Tokens')
+    .getByTestId('token-listed-at')
     .evaluateAll((items) => items.map((t) => t.getAttribute('datetime')));
   expect(listed).toEqual([...listed].sort().reverse());
   await page.getByRole('searchbox', { name: 'Search tokens' }).fill(TOKEN);

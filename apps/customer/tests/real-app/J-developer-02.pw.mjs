@@ -1,8 +1,8 @@
-import { randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import { EDGE, api, json, journeyState, tool, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
+import { tableIn, bodyRows } from './tables.mjs';
 
 // J-developer-02, in the running app (docs/roadmap/journeys.json): make a first call in the sandbox. One test per step,
 // titled "J-developer-02 #<n>". The person is a TEST account on the local stack, signed in, with a passkey for each fresh
@@ -15,7 +15,8 @@ import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-fac
 //   unset; #5 sets a TEST value with `local-test-gates.mjs sandbox-funds set` (proposed, not built).
 // - #7: no door refuses a sandbox key at the live host with `env.mismatch`.
 const J = 'J-developer-02';
-const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+const RUN = process.env.JOURNEY_RUN_ID ?? 'local';
+const run = journeyState(`${J}-${RUN}`);
 const UNBUILT = { timeout: 5_000 };
 
 test.describe.configure({ mode: 'default' });
@@ -23,7 +24,7 @@ test.describe.configure({ mode: 'default' });
 /** @type {import('@playwright/test').Page} */
 let page;
 
-const sandboxes = () => page.getByRole('table', { name: 'Your sandboxes' });
+const sandboxes = () => tableIn(page, 'Your sandboxes');
 
 async function openSandbox(name) {
   await page.goto('/developers/sandbox');
@@ -77,7 +78,7 @@ test(`${J} #2 creates a sandbox with a name: listed, and a second named sandbox 
     await page.getByRole('button', { name: 'Create sandbox' }).click();
     await expect(sandboxes().getByRole('row', { name: new RegExp(`^${name}\\b`) })).toBeVisible();
   }
-  await expect(sandboxes().locator('tbody tr')).toHaveCount(2);
+  await expect(bodyRows(sandboxes())).toHaveCount(2);
 });
 
 test(`${J} #3 creates a sandbox key: shown once with the sandbox base URL, sandbox-safe scopes only, and a trade scope is refused for that reason`, async () => {
@@ -93,7 +94,7 @@ test(`${J} #3 creates a sandbox key: shown once with the sandbox base URL, sandb
   await page.getByLabel('Read only', { exact: true }).check();
   await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Your new key' })).toBeVisible();
-  const key = (await page.getByTestId('api-keys__key').locator('code').textContent())?.trim();
+  const key = (await page.getByTestId('api-keys__key').textContent())?.trim();
   expect(key).toMatch(/^ifc_test_/);
   const baseUrl = (await page.getByTestId('sandbox-base-url').textContent())?.trim();
   expect(baseUrl).toMatch(/^https?:\/\//);
@@ -145,15 +146,14 @@ test(`${J} #8 triggers a simulated decline and resets the balance: the payment e
   test.setTimeout(180_000);
   const { key, baseUrl } = run.read();
   await page.goto('/developers/sandbox/test-values');
-  const decline = page
-    .getByRole('table', { name: 'Test values' })
+  const decline = tableIn(page, 'Test values')
     .getByRole('row', { name: /Decline/ })
     .getByRole('code')
     .first();
   await expect(decline).toBeVisible(UNBUILT);
   const payment = await fetch(`${baseUrl}/api/pay/v1/payments`, {
     method: 'POST',
-    headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'idempotency-key': `jd02-decline-${randomUUID()}` },
+    headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'idempotency-key': `jd02-${RUN}-8-decline` },
     body: JSON.stringify({ amount: '10', currency: 'USD', card: (await decline.textContent())?.trim() }),
   }).then(json);
   expect(payment.body?.status, JSON.stringify(payment.body)).toBe('declined');

@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { journeyState } from './stack.mjs';
 import { signIn, signUp } from './desk.mjs';
+import { tableIn, bodyRows } from './tables.mjs';
 
 // J-more-catalogue-09, in the running app (docs/roadmap/journeys.json): read a governance proposal and cast a vote. One
 // test per step, titled "J-more-catalogue-09 #<n>". The person is a TEST account on the local stack. A vote moves no
@@ -23,7 +24,7 @@ async function openGovernance(page) {
 }
 
 const space = (page) => page.getByRole('region', { name: 'Governance space' });
-const proposals = (page) => page.getByRole('table', { name: 'Proposals' });
+const proposals = (page) => tableIn(page, 'Proposals');
 
 test(`${J} starts: a signed-up TEST account`, async ({ page }) => {
   const who = await signUp(page, 'gv');
@@ -54,12 +55,12 @@ test(`${J} #2 follows the space, twice: the follow persists, and the second foll
 test(`${J} #3 filters and searches the proposals: only matches, with dates and counts`, async ({ page }) => {
   await openGovernance(page);
   await page.getByRole('combobox', { name: 'Status' }).selectOption({ label: 'Active' }, UNBUILT);
-  const rows = proposals(page).locator('tbody tr');
+  const rows = bodyRows(proposals(page));
   for (const row of await rows.all()) await expect(row).toContainText('Active');
   await page.getByRole('searchbox', { name: 'Search proposals' }).fill('TEST');
   for (const row of await rows.all()) {
     await expect(row).toContainText('TEST');
-    await expect(row.locator('time').first()).toBeVisible();
+    await expect(row.getByTestId('proposal-voting-dates')).toBeVisible();
   }
   await expect(page.getByTestId('proposals-count')).toHaveText(new RegExp(`^${await rows.count()} `));
 });
@@ -96,7 +97,7 @@ test(`${J} #6 opens a proposal and reads the voting power: fixed when it was cre
   await proposals(page).getByRole('link').first().click(UNBUILT);
   const power = page.getByRole('region', { name: 'Your voting power' });
   await expect(power).toContainText(/Fixed at block \d+|Fixed on /);
-  await expect(power.getByRole('table', { name: 'Voting power over time' })).toBeVisible();
+  await expect(tableIn(power, 'Voting power over time')).toBeVisible();
 });
 
 test(`${J} #7 casts a vote: a ballot with bad weights refused; the vote needs a signed message; without a wallet link the typed unavailable reply`, async ({

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { tableIn, bodyRows } from './tables.mjs';
 
 // J-developer-01, in the running app (docs/roadmap/journeys.json): a signed-out developer reads the portal at /developers
 // and finds where to start. One test per step, titled "J-developer-01 #<n>". Nothing here needs an account or money.
@@ -55,7 +56,7 @@ test(`${J} #2 opens the base-URL table: one row per protocol, environment and re
   await page.getByRole('link', { name: /Open the table of base addresses/ }).click();
   await expect(page).toHaveURL(/\/developers\/hosts$/);
   await expect(page.getByRole('heading', { name: 'Base addresses', level: 1 })).toBeVisible();
-  const rows = page.getByRole('table').locator('tbody tr');
+  const rows = bodyRows(page.getByRole('table'));
   await expect(rows).toHaveCount(9);
   for (const protocol of ['REST', 'WebSocket', 'FIX']) {
     for (const environment of ['Production', 'Sandbox', 'Regional']) {
@@ -77,7 +78,7 @@ test(`${J} #3 opens the connectivity options: internet and redundant endpoints w
 }) => {
   await page.goto('/developers/connectivity');
   await expect(page.getByRole('heading', { name: 'Connectivity', level: 1 })).toBeVisible(UNBUILT);
-  const options = page.getByRole('table', { name: 'Connectivity options' });
+  const options = tableIn(page, 'Connectivity options');
   for (const option of ['Internet', 'Redundant endpoint']) {
     await expect(options.getByRole('row', { name: new RegExp(option) })).toContainText(/Available|host not set/);
   }
@@ -145,11 +146,11 @@ test(`${J} #6 reads which data products I may use and on what terms: redistribut
 }) => {
   await page.goto('/developers/data-terms');
   await expect(page.getByRole('heading', { name: /Market data terms/, level: 1 })).toBeVisible(UNBUILT);
-  const table = page.getByRole('table', { name: /data products/i });
+  const table = tableIn(page, /data products/i);
   for (const column of ['Product', 'Entitlement', 'Redistribution', 'Retention']) {
     await expect(table.getByRole('columnheader', { name: column })).toBeVisible();
   }
-  const rows = table.locator('tbody tr');
+  const rows = bodyRows(table);
   expect(await rows.count()).toBeGreaterThan(0);
   // A term the owner has not set reads "not set", never an invented value.
   for (const cell of await table.getByRole('cell').allInnerTexts()) expect(cell.trim()).not.toBe('');

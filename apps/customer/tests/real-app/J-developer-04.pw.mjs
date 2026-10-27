@@ -3,6 +3,7 @@ import { test, expect } from '@playwright/test';
 import { EDGE, json, journeyState, staffFreeze, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
+import { tableIn } from './tables.mjs';
 
 // J-developer-04, in the running app (docs/roadmap/journeys.json): sign requests and understand the errors that come
 // back. One test per step, titled "J-developer-04 #<n>". The person is a TEST account on the local stack with a passkey
@@ -17,7 +18,8 @@ import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-fac
 // - #7: replies carry `x-request-id` only on rate-limit refusals, and no received or sent time (RC-developer-03).
 // #6 runs last: it freezes the account.
 const J = 'J-developer-04';
-const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+const RUN = process.env.JOURNEY_RUN_ID ?? 'local';
+const run = journeyState(`${J}-${RUN}`);
 const UNBUILT = { timeout: 5_000 };
 
 test.describe.configure({ mode: 'default' });
@@ -32,8 +34,8 @@ async function makeKey(name, preset = 'Trade') {
   await page.getByLabel(preset, { exact: true }).check();
   await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Your new key' })).toBeVisible();
-  const key = (await page.getByTestId('api-keys__key').locator('code').textContent())?.trim();
-  const secretBox = page.getByTestId('api-keys__signing-secret').locator('code');
+  const key = (await page.getByTestId('api-keys__key').textContent())?.trim();
+  const secretBox = page.getByTestId('api-keys__signing-secret');
   const secret = (await secretBox.count()) ? (await secretBox.textContent())?.trim() : undefined;
   await page.getByLabel('I have stored this key somewhere safe').check();
   await page.getByRole('button', { name: 'Done' }).click();
@@ -123,7 +125,7 @@ test(`${J} #3 sends a request with two invalid fields: one typed body listing bo
   const { trade } = run.read();
   const reply = await call('POST', '/api/v1/orders', {
     ...trade,
-    body: { symbol: 'BTC/USDT', type: 'limit', side: 'sideways', amount: '-1', price: '1', clientOrderId: `jd04-${randomUUID()}` },
+    body: { symbol: 'BTC/USDT', type: 'limit', side: 'sideways', amount: '-1', price: '1', clientOrderId: `jd04-${RUN}-3` },
   });
   expect(reply.status).toBe(400);
   expect(reply.body, JSON.stringify(reply.body)).toMatchObject({ code: expect.any(String), message: expect.any(String) });
@@ -140,7 +142,7 @@ test(`${J} #4 provokes a gateway refusal and a service error: the edge prefix te
   expect(codeOf(gateway), JSON.stringify(gateway.body)).toMatch(/^edge\./);
   const service = await call('POST', '/api/v1/orders', {
     ...trade,
-    body: { symbol: 'NOPE/USDT', type: 'limit', side: 'buy', amount: '1', price: '1', clientOrderId: `jd04-${randomUUID()}` },
+    body: { symbol: 'NOPE/USDT', type: 'limit', side: 'buy', amount: '1', price: '1', clientOrderId: `jd04-${RUN}-4` },
   });
   expect(service.status).toBeGreaterThanOrEqual(400);
   expect(codeOf(service), JSON.stringify(service.body)).toBeTruthy();
@@ -151,7 +153,7 @@ test(`${J} #4 provokes a gateway refusal and a service error: the edge prefix te
 test(`${J} #5 calls with a missing, wrong, revoked or out-of-scope key: each body code matches the catalogue entry`, async () => {
   test.setTimeout(180_000);
   await page.goto('/developers/errors/auth');
-  const catalogue = page.getByRole('table', { name: /Authentication and permission errors/ });
+  const catalogue = tableIn(page, /Authentication and permission errors/);
   await expect(catalogue).toBeVisible(UNBUILT);
   const codeFor = async (cause) =>
     (
@@ -171,7 +173,7 @@ test(`${J} #5 calls with a missing, wrong, revoked or out-of-scope key: each bod
     .click();
   await page.getByRole('dialog').getByRole('button', { name: 'Revoke' }).click();
 
-  const order = { symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '0.001', price: '1', clientOrderId: `jd04-${randomUUID()}` };
+  const order = { symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '0.001', price: '1', clientOrderId: `jd04-${RUN}-5` };
   const cases = [
     ['missing', await call('GET', '/api/v1/account/balance', {})],
     ['wrong', await call('GET', '/api/v1/account/balance', { key: 'ifc_not_a_real_key_000000000000' })],
@@ -201,7 +203,7 @@ test(`${J} #6 calls from a frozen account, then a money call during the platform
   tool('local-test-gates.mjs', 'posting-freeze', 'on');
   let failed;
   try {
-    const order = { symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '0.001', price: '1', clientOrderId: `jd04-${randomUUID()}` };
+    const order = { symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '0.001', price: '1', clientOrderId: `jd04-${RUN}-6` };
     const money = await call('POST', '/api/v1/orders', { ...trade, body: order });
     expect(codeOf(money), JSON.stringify(money.body)).toBe('posting_frozen');
     expect((await call('GET', '/api/v1/account/balance', trade)).status).toBe(200);

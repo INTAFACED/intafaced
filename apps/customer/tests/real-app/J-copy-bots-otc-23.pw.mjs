@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { api, bestPrices, fund, journeyState, signOutBrowser, times, tool, toUnits } from './stack.mjs';
 import { fundedTrader, signIn, signUp } from './desk.mjs';
+import { tableIn } from './tables.mjs';
 
 // J-copy-bots-otc-23, in the running app (docs/roadmap/journeys.json): work a large order slowly with TWAP, chase or
 // iceberg on /execution. One test per step, titled "J-copy-bots-otc-23 #<n>", run in order. The trader starts signed
@@ -75,7 +76,7 @@ test(`${J} #1 opens Execution: five tabs render, and a blocked tab names its dep
   // The stack runs the slice scheduler, so the algo form is open; Routing is blocked and says on what.
   await expect(page.getByText('Scheduler running')).toBeVisible();
   await tabs.getByRole('tab', { name: 'Routing', exact: true }).click();
-  const caps = page.getByRole('table', { name: 'Capabilities' });
+  const caps = tableIn(page, 'Capabilities');
   await expect(caps.getByText('Blocked').first()).toBeVisible();
   await expect(caps.getByText(/venue submit port/).first()).toBeVisible();
 });

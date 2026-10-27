@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { api, fund, journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
+import { tableIn, bodyRows } from './tables.mjs';
 
 // J-more-catalogue-02, in the running app (docs/roadmap/journeys.json): find a strategy in the Market and buy it. One test
 // per step, titled "J-more-catalogue-02 #<n>". The buyer is a TEST account on the local stack, verified and funded with
@@ -106,7 +107,7 @@ test(`${J} #5 presses Buy again, or loses the reply: one purchase, and the scree
   await expect(listing.getByRole('button', { name: 'Buy' })).toBeDisabled();
   await expect(listing).toContainText('You own this. Held until the refund window ends.');
   await page.goto('/market/purchases');
-  await expect(page.getByRole('table', { name: 'Your purchases' }).getByRole('row', { name: new RegExp(LISTING) })).toHaveCount(1);
+  await expect(tableIn(page, 'Your purchases').getByRole('row', { name: new RegExp(LISTING) })).toHaveCount(1);
   expect(await usdt(who)).toEqual(before);
 });
 
@@ -118,7 +119,7 @@ test(`${J} #6 requests a refund inside the window: the amount returns once; with
   const before = await usdt(who);
   await signIn(page, who);
   await page.goto('/market/purchases');
-  const row = page.getByRole('table', { name: 'Your purchases' }).getByRole('row', { name: new RegExp(LISTING) });
+  const row = tableIn(page, 'Your purchases').getByRole('row', { name: new RegExp(LISTING) });
   await row.getByRole('button', { name: 'Ask for a refund' }).click(UNBUILT);
   await page.getByRole('dialog').getByRole('button', { name: 'Refund' }).click();
   const said = page.getByRole('status').or(page.getByRole('alert'));
@@ -149,10 +150,10 @@ test(`${J} #8 opens /market/purchases: price, window and status for each; a pend
 }) => {
   await signIn(page, run.read().who);
   await page.goto('/market/purchases');
-  const table = page.getByRole('table', { name: 'Your purchases' });
+  const table = tableIn(page, 'Your purchases');
   await expect(table).toBeVisible(UNBUILT);
   for (const column of ['Price', 'Refund window', 'Status']) await expect(table.getByRole('columnheader', { name: column })).toBeVisible();
-  for (const row of await table.locator('tbody tr').all()) {
+  for (const row of await bodyRows(table).all()) {
     if (/Held|Pending/.test(await row.innerText())) await expect(row.getByRole('link', { name: 'Receipt' })).toHaveCount(0);
   }
 });

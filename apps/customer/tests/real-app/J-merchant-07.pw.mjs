@@ -3,6 +3,7 @@ import { test, expect } from '@playwright/test';
 import { ROOT, journeyState, tool } from './stack.mjs';
 import { forgetSession, nextCode } from './identity-factors.mjs';
 import { businessReadyPerson, openBusiness, signInWithCode, verifiedBusiness } from './merchant.mjs';
+import { tableIn } from './tables.mjs';
 
 // J-merchant-07, in the running app (docs/roadmap/journeys.json): see the business's money and ask for a payout. One test
 // per step, titled "J-merchant-07 #<n>", run in order on one verified TEST business. #1 makes the owner and the business
@@ -11,7 +12,10 @@ import { businessReadyPerson, openBusiness, signInWithCode, verifiedBusiness } f
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - The stack cannot post a TEST settlement to a business (`local-test-world.mjs merchant-settlement <merchantId>`,
 //   proposed), so #2 and #6 to #8 have no settlement to pay out (M-money-out-05).
-// - #1: Money shows no reserve card labelled "recorded, not withheld" (M-money-out-01).
+// - #1: Balances has no at-a-glance group with Clearing and Available to pay out, and no reserve card labelled
+//   "recorded, not withheld" (M-money-out-01).
+// - #3: the stack publishes no pricing schedule for a TEST business, so Pricing shows no fee table and the calculator
+//   is off (`local-test-world.mjs merchant-pricing`, proposed).
 // - #2: no clearing-to-available view (RC-merchant-10); #4: no payout schedule or rules (M-money-out-03,
 //   M-adv-money-out-01); #5: no top-up (M-money-out-02).
 const J = 'J-merchant-07';
@@ -53,10 +57,10 @@ test(`${J} #1 opens Money: zero per asset with "No money yet" for a new business
   await verifiedBusiness(page, owner, merchantId);
   run.reset({ owner: saved(owner), merchantId });
   await signInOwner(page, '/pay/money');
-  await expect(page.getByRole('heading', { name: 'Money', level: 1 })).toBeVisible();
-  await expect(page.getByText('No money yet').first()).toBeVisible(UNBUILT);
+  await expect(page.getByRole('heading', { name: 'Balances', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /No (money|balance) yet/ })).toBeVisible();
   const balances = page.getByRole('group', { name: /Balances at a glance/ });
-  await expect(balances).toContainText('Clearing');
+  await expect(balances).toContainText('Clearing', UNBUILT);
   await expect(balances).toContainText('Available to pay out');
   await expect(page.getByRole('region', { name: 'Reserve' })).toContainText('recorded, not withheld');
 });
@@ -76,12 +80,12 @@ test(`${J} #3 reads Pricing and Fees: the tier fee table, a calculator on the li
 }) => {
   await signInOwner(page, '/pay/pricing');
   await expect(page.getByRole('heading', { name: /Pricing/, level: 1 })).toBeVisible();
-  const table = page.getByRole('table', { name: /Fees/ }).first();
-  await expect(table).toBeVisible();
+  const table = tableIn(page, /Fees/).first();
+  await expect(table).toBeVisible(UNBUILT);
   for (const cell of await table.getByRole('cell').allInnerTexts()) expect(cell.trim()).not.toBe('');
-  const calculator = page.getByRole('region', { name: 'Fee calculator' });
-  await calculator.getByRole('textbox', { name: /Amount/ }).fill('100', UNBUILT);
-  await expect(calculator).toContainText(/You receive|Not set/);
+  await page.getByRole('textbox', { name: /Payment amount/ }).fill('100');
+  await page.getByRole('button', { name: 'Work out the fee' }).click();
+  await expect(page.getByRole('main')).toContainText(/You receive|Not set/);
 });
 
 test(`${J} #4 opens the payout schedule and rules: manual by default or the next date after cut-off; changes with who and when; minimums disable the control with the reason`, async ({
@@ -90,7 +94,7 @@ test(`${J} #4 opens the payout schedule and rules: manual by default or the next
   await signInOwner(page, '/pay/payouts');
   const schedule = page.getByRole('region', { name: 'Payout schedule' });
   await expect(schedule).toContainText(/Manual|Next payout/, UNBUILT);
-  await expect(page.getByRole('table', { name: 'Schedule changes' })).toBeVisible();
+  await expect(tableIn(page, 'Schedule changes')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Payout rules' })).toContainText(/Minimum amount/);
 });
 

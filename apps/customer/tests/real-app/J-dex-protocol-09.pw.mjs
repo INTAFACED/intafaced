@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { signIn, signUp } from './desk.mjs';
 import { signOutBrowser } from './stack.mjs';
+import { tableIn, bodyRows } from './tables.mjs';
 
 // J-dex-protocol-09, in the running app (docs/roadmap/journeys.json): explore the chain signed out: blocks,
 // transactions, addresses, contracts and pools. One test per step, titled "J-dex-protocol-09 #<n>". The explorer is
@@ -23,7 +24,7 @@ const search = (page) => page.getByRole('searchbox', { name: /Search by address,
 
 /** A row from a listed table, by the column it is read from: the first block or transaction the explorer shows. */
 async function firstLink(page, table, pattern) {
-  const link = page.getByRole('table', { name: table }).getByRole('link', { name: pattern }).first();
+  const link = tableIn(page, table).getByRole('link', { name: pattern }).first();
   await expect(link).toBeVisible(UNBUILT);
   return link;
 }
@@ -33,8 +34,8 @@ test(`${J} #1 opens Chain home: latest blocks and transactions for the test netw
 }) => {
   await page.goto('/chain');
   await expect(main(page).getByRole('heading', { level: 1 })).toBeVisible();
-  await expect(page.getByRole('table', { name: 'Latest blocks' })).toBeVisible(UNBUILT);
-  await expect(page.getByRole('table', { name: 'Latest transactions' })).toBeVisible();
+  await expect(tableIn(page, 'Latest blocks')).toBeVisible(UNBUILT);
+  await expect(tableIn(page, 'Latest transactions')).toBeVisible();
   const intachain = main(page).getByTestId('chain-intachain');
   await expect(intachain).toContainText('INTACHAIN');
   await expect(intachain).toContainText('not launched');
@@ -46,8 +47,8 @@ test(`${J} #2 opens the blocks list and a block: rows down from the finalized he
   page,
 }) => {
   await page.goto('/chain/blocks');
-  const table = page.getByRole('table', { name: 'Blocks' });
-  const rows = table.locator('tbody tr');
+  const table = tableIn(page, 'Blocks');
+  const rows = bodyRows(table);
   await expect(rows.first()).toBeVisible(UNBUILT);
   const heights = (await table.getByRole('rowheader').allInnerTexts()).map((text) => Number(text.replace(/\D/g, '')));
   expect(heights).toEqual([...heights].sort((a, b) => b - a));
@@ -99,7 +100,7 @@ test(`${J} #5 opens the address page: summary, transactions, holdings with unpri
 }) => {
   await page.goto(`/chain/address/${ADDRESS}`);
   await expect(page.getByRole('region', { name: 'Summary' })).toBeVisible(UNBUILT);
-  await expect(page.getByRole('table', { name: 'Transactions' })).toBeVisible();
+  await expect(tableIn(page, 'Transactions')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Holdings' })).toContainText(/holdings? (has|have) no price|\$[\d,.]+/);
   await page.getByRole('tab', { name: 'Internal transactions' }).click();
   await expect(page.getByRole('tabpanel', { name: 'Internal transactions' })).toContainText(/trace unavailable|0x/i);
@@ -124,7 +125,7 @@ test(`${J} #6 adds a watch with a tag and a private note: listed for this person
   };
   await add();
   await page.goto('/chain/watchlist');
-  const rows = page.getByRole('table', { name: 'Your watched addresses' }).locator('tbody tr');
+  const rows = bodyRows(tableIn(page, 'Your watched addresses'));
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText('TEST cold wallet');
   await page.goto(`/chain/address/${ADDRESS}`);
@@ -138,19 +139,19 @@ test(`${J} #6 adds a watch with a tag and a private note: listed for this person
   await page.goto(`/chain/address/${ADDRESS}`);
   await expect(main(page)).not.toContainText('TEST note');
   await page.goto('/chain/watchlist');
-  await expect(page.getByRole('table', { name: 'Your watched addresses' }).locator('tbody tr')).toHaveCount(0);
+  await expect(bodyRows(tableIn(page, 'Your watched addresses'))).toHaveCount(0);
 });
 
 test(`${J} #7 opens a pool page and a token page: candles, volume, buy and sell rows, holders; an address that is not a pool reads "not a pool"`, async ({
   page,
 }) => {
   await page.goto('/dex/pools');
-  const pool = page.getByRole('table', { name: 'Pools' }).getByRole('link').first();
+  const pool = tableIn(page, 'Pools').getByRole('link').first();
   await expect(pool).toBeVisible(UNBUILT);
   await pool.click();
   await expect(page.getByRole('img', { name: /Price chart/ })).toBeVisible();
   await expect(main(page)).toContainText(/Volume/);
-  await expect(page.getByRole('table', { name: 'Trades' }).locator('tbody tr').first()).toContainText(/Buy|Sell/);
+  await expect(bodyRows(tableIn(page, 'Trades')).first()).toContainText(/Buy|Sell/);
   await page
     .getByRole('link', { name: /TEST Token A/ })
     .first()
@@ -181,7 +182,7 @@ test(`${J} #9 reads the pool's fee fields: as the contract holds them, no third 
   page,
 }) => {
   await page.goto('/dex/pools');
-  const pool = page.getByRole('table', { name: 'Pools' }).getByRole('link').first();
+  const pool = tableIn(page, 'Pools').getByRole('link').first();
   await expect(pool).toBeVisible(UNBUILT);
   await pool.click();
   const fees = page.getByRole('region', { name: 'Fees' });

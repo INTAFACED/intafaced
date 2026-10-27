@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { journeyState, tool } from './stack.mjs';
 import { signIn, signUp } from './desk.mjs';
+import { tableIn } from './tables.mjs';
 
 // J-more-catalogue-05, in the running app (docs/roadmap/journeys.json): point a miner at the pool. One test per step,
 // titled "J-more-catalogue-05 #<n>". The person is a TEST account on the local stack; no money moves. The miner is the
@@ -81,7 +82,7 @@ test(`${J} #5 connects the rig Rig-A and submits a first accepted share: one wor
   tool('local-test-stack.mjs', 'mining-share', who.email, '--worker', 'Rig-A', '--share', 'jmc05-first');
   tool('local-test-stack.mjs', 'mining-share', who.email, '--share', 'jmc05-unnamed');
   await page.reload();
-  const workers = page.getByRole('table', { name: 'Workers' });
+  const workers = tableIn(page, 'Workers');
   await expect(workers.getByRole('row', { name: /Rig-A/ })).toHaveCount(1);
   await expect(workers.getByRole('row', { name: /default/ })).toHaveCount(1);
 });
