@@ -1,16 +1,22 @@
 /**
  * KYC capabilities (I-kyc-compliance-07, J-identity-08 #6). What a person's verification lets them do: custody,
  * transfer and trade, crypto and fiat. The owner maps capabilities to levels (`IDENTITY_KYC_CAPABILITIES_BY_LEVEL`, NO
- * DEFAULT). A level grants what is mapped to it and to every level below it. A request marks those capabilities
- * pending, the approval makes them active in its own transaction, and a reject puts a pending one back to unrequested.
+ * DEFAULT). A level grants what is mapped to it and to every level below it. A request marks what it would newly
+ * grant pending, the approval makes its level's capabilities active in its own transaction, and a reject puts back
+ * only what that request made pending. Every change appends one history row.
  *
- * `inactive` is terminal (ENGINE KYC-1, X-4): compliance sets it with a listed reason code under a four-eyes approval,
- * no approval or request turns it back on, and a request for a level that would grant it is refused
- * (`kyc.capability_inactive`). Every change appends one history row. With no mapping published an approval grants no
- * capability, and the read says so (`mapped: false`).
+ * WHAT THE READ SAYS. The level the person holds now (approved and not lapsed) decides what is active: a capability its
+ * level grants reads active, so a lapsed level stops reading active and a level approved before capabilities existed
+ * reads active without a backfill. A stored row adds only `pending` (an open request) and `inactive`.
+ *
+ * `inactive` is terminal (ENGINE KYC-1, X-4): compliance sets it with a code from the owner's capability reason list
+ * (`IDENTITY_KYC_CAPABILITY_REASONS`) under a four-eyes approval, no approval or request turns it back on, and a
+ * request for a level whose own capabilities include it is refused (`kyc.capability_inactive`). With no mapping
+ * published an approval grants no capability, and the read says so (`mapped: false`).
  */
 import type { Sql } from 'postgres';
 import { KYC_TIERS, type KycTier } from '@intafaced/config';
+import type { KycRejectReasons } from './cases.js';
 import {
   KYC_CAPABILITIES,
   kycCapabilitySchema,
@@ -83,16 +89,22 @@ function lowestLevelOf(map: KycCapabilityMap, capability: KycCapability): KycTie
 interface CapabilityRow {
   capability: KycCapability;
   state: KycCapabilityState;
+  case_id: string | null;
   version: number;
   reason_code: string | null;
   at: Date;
 }
 
+/**
+ * The person's capability rows, under a lock on the person's capabilities as a whole. A row lock alone would miss a
+ * row that does not exist yet, so two first writes (an approval and a switch-off) could both take version 1.
+ */
 async function locked(tx: Sql, userId: string, capabilities: readonly KycCapability[]): Promise<Map<KycCapability, CapabilityRow>> {
   if (capabilities.length === 0) return new Map();
+  await tx`SELECT pg_advisory_xact_lock(hashtextextended('identity.kyc_capabilities:' || ${userId}, 0))`;
   const rows = await tx<CapabilityRow[]>`
-    SELECT capability, state, version, reason_code, at FROM kyc_capabilities
-    WHERE user_id = ${userId} AND capability IN ${tx(capabilities as KycCapability[])} FOR UPDATE`;
+    SELECT capability, state, case_id, version, reason_code, at FROM kyc_capabilities
+    WHERE user_id = ${userId} AND capability IN ${tx(capabilities as KycCapability[])}`;
   return new Map(rows.map((r) => [r.capability, r]));
 }
 
@@ -115,33 +127,35 @@ async function write(
 }
 
 /**
- * Before a request is stored: a level that would grant an inactive capability is refused (`kyc.capability_inactive`),
- * because inactive is a compliance decision a new request does not undo.
+ * Before a request is stored: a level whose own capabilities include one compliance switched off is refused
+ * (`kyc.capability_inactive`), because inactive is a decision a new request does not undo. A higher level stays open:
+ * its approval leaves the inactive one off.
  */
 export async function assertRequestable(sql: Sql, map: KycCapabilityMap, userId: string, tier: KycTier): Promise<void> {
-  const wanted = capabilitiesOfLevel(map, tier);
-  if (wanted.length === 0) return;
+  const own = map.get(tier) ?? [];
+  if (own.length === 0) return;
   const [blocked] = await sql<Array<{ capability: string }>>`
     SELECT capability FROM kyc_capabilities
-    WHERE user_id = ${userId} AND state = 'inactive' AND capability IN ${sql(wanted)} ORDER BY capability LIMIT 1`;
+    WHERE user_id = ${userId} AND state = 'inactive' AND capability IN ${sql(own as KycCapability[])} ORDER BY capability LIMIT 1`;
   if (blocked)
     throw new KycCapabilityError(
-      `${blocked.capability} was switched off by compliance; a request that would grant it is refused`,
+      `${blocked.capability} was switched off by compliance; a request for the level that grants it is refused`,
       'kyc.capability_inactive',
     );
 }
 
-/** A request was stored: the capabilities its level grants and the person does not hold yet become pending. */
+/** A request was stored: what its level would grant beyond the level the person holds becomes pending, owned by its case. */
 export async function markRequested(
   tx: Sql,
   map: KycCapabilityMap,
-  record: { userId: string; tier: KycTier; caseId: string; at: Date },
+  record: { userId: string; tier: KycTier; heldTier: KycTier; caseId: string; at: Date },
 ): Promise<void> {
-  const wanted = capabilitiesOfLevel(map, record.tier);
+  const held = new Set(capabilitiesOfLevel(map, record.heldTier));
+  const wanted = capabilitiesOfLevel(map, record.tier).filter((cap) => !held.has(cap));
   const rows = await locked(tx, record.userId, wanted);
   for (const cap of wanted) {
     const prior = rows.get(cap);
-    if (prior && prior.state !== 'unrequested') continue;
+    if (prior?.state === 'inactive' || prior?.state === 'pending') continue;
     await write(tx, record.userId, cap, prior, { state: 'pending', caseId: record.caseId, by: null, reasonCode: null, at: record.at });
   }
 }
@@ -173,17 +187,20 @@ export async function grantOnApproval(
   return granted;
 }
 
-/** A reject of `tier`: a capability still pending from that request goes back to unrequested. */
+/**
+ * A reject: a capability that this request made pending goes back to unrequested. One another open request made
+ * pending stays pending.
+ */
 export async function releaseOnReject(
   tx: Sql,
   map: KycCapabilityMap,
-  decision: { userId: string; tier: KycTier; caseId: string | null; by: string; at: Date },
+  decision: { userId: string; tier: KycTier; caseId: string; by: string; at: Date },
 ): Promise<void> {
   const wanted = capabilitiesOfLevel(map, decision.tier);
   const rows = await locked(tx, decision.userId, wanted);
   for (const cap of wanted) {
     const prior = rows.get(cap);
-    if (prior?.state !== 'pending') continue;
+    if (prior?.state !== 'pending' || prior.case_id !== decision.caseId) continue;
     await write(tx, decision.userId, cap, prior, {
       state: 'unrequested',
       caseId: decision.caseId,
@@ -225,20 +242,35 @@ export async function assertDeactivatable(sql: Sql, userId: string, capability: 
     throw new KycCapabilityError(`${capability} is already inactive with ${row.reason_code}`, 'kyc.capability_state');
 }
 
-/** Every capability with its state; one with no row reads unrequested. */
-export async function listCapabilities(sql: Sql, map: KycCapabilityMap, userId: string): Promise<KycCapabilitiesOutput> {
+/**
+ * Every capability with its state. Inactive wins; then the level the person holds now (`heldTier`, approved and not
+ * lapsed) makes what it grants read active; then an open request reads pending; anything else reads unrequested. An
+ * inactive one carries the owner's reason text when the code is still on the list.
+ */
+export async function listCapabilities(
+  sql: Sql,
+  map: KycCapabilityMap,
+  userId: string,
+  heldTier: KycTier,
+  reasons: KycRejectReasons,
+): Promise<KycCapabilitiesOutput> {
   const rows = await sql<CapabilityRow[]>`
-    SELECT capability, state, version, reason_code, at FROM kyc_capabilities WHERE user_id = ${userId}`;
+    SELECT capability, state, case_id, version, reason_code, at FROM kyc_capabilities WHERE user_id = ${userId}`;
   const byCap = new Map(rows.map((r) => [r.capability, r]));
+  const held = new Set(capabilitiesOfLevel(map, heldTier));
   return {
     mapped: map.size > 0,
     capabilities: KYC_CAPABILITIES.map((capability) => {
       const row = byCap.get(capability);
+      const state: KycCapabilityState =
+        row?.state === 'inactive' ? 'inactive' : held.has(capability) ? 'active' : row?.state === 'pending' ? 'pending' : 'unrequested';
+      const code = state === 'inactive' ? (row?.reason_code ?? null) : null;
       return {
         capability,
-        state: row?.state ?? 'unrequested',
+        state,
         grantedAt: lowestLevelOf(map, capability),
-        reasonCode: row?.state === 'inactive' ? row.reason_code : null,
+        reasonCode: code,
+        reasonText: code ? (reasons.get(code)?.reason ?? null) : null,
         changedAt: row ? row.at.toISOString() : null,
       };
     }),

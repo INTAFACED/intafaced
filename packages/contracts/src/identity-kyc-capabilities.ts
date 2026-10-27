@@ -6,9 +6,10 @@ import { kycReasonCodeSchema } from './identity-kyc-cases.js';
  * svc-identity `kyc.capabilities.get`, `kyc.capabilities.getFor` and `kyc.capabilities.set` (I-kyc-compliance-07): what a
  * person's verification lets them do, one row per capability. Approving a level makes the capabilities the owner maps
  * to it (`IDENTITY_KYC_CAPABILITIES_BY_LEVEL`, NO DEFAULT) active in the approval's own transaction; a request marks
- * them pending; a reject puts a pending one back to unrequested. `inactive` is terminal: compliance sets it with a
- * reason code and a four-eyes approval, and nothing turns it back on. With no mapping published, `mapped` is false and
- * an approval grants no capability, which the page says.
+ * them pending; a reject puts back what that request made pending. Active is what the level held now (approved, not
+ * lapsed) grants. `inactive` is terminal: compliance sets it with a reason code and a four-eyes approval, and nothing
+ * turns it back on. With no mapping published, `mapped` is false and an approval grants no capability, which the page
+ * says.
  */
 export const KYC_CAPABILITIES = ['custody_crypto', 'custody_fiat', 'transfer_crypto', 'transfer_fiat', 'trade_crypto'] as const;
 export const kycCapabilitySchema = z.enum(KYC_CAPABILITIES);
@@ -23,8 +24,10 @@ export const kycCapabilityRowSchema = z.object({
   state: kycCapabilityStateSchema,
   /** The lowest level the owner maps this capability to, or null when no level grants it. */
   grantedAt: kycLadderLevelSchema.nullable(),
-  /** Set on an inactive capability: the code from the owner's reason list. */
+  /** Set on an inactive capability: the code from the owner's capability reason list. */
   reasonCode: kycReasonCodeSchema.nullable(),
+  /** The owner's text for that code; null when the code is no longer on the list. */
+  reasonText: z.string().min(1).nullable(),
   /** When the state last changed; null while it was never requested. */
   changedAt: z.string().datetime({ offset: true }).nullable(),
 });

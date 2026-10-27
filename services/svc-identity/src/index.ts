@@ -605,6 +605,7 @@ export const appRouter = mergeRouters(
       reviewHours: parseKycReviewHoursByLevel(env.IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL),
     },
     kycRejectReasons: parseKycRejectReasons(env.IDENTITY_KYC_REJECT_REASONS),
+    kycCapabilityReasons: parseKycRejectReasons(env.IDENTITY_KYC_CAPABILITY_REASONS, 'IDENTITY_KYC_CAPABILITY_REASONS'),
     social,
     referral,
     share,

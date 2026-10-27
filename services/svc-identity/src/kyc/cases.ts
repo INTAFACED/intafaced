@@ -33,10 +33,11 @@ export type KycRejectReasons = ReadonlyMap<string, KycRejectReason>;
 /**
  * `IDENTITY_KYC_REJECT_REASONS`: a JSON array of `{ "code", "reason", "guidance" }`. A code is lower case with
  * underscores; `reason` (up to 200 characters) is what the customer reads, `guidance` (up to 500) what to do next.
- * Unset or blank is an empty list. An empty array, a repeated code or a malformed entry stops the service.
+ * Unset or blank is an empty list. An empty array, a repeated code or a malformed entry stops the service. The capability
+ * switch-off reasons (`IDENTITY_KYC_CAPABILITY_REASONS`, I-kyc-compliance-07) have the same shape and are parsed here
+ * under their own name.
  */
-export function parseKycRejectReasons(raw: string | undefined): KycRejectReasons {
-  const setting = 'IDENTITY_KYC_REJECT_REASONS';
+export function parseKycRejectReasons(raw: string | undefined, setting = 'IDENTITY_KYC_REJECT_REASONS'): KycRejectReasons {
   const out = new Map<string, KycRejectReason>();
   if (raw === undefined || raw.trim() === '') return out;
   let parsed: unknown;
@@ -63,10 +64,10 @@ export function parseKycRejectReasons(raw: string | undefined): KycRejectReasons
 }
 
 /** The owner's reason for `code`, or a typed refusal. Checked before anything is spent or written. */
-export function requireRejectReason(reasons: KycRejectReasons, code: string): KycRejectReason {
-  if (reasons.size === 0) throw new KycCaseError('The owner has not published a list of reject reasons', 'kyc.reason_codes_unset');
+export function requireRejectReason(reasons: KycRejectReasons, code: string, list = 'reject reasons'): KycRejectReason {
+  if (reasons.size === 0) throw new KycCaseError(`The owner has not published a list of ${list}`, 'kyc.reason_codes_unset');
   const reason = reasons.get(code);
-  if (!reason) throw new KycCaseError(`${code} is not on the owner's list of reject reasons`, 'kyc.reason_code_unknown');
+  if (!reason) throw new KycCaseError(`${code} is not on the owner's list of ${list}`, 'kyc.reason_code_unknown');
   return reason;
 }
 

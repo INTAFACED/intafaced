@@ -265,6 +265,12 @@ const schema = serviceEnvSchema
        */
       IDENTITY_KYC_CAPABILITIES_BY_LEVEL: z.string().optional(),
       /**
+       * Owner setting (I-kyc-compliance-07): the reasons compliance may switch a capability off for, the same shape as
+       * `IDENTITY_KYC_REJECT_REASONS` (`{"code","reason","guidance"}`). NO DEFAULT. Unset, every
+       * `kyc.capabilities.set` refuses `kyc.reason_codes_unset`. Parsed at start; malformed stops the service.
+       */
+      IDENTITY_KYC_CAPABILITY_REASONS: z.string().optional(),
+      /**
        * Owner setting for account limit overrides (J-ops-console-04 #12): a JSON object
        * `{ "maxLifetimeHours": "<whole hours>", "ceilings": { "<rail>": { "<asset>": "<decimal>" } } }`. NO DEFAULT. Blank,
        * not JSON or invalid means unset: every override refuses `identity.limit_ceiling_unset` and the console says "not

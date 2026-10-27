@@ -2874,7 +2874,10 @@ export class AuthService {
       const record = toKycRecord(inserted[0]!);
       // The case opens with the record, in this transaction (I-kyc-compliance-01).
       const caseId = await openKycCase(tx, record);
-      await markRequested(tx, this.kycCapabilities, { userId: record.userId, tier: record.tier, caseId, at: record.createdAt });
+      const heldTier = existing
+        .filter((r) => r.status === 'approved')
+        .reduce<KycTier>((best, r) => (TIER_ORDER[r.tier] > TIER_ORDER[best] ? r.tier : best), 'none');
+      await markRequested(tx, this.kycCapabilities, { userId: record.userId, tier: record.tier, heldTier, caseId, at: record.createdAt });
       return record;
     });
   }
@@ -2896,10 +2899,10 @@ export class AuthService {
   }
 
   /** A person's capabilities, every one with its state (I-kyc-compliance-07). An unknown person is `auth.not_found`. */
-  async listKycCapabilities(userId: string): Promise<KycCapabilitiesOutput> {
+  async listKycCapabilities(userId: string, reasons: KycRejectReasons): Promise<KycCapabilitiesOutput> {
     const users = await this.sql<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${userId}`;
     if (!users[0]) throw new AuthError('User not found', 'auth.not_found');
-    return listCapabilities(this.sql, this.kycCapabilities, userId);
+    return listCapabilities(this.sql, this.kycCapabilities, userId, await this.kycTier(userId), reasons);
   }
 
   /** Refuses (`kyc.capability_state`) what the decision would refuse, before the four-eyes approval is spent. */
@@ -2917,6 +2920,7 @@ export class AuthService {
     reasonCode: string;
     reviewerId: string;
     approvalParties: readonly string[];
+    reasons: KycRejectReasons;
   }): Promise<KycCapabilitiesOutput> {
     await transaction(this.sql, async (tx) => {
       const users = await tx<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${input.userId} FOR UPDATE`;
@@ -2924,7 +2928,7 @@ export class AuthService {
       assertNotOwnKyc(input.userId, [input.reviewerId, ...input.approvalParties]);
       await deactivateCapability(tx, { ...input, by: input.reviewerId, at: new Date() });
     });
-    return listCapabilities(this.sql, this.kycCapabilities, input.userId);
+    return this.listKycCapabilities(input.userId, input.reasons);
   }
 
   /**

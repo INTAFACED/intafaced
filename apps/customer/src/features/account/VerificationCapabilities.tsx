@@ -5,8 +5,8 @@ import { useResource } from '../../shared/resource';
 import { Failure, Loading } from '../../shared/ui';
 import { verificationCapabilitiesCopy as copy } from './verification-capabilities-copy';
 
-const tagOf: Record<KycCapabilityState, 'pending' | 'filled' | 'cancelled' | 'working'> = {
-  unrequested: 'working',
+// Not requested is no status at all, so it is plain text, never a tag that reads as something under way.
+const tagOf: Record<Exclude<KycCapabilityState, 'unrequested'>, 'pending' | 'filled' | 'cancelled'> = {
   pending: 'pending',
   active: 'filled',
   inactive: 'cancelled',
@@ -14,7 +14,8 @@ const tagOf: Record<KycCapabilityState, 'pending' | 'filled' | 'cancelled' | 'wo
 
 /**
  * I-kyc-compliance-07 (J-identity-08 #6): what the person's verification lets them do, on /verification. Each
- * capability shows its state and the lowest level that includes it; one compliance switched off says so with its code.
+ * capability shows its state and the lowest level that includes it; one compliance switched off says so with the
+ * owner's reason.
  * With no level-to-capability mapping published, it says an approval turns none on. `recordsKey` is the page's own
  * status read, so a request or a decision reads the capabilities again.
  */
@@ -55,13 +56,26 @@ export function VerificationCapabilities({ recordsKey }: { recordsKey: string })
                 <span>
                   <Copy k={c.capability} />
                 </span>
-                <StatusTag status={tagOf[c.state]} label={t(c.state)} />
+                {c.state === 'unrequested' ? (
+                  <span className="muted">
+                    <Copy k="unrequested" />
+                  </span>
+                ) : (
+                  <StatusTag status={tagOf[c.state]} label={t(c.state)} />
+                )}
               </div>
               <p className="muted">{c.grantedAt ? <Copy k="grantedAt" params={{ level: t(c.grantedAt) }} /> : <Copy k="notGranted" />}</p>
               {c.state === 'inactive' && (
-                <p data-reason={c.reasonCode ?? ''}>
-                  <Copy k="inactiveHelp" />
-                </p>
+                <div data-testid="verification__capability-reason" data-reason={c.reasonCode ?? ''}>
+                  {c.reasonText && (
+                    <p>
+                      <Copy k="reason" params={{ text: c.reasonText }} />
+                    </p>
+                  )}
+                  <p className="muted">
+                    <Copy k="inactiveHelp" />
+                  </p>
+                </div>
               )}
             </li>
           ))}
