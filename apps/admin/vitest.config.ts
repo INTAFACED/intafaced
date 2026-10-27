@@ -45,10 +45,10 @@ export default defineConfig({
     environment: 'node',
   },
   // tsconfig.json says `jsx: preserve` because Next owns the emit. Vitest has no
-  // Next in front of it, so the transform is named here instead.
-  esbuild: {
-    jsx: 'automatic',
-    jsxImportSource: 'react',
+  // Next in front of it, so the transform is named here instead (Vite 8
+  // transforms with Oxc, so the option is `oxc`, not `esbuild`).
+  oxc: {
+    jsx: { runtime: 'automatic', importSource: 'react' },
   },
   resolve: {
     alias: {

@@ -10,7 +10,7 @@ import {
 } from './outreach-crm.js';
 
 const transportPath = '../../../apps/invitation/src/vendored/config/intafaced.js';
-const { mutate } = (await import(/* @vite-ignore */ transportPath)) as {
+const { mutate } = (await import(/* @vite-ignore */ new URL(transportPath, import.meta.url).href)) as {
   mutate(m: string, p: string, i: unknown, t: null): Promise<unknown>;
 };
 
