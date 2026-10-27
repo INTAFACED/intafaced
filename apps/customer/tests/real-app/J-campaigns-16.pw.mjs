@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ADMIN, founderSignIn } from './admin.mjs';
+import { journeyState } from './stack.mjs';
 
 // J-campaigns-16, in the running app (docs/roadmap/journeys.json): build a campaign and take it live, as a founder on the
 // founder console's campaigns desk (/more-ops/campaigns). One test per step, titled "J-campaigns-16 #<n>". Founders A and
@@ -11,7 +12,10 @@ import { ADMIN, founderSignIn } from './admin.mjs';
 //   (CM-campaign-types-01, -02, CM-eligibility-rules-01 to -03, CM-rewards-hub-05, CM-campaign-admin-03).
 const J = 'J-campaigns-16';
 const UNBUILT = { timeout: 5_000 };
-const NAME = `TEST task campaign ${Date.now().toString(36)}`;
+const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+
+/** The draft's name, set once in #2 and kept in the run file, so a worker restart after a failure reads the same one. */
+const draftName = () => run.read().name ?? 'TEST task campaign (made in #2)';
 
 test.describe.configure({ mode: 'default' });
 
@@ -26,7 +30,7 @@ async function openDesk(page, founder = 'a') {
 
 async function openDraft(page) {
   await openDesk(page);
-  await campaigns(page).getByRole('link', { name: NAME }).click(UNBUILT);
+  await campaigns(page).getByRole('link', { name: draftName(), exact: true }).click(UNBUILT);
   await expect(builder(page)).toBeVisible();
 }
 
@@ -41,6 +45,7 @@ test(`${J} #2 starts the builder, leaves and returns: the draft resumes at the s
   page,
 }) => {
   await openDesk(page);
+  const NAME = run.reset({ name: `TEST task campaign ${Date.now().toString(36)}` }).name;
   await page.getByRole('button', { name: 'New campaign' }).click(UNBUILT);
   await builder(page).getByRole('textbox', { name: 'Name' }).fill(NAME);
   await builder(page).getByRole('radio', { name: 'Task' }).check();
@@ -125,7 +130,7 @@ test(`${J} #8 the requester tries to approve and a second founder approves: the 
   await expect(page.getByRole('alert')).toContainText('You asked for this, so another founder must approve it.');
   const second = await (await browser.newContext()).newPage();
   await openDesk(second, 'b');
-  await campaigns(second).getByRole('link', { name: NAME }).click();
+  await campaigns(second).getByRole('link', { name: draftName(), exact: true }).click();
   await second.getByRole('button', { name: 'Approve' }).click();
   await expect(second.getByRole('status')).toContainText(/Approved revision \d+/);
   await second.context().close();

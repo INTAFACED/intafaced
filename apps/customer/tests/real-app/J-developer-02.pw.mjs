@@ -27,7 +27,15 @@ const sandboxes = () => page.getByRole('table', { name: 'Your sandboxes' });
 
 async function openSandbox(name) {
   await page.goto('/developers/sandbox');
-  await sandboxes().getByRole('link', { name, exact: true }).click(UNBUILT);
+  await expect(page.getByRole('textbox', { name: 'Sandbox name' })).toBeVisible(UNBUILT);
+  await page.waitForLoadState('networkidle');
+  const link = sandboxes().getByRole('link', { name, exact: true });
+  // A worker restart after a failure signs up a new account, which has no sandbox from #2 yet.
+  if (!(await link.count())) {
+    await page.getByRole('textbox', { name: 'Sandbox name' }).fill(name);
+    await page.getByRole('button', { name: 'Create sandbox' }).click();
+  }
+  await link.click(UNBUILT);
   await expect(page.getByRole('heading', { name, level: 1 })).toBeVisible();
 }
 
@@ -42,7 +50,8 @@ test.beforeAll(async ({ browser }) => {
   await verify(page, who);
   await signIn(page, who);
   await addPasskey(page);
-  run.reset({ who });
+  // write, not reset: a worker restart after a failure keeps what earlier steps stored (the key from #3).
+  run.write({ who });
 });
 
 test.afterAll(async () => {

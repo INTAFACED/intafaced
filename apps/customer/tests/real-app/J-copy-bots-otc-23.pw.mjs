@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { api, bestPrices, fund, journeyState, signOutBrowser, tool, toUnits } from './stack.mjs';
+import { api, bestPrices, fund, journeyState, signOutBrowser, times, tool, toUnits } from './stack.mjs';
 import { fundedTrader, signIn, signUp } from './desk.mjs';
 
 // J-copy-bots-otc-23, in the running app (docs/roadmap/journeys.json): work a large order slowly with TWAP, chase or
@@ -116,7 +116,7 @@ test(`${J} #3 creates a TWAP with random sizes, a fixed seed and a trigger price
   await box.getByLabel('Seed').fill('2310');
   // A buy trigger far above the book: the schedule waits for the price to reach it.
   const { ask } = await bestPrices();
-  const trigger = String(Math.round(Number(ask) * 2));
+  const trigger = String((toUnits(ask) * 2n) / toUnits('1'));
   await box.getByLabel('Start when the price reaches').fill(trigger);
 
   await page.getByRole('button', { name: 'Review schedule' }).click();
@@ -233,7 +233,7 @@ test(`${J} #6 places an iceberg: display equal to total refused; a valid one res
   const box = page.getByRole('region', { name: 'New iceberg' });
   const { bid } = await bestPrices();
   // A resting buy 2% under the best bid, so it shows on the book without filling.
-  const price = String(Math.floor(Number(bid) * 0.98));
+  const price = String((toUnits(bid) * 98n) / 100n / toUnits('1'));
   await box.getByLabel('Total size (BTC)').fill('0.003');
   await box.getByLabel('Display size (BTC)').fill('0.003');
   await box.getByLabel('Limit price').fill(price);
@@ -255,7 +255,7 @@ test(`${J} #6 places an iceberg: display equal to total refused; a valid one res
   expect(level, `no bid at ${price}`).toBeTruthy();
   expect(toUnits(level[1])).toBeLessThan(toUnits('0.003'));
   const balances = await (await api(trader)).balances();
-  expect(toUnits(balances.USDT.used)).toBeGreaterThanOrEqual((toUnits(price) * toUnits('0.003')) / 10n ** 18n);
+  expect(toUnits(balances.USDT.used)).toBeGreaterThanOrEqual(times(price, '0.003'));
 
   // A second iceberg on the same symbol is refused by name.
   const second = page.waitForResponse((res) => res.url().endsWith('/api/v1/orders') && res.request().method() === 'POST');
@@ -312,7 +312,7 @@ test(`${J} #8 opens the algo list and blotter, and cancels with a child failing:
   await fillSchedule(page, { total: '0.002', seconds: 120, every: 15 });
   await form(page)
     .getByLabel('Limit price')
-    .fill(String(Math.floor(Number(bid) * 0.97)));
+    .fill(String((toUnits(bid) * 97n) / 100n / toUnits('1')));
   const id = await confirmSchedule(page);
   await expect.poll(async () => (await parentOf(trader, id)).children.length, { timeout: 45_000 }).toBeGreaterThan(0);
   tool('local-test-gates.mjs', 'fail-cancel', (await parentOf(trader, id)).children[0].orderId);

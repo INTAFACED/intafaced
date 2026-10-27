@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { api, fund, journeyState, toUnits } from './stack.mjs';
-import { signIn, signUp, verify } from './desk.mjs';
+import { api, fromUnits, fund, journeyState, tool, toUnits } from './stack.mjs';
+import { free, held, signIn, signUp, verify } from './desk.mjs';
 
 // J-agents-02, in the running app (docs/roadmap/journeys.json): set spending limits and see that a run the person cannot
 // pay for never starts. One test per step, titled "J-agents-02 #<n>". The person is a TEST account on the local stack,
@@ -8,7 +8,8 @@ import { signIn, signUp, verify } from './desk.mjs';
 // the steps check against the ledger balance.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - #1 to #3: no limits page at /agents/:agentId/limits and no per-call or per-period cap with a reservation (AG-spend-01).
-// - #4, #5: no funds check before a run and no overage rule (AG-usage-01).
+// - #4, #5: no funds check before a run and no overage rule (AG-usage-01); #5 needs a stack tool that leaves a usage
+//   window unpaid (`local-test-world.mjs agents-unpaid-window`, proposed).
 // - #6: no soft alert or hard monthly limit at /agents/usage/limits (AG-usage-03).
 // - #7: no usage room at /agents/usage (AG-usage-02).
 const J = 'J-agents-02';
@@ -18,8 +19,7 @@ const AGENT = 'navigator';
 
 test.describe.configure({ mode: 'default' });
 
-const free = async (who) => toUnits((await (await api(who)).balances()).USDT?.free ?? '0');
-const used = async (who) => toUnits((await (await api(who)).balances()).USDT?.used ?? '0');
+const balances = async (who) => (await api(who)).balances();
 
 async function openLimits(page) {
   await signIn(page, run.read().who);
@@ -60,7 +60,7 @@ test(`${J} #2 sets a per-call, a per-session and a per-period cap: the lower of 
   await cap(page, 'Per month, USDT').fill('5');
   await page.getByRole('button', { name: 'Save limits' }).click();
   await expect(page.getByRole('status')).toContainText('Limits saved');
-  await cap(page, 'Per session, USDT').fill(String(Number(stored) + 1));
+  await cap(page, 'Per session, USDT').fill(fromUnits(toUnits(stored) + toUnits('1')));
   await page.getByRole('button', { name: 'Save limits' }).click();
   await expect(page.getByRole('alert')).toContainText(`above the platform’s limit of ${stored} USDT`);
 });
@@ -72,7 +72,7 @@ test(`${J} #3 starts two runs together whose worst cases are each over half the 
   test.setTimeout(180_000);
   const { who } = run.read();
   await openLimits(page);
-  const before = await free(who);
+  const before = free(await balances(who), 'USDT');
   const otherContext = await browser.newContext();
   try {
     const other = await otherContext.newPage();
@@ -92,8 +92,8 @@ test(`${J} #3 starts two runs together whose worst cases are each over half the 
     await otherContext.close();
   }
   // The refused run left no hold, and at most one run's cost left the balance.
-  expect(await used(who)).toBe(0n);
-  expect(await free(who)).toBeLessThanOrEqual(before);
+  expect(held(await balances(who), 'USDT')).toBe(0n);
+  expect(free(await balances(who), 'USDT')).toBeLessThanOrEqual(before);
 });
 
 test(`${J} #4 asks for a run when the available balance is below the worst case: refused as insufficient funds, the engine never called, nothing billed`, async ({
@@ -108,16 +108,19 @@ test(`${J} #4 asks for a run when the available balance is below the worst case:
   await page.getByRole('button', { name: 'Review engine request' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Run engine request' }).click();
   await expect(page.getByRole('alert')).toContainText('Not enough funds for this run’s worst case. Nothing ran and nothing was charged.');
-  expect(await used(poor)).toBe(0n);
+  expect(held(await balances(poor), 'USDT')).toBe(0n);
 });
 
 test(`${J} #5 leaves the overage grace blank after a window could not be paid: the next run refuses with recovery text, and the unpaid window retries on the same charge key`, async ({
   page,
 }) => {
-  await signIn(page, run.read().who);
+  const { who } = run.read();
+  // The stack leaves one usage window unpaid for this account (`local-test-world.mjs agents-unpaid-window`, proposed).
+  tool('local-test-world.mjs', 'agents-unpaid-window', who.email);
+  await signIn(page, who);
   await page.goto('/agents/usage');
   const unpaid = page.getByRole('table', { name: 'Usage windows' }).getByRole('row', { name: /Unpaid/ });
-  await expect(unpaid.first().or(page.getByText('No unpaid windows'))).toBeVisible(UNBUILT);
+  await expect(unpaid.first()).toBeVisible(UNBUILT);
   await page.goto(`/agents/${AGENT}`);
   await page.getByLabel('Task request').fill('Where do I change my password?');
   await page.getByRole('button', { name: 'Review engine request' }).click();

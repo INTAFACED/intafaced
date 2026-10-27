@@ -26,7 +26,7 @@ test(`${J} #1 opens /launch with no events: the full layout, filters and an empt
   await page.goto('/launch');
   await expect(page.getByRole('heading', { name: 'Launch', level: 1 })).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'State' })).toBeVisible(UNBUILT);
-  await expect(events(page).or(page.getByText('No launch events yet'))).toBeVisible();
+  await expect(events(page).or(page.getByText('No launch events yet')).first()).toBeVisible();
 });
 
 test(`${J} #2 opens it with two events and filters by state: only matching cards, each with its issuer state`, async ({ page }) => {

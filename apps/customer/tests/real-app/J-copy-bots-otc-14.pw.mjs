@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { api, journeyState, toUnits } from './stack.mjs';
+
+const ONE = toUnits('1');
 import { fundedTrader, signIn, signUp } from './desk.mjs';
 
 // J-copy-bots-otc-14, in the running app (docs/roadmap/journeys.json): start a spot grid bot and watch it earn. One test
@@ -77,9 +79,10 @@ test(`${J} #4 enters bounds left blank, then one grid, then twenty: the first tw
   await field('Grids').fill('20');
   await wizard(page).getByRole('button', { name: 'Create bot' }).click();
   await expect(wizard(page).getByRole('alert')).toContainText('Lower price');
-  const bid = Number(((await page.getByTestId('grid-last-price').textContent()) ?? '').replace(/[^\d.]/g, ''));
-  await field('Lower price').fill(String(Math.floor(bid * 0.9)));
-  await field('Upper price').fill(String(Math.ceil(bid * 1.1)));
+  const bid = toUnits(((await page.getByTestId('grid-last-price').textContent()) ?? '').replace(/[^\d.]/g, ''));
+  // Whole numbers 10% under and over the last price, in bigint units.
+  await field('Lower price').fill(String((bid * 9n) / 10n / ONE));
+  await field('Upper price').fill(String((bid * 11n) / 10n / ONE + 1n));
   await field('Grids').fill('1');
   await wizard(page).getByRole('button', { name: 'Create bot' }).click();
   await expect(wizard(page).getByRole('alert')).toContainText('Grids');

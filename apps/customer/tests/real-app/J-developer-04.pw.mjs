@@ -199,14 +199,23 @@ test(`${J} #6 calls from a frozen account, then a money call during the platform
   const { who, trade } = run.read();
   // The platform posting freeze first, so the account is still open: a money call is refused, a read still works.
   tool('local-test-gates.mjs', 'posting-freeze', 'on');
+  let failed;
   try {
     const order = { symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '0.001', price: '1', clientOrderId: `jd04-${randomUUID()}` };
     const money = await call('POST', '/api/v1/orders', { ...trade, body: order });
     expect(codeOf(money), JSON.stringify(money.body)).toBe('posting_frozen');
     expect((await call('GET', '/api/v1/account/balance', trade)).status).toBe(200);
-  } finally {
-    tool('local-test-gates.mjs', 'posting-freeze', 'off');
+  } catch (error) {
+    failed = error;
   }
+  // The freeze is platform-wide: it comes off whatever happened above, and a failure to lift it is said loudly,
+  // without hiding the step's own failure.
+  try {
+    tool('local-test-gates.mjs', 'posting-freeze', 'off');
+  } catch (error) {
+    throw new Error(`the platform posting freeze is still ON and must be lifted by hand: ${error.message}`, { cause: failed });
+  }
+  if (failed) throw failed;
   await staffFreeze(who);
   const frozen = await call('GET', '/api/v1/account/balance', trade);
   expect(codeOf(frozen), JSON.stringify(frozen.body)).toBe('account_frozen');

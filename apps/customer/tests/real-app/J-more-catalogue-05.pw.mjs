@@ -60,17 +60,10 @@ test(`${J} #3 presses the reachability test on an unreachable host: "Timed out" 
   const check = page.getByRole('button', { name: 'Test the connection' });
   await check.click(UNBUILT);
   await expect(page.getByTestId('mining-reachability')).toHaveText(/Timed out|Not reached/, { timeout: 30_000 });
-  for (let i = 0; i < 20; i += 1) {
-    await check.click();
-    if (
-      await page
-        .getByRole('alert')
-        .filter({ hasText: /too many connection tests/i })
-        .count()
-    )
-      return;
-  }
-  throw new Error('twenty connection tests were all accepted: no owner limit');
+  const limit = page.getByRole('alert').filter({ hasText: /too many connection tests/i });
+  for (let i = 0; i < 20 && !(await limit.isVisible()); i += 1) await check.click();
+  // Twenty tests in a row pass the owner limit, so the refusal must show (waited for, not read once).
+  await expect(limit, 'twenty connection tests were all accepted: no owner limit').toBeVisible();
 });
 
 test(`${J} #4 opens /mining/status: the pool status and reachability`, async ({ page }) => {

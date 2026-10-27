@@ -37,6 +37,8 @@ async function strangerPays(page, handle, amount) {
   await page.getByRole('button', { name: 'Review' }).click();
   await page.getByRole('dialog').getByRole('button', { name: /^Send/ }).click();
   await expect(page.getByRole('status').first()).toBeVisible({ timeout: 30_000 });
+  // A refusal is an alert: the send went through only if none shows.
+  await expect(page.getByRole('alert')).toHaveCount(0);
 }
 
 test(`${J} #1 opens Receive: the handle with Copy and the toast "Copied"; with no handles live, the Account ID`, async ({
@@ -94,6 +96,12 @@ test(`${J} #3 turns discoverability off: handle search finds nothing for others,
   await page.getByLabel('Handle').fill(me.handle);
   await page.getByLabel('Handle').press('Tab');
   await expect(page.getByRole('alert')).toContainText(/No one with this handle/);
+  // Back on, so #5 can be paid by handle.
+  await signOutBrowser(page.context());
+  await signIn(page, me);
+  await page.goto('/pay/receive');
+  await page.getByRole('switch', { name: 'Let people find me by my handle' }).click();
+  await expect(page.getByRole('switch', { name: 'Let people find me by my handle' })).toBeChecked();
 });
 
 test(`${J} #4 shows the QR to a friend who scans it: Send opens prefilled with a payee preview; a tampered code is refused; with the camera denied an image upload works`, async ({

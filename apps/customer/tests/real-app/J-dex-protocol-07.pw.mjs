@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { signIn, signUp } from './desk.mjs';
+import { toUnits } from './stack.mjs';
 import { installTestWallet } from './test-wallet.mjs';
 
 // J-dex-protocol-07, in the running app (docs/roadmap/journeys.json): find a token, read its page and judge how much to
@@ -154,9 +155,9 @@ test(`${J} #9 uses the 50 percent shortcut in the quick ticket: the amount is ha
   const ticket = page.getByRole('form', { name: 'Quick trade' });
   await expect(ticket).toBeVisible(UNBUILT);
   await ticket.getByRole('button', { name: /^Connect TEST Wallet/ }).click();
-  const balance = Number(((await ticket.getByTestId('quick-balance').textContent()) ?? '').replace(/[^\d.]/g, ''));
+  const balance = toUnits(((await ticket.getByTestId('quick-balance').textContent()) ?? '').replace(/[^\d.]/g, ''));
   await ticket.getByRole('button', { name: '50%' }).click();
-  expect(Number(await ticket.getByRole('textbox', { name: 'Amount' }).inputValue())).toBe(balance / 2);
+  expect(toUnits(await ticket.getByRole('textbox', { name: 'Amount' }).inputValue())).toBe(balance / 2n);
   await ticket.getByRole('button', { name: 'Review' }).click();
   await expect(page.getByRole('dialog', { name: /Review the swap/ })).toBeVisible();
 });

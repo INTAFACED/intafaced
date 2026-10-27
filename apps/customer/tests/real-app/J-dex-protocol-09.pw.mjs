@@ -198,7 +198,7 @@ test(`${J} #10 searches a hash that exists on two networks: both are listed, and
   await search(page).fill(UNKNOWN_TX, UNBUILT);
   await search(page).press('Enter');
   const networks = page.getByRole('list', { name: 'Networks searched' }).getByRole('listitem');
-  expect(await networks.count()).toBeGreaterThan(1);
+  await expect.poll(() => networks.count()).toBeGreaterThan(1);
   for (const network of await networks.all()) await expect(network).toContainText(/Found|Not found|not checked: .+/);
 });
 

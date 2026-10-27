@@ -96,7 +96,7 @@ test(`${J} #4 opens the route options and excludes the better pool: legs best fi
   await openSwap(page, { amount: '1' });
   await form(page).getByRole('button', { name: 'Route options' }).click();
   const routes = page.getByRole('list', { name: 'Routes' }).getByRole('listitem');
-  expect(await routes.count()).toBeGreaterThan(1);
+  await expect.poll(() => routes.count()).toBeGreaterThan(1);
   await expect(routes.nth(1)).toContainText(/lost by|less out/i);
   const listed = await routes.count();
   await routes
