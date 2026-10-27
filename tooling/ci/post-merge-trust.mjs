@@ -38,7 +38,8 @@ export const JOURNEYS_WORKFLOW = 'Real-app journeys';
 export const JOURNEYS_ARTIFACT = 'real-app-journeys';
 const STEP_TITLE = /^(J-[a-z0-9-]+-\d+)\s+#(\d+)\b/;
 const COUNTED = new Set(['success', 'failure', 'timed_out']);
-const TIME_LIMIT = /exceeded the maximum execution time/i;
+// GitHub's job limit, or the Real-app journeys shard's own limit on its journeys (the shard step names it this way).
+const TIME_LIMIT = /exceeded the maximum execution time|journeys reached their time limit/i;
 /** How many cancelled runs to look into for a timeout when walking back (a replaced run has no jobs, one cheap call). */
 const CANCELLED_LOOKUPS = 20;
 
@@ -530,6 +531,18 @@ function selfTest() {
     { name: 'Real-app journeys', annotations: [] },
   ];
   eq(timedOutJobNames(limitJobs), ['Journeys (shard 3 of 8)'], 'a time-limit annotation marks the job');
+  eq(
+    timedOutJobNames([
+      {
+        name: 'Journeys (shard 9 of 12)',
+        annotations: [
+          { message: "this shard's journeys reached their time limit (60 minutes); the journeys it did not reach count as not run" },
+        ],
+      },
+    ]),
+    ['Journeys (shard 9 of 12)'],
+    "a shard's own journey limit marks the job",
+  );
   eq(runConclusion('cancelled', timedOutJobNames(limitJobs)), 'timed_out', 'a time-limit cancel is a timeout');
   eq(runConclusion('cancelled', []), 'cancelled', 'a replaced run stays cancelled');
   eq(runConclusion('failure', ['x']), 'failure', 'a red run with a timed-out job stays red');

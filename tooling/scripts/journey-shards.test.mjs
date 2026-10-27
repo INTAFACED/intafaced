@@ -4,7 +4,16 @@ import { test } from 'node:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileDurations, journeyFiles, longestDurations, planShards } from './journey-shards.mjs';
+import {
+  estimateDurations,
+  fileDurations,
+  journeyFiles,
+  longestDurations,
+  planShards,
+  shardCount,
+  stepCounts,
+  timedSteps,
+} from './journey-shards.mjs';
 
 const report = {
   suites: [
@@ -112,4 +121,81 @@ test('with no durations the split is by count and the same every time', () => {
 test('refuses a shard count it cannot fill', () => {
   assert.throws(() => planShards(['a'], new Map(), 2), /cannot fill 2 shards/);
   assert.throws(() => planShards(['a'], new Map(), 0), /whole number/);
+});
+
+test('counts a step for each test( at the start of a line', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'journey-shards-'));
+  fs.writeFileSync(path.join(dir, 'J-a.pw.mjs'), "test.use({});\ntest('J-a-01 #1', fn);\n  test('J-a-01 #2', fn);\n// not test( here\n");
+  fs.writeFileSync(path.join(dir, 'J-b.pw.mjs'), '');
+  assert.deepEqual(
+    [...stepCounts(dir, ['J-a.pw.mjs', 'J-b.pw.mjs'])],
+    [
+      ['J-a.pw.mjs', 2],
+      ['J-b.pw.mjs', 0],
+    ],
+  );
+  fs.rmSync(dir, { recursive: true });
+});
+
+test('counts the steps a report timed per file, not the ones it never reached', () => {
+  const cut = {
+    suites: [
+      {
+        file: 'J-a.pw.mjs',
+        specs: [{ tests: [{ results: [{ duration: 5 }] }] }, { tests: [{ results: [] }] }, { tests: [{ results: [{ duration: 1 }] }] }],
+      },
+    ],
+  };
+  assert.deepEqual([...timedSteps(cut)], [['J-a.pw.mjs', 2]]);
+  assert.equal(timedSteps({}).size, 0);
+});
+
+test('a new file and steps added to an old one count at the suite time per step before any run timed them', () => {
+  const past = new Map([
+    ['old', 100],
+    ['grown', 50],
+  ]);
+  // 150 ms over 15 timed steps: 10 ms a step.
+  const timed = new Map([
+    ['old', 10],
+    ['grown', 5],
+  ]);
+  const steps = new Map([
+    ['old', 10],
+    ['grown', 8],
+    ['new', 4],
+    ['empty', 0],
+  ]);
+  assert.deepEqual(
+    [...estimateDurations(['old', 'grown', 'new', 'empty'], past, timed, steps)],
+    [
+      ['old', 100],
+      ['grown', 80],
+      ['new', 40],
+      ['empty', 10],
+    ],
+  );
+});
+
+test('with no timed file every step counts the same', () => {
+  const steps = new Map([
+    ['a', 3],
+    ['b', 1],
+  ]);
+  assert.deepEqual(
+    [...estimateDurations(['a', 'b'], new Map(), new Map(), steps)],
+    [
+      ['a', 3],
+      ['b', 1],
+    ],
+  );
+});
+
+test('the shard count keeps each shard near the target, within its floor and ceiling', () => {
+  const min = 60_000;
+  assert.equal(shardCount(236 * min, 25 * min), 10);
+  assert.equal(shardCount(10 * min, 25 * min), 8);
+  assert.equal(shardCount(5000 * min, 25 * min), 24);
+  assert.equal(shardCount(200 * min, 25 * min), 8);
+  assert.equal(shardCount(201 * min, 25 * min), 9);
 });
