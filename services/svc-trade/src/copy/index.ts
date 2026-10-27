@@ -49,15 +49,6 @@ export {
 } from './auto-mirror-place.js';
 export type { PlaceFollowerOrderPort, PlaceFollowerOrderInput, InspectCopyMarket } from './auto-mirror-place.js';
 export {
-  parseCopyDisclosureLawJson,
-  UNPUBLISHED_COPY_DISCLOSURE_LAW,
-  UNPUBLISHED_COPY_DISCLOSURE_VIEW,
-  COPY_DISCLOSURE_LAW_KEY,
-  type CopyDisclosureLaw,
-  type CopyDisclosureView,
-  type CopyDisclosureAcceptanceRecord,
-} from './disclosure.js';
-export {
   parseCopyFeeShareLawJson,
   parseCopyJurisdictionLawJson,
   requirePublishedCopyFeeShareLaw,

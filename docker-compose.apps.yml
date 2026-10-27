@@ -706,8 +706,6 @@ services:
       # Published JSON lives in `.env.example`. Blank host still refuse-closed.
       TRADE_COPY_FEE_SHARE_LAW: ${TRADE_COPY_FEE_SHARE_LAW:-}
       TRADE_COPY_JURISDICTION_LAW: ${TRADE_COPY_JURISDICTION_LAW:-}
-      # TRD-0773 disclosure wording. Empty = unpublished. Compose does not invent text.
-      TRADE_COPY_DISCLOSURE_LAW: ${TRADE_COPY_DISCLOSURE_LAW:-}
       # CB-copy-02 lead-page metric definitions. Empty = no metric number shown.
       TRADE_COPY_METRIC_DEFINITIONS: ${TRADE_COPY_METRIC_DEFINITIONS:-}
       # CB-copy-03 copy verification level. Empty = every follow refuses.

@@ -1,7 +1,8 @@
 /**
- * D26-P1-T1g public doors — no silent ADL; disclosure before open.
+ * D26-P1-T1g public doors — no silent ADL. The disclosure is product information:
+ * no open waits on an ack (owner decision 2026-10-27, until launch prep).
  *
- * Break class: POST /positions succeeds without ack · ADL reduce runs with
+ * Break class: POST /positions refused for a missing ack · ADL reduce runs with
  * zero disclosure events · unconfigured policy invents a reduce.
  */
 import { describe, expect, it } from 'vitest';
@@ -10,14 +11,7 @@ import type { Principal } from '@intafaced/auth';
 import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { parseAmount } from '@intafaced/ledger-client';
 import { registerPrivateRest, type PrivateRestDeps } from '../private-rest.js';
-import {
-  ADL_DISCLOSURE_REQUIRED,
-  ADL_DISCLOSURE_VERSION,
-  assertAdlDisclosureAcked,
-  memoryAdlDisclosureStore,
-  presentAdlDisclosureWire,
-  AdlDisclosureError,
-} from './adl-disclosure.js';
+import { ADL_DISCLOSURE_VERSION, memoryAdlDisclosureStore, presentAdlDisclosureWire } from './adl-disclosure.js';
 import {
   ADL_DISCLOSURE_BEFORE_ACTION,
   ADL_UNCONFIGURED,
@@ -82,8 +76,7 @@ function baseDeps(overrides: Partial<PrivateRestDeps> = {}): PrivateRestDeps {
     getPosition: async () => {
       throw new Error('unused');
     },
-    openPosition: async (p) => {
-      await assertAdlDisclosureAcked(acks, p.userId);
+    openPosition: async () => {
       return {
         id: 'pos-1',
         symbol: 'BTC/USDT-PERP',
@@ -124,7 +117,7 @@ function baseDeps(overrides: Partial<PrivateRestDeps> = {}): PrivateRestDeps {
   };
 }
 
-describe('D26-P1-T1g public doors — ADL disclosure before open', () => {
+describe('D26-P1-T1g public doors — ADL disclosure as product information', () => {
   it('GET /futures/adl-disclosure returns copy + unacked', async () => {
     const app = Fastify();
     registerPrivateRest(app, baseDeps());
@@ -142,7 +135,7 @@ describe('D26-P1-T1g public doors — ADL disclosure before open', () => {
     await app.close();
   });
 
-  it('POST /positions without ack → 403 trade.adl_disclosure_required', async () => {
+  it('POST /positions without an ack opens: no open waits on the disclosure', async () => {
     const app = Fastify();
     registerPrivateRest(app, baseDeps());
     await app.ready();
@@ -159,12 +152,11 @@ describe('D26-P1-T1g public doors — ADL disclosure before open', () => {
         clientOpenId: 'open-1',
       },
     });
-    expect(res.statusCode).toBe(403);
-    expect(res.json()).toMatchObject({ error: ADL_DISCLOSURE_REQUIRED });
+    expect(res.statusCode).toBe(200);
     await app.close();
   });
 
-  it('ack → open succeeds (disclosure before open)', async () => {
+  it('a voluntary ack is recorded and the open still succeeds', async () => {
     const app = Fastify();
     registerPrivateRest(app, baseDeps());
     await app.ready();
@@ -295,11 +287,5 @@ describe('D26-P1-T1g public doors — ADL disclosure before open', () => {
     expect(body).toHaveLength(1);
     expect(body[0]).toMatchObject({ eventId: 'evt-observable', beforeAction: true });
     await app.close();
-  });
-
-  it('exports AdlDisclosureError code for open refuse shape', () => {
-    const err = new AdlDisclosureError(ADL_DISCLOSURE_REQUIRED, 'test');
-    expect(err.code).toBe(ADL_DISCLOSURE_REQUIRED);
-    expect(err.status).toBe(403);
   });
 });

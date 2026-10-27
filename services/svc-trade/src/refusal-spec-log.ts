@@ -22,7 +22,6 @@ export const REFUSAL_SPEC_NOTES = {
   'trade.rebate_recipe_unavailable': 'SP-fees-vip-01 / ENGINE DEC-7 signed-fee ledger recipe',
   'trade.min_fee_recipe_unavailable': 'SP-fees-vip-01 amount-level fee recipe',
   'trade.leverage_too_high': 'DIRECTION §1 sealed 10× cap',
-  'trade.adl_disclosure_required': 'DIRECTION:34 D26-P1-T1g ADL disclosure',
   'trade.insurance_fund_empty': 'DIRECTION:33 empty insurance fund blocks real-money futures list',
   ProfitSourceConfigError: 'DIRECTION §8 item 6 / DIRECTION §3 TRADE_FUTURES_PROFIT_SOURCE',
   paperListPolicy: 'Nitro product N3 exclude paper markets from the public list',

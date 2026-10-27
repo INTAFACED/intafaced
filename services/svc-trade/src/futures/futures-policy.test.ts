@@ -13,7 +13,6 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   ADL_DISCLOSURE_COPY,
-  ADL_DISCLOSURE_REQUIRED,
   ADL_DISCLOSURE_VERSION,
   describeFuturesPolicy,
   presentFuturesJobsCapabilityNote,
@@ -29,7 +28,7 @@ describe('describeFuturesPolicy — trade.futures honesty door', () => {
     expect(policy.jobs).toEqual(presentFuturesJobsCapabilityNote({}));
     expect(policy.insuranceListing).toEqual(presentInsuranceListingPolicy());
     expect(policy.adlDisclosure.version).toBe(ADL_DISCLOSURE_VERSION);
-    expect(policy.adlDisclosure.requiredCode).toBe(ADL_DISCLOSURE_REQUIRED);
+    expect(policy.adlDisclosure).not.toHaveProperty('requiredCode');
     expect(policy.adlDisclosure.copy).toBe(ADL_DISCLOSURE_COPY);
     expect(policy.adlDisclosure.inventsThresholds).toBe(false);
     expect(policy.adlDisclosure.inventsRanking).toBe(false);

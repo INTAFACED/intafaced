@@ -182,18 +182,6 @@
     border: 1px solid var(--if-line);
     border-radius: var(--if-r-sm);
   }
-  .cb-disclosure {
-    display: grid;
-    gap: var(--if-space-2);
-    padding: var(--if-space-2) var(--if-space-3) var(--if-space-3);
-    border: 1px solid var(--if-line);
-    border-radius: var(--if-r-sm);
-  }
-  .cb-disclosure-text {
-    max-height: 160px;
-    overflow-y: auto;
-    white-space: pre-wrap;
-  }
   .cb-action-row {
     display: flex;
     flex-wrap: wrap;

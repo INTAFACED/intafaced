@@ -100,17 +100,6 @@ test(`${J} #1 sets a take profit and a stop loss for the whole position: both sh
   const me = await api(who);
   await signIn(page, who);
   await page.goto(DESK);
-  // Derivatives access: the risk notice, the quiz and the two agreements, as any new trader clears them.
-  await page.getByRole('button', { name: 'I have read this' }).click();
-  const quiz = page.getByTestId('futures-quiz');
-  await quiz.getByRole('radio', { name: /liquidated and can lose all of its margin/ }).check();
-  await quiz.getByRole('button', { name: 'Submit answers' }).click();
-  await expect(quiz.getByText('Passed. You can trade derivatives under the current rules.')).toBeVisible();
-  for (const kind of ['derivatives_risk', 'margin_terms']) {
-    const card = page.getByTestId(`agreement-${kind}`);
-    await card.getByRole('button', { name: /^Accept / }).click();
-    await expect(card).toContainText('Accepted');
-  }
   const position = await openPosition(me);
   await page.reload();
 

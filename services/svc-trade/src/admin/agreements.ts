@@ -95,7 +95,7 @@ export interface AcceptancePage {
 
 export interface EligibilityRulesView {
   readonly version: number | null;
-  readonly reason: 'trade.derivatives_eligibility_unset' | null;
+  readonly reason: 'trade.identity_level_unset' | null;
   readonly questions: readonly EligibilityQuestion[];
   readonly passMark: number | null;
   readonly minKycTier: EligibilityTier | null;
@@ -528,7 +528,7 @@ export class AgreementsAdmin {
     if (!row) {
       return {
         version: null,
-        reason: 'trade.derivatives_eligibility_unset',
+        reason: 'trade.identity_level_unset',
         questions: [],
         passMark: null,
         minKycTier: null,

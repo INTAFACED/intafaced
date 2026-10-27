@@ -108,9 +108,9 @@ const CONTRACT: GatedContract = {
   symbol: 'BTC/USDT:USDT',
   marketId: 'm-1',
   open: false,
-  code: 'trade.agreement_required',
-  message: 'Accept the current agreement before opening a position.',
-  blockers: [{ code: 'trade.agreement_required', message: 'Accept the current agreement before opening a position.' }],
+  code: 'trade.identity_level_insufficient',
+  message: 'Your verification level is below what derivatives need.',
+  blockers: [{ code: 'trade.identity_level_insufficient', message: 'Your verification level is below what derivatives need.' }],
 };
 
 describe('GET /api/v1/account/gated-list', () => {

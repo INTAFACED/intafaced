@@ -103,9 +103,6 @@ const messages = {
   // ADL
   'ADL notice heading': 'Auto-deleveraging notice',
   'ADL version': 'Version {version}',
-  'ADL acknowledged': 'Acknowledged',
-  'ADL not acknowledged': 'Not acknowledged',
-  'ADL acknowledge hint': 'Acknowledge in the ticket',
   'ADL events heading': 'ADL events',
   'ADL events table': 'ADL events that touched your positions',
   'ADL time': 'Time',

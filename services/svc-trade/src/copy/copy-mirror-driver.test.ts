@@ -75,7 +75,6 @@ function setup(
     accountAdmission: readyTestAdmission(),
     feeShareLaw: fee,
     jurisdictionLaw: jur,
-    disclosureLaw: { published: true, version: 'TEST-v1', text: 'TEST disclosure' },
     placeMirrorEnabled: opts.placeMirrorEnabled ?? true,
     now: () => clock,
     inspectMarket: async () => ({ paper: false, lotSize: parseAmount('0.00001') }),
@@ -94,7 +93,6 @@ function setup(
         .slice(0, limit),
   });
   const follow = async (who: Principal = principal, extra: { maxLoss?: string } = {}) => {
-    await svc.acceptDisclosure(who, { version: 'TEST-v1', clientAcceptId: `driver-accept:${who.userId}` });
     return svc.follow(who, {
       ...extra,
       leaderId: LEADER,

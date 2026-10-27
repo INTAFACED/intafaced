@@ -188,7 +188,6 @@ test(`${J} #5 presses Start copying below the copy verification level: refused b
   const wizard = await openWizardAtLimits(page);
   await fillLimits(wizard, { perOrder: '50', total: '200', fixed: '20' });
   await wizard.getByRole('button', { name: 'Next' }).click();
-  await wizard.getByRole('checkbox', { name: 'I have read this disclosure and accept it.' }).click();
   const answer = page.waitForResponse((res) => res.url().includes('copy.follow'));
   await wizard.getByRole('button', { name: 'Start copying' }).click();
   expect((await answer).status()).toBe(403);
@@ -202,7 +201,9 @@ test(`${J} #5 presses Start copying below the copy verification level: refused b
   expect((await (await api(unverified)).balances()).USDT).toMatchObject({ free: '1000', used: '0' });
 });
 
-test(`${J} #6 reads the copy disclosure: the owner's text and version, and Start stays off until it is accepted`, async ({ page }) => {
+// Step 6 was "reads and accepts the copy disclosure". Deferred until launch prep (owner decision 2026-10-27): no risk
+// disclosure is asked for, so this step proves the review asks for none and Start is on once the limits are valid.
+test(`${J} #6 reaches the review with no risk disclosure to accept, and Start copying is on`, async ({ page }) => {
   const follower = state('follower');
   fund(follower.email, 'USDT', '1000');
   await signIn(page, follower);
@@ -210,13 +211,10 @@ test(`${J} #6 reads the copy disclosure: the owner's text and version, and Start
   await fillLimits(wizard, { perOrder: '50', total: '200', fixed: '20' });
   await wizard.getByRole('button', { name: 'Next' }).click();
 
-  const terms = wizard.getByRole('region', { name: 'Copy risk disclosure' });
-  await expect(terms).toContainText('TEST disclosure, not owner text.');
-  await expect(terms).toContainText('Version TEST-2026-10-23');
-  const start = wizard.getByRole('button', { name: 'Start copying' });
-  await expect(start).toBeDisabled();
-  await terms.getByRole('checkbox', { name: 'I have read this disclosure and accept it.' }).click();
-  await expect(start).toBeEnabled();
+  await expect(wizard.getByRole('region', { name: 'What it costs' })).toBeVisible();
+  await expect(wizard.getByRole('region', { name: 'Copy risk disclosure' })).toHaveCount(0);
+  await expect(wizard.getByRole('checkbox', { name: /disclosure/ })).toHaveCount(0);
+  await expect(wizard.getByRole('button', { name: 'Start copying' })).toBeEnabled();
 });
 
 test(`${J} #7 enters a fixed amount and starts: zero and above-cap refused, the reserve is held from the free balance, and the same request returns the same follow`, async ({
@@ -242,7 +240,6 @@ test(`${J} #7 enters a fixed amount and starts: zero and above-cap refused, the 
   await expect(wizard.getByText('Reserved for this copy')).toBeVisible();
   await wizard.getByRole('button', { name: 'Next' }).click();
 
-  await wizard.getByRole('checkbox', { name: 'I have read this disclosure and accept it.' }).click();
   const answer = page.waitForResponse((res) => res.url().includes('copy.follow'));
   await wizard.getByRole('button', { name: 'Start copying' }).click();
   expect((await answer).status()).toBe(200);

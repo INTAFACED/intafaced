@@ -100,31 +100,12 @@ import {
   staticBandInForce,
   type BandInForce,
 } from './futures/dynamic-price-band.js';
-import {
-  ADL_DISCLOSURE_VERSION,
-  assertAdlDisclosureAcked,
-  presentAdlDisclosureWire,
-  sqlAdlDisclosureStore,
-  AdlDisclosureError,
-} from './futures/adl-disclosure.js';
+import { ADL_DISCLOSURE_VERSION, presentAdlDisclosureWire, sqlAdlDisclosureStore } from './futures/adl-disclosure.js';
 import { presentAdlActionDisclosureWire, sqlAdlDisclosureEventStore } from './futures/adl-last-resort.js';
-import { derivativesAccessGate, FUTURES_OPEN_AGREEMENT_KINDS } from './futures/derivatives-access.js';
-import {
-  assertEligible,
-  assessEligibility,
-  presentQuestions,
-  readEligibilityState,
-  sqlEligibilityStore,
-} from './futures/derivatives-eligibility.js';
+import { derivativesAccessGate } from './futures/derivatives-access.js';
+import { sqlEligibilityStore } from './futures/derivatives-eligibility.js';
 import { assertOperatorRiskOnPlace, currentRisk, currentRiskForMarkets, operatorSlippageCapBps } from './admin/risk.js';
 import { presentPairRisk } from './spot/pair-rules.js';
-import {
-  acceptAgreement,
-  AGREEMENT_KINDS,
-  assertAgreementsAccepted,
-  readAgreementView,
-  sqlRiskAgreementStore,
-} from './futures/risk-agreements.js';
 import { optionalProfitSourceFromConfig } from './futures/profit-source.js';
 import { parseConfiguredMaxLeverage } from './futures/initial-margin.js';
 import { parseConfiguredSettleAssets } from './futures/contract-family.js';
@@ -181,7 +162,6 @@ import { createOtcStakeSource } from './otc/stake-source.js';
 import { createIfcDiscountSource } from './spot/fee-ifc.js';
 import { canonicalizeCopyFillId } from './copy/fee-share.js';
 import { parseCopyFeeShareLawJson, parseCopyJurisdictionLawJson } from './copy/fee-share-law.js';
-import { parseCopyDisclosureLawJson } from './copy/disclosure.js';
 import { parseCopyMetricDefinitionsJson } from './copy/leader-profile.js';
 import { parseCopyMinTier } from './copy/follow-gate.js';
 import { CopyService } from './copy/copy-service.js';
@@ -377,7 +357,6 @@ const otc = new OtcDeskService(ledger, otcStakes, {
 });
 const copyFeeShareLaw = parseCopyFeeShareLawJson(env.TRADE_COPY_FEE_SHARE_LAW);
 const copyJurisdictionLaw = parseCopyJurisdictionLawJson(env.TRADE_COPY_JURISDICTION_LAW);
-const copyDisclosureLaw = parseCopyDisclosureLawJson(env.TRADE_COPY_DISCLOSURE_LAW);
 const copyMetricDefinitions = parseCopyMetricDefinitionsJson(env.TRADE_COPY_METRIC_DEFINITIONS);
 const copyMinTier = parseCopyMinTier(env.TRADE_COPY_MIN_TIER);
 const copyStore = new SqlCopyFollowStore(sql);
@@ -403,7 +382,6 @@ const copy = new CopyService(ledger, {
   accountAdmission: tradingControls,
   feeShareLaw: copyFeeShareLaw,
   jurisdictionLaw: copyJurisdictionLaw,
-  disclosureLaw: copyDisclosureLaw,
   metricDefinitions: copyMetricDefinitions,
   minTier: copyMinTier,
   store: copyStore,
@@ -587,11 +565,10 @@ if (profitSource) {
 }
 const adlDisclosureAcks = sqlAdlDisclosureStore(sql);
 const adlDisclosureEvents = sqlAdlDisclosureEventStore(sql);
-// D-account-07: no switch. Until the owner publishes an agreement text for the region and the eligibility rules,
-// a futures open is refused with the typed reason.
-const riskAgreements = sqlRiskAgreementStore(sql);
+// D-account-07: the identity level the published eligibility rules name. No agreement, quiz or notice gates an open
+// (owner decision 2026-10-27, until launch prep).
 const derivativesEligibility = sqlEligibilityStore(sql);
-const derivativesGate = derivativesAccessGate({ agreements: riskAgreements, eligibility: derivativesEligibility });
+const derivativesGate = derivativesAccessGate({ eligibility: derivativesEligibility });
 const futuresPriceBand = parsePriceBand(env.TRADE_FUTURES_PRICE_BAND);
 // D-instruments-08: the operator's dynamic price range on the market's limits row, worked out by the futures.price_band
 // job below. Anything short of a fresh working for the limits in force, an unreadable read included, is the static band.
@@ -647,16 +624,6 @@ const positions = new PositionService(sql, ledger, {
     openInterestLimits: async (marketId) => readOpenInterestLimits(await currentRisk(sql, marketId)),
   },
   assertDerivativesAccess: derivativesGate,
-  assertAdlDisclosureAcked: async (userId) => {
-    try {
-      await assertAdlDisclosureAcked(adlDisclosureAcks, userId);
-    } catch (err) {
-      if (err instanceof AdlDisclosureError) {
-        throw new FuturesError(err.message, err.code, err.status);
-      }
-      throw err;
-    }
-  },
 });
 // Matched futures fills settle into the position book this service owns (futures ADR slice 6). The matching events
 // are subscribed only now, with the sink bound: a fill or cancel replayed at boot for a resting futures order from an
@@ -1303,10 +1270,7 @@ registerPrivateRest(app, {
               : null,
         emailProved: async (userId) => (await emailProof.get(userId)) === 'accepted',
         orderable: (market) => orderableForListedMarket(market, env.TRADE_FUTURES_ENABLED),
-        checkEligibility: (who) => assertEligible(derivativesEligibility, { userId: who.userId, tier: who.tier }),
-        checkAgreements: (who) =>
-          assertAgreementsAccepted(riskAgreements, { userId: who.userId, kinds: FUTURES_OPEN_AGREEMENT_KINDS, region: who.region }),
-        adlAcknowledged: async (userId) => (await adlDisclosureAcks.getAck(userId, ADL_DISCLOSURE_VERSION)) != null,
+        checkAccess: (who) => derivativesGate(who),
       },
       subject,
     ),
@@ -1377,21 +1341,6 @@ registerPrivateRest(app, {
   getAdlDisclosure: async (principal) => presentAdlDisclosureWire(await adlDisclosureAcks.getAck(principal.userId, ADL_DISCLOSURE_VERSION)),
   ackAdlDisclosure: async (principal) =>
     presentAdlDisclosureWire(await adlDisclosureAcks.recordAck(principal.userId, ADL_DISCLOSURE_VERSION, new Date())),
-  getAgreements: async (principal, region) =>
-    Promise.all(AGREEMENT_KINDS.map((kind) => readAgreementView(riskAgreements, principal.userId, kind, region))),
-  acceptAgreement: async (principal, input) => acceptAgreement(riskAgreements, { userId: principal.userId, ...input, now: new Date() }),
-  getDerivativesEligibility: async (principal) => {
-    const state = await readEligibilityState(derivativesEligibility, principal.userId, principal.tier);
-    const rules = await derivativesEligibility.currentRules();
-    return { state, questions: rules ? presentQuestions(rules) : null };
-  },
-  assessDerivativesEligibility: async (principal, input) =>
-    assessEligibility(derivativesEligibility, {
-      userId: principal.userId,
-      submissionId: input.clientSubmissionId,
-      answers: input.answers,
-      now: new Date(),
-    }),
   listAdlDisclosureEvents: async (principal, limit) =>
     (await adlDisclosureEvents.listForUser(principal.userId, limit)).map(presentAdlActionDisclosureWire),
   convertExport: (principal, query) => trade.convertExport(principal, query),

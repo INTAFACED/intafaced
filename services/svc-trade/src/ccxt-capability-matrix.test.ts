@@ -27,7 +27,6 @@ import {
   refuseArmById,
   refuseOnlyRoutes,
 } from './ccxt-capability-matrix.js';
-import { AdlDisclosureError, ADL_DISCLOSURE_REQUIRED } from './futures/adl-disclosure.js';
 import { registerPrivateRest, type PrivateRestDeps } from './private-rest.js';
 import { fakeMarket, registerPublicRest, type PublicRestDeps } from './public-rest.js';
 
@@ -176,20 +175,16 @@ describe('ccxt capability matrix — inventory integrity', () => {
     expect(ids).toEqual(
       [
         'addIsolatedMarginInsufficient',
-        'adlDisclosureRequired',
-        'agreementRegionUnavailableOnOpen',
-        'agreementRequiredOnOpen',
-        'agreementUnpublishedOnOpen',
         'callerPriceOnClose',
         'cancelNotClose',
         'callerPriceOnOpen',
         'crossMarginOnOpen',
-        'derivativesEligibilityUnsetOnOpen',
         'fundingRateSpot',
         'fundingRateUnavailable',
         'futuresUnconfiguredOnOpen',
         'identityLevelInsufficientOnOpen',
         'identityLevelUnavailableOnOpen',
+        'identityLevelUnsetOnOpen',
         'leverageRequiredOnOpen',
         'profitSourceUnconfiguredOnClose',
         'reduceIsolatedMarginBelowInitial',
@@ -238,22 +233,17 @@ describe('ccxt capability matrix — inventory integrity', () => {
     expect(marginModeSource).toContain("'trade.portfolio_margin_unset'");
     expect(marginModeSource).toContain("'trade.unsupported_collateral_class'");
     expect(privateRestSource).toContain("'trade.leverage_required'");
-    expect(privateRestSource).toContain('AdlDisclosureError');
     expect(privateRestSource).toContain("'/api/v1/futures/adl-disclosure'");
     expect(privateRestSource).toContain("'/api/v1/futures/adl-disclosure/ack'");
     expect(privateRestSource).toContain("'/api/v1/futures/adl-events'");
-    expect(refuseArmById('adlDisclosureRequired')!.httpStatus).toBe(403);
-    expect(refuseArmById('adlDisclosureRequired')!.intafacedCode).toBe(ADL_DISCLOSURE_REQUIRED);
+    // No agreement, quiz or ADL acknowledgement refuses an open (owner decision 2026-10-27).
+    expect(refuseArmById('adlDisclosureRequired')).toBeUndefined();
+    expect(refuseArmById('agreementRequiredOnOpen')).toBeUndefined();
+    expect(refuseArmById('derivativesEligibilityUnsetOnOpen')).toBeUndefined();
     expect(privateRestSource).toContain('isDerivativesAccessError');
-    expect(privateRestSource).toContain("'/api/v1/account/agreements'");
-    expect(privateRestSource).toContain("'/api/v1/account/agreements/accept'");
-    expect(privateRestSource).toContain("'/api/v1/account/derivatives-eligibility'");
-    expect(privateRestSource).toContain("'/api/v1/account/derivatives-eligibility/assess'");
+    expect(privateRestSource).not.toContain("'/api/v1/account/agreements'");
+    expect(privateRestSource).not.toContain("'/api/v1/account/derivatives-eligibility'");
     for (const [id, code] of [
-      ['agreementRequiredOnOpen', 'trade.agreement_required'],
-      ['agreementUnpublishedOnOpen', 'trade.agreement_unpublished'],
-      ['agreementRegionUnavailableOnOpen', 'trade.agreement_region_unavailable'],
-      ['derivativesEligibilityUnsetOnOpen', 'trade.derivatives_eligibility_unset'],
       ['identityLevelInsufficientOnOpen', 'trade.identity_level_insufficient'],
       ['identityLevelUnavailableOnOpen', 'trade.identity_level_unavailable'],
     ] as const) {
@@ -279,10 +269,10 @@ describe('ccxt capability matrix — inventory integrity', () => {
     expect(names).toContain('fetchAdlDisclosure');
     expect(names).toContain('ackAdlDisclosure');
     expect(names).toContain('fetchAdlDisclosureEvents');
-    expect(names).toContain('fetchAgreements');
-    expect(names).toContain('acceptAgreement');
-    expect(names).toContain('fetchDerivativesEligibility');
-    expect(names).toContain('assessDerivativesEligibility');
+    expect(names).not.toContain('fetchAgreements');
+    expect(names).not.toContain('acceptAgreement');
+    expect(names).not.toContain('fetchDerivativesEligibility');
+    expect(names).not.toContain('assessDerivativesEligibility');
     expect(names).toContain('fetchClosedPositions');
     expect(names).toContain('fetchPosition');
     expect(names).toContain('fetchPositionMarginCall');
@@ -593,39 +583,7 @@ describe('ccxt capability matrix — claim ≡ wire (inject)', () => {
     await app.close();
   });
 
-  it('adlDisclosureRequired refuse arm: open without ack → 403, domain code', async () => {
-    const arm = refuseArmById('adlDisclosureRequired')!;
-    const app = Fastify();
-    registerPrivateRest(
-      app,
-      privateDeps({
-        openPosition: async () => {
-          throw new AdlDisclosureError(
-            ADL_DISCLOSURE_REQUIRED,
-            'Futures position open refused — acknowledge in-product ADL disclosure first',
-          );
-        },
-      }),
-    );
-    await app.ready();
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/v1/positions',
-      headers: { ...signedHeaders(), 'content-type': 'application/json' },
-      payload: {
-        symbol: 'BTC/USDT',
-        side: 'long',
-        size: '1',
-        leverage: '2',
-        clientOpenId: 'matrix-adl-refuse-1',
-      },
-    });
-    expect(res.statusCode).toBe(arm.httpStatus);
-    expect(res.json().error).toBe(arm.intafacedCode);
-    await app.close();
-  });
-
-  it('GET /capabilities serves matrix claim including ADL refuse arm', async () => {
+  it('GET /capabilities serves the matrix claim with the ADL disclosure door and no ADL refuse arm', async () => {
     const app = Fastify();
     registerPublicRest(app, publicDeps());
     await app.ready();
@@ -636,8 +594,8 @@ describe('ccxt capability matrix — claim ≡ wire (inject)', () => {
       refuseArms: Array<{ id: string; httpStatus: number }>;
     };
     expect(body.routes.some((r) => r.name === 'fetchAdlDisclosure')).toBe(true);
-    expect(body.routes.some((r) => r.name === 'openPosition' && r.refuseArmIds?.includes('adlDisclosureRequired'))).toBe(true);
-    expect(body.refuseArms.some((a) => a.id === 'adlDisclosureRequired' && a.httpStatus === 403)).toBe(true);
+    expect(body.routes.some((r) => r.name === 'openPosition' && r.refuseArmIds?.includes('adlDisclosureRequired'))).toBe(false);
+    expect(body.refuseArms.some((a) => a.id === 'adlDisclosureRequired')).toBe(false);
     expect(body.refuseArms.some((a) => a.id === 'crossMarginOnOpen' && a.httpStatus === 400)).toBe(true);
     expect(body.refuseArms.some((a) => a.id === 'leverageRequiredOnOpen' && a.httpStatus === 400)).toBe(true);
     expect(body.routes.some((r) => r.name === 'openPosition' && r.refuseArmIds?.includes('futuresUnconfiguredOnOpen'))).toBe(true);

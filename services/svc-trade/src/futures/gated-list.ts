@@ -2,14 +2,14 @@
  * The per-account gated list (D-ops-01): every listed futures contract, marked open or blocked for this account, with
  * every reason it is blocked and the first one named.
  *
- * It is a read and never opens a door: the open path runs its own gates (`derivatives-access.ts`, the ADL disclosure,
- * the exposure switch). The checks here are the same functions, asked one by one so the trader sees every reason at
- * once instead of one per attempt. A check that fails for a reason it cannot name is `trade.gated_list_unknown` and
- * blocks (fail closed).
+ * It is a read and never opens a door: the open path runs its own gates (`derivatives-access.ts`, the exposure
+ * switch). The checks here are the same functions, asked one by one so the trader sees every reason at once instead
+ * of one per attempt. A check that fails for a reason it cannot name is `trade.gated_list_unknown` and blocks (fail
+ * closed).
  *
  * Order of the first reason: the futures plane, the order path (the book switch and the price band), the contract's
- * own state, the proved email, eligibility, the agreements, the ADL disclosure. The account checks are read once and
- * apply to every contract.
+ * own state, the proved email, the identity level. The account checks are read once and apply to every contract. No
+ * agreement, quiz or notice is a reason (owner decision 2026-10-27, until launch prep).
  */
 import type { Market } from '../spot/types.js';
 import { isDerivativesAccessError } from './derivatives-access.js';
@@ -49,15 +49,9 @@ export interface GatedListDeps {
   orderable(market: Market): boolean;
   /** The same email proof every new opening order needs. */
   emailProved(userId: string): Promise<boolean>;
-  checkEligibility(subject: GatedListSubject): Promise<void>;
-  checkAgreements(subject: GatedListSubject): Promise<void>;
-  adlAcknowledged(userId: string): Promise<boolean>;
+  /** The derivatives access gate the open runs: the identity level. */
+  checkAccess(subject: GatedListSubject): Promise<void>;
 }
-
-const ADL_REQUIRED: GatedBlocker = {
-  code: 'trade.adl_disclosure_required',
-  message: 'Acknowledge the auto-deleveraging disclosure before opening a futures position.',
-};
 
 const EMAIL_REQUIRED: GatedBlocker = {
   code: 'trade.email_proof_required',
@@ -87,21 +81,16 @@ export async function readGatedList(deps: GatedListDeps, subject: GatedListSubje
   const markets = (await deps.markets()).filter((market) => market.kind === 'futures');
   const plane = deps.planeRefusal();
   const path = deps.orderPathRefusal();
-  const [email, eligibility, agreements, adl] = await Promise.all([
+  const [email, access] = await Promise.all([
     deps.emailProved(subject.userId).then(
       (proved) => (proved ? null : EMAIL_REQUIRED),
       () => UNKNOWN,
     ),
-    blockerOf(() => deps.checkEligibility(subject)),
-    blockerOf(() => deps.checkAgreements(subject)),
-    deps.adlAcknowledged(subject.userId).then(
-      (acknowledged) => (acknowledged ? null : ADL_REQUIRED),
-      () => UNKNOWN,
-    ),
+    blockerOf(() => deps.checkAccess(subject)),
   ]);
   return markets
     .map((market) => {
-      const blockers = [plane, path, marketBlocker(market, deps.orderable(market)), email, eligibility, agreements, adl].filter(
+      const blockers = [plane, path, marketBlocker(market, deps.orderable(market)), email, access].filter(
         (blocker): blocker is GatedBlocker => blocker !== null,
       );
       const first = blockers[0] ?? null;

@@ -8,9 +8,6 @@
 /** Stable product copy version — bump only when the disclosed meaning changes. */
 export const ADL_DISCLOSURE_VERSION = 'DIRECTION-2026-07-31:34' as const;
 
-/** Honest refuse when open is attempted without a matching ack. */
-export const ADL_DISCLOSURE_REQUIRED = 'trade.adl_disclosure_required' as const;
-
 /**
  * In-product disclosure text. Describes mechanism existence only — no invented
  * threshold, ranking formula, or reduce size.
@@ -21,8 +18,7 @@ export const ADL_DISCLOSURE_COPY =
   'the platform may reduce profitable opposite-side positions. ADL does not run ' +
   'silently: a disclosure event is recorded before any reduce, and thresholds or ' +
   'ranking are owner-configured (unset \u2192 ADL refuses rather than inventing ' +
-  'parameters). By acknowledging, you confirm you have read this before opening ' +
-  'a futures position.';
+  'parameters).';
 
 export type FuturesJobsCapabilityNote = {
   readonly orderableEnabled: boolean;
@@ -96,7 +92,6 @@ export type FuturesPolicySummary = {
   readonly insuranceListing: ReturnType<typeof presentInsuranceListingPolicy>;
   readonly adlDisclosure: {
     readonly version: typeof ADL_DISCLOSURE_VERSION;
-    readonly requiredCode: typeof ADL_DISCLOSURE_REQUIRED;
     readonly copy: typeof ADL_DISCLOSURE_COPY;
     readonly inventsThresholds: false;
     readonly inventsRanking: false;
@@ -119,7 +114,6 @@ export function describeFuturesPolicy(input: Parameters<typeof presentFuturesJob
     insuranceListing: presentInsuranceListingPolicy(),
     adlDisclosure: {
       version: ADL_DISCLOSURE_VERSION,
-      requiredCode: ADL_DISCLOSURE_REQUIRED,
       copy: ADL_DISCLOSURE_COPY,
       inventsThresholds: false,
       inventsRanking: false,

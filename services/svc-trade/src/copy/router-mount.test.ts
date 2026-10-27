@@ -15,7 +15,7 @@ import type { TradeService } from '../spot/trade-service.js';
 import { type LookupFollowerFillFeePort, type LookupLeaderFillPort } from './copy-service.js';
 import type { CopyFeeShareLaw, CopyJurisdictionLaw } from './fee-share-law.js';
 import { MemoryCopyFollowStore } from './follow-store.js';
-import { GateOpenLedger, GateOpenStore, OPEN_FOLLOW_GATE } from './test/follow-gate.fixture.js';
+import { GateOpenLedger, OPEN_FOLLOW_GATE } from './test/follow-gate.fixture.js';
 
 const SECRET = 'a-trade-copy-mount-test-edge-secret-long';
 const FOLLOWER = '00000000-0000-4000-8000-000000000001';
@@ -101,7 +101,7 @@ class BlockingLedger extends MemoryLedger {
   }
 }
 
-class BlockingMirrorStore extends GateOpenStore {
+class BlockingMirrorStore extends MemoryCopyFollowStore {
   readonly entered = deferred();
   readonly release = deferred();
 
@@ -146,7 +146,7 @@ function makeCopy(opts?: {
 }) {
   return new CopyService(opts?.ledger ?? new GateOpenLedger(), {
     ...OPEN_FOLLOW_GATE,
-    store: new GateOpenStore(),
+    store: new MemoryCopyFollowStore(),
     feeShareLaw: opts?.fee ?? { published: false },
     jurisdictionLaw: opts?.jur ?? { published: false },
     ...(opts?.store ? { store: opts.store } : {}),

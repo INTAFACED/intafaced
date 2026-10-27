@@ -95,13 +95,6 @@ import {
   type CopyLeaderLimitSettings,
 } from './follower-limits.js';
 import { assertCopyConcurrency, assertCopySlippage, assertLeverageUnsupported, drawdownDecision } from './follow-limits-extra.js';
-import {
-  acceptCopyDisclosure,
-  readCopyDisclosure,
-  requireCopyDisclosureForMirror,
-  UNPUBLISHED_COPY_DISCLOSURE_LAW,
-  type CopyDisclosureLaw,
-} from './disclosure.js';
 import { followResultFigure, readFollowResult, type FollowResult } from './follow-result.js';
 import {
   MemoryMirrorEventLog,
@@ -192,8 +185,6 @@ export interface CopyServiceOptions {
   /** Owner's verification level for copying (TRADE_COPY_MIN_TIER). Omitted → every startFollow refuses. */
   minTier?: CopyTier | null;
   jurisdictionLaw?: CopyJurisdictionLaw;
-  /** Owner disclosure text. Omitted → unpublished. Never a composed default. */
-  disclosureLaw?: CopyDisclosureLaw;
   now?: () => Date;
   /** Defaults to in-memory. Production wires SqlCopyFollowStore. */
   store?: CopyFollowStore;
@@ -320,7 +311,6 @@ export class CopyService {
   private readonly store: CopyFollowStore;
   private readonly feeShareLaw: CopyFeeShareLaw;
   private readonly jurisdictionLaw: CopyJurisdictionLaw;
-  private readonly disclosureLaw: CopyDisclosureLaw;
   private readonly now: () => Date;
   private readonly placeFollowerOrder: PlaceFollowerOrderPort | null;
   private readonly placeMirrorEnabled: boolean;
@@ -344,7 +334,6 @@ export class CopyService {
     this.accountAdmission = options.accountAdmission;
     this.feeShareLaw = options.feeShareLaw ?? UNPUBLISHED_COPY_FEE_SHARE_LAW;
     this.jurisdictionLaw = options.jurisdictionLaw ?? UNPUBLISHED_COPY_JURISDICTION_LAW;
-    this.disclosureLaw = options.disclosureLaw ?? UNPUBLISHED_COPY_DISCLOSURE_LAW;
     this.now = options.now ?? (() => new Date());
     this.store = options.store ?? new MemoryCopyFollowStore();
     this.placeFollowerOrder = options.placeFollowerOrder ?? null;
@@ -401,19 +390,6 @@ export class CopyService {
     throw err;
   }
 
-  /** Current owner disclosure and whether this caller accepted that version. */
-  disclosure(principal: Principal) {
-    return readCopyDisclosure(this.disclosureLaw, this.store, principal.userId);
-  }
-
-  /**
-   * Record this caller's acceptance of the current published version.
-   * Same follower and version returns the first row.
-   */
-  acceptDisclosure(principal: Principal, input: { version: string; clientAcceptId: string }) {
-    return acceptCopyDisclosure(this.disclosureLaw, this.store, principal.userId, input, this.now());
-  }
-
   /**
    * Place a planned mirror as a real follower spot limit at the plan envelope.
    * Flag off / blank §8 / paper→live refuse by name. Idempotent on fillId.
@@ -445,7 +421,6 @@ export class CopyService {
         }
         requirePublishedCopyFeeShareLaw(this.feeShareLaw);
 
-        await requireCopyDisclosureForMirror(this.disclosureLaw, store, follow.followerId);
         await this.refuseIfFollowRegionClosed(store, follow);
         if (follow.envelope.expiresAt.getTime() <= this.now().getTime()) {
           throw new CopyError('Copy session envelope has expired', 'trade.copy_key_expired');
@@ -602,7 +577,7 @@ export class CopyService {
    */
   /**
    * The customer's Start copying (CB-copy-03, CB-copy-04). Every gate runs before anything is written: sub-account,
-   * the owner's copy tier, the accepted disclosure, the country list (inside follow), and a reserve that fits the
+   * the owner's copy tier, the country list (inside follow), and a reserve that fits the
    * follower's free spot balance. The same clientRequestId returns the follow it already made.
    */
   async startFollow(principal: Principal, input: Parameters<CopyService['follow']>[1] & { readonly clientRequestId: string }) {
@@ -614,7 +589,6 @@ export class CopyService {
       this.blankLawRefusal(err);
     }
     assertMayFollow(principal, this.minTier);
-    await requireCopyDisclosureForMirror(this.disclosureLaw, this.store, principal.userId);
     const leaderId = await this.directory.resolveLeaderId(input.leaderId, input.leaderRef);
     const followId = copyFollowIdFor(principal.userId, leaderId, input.clientRequestId);
     const already = await this.store.getFollow(followId);
@@ -651,7 +625,7 @@ export class CopyService {
   }
 
   /**
-   * The follow write without startFollow's gates (tier, disclosure, reserve). The router mounts only startFollow; this
+   * The follow write without startFollow's gates (tier, reserve). The router mounts only startFollow; this
    * stays callable for the unit tests of the envelope and lifecycle. Without `admitted` no reserve is held and the id
    * is random, so two direct follows of one leader race to the unique (follower, leader) row as before.
    */
@@ -1115,7 +1089,6 @@ export class CopyService {
   private async planMirrorForFollowExclusive(store: CopyFollowStore, principal: Principal, input: PlanMirrorInput) {
     const follow = await this.requireOwnedFollow(store, principal, input.followId);
     await this.directory.refuseNewMirror(follow.leaderId);
-    await requireCopyDisclosureForMirror(this.disclosureLaw, store, follow.followerId);
     await this.refuseIfFollowRegionClosed(store, follow);
     requireNewCopyIntentAllowed(follow);
 

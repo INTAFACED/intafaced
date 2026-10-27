@@ -291,15 +291,15 @@ export interface MatchedOrdersDeps {
   /** Refuses a NEW order on a position that has a liquidation rung, a planned ADL pair or a review hold. */
   readonly assertPositionIdle: (positionId: string) => Promise<void>;
   /**
-   * D-account-07: the risk agreement and eligibility gate, the same one the at-mark open runs. Null when the
-   * deployment wires none (tests); production always wires it, and with nothing published it refuses every order.
+   * D-account-07: the identity-level gate, the same one the at-mark open runs. Null when the deployment wires none
+   * (tests); production always wires it.
    */
   readonly assertDerivativesAccess?: DerivativesAccessGate | null;
   /** The same email-proof gate as every other new order (RC-identity-01). Absent refuses an opening order. */
   readonly emailProof?: EmailProofSource;
   /**
-   * The doors an opening order answers to beyond the access gate, the same ones the at-mark open ran: the futures
-   * exposure switch and the ADL disclosure. Run after the client-order-id replay; never for a reduce-only order.
+   * The door an opening order answers to beyond the access gate, the same one the at-mark open ran: the futures
+   * exposure switch. Run after the client-order-id replay; never for a reduce-only order.
    */
   readonly assertOpeningAllowed?: (userId: string) => Promise<void>;
   /** The PX-S01 lifecycle proof for a PLACE on this market. Null is unset, and refuses. */
@@ -969,8 +969,8 @@ export class MatchedFuturesOrders {
     }
 
     // After the replay above, so an order that was accepted and holds margin is finished on retry even if a new
-    // agreement or rules version was published meanwhile (the same order as the at-mark open). A reduce-only order
-    // is never gated: while matching is on it is the only way to close, and a lapsed acceptance must not trap a position.
+    // rules version was published meanwhile (the same order as the at-mark open). A reduce-only order is never
+    // gated: while matching is on it is the only way to close, and no gate may trap a position.
     if (input.reduceOnly !== true) {
       await assertEmailProved(this.deps.emailProof, input.userId);
       if (this.deps.assertOpeningAllowed) await this.deps.assertOpeningAllowed(input.userId);

@@ -48,8 +48,6 @@ export function AdlTab({
             <p className="m-0 text-sm text-fg">{d.copy}</p>
             <div className="flex flex-wrap items-center gap-2 text-xs text-fg-2">
               <span>{t('ADL version', { version: d.version })}</span>
-              <Badge tone={d.acknowledged ? 'lime' : 'warn'}>{d.acknowledged ? t('ADL acknowledged') : t('ADL not acknowledged')}</Badge>
-              {d.acknowledged ? null : <span>{t('ADL acknowledge hint')}</span>}
             </div>
           </div>
         )}

@@ -97,27 +97,18 @@ The listing record carries `family` (`linear` only; `inverse` refuses `trade.inv
 `trade.premarket_params_unset`. The public market read (`GET /api/v1/markets`, `markets.list`) shows `family`,
 `settleAsset`, `contractSize` and `premarket`.
 
-**Risk agreements, margin terms and derivatives eligibility (D-account-07).** A futures open (`POST /api/v1/positions`, not
-reduce-only) is refused until the caller has accepted the current version of the risk agreement for their region and holds the
-derivatives level under the current suitability rules. There is no switch: with nothing published the open refuses with the
-typed reason. A reduce-only open and every close never reach the gate. The text, the questions, the answers that count, the
-pass mark and the minimum verification tier are the owner's content; nothing here supplies any of them.
+**Derivatives access (D-account-07).** A futures open (`POST /api/v1/positions` or `POST /api/v1/futures/orders`, not
+reduce-only) needs the verification tier the published eligibility rules name (`trade.identity_level_insufficient`,
+`trade.identity_level_unavailable`); with no rules published nothing is added to the jurisdiction matrix's own tier check.
+No risk agreement, margin terms, suitability quiz or ADL acknowledgement gates an open or a copy (owner decision 2026-10-27,
+until launch prep). The operator doors below still publish and list that content. The verification tier is the caller's own
+principal claim; no identity vendor is called from this service.
 
-| Door                                                       | What it does                                                                                                                       |
-| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/v1/account/agreements`                           | `derivatives_risk` and `margin_terms` for the request region, with accepted state; unavailable kinds carry the reason              |
-| `POST /api/v1/account/agreements/accept` `{kind, version}` | idempotent on (user, kind, version); records time and the jurisdiction text id; a stale version is `trade.agreement_version_stale` |
-| `GET /api/v1/account/derivatives-eligibility`              | level state, and the questions without the scoring key                                                                             |
-| `POST /api/v1/account/derivatives-eligibility/assess`      | `{clientSubmissionId, answers}`; scored against the current rule version; idempotent on the submission id                          |
-| `admin.agreements.get` / `.publish`                        | new version per kind with one text per jurisdiction; four-eyes, append-only (a published version is never edited), audited         |
-| `admin.agreements.list` / `.export`                        | compliance view of acceptances; the CSV export is capped by `TRADE_OPERATOR_EXPORT_CAP` (blank refuses) and audited                |
-| `admin.eligibilityRules.get` / `.set`                      | versioned questions, pass mark and minimum tier; any blank part refuses `eligibility_rules_incomplete`                             |
-
-Refusals on open: `trade.agreement_unpublished`, `trade.agreement_region_unavailable`, `trade.agreement_required` (body names
-the `documentId`), `trade.derivatives_eligibility_unset` (`reason`: `rules_unpublished`, `not_assessed`, `not_passed`,
-`rule_version_stale`), `trade.identity_level_insufficient` and `trade.identity_level_unavailable`. The verification tier is the
-caller's own principal claim; no identity vendor is called from this service. Futures opens need `derivatives_risk`; the
-`margin_terms` kind is stored and acceptable now and is the gate for a margin borrow door when one exists.
+| Door                                  | What it does                                                                                                               |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `admin.agreements.get` / `.publish`   | new version per kind with one text per jurisdiction; four-eyes, append-only (a published version is never edited), audited |
+| `admin.agreements.list` / `.export`   | compliance view of stored acceptances; the CSV export is capped by `TRADE_OPERATOR_EXPORT_CAP` (blank refuses) and audited |
+| `admin.eligibilityRules.get` / `.set` | versioned questions, pass mark and minimum tier; any blank part refuses `eligibility_rules_incomplete`                     |
 
 **Charts module owner values (C-ops-04, LD-14).** Five counts and a data class per market, held here until account sync
 exists. Blank is `null` ("not set"); nothing has a default. Operator writes need `admin:write`, a reason, and a

@@ -15,7 +15,7 @@ import type { TradeService } from '../spot/trade-service.js';
 import type { PlaceFollowerOrderPort } from './auto-mirror-place.js';
 
 import { MemoryCopyFollowStore } from './follow-store.js';
-import { GateOpenLedger, GateOpenStore, OPEN_FOLLOW_GATE } from './test/follow-gate.fixture.js';
+import { GateOpenLedger, OPEN_FOLLOW_GATE } from './test/follow-gate.fixture.js';
 
 const SECRET = 'copy-pause-stop-detach-edge-secret-32b';
 const FOLLOWER = '11111111-1111-4111-8111-111111111111';
@@ -70,7 +70,7 @@ function anyLeaderFill(): LookupLeaderFillPort {
   });
 }
 
-function wiredCopy(placeFollowerOrder: PlaceFollowerOrderPort, store: MemoryCopyFollowStore = new GateOpenStore()) {
+function wiredCopy(placeFollowerOrder: PlaceFollowerOrderPort, store: MemoryCopyFollowStore = new MemoryCopyFollowStore()) {
   return new CopyService(new GateOpenLedger(), {
     ...OPEN_FOLLOW_GATE,
     feeShareLaw: publishedFee,

@@ -9,18 +9,19 @@
  * WHAT THIS IS / IS NOT
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * IS: the ack gate that blocks `open` until the trader has acknowledged a
- * versioned disclosure. Durable ack + readable copy are the public door.
+ * IS: a versioned disclosure the desk shows as product information, and a
+ * durable, voluntary acknowledgement. No open waits on it (owner decision
+ * 2026-10-27, until launch prep). The ADL last-resort pass still only reduces
+ * a candidate who acknowledged (`adl-last-resort.ts`).
  *
  * IS NOT: ADL thresholds, ranking, or reduce magnitudes (D5 / owner packet).
  * Those live in `adl-last-resort.ts` and refuse-closed when unset — this file
  * invents no numbers.
  */
 import type { Sql } from 'postgres';
-import { logRefusalSpec } from '../refusal-spec-log.js';
-import { ADL_DISCLOSURE_COPY, ADL_DISCLOSURE_REQUIRED, ADL_DISCLOSURE_VERSION } from './futures-policy.js';
+import { ADL_DISCLOSURE_COPY, ADL_DISCLOSURE_VERSION } from './futures-policy.js';
 
-export { ADL_DISCLOSURE_COPY, ADL_DISCLOSURE_REQUIRED, ADL_DISCLOSURE_VERSION } from './futures-policy.js';
+export { ADL_DISCLOSURE_COPY, ADL_DISCLOSURE_VERSION } from './futures-policy.js';
 
 export interface AdlDisclosureAck {
   readonly userId: string;
@@ -47,37 +48,6 @@ export function presentAdlDisclosureWire(ack: AdlDisclosureAck | null): AdlDiscl
     acknowledged: ack != null && ack.version === ADL_DISCLOSURE_VERSION,
     acknowledgedAt: ack != null && ack.version === ADL_DISCLOSURE_VERSION ? ack.acknowledgedAt.toISOString() : null,
   };
-}
-
-/**
- * Gate for position open. Missing or stale-version ack → refuse (never open silent).
- */
-export async function assertAdlDisclosureAcked(
-  store: AdlDisclosureStore,
-  userId: string,
-  version: string = ADL_DISCLOSURE_VERSION,
-): Promise<AdlDisclosureAck> {
-  const ack = await store.getAck(userId, version);
-  if (!ack || ack.version !== version) {
-    logRefusalSpec('trade.adl_disclosure_required');
-    throw new AdlDisclosureError(
-      ADL_DISCLOSURE_REQUIRED,
-      'Futures cannot be opened yet: acknowledge the auto-deleveraging disclosure first ' +
-        `(POST /api/v1/futures/adl-disclosure/ack, version ${version}).`,
-    );
-  }
-  return ack;
-}
-
-export class AdlDisclosureError extends Error {
-  readonly code: typeof ADL_DISCLOSURE_REQUIRED;
-  readonly status = 403;
-
-  constructor(code: typeof ADL_DISCLOSURE_REQUIRED, message: string) {
-    super(message);
-    this.name = 'AdlDisclosureError';
-    this.code = code;
-  }
 }
 
 /** In-memory store for hermetic / public-door tests. */

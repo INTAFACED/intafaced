@@ -206,17 +206,8 @@ test(`${J} #4 tries to post staked balance as margin: the review and the order b
   const who = account();
   const me = await api(who);
   await desk(page);
-  // Clear derivatives access first, so the refusal below is the collateral rule and nothing else.
-  await page.getByRole('button', { name: 'I have read this' }).click();
-  const quiz = page.getByTestId('futures-quiz');
-  await quiz.getByRole('radio', { name: /liquidated and can lose all of its margin/ }).check();
-  await quiz.getByRole('button', { name: 'Submit answers' }).click();
-  await expect(quiz.getByText('Passed. You can trade derivatives under the current rules.')).toBeVisible();
-  for (const kind of ['derivatives_risk', 'margin_terms']) {
-    const card = page.getByTestId(`agreement-${kind}`);
-    await card.getByRole('button', { name: /^Accept / }).click();
-    await expect(card).toContainText('Accepted');
-  }
+  // Derivatives access is open (no agreement, quiz or notice since owner decision 2026-10-27), so the refusal below is
+  // the collateral rule and nothing else.
   await expect(page.getByTestId('futures-access').getByText('Open for your account')).toBeVisible();
   const before = await me.balances();
 

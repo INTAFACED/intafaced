@@ -17,7 +17,6 @@ import { dec } from '../../../data/decimal';
 import { displayAmount } from '../../../shared/money';
 import { useBalances } from '../desk/data';
 import type { CopyDesk, LeaderRow, RoomApi } from './api';
-import { useLive } from './live';
 import { bpsText, deskState } from './desk';
 import { roomCopy } from './copy';
 import type { WriteGuard } from './guard';
@@ -65,13 +64,11 @@ export function FollowWizard({
   const [useFixed, setUseFixed] = useState(true);
   const [fixed, setFixed] = useState('');
   const [expiry, setExpiry] = useState('');
-  const [understood, setUnderstood] = useState(false);
   // One key per opening of the wizard: a second press of Start copying, or a retry after a lost answer, is the same
   // request and returns the same follow.
   const [requestKey, setRequestKey] = useState('');
   const state = deskState(desk);
   const balances = useBalances();
-  const disclosure = useLive((signal) => api.disclosure(signal), `copy-disclosure:${open ? 'open' : 'closed'}`, null);
   useEffect(() => {
     if (open) {
       setLeader(initialLeader);
@@ -115,7 +112,6 @@ export function FollowWizard({
   const reset = () => {
     setStep(1);
     setTouched(false);
-    setUnderstood(false);
     guard.setFailure(null);
   };
   const next = () => {
@@ -125,19 +121,12 @@ export function FollowWizard({
       setStep((step + 1) as Step);
     }
   };
-  const terms = disclosure.data;
   const confirm = () => {
     const expiresAt = instantOf(expiry);
-    if (!expiresAt || guard.busy || guard.locked || !terms?.published || !terms.version) return;
-    const version = terms.version;
+    if (!expiresAt || guard.busy || guard.locked) return;
     void guard.run(
       { kind: 'copy', id: `follow:${listed ? listed.leaderRef : leader.trim()}:${Date.now()}`, symbol: picked.join(',') },
       async () => {
-        // Accepting is its own record, keyed by the version; the follow then goes through the same gate.
-        if (!terms.accepted) {
-          const accepted = await api.acceptDisclosure({ version, clientAcceptId: `copy-accept:${version}` });
-          if (!accepted.ok) return accepted;
-        }
         const followed = await api.follow({
           ...(listed ? { leaderRef: listed.leaderRef } : { leaderId: leader.trim() }),
           region: region.trim().toUpperCase(),
@@ -154,7 +143,6 @@ export function FollowWizard({
         return api.grantCopying(followed.data.followId);
       },
       () => {
-        disclosure.reload();
         onFollowed();
         onOpenChange(false);
         reset();
@@ -337,29 +325,6 @@ export function FollowWizard({
               )}
             </InfoNote>
             <InfoNote>{t('If you stop, new copies stop at once. Positions already open stay yours until you close them.')}</InfoNote>
-            <section aria-label={t('Copy risk disclosure')} className="cb-disclosure">
-              <h3>{t('Copy risk disclosure')}</h3>
-              {disclosure.status === 'loading' ? (
-                <p>{t('Loading')}</p>
-              ) : disclosure.failure && !terms ? (
-                <RefusalNote failure={disclosure.failure} retry={disclosure.reload} />
-              ) : !terms?.published ? (
-                <InfoNote tone="warn">{t('Not published. Copying can’t start until the platform publishes its risk disclosure.')}</InfoNote>
-              ) : (
-                <>
-                  <p className="cb-disclosure-text">{terms.text}</p>
-                  <p className="cb-meta">{t('Version {version}', { version: terms.version ?? '' })}</p>
-                  <label className="cb-check">
-                    <Checkbox
-                      checked={terms.accepted || understood}
-                      disabled={terms.accepted}
-                      onCheckedChange={(v) => setUnderstood(v === true)}
-                    />
-                    <span>{terms.accepted ? t('You accepted this version.') : t('I have read this disclosure and accept it.')}</span>
-                  </label>
-                </>
-              )}
-            </section>
           </div>
         ) : null}
 
@@ -372,11 +337,7 @@ export function FollowWizard({
           {step < 4 ? (
             <Button onClick={next}>{t('Next')}</Button>
           ) : (
-            <Button
-              onClick={confirm}
-              loading={guard.busy}
-              disabled={!terms?.published || !(terms.accepted || understood) || guard.locked || !guard.signedIn}
-            >
+            <Button onClick={confirm} loading={guard.busy} disabled={guard.locked || !guard.signedIn}>
               {t('Start copying')}
             </Button>
           )}

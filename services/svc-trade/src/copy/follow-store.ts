@@ -202,17 +202,6 @@ export interface StoredPlacedMirror {
   readonly price: Amount;
 }
 
-/**
- * One acceptance of one disclosure version by one follower.
- * Append-only. A second accept of the same pair returns this row.
- */
-export interface CopyDisclosureAcceptance {
-  readonly followerId: string;
-  readonly version: string;
-  readonly acceptedAt: Date;
-  readonly clientAcceptId: string;
-}
-
 export type RunPlaceMirrorOnceResult =
   | { readonly status: 'duplicate'; readonly record: StoredPlacedMirror }
   | { readonly status: 'claimed'; readonly record: StoredPlacedMirror };
@@ -349,14 +338,6 @@ export interface CopyFollowStore {
   runPlaceMirrorOnce(followId: string, fillId: string, run: () => Promise<StoredPlacedMirror>): Promise<RunPlaceMirrorOnceResult>;
   /** The copy already placed for this leader fill under this follow, or null. */
   getPlacedMirror(followId: string, fillId: string): Promise<StoredPlacedMirror | null>;
-  /** This follower's acceptance of this version, or null. Never another follower's row. */
-  getDisclosureAcceptance(followerId: string, version: string): Promise<CopyDisclosureAcceptance | null>;
-  /**
-   * Insert the first acceptance of (follower, version). A replay returns that
-   * row and does not write a second one. Never updates acceptedAt or the
-   * client id.
-   */
-  acceptDisclosure(row: CopyDisclosureAcceptance): Promise<CopyDisclosureAcceptance>;
 }
 
 /**
@@ -389,10 +370,6 @@ function createExclusiveQueue() {
 
 function mirrorKey(followId: string, fillId: string): string {
   return `${followId}\0${fillId}`;
-}
-
-function disclosureKey(followerId: string, version: string): string {
-  return `${followerId}\0${version}`;
 }
 
 function settleKey(followId: string, fillId: string): string {
@@ -442,8 +419,6 @@ export class MemoryCopyFollowStore implements CopyFollowStore {
   private readonly placed = new Map<string, StoredPlacedMirror>();
   /** Order id → status. Missing and null both count as open. */
   private readonly orderState = new Map<string, string | null>();
-  /** Keyed `${followerId}\0${version}` — one acceptance per follower and version. */
-  private readonly disclosures = new Map<string, CopyDisclosureAcceptance>();
   private readonly exclusive = createExclusiveQueue();
 
   async runFollowExclusive<T>(followId: string, run: (lockedStore: CopyFollowStore) => Promise<T>): Promise<T> {
@@ -767,18 +742,6 @@ export class MemoryCopyFollowStore implements CopyFollowStore {
 
   async getPlacedMirror(followId: string, fillId: string): Promise<StoredPlacedMirror | null> {
     return this.placed.get(mirrorKey(followId, canonicalizeCopyFillId(fillId))) ?? null;
-  }
-
-  async getDisclosureAcceptance(followerId: string, version: string): Promise<CopyDisclosureAcceptance | null> {
-    return this.disclosures.get(disclosureKey(followerId, version)) ?? null;
-  }
-
-  async acceptDisclosure(row: CopyDisclosureAcceptance): Promise<CopyDisclosureAcceptance> {
-    const key = disclosureKey(row.followerId, row.version);
-    const existing = this.disclosures.get(key);
-    if (existing) return existing;
-    this.disclosures.set(key, row);
-    return row;
   }
 }
 
@@ -1725,33 +1688,6 @@ export class SqlCopyFollowStore implements CopyFollowStore {
     // so two different fills of one follow must not both read the same count.
     return this.withAdvisoryLock(`copy-place:${followId}`, placeOnce);
   }
-
-  async getDisclosureAcceptance(followerId: string, version: string): Promise<CopyDisclosureAcceptance | null> {
-    const rows = await this.sql<DisclosureAcceptanceRow[]>`
-      SELECT follower_id, version, accepted_at, client_accept_id
-        FROM copy_disclosure_acceptances
-       WHERE follower_id = ${followerId} AND version = ${version}
-       LIMIT 1
-    `;
-    const row = rows[0];
-    return row ? rowToDisclosureAcceptance(row) : null;
-  }
-
-  async acceptDisclosure(row: CopyDisclosureAcceptance): Promise<CopyDisclosureAcceptance> {
-    const inserted = await this.sql<DisclosureAcceptanceRow[]>`
-      INSERT INTO copy_disclosure_acceptances (follower_id, version, accepted_at, client_accept_id)
-      VALUES (${row.followerId}, ${row.version}, ${row.acceptedAt}, ${row.clientAcceptId})
-      ON CONFLICT (follower_id, version) DO NOTHING
-      RETURNING follower_id, version, accepted_at, client_accept_id
-    `;
-    const wrote = inserted[0];
-    if (wrote) return rowToDisclosureAcceptance(wrote);
-    const existing = await this.getDisclosureAcceptance(row.followerId, row.version);
-    if (!existing) {
-      throw new Error('copy disclosure acceptance row missing after insert');
-    }
-    return existing;
-  }
 }
 
 type PlacedMirrorRow = {
@@ -1761,22 +1697,6 @@ type PlacedMirrorRow = {
   client_order_id: string;
   price: string;
 };
-
-type DisclosureAcceptanceRow = {
-  follower_id: string;
-  version: string;
-  accepted_at: Date | string;
-  client_accept_id: string;
-};
-
-function rowToDisclosureAcceptance(row: DisclosureAcceptanceRow): CopyDisclosureAcceptance {
-  return {
-    followerId: row.follower_id,
-    version: row.version,
-    acceptedAt: row.accepted_at instanceof Date ? row.accepted_at : new Date(row.accepted_at),
-    clientAcceptId: row.client_accept_id,
-  };
-}
 
 function rowToPlacedMirror(row: PlacedMirrorRow): StoredPlacedMirror {
   return {

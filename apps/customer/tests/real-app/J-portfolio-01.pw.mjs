@@ -268,36 +268,11 @@ test(`${J} #3 places a TEST limit order, then reads the breakdown: available fal
 
 const futuresAccess = (page) => page.getByTestId('futures-access');
 
-/** The TEST futures gates for this account, each cleared as the access panel names it: knowledge check, notice, agreements. */
+/** The futures desk, open for this account: no agreement, quiz or notice gates it (owner decision 2026-10-27). */
 async function openFuturesAccess(page) {
   await page.goto('/trade/futures');
   await expect(page.getByRole('button', { name: 'Open long' })).toBeVisible();
-  const panel = futuresAccess(page);
-  const open = panel.getByText('Open for your account');
-  await expect(open.or(panel.getByText('Blocked for your account'))).toBeVisible();
-  if (await open.isVisible()) return;
-  const reasons = panel.getByRole('list', { name: 'What blocks it' });
-  if (await reasons.locator('[data-code="trade.derivatives_eligibility_unset"]').count()) {
-    const quiz = page.getByTestId('futures-quiz');
-    await quiz.getByRole('radio', { name: /liquidated and can lose all of its margin/ }).check();
-    await quiz.getByRole('button', { name: 'Submit answers' }).click();
-    await expect(page.getByText('Passed. You can trade derivatives under the current rules.')).toBeVisible();
-  }
-  if (await reasons.locator('[data-code="trade.adl_disclosure_required"]').count()) {
-    await page.getByRole('button', { name: 'I have read this' }).click();
-    await expect(reasons.locator('[data-code="trade.adl_disclosure_required"]')).toHaveCount(0);
-  }
-  if (await reasons.locator('[data-code="trade.agreement_required"]').count()) {
-    for (const kind of ['derivatives_risk', 'margin_terms']) {
-      const card = panel.getByTestId(`agreement-${kind}`);
-      const accept = card.getByRole('button', { name: /^Accept / });
-      if (await accept.count()) {
-        await accept.click();
-        await expect(card).toContainText('Accepted');
-      }
-    }
-  }
-  await expect(open).toBeVisible();
+  await expect(futuresAccess(page).getByText('Open for your account')).toBeVisible();
 }
 
 /**
