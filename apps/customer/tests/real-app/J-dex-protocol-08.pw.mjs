@@ -69,10 +69,10 @@ test(`${J} #2 revokes one key, then presses Revoke all: the call is built; after
   await active.first().getByRole('button', { name: 'Revoke' }).click();
   await page.getByRole('button', { name: 'Continue in wallet' }).click();
   await expect(bodyRows(keys).filter({ hasText: 'Revoked' })).toHaveCount(1, { timeout: 60_000 });
-  const before = wallet.requests.length;
+  const before = wallet.sends.length;
   await page.getByRole('button', { name: 'Revoke all' }).click();
   await page.getByRole('button', { name: 'Continue in wallet' }).click();
-  expect(wallet.requests.length - before).toBe(1);
+  await expect.poll(() => wallet.sends.length - before).toBe(1);
   await expect(bodyRows(keys).filter({ hasText: 'Active' })).toHaveCount(0, { timeout: 60_000 });
 });
 
@@ -86,7 +86,8 @@ test(`${J} #3 opens the approvals list: spender, token and amount per approval; 
   await expect(sheet.getByRole('term').filter({ hasText: 'Amount' })).toBeVisible();
   await expect(sheet).toContainText('Approve 0');
   await sheet.getByRole('button', { name: 'Continue in wallet' }).click();
-  expect(wallet.requests.some((r) => r.method === 'eth_sendTransaction')).toBe(true);
+  // approve(spender, 0): selector 0x095ea7b3 with a zero amount word.
+  await expect.poll(() => wallet.sends.some((s) => /^0x095ea7b3[0-9a-f]{64}0{64}$/i.test(String(s.params[0]?.data)))).toBe(true);
 });
 
 test(`${J} #4 opens sub-accounts and a multi-signature account: the sub-account list; the multi-signature control shows its blocker until the contract exists`, async ({

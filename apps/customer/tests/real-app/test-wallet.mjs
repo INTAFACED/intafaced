@@ -50,6 +50,7 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
   const address = account.address.toLowerCase();
   const calls = Object.assign({}, ...tokens.map((token) => tokenAnswers(chainId, address, token)));
   const requests = [];
+  const sends = [];
   let rejectNext = false;
   let otherKeyNext = false;
   // Signing runs here, outside the page: the key never enters the browser.
@@ -68,6 +69,10 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
     const { domain, types, primaryType, message } = JSON.parse(params[1]);
     const { EIP712Domain: _domain, ...rest } = types;
     return { signature: await account.signTypedData({ domain, types: rest, primaryType, message }) };
+  });
+  // A transaction the page asks to send is kept, so a test can read what was built; with no TEST chain it is never sent.
+  await page.exposeFunction('__testWalletSend', (method, params) => {
+    sends.push({ method, params });
   });
   await page.addInitScript(
     ({ info, address, startChain, calls }) => {
@@ -96,6 +101,7 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
             emit('chainChanged', hex(chain));
             return null;
           }
+          if (method === 'eth_sendTransaction') await window.__testWalletSend(method, params);
           throw Object.assign(new Error(`The TEST wallet does not answer ${method}`), { code: 4200 });
         },
         on: (event, listener) => listeners.set(event, [...(listeners.get(event) ?? []), listener]),
@@ -124,6 +130,8 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
     address,
     /** Every signature the page asked for, in order: `{ method, params }`. */
     requests,
+    /** Every transaction the page asked the wallet to send, in order: `{ method, params }`. None reaches a chain. */
+    sends,
     /** The next signature request is refused the way a person pressing Reject in the wallet refuses it (code 4001). */
     rejectNext: () => {
       rejectNext = true;

@@ -10,7 +10,9 @@ import { TOKEN_A, TOKEN_B, UNBUILT, connectWallet, dexRun } from './dex.mjs';
 // - /dex's Swap tab is today's route-quote desk: there is no token-in/token-out form, so no permit or approve step,
 //   standing allowance, hop limit, exact-output mode or deadline (D-swap-03, D-swap-intents-01, -02);
 // - there is no intent order (D-swap-09) and no smart-account delegation or signer key (D-swap-intents-05);
-// - the stack has no TEST chain, router, relay or filler, so nothing a step signs can mine or fill.
+// - the stack has no TEST chain, router, relay or filler, so nothing a step signs can mine or fill;
+// - #4's second half (with the hop limit set, per-hop minimums, and a hop under its minimum reverting the whole swap)
+//   needs an owner hop limit, which the stack leaves blank; it is tested once a TEST seed sets one.
 const J = 'J-dex-protocol-03';
 const dex = dexRun(J);
 
@@ -66,8 +68,9 @@ test(`${J} #1 swaps a token that supports permit: one signature for the exact am
   await expect(sheet.getByRole('term').filter({ hasText: 'Amount' })).toBeVisible();
   await expect(sheet.getByRole('term').filter({ hasText: 'Expires' })).toBeVisible();
   await sheet.getByRole('button', { name: 'Continue in wallet' }).click();
-  expect(wallet.requests.filter((r) => r.method === 'eth_signTypedData_v4')).toHaveLength(1);
-  expect(wallet.requests.filter((r) => r.method === 'eth_sendTransaction' && /approve/i.test(JSON.stringify(r.params)))).toHaveLength(0);
+  await expect.poll(() => wallet.requests.filter((r) => r.method === 'eth_signTypedData_v4').length).toBe(1);
+  // approve(address,uint256) is 0x095ea7b3: no approve transaction is ever built.
+  expect(wallet.sends.filter((s) => String(s.params[0]?.data).startsWith('0x095ea7b3'))).toHaveLength(0);
   // The same signature sent again is refused by name, never a second pull.
   await page.getByRole('button', { name: 'Reuse last permit' }).click();
   await expect(page.getByRole('alert')).toContainText('This permit was already used');
@@ -86,18 +89,17 @@ test(`${J} #3 chooses a standing allowance with an expiry: the expiry is shown; 
   await quote(page, TOKEN_A, TOKEN_B, '10');
   const allowance = swap(page).getByRole('radiogroup', { name: 'Allowance' });
   await allowance.getByRole('radio', { name: /^Standing allowance/ }).check(UNBUILT);
-  await swap(page).getByRole('combobox', { name: 'Allowance expires' }).selectOption({ label: '1 hour' });
+  await swap(page).getByRole('combobox', { name: 'Allowance expires' }).selectOption({ label: '1 minute' });
   await expect(swap(page).getByTestId('allowance-expiry')).toHaveText(/^Expires \d{4}-\d{2}-\d{2} \d{2}:\d{2}/);
-  // The page clock moves past the expiry; the next swap is refused rather than pulled.
-  await page.clock.install();
-  await page.clock.fastForward('02:00:00');
-  await swapButton(page).click();
-  await expect(swap(page).getByRole('alert')).toContainText('The standing allowance expired');
+  // Expiry is the chain's time, not the page's: once a real minute has passed, a pull is refused rather than made.
+  test.setTimeout(180_000);
+  await expect(async () => {
+    await swapButton(page).click();
+    await expect(swap(page).getByRole('alert')).toContainText('The standing allowance expired', { timeout: 2_000 });
+  }).toPass({ timeout: 120_000 });
 });
 
-test(`${J} #4 builds a three-hop swap with the hop limit blank: a typed refusal naming the hop limit; with it set, per-hop minimums; a hop under its minimum reverts the whole swap`, async ({
-  page,
-}) => {
+test(`${J} #4 builds a three-hop swap with the hop limit blank: a typed refusal naming the hop limit`, async ({ page }) => {
   await openSwap(page);
   await quote(page, TOKEN_A, TOKEN_B, '10');
   await swap(page).getByRole('button', { name: 'Route options' }).click(UNBUILT);
@@ -105,10 +107,6 @@ test(`${J} #4 builds a three-hop swap with the hop limit blank: a typed refusal 
   // The owner's hop limit is blank on the stack: the build is refused with its typed code.
   await expect(page.getByRole('alert')).toContainText('dex.route.hop_limit_unset');
   await expect(swapButton(page)).toBeDisabled();
-  // With the limit set (a later stack seed), each hop shows its own floor and one under it reverts the whole swap.
-  const hops = page.getByRole('region', { name: 'Hops' }).getByRole('table');
-  await expect(hops.getByRole('columnheader', { name: 'Minimum out' })).toBeVisible();
-  await expect(page.getByRole('status', { name: 'Swap status' })).toHaveText('Reverted: a hop paid under its minimum. Nothing moved.');
 });
 
 test(`${J} #5 chooses exact-output with native input: the maximum paid, the deadline and the wrap step; a deadline in the past is refused`, async ({
@@ -155,14 +153,17 @@ test(`${J} #6 places a signed intent order with a Dutch-auction decay: starts at
 test(`${J} #7 watches the order fill at the midpoint: received equals the decayed price at that second and the order reads filled`, async ({
   page,
 }) => {
+  // #6's order decays over 10 minutes; the TEST filler takes it at the midpoint, about 5 minutes in.
+  test.setTimeout(660_000);
   await openIntent(page);
   const orders = page.getByRole('region', { name: 'Intent orders' }).getByRole('table');
+  await expect(orders).toBeVisible(UNBUILT);
   const filled = orders.getByRole('row').filter({ hasText: 'Filled' });
-  await expect(filled).toHaveCount(1, UNBUILT);
+  await expect(filled).toHaveCount(1, { timeout: 600_000 });
   // The row names the fill second and the decayed price there, and the received amount is that price.
   const text = await filled.innerText();
-  const price = text.match(/Price at fill ([\d.]+)/)?.[1];
-  const received = text.match(/Received ([\d.]+)/)?.[1];
+  const price = text.match(/Price at fill ([\d,.]+)/)?.[1];
+  const received = text.match(/Received ([\d,.]+)/)?.[1];
   expect(price).toBeTruthy();
   expect(received).toBe(price);
 });
@@ -192,14 +193,16 @@ test(`${J} #9 adds a signer key with an expiry: the key works until its expiry a
   await connectWallet(page, dex, { tokens: [TOKEN_A] });
   await page.getByRole('button', { name: 'Add a signer key' }).click(UNBUILT);
   const add = page.getByRole('dialog', { name: 'Add a signer key' });
-  await add.getByRole('combobox', { name: 'Expires' }).selectOption({ label: '1 hour' });
+  await add.getByRole('combobox', { name: 'Expires' }).selectOption({ label: '1 minute' });
   // A signer key can never carry withdrawal power (services/svc-protocol/src/session/spec.test.ts).
   await expect(add.getByRole('checkbox', { name: /^Withdraw/ })).toHaveCount(0);
   await add.getByRole('button', { name: 'Continue in wallet' }).click();
   const keys = page.getByRole('region', { name: 'Signer keys' }).getByRole('table');
   await expect(keys.getByRole('row').filter({ hasText: 'Active' })).toHaveCount(1);
-  await page.clock.install();
-  await page.clock.fastForward('02:00:00');
-  await page.reload();
-  await expect(keys.getByRole('row').filter({ hasText: 'Expired' })).toHaveCount(1);
+  // Expiry is decided on real time, so the step waits out the minute.
+  test.setTimeout(180_000);
+  await expect(async () => {
+    await page.reload();
+    await expect(keys.getByRole('row').filter({ hasText: 'Expired' })).toHaveCount(1, { timeout: 2_000 });
+  }).toPass({ timeout: 120_000 });
 });

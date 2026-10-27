@@ -15,14 +15,16 @@ import { fundedTrader, signIn } from './desk.mjs';
 // - /protocol/rails has no route table, burn, attestation or mint tracking (D-bridge-chain-03), and no cross-chain
 //   review sheet (RC-dex-protocol-04);
 // - /dex/venue has no deposit or withdraw of base, and there is no asset link review or contract-read docs
-//   (D-bridge-chain-04).
+//   (D-bridge-chain-04);
+// - #7's crash clause (the process stopping after the intent is stored) cannot be caused from the browser; the step
+//   checks the browser half: the same single row comes back after the browser closes.
 const J = 'J-dex-protocol-05';
 const dex = dexRun(`${J}-wallet`);
 const account = dexRun(J);
 // A contract address on the TEST chain: withdrawing to it warns and needs a tick.
 const CONTRACT = '0x0000000000000000000000000000000000c0ffee';
-// Partner and vendor names user-facing copy must never carry (pnpm scan:brand keeps the full list).
-const BANNED = /fireblocks|bitgo|circle|coinbase|chainalysis|elliptic|wormhole|layerzero/i;
+// The rail partner names `pnpm scan:brand` refuses in user-facing copy (tooling/ci/brand-scan.mjs).
+const BANNED = /\b(SettleTX|PayKwik|NTG)\b/i;
 
 test.describe.configure({ mode: 'default' });
 
@@ -94,7 +96,8 @@ test(`${J} #3 opens Withdraw with to=wallet: destination and network filled and 
   await page.goto('/uc/withdraw?to=wallet');
   const form = page.getByTestId('withdraw-form');
   const destination = form.getByRole('textbox', { name: /^Your wallet/ });
-  await expect(destination).toHaveValue(wallet.address, UNBUILT);
+  // The wallet answers in lower case; the app may show the checksummed form.
+  await expect(destination).toHaveValue(new RegExp(`^${wallet.address}$`, 'i'), UNBUILT);
   await expect(destination).not.toBeEditable();
   await expect(form.getByRole('combobox', { name: /^Network/ })).toHaveValue(/base-sepolia/i);
   await form.getByRole('button', { name: 'Edit' }).click();
@@ -115,7 +118,7 @@ test(`${J} #4 opens Buy to wallet in the bank ramps: the purchase lands in the w
   await page.goto('/bank/ramps/new');
   const deliver = page.getByRole('radiogroup', { name: 'Deliver to' });
   await deliver.getByRole('radio', { name: 'My wallet' }).check(UNBUILT);
-  await expect(page.getByTestId('ramp-destination')).toContainText(wallet.address);
+  await expect(page.getByTestId('ramp-destination')).toContainText(new RegExp(wallet.address, 'i'));
   await expect(page.getByTestId('ramp-destination')).not.toContainText('Exchange balance');
 });
 
@@ -145,11 +148,12 @@ test(`${J} #6 builds a burn on a TEST route and signs it: burn submitted, then m
   await page.getByRole('button', { name: 'Continue in wallet' }).click();
   const row = transfers(page).getByRole('row').filter({ hasText: '1 USDC' });
   await expect(row).toContainText('Burn submitted');
+  // Kept as soon as the burn is in, so #7 finds the transfer even if this step stops before the mint.
+  dex.run.write({ bridged: true });
   await expect(row).toContainText('Mint ready', { timeout: 120_000 });
   await row.getByRole('button', { name: 'Sign the mint' }).click();
   await page.getByRole('button', { name: 'Continue in wallet' }).click();
   await expect(row).toContainText('Minted', { timeout: 60_000 });
-  dex.run.write({ bridged: true });
 });
 
 test(`${J} #7 closes the browser after the burn and returns: the same row, still tracked; a stored intent resumes, never a second burn`, async ({
@@ -160,8 +164,10 @@ test(`${J} #7 closes the browser after the burn and returns: the same row, still
     const page = await context.newPage();
     await openRails(page);
     expect(dex.run.read().bridged, 'the burn step ran').toBe(true);
-    await expect(transfers(page).getByRole('row').filter({ hasText: '1 USDC' })).toHaveCount(1);
-    await expect(transfers(page).getByRole('row').filter({ hasText: 'Burn submitted' })).toHaveCount(0);
+    // One row for the one burn, in whichever tracked state it reached; never a second burn row.
+    const row = transfers(page).getByRole('row').filter({ hasText: '1 USDC' });
+    await expect(row).toHaveCount(1);
+    await expect(row).toContainText(/Burn submitted|Mint ready|Minted/);
   } finally {
     await context.close();
   }
@@ -180,8 +186,9 @@ test(`${J} #8 opens the review sheet before a cross-chain swap: provider, slippa
   for (const term of ['Provider', 'Slippage', 'Network fee', 'Estimated time', 'You receive'])
     await expect(sheet.getByRole('term').filter({ hasText: term })).toBeVisible();
   await expect(sheet.getByRole('note')).toContainText('You have no gas on the destination network');
-  await page.clock.install();
-  await page.clock.fastForward('05:00');
+  // The quote runs out on real time; confirming after that is refused and asks for a fresh one.
+  test.setTimeout(180_000);
+  await expect(sheet.getByRole('status')).toHaveText('Quote expired', { timeout: 120_000 });
   await sheet.getByRole('button', { name: 'Continue in wallet' }).click();
   await expect(sheet.getByRole('alert')).toContainText('This quote expired. Get a fresh one.');
 });
@@ -198,7 +205,7 @@ test(`${J} #9 deposits 10 TEST base to the trading venue and withdraws more than
   const call = page.getByRole('region', { name: 'Unsigned call' });
   await expect(call).toContainText('10');
   await expect(call).toContainText('Base Sepolia');
-  expect(wallet.requests.filter((r) => r.method === 'eth_sendTransaction')).toHaveLength(0);
+  expect(wallet.sends).toHaveLength(0);
   await funds.getByRole('radio', { name: 'Withdraw' }).check();
   await funds.getByRole('textbox', { name: /^Amount/ }).fill('1000000');
   await funds.getByRole('button', { name: 'Build the call' }).click();

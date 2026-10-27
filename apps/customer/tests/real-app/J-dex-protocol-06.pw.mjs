@@ -118,7 +118,8 @@ test(`${J} #6 looks at the tracker request while signed in: no cookie, no author
   const tracker = await openTracker(page);
   const seen = [];
   page.on('request', (request) => {
-    if (/track/i.test(request.url())) seen.push(request);
+    // The tracker's own calls, never the app's scripts or assets for the room.
+    if (['fetch', 'xhr'].includes(request.resourceType()) && /track/i.test(request.url())) seen.push(request);
   });
   await tracker.getByRole('textbox', { name: /^Address/ }).fill(TRACKED);
   await tracker.getByRole('button', { name: 'Track' }).click();
