@@ -8,6 +8,7 @@ import {
   assertIdentityLevel,
   IDENTITY_LEVEL_INSUFFICIENT,
   IDENTITY_LEVEL_UNAVAILABLE,
+  IDENTITY_LEVEL_UNSET,
   memoryEligibilityStore,
   validateEligibilityRules,
   type EligibilityRules,
@@ -89,10 +90,15 @@ describe('identity level', () => {
     return store;
   }
 
-  it('no published rules add no derivatives tier: any caller, even with no tier claim, passes', async () => {
+  it('no published rules: the blank tier refuses every caller trade.identity_level_unset, never "no requirement"', async () => {
     const store = memoryEligibilityStore();
-    await expect(assertIdentityLevel(store, { userId: USER, tier: 'none' })).resolves.toBeUndefined();
-    await expect(assertIdentityLevel(store, { userId: USER, tier: null })).resolves.toBeUndefined();
+    for (const tier of ['none', 'institutional', null]) {
+      await expect(assertIdentityLevel(store, { userId: USER, tier })).rejects.toMatchObject({
+        code: IDENTITY_LEVEL_UNSET,
+        status: 403,
+        detail: { requiredTier: null },
+      });
+    }
   });
 
   it('no quiz is asked for: a caller at the rule tier passes without any assessment', async () => {
@@ -146,12 +152,14 @@ describe('identity level', () => {
 });
 
 describe('derivatives gate: the identity level only', () => {
-  it('an empty deployment admits; a published tier is the only thing that refuses', async () => {
+  it('an empty deployment refuses on the blank tier; once published, the tier is the only thing that refuses', async () => {
     const eligibility = memoryEligibilityStore();
     const gate = derivativesAccessGate({ eligibility });
     const subject = { userId: USER, tier: 'basic', region: 'FR' };
+    await expect(gate(subject)).rejects.toMatchObject({ code: IDENTITY_LEVEL_UNSET });
+    eligibility.publish(rules(1, { minKycTier: 'basic' }));
     await expect(gate(subject)).resolves.toBeUndefined();
-    eligibility.publish(rules(1, { minKycTier: 'full' }));
+    eligibility.publish(rules(2, { minKycTier: 'full' }));
     await expect(gate(subject)).rejects.toMatchObject({ code: IDENTITY_LEVEL_INSUFFICIENT });
     await expect(gate({ ...subject, tier: 'full' })).resolves.toBeUndefined();
   });

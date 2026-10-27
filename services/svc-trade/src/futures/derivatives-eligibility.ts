@@ -22,8 +22,10 @@ const TIER_RANK: Record<EligibilityTier, number> = { none: 0, basic: 1, full: 2,
 
 export const IDENTITY_LEVEL_INSUFFICIENT = 'trade.identity_level_insufficient' as const;
 export const IDENTITY_LEVEL_UNAVAILABLE = 'trade.identity_level_unavailable' as const;
+/** No derivatives verification level is published: a blank setting refuses, it never means "no requirement". */
+export const IDENTITY_LEVEL_UNSET = 'trade.identity_level_unset' as const;
 
-export type EligibilityRefusalCode = typeof IDENTITY_LEVEL_INSUFFICIENT | typeof IDENTITY_LEVEL_UNAVAILABLE;
+export type EligibilityRefusalCode = typeof IDENTITY_LEVEL_INSUFFICIENT | typeof IDENTITY_LEVEL_UNAVAILABLE | typeof IDENTITY_LEVEL_UNSET;
 
 export interface EligibilityQuestion {
   readonly id: string;
@@ -100,11 +102,21 @@ function tierMeets(tier: string, required: EligibilityTier): boolean {
 
 /**
  * Gate for a futures open. `tier` is the caller's verification tier from the principal, or null where the caller
- * did not hand one in. The required tier is the published rules' `minKycTier`; with none published nothing is added.
+ * did not hand one in. The required tier is the published rules' `minKycTier`; with none published every open refuses
+ * `trade.identity_level_unset` (a blank setting stays blank).
  */
 export async function assertIdentityLevel(store: EligibilityStore, input: { userId: string; tier: string | null }): Promise<void> {
   const rules = await store.currentRules();
-  const required = rules?.minKycTier ?? 'none';
+  if (!rules) {
+    throw new EligibilityError(
+      IDENTITY_LEVEL_UNSET,
+      'The verification level for derivatives is not published, so positions cannot be opened.',
+      {
+        requiredTier: null,
+      },
+    );
+  }
+  const required = rules.minKycTier;
   if (required === 'none') return;
   if (input.tier == null) {
     throw new EligibilityError(IDENTITY_LEVEL_UNAVAILABLE, 'Your verification level could not be read, so positions cannot be opened.', {

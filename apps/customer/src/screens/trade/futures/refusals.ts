@@ -448,6 +448,11 @@ const WORDS: Readonly<Record<string, Words>> = {
     title: 'Your identity level cannot be read',
     body: 'The platform cannot read your identity level right now, so derivatives stay closed. Try again later.',
   },
+  'trade.identity_level_unset': {
+    title: 'Derivatives are closed',
+    body: 'The identity level derivatives need is not published, so positions cannot be opened.',
+    retryable: false,
+  },
   'trade.gated_list_unknown': {
     title: 'A check could not be read',
     body: 'One of the checks for this contract could not be read, so it is shown as blocked. Try again in a moment.',

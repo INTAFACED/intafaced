@@ -70,7 +70,7 @@ export function futuresPolicyHonestInSource(): boolean {
   return (
     /describeFuturesPolicy/.test(src) &&
     /insuranceEmptyBlocksLiveList/.test(src) &&
-    /ADL_DISCLOSURE_COPY/.test(src) &&
+    /^\s{4}adlDisclosure:\s*\{/m.test(src) &&
     /jobsDefault:\s*false/.test(src)
   );
 }

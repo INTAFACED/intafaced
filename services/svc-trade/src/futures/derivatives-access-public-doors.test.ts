@@ -132,10 +132,21 @@ const post = (app: Awaited<ReturnType<typeof appFor>>, url: string, payload: unk
   app.inject({ method: 'POST', url, headers: headers(p, region), payload: payload as never });
 
 describe('POST /api/v1/positions is gated by the identity level only', () => {
-  it('nothing published: the open goes through with no agreement, quiz or notice', async () => {
+  it('nothing published: 403 trade.identity_level_unset, and nothing opens (a blank tier stays blank)', async () => {
     const h = harness();
     const app = await appFor(h.deps);
     const res = await post(app, '/api/v1/positions', POSITION);
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ error: 'trade.identity_level_unset' });
+    expect(h.opened).toEqual([]);
+    await app.close();
+  });
+
+  it('the published tier met: the open goes through with no agreement, quiz or notice (owner decision 2026-10-27)', async () => {
+    const h = harness();
+    h.eligibility.publish({ ...RULES, minKycTier: 'basic' });
+    const app = await appFor(h.deps);
+    const res = await post(app, '/api/v1/positions', POSITION, principal({ tier: 'basic' }));
     expect(res.statusCode).toBe(200);
     expect(h.opened).toHaveLength(1);
     await app.close();

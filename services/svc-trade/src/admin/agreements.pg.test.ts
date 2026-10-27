@@ -532,13 +532,15 @@ describe('risk agreements, margin terms and derivatives eligibility (D-account-0
     it('reads blank before anything is published', async () => {
       expect(await admin.agreements.eligibilityRulesGet(operator())).toMatchObject({
         version: null,
-        reason: 'trade.derivatives_eligibility_unset',
+        reason: 'trade.identity_level_unset',
         questions: [],
         passMark: null,
         minKycTier: null,
       });
-      // with nothing published no derivatives tier is asked for
-      await expect(assertIdentityLevel(sqlEligibilityStore(db.sql), { userId: ALICE, tier: null })).resolves.toBeUndefined();
+      // with nothing published the blank tier refuses every open: it never means "no requirement"
+      await expect(assertIdentityLevel(sqlEligibilityStore(db.sql), { userId: ALICE, tier: 'full' })).rejects.toMatchObject({
+        code: 'trade.identity_level_unset',
+      });
     });
 
     it('refuses incomplete content with eligibility_rules_incomplete and spends no approval', async () => {
@@ -650,9 +652,13 @@ describe('risk agreements, margin terms and derivatives eligibility (D-account-0
       });
     }
 
-    it('production wiring on an empty deployment asks for no agreement or quiz: the open moves on to the mark', async () => {
+    it('production wiring on an empty deployment refuses on the blank tier, never on an agreement or quiz', async () => {
       const service = positions({ eligibility: sqlEligibilityStore(db.sql) });
-      // the mark is never set in this test, so passing the gate shows as the mark refusal
+      await expect(service.open(input, principalFor(ALICE), { region: 'DE' })).rejects.toMatchObject({
+        code: 'trade.identity_level_unset',
+      });
+      // rules naming the caller's tier, quiz never taken: the open moves on to the mark, which this test never sets
+      await publishRules('0', 'empty-tier', { minKycTier: 'basic' });
       await expect(service.open(input, principalFor(ALICE), { region: 'DE' })).rejects.toMatchObject({ code: 'trade.mark_missing' });
     });
 
