@@ -24,7 +24,8 @@ A new role, type role, slot or component name goes through `contracts.ts` (ask B
 - Image roles (`field`, `glass-bg`, `primary-bg`, `secondary-bg`, `key-bg`, `key-lit-bg`) are a colour when flat and a gradient when lit: use them only with the `background` shorthand.
 - Glass (`glass-bg`, `glass-blur`) only on the nav and sheet layers. Content panels are solid, and money sits on them.
 - One primary button per view. The focus ring is never the lit or selected colour.
-- The `legal` slot renders first on every template; its text comes from the registry, never from a room, and is never faded, brand-coloured or smaller than body text.
+- The risk band and the legal slots render only with `LegalSlotsSwitch` on (`templates/frame.tsx`). It is off by default until launch prep turns it on at the app root; off, there is no band and no space kept for it. On, the `legal` slot renders first on every template; its text comes from the registry, never from a room, and is never faded, brand-coloured or smaller than body text.
+- Up and down colours (`data-dir`) apply inside a template room at zero specificity, so a room's own colour class on the same element wins without warning: leave colour on direction values to the templates.
 - Every chart's parts reconcile to the total shown, or show "other". Illustrative figures say TEST.
 - Money arrives as decimal strings and is formatted by `packages/i18n`, never as a `number`.
 - No 3D on a confirm or review step.

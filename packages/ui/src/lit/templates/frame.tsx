@@ -1,5 +1,5 @@
 /**
- * What every template shares: the room frame (title, fixed legal band, notices, body, In-flight lane), the state
+ * What every template shares: the room frame (title, legal band when switched on, notices, body, In-flight lane), the state
  * a room is in, and the regions that draw themselves as skeletons while loading and as figure-free ghosts behind
  * a gate. Styling is `templates.css`, which reads only `--lit-*` roles.
  */
@@ -35,6 +35,14 @@ interface RoomContextValue {
 }
 
 const RoomContext = React.createContext<RoomContextValue>({ state: { kind: 'ready' } });
+
+/**
+ * The one switch for the risk band and the legal slots, off by default (owner decision 2026-10-27: not launching
+ * yet). Off, the frame draws no band and keeps no space for it, and Review draws no legal moments; the registry and
+ * `RegistryLegalSlot` stay as they are. Launch prep turns it on once, at the app root:
+ * `<LegalSlotsSwitch.Provider value={true}>`.
+ */
+export const LegalSlotsSwitch = React.createContext(false);
 
 /** How a region looks while it has no data yet: the skeleton and the ghost take the region's final shape. */
 export type GhostShape = SkeletonShape;
@@ -261,7 +269,7 @@ export function reviewComplete(review: ReviewData): boolean {
 /** Check your answers: every fee line, the total, what arrives and when; one button that names the outcome. */
 export function Review({ review, onConfirm, onEdit }: { review: ReviewData; onConfirm?: () => void; onEdit?: () => void }) {
   const { market = 'unset', legalValues } = React.useContext(RoomContext);
-  const legal: readonly LegalMomentId[] = review.legal ?? ['scam-stop'];
+  const legal: readonly LegalMomentId[] = React.useContext(LegalSlotsSwitch) ? (review.legal ?? ['scam-stop']) : [];
   const rows = [...review.lines, review.total, review.recipientGets, review.arrival].filter((l): l is ReviewLine => l !== undefined);
   const complete = reviewComplete(review);
   return (
@@ -413,12 +421,13 @@ export interface RoomFrameProps extends RoomProps {
 }
 
 /**
- * The frame every template renders inside. The legal band reserves its own space at the top (it never overlays
- * content, so focus is never hidden under it), and the room's state is shared with every region below.
+ * The frame every template renders inside. With `LegalSlotsSwitch` on, the legal band reserves its own space at the top
+ * (it never overlays content, so focus is never hidden under it); off, there is no band and no gap. The room's state
+ * is shared with every region below.
  */
 export function RoomFrame(props: RoomFrameProps) {
   const { template, title, description, roomAction, state, mode = 'simple', legal = [], market = 'unset' } = props;
-  const band = legal.filter((m) => BAND_MOMENTS.has(m));
+  const band = React.useContext(LegalSlotsSwitch) ? legal.filter((m) => BAND_MOMENTS.has(m)) : [];
   const loading = state.kind === 'loading';
   return (
     <RoomContext.Provider
@@ -437,6 +446,7 @@ export function RoomFrame(props: RoomFrameProps) {
         data-template={template}
         data-state={state.kind}
         data-mode={mode}
+        data-band={band.length > 0 || undefined}
         data-stale={(state.kind === 'ready' && state.stale) || undefined}
         aria-busy={loading || undefined}
       >

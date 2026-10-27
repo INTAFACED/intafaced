@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { templates, type TemplateId } from '../contracts.js';
 import { Bars, Parts } from '../components/b2-charts.js';
-import { Region, Review, RoomFrame } from './frame.js';
+import { LegalSlotsSwitch, Region, Review, RoomFrame } from './frame.js';
 import { LEGAL_MOMENTS, resolveLegal } from './legal/registry.js';
 import { RegistryLegalSlot as LegalSlot } from './legal/LegalSlot.js';
 import { formatMoney, reconcileParts, sumDecimals } from './money.js';
@@ -15,6 +15,8 @@ import { HOLDINGS, ROOMS, galleryStates } from './__gallery__/fixtures.js';
 import type { ReviewData } from './types.js';
 
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
+/** Rendered with the legal switch on, as launch prep will run it. */
+const withLegal = (el: React.ReactElement) => html(<LegalSlotsSwitch.Provider value={true}>{el}</LegalSlotsSwitch.Provider>);
 
 describe('chart parts reconcile to the total they show', () => {
   it('adds "Other" for the difference', () => {
@@ -180,7 +182,7 @@ describe('legal slots come only from the registry', () => {
   });
 
   it('the band is its own region, before the room title, so it never covers content', () => {
-    const out = html(ROOMS.overview({ mode: 'simple', state: 'ready', market: 'uk' }));
+    const out = withLegal(ROOMS.overview({ mode: 'simple', state: 'ready', market: 'uk' }));
     expect(out.indexOf('data-moment="crypto-risk-band"')).toBeGreaterThan(-1);
     expect(out.indexOf('data-moment="crypto-risk-band"')).toBeLessThan(out.indexOf('<h1'));
     expect(out).toContain('aria-label="Risk warning"');
@@ -249,7 +251,7 @@ describe('every template draws every state, on Simple and Pro', () => {
           expect(out).not.toContain('lt-ghost-item');
           expect(out).not.toMatch(/£\d/);
         }
-        if (state === 'confirm' && id === 'flow') expect(out).toContain('data-moment="scam-stop"');
+        if (state === 'confirm' && id === 'flow') expect(out).not.toContain('data-moment="scam-stop"');
         if (state === 'gated') expect(out).toContain('class="lit-gate"');
         if (state === 'refused') expect(out).toContain('data-refusal="parked"');
         if (state === 'stale') expect(out).toContain('Figures as of 10:43, updated 4 min ago');
@@ -392,7 +394,7 @@ describe('states never contradict themselves', () => {
   });
 
   it('the risk band slot tells the focus tracker it covers the top; direction colours stay inside rooms', () => {
-    const out = html(ROOMS.overview({ mode: 'simple', state: 'ready', market: 'uk' }));
+    const out = withLegal(ROOMS.overview({ mode: 'simple', state: 'ready', market: 'uk' }));
     expect(out).toContain('class="lt-band-slot" data-obscures="top"');
     const css = readFileSync(fileURLToPath(new URL('./templates.css', import.meta.url)), 'utf8');
     expect(css).not.toMatch(/^\[data-dir=/m);
@@ -461,10 +463,26 @@ describe('states never contradict themselves', () => {
   });
 
   it('a send carries the scam warning before its button; a buy from your own balance does not', () => {
-    const send = html(ROOMS.flow({ mode: 'simple', state: 'confirm', market: 'uk' }));
+    const send = withLegal(ROOMS.flow({ mode: 'simple', state: 'confirm', market: 'uk' }));
     expect(send).toContain('data-slot="scam-warning"');
     expect(send.indexOf('data-moment="scam-stop"')).toBeLessThan(send.indexOf('Send £250.00 to Aisha Khan'));
-    expect(html(ROOMS.monitor({ mode: 'simple', state: 'confirm', market: 'uk' }))).not.toContain('scam-stop');
+    expect(withLegal(ROOMS.monitor({ mode: 'simple', state: 'confirm', market: 'uk' }))).not.toContain('scam-stop');
+  });
+
+  it('with the legal switch off (the default), no band, no legal slot and no space kept for the band', () => {
+    for (const id of Object.keys(templates) as TemplateId[]) {
+      for (const state of ['ready', 'confirm', 'gated'] as const) {
+        const out = html(ROOMS[id]({ mode: 'simple', state, market: 'uk' }));
+        expect(out).not.toContain('lt-band-slot');
+        expect(out).not.toContain('lit-legal');
+        expect(out).not.toContain('data-band');
+      }
+    }
+    expect(withLegal(ROOMS.overview({ mode: 'simple', state: 'ready', market: 'uk' }))).toContain('data-band="true"');
+    const css = readFileSync(fileURLToPath(new URL('./templates.css', import.meta.url)), 'utf8');
+    const bandOffsets = css.split('}').filter((rule) => rule.includes('--lit-legal-band-min-h'));
+    expect(bandOffsets.length).toBeGreaterThan(0);
+    for (const rule of bandOffsets) expect(rule).toMatch(/\.lt-legal-band|\[data-band\]/);
   });
 });
 
