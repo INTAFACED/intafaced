@@ -79,7 +79,7 @@ export function EarnCalculator({ pool }: { pool: Pool }) {
       <p className="money-caption" data-testid="earn-calculator-formula">
         {t('calculatorFormula', { rate: bps(pool.aprBps) })}
       </p>
-      <p className="money-caption">{t('calculatorNotAdvice')}</p>
+      <p className="money-caption">{t('calculatorIllustration')}</p>
     </section>
   );
 }
