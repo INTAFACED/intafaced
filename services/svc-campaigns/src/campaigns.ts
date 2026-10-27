@@ -735,7 +735,9 @@ export class CampaignService {
       const [made] = await tx<ReviewRow[]>`
         INSERT INTO campaigns.eligibility_reviews (review_key, campaign_id, account_id, reason)
         VALUES (${key}, ${input.campaignId}, ${input.accountId}, ${state})
-        ON CONFLICT (review_key) DO NOTHING
+        -- No target: the key and (campaign, account) are both unique and name the same review. With only review_key as
+        -- the arbiter, two requests at once could meet on the other index first and raise instead (#6337, #6398).
+        ON CONFLICT DO NOTHING
         RETURNING *`;
       if (!made) {
         const [first] = await tx<ReviewRow[]>`SELECT * FROM campaigns.eligibility_reviews WHERE review_key = ${key}`;
