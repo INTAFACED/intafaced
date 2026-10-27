@@ -295,7 +295,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
             ? t('Depth recent', { bars: String(candles.length) })
             : null;
   return (
-    <section className="cw" aria-label={t('Chart of {pair}', { pair: market.symbol })} data-feed={stream.mode}>
+    <section data-testid="cw" className="cw" aria-label={t('Chart of {pair}', { pair: market.symbol })} data-feed={stream.mode}>
       <div className="cw-titlerow">
         <h2 className="cw-title" data-testid="chart-title">
           {settings.showName ? `${market.symbol} · ${intervalLabel(interval)}` : intervalLabel(interval)}
@@ -311,7 +311,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
             </button>
           ))}
           <Menu>
-            <MenuTrigger className="cw-more" data-active={moreActive || undefined}>
+            <MenuTrigger data-testid="cw-more" className="cw-more" data-active={moreActive || undefined}>
               {moreActive ? intervalLabel(interval) : t('More intervals')}
               <span aria-hidden="true"> ▾</span>
             </MenuTrigger>

@@ -27,8 +27,8 @@ const chip = (page) => page.getByTestId('chart-status').first();
 const banner = (page) => page.getByTestId('chart-banner').first();
 const feedLine = (page) => page.getByTestId('chart-feed').first();
 const source = (page) => page.getByTestId('chart-source').first();
-const host = (page) => page.locator('.cw .wc-host').first();
-const tradeButton = (page) => page.locator('button.cw-link').first();
+const host = (page) => page.getByTestId('cw').getByTestId('wc-host').first();
+const tradeButton = (page) => page.locator('button[data-testid="cw-link"]').first();
 
 /** The owner values for one market, from svc-trade's public read (the chart reads the same route). */
 async function ownerValues(symbol = BTC) {
@@ -118,7 +118,7 @@ test.describe(`${J} #3 on a halted market (a real matching halt)`, () => {
     const trade = tradeButton(page);
     await expect(trade).toBeDisabled();
     await expect(page.locator('#cw-trade-refusal')).toHaveText('Order entry is off: this market is halted.');
-    await expect(page.locator('a.cw-link')).toHaveCount(0);
+    await expect(page.locator('a[data-testid="cw-link"]')).toHaveCount(0);
   });
 });
 

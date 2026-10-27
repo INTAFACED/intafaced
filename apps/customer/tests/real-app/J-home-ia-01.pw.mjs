@@ -51,7 +51,7 @@ async function spokenTotal(page, scope) {
   return totalOn(page, scope).locator('[role=img]').first().getAttribute('aria-label');
 }
 
-const HOME_TOTAL = '.hp-total__figure, .home-total';
+const HOME_TOTAL = '[data-testid="hp-total__figure"], [data-testid="home-total"]';
 
 /** Do `act`, then wait until the change is written to the account's view record (the app waits half a second, then writes). */
 async function savedToAccount(page, act) {
@@ -135,7 +135,7 @@ test(`${J} #2 the eye hides amounts and keeps prices, and the choice follows the
   await expect(totalOn(page, HOME_TOTAL)).toHaveAttribute('data-hidden', 'true');
   await expect(totalOn(page, HOME_TOTAL).getByLabel('Hidden')).toBeVisible();
   // Prices are not balances: the markets on Home still show theirs.
-  await expect(page.locator('.hp-markets [role=row]').nth(1)).toContainText(/\d/);
+  await expect(page.locator('[data-testid="hp-markets"] [role=row], [data-testid="home-cards"] > *').nth(1)).toContainText(/\d/);
   await expect(page.getByRole('button', { name: 'Show balances' }).first()).toBeVisible();
 
   // A second device: a fresh browser with nothing stored, signed in as the same person.
@@ -156,12 +156,12 @@ test(`${J} #3 the total's Assets link opens the Assets room with the same total 
   await showsBankTotal(page, '/', HOME_TOTAL, usd);
   const onHome = await spokenTotal(page, HOME_TOTAL);
   // The total's own link, not the Assets door in the top bar.
-  await page.locator('.hp-label, .home-label').getByRole('link', { name: 'Assets', exact: true }).click();
+  await page.locator('[data-testid="hp-label"], [data-testid="home-label"]').getByRole('link', { name: 'Assets', exact: true }).click();
   await expect(page).toHaveURL(/\/money(\?|#|$)/);
   // The same reading of the bank's valuation that Home showed, or a newer one if a price moved since.
   await expect
     .poll(async () => {
-      const shown = await spokenTotal(page, '.money-total');
+      const shown = await spokenTotal(page, '[data-testid="money-total"]');
       return shown === onHome || shown === usd(await bankSummary()) ? 'same' : `assets ${shown}, home ${onHome}`;
     })
     .toBe('same');
@@ -177,14 +177,14 @@ test(`${J} #5 Recent activity lists the three newest movements to the last digit
   await page.goto('/');
   const list = page.locator('section[aria-labelledby="home-activity-title"]');
   await expect(list.getByRole('heading', { name: 'Recent activity' })).toBeVisible();
-  const rows = list.locator('.home-activity__row');
+  const rows = list.getByTestId('home-activity__row');
   await expect(rows).toHaveCount(3);
   // Newest first: the four TEST deposits went in as USDT 1000, BTC 0.01, EUR 25, then USDT 0.123456789012345678.
   await expect(rows.nth(0)).toContainText('+0.123456789012345678 USDT');
   await expect(rows.nth(1)).toContainText('+25 EUR');
   await expect(rows.nth(2)).toContainText('+0.01 BTC');
   // The stack's TEST funding posts on its own rail, which the list names as welcome funds.
-  for (let i = 0; i < 3; i++) await expect(rows.nth(i).locator('.home-activity__kind')).toHaveText(/^(Deposit|Welcome funds)$/);
+  for (let i = 0; i < 3; i++) await expect(rows.nth(i).getByTestId('home-activity__kind')).toHaveText(/^(Deposit|Welcome funds)$/);
   await expect(list.getByRole('link', { name: 'See all' })).toHaveAttribute('href', '/money/activity');
 
   // A row opens that movement's own record.
@@ -214,7 +214,7 @@ test(`${J} #5 Recent activity lists the three newest movements to the last digit
   const none = empty.locator('section[aria-labelledby="home-activity-title"]');
   await expect(none).toContainText('No activity');
   await expect(none).toContainText('Deposits, trades and transfers show here.');
-  await expect(none.locator('.home-activity__row')).toHaveCount(0);
+  await expect(none.getByTestId('home-activity__row')).toHaveCount(0);
   await fresh.close();
 });
 
@@ -230,7 +230,7 @@ test(`${J}, part of #5: a failed activity read says so with Try again, and the r
   await expect.poll(() => spokenTotal(page, HOME_TOTAL)).toMatch(/^\$[\d,]+\.\d{2}$/);
   fail = false;
   await list.getByRole('button', { name: 'Try again' }).click();
-  await expect(list.locator('.home-activity__row')).toHaveCount(3);
+  await expect(list.getByTestId('home-activity__row')).toHaveCount(3);
 });
 
 test(`${J}, part of #4: Needs you is on Home, and while Home's list settings cannot be read it says so with its code and Try again, never "nothing needs you"`, async ({
@@ -279,7 +279,7 @@ test(`${J} #6 Get started reads each step from the account's records, survives a
   expect(open.deposit.href).toBe('/uc/recharge');
   expect(open.trade.href).toBe('/trade/buy');
   expect(open.alert.href).toBe('/notifications?view=alerts');
-  await expect(page.locator('.home-started__count')).toHaveText('1 of 6 done');
+  await expect(page.getByTestId('home-started__count')).toHaveText('1 of 6 done');
 
   // Nothing is kept in the browser: with its storage cleared, the same steps come back from the account.
   await page.evaluate(() => {

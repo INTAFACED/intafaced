@@ -147,7 +147,7 @@ export function MfaReset({ identifier, onBack }: { identifier: string; onBack: (
       )}
       {refusal &&
         (worded(code) && refusal.reason !== 'uncertain' ? (
-          <div className="failure" role="alert">
+          <div data-testid="failure" className="failure" role="alert">
             <p lang={languageFor(code)}>{t(code)}</p>
             {TO_SUPPORT.has(code) && (
               <a className="text-link" href="/help" lang={languageFor('support')}>

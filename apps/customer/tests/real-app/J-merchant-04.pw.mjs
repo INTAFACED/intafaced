@@ -50,7 +50,7 @@ async function makeLink(page, label, amount, asset) {
   await page.getByLabel('Fixed amount', { exact: true }).fill(amount);
   await page.getByRole('combobox', { name: /^Asset/ }).selectOption(asset);
   await page.getByRole('button', { name: 'Create link' }).click();
-  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
   await expect(page.getByRole('heading', { name: 'Your link is ready' })).toBeVisible();
   return page.getByTestId('link-address').getByRole('link', { name: 'Open the link' }).getAttribute('href');
 }
@@ -69,7 +69,9 @@ test(`${J} #1 the owner sets up hosted checkout once: defaults with Save, an ove
 
   const owner = await signInOwner(page, journey(), '/pay/checkout');
   const refused = refusedPayCalls(page);
-  const look = page.locator('section.pay-section').filter({ has: page.getByRole('heading', { name: 'How your checkout looks' }) });
+  const look = page
+    .locator('section[data-testid="pay-section"]')
+    .filter({ has: page.getByRole('heading', { name: 'How your checkout looks' }) });
   // Not configured: the default look, with Save.
   await expect(look.getByTestId('checkout-look-state')).toHaveText(/You are using the default look/);
   await expect(look.getByLabel('Brand colour *')).toHaveValue('#1a5fd0');
@@ -162,7 +164,7 @@ test(`${J} #2 the owner makes a link from a product's price: the receipt shows t
   await expect(page.getByRole('heading', { name: 'Your link is ready' })).toBeVisible();
   const address = page.getByTestId('link-address');
   await expect(address.getByRole('link', { name: 'Open the link' })).toHaveAttribute('href', /\/api\/pay\/checkout\?token=pl_/);
-  const linkId = (await page.locator('.pp-facts .pp-mono').first().textContent())?.trim();
+  const linkId = (await page.getByTestId('pp-facts').getByTestId('pp-mono').first().textContent())?.trim();
   expect(linkId).toMatch(/^[0-9a-f-]{36}$/);
   // The second press of a double press sends nothing: one request, so one key.
   expect(creates).toHaveLength(1);
@@ -202,7 +204,7 @@ test(`${J} #2 the owner makes a link from a product's price: the receipt shows t
 
   // Its page names the product and price it sells.
   await page.goto(`/pay/links/${linkId}`);
-  await expect(page.locator('dl.pp-facts')).toContainText('TEST Tote bag · 25.00 USDC');
+  await expect(page.locator('dl[data-testid="pp-facts"]')).toContainText('TEST Tote bag · 25.00 USDC');
   expect(refused).toEqual([]);
 });
 
@@ -229,7 +231,7 @@ test(`${J} #3 the owner copies the full address, the QR and the payment button; 
 
   // The payment button's code carries the same full address and the link's label.
   const button = page
-    .locator('section.pay-section')
+    .locator('section[data-testid="pay-section"]')
     .filter({ has: page.getByRole('heading', { name: 'Payment button for your website' }) });
   await button.getByRole('button', { name: 'Copy button code' }).click();
   const code = await clipboard();
@@ -253,17 +255,17 @@ test(`${J} #3 the owner copies the full address, the QR and the payment button; 
   await review.getByRole('button', { name: 'Create link' }).click();
   await expect(page.getByRole('heading', { name: 'Your link is ready' })).toBeVisible();
   const stallAddress = await page.getByTestId('link-address').getByRole('link', { name: 'Open the link' }).getAttribute('href');
-  const stallId = (await page.locator('.pp-facts .pp-mono').first().textContent())?.trim();
+  const stallId = (await page.getByTestId('pp-facts').getByTestId('pp-mono').first().textContent())?.trim();
 
   // Turned off with a message: the link's page and a customer opening it both show it.
   await page.goto(`/pay/links/${stallId}`);
-  await expect(page.locator('dl.pp-facts')).toContainText('Your own web page: https://shop.example/thanks');
+  await expect(page.locator('dl[data-testid="pp-facts"]')).toContainText('Your own web page: https://shop.example/thanks');
   await page.getByLabel('Message for customers').fill('TEST Sold out until Monday');
   await page.getByRole('button', { name: 'Deactivate link' }).click();
   const off = page.getByRole('dialog');
   await expect(off).toContainText('TEST Sold out until Monday');
   await off.getByRole('button', { name: 'Deactivate link' }).click();
-  await expect(page.locator('dl.pp-facts')).toContainText('TEST Sold out until Monday');
+  await expect(page.locator('dl[data-testid="pp-facts"]')).toContainText('TEST Sold out until Monday');
   await expect(page.getByText('Deactivated').first()).toBeVisible();
   expect(refused).toEqual([]);
 

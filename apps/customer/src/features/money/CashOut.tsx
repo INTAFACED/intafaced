@@ -82,7 +82,7 @@ function QuoteFailure({ failure, retry }: { failure: Refusal; retry: () => void 
   const { t } = cashOutCopy.useCopy();
   if (failure.code === 'bank.cash_out_over_available') {
     return (
-      <p className="failure" role="alert">
+      <p data-testid="failure" className="failure" role="alert">
         {t('overAvailable')} <small className="muted">{t('reference', { code: failure.code })}</small>
       </p>
     );
@@ -147,7 +147,7 @@ function ReceiptPanel({ requestId, load }: { requestId: string; load?: LoadRecei
         </p>
       ) : null}
       {receipt && receipt !== 'loading' && !receipt.ok ? (
-        <p className="failure" role="alert">
+        <p data-testid="failure" className="failure" role="alert">
           {t('receiptFailed')} <small className="muted">{t('reference', { code: receipt.code ?? '' })}</small>
         </p>
       ) : null}

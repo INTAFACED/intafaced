@@ -27,6 +27,7 @@ import {
   TEST_DEPOSIT_NETWORKS,
   TEST_DEPOSIT_TERMS,
   TEST_HALTED_DEPOSIT,
+  TEST_WITHDRAWAL_LIMITS,
   networkRowMatches,
   payProposal,
   assetEditProposal,
@@ -41,6 +42,9 @@ import {
   TEST_CHART_DATA_CLASSES,
   chartDataClassPayloadHash,
   chartDataClassProposal,
+  nextTotpStep,
+  TOTP_SKEW_STEPS,
+  EDGE_AUTHORITY_CACHE_MAX_MS,
 } from './local-test-gates.mjs';
 import { draftFounderVault } from './local-test-founders.mjs';
 import { TEST_SPOT_LISTINGS, localTestDatabaseUrl } from './seed-spot-test-listing.mjs';
@@ -285,7 +289,13 @@ for (const n of TEST_DEPOSIT_NETWORKS) {
 // The TEST networks ask for as many confirmations as the stack's svc-pay credits at, so the room's count and the credit agree.
 {
   const { default: payService } = await import('./local-stack-services/pay.mjs');
-  const payEnv = payService({ c: () => ({}), secrets: {}, dbUrl: () => '', urlOf: () => '', PORTS: {} }).env();
+  const payEnv = payService({
+    c: () => ({}),
+    secrets: { payTravelRuleKey: 'TEST-placeholder' },
+    dbUrl: () => '',
+    urlOf: () => '',
+    PORTS: {},
+  }).env();
   for (const n of TEST_DEPOSIT_NETWORKS) assert.equal(String(n.confirmationsRequired), payEnv.PAY_MIN_CONFIRMATIONS, n.networkId);
 }
 assert.equal(TEST_DEPOSIT_TERMS.length, 4);
@@ -301,6 +311,19 @@ for (const t of TEST_DEPOSIT_TERMS) {
   else assert.equal(t.haltNote, null);
 }
 assert.equal(TEST_DEPOSIT_TERMS.filter((t) => !t.enabled).length, 1);
+// TEST withdrawal limits for every verified level, none for an unverified account, and the stack's svc-pay enforces them.
+assert.deepEqual([...TEST_WITHDRAWAL_LIMITS.tiers], ['basic', 'full', 'institutional']);
+{
+  const { default: payService } = await import('./local-stack-services/pay.mjs');
+  const payEnv = payService({
+    c: () => ({}),
+    secrets: { payTravelRuleKey: 'TEST-placeholder' },
+    dbUrl: () => '',
+    urlOf: () => '',
+    PORTS: {},
+  }).env();
+  assert.equal(payEnv.PAY_WITHDRAWAL_LIMITS, 'required');
+}
 assert.deepEqual(payProposal('pay.registry_change', 'sha256:abc'), {
   actionType: 'pay.registry_change',
   targetService: 'svc-pay',
@@ -460,5 +483,35 @@ assert.equal(proposal.targetId, 'ETH/USDT');
 assert.equal(proposal.expectedVersion, '2');
 assert.equal(proposal.policyVersion, 'trade-chart-data-class-v1', 'the same policy version the founder page proposes');
 assert.match(proposal.payloadHash, /^sha256:[0-9a-f]{64}$/);
+
+// TOTP steps: never a step identity already consumed (it refuses any step at or before the last one), never one before
+// the current step, and the step after the current one only because identity accepts one step of clock skew. Pinned to
+// identity's own window, so a narrower window there fails here instead of in every journeys shard.
+assert.equal(nextTotpStep(0, 100), 100, 'a fresh operator signs in with the current step');
+assert.equal(nextTotpStep(90, 100), 100, 'an old last step gives the current one, not the one after it');
+assert.equal(nextTotpStep(99, 100), 100);
+assert.equal(nextTotpStep(100, 100), 101, 'the current step spent: the next one, inside the skew window, without waiting');
+assert.equal(nextTotpStep(101, 100), null, 'both spent: wait for the clock');
+assert.equal(nextTotpStep(105, 100), null);
+assert.equal(nextTotpStep(undefined, 100), 100);
+assert.equal(nextTotpStep('not a step', 100), 100, 'an unreadable last step never waits forever');
+for (let last = 95; last <= 102; last += 1) {
+  const step = nextTotpStep(last, 100);
+  if (step !== null) assert.ok(step > last && step >= 100 && step <= 100 + TOTP_SKEW_STEPS, `last ${last} gave ${step}`);
+}
+const identityTotp = readFileSync(resolve(here, '../../services/svc-identity/src/auth/totp.ts'), 'utf8');
+assert.match(identityTotp, /const window = options\.window \?\? (\d+);/, 'identity still names its default skew window');
+assert.equal(
+  Number(/const window = options\.window \?\? (\d+);/.exec(identityTotp)[1]) >= TOTP_SKEW_STEPS,
+  true,
+  "the gates look ahead no further than identity's skew window",
+);
+// `apply` waits out Edge's authority cache after verify, so svc-p2p reads the founders' new tier: pinned to Edge's cap.
+const edgeAuthority = readFileSync(resolve(here, '../../services/svc-edge/src/live-authority.ts'), 'utf8');
+assert.equal(
+  Number(/export const AUTHORITY_POSITIVE_CACHE_MAX_MS = (\d+);/.exec(edgeAuthority)?.[1]),
+  EDGE_AUTHORITY_CACHE_MAX_MS,
+  "the gates wait exactly as long as Edge's authority cache can hold a session's tier",
+);
 
 console.log('local-test-gates: marker, builder, hash and planning checks passed');

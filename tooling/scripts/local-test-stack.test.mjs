@@ -572,3 +572,93 @@ console.log('local-test-stack: customer folder override checks passed');
     rmSync(home, { recursive: true, force: true });
   }
 }
+
+// The Customer site carries the production security headers, and the browser's CSP reports are recorded and fail the run.
+{
+  const { customerSecurityHeaders, cspReportRows } = await import('./local-test-stack.mjs');
+  const headers = customerSecurityHeaders();
+  assert.match(headers['Content-Security-Policy'], /^default-src 'self'; script-src 'self';/);
+  assert.match(headers['Content-Security-Policy'], /font-src 'self';/);
+  assert.match(
+    headers['Content-Security-Policy'],
+    /media-src 'self' blob: http:\/\/127\.0\.0\.1:\d+;/,
+    'the TEST video store stands in for the storage origin',
+  );
+  assert.match(headers['Content-Security-Policy'], /; report-uri \/__csp-report$/);
+  assert.equal(headers['X-Frame-Options'], 'DENY');
+  const legacy = cspReportRows(
+    JSON.stringify({
+      'csp-report': {
+        'effective-directive': 'script-src-elem',
+        'blocked-uri': 'inline',
+        'document-uri': 'http://127.0.0.1:3210/home?x=1',
+        'line-number': 3,
+      },
+    }),
+    't',
+  );
+  assert.deepEqual(legacy, [
+    { at: 't', directive: 'script-src-elem', blocked: 'inline', page: 'http://127.0.0.1:3210/home', source: '', line: 3, sample: '' },
+  ]);
+  const modern = cspReportRows(
+    JSON.stringify([
+      {
+        type: 'csp-violation',
+        body: { effectiveDirective: 'font-src', blockedURL: 'https://fonts.example/x.woff2', documentURL: 'http://127.0.0.1:3210/' },
+      },
+    ]),
+    't',
+  );
+  assert.equal(modern[0].directive, 'font-src');
+  assert.deepEqual(cspReportRows('not json'), []);
+
+  const home = mkdtempSync(join(tmpdir(), 'local-test-stack-csp-'));
+  const port = await new Promise((ok) => {
+    const probe = createServer();
+    probe.listen(0, '127.0.0.1', () => {
+      const { port: pt } = probe.address();
+      probe.close(() => ok(pt));
+    });
+  });
+  // LOCAL_STACK_STATE would point the throwaway server at a running stack's record: send it to the temp folder.
+  const env = { ...process.env, HOME: home, LOCAL_STACK_STATE: join(home, 'state') };
+  const server = spawn(process.execPath, [script, '__serve-customer', String(port)], {
+    env,
+    stdio: 'ignore',
+  });
+  const report = (args) => spawnSync(process.execPath, [script, 'csp-report', ...args], { env, encoding: 'utf8' });
+  try {
+    let res;
+    for (let i = 0; i < 50 && !res; i++) {
+      try {
+        res = await fetch(`http://127.0.0.1:${port}/some/room`);
+      } catch {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    }
+    assert.ok(res, 'throwaway server answered');
+    assert.match(
+      res.headers.get('content-security-policy') ?? '',
+      /script-src 'self'/,
+      'the app shell carries the CSP, even with no build',
+    );
+    assert.equal(report(['--fail']).status, 0, 'no violations yet');
+    const posted = await fetch(`http://127.0.0.1:${port}/__csp-report`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/csp-report' },
+      body: JSON.stringify({
+        'csp-report': { 'effective-directive': 'script-src-elem', 'blocked-uri': 'inline', 'document-uri': `http://127.0.0.1:${port}/` },
+      }),
+    });
+    assert.equal(posted.status, 204);
+    const red = report(['--fail']);
+    assert.equal(red.status, 1, 'a recorded violation fails the run');
+    assert.match(red.stdout, /script-src-elem blocked inline/);
+    assert.equal(report(['--clear']).status, 0);
+    assert.equal(report(['--fail']).status, 0, 'cleared');
+    console.log('local-test-stack: real CSP served, violations recorded and failing');
+  } finally {
+    server.kill('SIGTERM');
+    rmSync(home, { recursive: true, force: true });
+  }
+}

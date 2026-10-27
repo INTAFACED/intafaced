@@ -60,7 +60,7 @@ export default function CoinScreen({ params }: ScreenProps) {
   if (markets.status === 'error' || markets.status === 'refused')
     return (
       <Frame>
-        <section className="coin-card coin-problem">
+        <section data-testid="coin-problem" className="coin-card coin-problem">
           <MarketsProblem markets={markets} />
         </section>
       </Frame>
@@ -79,7 +79,11 @@ export default function CoinScreen({ params }: ScreenProps) {
 }
 
 function Frame({ children }: { children: React.ReactNode }) {
-  return <div className="if-coin">{children}</div>;
+  return (
+    <div data-testid="if-coin" className="if-coin">
+      {children}
+    </div>
+  );
 }
 
 function MarketsProblem({ markets }: { markets: Loadable<MarketRow[]> }) {
@@ -97,13 +101,13 @@ function MarketsProblem({ markets }: { markets: Loadable<MarketRow[]> }) {
 function PageSkeleton() {
   return (
     <div aria-busy="true" data-testid="coin-loading">
-      <div className="coin-bar">
+      <div data-testid="coin-bar" className="coin-bar">
         <Skeleton width={160} height={40} className="bg-field" />
       </div>
       <div className="coin-titlerow">
         <Skeleton width={220} height={34} className="bg-field" />
       </div>
-      <div className="coin-grid">
+      <div data-testid="coin-grid" className="coin-grid">
         <div className="coin-col">
           <Skeleton height={580} className="bg-panel" />
         </div>
@@ -151,14 +155,16 @@ function CoinPage({ asset, markets, portfolio }: { asset: string; markets: Marke
         star={market ? { on: favorites.isFavorite(market.symbol), toggle: () => favorites.toggle(market.symbol) } : null}
       />
       <div className="coin-titlerow">
-        <h1 className="coin-title">{t('{name} price', { name: name ?? asset })}</h1>
+        <h1 data-testid="coin-title" className="coin-title">
+          {t('{name} price', { name: name ?? asset })}
+        </h1>
         {market ? (
           <span className="coin-pair" data-testid="pair">
             {market.base}/{market.quote}
           </span>
         ) : null}
       </div>
-      <div className="coin-grid">
+      <div data-testid="coin-grid" className="coin-grid">
         <div className="coin-col">
           {stable ? (
             <DollarCard asset={asset} />
@@ -173,7 +179,7 @@ function CoinPage({ asset, markets, portfolio }: { asset: string; markets: Marke
               onQuote={setChosen}
             />
           ) : (
-            <section className="coin-card coin-nomarket">
+            <section data-testid="coin-nomarket" className="coin-card coin-nomarket">
               {!stable && !priced.length && quotes.length > 1 && quote ? (
                 <div className="coin-nomarket__quote">
                   <QuotePicker quotes={quotes} quote={quote} onQuote={setChosen} />

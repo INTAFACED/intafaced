@@ -59,7 +59,7 @@ function SignedIn({ paper, userId }: { paper: boolean; userId: string }) {
                 <p role="status" data-testid="quant-quick-start-count">
                   {t('quickStartCount', { done: steps.filter((s) => s.done).length })}
                 </p>
-                <ol className="quant-quick-start">
+                <ol data-testid="quant-quick-start" className="quant-quick-start">
                   {steps.map((step) => (
                     <li key={step.href} data-done={step.done}>
                       <strong>{step.title}</strong> · <span>{step.done ? t('stepDone') : t('stepOpen')}</span>

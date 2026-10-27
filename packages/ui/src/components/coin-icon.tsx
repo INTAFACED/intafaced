@@ -55,7 +55,7 @@ export function CoinIcon({ asset, size = 32, className, style, ...props }: CoinI
       style={{ ...dim, fontSize: Math.round(size * 0.42) }}
       className={cn(
         'inline-flex shrink-0 select-none items-center justify-center rounded-pill font-semibold leading-none',
-        key === 'IFC' ? 'bg-lime-soft text-lime' : 'bg-raised text-fg',
+        key === 'IFC' ? 'bg-lime-soft text-accent-text' : 'bg-raised text-fg',
         className,
       )}
       {...props}

@@ -75,7 +75,7 @@ async function addStudy(page, search, name) {
 
 const legend = (page) => page.getByTestId('study-legend');
 const row = (page, id) => page.locator(`[data-study="${id}"]`);
-const host = (page) => page.locator('.cw .wc-host');
+const host = (page) => page.getByTestId('cw').getByTestId('wc-host');
 
 /** A simple moving average of the closes, worked from the formula: the mean of the last `period` closes. */
 const sma = (closes, period) => closes.slice(-period).reduce((a, b) => a + b, 0) / period;
@@ -180,7 +180,7 @@ test('J-charts-desk-03 #6 with the data window open, moving the crosshair over a
   await page.getByRole('button', { name: 'Data window' }).click();
   await expect(page.getByTestId('data-window')).toContainText('Move the pointer over the chart');
   // The plot is the chart host; .cw-canvas also holds the drawings dock below it.
-  const canvas = page.locator('.cw .wc-host');
+  const canvas = page.getByTestId('cw').getByTestId('wc-host');
   const box = await canvas.boundingBox();
   await page.mouse.move(box.x + box.width * 0.7, box.y + box.height * 0.5);
   const windowText = page.getByTestId('data-window');
@@ -216,7 +216,7 @@ test('J-charts-desk-03 #7 opens chart settings: the sections are there, a change
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('chart-legend').first()).not.toContainText(/\d{1,2} [A-Za-z]{3} \d{4}/);
   // The legend's time element is gone, not just empty.
-  await expect(page.locator('.wc-time')).toHaveCount(0);
+  await expect(page.getByTestId('wc-time')).toHaveCount(0);
   await expect(host(page)).toHaveAttribute('data-log', 'on');
   await expect(host(page)).toHaveAttribute('data-grid', 'off');
   // Saved for this device, read back after a reload.

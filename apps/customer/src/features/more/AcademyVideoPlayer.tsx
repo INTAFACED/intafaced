@@ -257,7 +257,7 @@ export function VideoPlayerView({
         </video>
         {/* The element stays: a link that expires mid-play keeps playing what the browser holds, and the place is kept. */}
         {(loadFailed || (expired && !playing)) && (
-          <div className="failure" role="status" data-video-expired>
+          <div data-testid="failure" className="failure" role="status" data-video-expired>
             <p>{loadFailed ? t('videoLoadFailed') : t('videoExpired')}</p>
             <Button
               variant="secondary"

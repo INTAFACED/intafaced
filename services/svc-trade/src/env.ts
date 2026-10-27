@@ -614,6 +614,12 @@ const schema = serviceEnvSchema
       TRADE_FEE_TIER_JOBS_INTERVAL_MS: z.string().default('').transform(parseOwnerIntegerEnv),
 
       /**
+       * The key VIP application proof files are encrypted with (spot/vip-applications.ts): 32 bytes as base64 or 64 hex
+       * characters. NO DEFAULT: blank or malformed → every application refuses `vip.proof_key_unset`; no key is improvised.
+       */
+      TRADE_VIP_PROOF_KEY: z.string().default(''),
+
+      /**
        * Engine ↔ ledger reconcile sweep (A10 / ENGINE-LEDGER-RECONCILE-HANDOFF).
        * Default OFF — builds counterpart view from trade.orders + hold balances,
        * POSTs matching `/reconcile`, alerts on refuse, auto-deletes only

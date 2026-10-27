@@ -19,7 +19,8 @@
  * free plan's 20 concurrent jobs are taken, while this job already holds one; reading the comment here keeps the review
  * off that queue. The meaning is unchanged: a listed reviewer, the exact head, the same line format.
  *
- * Only money, security and gate-file changes need it (owner decision 2026-10-22). Every other pull request is sealed
+ * Only money, security, gate-file and look-baseline changes need it (owner decisions 2026-10-22 and, for baselines,
+ * 2026-10-26: a builder never approves its own picture; test-diff-guard.mjs also wants the room named). Every other pull request is sealed
  * on its checks alone; the automated code review AGENTS.md asks for before a pull request opens is not checked here.
  * The seal runs the default branch's copy of this file, so a pull request cannot change which of its files need the
  * review. A pull request that edits the workflow itself touches .github/, which always needs the review.
@@ -27,6 +28,7 @@
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { gateFilesTouched } from '../scripts/gate-file-guard.mjs';
+import { BASELINE } from './look-baselines.mjs';
 
 /** How long the seal waits for the review before it fails, and how often it looks. ci.yml's merge-seal timeout covers it. */
 const REVIEW_WAIT_MS = 20 * 60_000;
@@ -105,6 +107,8 @@ export function reviewReason(files, manifests) {
   if (security) return `security: ${security}`;
   const gate = gateFilesTouched(files);
   if (gate.length > 0) return `gate file: ${gate[0].file}`;
+  const baseline = files.find((f) => BASELINE.test(f));
+  if (baseline) return `look baseline: ${baseline}`;
   for (const root of new Set(files.map(packageRootOf).filter(Boolean))) {
     const found = manifests.get(root) ?? [];
     if (found.length === 0) return `money: no package.json could be read for ${root}`;
@@ -178,6 +182,8 @@ function selfTest() {
     ['apps/admin', [plain, money]],
     ['services/svc-new', []],
     ['tooling/pay-sim', [money]],
+    ['apps/customer', [plain]],
+    ['packages/ui', [plain]],
   ]);
   const reasonCases = [
     [['docs/x.md'], false],
@@ -202,6 +208,10 @@ function selfTest() {
     [['apps/customer/Dockerfile'], true],
     [['docker-compose.apps.yml'], true],
     [['tsconfig.base.json'], true],
+    [['apps/customer/look-baselines/home/390x844.png'], true],
+    [['packages/ui/look-baselines/kit-buttons/phone/a.png'], true],
+    [['apps/customer/src/assets/logo.png'], false],
+    [['apps/customer/src/screens/home/index.tsx'], false],
     [[], true],
   ];
   for (const [files, want] of reasonCases) {

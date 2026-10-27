@@ -1,11 +1,11 @@
 // Test harness only. Mounts the Home screen with the real theme and providers but without the app shell,
 // signed in as a labelled fake user. Every API call is answered by the Playwright test (no service is contacted).
 // The app's global sheets load too, so a class-name clash with old screens (e.g. .home-hero) shows up here.
-import '../../../shared/tokens.css';
 import '../../../shared/styles.css';
 import '../../../features/public/public.css';
 import '../../../app/redesign.css';
 import '../../../app/shell.css';
+import '../../../app/lit-look-styles';
 import './harness-tokens.css';
 import { StrictMode, useEffect, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -33,7 +33,7 @@ function Page() {
     <HideBalancesProvider hidden={hideBalances}>
       <TooltipProvider>
         <div className="if-app">
-          <nav className="harness-bar" aria-label="Harness stand-in for the top bar">
+          <nav data-testid="harness-bar" className="harness-bar" aria-label="Harness stand-in for the top bar">
             <a href="/home">intafaced</a>
             <a href="/home" aria-current="page">
               Home

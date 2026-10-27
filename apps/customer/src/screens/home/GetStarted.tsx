@@ -52,7 +52,7 @@ function Row({ step }: { step: Step }) {
     <>
       <Mark status={step.status} />
       <span className="home-started__text">
-        <span className="home-started__title" data-done={done}>
+        <span data-testid="home-started__title" className="home-started__title" data-done={done}>
           {t(TITLE[step.id])}
         </span>
         {done ? null : <span className="home-started__hint">{t(step.status === 'review' ? 'Step verify review' : HINT[step.id])}</span>}
@@ -62,7 +62,7 @@ function Row({ step }: { step: Step }) {
   );
   return (
     <li>
-      <a className="home-started__row" href={step.href} data-step={step.id} data-status={step.status}>
+      <a data-testid="home-started__row" className="home-started__row" href={step.href} data-step={step.id} data-status={step.status}>
         {body}
       </a>
     </li>
@@ -77,10 +77,10 @@ export function GetStarted({ steps, onHide }: { steps: Step[]; onHide: () => voi
   const { t } = homeCopy.useCopy();
   const count = progress(steps);
   return (
-    <section className="home-started" aria-labelledby="home-started-title">
+    <section data-testid="home-started" className="home-started" aria-labelledby="home-started-title">
       <div className="home-started__head">
         <h2 id="home-started-title">{t('Get started')}</h2>
-        <span className="home-started__count">
+        <span data-testid="home-started__count" className="home-started__count">
           {count.settled ? (
             t('Steps done', { done: count.done, total: count.total })
           ) : (
@@ -91,7 +91,7 @@ export function GetStarted({ steps, onHide }: { steps: Step[]; onHide: () => voi
           <X size={16} aria-hidden="true" />
         </button>
       </div>
-      <div className="home-started__bar" aria-hidden="true">
+      <div data-testid="home-started__bar" className="home-started__bar" aria-hidden="true">
         {steps.map((step) => (
           <span key={step.id} data-on={step.status === 'done'} />
         ))}

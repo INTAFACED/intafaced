@@ -15,14 +15,14 @@
     border: 0;
     background: transparent;
     color: var(--if-fg);
-    font: 500 16px/24px var(--if-font-ui);
+    font: 500 var(--if-text-md)/var(--if-leading-md) var(--if-font-ui);
     outline: none;
   }
   .pay-text::placeholder {
     color: var(--if-fg-3);
   }
   .pay-text:focus-visible {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: 4px;
     border-radius: var(--if-r-sm);
   }
@@ -36,7 +36,7 @@
   .pay-fieldset {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: var(--if-space-4);
     min-width: 0;
     margin: 0;
     padding: 0;
@@ -46,7 +46,7 @@
     opacity: 0.6;
   }
   .pay-hint {
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
 
@@ -54,17 +54,17 @@
   .pay-reason {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    padding: 16px;
+    gap: var(--if-space-1);
+    padding: var(--if-space-4);
     border-radius: var(--if-r-md);
     background: var(--if-lime-soft);
   }
   .pay-reason__title {
-    font: 600 15px/20px var(--if-font-ui);
+    font: 600 15px/var(--if-leading-base) var(--if-font-ui);
     color: var(--if-fg);
   }
   .pay-reason__body {
-    font: 400 13px/18px var(--if-font-ui);
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
     color: var(--if-fg-2);
   }
 
@@ -72,7 +72,7 @@
   .pay-steps {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--if-space-2);
     margin: 0;
     padding: 0;
     list-style: none;
@@ -81,8 +81,8 @@
   .pay-steps > li {
     display: flex;
     align-items: center;
-    gap: 12px;
-    font: 500 14px/20px var(--if-font-ui);
+    gap: var(--if-space-3);
+    font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     color: var(--if-fg-2);
     counter-increment: pay-step;
   }
@@ -97,25 +97,25 @@
     border-radius: var(--if-r-pill);
     background: var(--if-field);
     color: var(--if-fg-2);
-    font: 600 12px/16px var(--if-font-ui);
+    font: 600 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
   }
   .pay-steps > li[data-state='done']::before {
     background: var(--if-lime);
-    color: var(--if-bg);
+    color: var(--if-on-lime);
   }
   .pay-steps > li[data-state='current'] {
     color: var(--if-fg);
   }
 
   .pay-section-title {
-    font: 600 15px/20px var(--if-font-ui);
+    font: 600 15px/var(--if-leading-base) var(--if-font-ui);
     color: var(--if-fg);
   }
   .pay-block {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding-top: 8px;
+    gap: var(--if-space-3);
+    padding-top: var(--if-space-2);
     border-top: 1px solid var(--if-line-strong);
   }
 
@@ -124,10 +124,10 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .pay-contacts__label {
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
 
@@ -135,17 +135,17 @@
   .pay-quote {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--if-space-2);
     margin: 0;
-    padding: 16px;
+    padding: var(--if-space-4);
     border-radius: var(--if-r-md);
     background: var(--if-field);
   }
   .pay-quote > div {
     display: flex;
     justify-content: space-between;
-    gap: 16px;
-    font: 400 13px/18px var(--if-font-ui);
+    gap: var(--if-space-4);
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
   }
   .pay-quote dt {
     color: var(--if-fg-2);
@@ -161,7 +161,7 @@
     align-self: center;
     width: 100%;
     max-width: 208px;
-    padding: 8px;
+    padding: var(--if-space-2);
     border-radius: var(--if-r-md);
     /* QR codes need fixed dark-on-light contrast in every theme, so plain keywords, not theme tokens. */
     background: white;
@@ -173,10 +173,10 @@
     height: auto;
   }
   .pay-link {
-    padding: 12px;
+    padding: var(--if-space-3);
     border-radius: var(--if-r-sm);
     background: var(--if-field);
-    font: 400 12px/18px var(--if-font-mono);
+    font: 400 var(--if-text-xs)/var(--if-leading-sm) var(--if-font-mono);
     color: var(--if-fg-2);
     overflow-wrap: anywhere;
     user-select: all;
@@ -184,7 +184,7 @@
   .pay-row-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
 
   /* Lists: requests, payments */
@@ -198,8 +198,8 @@
   .pay-list > li {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 12px 0;
+    gap: var(--if-space-2);
+    padding: var(--if-space-3) 0;
     border-bottom: 1px solid var(--if-line-strong);
   }
   .pay-list > li:last-child {
@@ -209,27 +209,27 @@
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    gap: 12px;
-    font: 500 14px/20px var(--if-font-ui);
+    gap: var(--if-space-3);
+    font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     overflow-wrap: anywhere;
   }
   .pay-list__sub {
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
     overflow-wrap: anywhere;
   }
   .pay-empty {
-    padding: 12px 0;
-    font: 400 13px/18px var(--if-font-ui);
+    padding: var(--if-space-3) 0;
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
     color: var(--if-fg-2);
   }
 
   /* Banner above Send when a payment link filled it in */
   .pay-banner {
-    padding: 12px 16px;
+    padding: var(--if-space-3) var(--if-space-4);
     border-radius: var(--if-r-md);
     background: var(--if-lime-soft);
-    font: 500 13px/18px var(--if-font-ui);
+    font: 500 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
     color: var(--if-fg);
     overflow-wrap: anywhere;
   }
@@ -238,23 +238,23 @@
   .pay-recent {
     display: flex;
     flex-direction: column;
-    gap: 32px;
+    gap: var(--if-space-8);
     max-width: 520px;
   }
   .pay-recent__section {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--if-space-3);
     min-width: 0;
   }
   .pay-recent__head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--if-space-3);
   }
   .pay-recent__head h2 {
-    font: 600 16px/24px var(--if-font-ui);
+    font: 600 var(--if-text-md)/var(--if-leading-md) var(--if-font-ui);
     color: var(--if-fg);
   }
   .pay-recent__list,
@@ -273,9 +273,9 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
+    gap: var(--if-space-4);
     min-width: 0;
-    padding: 12px 16px;
+    padding: var(--if-space-3) var(--if-space-4);
   }
   .pay-recent__row + .pay-recent__row {
     border-top: 1px solid var(--if-line);
@@ -284,7 +284,7 @@
   .pay-recent__side {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--if-space-0-5);
     min-width: 0;
   }
   .pay-recent__side {
@@ -292,16 +292,16 @@
     flex-shrink: 0;
   }
   .pay-recent__who {
-    font: 500 14px/20px var(--if-font-ui);
+    font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     color: var(--if-fg);
     overflow-wrap: anywhere;
   }
   .pay-recent__meta {
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .pay-recent__amount {
-    font: 500 14px/20px var(--if-font-ui);
+    font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     font-variant-numeric: tabular-nums;
     color: var(--if-fg);
     overflow-wrap: anywhere;
@@ -315,7 +315,7 @@
     padding: 0;
     border: 0;
     background: transparent;
-    font: 500 12px/16px var(--if-font-ui);
+    font: 500 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
     text-decoration: underline;
     text-underline-offset: 3px;
@@ -333,20 +333,20 @@
   }
   .pay-recent__link:focus-visible,
   .pay-recent .pay-chip:focus-visible {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: 2px;
     border-radius: var(--if-r-sm);
   }
   .pay-recent__chips {
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .pay-recent .pay-chip {
     height: 32px;
     text-decoration: none;
   }
   .pay-recent__note {
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
 

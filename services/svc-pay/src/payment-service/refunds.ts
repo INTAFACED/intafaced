@@ -104,6 +104,64 @@ export async function refundInner(
       });
       const row = await lockPayment(tx, paymentId);
 
+      // A COMPLETED `refundId` IS A REPLAY, NOT A SECOND REFUND.
+      //
+      // `refundId` is a business key — it is what
+      // `payment.refund:<paymentId>:<refundId>` makes the ledger idempotent
+      // on. The ledger would therefore already dedupe a repeat and move
+      // nothing, but the EVENT LOG would not:
+      // `totalsFor` sums every `refunded` row, so appending a second one for
+      // the same business key leaves the book correct and the PROJECTION
+      // wrong — `refundedAmount` doubles, and refundable shrinks by a refund
+      // that never happened. That desync is worse to unpick than a refusal.
+      //
+      // So a caller who repeats a completed refund id gets the payment as it
+      // stands, having moved and recorded nothing. This is the same rule the
+      // authorize path already states as "an authorization that already
+      // happened is not an error", and it is what makes it safe for
+      // `public-rest.ts` to derive this id from the caller's Idempotency-Key.
+      //
+      // Checked FIRST, before every status and balance check, deliberately: a
+      // FULL refund moves the payment to `refunded` and its refundable balance to
+      // zero, so a retry of the same id (a lost reply, or a concurrent retry that
+      // takes the row lock after the winner recorded the refund) would otherwise
+      // be refused `pay.nothing_captured` or `pay.refund_exceeds_captured` for a
+      // refund that succeeded, and a merchant told "refused" may send a second
+      // refund under a new id.
+      //
+      // Only for an EXPLICIT id. The `${paymentId}:${sequence + 1}` default is
+      // a fresh ordinal by construction and can never be a replay of itself.
+      if (options.refundId !== undefined) {
+        // A COMPLETED refundId is one business event with ONE amount.
+        // Same id + same amount → replay (no second movement / event).
+        // Same id + different amount → conflict: silent 200 with the old
+        // amount would teach the merchant their second request succeeded.
+        const alreadyDone = await tx<Array<{ amount: string | null }>>`
+          SELECT payload->>'amount' AS amount
+            FROM pay.payment_events
+           WHERE payment_id = ${row.id}
+             AND event = 'refunded'
+             AND payload->>'refundId' = ${options.refundId}
+           LIMIT 1
+        `;
+        if (alreadyDone[0]) {
+          const prior = alreadyDone[0].amount;
+          if (prior !== null && prior !== formatAmount(amount)) {
+            throw new PayError(
+              `Refund id ${options.refundId} already completed for ${prior}; requested ${formatAmount(amount)} — use a new refundId for a different amount`,
+              'pay.refund_id_conflict',
+              {
+                refundId: options.refundId,
+                paymentId: row.id,
+                completedAmount: prior,
+                requested: formatAmount(amount),
+              },
+            );
+          }
+          return { replay: true as const, view: await svc.view(tx, row) };
+        }
+      }
+
       if (row.status !== 'captured' && row.status !== 'settled') {
         throw new PayError(`Payment ${row.id} has nothing captured (status ${row.status}) — refund refused`, 'pay.nothing_captured', {
           paymentId: row.id,
@@ -140,60 +198,8 @@ export async function refundInner(
         throw new PayError(`Payment ${row.id} has nothing captured — refund refused`, 'pay.nothing_captured', { paymentId: row.id });
       }
 
-      // A COMPLETED `refundId` IS A REPLAY, NOT A SECOND REFUND.
-      //
-      // `refundId` is a business key — it is what
-      // `payment.refund:<paymentId>:<refundId>` makes the ledger idempotent
-      // on. The ledger would therefore already dedupe a repeat and move
-      // nothing, but the EVENT LOG would not:
-      // `totalsFor` sums every `refunded` row, so appending a second one for
-      // the same business key leaves the book correct and the PROJECTION
-      // wrong — `refundedAmount` doubles, and refundable shrinks by a refund
-      // that never happened. That desync is worse to unpick than a refusal.
-      //
-      // So a caller who repeats a completed refund id gets the payment as it
-      // stands, having moved and recorded nothing. This is the same rule the
-      // authorize path already states as "an authorization that already
-      // happened is not an error", and it is what makes it safe for
-      // `public-rest.ts` to derive this id from the caller's Idempotency-Key.
-      //
-      // Checked BEFORE the refundable comparison deliberately: after a FULL
-      // refund the refundable balance is zero, so the refusal would otherwise
-      // win and report `pay.refund_exceeds_captured` for what is actually a
-      // retry of a refund that already succeeded.
-      //
-      // Only for an EXPLICIT id. The `${paymentId}:${sequence + 1}` default is
-      // a fresh ordinal by construction and can never be a replay of itself.
+      // A completed `refundId` was answered above, before the status checks.
       if (options.refundId !== undefined) {
-        // A COMPLETED refundId is one business event with ONE amount.
-        // Same id + same amount → replay (no second movement / event).
-        // Same id + different amount → conflict: silent 200 with the old
-        // amount would teach the merchant their second request succeeded.
-        const alreadyDone = await tx<Array<{ amount: string | null }>>`
-          SELECT payload->>'amount' AS amount
-            FROM pay.payment_events
-           WHERE payment_id = ${row.id}
-             AND event = 'refunded'
-             AND payload->>'refundId' = ${options.refundId}
-           LIMIT 1
-        `;
-        if (alreadyDone[0]) {
-          const prior = alreadyDone[0].amount;
-          if (prior !== null && prior !== formatAmount(amount)) {
-            throw new PayError(
-              `Refund id ${options.refundId} already completed for ${prior}; requested ${formatAmount(amount)} — use a new refundId for a different amount`,
-              'pay.refund_id_conflict',
-              {
-                refundId: options.refundId,
-                paymentId: row.id,
-                completedAmount: prior,
-                requested: formatAmount(amount),
-              },
-            );
-          }
-          return { replay: true as const, view: await svc.view(tx, row) };
-        }
-
         // Spent after reverse: ledger key will no-op; rail may still pay.
         // A genuine re-attempt needs a new refundId (public REST: new
         // Idempotency-Key → new restRefundId).

@@ -49,9 +49,11 @@ function MarketCard({
   const name = assetName(item.base, copy);
   return (
     <div className="home-card-wrap">
-      <a className="home-card" href={coinHref(item.base, 'simple')}>
+      <a data-testid="home-card" className="home-card" href={coinHref(item.base, 'simple')}>
         <span className="home-card__name">
-          <span className="home-card__ticker">{item.base}</span>
+          <span data-testid="home-card__ticker" className="home-card__ticker">
+            {item.base}
+          </span>
           {name ? <span className="home-card__full">{name}</span> : null}
         </span>
         <Sparkline values={points ?? []} width={154} height={56} endDot direction={direction(ticker?.changePct24h) ?? 'flat'} />
@@ -62,7 +64,7 @@ function MarketCard({
           </span>
         ) : (
           <span className="home-card__figures">
-            <span className="home-card__price" data-money>
+            <span data-testid="home-card__price" className="home-card__price" data-money>
               {priceText(item, ticker)}
             </span>
             <Pct value={fmtPct(ticker?.changePct24h)} arrow />
@@ -92,7 +94,7 @@ export function MarketsRow({
 }) {
   const points = sparklines.status === 'ready' ? sparklines.data : {};
   return (
-    <div className="home-cards">
+    <div data-testid="home-cards" className="home-cards">
       {cards.map((item) => (
         <MarketCard key={item.symbol} item={item} tickers={tickers} points={points[item.symbol]} favoriting={favoriting} />
       ))}
@@ -103,7 +105,7 @@ export function MarketsRow({
 /** As many placeholders as the final row will have, so nothing moves when the data arrives (critic M4). */
 export function MarketsSkeleton({ count = 4 }: { count?: number }) {
   return (
-    <div className="home-cards" aria-hidden="true">
+    <div data-testid="home-cards" className="home-cards" aria-hidden="true">
       {Array.from({ length: Math.min(4, count) }, (_, index) => index).map((index) => (
         <Skeleton key={index} width="100%" height={176} className="rounded-lg" />
       ))}
@@ -122,10 +124,10 @@ export function MarketsFailure({ retry }: { retry?: () => void }) {
 
 export function MoversRow({ movers }: { movers: Array<{ base: string; ticker: TickerRow }> }) {
   return (
-    <ul className="home-pills">
+    <ul data-testid="home-pills" className="home-pills">
       {movers.map(({ base, ticker }) => (
         <li key={base}>
-          <a className="home-pill" href={coinHref(base, 'simple')}>
+          <a data-testid="home-pill" className="home-pill" href={coinHref(base, 'simple')}>
             <span>{base}</span>
             <Pct value={fmtPct(ticker.changePct24h)} arrow />
           </a>
@@ -140,7 +142,7 @@ const PILL_WIDTHS = [135, 135, 135, 135, 135, 135];
 
 export function MoversSkeleton({ count = 6 }: { count?: number }) {
   return (
-    <div className="home-pills" aria-hidden="true">
+    <div data-testid="home-pills" className="home-pills" aria-hidden="true">
       {PILL_WIDTHS.slice(0, Math.min(6, count)).map((width, index) => (
         <Skeleton key={index} width={width} height={40} circle />
       ))}

@@ -27,7 +27,7 @@ export function MoneyFailure({ result, retry }: { result: Extract<ApiResult<unkn
   const { t } = mc.useCopy();
   if (!isStatementBusy(result)) return <PortalFailure result={result} retry={retry} />;
   return (
-    <div className="failure" role="status">
+    <div data-testid="failure" className="failure" role="status">
       <h3>{t('stmBusyTitle')}</h3>
       <p>{t('rStatementBusy')}</p>
       {retry && (

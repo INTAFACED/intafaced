@@ -42,6 +42,8 @@ function signed(scopes: string[]) {
 const VIEW = {
   tier: 'basic',
   assetId: 'USDT',
+  base: { perTx: '10', rolling24h: '15' },
+  override: null,
   perTx: '10',
   rolling24h: '15',
   used24h: '9',

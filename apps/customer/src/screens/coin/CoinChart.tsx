@@ -240,8 +240,8 @@ export function CoinChart({ candles, resetKey, tickSize, direction, timeZone, la
   }, [candles, tickSize, ready]);
 
   return (
-    <div className="coin-chart" role="img" aria-label={label}>
-      <div ref={host} className="coin-chart__host" />
+    <div data-testid="coin-chart" className="coin-chart" role="img" aria-label={label}>
+      <div ref={host} data-testid="coin-chart__host" className="coin-chart__host" />
     </div>
   );
 }

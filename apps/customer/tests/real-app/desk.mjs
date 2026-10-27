@@ -13,6 +13,17 @@ export async function signIn(page, who) {
   await expect(page).not.toHaveURL(/\/login/);
 }
 
+/**
+ * This browser has chosen Pro, as a person who switched once would have. The app opens in Simple for everyone (owner
+ * decision 2026-10-26); a step whose text is about what Pro shows says so with this. A choice the page saves later stays.
+ */
+export async function chosePro(page) {
+  await page.addInitScript((key) => {
+    const saved = JSON.parse(localStorage.getItem(key) ?? '{}');
+    if (!('layoutMode' in saved)) localStorage.setItem(key, JSON.stringify({ ...saved, layoutMode: 'pro' }));
+  }, 'intafaced.customer.view.v1');
+}
+
 /** A fresh TEST account, signed up in the browser (details, then the code the stack mails to its outbox file), with a
  * TEST password kept only in the run file (mode 600). */
 export async function signUp(page, prefix) {

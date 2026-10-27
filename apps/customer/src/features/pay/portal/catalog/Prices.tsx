@@ -238,6 +238,7 @@ function PriceForm({
   const error = (key: NonNullable<ReturnType<typeof priceProblem>>) => (shown && problem === key ? t(key) : undefined);
   return (
     <div
+      data-testid="form-stack"
       className="form-stack pp-form"
       role="group"
       aria-label={replacing ? t('replaceTitle', { price: priceWords(replacing) }) : t('addPrice')}
@@ -363,7 +364,7 @@ function AmountCheck({ portal, prices }: { portal: PortalApi; prices: readonly M
   }
 
   return (
-    <div className="form-stack pp-form" role="group" aria-label={t('checkTitle')}>
+    <div data-testid="form-stack" className="form-stack pp-form" role="group" aria-label={t('checkTitle')}>
       <h3>{t('checkTitle')}</h3>
       <p className="muted">{t('checkPurpose')}</p>
       {prices.length > 1 && (
@@ -460,7 +461,7 @@ function SaleCheck({ portal, productId, prices }: { portal: PortalApi; productId
       setAnswer(null);
     };
   return (
-    <div className="form-stack pp-form" role="group" aria-label={t('saleCheckTitle')}>
+    <div data-testid="form-stack" className="form-stack pp-form" role="group" aria-label={t('saleCheckTitle')}>
       <h3>{t('saleCheckTitle')}</h3>
       <p className="muted">{t('saleCheckPurpose')}</p>
       <SelectField

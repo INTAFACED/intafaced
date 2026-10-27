@@ -1,29 +1,29 @@
 .more-columns {
   display: grid;
   grid-template-columns: minmax(0, 1.7fr) minmax(280px, 1fr);
-  gap: 24px;
+  gap: var(--if-space-6);
   align-items: start;
 }
 .more-columns > div {
   min-width: 0;
   display: grid;
-  gap: 24px;
+  gap: var(--if-space-6);
 }
 .more-inline {
   display: flex;
   align-items: end;
-  gap: 12px;
+  gap: var(--if-space-3);
 }
 .more-inline .field {
   flex: 1;
 }
 .more-details {
-  margin: 0 0 24px;
+  margin: 0 0 var(--if-space-6);
 }
 .more-details > div {
   display: grid;
   grid-template-columns: 130px minmax(0, 1fr);
-  padding: 12px 0;
+  padding: var(--if-space-3) 0;
   border-bottom: 1px solid var(--color-divider);
 }
 .more-details dt {
@@ -36,7 +36,7 @@
 }
 .more-articles details {
   border-bottom: 1px solid var(--color-divider);
-  padding: 16px 0;
+  padding: var(--if-space-4) 0;
 }
 .more-articles summary {
   cursor: pointer;
@@ -50,8 +50,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-top: 16px;
+  gap: var(--if-space-3);
+  margin-top: var(--if-space-4);
   color: var(--color-muted);
 }
 .more-conversation {
@@ -59,11 +59,11 @@
   padding: 0;
 }
 .more-conversation li {
-  padding: 16px 0;
+  padding: var(--if-space-4) 0;
   border-bottom: 1px solid var(--color-divider);
 }
 .more-success {
-  color: var(--color-positive, var(--color-accent));
+  color: var(--color-positive, var(--if-accent-text));
 }
 .more-rooms {
   display: grid;
@@ -73,7 +73,7 @@
   border: 1px solid var(--color-divider);
 }
 .more-room-link {
-  padding: 24px;
+  padding: var(--if-space-6);
   background: var(--color-surface);
   color: var(--color-text);
   text-decoration: none;
@@ -84,8 +84,8 @@
 }
 .more-room-link strong {
   display: block;
-  font-size: 20px;
-  margin: 0 0 12px;
+  font-size: var(--if-text-lg);
+  margin: 0 0 var(--if-space-3);
 }
 .more-room-link p {
   color: var(--color-muted);
@@ -94,9 +94,9 @@
 }
 .more-toolbar {
   display: flex;
-  gap: 12px;
+  gap: var(--if-space-3);
   flex-wrap: wrap;
-  margin-bottom: 24px;
+  margin-bottom: var(--if-space-6);
 }
 .more-rooms.market-catalogue-list {
   grid-template-columns: minmax(0, 1fr);
@@ -107,10 +107,10 @@
 .market-catalogue-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 320px);
-  gap: 32px;
+  gap: var(--if-space-8);
   min-width: 0;
   min-height: 0;
-  padding: 24px 0;
+  padding: var(--if-space-6) 0;
   border-bottom: 1px solid var(--color-divider);
   background: transparent;
 }
@@ -124,23 +124,23 @@
 .market-catalogue-decision {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--if-space-4);
   min-width: 0;
 }
 .market-catalogue-main {
-  gap: 8px;
+  gap: var(--if-space-2);
 }
 .market-catalogue-row h3 {
   margin: 0;
-  font-size: 20px;
-  line-height: 28px;
+  font-size: var(--if-text-lg);
+  line-height: var(--if-leading-lg);
   font-weight: 600;
   overflow-wrap: anywhere;
 }
 .market-catalogue-row p,
 .market-catalogue-price,
 .market-catalogue-facts {
-  font-size: 14px;
+  font-size: var(--if-text-base);
   line-height: 22px;
 }
 .market-catalogue-row .market-catalogue-description {
@@ -149,13 +149,13 @@
 }
 .market-catalogue-facts {
   display: grid;
-  gap: 8px;
-  margin: 8px 0 0;
+  gap: var(--if-space-2);
+  margin: var(--if-space-2) 0 0;
 }
 .market-catalogue-facts > div {
   display: grid;
   grid-template-columns: 80px minmax(0, 1fr);
-  gap: 12px;
+  gap: var(--if-space-3);
 }
 .market-catalogue-facts dt {
   color: var(--color-muted);
@@ -171,11 +171,11 @@
 .market-catalogue-access {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--if-space-1);
   min-width: 0;
 }
 .market-catalogue-row .market-purchases-exact-price > strong {
-  font-size: 24px;
+  font-size: var(--if-text-xl);
   line-height: 32px;
   font-weight: 500;
   margin: 0;
@@ -193,7 +193,7 @@
 @media (max-width: 767px) {
   .market-catalogue-row {
     grid-template-columns: minmax(0, 1fr);
-    gap: 24px;
+    gap: var(--if-space-6);
   }
 }
 @media (max-width: 560px) {
@@ -201,8 +201,8 @@
     width: 100%;
   }
   .market-catalogue-row .market-purchases-exact-price > strong {
-    font-size: 20px;
-    line-height: 28px;
+    font-size: var(--if-text-lg);
+    line-height: var(--if-leading-lg);
   }
 }
 @media (max-width: 360px) {
@@ -219,7 +219,7 @@
 }
 .more-grid {
   display: grid;
-  gap: 24px;
+  gap: var(--if-space-6);
 }
 .more-code {
   width: 100%;
@@ -229,9 +229,9 @@
 .more-badge {
   display: inline-block;
   border: 1px solid var(--color-border);
-  padding: 4px 8px;
+  padding: var(--if-space-1) var(--if-space-2);
   color: var(--color-muted);
-  font-size: 12px;
+  font-size: var(--if-text-xs);
 }
 .more-receipt {
   overflow-wrap: anywhere;
@@ -244,16 +244,16 @@
 }
 .more-danger {
   border-top: 1px solid var(--color-border);
-  padding-top: 24px;
-  margin-top: 24px;
+  padding-top: var(--if-space-6);
+  margin-top: var(--if-space-6);
 }
 .more-feature select,
 .more-feature textarea {
   background: var(--color-surface);
   color: var(--color-text);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-8);
-  padding: 12px;
+  border-radius: var(--if-r-sm);
+  padding: var(--if-space-3);
   font: inherit;
   max-width: 100%;
 }
@@ -280,7 +280,7 @@
   }
   .more-details > div {
     grid-template-columns: 1fr;
-    gap: 6px;
+    gap: var(--if-space-1-5);
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -292,8 +292,8 @@
 .more-media-tracks {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 16px;
+  gap: var(--if-space-3);
+  margin-top: var(--if-space-4);
 }
 .more-media-tracks video {
   width: min(100%, 480px);
@@ -306,9 +306,9 @@
 }
 .more-paper-banner {
   display: grid;
-  gap: 4px;
-  margin-bottom: 16px;
-  padding: 12px 16px;
+  gap: var(--if-space-1);
+  margin-bottom: var(--if-space-4);
+  padding: var(--if-space-3) var(--if-space-4);
   border: 1px dashed var(--color-divider);
   background: var(--color-surface);
 }
@@ -322,7 +322,7 @@
 }
 .more-paper-label {
   justify-self: start;
-  padding: 0 6px;
+  padding: 0 var(--if-space-1-5);
   border: 1px solid currentColor;
   font-size: 0.75rem;
   text-transform: uppercase;

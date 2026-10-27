@@ -166,7 +166,7 @@ test(`${J} #3 with custody connected, reads the address: no address until a netw
 
   const issued = page.getByTestId('deposit-address');
   await expect(issued).toContainText(`Send only ${ASSET} on ${NETWORK} to this address.`);
-  const address = (await issued.locator('strong.numeric').innerText()).trim();
+  const address = (await issued.locator('strong[data-testid="numeric"]').innerText()).trim();
   expect(address.length).toBeGreaterThan(8);
   await expect(issued.getByRole('button', { name: /copy/i })).toBeVisible();
   await expect(issued.getByTestId('pay-qr').getByRole('img')).toBeVisible();
@@ -183,7 +183,7 @@ test(`${J} #3 with custody connected, reads the address: no address until a netw
   await page.getByRole('combobox', { name: 'Network', exact: true }).selectOption({ label: NETWORK });
   await page.getByRole('checkbox', { name: `I will send only ${ASSET} on ${NETWORK}.` }).check();
   await page.getByRole('button', { name: 'Show my deposit address' }).click();
-  await expect(page.getByTestId('deposit-address').locator('strong.numeric')).toHaveText(address);
+  await expect(page.getByTestId('deposit-address').locator('strong[data-testid="numeric"]')).toHaveText(address);
 });
 
 test(`${J} #5 sends TEST 100 ${ASSET} on the TEST chain: detected, then confirming with a count, then credited; below the minimum nothing posts`, async ({
@@ -249,7 +249,7 @@ test(`${J} #7 the credit lands in the inbox once, however often the chain delive
   const { account: who, credited, credits } = state();
   if (!credited || !credits) throw new Error(`${J} #5 credited nothing, so there is no notice to read`);
   await signIn(page, who);
-  const notice = page.locator('.nf-row', { hasText: 'Deposit credited' });
+  const notice = page.getByTestId('nf-row').filter({ hasText: 'Deposit credited' });
   // The notice is filed from the bus after the credit; read the inbox again until it is there. A credit whose
   // announcement missed the first pass goes out on svc-pay's next one (every 60 s), so wait longer than that.
   await expect(async () => {
@@ -300,9 +300,9 @@ test(`${J} #4 creates another address and labels it: a list with labels and expi
   await expect(list).toContainText('Address 2 is ready.');
   await expect(row(list, 2)).toContainText('Address 2');
   await expect(list.getByTestId('deposit-addresses-cap')).toContainText('Open addresses here: 3 of 3');
-  const extra = (await row(list, 1).locator('.numeric').innerText()).trim();
+  const extra = (await row(list, 1).getByTestId('numeric').innerText()).trim();
   expect(extra).not.toBe(state().address);
-  expect((await row(list, 2).locator('.numeric').innerText()).trim()).not.toBe(extra);
+  expect((await row(list, 2).getByTestId('numeric').innerText()).trim()).not.toBe(extra);
 
   // A fourth open address is past the TEST cap of 3: refused, with the cap named, and nothing is made.
   await list.getByRole('button', { name: 'Add another address' }).click();

@@ -31,19 +31,59 @@
  *   · A known advisory that has DISAPPEARED also fails, and that is deliberate.
  *     A stale entry is a fix somebody already made and nobody recorded, and a
  *     baseline that only ever grows stops describing anything. Removing the
- *     line is part of the fix.
+ *     line is part of the fix, and needs no one's go-ahead: a deletion only
+ *     makes the list stricter (owner decision 2026-10-25).
+ *
+ * WHO THE RATCHET HOLDS (owner decision 2026-10-25)
+ *
+ * The advisory database moves on its own. On 2026-10-23 one new zod advisory
+ * turned this required check red on every open PR for over seven hours, and 22
+ * of the 24 PRs it held changed no dependency at all. CI installs with
+ * `--frozen-lockfile`, so a PR that leaves the files in DEPENDENCY_FILES alone
+ * cannot change the tree, and cannot bring an advisory in. So:
+ *
+ *   · `--base <ref>` (pull requests into main): when the diff from <ref> touches
+ *     none of DEPENDENCY_FILES (which include this file, so an edit to KNOWN is
+ *     always judged), a new or stale entry is a WARNING and the run passes.
+ *     An unreachable registry warns and passes too: nothing this PR did needed
+ *     checking. A PR that touches them is held to the full ratchet above.
+ *   · No `--base` (pushes to main, `workflow_dispatch`, `pnpm scan:deps`): the
+ *     full ratchet. On main a red goes to Main trust, which re-runs it once and
+ *     then opens one "Broken on main" issue, so the advisory gets an owner
+ *     without holding every journey PR hostage.
+ *
+ * Comparing advisory ids between base and head was rejected: `pnpm audit
+ * --json` lists one path per finding, so a PR adding a new importer on an
+ * already-vulnerable version would read as "nothing introduced".
  *
  * The list is meant to shrink to zero. When it does, flip this to a plain
  * `--audit-level=high` and delete the baseline.
  *
  * Usage:  pnpm scan:deps          (needs network — the advisory DB is remote)
- * Exit 0 = no new advisories and no stale baseline entries.
+ *         node tooling/ci/dependency-audit.mjs --base HEAD^1   (CI, pull requests)
+ *         node tooling/ci/dependency-audit.mjs --self-test
+ * Exit 0 = no new advisories and no stale baseline entries, or a PR that
+ * changes no dependency.
  */
 import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+/**
+ * The files that decide the installed tree (and what `pnpm audit` reads), at the repo root, plus this file, because
+ * it holds KNOWN: a PR that edits the frozen list is held to it. A workspace package.json is not here: a dependency
+ * change there without a lockfile change fails `--frozen-lockfile` before anything runs.
+ */
+export const DEPENDENCY_FILES = [
+  'pnpm-lock.yaml',
+  'package.json',
+  'pnpm-workspace.yaml',
+  '.npmrc',
+  '.pnpmfile.cjs',
+  'tooling/ci/dependency-audit.mjs',
+];
 
 /**
  * Advisories present when this gate was installed (2026-08-06, tip 7207d6ec).
@@ -123,6 +163,25 @@ const KNOWN = {
   },
 };
 
+/** The changed files that decide the tree or the frozen list; any of them holds the PR to the full ratchet. */
+export function dependencyChanges(changedFiles) {
+  return changedFiles.filter((f) => DEPENDENCY_FILES.includes(f));
+}
+
+/** New and stale ids against the frozen list, and whether they fail this run. */
+export function judge(seenIds, known, strict) {
+  const added = seenIds.filter((id) => !(id in known));
+  const stale = Object.keys(known).filter((id) => !seenIds.includes(id));
+  return { added, stale, fail: strict && (added.length > 0 || stale.length > 0) };
+}
+
+/** The files a PR changes against `base` (a rename lists both paths), or null when git cannot say (then the run stays strict). */
+function changedSince(base) {
+  const diff = spawnSync('git', ['diff', '--name-only', '--no-renames', base, 'HEAD'], { cwd: ROOT, encoding: 'utf8' });
+  if (diff.status !== 0) return null;
+  return diff.stdout.split('\n').filter(Boolean);
+}
+
 // `pnpm audit` exits non-zero whenever it finds anything, so the exit code says
 // nothing useful here. An unreadable body is the real failure — it means the
 // registry was unreachable and this run proved nothing either way. A registry
@@ -142,61 +201,117 @@ function readAudit() {
   }
 }
 
-let report;
-let problem = '';
-for (let attempt = 1; attempt <= 3 && !report; attempt++) {
-  ({ report, problem } = readAudit());
-  if (!report) console.error(`dependency-audit: attempt ${attempt} could not read \`pnpm audit --json\`: ${problem}`);
+/** A GitHub annotation on the run, so a passing PR still shows what main has to fix. */
+function warn(message) {
+  console.log(process.env.GITHUB_ACTIONS ? `::warning title=Dependency audit::${message}` : `! ${message}`);
 }
-if (!report) {
-  console.error('\n✖ dependency-audit could not read `pnpm audit --json`.');
-  console.error('  This needs network: the advisory database is remote. A run that cannot');
-  console.error('  reach it has not cleared anything and must not be reported as clean.\n');
-  console.error(problem);
+
+function main() {
+  const at = process.argv.indexOf('--base');
+  const base = at > 0 ? process.argv[at + 1] : null;
+  const changed = base ? changedSince(base) : null;
+  const touched = changed ? dependencyChanges(changed) : [];
+  const strict = !changed || touched.length > 0;
+  if (base) {
+    console.log(
+      !changed
+        ? `dependency-audit: could not diff against ${base}; holding this run to the full ratchet.`
+        : strict
+          ? `dependency-audit: this PR changes ${touched.join(', ')}; full ratchet.`
+          : 'dependency-audit: this PR changes no dependency file, so advisories from outside it warn and pass.',
+    );
+  }
+
+  let report;
+  let problem = '';
+  for (let attempt = 1; attempt <= 3 && !report; attempt++) {
+    ({ report, problem } = readAudit());
+    if (!report) console.error(`dependency-audit: attempt ${attempt} could not read \`pnpm audit --json\`: ${problem}`);
+  }
+  if (!report && !strict) {
+    warn('could not read `pnpm audit --json` (the advisory database is remote). This PR changes no dependency, so it passes.');
+    process.exit(0);
+  }
+  if (!report) {
+    console.error('\n✖ dependency-audit could not read `pnpm audit --json`.');
+    console.error('  This needs network: the advisory database is remote. A run that cannot');
+    console.error('  reach it has not cleared anything and must not be reported as clean.\n');
+    console.error(problem);
+    process.exit(1);
+  }
+
+  const advisories = Object.values(report.advisories ?? {});
+  const seen = new Map();
+  for (const a of advisories) {
+    const id =
+      a.github_advisory_id ??
+      String(a.url ?? '')
+        .split('/')
+        .pop();
+    if (id) seen.set(id, { severity: a.severity, module: a.module_name });
+  }
+
+  const { added, stale, fail } = judge([...seen.keys()], KNOWN, strict);
+  const seenById = Object.fromEntries(seen);
+
+  const bySeverity = (id, from) => `${(from[id]?.severity ?? '?').padEnd(8)} ${from[id]?.module ?? '?'}`;
+
+  console.log(`\ndependency-audit — ${seen.size} advisory(ies) in the tree, ${Object.keys(KNOWN).length} on the frozen list\n`);
+
+  for (const [id, meta] of Object.entries(KNOWN)) {
+    const mark = stale.includes(id) ? '·' : '✓';
+    console.log(`  ${mark} ${meta.severity.padEnd(8)} ${meta.module.padEnd(16)} ${id}`);
+    console.log(`      ${meta.note}`);
+  }
+
+  if (added.length === 0 && stale.length === 0) {
+    console.log('\n✓ no new advisories, and every frozen entry is still real.\n');
+    process.exit(0);
+  }
+
+  if (!fail) {
+    for (const id of added) warn(`new advisory ${id} (${bySeverity(id, seenById).replace(/\s+/g, ' ')}) is on main, not from this PR.`);
+    for (const id of stale) warn(`frozen entry ${id} (${KNOWN[id].module}) is no longer in the tree; a fix PR deletes its line.`);
+    console.log('\n✓ this PR changes no dependency file; the warnings above belong to main (see "Broken on main: PR checks").\n');
+    process.exit(0);
+  }
+
+  if (added.length > 0) {
+    console.error(`\n✖ ${added.length} NEW advisory(ies) — the list cannot grow:\n`);
+    for (const id of added) console.error(`    ${bySeverity(id, seenById)}  ${id}  https://github.com/advisories/${id}`);
+    console.error('\n  Update the dependency, or add it to KNOWN with the reason it cannot');
+    console.error('  be updated yet. Adding it without a reason is how this list stops meaning anything.\n');
+  }
+
+  if (stale.length > 0) {
+    console.error(`\n✖ ${stale.length} frozen entry(ies) no longer present — remove them:\n`);
+    for (const id of stale) console.error(`    ${bySeverity(id, KNOWN)}  ${id}`);
+    console.error('\n  Somebody fixed these and did not record it. Delete the lines: a baseline');
+    console.error('  that only grows stops describing the tree it claims to describe.\n');
+  }
+
   process.exit(1);
 }
 
-const advisories = Object.values(report.advisories ?? {});
-const seen = new Map();
-for (const a of advisories) {
-  const id =
-    a.github_advisory_id ??
-    String(a.url ?? '')
-      .split('/')
-      .pop();
-  if (id) seen.set(id, { severity: a.severity, module: a.module_name });
+function selfTest() {
+  const eq = (got, want, m) => {
+    if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(`${m}: got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
+  };
+  const known = { 'GHSA-a': {}, 'GHSA-b': {} };
+  eq(dependencyChanges(['services/svc-bank/src/router.ts', 'apps/customer/package.json']), [], 'code and a workspace manifest');
+  eq(dependencyChanges(['docs/x.md', 'pnpm-lock.yaml']), ['pnpm-lock.yaml'], 'the lockfile');
+  eq(dependencyChanges(['package.json']), ['package.json'], 'the root manifest');
+  eq(dependencyChanges(['pnpm-workspace.yaml']), ['pnpm-workspace.yaml'], 'workspace overrides');
+  eq(dependencyChanges(['.npmrc']), ['.npmrc'], 'registry settings');
+  eq(dependencyChanges(['tooling/ci/dependency-audit.mjs']), ['tooling/ci/dependency-audit.mjs'], 'an edit to KNOWN');
+  eq(dependencyChanges([]), [], 'an empty diff');
+  eq(judge(['GHSA-a', 'GHSA-b'], known, true), { added: [], stale: [], fail: false }, 'clean');
+  eq(judge(['GHSA-a', 'GHSA-b', 'GHSA-new'], known, true), { added: ['GHSA-new'], stale: [], fail: true }, 'new fails a strict run');
+  eq(judge(['GHSA-a'], known, true), { added: [], stale: ['GHSA-b'], fail: true }, 'stale fails a strict run');
+  eq(judge(['GHSA-a', 'GHSA-new'], known, false), { added: ['GHSA-new'], stale: ['GHSA-b'], fail: false }, 'both only warn a PR');
+  console.log('✓ dependency-audit --self-test OK (11 fixtures)');
 }
 
-const added = [...seen.keys()].filter((id) => !(id in KNOWN));
-const stale = Object.keys(KNOWN).filter((id) => !seen.has(id));
-
-const bySeverity = (id, from) => `${(from[id]?.severity ?? '?').padEnd(8)} ${from[id]?.module ?? '?'}`;
-
-console.log(`\ndependency-audit — ${seen.size} advisory(ies) in the tree, ${Object.keys(KNOWN).length} on the frozen list\n`);
-
-for (const [id, meta] of Object.entries(KNOWN)) {
-  const mark = stale.includes(id) ? '·' : '✓';
-  console.log(`  ${mark} ${meta.severity.padEnd(8)} ${meta.module.padEnd(16)} ${id}`);
-  console.log(`      ${meta.note}`);
-}
-
-if (added.length === 0 && stale.length === 0) {
-  console.log('\n✓ no new advisories, and every frozen entry is still real.\n');
-  process.exit(0);
-}
-
-if (added.length > 0) {
-  console.error(`\n✖ ${added.length} NEW advisory(ies) — the list cannot grow:\n`);
-  for (const id of added) console.error(`    ${bySeverity(id, Object.fromEntries(seen))}  ${id}  https://github.com/advisories/${id}`);
-  console.error('\n  Update the dependency, or add it to KNOWN with the reason it cannot');
-  console.error('  be updated yet. Adding it without a reason is how this list stops meaning anything.\n');
-}
-
-if (stale.length > 0) {
-  console.error(`\n✖ ${stale.length} frozen entry(ies) no longer present — remove them:\n`);
-  for (const id of stale) console.error(`    ${bySeverity(id, KNOWN)}  ${id}`);
-  console.error('\n  Somebody fixed these and did not record it. Delete the lines: a baseline');
-  console.error('  that only grows stops describing the tree it claims to describe.\n');
-}
-
-process.exit(1);
+// Nothing imports this file, so there is no main-module guard to fail open on an odd checkout path.
+if (process.argv.includes('--self-test')) selfTest();
+else main();

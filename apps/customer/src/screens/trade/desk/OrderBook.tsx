@@ -62,6 +62,7 @@ const Row = memo(function Row({
 }) {
   return (
     <div
+      data-testid="dk-bk-row"
       className="dk-bk-row"
       data-side={side}
       role="row"
@@ -75,8 +76,8 @@ const Row = memo(function Row({
         }
       }}
     >
-      <span className="dk-bk-bar" aria-hidden="true" />
-      <span className="dk-bk-price" role="gridcell">
+      <span data-testid="dk-bk-bar" className="dk-bk-bar" aria-hidden="true" />
+      <span data-testid="dk-bk-price" className="dk-bk-price" role="gridcell">
         {fmtPrice(row.price, priceDecimals)}
       </span>
       <span
@@ -165,7 +166,7 @@ function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'on
   let content: React.ReactNode;
   if (book.status === 'loading') {
     content = (
-      <div className="dk-bk-skeleton" role="status" aria-busy="true" aria-label={t('Order book')}>
+      <div data-testid="dk-bk-skeleton" className="dk-bk-skeleton" role="status" aria-busy="true" aria-label={t('Order book')}>
         {Array.from({ length: 16 }, (_, i) => (
           <Skeleton key={i} height={ROW_H - 4} className="bg-field" />
         ))}
@@ -200,7 +201,7 @@ function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'on
               ))}
             </div>
           ) : null}
-          <div className="dk-bk-mid" data-direction={direction ?? undefined} data-flash={flash ?? undefined}>
+          <div data-testid="dk-bk-mid" className="dk-bk-mid" data-direction={direction ?? undefined} data-flash={flash ?? undefined}>
             <span className="dk-bk-last if-num">
               {last === null || empty ? '—' : dollarPrice(last, market)}
               {direction && !empty ? (
@@ -226,10 +227,19 @@ function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'on
             </div>
           ) : null}
         </div>
-        {empty ? <p className="dk-bk-note">{t('No orders')}</p> : null}
-        {old && !empty ? <p className="dk-bk-note">{t('Book may be old')}</p> : null}
+        {empty ? (
+          <p data-testid="dk-bk-note" className="dk-bk-note">
+            {t('No orders')}
+          </p>
+        ) : null}
+        {old && !empty ? (
+          <p data-testid="dk-bk-note" className="dk-bk-note">
+            {t('Book may be old')}
+          </p>
+        ) : null}
         {share ? (
           <div
+            data-testid="dk-bk-ratio"
             className="dk-bk-ratio"
             role="img"
             aria-label={t('Buy and sell share', { buy: share.buy, sell: share.sell })}
@@ -244,7 +254,7 @@ function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'on
   }
 
   return (
-    <div className="dk-bk" ref={body}>
+    <div data-testid="dk-bk" className="dk-bk" ref={body}>
       <div className="dk-bk-tools">
         <div className="dk-bk-views" role="group" aria-label={t('Order book')}>
           <button type="button" aria-pressed={view === 'both'} aria-label={t('Book view both')} onClick={() => setView('both')}>
@@ -293,7 +303,7 @@ function Tape({
   const amountDecimals = placesOf(market.lotSize);
   if (tape.status === 'loading' || tape.status === 'empty')
     return (
-      <div className="dk-bk-skeleton" role="status" aria-busy="true" aria-label={t('Last trades')}>
+      <div data-testid="dk-bk-skeleton" className="dk-bk-skeleton" role="status" aria-busy="true" aria-label={t('Last trades')}>
         {Array.from({ length: 16 }, (_, i) => (
           <Skeleton key={i} height={ROW_H - 4} className="bg-field" />
         ))}
@@ -318,6 +328,7 @@ function Tape({
         {rows.map((trade) => (
           <div
             key={trade.id}
+            data-testid="dk-bk-row--tape"
             className="dk-bk-row dk-bk-row--tape"
             role="row"
             tabIndex={0}
@@ -332,7 +343,7 @@ function Tape({
             <span className="dk-bk-time" role="gridcell">
               {clockSeconds(trade.timestamp, zone)}
             </span>
-            <span className="dk-bk-price" data-side={trade.side === 'buy' ? 'bid' : 'ask'} role="gridcell">
+            <span data-testid="dk-bk-price" className="dk-bk-price" data-side={trade.side === 'buy' ? 'bid' : 'ask'} role="gridcell">
               {fmtPrice(trade.price, market.tickSize)}
             </span>
             <span className="dk-bk-num" role="gridcell">
@@ -350,7 +361,7 @@ export const BookPanel = memo(function BookPanel({ market, book, ticker, zone, o
   const { t } = deskCopy.useCopy();
   const [tab, setTab] = useState<'book' | 'trades'>('book');
   return (
-    <div className="dk-panel dk-book">
+    <div data-testid="dk-book" className="dk-panel dk-book">
       <Tabs value={tab} onValueChange={(value) => setTab(value as 'book' | 'trades')} className="dk-fill">
         <TabsList divider className="dk-tabs">
           <TabsTab value="book">{t('Order book')}</TabsTab>

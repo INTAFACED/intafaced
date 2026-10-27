@@ -1,4 +1,5 @@
 import type { AccountLimitOverride, AccountLimitPolicy, AccountLimitResult } from '@intafaced/contracts/account-controls';
+import type { WithdrawalAllowance } from '@intafaced/contracts';
 import { compareDecimal } from '@/lib/merchants/money';
 
 /**
@@ -68,4 +69,41 @@ export function limitsReply(result: AccountLimitResult): { readonly ok: boolean;
     case 'refused':
       return { ok: false, text: REFUSAL_WORDS[result.code] };
   }
+}
+
+/** Why svc-pay could not give a customer's withdrawal allowance, in words, by its own code. Unknown codes are named as they are. */
+const ALLOWANCE_REFUSALS: Readonly<Record<string, string>> = {
+  'pay.guard_withdrawal_limit_unset':
+    'The owner has not set a withdrawal limit for this customer’s verification level and asset, so svc-pay refuses every withdrawal of it (pay.guard_withdrawal_limit_unset).',
+  'pay.guard_withdrawal_limits_off':
+    'svc-pay does not enforce withdrawal limits in this deployment (PAY_WITHDRAWAL_LIMITS is off), so there is no allowance to show (pay.guard_withdrawal_limits_off).',
+  'pay.guard_withdrawal_tier_unwired':
+    'svc-pay has no identity connection for the verification level, so it refuses every withdrawal (pay.guard_withdrawal_tier_unwired).',
+  'pay.guard_withdrawal_override_unwired':
+    'svc-pay has no identity connection for limit overrides, so it refuses every withdrawal (pay.guard_withdrawal_override_unwired).',
+  'pay.guard_withdrawal_limits_unwired': 'svc-pay has no withdrawal limit read wired (pay.guard_withdrawal_limits_unwired).',
+  'pay.guard_unavailable':
+    'svc-pay could not read identity for this customer, so it refuses withdrawals until it can (pay.guard_unavailable).',
+};
+
+export function allowanceRefusal(code: string | null): string {
+  if (code && ALLOWANCE_REFUSALS[code]) return ALLOWANCE_REFUSALS[code];
+  return `svc-pay did not answer with this customer’s withdrawal allowance${code ? ` (${code})` : ''}.`;
+}
+
+/** One asset's row on the console: what svc-pay applies, or svc-pay's code for why it could not say. */
+export type AllowanceRow =
+  { readonly assetId: string; readonly allowance: WithdrawalAllowance } | { readonly assetId: string; readonly refused: string };
+
+/** The assets svc-pay has a base withdrawal limit set for, from `founderAdmin.limits.list`, or null for an answer off that shape. */
+export function allowanceAssets(listed: unknown): string[] | null {
+  if (!Array.isArray(listed)) return null;
+  const assets = new Set<string>();
+  for (const row of listed) {
+    if (!row || typeof row !== 'object') return null;
+    const { assetId, limit } = row as { assetId?: unknown; limit?: unknown };
+    if (typeof assetId !== 'string' || assetId === '' || assetId.length > 16) return null;
+    if (limit !== null) assets.add(assetId);
+  }
+  return [...assets].sort();
 }

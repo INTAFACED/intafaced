@@ -51,7 +51,7 @@ function ReadResult<T>({ resource, retry, children }: { resource: Resource<T>; r
   const result = resource.failure;
   if (result.status === 404 && result.code === 'pay.withdrawal_not_found')
     return (
-      <div className="failure" role="status">
+      <div data-testid="failure" className="failure" role="status">
         <h3>{t('notFound')}</h3>
         <p>{t('notFoundNote')}</p>
         <Button variant="secondary" onClick={retry}>
@@ -226,7 +226,7 @@ function List({ current }: { current: () => boolean }) {
                   </div>
                   <ul className="withdrawal-list" data-testid="withdrawal-history">
                     {items.map((item) => (
-                      <li className="withdrawal-row" key={item.id} data-withdrawal-id={item.id}>
+                      <li data-testid="withdrawal-row" className="withdrawal-row" key={item.id} data-withdrawal-id={item.id}>
                         <div className="withdrawal-row-main">
                           <strong className="numeric" lang="und" data-withdrawal-amount>
                             {hideBalances ? `•••• ${item.assetId}` : amount(item.amount, item.assetId)}
@@ -440,7 +440,7 @@ function Detail({ id, current }: { id: string; current: () => boolean }) {
             )}
             {cancelPart(record)}
             {inMotion(record) && <p className="muted">{t('irreversible')}</p>}
-            <dl className="withdrawal-facts">
+            <dl data-testid="withdrawal-facts" className="withdrawal-facts">
               {facts(record).map(([label, value]) => (
                 <div key={label}>
                   <dt>{label}</dt>

@@ -9,5 +9,13 @@
     "moduleResolution": "Bundler"
   },
   "include": ["src/**/*"],
-  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "dist", "node_modules"]
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/lit/generate.ts",
+    "src/lit/format.ts",
+    "src/**/__gallery__/**",
+    "dist",
+    "node_modules"
+  ]
 }

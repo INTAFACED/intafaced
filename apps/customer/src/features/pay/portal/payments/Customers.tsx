@@ -165,7 +165,7 @@ export function CustomersView({
                 {rows.map((c) => (
                   <tr key={c.customerRef}>
                     <th scope="row">
-                      <a className="text-link pp-mono" href={customerHref(c.customerRef)}>
+                      <a data-testid="pp-mono" className="text-link pp-mono" href={customerHref(c.customerRef)}>
                         {c.customerRef}
                       </a>
                       {(c.subscriptionCount > 0 || c.mandateCount > 0) && (
@@ -273,7 +273,16 @@ export function CustomerDetailView({
                 <Kpi label={t('colFirstSeen')} value={<DateTime value={c.firstSeenAt} />} />
                 <Kpi label={t('colLastSeen')} value={<DateTime value={c.lastSeenAt} />} />
               </KpiGrid>
-              <Facts items={[[t('colReference'), <span className="pp-mono pp-copy">{c.customerRef}</span>]]} />
+              <Facts
+                items={[
+                  [
+                    t('colReference'),
+                    <span data-testid="pp-mono" className="pp-mono pp-copy">
+                      {c.customerRef}
+                    </span>,
+                  ],
+                ]}
+              />
               {series && today && <DailySeries series={series} today={today} retry={reload} />}
               <a className="text-link" href={`/pay/payments?q=${encodeURIComponent(c.customerRef)}`}>
                 {t('customerAllPayments')}

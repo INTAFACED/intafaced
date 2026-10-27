@@ -52,6 +52,7 @@ export * from './action-approval-client.js';
 export * from './customer-step-up.js';
 export * from './outreach-crm.js';
 export * from './account-controls.js';
+export * from './withdrawal-allowance.js';
 export * from './operation-identity-decisions.js';
 export * from './operation-identity-client.js';
 export * from './crm-workflows.js';

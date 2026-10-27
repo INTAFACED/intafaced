@@ -85,6 +85,8 @@ import { registerQuantLiveDeployRest } from './quant/live-deploy-rest.js';
 import { registerPromoRest } from './spot/promo-rest.js';
 import { registerSpotOrderPreviewRest } from './spot/order-preview-rest.js';
 import { registerFeeTierRest } from './spot/fee-tier-rest.js';
+import { registerVipRest } from './spot/vip-rest.js';
+import { VipApplicationStore, parseVipProofKey } from './spot/vip-applications.js';
 import { assertMakerRebatesPayable, parseFeeScheduleJson } from './spot/fee-schedule.js';
 import { feeScheduleAt } from './spot/fee-schedule-store.js';
 import { feeTierAt } from './spot/fee-tier-store.js';
@@ -498,6 +500,8 @@ export const appRouter = createTradeRouter(
     trade,
     ledger,
     approvals: tradeOpsApprovals,
+    feeSchedule,
+    vipProofKey: parseVipProofKey(env.TRADE_VIP_PROOF_KEY),
   }),
   new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),
   new SupportTradeSummaryReader({ sql }),
@@ -1144,6 +1148,13 @@ registerFeeTierRest(app, {
   scheduleAt: (at) => feeScheduleAt(sql, feeSchedule, at),
   bootSchedule: feeSchedule,
   snapshotsRunning: env.TRADE_FEE_TIER_JOBS_INTERVAL_MS !== null && env.TRADE_FEE_TIER_JOBS_INTERVAL_MS > 0,
+});
+registerVipRest(app, {
+  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  edgeTrust: edgeTrustFromEnv(env),
+  serviceName: env.SERVICE_NAME,
+  store: new VipApplicationStore(sql, parseVipProofKey(env.TRADE_VIP_PROOF_KEY)),
+  scheduleAt: (at) => feeScheduleAt(sql, feeSchedule, at),
 });
 const fundingHistory = memoryFundingHistory();
 registerInternalFundingRate(app, {
