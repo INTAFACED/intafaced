@@ -11,7 +11,8 @@ import { signIn, signUp, verify } from './desk.mjs';
 //   (AG-order-01, AG-catalogue-01).
 // - #3: tools list no inputs, outputs or refusal reasons and the page has no acts-as-you statement (AG-tools-01, AG-guardrails-01).
 // - #4: no rate card or estimate (AG-usage-02).
-// - #5: the reply does not state its exact cost on its own line (AG-sessions-01); #6 and #7 run on #5's session.
+// - #5: on the local stack the session does not open (the workspace shows no task request after "Open agent session"),
+//   and the reply does not state its exact cost on its own line (AG-sessions-01); #6 and #7 run on #5's session.
 // - #7: the selected session is not kept in the address, so a reload or another device loses it.
 const J = 'J-agents-01';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -118,7 +119,7 @@ test(`${J} #5 presses Run and confirms the spend ceiling: a run row before the e
   await page.getByRole('button', { name: 'Review session' }).click();
   await sheet(page).getByRole('button', { name: 'Open agent session' }).click();
   await expect(workspace(page)).toBeVisible();
-  await workspace(page).getByLabel('Task request').fill('Where do I change my password?');
+  await workspace(page).getByLabel('Task request').fill('Where do I change my password?', UNBUILT);
   await workspace(page).getByRole('button', { name: 'Review engine request' }).click();
   await expect(sheet(page)).toContainText('Spend ceiling');
   await sheet(page).getByRole('button', { name: 'Run engine request' }).click();
