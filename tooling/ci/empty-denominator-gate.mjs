@@ -236,8 +236,8 @@ export const ENFORCED = {
     kind: 'guard',
     must: /MONEY SKIP HONESTY FAILED/,
     note:
-      'D26-P2-13 seal: with money roots absent it refuses "no money-path roots"; with roots empty of the inventoried ' +
-      'files it refuses via the stale-row ratchet. Either way it cannot print clean over nothing.',
+      'D26-P2-13 seal: with money roots absent it refuses "no money-path roots"; with roots that hold no test file it ' +
+      'refuses on its own branch (paid rows only warn since 2026-10-27). Either way it cannot print clean over nothing.',
   },
   'compose-secret-parity': {
     kind: 'uncaught',
