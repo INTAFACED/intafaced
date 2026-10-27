@@ -44,11 +44,11 @@ The full slice specs (behaviour, tests, failure cases, references) live in the p
 
 ## Generated: what is left, by module, lane and journey
 
-1494 slices left in 21 modules. 282 need no other slice. 47 sit in a dependency loop that the lane untangles first. 357 end in a refusal that names an outside service (built, switched on later). Size: 703 L, 685 M, 106 S.
+1502 slices left in 21 modules. 284 need no other slice. 47 sit in a dependency loop that the lane untangles first. 358 end in a refusal that names an outside service (built, switched on later). Size: 707 L, 689 M, 106 S.
 
 ### Journey map
 
-Done is defined by 455 journeys (3009 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 33 steps still need a capability no slice covers yet.
+Done is defined by 459 journeys (3029 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 33 steps still need a capability no slice covers yet.
 
 | Module         | Journeys | Order 1 | Order 2 | Order 3 | Steps | Steps with no slice |
 | -------------- | -------- | ------- | ------- | ------- | ----- | ------------------- |
@@ -56,6 +56,7 @@ Done is defined by 455 journeys (3009 steps) in `modules/<module>/acceptance/jou
 | dex-protocol   | 32       | 5       | 16      | 11      | 277   | 0                   |
 | copy-bots-otc  | 30       | 5       | 13      | 12      | 206   | 1                   |
 | bank           | 28       | 4       | 15      | 9       | 164   | 7                   |
+| derivatives    | 24       | 1       | 13      | 10      | 165   | 0                   |
 | identity       | 21       | 4       | 11      | 6       | 133   | 1                   |
 | p2p            | 21       | 2       | 12      | 7       | 117   | 0                   |
 | pay            | 21       | 2       | 11      | 8       | 121   | 1                   |
@@ -64,7 +65,6 @@ Done is defined by 455 journeys (3009 steps) in `modules/<module>/acceptance/jou
 | agents         | 20       | 2       | 11      | 7       | 120   | 3                   |
 | campaigns      | 20       | 4       | 9       | 7       | 123   | 0                   |
 | cex-spot       | 20       | 2       | 13      | 5       | 169   | 0                   |
-| derivatives    | 20       | 1       | 13      | 6       | 145   | 0                   |
 | more-catalogue | 20       | 5       | 10      | 5       | 127   | 1                   |
 | support-public | 20       | 4       | 11      | 5       | 161   | 4                   |
 | charts-desk    | 19       | 1       | 10      | 8       | 120   | 0                   |
@@ -86,8 +86,8 @@ Done is defined by 455 journeys (3009 steps) in `modules/<module>/acceptance/jou
 | identity       | 90     | 17           | 30                            | 27    |
 | wallet         | 77     | 25           | 27                            | 26    |
 | p2p            | 70     | 12           | 2                             | 40    |
+| derivatives    | 67     | 12           | 20                            | 32    |
 | academy        | 60     | 3            | 14                            | 34    |
-| derivatives    | 59     | 10           | 19                            | 28    |
 | cex-spot       | 53     | 5            | 13                            | 33    |
 | support-public | 52     | 10           | 15                            | 21    |
 | more-catalogue | 51     | 3            | 22                            | 19    |
@@ -113,8 +113,8 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | svc-protocol                  | 75     | 4            | 1                     | 19                    | 4             |
 | svc-p2p                       | 62     | 10           | 0                     | 19                    | 1             |
 | svc-academy                   | 60     | 3            | 0                     | 19                    | 3             |
+| svc-trade futures             | 56     | 10           | 0                     | 9                     | 0             |
 | svc-agents                    | 49     | 2            | 0                     | 8                     | 3             |
-| svc-trade futures             | 48     | 8            | 0                     | 9                     | 0             |
 | svc-ops                       | 42     | 11           | 4                     | 0                     | 12            |
 | svc-notify                    | 39     | 15           | 3                     | 11                    | 1             |
 | svc-support                   | 36     | 7            | 2                     | 10                    | 3             |
