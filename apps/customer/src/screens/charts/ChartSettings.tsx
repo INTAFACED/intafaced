@@ -90,7 +90,7 @@ export function ChartSettingsDialog({
           {section === 'trading' && (
             <>
               <p>{t('Settings trading text')}</p>
-              <a className="cw-link" href={`/trade/spot/${pair}`}>
+              <a data-testid="cw-link" className="cw-link" href={`/trade/spot/${pair}`}>
                 {t('Settings trading link', { symbol })}
               </a>
             </>
@@ -98,7 +98,7 @@ export function ChartSettingsDialog({
           {section === 'alerts' && (
             <>
               <p>{t('Settings alerts text')}</p>
-              <a className="cw-link" href="/notifications?view=alerts">
+              <a data-testid="cw-link" className="cw-link" href="/notifications?view=alerts">
                 {t('Settings alerts link')}
               </a>
             </>

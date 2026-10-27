@@ -75,7 +75,7 @@ export function RiskSheet({
           <li>{t('riskCancelAfterPay')}</li>
         </ul>
         {failed && !failed.ok ? (
-          <p className="failure" role="alert">
+          <p data-testid="failure" className="failure" role="alert">
             {t('riskAcceptFailed')}
           </p>
         ) : null}
@@ -109,7 +109,7 @@ export function P2PEligibilityPanel({ pay, userId, compact = false }: { pay: Per
         <PayState resource={eligibility.resource} retry={eligibility.reload}>
           {(data) => (
             <>
-              <p className={data.canTake ? 'muted' : 'failure'} role="status">
+              <p data-testid={data.canTake ? undefined : 'failure'} className={data.canTake ? 'muted' : 'failure'} role="status">
                 {data.canTake ? t('allMet') : t('someUnmet')}
               </p>
               <ul className="p2p-eligibility">

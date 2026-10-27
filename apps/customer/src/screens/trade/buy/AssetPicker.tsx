@@ -68,11 +68,12 @@ export function AssetPicker({
             spellCheck={false}
           />
         </label>
-        <ul className="picker__list">
+        <ul data-testid="picker__list" className="picker__list">
           {shown.map((item) => (
             <li key={item.asset}>
               <button
                 type="button"
+                data-testid="picker__row"
                 className="picker__row"
                 aria-pressed={item.asset === selected}
                 disabled={item.disabled}
@@ -84,7 +85,9 @@ export function AssetPicker({
               >
                 <CoinIcon asset={item.asset} size={32} />
                 <span className="picker__names">
-                  <span className="picker__ticker">{item.asset}</span>
+                  <span data-testid="picker__ticker" className="picker__ticker">
+                    {item.asset}
+                  </span>
                   {item.name ? <span className="picker__name">{item.name}</span> : null}
                 </span>
                 {item.detail ? <span className="picker__detail">{item.detail}</span> : null}
@@ -92,7 +95,11 @@ export function AssetPicker({
             </li>
           ))}
         </ul>
-        {shown.length === 0 ? <p className="picker__none">{noMatch(query.trim())}</p> : null}
+        {shown.length === 0 ? (
+          <p data-testid="picker__none" className="picker__none">
+            {noMatch(query.trim())}
+          </p>
+        ) : null}
       </DialogContent>
     </Dialog>
   );

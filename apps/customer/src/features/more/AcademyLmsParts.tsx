@@ -76,7 +76,7 @@ export function AcademyRefusal({ failure, retry }: { failure: Extract<ApiResult<
   const words = academyRefusalText(failure, t);
   if (words === null) return <Failure result={failure} retry={retry} />;
   return (
-    <div className="failure" role="status">
+    <div data-testid="failure" className="failure" role="status">
       <p>{words}</p>
     </div>
   );

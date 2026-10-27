@@ -391,7 +391,7 @@ function Row({ group, copy, hidden }: { group: ActivityGroup; copy: Copy; hidden
           data-direction={item.direction}
         />
       </td>
-      <td className="money-act__status money-cell--status">
+      <td data-testid="money-act__status" className="money-act__status money-cell--status">
         {holding ? (
           <span data-testid="money-act__hold" className="money-act__hold">
             {t('Set aside')}

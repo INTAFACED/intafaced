@@ -119,7 +119,7 @@ export function BuyCard({
 
   if (markets.status === 'loading')
     return frame(
-      <div className="buy-card__skeleton" aria-busy="true">
+      <div data-testid="buy-card__skeleton" className="buy-card__skeleton" aria-busy="true">
         <Skeleton height={40} width={200} circle />
         <Skeleton height={56} className="buy-card__field" />
         <Skeleton height={112} className="buy-card__field" />
@@ -180,17 +180,21 @@ function ReceiptView({ receipt, coin, compact, onDone }: { receipt: Receipt; coi
       </span>
       {none ? (
         <>
-          <h2 className="buy-receipt__title">{t('Not filled title')}</h2>
+          <h2 data-testid="buy-receipt__title" className="buy-receipt__title">
+            {t('Not filled title')}
+          </h2>
           <p className="buy-receipt__body">{t('Not filled body')}</p>
         </>
       ) : open ? (
         <>
-          <h2 className="buy-receipt__title">{t('Still working title')}</h2>
+          <h2 data-testid="buy-receipt__title" className="buy-receipt__title">
+            {t('Still working title')}
+          </h2>
           <p className="buy-receipt__body">{t('Still working body')}</p>
         </>
       ) : (
         <>
-          <h2 className="buy-receipt__title">
+          <h2 data-testid="buy-receipt__title" className="buy-receipt__title">
             {selling
               ? t('You sold {amount} {coin}', { amount: filled, coin: coin.base })
               : t('You bought {amount} {coin}', { amount: filled, coin: coin.base })}
@@ -536,7 +540,7 @@ function BuyForm({
 
   return (
     <div className="buy-form">
-      <div className="buy-form__top">
+      <div data-testid="buy-form__top" className="buy-form__top">
         <SegmentedControl
           size={40}
           fullWidth={compact}

@@ -614,6 +614,7 @@ function ChoicesCard({ book, save, busy, message, copy }: { book: LotBook; save:
             {t('Choices rule')}
           </p>
           <form
+            data-testid="money-note-form"
             className="money-note-form"
             aria-label={t('Method for one day')}
             onSubmit={(event) => {

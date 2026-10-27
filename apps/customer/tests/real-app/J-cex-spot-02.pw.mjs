@@ -69,7 +69,7 @@ test(`${J} #1 reviews and places a limit buy: one Open order carrying the client
   const sent = placements(page);
   const price = await awayBid(90);
   const review = await reviewLimit(page, 'buy', price, '0.001');
-  const shownId = (await review.getByText('Client order ID').locator('..').locator('.if-num').innerText()).trim();
+  const shownId = (await review.getByText('Client order ID').locator('..').getByTestId('client-order-id').innerText()).trim();
   expect(shownId).not.toBe('');
   await confirm(page, 'buy');
   expect(sent).toHaveLength(1);
@@ -138,7 +138,7 @@ test(`${J} #4 reloads while an answer is unknown: new orders wait, in words, unt
   const price = await awayBid(87);
   await reviewLimit(page, 'buy', price, '0.001');
   await confirmSend(page);
-  const notice = page.locator('.dk-note--warn');
+  const notice = page.getByTestId('dk-note--warn');
   await expect(notice).toContainText('Checking your order…');
   await page.unrouteAll({ behavior: 'wait' });
   await page.reload();
@@ -192,7 +192,7 @@ test(`${J} #6 types an order bigger than the balance: refused in words before Co
   await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
   await page.getByRole('textbox', { name: 'Price' }).first().fill(price);
   await page.getByRole('textbox', { name: 'Amount' }).first().fill('1');
-  const form = page.locator('form.dk-form[data-side="buy"]');
+  const form = page.locator('form[data-testid="dk-form"][data-side="buy"]');
   await expect(form).toContainText('Not enough USDT');
   await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
   await expect(form).not.toContainText(/[a-z]+\.[a-z_]+_[a-z_]+/); // no raw code
@@ -258,7 +258,7 @@ test(`${J} #8 an operator halts a market: a new order is refused with the halted
     await page.getByRole('textbox', { name: 'Price' }).first().fill(next);
     await page.getByRole('textbox', { name: 'Amount' }).first().fill('0.01');
     // The halt is said in words before Confirm, from the desk's own preview; nothing is sent and nothing rests.
-    const form = page.locator('form.dk-form[data-side="buy"]');
+    const form = page.locator('form[data-testid="dk-form"][data-side="buy"]');
     await expect(form).toContainText('Trading is halted');
     await expect(form).toContainText('you can still cancel them');
     await expect(form).not.toContainText(/[a-z]+\.[a-z_]+_[a-z_]+/); // no raw code

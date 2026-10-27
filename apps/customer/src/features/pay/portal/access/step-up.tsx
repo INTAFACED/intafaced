@@ -90,7 +90,7 @@ function ConfirmItsYou({ kind, expired, merchantId }: { kind: MoneyKind; expired
         if (!busy) payStepUp.declined();
       }}
     >
-      <div className="form-stack pp-stepup">
+      <div data-testid="form-stack" className="form-stack pp-stepup">
         <p className="muted">{kind === 'refund' ? t('suWhyRefund') : t('suWhyPayout')}</p>
         {expired && (
           <p className="pp-callout" role="status">
@@ -101,7 +101,7 @@ function ConfirmItsYou({ kind, expired, merchantId }: { kind: MoneyKind; expired
           {busy === 'passkey' ? t('suPasskeyWaiting') : t('suPasskey')}
         </Button>
         <p className="muted pp-note">{t('suOr')}</p>
-        <form className="form-stack" onSubmit={withCode} noValidate>
+        <form data-testid="form-stack" className="form-stack" onSubmit={withCode} noValidate>
           <Field
             label={t('suCode')}
             name="stepup-code"

@@ -105,7 +105,7 @@ export function BusinessCategoryView({
 export function CategoryFacts({ category }: { category: CategoryTerms }) {
   const { t } = categoryCopy.useCopy();
   return (
-    <dl className="pp-facts">
+    <dl data-testid="pp-facts" className="pp-facts">
       <div>
         <dt>{t('classLabel')}</dt>
         <dd>{t(`class_${category.class}`)}</dd>
@@ -174,7 +174,7 @@ function ChooseForm({
     }
   }
   return (
-    <div className="form-stack pp-form">
+    <div data-testid="form-stack" className="form-stack pp-form">
       <SelectField
         label={t('chooseLabel')}
         value={key}

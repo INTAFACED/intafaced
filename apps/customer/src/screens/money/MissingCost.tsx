@@ -64,6 +64,7 @@ function BasisForm({
 
   return (
     <form
+      data-testid="money-note-form"
       className="money-note-form"
       aria-label={t('Enter a cost for this lot')}
       onSubmit={(event) => {

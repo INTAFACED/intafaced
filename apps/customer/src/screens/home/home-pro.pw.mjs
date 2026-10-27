@@ -91,7 +91,7 @@ const simple = (page) =>
   );
 const open = async (page, query = '') => {
   await page.goto(`/pro.html${query}`);
-  await page.locator('.tb').waitFor();
+  await page.getByTestId('tb').waitFor();
 };
 const openPro = async (page) => {
   await pro(page);
@@ -223,7 +223,7 @@ test('ready state at 1440x900: summary, assets, markets, words, numbers', async 
     expect(value, `money shape: ${value}`).toMatch(moneyShape);
 
   // Keyboard: Tab from the top bar reaches eye -> info tips -> actions -> Open orders -> View all assets -> asset rows.
-  await page.locator('.tb-right button').last().focus();
+  await page.locator('[data-testid="tb-right"] button').last().focus();
   const path = [];
   for (let step = 0; step < 40; step++) {
     await page.keyboard.press('Tab');

@@ -102,7 +102,7 @@ export const ChartPanel = memo(function ChartPanel({ market, openOrders, fills }
   };
 
   let body: React.ReactNode;
-  if (candles.status === 'loading') body = <Skeleton className="dk-chart-skeleton bg-field" />;
+  if (candles.status === 'loading') body = <Skeleton data-testid="dk-chart-skeleton" className="dk-chart-skeleton bg-field" />;
   else if (candles.status === 'empty') body = <StateBlock kind="empty" title={t('No trades in this period')} />;
   else if (candles.status === 'error')
     body = <StateBlock kind="error" title={t('Couldn’t load the chart')} onRetry={candles.retry} retryLabel={t('Try again')} />;
@@ -126,7 +126,13 @@ export const ChartPanel = memo(function ChartPanel({ market, openOrders, fills }
 
   const moreActive = (MORE_INTERVALS as readonly string[]).includes(interval);
   return (
-    <Tabs value={tab} onValueChange={(value) => setTab(value as 'chart' | 'info')} className="dk-panel dk-chart" ref={panel}>
+    <Tabs
+      value={tab}
+      onValueChange={(value) => setTab(value as 'chart' | 'info')}
+      data-testid="dk-chart"
+      className="dk-panel dk-chart"
+      ref={panel}
+    >
       <TabsList divider className="dk-tabs">
         <TabsTab value="chart">{t('Chart')}</TabsTab>
         <TabsTab value="info">{t('Info')}</TabsTab>
@@ -170,7 +176,7 @@ export const ChartPanel = memo(function ChartPanel({ market, openOrders, fills }
         <div className="dk-chart-canvas">{body}</div>
       </TabsPanel>
       <TabsPanel value="info" className="dk-chart-body">
-        <div className="dk-info">
+        <div data-testid="dk-info" className="dk-info">
           <h2>{t('Market rules')}</h2>
           <MarketRulesList market={market} />
           <p>{t('Fee rule')}</p>
