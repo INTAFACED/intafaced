@@ -28,9 +28,11 @@ export const TARGET_MINUTES = 25;
 export const MIN_SHARDS = 8;
 export const MAX_SHARDS = 24;
 // The workflow stops a shard's journeys after this (Playwright's globalTimeout), so the shard still reports.
-export const JOURNEY_LIMIT_MINUTES = 60;
-// A step is a `test(` call at the start of a line, the way every journey file declares one.
+const JOURNEY_LIMIT_MINUTES = Number(process.env.JOURNEY_GLOBAL_TIMEOUT_MS || 3_600_000) / 60_000;
+// A step is a `test(` call at the start of a line, the way journey files declare one. A step a loop declares counts
+// once until a run has timed its file; from then on the report's count wins.
 const STEP = /^\s*test\(/gm;
+const TIMED = new Set(['passed', 'failed', 'timedOut']);
 
 /** Journey files under `dir`, as paths relative to it with forward slashes, the way Playwright's report names them. */
 export function journeyFiles(dir) {
@@ -57,14 +59,18 @@ export function fileDurations(report) {
   return out;
 }
 
-/** Steps per journey file that a Playwright JSON report timed (ran at least once). */
+/**
+ * Steps per journey file that a Playwright JSON report timed: ran to an end (passed, failed or timed out). A skipped step,
+ * or one a shard's own limit interrupted, says nothing about how long a step takes, so it stays untimed.
+ */
 export function timedSteps(report) {
   const out = new Map();
   const visit = (suite) => {
     if (suite.file && Array.isArray(suite.specs))
       out.set(
         suite.file,
-        (out.get(suite.file) ?? 0) + suite.specs.flatMap((spec) => spec.tests ?? []).filter((test) => (test.results ?? []).length).length,
+        (out.get(suite.file) ?? 0) +
+          suite.specs.flatMap((spec) => spec.tests ?? []).filter((test) => (test.results ?? []).some((r) => TIMED.has(r.status))).length,
       );
     for (const child of suite.suites ?? []) visit(child);
   };
@@ -162,7 +168,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     stepCounts(JOURNEY_DIR, files),
   );
   const totalMs = [...durations.values()].reduce((a, b) => a + b, 0);
-  const shards = asked === 'auto' ? shardCount(totalMs, TARGET_MINUTES * 60_000) : Number(asked);
+  // Never more shards than files: a shard must have a file to run.
+  const shards = asked === 'auto' ? Math.min(files.length, shardCount(totalMs, TARGET_MINUTES * 60_000)) : Number(asked);
   const plan = planShards(files, durations, shards);
   console.error(`journey-shards: ${files.length} files, about ${Math.round(totalMs / 60_000)} min in all, ${shards} shards`);
   plan.forEach((bin, i) =>

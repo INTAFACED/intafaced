@@ -18,8 +18,9 @@
  *   one "Journey broken on main: <J-id>" issue per journey, naming the commits between the last run it passed and the
  *   first run it failed. A journey's issue closes when every step it names passes again.
  *   The run summary lists the steps newly passing and newly failing against the run before.
- *   A shard that hit its time limit: open (or comment on) one "Broken on main: Real-app journeys (time limit)" issue
- *   naming the jobs; it closes on the next run where no job hit its limit.
+ *   A shard that hit its time limit (the job's, or the limit the shard puts on its own journeys so it still reports):
+ *   open (or comment on) one "Broken on main: Real-app journeys (time limit)" issue naming the jobs; it closes on the
+ *   next run where no job hit its limit.
  *
  * A job that hits its time limit ends "cancelled", not "timed_out", like a run replaced by a newer one. A cancelled
  * run whose job carries GitHub's "exceeded the maximum execution time" annotation counts as timed out (red).
@@ -358,9 +359,9 @@ async function timeLimitCheck({ repo, name, runId, sha, runUrl, timedOut }) {
   const title = timeLimitIssueTitle(name);
   if (timedOut.length) {
     const body = [
-      `${timedOut.map((j) => `\`${j}\``).join(', ')} hit the job time limit on \`${sha.slice(0, 10)}\` ([run ${runId}](${runUrl})), so ${timedOut.length === 1 ? 'its' : 'their'} journeys did not finish and count as not passing.`,
+      `${timedOut.map((j) => `\`${j}\``).join(', ')} hit a time limit on \`${sha.slice(0, 10)}\` ([run ${runId}](${runUrl})), so ${timedOut.length === 1 ? 'its' : 'their'} journeys did not finish and count as not passing.`,
       '',
-      'Split the slow shard further or find the step that hangs; never shorten or skip a journey to fit.',
+      'Find the step that hangs, or give the journeys more shards (MAX_SHARDS in tooling/scripts/journey-shards.mjs); never shorten or skip a journey to fit.',
       '',
       '_Opened by tooling/ci/post-merge-trust.mjs. It closes itself on the next run where no job hits its limit._',
     ].join('\n');

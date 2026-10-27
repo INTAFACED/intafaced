@@ -41,13 +41,17 @@ permissions:
 
 env:
   TURBO_TELEMETRY_DISABLED: 1
+  # Playwright stops a shard's journeys after an hour, before the job's own limit, so the shard still sends its report;
+  # the planner warns when a shard comes near it.
+  JOURNEY_GLOBAL_TIMEOUT_MS: 3600000
 
 jobs:
   # Splits the journey files across the shards by their times in the last finished runs on main, so the shards end
   # together (tooling/scripts/journey-shards.mjs; Playwright's own --shard split by count left one shard 33 minutes
   # behind the shortest in run 338), and picks how many shards keep each near 25 minutes of journeys (8 to 24), so the
   # suite can grow without a shard reaching its limit. If planning fails for any reason the run falls back to 8 shards
-  # and Playwright's split, so a broken planner slows a run down and never stops one.
+  # and Playwright's split, so a broken planner never stops a run; on a suite that needs more shards, journeys past a
+  # shard's limit then count as not run and the time-limit issue names the shards.
   plan:
     name: Plan the shards
     runs-on: ubuntu-24.04
@@ -214,23 +218,23 @@ jobs:
           SHARDS: ${{ needs.plan.outputs.shards }}
           SHARD: ${{ matrix.shard }}
           TOTAL: ${{ strategy.job-total }}
-          JOURNEY_GLOBAL_TIMEOUT_MS: 3600000
         run: |
           config=apps/customer/tests/real-app/real-app.playwright.config.mjs
+          split=()
           if [ -z "$SHARDS" ]; then
             echo "::warning::no shard plan (see the Plan the shards job), so Playwright splits the journeys by count"
-            pnpm exec playwright test --config "$config" --trace off --shard "$SHARD/$TOTAL"
-            exit
+            split=(--shard "$SHARD/$TOTAL")
+          else
+            if [ "$(jq length <<<"$SHARDS")" != "$TOTAL" ]; then
+              echo "::error::the plan has $(jq length <<<"$SHARDS") shards and the matrix $TOTAL; change both together"
+              exit 1
+            fi
+            JOURNEY_FILES=$(jq -r --argjson n "$SHARD" '.[$n - 1]' <<<"$SHARDS")
+            echo "$JOURNEY_FILES" | tr ' ' '\n'
+            export JOURNEY_FILES
           fi
-          if [ "$(jq length <<<"$SHARDS")" != "$TOTAL" ]; then
-            echo "::error::the plan has $(jq length <<<"$SHARDS") shards and the matrix $TOTAL; change both together"
-            exit 1
-          fi
-          JOURNEY_FILES=$(jq -r --argjson n "$SHARD" '.[$n - 1]' <<<"$SHARDS")
-          echo "$JOURNEY_FILES" | tr ' ' '\n'
-          export JOURNEY_FILES
           code=0
-          pnpm exec playwright test --config "$config" --trace off || code=$?
+          pnpm exec playwright test --config "$config" --trace off "${split[@]}" || code=$?
           # Playwright's own limit ended the journeys: name it the way Main trust's post-merge job finds a time limit, so
           # it opens the time-limit issue that says to split the shards further.
           if jq -e '[.errors[]?.message // ""] | any(test("Timed out waiting [0-9.]+s for the"))' "$JOURNEY_REPORT" >/dev/null 2>&1; then

@@ -137,16 +137,24 @@ test('counts a step for each test( at the start of a line', () => {
   fs.rmSync(dir, { recursive: true });
 });
 
-test('counts the steps a report timed per file, not the ones it never reached', () => {
+test('counts the steps a report timed per file, not the ones it skipped, interrupted or never reached', () => {
+  const ended = (status) => ({ results: [{ status, duration: 5 }] });
   const cut = {
     suites: [
       {
         file: 'J-a.pw.mjs',
-        specs: [{ tests: [{ results: [{ duration: 5 }] }] }, { tests: [{ results: [] }] }, { tests: [{ results: [{ duration: 1 }] }] }],
+        specs: [
+          { tests: [ended('passed')] },
+          { tests: [ended('failed')] },
+          { tests: [ended('timedOut')] },
+          { tests: [ended('skipped')] },
+          { tests: [ended('interrupted')] },
+          { tests: [{ results: [] }] },
+        ],
       },
     ],
   };
-  assert.deepEqual([...timedSteps(cut)], [['J-a.pw.mjs', 2]]);
+  assert.deepEqual([...timedSteps(cut)], [['J-a.pw.mjs', 3]]);
   assert.equal(timedSteps({}).size, 0);
 });
 
