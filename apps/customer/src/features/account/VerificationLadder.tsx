@@ -6,6 +6,7 @@ import {
   type KycLadderLevel,
   type KycLadderRung,
 } from '@intafaced/contracts/identity-kyc-levels';
+import { payWithdrawalTierLimitsOutputSchema, type PayWithdrawalTierLimits } from '@intafaced/contracts/pay-withdrawal-tier-limits';
 import { useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Loading } from '../../shared/ui';
@@ -45,6 +46,13 @@ export function VerificationLadder({
     (signal) => api.query('identity', 'kyc.levels.describe', {}, kycLevelsDescribeOutputSchema, { signal }),
     `verification-ladder:${userId}:${statusTier ?? 'reading'}`,
   );
+  // The owner's figures are the same for every customer, so one read serves every level (svc-pay, D-148).
+  const { resource: limits, reload: reloadLimits } = useResource(
+    (signal) => api.query('pay', 'withdrawal.tierLimits', {}, payWithdrawalTierLimitsOutputSchema, { signal }),
+    `verification-ladder-limits:${userId}`,
+  );
+  const limitsByTier = new Map<string, PayWithdrawalTierLimits['limits']>();
+  if (limits.status === 'ready') for (const l of limits.data.limits) limitsByTier.set(l.tier, [...(limitsByTier.get(l.tier) ?? []), l]);
   if (resource.status === 'loading') return <Loading />;
   if (resource.status === 'failed')
     return (
@@ -136,6 +144,45 @@ export function VerificationLadder({
                 {rung.reviewHours === 1 ? <Copy k="reviewTimeOne" /> : <Copy k="reviewTime" params={{ hours: String(rung.reviewHours) }} />}
               </p>
             )}
+            <h4>
+              <Copy k="limitsTitle" />
+            </h4>
+            <div className="verification__limits" data-level={rung.level}>
+              {limits.status === 'loading' ? (
+                <p className="muted">
+                  <Copy k="limitsReading" />
+                </p>
+              ) : limits.status === 'failed' ? (
+                <p className="muted" data-limits="failed" data-code={limits.failure.code ?? limits.failure.reason}>
+                  <Copy k="limitsFailed" />{' '}
+                  <button type="button" className="text-link" onClick={reloadLimits}>
+                    <Copy k="limitsRetry" />
+                  </button>
+                </p>
+              ) : limitsByTier.get(rung.level)?.length ? (
+                <>
+                  <ul data-limits="set">
+                    {limitsByTier.get(rung.level)!.map((l) => (
+                      <li key={l.assetId}>
+                        <Copy k="limitRow" params={{ asset: l.assetId, perTx: l.perTx, rolling: l.rolling24h }} />
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="muted">
+                    <Copy k={limits.data.enforced ? 'limitOthersRefused' : 'limitsNotApplied'} />
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p data-limits="unset">
+                    <Copy k="limitUnset" />
+                  </p>
+                  <p className="muted">
+                    <Copy k={limits.data.enforced ? 'limitUnsetRefused' : 'limitsNotApplied'} />
+                  </p>
+                </>
+              )}
+            </div>
             {rank(rung.level) > rank(ladder.held) && offered.includes(rung.level) && (
               <Button variant="secondary" disabled={verifyDisabled} onClick={() => onVerify(rung.level)}>
                 <Copy k="verify" />
