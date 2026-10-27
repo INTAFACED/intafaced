@@ -545,7 +545,7 @@ describe('customer ramps and deposits', () => {
     const user = caller(bankWith({ deposits: { custody }, assetRegistry: OPEN_REGISTRY }), HOLDER, readWrite);
     const { assets } = await user.deposits.assets();
     expect(assets[0]!.networks[0]!.unsupported).toEqual(unsupported);
-    for (const bad of [[], [''], [' padded'], Array.from({ length: 21 }, (_, i) => `TEST ${i}`)]) {
+    for (const bad of [[], [''], [' padded'], ['TEST same', 'TEST same'], Array.from({ length: 21 }, (_, i) => `TEST ${i}`)]) {
       unsupported = bad;
       await expect(user.deposits.assets()).rejects.toMatchObject({ cause: { code: 'bank.deposit_catalogue_invalid' } });
     }

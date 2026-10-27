@@ -1,6 +1,12 @@
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
-import type { AssetState, PayCustodyDepositStatus, RegistryAsset } from '@intafaced/contracts';
+import {
+  PAY_CUSTODY_DEPOSIT_UNSUPPORTED_CASE_MAX,
+  PAY_CUSTODY_DEPOSIT_UNSUPPORTED_MAX,
+  type AssetState,
+  type PayCustodyDepositStatus,
+  type RegistryAsset,
+} from '@intafaced/contracts';
 import { BankError, type BankErrorCode } from '../errors.js';
 import { readRegistry, registryAllowsDeposit, type AssetRegistryReads } from '../assets/supported-assets.js';
 import {
@@ -510,17 +516,14 @@ function validateNetwork(assetId: string, network: DepositNetwork, seen: Set<str
   if (!Number.isInteger(network.estimatedArrivalMinutes) || network.estimatedArrivalMinutes < 0) {
     throw new BankError(`Arrival minutes for ${assetId}/${network.id} are not a non-negative integer`, 'bank.deposit_catalogue_invalid');
   }
-  const unsupported = network.unsupported?.map((item) => optionalText(item, 280, 'unsupported case'));
-  if (unsupported && (unsupported.length === 0 || unsupported.length > 20 || unsupported.some((item) => item === null))) {
-    throw new BankError(`Unsupported cases for ${assetId}/${network.id} are empty or blank`, 'bank.deposit_catalogue_invalid');
-  }
+  const unsupported = network.unsupported === undefined ? undefined : validateUnsupported(`${assetId}/${network.id}`, network.unsupported);
   return {
     id: network.id,
     label,
     minimumDeposit: formatAmount(minimum),
     confirmationsRequired: network.confirmationsRequired,
     estimatedArrivalMinutes: network.estimatedArrivalMinutes,
-    ...(unsupported ? { unsupported: unsupported as string[] } : {}),
+    ...(unsupported ? { unsupported } : {}),
   };
 }
 
@@ -544,6 +547,22 @@ function validateIssued(issued: CustodyDepositAddress): { address: string; memo:
   const memo = optionalText(issued.memo, 128, 'memo');
   const qrPayload = optionalText(issued.qrPayload, 512, 'qr payload');
   return { address, memo, qrPayload };
+}
+
+/** The owner's unsupported cases as custody sent them: 1 to 20, each once, trimmed, 1 to 280 characters, or the catalogue refuses. */
+function validateUnsupported(pair: string, cases: readonly string[]): string[] {
+  const refuse = (why: string) => {
+    throw new BankError(`Unsupported cases for ${pair} ${why}`, 'bank.deposit_catalogue_invalid');
+  };
+  if (cases.length === 0) refuse('are an empty list');
+  if (cases.length > PAY_CUSTODY_DEPOSIT_UNSUPPORTED_MAX) refuse(`are more than ${PAY_CUSTODY_DEPOSIT_UNSUPPORTED_MAX}`);
+  for (const item of cases) {
+    if (typeof item !== 'string' || !item || item.trim() !== item || item.length > PAY_CUSTODY_DEPOSIT_UNSUPPORTED_CASE_MAX) {
+      refuse('include one that is blank, padded or too long');
+    }
+  }
+  if (new Set(cases).size !== cases.length) refuse('name one case twice');
+  return [...cases];
 }
 
 function optionalText(value: string | null | undefined, max: number, label: string): string | null {
