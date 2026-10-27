@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { HOME_CONFIG_PROCEDURE, homeConfigOutputSchema } from '@intafaced/contracts/home-work-items';
 import { publishedCopy, publishedLanguageFor } from '../shared/copy';
@@ -62,13 +62,22 @@ export async function searchHelp(
   return answer.ok ? { status: 'ready', rows: helpRows(answer.data, cap, depositsHidden) } : { status: 'failed' };
 }
 
-/** The owner's help result cap, read once when the search is first used. */
-export function useHelpResultCap(): HelpCap {
+/**
+ * The owner's help result cap, read when the search is first used. A failed read is read again the next time the
+ * results open, so one lost answer does not keep Help articles away for the rest of the visit.
+ */
+export function useHelpResultCap(open: boolean): HelpCap {
   const api = useApi();
-  const { resource } = useResource(
+  const { resource, reload } = useResource(
     (signal) => api.query('ops', HOME_CONFIG_PROCEDURE, undefined, homeConfigOutputSchema, { signal }),
     'search-help-cap',
   );
+  const failed = resource.status === 'failed';
+  const wasOpen = useRef(open);
+  useEffect(() => {
+    if (open && !wasOpen.current && failed) reload();
+    wasOpen.current = open;
+  }, [open, failed, reload]);
   if (resource.status === 'loading') return 'loading';
   return resource.status === 'ready' ? resource.data.searchResultCap : 'failed';
 }

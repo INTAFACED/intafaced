@@ -160,7 +160,7 @@ export function TopSearch({ compact, helpCap }: { compact?: boolean; helpCap?: n
 function SearchData({ open, helpCap, ...props }: Omit<PanelProps, 'help'> & { open: boolean; helpCap: number | null | undefined }) {
   const markets = useMarkets();
   const tickers = useTickers();
-  const ownerCap = useHelpResultCap();
+  const ownerCap = useHelpResultCap(open);
   const help = useHelpSearch(props.query, open, helpCap === undefined ? ownerCap : helpCap);
   return open ? <SearchPanel {...props} help={help} source={markets} tickers={tickers} /> : null;
 }

@@ -1641,6 +1641,11 @@ services:
       # Blank → confirm refuses owner.decision and an expiry refuses ops.hold_expiry_unset. Never invent either.
       OPS_STAFF_HOLD_CONFIRM_ACCOUNT: ${OPS_STAFF_HOLD_CONFIRM_ACCOUNT:-}
       OPS_STAFF_HOLD_EXPIRY_MAX_HOURS: ${OPS_STAFF_HOLD_EXPIRY_MAX_HOURS:-}
+      # Home's owner values (public home.config): the work list's cap (1-50) and order of kinds, and the header search's
+      # help result cap (1-20). Blank → Home refuses home.work_list_cap_unset and Help says no limit is set. Never invent.
+      OPS_HOME_WORK_LIST_CAP: ${OPS_HOME_WORK_LIST_CAP:-}
+      OPS_HOME_WORK_LIST_ORDER: ${OPS_HOME_WORK_LIST_ORDER:-}
+      OPS_HOME_SEARCH_RESULT_CAP: ${OPS_HOME_SEARCH_RESULT_CAP:-}
       # The restore.watermark.read doors. svc-ops is the only caller each allows. IDENTITY_URL is also the founder authority and
       # the second-founder approval wiring (finalize, protocol listing, custody).
       IDENTITY_URL: http://svc-identity:4002

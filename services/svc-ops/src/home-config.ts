@@ -12,13 +12,17 @@
  * with compare-and-set revisions is a later slice.
  */
 import { z } from 'zod';
-import { homeConfigOutputSchema, publicProcedure, router, workItemKindSchema, type HomeConfig } from '@intafaced/contracts';
+import { homeConfigOutputSchema, publicProcedure, router, type HomeConfig } from '@intafaced/contracts';
 
 const blank = (value: string | undefined): boolean => value === undefined || value.trim() === '';
 
-const count = (max: number) => z.coerce.number().int().min(1).max(max);
+const field = homeConfigOutputSchema.shape;
 
-/** The work list's kinds in the owner's order, or a reason it is not one. */
+/** Plain decimal digits only (no `0x10`, `1e1` or `2.0`), then the contract's own range. */
+const count = (inner: z.ZodType<number, number>) =>
+  z.string().trim().regex(/^\d+$/, 'a whole number written in digits').transform(Number).pipe(inner);
+
+/** The work list's kinds in the owner's order, comma separated, checked by the contract's own rule. */
 const orderSchema = z
   .string()
   .transform((value) =>
@@ -27,12 +31,7 @@ const orderSchema = z
       .map((kind) => kind.trim())
       .filter(Boolean),
   )
-  .pipe(
-    z
-      .array(workItemKindSchema)
-      .min(1)
-      .refine((kinds) => new Set(kinds).size === kinds.length, 'each kind once'),
-  );
+  .pipe(field.workListOrder.unwrap());
 
 export interface HomeConfigEnv {
   OPS_HOME_WORK_LIST_CAP?: string;
@@ -53,9 +52,9 @@ export function homeConfigFromEnv(env: HomeConfigEnv): HomeConfig {
     return parsed.data;
   };
   return homeConfigOutputSchema.parse({
-    workListCap: parse('OPS_HOME_WORK_LIST_CAP', count(50)),
+    workListCap: parse('OPS_HOME_WORK_LIST_CAP', count(field.workListCap.unwrap())),
     workListOrder: parse('OPS_HOME_WORK_LIST_ORDER', orderSchema),
-    searchResultCap: parse('OPS_HOME_SEARCH_RESULT_CAP', count(20)),
+    searchResultCap: parse('OPS_HOME_SEARCH_RESULT_CAP', count(field.searchResultCap.unwrap())),
     revision: 0,
   });
 }

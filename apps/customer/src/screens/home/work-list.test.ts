@@ -103,13 +103,17 @@ describe('Home work list (HM-dashboard-03)', () => {
   });
 
   it("takes an owner's verify-first refusal as covered by identity's verification item, and only then", () => {
-    const verifyFirst: SourceRead = { state: 'failed', code: 'denied.kyc_required' };
+    const verifyFirst: SourceRead = { state: 'failed', code: 'denied.kyc_required', status: 403 };
     expect(workList(config(), all(ready(verify), verifyFirst, verifyFirst))).toMatchObject({ items: [verify], missing: [] });
     // Without the verification item a verify-first refusal is still a source Home could not check.
     expect(workList(config(), all(ready(), verifyFirst, ready()))).toMatchObject({
       items: [],
       missing: [{ source: 'bank', state: 'failed', code: 'denied.kyc_required' }],
     });
+    // A KYC-sounding code on an outage is not a verify-first answer.
+    expect(
+      workList(config(), all(ready(verify), { state: 'failed', code: 'kyc.provider_unavailable', status: 503 }, ready())),
+    ).toMatchObject({ missing: [{ source: 'bank', state: 'failed', code: 'kyc.provider_unavailable' }] });
     // Any other refusal stays named, verification item or not.
     expect(workList(config(), all(ready(verify), { state: 'failed', code: 'bank.unavailable' }, ready()))).toMatchObject({
       missing: [{ source: 'bank', state: 'failed', code: 'bank.unavailable' }],

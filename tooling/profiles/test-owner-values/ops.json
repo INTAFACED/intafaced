@@ -20,6 +20,21 @@
       "service": "ops",
       "value": "24",
       "note": "TEST longest staff hold expiry in hours. Not an owner decision."
+    },
+    "OPS_HOME_WORK_LIST_CAP": {
+      "service": "ops",
+      "value": "5",
+      "note": "TEST cap on the items Home's Needs you list shows. Not an owner decision; it only lets J-home-ia-01 #4 run on the test stack."
+    },
+    "OPS_HOME_WORK_LIST_ORDER": {
+      "service": "ops",
+      "value": "verification,payout_waiting,margin_health,loan_payment_due,card_frozen",
+      "note": "TEST order of work item kinds on Home. Not an owner decision."
+    },
+    "OPS_HOME_SEARCH_RESULT_CAP": {
+      "service": "ops",
+      "value": "5",
+      "note": "TEST number of help articles the header search lists. Not an owner decision; it only lets J-home-ia-02 #5 run on the test stack."
     }
   }
 }

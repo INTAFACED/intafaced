@@ -35,6 +35,8 @@ describe('home.config owner values', () => {
     ['OPS_HOME_WORK_LIST_CAP', '51'],
     ['OPS_HOME_WORK_LIST_CAP', 'five'],
     ['OPS_HOME_WORK_LIST_CAP', '2.5'],
+    ['OPS_HOME_WORK_LIST_CAP', '0x10'],
+    ['OPS_HOME_SEARCH_RESULT_CAP', '1e1'],
     ['OPS_HOME_SEARCH_RESULT_CAP', '21'],
     ['OPS_HOME_WORK_LIST_ORDER', 'verification,verification'],
     ['OPS_HOME_WORK_LIST_ORDER', 'verification,loan_late'],

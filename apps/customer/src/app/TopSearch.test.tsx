@@ -123,6 +123,22 @@ describe('header search: where a page lives and the Help group', () => {
     expect(helpCalls()).toHaveLength(0);
   });
 
+  it('reads the owner values again when the results reopen after a failed read', async () => {
+    const answer = fetcher.getMockImplementation()!;
+    let down = true;
+    fetcher.mockImplementation(async (url: string) =>
+      down && String(url).includes('home.config') ? new Response('{}', { status: 500 }) : answer(url),
+    );
+    await mount();
+    await type('password');
+    expect(host.textContent).toContain('Help articles did not load.');
+    down = false;
+    await press('Escape', input());
+    await act(async () => input().focus());
+    await type('password');
+    expect(host.textContent).toContain('Help articles are hidden: no limit for the number of results is set.');
+  });
+
   it('opens on "/" outside a field, but a "/" typed into a field stays a character', async () => {
     await mount();
     expect(panel()).toBeNull();

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import { ORIGIN, api, bestPrices, fund, toUnits } from './stack.mjs';
 import { fundedTrader, openOrders, signIn, signUp, verify } from './desk.mjs';
@@ -50,6 +50,12 @@ const totalOn = (page, scopes) =>
     .first();
 async function spokenTotal(page, scope) {
   return totalOn(page, scope).locator('[role=img]').first().getAttribute('aria-label');
+}
+
+/** A UUID (version 4 layout) derived from a business key, for APIs that take a UUID id. */
+function businessUuid(key) {
+  const hex = createHash('sha256').update(key).digest('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-${((parseInt(hex[16], 16) & 3) | 8).toString(16)}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
 const HOME_TOTAL = '[data-testid="hp-total__figure"], [data-testid="home-total"]';
@@ -278,7 +284,8 @@ test(`${J} #4 Needs you: an unverified person gets one item to Verification that
   const product = products.body.result.data.find((row) => row.collateralAssetId === 'BTC' && row.debtAssetId === 'USDT');
   expect(product, 'the TEST content seed publishes a BTC-backed USDT loan product').toBeTruthy();
   const opened = await client.post('/api/bank/trpc/loans.open', {
-    loanId: randomUUID(),
+    // The loan's id is its business key, named by this step and person, so a retried step meets the same loan.
+    loanId: businessUuid(`${J}-4-loan:${fresh.handle}`),
     productId: product.id,
     collateralAmount: '0.01',
     principal: '100',
