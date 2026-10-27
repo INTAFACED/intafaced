@@ -142,6 +142,14 @@ import { createSubAccountEditProcedures } from './sub-accounts/sub-account-edit-
  * before any consumer is touched (§15.2).
  */
 
+/** Only the canonical encoding of non-empty bytes, as `kyc.storeDocument` takes it; anything else refuses BAD_REQUEST. */
+function canonicalBase64(raw: string): Buffer {
+  const bytes = Buffer.from(raw, 'base64');
+  if (bytes.length === 0 || bytes.toString('base64') !== raw)
+    throw new TRPCError({ code: 'BAD_REQUEST', message: 'bytesBase64 is not valid base64' });
+  return bytes;
+}
+
 export function toTrpcError(err: unknown): TRPCError {
   // Already shaped for the wire — do not re-wrap.
   if (err instanceof TRPCError) return err;
@@ -195,10 +203,7 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'kyc.poa_rule_unset':
       case 'kyc.poa_types_unset':
       case 'kyc.poa_unconfigured':
-      case 'kyc.upload_caps_unset':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
-      case 'kyc.upload_too_large':
-        return new TRPCError({ code: 'PAYLOAD_TOO_LARGE', message: err.message, cause: err });
       default:
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
     }
@@ -2394,9 +2399,7 @@ export function createIdentityRouter(
           .output(kycPoaSubmissionSchema)
           .mutation(async ({ ctx, input }) => {
             try {
-              const bytes = Buffer.from(input.bytesBase64, 'base64');
-              if (bytes.length === 0 || bytes.toString('base64') !== input.bytesBase64)
-                throw new TRPCError({ code: 'BAD_REQUEST', message: 'bytesBase64 is not valid base64' });
+              const bytes = canonicalBase64(input.bytesBase64);
               const { bytesBase64: _bytes, ...rest } = input;
               return await requireKycPoa().submit(ctx.principal.userId, { ...rest, bytes });
             } catch (err) {
@@ -2472,10 +2475,7 @@ export function createIdentityRouter(
           .output(kycProfileDraftSchema)
           .mutation(async ({ ctx, input }) => {
             try {
-              const bytes = Buffer.from(input.bytesBase64, 'base64');
-              // Only the canonical encoding of the decoded bytes, as `kyc.storeDocument` takes it.
-              if (bytes.length === 0 || bytes.toString('base64') !== input.bytesBase64)
-                throw new TRPCError({ code: 'BAD_REQUEST', message: 'bytesBase64 is not valid base64' });
+              const bytes = canonicalBase64(input.bytesBase64);
               return await requireKycProfile().upload(ctx.principal.userId, {
                 version: input.version,
                 contentType: input.contentType,
