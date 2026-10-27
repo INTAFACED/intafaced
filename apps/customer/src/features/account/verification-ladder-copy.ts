@@ -18,7 +18,7 @@ export const verificationLadderCopy = defineCopy('account.verificationLadder', {
   limitsReading: 'Reading limits…',
   limitsFailed: 'Withdrawal limits could not be read.',
   limitsRetry: 'Try again',
-  limitUnsetRefused: 'Withdrawals at this level are refused until a limit is published.',
+  limitUnsetRefused: 'No limit is published for this level, so withdrawals at this level are refused.',
   limitOthersRefused: 'A coin not listed has no limit set, and withdrawals of it are refused at this level.',
   limitRow: '{asset}: up to {perTx} per withdrawal and {rolling} in 24 hours',
   limitUnset: 'Limit not set',
