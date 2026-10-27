@@ -249,6 +249,14 @@ const schema = serviceEnvSchema
        */
       IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL: z.string().optional(),
       /**
+       * Owner setting (I-kyc-compliance-01): the reasons a verification can be rejected for, a JSON array of
+       * `{"code","reason","guidance"}` (code lower case with underscores; reason up to 200 characters, what the customer
+       * reads; guidance up to 500, what to do next). NO DEFAULT. Unset, every `kyc.reject` refuses
+       * `kyc.reason_codes_unset`. Parsed at start by `parseKycRejectReasons`; a repeated code or a malformed entry stops
+       * the service.
+       */
+      IDENTITY_KYC_REJECT_REASONS: z.string().optional(),
+      /**
        * Owner setting for account limit overrides (J-ops-console-04 #12): a JSON object
        * `{ "maxLifetimeHours": "<whole hours>", "ceilings": { "<rail>": { "<asset>": "<decimal>" } } }`. NO DEFAULT. Blank,
        * not JSON or invalid means unset: every override refuses `identity.limit_ceiling_unset` and the console says "not

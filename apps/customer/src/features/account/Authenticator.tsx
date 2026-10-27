@@ -202,14 +202,19 @@ export function Authenticator({ onChanged }: { onChanged?: (change?: { sessionsE
   const problemText = problem ? t(problem) : null;
   const when = status.enrolledAt ? stamp(status.enrolledAt, timeZone) : null;
   return (
-    <section className="security__authenticator security__card" aria-label={t('title')} lang={languageFor('title')}>
+    <section
+      data-testid="security__authenticator"
+      className="security__authenticator security__card"
+      aria-label={t('title')}
+      lang={languageFor('title')}
+    >
       <h2>{t('title')}</h2>
       <p>
         {t('on')} · {status.label ?? t('unnamed')}
         {when ? ` · ${t('since')} ${when}` : ''} · {t('codesLeft', { count: status.recoveryCodesLeft })}
       </p>
       {note && (
-        <p className="notice" role="status">
+        <p data-testid="notice" className="notice" role="status">
           {note}
         </p>
       )}
@@ -308,10 +313,10 @@ export function Authenticator({ onChanged }: { onChanged?: (change?: { sessionsE
       )}
       {mode.kind === 'codes' && (
         // Shown once, after the swap. "I saved them" drops the codes from this page; nothing is written to storage.
-        <div className="security__recovery stack" data-security-sensitive="true">
+        <div data-testid="security__recovery" className="security__recovery stack" data-security-sensitive="true">
           <h3>{t('newCodesTitle')}</h3>
           <p>{t('newCodesOnce')}</p>
-          <ul className="recovery-codes">
+          <ul data-testid="recovery-codes" className="recovery-codes">
             {mode.codes.map((value) => (
               <li key={value} lang="zxx">
                 {value}

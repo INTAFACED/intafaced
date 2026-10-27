@@ -50,6 +50,21 @@
       "service": "support",
       "value": "200",
       "note": "Live ticket fields the desk may keep, for the same journey. Not an owner decision."
+    },
+    "SUPPORT_FRAUD_GROUP": {
+      "service": "support",
+      "value": "TEST Compliance",
+      "note": "The desk group fraud reports go to, so J-support-public-02 #4 can send one; the journey makes the group. Not an owner decision."
+    },
+    "SUPPORT_ALL_GROUPS_ROLES": {
+      "service": "support",
+      "value": "agent,lead",
+      "note": "Every staff role sees every desk group, so the group J-support-public-02 #4 makes for fraud reports does not hide other journeys' requests from agents. Not an owner decision."
+    },
+    "SUPPORT_CUSTOMER_SEES": {
+      "service": "support",
+      "value": "priority,type",
+      "note": "What a customer reads of the desk's priority and type on their own request, so J-support-public-02 #6 can see both. Not an owner decision."
     }
   }
 }

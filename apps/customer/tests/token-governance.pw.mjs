@@ -215,9 +215,9 @@ async function network(context, page, baseURL) {
 }
 async function login(page, destination = '/token') {
   await page.goto('/login?redirect=' + encodeURIComponent(destination));
-  await page.locator('input[autocomplete="username"]').fill('isolated-token-governance');
+  await page.locator('input[name="identifier"]').fill('isolated-token-governance');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect(page).toHaveURL(new RegExp(destination + '$'));
 }
 async function open(page) {
@@ -603,9 +603,9 @@ test('native signout during fresh read hides old actor and sends no vote', async
   expect(calls.writes).toEqual([]);
   state.actor = anotherActor;
   await page.locator('#main').getByRole('link', { name: 'Sign in', exact: true }).click();
-  await page.locator('input[autocomplete="username"]').fill('another-isolated-owner');
+  await page.locator('input[name="identifier"]').fill('another-isolated-owner');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect(page).toHaveURL(/\/token$/);
   await page.getByRole('button', { name: 'Governance', exact: true }).click();
   await expect(page.locator('.token-ballot-context')).toHaveCount(0);

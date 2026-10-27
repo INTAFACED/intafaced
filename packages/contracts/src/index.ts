@@ -125,4 +125,5 @@ export * from './bank-card-funds.js';
 export * from './asset-registry.js';
 export * from './market-listing-categories.js';
 export * from './identity-kyc-levels.js';
+export * from './identity-kyc-cases.js';
 export * from './pay-withdrawal-tier-limits.js';

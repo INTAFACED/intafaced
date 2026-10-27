@@ -2,12 +2,13 @@
  * Pure rules for the support desk: how a request is described, filtered and ordered, how a help article is grouped, and
  * what the person can and cannot do to a request today. No React, no network, so every rule here has a test.
  */
+import type { SupportTicketCategory } from '@intafaced/contracts/support-categories';
 
 /** Help articles that describe features this release does not offer (Deposits and withdrawals, Paper vs live). */
 export const HIDDEN_FEATURE_ARTICLES: ReadonlySet<string> = new Set(['kb-deposit-withdraw-honest', 'kb-paper-vs-live']);
 
 export type TicketStatus = 'open' | 'pending' | 'on_hold' | 'resolved' | 'closed';
-export type TicketCategory = 'account' | 'trading' | 'deposit_withdraw' | 'other';
+export type TicketCategory = SupportTicketCategory;
 
 export interface TicketLike {
   id: string;

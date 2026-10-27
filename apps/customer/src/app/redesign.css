@@ -8,6 +8,7 @@
 @import '@intafaced/ui/theme/customer-legacy.css';
 @import '@intafaced/ui/theme/theme.css';
 @import '@intafaced/ui/theme/base.css';
+@import '@intafaced/ui/brand.css';
 @import 'tailwindcss/utilities.css' layer(utilities);
 
 /* Tailwind classes used by screens (the kit's own components are scanned by theme.css). */

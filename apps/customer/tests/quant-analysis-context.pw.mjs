@@ -137,9 +137,9 @@ async function scenario(browser, name, width, fn, timezoneId = 'UTC') {
 }
 async function login(page, path = '/quant/backtest') {
   await page.goto('/login?redirect=' + encodeURIComponent(path));
-  await page.locator('input[autocomplete="username"]').fill('quant@example.invalid');
+  await page.locator('input[name="identifier"]').fill('quant@example.invalid');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect(page).toHaveURL(new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$'));
 }
 async function fill(page, id = A, symbol = 'BTC/USD', window = times, evidence = firstEvidence) {
@@ -385,9 +385,9 @@ test('late prior-owner response never appears for a new owner and leaves the ori
     state.owner = other;
     state.outcome = 'ok';
     await page.locator('#main').getByRole('link', { name: 'Sign in', exact: true }).click();
-    await page.locator('input[autocomplete="username"]').fill('other@example.invalid');
+    await page.locator('input[name="identifier"]').fill('other@example.invalid');
     await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-    await page.locator('form button[type="submit"]').click();
+    await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
     await expect(record(page)).toContainText('No completed analysis in this view');
     const response = page.waitForResponse((r) => r.url().endsWith('/backtest.run') && r.request().method() === 'POST');
     state.pending();

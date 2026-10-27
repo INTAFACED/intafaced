@@ -94,6 +94,7 @@ import {
   useToast,
 } from '../index.js';
 import { KitSections } from './KitSections.js';
+import { BrandBar } from '../../brand/brand.js';
 
 // SAMPLE series for layout only.
 const UP = ['100', '101.2', '100.6', '102.4', '103.1', '102.2', '104.8', '105.5', '104.9', '106.8', '107.4', '108.9'];
@@ -167,7 +168,7 @@ export function Gallery() {
         <div className="if-app min-h-screen" data-up-color={redUp ? 'red' : undefined} id="gallery">
           {/* Top bar mock: UI-SPEC 3.1. Desktop only: there is no phone navigation yet, so below md the mock shows just the name and the account menu rather than overflowing. */}
           <header className="sticky top-0 z-40 flex h-12 items-center gap-8 border-b border-line bg-bg px-4 md:px-6">
-            <span className="text-md font-bold">intafaced</span>
+            <BrandBar />
             <NavigationMenu className="hidden md:flex">
               <NavigationMenuList>
                 <NavigationMenuItem>

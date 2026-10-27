@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import type { Sql } from 'postgres';
-import { router, TRPCError, payAmountStringSchema } from '@intafaced/contracts';
+import {
+  PAY_CUSTODY_DEPOSIT_UNSUPPORTED_CASE_MAX,
+  PAY_CUSTODY_DEPOSIT_UNSUPPORTED_MAX,
+  router,
+  TRPCError,
+  payAmountStringSchema,
+} from '@intafaced/contracts';
 import { transaction } from '@intafaced/db';
 import {
   consumePayApproval,
@@ -16,7 +22,7 @@ import { assetCodeSchema, reasonSchema } from '../../registries/schemas.js';
 
 /**
  * The owner's customer deposit settings (W-deposit-04): label, smallest credited deposit, the arrival time customers are told, the
- * on/off switch with a halt note, all per asset and network. Founder-only, audited, and dual-controlled where the change loosens or
+ * cases custody will not credit on the network (W-deposit-03), the on/off switch with a halt note, all per asset and network. Founder-only, audited, and dual-controlled where the change loosens or
  * switches something (a second founder's identity-bound approval bound to the exact change).
  *
  * NOTHING HAS A DEFAULT. A pair with no row is not published; a new pair is created switched OFF, and switching it on is its own
@@ -54,6 +60,8 @@ export class DepositSettingError extends Error {
 const networkIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,32}$/);
 const labelSchema = z.string().trim().min(1).max(64);
 const haltNoteSchema = z.string().trim().min(1).max(280);
+/** One case custody will not credit on this network, as the owner writes it for customers. */
+const unsupportedCaseSchema = z.string().trim().min(1).max(PAY_CUSTODY_DEPOSIT_UNSUPPORTED_CASE_MAX);
 const versionSchema = z.number().int().min(1).max(2_147_483_647);
 
 export const depositSettingSaveInputSchema = z
@@ -64,6 +72,15 @@ export const depositSettingSaveInputSchema = z
     /** The smallest deposit that is credited. A decimal string above zero; never blank. */
     minimumDeposit: payAmountStringSchema,
     estimatedArrivalMinutes: z.number().int().min(1).max(100_000),
+    /**
+     * The cases custody will not credit on this network, shown to customers before any address. Absent keeps the list the pair
+     * has (none for a new pair); an empty list publishes none.
+     */
+    unsupportedCases: z
+      .array(unsupportedCaseSchema)
+      .max(PAY_CUSTODY_DEPOSIT_UNSUPPORTED_MAX)
+      .refine((cases) => new Set(cases).size === cases.length, 'each unsupported case once')
+      .optional(),
     enabled: z.boolean(),
     /** Shown to customers while the pair is off. Null means the standard "switched off" line only. */
     haltNote: haltNoteSchema.nullable(),
@@ -83,6 +100,7 @@ export const depositSettingViewSchema = z
     label: z.string(),
     minimumDeposit: z.string(),
     estimatedArrivalMinutes: z.number().int(),
+    unsupportedCases: z.array(z.string()),
     enabled: z.boolean(),
     haltNote: z.string().nullable(),
     version: z.number().int(),
@@ -118,6 +136,7 @@ interface Row {
   label: string;
   minimum_deposit: string;
   estimated_arrival_minutes: number;
+  unsupported_cases: string[];
   enabled: boolean;
   halt_note: string | null;
   version: number;
@@ -125,12 +144,13 @@ interface Row {
   set_at: Date;
 }
 
-type State = Pick<DepositSettingView, 'label' | 'minimumDeposit' | 'estimatedArrivalMinutes' | 'enabled' | 'haltNote'>;
+type State = Pick<DepositSettingView, 'label' | 'minimumDeposit' | 'estimatedArrivalMinutes' | 'unsupportedCases' | 'enabled' | 'haltNote'>;
 
 const stateOf = (row: Row): State => ({
   label: row.label,
   minimumDeposit: row.minimum_deposit,
   estimatedArrivalMinutes: row.estimated_arrival_minutes,
+  unsupportedCases: row.unsupported_cases,
   enabled: row.enabled,
   haltNote: row.halt_note,
 });
@@ -156,13 +176,20 @@ function canonical(minimum: string): string {
   return trimmed.replace(/^0+(?=\d)/, '');
 }
 
-/** What needs a second founder: switching a pair on or off, or lowering the minimum of one that is on. A new pair is created off. */
+/**
+ * What needs a second founder: switching a pair on or off, or, on a pair that is on, lowering the minimum or taking any case's exact
+ * words off the unsupported list (customers stop being warned in those words; a rewording counts too). Adding a case needs one
+ * founder. A new pair is created off.
+ */
 export function depositSettingDualReasons(before: State | null, after: State): string[] {
   if (before === null) return [];
   const reasons: string[] = [];
   if (before.enabled !== after.enabled) reasons.push(after.enabled ? 'enabled' : 'disabled');
   if (before.enabled && after.enabled && parseAmount(after.minimumDeposit) < parseAmount(before.minimumDeposit)) {
     reasons.push('minimum_lowered');
+  }
+  if (before.enabled && after.enabled && before.unsupportedCases.some((item) => !after.unsupportedCases.includes(item))) {
+    reasons.push('unsupported_case_removed');
   }
   return reasons;
 }
@@ -253,16 +280,19 @@ export class DepositSettingService {
             ? (
                 await tx<Row[]>`
                   INSERT INTO pay.custody_deposit_settings
-                    (asset_id, network_id, label, minimum_deposit, estimated_arrival_minutes, enabled, halt_note, set_by)
+                    (asset_id, network_id, label, minimum_deposit, estimated_arrival_minutes, unsupported_cases, enabled, halt_note,
+                     set_by)
                   VALUES (${input.assetId}, ${input.networkId}, ${plan.after.label}, ${plan.after.minimumDeposit},
-                          ${plan.after.estimatedArrivalMinutes}, ${plan.after.enabled}, ${plan.after.haltNote}, ${actorId})
+                          ${plan.after.estimatedArrivalMinutes}, ${tx.array(plan.after.unsupportedCases)}::text[], ${plan.after.enabled},
+                          ${plan.after.haltNote}, ${actorId})
                   RETURNING *`
               )[0]!
             : (
                 await tx<Row[]>`
                   UPDATE pay.custody_deposit_settings
                      SET label = ${plan.after.label}, minimum_deposit = ${plan.after.minimumDeposit},
-                         estimated_arrival_minutes = ${plan.after.estimatedArrivalMinutes}, enabled = ${plan.after.enabled},
+                         estimated_arrival_minutes = ${plan.after.estimatedArrivalMinutes},
+                         unsupported_cases = ${tx.array(plan.after.unsupportedCases)}::text[], enabled = ${plan.after.enabled},
                          halt_note = ${plan.after.haltNote}, version = version + 1, set_by = ${actorId}, set_at = now()
                    WHERE asset_id = ${input.assetId} AND network_id = ${input.networkId}
                   RETURNING *`
@@ -284,18 +314,20 @@ export class DepositSettingService {
 
   private async plan(input: DepositSettingSaveInput) {
     const minimumDeposit = canonical(input.minimumDeposit);
-    const after: State = {
-      label: input.label,
-      minimumDeposit,
-      estimatedArrivalMinutes: input.estimatedArrivalMinutes,
-      enabled: input.enabled,
-      haltNote: input.enabled ? null : input.haltNote,
-    };
     const row = (
       await this.deps.sql<
         Row[]
       >`SELECT * FROM pay.custody_deposit_settings WHERE asset_id = ${input.assetId} AND network_id = ${input.networkId}`
     )[0];
+    const after: State = {
+      label: input.label,
+      minimumDeposit,
+      estimatedArrivalMinutes: input.estimatedArrivalMinutes,
+      // Absent keeps what the pair has, so an edit made without the list never drops a warning customers are shown.
+      unsupportedCases: input.unsupportedCases ?? row?.unsupported_cases ?? [],
+      enabled: input.enabled,
+      haltNote: input.enabled ? null : input.haltNote,
+    };
     if (input.expectedVersion === null) {
       if (row) throw new DepositSettingError('deposit_settings.already_exists', 'the setting exists; send its current version to edit it');
       if (after.enabled) {

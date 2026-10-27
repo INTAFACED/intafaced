@@ -20,7 +20,14 @@ const en = {
   replyRetained: 'Original reply received · recovery record retained',
   replyRetainedBody: 'The service replied to the original action, but this device kept the saved record. Retry only the local cleanup.',
   originalBody: 'A new action stays blocked until the original state can be checked.',
-  ownerWindow: 'Your active offers on the board. Paused offers aren’t shown here.',
+  ownerWindow: 'Your active offers on the board. Your paused offers are listed below them.',
+  pausedTitle: 'Paused offers',
+  pausedNone: 'You have no paused offers.',
+  pausedByYou: 'Paused by you. Resume it to put it back on the board.',
+  pausedMethodRemoved:
+    'Paused because you removed the last payment method it could be paid with. Add a {fiat} payment method, then resume it.',
+  pausedAddMethod: 'Payment methods',
+  pausedMore: 'Showing your {count} most recently paused offers. Close or resume some to see older ones.',
   window:
     'Showing open offers. Paused and older offers aren’t listed. Your own offers are marked “Your offer”; you can’t place orders on them.',
   originalStorage: 'Offer recovery references could not be read on this device. Keep this browser profile and contact Support.',
@@ -64,7 +71,14 @@ const es = {
   replyRetainedBody:
     'El servicio respondió a la acción original, pero este dispositivo conservó el registro guardado. Reintenta solo la limpieza local.',
   originalBody: 'Una nueva acción sigue bloqueada hasta que se pueda comprobar el estado original.',
-  ownerWindow: 'Tus ofertas activas en el tablón. Aquí no se muestran las ofertas en pausa.',
+  ownerWindow: 'Tus ofertas activas en el tablón. Tus ofertas en pausa aparecen debajo.',
+  pausedTitle: 'Ofertas en pausa',
+  pausedNone: 'No tienes ofertas en pausa.',
+  pausedByYou: 'La pausaste tú. Reanúdala para volver a mostrarla en el tablón.',
+  pausedMethodRemoved:
+    'En pausa porque eliminaste el último método de pago con el que se podía pagar. Añade un método de pago en {fiat} y reanúdala.',
+  pausedAddMethod: 'Métodos de pago',
+  pausedMore: 'Se muestran tus {count} ofertas pausadas más recientes. Cierra o reanuda algunas para ver las anteriores.',
   window:
     'Se muestran las ofertas abiertas. Las ofertas en pausa y las antiguas no aparecen. Tus propias ofertas llevan la etiqueta «Tu oferta»; no puedes hacer pedidos sobre ellas.',
   originalStorage:
@@ -110,7 +124,14 @@ const fr = {
   replyRetainedBody:
     'Le service a répondu à l’action d’origine, mais cet appareil a conservé l’enregistrement sauvegardé. Réessayez uniquement le nettoyage local.',
   originalBody: 'Toute nouvelle action reste bloquée jusqu’à la vérification de l’état initial.',
-  ownerWindow: 'Vos offres actives sur le tableau. Les offres en pause ne sont pas affichées ici.',
+  ownerWindow: 'Vos offres actives sur le tableau. Vos offres en pause sont listées en dessous.',
+  pausedTitle: 'Offres en pause',
+  pausedNone: 'Vous n’avez aucune offre en pause.',
+  pausedByYou: 'Mise en pause par vous. Reprenez-la pour la remettre sur le tableau.',
+  pausedMethodRemoved:
+    'En pause car vous avez supprimé le dernier moyen de paiement avec lequel elle pouvait être payée. Ajoutez un moyen de paiement en {fiat}, puis reprenez-la.',
+  pausedAddMethod: 'Moyens de paiement',
+  pausedMore: 'Vos {count} offres mises en pause le plus récemment sont affichées. Fermez-en ou reprenez-en pour voir les plus anciennes.',
   window:
     'Offres ouvertes affichées. Les offres en pause et les plus anciennes ne sont pas listées. Vos propres offres portent la mention « Votre offre » ; vous ne pouvez pas passer commande sur elles.',
   originalStorage:

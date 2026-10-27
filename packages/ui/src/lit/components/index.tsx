@@ -5,6 +5,7 @@
  */
 import * as React from 'react';
 import { clsx } from 'clsx';
+import { BrandLockup, BrandMark, BrandWordmark } from '../../brand/brand.js';
 import { doors as doorOrder, type Door, type GateReason, type LegalSlotProps, type Refusal } from '../contracts.js';
 
 type Div = React.HTMLAttributes<HTMLDivElement>;
@@ -358,16 +359,14 @@ export function Rail({
 }
 
 /**
- * The stand-in mark (three slanted panes) until the brand kit arrives; the kit swaps
- * this one path. The 3D logo (`./fx`) extrudes the same path. viewBox -1 -1 2 2.
+ * The brand in the new look: the mark, the wordmark or the horizontal lockup, drawn by the one brand set
+ * (`../../brand/brand.tsx`, from the kit's files). `size` is the mark's height in pixels; it picks the kit's optical
+ * drawing. `lit` adds the accent glow.
  */
-export const MARK_PATH =
-  'M-0.560,0.500L-0.340,0.500L-0.321,0.498L-0.305,0.494L-0.291,0.486L-0.279,0.474L-0.270,0.460L-0.263,0.443L0.003,-0.443L0.006,-0.460L0.006,-0.474L0.001,-0.486L-0.009,-0.494L-0.022,-0.498L-0.040,-0.500L-0.260,-0.500L-0.279,-0.498L-0.295,-0.494L-0.309,-0.486L-0.321,-0.474L-0.330,-0.460L-0.337,-0.443L-0.603,0.443L-0.606,0.460L-0.606,0.474L-0.601,0.486L-0.591,0.494L-0.578,0.498L-0.560,0.500ZM-0.100,0.500L0.120,0.500L0.139,0.498L0.155,0.494L0.169,0.486L0.181,0.474L0.190,0.460L0.197,0.442L0.373,-0.162L0.377,-0.180L0.376,-0.194L0.371,-0.206L0.361,-0.214L0.348,-0.218L0.330,-0.220L0.110,-0.220L0.091,-0.218L0.075,-0.214L0.061,-0.206L0.049,-0.194L0.040,-0.180L0.033,-0.162L-0.143,0.442L-0.147,0.460L-0.146,0.474L-0.141,0.486L-0.131,0.494L-0.118,0.498L-0.100,0.500ZM0.360,0.500L0.580,0.500L0.599,0.498L0.615,0.494L0.629,0.486L0.641,0.475L0.651,0.460L0.658,0.443L0.752,0.137L0.756,0.120L0.755,0.105L0.751,0.094L0.741,0.086L0.728,0.082L0.710,0.080L0.490,0.080L0.471,0.082L0.455,0.086L0.441,0.094L0.429,0.105L0.419,0.120L0.412,0.137L0.318,0.443L0.314,0.460L0.315,0.475L0.319,0.486L0.329,0.494L0.342,0.498L0.360,0.500Z';
-
 export function Logo({
   variant = 'lockup',
   lit,
-  size = 22,
+  size = 24,
   className,
 }: {
   variant?: 'mark' | 'wordmark' | 'lockup';
@@ -377,19 +376,13 @@ export function Logo({
 }) {
   return (
     <span className={clsx('lit-logo', className)} data-lit={lit || undefined}>
-      {variant !== 'wordmark' && (
-        <svg
-          width={size}
-          height={size}
-          viewBox="-1 -1 2 2"
-          aria-hidden={variant === 'lockup' ? true : undefined}
-          role={variant === 'mark' ? 'img' : undefined}
-          aria-label={variant === 'mark' ? 'INTAFACED' : undefined}
-        >
-          <path d={MARK_PATH} />
-        </svg>
+      {variant === 'mark' ? (
+        <BrandMark size={size} title="INTAFACED" />
+      ) : variant === 'wordmark' ? (
+        <BrandWordmark width={Math.max(150, size * 6.25)} title="INTAFACED" />
+      ) : (
+        <BrandLockup size={size} title="INTAFACED" />
       )}
-      {variant !== 'mark' && <span>INTAFACED</span>}
     </span>
   );
 }

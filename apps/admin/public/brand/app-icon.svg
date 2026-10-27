@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>INTAFACED app icon</title>
+  <defs>
+    <radialGradient id="bgGlow" cx=".5" cy="0" r="1"><stop offset="0" stop-color="#0B1F4D"/><stop offset=".55" stop-color="#070A16"/><stop offset="1" stop-color="#04050A"/></radialGradient>
+    <radialGradient id="bgPool" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#3F7DFF" stop-opacity=".32"/><stop offset="1" stop-color="#3F7DFF" stop-opacity="0"/></radialGradient>
+    <linearGradient id="fgFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#C7DBFF"/></linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bgGlow)"/>
+  <circle cx="512" cy="512" r="400" fill="url(#bgPool)"/>
+  <g transform="translate(225.3 225.3) scale(0.57344)">
+    <path fill="url(#fgFill)" d="M127.9 165 L435.3 63.5 L528.4 167 L599.1 310.5 L381 257.1 L187.2 188 L371.1 215.4 L476.5 201Z M473.7 0 L762.9 145.6 L755.5 284.6 L704.1 436 L587.6 244.1 L499.4 58.2 L610.1 207.6 L694.8 272Z M835 127.9 L936.5 435.3 L833 528.4 L689.5 599.1 L742.9 381 L812 187.2 L784.6 371.1 L799 476.5Z M1000 473.7 L854.4 762.9 L715.4 755.5 L564 704.1 L755.9 587.6 L941.8 499.4 L792.4 610.1 L728 694.8Z M872.1 835 L564.7 936.5 L471.6 833 L400.9 689.5 L619 742.9 L812.8 812 L628.9 784.6 L523.5 799Z M526.3 1000 L237.1 854.4 L244.5 715.4 L295.9 564 L412.4 755.9 L500.6 941.8 L389.9 792.4 L305.2 728Z M165 872.1 L63.5 564.7 L167 471.6 L310.5 400.9 L257.1 619 L188 812.8 L215.4 628.9 L201 523.5Z M0 526.3 L145.6 237.1 L284.6 244.5 L436 295.9 L244.1 412.4 L58.2 500.6 L207.6 389.9 L272 305.2Z"/>
+  </g>
+</svg>

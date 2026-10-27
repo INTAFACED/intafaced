@@ -10,18 +10,28 @@ const returnRef = z.string().regex(/^[A-Za-z0-9:_.-]{1,128}$/, "a return referen
 const reason = z.string().trim().min(1).max(500);
 const limit = z.number().int().min(1).max(200);
 
-/** The named blocker every recorded return carries until the returned-funds ledger recipe exists. */
-export const RETURN_BLOCKER = 'ledger.recipe_missing:userWithdrawReturned';
+/**
+ * What a recorded return waits for before its funds are back in available: a second founder's approval. Returns recorded
+ * before the returned-funds recipe existed carry `ledger.recipe_missing:userWithdrawReturned` as stored; the same approval
+ * now credits them too.
+ */
+export const RETURN_BLOCKER = 'withdrawal_return.second_founder_required';
 
-export const recordInputSchema = z.object({ withdrawalId, returnRef, amount, reason }).strict();
+/** Why it came back, in words the customer may read. The free-text `reason` is the founders' own note. */
+export const RETURN_REASON_CODES = ['destination_rejected', 'network_returned', 'other'] as const;
+export type ReturnReasonCode = (typeof RETURN_REASON_CODES)[number];
+const reasonCode = z.enum(RETURN_REASON_CODES);
+
+export const recordInputSchema = z.object({ withdrawalId, returnRef, amount, reason, reasonCode }).strict();
 export type RecordInput = z.infer<typeof recordInputSchema>;
 
 export const getInputSchema = z.object({ withdrawalId }).strict();
 export const listInputSchema = z.object({ limit, after: withdrawalId.optional() }).strict();
 export type ListInput = z.infer<typeof listInputSchema>;
 
-/** Re-crediting the customer needs the returned-funds recipe and a second person; both are named, neither is faked. */
+/** A second founder, never the one who recorded the return, puts the funds back in the person's available balance. */
 export const recreditInputSchema = z.object({ withdrawalId, reason }).strict();
+export type RecreditInput = z.infer<typeof recreditInputSchema>;
 
 export const returnViewSchema = z.object({
   withdrawalId,
@@ -30,10 +40,20 @@ export const returnViewSchema = z.object({
   assetId: z.string(),
   amount: z.string(),
   reason: z.string(),
-  state: z.literal('parked'),
-  /** What must exist before the funds can be re-credited. Nothing has been booked. */
-  blocker: z.string(),
+  /** Null on a return recorded before the code existed. */
+  reasonCode: reasonCode.nullable(),
+  /**
+   * `parked`: recorded, nothing booked. `crediting`: a second founder approved it and the ledger's answer is not recorded
+   * yet (the same approval again posts the same key). `credited`: the amount is back in the person's available balance.
+   */
+  state: z.enum(['parked', 'crediting', 'credited']),
+  /** What it waits for while parked; null once approved. */
+  blocker: z.string().nullable(),
   recordedBy: z.string(),
   recordedAt: z.string().datetime({ offset: true }),
+  approvedBy: z.string().nullable(),
+  approvedAt: z.string().datetime({ offset: true }).nullable(),
+  ledgerTxId: z.string().nullable(),
+  creditedAt: z.string().datetime({ offset: true }).nullable(),
 });
 export type ReturnView = z.infer<typeof returnViewSchema>;

@@ -121,7 +121,7 @@ export function parseSpec(text, module, group, file) {
 }
 
 const JOURNEY_HEADING = /^##\s+(J-[a-z0-9-]+-\d+):\s+(.*)$/;
-const JOURNEY_FIELD = /^-\s+(Persona|Tier|Order):\s*(.*)$/;
+const JOURNEY_FIELD = /^-\s+(Persona|Tier|Order|Deferred):\s*(.*)$/;
 const STEP_ROW = /^\|\s*(\d+)\s*\|/;
 
 /** Every journey in one module's acceptance/journeys.md: its fields and, per step, the slice ids it needs. */
@@ -144,7 +144,12 @@ export function parseJourneys(text, module) {
     const f = JOURNEY_FIELD.exec(line);
     if (f) {
       if (f[1] === 'Order') cur.order = Number.parseInt(f[2], 10) || 0;
-      else cur[f[1].toLowerCase()] = f[2].trim();
+      else if (f[1] === 'Deferred') {
+        // Only "until <when>" defers, so a "Deferred: no" never drops a journey quietly.
+        if (!/^until\b/i.test(f[2].trim()))
+          throw new Error(`roadmap: ${cur.id} has "Deferred: ${f[2].trim()}"; write "Deferred: until <when>"`);
+        cur.deferred = true;
+      } else cur[f[1].toLowerCase()] = f[2].trim();
       continue;
     }
     const row = STEP_ROW.exec(line);
@@ -153,7 +158,9 @@ export function parseJourneys(text, module) {
       const sliceCell = cells[4] ?? '';
       const slices = [...new Set([...sliceCell.matchAll(SLICE_ID)].map((m) => m[1]))];
       // An empty cell names nothing to build either, so it counts as a step no slice covers yet.
-      cur.steps.push({ n: Number(row[1]), slices, noSlice: /\bNO-SLICE\b/.test(sliceCell) || !slices.length });
+      const step = { n: Number(row[1]), slices, noSlice: /\bNO-SLICE\b/.test(sliceCell) || !slices.length };
+      if (/\bDEFERRED\b/.test(sliceCell)) step.deferred = true;
+      cur.steps.push(step);
     }
   }
   return journeys;
@@ -175,10 +182,21 @@ export function buildJourneys(ozDir) {
   return out;
 }
 
+/**
+ * The journeys still to build: a journey with a `Deferred:` line, and a step whose Slices cell says DEFERRED, wait for
+ * launch prep (legal and compliance work, owner decision 2026-10-27), so they leave the count and the slice order.
+ */
+export function liveJourneys(journeys) {
+  return journeys
+    .filter((j) => !j.deferred)
+    .map((j) => ({ ...j, steps: j.steps.filter((st) => !st.deferred) }))
+    .filter((j) => j.steps.length);
+}
+
 /** Each slice's lowest journey Order (1 is a module's first usable journey); 0 when no journey names it. */
 export function journeyOrder(journeys) {
   const order = new Map();
-  for (const j of journeys) {
+  for (const j of liveJourneys(journeys)) {
     if (!j.order) continue;
     for (const step of j.steps) for (const id of step.slices) order.set(id, Math.min(order.get(id) ?? 9, j.order));
   }
@@ -405,7 +423,8 @@ function queueLines(slices, analysis) {
 }
 
 /** The generated half of docs/ROADMAP.md. */
-export function render(slices, journeys = []) {
+export function render(slices, allJourneys = []) {
+  const journeys = liveJourneys(allJourneys);
   const a = analyse(slices);
   const ready = slices.filter((s) => s.depends.length === 0 && !a.tangled.has(s.id));
   const out = [];
@@ -542,7 +561,9 @@ export function passedSteps(report) {
  * main is the proof and is not automated yet. Rates are PRs and newly named slices per day, over the last 3 hours
  * (the live pace) and the last 7 days. `commits` is [{ at: ISO time, subject }], newest first; `now` is an ISO time.
  */
-export function progress(slices, commits, now, journeys = [], passed = null) {
+export function progress(slices, commits, now, allJourneys = [], passed = null) {
+  const journeys = liveJourneys(allJourneys);
+  const deferredSteps = allJourneys.reduce((c, j) => c + j.steps.length, 0) - journeys.reduce((c, j) => c + j.steps.length, 0);
   const known = new Set(slices.map((s) => s.id));
   const prs = new Map(); // slice id -> merge times, oldest last
   const sliceCommits = [];
@@ -593,6 +614,11 @@ export function progress(slices, commits, now, journeys = [], passed = null) {
           ? `- Passing in the real app on main: ${passing.length} of ${journeys.length} journeys (${journeys.reduce((c, j) => c + j.steps.filter((st) => passed.has(`${j.id}#${st.n}`)).length, 0)} of ${stepCount} steps). Order 1: ${passing.filter((j) => j.order === 1).length} of ${journeys.filter((j) => j.order === 1).length}.`
           : `- Passing in the real app on main: not measured (no report from the real-app run was given). ${journeys.length} journeys, ${stepCount} steps.`,
         `- Every slice started (ready to prove, builders' claim): ${ready.length} of ${journeys.length} journeys.`,
+        ...(deferredSteps
+          ? [
+              `- Deferred to launch prep and not counted: ${n(allJourneys.length - journeys.length, 'journey')} and ${n(deferredSteps, 'step')}.`,
+            ]
+          : []),
         '',
         '## Slices',
         '',

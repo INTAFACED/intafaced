@@ -147,9 +147,14 @@ export const supportTicketFieldValuesSchema = z.object({
 });
 export type SupportTicketFieldValues = z.infer<typeof supportTicketFieldValuesSchema>;
 
+/** A key's own value only: a field id or option such as `constructor` must never read `Object.prototype`. */
+export function supportOwn<T>(record: Readonly<Record<string, T>>, key: string): T | undefined {
+  return Object.prototype.hasOwnProperty.call(record, key) ? record[key] : undefined;
+}
+
 /** Whether a form field is shown for these answers: always, or while its controlling field holds the named value. */
 export function supportFormFieldShown(field: SupportFormField, values: Readonly<Record<string, SupportFieldValue>>): boolean {
-  return field.showWhen === undefined || values[field.showWhen.fieldId] === field.showWhen.value;
+  return field.showWhen === undefined || supportOwn(values, field.showWhen.fieldId) === field.showWhen.value;
 }
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -165,8 +170,8 @@ const DECIMAL = /^-?\d{1,18}(?:\.\d{1,18})?$/;
 export function supportFieldAllowedOptions(field: SupportField, values: Readonly<Record<string, SupportFieldValue>>): SupportFieldOption[] {
   const options = field.options ?? [];
   if (!field.parent) return options;
-  const parentValue = values[field.parent.fieldId];
-  const allowed = typeof parentValue === 'string' ? (field.parent.allowed[parentValue] ?? []) : [];
+  const parentValue = supportOwn(values, field.parent.fieldId);
+  const allowed = typeof parentValue === 'string' ? (supportOwn(field.parent.allowed, parentValue) ?? []) : [];
   return options.filter((option) => allowed.includes(option.value));
 }
 
@@ -186,7 +191,7 @@ export function supportFormValuesProblem(
   for (const entry of form.fields) {
     const field = byId.get(entry.fieldId);
     if (!field) return { fieldId: entry.fieldId, problem: 'not_on_form' };
-    const value = values[entry.fieldId];
+    const value = supportOwn(values, entry.fieldId);
     const given = value !== undefined && value !== false && !(typeof value === 'string' && value.trim() === '');
     if (!supportFormFieldShown(entry, values)) {
       if (value !== undefined) return { fieldId: entry.fieldId, problem: 'not_shown' };

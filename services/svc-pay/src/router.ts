@@ -6,6 +6,7 @@ import { WithdrawalQuoteError, withdrawalQuoteToTrpcError } from './withdrawals/
 import { WithdrawalApprovalError, withdrawalApprovalToTrpcError } from './withdrawals/approvals/errors.js';
 import { AllowlistError, allowlistToTrpcError } from './withdrawals/allowlist/errors.js';
 import { quoteInputSchema, quoteViewSchema } from './withdrawals/quotes/schemas.js';
+import { RETURN_REASON_CODES } from './withdrawals/returns/schemas.js';
 import type { WithdrawalQuoteService } from './withdrawals/quotes/service.js';
 import { z } from 'zod';
 import type { Sql } from 'postgres';
@@ -2350,6 +2351,9 @@ export function createPayRouter(
                 status: z.enum(WITHDRAWAL_STATUSES),
                 failure: z.object({ code: z.string(), known: z.boolean(), message: z.string() }).nullable(),
                 returned: z.boolean(),
+                returnedFunds: z
+                  .object({ amount: amountSchema, reasonCode: z.enum(RETURN_REASON_CODES).nullable(), credited: z.boolean() })
+                  .nullable(),
                 createdAt: z.string(),
               }),
             ),

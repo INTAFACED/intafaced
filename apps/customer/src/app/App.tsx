@@ -161,7 +161,7 @@ export function App() {
   const fallback = (
     <div className="legacy-room">
       <div data-testid="page" className="page">
-        <Loading label={t('Opening room')} />
+        <Loading room label={t('Opening room')} />
       </div>
     </div>
   );

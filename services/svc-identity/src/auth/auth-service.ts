@@ -1,6 +1,16 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
+import {
+  approveKycCase,
+  assertRejectable,
+  listKycCases,
+  openKycCase,
+  rejectKycCase,
+  type KycRejectDecision,
+  type KycRejectReasons,
+} from '../kyc/cases.js';
+import type { KycCase } from '@intafaced/contracts/identity-kyc-cases';
 import type {
   AccountState,
   CampaignParticipant,
@@ -2841,7 +2851,10 @@ export class AuthService {
       const inserted = await tx<
         KycRow[]
       >`INSERT INTO kyc_records (user_id, tier, jurisdiction, provider_ref, status) VALUES (${input.userId}, ${input.tier}, ${input.jurisdiction}, ${input.providerRef ?? null}, 'pending') RETURNING id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at`;
-      return toKycRecord(inserted[0]!);
+      const record = toKycRecord(inserted[0]!);
+      // The case opens with the record, in this transaction (I-kyc-compliance-01).
+      await openKycCase(tx, record);
+      return record;
     });
   }
 
@@ -2851,6 +2864,22 @@ export class AuthService {
       KycRow[]
     >`SELECT id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at FROM kyc_records WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT ${published}`;
     return rows.map(toKycRecord);
+  }
+
+  /** A person's KYC cases, newest first, with their history and the owner's reason text (I-kyc-compliance-01). */
+  async listKycCases(userId: string, limit: number, reasons: KycRejectReasons): Promise<KycCase[]> {
+    const published = publishedKycRecordsListLimit(limit);
+    const users = await this.sql<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${userId}`;
+    if (!users[0]) throw new AuthError('User not found', 'auth.not_found');
+    return listKycCases(this.sql, userId, published, reasons);
+  }
+
+  /**
+   * Refuses (`kyc.case_state`) a reject the decision would refuse anyway (a record no longer pending, unless it is the
+   * same reject again), so the router checks it before the four-eyes approval is spent.
+   */
+  async assertKycRejectable(recordId: string, decision: KycRejectDecision): Promise<void> {
+    await assertRejectable(this.sql, recordId, decision);
   }
 
   async listPendingKyc(limit: number): Promise<KycRecordView[]> {
@@ -2896,7 +2925,9 @@ export class AuthService {
       const updated = await tx<
         KycRow[]
       >`UPDATE kyc_records SET status = 'approved', reviewed_at = now(), reviewed_by = ${input.reviewerId}, expires_at = ${input.expiresAt ?? null} WHERE id = ${row.id} RETURNING id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at`;
-      return { record: toKycRecord(updated[0]!), granted: true };
+      const record = toKycRecord(updated[0]!);
+      await approveKycCase(tx, toKycRecord(row), { by: input.reviewerId, at: record.reviewedAt ?? new Date() });
+      return { record, granted: true };
     });
     if (outcome.granted) await this.announceKycApproval(outcome.record);
     return outcome.record;
@@ -2905,6 +2936,11 @@ export class AuthService {
   async rejectKycRecord(input: {
     recordId: string;
     reviewerId: string;
+    /** A code from the owner's reject reason list; the router checks it is listed before anything is spent. */
+    reasonCode: string;
+    /** The reviewer's note to the customer, shown only when `noteVisible`. */
+    customerNote?: string | null;
+    noteVisible?: boolean;
     service?: string | null;
     kid?: string | null;
     /** Threaded from the wire mill field so boot dual-control wrap can see the second actor. */
@@ -2922,14 +2958,27 @@ export class AuthService {
       const row = rows[0];
       if (!row) throw new AuthError('KYC record not found', 'auth.not_found');
       assertNotOwnKyc(row.user_id, [input.reviewerId, input.confirmActorId, ...input.approvalParties]);
-      if (row.status === 'rejected') return toKycRecord(row);
+      const decision = {
+        by: input.reviewerId,
+        reasonCode: input.reasonCode,
+        customerNote: input.customerNote?.trim() || null,
+        noteVisible: input.noteVisible ?? false,
+      };
+      if (row.status === 'rejected') {
+        // The same reject is the same decision; anything else is refused, so what the customer read stays.
+        const record = toKycRecord(row);
+        await rejectKycCase(tx, record, { ...decision, at: record.reviewedAt ?? record.createdAt });
+        return record;
+      }
       if (row.status !== 'pending') {
         throw new AuthError(`KYC record is ${row.status}; only a pending record can be rejected`, 'auth.kyc_not_pending');
       }
       const updated = await tx<
         KycRow[]
       >`UPDATE kyc_records SET status = 'rejected', reviewed_at = now(), reviewed_by = ${input.reviewerId} WHERE id = ${row.id} RETURNING id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at`;
-      return toKycRecord(updated[0]!);
+      const record = toKycRecord(updated[0]!);
+      await rejectKycCase(tx, toKycRecord(row), { ...decision, at: record.reviewedAt ?? new Date() });
+      return record;
     });
   }
 

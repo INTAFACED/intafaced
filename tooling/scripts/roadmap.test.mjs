@@ -234,6 +234,24 @@ test('the scoreboard counts a journey once every step passed in the real-app rep
   assert.match(progress(slices, commits, '2026-10-20T09:00:00Z', journeys, null), /not measured/);
 });
 
+test('a deferred journey or step leaves the scoreboard and the slice order', () => {
+  const text = JOURNEY.replace('- Order: 2', '- Order: 2\n- Deferred: until launch prep').replace(
+    '| 3 | Shares the order | A link | NO-SLICE |',
+    '| 3 | Shares the order | A link | DEFERRED until launch prep (was SP-share-01) |',
+  );
+  const journeys = parseJourneys(text, 'cex-spot');
+  assert.equal(journeys[1].deferred, true);
+  assert.equal(journeys[0].steps[2].deferred, true);
+  assert.equal(journeys[0].deferred, undefined);
+  assert.throws(() => parseJourneys(JOURNEY.replace('- Order: 2', '- Order: 2\n- Deferred: no'), 'cex-spot'), /Deferred: no/);
+  assert.equal(journeyOrder(journeys).has('SP-share-01'), false);
+  assert.equal(journeyOrder(journeys).get('SP-order-entry-01'), 1, 'still needed by the live first journey');
+  const passed = new Set(['J-cex-spot-01#1', 'J-cex-spot-01#2']);
+  const page = progress([], [], '2026-10-20T09:00:00Z', journeys, passed);
+  assert.match(page, /Passing in the real app on main: 1 of 1 journeys \(2 of 2 steps\)\. Order 1: 1 of 1\./);
+  assert.match(page, /Deferred to launch prep and not counted: 1 journey and 2 steps\./);
+});
+
 test('a skipped step, a step with no tests, or a failing duplicate title does not pass', () => {
   const passed = passedSteps({
     suites: [

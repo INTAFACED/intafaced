@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { test, expect } from '@playwright/test';
-import { signUpInBrowser } from './stack.mjs';
+import { signUpInBrowser, tool } from './stack.mjs';
 
 // J-identity-08, in the running app (docs/roadmap/journeys.json): I get verified and see what each level unlocks.
 // Starts signed in at level none on /verification. Tests titled "J-identity-08 #<n>" prove a whole step; the others
@@ -18,10 +18,19 @@ function person(prefix = 'kv') {
 
 /** A fresh TEST person, signed up in this browser, on /verification at level none. */
 async function atVerification(page) {
-  await signUpInBrowser(page, person());
+  const who = person();
+  await signUpInBrowser(page, who);
   await page.goto('/verification');
   const ladder = page.getByRole('region', { name: 'What each level unlocks' });
-  return { ladder, rung: (level) => ladder.locator(`.verification__rung[data-level="${level}"]`) };
+  return { who, ladder, rung: (level) => ladder.locator(`[data-testid="verification__rung"][data-level="${level}"]`) };
+}
+
+/** Send the request form as it stands for `country`, through its review step. */
+async function sendRequest(page, country = 'DE') {
+  await page.getByLabel('Country code').fill(country);
+  await page.getByRole('button', { name: 'Review request' }).click();
+  await page.getByRole('button', { name: 'Submit this request' }).click();
+  await expect(page.getByText('Your reviewed request')).toBeVisible();
 }
 
 test(`${J}, part of #1 (I-kyc-compliance-04): a ladder of levels, and every gated feature says which level unlocks it`, async ({
@@ -29,9 +38,9 @@ test(`${J}, part of #1 (I-kyc-compliance-04): a ladder of levels, and every gate
 }) => {
   test.setTimeout(90_000);
   const { ladder, rung } = await atVerification(page);
-  await expect(ladder.locator('.verification__rung')).toHaveCount(LEVELS.length);
+  await expect(ladder.getByTestId('verification__rung')).toHaveCount(LEVELS.length);
   for (const [i, level] of LEVELS.entries())
-    await expect(ladder.locator('.verification__rung').nth(i)).toHaveAttribute('data-level', level);
+    await expect(ladder.getByTestId('verification__rung').nth(i)).toHaveAttribute('data-level', level);
   // Level none is where the person stands.
   await expect(rung('none')).toHaveAttribute('aria-current', 'step');
   await expect(rung('none')).toContainText('Your level');
@@ -60,16 +69,16 @@ test(`${J}, part of #1 (I-kyc-compliance-05): requirements not published say non
   test.setTimeout(90_000);
   const { rung } = await atVerification(page);
   // The stack's TEST owner values publish basic's list and review time only (tooling/profiles/test-owner-values/identity.json).
-  const basic = rung('basic').locator('.verification__requirements');
+  const basic = rung('basic').getByTestId('verification__requirements');
   await expect(basic).toHaveAttribute('data-published', 'true');
   await expect(basic.locator('li')).toHaveText(['Legal name', 'Date of birth', 'Home address', 'Photo ID']);
-  await expect(rung('basic').locator('.verification__review-time')).toHaveText('Review usually takes up to 24 hours.');
+  await expect(rung('basic').getByTestId('verification__review-time')).toHaveText('Review usually takes up to 24 hours.');
   for (const level of ['full', 'institutional']) {
-    const list = rung(level).locator('.verification__requirements');
+    const list = rung(level).getByTestId('verification__requirements');
     await expect(list).toHaveAttribute('data-published', 'false');
     await expect(list).toHaveText('No requirements are published for this level yet.');
     await expect(list.locator('li')).toHaveCount(0);
-    await expect(rung(level).locator('.verification__review-time')).toContainText('No review time is stated.');
+    await expect(rung(level).getByTestId('verification__review-time')).toContainText('No review time is stated.');
   }
 });
 
@@ -117,10 +126,61 @@ test(`${J} #5: proof of address, the risk questionnaire and tax certification, w
   await expect(page.getByRole('heading', { name: 'Proof of address' })).toBeVisible(UNBUILT);
 });
 
+test(`${J}, part of #6 (I-kyc-compliance-01): one case record with history; a reject gives a plain reason, a resubmission opens a linked case, an approval unlocks at once`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const { who, rung } = await atVerification(page);
+  const history = page.getByRole('region', { name: 'Case history' });
+  const cases = history.getByTestId('verification__case');
+  await expect(history.getByText('No verification requests yet.')).toBeVisible();
+
+  // Sent: one case, pending review, with its one step.
+  await page.getByLabel('Level to request').selectOption({ label: 'Full' });
+  await sendRequest(page);
+  await page.reload();
+  await expect(cases).toHaveCount(1);
+  await expect(cases.first()).toHaveAttribute('data-state', 'submitted');
+  await expect(cases.first()).toContainText('Pending review');
+  await expect(cases.first().getByTestId('verification__case-steps').locator('li')).toHaveCount(1);
+
+  // Rejected by the stack's two TEST operators with a listed code: the reason and what to do, in plain words.
+  expect(tool('local-test-gates.mjs', 'kyc-reject', who.handle, 'document_unreadable')).toContain('rejected (document_unreadable)');
+  await page.reload();
+  const rejected = cases.first();
+  await expect(rejected).toHaveAttribute('data-state', 'rejected');
+  await expect(rejected.getByTestId('verification__case-reason')).toHaveAttribute('data-reason', 'document_unreadable');
+  await expect(rejected.getByTestId('verification__case-reason-text')).toHaveText('Reason: TEST: the photo of your ID could not be read.');
+  await expect(rejected.getByTestId('verification__case-guidance')).toContainText('What to do: TEST: take a new photo');
+  await expect(rejected.getByTestId('verification__case-steps').locator('li')).toHaveText([/^Sent for review · /, /^Rejected · /]);
+  await expect(rung('none')).toHaveAttribute('aria-current', 'step');
+
+  // Sent again from the rejected case: a new case, linked to the rejected one, which stays as it was.
+  await rejected.getByRole('button', { name: 'Send a new request' }).click();
+  await expect(page.getByLabel('Level to request')).toHaveValue('full');
+  await sendRequest(page);
+  await page.reload();
+  await expect(cases).toHaveCount(2);
+  await expect(cases.first()).toHaveAttribute('data-state', 'submitted');
+  await expect(cases.first().getByTestId('verification__case-follows')).toHaveText('This request follows your earlier rejected request.');
+  await expect(cases.nth(1)).toHaveAttribute('data-state', 'rejected');
+  await expect(cases.first().getByRole('button', { name: 'Send a new request' })).toHaveCount(0);
+
+  // Approved: the case says so, and the ladder moves to Full at once, with what Full unlocks included.
+  tool('local-test-gates.mjs', 'verify');
+  await page.reload();
+  await expect(cases.first()).toHaveAttribute('data-state', 'approved');
+  await expect(cases.first().getByTestId('verification__case-steps').locator('li')).toHaveText([/^Sent for review · /, /^Approved · /]);
+  await expect(rung('full')).toHaveAttribute('aria-current', 'step');
+  for (const feature of ['deposit', 'withdraw', 'trade'])
+    await expect(rung('full').locator(`[data-feature="${feature}"]`)).toContainText('Included in your level');
+});
+
 test(`${J} #6: one case record with history; an approval unlocks the mapped features at once`, async ({ page }) => {
   test.setTimeout(60_000);
   await atVerification(page);
-  await expect(page.getByRole('heading', { name: 'Case history' })).toBeVisible(UNBUILT);
+  // The mapped capabilities (custody, transfer, trade) and their states come with I-kyc-compliance-07.
+  await expect(page.getByRole('heading', { name: 'Capabilities' })).toBeVisible(UNBUILT);
 });
 
 test(`${J} #7: a restriction on another screen gives its reason in plain words and the next step`, async ({ page }) => {

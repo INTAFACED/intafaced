@@ -20,6 +20,8 @@
     },
     "./a11y/a11y.css": "./src/a11y/a11y.css",
     "./tokens.css": "./src/tokens.css",
+    "./brand.css": "./src/brand/brand.css",
+    "./brand/*": "./brand/*",
     "./theme/tokens.css": "./src/theme/tokens.css",
     "./theme/customer-legacy.css": "./src/theme/customer-legacy.css",
     "./theme/theme.css": "./src/theme/theme.css",
@@ -68,7 +70,7 @@
     "rimraf": "^6.0.1",
     "tailwindcss": "4.3.3",
     "typescript": "^7.0.2",
-    "vite": "8.3.4",
+    "vite": "8.3.5",
     "vitest": "^4.1.12"
   },
   "dependencies": {

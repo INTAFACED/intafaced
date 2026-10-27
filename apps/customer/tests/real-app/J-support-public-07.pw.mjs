@@ -156,8 +156,8 @@ test(`${J} #4 an active incident shows its update timeline and sets the affected
     `${J}-update-${RUN}`,
   );
   await page.reload();
-  await expect(card.locator('.status-timeline li')).toHaveCount(2);
-  await expect(card.locator('.status-timeline li').first()).toContainText('TEST fix deployed, watching');
+  await expect(card.getByTestId('status-timeline').locator('li')).toHaveCount(2);
+  await expect(card.getByTestId('status-timeline').locator('li').first()).toContainText('TEST fix deployed, watching');
   await expect(component(main, 'trading')).toHaveAttribute('data-state', 'partial_outage');
 
   await publishNotice(
@@ -174,7 +174,7 @@ test(`${J} #4 an active incident shows its update timeline and sets the affected
   );
   await page.reload();
   await expect(card).toContainText('Resolved');
-  await expect(card.locator('.status-timeline li')).toHaveCount(3);
+  await expect(card.getByTestId('status-timeline').locator('li')).toHaveCount(3);
   await expect(component(main, 'trading')).toHaveAttribute('data-state', 'operational');
   await page.context().close();
 });

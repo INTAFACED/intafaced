@@ -117,9 +117,9 @@ async function network(context, page, baseURL, extra = {}) {
 }
 async function login(page, path = '/view') {
   await page.goto('/login?redirect=' + encodeURIComponent(path));
-  await page.locator('input[autocomplete="username"]').fill('isolated-locale');
+  await page.locator('input[name="identifier"]').fill('isolated-locale');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect(page).toHaveURL(new RegExp(path + '$'));
 }
 async function select(page, code) {

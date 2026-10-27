@@ -222,7 +222,7 @@ export function CourseOutlineView({ outline, current }: { outline: AcademyCourse
                   {row.title}
                 </a>
               )}
-              <span className="academy-lms-meta">
+              <span data-testid="academy-lms-meta" className="academy-lms-meta">
                 <span>{kindLabel(t, row.kind)}</span>
                 {why && <span>{why}</span>}
               </span>

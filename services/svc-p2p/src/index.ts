@@ -360,6 +360,11 @@ async function sweep(): Promise<void> {
       app.log.error({ err, sweep: 'trade_reminder' }, 'p2p seller reminder sweep failed — sellers may not be told yet');
       return { sent: 0, failures: [] };
     });
+    // Ad-paused notices (a removed payment method) the fast path did not hand over, on their own catch likewise.
+    const pauses = await p2p.sweepOfferPauses(100).catch((err: unknown) => {
+      app.log.error({ err, sweep: 'offer_paused' }, 'p2p ad-paused notice sweep failed — makers may not be told yet');
+      return { sent: 0, failures: [] };
+    });
 
     // Data retention, on the same tick. It runs last on purpose: it only ever
     // touches trades that are already terminal, so it can never take work away
@@ -385,6 +390,9 @@ async function sweep(): Promise<void> {
     }
     for (const f of reminders.failures) {
       app.log.error({ ...f, sweep: 'trade_reminder' }, 'p2p seller reminder could not be handed to the bus — the seller is not told yet');
+    }
+    for (const f of pauses.failures) {
+      app.log.error({ ...f, sweep: 'offer_paused' }, 'p2p ad-paused notice could not be handed to the bus — the maker is not told yet');
     }
     for (const f of swept.failures) {
       app.log.error({ ...f, sweep: 'timeout' }, 'p2p timeout sweep could not act on a trade');

@@ -96,9 +96,9 @@ async function network(context, options = {}) {
   return state;
 }
 async function password(page) {
-  await page.locator('input[autocomplete="username"]').fill('isolated-owner');
+  await page.locator('input[name="identifier"]').fill('isolated-owner');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect(page.locator('.invitation')).toBeVisible();
 }
 async function login(page, capability = link) {
@@ -135,9 +135,9 @@ async function shot(page, name) {
 async function setLocale(context, language) {
   const view = await context.newPage();
   await view.goto('/login?redirect=%2Fview');
-  await view.locator('input[autocomplete="username"]').fill('isolated-owner');
+  await view.locator('input[name="identifier"]').fill('isolated-owner');
   await view.locator('input[autocomplete="current-password"]').fill('isolated-password');
-  await view.locator('form button[type="submit"]').click();
+  await view.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await view
     .locator('select')
     .filter({ has: view.locator('option[value="es"]') })
@@ -208,9 +208,9 @@ for (const [name, destination] of [
         destination,
       ),
     ).toBe(true);
-    await page.locator('input[autocomplete="username"]').fill('isolated-owner');
+    await page.locator('input[name="identifier"]').fill('isolated-owner');
     await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-    await page.locator('form button[type="submit"]').click();
+    await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
     await expect.poll(() => page.evaluate((expected) => location.pathname + location.search === expected, destination)).toBe(true);
     expect(s.posts).toEqual([]);
   });
@@ -228,9 +228,9 @@ for (const [name, destination] of [
       await page.evaluate(() => location.pathname === '/register' && new URL(location.href).searchParams.get('redirect') === '/money'),
     ).toBe(true);
     await page.locator('.public-signin').click();
-    await page.locator('input[autocomplete="username"]').fill('isolated-owner');
+    await page.locator('input[name="identifier"]').fill('isolated-owner');
     await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-    await page.locator('form button[type="submit"]').click();
+    await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
     await expect.poll(() => page.evaluate(() => location.pathname === '/money' && location.search === '')).toBe(true);
     expect(s.posts).toEqual([]);
   });
@@ -267,9 +267,9 @@ test('header auth alternation drops malformed invitation while preserving its sa
     ),
   ).toBe(true);
   await page.locator('.public-signin').click();
-  await page.locator('input[autocomplete="username"]').fill('isolated-owner');
+  await page.locator('input[name="identifier"]').fill('isolated-owner');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect.poll(() => page.evaluate(() => location.pathname === '/uc/safe' && location.search === '')).toBe(true);
   expect(s.posts).toEqual([]);
 });

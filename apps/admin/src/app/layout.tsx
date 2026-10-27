@@ -14,6 +14,15 @@ export const metadata: Metadata = {
   title: 'INTAFACED · Operator Console',
   description: 'Kill-switches, launch sequence, jurisdiction matrix, ledger ops and mounted operator tools.',
   robots: { index: false, follow: false },
+  // The kit's favicon and touch icon (public/brand, from packages/ui/brand).
+  icons: {
+    icon: [
+      { url: '/brand/favicon.svg', type: 'image/svg+xml' },
+      { url: '/brand/favicon-32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/brand/favicon-16.png', sizes: '16x16', type: 'image/png' },
+    ],
+    apple: '/brand/apple-touch-icon-180.png',
+  },
 };
 
 // Browser chrome follows the approved app-local graphite token.

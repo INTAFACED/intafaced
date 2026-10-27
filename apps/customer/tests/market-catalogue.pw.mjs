@@ -84,7 +84,7 @@ async function network(context, rows, { mine = false, fail = false } = {}) {
 }
 async function login(page, path) {
   await page.goto('/login?redirect=' + encodeURIComponent(path));
-  await page.getByLabel('Email or handle').fill('isolated-market-catalogue');
+  await page.getByLabel('Email or handle', { exact: true }).fill('isolated-market-catalogue');
   await page.getByLabel('Password', { exact: true }).fill('isolated-password');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(path + '$'));
