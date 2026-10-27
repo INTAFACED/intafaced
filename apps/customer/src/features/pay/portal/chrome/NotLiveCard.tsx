@@ -46,6 +46,7 @@ export function NotLiveCard({
   chromeCopy.useCopy();
   return (
     <section
+      data-testid="pfo-soon"
       className={`pfo-soon${variant === 'page' ? ' pfo-soon--page' : ''}`}
       aria-label={title ?? reason}
       data-needs={needs}

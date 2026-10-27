@@ -17,6 +17,9 @@ import {
   supportEmail,
   supportRequestHref,
   requestFromSearch,
+  supportRoute,
+  supportNewHref,
+  customerStatus,
   supportMailto,
   ticketReference,
   type TicketLike,
@@ -186,9 +189,36 @@ describe('the rate-this-request prompt', () => {
 describe('opening one request from an address', () => {
   const ID = '11111111-1111-4111-8111-111111111111';
   it('builds the address from a request id and reads it back', () => {
-    expect(supportRequestHref(ID)).toBe(`/support?request=${ID}`);
+    expect(supportRequestHref(ID)).toBe(`/support/tickets/${ID}`);
+    expect(supportRoute(`/support/tickets/${ID}`, '')).toEqual({ view: 'request', id: ID });
+    expect(supportRoute(`/support/tickets/${ID.toUpperCase()}/`, '')).toEqual({ view: 'request', id: ID });
+    // The address from before requests had their own still opens the request.
+    expect(supportRoute('/support', `?request=${ID}`)).toEqual({ view: 'request', id: ID });
     expect(requestFromSearch(`?request=${ID}`)).toBe(ID);
     expect(requestFromSearch(`?request=${ID.toUpperCase()}`)).toBe(ID);
+  });
+  it('names each part of the desk by its address', () => {
+    expect(supportRoute('/support', '')).toEqual({ view: 'help' });
+    expect(supportRoute('/support', '?q=passkey')).toEqual({ view: 'help' });
+    expect(supportRoute('/support/tickets', '')).toEqual({ view: 'requests' });
+    expect(supportRoute('/support/new', '')).toEqual({ view: 'new', subject: '' });
+    expect(supportRoute('/support/new', '?subject=%20lost%20phone%20')).toEqual({ view: 'new', subject: 'lost phone' });
+    expect(supportRoute('/support/new', `?subject=${'x'.repeat(300)}`)).toEqual({ view: 'new', subject: 'x'.repeat(200) });
+    for (const bad of ['/support/tickets/abc', '/support/tickets/%E0%A4%A', `/support/tickets/${ID}x`])
+      expect(supportRoute(bad, '')).toEqual({ view: 'badRequest' });
+    for (const other of ['/support/ticket', '/support/foo', `/support/tickets/${ID}/comments`])
+      expect(supportRoute(other, '')).toEqual({ view: 'unknown' });
+  });
+  it('drafts the form address from search words, and the form with none', () => {
+    expect(supportNewHref('  lost phone ')).toBe('/support/new?subject=lost+phone');
+    expect(supportNewHref('   ')).toBe('/support/new');
+    expect(supportNewHref('y'.repeat(300))).toBe(`/support/new?subject=${'y'.repeat(200)}`);
+  });
+  it('reads the customer status, and a finished request is solved whatever an older service says', () => {
+    expect(customerStatus({ status: 'pending', customerStatus: 'awaiting_reply' })).toBe('awaiting_reply');
+    expect(customerStatus({ status: 'open' })).toBe('open');
+    expect(customerStatus({ status: 'resolved' })).toBe('solved');
+    expect(customerStatus({ status: 'closed', customerStatus: 'open' })).toBe('solved');
   });
   it('anything that is not a request id opens nothing', () => {
     for (const search of ['', '?request=', '?request=abc', `?request=${ID}x`, '?request=../../x', `?other=${ID}`])

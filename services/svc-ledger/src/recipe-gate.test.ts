@@ -62,6 +62,30 @@ describe('recipe-gate', () => {
     ).not.toThrow();
   });
 
+  it('accepts a returned withdrawal only with its own shape: rail boundary back to the person', () => {
+    const returned = toWire(
+      recipes.withdrawReturned({ userId: USER, assetId: 'USDT', amount: amt('10'), rail: 'crypto-native', withdrawalId: 'w1:0' }),
+    );
+    expect(() => assertKnownRecipePost(returned)).not.toThrow();
+    // The same reason from one person to another is not a recipe.
+    expect(() =>
+      assertKnownRecipePost({
+        ...returned,
+        entries: [
+          { account: userAvailable(USER2, 'USDT'), direction: 'credit' },
+          { account: userAvailable(USER, 'USDT'), direction: 'debit' },
+        ],
+      }),
+    ).toThrow(expect.objectContaining({ code: RECIPE_REQUIRED_CODE }));
+    // Nor is the return taken from the person back to the boundary.
+    expect(() =>
+      assertKnownRecipePost({
+        ...returned,
+        entries: returned.entries.map((e) => ({ ...e, direction: e.direction === 'credit' ? 'debit' : 'credit' })),
+      }),
+    ).toThrow(expect.objectContaining({ code: RECIPE_REQUIRED_CODE }));
+  });
+
   it('refuses assembled entries that are not a known recipe', () => {
     expect(() =>
       assertKnownRecipePost({

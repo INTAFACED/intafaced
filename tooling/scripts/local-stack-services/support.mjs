@@ -16,5 +16,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // Production stays blank and every vote refuses (support.feedback_rate_limit_unset) until the owner sets both.
     SUPPORT_FEEDBACK_RATE_LIMIT: '5',
     SUPPORT_FEEDBACK_RATE_WINDOW_SECONDS: '3600',
+    // LOCAL TEST only, labelled in the same file: how many live request forms and ticket fields the desk may keep.
+    // Production stays blank and every definition refuses (support.form_cap_unset, support.field_cap_unset).
+    SUPPORT_FORM_CAP: '50',
+    SUPPORT_FIELD_CAP: '200',
   }),
 });

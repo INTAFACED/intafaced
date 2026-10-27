@@ -82,3 +82,30 @@ describe('withdrawal.limits', () => {
     await expect(caller.withdrawal.limits({ assetId: 'USDT' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 });
+
+describe('withdrawal.tierLimits', () => {
+  // TEST figures, illustrative only.
+  const PUBLISHED = { enforced: true, limits: [{ tier: 'basic', assetId: 'USDT', perTx: '10', rolling24h: '15' }] };
+  const caller = (scopes = ['trade:read']) => {
+    const money = { withdrawalTierLimits: async () => PUBLISHED } as unknown as UserMoneyService;
+    return createPayRouter({} as PayService, rails, money).createCaller(signed(scopes));
+  };
+
+  it("returns the owner's published figures per tier", async () => {
+    expect(await caller().withdrawal.tierLimits()).toEqual(PUBLISHED);
+  });
+
+  it('an unwired reader refuses with its typed code, never an empty list that reads as no limits', async () => {
+    const money = {
+      withdrawalTierLimits: async () => {
+        throw new PayGuardRefusal('pay.guard_withdrawal_limits_unwired', 'unavailable');
+      },
+    } as unknown as UserMoneyService;
+    const api = createPayRouter({} as PayService, rails, money).createCaller(signed(['trade:read']));
+    await expect(api.withdrawal.tierLimits()).rejects.toMatchObject({ message: 'pay.guard_withdrawal_limits_unwired' });
+  });
+
+  it('needs trade:read', async () => {
+    await expect(caller(['identity:read']).withdrawal.tierLimits()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+});

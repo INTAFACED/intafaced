@@ -116,7 +116,7 @@ export function LedgerTab({ balances }: { balances: Loadable<Record<string, Bala
         <StateBlock kind="empty" title={t('Ledger empty')} />
       ) : (
         <>
-          <table className="dk-table" aria-label={t('Ledger history')}>
+          <table data-testid="dk-table" className="dk-table" aria-label={t('Ledger history')}>
             <thead>
               <tr>
                 <th>{t('Time')}</th>
@@ -136,7 +136,7 @@ export function LedgerTab({ balances }: { balances: Loadable<Record<string, Bala
                     <Amount value={fmtAmount(e.amount, { places: 8 })} />
                   </td>
                   <td>{t(kindKey(e))}</td>
-                  <td className="dk-ledger-ref" title={t('Ledger entry', { id: e.id })}>
+                  <td data-testid="dk-ledger-ref" className="dk-ledger-ref" title={t('Ledger entry', { id: e.id })}>
                     {e.referenceId}
                   </td>
                 </tr>
@@ -144,7 +144,7 @@ export function LedgerTab({ balances }: { balances: Loadable<Record<string, Bala
             </tbody>
           </table>
           {read.failed ? (
-            <p className="dk-note dk-note--bad" role="alert">
+            <p data-testid="dk-note--bad" className="dk-note dk-note--bad" role="alert">
               {t('Ledger more failed')}
             </p>
           ) : null}
@@ -166,7 +166,7 @@ function Totals({ entries, balances }: { entries: LedgerEntry[]; balances: Loada
   const { t } = deskCopy.useCopy();
   const sums = sumByAsset(entries);
   return (
-    <table className="dk-table" aria-label={t('Ledger totals')}>
+    <table data-testid="dk-table" className="dk-table" aria-label={t('Ledger totals')}>
       <thead>
         <tr>
           <th>{t('Asset')}</th>
@@ -276,12 +276,16 @@ function Statement() {
             </div>
             <p className="dk-note">{t('Statement today', { time: clockMinutes(todayEnd(asOf).getTime(), 'UTC') })}</p>
             {asked.status === 'refused' ? (
-              <p className="dk-note dk-note--bad" role="alert">
+              <p data-testid="dk-note--bad" className="dk-note dk-note--bad" role="alert">
                 {asked.text}
               </p>
             ) : null}
             {job ? (
-              <p className={job.status === 'failed' ? 'dk-note dk-note--bad' : 'dk-note'} role="status">
+              <p
+                data-testid={job.status === 'failed' ? 'dk-note--bad' : undefined}
+                className={job.status === 'failed' ? 'dk-note dk-note--bad' : 'dk-note'}
+                role="status"
+              >
                 {job.status === 'finished' && job.rows
                   ? t('Statement ready', { orders: job.rows.orders, trades: job.rows.trades, ledger: job.rows.ledger, id: job.id })
                   : job.status === 'failed'

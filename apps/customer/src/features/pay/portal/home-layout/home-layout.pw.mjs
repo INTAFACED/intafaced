@@ -30,8 +30,8 @@ const fits = (page) => expect.poll(() => page.evaluate(() => document.documentEl
 
 test('Home-style default, accordion keyboard control, chart table and reviewed payout route', async ({ page }) => {
   await setup(page);
-  await expect(page.locator('.plo-number')).toHaveCount(1);
-  await expect(page.locator('.plo-heading')).toHaveCount(0);
+  await expect(page.getByTestId('plo-balance-amount')).toHaveCount(1);
+  await expect(page.getByTestId('plo-heading')).toHaveCount(0);
   await expect(page.locator('.pay-business-nav')).toHaveCount(0);
   const trigger = page.getByRole('button', { name: 'Payment volume', exact: true });
   // the daily chart is open when the page opens, so the wide screen has no empty area under the figures
@@ -42,12 +42,12 @@ test('Home-style default, accordion keyboard control, chart table and reviewed p
   await page.keyboard.press('Enter');
   await expect(trigger).toHaveAttribute('aria-expanded', 'true');
   // two assets are paid in, so the chart offers both; this check follows USDT
-  await page.locator('.plo-volume').getByRole('group', { name: 'Asset' }).getByRole('button', { name: 'USDT', exact: true }).click();
+  await page.getByTestId('plo-volume').getByRole('group', { name: 'Asset' }).getByRole('button', { name: 'USDT', exact: true }).click();
   await page.getByRole('button', { name: 'View data table', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Payment volume USDT', exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Pay out', exact: true }).click();
   await expect(page).toHaveURL(/\/pay\/payouts\?view=tools$/);
-  await expect(page.locator('.plo-tabs a')).toHaveCount(5);
+  await expect(page.getByTestId('plo-tabs').locator('a')).toHaveCount(5);
   await expect(page.locator('.pay-business-nav')).toHaveCount(0);
 });
 
@@ -84,12 +84,12 @@ for (const width of [1440, 390])
     await setup(page);
     for (const path of ['/pay/merchant', '/pay/payments', '/pay/settings', '/pay/payouts', '/pay/money']) {
       await go(page, path);
-      await expect(page.locator('.pp')).toBeVisible();
+      await expect(page.getByTestId('pp')).toBeVisible();
       if (width > 600)
         await expect(page.getByRole('navigation', { name: 'Business navigation', exact: true }).getByRole('link')).toHaveCount(5);
       else await expect(page.getByRole('button', { name: 'Open business menu', exact: true })).toBeVisible();
       await fits(page);
-      const result = await new AxeBuilder({ page }).include('.pp').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+      const result = await new AxeBuilder({ page }).include('[data-testid="pp"]').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
       expect(result.violations.map((v) => ({ id: v.id, path, nodes: v.nodes.map((n) => n.target) }))).toEqual([]);
     }
   });

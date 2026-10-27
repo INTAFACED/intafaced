@@ -77,7 +77,7 @@ export function ComplianceView({
         <Gate resource={current} retry={reload}>
           {(record) => (
             <>
-              <dl className="pp-facts">
+              <dl data-testid="pp-facts" className="pp-facts">
                 <div>
                   <dt>{c.t('verificationStatus')}</dt>
                   <dd>

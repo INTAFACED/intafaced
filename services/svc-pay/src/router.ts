@@ -1,4 +1,5 @@
 import { WITHDRAWAL_STATUSES, isCancellable, shownStatus } from './withdrawals/status.js';
+import { payWithdrawalTierLimitsOutputSchema } from '@intafaced/contracts/pay-withdrawal-tier-limits';
 import { INTERNAL_RAIL } from './withdrawals/internal.js';
 import { ELIGIBILITY_REASONS } from './withdrawals/eligibility.js';
 import { WithdrawalQuoteError, withdrawalQuoteToTrpcError } from './withdrawals/quotes/errors.js';
@@ -2302,6 +2303,17 @@ export function createPayRouter(
         .input(z.object({ assetId: assetIdSchema }))
         .output(withdrawalAllowanceSchema)
         .query(({ ctx, input }) => wrap(async () => userMoney.withdrawalAllowance(ctx.principal.userId, input.assetId))),
+
+      /**
+       * The owner's withdrawal limits for every KYC tier (D-148), as the verification ladder shows them
+       * (I-kyc-compliance-04): only figures the owner set, per tier and asset; a tier left out has no limit set, never a
+       * number. `enforced` is false when this deployment applies no limits. The same owner figures every customer is held
+       * to, nothing about the caller's own use. `trade:read` like the other withdrawal reads.
+       */
+      tierLimits: scopedProcedure('trade:read')
+        .input(z.object({}).strict().optional())
+        .output(payWithdrawalTierLimitsOutputSchema)
+        .query(() => wrap(async () => userMoney.withdrawalTierLimits())),
 
       /**
        * The caller's own withdrawals in the customer status vocabulary (W-withdraw-06; a held row split by its dispatch

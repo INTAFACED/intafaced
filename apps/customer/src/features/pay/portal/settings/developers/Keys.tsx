@@ -256,7 +256,7 @@ export function CreateKey({
           {t('createKeyOwnerOnly')}
         </p>
       )}
-      <div className="form-stack pp-form">
+      <div data-testid="form-stack" className="form-stack pp-form">
         <Field
           label={t('keyNameLabel')}
           hint={t('keyNameHint')}

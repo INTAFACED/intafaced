@@ -13,7 +13,7 @@ const pressedIn = (page, i) => cell(page, i).getByRole('group', { name: 'Chart i
 async function openGrid(page) {
   await page.goto(CHART);
   await page.getByRole('combobox', { name: /^Layout/ }).selectOption('grid');
-  await expect(page.locator('section.cw')).toHaveCount(4);
+  await expect(page.locator('section[data-testid="cw"]')).toHaveCount(4);
   for (let i = 0; i < 4; i += 1)
     await expect.poll(async () => Number(await canvasOf(page, i).getAttribute('data-bars'))).toBeGreaterThan(0);
 }
@@ -44,12 +44,12 @@ test(`${J} #2 maximises one chart with Alt+Enter and brings the others back on t
   await openGrid(page);
   await canvasOf(page, 1).focus();
   await page.keyboard.press('Alt+Enter');
-  await expect(page.locator('.cg-area')).toHaveAttribute('data-maximised', '1');
+  await expect(page.getByTestId('cg-area')).toHaveAttribute('data-maximised', '1');
   await expect(cell(page, 0)).toBeHidden();
   await expect(cell(page, 1)).toBeVisible();
   expect(await width(page, 1)).toBeGreaterThan(1000);
   await page.keyboard.press('Alt+Enter');
-  await expect(page.locator('.cg-area')).toHaveAttribute('data-maximised', '');
+  await expect(page.getByTestId('cg-area')).toHaveAttribute('data-maximised', '');
   // The others stayed alive: their bars are still drawn.
   for (const i of [0, 2, 3]) await expect.poll(async () => Number(await canvasOf(page, i).getAttribute('data-bars'))).toBeGreaterThan(0);
 });
@@ -148,14 +148,14 @@ test(`${J} #6 uses chart and desk shortcuts, and each does what its help list sa
   await page.keyboard.press('Alt+R');
   await expect(cell(page, 2).getByRole('group', { name: 'Bar replay' })).toBeVisible();
   await page.keyboard.press('Alt+Enter');
-  await expect(page.locator('.cg-area')).toHaveAttribute('data-maximised', '2');
+  await expect(page.getByTestId('cg-area')).toHaveAttribute('data-maximised', '2');
   await page.keyboard.press('Alt+Enter');
   await page.keyboard.press('Alt+G');
-  await expect(page.locator('.cg-area')).toHaveAttribute('data-layout', 'single');
+  await expect(page.getByTestId('cg-area')).toHaveAttribute('data-layout', 'single');
   // Keys are off inside a field.
   await page.getByLabel('Go to date').first().focus();
   await page.keyboard.press('Alt+G');
-  await expect(page.locator('.cg-area')).toHaveAttribute('data-layout', 'single');
+  await expect(page.getByTestId('cg-area')).toHaveAttribute('data-layout', 'single');
   // The desk key opens the desk for this market; nothing is sent.
   await canvasOf(page, 0).focus();
   await page.keyboard.press('Alt+T');

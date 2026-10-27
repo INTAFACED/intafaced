@@ -106,13 +106,47 @@ describe('the help centre front door', () => {
     expect(host.innerHTML).not.toContain('mailto:');
   });
 
+  async function searchFor(words: string) {
+    const search = host.querySelector<HTMLInputElement>('input[name="help-search"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, words);
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => search.form!.requestSubmit());
+    await act(async () => undefined);
+  }
+
+  it('under a search with no answer, "Contact support" signs a visitor in and comes back to the form with the words as its subject (J-support-public-02 #1, #2)', async () => {
+    await mount();
+    await searchFor('lost phone');
+    const empty = host.querySelector('.help__empty')!;
+    const contact = [...empty.querySelectorAll('button')].find((b) => b.textContent === 'Contact support')!;
+    await act(async () => contact.click());
+    const prompt = host.querySelector('[data-testid="request-sign-in"]')!;
+    expect(prompt.querySelector('a')!.getAttribute('href')).toBe('/login?redirect=%2Fsupport%2Fnew%3Fsubject%3Dlost%2Bphone');
+    expect(host.querySelector<HTMLInputElement>('input[name="help-search"]')!.value).toBe('lost phone');
+    // The request button at the top goes to the same form once the search found nothing.
+    const top = [...host.querySelectorAll('.help__request button')].find((b) => b.textContent === 'Send a request')!;
+    expect(top).toBeDefined();
+  });
+
+  it('signed in, "Contact support" links straight to the form with the words as its subject', async () => {
+    world.signedIn = true;
+    await mount();
+    await searchFor('lost phone');
+    const link = [...host.querySelectorAll<HTMLAnchorElement>('.help__empty a')].find((a) => a.textContent === 'Contact support')!;
+    expect(link.getAttribute('href')).toBe('/support/new?subject=lost+phone');
+    const desk = [...host.querySelectorAll<HTMLAnchorElement>('.help__request a')].find((a) => a.textContent === 'Contact support')!;
+    expect(desk.getAttribute('href')).toBe('/support/new?subject=lost+phone');
+  });
+
   it('a signed-in visitor with a request waiting sees the banner linking to that request', async () => {
     world.signedIn = true;
     world.awaiting = { ok: true, data: { count: 1, longestWaiting: { ticketId: ID, since: '2026-10-20T01:00:00.000Z' } } };
     await mount();
     const banner = host.querySelector('[data-testid="action-required"]')!;
     expect(banner.textContent).toContain('Action required');
-    expect(banner.querySelector('a')!.getAttribute('href')).toBe(`/support?request=${ID}`);
+    expect(banner.querySelector('a')!.getAttribute('href')).toBe(`/support/tickets/${ID}`);
     expect(host.textContent).toContain('Open your support requests');
     expect(host.querySelector('[data-testid="request-sign-in"]')).toBeNull();
   });

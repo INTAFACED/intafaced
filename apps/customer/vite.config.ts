@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv } from 'vite';
 import tailwindcss from '@tailwindcss/vite';
+import { homeBoot } from './src/app/boot';
 
 /**
  * Production guard. `VITE_LOCAL_TEST=1` turns on the dev-only screens (`/dev/features`) in a build. It no longer changes
@@ -33,7 +34,7 @@ export default defineConfig(({ mode }) => {
   assertLocalTestBuildAllowed(mode, { ...loadEnv(mode, process.cwd(), ['VITE_', 'INTAFACED_']), ...process.env });
   return {
     esbuild: { jsx: 'automatic' },
-    plugins: [tailwindcss()],
+    plugins: [tailwindcss(), homeBoot()],
     server: {
       proxy: {
         '/api': { target: process.env.CUSTOMER_EDGE_URL ?? 'http://127.0.0.1:4000', changeOrigin: false },

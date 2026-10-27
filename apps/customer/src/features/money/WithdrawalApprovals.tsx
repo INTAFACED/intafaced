@@ -32,7 +32,7 @@ function ReadResult<T>({ resource, retry, children }: { resource: Resource<T>; r
   const result = resource.failure;
   if (result.status === 404 || result.code === 'withdrawal_approval.not_found')
     return (
-      <div className="failure" role="status">
+      <div data-testid="failure" className="failure" role="status">
         <h3>{t('notFound')}</h3>
         <p>{t('notFoundNote')}</p>
         <Button variant="secondary" onClick={retry}>
@@ -292,7 +292,7 @@ export function WithdrawalApprovals({ context, search }: { context: ApprovalRead
     <Page eyebrow={t('money')} title={t('title')} description={t('description')}>
       <div className="withdrawal-page">
         {!requested.ok ? (
-          <p className="failure" role="alert">
+          <p data-testid="failure" className="failure" role="alert">
             {t('invalidId')}
           </p>
         ) : requested.id ? (

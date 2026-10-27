@@ -51,7 +51,7 @@ function ReadResult<T>({ resource, retry, children }: { resource: Resource<T>; r
   const result = resource.failure;
   if (result.status === 404 && result.code === 'pay.withdrawal_not_found')
     return (
-      <div className="failure" role="status">
+      <div data-testid="failure" className="failure" role="status">
         <h3>{t('notFound')}</h3>
         <p>{t('notFoundNote')}</p>
         <Button variant="secondary" onClick={retry}>

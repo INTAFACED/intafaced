@@ -107,14 +107,14 @@ export const MarketsPanel = memo(function MarketsPanel({ selected, hrefFor, onCh
     );
   } else {
     list = (
-      <ul className="dk-mk-list">
+      <ul data-testid="dk-mk-list" className="dk-mk-list">
         {rows.map((market) => {
           const ticker = tickerMap?.[market.symbol];
           const favorite = isFavorite(market.symbol);
           const volume = ticker?.quoteVolume24h ?? null;
           const start = partialWindowStart(ticker, Date.now());
           return (
-            <li key={market.symbol} className="dk-mk-row" data-selected={market.symbol === selected || undefined}>
+            <li key={market.symbol} data-testid="dk-mk-row" className="dk-mk-row" data-selected={market.symbol === selected || undefined}>
               <button
                 type="button"
                 className="dk-icon-btn dk-mk-star"
@@ -132,16 +132,30 @@ export const MarketsPanel = memo(function MarketsPanel({ selected, hrefFor, onCh
                 aria-current={market.symbol === selected ? 'true' : undefined}
                 onClick={onChoose}
               >
-                <span className="dk-mk-name">
-                  <span className="dk-mk-pair">{market.symbol}</span>
+                <span data-testid="dk-mk-name" className="dk-mk-name">
+                  <span data-testid="dk-mk-pair" className="dk-mk-pair">
+                    {market.symbol}
+                  </span>
                   {volume !== null && isUsdQuote(market.quote) ? (
-                    <span className="dk-mk-sub if-num">{t('Volume short', { value: turnoverText(volume, market.quote) })}</span>
+                    <span data-testid="dk-mk-sub" className="dk-mk-sub if-num">
+                      {t('Volume short', { value: turnoverText(volume, market.quote) })}
+                    </span>
                   ) : null}
                 </span>
-                <span className="dk-mk-figures">
-                  <span className="dk-mk-price if-num">{fmtPrice(ticker?.last ?? null, market.tickSize)}</span>
-                  <Pct value={ticker?.changePct24h == null ? null : fmtPct(ticker.changePct24h)} className="dk-mk-change" />
-                  {start !== null ? <span className="dk-mk-sub">{t('Since time', { time: sinceLabel(start, timeZone) })}</span> : null}
+                <span data-testid="dk-mk-figures" className="dk-mk-figures">
+                  <span data-testid="dk-mk-price" className="dk-mk-price if-num">
+                    {fmtPrice(ticker?.last ?? null, market.tickSize)}
+                  </span>
+                  <Pct
+                    value={ticker?.changePct24h == null ? null : fmtPct(ticker.changePct24h)}
+                    data-testid="dk-mk-change"
+                    className="dk-mk-change"
+                  />
+                  {start !== null ? (
+                    <span data-testid="dk-mk-sub" className="dk-mk-sub">
+                      {t('Since time', { time: sinceLabel(start, timeZone) })}
+                    </span>
+                  ) : null}
                 </span>
               </a>
             </li>

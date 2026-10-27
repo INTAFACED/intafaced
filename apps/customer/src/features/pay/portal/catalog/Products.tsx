@@ -178,7 +178,7 @@ export function ProductCreate({ portal }: { portal: PortalApi }) {
   if (!may.allowed) return <EmptyState title={t('newTitle')}>{t(may.unverified ? 'emptyBodyUnverified' : 'emptyBodyReadOnly')}</EmptyState>;
   return (
     <PaySection title={t('newTitle')} description={t('newPurpose')}>
-      <div className="form-stack pp-form">
+      <div data-testid="form-stack" className="form-stack pp-form">
         {mode === 'test' && (
           <p className="pp-callout" role="note">
             {t('testCatalogueNote')}

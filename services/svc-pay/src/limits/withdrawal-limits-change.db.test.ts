@@ -355,6 +355,24 @@ describe('owner-set withdrawal limits (real Postgres)', () => {
       expect(hit.remaining).toEqual({ perTx: '10', rolling24h: '5' });
     });
 
+    it('the published list (the verification ladder) shows only figures a founder set, and a clear takes it off', async () => {
+      const service = money(basic);
+      expect(await service.withdrawalTierLimits()).toEqual({ enforced: true, limits: [] });
+      await lim().change(set({ ...approval }));
+      await lim().change(set({ tier: 'full', limit: { perTx: '50', rolling24h: '60' }, ...approval }));
+      expect(await service.withdrawalTierLimits()).toEqual({
+        enforced: true,
+        limits: [
+          { tier: 'basic', assetId: 'USDT', perTx: '10', rolling24h: '15' },
+          { tier: 'full', assetId: 'USDT', perTx: '50', rolling24h: '60' },
+        ],
+      });
+      await lim().change(set({ expectedVersion: 1, limit: null, reason: 'withdraw the figure' }));
+      expect((await service.withdrawalTierLimits()).limits.map((l) => l.tier)).toEqual(['full']);
+      // With limits not applied in this deployment the figures still list, marked as not enforced.
+      expect(await money(basic, 'off').withdrawalTierLimits()).toMatchObject({ enforced: false, limits: [{ tier: 'full' }] });
+    });
+
     it('a cut applies to the next withdrawal; a clear refuses again', async () => {
       const service = money(basic);
       await fund(service);

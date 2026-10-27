@@ -370,7 +370,7 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
           {note.text}
         </p>
       )}
-      <div ref={area} className="cg-area" style={template} data-layout={layout} data-maximised={maximised ?? ''}>
+      <div ref={area} data-testid="cg-area" className="cg-area" style={template} data-layout={layout} data-maximised={maximised ?? ''}>
         {cells.map((cell, i) => {
           const cellMarket = findMarket(markets as DeskMarket[], cell.symbol);
           const hidden = maximised !== null && maximised !== i;

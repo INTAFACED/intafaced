@@ -252,7 +252,7 @@ test(`${J} #4 sets the display currency to BTC: every value is the USD value ove
   await displayIn(page, 'BTC');
   const seen = watchSummaries(page);
   await page.goto('/money');
-  await expect(page.locator('.if-money')).toHaveAttribute('data-unit', 'BTC');
+  await expect(page.getByTestId('if-money')).toHaveAttribute('data-unit', 'BTC');
 
   // What the screen shows, against the bank's own answer it was drawn from (the newest BTC summary it read).
   await expect
@@ -260,12 +260,12 @@ test(`${J} #4 sets the display currency to BTC: every value is the USD value ove
       async () => {
         const answer = [...seen].reverse().find((s) => s.input.displayCurrency === 'BTC')?.data;
         if (!answer?.btc?.total || !answer.btc.priceUsd) return 'no BTC summary read yet';
-        const shown = await page.locator('.if-money').evaluate((root) => ({
-          total: root.querySelector('.money-total [role="img"]')?.getAttribute('aria-label') ?? null,
-          cash: root.querySelector('#cash .money-card__total')?.textContent?.trim() ?? null,
-          crypto: root.querySelector('#crypto .money-card__total')?.textContent?.trim() ?? null,
+        const shown = await page.getByTestId('if-money').evaluate((root) => ({
+          total: root.querySelector('[data-testid="money-total"] [role="img"]')?.getAttribute('aria-label') ?? null,
+          cash: root.querySelector('#cash [data-testid="money-card__total"]')?.textContent?.trim() ?? null,
+          crypto: root.querySelector('#crypto [data-testid="money-card__total"]')?.textContent?.trim() ?? null,
           rows: Object.fromEntries(
-            [...root.querySelectorAll('tr.money-row')].map((tr) => [
+            [...root.querySelectorAll('tr[data-testid="money-row"]')].map((tr) => [
               tr.getAttribute('data-asset'),
               tr.querySelector('[data-col="value"]')?.textContent?.trim() ?? null,
             ]),
@@ -289,8 +289,8 @@ test(`${J} #4 sets the display currency to BTC: every value is the USD value ove
   await page.goto('/money');
   const note = page.locator('[data-refusal="bank.fx_rate_unset"]');
   await expect(note).toHaveText(/No exchange rate is set for EUR, so your values are shown in USD\./);
-  await expect(page.locator('.if-money')).toHaveAttribute('data-unit', 'USD');
-  await expect(page.locator('#cash .money-card__total')).toHaveText(/^\$/);
+  await expect(page.getByTestId('if-money')).toHaveAttribute('data-unit', 'USD');
+  await expect(page.locator('#cash [data-testid="money-card__total"]')).toHaveText(/^\$/);
   const refusal = await (await bank(who)).raw('portfolio.summary', { displayCurrency: 'EUR' });
   expect(refusal.status).toBe(412);
   expect(JSON.stringify(refusal.body)).toContain('bank.fx_rate_unset');
@@ -325,12 +325,12 @@ test(`${J} #5 chooses one account or all combined: the totals follow, and named 
   await expect(page.locator('#accounts').getByText(SPACE)).toBeVisible();
   const scope = page.getByLabel('Accounts shown');
   await scope.selectOption(spaceId);
-  await expect(page.locator('.money-total [role="img"]')).toHaveAttribute('aria-label', '$100.00');
-  await expect(page.locator('tr.money-row[data-asset="BTC"]')).toHaveCount(0);
+  await expect(page.getByTestId('money-total').locator('[role="img"]')).toHaveAttribute('aria-label', '$100.00');
+  await expect(page.locator('tr[data-testid="money-row"][data-asset="BTC"]')).toHaveCount(0);
   await scope.selectOption('main');
-  await expect(page.locator('tr.money-row[data-asset="BTC"]')).toHaveCount(1);
+  await expect(page.locator('tr[data-testid="money-row"][data-asset="BTC"]')).toHaveCount(1);
   await scope.selectOption('combined');
-  await expect(page.locator('tr.money-row[data-asset="USDT"]')).toHaveCount(1);
+  await expect(page.locator('tr[data-testid="money-row"][data-asset="USDT"]')).toHaveCount(1);
 });
 
 test(`${J} #6 reads cash by currency and presses Convert: each currency's balance, and Convert opens the convert page with that currency`, async ({
@@ -347,14 +347,16 @@ test(`${J} #6 reads cash by currency and presses Convert: each currency's balanc
   const card = page.locator('#cash');
   // Each currency's balance as shown: the bank's amount, rounded down to the places on screen.
   for (const row of cash) {
-    const text = await card.locator(`tr.money-row[data-asset="${row.asset}"] .money-num__entries`).innerText();
+    const text = await card
+      .locator(`tr[data-testid="money-row"][data-asset="${row.asset}"] [data-testid="money-num__entries"]`)
+      .innerText();
     const shown = new RegExp(`([\\d,]+(?:\\.\\d+)?) ${row.asset}`).exec(text);
     expect(shown, `${row.asset} amount on screen: ${text}`).toBeTruthy();
     const places = shown[1].split('.')[1]?.length ?? 0;
     const step = 10n ** BigInt(18 - places);
     expect(toUnits(shown[1].replaceAll(',', ''))).toBe((toUnits(row.amount) / step) * step);
   }
-  await card.locator('tr.money-row[data-asset="USDT"]').getByRole('button', { name: 'Convert USDT' }).click();
+  await card.locator('tr[data-testid="money-row"][data-asset="USDT"]').getByRole('button', { name: 'Convert USDT' }).click();
   await expect(page).toHaveURL(/\/trade\/convert\?from=USDT/);
   await expect(page.getByTestId('from-field').getByRole('button', { name: 'Change the From asset' })).toContainText('USDT');
 });

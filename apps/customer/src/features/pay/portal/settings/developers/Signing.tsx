@@ -166,7 +166,7 @@ export function SigningSettings({
       <p className="pp-callout" role="status">
         {t('postureSigning', { signed: requireSignature ? t('yes') : t('no'), ip: requireNonEmptyIpAllowlist ? t('yes') : t('no') })}
       </p>
-      <div className="form-stack pp-form">
+      <div data-testid="form-stack" className="form-stack pp-form">
         <OnOff name={`sign-${keyId}`} legend={t('requireSigned')} hint={t('requireSignedHint')} value={sign} onChange={setSign} />
         <OnOff name={`ip-${keyId}`} legend={t('requireIp')} hint={t('requireIpHint')} value={needIp} onChange={setNeedIp} />
         <div className="pp-effect" aria-live="polite">
@@ -258,7 +258,7 @@ export function AllowedIps({
       </p>
       <p className="muted">{requireSignature ? t('effectSignedOn') : t('effectSignedOff')}</p>
       <p className="muted">{t('ipsSigningWarning')}</p>
-      <div className="form-stack pp-form">
+      <div data-testid="form-stack" className="form-stack pp-form">
         <label className="field">
           <span>{t('ipsLabel')}</span>
           <textarea

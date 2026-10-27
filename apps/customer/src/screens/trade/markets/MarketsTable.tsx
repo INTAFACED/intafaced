@@ -183,6 +183,7 @@ function Header({
             role="columnheader"
             data-col={column}
             aria-sort={key ? sortAria(key) : undefined}
+            data-testid={NUMERIC.includes(column) ? 'mkt-head--num' : undefined}
             className={`mkt-head ${NUMERIC.includes(column) ? 'mkt-head--num' : ''}`}
           >
             {column === 'action' ? <span className="if-sr">{label}</span> : key ? sortable(key, label) : <span>{label}</span>}
@@ -196,7 +197,7 @@ function Header({
 function SkeletonRow({ columns, variant, index }: { columns: readonly MarketColumn[]; variant: 'table' | 'panel'; index: number }) {
   if (variant === 'panel')
     return (
-      <div role="row" className="mkt-row mkt-row--panel" aria-hidden="true">
+      <div role="row" data-testid="mkt-row" className="mkt-row mkt-row--panel" aria-hidden="true">
         <div role="cell" className="mkt-panel__star" />
         <div role="cell" className="mkt-panel__name">
           <Skeleton width={72} height={16} />
@@ -220,12 +221,12 @@ function SkeletonRow({ columns, variant, index }: { columns: readonly MarketColu
       </div>
     ),
     price: (
-      <div className="mkt-cell mkt-cell--num" data-col="price">
+      <div data-testid="mkt-cell--num" className="mkt-cell mkt-cell--num" data-col="price">
         <Skeleton width={96} height={20} />
       </div>
     ),
     change: (
-      <div className="mkt-cell mkt-cell--num" data-col="change">
+      <div data-testid="mkt-cell--num" className="mkt-cell mkt-cell--num" data-col="change">
         <Skeleton width={64} height={20} />
       </div>
     ),
@@ -240,7 +241,7 @@ function SkeletonRow({ columns, variant, index }: { columns: readonly MarketColu
       </div>
     ),
     volume: (
-      <div className="mkt-cell mkt-cell--num" data-col="volume">
+      <div data-testid="mkt-cell--num" className="mkt-cell mkt-cell--num" data-col="volume">
         <Skeleton width={72} height={20} />
       </div>
     ),
@@ -251,7 +252,7 @@ function SkeletonRow({ columns, variant, index }: { columns: readonly MarketColu
     ),
   };
   return (
-    <div role="row" className="mkt-row" aria-hidden="true">
+    <div role="row" data-testid="mkt-row" className="mkt-row" aria-hidden="true">
       {columns.map((column) => (
         <div key={column} role="cell" style={{ display: 'contents' }}>
           {cell[column]}
@@ -443,7 +444,9 @@ export function MarketsTable({
         </div>
       ) : entries.length === 0 ? (
         empty ? (
-          <div className="mkt-empty">{empty}</div>
+          <div data-testid="mkt-empty" className="mkt-empty">
+            {empty}
+          </div>
         ) : null
       ) : entries.length > VIRTUALIZE_AFTER ? (
         <VirtualBody entries={entries} renderRow={renderRow} onVisible={onVisibleSymbolsChange} />

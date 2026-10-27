@@ -160,7 +160,7 @@ export function App() {
   const ribbon = dev && hidden && !devFeatures && !isMerchantArea(path) ? <DevRibbon feature={hidden} /> : null;
   const fallback = (
     <div className="legacy-room">
-      <div className="page">
+      <div data-testid="page" className="page">
         <Loading label={t('Opening room')} />
       </div>
     </div>

@@ -436,7 +436,7 @@ test(`${J} #8 a "No" vote with a comment sent as a request: one confirmation, on
 
     // The request's first message names the answer and carries the comment.
     await done.getByRole('link', { name: 'Open your request' }).click();
-    await expect(page).toHaveURL(/\/support\?request=/);
+    await expect(page).toHaveURL(/\/support\/tickets\/[0-9a-f-]{36}$/);
     await expect(page.locator('main').getByText(`This request is about help article ${first.id}`)).toBeVisible();
     await expect(page.locator('main').getByText(comment)).toBeVisible();
 

@@ -186,7 +186,7 @@ export function AdvertiserTermsSheet({
           <li>{t('termsAction')}</li>
         </ul>
         {failed ? (
-          <p className="failure" role="alert">
+          <p data-testid="failure" className="failure" role="alert">
             {t('termsAcceptFailed')}
           </p>
         ) : null}
@@ -314,19 +314,19 @@ export function OfferSummary({
       <p className="muted">{t('frozenNote')}</p>
       {termsNote ? <p role="status">{termsNote}</p> : null}
       {limit?.available && limit.shortBy ? (
-        <p className="failure" role="alert">
+        <p data-testid="failure" className="failure" role="alert">
           {t('overBalance', { available: displayAmount(limit.available), shortBy: displayAmount(limit.shortBy), asset: input.asset })}
         </p>
       ) : band?.min && band.max && band.currency ? (
-        <p className="failure" role="alert">
+        <p data-testid="failure" className="failure" role="alert">
           {t('overLevel', { min: displayAmount(band.min), max: displayAmount(band.max), currency: band.currency })}
         </p>
       ) : ruleClass ? (
-        <p className="failure" role="alert">
+        <p data-testid="failure" className="failure" role="alert">
           {t('refusedContentClass', { rule: ruleClass.replaceAll('_', ' ') })}
         </p>
       ) : refused ? (
-        <p className="failure" role="alert">
+        <p data-testid="failure" className="failure" role="alert">
           {t(refused)}
         </p>
       ) : failure ? (

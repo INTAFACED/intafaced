@@ -37,7 +37,7 @@ function Page() {
       <TooltipProvider>
         <ToastProvider>
           <div className="if-app">
-            <nav className="harness-bar" aria-label="Harness stand-in for the top bar">
+            <nav data-testid="harness-bar" className="harness-bar" aria-label="Harness stand-in for the top bar">
               <a href="/home">intafaced</a>
               <a href="/home">Home</a>
               <a href="/money">Money</a>

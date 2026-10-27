@@ -69,12 +69,17 @@ export function ChangePassword({ onChanged }: { onChanged?: () => void }) {
   const problem = state.phase === 'idle' ? state.problem : null;
   const problemText = problem ? (problem === 'currentMissing' ? t('currentMissing') : pw(problem)) : null;
   return (
-    <section className="security__password security__card" aria-label={t('title')} lang={languageFor('title')}>
+    <section
+      data-testid="security__password"
+      className="security__password security__card"
+      aria-label={t('title')}
+      lang={languageFor('title')}
+    >
       <h2>{t('title')}</h2>
       <p>{t('body')}</p>
       {state.phase === 'changed' ? (
         <div className="stack">
-          <p className="notice" role="status">
+          <p data-testid="notice" className="notice" role="status">
             {t('changed')}
           </p>
           <Button variant="secondary" onClick={() => dispatch({ type: 'again' })}>

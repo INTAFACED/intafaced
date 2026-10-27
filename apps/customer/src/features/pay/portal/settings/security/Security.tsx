@@ -32,7 +32,7 @@ export function SecurityView({
   return (
     <div className="stack">
       <PaySection title={t('secProtectionTitle')} description={t('secProtectionBody')}>
-        <dl className="pp-facts">
+        <dl data-testid="pp-facts" className="pp-facts">
           <div>
             <dt>{t('secThisSession')}</dt>
             <dd>{interactive === null ? t('secUnknown') : interactive ? t('secVerified') : t('secNotVerified')}</dd>

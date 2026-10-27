@@ -14,11 +14,11 @@ function Frame({ title, line, children }: { title: string; line: string; childre
   return (
     <div className="if-pay" data-testid="pay-room">
       <div className="pay-grid">
-        <header className="pay-hero">
+        <header data-testid="pay-hero" className="pay-hero">
           <h1>{title}</h1>
           <p>{line}</p>
         </header>
-        <section className="pay-card" aria-label={title}>
+        <section data-testid="pay-card" className="pay-card" aria-label={title}>
           <div className="pay-body">
             {children}
             <a className="pay-recent__link" href="/pay" data-testid="pay-room-back">

@@ -23,11 +23,13 @@ export const preloadMerchantChrome = () => import('../features/pay/portal/chrome
 const MerchantTopBar = lazy(preloadMerchantChrome);
 const GroupedMenu = lazy(() => import('../features/pay/portal/home-layout/Navigation').then((m) => ({ default: m.GroupedMenu })));
 
-/** Sets `--if-banner-offset` to the local stack's banner height (28 px), or 0 when there is no banner. */
+/** Sets `--if-banner-offset` to the local stack's banner height (28 px), or 0 when there is no banner, and marks the banner as covering the top edge. */
 export function useBannerOffset() {
   useEffect(() => {
     const apply = () => {
       const banner = document.getElementById('local-test-stack-banner');
+      // The fixed banner covers the top edge too, so the Lit look's focus padding counts it (a11y trackObscuringBars).
+      if (banner && !banner.hasAttribute('data-obscures')) banner.setAttribute('data-obscures', 'top');
       document.documentElement.style.setProperty(
         '--if-banner-offset',
         banner ? `${Math.round(banner.getBoundingClientRect().height)}px` : '0px',
@@ -130,7 +132,7 @@ function NavTab({ tab, current, language }: { tab: TabSpec; current: Door | unde
       </a>
       {hasMenu && open && (
         // TODO(B1): swap to the Base UI NavigationMenu in @intafaced/ui (same rows, same copy).
-        <div className="tb-popover tb-menu" id={menuId} role="group" aria-label={doorLabel(tab.door, language)}>
+        <div data-testid="tb-menu" className="tb-popover tb-menu" id={menuId} role="group" aria-label={doorLabel(tab.door, language)}>
           {groupedPay ? (
             <Suspense fallback={null}>
               <GroupedMenu here={location.pathname} close={() => setOpen(false)} />
@@ -263,7 +265,7 @@ export function TopBar({
     );
   return (
     <>
-      <header className="tb">
+      <header data-testid="tb" className="tb" data-obscures="top">
         <a className="tb-brand" href="/home" aria-label={t('Go to Home')}>
           <Wordmark />
         </a>
@@ -274,7 +276,7 @@ export function TopBar({
             ))}
           </ul>
         </nav>
-        <div className="tb-right">
+        <div data-testid="tb-right" className="tb-right">
           {/* The bar has room for the switch from 1280 px; narrower, it is in the account menu, or signed out in the row below. */}
           <ShellSwitch current="exchange" here={here} className="max-[1280px]:hidden" />
           <TopSearch />
@@ -317,7 +319,7 @@ export function MobileTabs({ door, language }: { door: Door | undefined; languag
   const { session, restoring } = useSession();
   const tabs = tabSpecs(layoutMode, Boolean(session) || restoring);
   return (
-    <nav className="mobile-doors" aria-label={t('Customer doors on phone')}>
+    <nav className="mobile-doors" data-obscures="bottom" aria-label={t('Customer doors on phone')}>
       {MOBILE_DOOR_ORDER.map((name) => tabs.find((tab) => tab.door === name)).flatMap((tab) =>
         tab
           ? [

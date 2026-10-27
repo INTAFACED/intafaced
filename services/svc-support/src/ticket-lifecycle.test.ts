@@ -166,12 +166,15 @@ describe('ticket lifecycle facts (SP-tickets-04)', () => {
     expect((await (await staff()).ticketLifecycle({ ticketId: a.id })).followsTicketId).toBe(closed.id);
   });
 
-  it('the customer cannot read the lifecycle, and the ticket they read carries no waiting-on', async () => {
+  it('the customer cannot read the lifecycle, and the ticket they read carries no desk waiting-on facts', async () => {
     const { support, mine, ticket } = desk();
     const t = await ticket();
     await support.comment({ userId: AGENT, ticketId: t.id, body: 'Reply', asOperator: true });
     const own = await (await mine()).get({ ticketId: t.id });
-    expect(JSON.stringify(own)).not.toMatch(/waiting/i);
+    // The owner reads whose turn it is (SP-tickets-01) and nothing else: no side, no since, no reply stamp.
+    const { customerStatus, ...rest } = own;
+    expect(customerStatus).toBe('awaiting_reply');
+    expect(JSON.stringify(rest)).not.toMatch(/waiting|firstPublicReply/i);
     await expect((await mine()).ticketLifecycle({ ticketId: t.id })).rejects.toBeTruthy();
   });
 

@@ -66,7 +66,7 @@ export function LayoutNavigation({ here }: { here: string }) {
   const shown = visible.find((g) => g.label === active.label) ?? active;
   return (
     <div ref={nav} className="plo-navigation">
-      <nav className="plo-tabs" aria-label={t('portalNav')}>
+      <nav data-testid="plo-tabs" className="plo-tabs" aria-label={t('portalNav')}>
         {visible.map((group) => (
           <a key={group.label} href={group.items[0]![0]} aria-current={group.label === active.label ? 'true' : undefined}>
             {t(group.label)}

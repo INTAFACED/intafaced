@@ -4,7 +4,7 @@ import type { Sql } from 'postgres';
 import { PayGuardRefusal } from '../seams/guards.js';
 import { allowanceOf, usedInWindow } from './allowance.js';
 import type { WithdrawalLimitMode } from './config.js';
-import { limitInForce, readIdentitySide, type KycTierOf } from './guards.js';
+import { GUARD_WITHDRAWAL_TIER_UNWIRED, limitInForce, readIdentitySide, type KycTierOf } from './guards.js';
 import type { LimitOverrideOf } from './identity-override.js';
 import type { LimitSource } from './source.js';
 
@@ -16,8 +16,19 @@ export const GUARD_WITHDRAWAL_LIMITS_UNWIRED = 'pay.guard_withdrawal_limits_unwi
 /** The published `WithdrawalAllowance` contract: base, override in force, figures in force, used and left. */
 export type WithdrawalAllowanceView = WithdrawalAllowance;
 
+/**
+ * The owner's withdrawal limits for every KYC tier, as the verification ladder shows them (I-kyc-compliance-04). Only
+ * figures the owner set are listed; a tier or asset left out has no limit set. `enforced` is false when this deployment
+ * does not apply limits at all (`PAY_WITHDRAWAL_LIMITS=off`), so the page never presents a figure as binding when it is not.
+ */
+export interface PublishedLimitsView {
+  readonly enforced: boolean;
+  readonly limits: Array<{ tier: string; assetId: string; perTx: string; rolling24h: string }>;
+}
+
 export interface WithdrawalLimitReader {
   allowance(userId: string, assetId: string): Promise<WithdrawalAllowanceView>;
+  published(): Promise<PublishedLimitsView>;
 }
 
 export interface WithdrawalLimitReaderDeps {
@@ -63,6 +74,20 @@ export function createWithdrawalLimitReader(deps: WithdrawalLimitReaderDeps): Wi
         used24h: formatAmount(a.used24h),
         remaining: { perTx: formatAmount(a.perTx), rolling24h: formatAmount(a.left24h) },
         maxNow: formatAmount(a.maxNow),
+      };
+    },
+    async published() {
+      // Enforced but with no tier source, the guard refuses every withdrawal: say so, never show figures as the live limit.
+      if (deps.mode === 'required' && !deps.tierOf) throw new PayGuardRefusal(GUARD_WITHDRAWAL_TIER_UNWIRED, 'unavailable');
+      const rows = await deps.source.list(deps.sql);
+      return {
+        enforced: deps.mode === 'required',
+        limits: rows.map((r) => ({
+          tier: r.tier,
+          assetId: r.assetId,
+          perTx: formatAmount(r.perTx),
+          rolling24h: formatAmount(r.rolling24h),
+        })),
       };
     },
   };

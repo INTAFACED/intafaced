@@ -26,7 +26,7 @@ const shotBoth = async (page, name) => {
 const forbidden = /unavailable|not connected|restricted|fixture|lifecycle|undefined|NaN|\[object|ledger|space|transferId|toUser/i;
 const open = async (page, path = '/pay/send') => {
   await page.goto(path);
-  await page.locator('.pay-card').waitFor();
+  await page.getByTestId('pay-card').waitFor();
 };
 const to = (page) => page.getByLabel('Handle', { exact: true });
 const accountId = (page) => page.getByLabel('Account ID', { exact: true });
@@ -61,13 +61,16 @@ test('by handle: look up, review, send, receipt, and the layout of the screen (1
   await open(page);
 
   // Layout (UI-SPEC 5.10): container 1224, two columns, card 520, headline "Pay" at 48/58, tabs Send / Receive.
-  expect(Math.round((await box(page.locator('.if-pay'))).width)).toBe(1224);
-  expect(Math.round((await box(page.locator('.pay-card'))).width)).toBe(520);
-  await expect(page.locator('.pay-hero h1')).toHaveText('Pay');
-  await expect(page.locator('.pay-hero p')).toHaveText('Send money to anyone on INTAFACED. It arrives instantly.');
-  expect(await page.locator('.pay-hero h1').evaluate((n) => getComputedStyle(n).fontSize + '/' + getComputedStyle(n).lineHeight)).toBe(
-    '48px/58px',
-  );
+  expect(Math.round((await box(page.getByTestId('if-pay'))).width)).toBe(1224);
+  expect(Math.round((await box(page.getByTestId('pay-card'))).width)).toBe(520);
+  await expect(page.getByTestId('pay-hero').locator('h1')).toHaveText('Pay');
+  await expect(page.getByTestId('pay-hero').locator('p')).toHaveText('Send money to anyone on INTAFACED. It arrives instantly.');
+  expect(
+    await page
+      .getByTestId('pay-hero')
+      .locator('h1')
+      .evaluate((n) => getComputedStyle(n).fontSize + '/' + getComputedStyle(n).lineHeight),
+  ).toBe('48px/58px');
   await expect(page.getByRole('tab', { name: 'Send' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('tab', { name: 'Receive' })).toBeVisible();
   // Order inside the card: tabs, To, Amount, the button.
@@ -120,7 +123,7 @@ test('by handle: look up, review, send, receipt, and the layout of the screen (1
 
   // Receipt.
   await expect(page.getByTestId('pay-receipt')).toBeVisible();
-  await expect(page.locator('.buy-receipt__title')).toHaveText('Sent 1 USDT to @maya_test');
+  await expect(page.getByTestId('buy-receipt__title')).toHaveText('Sent 1 USDT to @maya_test');
   await expect(page.getByRole('link', { name: 'View activity' })).toHaveAttribute('href', '/money/activity?tab=transfers');
   await expect(page.getByRole('button', { name: 'Done' })).toBeVisible();
   await shotBoth(page, 'send-receipt');
@@ -145,7 +148,7 @@ test('by handle: look up, review, send, receipt, and the layout of the screen (1
   expect(api.to('transfers.toUser')).toHaveLength(1);
 
   expect(errors).toEqual([]);
-  expect(await page.locator('.if-pay').innerText()).not.toMatch(forbidden);
+  expect(await page.getByTestId('if-pay').innerText()).not.toMatch(forbidden);
 });
 
 test('keyboard path: To, asset, amount, Review, dialog, Send', async ({ page }) => {
@@ -166,7 +169,7 @@ test('keyboard path: To, asset, amount, Review, dialog, Send', async ({ page }) 
   await expect(dialog(page).getByRole('heading')).toHaveText('Send 3 USDT to @maya_test?');
   await page.getByTestId('pay-send').focus();
   await page.keyboard.press('Enter');
-  await expect(page.locator('.buy-receipt__title')).toHaveText('Sent 3 USDT to @maya_test');
+  await expect(page.getByTestId('buy-receipt__title')).toHaveText('Sent 3 USDT to @maya_test');
   expect(api.to('transfers.toUser')).toHaveLength(1);
 });
 
@@ -254,7 +257,7 @@ test('fallback: a server without handles gets the Account ID input, and it still
   await expect(accountId(page)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Paste' })).toBeVisible();
   await expect(to(page)).toHaveCount(0);
-  await expect(page.locator('.pay-to__at')).toHaveCount(0);
+  await expect(page.getByTestId('pay-to__at')).toHaveCount(0);
   await shotBoth(page, 'send-fallback');
 
   await accountId(page).fill('not an id');
@@ -273,7 +276,7 @@ test('fallback: a server without handles gets the Account ID input, and it still
   await expect(dialog(page)).toContainText(MAYA.userId);
   await expect(page.getByTestId('pay-first-time')).toHaveText('You haven’t sent to this account before. Check the Account ID with them.');
   await sendButton(page).click();
-  await expect(page.locator('.buy-receipt__title')).toHaveText('Sent 1 USDT');
+  await expect(page.getByTestId('buy-receipt__title')).toHaveText('Sent 1 USDT');
   expect(api.to('users.resolveHandle')).toHaveLength(0);
   expect(api.to('transfers.toUser')[0].body).toMatchObject({ toUserId: MAYA.userId, amount: '1' });
 });
@@ -349,7 +352,7 @@ test('never sends twice: a double click, a held answer, and a reload while it is
 
   // Reload with the answer lost: the screen cannot know, so it waits and offers no way to send again.
   await page.reload();
-  await page.locator('.pay-card').waitFor();
+  await page.getByTestId('pay-card').waitFor();
   await expect(page.getByTestId('pay-waiting')).toContainText('We’re still confirming your last payment.');
   await expect(page.getByTestId('pay-waiting').getByRole('link', { name: 'View activity' })).toHaveAttribute(
     'href',
@@ -379,7 +382,7 @@ test('a refresh while reviewing sends nothing; the next review has a new id, and
   await review(page).click();
   await expect(dialog(page)).toBeVisible();
   await page.reload();
-  await page.locator('.pay-card').waitFor();
+  await page.getByTestId('pay-card').waitFor();
   expect(api.to('transfers.toUser')).toHaveLength(0);
   expect(await page.evaluate((key) => localStorage.getItem(key), pendingKey)).toBeNull();
 
@@ -393,7 +396,7 @@ test('a refresh while reviewing sends nothing; the next review has a new id, and
   await shotBoth(page, 'send-refused');
   await expect(sendButton(page)).toBeEnabled();
   await sendButton(page).click();
-  await expect(page.locator('.buy-receipt__title')).toHaveText('Sent 1 USDT to @maya_test');
+  await expect(page.getByTestId('buy-receipt__title')).toHaveText('Sent 1 USDT to @maya_test');
   const calls = api.to('transfers.toUser');
   expect(calls).toHaveLength(2);
   expect(calls[1].body.transferId).toBe(calls[0].body.transferId);
@@ -446,7 +449,7 @@ test('the note goes with the payment, and Review shows the fee and what is left 
   await expect(page.getByTestId('pay-review-fee')).toContainText('No fee');
   await expect(page.getByTestId('pay-review-left')).toContainText('999,996 USDT');
   await sendButton(page).click();
-  await expect(page.locator('.buy-receipt__title')).toHaveText('Sent 4 USDT to @maya_test');
+  await expect(page.getByTestId('buy-receipt__title')).toHaveText('Sent 4 USDT to @maya_test');
   expect(api.to('transfers.toUser')[0].body).toMatchObject({ amount: '4', note: 'Lunch on Friday' });
   expect(api.to('transfers.quote').at(-1).input).toEqual({ assetId: 'USDT', amount: '4' });
 });
@@ -608,14 +611,14 @@ test('leaving Pay while a payment is on its way: the answer clears the note and 
     window.dispatchEvent(new PopStateEvent('popstate'));
   });
   await expect(page.getByTestId('elsewhere')).toBeVisible();
-  await expect(page.locator('.pay-card')).toHaveCount(0);
+  await expect(page.getByTestId('pay-card')).toHaveCount(0);
   await api.release();
   await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), pendingKey)).toBeNull();
   await page.evaluate(() => {
     history.pushState(null, '', '/pay/send');
     window.dispatchEvent(new PopStateEvent('popstate'));
   });
-  await expect(page.locator('.buy-receipt__title')).toHaveText('Sent 1 USDT to @maya_test');
+  await expect(page.getByTestId('buy-receipt__title')).toHaveText('Sent 1 USDT to @maya_test');
   expect(api.to('transfers.toUser')).toHaveLength(1);
   // Done clears it for good.
   await page.getByRole('button', { name: 'Done' }).click();

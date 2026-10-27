@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { accountStateSchema } from './identity.js';
+import { supportCreateFormSchema } from './support-forms.js';
 
 /**
  * Support desk contracts (ops.support Stage-1 ticket spine).
@@ -21,6 +22,15 @@ export type SupportTicketCategory = z.infer<typeof supportTicketCategorySchema>;
  */
 export const SUPPORT_MESSAGE_HEADERS_MAX = 10_000;
 
+/**
+ * What the customer reads as their request's status (SP-tickets-01, ENGINE TK-1): `awaiting_reply` when the team's last
+ * public reply waits on them, `solved` once resolved or closed, `open` otherwise. It says only whose turn it is, never a
+ * time; staff keep reading `status` and the lifecycle facts.
+ */
+export const SUPPORT_CUSTOMER_STATUSES = ['awaiting_reply', 'open', 'solved'] as const;
+export const supportCustomerStatusSchema = z.enum(SUPPORT_CUSTOMER_STATUSES);
+export type SupportCustomerStatus = z.infer<typeof supportCustomerStatusSchema>;
+
 export const supportTicketSchema = z.object({
   id: z.string().guid(),
   userId: z.string().guid(),
@@ -33,10 +43,16 @@ export const supportTicketSchema = z.object({
   assigneeId: z.string().guid().nullable(),
   /** Set when this request was merged into another (SP-tickets-07); the request stays closed and readable. */
   mergedInto: z.string().guid().nullable().optional(),
+  /** Set on the owner's own reads (`listMine`, `get`, `createdByRequest`); absent from older services and staff lists. */
+  customerStatus: supportCustomerStatusSchema.optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
 export type SupportTicket = z.infer<typeof supportTicketSchema>;
+
+/** The caller's own request that a `support.create` key made, or null when that key made none (SP-tickets-01 recovery). */
+export const supportCreatedByRequestInputSchema = z.object({ clientRequestId: z.string().min(1).max(200) });
+export type SupportCreatedByRequestInput = z.infer<typeof supportCreatedByRequestInputSchema>;
 
 export const supportCommentSchema = z.object({
   id: z.string().guid(),
@@ -65,6 +81,8 @@ export const createTicketInputSchema = z.object({
    * ticket and creates no second one. Optional so older callers still parse.
    */
   clientRequestId: z.string().min(1).max(200).optional(),
+  /** The request type's form and its answers (SP-tickets-03). The service checks them against the stored form. */
+  form: supportCreateFormSchema.optional(),
 });
 export type CreateTicketInput = z.infer<typeof createTicketInputSchema>;
 

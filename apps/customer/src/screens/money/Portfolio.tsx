@@ -335,6 +335,7 @@ function CoinRow({
       <td className="money-num">
         {/* The amount itself opens the entries behind it, so the cell shows nothing but the figure. */}
         <a
+          data-testid="money-num__entries"
           className="money-num__entries"
           href={balanceEntriesHref(row.asset)}
           title={copy.t('See the entries', { asset: row.asset })}
@@ -488,7 +489,7 @@ function HoldingsCard({
     <section id={id} data-testid="money-card" className="money-card" aria-labelledby={`money-${id}-title`}>
       <header data-testid="money-card__head" className="money-card__head">
         <h2 id={`money-${id}-title`}>{title}</h2>
-        <Money value={value(total)} hidden={hidden} className="money-card__total" />
+        <Money value={value(total)} hidden={hidden} data-testid="money-card__total" className="money-card__total" />
       </header>
       <CoinTable rows={main} hidden={hidden} markets={markets} copy={copy} head layout={layout} helds={helds} />
       {folded.length > 0 ? (
