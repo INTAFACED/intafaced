@@ -104,7 +104,7 @@ async function go(page, path) {
 }
 async function capture(page, name) {
   await expect(page.locator('.pp .pp-skeleton')).toHaveCount(0);
-  const audit = await new AxeBuilder({ page }).include('.pp').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  const audit = await new AxeBuilder({ page }).include('[data-testid="pp"]').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
   expect(audit.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([]);
   if (shots) {
     await page.evaluate(() => {
@@ -135,11 +135,11 @@ test('invoices: a real list, a create form that reviews the exact amount, and a 
   const { mock, errors } = await setup(page);
   await signIn(page, '/pay/invoices');
   await expect(page.getByRole('heading', { name: 'Invoices', level: 1 })).toBeVisible();
-  await expect(page.locator('.pe-table tbody tr').first()).toBeVisible();
+  await expect(page.getByTestId('pe-table').locator('tbody tr').first()).toBeVisible();
   // a sent invoice past its due date reads Overdue, and the filter keeps only those
-  await expect(page.locator('.pe-table').getByText('Overdue', { exact: true }).first()).toBeVisible();
+  await expect(page.getByTestId('pe-table').getByText('Overdue', { exact: true }).first()).toBeVisible();
   await page.getByLabel('Status').selectOption('overdue');
-  await expect(page.locator('.pe-table tbody tr')).toHaveCount(1);
+  await expect(page.getByTestId('pe-table').locator('tbody tr')).toHaveCount(1);
   await page.getByLabel('Status').selectOption('sent');
   await expect.poll(() => mock.calls.some((c) => c.procedure === 'merchantOps.invoices.list' && c.input.status === 'sent')).toBe(true);
   await both(page, 'P20-invoices');
@@ -149,7 +149,7 @@ test('invoices: a real list, a create form that reviews the exact amount, and a 
   await page.getByRole('button', { name: 'Create invoice' }).click();
   await expect(page.getByText('12.345678').first()).toBeVisible();
   // (a due date, a customer email and exact line items are covered below)
-  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
   await expect(page).toHaveURL(/\/pay\/invoices\/[0-9a-f-]{36}$/);
   expect(mock.calls.filter((c) => c.procedure === 'merchantOps.invoices.create')).toHaveLength(1);
   await expect(page.getByRole('button', { name: 'Send invoice' })).toBeVisible();
@@ -174,14 +174,14 @@ test('invoices: line items add up exactly, a credit comes off the total, and the
   await two.getByLabel('Quantity').fill('1');
   await two.getByLabel('Unit price').fill('49.5');
   // worked out by exact decimal arithmetic, never a float
-  await expect(page.locator('.pp-line-total')).toContainText('250.50');
+  await expect(page.getByTestId('pp-line-total')).toContainText('250.50');
   await page.getByLabel('Customer email').fill('buyer@example.test');
   await page.getByLabel('Due date').fill('2099-01-01');
   await page.getByRole('button', { name: 'Create invoice' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('250.50');
   await expect(dialog).toContainText('TEST loyalty credit');
-  await dialog.locator('.form-stack > button').last().click();
+  await dialog.locator('[data-testid="form-stack"] > button').last().click();
   await expect(page).toHaveURL(/\/pay\/invoices\/[0-9a-f-]{36}$/);
   const made = mock.calls.filter((c) => c.procedure === 'merchantOps.invoices.create');
   expect(made).toHaveLength(1);
@@ -217,7 +217,7 @@ test('notifications: preferences route opens preferences, retains draft on cance
   await expect(page.getByRole('heading', { name: 'Notification preferences', level: 1 })).toBeVisible();
   await expect(page.getByText('Nothing is sent by email or text.', { exact: false })).toBeVisible();
   await both(page, 'P56-notification-settings');
-  const pref = page.locator('.pp-pref').first();
+  const pref = page.getByTestId('pp-pref').first();
   await pref.getByRole('checkbox').click();
   page.once('dialog', (d) => d.dismiss());
   await page.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: 'Your business', exact: true }).click();
@@ -436,7 +436,7 @@ async function developerFixture(page, kind, uncertainAction = false) {
     },
     { kind, subscription, mandate, uncertainAction },
   );
-  await expect(page.locator('#isolated-fixture .pp')).toBeVisible();
+  await expect(page.locator('#isolated-fixture [data-testid="pp"]')).toBeVisible();
 }
 test('subscription component: cancellation requires a summary and dispatches the existing guarded action once', async ({ page }) => {
   await developerFixture(page, 'subscription');

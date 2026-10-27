@@ -142,7 +142,12 @@ export function CloseAccount() {
 
   if (closure?.status === 'closed') {
     return (
-      <section className="security__close security__card" aria-label={t('closedTitle')} lang={languageFor('closedTitle')}>
+      <section
+        data-testid="security__card"
+        className="security__close security__card"
+        aria-label={t('closedTitle')}
+        lang={languageFor('closedTitle')}
+      >
         <h2>{t('closedTitle')}</h2>
         <p>{t('closedBody', { date: stamp(closure.finalizedAt ?? closure.effectiveAt, timeZone) })}</p>
       </section>
@@ -150,7 +155,7 @@ export function CloseAccount() {
   }
 
   return (
-    <section className="security__close security__card" aria-label={t('title')} lang={languageFor('title')}>
+    <section data-testid="security__card" className="security__close security__card" aria-label={t('title')} lang={languageFor('title')}>
       <h2>{t('title')}</h2>
       <p>{t('body')}</p>
       {note && (
@@ -180,7 +185,7 @@ export function CloseAccount() {
       ) : (
         <>
           {closure?.status === 'blocked' && (
-            <div className="failure" role="status">
+            <div data-testid="failure" className="failure" role="status">
               <h3>{t('blockedTitle')}</h3>
               <p>{t('blockedBody')}</p>
             </div>
@@ -202,9 +207,9 @@ export function CloseAccount() {
               ) : (
                 <>
                   <p>{t('stillOpen')}</p>
-                  <ul className="security__rows">
+                  <ul data-testid="security__rows" className="security__rows">
                     {check.resource.data.blockers.map((blocker) => (
-                      <li key={blocker.code} className="security__row">
+                      <li key={blocker.code} data-testid="security__row" className="security__row">
                         {t((BLOCKER_KEYS[blocker.code] ?? 'blockOther') as 'blockOrder', { count: blocker.count })}
                       </li>
                     ))}
@@ -214,9 +219,9 @@ export function CloseAccount() {
               {check.resource.data.balances.length > 0 && (
                 <>
                   <h3>{t('balancesTitle')}</h3>
-                  <ul className="security__rows">
+                  <ul data-testid="security__rows" className="security__rows">
                     {check.resource.data.balances.map((balance) => (
-                      <li key={balance.assetId} className="security__row">
+                      <li key={balance.assetId} data-testid="security__row" className="security__row">
                         {balance.amount} {balance.assetId}
                       </li>
                     ))}

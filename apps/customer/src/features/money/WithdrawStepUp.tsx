@@ -117,7 +117,7 @@ export function WithdrawStepUp({
           </Button>
         </form>
         {problem && (
-          <p className="failure" role="alert">
+          <p data-testid="failure" className="failure" role="alert">
             {problem}
           </p>
         )}

@@ -373,7 +373,7 @@ export function useAction(room: string, recovery?: { recover: (reference: string
         </p>
       ) : null}
       {snapshot.known && !operation.current ? (
-        <div className="failure" role="alert">
+        <div data-testid="failure" className="failure" role="alert">
           <p lang={copy.languageFor('cleanup')}>{copy.t('cleanup')}</p>
           <code lang="zxx" style={{ overflowWrap: 'anywhere' }}>
             {JSON.parse(snapshot.known.raw).reference ?? JSON.parse(snapshot.known.raw).id}
@@ -383,7 +383,7 @@ export function useAction(room: string, recovery?: { recover: (reference: string
           </Button>
         </div>
       ) : saved.status === 'unreadable' && !operation.current ? (
-        <div className="failure" role="alert">
+        <div data-testid="failure" className="failure" role="alert">
           <h3 lang={copy.languageFor('storageTitle')}>{copy.t('storageTitle')}</h3>
           <p lang={copy.languageFor('storageBody')}>{copy.t('storageBody')}</p>
           <Button variant="secondary" lang={copy.languageFor('retryStorage')} onClick={redraw}>
@@ -391,7 +391,7 @@ export function useAction(room: string, recovery?: { recover: (reference: string
           </Button>
         </div>
       ) : saved.status === 'present' && !operation.current ? (
-        <div className="failure" role="alert">
+        <div data-testid="failure" className="failure" role="alert">
           {!shown.result && (
             <h3>
               <Text k="common.outcome.not.confirmed" />

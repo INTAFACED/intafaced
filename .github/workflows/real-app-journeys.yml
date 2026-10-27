@@ -221,6 +221,13 @@ jobs:
           export JOURNEY_FILES
           pnpm exec playwright test --config "$config" --trace off
 
+      # The stack serves the Customer app under its production security headers with a report-uri (local-test-stack.mjs,
+      # customerSecurityHeaders), so anything a journey's browser was refused (an inline script, a font or a connect to an
+      # origin the policy does not list) is recorded. Any violation fails the shard: it would fail in production too.
+      - name: No Content-Security-Policy violation (the production policy)
+        if: success() || failure()
+        run: node tooling/scripts/local-test-stack.mjs csp-report --fail
+
       # The shard's blob (merged by the scoreboard job) and its failure screenshots; the run's TEST account files stay
       # on the runner.
       - name: Keep the shard's report

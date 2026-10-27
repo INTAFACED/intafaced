@@ -140,19 +140,54 @@ export async function snapshotInForce(sql: Sql, userId: string, at: Date): Promi
   return row ? present(row) : null;
 }
 
+/** A VIP trial (vip-review.ts): a tier granted to one person for a span of days, whatever their volume. */
+export interface VipTrialRow {
+  readonly applicationId: string;
+  readonly tierId: string;
+  readonly startsAt: string;
+  readonly endsAt: string;
+}
+
+/** `userId`'s trials in force at `at` (started, not yet ended), the one ending last first. */
+export async function trialsInForce(sql: Sql, userId: string, at: Date): Promise<VipTrialRow[]> {
+  const rows = await sql<Array<{ application_id: string; tier_id: string; starts_at: Date; ends_at: Date }>>`
+    SELECT application_id::text AS application_id, tier_id, starts_at, ends_at
+      FROM trade.vip_trials
+     WHERE user_id = ${userId} AND starts_at <= ${at.toISOString()} AND ends_at > ${at.toISOString()}
+     ORDER BY ends_at DESC, application_id`;
+  return rows.map((row) => ({
+    applicationId: row.application_id,
+    tierId: row.tier_id,
+    startsAt: row.starts_at.toISOString(),
+    endsAt: row.ends_at.toISOString(),
+  }));
+}
+
 /**
- * The tier an order `userId` places at `at` is charged at: the last snapshot's tier while the schedule in force has a
- * tier programme that still names it, else regular (no programme: "Thresholds not set").
+ * The tier an order `userId` places at `at` is charged at: the higher of the last snapshot's tier and any VIP trial in
+ * force, each while the schedule in force has a tier programme that still names it, else regular (no programme:
+ * "Thresholds not set").
  */
 export async function feeTierAt(sql: Sql, schedule: OwnerFeeSchedule, userId: string, at: Date): Promise<string> {
   if (schedule.published !== true || !schedule.tierProgram) return REGULAR_FEE_TIER;
-  return tierOf(schedule, await snapshotInForce(sql, userId, at));
+  const [snapshot, trials] = await Promise.all([snapshotInForce(sql, userId, at), trialsInForce(sql, userId, at)]);
+  return tierOf(schedule, snapshot, trials);
 }
 
-/** The tier `snapshot` gives under `schedule`: its own while the programme in force still names it, else regular. */
-export function tierOf(schedule: OwnerFeeSchedule, snapshot: TierSnapshotRow | null): string {
-  if (schedule.published !== true || !schedule.tierProgram || !snapshot) return REGULAR_FEE_TIER;
-  return schedule.tierProgram.thresholds.some((threshold) => threshold.tierId === snapshot.tierId) ? snapshot.tierId : REGULAR_FEE_TIER;
+/**
+ * The tier `snapshot` and `trials` give under `schedule`: the highest of them the programme in force still names (its
+ * thresholds rise, so the later one is higher), else regular.
+ */
+export function tierOf(schedule: OwnerFeeSchedule, snapshot: TierSnapshotRow | null, trials: readonly VipTrialRow[] = []): string {
+  if (schedule.published !== true || !schedule.tierProgram) return REGULAR_FEE_TIER;
+  const order = schedule.tierProgram.thresholds.map((threshold) => threshold.tierId);
+  const named = [snapshot?.tierId, ...trials.map((trial) => trial.tierId)].filter((tier): tier is string => !!tier && order.includes(tier));
+  return named.reduce<string>((best, tier) => (order.indexOf(tier) > order.indexOf(best) ? tier : best), REGULAR_FEE_TIER);
+}
+
+/** The trial `tierOf` charged at, when it is one: the one ending last of those that gave `tier`, or null. */
+export function trialGiving(tier: string, trials: readonly VipTrialRow[]): VipTrialRow | null {
+  return trials.find((trial) => trial.tierId === tier) ?? null;
 }
 
 interface SnapshotDbRow {

@@ -91,7 +91,7 @@ test(`${J} part of #6 the owner reads the published merchant terms and accepts t
   await page.goto('/pay/onboarding');
   await expect(page.getByText('Accept the terms of service (step 3).')).toBeVisible();
   await page.goto('/pay/onboarding/go-live');
-  const terms = page.locator('.stack').filter({ has: page.getByRole('heading', { name: 'Terms of service' }) });
+  const terms = page.getByTestId('onboarding-terms');
   await expect(terms.getByRole('link', { name: 'Read the terms (version TEST-merchant-terms-1)' })).toHaveAttribute(
     'href',
     'https://terms.example/TEST-merchant-terms-1',
@@ -145,7 +145,9 @@ test(`${J} #5 the verified owner saves where payouts go, confirming it with a fr
 /** Step 2's business application on the verification page, started for one type and country. */
 async function startApplication(page, typeLabel, country = 'DE') {
   await page.goto('/pay/onboarding/verification');
-  const app = page.locator('section.pay-section').filter({ has: page.getByRole('heading', { name: 'Business application' }) });
+  const app = page
+    .locator('section[data-testid="pay-section"]')
+    .filter({ has: page.getByRole('heading', { name: 'Business application' }) });
   await app.getByLabel('Legal entity type *').selectOption({ label: typeLabel });
   await app.getByLabel('Country the business is registered in *').selectOption(country);
   await app.getByRole('button', { name: 'Start the application' }).click();
@@ -409,7 +411,9 @@ test(`${J} #7 the owner chooses the business category and reads its class rule; 
   await openBusiness(page, owner, 'TEST Category Ltd');
   const refused = refusedPayCalls(page);
   await page.goto('/pay/compliance');
-  const section = page.locator('section.pay-section').filter({ has: page.getByRole('heading', { name: 'Business category' }) });
+  const section = page
+    .locator('section[data-testid="pay-section"]')
+    .filter({ has: page.getByRole('heading', { name: 'Business category' }) });
   const all = section.getByRole('list', { name: 'Every category' });
   await expect(section.getByTestId('category-no-rule').or(all)).toBeVisible();
   // A shared stack may already hold categories from an earlier run; a fresh one has none and says so.

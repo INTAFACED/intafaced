@@ -171,7 +171,7 @@ function AnswerForm({
     }
   }
   return (
-    <div className="form-stack pp-form">
+    <div data-testid="form-stack" className="form-stack pp-form">
       <label className="field" htmlFor={noteId}>
         <span>{t('noteLabel')}</span>
         <textarea id={noteId} rows={3} maxLength={2000} value={note} onChange={(event) => setNote(event.target.value)} />

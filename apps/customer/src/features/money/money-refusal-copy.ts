@@ -99,6 +99,8 @@ const en = {
   inviteExpired: 'This invite has ended. Ask the pot’s owner for a new one. Nothing was changed.',
   inviteNotFound: 'This invite is no longer open to you. Nothing was changed.',
   inviteeNotFound: 'No active account has this handle or email. Check it and try again. Nothing was sent.',
+  spaceNameTaken:
+    'You already have a space with this name in this currency, perhaps an archived one. Pick another name. Nothing was changed.',
   sharedPotFull: 'This pot is shared with as many people as the bank allows, open invites included. Nothing was sent.',
   sharedPotInvalid:
     'That cannot be done with this pot: the person may already share it or have an open invite, or it is your own. Nothing was changed.',
@@ -202,6 +204,7 @@ const es = {
   inviteExpired: 'Esta invitación terminó. Pide una nueva al propietario de la hucha. No se cambió nada.',
   inviteNotFound: 'Esta invitación ya no está abierta para ti. No se cambió nada.',
   inviteeNotFound: 'Ninguna cuenta activa tiene ese usuario o correo. Revísalo e inténtalo de nuevo. No se envió nada.',
+  spaceNameTaken: 'Ya tienes un espacio con este nombre en esta moneda, quizá uno archivado. Elige otro nombre. No se cambió nada.',
   sharedPotFull: 'Esta hucha se comparte con tantas personas como permite el banco, invitaciones abiertas incluidas. No se envió nada.',
   sharedPotInvalid:
     'Eso no se puede hacer con esta hucha: puede que la persona ya la comparta o tenga una invitación abierta, o es la tuya. No se cambió nada.',
@@ -307,6 +310,8 @@ const fr = {
   inviteExpired: 'Cette invitation a pris fin. Demande-en une nouvelle au propriétaire de la cagnotte. Rien n’a été modifié.',
   inviteNotFound: 'Cette invitation n’est plus ouverte pour toi. Rien n’a été modifié.',
   inviteeNotFound: 'Aucun compte actif n’a cet identifiant ou cet e-mail. Vérifie-le et réessaie. Rien n’a été envoyé.',
+  spaceNameTaken:
+    'Tu as déjà un espace de ce nom dans cette devise, peut-être un espace archivé. Choisis un autre nom. Rien n’a été modifié.',
   sharedPotFull:
     'Cette cagnotte est partagée avec autant de personnes que la banque le permet, invitations ouvertes comprises. Rien n’a été envoyé.',
   sharedPotInvalid:
@@ -399,6 +404,7 @@ const WORDS: Readonly<Record<string, Key>> = {
   'bank.invite_not_found': 'inviteNotFound',
   'bank.invitee_not_found': 'inviteeNotFound',
   'bank.shared_pot_full': 'sharedPotFull',
+  'bank.space_name_taken': 'spaceNameTaken',
   'bank.shared_pot_invalid': 'sharedPotInvalid',
 };
 
@@ -447,6 +453,8 @@ export const REFUSAL_CHECKED_WRITES: ReadonlySet<string> = new Set([
   'sharedPots.linkCard',
   'sharedPots.unlinkCard',
   'sharedPots.freezeCard',
+  // A new space: one transaction behind the customer's advisory lock; a refusal (limit, duplicate name) rolls it all back.
+  'spaces.create',
 ]);
 
 /** The code's sentence key. A few sentences depend on which write was refused. */

@@ -253,7 +253,7 @@ export default function MarginScreen(_props: ScreenProps) {
               <li>{t('Liquidation point 3')}</li>
               <li>
                 {t('Liquidation point 4')}{' '}
-                <a className="text-lime underline" href="/trade/futures">
+                <a className="text-accent-text underline" href="/trade/futures">
                   {t('ADL notice')}
                 </a>
               </li>

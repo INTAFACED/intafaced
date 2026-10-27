@@ -106,7 +106,8 @@ function fail(error: unknown): never {
       error.code === 'order_not_found' ||
       error.code === 'position_not_found' ||
       error.code === 'export_not_found' ||
-      error.code === 'market_not_found'
+      error.code === 'market_not_found' ||
+      error.code === 'vip_application_not_found'
         ? 'NOT_FOUND'
         : 'BAD_REQUEST';
     throw new TRPCError({ code, message: error.message, cause: error });
@@ -117,6 +118,7 @@ function fail(error: unknown): never {
 export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
   const operator = scopedProcedure('admin:read');
   const operatorWrite = scopedProcedure('admin:write');
+  const compliance = scopedProcedure('admin:compliance');
   const ready = (): TradeOpsAdmin => {
     if (!admin) {
       throw new TRPCError({
@@ -445,6 +447,35 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
             .strict(),
         )
         .mutation(({ ctx, input }) => ready().agreements.eligibilityRulesSet(ctx.principal, input).catch(fail)),
+    }),
+    vipApplications: router({
+      list: operator
+        .input(
+          z
+            .object({ status: z.enum(['pending', 'approved', 'approved_no_trial', 'rejected']).nullish(), limit: limit.optional() })
+            .strict(),
+        )
+        .query(({ ctx, input }) => ready().vipApplications.list(ctx.principal, input).catch(fail)),
+      // A mutation: each opening is written to the operator audit.
+      proof: compliance
+        .input(z.object({ applicationId: id, reason }).strict())
+        .mutation(({ ctx, input }) => ready().vipApplications.proof(ctx.principal, input).catch(fail)),
+      review: operatorWrite
+        .input(
+          z
+            .object({
+              applicationId: id,
+              decision: z.enum(['approve', 'reject']),
+              reason,
+              approvalId,
+              operationId: z.string().trim().min(1).max(128),
+            })
+            .strict(),
+        )
+        .mutation(({ ctx, input }) => ready().vipApplications.review(ctx.principal, input).catch(fail)),
+      grantTrial: operatorWrite
+        .input(z.object({ applicationId: id, reason, approvalId, operationId: z.string().trim().min(1).max(128) }).strict())
+        .mutation(({ ctx, input }) => ready().vipApplications.grantTrial(ctx.principal, input).catch(fail)),
     }),
     markets: router({
       statusHistory: operator

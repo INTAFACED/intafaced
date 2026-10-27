@@ -621,7 +621,7 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
         data-testid="take-placed"
       >
         <h3>{t('takeTitle')}</h3>
-        <div className="failure" role="status" data-why={placed.why}>
+        <div data-testid="failure" className="failure" role="status" data-why={placed.why}>
           <p>
             {placed.why === 'earlier'
               ? t('takeFound')

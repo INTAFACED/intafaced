@@ -1,0 +1,103 @@
+/**
+ * Access rules for the Lit glass look (WCAG 2.2 AA). Loaded after lit.css; every rule is scoped to
+ * data-look="lit", so the app with the look off is unchanged. Owner: the access lane (B4).
+ * Logical properties only, so a right-to-left page is a dir flip, not a second stylesheet.
+ */
+
+/* SC 2.4.11 Focus not obscured: a focused control scrolls clear of the fixed bars. The real heights
+   come from trackObscuringBars() (the risk band grows with text size, and a measured bar already holds
+   its own safe-area padding); the tokens are the fallback until it has measured.
+   Every selector here has zero specificity (:where), so any component rule wins: these are floors. */
+:where(:root[data-look='lit']) {
+  scroll-padding-block-start: calc(var(--a11y-obscured-top, calc(var(--lit-topbar-h, 0px) + var(--lit-legal-band-min-h, 0px))) + 8px);
+  scroll-padding-block-end: calc(var(--a11y-obscured-bottom, calc(var(--lit-dock-h, 0px) + env(safe-area-inset-bottom, 0px))) + 8px);
+}
+
+/* SC 2.4.7 and 2.4.13: one ring for every focusable thing, with a page-coloured halo so it holds 3:1 on any
+   glass or glow behind it. Components may draw their own on top; this is the floor. */
+:where(:root[data-look='lit']) :where(:focus-visible) {
+  outline: 2px solid var(--lit-focus, CanvasText);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--lit-page, Canvas);
+}
+
+/* SC 2.5.8 Target size (minimum): 24 by 24 px for controls. Links inside running text are exempt. */
+:where(:root[data-look='lit'])
+  :where(
+    button,
+    [role='button'],
+    [role='switch'],
+    [role='tab'],
+    [role='menuitem'],
+    [role='option'],
+    select,
+    summary,
+    input:not([type='hidden'])
+  ) {
+  min-block-size: 24px;
+  min-inline-size: 24px;
+}
+
+/* Inline targets inside a sentence (a "learn more" in the risk band) are exempt from SC 2.5.8 and keep the
+   line's own height. Mark one that isn't inside p or li with data-inline. */
+:where(:root[data-look='lit']) :where(p, li, dd, [data-inline]) :where(button, a, [role='button']),
+:where(:root[data-look='lit']) :where([data-inline]) {
+  min-block-size: auto;
+  min-inline-size: auto;
+}
+
+/* Forced colours (Windows high contrast): shadows and gradients are dropped, so give every surface and
+   control a real border in system colours, and make lit keys read as buttons, not as blank tiles. */
+@media (forced-colors: active) {
+  :where(:root[data-look='lit']) :where(.lit-surface, .lit-key__face, .lit-segmented, .lit-field-control input) {
+    border: 1px solid CanvasText;
+  }
+  :where(:root[data-look='lit']) :where(.lit-button, .lit-key, [role='switch'], [role='tab']) {
+    border: 1px solid ButtonText;
+    forced-color-adjust: auto;
+  }
+  :where(:root[data-look='lit']) :where([aria-pressed='true'], [aria-selected='true'], [aria-checked='true']) {
+    outline: 2px solid Highlight;
+  }
+  :where(:root[data-look='lit']) :where(:focus-visible) {
+    outline-color: Highlight;
+    box-shadow: none;
+  }
+  :where(:root[data-look='lit']) :where([data-fx], canvas) {
+    forced-color-adjust: none;
+    visibility: hidden;
+  }
+}
+
+/* Right to left. Values that are left-to-right by nature (addresses, hashes, IBANs, sort codes, order-book
+   figures, chart axes) keep their order inside Arabic or Hebrew text. */
+:where(:root[data-look='lit']) :where([data-ltr]) {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* A user-written value of unknown direction (a name, a payee reference): isolate it, let it pick. */
+:where(:root[data-look='lit']) :where([data-dir-auto]) {
+  unicode-bidi: isolate;
+}
+
+/* Icons that point along the reading direction (back, forward, chevrons) turn round in RTL. Clocks, play
+   buttons, logos and charts never do (Apple HIG, right to left). */
+:where(:root[data-look='lit'][dir='rtl']) :where([data-flip-rtl]),
+:where(:root[data-look='lit']) :where([dir='rtl']) :where([data-flip-rtl]) {
+  scale: -1 1;
+}
+
+/* Text equivalents: the 3D objects are decoration (aria-hidden); what they show is said in text kept for
+   screen readers, such as the holdings behind the sphere as a list. */
+:where(:root[data-look='lit']) :where([data-sr-only]) {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}

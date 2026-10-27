@@ -1,0 +1,201 @@
+/*
+ * Redesign stage A0, the Lit glass look on Home (only under data-look="lit"; nothing here applies by default).
+ * Everything reads the kit's role tokens (@intafaced/ui/lit/lit.css), inside the GPU budget: blur only on the
+ * navigation layer (the top bar); the actions panel is a solid content-layer panel; nothing blurred sits over the
+ * moving sphere.
+ */
+/* "Where your money is" (stage A's Alloc): a legend column pinned to the top of the inline-start side, the sphere
+   anchored at the bottom of the inline-end side and bleeding off it; bounded on wide screens and aligned with the
+   column. Under right-to-left it all mirrors (the leader lines follow in LitSphere.tsx). */
+[data-look='lit'] .home-lit-where {
+  margin-block-start: var(--if-space-4);
+}
+[data-look='lit'] .home-lit-where__panel {
+  position: relative;
+  block-size: 14rem;
+  max-inline-size: 36rem;
+  margin-block-start: var(--if-space-2);
+  overflow: hidden;
+  border-radius: var(--lit-radius-panel);
+  background: var(--lit-solid-bg);
+}
+[data-look='lit'] .home-lit-sphere {
+  position: absolute;
+  inset-block-end: -1.5rem;
+  inset-inline-end: -1rem;
+  inline-size: 16rem;
+  block-size: 18rem;
+  /* the objects draw on black: screened onto the panel, the black drops out; the bloom's faint haze then fades out
+     at the box's sides instead of ending on a straight edge (any opaque role works as a mask) */
+  mix-blend-mode: screen;
+  -webkit-mask-image: linear-gradient(90deg, transparent, var(--lit-page) 20% 80%, transparent);
+  mask-image: linear-gradient(90deg, transparent, var(--lit-page) 20% 80%, transparent);
+}
+/* right-to-left mirrors the picture with the layout, so the legend's top row still reaches the farthest segment */
+[data-look='lit'] .home-lit-sphere:dir(rtl) {
+  transform: scaleX(-1);
+}
+[data-look='lit'] .home-lit-leaders {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+[data-look='lit'] .home-lit-leaders path {
+  fill: none;
+  stroke: var(--lit-text-3);
+  stroke-width: 1;
+}
+[data-look='lit'] .home-lit-leaders__from {
+  fill: var(--lit-text-1);
+}
+/* the node on the segment: a ring, so the light shows through it */
+[data-look='lit'] .home-lit-leaders__to {
+  fill: var(--lit-solid-bg);
+  stroke: var(--lit-text-1);
+  stroke-width: 1.5;
+}
+[data-look='lit'] .home-lit-legend {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* rows pinned to the top inset, one every 3rem; --row 0 (the segment nearest the legend) is the lowest */
+[data-look='lit'] .home-lit-legend__part {
+  position: absolute;
+  inset-block-start: calc(var(--if-space-4) + (var(--rows) - 1 - var(--row)) * 3rem);
+  inset-inline-start: var(--if-space-4);
+  inline-size: 6.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--if-space-1);
+}
+[data-look='lit'] .home-lit-legend__head {
+  display: flex;
+  align-items: center;
+  gap: var(--if-space-2);
+  font: 500 var(--if-text-xs) / var(--if-leading-xs) var(--lit-font-ui);
+  color: var(--lit-text-1);
+  white-space: nowrap;
+  /* room between the figure and the leader's start dot */
+  padding-inline-end: var(--if-space-2);
+}
+[data-look='lit'] .home-lit-legend__name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+[data-look='lit'] .home-lit-legend__pct,
+[data-look='lit'] .home-lit-legend__value {
+  font-family: var(--lit-font-figure);
+  font-variant-numeric: tabular-nums;
+}
+[data-look='lit'] .home-lit-legend__value {
+  font-size: var(--if-text-sm);
+  font-weight: 500;
+  color: var(--lit-text-1);
+}
+/* while the holdings load: the sphere dimmed with no split, and placeholder bars where the legend goes */
+[data-look='lit'] .home-lit-sphere {
+  transition: opacity 0.4s ease;
+}
+[data-look='lit'] .home-lit-where__panel[data-loading] .home-lit-sphere {
+  opacity: 0.35;
+}
+[data-look='lit'] .home-lit-legend__bar {
+  display: block;
+  inline-size: 5rem;
+  block-size: var(--if-leading-xs);
+  border-radius: var(--if-r-xs);
+  background: var(--lit-solid-bg-raised);
+}
+[data-look='lit'] .home-lit-legend__bar--value {
+  inline-size: 4rem;
+  block-size: var(--if-leading-sm);
+}
+@media (prefers-reduced-motion: no-preference) {
+  [data-look='lit'] .home-lit-legend__bar {
+    animation: home-lit-pulse 1.6s ease-in-out infinite;
+  }
+}
+@keyframes home-lit-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* no split (a holding without a price): the reason, where the legend would be */
+[data-look='lit'] .home-lit-where__note {
+  position: absolute;
+  inset-block-end: var(--if-space-4);
+  inset-inline-start: var(--if-space-4);
+  inline-size: 7.5rem;
+  margin: 0;
+  font: var(--if-text-xs) / var(--if-leading-xs) var(--lit-font-ui);
+  color: var(--lit-text-2);
+}
+/* each chip keys its segment (objects/sphere.ts: accent, hot, then the accent darker twice); the darker two are lifted
+   towards the accent so every chip keeps 3:1 or more on the panel */
+[data-look='lit'] .home-lit-legend__chip {
+  flex: none;
+  inline-size: 0.4375rem;
+  block-size: 0.4375rem;
+  background: var(--lit-accent);
+}
+[data-look='lit'] [data-seg='1'] .home-lit-legend__chip {
+  background: var(--lit-accent-hot);
+}
+[data-look='lit'] [data-seg='2'] .home-lit-legend__chip {
+  background: color-mix(in srgb, var(--lit-accent) 85%, var(--lit-page));
+}
+[data-look='lit'] [data-seg='3'] .home-lit-legend__chip {
+  background: color-mix(in srgb, var(--lit-accent) 70%, var(--lit-page));
+}
+
+/* the navigation layer: the one blurred surface (over scrolling page content, never over the sphere) */
+[data-look='lit'] .tb {
+  background: var(--lit-glass-bg);
+  -webkit-backdrop-filter: var(--lit-glass-blur);
+  backdrop-filter: var(--lit-glass-blur);
+}
+
+/* a solid panel: sheen over the body, lit lip, a wall underneath, rim brighter towards the light */
+[data-look='lit'] .home-actions {
+  position: relative;
+  padding: var(--if-space-3);
+  border-radius: var(--lit-radius-panel);
+  background: var(--lit-sheen), var(--lit-solid-bg);
+  box-shadow: var(--lit-solid-lip), var(--lit-solid-shadow);
+  isolation: isolate;
+}
+[data-look='lit'] .home-actions::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: linear-gradient(0deg, var(--lit-solid-rim-dim), var(--lit-solid-rim));
+  -webkit-mask:
+    linear-gradient(var(--lit-solid-bg) 0 0) content-box,
+    linear-gradient(var(--lit-solid-bg) 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+/* the metal pill: the one main action */
+[data-look='lit'] .home-actions > :first-child {
+  border-radius: var(--lit-radius-key);
+  color: var(--lit-primary-fg);
+  background: var(--lit-primary-bg);
+  box-shadow: var(--lit-primary-shadow);
+}
+
+/* today's change line has a fixed height, so its wrapped tag would run under the sphere */
+[data-look='lit'] .home-change {
+  block-size: auto;
+}

@@ -23,6 +23,7 @@ import { RailRegistry } from '../rails/registry.js';
 import { PayGuardRefusal, composeGuards } from '../seams/guards.js';
 import { UserMoneyService } from '../user-money-service.js';
 import { createWithdrawalLimitGuards, type KycTierOf } from './guards.js';
+import type { LimitOverrideOf } from './identity-override.js';
 import { createWithdrawalLimitReader } from './reader.js';
 import { createSqlLimitSource } from './source.js';
 
@@ -94,7 +95,14 @@ describe('owner-set withdrawal limits (real Postgres)', () => {
     const admin = await openAdmin();
     adminStop = admin.stop;
     db = await createTestDatabase({ service: 'pay', url: admin.url, migrations });
-    const ns = createPayNamespaces({ founderAuthority: async () => FOUNDER, limits: { sql: db.sql, approvals } });
+    const reader = createWithdrawalLimitReader({
+      sql: db.sql,
+      source: createSqlLimitSource(),
+      mode: 'required',
+      tierOf: async () => 'basic',
+      overrideOf: async () => null,
+    });
+    const ns = createPayNamespaces({ founderAuthority: async () => FOUNDER, limits: { sql: db.sql, approvals, reader } });
     const userId = randomUUID();
     const principal: Principal = {
       userId,
@@ -277,11 +285,15 @@ describe('owner-set withdrawal limits (real Postgres)', () => {
   describe('the guard and the allowance read use the stored figures', () => {
     const basic: KycTierOf = async () => 'basic';
     const source = () => createSqlLimitSource();
-    const money = (tierOf?: KycTierOf, mode: 'off' | 'required' = 'required') =>
+    const noOverride: LimitOverrideOf = async () => null;
+    /** `null` leaves the override read unwired. */
+    const money = (tierOf?: KycTierOf, mode: 'off' | 'required' = 'required', overrideOf: LimitOverrideOf | null = noOverride) =>
       new UserMoneyService(db.sql, ledger, rails, {
         operatorCreditRails: ['card-sandbox'],
-        guards: composeGuards(createWithdrawalLimitGuards({ sql: db.sql, mode, source: source(), tierOf })),
-        withdrawalLimits: createWithdrawalLimitReader({ sql: db.sql, source: source(), mode, tierOf }),
+        guards: composeGuards(
+          createWithdrawalLimitGuards({ sql: db.sql, mode, source: source(), tierOf, overrideOf: overrideOf ?? undefined }),
+        ),
+        withdrawalLimits: createWithdrawalLimitReader({ sql: db.sql, source: source(), mode, tierOf, overrideOf: overrideOf ?? undefined }),
       });
     const fund = (service: UserMoneyService) =>
       service.credit({
@@ -324,6 +336,8 @@ describe('owner-set withdrawal limits (real Postgres)', () => {
       expect(await service.withdrawalAllowance(USER, 'USDT')).toEqual({
         tier: 'basic',
         assetId: 'USDT',
+        base: { perTx: '10', rolling24h: '15' },
+        override: null,
         perTx: '10',
         rolling24h: '15',
         used24h: '0',
@@ -339,6 +353,24 @@ describe('owner-set withdrawal limits (real Postgres)', () => {
       const hit = await refusal(service.withdraw(request('6', 'b')));
       expect(hit.code).toBe('pay.guard_withdrawal_limit_exceeded');
       expect(hit.remaining).toEqual({ perTx: '10', rolling24h: '5' });
+    });
+
+    it('the published list (the verification ladder) shows only figures a founder set, and a clear takes it off', async () => {
+      const service = money(basic);
+      expect(await service.withdrawalTierLimits()).toEqual({ enforced: true, limits: [] });
+      await lim().change(set({ ...approval }));
+      await lim().change(set({ tier: 'full', limit: { perTx: '50', rolling24h: '60' }, ...approval }));
+      expect(await service.withdrawalTierLimits()).toEqual({
+        enforced: true,
+        limits: [
+          { tier: 'basic', assetId: 'USDT', perTx: '10', rolling24h: '15' },
+          { tier: 'full', assetId: 'USDT', perTx: '50', rolling24h: '60' },
+        ],
+      });
+      await lim().change(set({ expectedVersion: 1, limit: null, reason: 'withdraw the figure' }));
+      expect((await service.withdrawalTierLimits()).limits.map((l) => l.tier)).toEqual(['full']);
+      // With limits not applied in this deployment the figures still list, marked as not enforced.
+      expect(await money(basic, 'off').withdrawalTierLimits()).toMatchObject({ enforced: false, limits: [{ tier: 'full' }] });
     });
 
     it('a cut applies to the next withdrawal; a clear refuses again', async () => {
@@ -387,6 +419,50 @@ describe('owner-set withdrawal limits (real Postgres)', () => {
         throw new Error('identity unreachable');
       };
       expect((await refusal(money(dark).withdrawalAllowance(USER, 'USDT'))).code).toBe('pay.guard_unavailable');
+    });
+
+    it('a founder override shows beside the base and is what the read and the guard apply until it ends', async () => {
+      const expiresAt = new Date(Date.now() + 3_600_000);
+      let override: LimitOverrideOf = async () => ({ perTx: amt('25'), rolling24h: null, expiresAt });
+      const service = money(basic, 'required', (userId, assetId) => override(userId, assetId));
+      await fund(service);
+      await lim().change(set({ ...approval }));
+      expect(await service.withdrawalAllowance(USER, 'USDT')).toEqual({
+        tier: 'basic',
+        assetId: 'USDT',
+        base: { perTx: '10', rolling24h: '15' },
+        override: { perTx: '25', rolling24h: null, expiresAt: expiresAt.toISOString() },
+        perTx: '25',
+        rolling24h: '15',
+        used24h: '0',
+        remaining: { perTx: '25', rolling24h: '15' },
+        maxNow: '15',
+      });
+      expect((await service.withdraw(request('12', 'o1'))).status).toBe('sent');
+      override = noOverride;
+      expect(await service.withdrawalAllowance(USER, 'USDT')).toMatchObject({
+        override: null,
+        perTx: '10',
+        remaining: { rolling24h: '3' },
+      });
+      expect((await refusal(money(basic, 'required', null).withdrawalAllowance(USER, 'USDT'))).code).toBe(
+        'pay.guard_withdrawal_override_unwired',
+      );
+    });
+
+    it('founderAdmin.limits.customer reads one customer the way the guard does, and refuses with its codes', async () => {
+      await expect(lim().customer({ userId: USER, assetId: 'USDT' })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        message: 'pay.guard_withdrawal_limit_unset',
+      });
+      await lim().change(set({ ...approval }));
+      await expect(lim().customer({ userId: USER, assetId: 'USDT' })).resolves.toMatchObject({
+        tier: 'basic',
+        base: { perTx: '10', rolling24h: '15' },
+        override: null,
+        maxNow: '10',
+      });
+      await expect(lim().customer({ userId: 'not-a-user', assetId: 'USDT' } as never)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
     });
 
     it('a service with no reader wired refuses rather than answering', async () => {

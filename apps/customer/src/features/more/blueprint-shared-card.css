@@ -7,7 +7,7 @@
 .blueprint-shared-controls {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 150px auto;
-  gap: 16px;
+  gap: var(--if-space-4);
   align-items: end;
 }
 .blueprint-shared-controls .field {
@@ -27,15 +27,15 @@
 .blueprint-shared-result {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 20px;
+  gap: var(--if-space-5);
   border-top: 1px solid var(--color-divider);
-  margin-top: 24px;
-  padding-top: 24px;
+  margin-top: var(--if-space-6);
+  padding-top: var(--if-space-6);
 }
 .blueprint-shared-context {
   grid-column: 2;
   display: grid;
-  gap: 8px;
+  gap: var(--if-space-2);
   min-width: 0;
 }
 .blueprint-shared-context code,
@@ -48,23 +48,23 @@
   display: block;
   width: 100%;
   height: auto;
-  border-radius: var(--radius-8);
+  border-radius: var(--if-r-sm);
 }
 .blueprint-shared-actions {
   grid-column: 2;
   display: grid;
-  gap: 16px;
+  gap: var(--if-space-4);
   min-width: 0;
 }
 .blueprint-shared-actions p {
   margin: 0;
 }
 .blueprint-shared-note {
-  padding: 16px;
+  padding: var(--if-space-4);
   background: var(--color-surface-raised);
-  border-radius: var(--radius-8);
+  border-radius: var(--if-r-sm);
   display: grid;
-  gap: 8px;
+  gap: var(--if-space-2);
 }
 .blueprint-shared-note p {
   color: var(--color-muted);

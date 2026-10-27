@@ -5,12 +5,15 @@ import {
   buildSteps,
   depositStatus,
   dismissKey,
+  lastOpenKey,
   progress,
   readDismissed,
+  readLastOpen,
   securityStatus,
   tradeStatus,
   verificationStatus,
   writeDismissed,
+  writeLastOpen,
   type StepId,
   type StepStatus,
 } from './started';
@@ -126,6 +129,39 @@ describe('Get started: hiding the list is remembered', () => {
     expect(() => writeDismissed('u1', broken)).not.toThrow();
     expect(readDismissed('u1', null)).toBe(false);
     expect(readDismissed(null, store())).toBe(false);
+  });
+});
+
+describe('Get started: whether the list was open last time (a first-paint hint)', () => {
+  const store = () => {
+    const map = new Map<string, string>();
+    return { getItem: (key: string) => map.get(key) ?? null, setItem: (key: string, value: string) => void map.set(key, value) };
+  };
+
+  it('is open until a visit has read every step, then follows that visit, per person', () => {
+    const storage = store();
+    expect(readLastOpen('u1', storage)).toBe(true);
+    writeLastOpen('u1', false, storage);
+    expect(readLastOpen('u1', storage)).toBe(false);
+    expect(readLastOpen('u2', storage)).toBe(true);
+    writeLastOpen('u1', true, storage);
+    expect(readLastOpen('u1', storage)).toBe(true);
+    expect(lastOpenKey('u1')).not.toBe(dismissKey('u1'));
+  });
+
+  it('survives storage that throws or is missing: the list is drawn while checking', () => {
+    const broken = {
+      getItem: () => {
+        throw new Error('blocked');
+      },
+      setItem: () => {
+        throw new Error('blocked');
+      },
+    };
+    expect(readLastOpen('u1', broken)).toBe(true);
+    expect(() => writeLastOpen('u1', true, broken)).not.toThrow();
+    expect(readLastOpen('u1', null)).toBe(true);
+    expect(readLastOpen(null, store())).toBe(true);
   });
 });
 

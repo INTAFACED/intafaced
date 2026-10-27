@@ -268,7 +268,7 @@ function ExportRefusal({ result, retry }: { result: Extract<ApiResult<unknown>, 
   const words = historyRefusal(result, t, (iso) => iso);
   if (!words) return <PayFailure result={result} retry={retry} />;
   return (
-    <p className="failure" role="alert">
+    <p data-testid="failure" className="failure" role="alert">
       {words}
     </p>
   );

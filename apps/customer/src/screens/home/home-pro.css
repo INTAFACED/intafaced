@@ -11,7 +11,7 @@
     width: calc(100% - 48px);
     max-width: 1600px;
     margin: 0 auto;
-    padding: 24px 0 64px;
+    padding: var(--if-space-6) 0 var(--if-space-16);
     color: var(--if-fg);
     font-family: var(--if-font-ui);
   }
@@ -23,7 +23,7 @@
     text-decoration: none;
   }
   .if-home-pro :focus-visible {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: 2px;
   }
   .if-home-pro :where(h1, h2, p, ul) {
@@ -43,16 +43,16 @@
   .hp-summary {
     display: flex;
     align-items: center;
-    gap: 32px;
+    gap: var(--if-space-8);
     min-height: 96px;
-    padding: 12px 24px;
-    border-radius: 16px;
+    padding: var(--if-space-3) var(--if-space-6);
+    border-radius: var(--if-r-lg);
     background: var(--if-panel);
   }
   .hp-summary--block {
     flex-direction: column;
     align-items: flex-start;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .hp-total {
     display: flex;
@@ -65,9 +65,9 @@
   .hp-label {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--if-space-2);
     min-height: 20px;
-    font: 400 13px/18px var(--if-font-ui);
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .hp-eye {
@@ -78,7 +78,7 @@
     height: 24px;
     padding: 0;
     border: 0;
-    border-radius: 8px;
+    border-radius: var(--if-r-sm);
     background: transparent;
     color: var(--if-fg-2);
     cursor: pointer;
@@ -91,13 +91,13 @@
   .hp-toolbar {
     display: flex;
     justify-content: flex-end;
-    margin: -8px 0 8px;
+    margin: -8px 0 var(--if-space-2);
   }
   /* The total's own door to the Assets room (Money). */
   .hp-tile-link {
     display: inline-flex;
     align-items: center;
-    gap: 2px;
+    gap: var(--if-space-0-5);
     margin-left: auto;
     color: var(--if-fg-2);
     text-decoration: none;
@@ -114,14 +114,14 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 6px 16px;
+    gap: var(--if-space-1-5) var(--if-space-4);
     min-height: 20px;
-    margin-top: 2px;
-    font: 400 14px/20px var(--if-font-ui);
+    margin-top: var(--if-space-0-5);
+    font: 400 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
   }
   .hp-total__change [data-slot='change-text'],
   .hp-total__change [data-slot='change-text'] > * {
-    line-height: 20px;
+    line-height: var(--if-leading-base);
   }
   /* The kit aligns the glyph and the words on a baseline, which makes the line 22 px: the skeleton is 20. */
   .hp-total__change [data-slot='change-text'] {
@@ -131,12 +131,12 @@
   .hp-total__note {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    font: 400 12px/16px var(--if-font-ui);
+    gap: var(--if-space-1-5);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .hp-total > .hp-total__note {
-    margin-top: 2px;
+    margin-top: var(--if-space-0-5);
   }
 
   .hp-stats {
@@ -149,18 +149,18 @@
   .hp-stat {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--if-space-0-5);
     align-self: stretch;
     justify-content: center;
-    padding: 0 32px;
+    padding: 0 var(--if-space-8);
     border-left: 1px solid var(--if-line);
   }
   .hp-stat__label {
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .hp-stat__value {
-    font: 500 16px/24px var(--if-font-ui);
+    font: 500 var(--if-text-md)/var(--if-leading-md) var(--if-font-ui);
     font-variant-numeric: tabular-nums;
   }
   .hp-stat__link {
@@ -176,15 +176,15 @@
     display: flex;
     flex: none;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--if-space-2);
     margin-left: auto;
   }
 
   /* Panels: assets and markets */
   .hp-panel {
-    margin-top: 24px;
-    padding: 8px 24px 16px;
-    border-radius: 16px;
+    margin-top: var(--if-space-6);
+    padding: var(--if-space-2) var(--if-space-6) var(--if-space-4);
+    border-radius: var(--if-r-lg);
     background: var(--if-panel);
   }
   /* Recent activity reuses Simple Home's list; in Pro it sits in a panel, so the list drops its own card. */
@@ -204,30 +204,30 @@
     margin: 0;
   }
   .hp-started {
-    margin-top: 24px;
+    margin-top: var(--if-space-6);
   }
   .hp-panel__head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
+    gap: var(--if-space-4);
     height: 48px;
   }
   .hp-panel__head h2 {
-    font: 600 16px/24px var(--if-font-ui);
+    font: 600 var(--if-text-md)/var(--if-leading-md) var(--if-font-ui);
   }
   .hp-panel__aside {
     display: flex;
     align-items: baseline;
-    gap: 16px;
+    gap: var(--if-space-4);
   }
   .hp-fresh {
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
     font-variant-numeric: tabular-nums;
   }
   .hp-link {
-    font: 500 14px/20px var(--if-font-ui);
+    font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     color: var(--if-fg-2);
     transition: color var(--if-t-fast) var(--if-ease);
   }
@@ -243,15 +243,15 @@
     margin-left: 0;
   }
   .hp-tabs {
-    margin-bottom: 8px;
+    margin-bottom: var(--if-space-2);
   }
   .hp-notice {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
-    padding: 4px 0;
-    font: 400 13px/18px var(--if-font-ui);
+    gap: var(--if-space-4);
+    padding: var(--if-space-1) 0;
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
     color: var(--if-fg-2);
   }
 
@@ -260,9 +260,9 @@
     display: grid;
     grid-template-columns: minmax(200px, 1.6fr) minmax(120px, 1fr) minmax(120px, 1fr) minmax(100px, 0.8fr) 104px;
     align-items: center;
-    column-gap: 16px;
+    column-gap: var(--if-space-4);
     height: 48px;
-    border-radius: 8px;
+    border-radius: var(--if-r-sm);
     transition: background var(--if-t-fast) var(--if-ease);
   }
   .hp-assets__row:not(.hp-assets__row--head):hover {
@@ -270,18 +270,18 @@
   }
   .hp-assets__row--head {
     height: 40px;
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .hp-assets__cell {
     display: flex;
     align-items: center;
     min-width: 0;
-    font: 400 14px/20px var(--if-font-ui);
+    font: 400 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     font-variant-numeric: tabular-nums;
   }
   .hp-assets__row--head .hp-assets__cell {
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
   }
   .hp-assets__cell--num {
     justify-content: flex-end;
@@ -293,25 +293,25 @@
   .hp-assets__asset {
     display: inline-flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--if-space-3);
     min-width: 0;
-    border-radius: 8px;
+    border-radius: var(--if-r-sm);
   }
   .hp-assets__ticker {
-    font: 500 14px/20px var(--if-font-ui);
+    font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
   }
   .hp-assets__name {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
 
   @media (max-width: 1279px) {
     .hp-summary {
       flex-wrap: wrap;
-      gap: 16px 32px;
+      gap: var(--if-space-4) var(--if-space-8);
     }
     .hp-stats {
       flex: none;
@@ -336,15 +336,15 @@
   @media (max-width: 767px) {
     .if-home-pro {
       width: calc(100% - 32px);
-      padding-top: 16px;
+      padding-top: var(--if-space-4);
     }
     .hp-summary,
     .hp-panel {
-      padding-left: 16px;
-      padding-right: 16px;
+      padding-left: var(--if-space-4);
+      padding-right: var(--if-space-4);
     }
     .hp-stat {
-      padding: 0 16px;
+      padding: 0 var(--if-space-4);
     }
     .hp-assets__row {
       grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 0.8fr);

@@ -473,6 +473,17 @@ async function preflight(maker, symbols) {
 /** Crossing side for the nth crossing in a market: buy, sell, buy, sell... so the taker's balances stay flat. */
 export const crossingSide = (n) => (n % 2 === 1 ? 'buy' : 'sell');
 
+/**
+ * Whether the taker crosses `symbol` on loop cycle `cycle` (from 1): every third cycle, the markets taking turns by
+ * the parity of their symbol's length, so each market trades every sixth cycle. The first crossing is on cycle 1 for
+ * the even-length symbols, BTC/USDT among them (failure it prevents:
+ * the first BTC/USDT trade came on cycle 6, about a minute after the maker started, and the journeys run waited for it).
+ */
+export function crossesOn(cycle, symbol) {
+  if (cycle % 3 !== 1) return false;
+  return (Math.floor(cycle / 3) + symbol.length) % 2 === 0;
+}
+
 // ── Funding (reuses local:fund: real svc-ledger deposit, LOCAL-TEST- rail ref) ─
 
 async function ensureFunds(client, who, assets, divisor) {
@@ -702,7 +713,7 @@ async function runLoop(opts, home) {
       log(
         `${m.symbol} TEST PRICE mid ${fromScaled(mid)} ${m.quote}: ${rested}/${ladder.length} quotes resting${refused ? `; last refusal ${refused}` : ''}`,
       );
-      if (cfg.cross !== false && cycle % 3 === 0 && rested > 0 && (cycle / 3 + m.symbol.length) % 2 === 0) {
+      if (cfg.cross !== false && rested > 0 && crossesOn(cycle, m.symbol)) {
         // Alternate per market (failure it prevents: every symbol here has the same name length, so a
         // side picked from cycle and name parity was always "buy", drained the taker's quote asset, and
         // every crossing then failed with 400 ledger.insufficient_funds).
@@ -748,8 +759,21 @@ async function runLoop(opts, home) {
 
 export const TAPE_CLIENT_PREFIX = 'LTEST-TAPE-';
 export const TAPE_RETIME_ROUTE = '/internal/local-test/tape-retime';
-/** Below Edge's local budget of 1200 a minute per address (local-test-stack.mjs, EDGE_RATE_LIMIT_MAX), with room left. */
-export const HISTORY_ORDERS_PER_SECOND = 14;
+/** Requests a second `history` sends: below Edge's local budget of 1200 a minute per address (local-stack-services/edge.mjs, EDGE_RATE_LIMIT_MAX), with room left. */
+export const HISTORY_REQUESTS_PER_SECOND = 14;
+/**
+ * Edge's local budget window (local-stack-services/edge.mjs, EDGE_RATE_LIMIT_WINDOW_MS). `history` ends by waiting out
+ * the rest of one window after its last request, so whatever runs next on the same address starts with the whole budget
+ * (failure it prevents: run 552 on main, the first journey on a shard right after `history` was refused
+ * edge.rate_limited once the step stopped ending with an 80-second wait for the first market maker trade).
+ */
+export const HISTORY_EDGE_WINDOW_MS = 60_000;
+/**
+ * Markets per `history` batch request. Fewer requests leave Edge's budget room, more lanes side by side keep svc-trade
+ * busy. On a 4-core machine (26 Oct), six markets took 6.1 minutes at one request per order, 7.7 in one request for
+ * all six, and 4.7 at three per request in two lanes, where svc-trade's own speed sets the pace.
+ */
+export const HISTORY_MARKETS_PER_REQUEST = 3;
 
 /**
  * Where `trades` tape trades go, `perBar` to a bar of `stepMs`: evenly spaced, the last one in the newest closed bar,
@@ -832,101 +856,181 @@ async function runHistory(opts, home) {
   let counter = 0;
   // Edge allows each address a fixed budget of requests a minute, and every market here shares 127.0.0.1 (failure it
   // prevents: five markets at full speed ran into edge.rate_limited after about 200 trades each, and the market maker
-  // that started next could not even sign in). So orders go out at most HISTORY_ORDERS_PER_SECOND, and a 429 waits for
-  // the time Edge names, then sends the same order again: the same client id, so svc-trade returns the same order.
+  // that started next could not even sign in). So requests go out at most HISTORY_REQUESTS_PER_SECOND, and a 429 waits for
+  // the time Edge names, then sends the same request again: the same client ids, so svc-trade returns the same orders.
   let nextSlot = 0;
+  let lastEdgeAt = 0;
   const pace = async () => {
     const now = Date.now();
     const at = Math.max(now, nextSlot);
-    nextSlot = at + Math.ceil(1000 / HISTORY_ORDERS_PER_SECOND);
+    nextSlot = at + Math.ceil(1000 / HISTORY_REQUESTS_PER_SECOND);
     if (at > now) await sleep(at - now);
+    lastEdgeAt = Date.now();
   };
-  const place = async (client, m, side, price, amount, tif) => {
-    const body = {
-      symbol: m.symbol,
-      type: 'limit',
-      side,
-      amount,
-      price,
-      ...(tif === 'IOC' ? { timeInForce: 'IOC' } : { timeInForce: 'GTC', postOnly: true }),
-      clientOrderId: `${TAPE_CLIENT_PREFIX}${runId}-${(counter += 1)}`,
-    };
+  const orderBody = (m, side, price, amount, tif) => ({
+    symbol: m.symbol,
+    type: 'limit',
+    side,
+    amount,
+    price,
+    ...(tif === 'IOC' ? { timeInForce: 'IOC' } : { timeInForce: 'GTC', postOnly: true }),
+    clientOrderId: `${TAPE_CLIENT_PREFIX}${runId}-${(counter += 1)}`,
+  });
+  /** One request with one order per market, through svc-trade's batch door (each item the single-order path). */
+  const placeBatch = async (client, orders) => {
     for (let attempt = 1; ; attempt += 1) {
       await pace();
-      const r = await client.http('POST', '/api/v1/orders', body);
+      const r = await client.http('POST', '/api/v1/orders/batch', { orders });
       if (r.status !== 429 || attempt >= 4) return r;
       const wait = Math.min(60, Math.max(1, Number(r.json?.retryAfterSeconds) || 5));
-      log(`${m.symbol}: Edge asked to wait ${wait}s (edge.rate_limited); sending the same order again then`);
+      log(`Edge asked to wait ${wait}s (edge.rate_limited); sending the same orders again then`);
       nextSlot = Math.max(nextSlot, Date.now() + wait * 1000);
     }
   };
   const refusal = (r) => `HTTP ${r.status} ${(r.json?.intafacedCode ?? r.json?.code ?? r.json?.error ?? r.text).toString().slice(0, 160)}`;
+  const itemRefusal = (item) =>
+    `${item?.status ?? 'no result'} ${(item?.error?.intafacedCode ?? item?.error?.code ?? item?.error?.message ?? '').toString().slice(0, 160)}`;
+  /** Each batch item's result, or the whole request's refusal for every item when the request itself was refused. */
+  const resultsOf = (r, n) =>
+    r.status === 200 && Array.isArray(r.json?.results) && r.json.results.length === n
+      ? r.json.results
+      : Array.from({ length: n }, () => ({ status: 'refused', error: { message: refusal(r) } }));
   const wantTrades = opts.bars * opts.perBar;
-  let retimes = Promise.resolve();
-  /** One market's history. Resolves true when every bar was written and moved into the past. */
-  const history = async (m) => {
+
+  // Which markets still need history: only a fresh market gets it.
+  const books = [];
+  for (const m of markets) {
     const tape = await maker.http('GET', `/api/v1/trades/${encodeURIComponent(m.symbol)}?limit=1`, null, { auth: false });
     if (!Array.isArray(tape.json)) {
       log(`${m.symbol}: could not read the public tape (${refusal(tape)}); skipped`);
-      return false;
+      books.push({ m, done: false });
+      continue;
     }
     if (tape.json.length > 0) {
       log(`${m.symbol}: already has trades, so history is not written (it goes only on a fresh market); skipped`);
-      return true;
+      books.push({ m, done: true });
+      continue;
     }
     const cfg = TEST_PRICES[m.symbol];
     const walk = createPriceWalk({ seed: opts.seed, symbol: m.symbol, startScaled: toScaled(cfg.start), tickScaled: m.tick });
     if (steps[m.symbol]) walk.advance(steps[m.symbol]);
-    let made = 0;
-    for (let n = 1; n <= wantTrades; n += 1) {
-      const [level] = buildLadder({
-        mid: walk.next(),
-        tick: m.tick,
-        lot: m.lot,
-        minAmount: m.minAmount,
-        minCost: m.minCost,
+    books.push({ m, cfg, walk, made: 0, writing: true });
+  }
+
+  // Trade n of a few markets goes in one maker request and one taker request (failure it prevents: one request per
+  // order, 2 x 420 orders on each of six markets, kept the history waiting on Edge's budget for six minutes). Markets
+  // are independent books, so each still gets the same trades, prices and order as one market at a time: the maker's
+  // post-only order, then the taker's immediate-or-cancel order at the same price. svc-trade places a batch's items one
+  // after another, so the markets are split into lanes of HISTORY_MARKETS_PER_REQUEST that run side by side (all six in
+  // one request took longer than one request per order).
+  /** Stops one market, and takes any tape order of its own off the book, so the market maker never meets one. */
+  const stopMarket = async (b) => {
+    b.writing = false;
+    await maker.http('DELETE', `/api/v1/orders?symbol=${encodeURIComponent(b.m.symbol)}`).catch(() => null);
+  };
+  const writeRound = async (n, lane) => {
+    if (!lane.some((b) => b.writing)) return false;
+    for (const b of lane.filter((x) => x.writing)) {
+      [b.level] = buildLadder({
+        mid: b.walk.next(),
+        tick: b.m.tick,
+        lot: b.m.lot,
+        minAmount: b.m.minAmount,
+        minCost: b.m.minCost,
         levels: 1,
         halfSpreadBps: 6n,
         stepBps: 9n,
-        levelNotional: toScaled(cfg.notional),
+        levelNotional: toScaled(b.cfg.notional),
       }).filter((q) => q.side === (crossingSide(n) === 'buy' ? 'sell' : 'buy'));
-      const rest = await place(maker, m, level.side, level.price, level.amount, 'GTC');
-      if (rest.status !== 201) {
-        log(`${m.symbol}: TEST tape maker order ${n} refused (${refusal(rest)}); stopping this market`);
-        break;
+      if (!b.level) {
+        log(`${b.m.symbol}: no TEST tape level for trade ${n}; stopping this market`);
+        await stopMarket(b);
       }
-      const hit = await place(taker, m, crossingSide(n), level.price, level.amount, 'IOC');
-      if (hit.status !== 201 || toScaled(String(hit.json?.filled ?? '0')) !== toScaled(level.amount)) {
-        log(`${m.symbol}: TEST tape trade ${n} did not fill (${refusal(hit)}); stopping this market`);
-        await maker.http('DELETE', `/api/v1/orders?symbol=${encodeURIComponent(m.symbol)}`).catch(() => null);
-        break;
-      }
-      made += 1;
     }
-    steps[m.symbol] = walk.steps;
-    if (made === 0) return false;
-    const window = tapeWindow({ nowMs: Date.now(), trades: made, stepMs, perBar: opts.perBar });
+    const live = lane.filter((b) => b.writing);
+    if (live.length === 0) return false;
+    const rested = resultsOf(
+      await placeBatch(
+        maker,
+        live.map((b) => orderBody(b.m, b.level.side, b.level.price, b.level.amount, 'GTC')),
+      ),
+      live.length,
+    );
+    const crossing = [];
+    for (const [i, b] of live.entries()) {
+      if (rested[i]?.status === 'success') {
+        crossing.push(b);
+        continue;
+      }
+      // An `unknown` outcome may have rested after all, so the market's tape orders are cancelled either way.
+      log(`${b.m.symbol}: TEST tape maker order ${n} refused (${itemRefusal(rested[i])}); stopping this market`);
+      await stopMarket(b);
+    }
+    if (crossing.length === 0) return true;
+    const hits = resultsOf(
+      await placeBatch(
+        taker,
+        crossing.map((b) => orderBody(b.m, crossingSide(n), b.level.price, b.level.amount, 'IOC')),
+      ),
+      crossing.length,
+    );
+    for (const [i, b] of crossing.entries()) {
+      const hit = hits[i];
+      if (hit?.status === 'success' && toScaled(String(hit.order?.filled ?? '0')) === toScaled(b.level.amount)) {
+        b.made += 1;
+        continue;
+      }
+      log(`${b.m.symbol}: TEST tape trade ${n} did not fill (${itemRefusal(hit)}); stopping this market`);
+      await stopMarket(b);
+    }
+    return true;
+  };
+  const writing = books.filter((b) => b.writing);
+  const laneCount = Math.ceil(writing.length / HISTORY_MARKETS_PER_REQUEST);
+  const lanes = Array.from({ length: laneCount }, (_, i) => writing.filter((_, j) => j % laneCount === i));
+  await Promise.all(
+    lanes.map(async (lane) => {
+      try {
+        for (let n = 1; n <= wantTrades; n += 1) if (!(await writeRound(n, lane))) break;
+      } catch (err) {
+        // A request that failed outright (no answer) stops this lane's markets, and takes their tape orders off the book;
+        // what each one made is still moved below.
+        log(`TEST tape history stopped for ${lane.map((b) => b.m.symbol).join(', ')}: ${err.message}`);
+        for (const b of lane) if (b.writing) await stopMarket(b);
+      }
+    }),
+  );
+
+  /** One market's trades moved into the past. Resolves true when every bar was written and moved. */
+  const retime = async (b) => {
+    if (!b.walk) return b.done;
+    steps[b.m.symbol] = b.walk.steps;
+    if (b.made === 0) return false;
+    const window = tapeWindow({ nowMs: Date.now(), trades: b.made, stepMs, perBar: opts.perBar });
     // One retime at a time: each is a serializable transaction over the shared fills table, and two at once can make
     // one of them fail (Postgres 40001).
-    const turn = retimes.then(() =>
-      signedTradePost(p.stateDir, `http://${LOCAL_HOST}:${marker.ports.trade}`, TAPE_RETIME_ROUTE, { marketId: m.id, ...window }),
-    );
-    retimes = turn.catch(() => null);
-    const r = await turn;
+    const r = await signedTradePost(p.stateDir, `http://${LOCAL_HOST}:${marker.ports.trade}`, TAPE_RETIME_ROUTE, {
+      marketId: b.m.id,
+      ...window,
+    });
     if (r.status !== 200) {
-      log(`${m.symbol}: ${made} TEST trades made, but svc-trade refused to move them into the past (${refusal(r)})`);
+      log(`${b.m.symbol}: ${b.made} TEST trades made, but svc-trade refused to move them into the past (${refusal(r)})`);
       return false;
     }
     log(
-      `${m.symbol}: ${r.json.trades} TEST trades now span ${r.json.firstTs} .. ${r.json.lastTs} (${opts.perBar} per ${opts.stepMinutes}m bar)`,
+      `${b.m.symbol}: ${r.json.trades} TEST trades now span ${r.json.firstTs} .. ${r.json.lastTs} (${opts.perBar} per ${opts.stepMinutes}m bar)`,
     );
-    return made === wantTrades;
+    return b.made === wantTrades;
   };
-  // Markets are independent books, so they run side by side (failure it prevents: five markets one after another
-  // took several minutes of the journeys run).
-  const results = await Promise.all(markets.map((m) => history(m).catch((err) => (log(`${m.symbol}: ${err.message}`), false))));
+  const results = [];
+  for (const b of books) results.push(await retime(b).catch((err) => (log(`${b.m.symbol}: ${err.message}`), false)));
   fs.mkdirSync(p.runDir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(p.walkFile, JSON.stringify({ seed: opts.seed, steps }), { mode: 0o600 });
+  const rest = lastEdgeAt === 0 ? 0 : HISTORY_EDGE_WINDOW_MS - (Date.now() - lastEdgeAt);
+  if (rest > 0) {
+    log(`Waiting ${Math.ceil(rest / 1000)}s for Edge's one-minute budget to start fresh for what runs next`);
+    await sleep(rest);
+  }
   return results.every(Boolean) ? 0 : 1;
 }
 

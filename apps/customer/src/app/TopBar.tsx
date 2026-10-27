@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { Suspense, lazy, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { SegmentedControl, Tooltip, TooltipContent, TooltipTrigger, Wordmark } from '@intafaced/ui';
 import { useSession } from '../features/session/session';
@@ -14,16 +14,22 @@ import { shellCopy } from './shell-copy';
 import { AccountMenuBody } from './AccountMenu';
 import { ProfileChip } from './ProfileChip';
 import { TopSearch } from './TopSearch';
-import { MerchantTopBar } from '../features/pay/portal/chrome/Chrome';
 import { isMerchantArea } from '../features/pay/portal/chrome/model';
-import { GroupedMenu, groups } from '../features/pay/portal/home-layout/Navigation';
+import { groups } from '../features/pay/portal/home-layout/groups';
 import { ShellSwitch } from '../features/protocol/ShellSwitch';
 
-/** Sets `--if-banner-offset` to the local stack's banner height (28 px), or 0 when there is no banner. */
+// The merchant portal's chrome and menu load only when a merchant page or the Pay menu needs them.
+export const preloadMerchantChrome = () => import('../features/pay/portal/chrome/Chrome').then((m) => ({ default: m.MerchantTopBar }));
+const MerchantTopBar = lazy(preloadMerchantChrome);
+const GroupedMenu = lazy(() => import('../features/pay/portal/home-layout/Navigation').then((m) => ({ default: m.GroupedMenu })));
+
+/** Sets `--if-banner-offset` to the local stack's banner height (28 px), or 0 when there is no banner, and marks the banner as covering the top edge. */
 export function useBannerOffset() {
   useEffect(() => {
     const apply = () => {
       const banner = document.getElementById('local-test-stack-banner');
+      // The fixed banner covers the top edge too, so the Lit look's focus padding counts it (a11y trackObscuringBars).
+      if (banner && !banner.hasAttribute('data-obscures')) banner.setAttribute('data-obscures', 'top');
       document.documentElement.style.setProperty(
         '--if-banner-offset',
         banner ? `${Math.round(banner.getBoundingClientRect().height)}px` : '0px',
@@ -94,6 +100,7 @@ function NavTab({ tab, current, language }: { tab: TabSpec; current: Door | unde
   return (
     <li
       ref={wrapper}
+      data-testid="tb-item"
       className={`tb-item ${open ? 'tb-item--open' : ''}`}
       onMouseEnter={show}
       onMouseLeave={hideSoon}
@@ -112,6 +119,7 @@ function NavTab({ tab, current, language }: { tab: TabSpec; current: Door | unde
     >
       <a
         ref={link}
+        data-testid="tb-tab"
         className="tb-tab"
         href={tab.href}
         aria-current={current === tab.door ? 'page' : undefined}
@@ -124,9 +132,11 @@ function NavTab({ tab, current, language }: { tab: TabSpec; current: Door | unde
       </a>
       {hasMenu && open && (
         // TODO(B1): swap to the Base UI NavigationMenu in @intafaced/ui (same rows, same copy).
-        <div className="tb-popover tb-menu" id={menuId} role="group" aria-label={doorLabel(tab.door, language)}>
+        <div data-testid="tb-menu" className="tb-popover tb-menu" id={menuId} role="group" aria-label={doorLabel(tab.door, language)}>
           {groupedPay ? (
-            <GroupedMenu here={location.pathname} close={() => setOpen(false)} />
+            <Suspense fallback={null}>
+              <GroupedMenu here={location.pathname} close={() => setOpen(false)} />
+            </Suspense>
           ) : (
             <>
               <ul>
@@ -245,32 +255,28 @@ export function TopBar({
   useBannerOffset();
   const notificationsLive = isFeatureLive('notifications');
   const tabs = tabSpecs(layoutMode, Boolean(session) || restoring);
-  const moreTab = tabs.find((tab) => tab.door === 'More')!;
   const here = typeof location === 'undefined' ? path : path + location.search;
   const signIn = `/login?redirect=${encodeURIComponent(safeReturnTo(currentReturnLocation()))}`;
-  if (isMerchantArea(path)) return <MerchantTopBar path={path} account={<AccountButton onSignOut={onSignOut} />} />;
+  if (isMerchantArea(path))
+    return (
+      <Suspense fallback={null}>
+        <MerchantTopBar path={path} account={<AccountButton onSignOut={onSignOut} />} />
+      </Suspense>
+    );
   return (
     <>
-      <header className="tb">
-        <a
-          className="tb-more"
-          href={moreTab.href}
-          aria-label={doorLabel('More', language)}
-          aria-current={door === 'More' ? 'page' : undefined}
-        >
-          <ShellIcon name="grid" size={18} />
-        </a>
+      <header data-testid="tb" className="tb" data-obscures="top">
         <a className="tb-brand" href="/home" aria-label={t('Go to Home')}>
           <Wordmark />
         </a>
-        <nav className="tb-nav" aria-label={t('Main navigation')}>
+        <nav data-testid="tb-nav" className="tb-nav" aria-label={t('Main navigation')}>
           <ul>
             {tabs.map((tab) => (
               <NavTab key={tab.door} tab={tab} current={door} language={language} />
             ))}
           </ul>
         </nav>
-        <div className="tb-right">
+        <div data-testid="tb-right" className="tb-right">
           {/* The bar has room for the switch from 1280 px; narrower, it is in the account menu, or signed out in the row below. */}
           <ShellSwitch current="exchange" here={here} className="max-[1280px]:hidden" />
           <TopSearch />
@@ -306,14 +312,14 @@ export function TopBar({
   );
 }
 
-/** Phone (< 768): the doors move to a bottom bar, Home, Bank, Trade, Pay, Assets. */
+/** Phone (< 768): the five doors move to a bottom bar, in the computer's order: Home, Money, Trade, Pay, More. */
 export function MobileTabs({ door, language }: { door: Door | undefined; language: Parameters<typeof doorLabel>[1] }) {
   const { t } = shellCopy.useCopy();
   const { layoutMode } = usePreferences();
   const { session, restoring } = useSession();
   const tabs = tabSpecs(layoutMode, Boolean(session) || restoring);
   return (
-    <nav className="mobile-doors" aria-label={t('Customer doors on phone')}>
+    <nav className="mobile-doors" data-obscures="bottom" aria-label={t('Customer doors on phone')}>
       {MOBILE_DOOR_ORDER.map((name) => tabs.find((tab) => tab.door === name)).flatMap((tab) =>
         tab
           ? [

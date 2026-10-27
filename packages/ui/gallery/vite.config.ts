@@ -12,5 +12,7 @@ export default defineConfig({
     extensions: ['.ts', '.tsx', '.js', '.mjs', '.json'],
   },
   server: { host: '127.0.0.1', port: 3290, strictPort: true },
-  build: { outDir: fileURLToPath(new URL('../.gallery-dist', import.meta.url)), emptyOutDir: true },
+  // No inlined assets: the look gate serves the gallery under the Customer app's policy, whose font-src is 'self' only,
+  // so a font inlined as a data: URL would be refused there as it would be in the app.
+  build: { outDir: fileURLToPath(new URL('../.gallery-dist', import.meta.url)), emptyOutDir: true, assetsInlineLimit: 0 },
 });

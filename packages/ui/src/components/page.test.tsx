@@ -91,7 +91,7 @@ describe('Breadcrumbs', () => {
   });
 
   it('links carry the focus ring', () => {
-    expect(out).toContain('focus-visible:outline-lime');
+    expect(out).toContain('focus-visible:outline-focus');
   });
 
   it('separators are hidden from screen readers and there is one fewer than items', () => {

@@ -132,9 +132,11 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
           />
           <p className="money-detail__status">
             {holding ? (
-              <span className="money-act__hold">{t('Set aside')}</span>
+              <span data-testid="money-act__hold" className="money-act__hold">
+                {t('Set aside')}
+              </span>
             ) : (
-              <span className="money-act__done">
+              <span data-testid="money-act__done" className="money-act__done">
                 <Check size={14} aria-hidden="true" />
                 {t('Completed')}
               </span>
@@ -144,7 +146,7 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
           </p>
           {holding && <p className="money-detail__note">{t('Set aside note')}</p>}
         </header>
-        <section className="money-card money-detail__card" aria-label={t('Details')}>
+        <section data-testid="money-card" className="money-card money-detail__card" aria-label={t('Details')}>
           <h2 className="money-detail__h">{t('Details')}</h2>
           <dl className="money-facts">
             <Fact label={t('Type')}>{title}</Fact>
@@ -184,14 +186,14 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
           <ActivityNote key={item.id} item={item} />
         </section>
         {group.lines.length > 1 && (
-          <section className="money-card money-detail__card" aria-label={t('Parts of this transaction')}>
+          <section data-testid="money-card" className="money-card money-detail__card" aria-label={t('Parts of this transaction')}>
             <h2 className="money-detail__h">{t('Parts of this transaction')}</h2>
             {sharedOrderId && (
               <p className="money-detail__note" data-label="shared-reference">
                 {t('Parts share order')} <code className="money-code">{sharedOrderId}</code>
               </p>
             )}
-            <table className="money-table money-table--activity">
+            <table data-testid="money-table" className="money-table money-table--activity">
               <thead>
                 <tr>
                   <th scope="col">{t('Part')}</th>
@@ -205,7 +207,7 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
                 {group.lines.map((line) => (
                   <tr key={line.id}>
                     <td>{titleFor(line, copy)}</td>
-                    <td className="money-act__time">
+                    <td data-testid="money-act__time" className="money-act__time">
                       <time dateTime={line.postedAt}>{stamp(line.postedAt, timeZone)}</time>
                     </td>
                     <td className="money-num">
@@ -225,7 +227,7 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
     );
   }
   return (
-    <div className="if-money if-money--activity money-detail">
+    <div data-testid="if-money" className="if-money if-money--activity money-detail">
       {back}
       {body}
     </div>

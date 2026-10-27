@@ -11,7 +11,7 @@ const en = {
   calculatorFormula:
     'Each day: (amount × {rate} ÷ 365), cut down to the smallest unit. Over a period: that day’s interest × the number of days. Simple interest: it goes to your main balance and is not added to what you saved.',
   calculatorInvalid: 'Enter an amount above 0 and a number of days from 1 to {max}.',
-  calculatorNotAdvice: 'An illustration from the pool’s published rate, not a promise of a future rate or personal advice.',
+  calculatorIllustration: 'An illustration from the pool’s published rate, not a promise of a future rate.',
   depositTitle: 'Save in this pool',
   deposit: 'Deposit',
   depositNote: 'The amount moves from your main {asset} balance into this pool’s savings for you.',
@@ -96,7 +96,7 @@ const es: { [K in keyof typeof en]: string } = {
   calculatorFormula:
     'Cada día: (cantidad × {rate} ÷ 365), recortado a la unidad más pequeña. En un periodo: el interés de ese día × el número de días. Interés simple: va a tu saldo principal y no se suma a lo que ahorraste.',
   calculatorInvalid: 'Introduce una cantidad mayor que 0 y un número de días de 1 a {max}.',
-  calculatorNotAdvice: 'Una ilustración a partir del tipo publicado del fondo, no una promesa de un tipo futuro ni un consejo personal.',
+  calculatorIllustration: 'Una ilustración a partir del tipo publicado del fondo, no una promesa de un tipo futuro.',
   depositTitle: 'Ahorrar en este fondo',
   deposit: 'Depositar',
   depositNote: 'La cantidad pasa de tu saldo principal en {asset} a tus ahorros en este fondo.',
@@ -185,7 +185,7 @@ const fr: { [K in keyof typeof en]: string } = {
   calculatorFormula:
     'Chaque jour : (montant × {rate} ÷ 365), arrondi à l’unité inférieure. Sur une période : l’intérêt de ce jour × le nombre de jours. Intérêt simple : il va sur ton solde principal et ne s’ajoute pas à ton épargne.',
   calculatorInvalid: 'Saisis un montant supérieur à 0 et un nombre de jours de 1 à {max}.',
-  calculatorNotAdvice: 'Une illustration à partir du taux publié du fonds, ni une promesse de taux futur ni un conseil personnel.',
+  calculatorIllustration: 'Une illustration à partir du taux publié du fonds, pas une promesse de taux futur.',
   depositTitle: 'Épargner dans ce fonds',
   deposit: 'Déposer',
   depositNote: 'Le montant passe de ton solde principal en {asset} à ton épargne dans ce fonds.',

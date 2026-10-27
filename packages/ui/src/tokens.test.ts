@@ -128,6 +128,13 @@ describe('primitives', () => {
     expect(directionOf('-0.2')).toBe('down');
     expect(directionOf(0)).toBe('flat');
     expect(directionOf('not a number')).toBe('flat');
+    expect(directionOf('0.' + '0'.repeat(30) + '1')).toBe('up');
+    expect(directionOf('-0.00')).toBe('flat');
+    expect(directionOf('\u22121.25')).toBe('down');
+    expect(directionOf('+3')).toBe('up');
+    expect(directionOf('.')).toBe('flat');
+    expect(directionOf('1e5')).toBe('flat');
+    expect(directionOf('+2.3%')).toBe('up');
   });
 });
 

@@ -1,9 +1,9 @@
-import { Component, Suspense, useEffect, type MouseEvent, type ReactNode } from 'react';
+import { Component, Suspense, lazy, useEffect, type MouseEvent, type ReactNode } from 'react';
 import { Page, EmptyState, Button, Loading } from '../shared/ui';
 import { deskPairLabel, findRoom, resolveAlias, roomTitle, safeReturnTo, type Room } from './navigation';
 import { useLocation, useReturnLocation, currentReturnLocation, navigate } from './location';
 import { Shell } from './Shell';
-import { PublicRoutes } from '../features/public/PublicRoutes';
+import { preloadMerchantChrome } from './TopBar';
 import { useSession } from '../features/session/session';
 import { ApplyView } from '../features/account/View';
 import { AccountViewSync } from '../features/account/ViewSync';
@@ -11,17 +11,23 @@ import { appCopy } from './app-copy';
 import { useKeepKeyboardFocusVisible } from '../shared/keyboard-focus';
 import { useCustomerRoomArrival } from './room-arrival';
 import { hiddenFeatureFor, isDevBuild, type Feature } from './feature-registry';
-import { LegacyRoom, type LegacyArea } from './LegacyRoom';
+import { LegacyRoom, preloadAccountRoutes, type LegacyArea } from './LegacyRoom';
 import { matchPath } from './path-match';
-import { screens } from './screens';
-import { DevFeatures } from './DevFeatures';
+import { preloadScreen, screens } from './screens';
 import { shellCopy } from './shell-copy';
 import { isMerchantArea } from '../features/pay/portal/chrome/model';
 import { SessionNotice } from './SessionNotice';
-import { ProtocolRoutes } from '../features/protocol/ProtocolRoutes';
-import { Web3Shell } from './Web3Shell';
 import { rememberShellRoute } from '../features/protocol/shell-state';
 import { TeamDesk, teamConsoleHref } from './TeamDesk';
+
+// Rooms outside the customer doors load on demand, so a first visit to Home does not download them.
+const loadPublic = () => import('../features/public/PublicRoutes').then((m) => ({ default: m.PublicRoutes }));
+const loadProtocol = () => import('../features/protocol/ProtocolRoutes').then((m) => ({ default: m.ProtocolRoutes }));
+const loadWeb3Shell = () => import('./Web3Shell').then((m) => ({ default: m.Web3Shell }));
+const PublicRoutes = lazy(loadPublic);
+const ProtocolRoutes = lazy(loadProtocol);
+const Web3Shell = lazy(loadWeb3Shell);
+const DevFeatures = lazy(() => import('./DevFeatures').then((m) => ({ default: m.DevFeatures })));
 
 class RoomBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   override state = { failed: false };
@@ -138,17 +144,35 @@ export function App() {
   // The Academy opens for a visitor with no account too (J-academy-01): its signed-out view reads only published content.
   const needsSession =
     room && ['home', 'money', 'pay', 'more', 'person'].includes(room.area) && path !== '/pay/checkout' && !isAcademyPath(path);
+  // Start downloading the room's code before it can render: a signed-in room waits for the boot refresh, and the
+  // Web3 frame and its rooms are two chunks that would otherwise load one after the other. A signed-out visitor to
+  // a private room only sees "Sign in", so nothing is fetched for it.
+  const willRender = !needsSession || Boolean(session) || restoring;
+  useEffect(() => {
+    if (!room || !willRender) return;
+    const quiet = (load: () => Promise<unknown>) => void load().catch(() => undefined);
+    if (room.screen) preloadScreen(room.screen);
+    else if (room.area === 'public') quiet(loadPublic);
+    else if (room.area === 'web3') [loadWeb3Shell, loadProtocol].forEach(quiet);
+    else if (room.area === 'person') quiet(preloadAccountRoutes);
+    if (isMerchantArea(path)) quiet(preloadMerchantChrome);
+  }, [room, path, willRender]);
   const ribbon = dev && hidden && !devFeatures && !isMerchantArea(path) ? <DevRibbon feature={hidden} /> : null;
   const fallback = (
     <div className="legacy-room">
-      <div className="page">
+      <div data-testid="page" className="page">
         <Loading label={t('Opening room')} />
       </div>
     </div>
   );
   const area = room ? legacyArea(room) : undefined;
   let body: ReactNode;
-  if (devFeatures) body = <DevFeatures />;
+  if (devFeatures)
+    body = (
+      <Suspense fallback={fallback}>
+        <DevFeatures />
+      </Suspense>
+    );
   // A private room never paints, and never shows "Sign in to continue", until the boot refresh has answered.
   else if (needsSession && !session && restoring) body = fallback;
   // The service did not answer: the cookie is untouched, so offer Retry instead of pretending the person is signed out.
@@ -195,7 +219,9 @@ export function App() {
     <div className="legacy-room">
       {ribbon}
       <SessionNotice />
-      <PublicRoutes path={path} />
+      <Suspense fallback={fallback}>
+        <PublicRoutes path={path} />
+      </Suspense>
     </div>
   ) : room?.area === 'team' ? (
     // The app header stays so a founder who landed here can get back; the console itself is a separate deployment.
@@ -205,10 +231,12 @@ export function App() {
     </Shell>
   ) : room?.area === 'web3' ? (
     // Web3 rooms have their own frame and stay out of customerRoomHref, so they are never a sign-in return target.
-    <Web3Shell path={path}>
-      {ribbon}
-      <ProtocolRoutes path={path} />
-    </Web3Shell>
+    <Suspense fallback={fallback}>
+      <Web3Shell path={path}>
+        {ribbon}
+        <ProtocolRoutes path={path} />
+      </Web3Shell>
+    </Suspense>
   ) : (
     <Shell door={room?.door} path={path}>
       {ribbon}

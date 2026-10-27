@@ -10,7 +10,7 @@ export type ChipShape = 'dot' | 'ring' | 'dashed' | 'slashed';
 
 // Each kind has a colour, a shape and a word, so colour is never the only cue.
 const look: Record<Freshness, { tone: string; shape: ChipShape; label: string }> = {
-  live: { tone: 'text-lime', shape: 'dot', label: 'Live' },
+  live: { tone: 'text-accent-text', shape: 'dot', label: 'Live' },
   stale: { tone: 'text-warn', shape: 'ring', label: 'Stale' },
   unknown: { tone: 'text-fg-2', shape: 'dashed', label: 'Unknown' },
   refused: { tone: 'text-error-text', shape: 'slashed', label: 'Refused' },

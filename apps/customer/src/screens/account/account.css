@@ -12,10 +12,10 @@
     display: grid;
     grid-template-columns: 220px minmax(0, 760px);
     justify-content: center;
-    gap: 48px;
+    gap: var(--if-space-12);
     width: min(var(--if-container-max), calc(100% - 56px));
     margin: 0 auto;
-    padding: 32px 0 64px;
+    padding: var(--if-space-8) 0 var(--if-space-16);
     color: var(--if-fg);
     font-family: var(--if-font-ui);
   }
@@ -44,16 +44,16 @@
     min-width: 0;
   }
   .acct-nav__title {
-    margin: 0 0 12px;
-    padding: 0 12px;
-    font: 600 20px/28px var(--if-font-ui);
+    margin: 0 0 var(--if-space-3);
+    padding: 0 var(--if-space-3);
+    font: 600 var(--if-text-lg)/var(--if-leading-lg) var(--if-font-ui);
     letter-spacing: -0.01em;
     color: var(--if-fg);
   }
   .acct-nav ul {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--if-space-0-5);
     margin: 0;
     padding: 0;
     list-style: none;
@@ -62,10 +62,10 @@
     display: flex;
     align-items: center;
     height: 40px;
-    padding: 0 12px;
-    border-radius: 8px;
+    padding: 0 var(--if-space-3);
+    border-radius: var(--if-r-sm);
     color: var(--if-fg-2);
-    font: 500 14px/20px var(--if-font-ui);
+    font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     text-decoration: none;
     transition:
       background-color var(--if-t-fast) var(--if-ease),
@@ -80,7 +80,7 @@
     color: var(--if-fg);
   }
   .acct-nav a:focus-visible {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: 2px;
   }
 
@@ -92,39 +92,39 @@
   .acct-body .page {
     display: flex !important;
     flex-direction: column;
-    gap: 16px;
+    gap: var(--if-space-4);
     max-width: none !important;
     padding: 0 !important;
   }
   .acct-body .page-heading {
-    margin-bottom: 8px !important;
+    margin-bottom: var(--if-space-2) !important;
   }
   .acct-body .page-heading h1 {
     margin: 0 !important;
-    font: 700 28px/36px var(--if-font-ui) !important;
+    font: 700 var(--if-text-2xl)/36px var(--if-font-ui) !important;
     letter-spacing: -0.02em !important;
     color: var(--if-fg) !important;
   }
   .acct-body .page-heading p {
     max-width: none;
-    margin: 4px 0 0 !important;
-    font: 400 14px/20px var(--if-font-ui) !important;
+    margin: var(--if-space-1) 0 0 !important;
+    font: 400 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui) !important;
     color: var(--if-fg-2) !important;
   }
   .acct-body h2 {
-    font: 600 20px/28px var(--if-font-ui) !important;
+    font: 600 var(--if-text-lg)/var(--if-leading-lg) var(--if-font-ui) !important;
     letter-spacing: 0 !important;
     color: var(--if-fg) !important;
   }
   .acct-body h3 {
-    font: 600 16px/24px var(--if-font-ui) !important;
+    font: 600 var(--if-text-md)/var(--if-leading-md) var(--if-font-ui) !important;
     color: var(--if-fg) !important;
   }
   .acct-body :is(.muted, small, .eyebrow) {
     color: var(--if-fg-2) !important;
   }
   .acct-body .eyebrow {
-    font: 500 12px/16px var(--if-font-ui) !important;
+    font: 500 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui) !important;
     letter-spacing: 0.04em !important;
   }
 
@@ -142,17 +142,17 @@
       .verification__request
     ) {
     min-width: 0;
-    padding: 24px !important;
+    padding: var(--if-space-6) !important;
     margin: 0 !important;
     border: 1px solid var(--if-line) !important;
-    border-radius: 16px !important;
+    border-radius: var(--if-r-lg) !important;
     background: var(--if-panel) !important;
   }
   .acct-body :is(.security__layout, .settings-grid, .subaccounts__columns, .verification__columns) {
     display: flex !important;
     flex-direction: column;
     align-items: stretch !important;
-    gap: 16px !important;
+    gap: var(--if-space-4) !important;
   }
   .acct-body .security__layout > * {
     grid-column: auto !important;
@@ -171,7 +171,7 @@
     order: 3;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: var(--if-space-4);
   }
   .acct-body .verification__jump {
     display: none !important;
@@ -180,12 +180,12 @@
   .acct-body .subaccounts__list,
   .acct-body .subaccounts__create,
   .acct-body .verification__request {
-    gap: 16px !important;
+    gap: var(--if-space-4) !important;
   }
   .acct-body .settings-section {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: var(--if-space-5);
   }
   .acct-body .section-heading,
   .acct-body .subaccounts__heading,
@@ -193,7 +193,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--if-space-3);
   }
 
   /* Buttons: pills at 40 px like the rest of the app (the old .button is unlayered, hence !important) */
@@ -210,21 +210,21 @@
     display: flex !important;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
+    gap: var(--if-space-4);
   }
   .acct-body .subaccounts__identity .muted {
     display: block;
-    font: 400 13px/18px var(--if-font-ui);
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
   }
   .acct-body .subaccounts__ref {
-    margin: 4px 0 0 !important;
-    font: 400 14px/20px var(--if-font-mono) !important;
+    margin: var(--if-space-1) 0 0 !important;
+    font: 400 var(--if-text-base)/var(--if-leading-base) var(--if-font-mono) !important;
     color: var(--if-fg) !important;
     overflow-wrap: anywhere;
   }
   .acct-body .rank-perks {
     grid-template-columns: minmax(0, 280px) minmax(0, 1fr) !important;
-    gap: 32px !important;
+    gap: var(--if-space-8) !important;
   }
   /* "Current rank" and "Refresh rank" fit side by side in 280 px; in a narrower column the button drops under the title. */
   .acct-body .rank-perks__heading {
@@ -243,12 +243,12 @@
 
   /* Verification: the level as a big tag */
   .acct-body .verification__tier {
-    gap: 12px !important;
+    gap: var(--if-space-3) !important;
   }
   .acct-body .verification__tier .eyebrow {
     text-transform: none !important;
     letter-spacing: 0 !important;
-    font: 400 13px/18px var(--if-font-ui) !important;
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui) !important;
   }
   .acct-body .verification__level {
     margin: 0 !important;
@@ -264,7 +264,7 @@
   .acct-body .verification__ref,
   .acct-body .identity-sessions__ref,
   .acct-body .security__ref {
-    font: 400 12px/16px var(--if-font-mono);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-mono);
     color: var(--if-fg-3);
     overflow-wrap: anywhere;
   }
@@ -283,7 +283,7 @@
   }
   .acct-body .verification__tier {
     border-bottom: 1px solid var(--if-line) !important;
-    padding-bottom: 24px !important;
+    padding-bottom: var(--if-space-6) !important;
   }
   .acct-body .verification__request .button {
     width: auto;
@@ -316,7 +316,7 @@
     border: 0;
   }
   .acct-body .security__global {
-    padding-top: 16px;
+    padding-top: var(--if-space-4);
     border-top: 1px solid var(--if-line);
   }
 
@@ -324,17 +324,17 @@
   .acct-body .settings-section .field {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .acct-body .settings-section .field > span {
-    font: 500 14px/20px var(--if-font-ui);
+    font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     color: var(--if-fg);
   }
   .acct-body .settings-section select,
   .acct-body .settings-section input:not([type='checkbox']) {
     min-height: 40px !important;
     border: 1px solid var(--if-line) !important;
-    border-radius: 8px !important;
+    border-radius: var(--if-r-sm) !important;
     background: var(--if-field) !important;
     color: var(--if-fg) !important;
   }
@@ -342,9 +342,9 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
+    gap: var(--if-space-4);
     min-height: 40px;
-    font: 500 14px/20px var(--if-font-ui);
+    font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     color: var(--if-fg);
   }
   /* A real checkbox drawn like the kit's Switch, so the labels and keyboard behaviour stay as they were */
@@ -358,7 +358,7 @@
     margin: 0 !important;
     padding: 0 !important;
     border: 0 !important;
-    border-radius: 999px;
+    border-radius: var(--if-r-pill);
     background: var(--if-raised);
     cursor: pointer;
     transition: background-color var(--if-t-fast) var(--if-ease);
@@ -370,7 +370,7 @@
     left: 2px;
     width: 20px;
     height: 20px;
-    border-radius: 999px;
+    border-radius: var(--if-r-pill);
     background: var(--if-fg);
     transition: transform var(--if-t-fast) var(--if-ease);
   }
@@ -382,7 +382,7 @@
     transform: translateX(16px);
   }
   .acct-body .toggle-row input[type='checkbox']:focus-visible {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: 2px;
   }
 
@@ -390,7 +390,7 @@
   @media (max-width: 1023px) {
     .acct {
       grid-template-columns: minmax(0, 1fr);
-      gap: 24px;
+      gap: var(--if-space-6);
     }
     .acct-nav {
       position: static;

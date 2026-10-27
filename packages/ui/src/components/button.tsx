@@ -86,6 +86,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
     <ButtonPrimitive
       ref={ref}
       data-slot="button"
+      data-variant={variant ?? 'primary'}
       disabled={disabled || loading}
       focusableWhenDisabled={loading}
       aria-busy={loading || undefined}

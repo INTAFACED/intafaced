@@ -45,15 +45,17 @@ export function RecentActivity({
   activity,
   hidden,
   className = 'home-section',
+  testId,
 }: {
   activity: Loadable<ActivityFeed>;
   hidden: boolean;
   className?: string;
+  testId?: string;
 }) {
   const { t } = homeCopy.useCopy();
   const { timeZone } = usePreferences();
   return (
-    <section className={className} aria-labelledby="home-activity-title">
+    <section data-testid={testId} className={className} aria-labelledby="home-activity-title">
       <div className="home-section__head">
         <h2 className="home-h2" id="home-activity-title">
           {t('Recent activity')}
@@ -65,9 +67,9 @@ export function RecentActivity({
         ) : null}
       </div>
       {activity.status === 'loading' ? (
-        <div className="home-activity" aria-hidden="true">
+        <div data-testid="home-activity" className="home-activity" aria-hidden="true">
           {[0, 1, 2].map((index) => (
-            <div className="home-activity__row" key={index}>
+            <div data-testid="home-activity__row" className="home-activity__row" key={index}>
               <Skeleton width={120} height={36} />
               <Skeleton width={88} height={20} />
             </div>
@@ -76,7 +78,7 @@ export function RecentActivity({
       ) : activity.status === 'empty' ? (
         <StateBlock kind="empty" className={STATE_IN_COLUMN} title={t('No activity yet')} body={t('No activity body')} />
       ) : activity.status === 'ready' ? (
-        <ul className="home-activity">
+        <ul data-testid="home-activity" className="home-activity">
           {groupActivity(activity.data.items)
             .groups.slice(0, SHOWN)
             .map((group) => {
@@ -84,12 +86,19 @@ export function RecentActivity({
               const when = dayTime(item.postedAt, timeZone);
               return (
                 <li key={group.id}>
-                  <a className="home-activity__row" href={detailHref(group)}>
+                  <a data-testid="home-activity__row" className="home-activity__row" href={detailHref(group)}>
                     <span className="home-activity__what">
-                      <span className="home-activity__kind">{t(LABEL[item.kind])}</span>
-                      {when ? <span className="home-activity__when">{when}</span> : null}
+                      <span data-testid="home-activity__kind" className="home-activity__kind">
+                        {t(LABEL[item.kind])}
+                      </span>
+                      {when ? (
+                        <span data-testid="home-activity__when" className="home-activity__when">
+                          {when}
+                        </span>
+                      ) : null}
                     </span>
                     <Amount
+                      data-testid="home-activity__amount"
                       className="home-activity__amount"
                       value={`${item.direction === 'in' ? '+' : '−'}${fmtAmount(item.amount, { places: 18 })} ${item.asset}`}
                       hidden={hidden}

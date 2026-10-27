@@ -16,9 +16,9 @@
     display: flex;
     flex-wrap: wrap;
     align-items: flex-start;
-    gap: 16px;
+    gap: var(--if-space-4);
     overflow: auto;
-    padding: 12px;
+    padding: var(--if-space-3);
     background: var(--if-bg);
     border-top: 1px solid var(--if-line);
   }
@@ -32,24 +32,24 @@
   .dw-toolbar {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: var(--if-space-2-5);
     min-width: 0;
-    font: 400 13px/18px var(--if-font-ui);
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .dw-group {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: var(--if-space-1);
   }
   .dw-group + .dw-group {
-    padding-top: 8px;
+    padding-top: var(--if-space-2);
     border-top: 1px solid var(--if-line);
   }
   .dw-tool,
   .dw-toggle {
     min-height: 32px;
-    padding: 0 8px;
+    padding: 0 var(--if-space-2);
     border: 1px solid var(--if-line);
     border-radius: 6px;
     background: var(--if-field);
@@ -60,7 +60,7 @@
   .dw-tool[aria-pressed='true'],
   .dw-toggle[aria-pressed='true'] {
     border-color: var(--if-lime);
-    color: var(--if-lime);
+    color: var(--if-accent-text);
   }
   .dw-toggle:disabled,
   .dw-tool:disabled {
@@ -75,13 +75,13 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: var(--if-space-1-5);
   }
   .dw-text-field input,
   .dw-inline input {
     min-height: 32px;
     min-width: 0;
-    padding: 0 8px;
+    padding: 0 var(--if-space-2);
     border: 1px solid var(--if-line);
     border-radius: 6px;
     background: var(--if-field);
@@ -99,13 +99,13 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .dw-link {
     border: 0;
     background: none;
     padding: 0;
-    color: var(--if-lime);
+    color: var(--if-accent-text);
     font: inherit;
     text-decoration: underline;
     cursor: pointer;
@@ -117,9 +117,9 @@
   .dw-tree {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--if-space-2);
     min-width: 0;
-    font: 400 13px/18px var(--if-font-ui);
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .dw-tree-title {
@@ -131,7 +131,7 @@
   .dw-groups {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: var(--if-space-1-5);
     margin: 0;
     padding: 0;
     list-style: none;
@@ -140,10 +140,10 @@
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
-    gap: 6px 10px;
-    padding: 8px;
+    gap: var(--if-space-1-5) var(--if-space-2-5);
+    padding: var(--if-space-2);
     border: 1px solid var(--if-line);
-    border-radius: 8px;
+    border-radius: var(--if-r-sm);
   }
   .dw-row[data-selected] {
     border-color: var(--if-lime);
@@ -172,13 +172,13 @@
   .dw-row-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .dw-figures {
     grid-column: 2 / -1;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--if-space-0-5);
     margin: 0;
     padding: 0;
     list-style: none;

@@ -2,7 +2,6 @@
 // signed in as a labelled fake user (add ?signedout=1 to stay signed out). Every API call is answered by the
 // Playwright test (no service is contacted). The route comes from the address bar, like the real app, so a click
 // on a market in the list changes the pair without a reload.
-import '../../../../shared/tokens.css';
 import '../../../../shared/styles.css';
 import '../../../../features/public/public.css';
 import '../../../../app/redesign.css';
@@ -51,7 +50,7 @@ function Page() {
     <HideBalancesProvider hidden={hideBalances}>
       <TooltipProvider>
         <div className="if-app" onClick={follow}>
-          <nav className="harness-bar" aria-label="Harness stand-in for the top bar">
+          <nav data-testid="harness-bar" className="harness-bar" aria-label="Harness stand-in for the top bar">
             <a href="/home">intafaced</a>
             <a href="/home">Home</a>
             <a href="/money">Money</a>

@@ -25,7 +25,7 @@ function Term({ label, rule }: { label: string; rule: string }) {
   return (
     <>
       <Tooltip>
-        <TooltipTrigger className="coin-term" render={<button type="button" aria-describedby={id} />}>
+        <TooltipTrigger data-testid="coin-term" className="coin-term" render={<button type="button" aria-describedby={id} />}>
           {label}
         </TooltipTrigger>
         <TooltipContent side="bottom" align="start">
@@ -62,7 +62,7 @@ export function KeyStats({
   const { timeZone } = usePreferences();
   const held = holdingOf(portfolio, asset);
   return (
-    <section className="coin-card coin-stats" aria-label={t('Key stats')}>
+    <section data-testid="coin-stats" className="coin-card coin-stats" aria-label={t('Key stats')}>
       {symbol ? <MarketRows symbol={symbol} asset={asset} tickSize={tickSize} timeZone={timeZone} /> : null}
       <div className="coin-stats__row coin-stats__row--balance" data-testid="stat-balance">
         <Term label={t('Your balance')} rule={t('Your balance rule')} />

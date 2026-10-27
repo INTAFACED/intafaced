@@ -66,7 +66,9 @@ export async function openBusiness(page, who, legalName = 'TEST Merchant Ltd') {
  */
 async function chooseTakenCategory(page) {
   await page.goto('/pay/compliance');
-  const section = page.locator('section.pay-section').filter({ has: page.getByRole('heading', { name: 'Business category' }) });
+  const section = page
+    .locator('section[data-testid="pay-section"]')
+    .filter({ has: page.getByRole('heading', { name: 'Business category' }) });
   const all = section.getByRole('list', { name: 'Every category' });
   await expect(section.getByTestId('category-no-rule').or(all)).toBeVisible();
   if (!(await all.isVisible())) return;
@@ -87,7 +89,7 @@ export async function verifiedBusiness(page, who, merchantId) {
   await page.goto('/pay/onboarding/verification');
   await page.getByLabel('Verification file reference *').fill(`TEST-kyb-${who.handle}`);
   await page.getByRole('button', { name: 'Send for review' }).click();
-  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
   await expect(page.getByText('INTAFACED is reviewing it')).toBeVisible();
   const decided = JSON.parse(tool('local-test-world.mjs', 'approve-kyb', merchantId).trim().split('\n').pop());
   expect(decided.kybStatus).toBe('approved');

@@ -42,8 +42,11 @@ type PlainKey =
   | 'Orders'
   | 'Open and past orders'
   | 'Advanced';
-/** The order of the phone bottom bar (IA-SPEC 1.3, Option A). More is not a tab there: it is the grid button in the phone header. */
-export const MOBILE_DOOR_ORDER: readonly Door[] = ['Home', 'Bank', 'Trade', 'Pay', 'Assets'];
+/**
+ * The order of the phone bottom bar: the same five doors, in the same order, as the computer's top bar (owner decision
+ * 2026-10-26, "One Money door"). More is the last tab, not a button in the phone header.
+ */
+export const MOBILE_DOOR_ORDER: readonly Door[] = ['Home', 'Money', 'Trade', 'Pay', 'More'];
 
 export interface MenuItem {
   id: string;
@@ -68,7 +71,8 @@ function pathOf(href: string): string {
 }
 
 /**
- * The five top-bar tabs and the dropdown rows under them (UI-SPEC 3.1). A row whose route
+ * The five top-bar doors and the dropdown rows under them: Home, Money, Trade, Pay, More (owner decision 2026-10-26). Money
+ * holds every room of the one ledger, the Assets and Bank rooms alike. A row whose route
  * belongs to a hidden feature would be dropped (none is today); a tab
  * left with no rows is a plain link. More and Settings need a session, so a signed-out visitor's More tab opens the public Help centre
  * (`/help`) and lists only that; a signed-in person gets `/more` and `/support`.
@@ -77,7 +81,7 @@ export function tabSpecs(layoutMode: 'simple' | 'pro', signedIn = true): TabSpec
   const all: TabSpec[] = [
     { door: 'Home', href: '/home', icon: 'home', items: [] },
     {
-      door: 'Assets',
+      door: 'Money',
       href: '/money',
       icon: 'wallet',
       items: [
@@ -85,25 +89,23 @@ export function tabSpecs(layoutMode: 'simple' | 'pro', signedIn = true): TabSpec
         { id: 'deposit', href: '/uc/recharge', icon: 'receive' },
         { id: 'withdraw', href: '/uc/withdraw', icon: 'send' },
         { id: 'transfers', href: '/bank/transfers', icon: 'convert' },
-        { id: 'activity', href: '/money/activity', icon: 'activity', title: 'Activity', description: 'Trades, orders and transfers' },
-        { id: 'addresses', href: '/uc/withdraw/address', icon: 'wallet' },
-        { id: 'pnl', href: '/money/pnl', icon: 'activity', title: 'Profit and loss', description: 'What your trades have made or lost' },
-      ],
-    },
-    {
-      door: 'Bank',
-      href: '/bank',
-      icon: 'bank',
-      items: [
-        { id: 'bank', href: '/bank', icon: 'bank' },
         { id: 'spaces', href: '/bank/spaces', icon: 'wallet' },
-        { id: 'bank-transfers', href: '/bank/transfers', icon: 'convert' },
+        { id: 'cards', href: '/bank/cards', icon: 'cards' },
         { id: 'earn', href: '/bank/earn', icon: 'activity' },
         { id: 'loans', href: '/bank/loans', icon: 'loans' },
-        { id: 'cards', href: '/bank/cards', icon: 'cards' },
-        { id: 'ramps', href: '/bank/ramps', icon: 'buy' },
-        { id: 'analytics', href: '/bank/analytics', icon: 'markets' },
-        { id: 'business', href: '/bank/business', icon: 'merchant' },
+        { id: 'activity', href: '/money/activity', icon: 'activity', title: 'Activity', description: 'Trades, orders and transfers' },
+        {
+          id: 'pnl',
+          href: '/money/pnl',
+          icon: 'activity',
+          title: 'Profit and loss',
+          description: 'What your trades have made or lost',
+          group: 'Advanced',
+        },
+        { id: 'addresses', href: '/uc/withdraw/address', icon: 'wallet', group: 'Advanced' },
+        { id: 'ramps', href: '/bank/ramps', icon: 'buy', group: 'Advanced' },
+        { id: 'analytics', href: '/bank/analytics', icon: 'markets', group: 'Advanced' },
+        { id: 'business', href: '/bank/business', icon: 'merchant', group: 'Advanced' },
       ],
     },
     {

@@ -44,7 +44,7 @@ export function AcademyCatalogue({ lessons, tracking, certId, selectedPath }: Pr
             <Copy k={resumeKeys[resume.reason]} />
           </p>
           <strong lang="und">{resume.lesson.title}</strong>
-          <div className="academy-lms-meta">
+          <div data-testid="academy-lms-meta" className="academy-lms-meta">
             <span>{pathLabel(t, resume.lesson.path)}</span>
             <span>
               <Copy k="minutes" params={{ minutes: resume.lesson.estimatedMinutes }} />
@@ -84,7 +84,7 @@ function PathCard({ path, tracking, active }: { path: PathSummary; tracking: Tra
   return (
     <article className="academy-lms-card" aria-current={active ? 'page' : undefined}>
       <h3>{pathLabel(t, path.path)}</h3>
-      <div className="academy-lms-meta">
+      <div data-testid="academy-lms-meta" className="academy-lms-meta">
         <span>
           {path.lessons.length === 1 ? <Copy k="lessonCountOne" /> : <Copy k="lessonCount" params={{ count: path.lessons.length }} />}
         </span>
@@ -158,7 +158,7 @@ function PathDetail({ path, tracking, certId }: { path: PathSummary; tracking: T
               <span>{index + 1}</span>
               <div>
                 <strong lang="und">{lesson.title}</strong>
-                <div className="academy-lms-meta">
+                <div data-testid="academy-lms-meta" className="academy-lms-meta">
                   <span lang="zxx">{lesson.kind}</span>
                   <span>
                     <Copy k="minutes" params={{ minutes: lesson.estimatedMinutes }} />

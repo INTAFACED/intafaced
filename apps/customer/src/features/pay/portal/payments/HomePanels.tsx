@@ -264,7 +264,7 @@ function NewProfile({
           {c.t('cs_ownerOnly')}
         </p>
       )}
-      <div className="form-stack pp-form">
+      <div data-testid="form-stack" className="form-stack pp-form">
         <Field label={c.t('cs_domains')} value={domains} onChange={(e) => setDomains(e.target.value)} hint={c.t('cs_domainsHint')} />
         <PortalReview
           title={c.t('cs_create')}

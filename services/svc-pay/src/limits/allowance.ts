@@ -1,6 +1,7 @@
 import { compare, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import type { WithdrawalLimit } from './config.js';
+import type { LimitOverride } from './identity-override.js';
 
 /**
  * What a customer has used of a withdrawal limit (D-148), and what is left.
@@ -55,4 +56,14 @@ export function allowanceOf(limit: WithdrawalLimit, used: Amount): Allowance {
     left24h,
     maxNow: compare(limit.perTx, left24h) < 0 ? limit.perTx : left24h,
   };
+}
+
+/**
+ * The figures in force: a founder's override (J-ops-console-04 #12) replaces the base figure it names and keeps the other,
+ * until its stored end time, after which identity answers `null` and the base applies again. An override may be higher or
+ * lower than the base; identity already required the other founder for one above the owner ceiling.
+ */
+export function inForce(base: WithdrawalLimit, override: LimitOverride | null): WithdrawalLimit {
+  if (!override) return base;
+  return { perTx: override.perTx ?? base.perTx, rolling24h: override.rolling24h ?? base.rolling24h };
 }

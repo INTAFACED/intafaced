@@ -103,7 +103,13 @@ function Tier({ tier }: { tier: FeeTier }) {
       <section className="pub-card" aria-label={copy.t('yourTier', { tier: name(tier.tier) })} data-tier-page="tier">
         <h2 data-tier={tier.tier}>{copy.t('yourTier', { tier: name(tier.tier) })}</h2>
         <p>
-          {tier.lastSnapshot ? copy.t('tierFromSnapshot', { time: snapshotTime(tier.lastSnapshot.instant) }) : copy.t('tierNoSnapshot')}
+          {tier.trial ? (
+            <span data-tier-page="trial">{copy.t('tierFromTrial', { time: snapshotTime(tier.trial.endsAt) })}</span>
+          ) : tier.lastSnapshot ? (
+            copy.t('tierFromSnapshot', { time: snapshotTime(tier.lastSnapshot.instant) })
+          ) : (
+            copy.t('tierNoSnapshot')
+          )}
         </p>
         {program === null ? <p data-tier-page="thresholds-not-set">{copy.t('thresholdsNotSet')}</p> : null}
       </section>

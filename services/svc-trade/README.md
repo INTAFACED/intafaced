@@ -464,8 +464,24 @@ control or direction-override character refuses `vip.request_invalid`. `GET /api
 answers the rules, `closed` (`vip.application_unset` or `vip.proof_key_unset` when not open, with `rules: null`) and
 the caller's own applications, metadata only: the file never leaves the service on this door. The edge's
 `EDGE_BODY_LIMIT_BYTES` also bounds an upload: base64 adds a third, so a `maxBytes` above three quarters of it is
-refused at the edge first (the screen says the file is too large to upload). The compliance review that decides an
-application is not built yet (SP-fees-vip-04 part 2).
+refused at the edge first (the screen says the file is too large to upload).
+
+Compliance decides an application on the operator desk (`admin.vipApplications`, SP-fees-vip-04 part 2): `list`
+(`admin:read`) gives the applications with their history, any trial, the trial the owner publishes now and whether
+proofs open; `proof` (`admin:compliance`, a reason, audited as `vip_application.proof_view`) opens one proof file.
+`review` (`admin:write` and `admin:compliance`) takes `approve` or `reject` with a reason and consumes identity's `trade.vip_application_review`
+approval, bound to the application, `pending`, the decision, the reason and the trial an approval would grant; the
+operator who approved cannot also apply it. `tierProgram.trial {tierId, days}` (a threshold tier, 1 to 366 whole days)
+is the trial an approval grants; absent or `null`, an approval leaves the application `approved_no_trial` and says
+`vip.trial_unset`. `grantTrial` (the same scopes, approval `trade.vip_trial_grant`, bound to `approved_no_trial` and the
+trial) grants it once one is published, and still refuses `vip.trial_unset` before any approval is consumed while none
+is. A person with a trial in force is granted no second one (`vip.trial_active`). A trial is a `trade.vip_trials` row
+keyed `vip-trial:<userId>:<applicationId>`, append-only, one per application, spanning whole 24-hour days.
+`feeTierAt` charges the higher of the snapshot tier and a trial in force, each while the programme still names it, and
+`GET /api/v1/account/fee-tier` names the trial the tier comes from (`trial`). The same approval sent again (or twice at
+once) answers what it decided; for another decision or reason it refuses `approval_mismatch`, and for another
+application `approval_reused`. A status only moves forward (a database
+trigger), and each decision's event carries the approver and the approval.
 
 ---
 

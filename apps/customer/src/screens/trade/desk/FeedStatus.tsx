@@ -59,7 +59,7 @@ export const FeedStatus = memo(function FeedStatus({ symbol }: { symbol: string 
         <span className="dk-feed-dot" aria-hidden="true" />
         {t(`Status chip ${state}`)}
       </PopoverTrigger>
-      <PopoverContent align="end" className="dk-feed-pop">
+      <PopoverContent align="end" data-testid="dk-feed-pop" className="dk-feed-pop">
         <p className="dk-feed-title">{t('Status title')}</p>
         <ul className="dk-feed-list">
           <li data-state={paused ? 'old' : 'ok'}>

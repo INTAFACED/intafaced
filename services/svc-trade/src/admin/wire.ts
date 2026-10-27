@@ -6,6 +6,7 @@ import type { Sql } from 'postgres';
 import type { AccountRef } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
 import type { TradeService } from '../spot/trade-service.js';
+import type { OwnerFeeSchedule } from '../spot/fee-schedule.js';
 import type { ApprovalBook } from './common.js';
 import { TradeOpsAdmin } from './service.js';
 
@@ -14,9 +15,13 @@ export function wireTradeOpsAdmin(deps: {
   trade: Pick<TradeService, 'cancelOrder' | 'reconcileOrder' | 'listMarket'>;
   ledger: { balance(ref: AccountRef): Promise<{ accountId: string; amount: bigint }> } | null;
   approvals: ApprovalBook;
+  feeSchedule?: OwnerFeeSchedule;
+  vipProofKey?: Buffer | null;
 }): TradeOpsAdmin {
   return new TradeOpsAdmin({
     sql: deps.sql,
+    ...(deps.feeSchedule ? { feeSchedule: deps.feeSchedule } : {}),
+    vipProofKey: deps.vipProofKey ?? null,
     ledger: deps.ledger,
     approvals: deps.approvals,
     reconcileOrder: (orderId) => deps.trade.reconcileOrder(orderId),

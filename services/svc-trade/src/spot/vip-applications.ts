@@ -13,7 +13,7 @@
  * request id (`vip-application:<userId>:<requestId>`): the same request again answers the application it made, and the
  * same id with a different file refuses. Not money: an application moves nothing.
  */
-import { createCipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
 
 export const VIP_PROOF_KEY_ENV = 'TRADE_VIP_PROOF_KEY';
@@ -92,6 +92,18 @@ function encrypt(key: Buffer, plaintext: Buffer, additional: Buffer): { cipherte
   return { ciphertext: Buffer.concat([body, cipher.getAuthTag()]), nonce };
 }
 
+/** Open a kept proof: the AAD binds it to its row and contents, and the plaintext must hash to the kept SHA-256. */
+export function openProof(key: Buffer, row: { id: string; sha256: string; ciphertext: Buffer; nonce: Buffer }): Buffer {
+  if (row.ciphertext.length < 16) throw new Error('vip proof is shorter than its tag');
+  const tag = row.ciphertext.subarray(row.ciphertext.length - 16);
+  const decipher = createDecipheriv('aes-256-gcm', key, row.nonce, { authTagLength: 16 });
+  decipher.setAAD(proofAad(row.id, row.sha256));
+  decipher.setAuthTag(tag);
+  const plaintext = Buffer.concat([decipher.update(row.ciphertext.subarray(0, row.ciphertext.length - 16)), decipher.final()]);
+  if (createHash('sha256').update(plaintext).digest('hex') !== row.sha256) throw new Error('vip proof does not match its digest');
+  return plaintext;
+}
+
 export type VipApplicationStatus = 'pending' | 'approved' | 'approved_no_trial' | 'rejected';
 
 /** An application as its owner reads it: metadata, never the file. */
@@ -106,7 +118,7 @@ export interface VipApplicationView {
   readonly updatedAt: string;
 }
 
-interface ApplicationRow {
+export interface ApplicationRow {
   id: string;
   request_id: string;
   status: VipApplicationStatus;
@@ -120,10 +132,10 @@ interface ApplicationRow {
   updated_at: Date;
 }
 
-const VIEW_COLUMNS = `id, request_id, status, proof_file_name, proof_content_type, proof_byte_length, proof_sha256, note,
+export const VIEW_COLUMNS = `id, request_id, status, proof_file_name, proof_content_type, proof_byte_length, proof_sha256, note,
   schedule_version, created_at, updated_at`;
 
-function toView(row: ApplicationRow): VipApplicationView {
+export function toView(row: ApplicationRow): VipApplicationView {
   return {
     id: row.id,
     requestId: row.request_id,

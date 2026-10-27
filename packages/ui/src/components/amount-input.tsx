@@ -175,7 +175,7 @@ export function AmountInput({
           hero
             ? 'min-h-14 justify-center'
             : 'h-10 rounded-sm bg-field px-3 transition-colors duration-(--if-t-fast) ease-if hover:bg-raised',
-          'has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-lime',
+          'has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus',
           error && 'outline-1 -outline-offset-1 outline-down-text',
           disabled && 'opacity-40',
         )}

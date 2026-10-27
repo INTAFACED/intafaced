@@ -87,8 +87,8 @@ async function matchesBank(page, who, path, read, expected) {
     .toBe('same');
 }
 
-const money = (page) => page.locator('.if-money').first();
-const coinRow = (page, asset) => money(page).locator(`tr.money-row[data-asset="${asset}"]`).first();
+const money = (page) => page.getByTestId('if-money').first();
+const coinRow = (page, asset) => money(page).locator(`tr[data-testid="money-row"][data-asset="${asset}"]`).first();
 
 async function proLayout(page) {
   await page.goto('/money');
@@ -98,7 +98,7 @@ async function proLayout(page) {
     .first()
     .getByText('Pro')
     .click();
-  await expect(page.locator('.if-money[data-density="pro"]')).toBeVisible();
+  await expect(page.locator('[data-testid="if-money"][data-density="pro"]')).toBeVisible();
 }
 
 /** The Pro columns of one coin's row, as the page shows them. */
@@ -145,7 +145,7 @@ test(`${J} #1 opens /money: every holding with amount, price, value and share, a
   await page.goto('/money');
   for (const asset of ['USDT', 'BTC', 'ETH', 'EUR']) {
     expect(toUnits(ledger[asset].total)).toBeGreaterThan(0n);
-    await expect(coinRow(page, asset).locator('.money-num__entries')).toHaveText(`${amountText(ledger[asset].total)} ${asset}`);
+    await expect(coinRow(page, asset).getByTestId('money-num__entries')).toHaveText(`${amountText(ledger[asset].total)} ${asset}`);
   }
 
   // Price, value and share per coin, and the header total with its cash and crypto split, all from the bank's valuation.
@@ -160,7 +160,11 @@ test(`${J} #1 opens /money: every holding with amount, price, value and share, a
         share: (await row.locator('[data-col="share"]').count()) ? (await row.locator('[data-col="share"]').innerText()).trim() : null,
       };
     }
-    const total = await money(p).locator('.money-total [data-slot="hero-number"] [role=img]').first().getAttribute('aria-label');
+    const total = await money(p)
+      .getByTestId('money-total')
+      .locator('[data-slot="hero-number"] [role=img]')
+      .first()
+      .getAttribute('aria-label');
     const split = (await p.getByTestId('total-split').innerText()).replace(/\s+/g, ' ').trim();
     return { rows, total, split };
   };
@@ -184,7 +188,7 @@ test(`${J} #1 opens /money: every holding with amount, price, value and share, a
   await matchesBank(page, who, '/money', shownRows, fromBank);
 
   // The quick actions sit beside the total, each going somewhere real.
-  const actions = page.locator('.money-actions');
+  const actions = page.getByTestId('money-actions');
   for (const action of ['Buy', 'Sell', 'Convert', 'Send', 'Receive'])
     await expect(actions.locator('a').filter({ hasText: new RegExp(`^${action}$`) })).toHaveAttribute('href', /^\//);
 });
@@ -254,7 +258,7 @@ test(`${J} #3 places a TEST limit order, then reads the breakdown: available fal
   expect(cells).toEqual({ available: amountText(after.free), inOrders: amountText(after.used), locked: '0', inSpaces: '0' });
   // The parts add to the ledger total, and the row's own amount is that total.
   expect(toUnits(after.free) + toUnits(after.used)).toBe(toUnits(after.total));
-  await expect(coinRow(page, 'USDT').locator('.money-num__entries')).toHaveText(`${amountText(after.total)} USDT`);
+  await expect(coinRow(page, 'USDT').getByTestId('money-num__entries')).toHaveText(`${amountText(after.total)} USDT`);
   await expect(page.getByTestId('held-note')).toHaveCount(0);
   await expect(coinRow(page, 'USDT').locator('[data-col="in-orders"]')).toHaveAttribute(
     'title',
@@ -334,7 +338,7 @@ test(`${J} #4 reads collateral apart: a TEST futures margin sits under Locked, n
     // The ledger's "used" is every lock: the order's hold plus the position's collateral.
     expect(toUnits(now.used)).toBe(toUnits(hold) + collateral);
     await page.goto('/money');
-    await expect(page.locator('.if-money[data-density="pro"]')).toBeVisible();
+    await expect(page.locator('[data-testid="if-money"][data-density="pro"]')).toBeVisible();
     const cells = await proCells(page, 'USDT');
     expect(cells).toEqual({
       available: amountText(now.free),
@@ -380,7 +384,7 @@ test(`${J} #5 cancels the order: the hold returns to available and nothing is se
   expect(toUnits(now.used)).toBe(0n);
   expect(toUnits(now.free)).toBe(toUnits(now.total));
   await page.goto('/money');
-  await expect(page.locator('.if-money[data-density="pro"]')).toBeVisible();
+  await expect(page.locator('[data-testid="if-money"][data-density="pro"]')).toBeVisible();
   expect(await proCells(page, 'USDT')).toEqual({ available: amountText(now.free), inOrders: '0', locked: '0', inSpaces: '0' });
   await page.goto('/money/balance/USDT');
   await expect(page.getByText('Nothing of your USDT is set aside right now.')).toBeVisible();
@@ -414,7 +418,7 @@ test(`${J} #6 opens the entries behind the USDT balance: every ledger entry, new
 
 async function coinRowLink(page) {
   await page.goto('/money');
-  await coinRow(page, 'USDT').locator('.money-num__entries').click();
+  await coinRow(page, 'USDT').getByTestId('money-num__entries').click();
 }
 
 test(`${J} #7 reads best and worst movers: the coins that moved most today, from the same valuation as the total`, async ({ page }) => {
@@ -503,8 +507,8 @@ test(`${J} #8 opens /money while prices cannot be read: the refusal in plain wor
     await expect(block).toContainText("Prices can't be loaded right now.");
     await expect(block).not.toContainText('bank.prices_unavailable');
     await expect(block).toContainText('Ref PRC-1');
-    await expect(money(page).locator('.money-total [data-slot="hero-number"]')).toHaveCount(0);
-    await expect(money(page).locator('tr.money-row')).toHaveCount(0);
+    await expect(money(page).getByTestId('money-total').locator('[data-slot="hero-number"]')).toHaveCount(0);
+    await expect(money(page).locator('tr[data-testid="money-row"]')).toHaveCount(0);
   } finally {
     tool('local-test-stack.mjs', 'start', '--only', 'trade');
   }

@@ -179,6 +179,7 @@ export function CancelMany({
             )}
             {outcome?.kind === 'all' ? (
               <p
+                data-testid={outcome.tone === 'good' ? undefined : 'dk-note--bad'}
                 className={outcome.tone === 'good' ? 'dk-note dk-note--good' : 'dk-note dk-note--bad'}
                 role={outcome.tone === 'good' ? 'status' : 'alert'}
               >
@@ -187,7 +188,10 @@ export function CancelMany({
             ) : null}
             {outcome?.kind === 'batch' ? (
               <div role="status">
-                <p className={outcome.done === outcome.count ? 'dk-note dk-note--good' : 'dk-note dk-note--bad'}>
+                <p
+                  data-testid={outcome.done === outcome.count ? undefined : 'dk-note--bad'}
+                  className={outcome.done === outcome.count ? 'dk-note dk-note--good' : 'dk-note dk-note--bad'}
+                >
                   {t('Cancel batch summary', { done: outcome.done, count: outcome.count })}
                 </p>
                 <ul className="dk-batch">

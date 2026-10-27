@@ -24,7 +24,7 @@ export function LearnStrip() {
       <ul className="home-learn">
         {TOPICS.map((topic) => (
           <li key={topic.title}>
-            <a className="home-learn__card" href={HOME_LINKS.academy}>
+            <a data-testid="home-learn__card" className="home-learn__card" href={HOME_LINKS.academy}>
               <span className="home-learn__title">
                 {t(topic.title)}
                 <ArrowUpRight size={16} aria-hidden="true" />

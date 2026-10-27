@@ -11,7 +11,7 @@ export function DestinationConfirm({ proof, onChange }: { proof: DestinationProo
   const { t } = stepUpCopy.useCopy();
   if (!('code' in proof))
     return (
-      <div className="form-stack">
+      <div data-testid="form-stack" className="form-stack">
         <p className="muted">{t('suDestinationPasskey')}</p>
         <Button variant="ghost" onClick={() => onChange({ code: '' })}>
           {t('suOr')}
@@ -19,7 +19,7 @@ export function DestinationConfirm({ proof, onChange }: { proof: DestinationProo
       </div>
     );
   return (
-    <div className="form-stack">
+    <div data-testid="form-stack" className="form-stack">
       <Field
         label={`${t('suCode')} *`}
         name="destination-code"

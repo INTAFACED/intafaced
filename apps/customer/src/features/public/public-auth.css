@@ -1,81 +1,81 @@
 .public-auth-context {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 12px;
-  border-left: 2px solid var(--color-accent);
-  margin-bottom: 24px;
+  gap: var(--if-space-1);
+  padding: var(--if-space-3);
+  border-left: 2px solid var(--if-lime);
+  margin-bottom: var(--if-space-6);
 }
 .public-auth-history {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-bottom: 28px;
+  gap: var(--if-space-3);
+  margin-bottom: var(--if-space-7);
   color: var(--color-muted);
-  font-size: 14px;
+  font-size: var(--if-text-base);
   line-height: 22px;
 }
 .public-auth-history label {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--if-space-1-5);
 }
 .public-auth-history select {
   min-height: 44px;
-  border-radius: 8px;
-  padding: 10px 12px;
-  font-size: 13px;
-  line-height: 20px;
+  border-radius: var(--if-r-sm);
+  padding: var(--if-space-2-5) var(--if-space-3);
+  font-size: var(--if-text-sm);
+  line-height: var(--if-leading-base);
 }
 .public-auth-context > span:first-child {
   color: var(--color-muted);
-  font-size: 14px;
+  font-size: var(--if-text-base);
   line-height: 22px;
 }
 .public-auth-context > span:last-child {
-  font-size: 16px;
-  line-height: 24px;
+  font-size: var(--if-text-md);
+  line-height: var(--if-leading-md);
 }
 .public-auth-method {
   color: var(--color-muted);
-  font-size: 14px;
+  font-size: var(--if-text-base);
   line-height: 22px;
 }
 .public-auth-unknown {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 20px;
-  border-left: 2px solid var(--color-accent);
-  border-radius: 12px;
-  margin-bottom: 28px;
+  gap: var(--if-space-4);
+  padding: var(--if-space-5);
+  border-left: 2px solid var(--if-lime);
+  border-radius: var(--if-r-md);
+  margin-bottom: var(--if-space-7);
 }
 .public-auth-unknown h2 {
-  font-size: 20px;
-  line-height: 28px;
+  font-size: var(--if-text-lg);
+  line-height: var(--if-leading-lg);
 }
 .public-auth-unknown p {
-  font-size: 16px;
+  font-size: var(--if-text-md);
   line-height: 26px;
 }
 .public-auth-unknown small {
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--if-text-sm);
+  line-height: var(--if-leading-base);
   color: var(--color-muted);
   overflow-wrap: anywhere;
 }
 .public-auth-unknown .muted {
-  font-size: 14px;
+  font-size: var(--if-text-base);
   line-height: 22px;
 }
 .public-auth-help {
   display: inline-flex;
   align-items: center;
   min-height: 44px;
-  color: var(--color-accent);
+  color: var(--if-accent-text);
 }
 .public-auth-feedback {
-  margin-bottom: 24px;
+  margin-bottom: var(--if-space-6);
 }
 .public-auth-form-links > a {
   display: inline-flex;
@@ -83,5 +83,5 @@
   min-height: 44px;
 }
 .public-auth-language {
-  margin-bottom: 24px;
+  margin-bottom: var(--if-space-6);
 }

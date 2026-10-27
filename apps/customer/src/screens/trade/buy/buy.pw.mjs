@@ -16,7 +16,7 @@ const shot = async (page, name) => {
 const forbidden = /unavailable|not connected|restricted|fixture|lifecycle|undefined|NaN|\[object/i;
 const open = async (page, path = '/trade/buy') => {
   await page.goto(path);
-  await page.locator('.buy-card').waitFor();
+  await page.getByTestId('buy-card').waitFor();
 };
 const amountBox = (page, unit = 'USD') => page.getByLabel(`Amount in ${unit}`);
 const reviewButton = (page) => page.getByRole('button', { name: /^Review (buy|sell)$/ });
@@ -34,17 +34,20 @@ test('buy $10 of BTC: amount, estimate, review, confirm, receipt, new balance (1
   page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
   const api = await mock(page);
   await open(page);
-  const card = page.locator('.buy-card');
+  const card = page.getByTestId('buy-card');
 
   // Layout (UI-SPEC 5.9): container 1224, breadcrumb 56, card 450 wide, headline in the left column.
-  expect(Math.round((await box(page.locator('.if-buy'))).width)).toBe(1224);
-  expect(Math.round((await box(page.locator('.buy-crumbs'))).height)).toBe(56);
+  expect(Math.round((await box(page.getByTestId('if-buy'))).width)).toBe(1224);
+  expect(Math.round((await box(page.getByTestId('buy-crumbs'))).height)).toBe(56);
   expect(Math.round((await box(card)).width)).toBe(450);
-  await expect(page.locator('.buy-hero h1')).toHaveText('Buy crypto in a few steps');
-  await expect(page.locator('.buy-crumbs')).toContainText('Trade');
-  await expect(page.locator('.buy-crumbs__history')).toHaveAttribute('href', '/money/activity?tab=orders');
+  await expect(page.getByTestId('buy-hero').locator('h1')).toHaveText('Buy crypto in a few steps');
+  await expect(page.getByTestId('buy-crumbs')).toContainText('Trade');
+  await expect(page.getByTestId('buy-crumbs__history')).toHaveAttribute('href', '/money/activity?tab=orders');
   expect(
-    await page.locator('.buy-hero h1').evaluate((node) => getComputedStyle(node).fontSize + '/' + getComputedStyle(node).lineHeight),
+    await page
+      .getByTestId('buy-hero')
+      .locator('h1')
+      .evaluate((node) => getComputedStyle(node).fontSize + '/' + getComputedStyle(node).lineHeight),
   ).toBe('48px/58px');
 
   // Defaults: Buy, BTC, paid from USDT, balance from the data layer.
@@ -139,7 +142,7 @@ test('enter in coins: the toggle, lot validation and the minimum order value', a
   await expect(page.locator('[data-slot="amount-input"]')).toContainText('Minimum is about $5.21.');
   await shot(page, 'buy-1440x900-minimum');
 });
-const card = (page) => page.locator('.buy-card');
+const card = (page) => page.getByTestId('buy-card');
 
 test('not enough balance is said before anything is asked of the service', async ({ page }) => {
   const api = await mock(page);
@@ -317,14 +320,14 @@ test('the coin picker lists only coins that can be bought, with prices, and swit
   await mock(page);
   await open(page);
   await page.getByRole('button', { name: 'Change coin' }).click();
-  const list = page.locator('.picker__list');
-  await expect(list.locator('.picker__ticker')).toHaveText(['BTC', 'ETH', 'IFC']);
-  await expect(list.locator('.picker__row').first()).toContainText('$65,083.66'.replace('83.66', '15.49').replace('65,0', '64,8'));
+  const list = page.getByTestId('picker__list');
+  await expect(list.getByTestId('picker__ticker')).toHaveText(['BTC', 'ETH', 'IFC']);
+  await expect(list.getByTestId('picker__row').first()).toContainText('$65,083.66'.replace('83.66', '15.49').replace('65,0', '64,8'));
   await shot(page, 'buy-1440x900-picker');
   await page.getByPlaceholder('Search coins').fill('eth');
-  await expect(list.locator('.picker__row')).toHaveCount(1);
+  await expect(list.getByTestId('picker__row')).toHaveCount(1);
   await page.getByPlaceholder('Search coins').fill('zzz');
-  await expect(page.locator('.picker__none')).toHaveText('No coin matches “zzz”.');
+  await expect(page.getByTestId('picker__none')).toHaveText('No coin matches “zzz”.');
   await page.getByPlaceholder('Search coins').fill('');
   await list.getByRole('button', { name: /ETH/ }).click();
   await expect(page.getByTestId('coin-row')).toContainText('ETH');
@@ -346,7 +349,7 @@ test('loading, empty, error and refused states', async ({ page }) => {
   // Loading: the markets are held, the card shows skeletons of its final size.
   const held = await mock(page, { markets: 'hang' });
   await page.goto('/trade/buy');
-  await page.locator('.buy-card__skeleton').waitFor();
+  await page.getByTestId('buy-card__skeleton').waitFor();
   await shot(page, 'buy-1440x900-loading');
   await held.release();
   await expect(page.getByTestId('coin-row')).toBeVisible();
@@ -385,10 +388,10 @@ test('signed out: the button asks to log in, with a way back', async ({ page }) 
 test('plain words, focus rings and a keyboard path', async ({ page }) => {
   await mock(page);
   await open(page);
-  expect(await page.locator('.if-buy').innerText()).not.toMatch(forbidden);
+  expect(await page.getByTestId('if-buy').innerText()).not.toMatch(forbidden);
   await amountBox(page).fill('10');
   await expect(reviewButton(page)).toBeEnabled();
-  await page.locator('.buy-crumbs__history').focus();
+  await page.getByTestId('buy-crumbs__history').focus();
   const stops = [];
   for (let step = 0; step < 14; step++) {
     await page.keyboard.press('Tab');
@@ -399,7 +402,7 @@ test('plain words, focus rings and a keyboard path', async ({ page }) => {
       return {
         name: node.getAttribute('aria-label') ?? node.textContent.trim().replace(/\s+/g, ' ').slice(0, 30),
         outline: `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`,
-        inside: Boolean(node.closest('.buy-card')),
+        inside: Boolean(node.closest('[data-testid="buy-card"]')),
       };
     });
     if (!stop.inside) break;
@@ -424,12 +427,12 @@ test('the Sell tab says Sell in the headline and breadcrumb, and an empty amount
 }) => {
   await mock(page);
   await open(page);
-  await expect(page.locator('.buy-hero h1')).toHaveText('Buy crypto in a few steps');
-  await page.locator('.buy-form__top').getByText('Sell', { exact: true }).click();
-  await expect(page.locator('.buy-hero h1')).toHaveText('Sell crypto in a few steps');
-  await expect(page.locator('.buy-crumbs [aria-current="page"]')).toHaveText('Sell crypto');
+  await expect(page.getByTestId('buy-hero').locator('h1')).toHaveText('Buy crypto in a few steps');
+  await page.getByTestId('buy-form__top').getByText('Sell', { exact: true }).click();
+  await expect(page.getByTestId('buy-hero').locator('h1')).toHaveText('Sell crypto in a few steps');
+  await expect(page.getByTestId('buy-crumbs').locator('[aria-current="page"]')).toHaveText('Sell crypto');
   await expect(page.getByTestId('approx')).toHaveText('—');
   expect(await page.getByTestId('approx').evaluate((node) => getComputedStyle(node).color)).not.toBe('rgb(37, 167, 80)');
   await open(page, '/trade/buy?side=sell');
-  await expect(page.locator('.buy-hero h1')).toHaveText('Sell crypto in a few steps');
+  await expect(page.getByTestId('buy-hero').locator('h1')).toHaveText('Sell crypto in a few steps');
 });

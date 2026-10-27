@@ -70,6 +70,7 @@ describe('the tier programme in the fee schedule', () => {
       snapshotTimeUtc: '07:00',
       benefits: null,
       application: null,
+      trial: null,
     });
     expect(program({ snapshotTimeUtc: null }).snapshotTimeUtc).toBeNull();
     const none = schedule(undefined);
@@ -168,6 +169,30 @@ describe("the owner's benefits table", () => {
     ['an empty table', [], /non-empty array or null/],
   ])('refuses %s as a blank schedule', (_name, benefits, message) => {
     const refused = refusal({ benefits });
+    expect(refused.code).toBe('trade.fee_schedule_blank');
+    expect(refused.message).toMatch(message);
+  });
+});
+
+describe("the owner's VIP trial", () => {
+  it('reads the tier and the days; absent or null is none', () => {
+    expect(program({ trial: { tierId: 'test-vip-2', days: 30 } }).trial).toEqual({ tierId: 'test-vip-2', days: 30 });
+    expect(program({ trial: null }).trial).toBeNull();
+    expect(program().trial).toBeNull();
+  });
+
+  it.each([
+    ['a tier the thresholds do not name', { tierId: 'test-vip-9', days: 30 }, /tierId must be a tier the thresholds name/],
+    ['the regular tier', { tierId: 'regular', days: 30 }, /tierId must be a tier the thresholds name/],
+    ['no days', { tierId: 'test-vip-1' }, /whole number of days from 1 to 366/],
+    ['zero days', { tierId: 'test-vip-1', days: 0 }, /whole number of days from 1 to 366/],
+    ['a fraction of a day', { tierId: 'test-vip-1', days: 1.5 }, /whole number of days from 1 to 366/],
+    ['days as text', { tierId: 'test-vip-1', days: '30' }, /whole number of days from 1 to 366/],
+    ['more than a year', { tierId: 'test-vip-1', days: 367 }, /whole number of days from 1 to 366/],
+    ['an unknown field', { tierId: 'test-vip-1', days: 30, amount: '1' }, /unknown fields: amount/],
+    ['a list', [{ tierId: 'test-vip-1', days: 30 }], /must be an object or null/],
+  ])('refuses %s as a blank schedule', (_name, trial, message) => {
+    const refused = refusal({ trial });
     expect(refused.code).toBe('trade.fee_schedule_blank');
     expect(refused.message).toMatch(message);
   });

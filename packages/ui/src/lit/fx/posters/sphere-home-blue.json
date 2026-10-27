@@ -1,0 +1,12 @@
+{
+  "kind": "sphere",
+  "width": 1200,
+  "height": 288,
+  "options": {
+    "color": "#3f7dff",
+    "hot": "#c7dbff",
+    "mood": 0,
+    "dist": 5.1,
+    "y": 0.02
+  }
+}

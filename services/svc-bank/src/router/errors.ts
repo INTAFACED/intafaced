@@ -447,6 +447,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.currency_in_use': 'PRECONDITION_FAILED',
   'bank.space_limit_unset': 'PRECONDITION_FAILED',
   'bank.space_limit_reached': 'PRECONDITION_FAILED',
+  'bank.space_name_taken': 'CONFLICT',
   'bank.space_change_invalid': 'BAD_REQUEST',
   'bank.space_unlock_rule_unset': 'PRECONDITION_FAILED',
   'bank.space_not_locked': 'CONFLICT',

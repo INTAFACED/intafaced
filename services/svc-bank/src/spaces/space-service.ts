@@ -344,15 +344,28 @@ export class SpaceService {
     },
     db: Sql = this.sql,
   ): Promise<SpaceRecord> {
-    const rows = await db<SpaceRow[]>`
-      INSERT INTO bank.spaces (user_id, asset_id, kind, name, goal_target, locked_until)
-      VALUES (
-        ${input.userId}, ${input.assetId}, 'named', ${input.name},
-        ${input.goalTarget === undefined || input.goalTarget === null ? null : formatAmount(input.goalTarget)}::numeric,
-        ${input.lockedUntil ?? null}
-      )
-      RETURNING id, user_id, asset_id, kind, name, goal_target, locked_until, unlock_requested_at, unlocks_at, archived_at
-    `;
+    let rows: SpaceRow[];
+    try {
+      rows = await db<SpaceRow[]>`
+        INSERT INTO bank.spaces (user_id, asset_id, kind, name, goal_target, locked_until)
+        VALUES (
+          ${input.userId}, ${input.assetId}, 'named', ${input.name},
+          ${input.goalTarget === undefined || input.goalTarget === null ? null : formatAmount(input.goalTarget)}::numeric,
+          ${input.lockedUntil ?? null}
+        )
+        RETURNING id, user_id, asset_id, kind, name, goal_target, locked_until, unlock_requested_at, unlocks_at, archived_at
+      `;
+    } catch (err) {
+      // Same customer, currency and name: a typed conflict the customer can fix by renaming, not a raw 23505 as a 500.
+      const e = err as { code?: string; constraint_name?: string };
+      if (e?.code === '23505' && e.constraint_name === 'spaces_user_asset_name_idx') {
+        throw new BankError(
+          `A space named "${input.name}" already exists for ${input.assetId}, perhaps archived: pick another name`,
+          'bank.space_name_taken',
+        );
+      }
+      throw err;
+    }
     return toRecord(rows[0]!);
   }
 

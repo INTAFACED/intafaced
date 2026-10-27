@@ -10,7 +10,7 @@
   .if-money {
     width: min(var(--if-container-max), calc(100% - 56px));
     margin: 0 auto;
-    padding: 32px 0 64px;
+    padding: var(--if-space-8) 0 var(--if-space-16);
     color: var(--if-fg);
     font-family: var(--if-font-ui);
   }
@@ -22,7 +22,7 @@
     text-decoration: none;
   }
   .if-money :focus-visible {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: 2px;
   }
   .if-money :where(h1, h2, p, ul, table) {
@@ -45,7 +45,7 @@
     align-items: center;
     padding: 0;
     border: 0;
-    border-radius: 8px;
+    border-radius: var(--if-r-sm);
     background: transparent;
     color: var(--if-fg-2);
     cursor: help;
@@ -59,7 +59,7 @@
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 24px;
+    gap: var(--if-space-6);
   }
   .money-head__main {
     min-width: 0;
@@ -67,9 +67,9 @@
   .money-label {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--if-space-2);
     min-height: 20px;
-    font: 400 13px/18px var(--if-font-ui);
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .money-eye {
@@ -80,7 +80,7 @@
     height: 24px;
     padding: 0;
     border: 0;
-    border-radius: 8px;
+    border-radius: var(--if-r-sm);
     background: transparent;
     color: var(--if-fg-2);
     cursor: pointer;
@@ -93,41 +93,41 @@
     display: flex;
     align-items: center;
     height: 56px;
-    margin-top: 4px;
+    margin-top: var(--if-space-1);
   }
   .money-change {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 8px;
+    gap: var(--if-space-1-5);
+    margin-top: var(--if-space-2);
     height: 20px;
-    font: 400 14px/20px var(--if-font-ui);
+    font: 400 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
   }
   .money-change > [data-slot='change-text'] {
-    line-height: 20px;
+    line-height: var(--if-leading-base);
   }
   .money-note {
     display: flex;
     align-items: center;
-    gap: 6px;
-    margin-top: 4px;
-    font: 400 12px/16px var(--if-font-ui);
+    gap: var(--if-space-1-5);
+    margin-top: var(--if-space-1);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .money-scope {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-top: 12px;
-    font: 400 14px/20px var(--if-font-ui);
+    gap: var(--if-space-2);
+    margin-top: var(--if-space-3);
+    font: 400 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .money-scope select {
     min-height: 32px;
-    padding: 0 8px;
+    padding: 0 var(--if-space-2);
     border: 1px solid var(--if-line);
-    border-radius: 8px;
+    border-radius: var(--if-r-sm);
     background: var(--if-bg-1);
     color: var(--if-fg-1);
     font: inherit;
@@ -136,60 +136,60 @@
   .money-pnl-link {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    margin-top: 32px;
-    padding: 12px 16px;
+    gap: var(--if-space-0-5);
+    margin-top: var(--if-space-8);
+    padding: var(--if-space-3) var(--if-space-4);
     border: 1px solid var(--if-line);
-    border-radius: 12px;
-    font: 500 14px/20px var(--if-font-ui);
+    border-radius: var(--if-r-md);
+    font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     color: var(--if-fg-1);
     text-decoration: none;
   }
   .money-pnl-link__hint {
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .money-note-form {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    margin-top: 16px;
+    gap: var(--if-space-1-5);
+    margin-top: var(--if-space-4);
   }
   .money-note-form__label {
-    font: 500 14px/20px var(--if-font-ui);
+    font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     color: var(--if-fg-1);
   }
   .money-note-form__row {
     display: flex;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .money-note-form__input {
     flex: 1;
     min-width: 0;
     height: 40px;
-    padding: 0 12px;
+    padding: 0 var(--if-space-3);
     border: 1px solid var(--if-line);
     border-radius: 10px;
     background: transparent;
     color: var(--if-fg-1);
-    font: 400 14px/20px var(--if-font-ui);
+    font: 400 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
   }
   .money-statement {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    margin: 12px 0;
+    gap: var(--if-space-2);
+    margin: var(--if-space-3) 0;
   }
   .money-statement__h {
-    font: 500 14px/20px var(--if-font-ui);
+    font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     color: var(--if-fg-1);
   }
   .money-tax-effects {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 8px;
-    margin: 12px 0;
+    gap: var(--if-space-2);
+    margin: var(--if-space-3) 0;
   }
   .money-tax-effects > .money-facts,
   .money-tax-effects > [data-slot='state-block'] {
@@ -199,34 +199,34 @@
     display: flex;
     flex-wrap: wrap;
     align-items: flex-end;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .money-actions {
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
-    gap: 8px;
-    margin-top: 24px;
+    gap: var(--if-space-2);
+    margin-top: var(--if-space-6);
     min-height: 40px;
   }
 
   /* Allocation bar: 8 px, r-xs, one segment per coin; legend under it */
   .money-alloc {
-    margin-top: 24px;
+    margin-top: var(--if-space-6);
   }
   .money-alloc__switch {
     display: inline-flex;
-    gap: 4px;
-    margin-bottom: 12px;
+    gap: var(--if-space-1);
+    margin-bottom: var(--if-space-3);
   }
   .money-alloc__opt {
     min-height: 32px;
-    padding: 0 12px;
+    padding: 0 var(--if-space-3);
     border: 0;
-    border-radius: 999px;
+    border-radius: var(--if-r-pill);
     background: transparent;
     color: var(--if-fg-2);
-    font: 500 12px/16px var(--if-font-ui);
+    font: 500 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     cursor: pointer;
   }
   .money-alloc__opt[aria-pressed='true'] {
@@ -235,12 +235,12 @@
   }
   .money-alloc__note {
     margin: 0;
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .money-alloc__bar {
     display: flex;
-    gap: 2px;
+    gap: var(--if-space-0-5);
     height: 8px;
     overflow: hidden;
     border-radius: var(--if-r-xs);
@@ -252,20 +252,20 @@
   .money-alloc__legend {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px 20px;
-    margin-top: 12px;
-    font: 400 12px/16px var(--if-font-ui);
+    gap: var(--if-space-1) var(--if-space-5);
+    margin-top: var(--if-space-3);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .money-alloc__legend li {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--if-space-1-5);
   }
   .money-alloc__dot {
     width: 8px;
     height: 8px;
-    border-radius: 999px;
+    border-radius: var(--if-r-pill);
   }
   .money-alloc__pct {
     color: var(--if-fg);
@@ -274,8 +274,8 @@
 
   /* Cards */
   .money-card {
-    margin-top: 32px;
-    padding-bottom: 8px;
+    margin-top: var(--if-space-8);
+    padding-bottom: var(--if-space-2);
     border-radius: var(--if-r-lg);
     background: var(--if-panel);
     scroll-margin-top: 96px;
@@ -285,23 +285,23 @@
     align-items: center;
     justify-content: space-between;
     height: 56px;
-    padding: 0 24px;
+    padding: 0 var(--if-space-6);
   }
   .money-card__head h2 {
-    font: 600 20px/28px var(--if-font-ui);
+    font: 600 var(--if-text-lg)/var(--if-leading-lg) var(--if-font-ui);
   }
   .money-card__total {
-    font: 600 20px/28px var(--if-font-ui);
+    font: 600 var(--if-text-lg)/var(--if-leading-lg) var(--if-font-ui);
   }
   .money-card__note {
-    margin: -8px 24px 8px;
-    font: 400 13px/18px var(--if-font-ui);
+    margin: -8px var(--if-space-6) var(--if-space-2);
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
     color: var(--if-fg-2);
   }
 
   .money-card__foot {
-    margin: 8px 24px 16px;
-    font: 400 13px/18px var(--if-font-ui);
+    margin: var(--if-space-2) var(--if-space-6) var(--if-space-4);
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
     color: var(--if-fg-2);
   }
 
@@ -329,24 +329,24 @@
   }
   .money-table th {
     height: 32px;
-    padding: 0 8px;
+    padding: 0 var(--if-space-2);
     text-align: left;
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .money-table th:first-child,
   .money-table td:first-child {
-    padding-left: 24px;
+    padding-left: var(--if-space-6);
   }
   .money-table th:last-child,
   .money-table td:last-child {
-    padding-right: 24px;
+    padding-right: var(--if-space-6);
   }
   .money-table td {
     height: 64px;
-    padding: 0 8px;
+    padding: 0 var(--if-space-2);
     border-top: 1px solid var(--if-line);
-    font: 400 14px/20px var(--if-font-ui);
+    font: 400 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     vertical-align: middle;
   }
   .money-table thead + tbody tr:first-child td {
@@ -377,7 +377,7 @@
   .money-coin {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--if-space-3);
     min-height: 48px;
     border-radius: var(--if-r-sm);
   }
@@ -389,10 +389,10 @@
   .money-coin__top {
     display: flex;
     align-items: baseline;
-    gap: 6px;
+    gap: var(--if-space-1-5);
   }
   .money-coin__ticker {
-    font: 500 16px/24px var(--if-font-ui);
+    font: 500 var(--if-text-md)/var(--if-leading-md) var(--if-font-ui);
   }
   .money-coin__share {
     color: var(--if-fg-2);
@@ -402,12 +402,12 @@
   .money-movers {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    gap: 16px;
+    gap: var(--if-space-4);
   }
   .money-movers__side h3 {
-    font: 500 14px/20px var(--if-font-ui);
+    font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     color: var(--if-fg-2);
-    margin: 0 0 8px;
+    margin: 0 0 var(--if-space-2);
   }
   .money-movers__side ol {
     list-style: none;
@@ -417,35 +417,35 @@
   .money-movers__row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--if-space-2);
     min-height: 40px;
   }
   .money-movers__coin {
-    font: 500 14px/20px var(--if-font-ui);
+    font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     flex: 1;
   }
   /* The total's cash and crypto split: the look of the notes under the total, with figures that line up. */
   .money-split {
     display: flex;
     align-items: center;
-    gap: 6px;
-    margin-top: 4px;
-    font: 400 12px/16px var(--if-font-ui);
+    gap: var(--if-space-1-5);
+    margin-top: var(--if-space-1);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
     font-variant-numeric: tabular-nums;
   }
   .money-coin__name {
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .money-today {
-    font: 400 13px/18px var(--if-font-ui);
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
     justify-content: flex-end;
   }
   .money-row__actions {
     display: flex;
     justify-content: flex-end;
-    gap: 4px;
+    gap: var(--if-space-1);
     opacity: 0;
     transition: opacity var(--if-t-fast) var(--if-ease);
   }
@@ -527,10 +527,10 @@
   .if-money[data-density='pro'] .money-coin__text {
     flex-direction: row;
     align-items: baseline;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .if-money[data-density='pro'] .money-coin__ticker {
-    font: 500 14px/20px var(--if-font-ui);
+    font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
   }
   .if-money[data-density='pro'] .money-row__actions {
     opacity: 1;
@@ -540,15 +540,15 @@
   .money-small__trigger {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--if-space-3);
     width: 100%;
     height: 56px;
-    padding: 0 24px;
+    padding: 0 var(--if-space-6);
     border: 0;
     border-top: 1px solid var(--if-line);
     background: transparent;
     color: var(--if-fg);
-    font: 500 14px/20px var(--if-font-ui);
+    font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     text-align: left;
     cursor: pointer;
   }
@@ -572,11 +572,11 @@
   .money-accounts__row {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--if-space-3);
     height: 56px;
-    padding: 0 24px;
+    padding: 0 var(--if-space-6);
     border-top: 1px solid var(--if-line);
-    font: 400 14px/20px var(--if-font-ui);
+    font: 400 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
   }
   .money-accounts__name {
     flex: 1;
@@ -589,7 +589,7 @@
 
   /* States */
   .money-state {
-    margin-top: 32px;
+    margin-top: var(--if-space-8);
     border-radius: var(--if-r-lg);
     background: var(--if-panel);
   }
@@ -600,9 +600,9 @@
   .money-skeleton-row {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: var(--if-space-4);
     height: 64px;
-    padding: 0 24px;
+    padding: 0 var(--if-space-6);
     border-top: 1px solid var(--if-line);
   }
   .money-skeleton-gap {
@@ -611,11 +611,11 @@
 
   /* Activity */
   .money-title {
-    font: 700 28px/34px var(--if-font-ui);
+    font: 700 var(--if-text-2xl)/var(--if-leading-2xl) var(--if-font-ui);
   }
   /* Seven tabs are wider than a phone: the row scrolls on its own and the page never does. */
   .money-tabs {
-    margin-top: 16px;
+    margin-top: var(--if-space-4);
     overflow-x: auto;
     scrollbar-width: thin;
   }
@@ -628,19 +628,19 @@
   }
   .money-filter {
     display: flex;
-    margin-top: 16px;
+    margin-top: var(--if-space-4);
   }
   .money-chip {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--if-space-1-5);
     height: 32px;
-    padding: 0 10px 0 12px;
+    padding: 0 var(--if-space-2-5) 0 var(--if-space-3);
     border: 1px solid var(--if-line);
-    border-radius: 999px;
+    border-radius: var(--if-r-pill);
     background: var(--if-raised);
     color: var(--if-fg);
-    font: 500 13px/18px var(--if-font-ui);
+    font: 500 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
     cursor: pointer;
     transition: background-color var(--if-t-fast) var(--if-ease);
   }
@@ -651,10 +651,10 @@
     color: var(--if-fg-2);
   }
   .money-filter + .money-card--activity {
-    margin-top: 12px;
+    margin-top: var(--if-space-3);
   }
   .money-card--activity {
-    margin-top: 16px;
+    margin-top: var(--if-space-4);
     padding-bottom: 0;
     overflow: hidden;
   }
@@ -666,30 +666,30 @@
   }
   .money-act__hold {
     color: var(--if-warn);
-    font: 400 13px/18px var(--if-font-ui);
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
   }
   .money-trade-tab {
-    padding-bottom: 8px;
+    padding-bottom: var(--if-space-2);
     overflow-x: auto;
   }
   .money-trade-tab .dk-table th:first-child,
   .money-trade-tab .dk-table td:first-child {
-    padding-left: 24px;
+    padding-left: var(--if-space-6);
   }
   .money-trade-tab .dk-table th:last-child,
   .money-trade-tab .dk-table td:last-child {
-    padding-right: 24px;
+    padding-right: var(--if-space-6);
   }
   .money-trade-tab .dk-bt-skeleton {
-    padding: 12px 24px;
+    padding: var(--if-space-3) var(--if-space-6);
   }
   .money-trade-tab__head {
     margin: 0;
-    padding: 16px 24px 8px;
-    font: 500 16px/24px var(--if-font-ui);
+    padding: var(--if-space-4) var(--if-space-6) var(--if-space-2);
+    font: 500 var(--if-text-md)/var(--if-leading-md) var(--if-font-ui);
   }
   .money-state--compact {
-    padding: 16px 24px;
+    padding: var(--if-space-4) var(--if-space-6);
   }
   /* Pro: activity rows 40 (Simple 48) */
   .if-money--activity .dk-table td {
@@ -721,7 +721,7 @@
   .money-act__what {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--if-space-3);
   }
   .money-act__icon {
     display: inline-flex;
@@ -730,7 +730,7 @@
     flex: none;
     width: 32px;
     height: 32px;
-    border-radius: 999px;
+    border-radius: var(--if-r-pill);
     background: var(--if-field);
     color: var(--if-fg-2);
   }
@@ -743,10 +743,10 @@
     min-width: 0;
   }
   .money-act__title {
-    font: 500 14px/20px var(--if-font-ui);
+    font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
   }
   .money-act__sub {
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .money-act__time {
@@ -763,9 +763,9 @@
   .money-act-skeleton__row {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: var(--if-space-4);
     height: 56px;
-    padding: 0 24px;
+    padding: 0 var(--if-space-6);
     border-top: 1px solid var(--if-line);
   }
   .money-act-skeleton__row:first-child {
@@ -775,20 +775,20 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
-    padding: 16px 0 24px;
+    gap: var(--if-space-2);
+    padding: var(--if-space-4) 0 var(--if-space-6);
     border-top: 1px solid var(--if-line);
   }
   .money-more__note {
-    font: 400 13px/18px var(--if-font-ui);
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
     color: var(--if-fg-2);
   }
 
   .money-act__done {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    font: 400 13px/18px var(--if-font-ui);
+    gap: var(--if-space-1-5);
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
     color: var(--if-fg-2);
   }
 
@@ -801,7 +801,7 @@
     }
     .money-actions {
       justify-content: flex-start;
-      margin-top: 20px;
+      margin-top: var(--if-space-5);
     }
   }
   @media (max-width: 960px) {
@@ -855,21 +855,21 @@
     }
     .money-table td .money-num__value {
       color: var(--if-fg-2);
-      font: 400 12px/16px var(--if-font-ui);
+      font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     }
     .money-card__head {
-      padding: 0 16px;
+      padding: 0 var(--if-space-4);
     }
     .money-coin__share {
       display: none;
     }
     .money-table th:first-child,
     .money-table td:first-child {
-      padding-left: 16px;
+      padding-left: var(--if-space-4);
     }
     .money-table th:last-child,
     .money-table td:last-child {
-      padding-right: 16px;
+      padding-right: var(--if-space-4);
     }
     .money-act__time {
       white-space: normal;
@@ -893,16 +893,16 @@
     display: flex;
     flex-wrap: wrap;
     align-items: flex-end;
-    gap: 12px;
-    margin-top: 16px;
+    gap: var(--if-space-3);
+    margin-top: var(--if-space-4);
   }
   .money-bar__search {
     display: flex;
     flex: 1 1 260px;
     align-items: center;
-    gap: 8px;
+    gap: var(--if-space-2);
     height: 40px;
-    padding: 0 12px;
+    padding: 0 var(--if-space-3);
     border: 1px solid var(--if-line);
     border-radius: var(--if-r-lg);
     background: var(--if-raised);
@@ -915,7 +915,7 @@
     border: 0;
     background: transparent;
     color: var(--if-fg);
-    font: 400 14px/20px var(--if-font-ui);
+    font: 400 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
   }
   .money-bar__search input {
     flex: 1;
@@ -924,28 +924,28 @@
   .money-bar__note {
     flex-basis: 100%;
     margin: 0;
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .money-bar__check {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--if-space-2);
     height: 40px;
-    font: 400 14px/20px var(--if-font-ui);
+    font: 400 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .money-bar__field {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    font: 400 12px/16px var(--if-font-ui);
+    gap: var(--if-space-1);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .money-bar__field input,
   .money-bar__field select {
     height: 40px;
-    padding: 0 10px;
+    padding: 0 var(--if-space-2-5);
     border: 1px solid var(--if-line);
     border-radius: var(--if-r-lg);
     background: var(--if-raised);
@@ -953,19 +953,19 @@
   .money-bar__error {
     flex-basis: 100%;
     color: var(--if-warn);
-    font: 400 13px/18px var(--if-font-ui);
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
   }
   .money-export {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 12px;
-    padding: 12px 24px;
+    gap: var(--if-space-3);
+    padding: var(--if-space-3) var(--if-space-6);
   }
   .money-export__note {
     flex: 1 1 240px;
     color: var(--if-fg-2);
-    font: 400 13px/18px var(--if-font-ui);
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
   }
   .money-detail {
     max-width: 760px;
@@ -973,10 +973,10 @@
   .money-back {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    margin-bottom: 16px;
+    gap: var(--if-space-1-5);
+    margin-bottom: var(--if-space-4);
     color: var(--if-fg-2);
-    font: 500 14px/20px var(--if-font-ui);
+    font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
   }
   .money-back:hover {
     color: var(--if-fg);
@@ -984,7 +984,7 @@
   .money-detail__head {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .money-detail__amount {
     font: 700 40px/48px var(--if-font-ui);
@@ -993,24 +993,24 @@
   .money-detail__status {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: var(--if-space-1);
     color: var(--if-fg-2);
-    font: 400 14px/20px var(--if-font-ui);
+    font: 400 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
   }
   .money-detail__note {
     color: var(--if-fg-2);
-    font: 400 13px/18px var(--if-font-ui);
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
   }
   .money-detail__skeleton {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--if-space-3);
   }
   .money-detail__card {
-    padding: 8px 24px 24px;
+    padding: var(--if-space-2) var(--if-space-6) var(--if-space-6);
   }
   .money-detail__h {
-    padding: 16px 0 8px;
+    padding: var(--if-space-4) 0 var(--if-space-2);
     font: 600 18px/26px var(--if-font-ui);
   }
   .money-facts {
@@ -1019,10 +1019,10 @@
   .money-fact {
     display: flex;
     justify-content: space-between;
-    gap: 16px;
-    padding: 12px 0;
+    gap: var(--if-space-4);
+    padding: var(--if-space-3) 0;
     border-top: 1px solid var(--if-line);
-    font: 400 14px/20px var(--if-font-ui);
+    font: 400 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
   }
   .money-fact dt {
     color: var(--if-fg-2);
@@ -1035,13 +1035,13 @@
   }
   .money-code {
     font-family: var(--if-font-mono);
-    font-size: 13px;
+    font-size: var(--if-text-sm);
   }
   .money-detail__actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 12px;
-    margin: 16px 0 8px;
+    gap: var(--if-space-3);
+    margin: var(--if-space-4) 0 var(--if-space-2);
   }
   @media (max-width: 640px) {
     .money-detail__amount {
@@ -1050,7 +1050,7 @@
     }
     .money-fact {
       flex-direction: column;
-      gap: 4px;
+      gap: var(--if-space-1);
     }
     .money-fact dd {
       text-align: left;
@@ -1059,20 +1059,20 @@
   .money-pnl-range {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    margin-bottom: 16px;
+    gap: var(--if-space-3);
+    margin-bottom: var(--if-space-4);
   }
   .money-pnl-range__dates {
     display: flex;
     flex-wrap: wrap;
     align-items: flex-end;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .money-pnl-chart {
     margin: 0;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--if-space-1);
   }
   .money-pnl-chart__plot {
     position: relative;
@@ -1090,23 +1090,23 @@
     top: 8px;
     left: 8px;
     margin: 0;
-    padding: 4px 8px;
+    padding: var(--if-space-1) var(--if-space-2);
     border: 1px solid var(--if-line);
     border-radius: var(--if-r-xs);
     background: var(--if-bg-1);
     color: var(--if-fg-1);
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
   }
   .money-pnl-chart__axis {
     display: flex;
     justify-content: space-between;
-    gap: 8px;
-    font: 400 12px/16px var(--if-font-ui);
+    gap: var(--if-space-2);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .money-pnl-points summary {
     cursor: pointer;
-    font: 500 14px/20px var(--if-font-ui);
+    font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     color: var(--if-fg-1);
   }
 }

@@ -1,7 +1,6 @@
 // Test harness only. Mounts the Pay screen (by path) with the real theme and providers but without the app shell, signed
 // in as a labelled fake user (add ?signedout=1 to stay signed out). Every API call is answered by the Playwright test:
 // no service is contacted.
-import '../../../shared/tokens.css';
 import '../../../shared/styles.css';
 import '../../../features/public/public.css';
 import '../../../app/redesign.css';
@@ -38,7 +37,7 @@ function Page() {
       <TooltipProvider>
         <ToastProvider>
           <div className="if-app">
-            <nav className="harness-bar" aria-label="Harness stand-in for the top bar">
+            <nav data-testid="harness-bar" className="harness-bar" aria-label="Harness stand-in for the top bar">
               <a href="/home">intafaced</a>
               <a href="/home">Home</a>
               <a href="/money">Money</a>

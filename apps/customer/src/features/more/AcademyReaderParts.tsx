@@ -32,7 +32,7 @@ export function ReaderHeader({
           {pathLabel(t, path)}
         </a>
       </nav>
-      <div className="academy-lms-meta">
+      <div data-testid="academy-lms-meta" className="academy-lms-meta">
         {place.position > 0 && (
           <span>
             <Copy k="lessonPosition" params={{ position: place.position, total: place.total }} />
@@ -117,7 +117,7 @@ export function LessonVideoLink({ slug }: { slug: string }) {
 export function LockedItemNotice({ missing, lessons }: { missing: readonly string[]; lessons: readonly LessonSummary[] }) {
   const { t } = copy.useCopy();
   return (
-    <section className="failure" role="status" data-locked-item="prerequisite">
+    <section data-testid="failure" className="failure" role="status" data-locked-item="prerequisite">
       <h3>{t('lockedItemTitle')}</h3>
       {missing.length > 0 ? (
         <>

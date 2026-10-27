@@ -1,7 +1,7 @@
 .agent-session-journey {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
-  gap: 24px;
+  gap: var(--if-space-6);
   align-items: start;
 }
 .agent-session-journey > * {
@@ -15,9 +15,9 @@
 }
 .agent-session-list li {
   display: flex;
-  gap: 16px;
+  gap: var(--if-space-4);
   align-items: center;
-  padding: 16px 0;
+  padding: var(--if-space-4) 0;
   border-bottom: 1px solid var(--color-divider);
 }
 .agent-session-list li > div {
@@ -32,10 +32,10 @@
 .agent-session-history small {
   display: block;
   color: var(--color-muted);
-  margin-top: 8px;
+  margin-top: var(--if-space-2);
 }
 .agent-session-history li {
-  padding: 16px 0;
+  padding: var(--if-space-4) 0;
   border-top: 1px solid var(--color-divider);
   overflow-wrap: anywhere;
 }
@@ -47,17 +47,17 @@
 .agent-session-history dl {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px 24px;
+  gap: var(--if-space-3) var(--if-space-6);
 }
 .agent-session-history dl > div {
   min-width: 0;
 }
 .agent-session-history dt {
-  font-size: 13px;
+  font-size: var(--if-text-sm);
   color: var(--color-muted);
 }
 .agent-session-history dd {
-  margin: 4px 0 0;
+  margin: var(--if-space-1) 0 0;
   font-variant-numeric: tabular-nums;
 }
 .agent-session-journey .more-continuation {

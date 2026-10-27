@@ -10,10 +10,12 @@ import {
   depositStatus,
   progress,
   readDismissed,
+  readLastOpen,
   securityStatus,
   tradeStatus,
   verificationStatus,
   writeDismissed,
+  writeLastOpen,
   type EverRead,
   type Step,
   type StepStatus,
@@ -153,5 +155,11 @@ export function useStartedTile(
   }, [userId]);
   const on = allowed && userId !== null && !dismissed;
   const steps = useGetStarted({ portfolio }, on);
-  return { show: on && !progress(steps).complete, steps, hide };
+  const { complete, settled } = progress(steps);
+  const lastOpen = useMemo(() => readLastOpen(userId), [userId]);
+  useEffect(() => {
+    if (on && settled) writeLastOpen(userId, !complete);
+  }, [on, settled, complete, userId]);
+  // until every step is read, draw the list only if it was open last time (readLastOpen)
+  return { show: on && !complete && (settled || lastOpen), steps, hide };
 }

@@ -1,4 +1,5 @@
 import { WITHDRAWAL_STATUSES, isCancellable, shownStatus } from './withdrawals/status.js';
+import { payWithdrawalTierLimitsOutputSchema } from '@intafaced/contracts/pay-withdrawal-tier-limits';
 import { INTERNAL_RAIL } from './withdrawals/internal.js';
 import { ELIGIBILITY_REASONS } from './withdrawals/eligibility.js';
 import { WithdrawalQuoteError, withdrawalQuoteToTrpcError } from './withdrawals/quotes/errors.js';
@@ -41,6 +42,7 @@ import {
   scopedProcedure,
   publicProcedure,
   TRPCError,
+  withdrawalAllowanceSchema,
 } from '@intafaced/contracts';
 import { merchantPortalExtensions } from './merchant-portal/router.js';
 import type { MerchantTermsConfig } from './merchant-portal/terms.js';
@@ -70,7 +72,7 @@ import type { UserMoneyService, WithdrawalRecord } from './user-money-service.js
 import type { RailRegistry } from './rails/registry.js';
 import { RAIL_CAPABILITIES, RAIL_MODES } from './rails/rail-adapter.js';
 import { PublicCheckoutUnavailable, SandboxRailRefusal } from './rails/posture.js';
-import { PayGuardRefusal } from './seams/guards.js';
+import { guardRefusalToTrpc, PayGuardRefusal } from './seams/guards.js';
 import { isInteractivePrincipal, seesFullPricing } from './merchant-ops/roles.js';
 import {
   loadDestinationHoldSeconds,
@@ -2292,24 +2294,26 @@ export function createPayRouter(
 
       /**
        * What the caller may still withdraw of one asset (D-148): the owner-set per-transaction and rolling 24 hour
-       * figures for their KYC tier, what the window has used, and what is left. `trade:read` like the other
+       * figures for their KYC tier (`base`), a founder's override in force with its end time (`override`), the figures in
+       * force, what the window has used, and what is left. `trade:read` like the other
        * withdrawal reads. Refuses with the guard's own codes (`pay.guard_withdrawal_limit_unset`, ...): a blank limit
        * is never shown as room. The guard still decides at submit, under its lock.
        */
       limits: scopedProcedure('trade:read')
         .input(z.object({ assetId: assetIdSchema }))
-        .output(
-          z.object({
-            tier: z.string(),
-            assetId: assetIdSchema,
-            perTx: amountSchema,
-            rolling24h: amountSchema,
-            used24h: amountSchema,
-            remaining: z.object({ perTx: amountSchema, rolling24h: amountSchema }),
-            maxNow: amountSchema,
-          }),
-        )
+        .output(withdrawalAllowanceSchema)
         .query(({ ctx, input }) => wrap(async () => userMoney.withdrawalAllowance(ctx.principal.userId, input.assetId))),
+
+      /**
+       * The owner's withdrawal limits for every KYC tier (D-148), as the verification ladder shows them
+       * (I-kyc-compliance-04): only figures the owner set, per tier and asset; a tier left out has no limit set, never a
+       * number. `enforced` is false when this deployment applies no limits. The same owner figures every customer is held
+       * to, nothing about the caller's own use. `trade:read` like the other withdrawal reads.
+       */
+      tierLimits: scopedProcedure('trade:read')
+        .input(z.object({}).strict().optional())
+        .output(payWithdrawalTierLimitsOutputSchema)
+        .query(() => wrap(async () => userMoney.withdrawalTierLimits())),
 
       /**
        * The caller's own withdrawals in the customer status vocabulary (W-withdraw-06; a held row split by its dispatch
@@ -2517,9 +2521,7 @@ export function toTrpcError(err: unknown): unknown {
    * PayError default below (BAD_REQUEST reads as "fix your request"). The
    * message is the code only: composeGuards already stripped any internals.
    */
-  if (err instanceof PayGuardRefusal) {
-    return new TRPCError({ code: err.kind === 'unavailable' ? 'SERVICE_UNAVAILABLE' : 'FORBIDDEN', message: err.code, cause: err });
-  }
+  if (err instanceof PayGuardRefusal) return guardRefusalToTrpc(err);
   // Payout of a merchant who already has a rolling reserve. NOT_IMPLEMENTED, message is the code.
   if (err instanceof ControlError) return controlToTrpcError(err);
   if (err instanceof WithdrawalQuoteError) return withdrawalQuoteToTrpcError(err);

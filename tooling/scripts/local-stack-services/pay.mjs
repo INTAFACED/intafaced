@@ -56,5 +56,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // LOCAL-TEST value (same file): RC-merchant-09, a bank transfer is captured only when the name on the sending account
     // matches the name the payer gave, after case, accents, punctuation and spacing. Anything else is held for review.
     PAY_PAYER_NAME_MATCH_RULE: 'exact_normalised',
+    // Withdrawal limits per KYC tier are enforced (D-148). The figures are LOCAL-TEST ones set by local-test-gates.mjs through
+    // founderAdmin.limits.change (TEST_WITHDRAWAL_LIMITS), and a founder's override for one customer comes from identity.
+    PAY_WITHDRAWAL_LIMITS: 'required',
   }),
 });

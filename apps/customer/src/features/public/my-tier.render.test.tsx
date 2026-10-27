@@ -90,6 +90,24 @@ describe('/fees/my-tier', () => {
     expect(html).toMatch(/data-benefits="test-vip-2"><th scope="row">test-vip-2<\/th><td data-benefit="prioritySupport">not set<\/td>/);
   });
 
+  it('names a VIP trial the tier comes from, and until when', () => {
+    const trial = feeTierSchema.parse({
+      ...tier,
+      tier: 'test-vip-2',
+      lastSnapshot: null,
+      trial: {
+        applicationId: '55555555-5555-4555-8555-555555555555',
+        tierId: 'test-vip-2',
+        startsAt: '2026-10-25T03:00:00.000Z',
+        endsAt: '2026-11-24T03:00:00.000Z',
+      },
+    });
+    const html = renderToString(<MyTierView load={ready(trial)} />);
+    expect(html).toContain('Your tier: test-vip-2');
+    expect(html).toContain('From your VIP trial, until 2026-11-24 03:00 UTC.');
+    expect(html).not.toContain('From the snapshot at');
+  });
+
   it('says the benefits are not set when the owner published no table', () => {
     expect(renderToString(<MyTierView load={ready(tier)} />)).toContain(
       'Benefits not set: no tier has published benefits beyond its rates.',

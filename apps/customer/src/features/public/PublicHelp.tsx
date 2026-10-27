@@ -321,7 +321,7 @@ export function PublicHelp() {
             <Button type="submit">{t('search')}</Button>
           </form>
           <div className="help__request">
-            <RequestEntry query={typed} />
+            <RequestEntry query={typed} found={!typed || !loaded || ranking || articles.length > 0} />
           </div>
           <HelpLibraryNav />
           <p className="help__caption muted" role="status">
@@ -351,7 +351,7 @@ export function PublicHelp() {
                     {articles.map((row) => {
                       const text = rendered(row);
                       return (
-                        <article className="help__row" key={row.id}>
+                        <article data-testid="help__row" className="help__row" key={row.id}>
                           <div className="help__row-heading">
                             <h2 lang={text.titleLanguage ?? languageFor('textUnavailable')}>{text.title ?? t('textUnavailable')}</h2>
                             <a
@@ -383,6 +383,7 @@ export function PublicHelp() {
                     <div className="help__empty" role="status">
                       <h2>{t(loaded.articles.length ? 'noMatches' : 'empty')}</h2>
                       <p className="muted">{t(loaded.articles.length ? 'noMatchesBody' : 'emptyBody')}</p>
+                      {typed && <RequestEntry query={typed} found={false} contact />}
                     </div>
                   )}
                   {ranking && <Loading label={t('searching')} />}
@@ -414,7 +415,11 @@ export function PublicHelp() {
           {(!visible || visible.status === 'loading') && <Loading label={t('loadingArticle')} />}
           {article && (
             <>
-              <article className="help__body help__measure" lang={rendered(article).bodyLanguage ?? languageFor('bodyUnavailable')}>
+              <article
+                data-testid="help__body"
+                className="help__body help__measure"
+                lang={rendered(article).bodyLanguage ?? languageFor('bodyUnavailable')}
+              >
                 {rendered(article).body ? (
                   paragraphs(article).map((paragraph, index) => <p key={index}>{paragraph}</p>)
                 ) : (

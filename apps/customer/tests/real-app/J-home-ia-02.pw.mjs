@@ -22,8 +22,8 @@ const mainNav = (page) => page.getByRole('navigation', { name: 'Main navigation'
 /** The rows of one top-bar door's dropdown, as { href, group } (group is the Advanced heading when the row sits under it). */
 async function dropdown(page, door) {
   const item = mainNav(page)
-    .locator('.tb-item')
-    .filter({ has: page.locator('.tb-tab', { hasText: new RegExp(`^${door}$`) }) });
+    .getByTestId('tb-item')
+    .filter({ has: page.locator('[data-testid="tb-tab"]', { hasText: new RegExp(`^${door}$`) }) });
   await item.hover();
   const menu = item.getByRole('group', { name: door });
   await expect(menu).toBeVisible();
@@ -38,7 +38,7 @@ async function dropdown(page, door) {
 async function search(page, words) {
   const box = page.getByRole('combobox', { name: 'Search markets' });
   await box.fill(words);
-  const panel = page.locator('.tb-search-panel');
+  const panel = page.getByTestId('tb-search-panel');
   await expect(panel).toBeVisible();
   return panel;
 }
@@ -52,21 +52,21 @@ async function chooseLayout(page, mode) {
   await page.goto('/home');
 }
 
-test(`${J} #1 the top bar has six doors with full dropdowns; /bank is its own room; Simple groups Advanced, Pro lists every row`, async ({
+test(`${J} #1 the top bar has five doors with full dropdowns, the same five on the phone bar; /bank is its own room; Simple groups Advanced, Pro lists every row`, async ({
   page,
 }) => {
   test.setTimeout(120_000);
   await signIn(page, who);
   await chooseLayout(page, 'Pro');
-  await expect(mainNav(page).locator('.tb-tab')).toHaveText(['Home', 'Assets', 'Bank', 'Trade', 'Pay', 'More']);
+  // Five doors (owner decision 2026-10-26, "One Money door"): Assets and Bank are one Money door.
+  await expect(mainNav(page).getByTestId('tb-tab')).toHaveText(['Home', 'Money', 'Trade', 'Pay', 'More']);
 
-  // Every door's rows open live rooms; Bank's first row is the Bank overview, not Assets.
-  const bank = await dropdown(page, 'Bank');
-  expect(bank[0].href).toBe('/bank');
-  expect(bank.map((row) => row.href)).toEqual(expect.arrayContaining(['/bank/earn', '/bank/loans', '/bank/cards']));
-  const assets = await dropdown(page, 'Assets');
-  expect(assets[0].href).toBe('/money');
-  expect(assets.map((row) => row.href)).not.toContain('/bank');
+  // Every door's rows open live rooms; Money holds the holdings and the bank's rooms alike.
+  const money = await dropdown(page, 'Money');
+  expect(money[0].href).toBe('/money');
+  expect(money.map((row) => row.href)).toEqual(
+    expect.arrayContaining(['/uc/recharge', '/uc/withdraw', '/bank/spaces', '/bank/earn', '/bank/loans', '/bank/cards']),
+  );
   for (const door of ['Pay', 'More']) expect((await dropdown(page, door)).length).toBeGreaterThan(2);
 
   // Pro: every Trade row is listed flat.
@@ -91,7 +91,16 @@ test(`${J} #1 the top bar has six doors with full dropdowns; /bank is its own ro
   await page.goto('/home');
   const panel = await search(page, 'futures');
   await expect(panel.getByRole('option', { name: /Futures/ }).first()).toBeVisible();
-  await chooseLayout(page, 'Pro');
+  // Simple: Money's rarely used rows sit under Advanced too.
+  const moneySimple = await dropdown(page, 'Money');
+  expect(moneySimple.filter((row) => row.advanced).map((row) => row.href)).toEqual(expect.arrayContaining(['/money/pnl', '/bank/ramps']));
+
+  // On a phone the same five doors sit in the bottom bar, in the same order, More included.
+  await page.setViewportSize({ width: 390, height: 844 });
+  const phoneBar = page.getByRole('navigation', { name: 'Customer doors on phone' });
+  await expect(phoneBar.getByRole('link')).toHaveText(['Home', 'Money', 'Trade', 'Pay', 'More']);
+  await phoneBar.getByRole('link', { name: 'More' }).click();
+  await expect(page).toHaveURL(/\/more$/);
 });
 
 test(`${J} #2 More and All services list every room from the one route table, with the Web3 rooms and their blockers`, async ({ page }) => {
@@ -125,11 +134,11 @@ test(`${J} #2 More and All services list every room from the one route table, wi
   await expect(page.locator('main')).not.toContainText(/coming soon/i);
 });
 
-test(`${J} #3 typing "earn" in the header search shows Bank > Earn, and Enter opens it`, async ({ page }) => {
+test(`${J} #3 typing "earn" in the header search shows Money > Earn, and Enter opens it`, async ({ page }) => {
   await signIn(page, who);
   await page.goto('/home');
   const panel = await search(page, 'earn');
-  const row = panel.getByRole('option').filter({ hasText: 'Bank > Earn' });
+  const row = panel.getByRole('option').filter({ hasText: 'Money > Earn' });
   await expect(row).toBeVisible();
   await expect(row).toContainText('Earn');
   // The first page row is Earn; Enter opens the active row.

@@ -10,7 +10,7 @@ const NOW = Date.UTC(2026, 9, 17, 14, 5, 0);
 const AS_OF = '2026-10-17T14:03:07Z';
 
 const expected: Record<Freshness, { word: string; shape: string; tone: string }> = {
-  live: { word: 'Live', shape: 'dot', tone: 'text-lime' },
+  live: { word: 'Live', shape: 'dot', tone: 'text-accent-text' },
   stale: { word: 'Stale', shape: 'ring', tone: 'text-warn' },
   unknown: { word: 'Unknown', shape: 'dashed', tone: 'text-fg-2' },
   refused: { word: 'Refused', shape: 'slashed', tone: 'text-error-text' },

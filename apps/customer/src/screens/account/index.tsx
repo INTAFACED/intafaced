@@ -13,8 +13,8 @@ export default function AccountScreen({ path, search }: ScreenProps) {
   const { t } = accountScreenCopy.useCopy();
   const here = sectionFor(path);
   return (
-    <div className="acct" data-section={here}>
-      <nav className="acct-nav" aria-label={t('Settings sections')}>
+    <div data-testid="acct" className="acct" data-section={here}>
+      <nav data-testid="acct-nav" className="acct-nav" aria-label={t('Settings sections')}>
         <p className="acct-nav__title">{t('Settings')}</p>
         <ul>
           {sections.map((section) => (
@@ -26,7 +26,7 @@ export default function AccountScreen({ path, search }: ScreenProps) {
           ))}
         </ul>
       </nav>
-      <div className="acct-body legacy-room">
+      <div data-testid="acct-body" className="acct-body legacy-room">
         <AccountRoutes path={`${path}${search}`} />
       </div>
     </div>

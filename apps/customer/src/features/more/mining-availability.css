@@ -2,14 +2,14 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-items: start;
-  gap: 48px;
+  gap: var(--if-space-12);
 }
 .mining-room-primary,
 .mining-room-aside {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  gap: 24px;
+  gap: var(--if-space-6);
 }
 .mining-room h2,
 .mining-room h3,
@@ -19,24 +19,24 @@
   margin: 0;
 }
 .mining-room h2 {
-  font-size: 20px;
-  line-height: 28px;
+  font-size: var(--if-text-lg);
+  line-height: var(--if-leading-lg);
   font-weight: 600;
 }
 .mining-room p,
 .mining-room dd {
-  font-size: 14px;
+  font-size: var(--if-text-base);
   line-height: 22px;
 }
 .mining-room h3 {
-  font-size: 16px;
-  line-height: 24px;
+  font-size: var(--if-text-md);
+  line-height: var(--if-leading-md);
   font-weight: 500;
 }
 .mining-room-status {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--if-space-2);
 }
 .mining-room-support,
 .mining-room-refresh {
@@ -44,26 +44,26 @@
   max-width: 240px;
 }
 .mining-room h3.mining-room-required {
-  padding-bottom: 12px;
-  font-size: 14px;
-  line-height: 20px;
+  padding-bottom: var(--if-space-3);
+  font-size: var(--if-text-base);
+  line-height: var(--if-leading-base);
   font-weight: 400;
   color: var(--color-muted);
 }
 .mining-room-requirements > div {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--if-space-2);
   border-top: 1px solid var(--color-divider);
-  padding: 16px 0;
+  padding: var(--if-space-4) 0;
 }
 .mining-room-requirements dt {
   display: flex;
   align-items: baseline;
-  gap: 12px;
+  gap: var(--if-space-3);
   font-weight: 500;
-  font-size: 14px;
-  line-height: 20px;
+  font-size: var(--if-text-base);
+  line-height: var(--if-leading-base);
 }
 .mining-room-requirements dt > span:first-child {
   flex: 1;
@@ -74,8 +74,8 @@
   flex: 0 0 88px;
   text-align: end;
   color: var(--color-muted);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--if-text-sm);
+  line-height: var(--if-leading-base);
   font-weight: 400;
   overflow-wrap: anywhere;
 }
@@ -87,46 +87,46 @@
 }
 .mining-room-health summary {
   min-height: 44px;
-  padding: 12px 0;
+  padding: var(--if-space-3) 0;
   cursor: pointer;
-  color: var(--color-accent);
-  font-size: 14px;
-  line-height: 20px;
+  color: var(--if-accent-text);
+  font-size: var(--if-text-base);
+  line-height: var(--if-leading-base);
 }
 .mining-room-health summary:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--if-focus);
   outline-offset: 3px;
 }
 .mining-room-health-body {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding-top: 16px;
+  gap: var(--if-space-4);
+  padding-top: var(--if-space-4);
 }
 .mining-room-health-record {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--if-space-4);
 }
 .mining-room-health-record > div {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding-top: 12px;
+  gap: var(--if-space-1);
+  padding-top: var(--if-space-3);
   border-top: 1px solid var(--color-divider);
 }
 .mining-room-health-record dt {
   color: var(--color-muted);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--if-text-sm);
+  line-height: var(--if-leading-base);
 }
 .mining-room-health-record dd {
   overflow-wrap: anywhere;
 }
 .mining-room-health-record small {
   display: block;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--if-text-sm);
+  line-height: var(--if-leading-base);
   color: var(--color-muted);
 }
 .mining-room-job {
@@ -140,7 +140,7 @@
 @media (max-width: 1100px) {
   .mining-room {
     grid-template-columns: minmax(0, 1fr);
-    gap: 32px;
+    gap: var(--if-space-8);
   }
   .mining-room-support,
   .mining-room-refresh {

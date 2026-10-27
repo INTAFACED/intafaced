@@ -155,7 +155,7 @@ function ManageDestinations({
           const name = describeDestination(t, d.kind, d.destinationMasked, d.railId);
           const isDefault = isDefaultDestination(d);
           const review = (
-            <dl className="pp-facts">
+            <dl data-testid="pp-facts" className="pp-facts">
               <div>
                 <dt>{t('mnColDestination')}</dt>
                 <dd>{name}</dd>
@@ -225,14 +225,16 @@ export function SaveReview({
 }) {
   const { t } = mc.useCopy();
   return (
-    <dl className="pp-facts">
+    <dl data-testid="pp-facts" className="pp-facts">
       <div>
         <dt>{t('dstRail')}</dt>
         <dd>{railWords(t, railId)}</dd>
       </div>
       <div>
         <dt>{kind === 'bank' ? t('dstRefBankLabel') : t('dstRefCryptoLabel')}</dt>
-        <dd className="pp-mono pp-wrap">{sentRef}</dd>
+        <dd data-testid="pp-mono" className="pp-mono pp-wrap">
+          {sentRef}
+        </dd>
       </div>
       {replaces && (
         <>
@@ -315,7 +317,7 @@ function AddDestination({
       ) : options.length === 0 ? (
         <p className="muted">{t('dstNoRails')}</p>
       ) : (
-        <form className="form-stack pp-form" noValidate onSubmit={(e) => e.preventDefault()}>
+        <form data-testid="form-stack" className="form-stack pp-form" noValidate onSubmit={(e) => e.preventDefault()}>
           <SelectField
             label={t('dstRail')}
             value={rail?.id ?? ''}

@@ -70,7 +70,7 @@ async function showAddress(page) {
   await page.getByRole('combobox', { name: 'Network', exact: true }).selectOption({ label: NETWORK });
   await page.getByRole('checkbox', { name: `I will send only ${ASSET} on ${NETWORK}.` }).check();
   await page.getByRole('button', { name: 'Show my deposit address' }).click();
-  return (await page.getByTestId('deposit-address').locator('strong.numeric').innerText()).trim();
+  return (await page.getByTestId('deposit-address').locator('strong[data-testid="numeric"]').innerText()).trim();
 }
 
 /** A founder's console on the customer's Money tab, with the row of `address` open. Returns that row's detail. */
@@ -331,7 +331,7 @@ test(`${J} #5 a credited deposit the chain takes back is reversed once and the b
   await page.getByRole('combobox', { name: 'Network', exact: true }).selectOption({ label: NETWORK });
   await page.getByRole('checkbox', { name: `I will send only ${ASSET} on ${NETWORK}.` }).check();
   await page.getByRole('button', { name: 'Show my deposit address' }).click();
-  const address = (await page.getByTestId('deposit-address').locator('strong.numeric').innerText()).trim();
+  const address = (await page.getByTestId('deposit-address').locator('strong[data-testid="numeric"]').innerText()).trim();
   const mine = await clients(who);
   expect(await mine.usdt()).toBe(0n);
 

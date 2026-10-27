@@ -157,7 +157,7 @@ function StoreCreate({ portal, onAdded }: { portal: PortalApi; onAdded: () => vo
 
   return (
     <PaySection title={t('storeAdd')} description={t('storesPurpose')}>
-      <div className="form-stack pp-form">
+      <div data-testid="form-stack" className="form-stack pp-form">
         <Field
           label={t('storeName')}
           hint={t('storeNameHint')}

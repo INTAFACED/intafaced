@@ -111,7 +111,7 @@ function RefusalNote({ failure, onRetry, onDismiss }: { failure: Failure; onRetr
   const { t } = deskCopy.useCopy();
   if (failure.kind === 'network')
     return (
-      <div className="dk-note dk-note--bad" role="alert">
+      <div data-testid="dk-note--bad" className="dk-note dk-note--bad" role="alert">
         <p>{t('Couldn’t check the order')}</p>
         {onRetry ? (
           <button type="button" className="dk-link" onClick={onRetry}>
@@ -122,7 +122,7 @@ function RefusalNote({ failure, onRetry, onDismiss }: { failure: Failure; onRetr
     );
   const { title, body, action, reference } = failure.copy;
   return (
-    <div className="dk-note dk-note--bad" role="alert">
+    <div data-testid="dk-note--bad" className="dk-note dk-note--bad" role="alert">
       {onDismiss ? (
         <button type="button" className="dk-dismiss" aria-label={t('Dismiss')} onClick={onDismiss}>
           ×
@@ -617,6 +617,7 @@ function SideForm({
 
   return (
     <form
+      data-testid="dk-form"
       className="dk-form"
       data-side={side}
       aria-label={side === 'buy' ? t('Buy form', { asset: market.base }) : t('Sell form', { asset: market.base })}
@@ -767,7 +768,7 @@ function SideForm({
         placeholder="0"
         aria-label={marketBuy ? t('Spend') : t('Total')}
       />
-      <dl className="dk-avail">
+      <dl data-testid="dk-avail" className="dk-avail">
         <div>
           <dt>{t('Available')}</dt>
           <dd className="if-num">
@@ -779,7 +780,7 @@ function SideForm({
           <dd className="if-num">{signedIn && max !== null ? `${fmtAmount(max, { places: amountPlaces })} ${market.base}` : '—'}</dd>
         </div>
       </dl>
-      <p className="dk-fees if-num">
+      <p data-testid="dk-fees" className="dk-fees if-num">
         <span>
           {live.state === 'ok' && feeRate(live.preview) !== null
             ? live.preview.feeRole === 'maker'
@@ -797,7 +798,7 @@ function SideForm({
             : t('Fee unknown')}
         </span>
         {mine ? (
-          <span className="dk-fees-mine" title={t('Fee yours title')}>
+          <span data-testid="dk-fees-mine" className="dk-fees-mine" title={t('Fee yours title')}>
             {t('Fee yours', { maker: fmtPct(mine.maker, { signed: false }), taker: fmtPct(mine.taker, { signed: false }) })}
           </span>
         ) : null}
@@ -845,7 +846,7 @@ function SideForm({
           </p>
         ) : null}
         {exitRetry ? (
-          <div className="dk-note dk-note--bad" role="alert">
+          <div data-testid="dk-note--bad" className="dk-note dk-note--bad" role="alert">
             <RefusalNote failure={refusalFailure('trade.bracket_exit_failed', context)} />
             <button type="button" className="dk-link" disabled={busy} onClick={() => void placeExits()}>
               {t('Place the exits')}
@@ -1178,7 +1179,9 @@ function ReviewRows({
         <dt>{t('Review client id')}</dt>
         <dd>
           {/* The end of the client order id (draft hash and mint); the rest is the account, which the person knows. */}
-          <span className="if-num">{draft.clientOrderId.split(':').at(-1)}</span>
+          <span data-testid="client-order-id" className="if-num">
+            {draft.clientOrderId.split(':').at(-1)}
+          </span>
           <br />
           {t('Review client id note')}
         </dd>
@@ -1386,6 +1389,7 @@ export const OrderPanel = memo(function OrderPanel({
         // An OTO buy waits on the book for its price by default; its close is placed when it fills.
         if (value === 'oto') setTif('GTC');
       }}
+      data-testid="dk-order"
       className="dk-panel dk-order"
     >
       <div className="dk-order-head">
@@ -1433,7 +1437,7 @@ export const OrderPanel = memo(function OrderPanel({
       ) : (
         <TabsPanel value={type} className="dk-order-body">
           {pending.state === 'pending' && !isInFlight(pending.value.id) ? (
-            <div className="dk-note dk-note--warn" role="status">
+            <div data-testid="dk-note--warn" className="dk-note dk-note--warn" role="status">
               <p className="dk-note-title">{t('Checking your order')}</p>
               <p>{t('Checking your order body')}</p>
               {pending.value.kind === 'place' ? (
@@ -1455,7 +1459,7 @@ export const OrderPanel = memo(function OrderPanel({
               {stillChecking ? <p>{t('Still checking')}</p> : null}
             </div>
           ) : pending.state === 'unreadable' ? (
-            <div className="dk-note dk-note--warn" role="status">
+            <div data-testid="dk-note--warn" className="dk-note dk-note--warn" role="status">
               <p>{t('Unreadable marker')}</p>
             </div>
           ) : settled ? (

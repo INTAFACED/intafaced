@@ -4,9 +4,9 @@
     .merchant-refund {
       display: flex;
       flex-direction: column;
-      gap: 20px;
+      gap: var(--if-space-5);
       min-width: 0;
-      padding: 20px 0;
+      padding: var(--if-space-5) 0;
     }
     .merchant-refund h3,
     .merchant-refund p {
@@ -18,26 +18,26 @@
     .merchant-refund-proof {
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: var(--if-space-2);
       min-width: 0;
     }
     .merchant-refund h3 {
-      font-size: 24px;
+      font-size: var(--if-text-xl);
       line-height: 32px;
       letter-spacing: -0.02em;
     }
     .merchant-refund p {
-      font-size: 16px;
-      line-height: 24px;
+      font-size: var(--if-text-md);
+      line-height: var(--if-leading-md);
     }
     .merchant-refund .muted,
     .merchant-refund dt {
       color: var(--if-fg-2);
     }
     .merchant-refund-note {
-      padding: 16px;
+      padding: var(--if-space-4);
       border: 1px solid var(--if-line);
-      border-radius: 8px;
+      border-radius: var(--if-r-sm);
     }
     .merchant-refund-note h4 {
       margin: 0;
@@ -45,7 +45,7 @@
       line-height: 26px;
     }
     .merchant-refund-actions {
-      gap: 12px;
+      gap: var(--if-space-3);
     }
     .merchant-refund .button {
       min-height: 44px;
@@ -55,14 +55,14 @@
     .merchant-refund dl {
       display: flex;
       flex-direction: column;
-      gap: 20px;
+      gap: var(--if-space-5);
       margin: 0;
     }
     .merchant-refund dl > div {
       display: flex;
       flex-direction: column;
-      gap: 4px;
-      padding-top: 16px;
+      gap: var(--if-space-1);
+      padding-top: var(--if-space-4);
       border-top: 1px solid var(--if-line);
       min-width: 0;
     }
@@ -70,7 +70,7 @@
     .merchant-refund dd,
     .merchant-refund time {
       margin: 0;
-      font-size: 14px;
+      font-size: var(--if-text-base);
       line-height: 22px;
     }
     .merchant-refund dd {
@@ -80,7 +80,7 @@
       padding: 0;
     }
     .merchant-refund-review .pay-amount-value {
-      font-size: clamp(28px, 8vw, 60px);
+      font-size: clamp(var(--if-text-2xl), 8vw, 60px);
       line-height: 1.15;
     }
     .merchant-refund-proof strong {

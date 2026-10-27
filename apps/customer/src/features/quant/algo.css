@@ -1,11 +1,11 @@
 .quant-quick-start {
   display: grid;
-  gap: 12px;
-  margin: 12px 0;
-  padding-left: 20px;
+  gap: var(--if-space-3);
+  margin: var(--if-space-3) 0;
+  padding-left: var(--if-space-5);
 }
 .quant-quick-start p {
-  margin: 2px 0 4px;
+  margin: var(--if-space-0-5) 0 var(--if-space-1);
 }
 
 .quant-equity-chart {
@@ -39,14 +39,14 @@
 
 .quant-checks {
   display: grid;
-  gap: 12px;
+  gap: var(--if-space-3);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .quant-checks > li {
-  padding: 12px;
+  padding: var(--if-space-3);
   border: 1px solid var(--if-line);
   border-radius: var(--if-r-sm);
 }
@@ -57,9 +57,9 @@
 
 .quant-account {
   display: grid;
-  gap: 8px;
+  gap: var(--if-space-2);
   margin: 0;
-  padding: 12px;
+  padding: var(--if-space-3);
   border: 1px solid var(--if-line);
   border-radius: var(--if-r-sm);
 }

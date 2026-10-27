@@ -151,7 +151,7 @@ function local(at) {
 
 /** One action of the selected space's page, through its review, to the bank's own confirmation. */
 async function act(page, button, fill, form = true) {
-  await page.locator('.money-selected-space').getByRole('button', { name: button, exact: true }).click();
+  await page.getByTestId('money-selected-space').getByRole('button', { name: button, exact: true }).click();
   const dialog = page.getByRole('dialog');
   if (fill) await fill(dialog);
   // An action with nothing to fill in opens straight on its review.
@@ -200,7 +200,7 @@ test(`${J} #1 opens a space with a goal: progress is exact, rounded down and cap
   expect(moved.ok, JSON.stringify(moved.body ?? {}).slice(0, 300)).toBe(true);
 
   await page.goto(`/bank/spaces?space=${pot.id}`);
-  const selected = page.locator('.money-selected-space');
+  const selected = page.getByTestId('money-selected-space');
   const bar = selected.getByRole('progressbar', { name: 'Progress toward the savings target' });
   await expect(selected.getByRole('heading', { name: POT })).toBeVisible();
   await expect(bar).toHaveAttribute('aria-valuenow', '40');
@@ -241,7 +241,7 @@ test(`${J} #2 locks the space: a debit refuses bank.space_locked, a standing ord
 
   await signIn(page, who);
   await page.goto(`/bank/spaces?space=${pot}`);
-  const selected = page.locator('.money-selected-space');
+  const selected = page.getByTestId('money-selected-space');
   const until = new Date(Date.now() + 10 * 24 * 3600_000);
   until.setSeconds(0, 0);
   await confirm(await act(page, 'Lock', (d) => d.getByLabel('Locked until').fill(local(until))));
@@ -280,9 +280,9 @@ test(`${J} #2 locks the space: a debit refuses bank.space_locked, a standing ord
   expect(ran.ok).toBe(true);
   expect(ran.data[0]).toMatchObject({ occurrence: 0, status: 'rejected', rejectionCode: 'bank.space_locked', ledgerTxId: null });
   await page.goto('/bank/transfers');
-  const record = page.locator('article.money-standing-record').filter({ hasText: order });
+  const record = page.locator('article[data-testid="money-standing-record"]').filter({ hasText: order });
   await record.getByRole('button', { name: 'Execution history' }).click();
-  const history = page.locator('.money-selected-instruction .money-execution-history');
+  const history = page.getByTestId('money-selected-instruction').getByTestId('money-execution-history');
   await expect(history).toContainText('rejected');
   await expect(history).toContainText('bank.space_locked');
   expect((await api.mutate('transfers.cancel', { scheduleId: order })).ok).toBe(true);
@@ -330,7 +330,7 @@ test(`${J} #3 money flows into the space on its own: a standing order and a card
 
   await signIn(page, who);
   await page.goto(`/bank/spaces?space=${pot}`);
-  const selected = page.locator('.money-selected-space');
+  const selected = page.getByTestId('money-selected-space');
   const inflows = selected.getByTestId('space-inflows');
   await expect(inflows).toContainText('No standing order pays into this space.');
   await expect(inflows).toContainText('No card round-up goes into this space.');
@@ -525,7 +525,7 @@ test(`${J} #4 keeps a bills pot: a TEST bill of 8 from a pot holding 5 is refuse
   // On the pot's own page: not a bills pot, then made one, with the top-up off as it starts.
   await signIn(page, who);
   await page.goto(`/bank/spaces?space=${pot.id}`);
-  const state = page.locator('.money-selected-space').getByTestId('bills-pot');
+  const state = page.getByTestId('money-selected-space').getByTestId('bills-pot');
   await expect(state).toHaveAttribute('data-state', 'none');
   await confirm(await act(page, 'Pay bills from this pot', null, false), 'Pay bills from this pot');
   await close(page);

@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import { TRPCError } from '@intafaced/contracts';
 import type { Amount } from '@intafaced/ledger-client';
 
 /**
@@ -135,6 +136,14 @@ export class PayGuardRefusal extends Error {
     super(code);
     this.name = 'PayGuardRefusal';
   }
+}
+
+/**
+ * A guard refusal on a tRPC door: typed, never the PayError default (BAD_REQUEST reads as "fix your request"). The message
+ * is the code only: composeGuards already stripped any internals. `unavailable` is SERVICE_UNAVAILABLE, a refusal FORBIDDEN.
+ */
+export function guardRefusalToTrpc(err: PayGuardRefusal): TRPCError {
+  return new TRPCError({ code: err.kind === 'unavailable' ? 'SERVICE_UNAVAILABLE' : 'FORBIDDEN', message: err.code, cause: err });
 }
 
 /** Run a refusal's `afterRollback` follow-up, if any. Never throws: a failed follow-up must not change the refusal. */

@@ -195,4 +195,27 @@ describe('refund resumed after a lost rail reply', { timeout: 30_000 }, () => {
     await expect(pay.refund(payment.id, amt('10'), { refundId: 'r-6' })).rejects.toMatchObject({ code: 'pay.refund_in_flight' });
     expect(chain.outboundTransfers()).toHaveLength(1);
   });
+
+  it('a retry of a completed full refund replays it, even after the payment shows refunded', async () => {
+    const { payment } = await capturedPayment();
+    loseNextReply();
+    await expect(pay.refund(payment.id, amt('10'), { refundId: 'r-7' })).rejects.toThrow('reply lost');
+    const winner = await pay.refund(payment.id, amt('10'), { refundId: 'r-7' });
+    expect(winner.status).toBe('refunded');
+    // A later retry of the same id (a second lost reply) finds the payment already refunded: it gets the refund, not a refusal.
+    const again = await pay.refund(payment.id, amt('10'), { refundId: 'r-7' });
+    expect(again.status).toBe('refunded');
+    expect(chain.outboundTransfers()).toHaveLength(1);
+    expect(ledger.journal().filter((tx) => tx.reason === 'payment.refunded')).toHaveLength(1);
+    expect((await pay.history(payment.id, 50)).filter((e) => e.event === 'refunded')).toHaveLength(1);
+  });
+
+  it('a completed full refund retried with another amount is a conflict, and a new id is still refused', async () => {
+    const { payment } = await capturedPayment();
+    expect((await pay.refund(payment.id, amt('10'), { refundId: 'r-8' })).status).toBe('refunded');
+    await expect(pay.refund(payment.id, amt('4'), { refundId: 'r-8' })).rejects.toMatchObject({ code: 'pay.refund_id_conflict' });
+    await expect(pay.refund(payment.id, amt('10'), { refundId: 'r-9' })).rejects.toMatchObject({ code: 'pay.nothing_captured' });
+    expect(chain.outboundTransfers()).toHaveLength(1);
+    expect((await pay.history(payment.id, 50)).filter((e) => e.event === 'refunded')).toHaveLength(1);
+  });
 });

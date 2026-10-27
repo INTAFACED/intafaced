@@ -14,6 +14,7 @@ import { checkAccess } from '@intafaced/config';
 import { formatAmount, parseAmount, InsufficientFundsError, LedgerError } from '@intafaced/ledger-client';
 import { orderSideSchema, timeInForceSchema } from '@intafaced/exchange-contract';
 import { TradeError, type FillRecord, type Market, type OrderRecord, type TimeInForce } from './spot/types.js';
+import { MatchingNoBookError } from './spot/matching-client.js';
 import { assertProductionUnsettledAssetClassListing, forexSettlementStatus } from './spot/forex-settlement.js';
 import { fxNamedDegrade } from './spot/fx-product.js';
 import {
@@ -575,6 +576,13 @@ function toTrpcError(err: unknown): TRPCError {
 
   if (err instanceof LedgerError) {
     return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+  }
+
+  // Matching holds no book for the market (its 404): the named refusal `trade.no_book`, as on the REST and ccxt
+  // doors, not a 500. Mapped here, at the door, so the service's own TradeError catch-alls (copy mirroring retries a
+  // missing book on the next tick) keep treating it as the transient engine state it is.
+  if (err instanceof MatchingNoBookError) {
+    return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
   }
 
   return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Request failed', cause: err });

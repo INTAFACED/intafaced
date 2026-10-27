@@ -83,7 +83,7 @@
 
   /* Visible lime focus ring on every interactive element: 2 px, 2 px offset. */
   .if-app :focus-visible {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: 2px;
   }
 

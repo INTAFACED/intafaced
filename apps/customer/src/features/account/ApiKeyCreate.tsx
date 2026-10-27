@@ -40,7 +40,7 @@ function ShownOnce({ made, onDone }: { made: ApiKeyCreateOutput & { key: string 
     return () => URL.revokeObjectURL(url);
   }, [made.key]);
   return (
-    <section className="api-keys__secret security__card" aria-labelledby="api-key-secret">
+    <section data-testid="security__card" className="api-keys__secret security__card" aria-labelledby="api-key-secret">
       <h2 id="api-key-secret">{t('createdTitle')}</h2>
       <p className="api-keys__warning" role="alert">
         {t('createdOnce')}
@@ -48,7 +48,7 @@ function ShownOnce({ made, onDone }: { made: ApiKeyCreateOutput & { key: string 
       <p>
         <bdi lang="und">{made.record.name}</bdi> · <code lang="und">{made.record.prefix}</code>
       </p>
-      <output className="api-keys__key" aria-label={t('createdTitle')}>
+      <output data-testid="api-keys__key" className="api-keys__key" aria-label={t('createdTitle')}>
         <code lang="und">{made.key}</code>
       </output>
       <div className="api-keys__actions">
@@ -175,6 +175,7 @@ export function ApiKeyCreate() {
         <p className="muted">{t('formIntro')}</p>
       </header>
       <form
+        data-testid="security__card"
         className="api-keys__form security__card"
         noValidate
         onSubmit={(event: FormEvent<HTMLFormElement>) => {
@@ -218,7 +219,7 @@ export function ApiKeyCreate() {
             ))}
           </ul>
           {blocked.length > 0 && (
-            <div className="api-keys__blocked">
+            <div data-testid="api-keys__blocked" className="api-keys__blocked">
               <h3>{t('blockedTitle')}</h3>
               <ul>
                 {blocked.map((entry) => (

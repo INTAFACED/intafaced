@@ -1,19 +1,19 @@
 .launch-room {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--if-space-6);
 }
 .launch-room-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 48px;
+  gap: var(--if-space-12);
   align-items: start;
 }
 .launch-room-primary,
 .launch-room-aside {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--if-space-6);
   min-width: 0;
 }
 .launch-room h2,
@@ -24,42 +24,42 @@
   margin: 0;
 }
 .launch-room h2 {
-  font-size: 20px;
-  line-height: 28px;
+  font-size: var(--if-text-lg);
+  line-height: var(--if-leading-lg);
   font-weight: 600;
 }
 .launch-room h3 {
-  font-size: 16px;
-  line-height: 24px;
+  font-size: var(--if-text-md);
+  line-height: var(--if-leading-md);
   font-weight: 500;
 }
 .launch-room-status {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--if-space-2);
 }
 .launch-room-support {
   width: 100%;
   max-width: 240px;
 }
 .launch-room h3.launch-room-required {
-  padding-bottom: 12px;
+  padding-bottom: var(--if-space-3);
   color: var(--color-muted);
-  font-size: 14px;
-  line-height: 20px;
+  font-size: var(--if-text-base);
+  line-height: var(--if-leading-base);
   font-weight: 400;
 }
 .launch-room-requirements > div {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--if-space-2);
   border-top: 1px solid var(--color-divider);
-  padding: 16px 0;
+  padding: var(--if-space-4) 0;
 }
 .launch-room-requirements dt {
   display: flex;
   align-items: baseline;
-  gap: 12px;
+  gap: var(--if-space-3);
   font-weight: 500;
 }
 .launch-room-requirements dt > span:first-child {
@@ -71,8 +71,8 @@
   flex: 0 0 88px;
   text-align: end;
   color: var(--color-muted);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--if-text-sm);
+  line-height: var(--if-leading-base);
   font-weight: 400;
   overflow-wrap: anywhere;
 }
@@ -82,13 +82,13 @@
 .launch-room-aside > section {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--if-space-6);
 }
 .launch-room-side-copy {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding-top: 16px;
+  gap: var(--if-space-2);
+  padding-top: var(--if-space-4);
   border-top: 1px solid var(--color-divider);
 }
 .launch-room-link {
@@ -101,21 +101,21 @@
 }
 .launch-room-details summary {
   min-height: 44px;
-  padding: 12px 0;
-  color: var(--color-accent);
+  padding: var(--if-space-3) 0;
+  color: var(--if-accent-text);
   cursor: pointer;
 }
 .launch-room-details summary:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--if-focus);
   outline-offset: 3px;
 }
 .launch-room-details p {
-  padding-bottom: 16px;
+  padding-bottom: var(--if-space-4);
 }
 @media (max-width: 1100px) {
   .launch-room-workspace {
     grid-template-columns: minmax(0, 1fr);
-    gap: 32px;
+    gap: var(--if-space-8);
   }
   .launch-room-support {
     max-width: 100%;

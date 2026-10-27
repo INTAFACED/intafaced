@@ -8,7 +8,7 @@ export type BadgeVariant = 'soft' | 'outline';
 // soft = tinted background; outline = hairline in the text colour (same look as StatusTag).
 const tones: Record<BadgeTone, { soft: string; outline: string }> = {
   neutral: { soft: 'bg-hover text-fg-2', outline: 'text-fg-2' },
-  lime: { soft: 'bg-lime-soft text-lime', outline: 'text-lime' },
+  lime: { soft: 'bg-lime-soft text-accent-text', outline: 'text-accent-text' },
   warn: { soft: 'bg-warn/15 text-warn', outline: 'text-warn' },
   error: { soft: 'bg-error/15 text-error-text', outline: 'text-error-text' },
   up: { soft: 'bg-up-bg-soft text-up-text', outline: 'text-up-text' },

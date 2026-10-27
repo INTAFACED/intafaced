@@ -170,3 +170,12 @@ test(
     }
   },
 );
+
+test('native targets hold the phone floor the light look needs (iOS 16.4, Android web view 111)', () => {
+  const read = (path) => readFileSync(join(mobile, path), 'utf8');
+  assert.match(read('ios/App/Podfile'), /platform :ios, '16\.4'/);
+  const targets = read('ios/App/App.xcodeproj/project.pbxproj').match(/IPHONEOS_DEPLOYMENT_TARGET = [\d.]+;/g);
+  assert.deepEqual([...new Set(targets)], ['IPHONEOS_DEPLOYMENT_TARGET = 16.4;']);
+  assert.equal(JSON.parse(read('capacitor.config.json')).android.minWebViewVersion, 111);
+  assert.match(read('native-unavailable.html'), /iOS 16\.4.*web view at version 111/);
+});

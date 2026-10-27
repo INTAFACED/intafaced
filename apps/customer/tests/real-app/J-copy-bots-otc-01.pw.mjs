@@ -118,7 +118,7 @@ test(`${J} #4 opens a lead profile: metrics only with a definition, and the lead
   await expect(page.getByRole('heading', { name: state('spotName'), level: 1 })).toBeVisible();
 
   // Return and drawdown carry the TEST definitions; this listing publishes no figure, so each reads Not published.
-  const metric = (key) => page.locator(`.cb-metric[data-metric=${key}]`);
+  const metric = (key) => page.locator(`[data-testid="cb-metric"][data-metric=${key}]`);
   await expect(metric('publishedReturn')).toContainText('Not published');
   await expect(metric('publishedReturn')).toContainText('TEST definition');
   // No definition is published for these, so no number is shown.

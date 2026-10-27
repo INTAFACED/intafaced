@@ -74,7 +74,7 @@ function FavoriteStar({ asset, favorite }: { asset: string; favorite: FavoriteCo
     <Button
       variant="ghost"
       size={28}
-      className={`w-7 shrink-0 px-0 ${favorite.on ? 'text-lime' : ''}`}
+      className={`w-7 shrink-0 px-0 ${favorite.on ? 'text-accent-text' : ''}`}
       aria-pressed={favorite.on}
       aria-label={favorite.on ? t('Remove {asset} from favorites', { asset }) : t('Add {asset} to favorites', { asset })}
       onClick={favorite.onToggle}
@@ -182,11 +182,17 @@ export function MarketsList({
             <FavoriteStar asset={market.base} favorite={favorite(market)} />
             <CoinIcon asset={market.base} size={dense ? 24 : 32} />
             <span className="mkt-name">
-              <span className="mkt-name__ticker">
+              <span data-testid="mkt-name__ticker" className="mkt-name__ticker">
                 {market.base}
-                <span className="mkt-muted mkt-name__quote">/{market.quote}</span>
+                <span data-testid="mkt-name__quote" className="mkt-muted mkt-name__quote">
+                  /{market.quote}
+                </span>
               </span>
-              {full && !dense ? <span className="mkt-name__full">{full}</span> : null}
+              {full && !dense ? (
+                <span data-testid="mkt-name__full" className="mkt-name__full">
+                  {full}
+                </span>
+              ) : null}
             </span>
           </span>
         );
@@ -206,7 +212,11 @@ export function MarketsList({
       (entry) => (
         <span className="mkt-stack">
           <Pct value={fmtPct(entry.ticker?.changePct24h)} arrow />
-          {sinceOf(entry) ? <span className="mkt-since">{sinceOf(entry)}</span> : null}
+          {sinceOf(entry) ? (
+            <span data-testid="mkt-since" className="mkt-since">
+              {sinceOf(entry)}
+            </span>
+          ) : null}
         </span>
       ),
       WIDE_WIDTH,
@@ -227,7 +237,11 @@ export function MarketsList({
           <span className="mkt-volume" data-slot="volume">
             {volumeText(entry.market, entry.ticker)}
           </span>
-          {sinceOf(entry) ? <span className="mkt-since">{sinceOf(entry)}</span> : null}
+          {sinceOf(entry) ? (
+            <span data-testid="mkt-since" className="mkt-since">
+              {sinceOf(entry)}
+            </span>
+          ) : null}
         </span>
       ),
       WIDE_WIDTH,
@@ -253,7 +267,9 @@ export function MarketsList({
                 {t('Closed')}
               </Badge>
               {state.opensAt !== null ? (
-                <span className="mkt-since">{t('Opens {time}', { time: opensLabel(state.opensAt, timeZone) })}</span>
+                <span data-testid="mkt-since" className="mkt-since">
+                  {t('Opens {time}', { time: opensLabel(state.opensAt, timeZone) })}
+                </span>
               ) : null}
             </span>
           );

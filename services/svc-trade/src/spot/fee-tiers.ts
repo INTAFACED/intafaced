@@ -34,7 +34,20 @@ export interface FeeTierProgram {
   readonly benefits: readonly FeeTierBenefits[] | null;
   /** The owner's rules for VIP applications (vip-applications.ts), or null: applications are not open. */
   readonly application: VipApplicationRules | null;
+  /** The trial an approved application grants (vip-review.ts), or null: an approval grants none (`vip.trial_unset`). */
+  readonly trial: VipTrialRules | null;
 }
+
+/** A time-limited tier an approved VIP application grants: which tier, for how many days. */
+export interface VipTrialRules {
+  /** A threshold tier of the programme. */
+  readonly tierId: string;
+  /** Whole days, 1 to 366. */
+  readonly days: number;
+}
+
+/** The longest trial the owner may publish, in days. */
+export const VIP_TRIAL_MAX_DAYS = 366;
 
 /**
  * One tier's row of the owner's benefits table. A null cell is not set, and the page says so: nothing is assumed. The
@@ -122,7 +135,31 @@ export function parseTierProgram(raw: unknown, rows: readonly FeeScheduleRow[] |
   if (new Set(thresholds.map((t) => t.tierId)).size !== thresholds.length) throw blank('.thresholds repeats a tier');
   const benefits = parseBenefits(obj.benefits, thresholds, blank);
   const application = parseApplication(obj.application, blank);
-  return { thresholds, volumeQuotes, snapshotTimeUtc: obj.snapshotTimeUtc as string | null, benefits, application };
+  const trial = parseTrial(obj.trial, thresholds, blank);
+  return { thresholds, volumeQuotes, snapshotTimeUtc: obj.snapshotTimeUtc as string | null, benefits, application, trial };
+}
+
+/**
+ * `tierProgram.trial`: the tier an approved VIP application is granted, and for how many days. Absent or null: an
+ * approval grants no trial and says so. The tier must be one the programme names above regular.
+ */
+function parseTrial(
+  raw: unknown,
+  thresholds: readonly FeeTierThreshold[],
+  blank: (message: string) => FeeScheduleError,
+): VipTrialRules | null {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== 'object' || Array.isArray(raw)) throw blank('.trial must be an object or null');
+  const obj = raw as Record<string, unknown>;
+  const extra = Object.keys(obj).filter((key) => key !== 'tierId' && key !== 'days');
+  if (extra.length > 0) throw blank(`.trial has unknown fields: ${extra.join(', ')}`);
+  const tierId = typeof obj.tierId === 'string' ? obj.tierId.trim() : '';
+  if (!thresholds.some((threshold) => threshold.tierId === tierId)) throw blank('.trial.tierId must be a tier the thresholds name');
+  const days = obj.days;
+  if (typeof days !== 'number' || !Number.isSafeInteger(days) || days < 1 || days > VIP_TRIAL_MAX_DAYS) {
+    throw blank(`.trial.days must be a whole number of days from 1 to ${VIP_TRIAL_MAX_DAYS}`);
+  }
+  return { tierId, days };
 }
 
 /**

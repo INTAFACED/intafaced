@@ -22,7 +22,7 @@ type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 function Refused({ title, body, code }: { title: string; body: string; code?: string | undefined }) {
   const { t } = accountHomeCopy.useCopy();
   return (
-    <div className="failure" role="status">
+    <div data-testid="failure" className="failure" role="status">
       <h3>{title}</h3>
       <p>{body}</p>
       {code && <small className="muted">{t('reference', { code })}</small>}

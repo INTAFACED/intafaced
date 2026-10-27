@@ -2,8 +2,8 @@
 .sa-blocker {
   display: grid;
   justify-items: start;
-  gap: 8px;
-  padding: 16px 20px;
+  gap: var(--if-space-2);
+  padding: var(--if-space-4) var(--if-space-5);
   border: 1px dashed var(--if-line);
   border-radius: var(--if-r-lg);
   background: var(--if-panel);
@@ -17,13 +17,13 @@
 .sa-blocker p {
   margin: 0;
   max-width: 62ch;
-  font-size: 14px;
+  font-size: var(--if-text-base);
   line-height: 1.55;
   color: var(--if-fg-2);
 }
 .sa-steps {
   display: grid;
-  gap: 12px;
+  gap: var(--if-space-3);
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   list-style: none;
   margin: 0;
@@ -31,9 +31,9 @@
 }
 .sa-step {
   display: grid;
-  gap: 8px;
+  gap: var(--if-space-2);
   align-content: start;
-  padding: 16px;
+  padding: var(--if-space-4);
   border: 1px solid var(--if-line);
   border-radius: var(--if-r-lg);
   background: var(--if-panel);
@@ -45,40 +45,40 @@
 }
 .sa-step p {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--if-text-base);
   color: var(--if-fg-2);
 }
 .sa-list {
   margin: 0;
-  padding-left: 20px;
+  padding-left: var(--if-space-5);
   display: grid;
-  gap: 6px;
+  gap: var(--if-space-1-5);
 }
 .sa-pin {
-  font-size: 12px;
+  font-size: var(--if-text-xs);
   color: var(--if-fg-2);
 }
 .sa-group {
   display: grid;
-  gap: 12px;
+  gap: var(--if-space-3);
   margin: 0;
-  padding: 16px;
+  padding: var(--if-space-4);
   border: 1px solid var(--if-line);
   border-radius: var(--if-r-lg);
 }
 .sa-group legend {
-  padding: 0 6px;
-  font-size: 13px;
+  padding: 0 var(--if-space-1-5);
+  font-size: var(--if-text-sm);
   color: var(--if-fg-2);
 }
 .sa-reviewed {
-  font-size: 12px;
+  font-size: var(--if-text-xs);
   color: var(--if-fg-2);
 }
 .sa-diff {
   display: grid;
-  gap: 4px;
-  font-size: 13px;
+  gap: var(--if-space-1);
+  font-size: var(--if-text-sm);
 }
 .sa-diff del {
   color: var(--if-fg-2);
@@ -86,7 +86,7 @@
 .sa-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 16px;
+  gap: var(--if-space-1) var(--if-space-4);
 }
 @media (max-width: 480px) {
   .sa-steps {

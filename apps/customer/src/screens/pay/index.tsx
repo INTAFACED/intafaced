@@ -52,9 +52,9 @@ function PayTabs({ path, search }: ScreenProps) {
   // The Send card stays mounted (hidden) while the other tabs show, so a payment on its way is never cut off by a tab change.
   const loginHref = `/login?redirect=${encodeURIComponent(`${location.pathname}${location.search}`)}`;
   return (
-    <div className="if-pay">
+    <div data-testid="if-pay" className="if-pay">
       <div className="pay-grid">
-        <header className="pay-hero">
+        <header data-testid="pay-hero" className="pay-hero">
           <h1>{t('Pay')}</h1>
           <p>{tagline}</p>
         </header>
@@ -63,7 +63,7 @@ function PayTabs({ path, search }: ScreenProps) {
             <RecentPanel />
           </div>
         ) : null}
-        <section className="pay-card" aria-label={t('Pay')}>
+        <section data-testid="pay-card" className="pay-card" aria-label={t('Pay')}>
           <Tabs value={tab} onValueChange={(next) => typeof next === 'string' && navigate(ROUTES[next as Tab] ?? ROUTES.send)}>
             <TabsList divider aria-label={t('Send or receive')} className="pay-tabs">
               <TabsTab value="send">{t('Send')}</TabsTab>

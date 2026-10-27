@@ -38,7 +38,7 @@ export function AutocompleteInput({ className, hint, ...props }: AutocompleteInp
       data-slot="autocomplete-input"
       className={cn(
         'flex h-8 w-60 items-center gap-2 rounded-pill bg-field px-3 text-sm transition-colors duration-(--if-t-fast) ease-if hover:bg-raised',
-        'has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-lime',
+        'has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus',
         className,
       )}
     >

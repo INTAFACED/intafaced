@@ -10,7 +10,7 @@
     .p2p-counterparty {
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: var(--if-space-4);
     }
     .p2p-counterparty-return {
       align-self: flex-start;
@@ -19,38 +19,38 @@
       align-items: center;
     }
     .p2p-counterparty-id {
-      font-size: 13px;
-      line-height: 20px;
+      font-size: var(--if-text-sm);
+      line-height: var(--if-leading-base);
       overflow-wrap: anywhere;
-      margin: 0 0 16px;
+      margin: 0 0 var(--if-space-4);
     }
     .p2p-counterparty-record {
       display: grid;
       grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-      gap: 48px;
-      margin-bottom: 24px;
+      gap: var(--if-space-12);
+      margin-bottom: var(--if-space-6);
     }
     .p2p-counterparty-history,
     .p2p-counterparty-programme {
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: var(--if-space-4);
     }
     .p2p-counterparty h3 {
-      font-size: 14px;
-      line-height: 20px;
+      font-size: var(--if-text-base);
+      line-height: var(--if-leading-base);
       font-weight: 500;
       margin: 0;
     }
     .p2p-counterparty-record p {
-      font-size: 14px;
-      line-height: 20px;
+      font-size: var(--if-text-base);
+      line-height: var(--if-leading-base);
       margin: 0;
     }
     .p2p-counterparty-metrics {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-      gap: 24px;
+      gap: var(--if-space-6);
       grid-template-rows: auto auto 1fr;
     }
     .p2p-counterparty-metrics > div {
@@ -59,16 +59,16 @@
       grid-template-rows: subgrid;
       grid-row: span 3;
       justify-items: start;
-      gap: 8px;
+      gap: var(--if-space-2);
     }
     .p2p-counterparty-basis {
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: var(--if-space-2);
       min-width: 0;
     }
     .p2p-counterparty-metrics strong {
-      font-size: 24px;
+      font-size: var(--if-text-xl);
       line-height: 32px;
       font-weight: 600;
       overflow-wrap: anywhere;
@@ -82,7 +82,7 @@
     .p2p-counterparty-badges {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px 16px;
+      gap: var(--if-space-2) var(--if-space-4);
       list-style: none;
       padding: 0;
       margin: 0;
@@ -91,8 +91,8 @@
       min-width: 0;
       max-width: 100%;
       overflow-wrap: anywhere;
-      font-size: 14px;
-      line-height: 20px;
+      font-size: var(--if-text-base);
+      line-height: var(--if-leading-base);
     }
     .p2p-counterparty .pay-details {
       margin: 0;
@@ -103,13 +103,13 @@
     @media (max-width: 900px) {
       .p2p-counterparty-record {
         grid-template-columns: minmax(0, 1fr);
-        gap: 24px;
+        gap: var(--if-space-6);
       }
     }
     @media (max-width: 620px) {
       .p2p-counterparty-record {
-        gap: 16px;
-        margin-bottom: 16px;
+        gap: var(--if-space-4);
+        margin-bottom: var(--if-space-4);
       }
     }
   }

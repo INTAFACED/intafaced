@@ -6,15 +6,15 @@
       display: block;
       color: var(--if-fg-2);
       font-weight: 400;
-      font-size: 13px;
-      margin-top: 4px;
+      font-size: var(--if-text-sm);
+      margin-top: var(--if-space-1);
       overflow-wrap: anywhere;
     }
     .pay-business-content {
       min-width: 0;
     }
     .pay-section {
-      padding-block: 28px;
+      padding-block: var(--if-space-7);
       border-top: 1px solid var(--if-line);
       min-width: 0;
     }
@@ -26,47 +26,47 @@
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      gap: 20px;
-      margin-bottom: 20px;
+      gap: var(--if-space-5);
+      margin-bottom: var(--if-space-5);
     }
     .pay-section > header h2 {
-      font-size: 20px;
+      font-size: var(--if-text-lg);
     }
     .pay-section > header p {
-      margin-top: 8px;
+      margin-top: var(--if-space-2);
       max-width: 620px;
     }
     .pay-intro {
       color: var(--if-fg-2);
-      margin-bottom: 28px;
+      margin-bottom: var(--if-space-7);
       max-width: 470px;
     }
     .pay-destination {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 20px;
+      gap: var(--if-space-5);
       min-height: 84px;
       border-bottom: 1px solid var(--if-line);
-      padding-block: 16px;
+      padding-block: var(--if-space-4);
       overflow-wrap: anywhere;
     }
     .pay-destination > span:first-child {
       min-width: 0;
-      font-size: 16px;
+      font-size: var(--if-text-md);
     }
     a.pay-destination:hover > span:last-child {
-      color: var(--if-lime);
+      color: var(--if-accent-text);
     }
     .pay-notice {
       display: flex;
-      gap: 12px;
-      padding: 20px 0;
+      gap: var(--if-space-3);
+      padding: var(--if-space-5) 0;
       align-items: flex-start;
       border-block: 1px solid var(--if-line);
     }
     .pay-notice h3 {
-      margin-bottom: 8px;
+      margin-bottom: var(--if-space-2);
     }
     .pay-notice p {
       color: var(--if-fg-2);
@@ -75,7 +75,7 @@
     .pay-notice .text-link,
     .pay-notice .button {
       display: inline-block;
-      margin-top: 12px;
+      margin-top: var(--if-space-3);
     }
     .pay-status-dot {
       width: 6px;
@@ -91,7 +91,7 @@
     .pay-account-id {
       font-size: 18px;
       font-weight: 500;
-      margin-bottom: 20px;
+      margin-bottom: var(--if-space-5);
       overflow-wrap: anywhere;
       user-select: all;
     }
@@ -101,22 +101,22 @@
       min-width: 0;
     }
     .pay-receive .pay-section {
-      padding-block: 24px;
+      padding-block: var(--if-space-6);
     }
     .pay-receive .pay-section:first-child {
       padding-top: 0;
     }
     .pay-receive .pay-section > header {
       align-items: center;
-      gap: 16px;
-      margin-bottom: 16px;
+      gap: var(--if-space-4);
+      margin-bottom: var(--if-space-4);
     }
     .pay-receive .pay-section > header > div {
       min-width: 0;
     }
     .pay-receive .pay-section > header p {
-      margin-top: 16px;
-      font-size: 14px;
+      margin-top: var(--if-space-4);
+      font-size: var(--if-text-base);
       line-height: 22px;
     }
     .pay-receive .pay-section > header .button {
@@ -127,7 +127,7 @@
       line-height: 26px;
     }
     .pay-receive .pay-account-id:focus-visible {
-      outline: 2px solid var(--if-lime);
+      outline: 2px solid var(--if-focus);
       outline-offset: 4px;
     }
     .pay-receive .pay-destination {
@@ -136,12 +136,12 @@
     .pay-receive .pay-destination > span:first-child {
       flex: 1;
       font-size: 18px;
-      line-height: 24px;
+      line-height: var(--if-leading-md);
     }
     .pay-receive .pay-destination > span:last-child {
       flex: 0 0 90px;
-      font-size: 13px;
-      line-height: 20px;
+      font-size: var(--if-text-sm);
+      line-height: var(--if-leading-base);
       text-align: right;
     }
     .pay-details {
@@ -150,8 +150,8 @@
     .pay-details > div {
       display: grid;
       grid-template-columns: minmax(100px, 1fr) minmax(0, 1.5fr);
-      gap: 20px;
-      padding-block: 12px;
+      gap: var(--if-space-5);
+      padding-block: var(--if-space-3);
       border-bottom: 1px solid var(--if-line);
     }
     .pay-details dt {
@@ -171,7 +171,7 @@
       display: flex;
       align-items: baseline;
       justify-content: flex-end;
-      gap: 8px;
+      gap: var(--if-space-2);
       min-width: 0;
       max-width: 100%;
     }
@@ -188,7 +188,7 @@
       border-bottom: 1px solid var(--if-fg-2);
     }
     .pay-amount-scroll:focus-visible {
-      outline: 2px solid var(--if-lime);
+      outline: 2px solid var(--if-focus);
       outline-offset: 2px;
     }
     .pay-amount-digits {
@@ -203,14 +203,14 @@
     }
     .pay-amount-hint {
       display: block;
-      margin-top: 8px;
+      margin-top: var(--if-space-2);
       color: var(--if-fg-2);
-      font-size: 13px;
-      line-height: 20px;
+      font-size: var(--if-text-sm);
+      line-height: var(--if-leading-base);
     }
     .pay-status {
-      font-size: 13px;
-      padding: 4px 8px;
+      font-size: var(--if-text-sm);
+      padding: var(--if-space-1) var(--if-space-2);
       border: 1px solid var(--if-line);
       border-radius: var(--if-r-sm);
       white-space: nowrap;
@@ -220,24 +220,24 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 16px;
+      gap: var(--if-space-4);
       flex-wrap: wrap;
-      margin-top: 20px;
+      margin-top: var(--if-space-5);
     }
     .pay-pagination p {
-      font-size: 13px;
+      font-size: var(--if-text-sm);
     }
     .pay-room-tabs {
       display: flex;
-      gap: 28px;
+      gap: var(--if-space-7);
       border-bottom: 1px solid var(--if-line);
       overflow-x: auto;
-      margin-bottom: 32px;
+      margin-bottom: var(--if-space-8);
     }
     .pay-room-tabs a {
       white-space: nowrap;
       min-height: 44px;
-      padding-bottom: 12px;
+      padding-bottom: var(--if-space-3);
       color: var(--if-fg-2);
       border-bottom: 2px solid transparent;
     }
@@ -247,9 +247,9 @@
     }
     .pay-filters {
       display: flex;
-      gap: 16px;
+      gap: var(--if-space-4);
       align-items: flex-end;
-      margin-block: 20px;
+      margin-block: var(--if-space-5);
       flex-wrap: wrap;
     }
     .pay-filters .field {
@@ -258,44 +258,44 @@
     }
     .pay-filter-select {
       max-width: 260px;
-      margin-bottom: 20px;
+      margin-bottom: var(--if-space-5);
     }
     .pay-order-grid {
       display: grid;
       grid-template-columns: minmax(0, 1.4fr) minmax(280px, 1fr);
-      gap: 40px;
+      gap: var(--if-space-10);
     }
     .pay-evidence {
-      padding-block: 16px;
+      padding-block: var(--if-space-4);
       border-bottom: 1px solid var(--if-line);
       overflow-wrap: anywhere;
     }
     .pay-evidence p {
-      margin-top: 8px;
+      margin-top: var(--if-space-2);
     }
     .pay-action {
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: var(--if-space-3);
     }
     .pay-confirmed {
       color: var(--if-fg);
-      padding-block: 12px;
+      padding-block: var(--if-space-3);
       overflow-wrap: anywhere;
     }
     .pay-business {
       display: grid;
       grid-template-columns: 176px minmax(0, 1fr);
-      gap: 40px;
+      gap: var(--if-space-10);
     }
     .pay-business-nav {
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: var(--if-space-1);
     }
     .pay-business-nav a {
       min-height: 44px;
-      padding: 12px;
+      padding: var(--if-space-3);
       border-radius: var(--if-r-sm);
       color: var(--if-fg-2);
     }
@@ -304,21 +304,21 @@
     }
     .pay-business-nav a[aria-current='page'] {
       background: var(--if-field);
-      color: var(--if-lime);
+      color: var(--if-accent-text);
     }
     .pay-balance-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 32px;
-      padding-block: 28px;
+      gap: var(--if-space-8);
+      padding-block: var(--if-space-7);
     }
     .pay-value {
-      font-size: 24px;
+      font-size: var(--if-text-xl);
       line-height: 32px;
       letter-spacing: -0.02em;
       font-weight: 500;
       display: block;
-      margin-top: 12px;
+      margin-top: var(--if-space-3);
     }
     .pay-secret {
       user-select: all;
@@ -328,23 +328,23 @@
     .pay-timeline > div {
       display: flex;
       justify-content: space-between;
-      gap: 20px;
+      gap: var(--if-space-5);
       border-bottom: 1px solid var(--if-line);
-      padding-block: 16px;
+      padding-block: var(--if-space-4);
     }
     .pay-checkboxes {
       margin: 0;
-      padding: 16px;
+      padding: var(--if-space-4);
       border: 1px solid var(--if-line);
     }
     .pay-checkboxes legend {
       color: var(--if-fg-2);
-      padding-inline: 8px;
+      padding-inline: var(--if-space-2);
     }
     .pay-checkboxes label {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: var(--if-space-3);
       min-height: 44px;
     }
     .pay-checkboxes input {
@@ -354,9 +354,9 @@
     }
     .pay-return-links {
       display: flex;
-      gap: 28px;
+      gap: var(--if-space-7);
       flex-wrap: wrap;
-      margin-top: 28px;
+      margin-top: var(--if-space-7);
     }
     @media (max-width: 1000px) {
       .pay-order-grid {
@@ -364,12 +364,12 @@
       }
       .pay-business {
         grid-template-columns: minmax(0, 1fr);
-        gap: 28px;
+        gap: var(--if-space-7);
       }
       .pay-business-nav {
         flex-direction: row;
         overflow-x: auto;
-        padding-bottom: 12px;
+        padding-bottom: var(--if-space-3);
       }
       .pay-business-nav a {
         white-space: nowrap;
@@ -389,12 +389,12 @@
         flex-basis: 100%;
       }
       .pay-details > div {
-        gap: 12px;
+        gap: var(--if-space-3);
         grid-template-columns: minmax(80px, 1fr) minmax(0, 1.4fr);
       }
       .pay-details > .pay-details-amount {
         grid-template-columns: minmax(0, 1fr);
-        gap: 8px;
+        gap: var(--if-space-2);
       }
       .pay-details-amount dd {
         text-align: left;
@@ -407,7 +407,7 @@
       }
       .pay-timeline > div {
         flex-direction: column;
-        gap: 4px;
+        gap: var(--if-space-1);
       }
     }
     @media (prefers-reduced-motion: reduce) {
@@ -421,28 +421,28 @@
 @layer components {
   .if-business {
     color: var(--if-fg);
-    font: 400 14px/22px var(--if-font-ui);
-    padding-bottom: 64px;
+    font: 400 var(--if-text-base)/22px var(--if-font-ui);
+    padding-bottom: var(--if-space-16);
   }
   .if-business :where(h2) {
-    font-size: 20px;
-    line-height: 28px;
+    font-size: var(--if-text-lg);
+    line-height: var(--if-leading-lg);
     font-weight: 600;
   }
   .if-business :where(h3) {
-    font-size: 16px;
-    line-height: 24px;
+    font-size: var(--if-text-md);
+    line-height: var(--if-leading-md);
     font-weight: 600;
   }
   .if-business :where(small) {
-    font-size: 12px;
-    line-height: 18px;
+    font-size: var(--if-text-xs);
+    line-height: var(--if-leading-sm);
   }
   .if-business .muted {
     color: var(--if-fg-2);
   }
   .if-business .text-link {
-    color: var(--if-lime);
+    color: var(--if-accent-text);
     text-decoration: underline;
     text-underline-offset: 4px;
   }
@@ -455,14 +455,14 @@
   .if-business .form-stack {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: var(--if-space-4);
   }
   .if-business .field {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--if-space-2);
     min-width: 0;
-    font-size: 13px;
+    font-size: var(--if-text-sm);
     color: var(--if-fg-2);
   }
   .if-business .field select,
@@ -470,7 +470,7 @@
     border: 1px solid transparent;
     border-radius: var(--if-r-sm);
     background: var(--if-field);
-    padding: 10px 12px;
+    padding: var(--if-space-2-5) var(--if-space-3);
     color: var(--if-fg);
     font: inherit;
   }
@@ -478,47 +478,47 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .if-business .pay-business {
     grid-template-columns: 184px minmax(0, 1fr);
-    gap: 32px;
+    gap: var(--if-space-8);
   }
   .if-business .pay-business-nav {
     align-self: start;
     position: sticky;
     top: 88px;
-    font-size: 13px;
-    line-height: 20px;
-    gap: 4px;
+    font-size: var(--if-text-sm);
+    line-height: var(--if-leading-base);
+    gap: var(--if-space-1);
   }
   .if-business .pay-business-nav a {
     display: flex;
     align-items: center;
     min-height: 36px;
-    padding: 8px 12px;
+    padding: var(--if-space-2) var(--if-space-3);
     border-radius: var(--if-r-pill);
   }
   .if-business .pay-business-nav a[aria-current='page'] {
-    color: var(--if-lime);
+    color: var(--if-accent-text);
     background: var(--if-lime-soft);
     font-weight: 500;
   }
   .if-business .pay-section {
-    padding: 24px;
+    padding: var(--if-space-6);
     border: 0;
     border-radius: var(--if-r-md);
     background: var(--if-panel);
   }
   .if-business .pay-section:first-child {
-    padding-top: 24px;
+    padding-top: var(--if-space-6);
   }
   .if-business .pay-section > header {
-    margin-bottom: 24px;
+    margin-bottom: var(--if-space-6);
   }
   .if-business .pay-section > header p {
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--if-text-sm);
+    line-height: var(--if-leading-base);
   }
   .if-business .pay-section .pay-section {
     padding-inline: 0;
@@ -531,14 +531,14 @@
   @media (max-width: 1000px) {
     .if-business .pay-business {
       grid-template-columns: minmax(0, 1fr);
-      gap: 24px;
+      gap: var(--if-space-6);
     }
     .if-business .pay-business-nav {
       position: static;
       flex-direction: row;
       flex-wrap: nowrap;
       overflow-x: auto;
-      padding-bottom: 8px;
+      padding-bottom: var(--if-space-2);
     }
     .if-business .pay-business-nav a {
       flex-shrink: 0;
@@ -547,14 +547,14 @@
   }
   @media (max-width: 600px) {
     .if-business .pay-section {
-      padding: 16px;
+      padding: var(--if-space-4);
     }
     .if-business .pay-section:first-child {
-      padding-top: 16px;
+      padding-top: var(--if-space-4);
     }
     .if-business .pay-section > header {
       flex-wrap: wrap;
-      gap: 12px;
+      gap: var(--if-space-3);
     }
   }
 }

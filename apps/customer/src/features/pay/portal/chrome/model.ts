@@ -1,4 +1,4 @@
-import { groups } from '../home-layout/Navigation';
+import { groups } from '../home-layout/groups';
 import { personalRoomFor } from '../../personal/rooms/rooms';
 
 /** The personal Pay pages (the rooms in `personal/rooms` count too). Every other /pay address is the business area, known or not, so a wrong address stays in the frame. */

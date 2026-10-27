@@ -17,11 +17,16 @@ function cx(...values: Array<string | false | undefined | null>): string {
   return values.filter(Boolean).join(' ');
 }
 
-/** Direction from a signed change — the one place the comparison is written. */
+/** Direction from a signed change — the one place the comparison is written. A decimal string is read by its sign and
+ * digits, never through a float, so `0.000…01` past seventeen digits still reads as up. */
 export function directionOf(change: number | string): Direction {
-  const n = typeof change === 'string' ? Number.parseFloat(change) : change;
-  if (!Number.isFinite(n) || n === 0) return 'flat';
-  return n > 0 ? 'up' : 'down';
+  if (typeof change === 'number') {
+    if (!Number.isFinite(change) || change === 0) return 'flat';
+    return change > 0 ? 'up' : 'down';
+  }
+  const m = /^\s*([+\-\u2212])?(\d*)(?:\.(\d*))?\s*%?\s*$/.exec(change);
+  if (!m || (!m[2] && !m[3]) || /^0*$/.test(`${m[2]}${m[3] ?? ''}`)) return 'flat';
+  return m[1] === '-' || m[1] === '\u2212' ? 'down' : 'up';
 }
 
 // ── Panel ────────────────────────────────────────────────────────────────────

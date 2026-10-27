@@ -13,11 +13,11 @@ body {
   white-space: nowrap;
   display: flex;
   align-items: center;
-  gap: 32px;
+  gap: var(--if-space-8);
   height: 48px;
-  padding: 0 24px;
+  padding: 0 var(--if-space-6);
   border-bottom: 1px solid var(--if-line);
-  font: 500 14px/20px var(--if-font-ui);
+  font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
 }
 .harness-bar a {
   color: var(--if-fg-2);
@@ -26,7 +26,7 @@ body {
 .harness-bar a:first-child {
   color: var(--if-fg);
   font-weight: 700;
-  font-size: 16px;
+  font-size: var(--if-text-md);
 }
 .harness-bar a[aria-current='page'] {
   color: var(--if-fg);
@@ -34,10 +34,10 @@ body {
 .harness-bar span {
   margin-left: auto;
   color: var(--if-fg-3);
-  font-size: 12px;
+  font-size: var(--if-text-xs);
 }
 .harness-bar .harness-test {
-  margin-left: 16px;
+  margin-left: var(--if-space-4);
   color: var(--if-warn-text);
   font-weight: 600;
 }

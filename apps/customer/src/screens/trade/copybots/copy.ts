@@ -68,8 +68,6 @@ const messages = {
   'Copy permission': 'Copy permission',
   'Copy risk disclosure': 'Copy risk disclosure',
   'Copy trading': 'Copy trading',
-  'Copy trading can lose money. A leader’s past return is not a promise. Only copy what you can afford to lose, and set a loss limit.':
-    'Copy trading can lose money. A leader’s past return is not a promise. Only copy what you can afford to lose, and set a loss limit.',
   'Copy trading is closed right now': 'Copy trading is closed right now',
   'Copy trading is closed right now, so the final step will be refused. Nothing is followed and no money moves.':
     'Copy trading is closed right now, so the final step will be refused. Nothing is followed and no money moves.',
@@ -431,8 +429,8 @@ const messages = {
   'What it costs': 'What it costs',
   'What it does': 'What it does',
   'What it will do': 'What it will do',
-  'What the platform published about this leader, and the leader’s own trades. Past results are not a promise.':
-    'What the platform published about this leader, and the leader’s own trades. Past results are not a promise.',
+  'What the platform published about this leader, and the leader’s own trades.':
+    'What the platform published about this leader, and the leader’s own trades.',
   'What you provide': 'What you provide',
   'When you follow a leader, it appears here with its limits, state and controls.':
     'When you follow a leader, it appears here with its limits, state and controls.',

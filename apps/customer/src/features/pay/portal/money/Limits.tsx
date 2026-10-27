@@ -323,7 +323,7 @@ function RequestIncrease({
       ) : open.data.status === 'pending' ? (
         <Pending request={open.data.request} portal={portal} merchantId={merchantId} reload={reload} mayAsk={mayAsk} test={test} />
       ) : (
-        <form className="form-stack pp-form" noValidate onSubmit={(e) => e.preventDefault()}>
+        <form data-testid="form-stack" className="form-stack pp-form" noValidate onSubmit={(e) => e.preventDefault()}>
           {tiers.status === 'ready' && tiers.data.status === 'not_configured' && <p className="muted pp-note">{t('lrNoTier')}</p>}
           {rows.length === 0 ? (
             <p className="muted">{t('lrNoLimits')}</p>
@@ -351,7 +351,7 @@ function RequestIncrease({
             disabled={why !== null}
             disabledReason={why ?? undefined}
             review={
-              <dl className="pp-facts">
+              <dl data-testid="pp-facts" className="pp-facts">
                 {check.caps.map((cap) => {
                   const row = rows.find(
                     (r) => keyOf(r) === (cap.kind === 'beneficiaries_per_day' ? `${cap.kind}:` : `${cap.kind}:${cap.assetCode}`),
@@ -420,12 +420,12 @@ function Pending({
   const caps = Array.isArray(request.caps) ? request.caps : null;
   const ok = why.trim().length >= 3 && why.trim().length <= 500;
   return (
-    <div className="form-stack">
+    <div data-testid="form-stack" className="form-stack">
       <p className="pp-callout" role="status">
         {t('lrOpen')} <DateTime value={request.createdAt} />
       </p>
       {caps ? (
-        <dl className="pp-facts">
+        <dl data-testid="pp-facts" className="pp-facts">
           {caps.map((cap) => (
             <div key={cap.kind + ('assetCode' in cap ? cap.assetCode : '')}>
               <dt>{kindName(t, cap.kind)}</dt>
@@ -451,7 +451,7 @@ function Pending({
         disabled={!mayAsk || !ok}
         disabledReason={!mayAsk ? t('lrNotAllowed') : !ok ? t('reasonNeeded') : undefined}
         review={
-          <dl className="pp-facts">
+          <dl data-testid="pp-facts" className="pp-facts">
             <div>
               <dt>{t('lrWithdrawReason')}</dt>
               <dd>{why.trim()}</dd>
