@@ -251,7 +251,8 @@ describe('every template draws every state, on Simple and Pro', () => {
           expect(out).not.toContain('lt-ghost-item');
           expect(out).not.toMatch(/£\d/);
         }
-        if (state === 'confirm' && id === 'flow') expect(out).not.toContain('data-moment="scam-stop"');
+        if (state === 'confirm' && id === 'flow')
+          expect(withLegal(ROOMS[id]({ mode, state, market: 'uk' }))).toContain('data-moment="scam-stop"');
         if (state === 'gated') expect(out).toContain('class="lit-gate"');
         if (state === 'refused') expect(out).toContain('data-refusal="parked"');
         if (state === 'stale') expect(out).toContain('Figures as of 10:43, updated 4 min ago');
@@ -480,9 +481,12 @@ describe('states never contradict themselves', () => {
     }
     expect(withLegal(ROOMS.overview({ mode: 'simple', state: 'ready', market: 'uk' }))).toContain('data-band="true"');
     const css = readFileSync(fileURLToPath(new URL('./templates.css', import.meta.url)), 'utf8');
-    const bandOffsets = css.split('}').filter((rule) => rule.includes('--lit-legal-band-min-h'));
-    expect(bandOffsets.length).toBeGreaterThan(0);
-    for (const rule of bandOffsets) expect(rule).toMatch(/\.lt-legal-band|\[data-band\]/);
+    expect(css).toMatch(
+      /\.lt-grid-list-detail > \[data-region='detail'\] \{\s*position: sticky;\s*inset-block-start: calc\(var\(--lit-topbar-h\) \+ var\(--lit-gap-section\)\);/,
+    );
+    expect(css).toMatch(
+      /\.lt-room\[data-band\] \.lt-grid-list-detail > \[data-region='detail'\] \{\s*inset-block-start: calc\(var\(--lit-topbar-h\) \+ var\(--lit-legal-band-min-h\)/,
+    );
   });
 });
 
