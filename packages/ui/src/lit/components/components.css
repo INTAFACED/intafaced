@@ -365,6 +365,7 @@
 /* Legal slot: opaque, neutral, bordered, never faded, never smaller than body text */
 .lit-legal {
   min-height: var(--lit-legal-band-min-h);
+  text-align: start;
   padding: 10px 14px;
   border: 1px solid var(--lit-legal-border);
   border-radius: 10px;
@@ -389,6 +390,12 @@
   font-weight: 600;
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+.lit-legal[data-bold] {
+  font-weight: 700;
+}
+.lit-legal[data-bold] .lit-legal__more {
+  font-weight: 400;
 }
 .lit-legal[data-missing] {
   border-style: dashed;
@@ -582,4 +589,30 @@
   font-size: var(--lit-type-heading-size);
   line-height: var(--lit-type-heading-line);
   font-weight: var(--lit-type-heading-weight);
+}
+
+/* Gated: the room stays visible under the veil; the card sits over it. One grid cell, so the gate grows to fit. */
+.lit-gate {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-section);
+}
+.lit-gate__card {
+  align-self: center;
+  width: min(440px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+}
+/* The room stays readable (names at text contrast, controls disabled but named); a body a template marks withheld keeps its space and shows nothing. */
+.lit-gate__room [data-withheld] {
+  visibility: hidden;
+}
+.lit-gate__card [data-part='title'] {
+  font-size: var(--lit-type-heading-size);
+  line-height: var(--lit-type-heading-line);
+  font-weight: var(--lit-type-heading-weight);
+}
+.lit-gate__card [data-part='body'] {
+  color: var(--lit-text-2);
 }

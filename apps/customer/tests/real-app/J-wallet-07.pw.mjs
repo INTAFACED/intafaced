@@ -262,7 +262,7 @@ test(`${J} #3 withdraws to a friend's address on the platform: told it settles i
   const status = page.getByTestId('withdrawal-status');
   await expect(status).toHaveAttribute('data-status', 'settled');
   await expect(status).toHaveText('Sent');
-  await expect(page.locator('.withdrawal-facts')).toContainText('Inside INTAFACED, no network');
+  await expect(page.getByTestId('withdrawal-facts')).toContainText('Inside INTAFACED, no network');
 });
 
 test(`${J} #4 withdraws to their own address on the platform: refused as a send to yourself, and nothing moves`, async ({ page }) => {

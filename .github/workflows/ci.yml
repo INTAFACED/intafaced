@@ -132,6 +132,20 @@ jobs:
           done
           node "$RUNNER_TEMP/test-diff-guard.mjs"
 
+      # The redesign's drift lint, from main like the guard above: changed lines in apps/customer and packages/ui/src/lit take
+      # their look from role tokens (no raw colours, pixel sizes or left/right sides). It ratchets: lines already on
+      # main are not judged. Owner decision 2026-10-26 (redesign plan v2, lane B0). It runs when the guard above fails
+      # too, so one run names both kinds of finding.
+      - name: Look drift (rules from main)
+        if: github.event_name == 'pull_request' && !cancelled()
+        run: |
+          if git cat-file -e origin/main:tooling/ci/look-drift.mjs 2>/dev/null; then
+            git show origin/main:tooling/ci/look-drift.mjs > "$RUNNER_TEMP/look-drift.mjs"
+          else
+            cp tooling/ci/look-drift.mjs "$RUNNER_TEMP/look-drift.mjs"
+          fi
+          node "$RUNNER_TEMP/look-drift.mjs"
+
       # The per-service Definition of Done (`pnpm gate`) used to be its own
       # `dod` job: a second runner and a second install for a two-second
       # script. It never blocked a merge (it ran after the seal and was not
@@ -168,6 +182,7 @@ jobs:
       - run: node tooling/ci/bisect-main.mjs --self-test
       - run: node tooling/ci/test-shards.mjs --self-test
       - run: node tooling/ci/test-diff-guard.mjs --self-test
+      - run: node tooling/ci/look-drift.mjs --self-test
       - run: node tooling/ci/cross-package-reads.mjs --self-test
       - run: node tooling/ci/boundary-scan.mjs --self-test
       - run: node tooling/ci/why-red.mjs --self-test
@@ -240,6 +255,13 @@ jobs:
             pnpm turbo run typecheck "${filters[@]}"
           else echo "docs only: nothing to typecheck"; fi
           } 2>&1 | tee -a "$RUNNER_TEMP/build.log"
+      # The Customer app's deployment tests (nginx config, env validation, the security headers and the built
+      # index.html's scripts) are node:test files outside vitest, and need the build above. They run whenever this job
+      # built the Customer app.
+      - name: Customer deployment tests
+        run: |
+          if [ -f apps/customer/dist/index.html ]; then pnpm --filter @intafaced/customer test:deployment
+          else echo "the Customer app was not built: nothing to test"; fi
       # turbo prefixes every line with its task, so setup-node's tsc matcher never fires and a red job said only
       # "pnpm run typecheck exited (1)". This turns the first ten type errors (GitHub keeps ten per step) into annotations, so tooling/ci/why-red.mjs
       # names them without the job log. Output only: it changes no result.

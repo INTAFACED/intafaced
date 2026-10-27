@@ -344,7 +344,7 @@ export function RequestForm({
   const allColumns = columns.length === available.length;
   return (
     <PaySection title={t('requestTitle')} description={t('requestBody')}>
-      <div className="form-stack pp-form">
+      <div data-testid="form-stack" className="form-stack pp-form">
         <div className="form-row">
           <SelectField
             label={t('colReport')}

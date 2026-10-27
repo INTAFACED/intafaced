@@ -1,7 +1,6 @@
 import { tradeError, tradeRefusal, tradeCopy as copy } from './copy';
 import { z } from 'zod';
 import {
-  marketSchema,
   orderSchema as contractOrderSchema,
   orderBookSchema,
   tickerSchema,
@@ -16,16 +15,10 @@ import {
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { decimalSchema, parseAmount, formatAmount } from '../../shared/money';
 import { dailyHistoryWindow, deriveUtc8Daily, DailyHistoryError } from './daily-history';
+import { listingSchema, positive } from './listing';
 import { planZonedDaily, deriveZonedDaily, ZonedDailyError } from './zoned-daily-history';
 
-const positive = decimalSchema.refine((value) => parseAmount(value) > 0n, { error: () => copy.t('expectedAPositiveExactDecimalString') });
-export const listingSchema = marketSchema.extend({
-  orderable: z.boolean(),
-  precision: z.object({ price: positive, amount: positive }),
-  taker: decimalSchema,
-  maker: decimalSchema,
-});
-export type Listing = z.infer<typeof listingSchema>;
+export { listingSchema, type Listing } from './listing';
 export const orderSchema = contractOrderSchema.extend({
   amount: positive,
   filled: decimalSchema,

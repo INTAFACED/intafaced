@@ -161,7 +161,7 @@ test(`${J} #3 the total's Assets link opens the Assets room with the same total 
   // The same reading of the bank's valuation that Home showed, or a newer one if a price moved since.
   await expect
     .poll(async () => {
-      const shown = await spokenTotal(page, '.money-total');
+      const shown = await spokenTotal(page, '[data-testid="money-total"]');
       return shown === onHome || shown === usd(await bankSummary()) ? 'same' : `assets ${shown}, home ${onHome}`;
     })
     .toBe('same');

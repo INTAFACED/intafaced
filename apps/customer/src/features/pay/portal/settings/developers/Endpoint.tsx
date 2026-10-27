@@ -114,7 +114,7 @@ export function EndpointView({
         <AuditPanel who={null} at={endpoint.updatedAt} />
       </PaySection>
       <PaySection title={t('manageTitle')} description={t('manageBody')}>
-        <div className="form-stack pp-form">
+        <div data-testid="form-stack" className="form-stack pp-form">
           <ChangeAddress api={api} endpoint={endpoint} canManage={canManage} onDone={reload} />
           <RotateEndpointSecret
             api={api}

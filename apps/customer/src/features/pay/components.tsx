@@ -124,7 +124,7 @@ export function PaySection({
   children: ReactNode;
 }) {
   return (
-    <section className="pay-section">
+    <section data-testid="pay-section" className="pay-section">
       <header>
         <div>
           <h2 lang={titleLanguage}>{title}</h2>
@@ -408,7 +408,7 @@ export function ReviewedAction<T>({
             }
           }}
         >
-          <div className="form-stack">
+          <div data-testid="form-stack" className="form-stack">
             <p className="muted">{description}</p>
             {review}
             {stepUp && <StepUpNote kind={stepUp} />}

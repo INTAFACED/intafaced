@@ -20,18 +20,18 @@ export default function TradeBuyScreen({ search }: ScreenProps) {
   const [side, setSide] = useState(initialSide);
   const selling = side === 'sell';
   return (
-    <div className="if-buy">
-      <nav className="buy-crumbs" aria-label={selling ? t('Sell crypto') : t('Buy crypto')}>
+    <div data-testid="if-buy" className="if-buy">
+      <nav data-testid="buy-crumbs" className="buy-crumbs" aria-label={selling ? t('Sell crypto') : t('Buy crypto')}>
         <a href="/trade">{t('Trade')}</a>
         <span aria-hidden="true">›</span>
         <span aria-current="page">{selling ? t('Sell crypto') : t('Buy crypto')}</span>
-        <a className="buy-crumbs__history" href={ORDERS_HREF}>
+        <a data-testid="buy-crumbs__history" className="buy-crumbs__history" href={ORDERS_HREF}>
           {t('Order history')}
         </a>
       </nav>
       <EmailProofNotice />
       <div className="buy-grid">
-        <header className="buy-hero">
+        <header data-testid="buy-hero" className="buy-hero">
           <h1>{selling ? t('Sell crypto in a few steps') : t('Buy crypto in a few steps')}</h1>
           <p>{selling ? t('Sell crypto intro') : t('Buy crypto intro')}</p>
         </header>

@@ -136,7 +136,7 @@ function MethodsForm({
   }
 
   return (
-    <div className="form-stack pp-form">
+    <div data-testid="form-stack" className="form-stack pp-form">
       <p className="muted" role="status" data-testid="checkout-methods-state">
         {methods.status === 'default' ? (
           c.t('isDefault')
@@ -269,7 +269,7 @@ function OfferPreview({ portal }: { portal: PortalApi }) {
   }
 
   return (
-    <form className="form-stack pp-form" onSubmit={(e) => void check(e)}>
+    <form data-testid="form-stack" className="form-stack pp-form" onSubmit={(e) => void check(e)}>
       <div className="form-row">
         <Field
           label={c.t('country')}

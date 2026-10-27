@@ -25,6 +25,7 @@
  *   (apps/admin, a production Next build) on http://127.0.0.1:3100
  *
  *   pnpm local:stack plan                 print services, ports and Edge wiring; changes nothing
+ *   node tooling/scripts/local-test-stack.mjs csp-report [--fail|--clear]   Content-Security-Policy violations the Customer app reported
  *   pnpm local:stack --only a,b           start only the named services (plus Postgres/NATS)
  *   pnpm local:stack restart edge         stop the named services, then start (idempotent)
  *   pnpm local:stack customer-dist <abs>  serve a Customer build from another folder (never rebuilt or overwritten)
@@ -55,6 +56,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { apiSecurityHeaders, securityHeaders } from '../../apps/customer/deployment/render-security-headers.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveVideoStore } from './local-video-store.mjs';
 import academy from './local-stack-services/academy.mjs';
@@ -123,6 +125,7 @@ const P = {
   customerDist: path.join(REPO, 'apps', 'customer', 'dist'),
   invitationDist: path.join(REPO, 'apps', 'invitation', 'dist'),
   customerDistFile: path.join(STATE, 'customer-dist.json'),
+  cspViolations: path.join(STATE, 'csp-violations.jsonl'),
   admin: path.join(REPO, 'apps', 'admin'),
   adminBuildId: path.join(REPO, 'apps', 'admin', '.next', 'BUILD_ID'),
 };
@@ -1317,6 +1320,8 @@ async function cmdStart(flags) {
   for (const b of [`${PG_BIN}/pg_ctl`, `${PG_BIN}/initdb`, `${PG_BIN}/psql`])
     if (!fs.existsSync(b)) fail(`missing ${b} (install PostgreSQL 16 via Homebrew)`);
   const secrets = loadOrCreateSecrets();
+  // Each stack starts with no recorded CSP violations, so `csp-report --fail` speaks only of this run.
+  fs.rmSync(P.cspViolations, { force: true });
   writePrivate(
     P.marker,
     JSON.stringify(
@@ -1551,16 +1556,64 @@ function indexWithBanner(dist) {
   return html.replace(/<body([^>]*)>/i, (m) => `${m}${BANNER_HTML}`);
 }
 
+/** What nginx's /api/ location adds to Edge's answers (security-headers-api.conf). */
+const API_SECURITY = apiSecurityHeaders();
+/** Where the Customer app's browser sends Content-Security-Policy violation reports on this stack. */
+const CSP_REPORT_PATH = '/__csp-report';
+
+/**
+ * The Customer site's production security headers (apps/customer/security-headers.conf.template), with this stack's
+ * TEST video store standing in for CUSTOMER_STORAGE_ORIGIN and a report-uri so every violation is recorded. Journeys
+ * therefore run under the policy the deployed app has, and `csp-report --fail` turns any violation red.
+ */
+export function customerSecurityHeaders() {
+  return securityHeaders({ mediaSrc: `'self' blob: ${urlOf('video-store')}`, reportUri: CSP_REPORT_PATH });
+}
+
 /** The two static sites this stack serves, each with `/api/*` passed to Edge. The invitation site has no folder override. */
 const SITES = {
-  customer: { label: 'Customer', origin: CUSTOMER_ORIGIN, dist: () => activeCustomerDist() },
-  invitation: { label: 'invitation', origin: INVITATION_ORIGIN, dist: () => ({ dir: P.invitationDist, error: null }) },
+  customer: { label: 'Customer', origin: CUSTOMER_ORIGIN, dist: () => activeCustomerDist(), headers: () => customerSecurityHeaders() },
+  invitation: { label: 'invitation', origin: INVITATION_ORIGIN, dist: () => ({ dir: P.invitationDist, error: null }), headers: () => ({}) },
 };
+
+/** One CSP report body (application/csp-report or reports+json) as the rows csp-violations.jsonl keeps. */
+export function cspReportRows(body, at = new Date().toISOString()) {
+  let parsed;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return [];
+  }
+  const list = Array.isArray(parsed) ? parsed.map((r) => r?.body ?? r) : [parsed?.['csp-report'] ?? parsed];
+  return list
+    .filter((r) => r && typeof r === 'object')
+    .map((r) => ({
+      at,
+      directive: String(r['effective-directive'] ?? r.effectiveDirective ?? r['violated-directive'] ?? '').slice(0, 80),
+      blocked: String(r['blocked-uri'] ?? r.blockedURL ?? '').slice(0, 300),
+      page: String(r['document-uri'] ?? r.documentURL ?? '')
+        .replace(/[?#].*$/, '')
+        .slice(0, 300),
+      source: String(r['source-file'] ?? r.sourceFile ?? '')
+        .replace(/[?#].*$/, '')
+        .slice(0, 300),
+      line: Number(r['line-number'] ?? r.lineNumber ?? 0) || 0,
+      sample: String(r['script-sample'] ?? r.sample ?? '').slice(0, 80),
+    }));
+}
 
 function serveCustomer(port = PORTS.customer, site = SITES.customer) {
   const edge = { host: HOST, port: PORTS.edge };
+  // nginx sets these on every response (`always`), errors included.
+  const security = site.headers();
   const send = (res, status, type, body, extra = {}) => {
-    res.writeHead(status, { 'content-type': type, 'content-length': Buffer.byteLength(body), 'cache-control': 'no-store', ...extra });
+    res.writeHead(status, {
+      ...security,
+      'content-type': type,
+      'content-length': Buffer.byteLength(body),
+      'cache-control': 'no-store',
+      ...extra,
+    });
     res.end(body);
   };
   const server = http.createServer((req, res) => {
@@ -1573,6 +1626,30 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
     const url = new URL(req.url, site.origin);
     const p = url.pathname;
 
+    if (p === CSP_REPORT_PATH && site === SITES.customer) {
+      if (req.method !== 'POST') return send(res, 405, 'text/plain; charset=utf-8', 'method not allowed');
+      let body = '';
+      req.setEncoding('utf8');
+      req.on('data', (chunk) => {
+        body += chunk;
+        if (body.length > 64 * 1024) req.destroy();
+      });
+      req.on('end', () => {
+        const rows = cspReportRows(body);
+        try {
+          if (rows.length) {
+            fs.mkdirSync(path.dirname(P.cspViolations), { recursive: true });
+            fs.appendFileSync(P.cspViolations, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+          }
+        } catch (error) {
+          // The record cannot be written: say so on every report rather than take the Customer site down.
+          console.error(`CSP report not recorded (${error.message}); csp-report cannot see it`);
+        }
+        for (const r of rows) console.error(`CSP violation: ${r.directive} blocked ${r.blocked || '(inline)'} on ${r.page}`);
+        send(res, 204, 'text/plain; charset=utf-8', '');
+      });
+      return;
+    }
     if (p === '/api' || p === '/ws') return send(res, 404, 'text/plain; charset=utf-8', 'not found');
     if (p.startsWith('/ws/')) {
       return send(res, 503, 'application/json', JSON.stringify(WS_UPSTREAM_REFUSAL));
@@ -1588,7 +1665,7 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
       headers['x-forwarded-for'] = req.socket.remoteAddress ?? HOST;
       headers['x-forwarded-proto'] = 'http';
       const up = http.request({ ...edge, method: req.method, path: req.url, headers }, (ur) => {
-        res.writeHead(ur.statusCode ?? 502, { ...ur.headers, 'cache-control': 'no-store' });
+        res.writeHead(ur.statusCode ?? 502, { ...ur.headers, ...API_SECURITY, 'cache-control': 'no-store' });
         ur.pipe(res);
       });
       up.on('error', () =>
@@ -1636,6 +1713,7 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
       const body = fs.readFileSync(target);
       const immutable = p.startsWith('/assets/');
       res.writeHead(200, {
+        ...security,
         'content-type': MIME[path.extname(target)] ?? 'application/octet-stream',
         'content-length': body.length,
         'cache-control': immutable ? 'public, max-age=31536000, immutable' : 'no-store',
@@ -1649,7 +1727,12 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
     } catch {
       return send(res, 503, 'text/plain; charset=utf-8', `No ${site.label} build found in ${dist}. Run: pnpm local:stack --rebuild`);
     }
-    res.writeHead(200, { 'content-type': MIME['.html'], 'content-length': Buffer.byteLength(html), 'cache-control': 'no-store' });
+    res.writeHead(200, {
+      ...security,
+      'content-type': MIME['.html'],
+      'content-length': Buffer.byteLength(html),
+      'cache-control': 'no-store',
+    });
     res.end(req.method === 'HEAD' ? undefined : html);
   });
   // No WebSocket upstream is published. The refusal names CUSTOMER_WS_URL and
@@ -1661,6 +1744,53 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
     );
   });
   server.listen(port, HOST);
+}
+
+/**
+ * `csp-report [--fail] [--clear]`: the Content-Security-Policy violations the Customer app's browser reported to this
+ * stack (csp-violations.jsonl), grouped by directive and blocked source. `--fail` exits 1 when there is any, so a journey
+ * run that broke the production policy is red; `--clear` empties the record (`start` does too, so each stack starts clean).
+ */
+function cmdCspReport(args) {
+  if (args.includes('--clear')) {
+    fs.rmSync(P.cspViolations, { force: true });
+    say('  csp-report: cleared');
+    return;
+  }
+  const rows = fs.existsSync(P.cspViolations)
+    ? fs
+        .readFileSync(P.cspViolations, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((l) => {
+          try {
+            return JSON.parse(l);
+          } catch {
+            // A line cut short (the server stopped mid-write) still means a violation was seen.
+            return { directive: 'unreadable record line', blocked: l.slice(0, 80), page: '?' };
+          }
+        })
+    : [];
+  if (rows.length === 0) {
+    say('  csp-report: no Content-Security-Policy violations recorded');
+    return;
+  }
+  const groups = new Map();
+  for (const r of rows) {
+    const key = `${r.directive} blocked ${r.blocked || '(inline)'}`;
+    const g = groups.get(key) ?? { n: 0, pages: new Set(), source: r.source, line: r.line, sample: r.sample };
+    g.n++;
+    g.pages.add(r.page);
+    groups.set(key, g);
+  }
+  say(`  csp-report: ${rows.length} Content-Security-Policy violation(s), ${groups.size} kind(s)`);
+  for (const [key, g] of groups) {
+    say(
+      `    ${key}  ×${g.n}  on ${[...g.pages].slice(0, 3).join(', ')}${g.source ? `  from ${g.source}:${g.line}` : ''}${g.sample ? `  "${g.sample}"` : ''}`,
+    );
+    if (process.env.GITHUB_ACTIONS) console.log(`::error title=CSP violation::${key} (×${g.n}) on ${[...g.pages][0]}`);
+  }
+  if (args.includes('--fail')) process.exit(1);
 }
 
 // ── local:fund ──────────────────────────────────────────────────────────────
@@ -2327,6 +2457,7 @@ async function runCli() {
   else if (cmd === 'start') await cmdStart(rest);
   else if (cmd === 'stop') await cmdStop(rest);
   else if (cmd === 'plan') cmdPlan(rest);
+  else if (cmd === 'csp-report') cmdCspReport(rest);
   else if (cmd === 'restart') await cmdRestart(rest);
   else if (cmd === 'fund') await cmdFund(rest);
   else if (cmd === 'seed-withdrawal') await cmdSeedWithdrawal(rest);

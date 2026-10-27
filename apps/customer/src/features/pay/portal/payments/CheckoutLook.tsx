@@ -161,7 +161,7 @@ function LookForm({
   const previewColor = colorOk ? color.trim().toLowerCase() : CHECKOUT_DEFAULT_BRAND_COLOR;
   return (
     <div className="pp-look">
-      <div className="form-stack pp-form">
+      <div data-testid="form-stack" className="form-stack pp-form">
         <p className="muted" role="status" data-testid="checkout-look-state">
           {look.status === 'default' ? (
             c.t('isDefault')

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { Fragment, Suspense, lazy, useMemo } from 'react';
 import { ChevronRight, Eye, EyeOff } from 'lucide-react';
 import './home.css';
 import { clockTime } from './clock';
@@ -27,13 +27,13 @@ import {
   type Loadable,
   type HomePortfolio,
   type TickerRow,
+  Loading,
 } from './deps';
 import { InfoTip } from './InfoTip';
 import { IN_PANEL, STATE_IN_COLUMN } from './panel';
 import { MarketsFailure, MarketsRow, MarketsSkeleton, MoversHeading, MoversRow, MoversSkeleton } from './MarketsSection';
 import { YourCrypto, YourCryptoSkeleton } from './YourCrypto';
 import { listings, topCards, topMovers } from './select';
-import { HomePro } from './HomePro';
 import { Watchlist } from './Watchlist';
 import { GetStarted } from './GetStarted';
 import { LearnStrip } from './LearnStrip';
@@ -43,11 +43,15 @@ import { TotalFigure, TotalUnitNote } from './TotalFigure';
 import { HOME_LINKS } from './links';
 import { useStartedTile } from './started-data';
 import { CustomiseHome } from './CustomiseHome';
+import { LitSphere } from './LitSphere';
 import { HomeNotices } from './Notices';
 import { useHomeLayout } from './tiles-data';
 import { shownTiles } from './tiles';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 import { useSession } from '../../features/session/session';
+
+// Pro Home carries Trade's client; Simple Home (the default) does not load it.
+const HomePro = lazy(() => import('./HomePro').then((module) => ({ default: module.HomePro })));
 
 /** Simple Home: Buy and Sell open the Buy card (Pro Home goes to the desk, `HomePro.tsx`). */
 const ACTIONS = [
@@ -334,9 +338,17 @@ function HomeSimple() {
                 return <WorkList key={id} hidden={hideBalances} />;
               case 'holdings':
                 return portfolio.status === 'loading' ? (
-                  <HoldingsSkeleton key={id} />
+                  // the sphere's section keeps its place while the holdings load (no split, no figures), so it doesn't
+                  // arrive late and push the rows below it down
+                  <Fragment key={id}>
+                    <LitSphere portfolio={portfolio} hidden={hideBalances} />
+                    <HoldingsSkeleton />
+                  </Fragment>
                 ) : portfolio.status === 'ready' && portfolio.data.holdings.length > 0 ? (
-                  <HoldingsCard key={id} portfolio={portfolio.data} hidden={hideBalances} />
+                  <Fragment key={id}>
+                    <LitSphere portfolio={portfolio} hidden={hideBalances} />
+                    <HoldingsCard portfolio={portfolio.data} hidden={hideBalances} />
+                  </Fragment>
                 ) : null;
               case 'markets':
                 return showMarkets ? (
@@ -414,5 +426,11 @@ function HomeSimple() {
 /** The layout preference decides which Home is drawn (UI-SPEC 3.3); a switch in the top bar flips it at once. */
 export default function Home() {
   const { layoutMode } = usePreferences();
-  return layoutMode === 'pro' ? <HomePro /> : <HomeSimple />;
+  return layoutMode === 'pro' ? (
+    <Suspense fallback={<Loading />}>
+      <HomePro />
+    </Suspense>
+  ) : (
+    <HomeSimple />
+  );
 }

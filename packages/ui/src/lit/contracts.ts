@@ -22,7 +22,8 @@ export const defaultAccent: Accent = 'blue';
 /**
  * `data-surfaces` on the root. `solid` replaces every glass and translucent surface with an opaque one and
  * turns blur off. It is the in-app switch for people who need it (Safari never exposes Reduce Transparency to
- * the web) and is also on whenever `prefers-contrast: more` or `forced-colors: active` matches.
+ * the web) and is also on whenever `prefers-contrast: more`, `forced-colors: active` or `prefers-reduced-transparency: reduce`
+ * matches.
  */
 export const surfaceModes = ['glass', 'solid'] as const;
 export type SurfaceMode = (typeof surfaceModes)[number];
@@ -92,7 +93,7 @@ export const roles = {
   'glass-rim-dim': 'Rim colour of a glass layer away from the light',
   'glass-shadow': 'Shadow stack of a glass layer',
   scrim: 'Behind a sheet or dialog',
-  veil: 'Dims a gated room behind its gate; the layout stays visible',
+  veil: 'Dims what sits behind a sheet or dialog; a gated room is never veiled, its withheld bodies keep their space and show nothing',
 
   // Controls. One primary per view.
   'primary-bg': 'The one primary button (metal pill). Image role: use with the `background` shorthand only',
@@ -244,7 +245,7 @@ export const templateSlots = {
   overview: ['legal', 'notices', 'header', 'hero', 'actions', 'needs-you', 'rooms', 'sections', 'in-flight'],
   'record-list': ['legal', 'notices', 'header', 'filters', 'summary', 'table', 'detail', 'export', 'in-flight'],
   monitor: ['legal', 'notices', 'header', 'figures', 'panels', 'charts', 'explain', 'in-flight'],
-  flow: ['legal', 'notices', 'header', 'steps', 'form', 'summary', 'review', 'actions', 'receipt', 'in-flight'],
+  flow: ['legal', 'notices', 'header', 'steps', 'form', 'summary', 'review', 'scam-warning', 'actions', 'receipt', 'in-flight'],
   settings: ['legal', 'notices', 'header', 'index', 'sections', 'explain', 'in-flight'],
   catalogue: ['legal', 'notices', 'header', 'featured', 'filters', 'grid', 'item', 'in-flight'],
   desk: ['legal', 'notices', 'instrument', 'pairs', 'chart', 'book', 'tape', 'ticket', 'orders', 'positions', 'in-flight'],
@@ -292,6 +293,7 @@ export const components = {
   Holdings: 'Holdings list: the text equivalent of the sphere, always present',
   LegalSlot: 'Renders a legal slot from the registry',
   RiskMoment: 'First-buy warning overlay, equal-weight choices',
+  Gate: "The gated state: the gate card in the flow at the top, then the room's layout, inert, with names and disabled controls readable and withheld bodies (data-withheld) kept blank",
   RefusalBox: 'Refused or parked, naming the blocker',
   EmptyState: 'Empty with one next step',
   Dock: 'Phone navigation: floating pill, five doors, always fully visible',

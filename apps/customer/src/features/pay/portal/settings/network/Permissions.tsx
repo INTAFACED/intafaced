@@ -126,7 +126,7 @@ function Body(props: Omit<Parameters<typeof PermissionsView>[0], 'subs'> & { sub
           : undefined;
   const input = { granteeMerchantId: target, subjectMerchantId: subject.id, area: chosenArea, reason: reason.trim() };
   const review = (
-    <dl className="pp-facts">
+    <dl data-testid="pp-facts" className="pp-facts">
       <div>
         <dt>{t('permSubject')}</dt>
         <dd>{label(subject.id)}</dd>
@@ -190,7 +190,7 @@ function Body(props: Omit<Parameters<typeof PermissionsView>[0], 'subs'> & { sub
                         variant="sell"
                         description={t('permRevokeBody')}
                         review={
-                          <dl className="pp-facts">
+                          <dl data-testid="pp-facts" className="pp-facts">
                             <div>
                               <dt>{t('permArea')}</dt>
                               <dd>{areaWords(g.area)}</dd>
@@ -228,7 +228,7 @@ function Body(props: Omit<Parameters<typeof PermissionsView>[0], 'subs'> & { sub
       </PaySection>
 
       <PaySection title={t('permChangeTitle')} description={t('permChangeBody')}>
-        <div className="form-stack pp-form">
+        <div data-testid="form-stack" className="form-stack pp-form">
           <SelectField
             label={t('permGrantee')}
             value={target}

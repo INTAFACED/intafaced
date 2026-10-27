@@ -71,7 +71,14 @@ function TradeLink({ symbol }: { symbol: string }) {
   if (refusal !== null)
     return (
       <span className="cw-link-refused">
-        <button type="button" className="cw-link" disabled aria-describedby="cw-trade-refusal" data-code="trade.chart.order_entry_refused">
+        <button
+          type="button"
+          data-testid="cw-link"
+          className="cw-link"
+          disabled
+          aria-describedby="cw-trade-refusal"
+          data-code="trade.chart.order_entry_refused"
+        >
           {t('Trade this market')}
         </button>
         <span id="cw-trade-refusal" role="status">
@@ -80,7 +87,7 @@ function TradeLink({ symbol }: { symbol: string }) {
       </span>
     );
   return (
-    <a className="cw-link" href={`/trade/spot/${pairOf(symbol)}`}>
+    <a data-testid="cw-link" className="cw-link" href={`/trade/spot/${pairOf(symbol)}`}>
       {t('Trade this market')}
     </a>
   );
@@ -152,6 +159,7 @@ function Page({
       <div className="cw-split">
         {/* A watchlist row dragged here opens its market on this chart, at the interval the workbench already has. */}
         <div
+          data-testid="cw-split-chart"
           className="cw-split-chart"
           onDragOver={(event) => {
             if (event.dataTransfer.types.includes(WATCHLIST_DRAG_TYPE)) event.preventDefault();

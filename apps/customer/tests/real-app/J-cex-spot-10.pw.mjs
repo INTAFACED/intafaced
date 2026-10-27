@@ -204,8 +204,8 @@ async function myTier(client) {
 }
 
 const tab = (page, name) => page.locator('[role=tab]', { hasText: new RegExp(`^${name}$`) });
-const buyForm = (page) => page.locator('form.dk-form[data-side=buy]');
-const feeLine = (page) => buyForm(page).locator('.dk-fees > span').first();
+const buyForm = (page) => page.locator('form[data-testid="dk-form"][data-side=buy]');
+const feeLine = (page) => buyForm(page).locator('[data-testid="dk-fees"] > span').first();
 
 /** The desk's own order check for the next change the person makes; returns its body. */
 async function checkOf(page, act) {
@@ -411,8 +411,8 @@ test(`${J} #4 fills on a zero-fee pair and a rebate pair: "Zero fee" on one, a m
     await tab(page, 'Trade history').click();
     const row = page.locator(`tr[data-fill="${fills[0].id}"]`);
     await expect(row.locator('[data-fee=zero]')).toContainText('Zero fee');
-    await expect(row.locator('.dk-rebate')).toContainText(/Rebate 0\.\d+ USDT/);
-    await expect(row.locator('.dk-rebate')).toContainText(pct(5));
+    await expect(row.getByTestId('dk-rebate')).toContainText(/Rebate 0\.\d+ USDT/);
+    await expect(row.getByTestId('dk-rebate')).toContainText(pct(5));
     await expect(row).not.toContainText(/-\s*0\.\d/);
   } finally {
     await publish(SCHEDULE, 'IFC/USDT back in the default pair group');
@@ -886,7 +886,7 @@ test(`${J} #8 looks at the fee currency row: disabled with its reason, and no re
   await expect(choice).toBeFocused();
   await page.keyboard.press('Enter');
   await choice.click({ force: true });
-  await expect(page.locator('form.dk-form[data-side=sell] [data-fee-currency]')).toContainText('Fees in USDT');
+  await expect(page.locator('form[data-testid="dk-form"][data-side=sell] [data-fee-currency]')).toContainText('Fees in USDT');
   // Long enough for a request the click started to have been sent.
   await page.waitForTimeout(1_500);
   expect(named).toEqual([]);
@@ -1128,7 +1128,7 @@ test(`${J} #11 reads the fee and volume API: the same rates and volume as the sc
     await signIn(page, who);
     await page.goto(deskPath());
     await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
-    await expect(buyForm(page).locator('.dk-fees-mine')).toHaveText(
+    await expect(buyForm(page).getByTestId('dk-fees-mine')).toHaveText(
       `Your rates: maker ${pct(mine.makerBps)} · taker ${pct(mine.takerBps)}`,
     );
     await page.mouse.move(0, 600);

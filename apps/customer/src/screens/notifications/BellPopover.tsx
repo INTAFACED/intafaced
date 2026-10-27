@@ -36,16 +36,22 @@ export function BellPopover({ path }: { path?: string }) {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         render={<button type="button" />}
+        data-testid="tb-bell"
         className="tb-icon-button tb-bell"
         aria-label={unread ? copy.t('Notifications, {count} unread', { count: shown ?? 0 }) : copy.t('Notifications')}
       >
         <Bell size={18} aria-hidden="true" />
-        {unread ? <span className="tb-badge">{shown}</span> : null}
+        {unread ? (
+          <span data-testid="tb-badge" className="tb-badge">
+            {shown}
+          </span>
+        ) : null}
       </PopoverTrigger>
       <PopoverContent
         side="bottom"
         align="end"
         sideOffset={8}
+        data-testid="nf-pop"
         className="nf-pop w-[400px] max-w-[calc(100vw-16px)] p-0"
         initialFocus={inner}
       >
@@ -66,7 +72,9 @@ function BellContent({ unread, onClose, innerRef }: { unread: number; onClose: (
     // Focus starts on the popover itself (not on its last link), so Tab then goes down the list in order.
     <div className="nf-pop__inner" ref={innerRef} tabIndex={-1}>
       <div className="nf-pop__head">
-        <PopoverTitle className="nf-pop__title">{copy.t('Notifications')}</PopoverTitle>
+        <PopoverTitle data-testid="nf-pop__title" className="nf-pop__title">
+          {copy.t('Notifications')}
+        </PopoverTitle>
         <Button variant="ghost" size={28} disabled={!anyUnread || state.status !== 'ready'} onClick={() => void inbox.readAll()}>
           {copy.t('Mark all as read')}
         </Button>
@@ -95,6 +103,7 @@ function BellContent({ unread, onClose, innerRef }: { unread: number; onClose: (
       </div>
       <div className="nf-pop__foot">
         <a
+          data-testid="nf-pop__all"
           className="nf-pop__all"
           href="/notifications"
           onClick={(event) => {

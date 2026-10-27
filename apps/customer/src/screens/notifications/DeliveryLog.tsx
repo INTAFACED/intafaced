@@ -26,14 +26,21 @@ export default function DeliveryLog() {
   const markets = useMarketNames();
   const { state } = inbox;
   return (
-    <div className="if-notify">
+    <div data-testid="if-notify" className="if-notify">
       <div className="nf-head">
-        <h1 className="nf-h1">{copy.t('deliveryTitle')}</h1>
+        <h1 data-testid="nf-h1" className="nf-h1">
+          {copy.t('deliveryTitle')}
+        </h1>
       </div>
       <NotifyNav current="delivery" />
       <p className="nf-intro">{copy.t('deliveryIntro')}</p>
       <p className="nf-note">{copy.t('deliveryBoundary')}</p>
-      <section className="nf-card" aria-label={copy.t('deliveryTitle')} aria-busy={state.status === 'loading' || undefined}>
+      <section
+        data-testid="nf-card"
+        className="nf-card"
+        aria-label={copy.t('deliveryTitle')}
+        aria-busy={state.status === 'loading' || undefined}
+      >
         {state.status === 'loading' ? (
           <StateBlock kind="loading" rows={5} rowHeight={72} label={copy.t('deliveryTitle')} className="nf-card__loading" />
         ) : state.status === 'failed' ? (
@@ -95,8 +102,10 @@ function Row({
     <div className="nf-delivery">
       <div className="nf-delivery__head">
         <span className="nf-text">
-          <span className="nf-title">{words.title}</span>
-          <span className="nf-body nf-body--wrap">
+          <span data-testid="nf-title" className="nf-title">
+            {words.title}
+          </span>
+          <span data-testid="nf-body" className="nf-body nf-body--wrap">
             {words.body ? `${words.body} · ` : ''}
             <span lang="zxx">{stamp(item.createdAt, zone)}</span>
           </span>
@@ -117,7 +126,9 @@ function Row({
             <ul className="nf-deliveries">
               {records.rows.map((row, index) => (
                 <li key={`${row.channel}-${index}`}>
-                  <span className="nf-title">{copy.t(CHANNEL[row.channel])}</span>
+                  <span data-testid="nf-title" className="nf-title">
+                    {copy.t(CHANNEL[row.channel])}
+                  </span>
                   <span className={`nf-pill${row.status === 'accepted' ? ' nf-pill--ok' : ''}`}>{copy.t(deliveryWords(row))}</span>
                   <span className="nf-muted">
                     {row.attempts === 1 ? copy.t('attemptsOne') : copy.t('attempts', { count: row.attempts })}

@@ -234,7 +234,12 @@ export function DisputeDetailView({
             <PaySection title={t('keyFacts')} description={t('disputeFactsBody')}>
               <Facts
                 items={[
-                  [t('colDispute'), <span className="pp-mono pp-copy">{d.disputeId}</span>],
+                  [
+                    t('colDispute'),
+                    <span data-testid="pp-mono" className="pp-mono pp-copy">
+                      {d.disputeId}
+                    </span>,
+                  ],
                   [
                     t('colPayment'),
                     <a className="text-link" href={`/pay/payments/${encodeURIComponent(d.paymentId)}`}>
@@ -393,7 +398,7 @@ function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispu
                 <small className="pay-cell-note">{e.contentType}</small>
               </td>
               <td className="numeric">{formatBytes(e.sizeBytes)}</td>
-              <td className="pp-mono" title={e.sha256}>
+              <td data-testid="pp-mono" className="pp-mono" title={e.sha256}>
                 {e.sha256.slice(0, 12)}…
               </td>
               <td>{e.note ?? '—'}</td>
@@ -408,7 +413,7 @@ function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispu
         </DataTable>
       )}
       {dispute.canRespond ? (
-        <div className="form-stack pp-form pp-add-evidence">
+        <div data-testid="form-stack" className="form-stack pp-form pp-add-evidence">
           <h3 className="pp-sub">{t('addEvidence')}</h3>
           <p className="pp-callout" role="note">
             {detailsOnly ? (problem ? t(`evProblem_${problem}`) + ' ' : '') + t('evidenceMetaOnly') : t('evUploadNote')}
@@ -460,7 +465,12 @@ function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispu
                     [t('colKind'), t(`evidence_${kind}` as 'evidence_receipt')],
                     [t('colFile'), picked.fileName],
                     [t('colSize'), formatBytes(String(picked.sizeBytes))],
-                    [t('colFingerprint'), <span className="pp-mono">{picked.sha256}</span>],
+                    [
+                      t('colFingerprint'),
+                      <span data-testid="pp-mono" className="pp-mono">
+                        {picked.sha256}
+                      </span>,
+                    ],
                   ]}
                 />
               )
@@ -520,7 +530,7 @@ function RespondSection({ portal, dispute, reload }: { portal: PortalApi; disput
           {dispute.responses.length > 0 ? t('respondedAlready') : t('respondClosed')}
         </p>
       ) : (
-        <div className="form-stack pp-form">
+        <div data-testid="form-stack" className="form-stack pp-form">
           <label className="field">
             <span>{t('colNote')}</span>
             <textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={2000} rows={3} />

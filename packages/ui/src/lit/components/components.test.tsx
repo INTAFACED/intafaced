@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { roleNames, typeRoles } from '../contracts.js';
 import {
+  Gate,
   ActionKey,
   Button,
   Change,
@@ -64,6 +65,8 @@ describe('components', () => {
   it('Button defaults to secondary so a primary is always a choice', () => {
     expect(html(<Button>Go</Button>)).toContain('data-tone="secondary"');
     expect(html(<Button tone="primary">Go</Button>)).toContain('data-tone="primary"');
+    // test locators read the kit's data-slot and data-variant, like the flat Button
+    expect(html(<Button tone="primary">Go</Button>)).toContain('data-slot="button" data-variant="primary"');
   });
 
   it('ActionKey keeps its label as text and hides the icon from assistive tech', () => {
@@ -85,7 +88,7 @@ describe('components', () => {
     expect(out).toContain('<span class="lit-figure__unit">£</span>');
     expect(out).toContain('<span class="lit-figure__minor">36</span>');
     expect(out).toContain('>TEST<');
-    expect(out).toContain('<span class="lit-sr">£12,480.36</span>');
+    expect(out).toContain('<span class="lit-sr" dir="ltr" data-ltr="">£12,480.36</span>');
   });
 
   it('Figure keeps the locale order of the parts (unit after the number)', () => {
@@ -97,7 +100,7 @@ describe('components', () => {
       { type: 'currency', value: '€' },
     ];
     const out = html(<Figure parts={eur} />);
-    expect(out).toContain('<span class="lit-sr">12,5\u00a0€</span>');
+    expect(out).toContain('<span class="lit-sr" dir="ltr" data-ltr="">12,5\u00a0€</span>');
     expect(out.indexOf('lit-figure__unit')).toBeGreaterThan(out.indexOf('>12<'));
   });
 
@@ -156,6 +159,11 @@ describe('components', () => {
     expect(set).not.toContain('data-missing');
     expect(set).toContain('aria-label="Risk warning"');
     expect(set).toContain('<button type="button" class="lit-legal__more">');
+    const rtl = html(<LegalSlot {...base} text="Warning." missing="-" bold lang="en" dir="ltr" />);
+    expect(rtl).toContain('data-bold="true"');
+    expect(rtl).toMatch(/lang="en" dir="ltr" role="region"/);
+    expect(rtl).toContain('<span data-part="text">Warning.</span>');
+    expect(html(<LegalSlot {...base} text="" missing="Not set yet." />)).toContain('Not set yet.');
   });
 
   it('RiskMoment gives both choices the same weight', () => {
@@ -167,5 +175,36 @@ describe('components', () => {
     const tones = [...out.matchAll(/data-tone="([a-z]+)"/g)].map((m) => m[1]);
     expect(tones).toEqual(['secondary', 'secondary']);
     expect(out).toContain('role="dialog"');
+  });
+
+  it('Gate puts its card in the flow above the room, which stays visible and inert, never a skeleton', () => {
+    const out = html(
+      <Gate reason="not-verified" title="Verify to send" body="It takes about two minutes.">
+        <div>room</div>
+      </Gate>,
+    );
+    expect(out).toContain('data-gate="not-verified"');
+    expect(out).toMatch(/class="lit-gate__room" inert=""><div>room<\/div>/);
+    expect(out.indexOf('lit-gate__card')).toBeLessThan(out.indexOf('lit-gate__room'));
+    expect(out).not.toContain('lit-gate__veil');
+    expect(out).toContain('data-material="solid"');
+    expect(out).not.toContain('skeleton');
+  });
+
+  it('money figures and changes read left to right on a right-to-left page', () => {
+    const fig = html(
+      <Figure
+        parts={[
+          { type: 'currency', value: '£' },
+          { type: 'integer', value: '45' },
+          { type: 'fraction', value: '.53' },
+        ]}
+        test
+      />,
+    );
+    expect(fig.match(/dir="ltr" data-ltr=""/g)).toHaveLength(2);
+    expect(fig).not.toMatch(/lit-figure__marks"[^>]*dir=/);
+    const change = html(<Change text="+£45.53 (+0.37%)" dir="up" spoken="up" />);
+    expect(change).toContain('<span dir="ltr" data-ltr="">+£45.53 (+0.37%)</span>');
   });
 });

@@ -1,0 +1,275 @@
+{
+  "crypto-risk-band": {
+    "id": "crypto-risk-band",
+    "type": "risk-band",
+    "placement": "frame-top",
+    "uk": {
+      "status": "fixed",
+      "rule": "COBS 4.12A.11R",
+      "runs": [
+        {
+          "text": "Don’t invest unless you’re prepared to lose all the money you invest. This is a high-risk investment and you should not expect to be protected if something goes wrong.",
+          "bold": true
+        },
+        {
+          "text": " "
+        },
+        {
+          "text": "Take 2 mins to learn more",
+          "underline": true,
+          "link": true
+        }
+      ]
+    },
+    "eu": {
+      "status": "lawyer",
+      "rule": "MiCA Art 66(3)"
+    }
+  },
+  "crypto-risk-summary": {
+    "id": "crypto-risk-summary",
+    "type": "popup",
+    "placement": "overlay",
+    "uk": {
+      "status": "lawyer",
+      "rule": "COBS 4 Annex 1R item 8"
+    },
+    "eu": {
+      "status": "not-applicable"
+    }
+  },
+  "first-buy-warning": {
+    "id": "first-buy-warning",
+    "type": "popup",
+    "placement": "overlay",
+    "uk": {
+      "status": "fixed",
+      "rule": "COBS 4.12A.20R",
+      "runs": [
+        {
+          "text": "{name}, this is a high-risk investment. How would you feel if you lost the money you’re about to invest?"
+        },
+        {
+          "text": " "
+        },
+        {
+          "text": "Take 2 mins to learn more.",
+          "underline": true,
+          "link": true
+        }
+      ]
+    },
+    "eu": {
+      "status": "not-applicable"
+    }
+  },
+  "cooling-off": {
+    "id": "cooling-off",
+    "type": "timer",
+    "placement": "step",
+    "uk": {
+      "status": "lawyer",
+      "rule": "COBS 4.12A.18R"
+    },
+    "eu": {
+      "status": "not-applicable"
+    }
+  },
+  "appropriateness": {
+    "id": "appropriateness",
+    "type": "gate",
+    "placement": "step",
+    "uk": {
+      "status": "lawyer",
+      "rule": "COBS 4.12A.28R"
+    },
+    "eu": {
+      "status": "not-applicable"
+    }
+  },
+  "credit-warning": {
+    "id": "credit-warning",
+    "type": "risk-band",
+    "placement": "frame-top",
+    "uk": {
+      "status": "lawyer",
+      "rule": "CONC 3"
+    },
+    "eu": {
+      "status": "fixed",
+      "rule": "Directive (EU) 2023/2225 Art 8(1)",
+      "from": "2026-11-20",
+      "runs": [
+        {
+          "text": "Caution! Borrowing money costs money",
+          "bold": true
+        }
+      ]
+    }
+  },
+  "cfd-warning": {
+    "id": "cfd-warning",
+    "type": "risk-band",
+    "placement": "frame-top",
+    "uk": {
+      "status": "fixed",
+      "rule": "COBS 22.5.7R(1A)",
+      "runs": [
+        {
+          "text": "CFDs are complex instruments and come with a high risk of losing money rapidly due to leverage. {percent}% of retail investor accounts lose money when trading CFDs with this provider. You should consider whether you understand how CFDs work and whether you can afford to take the high risk of losing your money."
+        }
+      ]
+    },
+    "eu": {
+      "status": "lawyer",
+      "rule": "ESMA Decision (EU) 2018/796, national translation"
+    }
+  },
+  "derivatives-uk-parked": {
+    "id": "derivatives-uk-parked",
+    "type": "disclosure",
+    "placement": "inline",
+    "uk": {
+      "status": "fixed",
+      "rule": "COBS 22.6.5R",
+      "runs": [
+        {
+          "text": "Not available to UK retail clients (FCA COBS 22.6)"
+        }
+      ]
+    },
+    "eu": {
+      "status": "not-applicable"
+    }
+  },
+  "mica-marketing": {
+    "id": "mica-marketing",
+    "type": "disclosure",
+    "placement": "card",
+    "uk": {
+      "status": "not-applicable"
+    },
+    "eu": {
+      "status": "fixed",
+      "rule": "MiCA Art 7(1)(e)",
+      "runs": [
+        {
+          "text": "This crypto-asset marketing communication has not been reviewed or approved by any competent authority in any Member State of the European Union. The offeror of the crypto-asset is solely responsible for the content of this crypto-asset marketing communication."
+        }
+      ]
+    }
+  },
+  "marketing-label": {
+    "id": "marketing-label",
+    "type": "disclosure",
+    "placement": "card",
+    "uk": {
+      "status": "lawyer",
+      "rule": "FG23/3"
+    },
+    "eu": {
+      "status": "lawyer",
+      "rule": "MiCA Art 66(2)"
+    }
+  },
+  "regulated-status": {
+    "id": "regulated-status",
+    "type": "disclosure",
+    "placement": "footer",
+    "uk": {
+      "status": "lawyer",
+      "rule": "FG23/3 2.79"
+    },
+    "eu": {
+      "status": "lawyer",
+      "rule": "ESMA 11 Jul 2025"
+    }
+  },
+  "payee-check": {
+    "id": "payee-check",
+    "type": "result",
+    "placement": "step",
+    "uk": {
+      "status": "lawyer",
+      "rule": "PSR SD17a"
+    },
+    "eu": {
+      "status": "lawyer",
+      "rule": "Reg (EU) 2024/886 Art 5c"
+    }
+  },
+  "scam-stop": {
+    "id": "scam-stop",
+    "type": "equal-choice",
+    "placement": "step",
+    "uk": {
+      "status": "lawyer",
+      "rule": "PSR PS25/5 3.41"
+    },
+    "eu": {
+      "status": "not-applicable"
+    }
+  },
+  "withdraw-from-contract": {
+    "id": "withdraw-from-contract",
+    "type": "button",
+    "placement": "inline",
+    "uk": {
+      "status": "not-applicable"
+    },
+    "eu": {
+      "status": "fixed",
+      "rule": "Directive 2011/83/EU Art 11a",
+      "from": "2026-06-19",
+      "runs": [
+        {
+          "text": "withdraw from contract here"
+        }
+      ]
+    }
+  },
+  "confirm-withdrawal": {
+    "id": "confirm-withdrawal",
+    "type": "button",
+    "placement": "inline",
+    "uk": {
+      "status": "not-applicable"
+    },
+    "eu": {
+      "status": "fixed",
+      "rule": "Directive 2011/83/EU Art 11a",
+      "from": "2026-06-19",
+      "runs": [
+        {
+          "text": "confirm withdrawal"
+        }
+      ]
+    }
+  },
+  "talk-to-a-person": {
+    "id": "talk-to-a-person",
+    "type": "button",
+    "placement": "inline",
+    "uk": {
+      "status": "lawyer",
+      "rule": "PRIN 2A.6"
+    },
+    "eu": {
+      "status": "lawyer",
+      "rule": "Directive 2023/2673 Art 16d"
+    }
+  },
+  "asset-documents": {
+    "id": "asset-documents",
+    "type": "legal-link",
+    "placement": "inline",
+    "uk": {
+      "status": "lawyer",
+      "rule": "CRYPTO 3.12"
+    },
+    "eu": {
+      "status": "lawyer",
+      "rule": "MiCA Art 66(3), 66(5)"
+    }
+  }
+}

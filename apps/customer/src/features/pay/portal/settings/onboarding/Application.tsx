@@ -258,7 +258,7 @@ function StartForm({ portal, merchant, types, onChanged }: Omit<ApplicationViewP
   const [country, setCountry] = useState(types[0]!.countries[0] ?? '');
   const saver = useSaver();
   return (
-    <div className="form-stack pp-form">
+    <div data-testid="form-stack" className="form-stack pp-form">
       <TypeAndCountry
         types={types}
         entityType={entityType}
@@ -409,6 +409,7 @@ function CompanyDetails(props: Inner & { section: Section }) {
   const answers = () => Object.fromEntries(COMPANY_FIELDS.filter((f) => form[f].trim()).map((f) => [f, form[f].trim()]));
   return (
     <form
+      data-testid="form-stack"
       className="form-stack pp-form"
       noValidate
       onSubmit={(e) => {
@@ -473,6 +474,7 @@ function People(props: Inner & { section: Section; roles: string[] }) {
     setPeople(people.map((p, j) => (j === i ? { ...p, [f]: e.target.value } : p)));
   return (
     <form
+      data-testid="form-stack"
       className="form-stack pp-form"
       noValidate
       onSubmit={(e) => {
@@ -543,6 +545,7 @@ function Questions(props: Inner & { section: Section; keys: string[] }) {
   const done = keys.every((k) => (answers[k] ?? '').trim());
   return (
     <form
+      data-testid="form-stack"
       className="form-stack pp-form"
       noValidate
       onSubmit={(e) => {
@@ -582,7 +585,7 @@ function Documents(props: Inner & { section: Section }) {
         const rules = checklist.uploadRules;
         const allSent = checklist.rows.every(usable);
         return (
-          <div className="form-stack pp-form">
+          <div data-testid="form-stack" className="form-stack pp-form">
             <p className="muted">{t('docsBody')}</p>
             {checklist.vendorCheck.status === 'not_connected' && (
               <Blocker reason={t('docsVendorReason')} needs="automatic document check" title={t('docsVendorTitle')}>
@@ -653,7 +656,7 @@ function DocumentLine({ portal, application, row, rules, reloadDocuments }: Inne
       </td>
       <td>
         {rules && (
-          <div className="form-stack">
+          <div data-testid="form-stack" className="form-stack">
             <label className="field">
               <span className="sr-only">{t('chooseFile', { name })}</span>
               <input
