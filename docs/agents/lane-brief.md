@@ -2,7 +2,7 @@
 
 Fill in the angle brackets; leave out what does not apply. Carry the owner's own message ids and the original brief forward; never a rewritten summary.
 
-**Area:** `<the journeys this thread owns, for example J-wallet-*>` and the folders they touch, `<services/... and apps/...>`. One thread owns an area. When the work needs a change in another area's folders, route it to that area's thread instead of editing there.
+**Area:** `<the journeys this thread owns, for example J-wallet-*>` and the folders they touch, `<services/... and apps/...>`. One thread owns an area. When the work needs a change in another area's folders, route it to that area's thread instead of editing there. A redesign lane tells this thread before it changes the area's rooms or journey test files, and this thread does the same for a redesign lane's open PR; nobody waits: whichever PR lands second rebases onto the first (owner decision 2026-10-27).
 
 **Outcome:** every journey in the area passes in the running app on main. Take the one closest to passing first; its steps and slices are its entry in `docs/roadmap/journeys.json`, and the last real-app run on main says which steps pass (`node tooling/scripts/roadmap.mjs --progress --results <report.json>`). Follow `docs/agents/build-slice.md`. Keep going journey after journey; say when one passes on main so the next can start.
 
