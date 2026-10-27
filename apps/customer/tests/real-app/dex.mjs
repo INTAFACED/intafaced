@@ -1,5 +1,6 @@
 import { expect } from '@playwright/test';
-import { journeyState } from './stack.mjs';
+import { keccak256, toHex } from 'viem';
+import { journeyState, toUnits } from './stack.mjs';
 import { installTestWallet, testWalletKey, TEST_WALLET } from './test-wallet.mjs';
 
 // Shared parts of the Web3 journeys (J-dex-protocol-NN) written ahead of their rooms. The app's network on the stack is
@@ -36,6 +37,20 @@ export function dexRun(journey) {
       return this.start().walletKey;
     },
   };
+}
+
+/**
+ * The stack's seeded TEST wallet: one fixed TEST key, derived from a public phrase, that the stack's seeded TEST sales,
+ * vaults, campaigns and cards name as their member, owner or heir. A step that reads seeded state as the person connects
+ * this wallet instead of the run's new one. TEST only: it never holds anything outside the stack.
+ */
+export const seededWallet = { key: () => keccak256(toHex('INTAFACED LOCAL TEST seeded wallet')) };
+
+/** The one decimal amount in a line such as "1,250.5 TEST Token A", in scaled units; none or several fails by name. */
+export function oneAmount(text) {
+  const found = text.match(/\d[\d,]*(?:\.\d+)?/g) ?? [];
+  expect(found, `one amount in "${text}"`).toHaveLength(1);
+  return toUnits(found[0].replaceAll(',', ''));
 }
 
 /** Installs the run's TEST wallet in `page`, opens /wallet and connects it; returns the wallet handle. */
