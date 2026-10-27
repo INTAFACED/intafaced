@@ -21,6 +21,11 @@
       "value": "[{\"code\":\"document_unreadable\",\"reason\":\"TEST: the photo of your ID could not be read.\",\"guidance\":\"TEST: take a new photo in good light, with all four corners of the ID in view, and send the request again.\"},{\"code\":\"name_mismatch\",\"reason\":\"TEST: the name you gave does not match your ID.\",\"guidance\":\"TEST: enter your name exactly as it is printed on your ID, then send the request again.\"}]",
       "note": "TEST: two reject reasons with fix guidance, so a rejected case shows its reason and what to do, and a resubmission opens a new case (J-identity-08 #6)."
     },
+    "IDENTITY_KYC_CAPABILITIES_BY_LEVEL": {
+      "service": "identity",
+      "value": "{\"basic\":[\"custody_crypto\",\"transfer_crypto\",\"trade_crypto\"],\"full\":[\"custody_fiat\",\"transfer_fiat\"]}",
+      "note": "TEST: basic grants crypto custody, transfer and trade; full adds fiat custody and transfer; institutional adds nothing of its own, so an approval shows the mapped capabilities turning active (J-identity-08 #6)."
+    },
     "IDENTITY_MFA_RESET_WAIT_SECONDS": {
       "service": "identity",
       "value": "20",

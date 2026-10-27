@@ -22,6 +22,7 @@ import { WaitlistService } from './waitlist/waitlist-service.js';
 import { MemoryShareStore } from './affiliates/share-service.js';
 import { ReferralError } from './affiliates/referral-tree.js';
 import { KycCaseError, parseKycRejectReasons } from './kyc/cases.js';
+import { KycCapabilityError } from './kyc/capabilities.js';
 
 /**
  * The tRPC boundary for KYC and step-up.
@@ -51,6 +52,16 @@ const RECORD = '33333333-3333-4333-8333-333333333333';
 const SESSION = '44444444-4444-4444-8444-444444444444';
 const CONFIRM_KYC = '66666666-6666-4666-8666-666666666666';
 const kycDual = { approvalId: 'appr-1', operationId: 'op-1' };
+const capabilitiesRead = {
+  mapped: true,
+  capabilities: (['custody_crypto', 'custody_fiat', 'transfer_crypto', 'transfer_fiat', 'trade_crypto'] as const).map((capability) => ({
+    capability,
+    state: 'unrequested' as const,
+    grantedAt: null,
+    reasonCode: null,
+    changedAt: null,
+  })),
+};
 
 async function ctx(
   scopes: string[],
@@ -127,6 +138,9 @@ function stubServices(): Stub {
     listPendingKyc: record('listPendingKyc', () => [kycRecord()]),
     listKycCases: record('listKycCases', () => []),
     assertKycRejectable: record('assertKycRejectable', () => undefined),
+    listKycCapabilities: record('listKycCapabilities', () => capabilitiesRead),
+    assertKycCapabilityDeactivatable: record('assertKycCapabilityDeactivatable', () => undefined),
+    deactivateKycCapability: record('deactivateKycCapability', () => capabilitiesRead),
     getKycRecord: record('getKycRecord', () => kycRecord()),
     kycTier: record('kycTier', () => 'none' as const),
     approveKycRecord: record('approveKycRecord', () =>
@@ -666,6 +680,93 @@ describe('kyc.reject names a reason from the owner list (I-kyc-compliance-01)', 
     expect(checked).toEqual([[RECORD, { reasonCode: 'document_unreadable', customerNote: null, noteVisible: false }]]);
     expect(consumed).toEqual([]);
     expect(stub.calls.filter((c) => c.method === 'rejectKycRecord')).toHaveLength(0);
+  });
+});
+
+describe('kyc.capabilities (I-kyc-compliance-07)', () => {
+  it("get reads only the caller's own; getFor is behind admin:compliance", async () => {
+    const api = await caller(['identity:read']);
+    expect(await api.kyc.capabilities.get()).toEqual(capabilitiesRead);
+    expect(stub.calls.find((c) => c.method === 'listKycCapabilities')!.args).toEqual([USER]);
+    expect(codeOf(await api.kyc.capabilities.getFor({ userId: OPERATOR }).catch((e: unknown) => e))).toBe('FORBIDDEN');
+    const operator = await caller(['admin:compliance'], { userId: OPERATOR });
+    await operator.kyc.capabilities.getFor({ userId: USER });
+    expect(stub.calls.filter((c) => c.method === 'listKycCapabilities').map((c) => c.args[0])).toEqual([USER, USER]);
+  });
+
+  it('set switches one off with a listed code; the four-eyes approval binds the person, the capability and the code', async () => {
+    const hashes: string[] = [];
+    const approvals = {
+      ...stubActionApprovals(CONFIRM_KYC),
+      async consume(...args: Parameters<ReturnType<typeof stubActionApprovals>['consume']>) {
+        hashes.push(args[1].payloadHash);
+        return stubActionApprovals(CONFIRM_KYC).consume(...args);
+      },
+    };
+    const api = createIdentityRouter(stub.auth, stub.rank, { actionApprovals: approvals, kycRejectReasons: KYC_REASONS }).createCaller(
+      await ctx(['admin:compliance'], { userId: OPERATOR }),
+    );
+    await api.kyc.capabilities.set({
+      userId: USER,
+      capability: 'trade_crypto',
+      state: 'inactive',
+      reasonCode: 'document_unreadable',
+      ...kycDual,
+    });
+    expect(hashes).toEqual([
+      identityActionPayloadHash('kyc.capabilities.set', {
+        userId: USER,
+        capability: 'trade_crypto',
+        state: 'inactive',
+        reasonCode: 'document_unreadable',
+      }),
+    ]);
+    const call = stub.calls.find((c) => c.method === 'deactivateKycCapability')!;
+    expect(call.args[0]).toMatchObject({
+      userId: USER,
+      capability: 'trade_crypto',
+      reasonCode: 'document_unreadable',
+      reviewerId: OPERATOR,
+    });
+  });
+
+  it('refuses before the approval is spent: no MFA, own account, unlisted code, a state other than inactive, a recorded other code', async () => {
+    const consumed: unknown[] = [];
+    const approvals = {
+      ...stubActionApprovals(CONFIRM_KYC),
+      async consume(...args: Parameters<ReturnType<typeof stubActionApprovals>['consume']>) {
+        consumed.push(args);
+        return stubActionApprovals(CONFIRM_KYC).consume(...args);
+      },
+    };
+    const make = async (opts: { mfa?: boolean; userId?: string } = {}, auth: AuthService = stub.auth) =>
+      createIdentityRouter(auth, stub.rank, { actionApprovals: approvals, kycRejectReasons: KYC_REASONS }).createCaller(
+        await ctx(['admin:compliance'], { userId: OPERATOR, ...opts }),
+      );
+    const input = {
+      userId: USER,
+      capability: 'trade_crypto' as const,
+      state: 'inactive' as const,
+      reasonCode: 'document_unreadable',
+      ...kycDual,
+    };
+    expect(codeOf(await (await make({ mfa: false })).kyc.capabilities.set(input).catch((e: unknown) => e))).toBe('UNAUTHORIZED');
+    const own = await (await make({ userId: USER })).kyc.capabilities.set(input).catch((e: unknown) => e);
+    expect((own as { cause?: { code?: string } }).cause?.code).toBe('auth.kyc_self_review');
+    const unlisted = await (await make()).kyc.capabilities.set({ ...input, reasonCode: 'not_listed' }).catch((e: unknown) => e);
+    expect((unlisted as { cause?: { code?: string } }).cause?.code).toBe('kyc.reason_code_unknown');
+    expect(codeOf(await (await make()).kyc.capabilities.set({ ...input, state: 'active' } as never).catch((e: unknown) => e))).toBe(
+      'BAD_REQUEST',
+    );
+    const recorded: AuthService = Object.assign(Object.create(stub.auth) as AuthService, {
+      async assertKycCapabilityDeactivatable() {
+        throw new KycCapabilityError('trade_crypto is already inactive with name_mismatch', 'kyc.capability_state');
+      },
+    });
+    const conflict = await (await make({}, recorded)).kyc.capabilities.set(input).catch((e: unknown) => e);
+    expect(codeOf(conflict)).toBe('CONFLICT');
+    expect(consumed).toEqual([]);
+    expect(stub.calls.filter((c) => c.method === 'deactivateKycCapability')).toHaveLength(0);
   });
 });
 

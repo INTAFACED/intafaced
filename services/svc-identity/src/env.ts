@@ -257,6 +257,14 @@ const schema = serviceEnvSchema
        */
       IDENTITY_KYC_REJECT_REASONS: z.string().optional(),
       /**
+       * Owner setting (I-kyc-compliance-07): which capabilities each verification level grants, a JSON object of level
+       * -> capabilities (`custody_crypto`, `custody_fiat`, `transfer_crypto`, `transfer_fiat`, `trade_crypto`). A level
+       * grants its own and every lower level's. NO DEFAULT. Unset, an approval grants no capability and /verification
+       * says so. Parsed at start by `parseKycCapabilitiesByLevel`; a capability mapped twice or a malformed entry stops
+       * the service.
+       */
+      IDENTITY_KYC_CAPABILITIES_BY_LEVEL: z.string().optional(),
+      /**
        * Owner setting for account limit overrides (J-ops-console-04 #12): a JSON object
        * `{ "maxLifetimeHours": "<whole hours>", "ceilings": { "<rail>": { "<asset>": "<decimal>" } } }`. NO DEFAULT. Blank,
        * not JSON or invalid means unset: every override refuses `identity.limit_ceiling_unset` and the console says "not

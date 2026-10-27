@@ -3,6 +3,8 @@ import { createKycLevelsRouter } from './kyc/levels-router.js';
 import { EMPTY_KYC_LADDER_SETTINGS, type KycLadderSettings } from './kyc/levels.js';
 import { KycCaseError, kycRejectApprovalFields, requireRejectReason, type KycRejectReasons } from './kyc/cases.js';
 import { kycHistoryOutputSchema, kycReasonCodeSchema } from '@intafaced/contracts/identity-kyc-cases';
+import { kycCapabilitiesOutputSchema, kycCapabilitySchema } from '@intafaced/contracts/identity-kyc-capabilities';
+import { KycCapabilityError } from './kyc/capabilities.js';
 import { z } from 'zod';
 import { router, publicProcedure, protectedProcedure, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts';
 import { rankPerksSchema, rankStateSchema, accountControlResultSchema } from '@intafaced/contracts';
@@ -165,6 +167,10 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'kyc_doc.decrypt_failed':
         return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err.message, cause: err });
     }
+  }
+
+  if (err instanceof KycCapabilityError) {
+    return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
   }
 
   if (err instanceof KycCaseError) {
@@ -2286,6 +2292,76 @@ export function createIdentityRouter(
             throw toTrpcError(err);
           }
         }),
+
+      /**
+       * What a person's verification lets them do (I-kyc-compliance-07): custody, transfer and trade, crypto and fiat,
+       * each `unrequested`, `pending`, `active` or `inactive`. An approval makes the owner-mapped ones active in its own
+       * transaction. `inactive` is terminal: compliance sets it with a listed reason code under a four-eyes approval.
+       */
+      capabilities: router({
+        /** The caller's own capabilities. No `userId` input. */
+        get: scopedProcedure('identity:read')
+          .output(kycCapabilitiesOutputSchema)
+          .query(async ({ ctx }) => {
+            try {
+              return await auth.listKycCapabilities(ctx.principal.userId);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        /** Compliance reads any person's capabilities. An unknown user is `auth.not_found`. */
+        getFor: scopedProcedure('admin:compliance')
+          .input(z.object({ userId: z.string().guid() }))
+          .output(kycCapabilitiesOutputSchema)
+          .query(async ({ input }) => {
+            try {
+              return await auth.listKycCapabilities(input.userId);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        /**
+         * Switch one capability off for good. The only state compliance sets here is `inactive`; levels turn
+         * capabilities on. The code comes from the owner's reason list (unset refuses `kyc.reason_codes_unset`), and the
+         * four-eyes approval binds the person, the capability and the code. Checked before the approval is spent.
+         */
+        set: scopedProcedure('admin:compliance')
+          .input(
+            z.object({
+              userId: z.string().guid(),
+              capability: kycCapabilitySchema,
+              state: z.literal('inactive'),
+              reasonCode: kycReasonCodeSchema,
+              approvalId: z.string().max(128).nullish(),
+              operationId: z.string().max(128).nullish(),
+            }),
+          )
+          .output(kycCapabilitiesOutputSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              requireMfa(ctx.principal);
+              assertOperatorKycReview({ service: ctx.service, kid: ctx.principal.kid });
+              assertNotOwnKyc(input.userId, [ctx.principal.userId]);
+              requireRejectReason(options.kycRejectReasons ?? new Map(), input.reasonCode);
+              await auth.assertKycCapabilityDeactivatable(input.userId, input.capability, input.reasonCode);
+              const parties = await consumePrivileged(ctx.principal.userId, input, 'kyc.capabilities.set', {
+                userId: input.userId,
+                capability: input.capability,
+                state: input.state,
+                reasonCode: input.reasonCode,
+              });
+              return await auth.deactivateKycCapability({
+                userId: input.userId,
+                capability: input.capability,
+                reasonCode: input.reasonCode,
+                reviewerId: ctx.principal.userId,
+                approvalParties: [parties.requesterId, parties.approverId],
+              });
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+      }),
 
       /** The review queue. Without it `approve` needs a record id nobody can find. Limit required — omit never invents 50. */
       pending: scopedProcedure('admin:compliance')

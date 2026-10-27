@@ -177,10 +177,41 @@ test(`${J}, part of #6 (I-kyc-compliance-01): one case record with history; a re
 });
 
 test(`${J} #6: one case record with history; an approval unlocks the mapped features at once`, async ({ page }) => {
-  test.setTimeout(60_000);
-  await atVerification(page);
-  // The mapped capabilities (custody, transfer, trade) and their states come with I-kyc-compliance-07.
-  await expect(page.getByRole('heading', { name: 'Capabilities' })).toBeVisible(UNBUILT);
+  test.setTimeout(120_000);
+  const { rung } = await atVerification(page);
+  const capabilities = page.getByRole('region', { name: 'Capabilities' });
+  const capability = (name) => capabilities.locator(`[data-testid="verification__capability"][data-capability="${name}"]`);
+  const cases = page.getByRole('region', { name: 'Case history' }).getByTestId('verification__case');
+  // Nothing asked yet: every capability reads not requested, with the level that includes it (TEST mapping).
+  await expect(capabilities.getByTestId('verification__capability')).toHaveCount(5);
+  await expect(capabilities.getByTestId('verification__capabilities')).toHaveAttribute('data-mapped', 'true');
+  for (const name of ['custody_crypto', 'transfer_crypto', 'trade_crypto', 'custody_fiat', 'transfer_fiat'])
+    await expect(capability(name)).toHaveAttribute('data-state', 'unrequested');
+  await expect(capability('trade_crypto')).toContainText('Comes with level Basic');
+  await expect(capability('custody_fiat')).toContainText('Comes with level Full');
+
+  // Sent for Full: one case, and what Full includes is pending review.
+  await page.getByLabel('Level to request').selectOption({ label: 'Full' });
+  await sendRequest(page);
+  await page.reload();
+  await expect(cases).toHaveCount(1);
+  await expect(cases.first()).toHaveAttribute('data-state', 'submitted');
+  await expect(capability('custody_fiat')).toHaveAttribute('data-state', 'pending');
+  await expect(capability('trade_crypto')).toContainText('Pending review');
+
+  // Approved: the same case reads approved with its two steps, and every mapped capability is active at once.
+  tool('local-test-gates.mjs', 'verify');
+  await page.reload();
+  await expect(cases).toHaveCount(1);
+  await expect(cases.first()).toHaveAttribute('data-state', 'approved');
+  await expect(cases.first().getByTestId('verification__case-steps').locator('li')).toHaveText([/^Sent for review · /, /^Approved · /]);
+  for (const name of ['custody_crypto', 'transfer_crypto', 'trade_crypto', 'custody_fiat', 'transfer_fiat']) {
+    await expect(capability(name)).toHaveAttribute('data-state', 'active');
+    await expect(capability(name)).toContainText('Active');
+  }
+  await expect(rung('full')).toHaveAttribute('aria-current', 'step');
+  for (const feature of ['deposit', 'withdraw', 'trade'])
+    await expect(rung('full').locator(`[data-feature="${feature}"]`)).toContainText('Included in your level');
 });
 
 test(`${J} #7: a restriction on another screen gives its reason in plain words and the next step`, async ({ page }) => {
