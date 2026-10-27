@@ -127,3 +127,4 @@ export * from './identity-kyc-levels.js';
 export * from './identity-kyc-cases.js';
 export * from './identity-kyc-capabilities.js';
 export * from './identity-kyc-attempts.js';
+export * from './identity-kyc-profile.js';

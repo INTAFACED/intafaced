@@ -276,6 +276,15 @@ const schema = serviceEnvSchema
        * request is refused `kyc.attempts_exhausted`. NO DEFAULT. All unset is no limit, and /verification says so.
        * Parsed at start by `parseKycAttemptLimit`; only some set, or malformed, stops the service.
        */
+      /**
+       * Owner settings (I-kyc-compliance-08). The accepted ID types per country, as JSON
+       * `{"<country>": [{"type", "label", "originalRequired"}]}`: a country not listed reads "not published". The ID
+       * photo's caps, set together: the largest file in bytes (at most the vault's 10 MiB) and a comma list of content
+       * types. NO DEFAULT: unset caps refuse every upload. Parsed at start; malformed stops the service.
+       */
+      IDENTITY_KYC_DOCUMENT_TYPES_BY_COUNTRY: z.string().optional(),
+      IDENTITY_KYC_UPLOAD_MAX_BYTES: z.string().optional(),
+      IDENTITY_KYC_UPLOAD_TYPES: z.string().optional(),
       IDENTITY_KYC_MAX_DENIALS: z.string().optional(),
       IDENTITY_KYC_DENIAL_WINDOW_HOURS: z.string().optional(),
       IDENTITY_KYC_LOCKOUT_HOURS: z.string().optional(),
