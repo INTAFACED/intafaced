@@ -552,6 +552,11 @@ const kycRecordOutput = z.object({
   createdAt: z.string(),
 });
 
+/** A KYC decision is an operator's: any service caller or agent key is refused, whatever its name. */
+function refuseAgentKycReview(ctx: { service?: string | null; principal: { kid?: string | null } }): void {
+  assertOperatorKycReview({ service: ctx.service, kid: ctx.principal.kid });
+}
+
 /**
  * What a KYC record looks like on the wire.
  *
@@ -560,11 +565,6 @@ const kycRecordOutput = z.object({
  * the reviewing operator to the user under review is how a compliance officer
  * acquires a personal adversary. Both stay server-side.
  */
-/** A KYC decision is an operator's: any service caller or agent key is refused, whatever its name. */
-function refuseAgentKycReview(ctx: { service?: string | null; principal: { kid?: string | null } }): void {
-  assertOperatorKycReview({ service: ctx.service, kid: ctx.principal.kid });
-}
-
 function presentKyc(record: KycRecordView) {
   return {
     id: record.id,
