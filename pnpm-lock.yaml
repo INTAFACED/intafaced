@@ -685,6 +685,37 @@ importers:
         specifier: ^3.0.5
         version: 3.2.7(@types/node@22.20.5)(happy-dom@21.0.4)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
+  packages/service-kit:
+    dependencies:
+      '@intafaced/auth':
+        specifier: workspace:*
+        version: link:../auth
+      '@intafaced/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@intafaced/db':
+        specifier: workspace:*
+        version: link:../db
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.5
+        version: 22.20.5
+      prettier:
+        specifier: ^3.9.10
+        version: 3.9.10
+      rimraf:
+        specifier: ^6.0.1
+        version: 6.1.3
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@21.0.4)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+
   packages/telemetry:
     dependencies:
       '@opentelemetry/api':
