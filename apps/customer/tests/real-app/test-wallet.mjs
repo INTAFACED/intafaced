@@ -8,6 +8,9 @@ import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 // chain or the platform. The app under test is the real one; only the person's own wallet is the stand-in.
 export const TEST_WALLET = { name: 'TEST Wallet', rdns: 'test.intafaced.wallet' };
 
+/** A fresh TEST key for one journey run, kept in its journey state so every step's wallet is the same one. */
+export const testWalletKey = () => generatePrivateKey();
+
 const EIP712_DOMAIN_RESULT = [
   { type: 'bytes1' },
   { type: 'string' },
@@ -39,10 +42,11 @@ function tokenAnswers(chainId, owner, token) {
 /**
  * Installs the TEST wallet in `page` before any app script runs. The wallet starts on `chainId` and follows
  * `wallet_switchEthereumChain` like a real one. `setChain` changes the network from the wallet's side, as a person
- * would in the extension, and the page hears `chainChanged`.
+ * would in the extension, and the page hears `chainChanged`. `privateKey` keeps one TEST key across a journey's steps,
+ * so a later step's page is the same wallet as an earlier one's (`testWalletKey` makes one).
  */
-export async function installTestWallet(page, { chainId, tokens = [] }) {
-  const account = privateKeyToAccount(generatePrivateKey());
+export async function installTestWallet(page, { chainId, tokens = [], privateKey = generatePrivateKey() }) {
+  const account = privateKeyToAccount(privateKey);
   const address = account.address.toLowerCase();
   const calls = Object.assign({}, ...tokens.map((token) => tokenAnswers(chainId, address, token)));
   const requests = [];
