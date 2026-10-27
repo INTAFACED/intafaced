@@ -2172,7 +2172,6 @@ async function main() {
       for (const r of await openBooks(ctx)) say(`  open      ${r.symbol.padEnd(10)} accepted`);
       for (const r of await publishTransferTerms(ctx)) say(`  terms     ${r.assetId.padEnd(10)} published`);
       for (const r of await publishAssetRegistry(ctx)) say(`  asset     ${r.assetId.padEnd(10)} ${r.status}`);
-      for (const r of await publishWithdrawTerms(ctx)) say(`  withdraw  ${r.item}: ${r.status}`);
       for (const r of await publishPairRisk(ctx))
         say(`  limits    ${r.symbol.padEnd(10)} ${r.changed ? `version ${r.version}` : 'already published'}`);
       sayCharts(await publishCharts(ctx));

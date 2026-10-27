@@ -83,3 +83,12 @@ export function shownState(state: SavedAddressState, cooling: 'ends' | 'ended' |
   if (state !== 'active' && state !== 'cooling') return state;
   return cooling === 'ends' ? 'cooling' : cooling === 'unset' ? 'blocked' : 'active';
 }
+
+/** The copy key that names each shown state, in the address book and the withdraw form alike. */
+export const SAVED_STATE_WORDS = {
+  pending: 'aStatePending',
+  cooling: 'aStateCooling',
+  active: 'aStateActive',
+  blocked: 'aStateBlocked',
+  archived: 'aStateArchived',
+} as const satisfies Record<SavedAddressState, string>;

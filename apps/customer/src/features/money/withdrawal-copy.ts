@@ -142,6 +142,8 @@ const en = {
   xConfirm: 'Confirm and send',
   fSavedPick: 'Choose a saved address',
   fNewSaved: 'This is your saved address {label}, chosen above.',
+  fNewSavedPick: 'This is your saved address {label}. Choose it above to send to it.',
+  fNewSavedWait: 'This is your saved address {label}. It can’t be chosen now: {state}.',
   fNewNotSaved:
     'This address is not in your address book, so nothing is sent to it. Save it first; it can be used once its cooling-off ends.',
   fNewBad: 'This is not a valid address. It must be 0x followed by 40 letters a to f or digits.',
@@ -169,6 +171,8 @@ const en = {
   xDoneTitle: 'Withdrawal recorded',
   xDone: 'Withdrawal {id} is recorded. Follow its status below.',
   xUnknownTitle: 'Answer not received',
+  xResume:
+    'An earlier withdrawal with these details got no answer, so it may be recorded. Check Your withdrawals below. Getting the fee and confirming again finishes it under the same reference, so it is never sent twice.',
   xUnknown:
     'We did not get an answer, so this withdrawal may have been recorded. Check Your withdrawals below. Confirming the same withdrawal again uses the same reference, so it is never sent twice.',
   sRefusedTitle: 'Not sent',
@@ -484,6 +488,8 @@ const es = {
   xConfirm: 'Confirmar y enviar',
   fSavedPick: 'Elige una dirección guardada',
   fNewSaved: 'Es tu dirección guardada {label}, elegida arriba.',
+  fNewSavedPick: 'Es tu dirección guardada {label}. Elígela arriba para enviarle.',
+  fNewSavedWait: 'Es tu dirección guardada {label}. Ahora no se puede elegir: {state}.',
   fNewNotSaved:
     'Esta dirección no está en tu libreta, así que no se envía nada a ella. Guárdala primero; podrás usarla cuando termine su periodo de espera.',
   fNewBad: 'No es una dirección válida. Debe ser 0x seguido de 40 letras de la a a la f o dígitos.',
@@ -511,6 +517,8 @@ const es = {
   xDoneTitle: 'Retiro registrado',
   xDone: 'El retiro {id} está registrado. Sigue su estado abajo.',
   xUnknownTitle: 'No llegó la respuesta',
+  xResume:
+    'Un retiro anterior con estos datos no recibió respuesta, así que puede estar registrado. Revisa Tus retiros abajo. Obtener la comisión y confirmar de nuevo lo termina con la misma referencia, así que nunca se envía dos veces.',
   xUnknown:
     'No recibimos respuesta, así que este retiro puede haberse registrado. Revisa Tus retiros abajo. Confirmar el mismo retiro de nuevo usa la misma referencia, así que nunca se envía dos veces.',
   sRefusedTitle: 'No enviado',
@@ -828,6 +836,8 @@ const fr = {
   xConfirm: 'Confirmer et envoyer',
   fSavedPick: 'Choisis une adresse enregistrée',
   fNewSaved: 'C’est ton adresse enregistrée {label}, choisie plus haut.',
+  fNewSavedPick: 'C’est ton adresse enregistrée {label}. Choisis-la plus haut pour y envoyer.',
+  fNewSavedWait: 'C’est ton adresse enregistrée {label}. Elle ne peut pas être choisie maintenant : {state}.',
   fNewNotSaved:
     'Cette adresse n’est pas dans ton carnet, donc rien n’y est envoyé. Enregistre-la d’abord ; elle pourra servir une fois sa période d’attente terminée.',
   fNewBad: 'Ce n’est pas une adresse valide. Elle doit être 0x suivi de 40 lettres de a à f ou chiffres.',
@@ -856,6 +866,8 @@ const fr = {
   xDoneTitle: 'Retrait enregistré',
   xDone: 'Le retrait {id} est enregistré. Suis son statut ci-dessous.',
   xUnknownTitle: 'Réponse non reçue',
+  xResume:
+    'Un retrait précédent avec ces informations n’a pas reçu de réponse, il a donc pu être enregistré. Vérifie Tes retraits ci-dessous. Obtenir les frais et confirmer à nouveau le termine avec la même référence, il n’est donc jamais envoyé deux fois.',
   xUnknown:
     'Nous n’avons pas reçu de réponse, ce retrait a donc pu être enregistré. Vérifie Tes retraits ci-dessous. Confirmer à nouveau le même retrait utilise la même référence, il n’est donc jamais envoyé deux fois.',
   sRefusedTitle: 'Non envoyé',

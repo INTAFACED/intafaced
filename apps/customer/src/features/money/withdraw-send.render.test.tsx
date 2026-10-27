@@ -115,6 +115,7 @@ afterEach(() => {
   root = null;
   host.remove();
   document.body.innerHTML = '';
+  sessionStorage.clear();
 });
 
 async function mount() {
@@ -241,7 +242,7 @@ describe('sending crypto out (J-wallet-05)', () => {
     expect(document.querySelector('input[name="withdraw-stepup-code"]')).toBeNull();
   });
 
-  it('never says nothing is held when the answer is lost, and a retry of the same send keeps its reference', async () => {
+  it('never says nothing is held when the answer is lost, and a retry of the same send keeps its reference and its terms', async () => {
     mint.mockResolvedValue({ ok: true, data: { accessToken: 'one-use', expiresAt: '2026-10-23T05:10:00Z' } });
     mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('25') });
     mutate.mockResolvedValueOnce({ ok: false, reason: 'uncertain', status: 504, message: 'gateway timeout' });
@@ -256,19 +257,52 @@ describe('sending crypto out (J-wallet-05)', () => {
     const outcome = () => document.querySelector('[data-testid="withdraw-outcome"]')!.textContent;
     expect(outcome()).toContain('Answer not received');
     expect(outcome()).not.toContain('nothing is held');
+    // The terms are locked until svc-pay answers for that reference.
+    expect((field('Amount') as HTMLInputElement).readOnly).toBe(true);
+    expect((field('Saved address') as HTMLSelectElement).disabled).toBe(true);
     await press('Get the fee');
-    await press('Confirm and send');
+    await press('Confirm again to finish');
     await confirmWithCode();
     const sends = mutate.mock.calls.filter(([, procedure]) => procedure === 'withdrawal.create');
     expect(sends).toHaveLength(2);
     expect(sends[1]![2].clientRef).toBe(sends[0]![2].clientRef);
-    expect(outcome()).toContain('Nothing was sent and nothing is held.');
+    // A refusal of the retry says nothing about the first ask, which may be recorded: still not "nothing is held".
+    expect(outcome()).toContain('Answer not received');
+    expect(outcome()).not.toContain('nothing is held');
+  });
+
+  it('keeps a send whose answer was lost across a reload, and finishes it under the same reference', async () => {
+    mint.mockResolvedValue({ ok: true, data: { accessToken: 'one-use', expiresAt: '2026-10-23T05:10:00Z' } });
+    mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('25') });
+    mutate.mockResolvedValueOnce({ ok: false, reason: 'uncertain', status: 504, message: 'gateway timeout' });
+    mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('25') });
+    mutate.mockResolvedValueOnce({ ok: true, data: { id: '99999999-9999-4999-8999-999999999999' } });
+    await mount();
+    await type('Saved address', ROW.destinationId);
+    await type('Amount', '25');
+    await press('Get the fee');
+    await press('Confirm and send');
+    await confirmWithCode();
+    act(() => root?.unmount());
+    root = null;
+    await mount();
+    expect((field('Amount') as HTMLInputElement).value).toBe('25');
+    expect((field('Amount') as HTMLInputElement).readOnly).toBe(true);
+    await press('Get the fee');
+    expect(text()).toContain('An earlier withdrawal with these details got no answer');
+    await press('Confirm again to finish');
+    await confirmWithCode();
+    const sends = mutate.mock.calls.filter(([, procedure]) => procedure === 'withdrawal.create');
+    expect(sends).toHaveLength(2);
+    expect(sends[1]![2].clientRef).toBe(sends[0]![2].clientRef);
+    expect(text()).toContain('Withdrawal 99999999-9999-4999-8999-999999999999 is recorded.');
+    expect(sessionStorage.length).toBe(0);
   });
 
   it('gives a send for other terms its own reference', async () => {
     mint.mockResolvedValue({ ok: true, data: { accessToken: 'one-use', expiresAt: '2026-10-23T05:10:00Z' } });
     mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('25') });
-    mutate.mockResolvedValueOnce({ ok: false, reason: 'uncertain', status: 504, message: 'gateway timeout' });
+    mutate.mockResolvedValueOnce(refusal('pay.guard_withdrawal_limit_exceeded', 412));
     mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('20') });
     mutate.mockResolvedValueOnce(refusal('pay.wallet_withdraw_unavailable', 400));
     await mount();

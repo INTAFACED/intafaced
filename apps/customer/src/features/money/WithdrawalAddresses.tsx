@@ -19,7 +19,7 @@ import {
 import { moneyRefusalWords } from './money-refusal-copy';
 import { DepthPanel } from './DepthParts';
 import { WithdrawStepUp } from './WithdrawStepUp';
-import { checkAddress, checkLabel, checkTag, coolingOf, shortenAddress, shownState } from './withdraw-model';
+import { SAVED_STATE_WORDS, checkAddress, checkLabel, checkTag, coolingOf, shortenAddress, shownState } from './withdraw-model';
 import { withdrawalCopy } from './withdrawal-copy';
 import './bank-depth.css';
 
@@ -27,14 +27,6 @@ const OWNERSHIP_KEYS = { pending: 'aOwnPending', expired: 'aOwnExpired' } as con
 
 /** Whether a row can be proved by signing: a wallet address the customer saved, still in the book. */
 const provable = (row: Destination) => row.kind === 'crypto' && row.origin === 'customer' && row.state !== 'archived';
-
-const STATE_KEYS = {
-  pending: 'aStatePending',
-  cooling: 'aStateCooling',
-  active: 'aStateActive',
-  blocked: 'aStateBlocked',
-  archived: 'aStateArchived',
-} as const;
 
 /**
  * The address book as a table. The columns always show; with no rows the body says why it is empty. Each row gives a short
@@ -118,7 +110,7 @@ export function AddressTable({
                           ? t('aCoolingUnset')
                           : t(cooling.state === 'ends' ? 'aCoolingEnds' : 'aCoolingEnded', { time: date(cooling.at) })}
                     </td>
-                    <td>{row.state ? t(STATE_KEYS[shownState(row.state, cooling.state)]) : t('aNotReturned')}</td>
+                    <td>{row.state ? t(SAVED_STATE_WORDS[shownState(row.state, cooling.state)]) : t('aNotReturned')}</td>
                     <td>
                       {onUse && provable(row) ? (
                         <Button variant="ghost" onClick={() => onUse(row)}>
