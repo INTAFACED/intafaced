@@ -34,6 +34,7 @@ export type KycProfileErrorCode =
   | 'kyc.profile_none'
   | 'kyc.profile_version'
   | 'kyc.profile_sent'
+  | 'kyc.profile_request_open'
   | 'kyc.profile_incomplete'
   | 'kyc.profile_invalid'
   | 'kyc.document_types_unset'
@@ -55,7 +56,8 @@ export class KycProfileError extends Error {
 
 export type KycDocumentTypeList = ReadonlyMap<string, KycDocumentTypes['types']>;
 
-const VAULT_MAX_BYTES = 10 * 1024 * 1024;
+/** The photo travels as base64 inside one JSON body (the edge's and the service's 1 MiB), so 768 KiB is the most it can be. */
+const UPLOAD_MAX_BYTES = 768 * 1024;
 const TYPE_ROW = /^[a-z][a-z0-9_]{1,63}$/;
 const CONTENT_TYPE = /^[a-z]+\/[a-z0-9.+-]+$/;
 
@@ -103,8 +105,8 @@ export function parseKycUploadCaps(env: {
   if (!max && !types) return null;
   if (!max || !types) throw new Error('IDENTITY_KYC_UPLOAD_MAX_BYTES and IDENTITY_KYC_UPLOAD_TYPES are set together or not at all');
   const maxBytes = Number(max);
-  if (!/^\d+$/.test(max) || !Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > VAULT_MAX_BYTES)
-    throw new Error(`IDENTITY_KYC_UPLOAD_MAX_BYTES must be a whole number of bytes from 1 to ${VAULT_MAX_BYTES}`);
+  if (!/^\d+$/.test(max) || !Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > UPLOAD_MAX_BYTES)
+    throw new Error(`IDENTITY_KYC_UPLOAD_MAX_BYTES must be a whole number of bytes from 1 to ${UPLOAD_MAX_BYTES}`);
   const contentTypes = [...new Set(types.split(',').map((t) => t.trim().toLowerCase()))];
   if (contentTypes.some((t) => !CONTENT_TYPE.test(t))) throw new Error('IDENTITY_KYC_UPLOAD_TYPES must be a comma list of content types');
   return { maxBytes, contentTypes };
@@ -147,7 +149,12 @@ export class KycProfileDesk {
       readonly uploadCaps: KycProfileUploadCaps | null;
       readonly vault: KycDocumentVault | undefined;
       /** Opens the verification request: `AuthService.submitKyc`, with its lockout and capability checks. */
-      readonly submit: (input: { userId: string; tier: Tier; jurisdiction: string; providerRef?: string }) => Promise<{ id: string }>;
+      readonly submit: (input: {
+        userId: string;
+        tier: Tier;
+        jurisdiction: string;
+        providerRef?: string;
+      }) => Promise<{ id: string; status: string; providerRef: string | null }>;
     },
   ) {}
 
@@ -236,7 +243,7 @@ export class KycProfileDesk {
   }
 
   /**
-   * Saves one step's fields and moves the draft on to the next step. `version` is the draft it was made from: a stale
+   * Saves one step's fields and moves the draft on past it; going back to fix an earlier step keeps the later ones. `version` is the draft it was made from: a stale
    * one refuses `kyc.profile_version`, and the same save sent twice returns the draft it made.
    */
   async saveStep(
@@ -262,7 +269,7 @@ export class KycProfileDesk {
       if (input.step === 'document') this.assertListed(fields.residence, fields.documentType);
       const { ciphertext, nonce } = this.seal(fields);
       const [saved] = await tx<Row[]>`
-        UPDATE kyc_profile_drafts SET step = ${stepNumber(input.step) + 1}, version = version + 1, ciphertext = ${ciphertext},
+        UPDATE kyc_profile_drafts SET step = GREATEST(step, ${stepNumber(input.step) + 1}), version = version + 1, ciphertext = ${ciphertext},
           nonce = ${nonce}, key_id = 'v1', last_save = ${hash}, updated_at = now()
         WHERE user_id = ${userId} RETURNING tier, step, version, ciphertext, nonce, key_id, last_save, record_id, updated_at`;
       return this.view(saved!, fields);
@@ -297,18 +304,36 @@ export class KycProfileDesk {
     if (before.version !== input.version) throw new KycProfileError('The draft changed since this step was opened', 'kyc.profile_version');
     // The vault first: a crash after this leaves an unreferenced ciphertext row, never a draft pointing at nothing.
     const stored = await vault.put({ userId, contentType, bytes: input.bytes, storedBy: userId });
-    return transaction(this.sql, async (tx) => {
-      const row = await this.row(tx, userId, true);
-      if (!row || row.record_id || row.version !== input.version)
-        throw new KycProfileError('The draft changed since this step was opened', 'kyc.profile_version');
-      const fields = { ...this.unseal(row), documentId: stored.id };
-      const { ciphertext, nonce } = this.seal(fields);
-      const [saved] = await tx<Row[]>`
-        UPDATE kyc_profile_drafts SET step = ${stepNumber('review')}, version = version + 1, ciphertext = ${ciphertext},
-          nonce = ${nonce}, key_id = 'v1', last_save = ${hash}, updated_at = now()
-        WHERE user_id = ${userId} RETURNING tier, step, version, ciphertext, nonce, key_id, last_save, record_id, updated_at`;
-      return this.view(saved!, fields);
-    });
+    const owner = { kind: 'owner' as const, userId };
+    let replaced: string | null = null;
+    let saved: KycProfileDraft;
+    try {
+      saved = await transaction(this.sql, async (tx) => {
+        const row = await this.row(tx, userId, true);
+        if (!row || row.record_id || row.version !== input.version)
+          throw new KycProfileError('The draft changed since this step was opened', 'kyc.profile_version');
+        const previous = this.unseal(row);
+        replaced = previous.documentId;
+        const fields = { ...previous, documentId: stored.id };
+        const { ciphertext, nonce } = this.seal(fields);
+        const [next] = await tx<Row[]>`
+          UPDATE kyc_profile_drafts SET step = ${stepNumber('review')}, version = version + 1, ciphertext = ${ciphertext},
+            nonce = ${nonce}, key_id = 'v1', last_save = ${hash}, updated_at = now()
+          WHERE user_id = ${userId} RETURNING tier, step, version, ciphertext, nonce, key_id, last_save, record_id, updated_at`;
+        return this.view(next!, fields);
+      });
+    } catch (err) {
+      // Lost the race (or the draft was sent meanwhile): the photo it stored refers to nothing, so it goes.
+      await vault.deleteFor(stored.id, owner).catch(() => undefined);
+      throw err;
+    }
+    // A replaced photo is no longer part of any draft or request.
+    // A request that already carries it (a send that crashed before the draft recorded it) keeps it.
+    if (replaced) {
+      const [held] = await this.sql`SELECT 1 FROM kyc_records WHERE user_id = ${userId} AND provider_ref = ${replaced} LIMIT 1`;
+      if (!held) await vault.deleteFor(replaced, owner).catch(() => undefined);
+    }
+    return saved;
   }
 
   /**
@@ -317,25 +342,46 @@ export class KycProfileDesk {
    */
   async submit(userId: string, version: number): Promise<{ recordId: string; documentCheck: 'not_connected' }> {
     this.requireKey();
-    const row = await this.row(this.sql, userId, false);
-    if (!row) throw new KycProfileError('Start guided verification first', 'kyc.profile_none');
-    if (row.record_id) return { recordId: row.record_id, documentCheck: 'not_connected' };
-    if (row.version !== version) throw new KycProfileError('The draft changed since it was opened', 'kyc.profile_version');
-    const fields = this.unseal(row);
-    for (const step of Object.keys(kycProfileStepFieldsSchemas) as KycProfileFieldStep[]) {
-      if (!kycProfileStepFieldsSchemas[step].safeParse(pick(fields, step)).success)
-        throw new KycProfileError(`The ${step} step is not complete`, 'kyc.profile_incomplete', { step });
-    }
-    if (!fields.documentId) throw new KycProfileError('Add a photo of your ID first', 'kyc.profile_incomplete', { step: 'upload' });
-    this.assertListed(fields.residence, fields.documentType);
     const vault = this.settings.vault;
-    if (!vault) throw new KycProfileError('The document vault is not configured', 'kyc.profile_unconfigured');
-    await vault.assertDocumentForUser(fields.documentId, userId);
-    const record = await this.settings.submit({ userId, tier: row.tier, jurisdiction: fields.residence!, providerRef: fields.documentId });
-    // Sent twice at once, both reach the same pending request; the first to land records it.
-    await this.sql`UPDATE kyc_profile_drafts SET record_id = ${record.id}, version = version + 1, updated_at = now()
-      WHERE user_id = ${userId} AND version = ${version} AND record_id IS NULL`;
-    return { recordId: record.id, documentCheck: 'not_connected' };
+    // The draft stays locked until it records what it opened, so an edit in another tab cannot slip in between.
+    return transaction(this.sql, async (tx) => {
+      const row = await this.row(tx, userId, true);
+      if (!row) throw new KycProfileError('Start guided verification first', 'kyc.profile_none');
+      if (row.record_id) return { recordId: row.record_id, documentCheck: 'not_connected' as const };
+      if (row.version !== version) throw new KycProfileError('The draft changed since it was opened', 'kyc.profile_version');
+      const fields = this.unseal(row);
+      for (const step of Object.keys(kycProfileStepFieldsSchemas) as KycProfileFieldStep[]) {
+        if (!kycProfileStepFieldsSchemas[step].safeParse(pick(fields, step)).success)
+          throw new KycProfileError(`The ${step} step is not complete`, 'kyc.profile_incomplete', { step });
+      }
+      if (!fields.documentId) throw new KycProfileError('Add a photo of your ID first', 'kyc.profile_incomplete', { step: 'upload' });
+      this.assertListed(fields.residence, fields.documentType);
+      if (!vault) throw new KycProfileError('The document vault is not configured', 'kyc.profile_unconfigured');
+      await vault.assertDocumentForUser(fields.documentId, userId);
+      // A request already open at this level, or a level already held, is not this draft's: sending would only return
+      // it, without this photo. Only a pending request that carries this photo (a send that crashed after it) is ours.
+      const [open] = await tx<Array<{ id: string; status: string; provider_ref: string | null }>>`
+        SELECT id, status, provider_ref FROM kyc_records WHERE user_id = ${userId} AND (
+          (status = 'pending' AND tier = ${row.tier}) OR (status = 'approved' AND (expires_at IS NULL OR expires_at > now())
+            AND array_position(ARRAY['none','basic','full','institutional']::text[], tier::text) >= array_position(ARRAY['none','basic','full','institutional']::text[], ${row.tier}::text)))
+        ORDER BY created_at DESC LIMIT 1`;
+      if (open && !(open.status === 'pending' && open.provider_ref === fields.documentId))
+        throw new KycProfileError('A request at this level is already open or approved', 'kyc.profile_request_open', {
+          status: open.status,
+        });
+      const record = await this.settings.submit({
+        userId,
+        tier: row.tier,
+        jurisdiction: fields.residence!,
+        providerRef: fields.documentId,
+      });
+      if (record.status !== 'pending' || record.providerRef !== fields.documentId)
+        throw new KycProfileError('A request at this level is already open or approved', 'kyc.profile_request_open', {
+          status: record.status,
+        });
+      await tx`UPDATE kyc_profile_drafts SET record_id = ${record.id}, version = version + 1, updated_at = now() WHERE user_id = ${userId}`;
+      return { recordId: record.id, documentCheck: 'not_connected' as const };
+    });
   }
 }
 

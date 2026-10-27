@@ -16,6 +16,14 @@ export const kycProfileStepNumberSchema = z.number().int().min(1).max(KYC_PROFIL
 
 const alpha2 = z.string().regex(/^[A-Z]{2}$/);
 const text = (max: number) => z.string().trim().min(1).max(max);
+/** A real calendar date, not in the future and not before 1900. */
+const dateOfBirth = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((value) => {
+    const at = new Date(`${value}T00:00:00Z`);
+    return !Number.isNaN(at.getTime()) && at.toISOString().slice(0, 10) === value && value >= '1900-01-01' && at.getTime() <= Date.now();
+  }, 'not a valid date of birth');
 export const kycDocumentTypeCodeSchema = z.string().regex(/^[a-z][a-z0-9_]{1,63}$/);
 
 /** Everything a draft holds. Null is not entered yet. */
@@ -26,7 +34,7 @@ export const kycProfileFieldsSchema = z
     legalName: text(200).nullable(),
     /** Optional: the legal name in the local script. */
     localName: text(200).nullable(),
-    dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+    dateOfBirth: dateOfBirth.nullable(),
     documentType: kycDocumentTypeCodeSchema.nullable(),
     documentNumber: text(64).nullable(),
     addressLine: text(200).nullable(),
@@ -41,9 +49,7 @@ export type KycProfileFields = z.infer<typeof kycProfileFieldsSchema>;
 /** What each step asks for (the upload step takes a file, the review step sends). */
 export const kycProfileStepFieldsSchemas = {
   residence: z.object({ residence: alpha2, nationality: alpha2 }).strict(),
-  identity: z
-    .object({ legalName: text(200), localName: text(200).nullable(), dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })
-    .strict(),
+  identity: z.object({ legalName: text(200), localName: text(200).nullable(), dateOfBirth }).strict(),
   document: z.object({ documentType: kycDocumentTypeCodeSchema, documentNumber: text(64) }).strict(),
   address: z.object({ addressLine: text(200), city: text(100), postalCode: text(20) }).strict(),
 } as const;
@@ -100,8 +106,6 @@ export const kycDocumentTypesSchema = z.object({
   country: alpha2,
   /** False when the owner published no list for this country: "not published", never an empty list. */
   published: z.boolean(),
-  types: z.array(
-    z.object({ type: kycDocumentTypeCodeSchema, label: z.string().min(1).max(120), originalRequired: z.boolean() }),
-  ),
+  types: z.array(z.object({ type: kycDocumentTypeCodeSchema, label: z.string().min(1).max(120), originalRequired: z.boolean() })),
 });
 export type KycDocumentTypes = z.infer<typeof kycDocumentTypesSchema>;

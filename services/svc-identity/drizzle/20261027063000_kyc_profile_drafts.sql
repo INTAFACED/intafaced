@@ -3,7 +3,8 @@
 -- same key as kyc_documents); never a plaintext personal field here or in kyc_records. The ID photo is a kyc_documents
 -- row, referred to inside the sealed fields. A save moves the version on by one; `last_save` is a keyed hash of the
 -- last save (step, version it was made from, fields), so the same save sent twice returns the draft instead of refusing.
--- `record_id` is set when the draft is sent. Reversal: the .down.sql of the same name.
+-- `record_id` is set when the draft is sent (no foreign key: the send opens the record in its own transaction while this
+-- row is held, so the reference is written before that record is visible to this one). Reversal: the .down.sql of the same name.
 CREATE TABLE IF NOT EXISTS "identity"."kyc_profile_drafts" (
   "user_id"    uuid PRIMARY KEY REFERENCES "identity"."users" ("id") ON DELETE CASCADE,
   "tier"       text NOT NULL CHECK ("tier" IN ('basic', 'full', 'institutional')),
@@ -13,6 +14,6 @@ CREATE TABLE IF NOT EXISTS "identity"."kyc_profile_drafts" (
   "nonce"      bytea NOT NULL,
   "key_id"     text NOT NULL DEFAULT 'v1',
   "last_save"  text,
-  "record_id"  uuid REFERENCES "identity"."kyc_records" ("id") ON DELETE SET NULL,
+  "record_id"  uuid,
   "updated_at" timestamptz NOT NULL DEFAULT now()
 );

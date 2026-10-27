@@ -65,6 +65,16 @@ export function VerificationGuided({ tier, disabled, onSent }: { tier: Tier; dis
         return setProblem({ kind: 'copy', text: caps ? t('wrongType', { types: caps.contentTypes.join(', ') }) : t('capsUnset') });
       case 'kyc.upload_caps_unset':
         return setProblem({ kind: 'copy', text: t('capsUnset') });
+      case 'kyc.profile_sent':
+      case 'kyc.profile_none':
+        setProblem({ kind: 'copy', text: t('changed') });
+        setRevision((n) => n + 1);
+        return;
+      case 'kyc.profile_request_open':
+        return setProblem({ kind: 'copy', text: t('requestOpen') });
+      case 'kyc.document_types_unset':
+      case 'kyc.document_type_unlisted':
+        return setProblem({ kind: 'copy', text: t('typeUnlisted') });
       case 'kyc.profile_incomplete':
         return setProblem({ kind: 'copy', text: t('incomplete') });
       case 'kyc.profile_invalid':
@@ -78,7 +88,13 @@ export function VerificationGuided({ tier, disabled, onSent }: { tier: Tier; dis
     setBusy(true);
     setProblem(null);
     try {
-      const answer = await call();
+      let answer: ApiResult<KycProfileDraft>;
+      try {
+        answer = await call();
+      } catch {
+        // Only reading the chosen file throws here; the API answers every refusal as a result.
+        return setProblem({ kind: 'copy', text: t('unreadable') });
+      }
       if (!answer.ok) return refused(answer, caps);
       setView(null);
       setRevision((n) => n + 1);
@@ -131,6 +147,22 @@ export function VerificationGuided({ tier, disabled, onSent }: { tier: Tier; dis
     const name = (n: number) => t(KYC_PROFILE_STEPS[n - 1]!);
     return (
       <div className="stack">
+        <p className="muted" data-testid="verification__guided-level" data-level={open.tier}>
+          <Copy k="startLevel" params={{ level: t(open.tier) }} />
+          {open.tier !== tier && (
+            <>
+              {' '}
+              <button
+                type="button"
+                className="text-link"
+                disabled={busy || disabled}
+                onClick={() => void run(() => api.mutate('identity', 'kyc.profile.start', { tier }, kycProfileDraftSchema), uploadCaps)}
+              >
+                <Copy k="switchLevel" params={{ level: t(tier) }} />
+              </button>
+            </>
+          )}
+        </p>
         {open.step > 1 && (
           <p data-testid="verification__guided-resume" data-step={open.step}>
             <Copy k="resume" params={{ step: String(open.step), name: name(open.step) }} />
@@ -167,10 +199,15 @@ export function VerificationGuided({ tier, disabled, onSent }: { tier: Tier; dis
               uploadCaps,
             )
           }
-          onUpload={(contentType, bytesBase64) =>
+          onUpload={(file) =>
             void run(
-              () =>
-                api.mutate('identity', 'kyc.profile.upload', { version: open.version, contentType, bytesBase64 }, kycProfileDraftSchema),
+              async () =>
+                api.mutate(
+                  'identity',
+                  'kyc.profile.upload',
+                  { version: open.version, contentType: file.type, bytesBase64: await base64Of(file) },
+                  kycProfileDraftSchema,
+                ),
               uploadCaps,
             )
           }
@@ -226,7 +263,7 @@ function GuidedStep({
   busy: boolean;
   onProblem: (problem: Problem | null) => void;
   onSave: (step: KycProfileFieldStep, fields: Record<string, unknown>) => void;
-  onUpload: (contentType: string, bytesBase64: string) => void;
+  onUpload: (file: File) => void;
   onSend: () => void;
 }) {
   const { api } = useSession();
@@ -366,7 +403,7 @@ function GuidedStep({
             return onProblem({ kind: 'copy', text: t('tooLarge', { size: String(kib(file.size)), kib: String(kib(caps.maxBytes)) }) });
           if (!caps.contentTypes.includes(file.type))
             return onProblem({ kind: 'copy', text: t('wrongType', { types: caps.contentTypes.join(', ') }) });
-          void base64Of(file).then((bytes) => onUpload(file.type, bytes));
+          onUpload(file);
         }}
       >
         {f.documentId && (

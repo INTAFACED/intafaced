@@ -125,8 +125,11 @@ test(`${J} #2: guided verification resumes at the step left, a country with no d
   await guided.getByLabel('Country you live in').fill('DE');
   await guided.getByLabel('Nationality').fill('DE');
   await guided.getByRole('button', { name: 'Save and continue' }).click();
+  // A fixed earlier step keeps the later ones: back at step 3, and step 2 still holds the name.
+  await expect(current).toHaveAttribute('data-step', 'document');
+  await guided.getByRole('button', { name: '2. Your name and date of birth' }).click();
   await expect(guided.getByLabel('Legal name')).toHaveValue('TEST Anna Muster');
-  await guided.getByRole('button', { name: 'Save and continue' }).click();
+  await guided.getByRole('button', { name: '3. ID document' }).click();
 
   // DE has a published list: pick from it.
   await expect(guided.getByTestId('verification__guided-doc-types')).toHaveAttribute('data-published', 'true');
