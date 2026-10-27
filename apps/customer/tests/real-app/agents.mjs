@@ -90,3 +90,13 @@ export async function openNavigatorSession(page, agents) {
   await expect(page.getByText('Agent session opened')).toBeVisible(UNBUILT);
   return page.getByRole('main').getByRole('region', { name: 'Session workspace' }).getByTestId('session-id').innerText();
 }
+
+/** Signs founder `key` in to the founder console and opens `route` there, expecting its h1 `heading` (UNBUILT). Returns
+ * the founder's user id and handle. */
+export async function openFounderDesk(page, route, heading, key = 'a') {
+  const { ADMIN, founderSignIn } = await import('./admin.mjs');
+  const founder = await founderSignIn(page, key);
+  await page.goto(`${ADMIN}${route}`);
+  await expect(page.getByRole('heading', { name: heading, level: 1 })).toBeVisible(UNBUILT);
+  return founder;
+}
