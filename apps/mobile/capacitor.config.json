@@ -3,7 +3,8 @@
   "appName": "INTAFACED",
   "webDir": "www",
   "android": {
-    "path": "android"
+    "path": "android",
+    "minWebViewVersion": 111
   },
   "ios": {
     "path": "ios"
