@@ -17,13 +17,26 @@ import {
   MAX_EVIDENCE_PER_CALL,
   P2pError,
   PricingError,
+  REMARK_MAX,
   unknownTrade,
   TradeStateError,
   evidenceVisibleTo,
   type DisputeRecord,
   type P2pService,
+  type RemarkCase,
 } from './p2p-service.js';
-import { InstrumentError, methodIdFromOfferEntry, parseFieldSpecs, type MethodSettlement } from './instruments.js';
+import {
+  CASH_RELEASE_MAX_SECONDS,
+  CASH_RELEASE_MIN_SECONDS,
+  CASH_TEXT_MAX,
+  InstrumentError,
+  methodIdFromOfferEntry,
+  NOTE_FORBIDDEN_MAX_WORDS,
+  NOTE_FORBIDDEN_WORD_MAX,
+  NOTE_GUIDANCE_MAX,
+  parseFieldSpecs,
+  type MethodSettlement,
+} from './instruments.js';
 import { BOARD_SORTS, type BoardSort } from './customer-depth.js';
 import { ELIGIBILITY_CHECK_IDS, ELIGIBILITY_STATES, TakeGateError, unwiredTakeGate, type TakeGate } from './take-eligibility.js';
 import { POSTING_CHECK_IDS, POSTING_CHECK_STATES, POSTING_POLICIES } from './posting-eligibility.js';
@@ -583,6 +596,8 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.self_trade':
       case 'p2p.trading_disabled':
       case 'p2p.not_a_moderator':
+      // P-ads-merchant-19: the buyer writes the payment note; only the seller reports a remark in it.
+      case 'p2p.remark_not_payee':
       case 'p2p.blocked':
       case 'p2p.contact_self':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
@@ -688,6 +703,8 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.review_exists':
       // P-ads-merchant-18: the method is the last payable one of an active sell ad; the person confirms pausing them.
       case 'p2p.method_in_use':
+      // P-ads-merchant-19: one remark report per party per order; more goes to the dispute.
+      case 'p2p.remark_case_exists':
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
       case 'p2p.receipt_quota_reached':
         return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
@@ -703,6 +720,7 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.receipt_not_available':
       case 'p2p.ops_cursor_invalid':
       case 'p2p.chat_text_required':
+      case 'p2p.remark_invalid':
       case 'p2p.export_range_invalid':
       case 'p2p.offer_method_unsupported':
       case 'p2p.verification_limit_currency':
@@ -717,6 +735,8 @@ export function toTrpcError(err: unknown): TRPCError {
       // settlement window ends.
       case 'p2p.non_instant_not_accepted':
       case 'p2p.dispute_before_settlement':
+      // P-ads-merchant-19: cash in person has a locked price; post the ad at a fixed price.
+      case 'p2p.floating_not_allowed_for_method':
       case 'p2p.offer_limit_exceeded':
       case 'p2p.invalid_fee_bps':
       case 'p2p.invalid_escrow_deadline':
@@ -782,6 +802,31 @@ const fieldSpecOutput = z.object({
   holderName: z.boolean().optional(),
 });
 
+const noteRulesInput = z.object({
+  guidance: z.string().min(1).max(NOTE_GUIDANCE_MAX),
+  forbidden: z.array(z.string().min(1).max(NOTE_FORBIDDEN_WORD_MAX)).max(NOTE_FORBIDDEN_MAX_WORDS).readonly(),
+});
+const cashRulesInput = z.object({
+  meetingGuidance: z.string().min(1).max(CASH_TEXT_MAX),
+  proof: z.string().min(1).max(CASH_TEXT_MAX),
+  releaseWindowSeconds: z.number().int().min(CASH_RELEASE_MIN_SECONDS).max(CASH_RELEASE_MAX_SECONDS),
+});
+
+const remarkCaseOutput = z.object({
+  id: z.string(),
+  tradeId: z.string(),
+  reporterId: z.string(),
+  reportedId: z.string(),
+  reporterRole: z.enum(['buyer', 'seller']),
+  remark: z.string(),
+  status: z.literal('open'),
+  openedAt: z.string(),
+});
+
+function toRemarkCaseOut(report: RemarkCase): z.infer<typeof remarkCaseOutput> {
+  return { ...report, openedAt: report.openedAt.toISOString() };
+}
+
 const methodSchemaOutput = z.object({
   methodId: z.string(),
   country: z.string(),
@@ -789,6 +834,11 @@ const methodSchemaOutput = z.object({
   fields: z.array(fieldSpecOutput),
   enabled: z.boolean(),
   settlement: settlementOutput,
+  /** P-ads-merchant-19: cash in person when the row carries cash rules; the rules themselves, or null. */
+  kind: z.enum(['transfer', 'cash_in_person']),
+  // Unbounded on the way out: the bounds judge what an operator registers, never a stored row on a read.
+  noteRules: z.object({ guidance: z.string(), forbidden: z.array(z.string()).readonly() }).nullable(),
+  cashRules: z.object({ meetingGuidance: z.string(), proof: z.string(), releaseWindowSeconds: z.number() }).nullable(),
 });
 
 /**
@@ -1603,6 +1653,59 @@ export function createP2pRouter(
         .mutation(async ({ ctx, input }) => guard(async () => toReminderOut(await p2p.remindSeller(input.tradeId, ctx.principal.userId)))),
 
       /**
+       * P-ads-merchant-19 / J-p2p-04 #5: the seller reports a sensitive remark the buyer wrote in the payment note (the
+       * buyer is refused `p2p.remark_not_payee`). A case opens against the buyer and they are told (svc-notify, by
+       * caseId). One per order: the same report again returns the first, a different one (or a case id already used) refuses
+       * `p2p.remark_case_exists`. An order never funded has no payment note: `p2p.invalid_transition` (or
+       * `p2p.trade_terminal` once it is cancelled).
+       */
+      reportSensitiveRemark: merchantApiProcedure('p2p:write')
+        .input(
+          z.object({
+            /** The client's id for this report, made once per form: a lost reply sent again returns the same case. */
+            caseId: z.string().guid(),
+            tradeId: z.string().guid(),
+            /** The remark as written in the payment note. Staff read it; the reported party is told a case opened. */
+            remark: z.string().trim().min(1).max(REMARK_MAX),
+          }),
+        )
+        .output(remarkCaseOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () =>
+            toRemarkCaseOut(
+              await p2p.reportSensitiveRemark({
+                caseId: input.caseId,
+                tradeId: input.tradeId,
+                reporterId: ctx.principal.userId,
+                remark: input.remark,
+              }),
+            ),
+          ),
+        ),
+
+      /**
+       * P-ads-merchant-19: the remark cases on this order as the caller may see them: their own report (or null), and
+       * whether the other party reported them, with the case id and when, never the quote. A non-party gets not found.
+       */
+      remarkCase: merchantApiProcedure('p2p:read')
+        .input(z.object({ tradeId: z.string().guid() }))
+        .output(
+          z.object({
+            mine: remarkCaseOutput.nullable(),
+            againstMe: z.object({ caseId: z.string(), openedAt: z.string() }).nullable(),
+          }),
+        )
+        .query(async ({ ctx, input }) =>
+          guard(async () => {
+            const { mine, againstMe } = await p2p.remarkCasesOn(input.tradeId, ctx.principal.userId);
+            return {
+              mine: mine ? toRemarkCaseOut(mine) : null,
+              againstMe: againstMe ? { caseId: againstMe.caseId, openedAt: againstMe.openedAt.toISOString() } : null,
+            };
+          }),
+        ),
+
+      /**
        * P-trade-orders-20 / J-p2p-02 #3: the seller of a paid order reports an under-, over- or part payment found in
        * their own bank. Answers the classification; the order stays paid either way and nothing moves. Refuses
        * `p2p.invalid_amount` when the amount contradicts the kind, and `p2p.mismatch_report_exists` for a second,
@@ -2135,6 +2238,10 @@ export function createP2pRouter(
                   z.object({ instant: z.literal(false), windowSeconds: z.number().int().min(60).max(2_592_000).nullable() }),
                 ])
                 .optional(),
+              /** P-ads-merchant-19: payment-note rules. Omitted keeps the row's; null clears them. */
+              noteRules: noteRulesInput.nullable().optional(),
+              /** P-ads-merchant-19: rules make the method cash in person; null makes it a transfer; omitted keeps. */
+              cashRules: cashRulesInput.nullable().optional(),
               confirmOperatorId: z.string().max(128).nullish(),
               approvalId: z.string().max(128).nullish(),
               operationId: z.string().max(128).nullish(),
@@ -2160,6 +2267,9 @@ export function createP2pRouter(
                 enabled: input.enabled === undefined ? 'preserve-or-default' : input.enabled ? 'true' : 'false',
                 // The approval covers the profile only when one is sent, so a register without it hashes as before.
                 ...(input.settlement === undefined ? {} : { settlement: JSON.stringify(input.settlement) }),
+                // The same for the rules: a register that sends none hashes as before.
+                ...(input.noteRules === undefined ? {} : { noteRules: JSON.stringify(input.noteRules) }),
+                ...(input.cashRules === undefined ? {} : { cashRules: JSON.stringify(input.cashRules) }),
               });
               const schema = await instruments.registerMethodSchema({
                 methodId: input.methodId,
@@ -2168,6 +2278,8 @@ export function createP2pRouter(
                 fields: input.fields,
                 ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
                 ...(input.settlement === undefined ? {} : { settlement: input.settlement }),
+                ...(input.noteRules === undefined ? {} : { noteRules: input.noteRules }),
+                ...(input.cashRules === undefined ? {} : { cashRules: input.cashRules }),
               });
               return { ...schema, fields: [...schema.fields], confirmOperatorId };
             }),
@@ -2618,6 +2730,20 @@ export function createP2pRouter(
         ),
 
       /**
+       * P-ads-merchant-19: the open sensitive-remark cases, oldest first, for the same moderators as the dispute queue.
+       * The outcome goes to the penalty ladder (P-ads-merchant-17) once it exists; until then a case stays open here.
+       */
+      remarkCases: merchantApiProcedure('p2p:read')
+        .input(z.object({ limit: z.number().int().min(1).max(200) }))
+        .output(z.object({ cases: z.array(remarkCaseOutput) }))
+        .query(async ({ ctx, input }) =>
+          guard(async () => {
+            assertModerator(ctx.principal, moderatorUserIds);
+            return { cases: (await p2p.listRemarkCases(input.limit)).map(toRemarkCaseOut) };
+          }),
+        ),
+
+      /**
        * MODERATOR ONLY. Release to the buyer, or refund the seller. There is no
        * third option in the input schema, because there is no third option in
        * the escrow: §6.2's promise is that every dispute terminates.
@@ -3002,6 +3128,7 @@ export function createP2pRouter(
             disputes: z.array(z.unknown()),
             /** Reviews this person wrote or received, including hidden ones. They are still held. */
             orderReviews: z.array(z.unknown()),
+            remarkCases: z.array(z.unknown()),
             reputation: z.unknown().nullable(),
             /**
              * Headers only. The values live behind `instruments.reveal`, which

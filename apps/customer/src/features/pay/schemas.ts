@@ -149,6 +149,24 @@ export const tradeRemindersSchema = z.object({
   max: z.number().int().positive().nullable(),
 });
 export type TradeReminders = z.infer<typeof tradeRemindersSchema>;
+/** svc-p2p `trades.reportSensitiveRemark` (P-ads-merchant-19): the case a party's report of a payment-note remark opened. */
+export const remarkCaseSchema = z.object({
+  id,
+  tradeId: id,
+  reporterId: z.string(),
+  reportedId: z.string(),
+  reporterRole: z.enum(['buyer', 'seller']),
+  remark: z.string(),
+  status: z.literal('open'),
+  openedAt: z.string(),
+});
+export type RemarkCase = z.infer<typeof remarkCaseSchema>;
+/** svc-p2p `trades.remarkCase`: the person's own report on the order, and whether the other party reported them (no quote). */
+export const remarkCasesOnSchema = z.object({
+  mine: remarkCaseSchema.nullable(),
+  againstMe: z.object({ caseId: id, openedAt: z.string() }).nullable(),
+});
+export type RemarkCasesOn = z.infer<typeof remarkCasesOnSchema>;
 /**
  * svc-p2p `trades.reportMismatch` and `trades.get` `mismatch`: the seller's report of what arrived, and the owner's band
  * it was classified by (`reported` when the band is blank and a person decides).
@@ -268,6 +286,12 @@ export const methodSchema = z.object({
   fields: z.array(methodFieldSchema),
   enabled: z.boolean(),
   settlement: methodSettlementSchema.optional(),
+  /** P-ads-merchant-19: the row's payment-note rules and cash-in-person rules (cash in person when set), or null. */
+  noteRules: z
+    .object({ guidance: z.string(), forbidden: z.array(z.string()) })
+    .nullable()
+    .optional(),
+  cashRules: z.object({ meetingGuidance: z.string(), proof: z.string(), releaseWindowSeconds: z.number().int() }).nullable().optional(),
 });
 export const fiatSchema = z.object({ code: z.string(), name: z.string(), symbol: z.string(), minorUnits: z.number().int() });
 export const tradeDestinationSchema = z.object({

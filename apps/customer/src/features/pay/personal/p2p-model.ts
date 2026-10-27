@@ -340,6 +340,7 @@ export type TakeFailure =
   | 'limitsUnset'
   | 'methodRetired'
   | 'nonInstantRefused'
+  | 'floatingCashRefused'
   | 'buyingPaused'
   | 'shortBalance'
   | 'ownOffer'
@@ -385,6 +386,8 @@ export const DEFINITE_TAKE_CODES: ReadonlySet<string> = new Set([
   'p2p.method_delisted',
   // A non-instant method without the ad's consent rolls the take back: nothing stays reserved.
   'p2p.non_instant_not_accepted',
+  // A floating ad on a method made cash in person rolls the take back: nothing stays reserved.
+  'p2p.floating_not_allowed_for_method',
   // Buying paused after cancelled orders: checked before anything is reserved.
   'p2p.buying_restricted',
   // Selling into a buy ad from a short balance: the lock's only attempt was refused and the order voided, nothing held.
@@ -475,6 +478,8 @@ export function takeFailureKind(failure: { reason: string; code?: string; status
       return 'methodRetired';
     case 'p2p.non_instant_not_accepted':
       return 'nonInstantRefused';
+    case 'p2p.floating_not_allowed_for_method':
+      return 'floatingCashRefused';
     case 'p2p.buying_restricted':
       return 'buyingPaused';
     case 'p2p.insufficient_balance':

@@ -1051,6 +1051,25 @@ export function createPersonalPayApi(
         undefined,
         p2pCurrent,
       ),
+    /**
+     * P-ads-merchant-19: the seller reports a sensitive remark the buyer wrote in the payment note. Moves nothing; a case
+     * opens and the buyer is told. `caseId` is made once per quote, so a lost reply sent again answers the same case.
+     */
+    async reportSensitiveRemark(tradeId: string, caseId: string, remark: string): Promise<ApiResult<s.RemarkCase>> {
+      // No device journal (guard.run would hold the resend back after a lost answer): svc-p2p answers the same case id
+      // and quote with the same case, so a resend is the retry.
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      return api.mutate('p2p', 'trades.reportSensitiveRemark', { caseId, tradeId, remark }, s.remarkCaseSchema);
+    },
+    /** P-ads-merchant-19: the person's own remark report on this order, and whether the other party reported them. */
+    async remarkCase(tradeId: string, signal?: AbortSignal): Promise<ApiResult<s.RemarkCasesOn>> {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      return api.query('p2p', 'trades.remarkCase', { tradeId }, s.remarkCasesOnSchema, { signal });
+    },
     /** P-trade-orders-20: the seller reports what arrived in their bank. Moves nothing; svc-p2p classifies it. */
     reportMismatch: (tradeId: string, kind: s.TradeMismatch['kind'], amountReceived: string) =>
       guard.run(

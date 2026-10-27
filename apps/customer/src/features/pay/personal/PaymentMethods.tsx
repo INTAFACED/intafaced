@@ -9,10 +9,13 @@ import { StepUpConfirm } from '../../money/StepUpConfirm';
 import { PayFailure, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from '../components';
 import { payCopy } from '../copy';
 import type { PersonalPayApi } from '../pay-api';
-import type { MethodField } from '../schemas';
+import type { z } from 'zod';
+import type { MethodField, methodSchema } from '../schemas';
 import { methodsCopy } from './payment-methods-copy';
 
-type Method = { methodId: string; country: string; label: string; fields: MethodField[]; enabled: boolean; settlement?: Settlement };
+type Method = z.infer<typeof methodSchema>;
+type NoteRules = NonNullable<Method['noteRules']>;
+type CashRules = NonNullable<Method['cashRules']>;
 type Settlement = { instant: true } | { instant: false; windowSeconds: number | null };
 type MethodsT = ReturnType<typeof methodsCopy.useCopy>['t'];
 
@@ -359,10 +362,58 @@ function Catalogue({ methods }: { methods: Method[] }) {
               ))}
             </ul>
             {method.fields.some((field) => field.holderName) ? <p data-testid="catalogue-own-name">{t('catalogueOwnName')}</p> : null}
+            {method.cashRules ? <CashRulesView rules={method.cashRules} /> : null}
+            {method.noteRules ? <NoteRulesView rules={method.noteRules} /> : null}
           </div>
           <Status value={method.enabled ? 'enabled' : 'disabled'} />
         </article>
       ))}
+    </div>
+  );
+}
+
+/** P-ads-merchant-19: the cash-in-person rules the method row carries: a locked price, the meeting, the proof, the release window. */
+function CashRulesView({ rules }: { rules: CashRules }) {
+  const { t } = methodsCopy.useCopy();
+  return (
+    <div className="stack" data-testid="catalogue-cash-rules">
+      <strong>{t('cashTitle')}</strong>
+      <p>{t('cashLocked')}</p>
+      <p>
+        {t('cashMeeting')}: {rules.meetingGuidance}
+      </p>
+      <p>
+        {t('cashProof')}: {rules.proof}
+      </p>
+      <p data-testid="catalogue-cash-release">{releaseText(rules.releaseWindowSeconds, t)}</p>
+    </div>
+  );
+}
+
+/**
+ * The seller's release window in words. A deadline is never shown longer than it is: whole minutes round down, and the
+ * seconds show when they are not whole minutes.
+ */
+function releaseText(seconds: number, t: MethodsT) {
+  if (seconds % 60 !== 0) return t('cashReleaseSeconds', { seconds: String(seconds) });
+  const minutes = seconds / 60;
+  if (minutes < 60) return t('cashRelease', { minutes: String(minutes) });
+  if (minutes % 60 === 0) return t('cashReleaseHours', { hours: String(minutes / 60) });
+  return t('cashReleaseHoursMinutes', { hours: String(Math.floor(minutes / 60)), minutes: String(minutes % 60) });
+}
+
+/** P-ads-merchant-19: what the payer writes in the payment note, and the words that never go in it. */
+function NoteRulesView({ rules }: { rules: NoteRules }) {
+  const { t } = methodsCopy.useCopy();
+  return (
+    <div className="stack" data-testid="catalogue-note-rules">
+      <strong>{t('noteTitle')}</strong>
+      <p>{rules.guidance}</p>
+      {rules.forbidden.length > 0 ? (
+        <p data-testid="catalogue-note-forbidden">
+          {t('noteForbidden')}: {rules.forbidden.join(', ')}
+        </p>
+      ) : null}
     </div>
   );
 }

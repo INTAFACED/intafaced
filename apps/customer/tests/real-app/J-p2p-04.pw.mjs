@@ -28,6 +28,8 @@ const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 /** This journey's own TEST method, which step 1 retires; no other journey pays with it. */
 const J04_METHOD = 'test-j04-transfer';
 const J04_LABEL = 'TEST J-p2p-04 transfer';
+/** The stack's TEST cash-in-person method (`local-test-gates.mjs p2p`), whose row carries cash rules. */
+const CASH_METHOD = 'test-cash-in-person';
 const AD = { price: '0.93', min: '10', max: '100' };
 // A part of a step whose door is not built yet refuses at once, so the run stays short.
 const UNBUILT = { timeout: 5_000 };
@@ -121,6 +123,7 @@ test('J-p2p-04 #1 the catalogue shows each method per country with what it asks 
     sellerId: me.body.result.data.userId,
     offerId: offer.id,
     tradeId: trade.id,
+    buyer,
     sellerPasskey: s.passkey().saved(),
   });
 
@@ -163,11 +166,40 @@ test('J-p2p-04 #1 cash in person and payment-note rules come from the method row
   await signIn(page, state.seller);
   await page.goto('/p2p/methods');
   await page.getByTestId('methods-catalogue').getByLabel('Country').selectOption('DE');
-  // The remittance note rules the method row carries, shown beside it (P-ads-merchant-19).
-  await expect(
-    page.locator(`[data-testid="catalogue-method"][data-method="${METHOD}"] [data-testid="catalogue-note-rules"]`),
-    'the catalogue shows no payment-note rules yet (P-ads-merchant-19 catalogue rules slice)',
-  ).toBeVisible(UNBUILT);
+  // The remittance note rules the bank transfer's row carries, shown beside it (P-ads-merchant-19).
+  const notes = page.locator(`[data-testid="catalogue-method"][data-method="${METHOD}"] [data-testid="catalogue-note-rules"]`);
+  await expect(notes).toContainText('Payment note');
+  await expect(notes).toContainText('TEST: write only the order number in the payment note.');
+  await expect(notes.getByTestId('catalogue-note-forbidden')).toHaveText('Never write: USDT, crypto, P2P');
+  // The TEST cash-in-person row: a locked price, the meeting and proof guidance, and its own release window.
+  const cash = page.locator(`[data-testid="catalogue-method"][data-method="${CASH_METHOD}"] [data-testid="catalogue-cash-rules"]`);
+  await expect(cash).toContainText('Cash in person');
+  await expect(cash).toContainText('The price is locked: an ad with a floating price cannot offer this method.');
+  await expect(cash).toContainText('Meeting: TEST: meet in a busy public place in daylight.');
+  await expect(cash).toContainText('Proof: TEST: count the notes together before the seller releases.');
+  await expect(cash.getByTestId('catalogue-cash-release')).toHaveText(
+    'Once the buyer marks the order paid, the seller has 10 minutes to release.',
+  );
+  // A transfer method shows no cash rules.
+  await expect(page.locator(`[data-testid="catalogue-method"][data-method="${METHOD}"] [data-testid="catalogue-cash-rules"]`)).toHaveCount(
+    0,
+  );
+  // The locked price is the service's rule, not only the page's: a floating ad listing the cash method is refused by name.
+  const s = await seller(state);
+  const floating = await s.raw.mutate('offers.create', {
+    side: 'sell',
+    asset: 'USDT',
+    fiatCurrency: 'EUR',
+    priceType: 'float',
+    price: '1.01',
+    minAmount: AD.min,
+    maxAmount: AD.max,
+    totalAmount: '100',
+    methods: [METHOD, CASH_METHOD],
+    terms: 'TEST terms: J-p2p-04 #1 floating cash ad',
+    idempotencyKey: `${J}:float-cash:${state.seller.handle}`,
+  });
+  expect(refusalCode(floating)).toBe('p2p.floating_not_allowed_for_method');
 });
 
 test('J-p2p-04 #2 a holder name that is not the verified name is refused and nothing is stored; a badly formatted IBAN shows the format hint', async ({
@@ -367,9 +399,52 @@ test('J-p2p-04 #4 removing a method an ad uses lists the ads first; confirming p
     .toBe(1);
 });
 
-test('J-p2p-04 #5 reporting a sensitive remark in a payment note opens a case and tells the reported party', async () => {
+test('J-p2p-04 #5 reporting a sensitive remark in a payment note opens a case and tells the reported party', async ({ page, browser }) => {
+  test.setTimeout(120_000);
   const state = journey();
+  // The open order from #1: the buyer pays by this journey's TEST transfer and the seller quotes what the note said.
+  await signIn(page, state.seller);
+  await page.goto(`/p2p/orders/${state.tradeId}`);
+  const report = page.getByTestId('order-remark-report');
+  await expect(report).toBeVisible();
+  await report.locator('summary').click();
+  const quote = 'TEST: USDT for P2P order';
+  await report.getByLabel('The remark, as written').fill(quote);
+  await report.getByRole('button', { name: 'Report the remark' }).click();
+  const opened = page.getByTestId('order-remark-case');
+  await expect(opened).toContainText('A case is open for staff to decide.');
+  const caseId = await opened.getAttribute('data-case-id');
+  expect(caseId).toMatch(/^[0-9a-f-]{36}$/);
+  // The order page reads the report back on the next visit, so the form does not come back.
+  await page.reload();
+  await expect(page.getByTestId('order-remark-case')).toHaveAttribute('data-case-id', caseId);
+  await expect(page.getByTestId('order-remark-report')).toHaveCount(0);
+
+  // A second report on the same order is refused by name; the same report again answers the same case.
   const s = await seller(state);
-  const res = await s.bare.mutate('trades.reportSensitiveRemark', { tradeId: state.tradeId, reason: 'TEST sensitive remark' });
-  expect(res.status, 'svc-p2p has no sensitive-remark report yet (P-ads-merchant-19 report slice)').toBe(200);
+  expect(
+    refusalCode(await s.raw.mutate('trades.reportSensitiveRemark', { caseId: randomUUID(), tradeId: state.tradeId, remark: 'again' })),
+  ).toBe('p2p.remark_case_exists');
+  expect(await s.mutate('trades.reportSensitiveRemark', { caseId, tradeId: state.tradeId, remark: quote })).toMatchObject({
+    id: caseId,
+    reporterRole: 'seller',
+    status: 'open',
+  });
+  run.write({ remarkCaseId: caseId });
+
+  // The buyer, who is the reported party, sees on the order that a case is open, without the quote.
+  const buyerContext = await browser.newContext();
+  try {
+    const buyerPage = await buyerContext.newPage();
+    await signIn(buyerPage, state.buyer);
+    await buyerPage.goto(`/p2p/orders/${state.tradeId}`);
+    const against = buyerPage.getByTestId('order-remark-against-me');
+    await expect(against).toHaveAttribute('data-case-id', caseId);
+    await expect(against).toContainText('The other person on this order reported a remark in a payment note.');
+    await expect(buyerPage.getByText(quote)).toHaveCount(0);
+    // The buyer wrote the payment note, so the buyer gets no form, and the service refuses the buyer by name.
+    await expect(buyerPage.getByTestId('order-remark-report')).toHaveCount(0);
+  } finally {
+    await buyerContext.close();
+  }
 });
