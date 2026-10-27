@@ -53,6 +53,8 @@ export interface PublishedDepositAsset {
     minimumDeposit: string;
     confirmationsRequired: number;
     estimatedArrivalMinutes: number;
+    /** The owner's cases custody will not credit on this network, shown before any address; absent when none was published. */
+    unsupported?: string[];
   }>;
 }
 
@@ -508,12 +510,17 @@ function validateNetwork(assetId: string, network: DepositNetwork, seen: Set<str
   if (!Number.isInteger(network.estimatedArrivalMinutes) || network.estimatedArrivalMinutes < 0) {
     throw new BankError(`Arrival minutes for ${assetId}/${network.id} are not a non-negative integer`, 'bank.deposit_catalogue_invalid');
   }
+  const unsupported = network.unsupported?.map((item) => optionalText(item, 280, 'unsupported case'));
+  if (unsupported && (unsupported.length === 0 || unsupported.length > 20 || unsupported.some((item) => item === null))) {
+    throw new BankError(`Unsupported cases for ${assetId}/${network.id} are empty or blank`, 'bank.deposit_catalogue_invalid');
+  }
   return {
     id: network.id,
     label,
     minimumDeposit: formatAmount(minimum),
     confirmationsRequired: network.confirmationsRequired,
     estimatedArrivalMinutes: network.estimatedArrivalMinutes,
+    ...(unsupported ? { unsupported: unsupported as string[] } : {}),
   };
 }
 

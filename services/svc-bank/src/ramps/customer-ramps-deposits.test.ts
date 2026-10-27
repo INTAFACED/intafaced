@@ -520,6 +520,37 @@ describe('customer ramps and deposits', () => {
     });
   });
 
+  it('carries the owner’s unsupported-case list to the customer as written, and refuses a blank or padded case', async () => {
+    const base = { id: 'testnet', label: 'Test network', minimumDeposit: '10', confirmationsRequired: 6, estimatedArrivalMinutes: 15 };
+    let unsupported: string[] = ['TEST: a send from a smart contract', 'TEST: a send of an NFT'];
+    const custody: CustodyDepositPort = {
+      listAssets: async () => {
+        throw new Error('a port with the whole catalogue is read once, through catalogue()');
+      },
+      catalogue: async () => ({
+        assets: [
+          {
+            assetId: 'USDT',
+            networks: [
+              { ...base, unsupported },
+              { ...base, id: 'other' },
+            ],
+          },
+        ],
+        halted: [],
+      }),
+      address: async () => ({ address: 'test-address', memo: null, qrPayload: null }),
+      pending: async () => [],
+    };
+    const user = caller(bankWith({ deposits: { custody }, assetRegistry: OPEN_REGISTRY }), HOLDER, readWrite);
+    const { assets } = await user.deposits.assets();
+    expect(assets[0]!.networks[0]!.unsupported).toEqual(unsupported);
+    for (const bad of [[], [''], [' padded'], Array.from({ length: 21 }, (_, i) => `TEST ${i}`)]) {
+      unsupported = bad;
+      await expect(user.deposits.assets()).rejects.toMatchObject({ cause: { code: 'bank.deposit_catalogue_invalid' } });
+    }
+  });
+
   it('a pair the owner switched off is listed with its note and gives no address, not even one issued before', async () => {
     const network = { id: 'testnet', label: 'Test network', minimumDeposit: '10', confirmationsRequired: 6, estimatedArrivalMinutes: 15 };
     let halted = false;

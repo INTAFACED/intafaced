@@ -40,6 +40,21 @@ describe('pay custody deposit port', () => {
     ]);
   });
 
+  it('carries the owner’s unsupported-case list on its network, and adds none where pay published none', async () => {
+    const cases = ['TEST: a send from a smart contract'];
+    const port = createPayCustodyDepositPort({
+      catalogue: async () => ({
+        state: 'ok',
+        catalogue: { entries: [{ ...entry('USDT', 'ethereum'), unsupported: cases }, entry('USDT', 'tron')] },
+      }),
+      address: async () => UNAVAILABLE,
+      records: async () => UNAVAILABLE,
+    });
+    const [usdt] = (await port.listAssets())!;
+    expect(usdt!.networks[0]!.unsupported).toEqual(cases);
+    expect(usdt!.networks[1]).not.toHaveProperty('unsupported');
+  });
+
   it('carries the pairs the owner switched off, with their notes, beside the open ones', async () => {
     const port = createPayCustodyDepositPort({
       catalogue: async () => ({

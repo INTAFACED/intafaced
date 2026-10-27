@@ -1099,6 +1099,18 @@ export const TEST_DEPOSIT_NETWORKS = [
 }));
 /** The one TEST pair kept switched off, so the Deposit room's switched-off notice can be seen; every other pair is on. */
 export const TEST_HALTED_DEPOSIT = { assetId: 'USDC', networkId: 'base' };
+/**
+ * The one TEST pair with an unsupported-case list (W-deposit-03), so J-wallet-02 #2 can see the list and its checkbox before
+ * any address; every other pair publishes none and shows only the standard wrong-network line. Not owner values.
+ */
+export const TEST_UNSUPPORTED_DEPOSIT = Object.freeze({
+  assetId: 'USDC',
+  networkId: 'ethereum',
+  cases: Object.freeze([
+    'TEST: a send made by a smart contract is not credited automatically.',
+    'TEST: USDC bridged from another network is not credited.',
+  ]),
+});
 export const TEST_DEPOSIT_TERMS = TEST_DEPOSIT_NETWORKS.flatMap((n) =>
   n.assetCodes.map((assetId) => {
     const off = assetId === TEST_HALTED_DEPOSIT.assetId && n.networkId === TEST_HALTED_DEPOSIT.networkId;
@@ -1108,6 +1120,10 @@ export const TEST_DEPOSIT_TERMS = TEST_DEPOSIT_NETWORKS.flatMap((n) =>
       label: n.displayName,
       minimumDeposit: '10',
       estimatedArrivalMinutes: 15,
+      unsupportedCases:
+        assetId === TEST_UNSUPPORTED_DEPOSIT.assetId && n.networkId === TEST_UNSUPPORTED_DEPOSIT.networkId
+          ? [...TEST_UNSUPPORTED_DEPOSIT.cases]
+          : [],
       enabled: !off,
       haltNote: off ? 'TEST: switched off on this test stack so the notice can be seen.' : null,
     };
@@ -1211,7 +1227,8 @@ export async function publishDepositTerms(ctx) {
       r.minimumDeposit === want.minimumDeposit &&
       r.estimatedArrivalMinutes === want.estimatedArrivalMinutes &&
       r.enabled === want.enabled &&
-      r.haltNote === want.haltNote;
+      r.haltNote === want.haltNote &&
+      JSON.stringify(r.unsupportedCases ?? []) === JSON.stringify(want.unsupportedCases);
     if (same(row)) {
       out.push({ what, status: 'already published' });
       continue;
