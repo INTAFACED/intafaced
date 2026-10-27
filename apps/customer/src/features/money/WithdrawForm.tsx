@@ -233,8 +233,7 @@ export function WithdrawForm() {
   const current = quote.status === 'ready' && quoteCovers(quote.quote, terms, now) ? quote.quote : null;
   const debitTooMuch = current !== null && available !== null && above(current.totalDebit, available);
   const canQuote = !insideNow && check === 'ok' && !overLimit && Boolean(asset && network) && quote.status !== 'busy';
-  const canSendOut =
-    !insideNow && chosen !== null && current !== null && !debitTooMuch && check === 'ok' && !overLimit && limit !== null;
+  const canSendOut = !insideNow && chosen !== null && current !== null && !debitTooMuch && check === 'ok' && !overLimit && limit !== null;
 
   /** Any change to what would be sent drops the quote in hand, so a fee is never shown for other terms. */
   const change = (apply: () => void) => {

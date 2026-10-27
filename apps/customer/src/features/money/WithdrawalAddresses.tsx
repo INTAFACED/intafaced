@@ -36,7 +36,6 @@ const STATE_KEYS = {
   archived: 'aStateArchived',
 } as const;
 
-
 /**
  * The address book as a table. The columns always show; with no rows the body says why it is empty. Each row gives a short
  * form of the address and a Details control that opens the full address, so a long address never breaks the row. Every
