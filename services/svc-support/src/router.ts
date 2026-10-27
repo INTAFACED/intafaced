@@ -27,6 +27,7 @@ import {
   supportAwaitingMineSchema,
   supportTicketLifecycleSchema,
   supportTicketPropertiesSchema,
+  supportCreatedByRequestInputSchema,
   supportTicketSchema,
   supportTicketStatusSchema,
   supportViewCountsSchema,
@@ -44,6 +45,8 @@ import { MemorySurveyBook, type SurveyBook } from './survey-settings.js';
 import { surveyProcedures } from './survey-router.js';
 import { MemoryHelpCentreBook, type HelpCentreBook } from './help-centre.js';
 import { helpCentreGate, helpCentreProcedures } from './help-centre-router.js';
+import { MemoryFormsStore, RequestFormError, RequestForms } from './request-forms.js';
+import { mapRequestForm, requestFormProcedures } from './request-forms-router.js';
 import { MemoryKbLibraryBook, type KbLibraryBook } from './kb-library.js';
 import { kbLibraryProcedures } from './kb-library-router.js';
 import { kbFeedbackProcedures } from './kb-feedback-router.js';
@@ -193,6 +196,7 @@ export function createSupportRouter(
   surveyApprovals: ActionApprovalConsumer = unwiredApprovalConsumer(),
   helpCentre: HelpCentreBook = new MemoryHelpCentreBook(),
   kbLibrary: KbLibraryBook = new MemoryKbLibraryBook(),
+  forms: RequestForms = new RequestForms(new MemoryFormsStore(), { forms: null, fields: null }),
 ) {
   const helpCentreOpen = helpCentreGate(helpCentre);
   return router({
@@ -200,6 +204,7 @@ export function createSupportRouter(
     ...attachmentProcedures(attachmentSettings, support),
     ...surveyProcedures(surveys, support, surveyApprovals),
     ...helpCentreProcedures(helpCentre, support),
+    ...requestFormProcedures(forms, support),
     ...kbFeedbackProcedures(support, mapError, helpCentreOpen),
     ...kbLibraryProcedures(kbLibrary, support, helpCentreOpen, mapError),
 
@@ -211,8 +216,28 @@ export function createSupportRouter(
       .input(createTicketInputSchema)
       .output(supportTicketSchema)
       .mutation(async ({ ctx, input }) => {
+        const userId = ctx.principal!.userId;
+        // A request sent with a form is checked against the stored form before the ticket exists (SP-tickets-03). A
+        // replay of a key whose ticket already exists is not refused for a form changed since: it returns that ticket,
+        // and keeps the answers only if they still fit and none were kept (a crash between the two writes).
+        let checked: Awaited<ReturnType<RequestForms['check']>> | null = null;
         try {
-          const ticket = await support.createTicket({ userId: ctx.principal!.userId, ...input });
+          if (input.form) {
+            try {
+              checked = await forms.check(input.form);
+            } catch (err) {
+              // Only a refusal of the answers is forgiven, and only for a key whose ticket already exists.
+              if (!(err instanceof RequestFormError)) throw err;
+              const prior = input.clientRequestId
+                ? await support.createdByRequest({ userId, clientRequestId: input.clientRequestId })
+                : null;
+              if (!prior) throw mapRequestForm(err);
+            }
+          }
+          const { form: _form, ...ticketInput } = input;
+          const ticket = await support.createTicket({ userId, ...ticketInput });
+          // The answers are kept once per request; a replay that finds them kept changes nothing.
+          if (checked) await forms.record(ticket.id, checked);
           loop?.markTicketCreateSuccess();
           return ticket;
         } catch (err) {
@@ -249,6 +274,18 @@ export function createSupportRouter(
       .query(async ({ ctx, input }) => {
         try {
           return await support.listMyTickets({ userId: ctx.principal!.userId, limit: input?.limit });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** The caller's own request a `create` key made, or null (a page whose create answer was lost reads this). */
+    createdByRequest: scopedProcedure('support:read')
+      .input(supportCreatedByRequestInputSchema)
+      .output(supportTicketSchema.nullable())
+      .query(async ({ ctx, input }) => {
+        try {
+          return await support.createdByRequest({ userId: ctx.principal!.userId, clientRequestId: input.clientRequestId });
         } catch (err) {
           mapError(err);
         }

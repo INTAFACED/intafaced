@@ -838,13 +838,13 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                 <p role="status">
                   <Text k="agents.the.coach.cannot.ground.this.request" />
                   {c.reason}
-                  <Text k="agents.no.advice.or.position.claim.was.generated" />
+                  <Text k="agents.nothing.was.generated" />
                 </p>
               ) : (
                 <>
                   <p>
                     {c.citedCount}
-                    <Text k="agents.curriculum.citations.no.investment.advice" />
+                    <Text k="agents.curriculum.citations" />
                   </p>
                   <ul>
                     {c.citations.map((r) => (

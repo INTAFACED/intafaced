@@ -40,6 +40,16 @@
       "service": "support",
       "value": "3600",
       "note": "The window for the vote limit above, in seconds. Not an owner decision."
+    },
+    "SUPPORT_FORM_CAP": {
+      "service": "support",
+      "value": "50",
+      "note": "Live request forms the desk may keep, so J-support-public-02 #3 can define a request type with its form. Not an owner decision."
+    },
+    "SUPPORT_FIELD_CAP": {
+      "service": "support",
+      "value": "200",
+      "note": "Live ticket fields the desk may keep, for the same journey. Not an owner decision."
     }
   }
 }
