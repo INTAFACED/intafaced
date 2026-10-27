@@ -257,15 +257,18 @@ function SearchPanel({
     return [...coins, ...markets, ...pages, ...helpList];
   }, [source, tickers, pages, helpList, layoutMode, query, signedIn]);
 
-  // A submitted search (Enter) that found nothing is counted once for the founders: no words, no account, no retry.
+  // A submitted search (Enter) that found nothing is counted once for the founders. Nothing found means every group
+  // answered: the markets answered (even with none listed) and Help gave its articles or has no limit set; "Open Help" alone is not a result. The
+  // call carries no words and no session (no bearer), and is never retried.
   const counted = useRef<string | null>(null);
-  const found = rows.some((row) => row.group !== 'Help');
+  const found = rows.some((row) => row.key !== 'help:all');
   const settled = !loading && help.status !== 'loading' && words.length > 0;
+  const answered = (source.status === 'ready' || source.status === 'empty') && (help.status === 'ready' || help.status === 'unset');
   function countMiss() {
     const key = words.join(' ');
     if (counted.current === key) return;
     counted.current = key;
-    void api.mutate('notify', 'navMetrics.searchMiss', undefined, z.unknown()).catch(() => undefined);
+    void api.mutate('notify', 'navMetrics.searchMiss', undefined, z.unknown(), { bearer: '' }).catch(() => undefined);
   }
 
   function choose(row: Row | undefined) {
@@ -283,8 +286,8 @@ function SearchPanel({
       setActive(rows.length ? (active - 1 + rows.length) % rows.length : 0);
     } else if (event.key === 'Enter') {
       event.preventDefault();
-      // Nothing found: Enter keeps "No results" in view and counts the miss; Help stays one click away.
-      if (!found && settled) return countMiss();
+      // Nothing found: the miss is counted, and Enter opens the active row as always (Open Help).
+      if (!found && settled && answered) countMiss();
       choose(rows[Math.min(active, rows.length - 1)]);
     }
   }
@@ -350,7 +353,7 @@ function SearchPanel({
           );
         })}
       </ul>
-      {!found && settled && (
+      {!rows.some((row) => row.group !== 'Help') && settled && (
         <p className="tb-empty" role="status">
           {t('No results for "{query}"', { query })}
         </p>
