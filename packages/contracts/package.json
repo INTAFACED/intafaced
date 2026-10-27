@@ -62,6 +62,10 @@
       "types": "./dist/identity-kyc-cases.d.ts",
       "default": "./dist/identity-kyc-cases.js"
     },
+    "./identity-kyc-capabilities": {
+      "types": "./dist/identity-kyc-capabilities.d.ts",
+      "default": "./dist/identity-kyc-capabilities.js"
+    },
     "./ops-staff-holds": {
       "types": "./dist/ops-staff-holds.d.ts",
       "default": "./dist/ops-staff-holds.js"
