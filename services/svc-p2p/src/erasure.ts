@@ -114,6 +114,11 @@ export interface P2pExport {
    * on. `notCovered` names where to get them instead.
    */
   readonly instruments: unknown[];
+  /**
+   * The caller's past P2P risk notice acceptances (`p2p.risk_acceptances`). No take reads them any more (owner
+   * decision 2026-10-27), but the rows are still held, so they are still the caller's to see.
+   */
+  readonly riskAcceptances: unknown[];
   /** Named so a reader knows the export is of THIS service, not the platform. */
   readonly notCovered: string[];
 }
@@ -132,7 +137,7 @@ export class P2pErasure {
    */
   async exportFor(userId: string): Promise<P2pExport> {
     return withSpan('p2p.export', async () => {
-      const [offers, trades, disputes, orderReviews, remarkCases, reputation, instruments] = await Promise.all([
+      const [offers, trades, disputes, orderReviews, remarkCases, reputation, instruments, riskAcceptances] = await Promise.all([
         this.sql`SELECT * FROM p2p.offers WHERE maker_id = ${userId} ORDER BY created_at`,
         this.sql`SELECT * FROM p2p.p2p_trades WHERE seller_id = ${userId} OR buyer_id = ${userId} ORDER BY created_at`,
         this.sql`
@@ -163,6 +168,7 @@ export class P2pErasure {
            WHERE owner_id = ${userId}
            ORDER BY created_at
         `,
+        this.sql`SELECT user_id, version, accepted_at FROM p2p.risk_acceptances WHERE user_id = ${userId} ORDER BY accepted_at`,
       ]);
 
       // The column list above is the export reader. `details` is not selected, so a
@@ -184,6 +190,7 @@ export class P2pErasure {
         remarkCases: [...remarkCases],
         reputation: reputation[0] ?? null,
         instruments: [...instruments],
+        riskAcceptances: [...riskAcceptances],
         // An export that implies it is the whole platform is a lie told by
         // omission. These are the parts a reader must go elsewhere for.
         notCovered: [
@@ -303,6 +310,11 @@ export class P2pErasure {
             RETURNING trade_id
           `;
           erased.push({ category: 'payment details frozen onto trades', rows: snapshots.length });
+
+          // Past risk notice acceptances: one row per person and version, read by nothing since owner decision
+          // 2026-10-27 and referenced by no foreign key. A genuine delete.
+          const acceptances = await tx`DELETE FROM p2p.risk_acceptances WHERE user_id = ${userId} RETURNING version`;
+          erased.push({ category: 'risk notice acceptances', rows: acceptances.length });
 
           const tradedOffers = await tx<Array<{ n: string }>>`
             SELECT count(*) AS n FROM p2p.offers o

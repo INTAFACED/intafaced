@@ -16,7 +16,8 @@
  *
  * No risk notice gates a take (owner decision 2026-10-27, until launch prep):
  * the accept step and its check are gone. The `p2p.risk_acceptances` table
- * stays in the schema, unread.
+ * stays in the schema: no take reads it, and `data.export` / `data.erase`
+ * (erasure.ts) list and delete the caller's own rows.
  */
 import { checkAccess, type KycTier } from '@intafaced/config';
 import { forwardedPrincipalHeaders, unwrapTrpcData, type Context } from '@intafaced/contracts';

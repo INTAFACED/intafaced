@@ -3099,6 +3099,8 @@ export function createP2pRouter(
              * an account number with nothing recording that anyone did.
              */
             instruments: z.array(z.unknown()),
+            /** Past P2P risk notice acceptances, still held though no take reads them. */
+            riskAcceptances: z.array(z.unknown()),
             /** What a reader must go elsewhere for. Omitting this would be a lie by omission. */
             notCovered: z.array(z.string()),
           }),

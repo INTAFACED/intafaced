@@ -243,7 +243,13 @@ test('J-p2p-01 #3 an ad shows the seller’s record and terms, and its requireme
   const eligible = await b.query('access.eligibility');
   expect(eligible.canTake).toBe(true);
   expect(eligible.checks.map((c) => c.id)).toEqual(['verification', 'contact', 'jurisdiction', 'deposit']);
-  expect((await b.raw.mutate('risk.accept', { version: 'TEST' })).status).toBe(404);
+  // The fraud-safety guidance stays, read-only beside the take: nothing to tick or accept.
+  const safe = take.getByTestId('p2p-stay-safe');
+  await expect(safe).toBeVisible();
+  await expect(safe).toContainText('It is not the other side of your trade.');
+  await expect(safe).toContainText('Never cancel an order after you paid.');
+  await expect(safe.getByRole('button')).toHaveCount(0);
+  await expect(safe.getByRole('checkbox')).toHaveCount(0);
 });
 
 test('J-p2p-01 #4 a fiat amount becomes a quote held with a countdown, and a quote past its window refuses by name', async ({ page }) => {

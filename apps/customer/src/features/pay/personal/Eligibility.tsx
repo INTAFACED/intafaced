@@ -31,6 +31,30 @@ export function eligibilityReason(t: CopyT, check: Check): string {
 }
 
 /**
+ * How P2P works and the scams to watch for, always shown beside a take. Guidance only: nothing to tick or accept, and
+ * nothing is sent (owner decision 2026-10-27 dropped the forced acceptance, not the advice).
+ */
+export function StaySafe() {
+  const { t } = eligibilityCopy.useCopy();
+  return (
+    <section className="p2p-stay-safe" aria-label={t('safeTitle')} data-testid="p2p-stay-safe">
+      <h4>{t('safeTitle')}</h4>
+      <p className="muted">{t('safeIntro')}</p>
+      <ul className="p2p-risk-points">
+        <li>{t('safeRole')}</li>
+        <li>{t('safeOutside')}</li>
+        <li>{t('safeProhibited')}</li>
+        <li>{t('safeFakeReceipt')}</li>
+        <li>{t('safePhishing')}</li>
+        <li>{t('safeMiddle')}</li>
+        <li>{t('safePressure')}</li>
+        <li>{t('safeCancelAfterPay')}</li>
+      </ul>
+    </section>
+  );
+}
+
+/**
  * Every requirement for taking an ad, as `access.eligibility` reports it: met, not met with the step that fixes it, or
  * unknown. `compact` lists only what is not met (the ad's take panel); the hub lists all of them.
  */

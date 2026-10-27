@@ -25,10 +25,8 @@ describe('P2P take requirements', () => {
   });
 
   it('a refused take for contact is its own kind, and proof nothing was placed', () => {
-    for (const [code, kind] of [['p2p.contact_required', 'contact']] as const) {
-      expect(takeFailureKind({ reason: 'forbidden', code, status: 403 })).toBe(kind);
-      expect(takeRefusalIsDefinite({ reason: 'forbidden', code, status: 403 })).toBe(true);
-    }
+    expect(takeFailureKind({ reason: 'forbidden', code: 'p2p.contact_required', status: 403 })).toBe('contact');
+    expect(takeRefusalIsDefinite({ reason: 'forbidden', code: 'p2p.contact_required', status: 403 })).toBe(true);
     // A precondition refusal is normally "may have happened"; these gate codes run before anything is reserved. The
     // client reads a 412 as reason "error".
     for (const code of ['p2p.contact_unverifiable', 'p2p.take_gate_unwired']) {

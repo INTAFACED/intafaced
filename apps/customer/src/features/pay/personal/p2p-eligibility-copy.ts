@@ -1,6 +1,6 @@
 import { defineCopy } from '../../../shared/i18n';
 
-// What a person needs before taking a P2P ad.
+// What a person needs before taking a P2P ad, and the read-only stay-safe guidance shown beside it.
 const en = {
   title: 'Before you trade',
   intro: 'Each requirement for taking an ad, as the service checks it right now.',
@@ -26,6 +26,17 @@ const en = {
   reason_other: 'The service refused this requirement.',
   fix_verification: 'Open verification',
   fix_contact: 'Confirm your email',
+  safeTitle: 'Stay safe',
+  safeIntro: 'How P2P works and the scams to watch for.',
+  safeRole: 'INTAFACED holds the coins in escrow and mediates disputes. It is not the other side of your trade.',
+  safeOutside:
+    'The fiat payment happens outside INTAFACED, between you and the other person. A payment made outside the order is not protected.',
+  safeProhibited: 'Do not use P2P to exchange currencies for others, or to buy with a credit card or someone else’s account.',
+  safeFakeReceipt: 'Fake receipts: a seller releases only after the money is in their own account, never on a screenshot.',
+  safePhishing: 'Phishing, texts and calls: nobody from INTAFACED asks you to release coins or move a payment by message or phone.',
+  safeMiddle: 'A third person in the middle, or a triangle scam: pay only the account shown on the order, in your own name.',
+  safePressure: 'Pressure during a dispute: do not cancel or release because the other side pushes you. Wait for the ruling.',
+  safeCancelAfterPay: 'Never cancel an order after you paid. Open a dispute instead.',
 } as const;
 
 const es = {
@@ -53,6 +64,17 @@ const es = {
   reason_other: 'El servicio rechazó este requisito.',
   fix_verification: 'Abrir verificación',
   fix_contact: 'Confirmar tu correo',
+  safeTitle: 'Opera con seguridad',
+  safeIntro: 'Cómo funciona P2P y las estafas que debes vigilar.',
+  safeRole: 'INTAFACED guarda las monedas en depósito y media en las disputas. No es la otra parte de tu operación.',
+  safeOutside:
+    'El pago en moneda fiat ocurre fuera de INTAFACED, entre tú y la otra persona. Un pago hecho fuera del pedido no está protegido.',
+  safeProhibited: 'No uses P2P para cambiar divisas para otros ni para comprar con tarjeta de crédito o con la cuenta de otra persona.',
+  safeFakeReceipt: 'Recibos falsos: un vendedor libera solo cuando el dinero está en su propia cuenta, nunca por una captura.',
+  safePhishing: 'Suplantación, mensajes y llamadas: nadie de INTAFACED te pide liberar monedas ni mover un pago por mensaje o teléfono.',
+  safeMiddle: 'Una tercera persona en medio o una estafa triangular: paga solo a la cuenta del pedido, a tu nombre.',
+  safePressure: 'Presión durante una disputa: no canceles ni liberes porque la otra parte insista. Espera la resolución.',
+  safeCancelAfterPay: 'Nunca canceles un pedido después de pagar. Abre una disputa.',
 } satisfies Record<keyof typeof en, string>;
 
 const fr = {
@@ -80,6 +102,19 @@ const fr = {
   reason_other: 'Le service a refusé cette condition.',
   fix_verification: 'Ouvrir la vérification',
   fix_contact: 'Confirmer votre e-mail',
+  safeTitle: 'Restez prudent',
+  safeIntro: 'Comment fonctionne le P2P et les arnaques à surveiller.',
+  safeRole: 'INTAFACED garde les cryptos en séquestre et arbitre les litiges. Ce n’est pas l’autre partie de votre échange.',
+  safeOutside:
+    'Le paiement en monnaie fiat se fait hors d’INTAFACED, entre vous et l’autre personne. Un paiement fait hors de la commande n’est pas protégé.',
+  safeProhibited:
+    'N’utilisez pas le P2P pour changer des devises pour d’autres, ni pour acheter avec une carte de crédit ou le compte de quelqu’un d’autre.',
+  safeFakeReceipt: 'Faux reçus : un vendeur libère seulement quand l’argent est sur son propre compte, jamais sur une capture d’écran.',
+  safePhishing:
+    'Hameçonnage, SMS et appels : personne chez INTAFACED ne vous demande de libérer des cryptos ou de déplacer un paiement par message ou téléphone.',
+  safeMiddle: 'Une tierce personne au milieu ou une arnaque triangulaire : payez seulement le compte indiqué sur la commande, à votre nom.',
+  safePressure: 'Pression pendant un litige : n’annulez pas et ne libérez pas parce que l’autre partie insiste. Attendez la décision.',
+  safeCancelAfterPay: 'N’annulez jamais une commande après avoir payé. Ouvrez un litige.',
 } satisfies Record<keyof typeof en, string>;
 
 export const eligibilityCopy = defineCopy('pay.p2p.eligibility', en, { es, fr });

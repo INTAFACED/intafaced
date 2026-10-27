@@ -435,9 +435,7 @@ test(`${J} #5 sees a payout: one payout per period posted, and the schedule show
   await expect(earned).toHaveAttribute('data-total', fromUnits(daily('100', 125) * 2n));
 });
 
-test(`${J} #6 opens a staking-style pool: unbonding states and pool status; a closed pool refuses deposits while existing positions keep accruing and can withdraw`, async ({
-  page,
-}) => {
+test(`${J} #6 opens a staking-style pool: the pool status is shown, and the unbonding states (not built yet)`, async ({ page }) => {
   const { who, pool } = state();
   await signIn(page, who);
   await page.goto(poolPage(pool));
