@@ -291,9 +291,11 @@ describe('the payment methods a hosted checkout offers (M-adv-payments-core-11, 
       await as(owner).merchantCheckoutMethods.save({ requestId: nid(), expectedVersion: current.version, methods });
     };
 
-    it('passes the caller through for a business that never saved, so the open runs as before', async () => {
+    it('for a business that never saved, passes the caller through, and takes the one method connected when none is named', async () => {
       const token = await link(otherMerchant, '5', 'EUR');
-      expect(await checkoutMethodFor(sql, CRYPTO_ONLY, { linkToken: token, geoCountry: 'DE' }, now)).toBeUndefined();
+      // One method left (one connected, or the only one the business's category allows): that one, not a blank method
+      // that routing would refuse as the payer's gap.
+      expect(await checkoutMethodFor(sql, CRYPTO_ONLY, { linkToken: token, geoCountry: 'DE' }, now)).toBe('crypto');
       expect(await checkoutMethodFor(sql, CRYPTO_ONLY, { linkToken: token, geoCountry: 'DE', method: 'card' }, now)).toBe('card');
     });
 

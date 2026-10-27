@@ -71,7 +71,8 @@ export async function rulesOf(sql: Sql, merchantId: string, rails: MethodRails):
  *
  * The caller's method passes through unchanged, and the open goes on exactly as before methods could be set, when:
  * - the business never saved its methods and the payer named a method, or the platform has only one (the default offers
- *   what the platform can take, which routing already decides). With several connected and none named, the default
+ *   what the platform can take, which routing already decides). When the business's category leaves it one of several
+ *   (`rails` is already limited to the rails it allows), that one is the method. With several connected and none named, the default
  *   offer decides as a saved one does: crypto for a crypto payment and a bank transfer for a fiat one (J-merchant-04
  *   step 6), or the payer chooses;
  * - the platform has no connected method at all (the open refuses by the name of that operator gap);
@@ -98,6 +99,7 @@ export async function checkoutMethodFor(
   const currency = link?.currency ?? input.assetId;
   if (!link || !currency) return input.method;
   const saved = await savedRulesOf(sql, link.merchant_id);
+  if (!saved && input.method === undefined && rails.size === 1) return [...rails.keys()][0];
   if (!saved && (input.method !== undefined || rails.size < 2)) return input.method;
   const rules = saved ?? defaultRules(rails);
   // A country the offer cannot read must not skip the business's rules: routing would take it under a '*' profile.

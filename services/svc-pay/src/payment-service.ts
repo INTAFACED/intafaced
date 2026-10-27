@@ -2385,19 +2385,15 @@ export class PayService {
     const categoryRule = await checkoutCategoryRule(this.sql, input.linkToken);
     if (categoryRule?.class === 'prohibited') assertCategoryAllows(categoryRule, null);
     // M-adv-payments-core-11: only a method the business offers for this country, currency and amount, in its order.
-    const offeredMethod = await checkoutMethodFor(
-      this.sql,
-      this.checkoutMethodRails(categoryRails(categoryRule) ?? undefined),
-      input,
-      this.now(),
-    );
+    const onlyRails = categoryRails(categoryRule) ?? undefined;
+    const offeredMethod = await checkoutMethodFor(this.sql, this.checkoutMethodRails(onlyRails), input, this.now());
     const decision = this.selectCheckoutRail(
       {
         geoCountry: input.geoCountry,
         method: offeredMethod,
         riskBand: input.riskBand,
       },
-      categoryRails(categoryRule) ?? undefined,
+      onlyRails,
     );
     const adapter = decision.adapter;
     // Blank reserve terms (and any rule the routing hint did not cover) refuse by name before any row.

@@ -339,6 +339,46 @@ describe(
       );
     });
 
+    it('a business whose category takes crypto only and that never saved its methods opens on crypto, without a method named', async () => {
+      const pay = service('exact_normalised');
+      const m = await pay.createMerchant({ userId: randomUUID(), pricing: { feeBps: 0 } });
+      // A TEST category in the owner's table, chosen by this business, as the founders' two-person edit and the business's
+      // choice write them (J-merchant-02 #7 adds one on the stack). Every class but prohibited takes crypto-native only.
+      const key = `test-crypto-${randomUUID().slice(0, 8)}`;
+      const after = { key, label: 'TEST category', class: 'permissionless' };
+      await sql.begin(async (tx) => {
+        await tx`
+          INSERT INTO pay.business_categories (key, label, class, version, updated_by, approved_by)
+          VALUES (${key}, 'TEST category', 'permissionless', 1, 'founder-a', 'founder-b')`;
+        await tx`
+          INSERT INTO pay.business_category_events (key, actor_id, approver_id, before, after, reason)
+          VALUES (${key}, 'founder-a', 'founder-b', NULL, ${tx.json(after)}, 'TEST category')`;
+        const [{ version }] = await tx<Array<{ version: string }>>`SELECT count(*)::text AS version FROM pay.business_category_events`;
+        await tx`
+          INSERT INTO pay.merchant_categories (merchant_id, category_key, table_version, chosen_by)
+          VALUES (${m.id}, ${key}, ${version}, ${m.id})`;
+        await tx`
+          INSERT INTO pay.merchant_category_events (merchant_id, category_key, table_version, actor_id)
+          VALUES (${m.id}, ${key}, ${version}, ${m.id})`;
+      });
+      const usdt = await pay.createPaymentLink({ merchantId: m.id, label: 'TEST USDT', amount: amt('7'), currency: 'USDT' });
+      const opened = await pay.openCheckoutSession({ linkToken: usdt.token, geoCountry: 'DE' });
+      expect(opened.session.method).toBe('crypto');
+      expect((await paymentOf(await sessionPayment(opened.sessionToken))).method).toBe('crypto');
+
+      // A fiat link opens on the one method the category leaves too, and a bank transfer the category does not allow
+      // refuses by the category's name before anything is written.
+      const eur = await pay.createPaymentLink({ merchantId: m.id, label: 'TEST EUR', amount: amt('7'), currency: 'EUR' });
+      expect((await pay.openCheckoutSession({ linkToken: eur.token, geoCountry: 'DE' })).session.method).toBe('crypto');
+      const before = (await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.payments`)[0]!.n;
+      expect(
+        await refusal(() =>
+          pay.openCheckoutSession({ linkToken: eur.token, geoCountry: 'DE', method: 'bank_transfer', payerName: 'Ada Lovelace' }),
+        ),
+      ).toMatchObject({ code: 'pay.category_rail_refused', detail: { allowed: ['crypto-native'] } });
+      expect((await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.payments`)[0]!.n).toBe(before);
+    });
+
     it('refuses a forged delivery before it reaches the bank or the payment', async () => {
       const pay = service('exact_normalised');
       const { link } = await eurLink(pay);
