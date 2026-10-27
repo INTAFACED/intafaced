@@ -6,8 +6,12 @@ import { fundedTrader, signIn, signUp } from './desk.mjs';
 // iceberg on /execution. One test per step, titled "J-copy-bots-otc-23 #<n>", run in order. The trader starts signed
 // in, verified and funded with TEST USDT; every child order goes to the real TEST book, and the parent's progress is
 // read back from the service.
+// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
+// - The New schedule form has no side choice and no Kind, Duration or slice fields as named here, so #2 to #4 and #7
+//   stop at the form; #5: the order form offers no Chase; #6: no Iceberg tab.
 const J = 'J-copy-bots-otc-23';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+const UNBUILT = { timeout: 5_000 };
 
 test.describe.configure({ mode: 'default' });
 
@@ -23,14 +27,14 @@ const detail = (page) => page.getByRole('region', { name: 'Schedule detail' });
 const form = (page) => page.getByRole('region', { name: 'New schedule' });
 
 async function pick(page, label, option) {
-  await page.getByRole('combobox', { name: label }).click();
-  await page.getByRole('option', { name: option, exact: true }).click();
+  await page.getByRole('combobox', { name: label }).click(UNBUILT);
+  await page.getByRole('option', { name: option, exact: true }).click(UNBUILT);
 }
 
 /** Fills the schedule form: BTC/USDT, `side`, `kind`, `total` BTC over `seconds`, a slice every `every` seconds. */
 async function fillSchedule(page, { side = 'Buy', kind = 'TWAP', total, seconds, every }) {
   const box = form(page);
-  await box.getByRole('radio', { name: side, exact: true }).click();
+  await box.getByRole('radio', { name: side, exact: true }).click(UNBUILT);
   await pick(page, 'Kind', kind);
   await box.getByLabel('Total size (BTC)').fill(total);
   await pick(page, 'Duration', 'Custom');
@@ -229,7 +233,7 @@ test(`${J} #6 places an iceberg: display equal to total refused; a valid one res
   const trader = state('trader');
   await signIn(page, trader);
   await page.goto('/execution');
-  await page.getByRole('tablist', { name: 'Execution tabs' }).getByRole('tab', { name: 'Iceberg', exact: true }).click();
+  await page.getByRole('tablist', { name: 'Execution tabs' }).getByRole('tab', { name: 'Iceberg', exact: true }).click(UNBUILT);
   const box = page.getByRole('region', { name: 'New iceberg' });
   const { bid } = await bestPrices();
   // A resting buy 2% under the best bid, so it shows on the book without filling.

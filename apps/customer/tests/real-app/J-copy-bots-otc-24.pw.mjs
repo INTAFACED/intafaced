@@ -32,8 +32,8 @@ async function openOtc(page) {
 
 /** Asks for a price on `quantity` BTC and returns the open quote card. */
 async function ask(page, quantity = '0.5') {
-  await request(page).getByRole('textbox', { name: 'Quantity' }).fill(quantity);
-  await page.getByRole('button', { name: 'Request price' }).click();
+  await request(page).getByRole('textbox', { name: 'Quantity' }).fill(quantity, UNBUILT);
+  await page.getByRole('button', { name: 'Request price' }).click(UNBUILT);
   await expect(card(page)).toBeVisible(UNBUILT);
   await expect(card(page).getByTestId('phase-line')).toContainText('firm');
   return card(page);
@@ -57,8 +57,8 @@ test(`${J} #2 requests a quote with no provider set, then from four providers wh
   await openOtc(page);
   const providers = request(page).getByRole('group', { name: 'Providers' });
   await expect(providers).toBeVisible(UNBUILT);
-  await request(page).getByRole('textbox', { name: 'Quantity' }).fill('0.5');
-  await page.getByRole('button', { name: 'Request price' }).click();
+  await request(page).getByRole('textbox', { name: 'Quantity' }).fill('0.5', UNBUILT);
+  await page.getByRole('button', { name: 'Request price' }).click(UNBUILT);
   await expect(page.getByRole('alert')).toContainText(/No providers set|at most \d+ providers/);
 });
 
@@ -67,16 +67,16 @@ test(`${J} #3 requests as a user below the owner's level: refused, and no quote 
   const unverified = await signUp(page, 'ou');
   await signIn(page, unverified);
   await page.goto('/otc');
-  await request(page).getByRole('textbox', { name: 'Quantity' }).fill('0.5');
-  await page.getByRole('button', { name: 'Request price' }).click();
+  await request(page).getByRole('textbox', { name: 'Quantity' }).fill('0.5', UNBUILT);
+  await page.getByRole('button', { name: 'Request price' }).click(UNBUILT);
   await expect(page.getByRole('alert')).toContainText('verification level', UNBUILT);
   await expect(card(page)).toHaveCount(0);
 });
 
 test(`${J} #4 requests below the desk minimum: refused with the minimum`, async ({ page }) => {
   await openOtc(page);
-  await request(page).getByRole('textbox', { name: 'Quantity' }).fill('0.00001');
-  await page.getByRole('button', { name: 'Request price' }).click();
+  await request(page).getByRole('textbox', { name: 'Quantity' }).fill('0.00001', UNBUILT);
+  await page.getByRole('button', { name: 'Request price' }).click(UNBUILT);
   await expect(page.getByRole('alert')).toContainText(/minimum of [\d.,]+ USDT/, UNBUILT);
 });
 
