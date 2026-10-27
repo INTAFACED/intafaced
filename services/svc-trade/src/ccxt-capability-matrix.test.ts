@@ -184,6 +184,7 @@ describe('ccxt capability matrix — inventory integrity', () => {
         'futuresUnconfiguredOnOpen',
         'identityLevelInsufficientOnOpen',
         'identityLevelUnavailableOnOpen',
+        'identityLevelUnsetOnOpen',
         'leverageRequiredOnOpen',
         'profitSourceUnconfiguredOnClose',
         'reduceIsolatedMarginBelowInitial',

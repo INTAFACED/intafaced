@@ -5,8 +5,9 @@
  * is the whole gate: the suitability quiz no longer gates an open (owner decision 2026-10-27, until launch prep), so
  * its questions and pass mark are kept only as the operator's published content.
  *
- *   - no published rule version, or one whose tier is `none` → no derivatives-specific tier; the jurisdiction matrix
- *     still reads the caller's tier on every order;
+ *   - no published rule version → every open refuses `trade.identity_level_unset` (a blank setting stays blank);
+ *   - a published version whose tier is `none` → no derivatives-specific tier; the jurisdiction matrix still reads the
+ *     caller's tier on every order;
  *   - the verification tier is read from the caller's principal, the same claim the jurisdiction matrix already
  *     reads. Where a rule needs a tier and the caller's tier is not known to this check, the open refuses
  *     `trade.identity_level_unavailable`; a tier that is known and too low refuses `trade.identity_level_insufficient`.
