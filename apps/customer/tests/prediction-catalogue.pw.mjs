@@ -113,9 +113,9 @@ async function scenario(browser, name, width, fn) {
 }
 async function login(page, path = '/predict') {
   await page.goto('/login?redirect=' + encodeURIComponent(path));
-  await page.locator('input[autocomplete="username"]').fill('prediction@example.invalid');
+  await page.locator('input[name="identifier"]').fill('prediction@example.invalid');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect(page).toHaveURL(new RegExp(path + '$'));
 }
 async function fit(page, locator, width) {
@@ -340,7 +340,7 @@ test('guest preserves the complete destination and unreadable original storage s
     const a = page.locator('#main').getByRole('link', { name: 'Sign in', exact: true });
     expect(new URL(await a.getAttribute('href'), baseURL).searchParams.get('redirect')).toBe('/predict?public=reference#record');
     await a.click();
-    await expect(page.locator('input[autocomplete="username"]')).toBeVisible();
+    await expect(page.locator('input[name="identifier"]')).toBeVisible();
   });
   await scenario(browser, 'unreadable-original', 320, async ({ page, state }) => {
     await page.addInitScript(() => {

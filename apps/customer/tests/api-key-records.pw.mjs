@@ -84,9 +84,9 @@ async function network(context) {
 async function login(page, destination = '/uc/safe', newDocument = true) {
   if (newDocument) await page.goto('/login?redirect=' + encodeURIComponent(destination));
   else await page.locator('a.button[href^="/login?redirect="]').click();
-  await page.locator('input[autocomplete="username"]').fill('isolated-owner');
+  await page.locator('input[name="identifier"]').fill('isolated-owner');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect.poll(() => page.evaluate(() => location.pathname + location.search + location.hash)).toBe(destination);
   if (destination.startsWith('/uc/safe')) await expect(section(page)).toBeVisible();
 }
@@ -287,9 +287,9 @@ test('401 retires private rows and actual Login/Register preserves complete quer
   expect(new URL(page.url()).searchParams.get('redirect')).toBe(destination);
   await page.locator('a.text-link[href^="/login?redirect="]').click();
   expect(new URL(page.url()).searchParams.get('redirect')).toBe(destination);
-  await page.locator('input[autocomplete="username"]').fill('isolated-owner');
+  await page.locator('input[name="identifier"]').fill('isolated-owner');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect.poll(() => page.evaluate(() => location.pathname + location.search + location.hash)).toBe(destination);
   state.respond = async () => ({ status: 200, data: [record] });
   await readButton(page).click();

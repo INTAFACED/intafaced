@@ -150,9 +150,9 @@ async function scenario(browser, name, run, width = 1440) {
   }
 }
 async function submitLogin(page, destination) {
-  await page.locator('input[autocomplete="username"]').fill('bank@example.invalid');
+  await page.locator('input[name="identifier"]').fill('bank@example.invalid');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect.poll(() => currentURL(page)).toBe(destination);
   await expect(bankNav(page)).toBeVisible();
 }
@@ -314,9 +314,9 @@ test('Money to Bank to Spaces Create uses the same document and preserves actual
     'money-bank-create',
     async ({ page, state }) => {
       await page.goto('/login?redirect=%2Fmoney');
-      await page.locator('input[autocomplete="username"]').fill('bank@example.invalid');
+      await page.locator('input[name="identifier"]').fill('bank@example.invalid');
       await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-      await page.locator('form button[type="submit"]').click();
+      await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
       await expect.poll(() => currentURL(page)).toBe('/money');
       const bank = page.locator('.money-home a[href="/bank"]');
       await expect(bank).toBeVisible();

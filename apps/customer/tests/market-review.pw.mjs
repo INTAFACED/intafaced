@@ -196,9 +196,9 @@ async function network(context, mode = 'purchase', outcome = 'success', override
 }
 async function login(page, path) {
   await page.goto('/login?redirect=' + encodeURIComponent(path));
-  await page.locator('input[autocomplete="username"]').fill('isolated-market');
+  await page.locator('input[name="identifier"]').fill('isolated-market');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect(page).toHaveURL(new RegExp(path + '$'));
 }
 async function language(view, page, locale) {
