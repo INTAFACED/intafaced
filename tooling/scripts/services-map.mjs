@@ -25,7 +25,8 @@ function stripComments(src) {
   return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1');
 }
 
-const OPTIONAL_MARK = /\.(default|optional|nullish|nullable|catch)\(|z\.undefined\(/;
+// `blankAsUnset(` is @intafaced/service-kit's helper: it wraps its schema in `.optional()` in another package.
+const OPTIONAL_MARK = /\.(default|optional|nullish|nullable|catch)\(|z\.undefined\(|\bblankAsUnset\(/;
 
 /**
  * Top-level helpers of one env file: `const name = ...` and `function name(...)`, each with its own text.
