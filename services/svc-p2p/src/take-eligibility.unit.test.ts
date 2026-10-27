@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createIdentityContactReader, riskNoticeVersion } from './take-eligibility.js';
+import { createIdentityContactReader } from './take-eligibility.js';
 
 /** svc-identity's `me`, asked as the person of the request and nobody else. */
 describe('identity contact reader', () => {
@@ -44,13 +44,5 @@ describe('identity contact reader', () => {
   ])('%s is unverifiable, never confirmed', async (_name, fetcher) => {
     const reader = createIdentityContactReader({ identityUrl: 'http://identity.test', fetcher: fetcher as typeof fetch });
     await expect(reader.emailConfirmed(ctx)).rejects.toMatchObject({ code: 'p2p.contact_unverifiable' });
-  });
-});
-
-describe('risk notice version', () => {
-  it('is blank when unset or whitespace, and trimmed otherwise', () => {
-    expect(riskNoticeVersion(undefined)).toBeNull();
-    expect(riskNoticeVersion('   ')).toBeNull();
-    expect(riskNoticeVersion(' TEST-v1 ')).toBe('TEST-v1');
   });
 });

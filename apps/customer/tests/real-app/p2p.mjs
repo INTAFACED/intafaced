@@ -304,15 +304,12 @@ export async function unconfirmedAccount(prefix) {
 }
 
 /**
- * A taker who meets every take requirement: email confirmed, the current risk notice accepted, and a TEST passkey to
- * confirm takes with. Pass the account's passkey when it already has one.
+ * A taker who meets every take requirement: email confirmed and a TEST passkey to confirm takes with. Pass the
+ * account's passkey when it already has one.
  */
 export async function readyTaker(session, who, passkey = null) {
   await confirmEmail(session, who);
-  const client = p2p(session, passkey ?? (await testPasskey(session)));
-  const notice = await client.query('risk.notice');
-  await client.mutate('risk.accept', { version: notice.version });
-  return client;
+  return p2p(session, passkey ?? (await testPasskey(session)));
 }
 
 /** The TEST legal name a journey person's payment accounts are held in (P-ads-merchant-18's own-name rule). */

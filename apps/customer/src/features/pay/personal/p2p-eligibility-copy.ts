@@ -1,6 +1,6 @@
 import { defineCopy } from '../../../shared/i18n';
 
-// What a person needs before taking a P2P ad, and the risk and fraud notice they accept first.
+// What a person needs before taking a P2P ad.
 const en = {
   title: 'Before you trade',
   intro: 'Each requirement for taking an ad, as the service checks it right now.',
@@ -10,7 +10,6 @@ const en = {
   check_contact: 'Confirmed email address',
   check_jurisdiction: 'Your region',
   check_deposit: 'Security deposit',
-  check_risk: 'Risk and fraud notice',
   state_met: 'Met',
   state_not_met: 'Not met',
   state_unknown: 'Unknown',
@@ -24,30 +23,9 @@ const en = {
   reason_screening: 'The operator’s sanctions screening is not set up, so P2P refuses every account.',
   reason_region_first: 'Your region was checked first and refused, so verification was not reached.',
   reason_deposit: 'Takers post no deposit. Only a merchant’s ads can need one.',
-  reason_risk_ok: 'You accepted notice {version}.',
-  reason_risk_needed: 'Read and accept the notice before your first order.',
-  reason_risk_unset: 'The operator has not published a risk notice version, so taking an ad is refused.',
   reason_other: 'The service refused this requirement.',
   fix_verification: 'Open verification',
   fix_contact: 'Confirm your email',
-  riskOpen: 'Read the risk and fraud notice',
-  riskTitle: 'Risk and fraud notice',
-  riskVersion: 'Notice {version}',
-  riskRole: 'INTAFACED holds the coins in escrow and mediates disputes. It is not the other side of your trade.',
-  riskOutside:
-    'The fiat payment happens outside INTAFACED, between you and the other person. A payment made outside the order is not protected.',
-  riskRoles:
-    'The person who posted the ad is the maker. You, taking it, are the taker. The seller releases the coins only after the payment arrives.',
-  riskProhibited: 'Do not use P2P to exchange currencies for others, or to buy with a credit card or someone else’s account.',
-  riskFakeReceipt: 'Fake receipts: a seller releases only after the money is in their own account, never on a screenshot.',
-  riskPhishing: 'Phishing, texts and calls: nobody from INTAFACED asks you to release coins or move a payment by message or phone.',
-  riskMiddle: 'A third person in the middle, or a triangle scam: pay only the account shown on the order, in your own name.',
-  riskPressure: 'Pressure during a dispute: do not cancel or release because the other side pushes you. Wait for the ruling.',
-  riskCancelAfterPay: 'Never cancel an order after you paid. Open a dispute instead.',
-  riskAccept: 'I have read this and accept it',
-  riskAccepting: 'Accepting…',
-  riskAcceptFailed: 'The acceptance was not recorded. Try again.',
-  riskClose: 'Not now',
 } as const;
 
 const es = {
@@ -59,7 +37,6 @@ const es = {
   check_contact: 'Correo electrónico confirmado',
   check_jurisdiction: 'Tu región',
   check_deposit: 'Depósito de garantía',
-  check_risk: 'Aviso de riesgos y fraude',
   state_met: 'Cumplido',
   state_not_met: 'No cumplido',
   state_unknown: 'Desconocido',
@@ -73,30 +50,9 @@ const es = {
   reason_screening: 'El control de sanciones del operador no está configurado, así que P2P rechaza todas las cuentas.',
   reason_region_first: 'Tu región se comprobó primero y se rechazó, así que no se llegó a la verificación.',
   reason_deposit: 'Quien toma un anuncio no deposita nada. Solo los anuncios de un comerciante pueden pedirlo.',
-  reason_risk_ok: 'Aceptaste el aviso {version}.',
-  reason_risk_needed: 'Lee y acepta el aviso antes de tu primer pedido.',
-  reason_risk_unset: 'El operador no ha publicado una versión del aviso de riesgos, así que se rechaza tomar un anuncio.',
   reason_other: 'El servicio rechazó este requisito.',
   fix_verification: 'Abrir verificación',
   fix_contact: 'Confirmar tu correo',
-  riskOpen: 'Leer el aviso de riesgos y fraude',
-  riskTitle: 'Aviso de riesgos y fraude',
-  riskVersion: 'Aviso {version}',
-  riskRole: 'INTAFACED guarda las monedas en depósito y media en las disputas. No es la otra parte de tu operación.',
-  riskOutside:
-    'El pago en moneda fiat ocurre fuera de INTAFACED, entre tú y la otra persona. Un pago hecho fuera del pedido no está protegido.',
-  riskRoles:
-    'Quien publicó el anuncio es el creador. Tú, al tomarlo, eres el tomador. El vendedor libera las monedas solo cuando llega el pago.',
-  riskProhibited: 'No uses P2P para cambiar divisas para otros ni para comprar con tarjeta de crédito o con la cuenta de otra persona.',
-  riskFakeReceipt: 'Recibos falsos: un vendedor libera solo cuando el dinero está en su propia cuenta, nunca por una captura.',
-  riskPhishing: 'Suplantación, mensajes y llamadas: nadie de INTAFACED te pide liberar monedas ni mover un pago por mensaje o teléfono.',
-  riskMiddle: 'Una tercera persona en medio o una estafa triangular: paga solo a la cuenta del pedido, a tu nombre.',
-  riskPressure: 'Presión durante una disputa: no canceles ni liberes porque la otra parte insista. Espera la resolución.',
-  riskCancelAfterPay: 'Nunca canceles un pedido después de pagar. Abre una disputa.',
-  riskAccept: 'Lo he leído y lo acepto',
-  riskAccepting: 'Aceptando…',
-  riskAcceptFailed: 'No se registró la aceptación. Inténtalo de nuevo.',
-  riskClose: 'Ahora no',
 } satisfies Record<keyof typeof en, string>;
 
 const fr = {
@@ -108,7 +64,6 @@ const fr = {
   check_contact: 'Adresse e-mail confirmée',
   check_jurisdiction: 'Votre région',
   check_deposit: 'Dépôt de garantie',
-  check_risk: 'Avis sur les risques et la fraude',
   state_met: 'Remplie',
   state_not_met: 'Non remplie',
   state_unknown: 'Inconnue',
@@ -122,32 +77,9 @@ const fr = {
   reason_screening: 'Le filtrage des sanctions de l’opérateur n’est pas configuré, donc le P2P refuse tous les comptes.',
   reason_region_first: 'Votre région a été vérifiée d’abord et refusée, la vérification n’a donc pas été atteinte.',
   reason_deposit: 'Celui qui prend une annonce ne dépose rien. Seules les annonces d’un marchand peuvent en demander un.',
-  reason_risk_ok: 'Vous avez accepté l’avis {version}.',
-  reason_risk_needed: 'Lisez et acceptez l’avis avant votre première commande.',
-  reason_risk_unset: 'L’opérateur n’a publié aucune version de l’avis sur les risques, donc prendre une annonce est refusé.',
   reason_other: 'Le service a refusé cette condition.',
   fix_verification: 'Ouvrir la vérification',
   fix_contact: 'Confirmer votre e-mail',
-  riskOpen: 'Lire l’avis sur les risques et la fraude',
-  riskTitle: 'Avis sur les risques et la fraude',
-  riskVersion: 'Avis {version}',
-  riskRole: 'INTAFACED garde les cryptos en séquestre et arbitre les litiges. Ce n’est pas l’autre partie de votre échange.',
-  riskOutside:
-    'Le paiement en monnaie fiat se fait hors d’INTAFACED, entre vous et l’autre personne. Un paiement fait hors de la commande n’est pas protégé.',
-  riskRoles:
-    'La personne qui a publié l’annonce est le créateur. Vous, en la prenant, êtes le preneur. Le vendeur libère les cryptos seulement quand le paiement arrive.',
-  riskProhibited:
-    'N’utilisez pas le P2P pour changer des devises pour d’autres, ni pour acheter avec une carte de crédit ou le compte de quelqu’un d’autre.',
-  riskFakeReceipt: 'Faux reçus : un vendeur libère seulement quand l’argent est sur son propre compte, jamais sur une capture d’écran.',
-  riskPhishing:
-    'Hameçonnage, SMS et appels : personne chez INTAFACED ne vous demande de libérer des cryptos ou de déplacer un paiement par message ou téléphone.',
-  riskMiddle: 'Une tierce personne au milieu ou une arnaque triangulaire : payez seulement le compte indiqué sur la commande, à votre nom.',
-  riskPressure: 'Pression pendant un litige : n’annulez pas et ne libérez pas parce que l’autre partie insiste. Attendez la décision.',
-  riskCancelAfterPay: 'N’annulez jamais une commande après avoir payé. Ouvrez un litige.',
-  riskAccept: 'J’ai lu et j’accepte',
-  riskAccepting: 'Acceptation…',
-  riskAcceptFailed: 'L’acceptation n’a pas été enregistrée. Réessayez.',
-  riskClose: 'Plus tard',
 } satisfies Record<keyof typeof en, string>;
 
 export const eligibilityCopy = defineCopy('pay.p2p.eligibility', en, { es, fr });

@@ -49,13 +49,7 @@ import { parseAdContentRules } from './ad-content-rules.js';
 import { parsePostingThresholds } from './posting-eligibility.js';
 import { AdvertiserTermsAcceptances, advertiserTermsVersion, createAdvertiserTerms } from './advertiser-terms.js';
 import { createLocalTestKeyProvider } from './local-test-kms.js';
-import {
-  createIdentityContactReader,
-  createTakeGate,
-  RiskAcceptances,
-  riskNoticeVersion,
-  unwiredContactReader,
-} from './take-eligibility.js';
+import { createIdentityContactReader, createTakeGate, unwiredContactReader } from './take-eligibility.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -225,12 +219,10 @@ const blockRfq = new BlockRfqService(new SqlBlockQuoteStore(sql), {
   isTradingEnabled: () => p2p.isTradingEnabled(),
 });
 
-// P-trade-orders-02 / P-disputes-security-08: contact is read from identity as the person of the request;
-// the risk notice acceptance is held here. Without IDENTITY_URL contact is unknown and every take refuses.
+// P-trade-orders-02: contact is read from identity as the person of the request. Without IDENTITY_URL contact is
+// unknown and every take refuses. No risk notice gates a take (owner decision 2026-10-27, until launch prep).
 const takeGate = createTakeGate({
   contact: env.IDENTITY_URL ? createIdentityContactReader({ identityUrl: env.IDENTITY_URL }) : unwiredContactReader(),
-  acceptances: new RiskAcceptances(sql),
-  riskVersion: riskNoticeVersion(env.P2P_RISK_NOTICE_VERSION),
 });
 
 const actionApprovals = env.IDENTITY_URL

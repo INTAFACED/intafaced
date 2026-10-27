@@ -106,8 +106,8 @@ export type P2pRouterOptions = {
    */
   disputeResolveRequiresApproval?: boolean;
   /**
-   * What a person needs before taking an ad: confirmed contact and the accepted
-   * risk notice (`take-eligibility.ts`). Unset → every take refuses
+   * What a person needs before taking an ad: confirmed contact
+   * (`take-eligibility.ts`). Unset → every take refuses
    * `p2p.take_gate_unwired`; a missing gate never means "no checks".
    */
   takeGate?: TakeGate;
@@ -511,13 +511,10 @@ export function toTrpcError(err: unknown): TRPCError {
 
   if (err instanceof TakeGateError) {
     switch (err.code) {
-      // The person can fix these themself: confirm the address, read and accept the notice.
+      // The person can fix this themself: confirm the address.
       case 'p2p.contact_required':
-      case 'p2p.risk_not_accepted':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
-      case 'p2p.risk_version_stale':
-        return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
-      // The deployment, not the caller: an unpublished notice or an unreachable identity service.
+      // The deployment, not the caller: no gate installed or an unreachable identity service.
       default:
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
     }
@@ -1454,47 +1451,12 @@ export function createP2pRouter(
               }),
             ),
             canTake: z.boolean(),
-            /** The published risk notice and the caller's acceptance, so the panel needs no second read. */
-            notice: z.object({ version: z.string(), acceptedAt: z.string().nullable() }).nullable(),
           }),
         )
         .query(async ({ ctx }) =>
           guard(async () => {
-            const { checks, notice } = await takeGate.eligibility(ctx);
-            return {
-              checks: [...checks],
-              canTake: checks.every((check) => check.state === 'met'),
-              notice: notice ? { version: notice.version, acceptedAt: notice.acceptedAt?.toISOString() ?? null } : null,
-            };
-          }),
-        ),
-    }),
-
-    /**
-     * P-disputes-security-08. The P2P risk notice: which owner-published version
-     * is current and whether the caller accepted it. Accepting is a person's own
-     * act, so an API key cannot do it for them.
-     */
-    risk: router({
-      notice: scopedProcedure('p2p:read')
-        .output(z.object({ version: z.string(), acceptedAt: z.string().nullable() }))
-        .query(async ({ ctx }) =>
-          guard(async () => {
-            const notice = await takeGate.riskNotice(ctx.principal.userId);
-            return { version: notice.version, acceptedAt: notice.acceptedAt?.toISOString() ?? null };
-          }),
-        ),
-      // `person`: a service holding a forwarded principal cannot accept for the person either.
-      accept: scopedProcedure('p2p:write', { person: true })
-        .input(z.object({ version: z.string().min(1).max(64) }))
-        .output(z.object({ version: z.string(), acceptedAt: z.string() }))
-        .mutation(async ({ ctx, input }) =>
-          guard(async () => {
-            if (ctx.principal.kid) {
-              throw new TRPCError({ code: 'FORBIDDEN', message: 'Accepting the risk notice is interactive only.' });
-            }
-            const accepted = await takeGate.acceptRisk(ctx.principal.userId, input.version);
-            return { version: accepted.version, acceptedAt: accepted.acceptedAt.toISOString() };
+            const { checks } = await takeGate.eligibility(ctx);
+            return { checks: [...checks], canTake: checks.every((check) => check.state === 'met') };
           }),
         ),
     }),

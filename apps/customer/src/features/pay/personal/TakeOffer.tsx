@@ -86,8 +86,6 @@ export function takeFailureText(t: CopyT, kind: TakeFailure, context: 'quote' | 
       return t('failRegion');
     case 'contact':
       return t('failContact');
-    case 'risk':
-      return t('failRisk');
     case 'stepUp':
       return t('failStepUp');
     case 'stepUpExpired':

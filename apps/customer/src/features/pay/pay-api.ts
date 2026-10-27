@@ -608,12 +608,6 @@ export function createPersonalPayApi(
       if (denied) return Promise.resolve(denied);
       return api.query('p2p', 'access.eligibility', undefined, s.p2pEligibilitySchema, { signal });
     },
-    /** `risk.accept`: accept exactly the version shown. Accepting again returns the first acceptance. */
-    acceptRisk(version: string) {
-      const denied = signedIn();
-      if (denied) return Promise.resolve(denied);
-      return api.mutate('p2p', 'risk.accept', { version }, s.p2pRiskNoticeSchema.extend({ acceptedAt: z.string() }));
-    },
     /** P-ads-merchant-01: the advertiser terms version to accept before posting an ad, and when this person accepted it. */
     advertiserTerms(signal?: AbortSignal) {
       const denied = signedIn();

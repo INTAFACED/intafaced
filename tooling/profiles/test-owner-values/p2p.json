@@ -76,11 +76,6 @@
       "value": "600",
       "note": "Seconds the author may edit an order review after leaving it; short, so a journey can see an edit inside it."
     },
-    "P2P_RISK_NOTICE_VERSION": {
-      "service": "p2p",
-      "value": "TEST-2026-10-23",
-      "note": "P2P risk notice version a taker accepts before the first take. TEST label, not a published notice."
-    },
     "P2P_VERIFICATION_LIMITS": {
       "service": "p2p",
       "value": "{\"currency\":\"EUR\",\"tiers\":{\"none\":{\"orderMin\":\"0.5\",\"orderMax\":\"500\",\"dailyMax\":\"600\",\"lifetimeMax\":\"100000\"},\"basic\":{\"orderMin\":\"0.5\",\"orderMax\":\"500\",\"dailyMax\":\"600\",\"lifetimeMax\":\"100000\"},\"full\":{\"orderMin\":\"0.5\",\"orderMax\":\"500\",\"dailyMax\":\"600\",\"lifetimeMax\":\"100000\"},\"institutional\":{\"orderMin\":\"0.5\",\"orderMax\":\"500\",\"dailyMax\":\"600\",\"lifetimeMax\":\"100000\"}}}",

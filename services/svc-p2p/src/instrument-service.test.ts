@@ -1408,8 +1408,6 @@ describe('svc-p2p payment instruments', () => {
         'reviews.forTrade': { tradeId: trade.id },
         'reviews.moderate': { reviewId: crypto.randomUUID(), reason: 'probe' },
         'access.eligibility': undefined,
-        'risk.notice': undefined,
-        'risk.accept': { version: 'TEST' },
         // P-ads-merchant-01: the caller's own terms acceptance and own free balance; no instrument table is read.
         'merchants.advertiserTerms': undefined,
         'merchants.acceptAdvertiserTerms': { version: 'TEST' },

@@ -11,13 +11,13 @@ import { InstrumentService } from './instrument-service.js';
 import { ANY_COUNTRY } from './instruments.js';
 import { P2pService } from './p2p-service.js';
 import { createP2pRouter } from './router.js';
-import { createTakeGate, RiskAcceptances, type ContactReader, type TakeGate } from './take-eligibility.js';
+import { createTakeGate, type ContactReader, type TakeGate } from './take-eligibility.js';
 import { confirmedTakeStepUp } from './take-gate-fixture.js';
 
 /**
- * P-trade-orders-02 / P-disputes-security-08: a take is refused by the first
- * unmet requirement (confirmed contact, then the accepted risk notice) before
- * anything is reserved or locked, and the eligibility list says the same thing.
+ * P-trade-orders-02: a take is refused by an unmet requirement (confirmed
+ * contact) before anything is reserved or locked, and the eligibility list says
+ * the same thing. No risk notice gates a take (owner decision 2026-10-27).
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -29,10 +29,9 @@ const migrations = readdirSync(join(here, '..', 'drizzle'))
 const MAKER = '11111111-1111-4111-8111-111111111111';
 const TAKER = '22222222-2222-4222-8222-222222222222';
 const ASSET = 'USDT';
-const VERSION = 'TEST-v1';
 const SECRET = 'p2p-eligibility-edge-secret-long-enough';
 
-describe('svc-p2p take eligibility (P-trade-orders-02, P-disputes-security-08)', () => {
+describe('svc-p2p take eligibility (P-trade-orders-02)', () => {
   let db: TestDatabase | undefined;
   let sql!: TestDatabase['sql'];
   let instruments!: InstrumentService;
@@ -115,8 +114,8 @@ describe('svc-p2p take eligibility (P-trade-orders-02, P-disputes-security-08)',
     return { reader, seen };
   }
 
-  function gate(reader: ContactReader, riskVersion: string | null = VERSION): TakeGate {
-    return createTakeGate({ contact: reader, acceptances: new RiskAcceptances(sql), riskVersion });
+  function gate(reader: ContactReader): TakeGate {
+    return createTakeGate({ contact: reader });
   }
 
   function caller(takeGate: TakeGate | undefined, options: { tier?: Principal['tier']; kid?: string } = {}) {
@@ -167,7 +166,6 @@ describe('svc-p2p take eligibility (P-trade-orders-02, P-disputes-security-08)',
       ['contact', 'not_met', 'p2p.contact_required', '/uc/account'],
       ['jurisdiction', 'met', 'region.allowed', null],
       ['deposit', 'met', 'deposit.none_for_takers', null],
-      ['risk', 'not_met', 'p2p.risk_not_accepted', null],
     ]);
   });
 
@@ -197,55 +195,19 @@ describe('svc-p2p take eligibility (P-trade-orders-02, P-disputes-security-08)',
     expect(contactCheck).toMatchObject({ state: 'unknown', reason: 'p2p.contact_unverifiable', fix: null });
   });
 
-  it('refuses until the published notice is accepted, then the same take escrows once', async () => {
+  it('takes with confirmed contact and no risk notice to accept, and escrows once (owner decision 2026-10-27)', async () => {
     const offer = await sellOffer();
     const c = caller(gate(contact(true).reader));
-    await expect(take(c, offer.id)).rejects.toMatchObject({
-      code: 'FORBIDDEN',
-      cause: expect.objectContaining({ code: 'p2p.risk_not_accepted' }),
-    });
-    await nothingReserved(offer.id);
-
-    expect(await c.risk.notice()).toEqual({ version: VERSION, acceptedAt: null });
-    await expect(c.risk.accept({ version: 'TEST-v0' })).rejects.toMatchObject({
-      code: 'CONFLICT',
-      cause: expect.objectContaining({ code: 'p2p.risk_version_stale' }),
-    });
-    const accepted = await c.risk.accept({ version: VERSION });
-    // Accepting again changes nothing: the first acceptance stands.
-    expect(await c.risk.accept({ version: VERSION })).toEqual(accepted);
-    expect((await c.risk.notice()).acceptedAt).toBe(accepted.acceptedAt);
-    const after = await c.access.eligibility();
-    expect(after.canTake).toBe(true);
-    expect(after.notice).toEqual({ version: VERSION, acceptedAt: accepted.acceptedAt });
+    const eligibility = await c.access.eligibility();
+    expect(eligibility.canTake).toBe(true);
+    expect(eligibility.checks.map((check) => check.id)).not.toContain('risk');
+    expect(eligibility).not.toHaveProperty('notice');
 
     const trade = await take(c, offer.id);
     expect(trade.status).toBe('escrowed');
     expect((await p2p.getOffer(offer.id)).remainingAmt).toBe(parseAmount('90'));
-  });
-
-  it('a new notice version asks again', async () => {
-    const offer = await sellOffer();
-    const reader = contact(true).reader;
-    await caller(gate(reader)).risk.accept({ version: VERSION });
-    await expect(take(caller(gate(reader, 'TEST-v2')), offer.id)).rejects.toMatchObject({
-      cause: expect.objectContaining({ code: 'p2p.risk_not_accepted' }),
-    });
-    await nothingReserved(offer.id);
-  });
-
-  it('an unpublished notice version refuses every take, and the list says unknown', async () => {
-    const offer = await sellOffer();
-    const c = caller(gate(contact(true).reader, null));
-    await expect(take(c, offer.id)).rejects.toMatchObject({
-      code: 'PRECONDITION_FAILED',
-      cause: expect.objectContaining({ code: 'p2p.risk_notice_unset' }),
-    });
-    await expect(c.risk.notice()).rejects.toMatchObject({ cause: expect.objectContaining({ code: 'p2p.risk_notice_unset' }) });
-    const unset = await c.access.eligibility();
-    expect(unset.checks.find((check) => check.id === 'risk')).toMatchObject({ state: 'unknown', reason: 'p2p.risk_notice_unset' });
-    expect(unset.notice).toBeNull();
-    await nothingReserved(offer.id);
+    // Nothing was asked or stored about a risk notice.
+    expect(await sql`SELECT user_id FROM p2p.risk_acceptances`).toHaveLength(0);
   });
 
   it('with no gate installed every take refuses instead of skipping the checks', async () => {
@@ -255,11 +217,5 @@ describe('svc-p2p take eligibility (P-trade-orders-02, P-disputes-security-08)',
       cause: expect.objectContaining({ code: 'p2p.take_gate_unwired' }),
     });
     await nothingReserved(offer.id);
-  });
-
-  it('an API key cannot accept the notice for the person', async () => {
-    const c = caller(gate(contact(true).reader), { kid: 'key-1' });
-    await expect(c.risk.accept({ version: VERSION })).rejects.toMatchObject({ code: 'FORBIDDEN' });
-    expect(await sql`SELECT user_id FROM p2p.risk_acceptances`).toHaveLength(0);
   });
 });

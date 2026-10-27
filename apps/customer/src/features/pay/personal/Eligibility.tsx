@@ -1,8 +1,5 @@
-import { useState } from 'react';
-import { Button, ReviewDialog as Dialog, StatusTag } from '@intafaced/ui';
-import type { ApiResult } from '../../../shared/api';
+import { StatusTag } from '@intafaced/ui';
 import { useResource } from '../../../shared/resource';
-import { uiCopy } from '../../../shared/ui-copy';
 import { PaySection, PayState } from '../components';
 import type { PersonalPayApi } from '../pay-api';
 import type { P2PEligibility } from '../schemas';
@@ -12,7 +9,7 @@ type CopyT = ReturnType<typeof eligibilityCopy.useCopy>['t'];
 type Check = P2PEligibility['checks'][number];
 
 /** One check's reason in words. The service sends a code; the words are the app's. */
-export function eligibilityReason(t: CopyT, check: Check, riskVersion: string | null): string {
+export function eligibilityReason(t: CopyT, check: Check): string {
   const { id, state, reason } = check;
   if (id === 'verification') {
     if (state === 'met') return t('reason_verified', { tier: reason.replace(/^tier\./, '') });
@@ -30,66 +27,7 @@ export function eligibilityReason(t: CopyT, check: Check, riskVersion: string | 
     return t('reason_other');
   }
   if (id === 'deposit') return t('reason_deposit');
-  if (state === 'met') return t('reason_risk_ok', { version: riskVersion ?? '' });
-  if (reason === 'p2p.risk_notice_unset') return t('reason_risk_unset');
-  if (reason === 'p2p.risk_not_accepted') return t('reason_risk_needed');
   return t('reason_other');
-}
-
-/** The risk and fraud notice, read in full and accepted for the exact version the service published. */
-export function RiskSheet({
-  pay,
-  version,
-  onAccepted,
-  onClose,
-}: {
-  pay: PersonalPayApi;
-  version: string;
-  onAccepted: () => void;
-  onClose: () => void;
-}) {
-  const { t } = eligibilityCopy.useCopy();
-  const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState<ApiResult<unknown> | null>(null);
-  const accept = async () => {
-    setBusy(true);
-    setFailed(null);
-    const result = await pay.acceptRisk(version);
-    setBusy(false);
-    if (result.ok) onAccepted();
-    else setFailed(result);
-  };
-  return (
-    <Dialog closeLabel={uiCopy.t('closeDialog')} title={t('riskTitle')} onClose={() => (busy ? undefined : onClose())}>
-      <div className="form-stack" data-testid="p2p-risk-sheet">
-        <p className="muted">{t('riskVersion', { version })}</p>
-        <ul className="p2p-risk-points">
-          <li>{t('riskRole')}</li>
-          <li>{t('riskOutside')}</li>
-          <li>{t('riskRoles')}</li>
-          <li>{t('riskProhibited')}</li>
-          <li>{t('riskFakeReceipt')}</li>
-          <li>{t('riskPhishing')}</li>
-          <li>{t('riskMiddle')}</li>
-          <li>{t('riskPressure')}</li>
-          <li>{t('riskCancelAfterPay')}</li>
-        </ul>
-        {failed && !failed.ok ? (
-          <p data-testid="failure" className="failure" role="alert">
-            {t('riskAcceptFailed')}
-          </p>
-        ) : null}
-        <div className="actions">
-          <Button variant="ghost" disabled={busy} onClick={onClose}>
-            {t('riskClose')}
-          </Button>
-          <Button variant="primary" disabled={busy} onClick={() => void accept()}>
-            {busy ? t('riskAccepting') : t('riskAccept')}
-          </Button>
-        </div>
-      </div>
-    </Dialog>
-  );
 }
 
 /**
@@ -98,10 +36,7 @@ export function RiskSheet({
  */
 export function P2PEligibilityPanel({ pay, userId, compact = false }: { pay: PersonalPayApi; userId: string | null; compact?: boolean }) {
   const { t } = eligibilityCopy.useCopy();
-  const [round, setRound] = useState(0);
-  const [sheet, setSheet] = useState(false);
-  const eligibility = useResource((signal) => pay.eligibility(signal), `pay:p2p-eligibility:${userId}:${round}`);
-  const version = eligibility.resource.status === 'ready' ? (eligibility.resource.data.notice?.version ?? null) : null;
+  const eligibility = useResource((signal) => pay.eligibility(signal), `pay:p2p-eligibility:${userId}`);
   if (compact && eligibility.resource.status === 'ready' && eligibility.resource.data.canTake) return null;
   return (
     <PaySection title={t('title')} description={compact ? undefined : t('intro')}>
@@ -122,16 +57,11 @@ export function P2PEligibilityPanel({ pay, userId, compact = false }: { pay: Per
                         status={check.state === 'met' ? 'filled' : check.state === 'not_met' ? 'failed' : 'pending'}
                         label={t(`state_${check.state}` as const)}
                       />
-                      <p className="muted">{eligibilityReason(t, check, version)}</p>
+                      <p className="muted">{eligibilityReason(t, check)}</p>
                       {check.state === 'not_met' && check.fix ? (
                         <a className="text-link" href={check.fix}>
                           {check.id === 'verification' ? t('fix_verification') : t('fix_contact')}
                         </a>
-                      ) : null}
-                      {check.id === 'risk' && check.state === 'not_met' && version ? (
-                        <Button variant="secondary" onClick={() => setSheet(true)}>
-                          {t('riskOpen')}
-                        </Button>
                       ) : null}
                     </li>
                   ))}
@@ -140,17 +70,6 @@ export function P2PEligibilityPanel({ pay, userId, compact = false }: { pay: Per
           )}
         </PayState>
       </div>
-      {sheet && version ? (
-        <RiskSheet
-          pay={pay}
-          version={version}
-          onClose={() => setSheet(false)}
-          onAccepted={() => {
-            setSheet(false);
-            setRound((value) => value + 1);
-          }}
-        />
-      ) : null}
     </PaySection>
   );
 }
