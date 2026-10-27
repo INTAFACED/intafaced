@@ -4,6 +4,7 @@ import { Button, Failure, Loading } from '../../shared/ui';
 import { safeReturnTo } from '../../app/navigation';
 import { useSession } from '../session/session';
 import { sendArticleFeedback } from '../more/support-calls';
+import { supportRequestHref } from '../more/support-desk';
 import { helpFeedbackCopy as copy } from './help-feedback-copy';
 
 type Vote = { helpful: boolean; ticketId?: string; earlier?: true };
@@ -127,7 +128,7 @@ export function HelpFeedback({ articleId, version }: { articleId: string; versio
             </p>
           )}
           {state.vote.ticketId && (
-            <a className="text-link" href={`/support?request=${encodeURIComponent(state.vote.ticketId)}`}>
+            <a className="text-link" href={supportRequestHref(state.vote.ticketId)}>
               {t('openRequest')}
             </a>
           )}

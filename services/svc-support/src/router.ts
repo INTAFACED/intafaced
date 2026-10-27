@@ -27,6 +27,7 @@ import {
   supportAwaitingMineSchema,
   supportTicketLifecycleSchema,
   supportTicketPropertiesSchema,
+  supportCreatedByRequestInputSchema,
   supportTicketSchema,
   supportTicketStatusSchema,
   supportViewCountsSchema,
@@ -249,6 +250,18 @@ export function createSupportRouter(
       .query(async ({ ctx, input }) => {
         try {
           return await support.listMyTickets({ userId: ctx.principal!.userId, limit: input?.limit });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** The caller's own request a `create` key made, or null (a page whose create answer was lost reads this). */
+    createdByRequest: scopedProcedure('support:read')
+      .input(supportCreatedByRequestInputSchema)
+      .output(supportTicketSchema.nullable())
+      .query(async ({ ctx, input }) => {
+        try {
+          return await support.createdByRequest({ userId: ctx.principal!.userId, clientRequestId: input.clientRequestId });
         } catch (err) {
           mapError(err);
         }

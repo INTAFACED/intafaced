@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { supportAwaitingMineSchema } from '@intafaced/contracts/support-awaiting';
 import { contractProcedure, readContract } from '../../shared/contract-call';
 import { useResource } from '../../shared/resource';
 import { Button } from '../../shared/ui';
 import { useApi, useSession } from '../session/session';
 import { helpCopy as copy } from './help-copy';
-import { supportRequestHref } from '../more/support-desk';
+import { supportNewHref, supportRequestHref } from '../more/support-desk';
 
 const awaitingMine = contractProcedure('support', 'awaitingMine', { output: supportAwaitingMineSchema });
 
@@ -55,38 +55,50 @@ function WaitingBanner({ userId }: { userId: string }) {
   );
 }
 
-/**
- * The request button. Signed in it opens the support desk. Signed out it shows the sign-in prompt in place, so the search
- * text on this page is kept; there is no mailto draft standing in for a form. Guest submission is a separate slice.
- */
 /** The support desk, opened on its help search with the visitor's words when there are any. */
 export function supportDeskHref(query: string): string {
   const q = query.trim();
   return q ? `/support?${new URLSearchParams({ q })}` : '/support';
 }
 
-export function RequestEntry({ query = '' }: { query?: string }) {
+/**
+ * Where a request started from the help centre goes. After a search that found nothing it is the request form with the
+ * search words as its subject draft (SP-kb-03); otherwise the support desk, on its help search with the words.
+ */
+export function requestDestination(query: string, found: boolean): string {
+  return query.trim() && !found ? supportNewHref(query) : supportDeskHref(query);
+}
+
+/**
+ * The request button. Signed in it opens its destination. Signed out it shows the sign-in prompt in place, so the search
+ * text on this page is kept, and the sign-in comes back to that destination; there is no mailto draft standing in for a
+ * form. Guest submission is a separate slice. `contact` is the "Contact support" control under a search with no answer.
+ */
+export function RequestEntry({ query = '', found = true, contact = false }: { query?: string; found?: boolean; contact?: boolean }) {
   const { t } = copy.useCopy();
   const { session } = useSession();
   const [asking, setAsking] = useState(false);
-  // The words typed in the help search go along to the support desk, through sign-in too, so nobody types them twice.
-  const desk = supportDeskHref(query);
+  const prompt = useId();
+  // The words typed in the help search go along, through sign-in too, so nobody types them twice.
+  const destination = requestDestination(query, found);
+  const toForm = Boolean(query.trim()) && !found;
+  const label = t(contact || (session && toForm) ? 'contactSupport' : session ? 'requestOpenDesk' : 'requestStart');
   if (session)
     return (
-      <a className="button button--secondary" href={desk}>
-        {t('requestOpenDesk')}
+      <a className="button button--secondary" href={destination}>
+        {label}
       </a>
     );
   return (
     <>
-      <Button variant="secondary" aria-expanded={asking} aria-controls="help-request-signin" onClick={() => setAsking(true)}>
-        {t('requestStart')}
+      <Button variant="secondary" aria-expanded={asking} aria-controls={prompt} onClick={() => setAsking(true)}>
+        {label}
       </Button>
       {asking && (
-        <section id="help-request-signin" className="help__card help__measure" role="status" data-testid="request-sign-in">
+        <section id={prompt} className="help__card help__measure" role="status" data-testid="request-sign-in">
           <h2>{t('requestSignInTitle')}</h2>
           <p className="muted">{t('requestSignInBody')}</p>
-          <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(desk)}`}>
+          <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(destination)}`}>
             {t('requestSignIn')}
           </a>
           <Button variant="secondary" onClick={() => setAsking(false)}>

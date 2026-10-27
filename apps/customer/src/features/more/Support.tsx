@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
@@ -9,14 +9,18 @@ import { useApi, useSession } from '../session/session';
 import { t as copyText } from './copy';
 import { Details, Read, Select, useAction } from './common';
 import { SupportHelpArticles } from './SupportHelpArticles';
-import { StatusBadge, SupportRequest } from './SupportRequest';
+import { CustomerStatusBadge, RequestNotFound, SupportAddressUnknown, SupportRequest } from './SupportRequest';
+import { navigate } from '../../app/location';
 import { deskCopy } from './support-desk-copy';
 import {
   STATUS_FILTERS,
   filterTickets,
   followUpDraft,
-  requestFromSearch,
   showRatePrompt,
+  SUPPORT_TICKETS_HREF,
+  supportRequestHref,
+  supportRoute,
+  type SupportRoute,
   statusCounts,
   ticketReference,
   type StatusFilter,
@@ -28,6 +32,8 @@ import './support-desk.css';
 type View = 'help' | 'requests' | 'new';
 const VIEWS: readonly View[] = ['help', 'requests', 'new'];
 const VIEW_KEY = { help: 'tabHelp', requests: 'tabRequests', new: 'tabNew' } as const;
+/** Each tab is an address of its own (SP-tickets-01), so a request, the list and the form can be linked and reloaded. */
+const VIEW_HREF = { help: '/support', requests: SUPPORT_TICKETS_HREF, new: '/support/new' } as const;
 const FILTER_KEY = { all: 'filterAll', active: 'filterActive', resolved: 'filterResolved', closed: 'filterClosed' } as const;
 const CATEGORY_KEYS = {
   account: 'support.category.account',
@@ -39,19 +45,61 @@ const CATEGORY_KEYS = {
 const categoryLabel = (value: string): string =>
   value in CATEGORY_KEYS ? copyText(CATEGORY_KEYS[value as keyof typeof CATEGORY_KEYS]) : value;
 
+/** The page title for each support address. */
+export function supportPageTitleKey(route: SupportRoute): 'pageNewRequest' | 'pageMyRequests' | 'pageRequest' | 'pageUnknown' | null {
+  if (route.view === 'new') return 'pageNewRequest';
+  if (route.view === 'requests') return 'pageMyRequests';
+  if (route.view === 'request' || route.view === 'badRequest') return 'pageRequest';
+  if (route.view === 'unknown') return 'pageUnknown';
+  return null;
+}
+
 /**
- * The support desk: published answers, your requests (list, search, conversation, reply) and a new request. Everything the
- * support service offers a signed-in person is here: reply, close, rate, attach a file, and feedback on help articles.
+ * The support desk: published answers (/support), your requests (/support/tickets, one at /support/tickets/:id) and a new
+ * request (/support/new). Everything the support service offers a signed-in person is here: reply, close, rate, attach a
+ * file, and feedback on help articles.
  */
-export function Support() {
+export function Support({ path }: { path: string }) {
   const copy = deskCopy.useCopy();
   const api = useApi(),
-    { userId } = useSession(),
-    action = useAction('support');
-  const wanted = requestFromSearch(location.search);
-  const [view, setView] = useState<View>(wanted ? 'requests' : 'help'),
-    [selected, setSelected] = useState(wanted ?? ''),
-    [followUp, setFollowUp] = useState<Ticket | null>(null);
+    { userId } = useSession();
+  const url = new URL(path, location.origin);
+  const route = supportRoute(url.pathname, url.search);
+  const view: View = route.view === 'new' ? 'new' : route.view === 'help' || route.view === 'unknown' ? 'help' : 'requests';
+  // Replies, closing, rating, attaching and article feedback share one action with no recovery lookup, as before.
+  const action = useAction('support');
+  // A new request has its own action, because only its key can be read back (support.createdByRequest): a lost answer is
+  // recovered by that read, never by sending again. `recovered` holds what the read found: the stored request to open, or
+  // null when that send never reached the service.
+  const recovered = useRef<Ticket | null | undefined>(undefined);
+  const createAction = useAction('support-create', {
+    recover: async (reference) => {
+      const read = await api.query(
+        'support',
+        'createdByRequest',
+        { clientRequestId: reference },
+        ticketSchema
+          .nullable()
+          .refine((row) => row === null || row.userId === userId, copyText('support.created.ticket.does.not.match.this.account')),
+      );
+      recovered.current = read.ok ? read.data : undefined;
+      return read;
+    },
+    done: () => {
+      const found = recovered.current;
+      recovered.current = undefined;
+      reloadRequests();
+      if (found) navigate(supportRequestHref(found.id));
+      else if (found === null) setNotReached(location.pathname + location.search);
+    },
+  });
+  const [followUp, setFollowUp] = useState<Ticket | null>(null),
+    // The address where the "that send did not reach us" notice belongs; it goes once the person moves on.
+    [notReached, setNotReached] = useState<string | null>(null);
+  // A follow-up draft belongs to the form it was started for: leaving the form by any way (a tab, Back, a link) drops it.
+  useEffect(() => {
+    if (route.view !== 'new') setFollowUp(null);
+  }, [route.view]);
   const limit = 200;
   const tickets = useResource(
     (signal) =>
@@ -69,57 +117,64 @@ export function Support() {
   // Which requests already carry a rating. A failed read shows no chip rather than a wrong one.
   const rated = useResource((signal) => readRatedTicketIds(api, signal), `support-rated:${userId}`);
   const ratedIds = rated.resource.status === 'ready' ? new Set(rated.resource.data) : null;
-  const reloadRequests = () => {
+  function reloadRequests() {
     tickets.reload();
     rated.reload();
-  };
+  }
   const labels = Object.fromEntries(VIEWS.map((id) => [id, copy.t(VIEW_KEY[id])]));
   return (
     <div className="support-desk">
-      <Tabs
-        items={VIEWS}
-        value={view}
-        onChange={(next) => {
-          setView(next as View);
-          if (next !== 'requests') setSelected('');
-        }}
-        label={copy.t('tabsLabel')}
-        labels={labels}
-      />
-      {view === 'help' && <SupportHelpArticles action={action} onStartRequest={() => setView('new')} />}
-      {view === 'requests' &&
-        (selected ? (
-          <SupportRequest
-            key={selected}
-            id={selected}
-            action={action}
-            onUpdated={reloadRequests}
-            onBack={() => setSelected('')}
-            onFollowUp={(ticket) => {
-              setFollowUp(ticket);
-              setSelected('');
-              setView('new');
-            }}
-          />
-        ) : (
-          <Read resource={tickets.resource} retry={tickets.reload}>
-            {(rows) => <RequestList rows={rows} ratedIds={ratedIds} onOpen={setSelected} onStart={() => setView('new')} />}
-          </Read>
-        ))}
-      {view === 'new' && (
-        <NewRequest
+      <Tabs items={VIEWS} value={view} onChange={(next) => navigate(VIEW_HREF[next as View])} label={copy.t('tabsLabel')} labels={labels} />
+      {route.view === 'help' && <SupportHelpArticles action={action} onStartRequest={() => navigate(VIEW_HREF.new)} />}
+      {route.view === 'request' && (
+        <SupportRequest
+          key={route.id}
+          id={route.id}
           action={action}
-          follows={followUp}
-          onClearFollows={() => setFollowUp(null)}
-          onSent={() => {
-            setFollowUp(null);
-            reloadRequests();
-            setView('requests');
+          onUpdated={reloadRequests}
+          onBack={() => navigate(SUPPORT_TICKETS_HREF)}
+          onFollowUp={(ticket) => {
+            setFollowUp(ticket);
+            navigate(VIEW_HREF.new);
           }}
         />
       )}
-      {action.feedback}
+      {route.view === 'badRequest' && <RequestNotFound />}
+      {route.view === 'unknown' && <SupportAddressUnknown />}
+      {route.view === 'requests' && (
+        <Read resource={tickets.resource} retry={tickets.reload}>
+          {(rows) => (
+            <RequestList
+              rows={rows}
+              ratedIds={ratedIds}
+              onOpen={(id) => navigate(supportRequestHref(id))}
+              onStart={() => navigate(VIEW_HREF.new)}
+            />
+          )}
+        </Read>
+      )}
+      {route.view === 'new' && (
+        <NewRequest
+          key={`${userId}:${route.subject}`}
+          action={createAction}
+          subject={route.subject}
+          follows={followUp}
+          onClearFollows={() => setFollowUp(null)}
+          onSent={(ticket) => {
+            setFollowUp(null);
+            reloadRequests();
+            navigate(supportRequestHref(ticket.id));
+          }}
+        />
+      )}
+      {notReached === path && (
+        <p className="notice" role="status" data-testid="support-create-not-reached">
+          {copy.t('createNotReached')}
+        </p>
+      )}
+      {route.view === 'new' ? createAction.feedback : action.feedback}
       {action.dialog}
+      {createAction.dialog}
     </div>
   );
 }
@@ -193,7 +248,7 @@ export function RequestList({
                     {copy.t('rateChip')}
                   </span>
                 ) : null}
-                <StatusBadge status={row.status} />
+                <CustomerStatusBadge row={row} />
               </button>
             </li>
           ))}
@@ -205,14 +260,17 @@ export function RequestList({
 
 function NewRequest({
   action,
+  subject: drafted,
   follows,
   onClearFollows,
   onSent,
 }: {
   action: ReturnType<typeof useAction>;
+  /** A subject drafted from the address (the words of a help search that found nothing). */
+  subject: string;
   follows: Ticket | null;
   onClearFollows: () => void;
-  onSent: () => void;
+  onSent: (ticket: Ticket) => void;
 }) {
   const copy = deskCopy.useCopy();
   const api = useApi(),
@@ -220,7 +278,7 @@ function NewRequest({
   const depositsHidden = isHiddenPath('/uc/recharge');
   const draft = follows ? followUpDraft(follows, copy.t('followUpPrefix')) : null;
   const [category, setCategory] = useState(draft?.category ?? 'other'),
-    [subject, setSubject] = useState(draft?.subject ?? ''),
+    [subject, setSubject] = useState(draft?.subject ?? drafted),
     [body, setBody] = useState(''),
     [headers, setHeaders] = useState('');
   const sendHeaders = category === 'phishing' && headers.trim() !== '' ? headers.trim() : null;
@@ -229,9 +287,12 @@ function NewRequest({
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          // One key per decision: a double tap or a retry of this review returns the first ticket instead of a second.
+          // One key per decision: a double tap or a retry of this review returns the first ticket instead of a second, and a
+          // lost answer is read back by this key (support.createdByRequest) instead of being sent again.
           const clientRequestId = `create:${crypto.randomUUID()}`;
+          let created: Ticket | null = null;
           action.stage({
+            reference: clientRequestId,
             title: () => copyText('support.review.support.request'),
             confirm: () => copyText('support.send.request'),
             success: () => copyText('support.request.created'),
@@ -245,8 +306,8 @@ function NewRequest({
                 ]}
               />
             ),
-            run: () =>
-              api.mutate(
+            run: async () => {
+              const result = await api.mutate(
                 'support',
                 'create',
                 {
@@ -261,12 +322,15 @@ function NewRequest({
                   (row) => row.userId === userId && row.subject === subject.trim() && row.body === body.trim() && row.category === category,
                   copyText('support.created.ticket.does.not.match.this.account'),
                 ),
-              ),
+              );
+              if (result.ok) created = result.data;
+              return result;
+            },
             done: () => {
               setSubject('');
               setBody('');
               setHeaders('');
-              onSent();
+              if (created) onSent(created);
             },
           });
         }}

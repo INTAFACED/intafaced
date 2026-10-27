@@ -91,7 +91,7 @@ describe('rating a published answer (J-support-public-01 #8)', () => {
       { id: 'kb-a', helpful: false, clientRequestId: 'kb-vote:kb-a:3', comment: 'The steps did not work', openRequest: true },
     ]);
     expect(text()).toContain('your support request is open');
-    expect(host.querySelector('[data-testid="help-feedback-done"] a')!.getAttribute('href')).toBe(`/support?request=${TICKET}`);
+    expect(host.querySelector('[data-testid="help-feedback-done"] a')!.getAttribute('href')).toBe(`/support/tickets/${TICKET}`);
   });
 
   it('asks for words before sending a request, and sends nothing until then', async () => {
