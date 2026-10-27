@@ -78,6 +78,10 @@
       "types": "./dist/identity-kyc-poa.d.ts",
       "default": "./dist/identity-kyc-poa.js"
     },
+    "./identity-kyc-selfie": {
+      "types": "./dist/identity-kyc-selfie.d.ts",
+      "default": "./dist/identity-kyc-selfie.js"
+    },
     "./identity-kyc-capabilities": {
       "types": "./dist/identity-kyc-capabilities.d.ts",
       "default": "./dist/identity-kyc-capabilities.js"
