@@ -8,7 +8,10 @@ export type WithdrawalReturnErrorCode =
   | 'withdrawal_return.already_recorded'
   | 'withdrawal_return.ref_differs'
   | 'withdrawal_return.not_found'
-  | 'withdrawal_return.recredit_unwired';
+  | 'withdrawal_return.same_founder'
+  | 'withdrawal_return.internal_settlement'
+  | 'withdrawal_return.ledger_refused'
+  | 'withdrawal_return.ledger_outcome_unknown';
 
 const KIND: Record<WithdrawalReturnErrorCode, TRPCError['code']> = {
   'withdrawal_return.withdrawal_not_found': 'NOT_FOUND',
@@ -18,7 +21,10 @@ const KIND: Record<WithdrawalReturnErrorCode, TRPCError['code']> = {
   'withdrawal_return.already_recorded': 'CONFLICT',
   'withdrawal_return.ref_differs': 'CONFLICT',
   'withdrawal_return.not_found': 'NOT_FOUND',
-  'withdrawal_return.recredit_unwired': 'PRECONDITION_FAILED',
+  'withdrawal_return.same_founder': 'FORBIDDEN',
+  'withdrawal_return.internal_settlement': 'CONFLICT',
+  'withdrawal_return.ledger_refused': 'CONFLICT',
+  'withdrawal_return.ledger_outcome_unknown': 'SERVICE_UNAVAILABLE',
 };
 
 /** One typed refusal per rule. `code` reaches the client as `error.data.cause.code`. */

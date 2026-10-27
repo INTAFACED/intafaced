@@ -191,7 +191,7 @@ test('J-p2p-01 #2 the ad board searches by coin, fiat, method and amount, sorts 
 
   await signIn(page, state.buyer);
   await page.goto(`/p2p?makerId=${maker}`);
-  const rows = page.locator('li.p2p-offer-row');
+  const rows = page.locator('li[data-testid="p2p-offer-row"]');
   const order = () => rows.evaluateAll((items) => items.map((item) => item.getAttribute('data-offer-id')));
   await expect(rows).toHaveCount(3);
   expect(await order()).toEqual([cheap, first, dear]);
@@ -203,7 +203,7 @@ test('J-p2p-01 #2 the ad board searches by coin, fiat, method and amount, sorts 
 
   // Coin, fiat, method and a 20 EUR amount, dearest first: the cheap ad (30 USDT minimum) drops out.
   await page.getByText('Filters', { exact: true }).click();
-  const filters = page.locator('form.pay-filters');
+  const filters = page.locator('form[data-testid="pay-filters"]');
   await filters.getByLabel('Asset', { exact: true }).fill('USDT');
   await filters.getByLabel('Amount in fiat').fill('20');
   await filters.getByRole('button', { name: /Apply/ }).click();
@@ -612,7 +612,9 @@ test('J-p2p-01 #6 the payment details name the seller’s account holder and num
     await page.goto(`/uc/order?tradeId=${state.tradeId}`);
     const order = page.getByRole('main');
     await order.getByRole('button', { name: 'Reveal agreed payment details' }).click();
-    const card = order.locator('section.pay-section', { has: page.getByRole('heading', { name: 'External payment destination' }) });
+    const card = order.locator('section[data-testid="pay-section"]', {
+      has: page.getByRole('heading', { name: 'External payment destination' }),
+    });
     await expect(card).toContainText(TEST_IBAN);
     return card;
   };
@@ -804,7 +806,7 @@ test('J-p2p-01 #8 the seller releases; the order says Completed with the coins a
   await signIn(page, state.buyer);
   await page.goto(`/uc/order?tradeId=${state.tradeId}`);
   const order = page.getByRole('main');
-  await expect(order.locator('.p2p-order-identity')).toContainText('Completed');
+  await expect(order.getByTestId('p2p-order-identity')).toContainText('Completed');
   const result = order.getByTestId('order-result');
   // The page groups thousands; these amounts are whole decimal strings from the order read.
   const shown = (value) => value.replace(/^\d+/, (whole) => whole.replace(/\B(?=(\d{3})+(?!\d))/g, ','));

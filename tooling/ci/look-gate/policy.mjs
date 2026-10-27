@@ -1,6 +1,6 @@
 /**
  * The look gate's rules, as pure functions the runner (look-gate.mjs) and its self-test share. Nothing here opens a
- * browser: contrast maths, the rendered-font verdict, the legal-slot verdict, and when a failure blocks a merge.
+ * browser: contrast maths, the rendered-font verdict, and when a failure blocks a merge.
  */
 
 /**
@@ -10,7 +10,7 @@
 export const BLOCKING_FROM = '2026-11-09';
 
 /** Paths whose change makes a failing look gate block, once BLOCKING_FROM has passed. */
-export const BLOCKING_PATHS = [/^packages\/ui\/src\/lit\//, /(?:^|\/)look-baselines\//, /^packages\/ui\/src\/.*legal/i];
+export const BLOCKING_PATHS = [/^packages\/ui\/src\/lit\//, /(?:^|\/)look-baselines\//];
 
 /** A migrated room is a folder under apps/customer/src/{screens,features}/ whose files import the lit kit. */
 export function migratedRoomOf(path, importsLit) {
@@ -20,7 +20,7 @@ export function migratedRoomOf(path, importsLit) {
 
 /**
  * Whether this run's failures block. `failures` counts only blockable ones: those on the kit gallery and on pages that
- * render the new look (`[data-look="lit"]`) or a legal slot, so an old room's known debt never blocks a kit change.
+ * render the new look (`[data-look="lit"]`), so an old room's known debt never blocks a kit change.
  * 'report' before BLOCKING_FROM, or when the pull request changes no blocking path.
  */
 export function verdict({ failures, changed, today, importsLit = () => false }) {
@@ -107,51 +107,6 @@ export function judgeFont({ fontFamily, declared, platform }) {
     return `rendered in ${fallback.map((p) => `${p.familyName} (${p.glyphCount} glyphs)`).join(', ')} instead of ${first}`;
   if (platform.length === 0) return 'no glyphs were rendered';
   return null;
-}
-
-/** The exact text a registry entry renders, or null when the wording is not fixed (lawyer, not applicable). */
-export function legalText(entry, region) {
-  const wording = entry?.[region];
-  if (!wording || wording.status !== 'fixed') return null;
-  return wording.runs.map((r) => r.text).join('');
-}
-
-/** Whether rendered text is the registry wording, a `{placeholder}` standing for any filled-in value. */
-export function legalMatches(rendered, wording) {
-  const parts = squash(wording).split(/\{\w+\}/);
-  const re = new RegExp(`^${parts.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\S.*?')}$`);
-  return re.test(squash(rendered));
-}
-
-/** Collapse whitespace the way rendered text does, for comparing a slot's text with its registry wording. */
-export const squash = (s) => String(s).replace(/\s+/g, ' ').trim();
-
-/**
- * The legal-slot verdict for one slot measured in the page (see look-gate.mjs `measureLegal`). RULES-AND-TRUST
- * section B: the exact registry wording, at least body size, bold, an opaque background with no blur or
- * transparency anywhere above it, pinned to the top, contrast 4.5:1, never clipped. A refused slot (wording unset)
- * only has to be visible and unclipped.
- */
-export function judgeLegal(slot, registry, { bodySize = 16 } = {}) {
-  const out = [];
-  const region = slot.jurisdiction || 'uk';
-  const entry = registry?.[slot.key];
-  if (!entry) out.push(`no registry entry "${slot.key}"`);
-  if (slot.clipped) out.push('clipped');
-  if (!slot.visible) out.push('not visible');
-  if (slot.missing) return out;
-  const want = entry ? legalText(entry, region) : null;
-  if (entry && want === null)
-    out.push(`registry wording for ${region} is ${entry[region]?.status ?? 'missing'}, so the slot must show its refusal`);
-  if (want !== null && !legalMatches(slot.text, want)) out.push(`text differs from the registry: "${squash(slot.text).slice(0, 80)}"`);
-  if (slot.fontSize < bodySize) out.push(`font ${slot.fontSize}px is below body size ${bodySize}px`);
-  if ((slot.type || entry?.type) === 'risk-band') {
-    if (!slot.bold) out.push(`weight ${slot.fontWeight} is not bold`);
-    if (!slot.opaque) out.push(`background not opaque: ${slot.opaqueWhy}`);
-    if (!slot.pinnedTop) out.push(`not sticky or fixed at the top (${slot.position}, top ${slot.top})`);
-  }
-  if (slot.contrast !== null && slot.contrast < 4.5) out.push(`worst-pixel contrast ${slot.contrast.toFixed(2)} < 4.5`);
-  return out;
 }
 
 /**

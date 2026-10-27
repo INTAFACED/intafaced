@@ -28,11 +28,10 @@
  *   · A KNOWN advisory is printed every run, with its severity and the reason
  *     it is still here. It cannot rot into blanket cover, because you read it
  *     on every push.
- *   · A known advisory that has DISAPPEARED also fails, and that is deliberate.
- *     A stale entry is a fix somebody already made and nobody recorded, and a
- *     baseline that only ever grows stops describing anything. Removing the
- *     line is part of the fix, and needs no one's go-ahead: a deletion only
- *     makes the list stricter (owner decision 2026-10-25).
+ *   · A known advisory that has DISAPPEARED warns, naming the line to delete.
+ *     A fix never fails the build (owner decision 2026-10-27). Removing the
+ *     line needs no one's go-ahead: a deletion only makes the list stricter
+ *     (owner decision 2026-10-25).
  *
  * WHO THE RATCHET HOLDS (owner decision 2026-10-25)
  *
@@ -44,7 +43,7 @@
  *
  *   · `--base <ref>` (pull requests into main): when the diff from <ref> touches
  *     none of DEPENDENCY_FILES (which include this file, so an edit to KNOWN is
- *     always judged), a new or stale entry is a WARNING and the run passes.
+ *     always judged), a new entry is a WARNING and the run passes.
  *     An unreachable registry warns and passes too: nothing this PR did needed
  *     checking. A PR that touches them is held to the full ratchet above.
  *   · No `--base` (pushes to main, `workflow_dispatch`, `pnpm scan:deps`): the
@@ -62,8 +61,8 @@
  * Usage:  pnpm scan:deps          (needs network — the advisory DB is remote)
  *         node tooling/ci/dependency-audit.mjs --base HEAD^1   (CI, pull requests)
  *         node tooling/ci/dependency-audit.mjs --self-test
- * Exit 0 = no new advisories and no stale baseline entries, or a PR that
- * changes no dependency.
+ * Exit 0 = no new advisories (stale entries only warn), or a PR that changes no
+ * dependency.
  */
 import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
@@ -172,7 +171,7 @@ export function dependencyChanges(changedFiles) {
 export function judge(seenIds, known, strict) {
   const added = seenIds.filter((id) => !(id in known));
   const stale = Object.keys(known).filter((id) => !seenIds.includes(id));
-  return { added, stale, fail: strict && (added.length > 0 || stale.length > 0) };
+  return { added, stale, fail: strict && added.length > 0 };
 }
 
 /** The files a PR changes against `base` (a rename lists both paths), or null when git cannot say (then the run stays strict). */
@@ -269,26 +268,21 @@ function main() {
     process.exit(0);
   }
 
+  for (const id of stale) warn(`frozen entry ${id} (${KNOWN[id].module}) is no longer in the tree; delete its line.`);
   if (!fail) {
     for (const id of added) warn(`new advisory ${id} (${bySeverity(id, seenById).replace(/\s+/g, ' ')}) is on main, not from this PR.`);
-    for (const id of stale) warn(`frozen entry ${id} (${KNOWN[id].module}) is no longer in the tree; a fix PR deletes its line.`);
-    console.log('\n✓ this PR changes no dependency file; the warnings above belong to main (see "Broken on main: PR checks").\n');
+    console.log(
+      added.length
+        ? '\n✓ this PR changes no dependency file; the warnings above belong to main (see "Broken on main: PR checks").\n'
+        : '\n✓ no new advisories.\n',
+    );
     process.exit(0);
   }
 
-  if (added.length > 0) {
-    console.error(`\n✖ ${added.length} NEW advisory(ies) — the list cannot grow:\n`);
-    for (const id of added) console.error(`    ${bySeverity(id, seenById)}  ${id}  https://github.com/advisories/${id}`);
-    console.error('\n  Update the dependency, or add it to KNOWN with the reason it cannot');
-    console.error('  be updated yet. Adding it without a reason is how this list stops meaning anything.\n');
-  }
-
-  if (stale.length > 0) {
-    console.error(`\n✖ ${stale.length} frozen entry(ies) no longer present — remove them:\n`);
-    for (const id of stale) console.error(`    ${bySeverity(id, KNOWN)}  ${id}`);
-    console.error('\n  Somebody fixed these and did not record it. Delete the lines: a baseline');
-    console.error('  that only grows stops describing the tree it claims to describe.\n');
-  }
+  console.error(`\n✖ ${added.length} NEW advisory(ies) — the list cannot grow:\n`);
+  for (const id of added) console.error(`    ${bySeverity(id, seenById)}  ${id}  https://github.com/advisories/${id}`);
+  console.error('\n  Update the dependency, or add it to KNOWN with the reason it cannot');
+  console.error('  be updated yet. Adding it without a reason is how this list stops meaning anything.\n');
 
   process.exit(1);
 }
@@ -307,7 +301,7 @@ function selfTest() {
   eq(dependencyChanges([]), [], 'an empty diff');
   eq(judge(['GHSA-a', 'GHSA-b'], known, true), { added: [], stale: [], fail: false }, 'clean');
   eq(judge(['GHSA-a', 'GHSA-b', 'GHSA-new'], known, true), { added: ['GHSA-new'], stale: [], fail: true }, 'new fails a strict run');
-  eq(judge(['GHSA-a'], known, true), { added: [], stale: ['GHSA-b'], fail: true }, 'stale fails a strict run');
+  eq(judge(['GHSA-a'], known, true), { added: [], stale: ['GHSA-b'], fail: false }, 'stale only warns, even a strict run');
   eq(judge(['GHSA-a', 'GHSA-new'], known, false), { added: ['GHSA-new'], stale: ['GHSA-b'], fail: false }, 'both only warn a PR');
   console.log('✓ dependency-audit --self-test OK (11 fixtures)');
 }

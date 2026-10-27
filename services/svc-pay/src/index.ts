@@ -740,7 +740,7 @@ export const appRouter = mergeRouters(
     purchaseHolds: { sql },
     withdrawalQuotes: { sql },
     travelRule: { sql, cipher: travelRuleCipher },
-    withdrawalReturns: { sql },
+    withdrawalReturns: { sql, ledger },
     withdrawalApprovals: { service: withdrawalApprovals },
     allowlist: { service: allowlist },
     starterFee: merchantStarterFee,

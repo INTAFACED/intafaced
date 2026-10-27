@@ -3,7 +3,7 @@ import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button } from '@intafaced/ui';
 import { Field } from './ui-kit';
-import type { PersonalPayApi } from './pay-api';
+import { PAUSED_OFFERS_SHOWN, type PersonalPayApi } from './pay-api';
 import { id, type BoardQuery, type BoardSort, type Offer, type OfferPage } from './schemas';
 import { payCopy, PayCopy, payRefusal } from './copy';
 import { offerCopy } from './p2p-offer-copy';
@@ -235,6 +235,7 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
     (signal) => pay.offerPage({ ...query, limit: PAGE }, signal),
     `pay:offer-page:${userId}:${JSON.stringify(query)}`,
   );
+  const [pausedRevision, setPausedRevision] = useState(0);
   const currencies = useResource((signal) => pay.fiat(signal), 'pay:fiat');
   const registeredMethods = useResource((signal) => pay.methods(signal), 'pay:registered-methods');
   const originals = deviceOriginals(userId);
@@ -295,6 +296,7 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
               <Copy k="filters" />
             </summary>
             <form
+              data-testid="pay-filters"
               className="pay-filters"
               onSubmit={(event) => {
                 event.preventDefault();
@@ -404,7 +406,13 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
                           const own = isOwnOffer(offer, userId);
                           const record = traders[offer.makerId.toLowerCase()];
                           return (
-                            <li key={offer.id} className="p2p-offer-row" data-offer-id={offer.id} data-own={own ? 'true' : undefined}>
+                            <li
+                              key={offer.id}
+                              data-testid="p2p-offer-row"
+                              className="p2p-offer-row"
+                              data-offer-id={offer.id}
+                              data-own={own ? 'true' : undefined}
+                            >
                               <div className="p2p-offer-maker">
                                 <strong>
                                   <OfferSide offer={offer} own={own} />
@@ -467,6 +475,7 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
               </BoardPages>
             )}
           </PayState>
+          {mine ? <PausedOffers pay={pay} userId={userId} revision={pausedRevision} choose={choose} /> : null}
           <p className="muted">
             <Copy k="window" />
           </p>
@@ -505,7 +514,10 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
           offerId={selected.id}
           returnTo={offerReturn(selected.id, filter, PAGE)}
           mine={mine}
-          onMarketChange={list.reload}
+          onMarketChange={() => {
+            list.reload();
+            setPausedRevision((n) => n + 1);
+          }}
           current={() => lifetime.current.mounted && lifetime.current.selected === selected}
           close={() => {
             if (lifetime.current.selected === selected) close();
@@ -741,6 +753,7 @@ function CurrentOffer({
         {own ? <strong>{p2pDepth.t('yourOffer')}</strong> : null}
         <Status value={offer.status} />
       </div>
+      {own && offer.status === 'paused' ? <PauseReason offer={offer} /> : null}
       <OfferPrice offer={offer} />
       <PayDetails
         values={[
@@ -800,5 +813,72 @@ function CurrentOffer({
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * P-ads-merchant-18: the board lists active ads only, so the person's paused ads are listed here, each with why it is
+ * paused and the way back (open it to resume; add a method first when the last one was removed).
+ */
+function PausedOffers({
+  pay,
+  userId,
+  revision,
+  choose,
+}: {
+  pay: PersonalPayApi;
+  userId: string | null;
+  revision: number;
+  choose: (id: string, from: HTMLElement) => void;
+}) {
+  const { Copy, t } = offerCopy.useCopy();
+  const paused = useResource((signal) => pay.pausedOffers(signal), `pay:paused-offers:${userId}:${revision}`);
+  return (
+    <section className="stack" aria-label={t('pausedTitle')} data-testid="paused-offers">
+      <h3>
+        <Copy k="pausedTitle" />
+      </h3>
+      <PayState resource={paused.resource} retry={paused.reload} empty={t('pausedNone')}>
+        {(offers) => (
+          <>
+            {offers.length >= PAUSED_OFFERS_SHOWN ? (
+              <p className="muted">{t('pausedMore', { count: String(PAUSED_OFFERS_SHOWN) })}</p>
+            ) : null}
+            <ul className="p2p-offer-list">
+              {offers.map((offer) => (
+                <li key={offer.id} className="p2p-offer-row" data-offer-id={offer.id} data-pause-reason={offer.pauseReason ?? undefined}>
+                  <div className="p2p-offer-maker">
+                    <strong>
+                      <OfferSide offer={offer} own />
+                    </strong>
+                    <span className="muted" lang="zxx">
+                      {offerMethods(offer).join(', ') || payCopy.t('noUsableMethodsDeclared')}
+                    </span>
+                    <Status value={offer.status} />
+                  </div>
+                  <PauseReason offer={offer} />
+                  <Button className="p2p-offer-inspect" variant="secondary" onClick={(event) => choose(offer.id, event.currentTarget)}>
+                    <Copy k="inspect" />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </PayState>
+    </section>
+  );
+}
+
+function PauseReason({ offer }: { offer: Offer }) {
+  const { t } = offerCopy.useCopy();
+  if (offer.pauseReason !== 'method_removed') return <p className="muted">{t('pausedByYou')}</p>;
+  return (
+    <p className="muted" data-testid="pause-reason">
+      {t('pausedMethodRemoved', { fiat: offer.fiatCurrency })}{' '}
+      <a className="text-link" href="/p2p/methods">
+        {t('pausedAddMethod')}
+      </a>
+    </p>
   );
 }

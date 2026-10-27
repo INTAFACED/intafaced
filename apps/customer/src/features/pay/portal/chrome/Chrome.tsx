@@ -8,7 +8,7 @@ import {
   DialogTitle,
   DialogTrigger,
   StatusTag,
-  Wordmark,
+  BrandBar,
   type StatusKind,
 } from '@intafaced/ui';
 import { navigate } from '../../../../app/location';
@@ -237,7 +237,7 @@ export function MerchantTopBar({ path, account }: { path: string; account: React
         <PhoneMenu key={path} here={path} />
       </div>
       <a className="pfo-brand" href="/home" aria-label={t('goToHome')}>
-        <Wordmark />
+        <BrandBar />
       </a>
       <BusinessSwitcher />
       <div className="pfo-top-end">

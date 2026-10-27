@@ -47,7 +47,7 @@ async function settled(main) {
 /** The contact card says "not set" for each detail the owner has not published, and no mailto link is drawn for a blank address. */
 async function expectContactCard(page) {
   const owner = await contactChannels();
-  const card = page.locator('aside.contact-card');
+  const card = page.locator('aside[data-testid="contact-card"]');
   await expect(card).toBeVisible();
   if (owner.email === null && !process.env.VITE_SUPPORT_EMAIL) {
     await expect(card.getByTestId('support-email-unset')).toContainText('Support email is not set.');
@@ -92,7 +92,7 @@ test(`${J} #2 with the help centre switched off, /help says so, keeps the contac
       await expect(main.getByRole('heading', { level: 1, name: 'How can we help?' })).toBeVisible();
       await expect(main.getByTestId('help-centre-off')).toContainText('The help centre is switched off');
       await expect(main.getByLabel('Search answers')).toHaveCount(0);
-      await expect(main.locator('.help__row, .help__body')).toHaveCount(0);
+      await expect(main.locator('[data-testid="help__row"], [data-testid="help__body"]')).toHaveCount(0);
       await expectContactCard(page);
     }
     await page.context().close();
@@ -103,7 +103,7 @@ test(`${J} #2 with the help centre switched off, /help says so, keeps the contac
   // Back as it was: the answers show again.
   const page = await visitor(browser);
   await page.goto('/help');
-  await expect(page.locator('main .help__row').first()).toBeVisible();
+  await expect(page.locator('main [data-testid="help__row"]').first()).toBeVisible();
   await page.context().close();
 });
 
@@ -144,7 +144,7 @@ test(`${J} #3 browses a category and then a section: only that section's publish
     await expect(page).toHaveURL(new RegExp(`/help/category/${category.id}$`));
     const main = page.locator('main');
     await expect(main.getByRole('heading', { level: 1, name: category.name })).toBeVisible();
-    const rows = main.locator('.help__row');
+    const rows = main.getByTestId('help__row');
     await expect(rows).toHaveCount(2);
     await expect(rows.filter({ hasText: filled.name })).toContainText('Published answers: 1');
     await expect(rows.filter({ hasText: empty.name })).toContainText('Published answers: 0');
@@ -156,20 +156,20 @@ test(`${J} #3 browses a category and then a section: only that section's publish
     await expect(page).toHaveURL(new RegExp(`/help/section/${filled.id}$`));
     await expect(main.getByRole('heading', { level: 1, name: filled.name })).toBeVisible();
     await expect(main.getByRole('link', { name: category.name })).toBeVisible();
-    await expect(main.locator('.help__row')).toHaveCount(1);
-    await expect(main.locator('.help__row h2')).toHaveText(shown.title);
+    await expect(main.getByTestId('help__row')).toHaveCount(1);
+    await expect(main.getByTestId('help__row').locator('h2')).toHaveText(shown.title);
     await expect(main.getByText('An answer taken down')).toHaveCount(0);
 
     // The answer reads as text: the tag in the body is characters on the page and never runs.
     await main.getByRole('link', { name: `Read answer: ${shown.title}` }).click();
     await expect(main.getByRole('heading', { level: 1, name: shown.title })).toBeVisible();
-    await expect(main.locator('.help__body')).toContainText('<script>window.__j01 = 1</script>');
+    await expect(main.getByTestId('help__body')).toContainText('<script>window.__j01 = 1</script>');
     expect(await page.evaluate(() => window.__j01)).toBeUndefined();
 
     await page.goto(`/help/section/${empty.id}`);
     await expect(main.getByRole('heading', { level: 1, name: empty.name })).toBeVisible();
     await expect(main.getByText('No answers in this section')).toBeVisible();
-    await expect(main.locator('.help__row')).toHaveCount(0);
+    await expect(main.getByTestId('help__row')).toHaveCount(0);
     await page.context().close();
   } finally {
     await saveCategory({ ...category, retired: true, reason: `TEST ${J} #3 retire the run's topic` });
@@ -219,7 +219,7 @@ test(`${J} #4 a search lists the labelled answer first, and the typed words surv
     const main = page.locator('main');
     await main.getByRole('textbox', { name: 'Search answers' }).fill(word);
     await main.getByRole('button', { name: 'Search', exact: true }).click();
-    const titles = main.locator('.help__row h2');
+    const titles = main.getByTestId('help__row').locator('h2');
     await expect(titles).toHaveText([labelled.title, mentions.title]);
 
     // Signed out, the request button asks for a sign-in in place; that sign-in brings the words to the support desk.
@@ -273,7 +273,7 @@ test(`${J} #5 an answer reads as text; another language shows it with a label na
     await expect(main.getByTestId('help-language-fallback')).toHaveText(
       'This answer is not translated into Spanish. It is shown in English.',
     );
-    await expect(main.locator('.help__body')).toContainText('This <script>window.__j01lang = 1</script> is text.');
+    await expect(main.getByTestId('help__body')).toContainText('This <script>window.__j01lang = 1</script> is text.');
     expect(await page.evaluate(() => window.__j01lang)).toBeUndefined();
 
     // With no language offered, there is no picker and the answer reads as before.
@@ -329,7 +329,7 @@ test(`${J} #6 a link to a signed-in-only answer asks the visitor to sign in and 
     const prompt = main.getByTestId('help-sign-in');
     await expect(prompt).toBeVisible();
     await expect(main.getByText(word)).toHaveCount(0);
-    await expect(main.locator('.help__body')).toHaveCount(0);
+    await expect(main.getByTestId('help__body')).toHaveCount(0);
 
     // Signed in, the same link reads the answer.
     await prompt.getByRole('link').click();
@@ -339,7 +339,7 @@ test(`${J} #6 a link to a signed-in-only answer asks the visitor to sign in and 
     // The prompt promised the address opens again after sign-in.
     await expect(page).toHaveURL(new RegExp(`/helpdetail\\?id=${answer.id}$`));
     await expect(main.getByRole('heading', { level: 1, name: answer.title })).toBeVisible();
-    await expect(main.locator('.help__body')).toContainText(`${word} body text.`);
+    await expect(main.getByTestId('help__body')).toContainText(`${word} body text.`);
   } finally {
     await page?.context().close();
     await made.cleanup?.();
@@ -376,7 +376,7 @@ test(`${J} #7 a staff-only answer reads as an address that never existed, and is
       await main.getByRole('textbox', { name: 'Search answers' }).fill(word);
       await main.getByRole('button', { name: 'Search', exact: true }).click();
       await expect(main.getByText('No matches')).toBeVisible();
-      await expect(main.locator('.help__row')).toHaveCount(0);
+      await expect(main.getByTestId('help__row')).toHaveCount(0);
     }
   } finally {
     await page?.context().close();
@@ -436,7 +436,7 @@ test(`${J} #8 a "No" vote with a comment sent as a request: one confirmation, on
 
     // The request's first message names the answer and carries the comment.
     await done.getByRole('link', { name: 'Open your request' }).click();
-    await expect(page).toHaveURL(/\/support\?request=/);
+    await expect(page).toHaveURL(/\/support\/tickets\/[0-9a-f-]{36}$/);
     await expect(page.locator('main').getByText(`This request is about help article ${first.id}`)).toBeVisible();
     await expect(page.locator('main').getByText(comment)).toBeVisible();
 

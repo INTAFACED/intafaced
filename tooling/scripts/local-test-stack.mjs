@@ -13,6 +13,8 @@
  *   node tooling/scripts/local-test-stack.mjs bank-transfer <reference> <CCY> <amount> --tx <label> [--payer <name>]
  *                                         the TEST bank reports a pushed transfer quoting a hosted checkout's reference
  *   node tooling/scripts/local-test-stack.mjs status
+ *   node tooling/scripts/local-test-stack.mjs age-addresses <email> <hours>
+ *                                         move a TEST account's saved addresses back in time (the cooling-off wait)
  *
  * What it starts, all bound to 127.0.0.1, state in ~/.intafaced/local-test-stack/:
  *   Postgres 16 (own data dir) · NATS JetStream · svc-ledger · svc-identity ·
@@ -35,7 +37,7 @@
  *   node tooling/scripts/local-test-stack.mjs expire-deposit-addresses <email>   TEST fixture: open extra deposit addresses expire
  *   node tooling/scripts/local-test-stack.mjs expire-staff-holds <email>   TEST fixture: open staff holds with an expiry reach it
  *   node tooling/scripts/local-test-stack.mjs age-task-progress <email> <campaignId> <days>   TEST fixture: a task campaign's counted events happened days earlier
- *   node tooling/scripts/local-test-stack.mjs seed-withdrawal <email> <ASSET> <amount> --state <s> --ref <label> [--count <n>]   TEST fixture: a withdrawal in that state (or n requested ones)
+ *   node tooling/scripts/local-test-stack.mjs seed-withdrawal <email> <ASSET> <amount> --state <s> --ref <label> [--count <n>]   TEST fixture: a withdrawal in that state, sent included (or n requested ones)
  *
  * Rules this file keeps (AGENTS.md "Money"):
  *   - Value moves ONLY through the ledger (packages/ledger-client recipes -> svc-ledger).
@@ -2084,13 +2086,15 @@ async function cmdFund(rawArgs) {
 }
 
 /**
- * `seed-withdrawal <email-or-userId> <ASSET> <amount> --state requested|held|dispatching|broadcast --ref <label>`: one TEST
+ * `seed-withdrawal <email-or-userId> <ASSET> <amount> --state requested|held|dispatching|broadcast|sent --ref <label>`: one TEST
  * withdrawal of the person's own funds, in the state a journey starts from (J-wallet-06). Sending out is switched off in
  * svc-pay (its withdraw feature is published `blocked`), so no withdrawal can reach these states through the Withdraw form on
  * this stack. This writes the row the way svc-pay's `withdraw` leaves it at that point and books the hold through the ledger's
  * own recipe (`withdrawHold`, keyed on the attempt), exactly as `withdraw` does, hold first. `requested`: a row and nothing
  * posted. `held`: the hold booked and the row held, nothing asked of a rail. `dispatching`: a send journalled `requested` with no
- * answer (a lost reply). `broadcast`: the send journalled `accepted` with a TEST transaction reference. What the person can do
+ * answer (a lost reply). `broadcast`: the send journalled `accepted` with a TEST transaction reference. `sent`: broadcast, then
+ * settled as `withdraw` settles it (`withdrawSettle` under the same attempt, the row `sent` with its TEST reference), so a
+ * return can be recorded against it (J-wallet-06 #6). What the person can do
  * next (cancel, and what that gives back) is svc-pay's own code. The same --ref is the same withdrawal. `--count <n>` (requested
  * only) writes n requested withdrawals one second apart, for a history longer than one page (J-wallet-06 #5).
  */
@@ -2108,10 +2112,10 @@ async function cmdSeedWithdrawal(rawArgs) {
   const countRaw = option('--count');
   const [who, assetRaw, amountStr] = args;
   const usage =
-    'usage: node tooling/scripts/local-test-stack.mjs seed-withdrawal <email-or-userId> <ASSET> <amount> --state requested|held|dispatching|broadcast --ref <label> [--count <n>, requested only]';
+    'usage: node tooling/scripts/local-test-stack.mjs seed-withdrawal <email-or-userId> <ASSET> <amount> --state requested|held|dispatching|broadcast|sent --ref <label> [--count <n>, requested only]';
   if (!who || !assetRaw || !amountStr || !state || !ref) fail(usage, 2);
-  if (!['requested', 'held', 'dispatching', 'broadcast'].includes(state))
-    fail(`--state must be requested, held, dispatching or broadcast (got "${state}")`, 2);
+  if (!['requested', 'held', 'dispatching', 'broadcast', 'sent'].includes(state))
+    fail(`--state must be requested, held, dispatching, broadcast or sent (got "${state}")`, 2);
   if (!/^[A-Za-z0-9-]{4,48}$/.test(ref)) fail('--ref must be 4-48 letters, digits or dashes', 2);
   const asset = assetRaw.toUpperCase();
   if (!/^[A-Z0-9]{2,12}$/.test(asset)) fail(`bad asset id: ${assetRaw}`, 2);
@@ -2182,9 +2186,9 @@ async function cmdSeedWithdrawal(rawArgs) {
   if (ledgerClient.parseAmount(storedAmount) !== ledgerClient.parseAmount(amountStr) || storedAsset !== asset)
     fail(`--ref ${ref} already names a withdrawal of ${storedAmount} ${storedAsset}`, 2);
 
-  if (state !== 'requested' && stored === 'pending') {
-    // The hold first, as `withdraw` posts it: funds leave available for a hold that names this withdrawal and attempt 0.
-    const request = ledgerClient.recipes.withdrawHold({
+  // One TEST post of a withdrawal recipe for attempt 0, through the ledger's own door, as `withdraw` posts it.
+  const post = async (recipe, label) => {
+    const request = ledgerClient.recipes[recipe]({
       userId,
       assetId: asset,
       amount: ledgerClient.parseAmount(amountStr),
@@ -2195,7 +2199,7 @@ async function cmdSeedWithdrawal(rawArgs) {
       idempotencyKey: request.idempotencyKey,
       module: request.module,
       reason: request.reason,
-      meta: { ...request.meta, label: 'LOCAL TEST withdrawal hold, not real money' },
+      meta: { ...request.meta, label },
       entries: request.entries.map((e) => ({ account: e.account, direction: e.direction, amount: ledgerClient.formatAmount(e.amount) })),
     });
     const res = await fetch(`${urlOf('ledger')}/trpc/post`, {
@@ -2204,7 +2208,11 @@ async function cmdSeedWithdrawal(rawArgs) {
       headers: { 'content-type': 'application/json', ...contracts.serviceAuthHeadersForBody('local-test-fund', secrets.internal, raw) },
       body: raw,
     });
-    if (!res.ok) fail(`ledger refused the TEST hold (${res.status}): ${(await res.text()).slice(0, 400)}`);
+    if (!res.ok) fail(`ledger refused the TEST ${recipe} (${res.status}): ${(await res.text()).slice(0, 400)}`);
+  };
+  if (state !== 'requested' && stored === 'pending') {
+    // The hold first, as `withdraw` posts it: funds leave available for a hold that names this withdrawal and attempt 0.
+    await post('withdrawHold', 'LOCAL TEST withdrawal hold, not real money');
     asPay(
       `UPDATE pay.withdrawals SET status = 'held', dispatch_journaled = true, updated_at = now() WHERE id = :'id' AND status = 'pending'`,
       {
@@ -2212,12 +2220,25 @@ async function cmdSeedWithdrawal(rawArgs) {
       },
     );
   }
-  if (state === 'dispatching' || state === 'broadcast') {
+  if (state === 'dispatching' || state === 'broadcast' || state === 'sent') {
+    const accepted = state !== 'dispatching';
     asPay(
       `INSERT INTO pay.withdrawal_rail_attempts (withdrawal_id, attempt, outcome, rail_ref)
        VALUES (:'id', 0, :'outcome', NULLIF(:'tx', '')) ON CONFLICT DO NOTHING`,
-      { id, outcome: state === 'broadcast' ? 'accepted' : 'requested', tx: state === 'broadcast' ? txRef : '' },
+      { id, outcome: accepted ? 'accepted' : 'requested', tx: accepted ? txRef : '' },
     );
+  }
+  if (state === 'sent' && stored !== 'sent') {
+    // The rail sent it: the settle under the same attempt, then the row, as `withdraw` does once a send is accepted. A
+    // reused reference whose send is not accepted (a dispatching one) is refused before anything is posted.
+    const [outcome] = asPay(`SELECT outcome FROM pay.withdrawal_rail_attempts WHERE withdrawal_id = :'id' AND attempt = 0`, { id });
+    if (outcome !== 'accepted')
+      fail(`--ref ${ref} already names a withdrawal whose send is ${outcome ?? 'not journalled'}, not sent; use a new --ref`, 2);
+    await post('withdrawSettle', 'LOCAL TEST withdrawal settle, not real money');
+    asPay(`UPDATE pay.withdrawals SET status = 'sent', rail_ref = :'tx', updated_at = now() WHERE id = :'id' AND status = 'held'`, {
+      id,
+      tx: txRef,
+    });
   }
   // Read back what svc-pay holds: a reference reused for another state is refused, never reported as the state asked for.
   const [after] = asPay(
@@ -2227,7 +2248,11 @@ async function cmdSeedWithdrawal(rawArgs) {
     { id },
   );
   const [nowStored, journal] = (after ?? '').split('\t');
-  const reached = { pending: 'requested', held: { none: 'held', requested: 'dispatching', accepted: 'broadcast' }[journal] }[nowStored];
+  const reached = {
+    pending: 'requested',
+    held: { none: 'held', requested: 'dispatching', accepted: 'broadcast' }[journal],
+    sent: journal === 'accepted' ? 'sent' : undefined,
+  }[nowStored];
   if (reached !== state) fail(`--ref ${ref} already names a withdrawal that is ${reached ?? nowStored}, not ${state}; use a new --ref`, 2);
   say(`TEST withdrawal (LOCAL TEST, not real money)`);
   say(`  withdrawal ${id}`);
@@ -2437,6 +2462,41 @@ function runningAsCli() {
 
 // ── Entry ───────────────────────────────────────────────────────────────────
 
+/**
+ * LOCAL TEST clock for one account's address book: moves the saved and last-changed times of every address the
+ * account saved back by whole hours, standing in for the cooling-off wait (BANK_OFFRAMP_COOLING_HOURS) a journey cannot
+ * sit through. Only this stack's database, only addresses the customer saved, and nothing that holds or moves value.
+ */
+function cmdAgeAddresses(args) {
+  const [who, hoursRaw] = args;
+  if (!who || !/^[1-9]\d{0,3}$/.test(hoursRaw ?? ''))
+    fail('usage: node tooling/scripts/local-test-stack.mjs age-addresses <email-or-userId> <whole hours, 1 to 9999>', 2);
+  if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
+  const marker = readJson(P.marker);
+  if (marker.kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
+  if (!pgRunning()) fail('refusing: the local stack Postgres is not running. Run: pnpm local:stack');
+  const secrets = readJson(P.secrets);
+  const ids = psql(secrets, `SELECT id::text FROM identity.users WHERE email = :'who' OR id::text = :'who'`, {
+    db: DB_NAME,
+    user: 'svc_identity',
+    password: secrets.pgService,
+    vars: { who },
+    tuples: true,
+  })
+    .trim()
+    .split('\n')
+    .filter(Boolean);
+  if (ids.length !== 1) fail(`"${who}" matches ${ids.length} users in the local identity database`);
+  const moved = psql(
+    secrets,
+    `WITH moved AS (UPDATE bank.user_withdraw_destinations
+        SET created_at = created_at - make_interval(hours => :'hours'::int), updated_at = updated_at - make_interval(hours => :'hours'::int)
+      WHERE user_id = :'user' AND origin = 'customer' RETURNING 1) SELECT count(*) FROM moved`,
+    { db: DB_NAME, user: 'svc_bank', password: secrets.pgService, vars: { user: ids[0], hours: hoursRaw }, tuples: true },
+  ).trim();
+  say(`  LOCAL TEST: ${moved} saved address(es) of ${who} moved back ${hoursRaw} hours`);
+}
+
 if (runningAsCli()) await runCli();
 
 async function runCli() {
@@ -2469,6 +2529,7 @@ async function runCli() {
   else if (cmd === 'expire-deposit-addresses') cmdExpireDepositAddresses(rest);
   else if (cmd === 'expire-staff-holds') cmdExpireStaffHolds(rest);
   else if (cmd === 'age-task-progress') cmdAgeTaskProgress(rest);
+  else if (cmd === 'age-addresses') cmdAgeAddresses(rest);
   else if (cmd === 'customer-dist') cmdCustomerDist(rest);
   else if (cmd === 'status') {
     const ok = await healthTable({ gateMarket: true });
@@ -2477,7 +2538,7 @@ async function runCli() {
     process.exit(ok ? 0 : 1);
   } else
     fail(
-      `unknown command "${cmd}". Use: start | stop | status | fund | seed-withdrawal | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | expire-staff-holds | age-task-progress | plan | restart | customer-dist`,
+      `unknown command "${cmd}". Use: start | stop | status | fund | seed-withdrawal | age-addresses | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | expire-staff-holds | age-task-progress | plan | restart | customer-dist`,
       2,
     );
 }

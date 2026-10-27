@@ -20,6 +20,7 @@ import {
   withdrawalFailureMessage,
   withdrawalIdSchema,
   type CanceledWithdrawal,
+  type ReturnedFunds,
   type WithdrawalHistoryFilter,
   type WithdrawalHistoryItem,
   type WithdrawalRecord,
@@ -299,6 +300,40 @@ function List({ current }: { current: () => boolean }) {
   );
 }
 
+const RETURN_REASONS = ['destination_rejected', 'network_returned', 'other'] as const;
+
+/**
+ * What came back from a sent withdrawal (W-withdraw-07): the amount, why, and whether it is back in available. svc-pay says
+ * whether it is credited; until a second founder approved it and the ledger booked it, the page says it is being checked.
+ */
+function ReturnedPart({ record, current }: { record: WithdrawalRecord; current: () => boolean }) {
+  const { api, userId } = useSession();
+  const { hideBalances } = usePreferences();
+  const { t } = withdrawalCopy.useCopy();
+  const { resource } = useResource(
+    (signal) => createWithdrawalReads(api, userId, current).returnOf(record.id, signal),
+    `${userId}:withdrawal-return:${record.id}`,
+  );
+  if (resource.status === 'loading') return null;
+  if (resource.status === 'failed')
+    return (
+      <p className="muted" role="status" data-testid="withdrawal-returned-unread">
+        {t('returnedReadFailed')}
+      </p>
+    );
+  const back: ReturnedFunds | null = resource.data;
+  if (!back) return null;
+  const shown = hideBalances ? `•••• ${record.assetId}` : amount(back.amount, record.assetId);
+  const code = RETURN_REASONS.find((known) => known === back.reasonCode);
+  return (
+    <div className="withdrawal-returned" role="status" data-testid="withdrawal-returned" data-credited={back.credited}>
+      <h3>{t('returnedTitle')}</h3>
+      <p data-withdrawal-amount>{t(back.credited ? 'returnedCredited' : 'returnedChecking', { amount: shown })}</p>
+      <p>{t('returnedWhy', { why: code ? t(`returnReason_${code}`) : t('returnReasonUnknown') })}</p>
+    </div>
+  );
+}
+
 function Detail({ id, current }: { id: string; current: () => boolean }) {
   const { api, userId } = useSession();
   const { hideBalances } = usePreferences();
@@ -439,6 +474,7 @@ function Detail({ id, current }: { id: string; current: () => boolean }) {
               </div>
             )}
             {cancelPart(record)}
+            {record.status === 'sent' && <ReturnedPart key={record.id} record={record} current={current} />}
             {inMotion(record) && <p className="muted">{t('irreversible')}</p>}
             <dl data-testid="withdrawal-facts" className="withdrawal-facts">
               {facts(record).map(([label, value]) => (

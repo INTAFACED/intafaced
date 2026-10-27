@@ -97,22 +97,22 @@ async function authenticate(page, target, original) {
     await returnContext(page, original);
   }
   if (target === 'register') {
-    await page.locator('input[autocomplete="username"]').fill('qualified_owner');
+    await page.locator('input[name="identifier"]').fill('qualified_owner');
     await page.locator('input[autocomplete="email"]').fill('qualified-owner@example.invalid');
     await page.locator('input[autocomplete="new-password"]').fill('qualified-password');
   } else {
-    await page.locator('input[autocomplete="username"]').fill('qualified-owner');
+    await page.locator('input[name="identifier"]').fill('qualified-owner');
     await page.locator('input[autocomplete="current-password"]').fill('qualified-password');
   }
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect(page).toHaveURL(new URL(original, page.url()).href);
   await expect(page.locator('.blueprint-shared')).toBeVisible();
 }
 async function firstLogin(page) {
   await page.goto('/login?redirect=%2Fblueprint');
-  await page.locator('input[autocomplete="username"]').fill('qualified-owner');
+  await page.locator('input[name="identifier"]').fill('qualified-owner');
   await page.locator('input[autocomplete="current-password"]').fill('qualified-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect(page.locator('.blueprint-shared')).toBeVisible();
 }
 async function navigateRoom(page, href) {

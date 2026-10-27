@@ -127,9 +127,9 @@ export async function network(context) {
 }
 export async function login(page, destination = '/bank/ramps') {
   await page.goto(`/login?redirect=${encodeURIComponent(destination)}`);
-  await page.locator('input[autocomplete="username"]').fill('rail-owner@example.invalid');
+  await page.locator('input[name="identifier"]').fill('rail-owner@example.invalid');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect.poll(() => page.evaluate(() => location.pathname + location.search + location.hash)).toBe(destination);
   await expect(page.locator('#main h1')).toBeVisible();
 }
@@ -369,9 +369,9 @@ test('URL departures late responses and owner changes retire inspector handlers 
         history.pushState({}, '', '/login?redirect=%2Fbank%2Framps');
         dispatchEvent(new PopStateEvent('popstate'));
       });
-      await page.locator('input[autocomplete="username"]').fill('other-owner@example.invalid');
+      await page.locator('input[name="identifier"]').fill('other-owner@example.invalid');
       await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-      await page.locator('form button[type="submit"]').click();
+      await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
       await expect(page.locator('.money-ramp-record')).toHaveCount(20);
       await page.evaluate(() => window.__savedRailInspect());
       await expect(page.locator('.money-selected-ramp')).toHaveCount(0);

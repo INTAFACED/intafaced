@@ -114,7 +114,7 @@ export function LeaderPage({ leaderRef, onFollow }: { leaderRef: string; onFollo
       <ModeNav active="copy" />
       <PageHeader
         title={leader?.displayName ?? t('Leader')}
-        description={t('What the platform published about this leader, and the leader’s own trades. Past results are not a promise.')}
+        description={t('What the platform published about this leader, and the leader’s own trades.')}
         meta={
           <span className="cb-meta">
             <AccountBadge paper={false} />

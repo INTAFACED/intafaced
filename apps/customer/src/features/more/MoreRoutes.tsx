@@ -15,7 +15,9 @@ import type { MiningTab } from './MiningAvailability';
 import { Market } from './Market';
 import { Prediction } from './Prediction';
 import { quantRoute } from '../quant/QuantRoutes';
-import { Support } from './Support';
+import { Support, supportPageTitleKey } from './Support';
+import { supportRoute } from './support-desk';
+import { deskCopy } from './support-desk-copy';
 import { Token, type TokenTab } from './Token';
 import { launchCopy } from './launch-copy';
 import { miningCopy } from './mining-copy';
@@ -123,10 +125,11 @@ function MoreRooms({ path }: { path: string }) {
     content = <Token />;
   } else if (quant) {
     ({ title, description, content } = quant);
-  } else if (p === '/support') {
-    title = copyText('moreroutes.support');
+  } else if (p === '/support' || p.startsWith('/support/')) {
+    const key = supportPageTitleKey(supportRoute(p, url.search));
+    title = key ? <deskCopy.Copy k={key} /> : copyText('moreroutes.support');
     description = copyText('moreroutes.help.requests.and.your.conversation.with.the');
-    content = <Support />;
+    content = <Support path={p + url.search} />;
   } else {
     // A section or a record of one of the six rooms: /mining/workers, /market/:listingId and so on.
     const hit = matchMoreRoute(p);
@@ -163,7 +166,7 @@ function MoreRooms({ path }: { path: string }) {
     <div className="more-feature">
       <Page
         key={userId ?? 'anonymous'}
-        eyebrow={p === '/support' ? undefined : copyText('moreroutes.more')}
+        eyebrow={p === '/support' || p.startsWith('/support/') ? undefined : copyText('moreroutes.more')}
         title={title}
         description={description}
       >

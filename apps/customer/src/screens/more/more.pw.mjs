@@ -38,8 +38,8 @@ test('More at 1440x900 and 1280x800: sections, tile sizes, words, no dead links'
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
   await page.goto('/more');
-  await expect(page.locator('.more-title')).toHaveText('More');
-  expect(await page.locator('.more-h2').allTextContents()).toEqual([
+  await expect(page.getByTestId('more-title')).toHaveText('More');
+  expect(await page.getByTestId('more-h2').allTextContents()).toEqual([
     'Learn and build',
     'Markets and assets',
     'Money and pay',
@@ -49,15 +49,15 @@ test('More at 1440x900 and 1280x800: sections, tile sizes, words, no dead links'
     'Account',
     'All services',
   ]);
-  expect(await page.locator('.more-tile').count()).toBe(tiles.length);
+  expect(await page.getByTestId('more-tile').count()).toBe(tiles.length);
 
   for (const [id, href, title, line] of tiles) {
     const tile = page.locator(`[data-tile="${id}"]`);
     await expect(tile).toHaveAttribute('href', href);
-    await expect(tile.locator('.more-tile__title')).toHaveText(title);
-    await expect(tile.locator('.more-tile__line')).toHaveText(line);
+    await expect(tile.getByTestId('more-tile__title')).toHaveText(title);
+    await expect(tile.getByTestId('more-tile__line')).toHaveText(line);
   }
-  expect(await page.locator('.more-tile').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('href')))).not.toContain('#');
+  expect(await page.getByTestId('more-tile').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('href')))).not.toContain('#');
 
   for (const size of [
     { width: 1440, height: 900 },
@@ -66,19 +66,20 @@ test('More at 1440x900 and 1280x800: sections, tile sizes, words, no dead links'
     await page.setViewportSize(size);
     await page.waitForTimeout(120);
     // Spec: 3 columns of 392 x 88 tiles in a 1224 container; icon 24 in a 40 circle.
-    const first = await page.locator('.more-tile').first().boundingBox();
+    const first = await page.getByTestId('more-tile').first().boundingBox();
     expect(Math.round(first.width)).toBe(392);
     expect(Math.round(first.height)).toBe(88);
-    const icon = await page.locator('.more-tile__icon').first().boundingBox();
+    const icon = await page.getByTestId('more-tile__icon').first().boundingBox();
     expect([Math.round(icon.width), Math.round(icon.height)]).toEqual([40, 40]);
     expect(
       await page
-        .locator('.more-tile__icon svg')
+        .getByTestId('more-tile__icon')
+        .locator('svg')
         .first()
         .evaluate((node) => node.getAttribute('width')),
     ).toBe('24');
     const row = await page
-      .locator('.more-tile')
+      .getByTestId('more-tile')
       .evaluateAll((nodes) => nodes.slice(0, 3).map((node) => Math.round(node.getBoundingClientRect().top)));
     expect(new Set(row).size).toBe(1); // the first three tiles share one row
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -104,7 +105,7 @@ test('every tile opens its screen (click each)', async ({ page }) => {
 
 test('keyboard: Tab moves through the tiles in order with a visible outline, Enter opens', async ({ page }) => {
   await page.goto('/more');
-  await page.locator('.harness-bar a[aria-current="page"]').focus();
+  await page.locator('[data-testid="harness-bar"] a[aria-current="page"]').focus();
   for (const [id] of tiles) {
     await page.keyboard.press('Tab');
     await expect(page.locator(`[data-tile="${id}"]`)).toBeFocused();

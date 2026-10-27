@@ -245,7 +245,7 @@ test('existing related-room filters retain Customer routes and suppress external
       }),
   });
   await signIn(page);
-  const links = page.locator('.notifications-item').getByRole('link', { name: 'Open related room' });
+  const links = page.getByTestId('notifications-item').getByRole('link', { name: 'Open related room' });
   await expect(links).toHaveCount(2);
   await expect(links.first()).toHaveAttribute('href', '/uc/safe');
   await expect(links.last()).toHaveAttribute('href', '/pay/merchant');

@@ -1034,11 +1034,41 @@ code {
   letter-spacing: 0.02em;
   color: var(--if-text-muted);
 }
-.adm-brand img {
+/* The brand is the kit's own file painted through a mask, so it takes the text token in every console theme. The box
+   keeps each lockup file's own proportions (its viewBox). */
+.adm-lockup {
   display: block;
-  width: 164px;
-  height: auto;
+  height: 24px;
+  aspect-ratio: 6310.5 / 1000;
   margin-bottom: 4px;
+  background: var(--if-text);
+  -webkit-mask: url('/brand/lockup-topbar.svg') center / contain no-repeat;
+  mask: url('/brand/lockup-topbar.svg') center / contain no-repeat;
+}
+@media (forced-colors: active) {
+  .adm-lockup {
+    forced-color-adjust: none;
+    background: CanvasText;
+  }
+}
+@media print {
+  .adm-lockup {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}
+.adm-brand--stacked {
+  display: grid;
+  justify-items: center;
+  gap: var(--s2);
+  margin-bottom: var(--s6);
+}
+.adm-lockup--stacked {
+  height: 96px;
+  aspect-ratio: 3413.1 / 1500;
+  margin: 0;
+  -webkit-mask-image: url('/brand/lockup-stacked.svg');
+  mask-image: url('/brand/lockup-stacked.svg');
 }
 
 .adm-nav {
@@ -2075,9 +2105,12 @@ code {
   .adm-brand {
     flex: 0 0 auto;
   }
-  .adm-brand img {
-    width: 118px;
-    margin: 0;
+  /* the phone bar: the mark alone (small drawing, 24 px); the name stays as the label below it */
+  .adm-topbar .adm-lockup {
+    width: 24px;
+    margin: 0 0 2px;
+    -webkit-mask-image: url('/brand/mark-small.svg');
+    mask-image: url('/brand/mark-small.svg');
   }
   .adm-nav--desktop {
     display: none;
@@ -2285,9 +2318,6 @@ code {
   }
   .adm-crm-table .adm-text-button {
     min-height: 44px;
-  }
-  .adm-brand img {
-    width: 144px;
   }
 }
 

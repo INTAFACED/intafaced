@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes } from 'react';
-import { Panel } from '@intafaced/ui';
+import { BrandIris, Panel } from '@intafaced/ui';
 import { isServiceNotConnected, type ApiResult } from './api';
 import { uiCopy, uiMessage } from './ui-copy';
 import { refusalCopy } from '../data/refusals';
@@ -184,11 +184,12 @@ export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>,
     </div>
   );
 }
-export function Loading({ label }: { label?: ReactNode }) {
+/** Data on its way. `room`: a room's code is still arriving, so the brand's iris turns instead of the dot. */
+export function Loading({ label, room }: { label?: ReactNode; room?: boolean }) {
   const { Copy } = uiCopy.useCopy();
   return (
-    <div className="loading" role="status">
-      <span className="loading-dot" />
+    <div className={room ? 'loading loading--room' : 'loading'} role="status">
+      {room ? <BrandIris size={24} mode="loop" /> : <span className="loading-dot" />}
       {label ?? <Copy k="loading" />}…
     </div>
   );

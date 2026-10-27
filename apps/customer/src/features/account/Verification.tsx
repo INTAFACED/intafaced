@@ -312,7 +312,7 @@ export function Verification() {
         <EmptyState
           title={t('signIn')}
           action={
-            <a className="text-link" href="/login?redirect=%2Fverification">
+            <a data-testid="text-link" className="text-link" href="/login?redirect=%2Fverification">
               <Copy k="signIn" />
             </a>
           }
@@ -322,7 +322,7 @@ export function Verification() {
       </Page>
     );
   return (
-    <div className="verification" lang={languageFor('title')}>
+    <div data-testid="verification" className="verification" lang={languageFor('title')}>
       <Page title={t('title')} description={t('description')}>
         <p className="verification__identity">
           <Copy k="owner" /> ·{' '}
@@ -431,7 +431,7 @@ export function Verification() {
           </p>
         )}
         <div className="verification__columns">
-          <section className="verification__list" aria-label={t('records')}>
+          <section data-testid="verification__list" className="verification__list" aria-label={t('records')}>
             {resource.status === 'loading' ? (
               <Loading />
             ) : resource.status === 'failed' ? (
@@ -445,12 +445,13 @@ export function Verification() {
               </>
             ) : (
               <>
-                <div className="verification__tier">
+                <div data-testid="verification__tier" className="verification__tier">
                   <span className="eyebrow">
                     <Copy k="current" />
                   </span>
                   <h2 className="verification__level">
                     <StatusTag
+                      data-testid="verification__level-tag"
                       className="verification__level-tag h-10 rounded-sm px-5 text-lg font-semibold"
                       status={resource.data.tier === 'none' ? 'working' : 'filled'}
                       label={t(resource.data.tier)}
@@ -460,7 +461,7 @@ export function Verification() {
                     <Copy k="currentBody" />
                   </p>
                 </div>
-                <div className="verification__records">
+                <div data-testid="verification__records" className="verification__records">
                   <div className="verification__heading">
                     <h2>
                       <Copy k="records" />
@@ -535,7 +536,7 @@ export function Verification() {
               </>
             )}
           </section>
-          <section className="verification__request" aria-label={t('requestTitle')}>
+          <section data-testid="verification__request" className="verification__request" aria-label={t('requestTitle')}>
             <h2>
               <Copy k="requestTitle" />
             </h2>
@@ -594,7 +595,7 @@ export function Verification() {
             <p className="muted">
               <Copy k="documentBoundary" />
             </p>
-            <a className="text-link" href="/support">
+            <a data-testid="text-link" className="text-link" href="/support">
               <Copy k="help" /> →
             </a>
           </section>

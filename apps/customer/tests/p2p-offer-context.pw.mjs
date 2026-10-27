@@ -111,9 +111,9 @@ async function fixture(context) {
 }
 async function login(page, path = '/p2p') {
   await page.goto('/login?redirect=' + encodeURIComponent(path));
-  await page.locator('input[autocomplete="username"]').fill('offer-owner@example.invalid');
+  await page.locator('input[name="identifier"]').fill('offer-owner@example.invalid');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect(page.locator('.pay-room-tabs')).toBeVisible();
 }
 const stable = (page) => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));

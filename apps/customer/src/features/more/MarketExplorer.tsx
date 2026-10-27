@@ -62,7 +62,7 @@ export function MarketFilters({
           ]}
         />
       </div>
-      <div className="more-toolbar">
+      <div data-testid="more-toolbar" className="more-toolbar">
         <span className="muted" role="status">
           {t('showing', { shown, total: rows.length })}
           {filter.vendorId ? ` · ${t('sellerFilter')}` : ''}
@@ -107,7 +107,7 @@ export function ListingDetail({
   return (
     <Panel title={t('detailTitle')}>
       <h3 lang="und">{row.title}</h3>
-      <p className="more-body" lang="und">
+      <p data-testid="more-body" className="more-body" lang="und">
         {row.description}
       </p>
       <Details

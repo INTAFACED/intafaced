@@ -8,8 +8,10 @@ import { signIn, signUp, verify } from './desk.mjs';
 // the way svc-pay's `withdraw` leaves it and books its hold through the ledger first. Cancelling is svc-pay's own code, pressed
 // on the person's withdrawal page; every balance is read back from the ledger through the person's own API.
 // #5 reads the person's History, filtered by coin and status and paged by svc-pay's cursor past 200 rows; its long history is
-// written by the same tool (`--count`, requested withdrawals, nothing held). #6 (a returned withdrawal) needs the returned-funds
-// ledger recipe, which does not exist.
+// written by the same tool (`--count`, requested withdrawals, nothing held). #6 starts from a sent withdrawal (`--state sent`,
+// settled through the ledger's own recipe): the stack's TEST founders record that it came back and a second founder approves
+// the credit, through svc-pay's founder doors as the console sends them; the person's page shows why and the amount back in
+// available, once.
 const J = 'J-wallet-06';
 const ASSET = 'USDT';
 
@@ -34,6 +36,24 @@ async function person(page, tag) {
     /** The person's own cancel, through the API, as a second press would send it. */
     cancel: (withdrawalId) => client.post('/api/pay/trpc/withdrawal.cancel', { withdrawalId }),
   };
+}
+
+let founderPair;
+/** The stack's two TEST founders, signed in with their second factor (local-test-gates.mjs). */
+async function founders() {
+  if (!founderPair) {
+    const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+    const ctx = await gates.makeContext({ log: () => {} });
+    founderPair = { ctx, pair: await gates.approverSessions(ctx) };
+  }
+  return founderPair;
+}
+
+/** One founder door of svc-pay's returned withdrawals, as founder `who` ('a' or 'b'). Returns { status, row, text }. */
+async function returnsDoor(who, procedure, input) {
+  const { ctx, pair } = await founders();
+  const res = await ctx.edge.mutate('pay', `founderAdmin.withdrawalReturns.${procedure}`, input, pair[who].token);
+  return { status: res.status, row: res.json?.result?.data ?? null, text: res.text };
 }
 
 async function openWithdrawal(page, id) {
@@ -220,4 +240,49 @@ test(`${J} #5 History filters by coin and status and pages past 200; an empty re
   await expect(page.getByRole('heading', { name: 'No withdrawals match' })).toBeVisible({ timeout: 30_000 });
   await expect(rows).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Show older withdrawals' })).toHaveCount(0);
+});
+
+test(`${J} #6 a returned withdrawal shows why and its amount back in available, once`, async ({ page }, testInfo) => {
+  test.setTimeout(180_000);
+  const me = await person(page, 'w6f');
+  const id = seedWithdrawal(me.who, 'sent', '40', `jw06f-${me.who.handle}-r${testInfo.retry}`);
+  expect(await me.usdt()).toBe(toUnits('60'));
+
+  await openWithdrawal(page, id);
+  await expect(status(page)).toHaveAttribute('data-status', 'settled');
+  await expect(page.getByTestId('withdrawal-returned')).toHaveCount(0);
+
+  // Founder A records that it came back. Nothing is booked yet, and A alone cannot approve the credit.
+  const recorded = await returnsDoor('a', 'record', {
+    withdrawalId: id,
+    returnRef: `local-test-return-${id}`,
+    amount: '40',
+    reason: 'LOCAL TEST: the receiving exchange rejected the deposit',
+    reasonCode: 'destination_rejected',
+  });
+  expect(recorded.status, recorded.text).toBe(200);
+  expect(recorded.row).toMatchObject({ state: 'parked' });
+  const alone = await returnsDoor('a', 'recredit', { withdrawalId: id, reason: 'LOCAL TEST approval' });
+  expect(alone.status).toBe(403);
+  expect(alone.text).toContain('withdrawal_return.same_founder');
+
+  await page.reload();
+  const back = page.getByTestId('withdrawal-returned');
+  await expect(back).toHaveAttribute('data-credited', 'false');
+  await expect(back).toContainText('40 USDT came back to us. We are checking it before it goes back to your available balance.');
+  await expect(back).toContainText('Why: the receiving address or account sent it back.');
+  expect(await me.usdt()).toBe(toUnits('60'));
+
+  // Founder B approves: the amount is back in available. Approved again, nothing more is booked.
+  const credited = await returnsDoor('b', 'recredit', { withdrawalId: id, reason: 'LOCAL TEST approval' });
+  expect(credited.status, credited.text).toBe(200);
+  expect(credited.row).toMatchObject({ state: 'credited' });
+  const again = await returnsDoor('b', 'recredit', { withdrawalId: id, reason: 'LOCAL TEST approval' });
+  expect(again.row?.ledgerTxId).toBe(credited.row.ledgerTxId);
+
+  await page.reload();
+  await expect(back).toHaveAttribute('data-credited', 'true');
+  await expect(back).toContainText('40 USDT came back to your available balance.');
+  await expect(back).toContainText('Why: the receiving address or account sent it back.');
+  expect(await me.usdt()).toBe(toUnits('100'));
 });

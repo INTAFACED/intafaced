@@ -49,6 +49,7 @@ export const RECIPE_MATRIX = {
   withdrawHold: { kind: 'live', module: 'ledger', proof: 'services/svc-pay/src/user-money-service.ts' },
   withdrawSettle: { kind: 'live', module: 'ledger', proof: 'services/svc-pay/src/user-money-service.ts' },
   withdrawReverse: { kind: 'live', module: 'ledger', proof: 'services/svc-pay/src/user-money-service.ts' },
+  withdrawReturned: { kind: 'live', module: 'ledger', proof: 'services/svc-pay/src/withdrawals/returns/service.ts' },
   tradeFill: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service/fills.ts' },
   tradeFillFeeCorrection: {
     kind: 'socket',

@@ -250,9 +250,9 @@ async function standingNetwork(context) {
 }
 
 async function submitLogin(page, destination) {
-  await page.locator('input[autocomplete="username"]').fill('standing-owner@example.invalid');
+  await page.locator('input[name="identifier"]').fill('standing-owner@example.invalid');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect.poll(() => currentURL(page)).toBe(destination);
   await expect(main(page).getByRole('heading', { level: 1 })).toBeVisible();
 }

@@ -89,9 +89,9 @@ async function scenario(browser, name, width, fn) {
 }
 async function login(page, path = '/launch') {
   await page.goto('/login?redirect=' + encodeURIComponent(path));
-  await page.locator('input[autocomplete="username"]').fill('launch@example.invalid');
+  await page.locator('input[name="identifier"]').fill('launch@example.invalid');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect(page).toHaveURL(new RegExp(path + '$'));
 }
 async function stable(page) {
@@ -209,7 +209,7 @@ test('guest entry preserves its validated launch destination without showing iss
     const href = await signIn.getAttribute('href');
     expect(new URL(href, baseURL).searchParams.get('redirect')).toBe('/uc/innovation/myorders?public=reference#record');
     await signIn.click();
-    await expect(page.locator('input[autocomplete="username"]')).toBeVisible();
+    await expect(page.locator('input[name="identifier"]')).toBeVisible();
   });
 });
 test('the Mining liveness read still distinguishes responding process from absent customer capabilities', async ({ browser }) => {

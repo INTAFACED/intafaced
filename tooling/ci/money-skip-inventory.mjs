@@ -3,10 +3,10 @@
  *
  * Every money-path test file that can decline to run must appear here with a
  * kind and a reason, or the skip must be deleted. The companion gate
- * (`money-skip-honesty-scan.mjs`) fails in both directions:
+ * (`money-skip-honesty-scan.mjs`) fails on growth and warns on paid debt:
  *
  *   · a new skip under a money root that is not listed → red (register or delete)
- *   · a listed file that no longer skips / no longer exists → red (delete the row)
+ *   · a listed file that no longer skips / no longer exists → warning (delete the row; a fix never fails)
  *
  * This is not a licence to skip. It is the permanent ledger of which money
  * suites are allowed to be absent from a local run, so a silent grow cannot

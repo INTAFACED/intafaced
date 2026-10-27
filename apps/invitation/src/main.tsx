@@ -15,7 +15,10 @@ import { BlurFade } from './components/blur-fade';
 import { LivingBackdrop } from './components/living-backdrop';
 import { AMOUNT_ERROR, amountAmbiguity, groupAmount, parseAmount, storedAmount } from './lib/amount';
 import heroPhone from './vendored/assets/images/outreach/graphite-fins-phone.webp';
-import logo from './vendored/assets/images/logo.svg';
+// The owner's kit: this app's copy of packages/ui/brand (kept in step by packages/ui/scripts/brand-sync.mjs, checked by
+// its test), bundled into /assets/ like any image.
+import lockupStacked from '../public/brand/lockup-stacked.svg';
+import lockupBar from '../public/brand/lockup-topbar.svg';
 import './outreach.css';
 import { WaitlistPage } from './waitlist';
 
@@ -807,9 +810,14 @@ function App() {
   }, [noteKey]);
   const showDeviceDetails =
     !!vm.draft && !vm.interestChangeRequested && !vm.interestsOpen && (vm.complete || !vm.currentAudience || vm.isReview);
-  const logoLink = (width: number, className: string) => (
+  // The stacked lockup on the welcome hero (a full-screen brand moment), the horizontal top-bar lockup above a form.
+  const logoLink = (layout: 'stacked' | 'horizontal', className: string) => (
     <a className={`brand-logo ${className}`} href="/join" aria-label="INTAFACED">
-      <img src={logo} alt="INTAFACED" width={width} height={Math.round((width * 35) / 150)} />
+      {layout === 'stacked' ? (
+        <img src={lockupStacked} alt="INTAFACED" width={218} height={96} />
+      ) : (
+        <img src={lockupBar} alt="INTAFACED" width={151} height={24} />
+      )}
     </a>
   );
   // The confirmation puts its check mark ABOVE the heading, so there the heading lives inside the receipt (one h1 either way).
@@ -1058,7 +1066,7 @@ function App() {
       {vm.screen === 'welcome' ? (
         <section role="main" className="outreach-welcome" aria-labelledby="welcome-title">
           <div className="welcome-content">
-            {logoLink(112, 'welcome-logo')}
+            {logoLink('stacked', 'welcome-logo')}
             <h1
               id="welcome-title"
               tabIndex={-1}
@@ -1112,7 +1120,7 @@ function App() {
       ) : (
         <section role="main" className="outreach-workspace" aria-busy={vm.busy} aria-labelledby="intake-heading">
           <div className="outreach-form-panel">
-            {logoLink(112, 'form-logo')}
+            {logoLink('horizontal', 'form-logo')}
             <div className="outreach-eyebrow-row">
               <p id="question-progress-label" className="outreach-eyebrow">
                 {eyebrow}

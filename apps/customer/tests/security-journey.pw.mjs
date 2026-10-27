@@ -105,9 +105,9 @@ async function network(context, options = {}) {
 }
 async function login(page, path = '/uc/safe') {
   await page.goto('/login?redirect=' + encodeURIComponent(path));
-  await page.locator('input[autocomplete="username"]').fill('isolated-owner');
+  await page.locator('input[name="identifier"]').fill('isolated-owner');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect(page).toHaveURL(new URL(path, test.info().project.use.baseURL).href);
 }
 async function nativeSignOut(page) {
@@ -116,9 +116,9 @@ async function nativeSignOut(page) {
 }
 async function returnLogin(page) {
   await page.locator('#main').getByRole('link', { name: 'Sign in', exact: true }).click();
-  await page.locator('input[autocomplete="username"]').fill('isolated-owner');
+  await page.locator('input[name="identifier"]').fill('isolated-owner');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
 }
 const keys = (page) => page.getByRole('region', { name: 'Passkeys', exact: true });
 const auth = (page) => page.getByRole('region', { name: 'Authenticator app', exact: true });

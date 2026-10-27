@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from 'react';
-import { HideBalancesProvider, ToastProvider, TooltipProvider, Wordmark } from '@intafaced/ui';
+import { HideBalancesProvider, ToastProvider, TooltipProvider, BrandBar } from '@intafaced/ui';
 import { isServiceNotConnected, networkLabel } from '../features/protocol/blockers';
 import { createProtocolApi } from '../features/protocol/api';
 import { protocolCopy } from '../features/protocol/copy';
@@ -70,10 +70,10 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
             </a>
             <header data-testid="tb" className="tb web3-bar">
               <a className="tb-brand" href="/home" aria-label={t('shellHome')}>
-                <Wordmark />
+                <BrandBar />
               </a>
               <ShellSwitch current="web3" here={path} />
-              <nav className="tb-nav" aria-label={t('shellNav')}>
+              <nav data-testid="tb-nav" className="tb-nav" aria-label={t('shellNav')}>
                 <ul>
                   {NAV.map((item) => (
                     <li key={item.key} data-testid="tb-item" className="tb-item">

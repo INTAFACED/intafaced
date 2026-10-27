@@ -3,9 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
+    <meta name="theme-color" content="#04050A" />
     <meta name="description" content="Your money, trading and payments in one place." />
-    <title>Intafaced</title>
+    <title>INTAFACED</title>
+    <!-- The brand's files: packages/ui/brand, copied here by packages/ui/scripts/brand-sync.mjs. -->
+    <link rel="icon" href="/brand/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/brand/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="icon" href="/brand/favicon-16.png" sizes="16x16" type="image/png" />
+    <link rel="apple-touch-icon" href="/brand/apple-touch-icon-180.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta property="og:site_name" content="INTAFACED" />
+    <meta property="og:title" content="INTAFACED" />
+    <meta property="og:description" content="Your money, trading and payments in one place." />
+    <meta property="og:image" content="/brand/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="/brand/og-image.png" />
     <style>
       /*
        * Home's frame: drawn from this file alone while the app's code downloads, only where the boot script
@@ -33,15 +47,16 @@
         block-size: var(--if-space-12);
         padding-inline: var(--if-space-6);
         border-block-end: 1px solid var(--if-line);
-        color: var(--if-text);
-        /* the system face: the app's web font would start downloading here and slow the app's own code */
-        font:
-          700 1.0625rem / 1 system-ui,
-          sans-serif;
-        letter-spacing: -0.02em;
       }
-      #boot-frame .bf-top span {
-        color: var(--if-accent-text);
+      /* the bar's brand, as the app bar draws it: the top-bar lockup, 24 pixels tall; the mark alone on a phone. The
+         kit's own files paint through a mask, so the colour is the text token */
+      #boot-frame .bf-brand {
+        display: block;
+        block-size: 1.7143rem;
+        inline-size: 10.8183rem;
+        background: var(--if-text);
+        -webkit-mask: url(/brand/lockup-topbar.svg) center / contain no-repeat;
+        mask: url(/brand/lockup-topbar.svg) center / contain no-repeat;
       }
       /* .if-home and .home-grid */
       #boot-frame .bf-body {
@@ -224,6 +239,11 @@
         #boot-frame .bf-top {
           padding-inline: var(--if-space-4);
         }
+        #boot-frame .bf-brand {
+          inline-size: 1.7143rem;
+          -webkit-mask-image: url(/brand/mark-small.svg);
+          mask-image: url(/brand/mark-small.svg);
+        }
         #boot-frame .bf-body {
           inline-size: calc(100% - var(--if-space-8));
           padding-block-start: var(--if-space-6);
@@ -263,7 +283,7 @@
   </head>
   <body>
     <div id="boot-frame" aria-hidden="true">
-      <div class="bf-top">intafaced<span>·</span></div>
+      <div class="bf-top"><span class="bf-brand"></span></div>
       <div class="bf-body">
         <div class="bf-main">
           <div class="bf-label"><i></i></div>

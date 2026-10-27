@@ -109,9 +109,9 @@ export async function login(page, arrival = 'Release escrow', documentLoad = tru
       history.pushState(null, '', url);
       dispatchEvent(new PopStateEvent('popstate'));
     }, url);
-  await page.locator('input[autocomplete="username"]').fill('isolated-owner@example.invalid');
+  await page.locator('input[name="identifier"]').fill('isolated-owner@example.invalid');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect(page).toHaveURL(new URL(destination, process.env.P2P_ORDER_BASE_URL).href);
   if (arrival) await expect(page.getByRole('button', { name: arrival, exact: true })).toBeVisible();
   else await expect(page.locator('#main h1')).toBeVisible();

@@ -80,7 +80,7 @@ async function fields(page, register = false, details = {}) {
     .locator('input[autocomplete="' + (register ? 'new-password' : 'current-password') + '"]')
     .fill(details.password || 'isolated-test-password');
 }
-const submit = (page) => page.locator('form button[type="submit"]');
+const submit = (page) => page.locator('form:has(input[name="identifier"]) button[type="submit"]');
 const unknown = (page) => page.getByRole('region', { name: 'Sign-in not confirmed', exact: true });
 const registerUnknown = (page) => page.getByRole('region', { name: 'Account creation not confirmed', exact: true });
 const optionsUnknown = (page) => page.getByRole('region', { name: 'Passkey preparation not confirmed', exact: true });
