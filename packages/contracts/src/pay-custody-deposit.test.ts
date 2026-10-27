@@ -48,6 +48,17 @@ describe('pay custody deposit contract', () => {
     expect(parse({ extra: 1 })).toBe(false);
   });
 
+  it('carries an unsupported-case list when the owner published one, and refuses an empty, blank or overlong one', () => {
+    const parse = (over: object) => payCustodyDepositCatalogueSchema.safeParse({ entries: [{ ...entry, ...over }] }).success;
+    expect(parse({ unsupported: ['TEST: a send from a smart contract'] })).toBe(true);
+    expect(parse({ unsupported: [] })).toBe(false);
+    expect(parse({ unsupported: [''] })).toBe(false);
+    expect(parse({ unsupported: [' padded'] })).toBe(false);
+    expect(parse({ unsupported: ['TEST same', 'TEST same'] })).toBe(false);
+    expect(parse({ unsupported: ['x'.repeat(281)] })).toBe(false);
+    expect(parse({ unsupported: Array.from({ length: 21 }, (_, i) => `TEST ${i}`) })).toBe(false);
+  });
+
   it('accepts a halted list with a note or none, and refuses a blank note', () => {
     const halted = { assetId: 'USDT', networkId: 'TEST-net', label: 'TEST network', haltNote: null };
     const parse = (h: object) => payCustodyDepositCatalogueSchema.safeParse({ entries: [], halted: [h] }).success;

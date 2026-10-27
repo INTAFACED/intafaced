@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
-import { serviceAuthHeadersForBody, type PayCustodyDepositCatalogue } from '@intafaced/contracts';
+import { payCustodyDepositCatalogueSchema, serviceAuthHeadersForBody, type PayCustodyDepositCatalogue } from '@intafaced/contracts';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -90,6 +90,35 @@ describe('custody deposit addresses (real Postgres)', () => {
           sharedAddressGroup: null,
         },
       ]);
+    });
+
+    it('carries the owner’s unsupported-case list on its entry, as written, and leaves the key out when none is published', async () => {
+      networks = [network({ assetCodes: ['USDT', 'USDC'] })];
+      await setting();
+      await setting('USDC');
+      const cases = ['TEST: a send from a smart contract', 'TEST: a send of an NFT'];
+      await db.sql`UPDATE pay.custody_deposit_settings SET unsupported_cases = ${db.sql.array(cases)}::text[] WHERE asset_id = 'USDT'`;
+      const catalogue = await service().catalogue();
+      expect(payCustodyDepositCatalogueSchema.parse(catalogue)).toEqual(catalogue);
+      const byAsset = new Map(catalogue.entries.map((entry) => [entry.assetId, entry]));
+      expect(byAsset.get('USDT')?.unsupported).toEqual(cases);
+      expect(byAsset.get('USDC')).not.toHaveProperty('unsupported');
+      // The table holds at most 20 cases and no null one.
+      await expect(
+        db.sql`UPDATE pay.custody_deposit_settings SET unsupported_cases = ${db.sql.array(Array.from({ length: 21 }, (_, i) => `TEST ${i}`))}::text[]`,
+      ).rejects.toThrow();
+      // Nor a null, blank, padded, overlong or repeated case: the catalogue svc-bank parses can never be broken by a row.
+      for (const bad of [
+        'ARRAY[NULL]::text[]',
+        "ARRAY['']",
+        "ARRAY['   ']",
+        "ARRAY[' padded']",
+        "ARRAY[E'padded\\t']",
+        `ARRAY['${'x'.repeat(281)}']`,
+        "ARRAY['TEST a', 'TEST a']",
+      ]) {
+        await expect(db.sql.unsafe(`UPDATE pay.custody_deposit_settings SET unsupported_cases = ${bad}`)).rejects.toThrow();
+      }
     });
 
     it('leaves out a pair whose network is not routable, has no confirmation count or does not list the asset, and a disabled setting', async () => {

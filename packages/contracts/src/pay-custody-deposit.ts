@@ -25,10 +25,22 @@ const networkIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,32}$/);
 /** An exact decimal string: no sign, no exponent, at most 18 places. */
 const decimalSchema = z.string().regex(/^(0|[1-9]\d{0,29})(\.\d{1,18})?$/);
 
+/** The most unsupported cases one pair publishes, and the longest one; svc-pay's settings, its table and svc-bank use these. */
+export const PAY_CUSTODY_DEPOSIT_UNSUPPORTED_MAX = 20;
+export const PAY_CUSTODY_DEPOSIT_UNSUPPORTED_CASE_MAX = 280;
+
+/** One case as it travels: written once, already trimmed, at most 280 characters. */
+const unsupportedCaseSchema = z
+  .string()
+  .min(1)
+  .max(PAY_CUSTODY_DEPOSIT_UNSUPPORTED_CASE_MAX)
+  .refine((value) => value.trim() === value, 'an unsupported case is sent trimmed');
+
 /**
  * One asset on one network that can take a deposit now. `memoRequired` is true for networks that route by memo or tag.
  * `sharedAddressGroup` names a group of assets that share one address on the network (for example every token on an EVM
- * chain); null means the address is the asset's own.
+ * chain); null means the address is the asset's own. `unsupported` is the owner's list of cases custody will not credit on this
+ * network, shown before any address (W-deposit-03); absent means none was published.
  */
 export const payCustodyDepositEntrySchema = z
   .object({
@@ -40,6 +52,12 @@ export const payCustodyDepositEntrySchema = z
     estimatedArrivalMinutes: z.number().int().min(1).max(100_000),
     memoRequired: z.boolean(),
     sharedAddressGroup: z.string().min(1).max(64).nullable(),
+    unsupported: z
+      .array(unsupportedCaseSchema)
+      .min(1)
+      .max(PAY_CUSTODY_DEPOSIT_UNSUPPORTED_MAX)
+      .refine((cases) => new Set(cases).size === cases.length, 'each unsupported case once')
+      .optional(),
   })
   .strict();
 export type PayCustodyDepositEntry = z.infer<typeof payCustodyDepositEntrySchema>;
