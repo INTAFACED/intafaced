@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { blankAsUnset } from '@intafaced/service-kit';
 import { ACADEMY_DISCUSSION_IMAGE_MAX_BYTES } from '@intafaced/contracts';
 import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
 
@@ -181,6 +182,12 @@ const schema = serviceEnvSchema
         (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
         z.union([z.undefined(), z.coerce.number().int().min(1).max(86_400)]),
       ),
+
+      /**
+       * AC-assignments-04: how many learner rows one grade report may hold. Blank / unset is unpublished: a report refuses
+       * `academy.report_limit_unset`.
+       */
+      ACADEMY_GRADE_REPORT_ROWS: blankAsUnset(z.coerce.number().int().min(1).max(100_000)),
 
       /**
        * AC-articles-01: how many topics the founder console's topic list shows. Blank / unset is unpublished: the list
