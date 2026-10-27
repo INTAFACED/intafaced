@@ -2116,7 +2116,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 2,
+    "order": 3,
     "later": ["AL-library-01", "AL-live-02"]
   },
   {
@@ -10747,7 +10747,7 @@
     "outside": "`owner.decision` (registry reference hash not recorded; jurisdiction list), `audit.external` (mainnet)",
     "size": "M",
     "families": 0,
-    "order": 1
+    "order": 0
   },
   {
     "id": "RC-dex-protocol-15",
@@ -11602,7 +11602,7 @@
     "outside": "`vendor.kyc` (automatic check only)",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 0
   },
   {
     "id": "I-kyc-compliance-12",
@@ -11617,7 +11617,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 0
   },
   {
     "id": "I-kyc-compliance-13",
@@ -11722,7 +11722,7 @@
     "outside": "`vendor.aml` (data vendor only)",
     "size": "L",
     "families": 1,
-    "order": 2
+    "order": 3
   },
   {
     "id": "I-kyc-compliance-20",
@@ -11797,7 +11797,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 2
+    "order": 0
   },
   {
     "id": "I-kyc-compliance-25",
@@ -13660,7 +13660,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 0
   },
   {
     "id": "M-adv-payments-core-07",
@@ -15625,7 +15625,7 @@
     "outside": "",
     "size": "M",
     "families": 4,
-    "order": 2
+    "order": 0
   },
   {
     "id": "OPS-admin-access-03",
@@ -15709,7 +15709,7 @@
     "outside": "`vendor.aml` for the provider call.",
     "size": "M",
     "families": 3,
-    "order": 2
+    "order": 0
   },
   {
     "id": "OPS-admin-access-08",
@@ -15793,7 +15793,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 0
   },
   {
     "id": "OPS-cases-02",
@@ -15808,7 +15808,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 0
   },
   {
     "id": "OPS-cases-03",
@@ -15823,7 +15823,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 0
   },
   {
     "id": "OPS-cases-04",
@@ -15838,7 +15838,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 0
   },
   {
     "id": "OPS-cases-05",
@@ -15853,7 +15853,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 0
   },
   {
     "id": "OPS-cases-06",
@@ -15868,7 +15868,7 @@
     "outside": "cases-029: `owner.decision` for the regulator filing destination (no allowlist code covers a regulator filing: this is the closest and it is an owner decision, ",
     "size": "M",
     "families": 3,
-    "order": 2
+    "order": 0
   },
   {
     "id": "OPS-cases-07",
@@ -15898,7 +15898,7 @@
     "outside": "`vendor.email`, `vendor.sms` (dispatch channels only).",
     "size": "M",
     "families": 3,
-    "order": 2
+    "order": 0
   },
   {
     "id": "OPS-cases-09",
@@ -15913,7 +15913,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 3
+    "order": 0
   },
   {
     "id": "OPS-change-control-01",
@@ -16079,7 +16079,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 2
+    "order": 0
   },
   {
     "id": "OPS-launch-flags-01",
@@ -16468,7 +16468,7 @@
     "outside": "`vendor.kyc` (merchant check provider call only).",
     "size": "L",
     "families": 5,
-    "order": 3
+    "order": 0
   },
   {
     "id": "OPS-rules-monitoring-02",
@@ -16483,7 +16483,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 0
   },
   {
     "id": "OPS-rules-monitoring-03",
@@ -16498,7 +16498,7 @@
     "outside": "`vendor.kyc`, `vendor.aml` (the external check step only).",
     "size": "L",
     "families": 5,
-    "order": 3
+    "order": 0
   },
   {
     "id": "OPS-rules-monitoring-04",
@@ -16513,7 +16513,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 0
   },
   {
     "id": "OPS-rules-monitoring-05",
@@ -16528,7 +16528,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 0
   },
   {
     "id": "OPS-rules-monitoring-06",
@@ -16543,7 +16543,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 0
   },
   {
     "id": "OPS-rules-monitoring-07",
@@ -16558,7 +16558,7 @@
     "outside": "`vendor.aml` (IP intelligence feed and screening hit source when no provider is configured).",
     "size": "M",
     "families": 4,
-    "order": 2
+    "order": 0
   },
   {
     "id": "OPS-rules-monitoring-08",
@@ -16573,7 +16573,7 @@
     "outside": "`vendor.aml` (when the list source is a vendor feed and none is configured).",
     "size": "M",
     "families": 5,
-    "order": 2
+    "order": 0
   },
   {
     "id": "OPS-rules-monitoring-09",
@@ -16588,7 +16588,7 @@
     "outside": "",
     "size": "M",
     "families": 5,
-    "order": 3
+    "order": 0
   },
   {
     "id": "OPS-rules-monitoring-10",
@@ -16603,7 +16603,7 @@
     "outside": "",
     "size": "M",
     "families": 4,
-    "order": 3
+    "order": 0
   },
   {
     "id": "OPS-rules-monitoring-11",
@@ -16648,7 +16648,7 @@
     "outside": "`vendor.aml` appears only on search and refresh (OPS-screening-02 and -04); the queue itself is built.",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 0
   },
   {
     "id": "OPS-screening-02",
@@ -16663,7 +16663,7 @@
     "outside": "`vendor.aml` (the matching data source, until a provider is contracted or a self-hosted index is decided).",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 0
   },
   {
     "id": "OPS-screening-03",
@@ -16678,7 +16678,7 @@
     "outside": "`vendor.aml` (a vendor feed as a list source; the catalogue and the manual upload are built).",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 0
   },
   {
     "id": "OPS-screening-04",
@@ -16693,7 +16693,7 @@
     "outside": "`vendor.aml` (live list feed). Regulator report filing: no allowlist code; the destination is a blank owner value (see cases-029 owner decision).",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 0
   },
   {
     "id": "OPS-screening-05",
@@ -16708,7 +16708,7 @@
     "outside": "`vendor.aml` (screening data source until decided, see OPS-screening-02).",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 0
   },
   {
     "id": "OPS-service-health-01",
@@ -16754,7 +16754,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 0
   },
   {
     "id": "OPS-travel-rule-02",
@@ -16769,7 +16769,7 @@
     "outside": "`vendor.travelrule` (counterparty rejection reasons arrive from the network; until a network exists the reasons are entered by the operator and marked manual), ",
     "size": "L",
     "families": 3,
-    "order": 2
+    "order": 0
   },
   {
     "id": "OPS-travel-rule-03",
@@ -16784,7 +16784,7 @@
     "outside": "`vendor.travelrule` (network connection, directory and exchange).",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 0
   },
   {
     "id": "OPS-travel-rule-04",
@@ -16799,7 +16799,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 0
   },
   {
     "id": "PH-ops-console-01",
@@ -20864,7 +20864,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 2
+    "order": 0
   },
   {
     "id": "W-compliance-notices-04",
@@ -20879,7 +20879,7 @@
     "outside": "vendor.travelrule",
     "size": "L",
     "families": 3,
-    "order": 1,
+    "order": 0,
     "later": ["W-withdraw-16"]
   },
   {
@@ -20895,7 +20895,7 @@
     "outside": "vendor.travelrule",
     "size": "L",
     "families": 4,
-    "order": 2
+    "order": 0
   },
   {
     "id": "W-custody-ops-01",
@@ -21183,7 +21183,7 @@
     "outside": "",
     "size": "L",
     "families": 1,
-    "order": 2
+    "order": 0
   },
   {
     "id": "W-deposit-07",
@@ -21198,7 +21198,7 @@
     "outside": "vendor.travelrule",
     "size": "M",
     "families": 1,
-    "order": 2
+    "order": 0
   },
   {
     "id": "W-deposit-08",
@@ -21605,7 +21605,7 @@
     "outside": "vendor.travelrule",
     "size": "L",
     "families": 3,
-    "order": 1
+    "order": 0
   },
   {
     "id": "W-withdraw-17",

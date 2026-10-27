@@ -755,7 +755,7 @@
       { "n": 1, "slices": ["AL-lifecycle-01"], "noSlice": false },
       { "n": 2, "slices": ["AL-lifecycle-01"], "noSlice": false },
       { "n": 3, "slices": ["RC-algo-dev-01"], "noSlice": false },
-      { "n": 4, "slices": ["AL-risk-02"], "noSlice": false },
+      { "n": 4, "slices": ["AL-risk-02"], "noSlice": false, "deferred": true },
       { "n": 5, "slices": ["AL-risk-01"], "noSlice": false },
       { "n": 6, "slices": ["AL-live-02"], "noSlice": false },
       { "n": 7, "slices": ["AL-live-02"], "noSlice": false },
@@ -866,7 +866,7 @@
     "tier": "advanced",
     "order": 3,
     "steps": [
-      { "n": 1, "slices": ["AL-risk-02"], "noSlice": false },
+      { "n": 1, "slices": ["AL-risk-02"], "noSlice": false, "deferred": true },
       { "n": 2, "slices": ["AL-risk-02"], "noSlice": false },
       { "n": 3, "slices": ["AL-lifecycle-01"], "noSlice": false }
     ]
@@ -1189,7 +1189,7 @@
     "steps": [
       { "n": 1, "slices": ["BK-acct-05"], "noSlice": false },
       { "n": 2, "slices": ["BK-acct-05"], "noSlice": false },
-      { "n": 3, "slices": ["BK-acct-05"], "noSlice": false },
+      { "n": 3, "slices": ["BK-acct-05"], "noSlice": false, "deferred": true },
       { "n": 4, "slices": ["BK-acct-05"], "noSlice": false },
       { "n": 5, "slices": ["BK-acct-06"], "noSlice": false },
       { "n": 6, "slices": ["BK-acct-06"], "noSlice": false }
@@ -1349,7 +1349,7 @@
       { "n": 2, "slices": ["BK-cdisp-02"], "noSlice": false },
       { "n": 3, "slices": ["BK-cdisp-03"], "noSlice": false },
       { "n": 4, "slices": ["BK-cdisp-03"], "noSlice": false },
-      { "n": 5, "slices": ["BK-cdisp-03"], "noSlice": false }
+      { "n": 5, "slices": ["BK-cdisp-03"], "noSlice": false, "deferred": true }
     ]
   },
   {
@@ -2839,7 +2839,7 @@
       { "n": 2, "slices": ["CB-otc-09"], "noSlice": false },
       { "n": 3, "slices": ["CB-otc-09"], "noSlice": false },
       { "n": 4, "slices": ["CB-otc-20"], "noSlice": false },
-      { "n": 5, "slices": ["CB-otc-20"], "noSlice": false },
+      { "n": 5, "slices": ["CB-otc-20"], "noSlice": false, "deferred": true },
       { "n": 6, "slices": ["CB-otc-10"], "noSlice": false },
       { "n": 7, "slices": ["CB-otc-19"], "noSlice": false }
     ]
@@ -2885,7 +2885,7 @@
     "steps": [
       { "n": 1, "slices": ["D-ops-01"], "noSlice": false },
       { "n": 2, "slices": ["D-ops-01", "D-account-07"], "noSlice": false },
-      { "n": 3, "slices": ["D-account-07"], "noSlice": false },
+      { "n": 3, "slices": ["D-account-07"], "noSlice": false, "deferred": true },
       { "n": 4, "slices": ["D-instruments-03"], "noSlice": false },
       { "n": 5, "slices": ["D-margin-01"], "noSlice": false },
       { "n": 6, "slices": ["D-orders-07", "D-margin-03"], "noSlice": false },
@@ -3102,7 +3102,7 @@
       { "n": 6, "slices": ["D-account-08"], "noSlice": false },
       { "n": 7, "slices": ["D-account-08"], "noSlice": false },
       { "n": 8, "slices": ["D-account-09"], "noSlice": false },
-      { "n": 9, "slices": ["D-account-07"], "noSlice": false }
+      { "n": 9, "slices": ["D-account-07"], "noSlice": false, "deferred": true }
     ]
   },
   {
@@ -3651,7 +3651,7 @@
       { "n": 7, "slices": ["D-portfolio-wallet-07"], "noSlice": false },
       { "n": 8, "slices": ["D-portfolio-wallet-07"], "noSlice": false },
       { "n": 9, "slices": ["D-portfolio-wallet-07"], "noSlice": false },
-      { "n": 10, "slices": ["RC-dex-protocol-14"], "noSlice": false }
+      { "n": 10, "slices": ["RC-dex-protocol-14"], "noSlice": false, "deferred": true }
     ]
   },
   {
@@ -3941,7 +3941,7 @@
       { "n": 1, "slices": ["D-developer-compliance-04"], "noSlice": false },
       { "n": 2, "slices": ["D-developer-compliance-04"], "noSlice": false },
       { "n": 3, "slices": ["D-developer-compliance-04"], "noSlice": false },
-      { "n": 4, "slices": ["D-developer-compliance-03"], "noSlice": false },
+      { "n": 4, "slices": ["D-developer-compliance-03"], "noSlice": false, "deferred": true },
       { "n": 5, "slices": ["D-swap-07"], "noSlice": false },
       { "n": 6, "slices": ["D-fees-governance-03"], "noSlice": false },
       { "n": 7, "slices": ["D-developer-compliance-04"], "noSlice": false },
@@ -4033,7 +4033,7 @@
       { "n": 1, "slices": ["RC-dex-protocol-10"], "noSlice": false },
       { "n": 2, "slices": ["RC-dex-protocol-10"], "noSlice": false },
       { "n": 3, "slices": ["RC-dex-protocol-10"], "noSlice": false },
-      { "n": 4, "slices": ["D-launch-listing-07"], "noSlice": false },
+      { "n": 4, "slices": ["D-launch-listing-07"], "noSlice": false, "deferred": true },
       { "n": 5, "slices": ["RC-dex-protocol-09"], "noSlice": false },
       { "n": 6, "slices": ["RC-dex-protocol-09"], "noSlice": false },
       { "n": 7, "slices": ["RC-dex-protocol-19"], "noSlice": false },
@@ -4070,15 +4070,15 @@
     "steps": [
       { "n": 1, "slices": ["D-developer-compliance-01"], "noSlice": false },
       { "n": 2, "slices": ["D-developer-compliance-01"], "noSlice": false },
-      { "n": 3, "slices": ["D-developer-compliance-01"], "noSlice": false },
+      { "n": 3, "slices": ["D-developer-compliance-01"], "noSlice": false, "deferred": true },
       { "n": 4, "slices": ["D-launch-listing-02"], "noSlice": false },
       { "n": 5, "slices": ["D-launch-listing-02"], "noSlice": false },
       { "n": 6, "slices": ["D-launch-listing-02"], "noSlice": false },
       { "n": 7, "slices": ["D-launch-listing-01"], "noSlice": false },
       { "n": 8, "slices": ["D-launch-listing-07"], "noSlice": false },
       { "n": 9, "slices": ["D-liquidity-07"], "noSlice": false },
-      { "n": 10, "slices": ["D-developer-compliance-03"], "noSlice": false },
-      { "n": 11, "slices": ["RC-dex-protocol-14"], "noSlice": false },
+      { "n": 10, "slices": ["D-developer-compliance-03"], "noSlice": false, "deferred": true },
+      { "n": 11, "slices": ["RC-dex-protocol-14"], "noSlice": false, "deferred": true },
       { "n": 12, "slices": ["D-developer-compliance-02"], "noSlice": false }
     ]
   },
@@ -4421,7 +4421,7 @@
       { "n": 2, "slices": ["I-kyc-compliance-08"], "noSlice": false },
       { "n": 3, "slices": ["I-kyc-compliance-09"], "noSlice": false },
       { "n": 4, "slices": ["I-kyc-compliance-10"], "noSlice": false },
-      { "n": 5, "slices": ["I-kyc-compliance-11", "I-kyc-compliance-12"], "noSlice": false },
+      { "n": 5, "slices": ["I-kyc-compliance-11", "I-kyc-compliance-12"], "noSlice": false, "deferred": true },
       { "n": 6, "slices": ["I-kyc-compliance-01", "I-kyc-compliance-07"], "noSlice": false },
       { "n": 7, "slices": ["I-kyc-compliance-17"], "noSlice": false }
     ]
@@ -4559,7 +4559,7 @@
       { "n": 2, "slices": ["I-kyc-compliance-21"], "noSlice": false },
       { "n": 3, "slices": ["I-kyc-compliance-22"], "noSlice": false },
       { "n": 4, "slices": ["I-kyc-compliance-23"], "noSlice": false },
-      { "n": 5, "slices": ["I-kyc-compliance-24"], "noSlice": false },
+      { "n": 5, "slices": ["I-kyc-compliance-24"], "noSlice": false, "deferred": true },
       { "n": 6, "slices": ["I-kyc-compliance-21"], "noSlice": false },
       { "n": 7, "slices": ["I-kyc-compliance-25"], "noSlice": false },
       { "n": 8, "slices": ["I-kyc-compliance-26"], "noSlice": false }
@@ -4610,7 +4610,7 @@
       { "n": 2, "slices": ["I-kyc-compliance-01", "I-kyc-compliance-02"], "noSlice": false },
       { "n": 3, "slices": ["I-kyc-compliance-03", "I-kyc-compliance-13"], "noSlice": false },
       { "n": 4, "slices": ["I-kyc-compliance-14"], "noSlice": false },
-      { "n": 5, "slices": ["I-kyc-compliance-19"], "noSlice": false },
+      { "n": 5, "slices": ["I-kyc-compliance-19"], "noSlice": false, "deferred": true },
       { "n": 6, "slices": ["I-kyc-compliance-07"], "noSlice": false },
       { "n": 7, "slices": ["I-kyc-compliance-05"], "noSlice": false },
       { "n": 8, "slices": ["I-kyc-compliance-02"], "noSlice": false },
@@ -4731,7 +4731,7 @@
       { "n": 5, "slices": ["M-adv-disputes-risk-08"], "noSlice": false },
       { "n": 6, "slices": ["M-adv-payments-core-05", "M-payments-core-04"], "noSlice": false },
       { "n": 7, "slices": ["M-payments-core-04"], "noSlice": false },
-      { "n": 8, "slices": ["M-adv-payments-core-06"], "noSlice": false }
+      { "n": 8, "slices": ["M-adv-payments-core-06"], "noSlice": false, "deferred": true }
     ]
   },
   {
@@ -5694,7 +5694,7 @@
       { "n": 6, "slices": ["OPS-accounts-desk-02"], "noSlice": false },
       { "n": 7, "slices": ["OPS-accounts-desk-02"], "noSlice": false },
       { "n": 8, "slices": ["OPS-accounts-desk-01"], "noSlice": false },
-      { "n": 9, "slices": ["OPS-accounts-desk-02"], "noSlice": false },
+      { "n": 9, "slices": ["OPS-accounts-desk-02"], "noSlice": false, "deferred": true },
       { "n": 10, "slices": ["OPS-accounts-desk-02"], "noSlice": false },
       { "n": 11, "slices": ["OPS-accounts-desk-03"], "noSlice": false },
       { "n": 12, "slices": ["OPS-accounts-desk-03"], "noSlice": false }
@@ -5837,7 +5837,8 @@
       { "n": 8, "slices": ["OPS-cases-04"], "noSlice": false },
       { "n": 9, "slices": ["OPS-cases-04"], "noSlice": false },
       { "n": 10, "slices": ["OPS-founder-02"], "noSlice": false }
-    ]
+    ],
+    "deferred": true
   },
   {
     "id": "J-ops-console-12",
@@ -5857,7 +5858,8 @@
       { "n": 8, "slices": ["OPS-cases-07"], "noSlice": false },
       { "n": 9, "slices": ["OPS-cases-07"], "noSlice": false },
       { "n": 10, "slices": ["OPS-cases-06"], "noSlice": false }
-    ]
+    ],
+    "deferred": true
   },
   {
     "id": "J-ops-console-13",
@@ -5878,7 +5880,8 @@
       { "n": 9, "slices": ["OPS-screening-04"], "noSlice": false },
       { "n": 10, "slices": ["OPS-screening-04"], "noSlice": false },
       { "n": 11, "slices": ["OPS-screening-05"], "noSlice": false }
-    ]
+    ],
+    "deferred": true
   },
   {
     "id": "J-ops-console-14",
@@ -5898,7 +5901,8 @@
       { "n": 8, "slices": ["OPS-rules-monitoring-05"], "noSlice": false },
       { "n": 9, "slices": ["OPS-rules-monitoring-05"], "noSlice": false },
       { "n": 10, "slices": ["OPS-rules-monitoring-04"], "noSlice": false }
-    ]
+    ],
+    "deferred": true
   },
   {
     "id": "J-ops-console-15",
@@ -5917,7 +5921,8 @@
       { "n": 7, "slices": ["OPS-rules-monitoring-01"], "noSlice": false },
       { "n": 8, "slices": ["OPS-rules-monitoring-01"], "noSlice": false },
       { "n": 9, "slices": ["OPS-rules-monitoring-01"], "noSlice": false }
-    ]
+    ],
+    "deferred": true
   },
   {
     "id": "J-ops-console-16",
@@ -5935,7 +5940,8 @@
       { "n": 6, "slices": ["OPS-rules-monitoring-10"], "noSlice": false },
       { "n": 7, "slices": ["OPS-rules-monitoring-10"], "noSlice": false },
       { "n": 8, "slices": ["OPS-rules-monitoring-12"], "noSlice": false }
-    ]
+    ],
+    "deferred": true
   },
   {
     "id": "J-ops-console-17",
@@ -5956,7 +5962,8 @@
       { "n": 9, "slices": ["OPS-travel-rule-03"], "noSlice": false },
       { "n": 10, "slices": ["OPS-travel-rule-04"], "noSlice": false },
       { "n": 11, "slices": ["OPS-travel-rule-04"], "noSlice": false }
-    ]
+    ],
+    "deferred": true
   },
   {
     "id": "J-ops-console-18",
@@ -6047,9 +6054,9 @@
       { "n": 1, "slices": [], "noSlice": true },
       { "n": 2, "slices": [], "noSlice": true },
       { "n": 3, "slices": [], "noSlice": true },
-      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true, "deferred": true },
       { "n": 5, "slices": [], "noSlice": true },
-      { "n": 6, "slices": ["OPS-admin-access-07"], "noSlice": false }
+      { "n": 6, "slices": ["OPS-admin-access-07"], "noSlice": false, "deferred": true }
     ]
   },
   {
@@ -6101,7 +6108,7 @@
       { "n": 3, "slices": ["RC-ops-console-22"], "noSlice": false },
       { "n": 4, "slices": ["RC-ops-console-19"], "noSlice": false },
       { "n": 5, "slices": ["RC-ops-console-19"], "noSlice": false },
-      { "n": 6, "slices": ["RC-ops-console-19"], "noSlice": false }
+      { "n": 6, "slices": ["RC-ops-console-19"], "noSlice": false, "deferred": true }
     ]
   },
   {
@@ -6173,7 +6180,7 @@
     "order": 2,
     "steps": [
       { "n": 1, "slices": ["P-ads-merchant-12", "P-ads-merchant-19"], "noSlice": false },
-      { "n": 2, "slices": ["P-ads-merchant-01"], "noSlice": false },
+      { "n": 2, "slices": ["P-ads-merchant-01"], "noSlice": false, "deferred": true },
       { "n": 3, "slices": ["P-ads-merchant-03"], "noSlice": false },
       { "n": 4, "slices": ["P-ads-merchant-02"], "noSlice": false },
       { "n": 5, "slices": ["P-ads-merchant-04", "P-ads-merchant-05"], "noSlice": false },
@@ -6369,7 +6376,7 @@
       { "n": 3, "slices": ["P-disputes-security-10"], "noSlice": false },
       { "n": 4, "slices": ["P-disputes-security-10"], "noSlice": false },
       { "n": 5, "slices": ["P-disputes-security-12"], "noSlice": false },
-      { "n": 6, "slices": ["P-disputes-security-08"], "noSlice": false }
+      { "n": 6, "slices": ["P-disputes-security-08"], "noSlice": false, "deferred": true }
     ]
   },
   {
@@ -6817,7 +6824,7 @@
       { "n": 1, "slices": ["PF-cost-basis-01"], "noSlice": false },
       { "n": 2, "slices": ["PF-performance-01"], "noSlice": false },
       { "n": 3, "slices": ["PF-performance-01"], "noSlice": false },
-      { "n": 4, "slices": ["PF-performance-01"], "noSlice": false },
+      { "n": 4, "slices": ["PF-performance-01"], "noSlice": false, "deferred": true },
       { "n": 5, "slices": ["PF-performance-01"], "noSlice": false },
       { "n": 6, "slices": ["PF-cost-basis-01"], "noSlice": false },
       { "n": 7, "slices": ["PF-cost-basis-01"], "noSlice": false }
@@ -7450,7 +7457,8 @@
       { "n": 3, "slices": ["W-compliance-notices-05"], "noSlice": false },
       { "n": 4, "slices": ["W-compliance-notices-03"], "noSlice": false },
       { "n": 5, "slices": ["W-deposit-06"], "noSlice": false }
-    ]
+    ],
+    "deferred": true
   },
   {
     "id": "J-wallet-04",
@@ -7481,7 +7489,7 @@
       { "n": 2, "slices": ["W-withdraw-03", "W-compliance-notices-02"], "noSlice": false },
       { "n": 3, "slices": ["W-withdraw-04"], "noSlice": false },
       { "n": 4, "slices": ["W-withdraw-05"], "noSlice": false },
-      { "n": 5, "slices": ["W-withdraw-16", "W-compliance-notices-04"], "noSlice": false },
+      { "n": 5, "slices": ["W-withdraw-16", "W-compliance-notices-04"], "noSlice": false, "deferred": true },
       { "n": 6, "slices": ["W-withdraw-01"], "noSlice": false },
       { "n": 7, "slices": ["W-withdraw-01"], "noSlice": false },
       { "n": 8, "slices": ["W-withdraw-06"], "noSlice": false }
@@ -7703,7 +7711,8 @@
       { "n": 6, "slices": ["W-compliance-notices-05"], "noSlice": false },
       { "n": 7, "slices": ["W-withdraw-03"], "noSlice": false },
       { "n": 8, "slices": ["W-withdraw-17"], "noSlice": false }
-    ]
+    ],
+    "deferred": true
   },
   {
     "id": "J-wallet-20",
