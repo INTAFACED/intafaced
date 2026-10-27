@@ -111,12 +111,11 @@ export default function FuturesScreen({ search }: ScreenProps) {
     );
     side = (
       <>
-        {userId ? <AccessPanel symbol={market.symbol} onChanged={refresh} /> : null}
+        {userId ? <AccessPanel symbol={market.symbol} /> : null}
         <Ticket
           market={market}
           strip={strip}
           balances={balances}
-          disclosure={disclosure}
           planeOff={planeOff}
           now={now}
           onOpened={(order) => {

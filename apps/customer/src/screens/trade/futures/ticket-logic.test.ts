@@ -37,7 +37,6 @@ const preview: PositionPreview = {
 const base = {
   planeOff: false,
   signedOut: false,
-  disclosure: 'acknowledged' as const,
   locked: false,
   markKnown: true,
   markStale: false,
@@ -159,9 +158,6 @@ describe('review and open gates', () => {
   it('names the first reason', () => {
     expect(openBlock({ ...base, planeOff: true, signedOut: true })).toBe('planeOff');
     expect(openBlock({ ...base, signedOut: true })).toBe('signedOut');
-    expect(openBlock({ ...base, disclosure: 'unacknowledged' })).toBe('disclosureUnacknowledged');
-    expect(openBlock({ ...base, disclosure: 'unread' })).toBe('disclosureUnread');
-    expect(openBlock({ ...base, disclosure: 'loading' })).toBe('disclosureLoading');
     expect(openBlock({ ...base, locked: true })).toBe('locked');
     expect(openBlock({ ...base, markStale: true })).toBe('markStale');
     expect(openBlock({ ...base, preview: null })).toBe('notReviewed');

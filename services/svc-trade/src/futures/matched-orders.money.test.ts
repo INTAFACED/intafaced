@@ -370,7 +370,7 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
 
     it('the derivatives gate refuses a new order before anything is locked, with the caller tier and region', async () => {
       const gate = vi.fn(async () => {
-        throw Object.assign(new Error('agreement required'), { code: 'trade.agreement_required' });
+        throw Object.assign(new Error('identity level insufficient'), { code: 'trade.identity_level_insufficient' });
       });
       const svc = build({ assertDerivativesAccess: gate });
       await expect(
@@ -381,7 +381,7 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
             region: 'DE',
           },
         ),
-      ).rejects.toMatchObject({ code: 'trade.agreement_required' });
+      ).rejects.toMatchObject({ code: 'trade.identity_level_insufficient' });
       expect(gate).toHaveBeenCalledWith({ userId: ALICE, tier: 'full', region: 'DE' });
       expect(engine.submits).toHaveLength(0);
       expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000'));
@@ -390,9 +390,9 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
     it('a retry of an order that was already accepted is not gated again', async () => {
       const input = order({ userId: ALICE, side: 'buy', qty: A('1'), clientOrderId: 'gate-replay' });
       const first = await build().place(principal(ALICE), input);
-      // A new agreement version is published after the order was accepted: the retry still returns the order.
+      // New rules are published after the order was accepted: the retry still returns the order.
       const gate = vi.fn(async () => {
-        throw Object.assign(new Error('agreement required'), { code: 'trade.agreement_required' });
+        throw Object.assign(new Error('identity level insufficient'), { code: 'trade.identity_level_insufficient' });
       });
       const again = await build({ assertDerivativesAccess: gate }).place(principal(ALICE), input);
       expect(again.orderId).toBe(first.orderId);

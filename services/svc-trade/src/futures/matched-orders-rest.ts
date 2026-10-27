@@ -9,7 +9,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireScope, type Principal } from '@intafaced/auth';
 import { parseAmount, type Amount } from '@intafaced/ledger-client';
-import { AdlDisclosureError } from './adl-disclosure.js';
 import { isDerivativesAccessError, presentDerivativesAccessError } from './derivatives-access.js';
 import { presentFuturesErrorWire } from './futures-error-wire.js';
 import { MatchedOrderError, type MatchedOrderView, type PlaceMatchedOrderInput } from './matched-orders.js';
@@ -168,7 +167,6 @@ export function readPlaceBody(
 
 function sendFuturesFailure(reply: FastifyReply, err: unknown, gates: MatchedOrdersRestGates): FastifyReply | null {
   if (err instanceof MatchedOrderError || err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
-  if (err instanceof AdlDisclosureError) return reply.code(err.status).send({ error: err.code, message: err.message });
   if (isDerivativesAccessError(err)) return reply.code(err.status).send(presentDerivativesAccessError(err));
   return gates.sendDomainError(reply, err);
 }

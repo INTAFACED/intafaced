@@ -56,11 +56,6 @@
       "value": "{\"published\": true, \"allowedRegions\": [\"DE\", \"FR\", \"GB\", \"ID\", \"NL\", \"SG\"]}",
       "note": "TEST fixture, never a product default (ADR 2026-08-12: test fixtures may use codes). Counsel has supplied no list, so live stays blank and refuses. US is left off so a refusal can be seen."
     },
-    "TRADE_COPY_DISCLOSURE_LAW": {
-      "service": "trade",
-      "value": "{\"published\": true, \"version\": \"TEST-2026-10-23\", \"text\": \"TEST disclosure, not owner text. Copy trading can lose money. A leader's past results are not a promise of future results. Every copied order is your own order, placed in your name, with your own trading fee. Only copy what you can afford to lose.\"}",
-      "note": "Copy risk disclosure text and version a follower accepts."
-    },
     "TRADE_COPY_METRIC_DEFINITIONS": {
       "service": "trade",
       "value": "{\"published\": true, \"version\": \"TEST-2026-10-23\", \"definitions\": {\"publishedReturn\": \"TEST definition: the leader's published return over the window shown, in percent.\", \"maximumDrawdown\": \"TEST definition: the largest fall from a peak over the same window, in percent.\"}}",

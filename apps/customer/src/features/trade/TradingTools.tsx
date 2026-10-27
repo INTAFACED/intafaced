@@ -956,9 +956,7 @@ function Futures({
                 preview.leverageCap === null ||
                 preview.refusals.length > 0 ||
                 guard.busy ||
-                guard.locked ||
-                disclosure.resource.status !== 'ready' ||
-                !disclosure.resource.data.acknowledged
+                guard.locked
               }
               onClick={async () => {
                 if (simulationRef.current) return;
@@ -997,30 +995,9 @@ function Futures({
         )}
         <State value={disclosure}>
           {(data) => (
-            <>
-              <p className="trade-note" lang="und">
-                {data.copy}
-              </p>
-              {!data.acknowledged && (
-                <Button
-                  variant="secondary"
-                  onClick={() =>
-                    void guard.run(
-                      { kind: 'position', id: `adl:${data.version}`, symbol: 'ADL' },
-                      () =>
-                        transport.rest(
-                          '/futures/adl-disclosure/ack',
-                          z.object({ version: z.string(), copy: z.string(), acknowledged: z.boolean() }),
-                          { method: 'POST', body: {} },
-                        ),
-                      () => disclosure.reload(),
-                    )
-                  }
-                >
-                  <CopyText k="acknowledgeAdlDisclosure" />
-                </Button>
-              )}
-            </>
+            <p className="trade-note" lang="und">
+              {data.copy}
+            </p>
           )}
         </State>
         <GuardResult guard={guard} />

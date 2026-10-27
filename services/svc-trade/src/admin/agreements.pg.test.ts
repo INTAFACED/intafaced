@@ -25,8 +25,8 @@ import { memoryMarkBook } from '../futures/mark-source.js';
 import { formatAccountRef, profitSourceFromConfig, recipeProfitFundingAccount } from '../futures/profit-source.js';
 import { TEST_MAX_LEVERAGE_AMOUNT } from '../futures/initial-margin.test-harness.js';
 import { derivativesAccessGate } from '../futures/derivatives-access.js';
-import { assessEligibility, readEligibilityState, sqlEligibilityStore } from '../futures/derivatives-eligibility.js';
-import { acceptAgreement, assertAgreementsAccepted, sqlRiskAgreementStore } from '../futures/risk-agreements.js';
+import { assertIdentityLevel, sqlEligibilityStore } from '../futures/derivatives-eligibility.js';
+import { acceptAgreement, sqlRiskAgreementStore } from '../futures/risk-agreements.js';
 import type { TradingAdmissionPort } from '../controls/trading-controls.js';
 import { MemoryApprovalBook, payloadHash } from './common.js';
 import { TradeOpsAdmin } from './service.js';
@@ -381,19 +381,17 @@ describe('risk agreements, margin terms and derivatives eligibility (D-account-0
         [2, ['DE']],
         [1, ['DE', 'GB']],
       ]);
-      // the old acceptance is still on v1 with the v1 text id; the user must accept v2 to open
+      // the old acceptance is still on v1 with the v1 text id; a v2 acceptance would be its own row
       const [old] = await db.sql<Array<{ version: number; text_id: string; body: string }>>`
         SELECT a.version::int AS version, a.text_id, t.body FROM trade.risk_agreement_acceptances a
           JOIN trade.risk_agreement_texts t ON t.text_id = a.text_id WHERE a.user_id = ${ALICE}`;
       expect(old).toEqual({ version: 1, text_id: 'derivatives_risk:v1:DE', body: 'TEST body DE' });
-      await expect(assertAgreementsAccepted(store, { userId: ALICE, kinds: ['derivatives_risk'], region: 'DE' })).rejects.toMatchObject({
-        code: 'trade.agreement_required',
-        detail: { version: 2, documentId: 'derivatives_risk:v2:DE' },
-      });
-      // v2 has no GB text: GB is refused as a region now
-      await expect(assertAgreementsAccepted(store, { userId: ALICE, kinds: ['derivatives_risk'], region: 'GB' })).rejects.toMatchObject({
-        code: 'trade.agreement_region_unavailable',
-      });
+      expect(await store.getAcceptance(ALICE, 'derivatives_risk', 2)).toBeNull();
+      expect(await store.getAcceptance(ALICE, 'derivatives_risk', 1)).toMatchObject({ textId: 'derivatives_risk:v1:DE' });
+      // v2 has no GB text: an acceptance from GB is refused as a region now
+      await expect(
+        acceptAgreement(store, { userId: ALICE, kind: 'derivatives_risk', version: 2, region: 'GB', now: new Date() }),
+      ).rejects.toMatchObject({ code: 'trade.agreement_region_unavailable' });
     });
 
     it('margin terms are their own versioned kind', async () => {
@@ -530,7 +528,7 @@ describe('risk agreements, margin terms and derivatives eligibility (D-account-0
     });
   });
 
-  describe('eligibility rules and assessments', () => {
+  describe('eligibility rules', () => {
     it('reads blank before anything is published', async () => {
       expect(await admin.agreements.eligibilityRulesGet(operator())).toMatchObject({
         version: null,
@@ -539,10 +537,8 @@ describe('risk agreements, margin terms and derivatives eligibility (D-account-0
         passMark: null,
         minKycTier: null,
       });
-      expect(await readEligibilityState(sqlEligibilityStore(db.sql), ALICE, 'full')).toMatchObject({
-        status: 'unset',
-        reason: 'rules_unpublished',
-      });
+      // with nothing published no derivatives tier is asked for
+      await expect(assertIdentityLevel(sqlEligibilityStore(db.sql), { userId: ALICE, tier: null })).resolves.toBeUndefined();
     });
 
     it('refuses incomplete content with eligibility_rules_incomplete and spends no approval', async () => {
@@ -592,56 +588,16 @@ describe('risk agreements, margin terms and derivatives eligibility (D-account-0
       await expect(db.sql`UPDATE trade.derivatives_eligibility_rules SET pass_mark = 1`).rejects.toThrow(/append-only/);
     });
 
-    it('an assessment is stored against the rule version used and is idempotent on (user, submission id)', async () => {
-      await publishRules('0', 'r1');
+    it('the newest published rules name the identity tier, read through the durable store', async () => {
       const store = sqlEligibilityStore(db.sql);
-      const t1 = new Date('2026-10-20T10:00:00Z');
-      const failed = await assessEligibility(store, { userId: ALICE, submissionId: 's1', answers: { q1: 'b', q2: 'a' }, now: t1 });
-      expect(failed).toMatchObject({ ruleVersion: 1, score: 0, passed: false, created: true });
-      const passed = await assessEligibility(store, {
-        userId: ALICE,
-        submissionId: 's2',
-        answers: { q1: 'a', q2: 'b' },
-        now: new Date(t1.getTime() + 1000),
+      await publishRules('0', 'r1', { minKycTier: 'full' });
+      await expect(assertIdentityLevel(store, { userId: ALICE, tier: 'basic' })).rejects.toMatchObject({
+        code: 'trade.identity_level_insufficient',
+        detail: { requiredTier: 'full', currentTier: 'basic' },
       });
-      const again = await assessEligibility(store, {
-        userId: ALICE,
-        submissionId: 's2',
-        answers: { q2: 'b', q1: 'a' },
-        now: new Date(t1.getTime() + 9000),
-      });
-      expect(passed).toMatchObject({ score: 2, passed: true, created: true });
-      expect(again).toMatchObject({ created: false, assessedAt: passed.assessedAt });
-      await expect(
-        assessEligibility(store, { userId: ALICE, submissionId: 's2', answers: { q1: 'b', q2: 'b' }, now: t1 }),
-      ).rejects.toMatchObject({
-        code: 'trade.eligibility_submission_conflict',
-      });
-      const concurrent = await Promise.all(
-        Array.from({ length: 8 }, () =>
-          assessEligibility(store, { userId: BOB, submissionId: 'same', answers: { q1: 'a', q2: 'b' }, now: new Date() }),
-        ),
-      );
-      expect(concurrent.filter((r) => r.created)).toHaveLength(1);
-      const [{ n }] = await db.sql<[{ n: number }]>`SELECT count(*)::int AS n FROM trade.derivatives_eligibility_assessments`;
-      expect(n).toBe(3);
-      const [row] = await db.sql<Array<{ rule_version: number; answers: Record<string, string>; pass_mark: number }>>`
-        SELECT rule_version::int AS rule_version, answers, pass_mark FROM trade.derivatives_eligibility_assessments
-         WHERE user_id = ${ALICE} AND submission_id = 's2'`;
-      expect(row).toEqual({ rule_version: 1, answers: { q1: 'a', q2: 'b' }, pass_mark: 2 });
-      expect(await readEligibilityState(store, ALICE, 'full')).toMatchObject({ status: 'eligible', ruleVersion: 1 });
-    });
-
-    it('new rules make the old pass stale (rule_version_stale) until the user retakes', async () => {
-      await publishRules('0', 'r1');
-      const store = sqlEligibilityStore(db.sql);
-      await assessEligibility(store, { userId: ALICE, submissionId: 's1', answers: { q1: 'a', q2: 'b' }, now: new Date() });
-      await publishRules('1', 'r2', { passMark: 1 });
-      expect(await readEligibilityState(store, ALICE, 'full')).toMatchObject({
-        status: 'unset',
-        reason: 'rule_version_stale',
-        ruleVersion: 2,
-      });
+      await expect(assertIdentityLevel(store, { userId: ALICE, tier: 'full' })).resolves.toBeUndefined();
+      await publishRules('1', 'r2', { minKycTier: 'basic' });
+      await expect(assertIdentityLevel(store, { userId: ALICE, tier: 'basic' })).resolves.toBeUndefined();
     });
   });
 
@@ -694,35 +650,22 @@ describe('risk agreements, margin terms and derivatives eligibility (D-account-0
       });
     }
 
-    it('production wiring on an empty deployment refuses an open with the typed reason before anything is locked', async () => {
-      const service = positions({ agreements: sqlRiskAgreementStore(db.sql), eligibility: sqlEligibilityStore(db.sql) });
-      await expect(service.open(input, principalFor(ALICE), { region: 'DE' })).rejects.toMatchObject({
-        code: 'trade.agreement_unpublished',
-      });
+    it('production wiring on an empty deployment asks for no agreement or quiz: the open moves on to the mark', async () => {
+      const service = positions({ eligibility: sqlEligibilityStore(db.sql) });
+      // the mark is never set in this test, so passing the gate shows as the mark refusal
+      await expect(service.open(input, principalFor(ALICE), { region: 'DE' })).rejects.toMatchObject({ code: 'trade.mark_missing' });
     });
 
-    it('walks the refusals in order with real stores: required, then eligibility unset, then tier', async () => {
-      const agreements = sqlRiskAgreementStore(db.sql);
+    it('with real stores the only refusal is the identity tier the rules name', async () => {
       const eligibility = sqlEligibilityStore(db.sql);
-      const service = positions({ agreements, eligibility });
+      const service = positions({ eligibility });
       const alice = principalFor(ALICE);
+      // an agreement published and never accepted does not refuse
       await publishAgreement('derivatives_risk', '0', 'v1');
-      await expect(service.open(input, alice, { region: 'DE' })).rejects.toMatchObject({
-        code: 'trade.agreement_required',
-        detail: { documentId: 'derivatives_risk:v1:DE' },
-      });
-      await expect(service.open(input, alice, { region: 'FR' })).rejects.toMatchObject({ code: 'trade.agreement_region_unavailable' });
-      await expect(service.open(input, alice)).rejects.toMatchObject({ code: 'trade.agreement_region_unavailable' });
-      await acceptAgreement(agreements, { userId: ALICE, kind: 'derivatives_risk', version: 1, region: 'DE', now: new Date() });
-      await expect(service.open(input, alice, { region: 'DE' })).rejects.toMatchObject({
-        code: 'trade.derivatives_eligibility_unset',
-        detail: { reason: 'rules_unpublished' },
-      });
       await publishRules('0', 'r1', { minKycTier: 'full' });
-      await assessEligibility(eligibility, { userId: ALICE, submissionId: 's1', answers: { q1: 'a', q2: 'b' }, now: new Date() });
       // tier basic is below the rule's full; the open refuses before the mark is read
-      await expect(service.open(input, alice, { region: 'DE' })).rejects.toMatchObject({ code: 'trade.identity_level_insufficient' });
-      // the gate passed at tier full: the open moves on to the mark, which this test never sets
+      await expect(service.open(input, alice, { region: 'FR' })).rejects.toMatchObject({ code: 'trade.identity_level_insufficient' });
+      // the gate passed at tier full with no quiz taken: the open moves on to the mark, which this test never sets
       const full = { ...alice, tier: 'full' as const };
       await expect(service.open(input, full, { region: 'DE' })).rejects.toMatchObject({ code: 'trade.mark_missing' });
     });
@@ -746,16 +689,12 @@ describe('risk agreements, margin terms and derivatives eligibility (D-account-0
       expect(gate).toHaveBeenCalledTimes(1);
     });
 
-    it('an open admitted and locked before a crash finishes on retry after a new agreement version is published', async () => {
+    it('an open admitted and locked before a crash finishes on retry after new rules raise the tier', async () => {
       process.env.TRADE_FUTURES_ENABLED = 'true';
       process.env.TRADE_FUTURES_JOBS_ENABLED = 'true';
       MARKS.set({ marketId: MARKET, symbol: 'BTC/USDT-PERP', price: '100', quality: 'mid', asOfMs: NOW.getTime() });
-      const agreements = sqlRiskAgreementStore(db.sql);
       const eligibility = sqlEligibilityStore(db.sql);
-      await publishAgreement('derivatives_risk', '0', 'crash-v1');
-      await acceptAgreement(agreements, { userId: ALICE, kind: 'derivatives_risk', version: 1, region: 'DE', now: new Date() });
-      await publishRules('0', 'crash-r1');
-      await assessEligibility(eligibility, { userId: ALICE, submissionId: 'crash-s1', answers: { q1: 'a', q2: 'b' }, now: new Date() });
+      await publishRules('0', 'crash-r1', { minKycTier: 'full' });
 
       const memory = new MemoryLedger();
       await memory.post(
@@ -804,17 +743,17 @@ describe('risk agreements, margin terms and derivatives eligibility (D-account-0
           return admitted.get(`${userId}:${businessId}`) ?? null;
         },
       };
-      const service = positions({ agreements, eligibility }, { ledger, accountAdmission });
+      const service = positions({ eligibility }, { ledger, accountAdmission });
       const alice = { ...principalFor(ALICE), tier: 'full' as const };
       const open = { ...input, size: parseAmount('0.1') };
 
       await expect(service.open(open, alice, { region: 'DE' })).rejects.toThrow('crashed after the margin lock');
       expect(await db.sql`SELECT 1 FROM trade.positions WHERE user_id = ${ALICE}`).toHaveLength(0);
 
-      // A new version Alice has not accepted: a new open refuses, the admitted one does not.
-      await publishAgreement('derivatives_risk', '1', 'crash-v2');
+      // New rules above Alice's tier: a new open refuses, the admitted one does not.
+      await publishRules('1', 'crash-r2', { minKycTier: 'institutional' });
       await expect(service.open({ ...open, clientOpenId: 'open-2' }, alice, { region: 'DE' })).rejects.toMatchObject({
-        code: 'trade.agreement_required',
+        code: 'trade.identity_level_insufficient',
       });
       const position = await service.open(open, alice, { region: 'DE' });
       const rows = await db.sql<{ id: string; margin_current: string }[]>`

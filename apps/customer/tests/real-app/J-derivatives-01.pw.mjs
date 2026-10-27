@@ -4,8 +4,9 @@ import { fundedTrader, signIn } from './desk.mjs';
 
 // J-derivatives-01, in the running app (docs/roadmap/journeys.json): open a first futures position with isolated
 // margin, watch it, close 40 percent and then the rest. One test per step, titled "J-derivatives-01 #<n>", run in order
-// on one TEST account. The contract is the TEST perpetual `local-test-gates.mjs futures` lists, with its TEST agreements
-// and TEST knowledge check; every number is a TEST number on the local stack, read back through the customer's own API.
+// on one TEST account. The contract is the TEST perpetual `local-test-gates.mjs futures` lists; no agreement, knowledge
+// check or notice gates it (owner decision 2026-10-27). Every number is a TEST number on the local stack, read back
+// through the customer's own API.
 const J = 'J-derivatives-01';
 const DESK = '/trade/futures';
 const SYMBOL = 'BTC/USDT:USDT';
@@ -85,67 +86,36 @@ test(`${J} #1 opens /trade/futures and sees the whole desk`, async ({ page }) =>
   await expect(access(page)).toBeVisible();
 });
 
-test(`${J} #2 reads the gated list: blocked with every reason, and clears the knowledge check`, async ({ page }) => {
+// The legal and suitability reasons the list used to carry. None of them is a reason any more (owner decision 2026-10-27).
+const LEGAL_CODES = ['trade.derivatives_eligibility_unset', 'trade.agreement_required', 'trade.adl_disclosure_required'];
+
+test(`${J} #2 reads the gated list: the contract is open for this verified account, and no legal step is a reason`, async ({ page }) => {
   const who = account();
   await desk(page);
   const panel = access(page);
-  await expect(panel.getByText('Blocked for your account')).toBeVisible();
-  const reasons = panel.getByRole('list', { name: 'What blocks it' });
-  await expect(reasons.locator('[data-code="trade.derivatives_eligibility_unset"]')).toContainText('Pass the knowledge check first');
-  await expect(reasons.locator('[data-code="trade.agreement_required"]')).toContainText('Accept the risk agreement first');
-  await expect(reasons.locator('[data-code="trade.adl_disclosure_required"]')).toBeVisible();
-  // The screen shows what the service says for this account, reason for reason.
+  await expect(panel.getByText('Open for your account')).toBeVisible();
+  for (const code of LEGAL_CODES) await expect(panel.locator(`[data-code="${code}"]`)).toHaveCount(0);
+  // The screen shows what the service says for this account.
   const gate = await gateFor(who);
-  expect(gate.open).toBe(false);
-  expect(gate.blockers.map((b) => b.code)).toEqual([
-    'trade.derivatives_eligibility_unset',
-    'trade.agreement_required',
-    'trade.adl_disclosure_required',
-  ]);
-
-  // The TEST knowledge check: a wrong answer does not pass, the right one does.
-  const quiz = page.getByTestId('futures-quiz');
-  await quiz.getByRole('radio', { name: /margin is guaranteed/ }).check();
-  await quiz.getByRole('button', { name: 'Submit answers' }).click();
-  await expect(quiz.getByRole('status')).toContainText('Not passed');
-  await quiz.getByRole('radio', { name: /liquidated and can lose all of its margin/ }).check();
-  await quiz.getByRole('button', { name: 'Submit answers' }).click();
-  await expect(quiz.getByText('Passed. You can trade derivatives under the current rules.')).toBeVisible();
-  await expect(reasons.locator('[data-code="trade.derivatives_eligibility_unset"]')).toHaveCount(0);
-  expect((await gateFor(who)).blockers.map((b) => b.code)).not.toContain('trade.derivatives_eligibility_unset');
+  expect(gate).toMatchObject({ open: true, blockers: [] });
 });
 
-test(`${J} #3 an open without the agreement refuses naming it; reads and accepts the risk agreement and margin terms`, async ({ page }) => {
+// Step 3 was "reads and accepts the risk agreement and margin terms". Deferred until launch prep (owner decision
+// 2026-10-27): this step proves nothing asks for an agreement, a knowledge check or the auto-deleveraging notice.
+test(`${J} #3 nothing asks for a risk agreement, a knowledge check or a notice before an open`, async ({ page }) => {
   const who = account();
   const me = await api(who);
-  // The auto-deleveraging notice is read first, in the ticket, so the agreement is what an open is refused for.
   await desk(page);
-  await page.getByRole('button', { name: 'I have read this' }).click();
-  await expect(access(page).locator('[data-code="trade.adl_disclosure_required"]')).toHaveCount(0);
-  const refused = await me.post('/api/v1/futures/orders', {
-    symbol: SYMBOL,
-    side: 'buy',
-    type: 'market',
-    amount: SIZE,
-    leverage: LEVERAGE,
-    marginMode: 'isolated',
-    clientOrderId: `${J}-no-agreement`,
-  });
-  expect(refused.status).toBe(403);
-  expect(refused.body.error).toBe('trade.agreement_required');
-  expect(await positionsOf(who)).toHaveLength(0);
-
   const panel = access(page);
-  for (const kind of ['derivatives_risk', 'margin_terms']) {
-    const card = panel.getByTestId(`agreement-${kind}`);
-    await expect(card.getByRole('heading')).toContainText('TEST');
-    await card.getByRole('button', { name: /^Accept / }).click();
-    await expect(card).toContainText('Accepted');
-  }
-  const { body } = await me.get('/api/v1/account/agreements');
-  expect(body.agreements.every((a) => a.available && a.accepted)).toBe(true);
   await expect(panel.getByText('Open for your account')).toBeVisible();
-  expect(await gateFor(who)).toMatchObject({ open: true, blockers: [] });
+  await expect(page.getByTestId('agreement-derivatives_risk')).toHaveCount(0);
+  await expect(page.getByTestId('agreement-margin_terms')).toHaveCount(0);
+  await expect(page.getByTestId('futures-quiz')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'I have read this' })).toHaveCount(0);
+  // The customer doors for them are gone.
+  expect((await me.get('/api/v1/account/agreements')).status).toBe(404);
+  expect((await me.get('/api/v1/account/derivatives-eligibility')).status).toBe(404);
+  expect(await positionsOf(who)).toHaveLength(0);
 });
 
 test(`${J} #4 picks the contract and reads its strip: family, settle asset, contract size, mark and funding`, async ({ page }) => {

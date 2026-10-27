@@ -66,7 +66,6 @@ const messages = {
   'Copy desk open': 'Copy desk open',
   'Copy desk unknown': 'Copy desk unknown',
   'Copy permission': 'Copy permission',
-  'Copy risk disclosure': 'Copy risk disclosure',
   'Copy trading': 'Copy trading',
   'Copy trading is closed right now': 'Copy trading is closed right now',
   'Copy trading is closed right now, so the final step will be refused. Nothing is followed and no money moves.':
@@ -129,7 +128,6 @@ const messages = {
   Grid: 'Grid',
   Halted: 'Halted',
   'How a leader is paid': 'How a leader is paid',
-  'I have read this disclosure and accept it.': 'I have read this disclosure and accept it.',
   'If you stop, new copies stop at once. Positions already open stay yours until you close them.':
     'If you stop, new copies stop at once. Positions already open stay yours until you close them.',
   'It halted so you can check it': 'It halted so you can check it',
@@ -157,7 +155,6 @@ const messages = {
   'Left out (below one lot)': 'Left out (below one lot)',
   'Left to use': 'Left to use',
   'Live account: real orders': 'Live account: real orders',
-  Loading: 'Loading',
   'Loss limit': 'Loss limit',
   'Lot size {lot}': 'Lot size {lot}',
   Manage: 'Manage',
@@ -220,8 +217,6 @@ const messages = {
   'Not granted': 'Not granted',
   'Not now': 'Not now',
   'Not published': 'Not published',
-  'Not published. Copying can’t start until the platform publishes its risk disclosure.':
-    'Not published. Copying can’t start until the platform publishes its risk disclosure.',
   'Not set': 'Not set',
   'Not set by the platform': 'Not set by the platform',
   'Not verified': 'Not verified',
@@ -420,7 +415,6 @@ const messages = {
   Used: 'Used',
   'Used now': 'Used now',
   'Verified live': 'Verified live',
-  'Version {version}': 'Version {version}',
   'Volume history is still short. A slice may be refused when it is due.':
     'Volume history is still short. A slice may be refused when it is due.',
   'Volume-weighted (VWAP)': 'Volume-weighted (VWAP)',
@@ -438,7 +432,6 @@ const messages = {
   'Win rate': 'Win rate',
   Withdrawn: 'Withdrawn',
   'Write and save a strategy in Quant Studio and it appears here.': 'Write and save a strategy in Quant Studio and it appears here.',
-  'You accepted this version.': 'You accepted this version.',
   'You are signed out': 'You are signed out',
   'You aren’t following anyone': 'You aren’t following anyone',
   'You can still set everything up and manage follows you already have. A new follow is refused until it opens.':

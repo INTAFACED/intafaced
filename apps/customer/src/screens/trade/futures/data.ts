@@ -27,8 +27,6 @@ import {
   type FuturesListing,
   type FuturesOrder,
   type GatedList,
-  type Agreement,
-  type Eligibility,
   type MarginCall,
   type OrderTypeCatalogue,
   type RiskTiers,
@@ -320,29 +318,6 @@ export function useGatedList(): Loadable<GatedList> {
   );
 }
 
-export function useAgreements(): Loadable<{ agreements: Agreement[] }> {
-  const env = useDataEnv();
-  const api = useFuturesApi();
-  return useSource(
-    useMemo(
-      () =>
-        privateSource<{ agreements: Agreement[] }>(env, 'futures-agreements', (signal) => api.agreements(signal), FUTURES_INTERVALS.access),
-      [env, api],
-    ),
-  );
-}
-
-export function useEligibility(): Loadable<Eligibility> {
-  const env = useDataEnv();
-  const api = useFuturesApi();
-  return useSource(
-    useMemo(
-      () => privateSource<Eligibility>(env, 'futures-eligibility', (signal) => api.eligibility(signal), FUTURES_INTERVALS.access),
-      [env, api],
-    ),
-  );
-}
-
 /** Re-read now, after a write or when the trader presses refresh. Only keys with a mounted reader fetch. */
 export function useFuturesRefresh(): () => void {
   const env = useDataEnv();
@@ -359,8 +334,6 @@ export function useFuturesRefresh(): () => void {
         'futures-conditional',
         'futures-entry-protection',
         'futures-gated',
-        'futures-agreements',
-        'futures-eligibility',
         'balance',
       ])
         env.poller.refresh(`${key}:${env.userId}`);

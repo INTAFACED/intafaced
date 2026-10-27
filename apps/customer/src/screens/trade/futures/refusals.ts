@@ -439,36 +439,6 @@ const WORDS: Readonly<Record<string, Words>> = {
     body: 'A new order needs a confirmed email address. Confirm it from your account, then try again.',
     retryable: false,
   },
-  'trade.agreement_required': {
-    title: 'Accept the risk agreement first',
-    body: 'Read and accept the current risk agreement and margin terms for futures, above the ticket.',
-    retryable: false,
-  },
-  'trade.agreement_version_stale': {
-    title: 'The agreement has a newer version',
-    body: 'The platform published a newer version. Read and accept it, above the ticket.',
-    retryable: false,
-  },
-  'trade.agreement_unpublished': {
-    title: 'No risk agreement is published',
-    body: 'The platform has not published the futures risk agreement, so positions cannot open.',
-    retryable: false,
-  },
-  'trade.agreement_region_unavailable': {
-    title: 'No agreement for your region',
-    body: 'The futures risk agreement is not published for your region, so positions cannot open.',
-    retryable: false,
-  },
-  'trade.agreements_unconfigured': {
-    title: 'Agreements are not set up',
-    body: 'Risk agreements and the knowledge check are not wired on this platform, so derivatives stay closed.',
-    retryable: false,
-  },
-  'trade.derivatives_eligibility_unset': {
-    title: 'Pass the knowledge check first',
-    body: 'Derivatives need a passed knowledge check under the current rules. Take it above the ticket.',
-    retryable: false,
-  },
   'trade.identity_level_insufficient': {
     title: 'Your identity level is too low',
     body: 'Derivatives need a higher identity level. Finish identity checks from your account.',
@@ -477,19 +447,6 @@ const WORDS: Readonly<Record<string, Words>> = {
   'trade.identity_level_unavailable': {
     title: 'Your identity level cannot be read',
     body: 'The platform cannot read your identity level right now, so derivatives stay closed. Try again later.',
-  },
-  'trade.eligibility_answers_invalid': {
-    title: 'Check your answers',
-    body: 'Answer every question with one of its options, then submit again.',
-  },
-  'trade.eligibility_submission_conflict': {
-    title: 'Those answers were already sent differently',
-    body: 'Nothing was changed. Submit your answers again.',
-  },
-  'trade.adl_disclosure_required': {
-    title: 'Acknowledge the auto-deleveraging notice',
-    body: 'Read and acknowledge how auto-deleveraging works, in the ticket, before opening.',
-    retryable: false,
   },
   'trade.gated_list_unknown': {
     title: 'A check could not be read',

@@ -154,18 +154,6 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'That page of trades has changed',
     body: 'Go back to the first page.',
   },
-  'trade.copy_disclosure_unpublished': {
-    title: 'The risk disclosure isn’t set',
-    body: 'Copying stays closed until that text is published. Nothing was followed.',
-  },
-  'trade.copy_disclosure_required': {
-    title: 'Accept the risk disclosure',
-    body: 'New copies stay closed until you accept the current disclosure. Nothing was placed.',
-  },
-  'trade.copy_disclosure_version_stale': {
-    title: 'The disclosure has changed',
-    body: 'Accept the current version before new copies. Nothing was placed.',
-  },
   'trade.copy_fixed_size_above_cap': {
     title: 'The fixed amount is above your limit',
     body: 'Each copied order can use at most your most per order. Lower the fixed amount or raise that limit. Nothing was followed.',

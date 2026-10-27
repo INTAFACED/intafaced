@@ -43,7 +43,7 @@ import { fmtAmount, fmtPct, fmtPctPoints, fmtPrice } from '../../../data/format'
 import { bpsToRatio } from '../desk/form-logic';
 import type { BalanceEntry } from '../../../data/derive';
 import type { Loadable } from '../../../data/types';
-import type { AdlDisclosure, FuturesListing, FuturesOrder, OrderTypeEntry, PositionPreview, TickerStrip } from './api';
+import type { FuturesListing, FuturesOrder, OrderTypeEntry, PositionPreview, TickerStrip } from './api';
 import { STALE_AFTER_MS, useFuturesApi, useFuturesRefresh, useOrderTypes } from './data';
 import { entryLegProblem, legSide } from './protection-logic';
 import { newNonce, useFuturesWriter, type Writer } from './hooks';
@@ -75,7 +75,6 @@ export interface TicketProps {
   market: FuturesListing;
   strip: Loadable<TickerStrip>;
   balances: Loadable<Record<string, BalanceEntry>>;
-  disclosure: Loadable<AdlDisclosure>;
   /** The futures plane is switched off: the form is replaced by one block naming the switch. */
   planeOff: boolean;
   now: number;
@@ -124,7 +123,7 @@ const COLLATERAL_CHOICES = ['cash', 'yield_bearing', 'staked', 'lending_idle'] a
 type CollateralChoice = (typeof COLLATERAL_CHOICES)[number];
 
 export function Ticket(props: TicketProps) {
-  const { market, strip, balances, disclosure, now, onOpened } = props;
+  const { market, strip, balances, now, onOpened } = props;
   const { t } = ticketCopy.useCopy();
   const api = useFuturesApi();
   const refresh = useFuturesRefresh();
@@ -150,7 +149,6 @@ export function Ticket(props: TicketProps) {
   const [cap, setCap] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [offSeen, setOffSeen] = useState(false);
-  const [acking, setAcking] = useState<'idle' | 'busy' | 'failed'>('idle');
   // Reduce-only: the order can only lower a position on the other side, so it is sent without a cost review.
   const [reduceOnly, setReduceOnly] = useState(false);
   const [reduceConfirm, setReduceConfirm] = useState(false);
@@ -216,19 +214,10 @@ export function Ticket(props: TicketProps) {
   const markAsOf = strip.status === 'ready' ? strip.asOf : null;
   const markStale = isStale(markAsOf, now, STALE_AFTER_MS.strip);
   const shown = review.status === 'ready' && form && sameForm(review.form, form) ? review.data : null;
-  const disclosureState =
-    disclosure.status === 'loading'
-      ? 'loading'
-      : disclosure.status === 'ready'
-        ? disclosure.data.acknowledged
-          ? 'acknowledged'
-          : 'unacknowledged'
-        : 'unread';
   const gate = (preview: PositionPreview | null) =>
     openBlock({
       planeOff,
       signedOut,
-      disclosure: disclosureState,
       locked: writer.locked,
       markKnown: markNow !== null,
       markStale,
@@ -384,13 +373,6 @@ export function Ticket(props: TicketProps) {
     } else if (outcome.kind === 'refused' && isPlaneOff(outcome.refusal.code)) setOffSeen(true);
   }
 
-  async function acknowledge() {
-    setAcking('busy');
-    const result = await api.adlAcknowledge();
-    setAcking(result.ok ? 'idle' : 'failed');
-    if (result.ok) refresh();
-  }
-
   const money = (v: string | null) => (v === null ? null : `${fmtAmount(v)} ${asset}`);
   const price = (v: string | null) => (v === null ? null : fmtPrice(v, market.precision.price));
   const costItems = (p: PositionPreview, at: number | null): KeyValueItem[] => {
@@ -509,9 +491,6 @@ export function Ticket(props: TicketProps) {
     noLimitPrice: t('Off no limit price'),
     planeOff: t('Off plane'),
     signedOut: t('Off signed out'),
-    disclosureLoading: t('Off disclosure loading'),
-    disclosureUnread: t('Off disclosure unread'),
-    disclosureUnacknowledged: t('Off disclosure ack'),
     locked: t('Off locked'),
     markUnknown: t('Off mark unknown'),
     markStale: t('Off mark stale'),
@@ -894,17 +873,6 @@ export function Ticket(props: TicketProps) {
         </>
       ) : !reduceOnly && (review.status === 'idle' || (review.status === 'ready' && !shown)) ? (
         <p className={note}>{t('Review to see cost')}</p>
-      ) : null}
-
-      {disclosureState === 'unacknowledged' && disclosure.status === 'ready' ? (
-        <div className="flex flex-col gap-2 rounded-lg border border-line p-3">
-          <h3 className="text-sm font-medium">{t('ADL title')}</h3>
-          <p className={note}>{disclosure.data.copy}</p>
-          <Button variant="secondary" size={32} loading={acking === 'busy'} onClick={() => void acknowledge()}>
-            {t('Acknowledge')}
-          </Button>
-          {acking === 'failed' ? <p className="text-xs text-warn">{t('Acknowledge failed')}</p> : null}
-        </div>
       ) : null}
 
       <Button

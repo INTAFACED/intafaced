@@ -283,41 +283,6 @@ export const gatedListSchema = z.object({
 });
 export type GatedList = z.infer<typeof gatedListSchema>;
 
-export const agreementSchema = z.union([
-  z.object({
-    kind: z.string(),
-    available: z.literal(true),
-    version: z.number().int(),
-    textId: z.string(),
-    region: z.string(),
-    title: z.string(),
-    body: z.string(),
-    accepted: z.boolean(),
-    acceptedAt: z.string().nullable(),
-  }),
-  z.object({ kind: z.string(), available: z.literal(false), reason: z.string(), message: z.string() }),
-]);
-export const agreementsSchema = z.object({ agreements: z.array(agreementSchema) });
-export type Agreement = z.infer<typeof agreementSchema>;
-
-export const eligibilitySchema = z.object({
-  state: z.object({
-    status: z.string(),
-    reason: z.string().nullable().optional(),
-    ruleVersion: z.number().nullable().optional(),
-    passMark: z.number().nullable().optional(),
-    questionCount: z.number().nullable().optional(),
-    lastScore: z.number().nullable().optional(),
-    lastPassed: z.boolean().nullable().optional(),
-    identity: z.object({ required: z.string(), current: z.string().nullable(), met: z.boolean() }).nullable().optional(),
-  }),
-  questions: z
-    .array(z.object({ id: z.string(), prompt: z.string(), options: z.array(z.object({ id: z.string(), text: z.string() })) }))
-    .nullable(),
-});
-export type Eligibility = z.infer<typeof eligibilitySchema>;
-export const assessmentSchema = z.object({ score: z.number(), passMark: z.number(), passed: z.boolean() });
-
 export type PositionPreview = z.infer<typeof positionPreviewSchema>;
 export type FuturesListing = z.infer<typeof listingSchema>;
 
@@ -455,12 +420,6 @@ export function createFuturesApi(api: ApiClient) {
     ordersOn: (symbol: string) => api.rest('/futures/orders', z.array(futuresOrderSchema), { query: { scope: 'all', limit: 500, symbol } }),
     orderTypes: (signal?: AbortSignal) => api.rest('/futures/order-types', orderTypeCatalogueSchema, { query: { limit: 50 }, signal }),
     gatedList: (signal?: AbortSignal) => api.rest('/account/gated-list', gatedListSchema, { signal }),
-    agreements: (signal?: AbortSignal) => api.rest('/account/agreements', agreementsSchema, { signal }),
-    acceptAgreement: (input: { kind: string; version: number }) =>
-      api.rest('/account/agreements/accept', z.object({ kind: z.string(), version: z.number() }), { method: 'POST', body: input }),
-    eligibility: (signal?: AbortSignal) => api.rest('/account/derivatives-eligibility', eligibilitySchema, { signal }),
-    assessEligibility: (input: { clientSubmissionId: string; answers: Record<string, string> }) =>
-      api.rest('/account/derivatives-eligibility/assess', assessmentSchema, { method: 'POST', body: input }),
     positions: (signal?: AbortSignal) => api.rest('/positions', z.array(positionSchema), { signal }),
     closed: (signal?: AbortSignal) => api.rest('/positions/closed', z.array(positionSchema), { query: { limit: 100 }, signal }),
     position: (id: string, signal?: AbortSignal) => api.rest(`/positions/${encodeURIComponent(id)}`, positionSchema, { signal }),
@@ -528,7 +487,6 @@ export function createFuturesApi(api: ApiClient) {
     marginCall: (positionId: string, signal?: AbortSignal) =>
       api.rest(`/positions/${encodeURIComponent(positionId)}/margin-call`, marginCallSchema, { signal }),
     adlDisclosure: (signal?: AbortSignal) => api.rest('/futures/adl-disclosure', adlDisclosureSchema, { signal }),
-    adlAcknowledge: () => api.rest('/futures/adl-disclosure/ack', adlDisclosureSchema, { method: 'POST', body: {} }),
     adlEvents: (signal?: AbortSignal) => api.rest('/futures/adl-events', z.array(adlEventSchema), { query: { limit: 100 }, signal }),
   };
 }

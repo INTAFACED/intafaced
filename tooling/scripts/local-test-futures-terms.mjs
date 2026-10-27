@@ -1,12 +1,12 @@
 /**
  * LOCAL TEST derivatives terms for the local test stack, in one place: `local-test-gates.mjs futures` publishes them
- * (two-person approval) and the TEST market maker accepts them and answers the quiz. Not owner or legal text.
+ * (two-person approval). No futures open waits on them since owner decision 2026-10-27; the rules' tier still gates
+ * one. Not owner or legal text.
  */
 
 /**
  * Not owner or legal text: one risk agreement and one margin terms text for the stack's
- * region, and a one-question TEST quiz. Without them every futures order refuses (D-account-07), which is right
- * everywhere but here.
+ * region, and a one-question TEST quiz whose rules name the identity tier a futures open needs (D-account-07).
  */
 export const TEST_AGREEMENTS = Object.freeze({
   derivatives_risk: {
@@ -38,8 +38,3 @@ export const TEST_ELIGIBILITY_RULES = Object.freeze({
   passMark: 1,
   minKycTier: 'full',
 });
-
-/** The TEST quiz's answer key, as an account would submit it (question id → option id). */
-export const TEST_ELIGIBILITY_ANSWERS = Object.freeze(
-  Object.fromEntries(TEST_ELIGIBILITY_RULES.questions.map((q) => [q.id, q.correctOptionId])),
-);

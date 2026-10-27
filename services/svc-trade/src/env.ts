@@ -722,16 +722,6 @@ const schema = serviceEnvSchema
       TRADE_COPY_JURISDICTION_LAW: z.string().default(''),
 
       /**
-       * Copy risk-disclosure law (trade.copy / TRD-0773). JSON or empty.
-       *
-       * Empty (default) = unpublished → accept and mirror refuse
-       * `trade.copy_disclosure_unpublished`. Never invent version or text.
-       * Published shape: {"published":true,"version":"…","text":"…"}
-       * The text is owner content. Starting a follow needs the current version accepted.
-       */
-      TRADE_COPY_DISCLOSURE_LAW: z.string().default(''),
-
-      /**
        * Verification level a follower needs to copy (CB-copy-03): basic, full or institutional.
        *
        * Empty (default) = unset → every Start copying refuses `trade.copy_tier_unset`.

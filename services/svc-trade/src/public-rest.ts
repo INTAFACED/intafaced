@@ -331,7 +331,7 @@ export function sessionStateForMarket(
  * as `trade.futures_disabled`) — not a retryable 503.
  */
 export const OPEN_POSITION_GATES_NOTE =
-  'caller price 400 · cross margin 400 · leverage required 400 (no silent 1x) · auto-deleveraging disclosure acknowledgement 403 · unnamed profit pot 403 NotSupported';
+  'caller price 400 · cross margin 400 · leverage required 400 (no silent 1x) · unnamed profit pot 403 NotSupported';
 
 /** Listing status vs kill-switch. Paper options are orderable; live options are not. */
 export function orderableForListedMarket(market: Market, futuresOrderable: boolean, nowMs: number = Date.now()): boolean {
@@ -673,7 +673,6 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
   app.get('/api/v1/capabilities', async (_req, reply) => {
     logRefusalSpec('paperListPolicy');
     logRefusalSpec('trade.leverage_too_high');
-    logRefusalSpec('trade.adl_disclosure_required');
     const { CCXT_CAPABILITY_MATRIX, CCXT_REFUSE_ARMS } = await import('./ccxt-capability-matrix.js');
     const planes = readTradePlanes(process.env);
     return reply.code(200).send({
