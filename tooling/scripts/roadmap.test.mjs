@@ -243,6 +243,7 @@ test('a deferred journey or step leaves the scoreboard and the slice order', () 
   assert.equal(journeys[1].deferred, true);
   assert.equal(journeys[0].steps[2].deferred, true);
   assert.equal(journeys[0].deferred, undefined);
+  assert.throws(() => parseJourneys(JOURNEY.replace('- Order: 2', '- Order: 2\n- Deferred: no'), 'cex-spot'), /Deferred: no/);
   assert.equal(journeyOrder(journeys).has('SP-share-01'), false);
   assert.equal(journeyOrder(journeys).get('SP-order-entry-01'), 1, 'still needed by the live first journey');
   const passed = new Set(['J-cex-spot-01#1', 'J-cex-spot-01#2']);

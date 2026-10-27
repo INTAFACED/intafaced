@@ -144,8 +144,12 @@ export function parseJourneys(text, module) {
     const f = JOURNEY_FIELD.exec(line);
     if (f) {
       if (f[1] === 'Order') cur.order = Number.parseInt(f[2], 10) || 0;
-      else if (f[1] === 'Deferred') cur.deferred = true;
-      else cur[f[1].toLowerCase()] = f[2].trim();
+      else if (f[1] === 'Deferred') {
+        // Only "until <when>" defers, so a "Deferred: no" never drops a journey quietly.
+        if (!/^until\b/i.test(f[2].trim()))
+          throw new Error(`roadmap: ${cur.id} has "Deferred: ${f[2].trim()}"; write "Deferred: until <when>"`);
+        cur.deferred = true;
+      } else cur[f[1].toLowerCase()] = f[2].trim();
       continue;
     }
     const row = STEP_ROW.exec(line);
