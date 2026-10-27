@@ -123,7 +123,7 @@ test(`${J}, part of #6 (I-kyc-compliance-01): one case record with history; a re
   test.setTimeout(180_000);
   const { who, rung } = await atVerification(page);
   const history = page.getByRole('region', { name: 'Case history' });
-  const cases = history.locator('.verification__case');
+  const cases = history.getByTestId('verification__case');
   await expect(history.getByText('No verification requests yet.')).toBeVisible();
 
   // Sent: one case, pending review, with its one step.
@@ -133,17 +133,17 @@ test(`${J}, part of #6 (I-kyc-compliance-01): one case record with history; a re
   await expect(cases).toHaveCount(1);
   await expect(cases.first()).toHaveAttribute('data-state', 'submitted');
   await expect(cases.first()).toContainText('Pending review');
-  await expect(cases.first().locator('.verification__case-steps li')).toHaveCount(1);
+  await expect(cases.first().getByTestId('verification__case-steps').locator('li')).toHaveCount(1);
 
   // Rejected by the stack's two TEST operators with a listed code: the reason and what to do, in plain words.
   expect(tool('local-test-gates.mjs', 'kyc-reject', who.handle, 'document_unreadable')).toContain('rejected (document_unreadable)');
   await page.reload();
   const rejected = cases.first();
   await expect(rejected).toHaveAttribute('data-state', 'rejected');
-  await expect(rejected.locator('.verification__case-reason')).toHaveAttribute('data-reason', 'document_unreadable');
-  await expect(rejected.locator('.verification__case-reason-text')).toHaveText('Reason: TEST: the photo of your ID could not be read.');
-  await expect(rejected.locator('.verification__case-guidance')).toContainText('What to do: TEST: take a new photo');
-  await expect(rejected.locator('.verification__case-steps li')).toHaveText([/^Sent for review · /, /^Rejected · /]);
+  await expect(rejected.getByTestId('verification__case-reason')).toHaveAttribute('data-reason', 'document_unreadable');
+  await expect(rejected.getByTestId('verification__case-reason-text')).toHaveText('Reason: TEST: the photo of your ID could not be read.');
+  await expect(rejected.getByTestId('verification__case-guidance')).toContainText('What to do: TEST: take a new photo');
+  await expect(rejected.getByTestId('verification__case-steps').locator('li')).toHaveText([/^Sent for review · /, /^Rejected · /]);
   await expect(rung('none')).toHaveAttribute('aria-current', 'step');
 
   // Sent again from the rejected case: a new case, linked to the rejected one, which stays as it was.
@@ -153,7 +153,7 @@ test(`${J}, part of #6 (I-kyc-compliance-01): one case record with history; a re
   await page.reload();
   await expect(cases).toHaveCount(2);
   await expect(cases.first()).toHaveAttribute('data-state', 'submitted');
-  await expect(cases.first().locator('.verification__case-follows')).toHaveText('This request follows your earlier rejected request.');
+  await expect(cases.first().getByTestId('verification__case-follows')).toHaveText('This request follows your earlier rejected request.');
   await expect(cases.nth(1)).toHaveAttribute('data-state', 'rejected');
   await expect(cases.first().getByRole('button', { name: 'Send a new request' })).toHaveCount(0);
 
@@ -161,7 +161,7 @@ test(`${J}, part of #6 (I-kyc-compliance-01): one case record with history; a re
   tool('local-test-gates.mjs', 'verify');
   await page.reload();
   await expect(cases.first()).toHaveAttribute('data-state', 'approved');
-  await expect(cases.first().locator('.verification__case-steps li')).toHaveText([/^Sent for review · /, /^Approved · /]);
+  await expect(cases.first().getByTestId('verification__case-steps').locator('li')).toHaveText([/^Sent for review · /, /^Approved · /]);
   await expect(rung('full')).toHaveAttribute('aria-current', 'step');
   for (const feature of ['deposit', 'withdraw', 'trade'])
     await expect(rung('full').locator(`[data-feature="${feature}"]`)).toContainText('Included in your level');

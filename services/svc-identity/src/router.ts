@@ -1,7 +1,7 @@
 import { SecurityLockError } from './auth/security-lock.js';
 import { createKycLevelsRouter } from './kyc/levels-router.js';
 import { EMPTY_KYC_LADDER_SETTINGS, type KycLadderSettings } from './kyc/levels.js';
-import { KycCaseError, requireRejectReason, type KycRejectReasons } from './kyc/cases.js';
+import { KycCaseError, kycRejectApprovalFields, requireRejectReason, type KycRejectReasons } from './kyc/cases.js';
 import { kycHistoryOutputSchema, kycReasonCodeSchema } from '@intafaced/contracts/identity-kyc-cases';
 import { z } from 'zod';
 import { router, publicProcedure, protectedProcedure, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts';
@@ -2230,15 +2230,23 @@ export function createIdentityRouter(
             assertOperatorKycReview({ service: ctx.service, kid: ctx.principal.kid });
             await refuseOwnKyc(input.recordId, ctx.principal.userId, input);
             requireRejectReason(options.kycRejectReasons ?? new Map(), input.reasonCode);
-            await auth.assertKycRejectable(input.recordId, input.reasonCode);
-            const parties = await consumePrivileged(ctx.principal.userId, input, 'kyc.reject', { recordId: input.recordId });
+            const customerNote = input.customerNote ?? null;
+            const noteVisible = input.noteVisible ?? false;
+            await auth.assertKycRejectable(input.recordId, { reasonCode: input.reasonCode, customerNote, noteVisible });
+            // The second operator approves what the customer will read: the reason, the note and whether it shows.
+            const parties = await consumePrivileged(
+              ctx.principal.userId,
+              input,
+              'kyc.reject',
+              kycRejectApprovalFields({ recordId: input.recordId, reasonCode: input.reasonCode, customerNote, noteVisible }),
+            );
             return presentKyc(
               await auth.rejectKycRecord({
                 recordId: input.recordId,
                 reviewerId: ctx.principal.userId,
                 reasonCode: input.reasonCode,
-                customerNote: input.customerNote ?? null,
-                noteVisible: input.noteVisible ?? false,
+                customerNote,
+                noteVisible,
                 service: ctx.service,
                 kid: ctx.principal.kid,
                 confirmActorId: input.confirmOperatorId,

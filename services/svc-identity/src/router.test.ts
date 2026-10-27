@@ -604,6 +604,43 @@ describe('kyc.reject names a reason from the owner list (I-kyc-compliance-01)', 
     expect(stub.calls.filter((c) => c.method === 'rejectKycRecord')).toHaveLength(0);
   });
 
+  it('the four-eyes approval binds the reason, the note and whether it shows, not only the record', async () => {
+    const hashes: string[] = [];
+    const approvals = {
+      ...stubActionApprovals(CONFIRM_KYC),
+      async consume(...args: Parameters<ReturnType<typeof stubActionApprovals>['consume']>) {
+        hashes.push(args[1].payloadHash);
+        return stubActionApprovals(CONFIRM_KYC).consume(...args);
+      },
+    };
+    const api = createIdentityRouter(stub.auth, stub.rank, { actionApprovals: approvals, kycRejectReasons: KYC_REASONS }).createCaller(
+      await ctx(['admin:compliance'], { userId: OPERATOR }),
+    );
+    await api.kyc.reject({
+      recordId: RECORD,
+      reasonCode: 'document_unreadable',
+      customerNote: ' TEST note ',
+      noteVisible: true,
+      ...kycDual,
+    });
+    await api.kyc.reject({ recordId: RECORD, reasonCode: 'document_unreadable', ...kycDual });
+    expect(hashes).toEqual([
+      identityActionPayloadHash('kyc.reject', {
+        recordId: RECORD,
+        reasonCode: 'document_unreadable',
+        customerNote: 'TEST note',
+        noteVisible: 'true',
+      }),
+      identityActionPayloadHash('kyc.reject', {
+        recordId: RECORD,
+        reasonCode: 'document_unreadable',
+        customerNote: '',
+        noteVisible: 'false',
+      }),
+    ]);
+    expect(new Set(hashes).size).toBe(2);
+  });
+
   it('refuses a case already rejected with another code before the approval is spent', async () => {
     const consumed: unknown[] = [];
     const approvals = {
@@ -626,7 +663,7 @@ describe('kyc.reject names a reason from the owner list (I-kyc-compliance-01)', 
     const refused = await api.kyc.reject({ recordId: RECORD, reasonCode: 'document_unreadable', ...kycDual }).catch((e: unknown) => e);
     expect(codeOf(refused)).toBe('CONFLICT');
     expect((refused as { cause?: { code?: string } }).cause?.code).toBe('kyc.case_state');
-    expect(checked).toEqual([[RECORD, 'document_unreadable']]);
+    expect(checked).toEqual([[RECORD, { reasonCode: 'document_unreadable', customerNote: null, noteVisible: false }]]);
     expect(consumed).toEqual([]);
     expect(stub.calls.filter((c) => c.method === 'rejectKycRecord')).toHaveLength(0);
   });

@@ -73,7 +73,7 @@ export function VerificationCases({
       <>
         <ol className="verification__case-list">
           {cases.map((c) => (
-            <li key={c.id} className="verification__case" data-case={c.id} data-state={c.state}>
+            <li key={c.id} className="verification__case" data-testid="verification__case" data-case={c.id} data-state={c.state}>
               <div className="verification__case-head">
                 <h3>
                   <Copy k={c.tier} /> · <span lang="zxx">{c.jurisdiction}</span>
@@ -90,12 +90,12 @@ export function VerificationCases({
                 )}
               </p>
               {c.followsCaseId && (
-                <p className="muted verification__case-follows">
+                <p className="muted verification__case-follows" data-testid="verification__case-follows">
                   <Copy k="follows" />
                 </p>
               )}
               {c.state === 'rejected' && (
-                <div className="verification__case-reason" data-reason={c.reason?.code ?? ''}>
+                <div className="verification__case-reason" data-testid="verification__case-reason" data-reason={c.reason?.code ?? ''}>
                   {c.reason === null ? (
                     <p>
                       <Copy k="reasonMissing" />
@@ -111,11 +111,11 @@ export function VerificationCases({
                     </>
                   ) : (
                     <>
-                      <p className="verification__case-reason-text">
+                      <p className="verification__case-reason-text" data-testid="verification__case-reason-text">
                         <Copy k="reason" params={{ text: c.reason.text }} />
                       </p>
                       {c.reason.guidance && (
-                        <p className="verification__case-guidance">
+                        <p className="verification__case-guidance" data-testid="verification__case-guidance">
                           <Copy k="whatToDo" params={{ text: c.reason.guidance }} />
                         </p>
                       )}
@@ -141,7 +141,7 @@ export function VerificationCases({
               <h4>
                 <Copy k="stepsTitle" />
               </h4>
-              <ol className="verification__case-steps">
+              <ol className="verification__case-steps" data-testid="verification__case-steps">
                 {c.history.map((step) => (
                   <li key={step.version} data-state={step.state}>
                     <Copy k={`step_${step.state}`} /> · {time(step.at)}

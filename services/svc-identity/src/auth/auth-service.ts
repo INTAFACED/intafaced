@@ -1,7 +1,15 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
-import { approveKycCase, assertRejectable, listKycCases, openKycCase, rejectKycCase, type KycRejectReasons } from '../kyc/cases.js';
+import {
+  approveKycCase,
+  assertRejectable,
+  listKycCases,
+  openKycCase,
+  rejectKycCase,
+  type KycRejectDecision,
+  type KycRejectReasons,
+} from '../kyc/cases.js';
 import type { KycCase } from '@intafaced/contracts/identity-kyc-cases';
 import type {
   AccountState,
@@ -2867,11 +2875,11 @@ export class AuthService {
   }
 
   /**
-   * Refuses (`kyc.case_state`) a reject the decision would refuse anyway, a record already rejected with another code or
-   * before reasons existed, so the router checks it before the four-eyes approval is spent.
+   * Refuses (`kyc.case_state`) a reject the decision would refuse anyway (a record no longer pending, unless it is the
+   * same reject again), so the router checks it before the four-eyes approval is spent.
    */
-  async assertKycRejectable(recordId: string, reasonCode: string): Promise<void> {
-    await assertRejectable(this.sql, recordId, reasonCode);
+  async assertKycRejectable(recordId: string, decision: KycRejectDecision): Promise<void> {
+    await assertRejectable(this.sql, recordId, decision);
   }
 
   async listPendingKyc(limit: number): Promise<KycRecordView[]> {
@@ -2953,11 +2961,11 @@ export class AuthService {
       const decision = {
         by: input.reviewerId,
         reasonCode: input.reasonCode,
-        note: input.customerNote?.trim() || null,
+        customerNote: input.customerNote?.trim() || null,
         noteVisible: input.noteVisible ?? false,
       };
       if (row.status === 'rejected') {
-        // The same reason is the same decision; another reason is refused, so the reason the customer read stays.
+        // The same reject is the same decision; anything else is refused, so what the customer read stays.
         const record = toKycRecord(row);
         await rejectKycCase(tx, record, { ...decision, at: record.reviewedAt ?? record.createdAt });
         return record;

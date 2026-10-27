@@ -70,6 +70,40 @@ export function requireRejectReason(reasons: KycRejectReasons, code: string): Ky
   return reason;
 }
 
+/** What a reject tells the customer: the listed code, the reviewer's note and whether the customer sees it. */
+export interface KycRejectDecision {
+  readonly reasonCode: string;
+  readonly customerNote: string | null;
+  readonly noteVisible: boolean;
+}
+
+/**
+ * The fields the four-eyes approval of `kyc.reject` binds: the record and everything the customer will read, so the
+ * second operator approves the reason, the note and whether it shows, not only the record.
+ */
+export function kycRejectApprovalFields(input: { recordId: string } & KycRejectDecision): Record<string, string> {
+  return {
+    recordId: input.recordId,
+    reasonCode: input.reasonCode,
+    customerNote: input.customerNote ?? '',
+    noteVisible: input.noteVisible ? 'true' : 'false',
+  };
+}
+
+/** The same reject again (code, note and visibility), which returns the stored result instead of refusing. */
+function sameReject(row: { reason_code: string | null; customer_note: string | null; note_visible: boolean }, d: KycRejectDecision) {
+  return row.reason_code === d.reasonCode && row.customer_note === d.customerNote && row.note_visible === d.noteVisible;
+}
+
+function rejectedAlready(reasonCode: string | null): KycCaseError {
+  return new KycCaseError(
+    reasonCode === null
+      ? 'This case was rejected before reject reasons existed; a reason cannot be added afterwards'
+      : `This case is already rejected with ${reasonCode}; a different reason or note needs a new request`,
+    'kyc.case_state',
+  );
+}
+
 interface CaseRow {
   id: string;
   user_id: string;
@@ -78,6 +112,8 @@ interface CaseRow {
   state: KycCaseState;
   version: number;
   reason_code: string | null;
+  customer_note: string | null;
+  note_visible: boolean;
 }
 
 /**
@@ -127,7 +163,8 @@ async function lockCase(tx: Sql, record: KycCaseRecord): Promise<CaseRow> {
         VALUES (${inserted[0].id}, 2, ${state}, ${decided}, now())`;
   }
   const [row] = await tx<CaseRow[]>`
-    SELECT id, user_id, record_id, previous_case_id, state, version, reason_code FROM kyc_cases WHERE record_id = ${record.id} FOR UPDATE`;
+    SELECT id, user_id, record_id, previous_case_id, state, version, reason_code, customer_note, note_visible FROM kyc_cases
+    WHERE record_id = ${record.id} FOR UPDATE`;
   return row!;
 }
 
@@ -144,50 +181,43 @@ export async function approveKycCase(tx: Sql, record: KycCaseRecord, decision: {
 
 /**
  * Move the record's case to rejected with a listed reason, with its history row (published as `kycRejected`). Pass
- * the record as the caller read it under its lock, before it moved. A case already rejected with the same code is the
- * same decision and returns; with another code it is refused (`kyc.case_state`), so a retry never rewrites the reason
- * the customer read.
+ * the record as the caller read it under its lock, before it moved. The same reject again (code, note and visibility)
+ * is the same decision and returns; anything else on a rejected case is refused (`kyc.case_state`), so a retry never
+ * rewrites what the customer read, nor reports a note as sent that never was.
  */
-export async function rejectKycCase(
-  tx: Sql,
-  record: KycCaseRecord,
-  decision: { by: string; at: Date; reasonCode: string; note: string | null; noteVisible: boolean },
-): Promise<void> {
+export async function rejectKycCase(tx: Sql, record: KycCaseRecord, decision: { by: string; at: Date } & KycRejectDecision): Promise<void> {
   const row = await lockCase(tx, record);
   if (row.state === 'rejected') {
-    if (row.reason_code === decision.reasonCode) return;
-    throw new KycCaseError(
-      row.reason_code === null
-        ? 'This case was rejected before reject reasons existed; a reason cannot be added afterwards'
-        : `This case is already rejected with ${row.reason_code}`,
-      'kyc.case_state',
-    );
+    if (sameReject(row, decision)) return;
+    throw rejectedAlready(row.reason_code);
   }
   if (row.state !== 'submitted')
     throw new KycCaseError(`This case is ${row.state}; only a submitted case can be rejected`, 'kyc.case_state');
   const version = row.version + 1;
   await tx`UPDATE kyc_cases SET state = 'rejected', version = ${version}, reason_code = ${decision.reasonCode},
-    customer_note = ${decision.note}, note_visible = ${decision.noteVisible}, decided_by = ${decision.by},
+    customer_note = ${decision.customerNote}, note_visible = ${decision.noteVisible}, decided_by = ${decision.by},
     decided_at = ${decision.at}, updated_at = ${decision.at} WHERE id = ${row.id}`;
   await tx`INSERT INTO kyc_case_events (case_id, version, state, reason_code, at)
     VALUES (${row.id}, ${version}, 'rejected', ${decision.reasonCode}, ${decision.at})`;
 }
 
 /**
- * Before a reject spends its four-eyes approval: a record already rejected with another code, or before reasons
- * existed, would be refused afterwards (`kyc.case_state`), so it is refused here first. The decision's own transaction
- * checks again under its lock.
+ * Before a reject spends its four-eyes approval: a record that is no longer pending would be refused afterwards, so it
+ * is refused here first (`kyc.case_state`). The same reject again passes, to return the stored result. The decision's
+ * own transaction checks again under its lock.
  */
-export async function assertRejectable(sql: Sql, recordId: string, reasonCode: string): Promise<void> {
-  const [row] = await sql<Array<{ status: string; reason_code: string | null }>>`
-    SELECT r.status, c.reason_code FROM kyc_records r LEFT JOIN kyc_cases c ON c.record_id = r.id WHERE r.id = ${recordId}`;
-  if (row?.status === 'rejected' && row.reason_code !== reasonCode)
-    throw new KycCaseError(
-      row.reason_code === null
-        ? 'This case was rejected before reject reasons existed; a reason cannot be added afterwards'
-        : `This case is already rejected with ${row.reason_code}`,
-      'kyc.case_state',
-    );
+export async function assertRejectable(sql: Sql, recordId: string, decision: KycRejectDecision): Promise<void> {
+  const [row] = await sql<
+    Array<{ status: string; reason_code: string | null; customer_note: string | null; note_visible: boolean | null }>
+  >`
+    SELECT r.status, c.reason_code, c.customer_note, c.note_visible
+    FROM kyc_records r LEFT JOIN kyc_cases c ON c.record_id = r.id WHERE r.id = ${recordId}`;
+  if (!row || row.status === 'pending') return;
+  if (row.status === 'rejected') {
+    if (sameReject({ ...row, note_visible: row.note_visible ?? false }, decision)) return;
+    throw rejectedAlready(row.reason_code);
+  }
+  throw new KycCaseError(`This request is ${row.status}; only a pending request can be rejected`, 'kyc.case_state');
 }
 
 /**
@@ -233,7 +263,8 @@ export async function listKycCases(sql: Sql, userId: string, limit: number, reas
       tier: c.tier,
       jurisdiction: c.jurisdiction,
       state: c.lapsed ? 'expired' : c.state,
-      version: c.version,
+      // A lapsed approval's last step is the expired one, so the case reads at that step's version.
+      version: c.lapsed ? c.version + 1 : c.version,
       followsCaseId: c.previous_case_id,
       submittedAt: c.created_at.toISOString(),
       decidedAt: c.decided_at?.toISOString() ?? null,
@@ -252,11 +283,11 @@ export interface KycCaseRelayDeps {
 }
 
 /**
- * Publish the history rows not yet published, case by case, oldest first. One case per short transaction: the case row
- * is the claim (SKIP LOCKED), its rows go out in version order, and each is marked only after its publish returns, so
- * a crash in between publishes again with the same business key and never loses one, and a case's events never pass
- * each other. A case whose publish throws is left for the next run and the other cases still go out; the first error
- * is thrown once the run is over.
+ * Publish the history rows not yet published, case by case, oldest first. One case per short transaction: a try-lock
+ * on the case id is the claim (it never waits on, or holds, the row a decision locks), its rows go out in version
+ * order, and each is marked only after its publish returns, so a crash in between publishes again with the same
+ * business key and never loses one, and a case's events never pass each other. A case whose publish throws is left for
+ * the next run and the other cases still go out; the first error is thrown once the run is over.
  */
 export async function relayKycCaseEvents(deps: KycCaseRelayDeps, limit = 50): Promise<number> {
   const due = await deps.sql<Array<{ case_id: string }>>`
@@ -276,9 +307,14 @@ export async function relayKycCaseEvents(deps: KycCaseRelayDeps, limit = 50): Pr
 
 async function relayCase(deps: KycCaseRelayDeps, caseId: string): Promise<number> {
   return deps.sql.begin(async (tx) => {
+    // The claim is a lock on the case id, not on its row: a decision locks the row, and a slow publish here must never
+    // hold up a reviewer whose approval is already spent. Rows a decision appends meanwhile go out on the next run.
+    const [claim] = await tx<Array<{ claimed: boolean }>>`
+      SELECT pg_try_advisory_xact_lock(hashtextextended('identity.kyc_case_relay:' || ${caseId}, 0)) AS claimed`;
+    // Another run holds it: the next run sends what is still due.
+    if (!claim?.claimed) return 0;
     const [held] = await tx<Array<{ user_id: string; previous_case_id: string | null }>>`
-      SELECT user_id, previous_case_id FROM kyc_cases WHERE id = ${caseId} FOR UPDATE SKIP LOCKED`;
-    // Another run, or a transition, holds it: the next run sends what is still due.
+      SELECT user_id, previous_case_id FROM kyc_cases WHERE id = ${caseId}`;
     if (!held) return 0;
     const rows = await tx<Array<{ id: string; version: number; state: KycCaseState; reason_code: string | null; at: Date }>>`
       SELECT id, version, state, reason_code, at FROM kyc_case_events

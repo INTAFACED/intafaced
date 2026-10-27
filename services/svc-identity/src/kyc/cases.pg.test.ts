@@ -168,8 +168,31 @@ if (!available) {
       expect(again.reviewedBy).toBe(operator);
       expect(again.reviewedAt?.getTime()).toBe(first.reviewedAt?.getTime());
       await expect(reject(record.id, operator, 'name_mismatch')).rejects.toMatchObject({ code: 'kyc.case_state' });
+      // The same code with a note the customer would now read is not the same decision: refused, never reported sent.
+      await expect(
+        reject(record.id, operator, 'document_unreadable', { customerNote: 'TEST: try again', noteVisible: true }),
+      ).rejects.toMatchObject({ code: 'kyc.case_state' });
       expect(await counts(userId)).toEqual({ cases: 1, events: 2 });
-      expect((await history(userId))[0]!.reason?.code).toBe('document_unreadable');
+      expect((await history(userId))[0]!).toMatchObject({ reason: { code: 'document_unreadable' }, note: null });
+    });
+
+    it('the check before the approval is spent refuses what the decision would refuse, and passes the same reject again', async () => {
+      const userId = await person();
+      const operator = await person();
+      const same = { reasonCode: 'document_unreadable', customerNote: null, noteVisible: false };
+      const open = await auth.submitKyc({ userId, tier: 'basic', jurisdiction: 'DE' });
+      await expect(auth.assertKycRejectable(open.id, same)).resolves.toBeUndefined();
+      await reject(open.id, operator);
+      await expect(auth.assertKycRejectable(open.id, same)).resolves.toBeUndefined();
+      await expect(auth.assertKycRejectable(open.id, { ...same, reasonCode: 'name_mismatch' })).rejects.toMatchObject({
+        code: 'kyc.case_state',
+      });
+      await expect(auth.assertKycRejectable(open.id, { ...same, customerNote: 'TEST', noteVisible: true })).rejects.toMatchObject({
+        code: 'kyc.case_state',
+      });
+      const full = await auth.submitKyc({ userId, tier: 'full', jurisdiction: 'DE' });
+      await auth.approveKycRecord({ recordId: full.id, reviewerId: operator, approvalParties: [] });
+      await expect(auth.assertKycRejectable(full.id, same)).rejects.toMatchObject({ code: 'kyc.case_state' });
     });
 
     it('a note not marked visible never reaches the customer', async () => {
@@ -268,7 +291,7 @@ if (!available) {
         UPDATE kyc_records SET expires_at = now() - interval '1 hour' WHERE id = ${record.id} RETURNING expires_at AS at`;
       const before = await counts(userId);
       const [only] = await history(userId);
-      expect(only).toMatchObject({ state: 'expired', version: 2, expiresAt: lapse!.at.toISOString() });
+      expect(only).toMatchObject({ state: 'expired', version: 3, expiresAt: lapse!.at.toISOString() });
       expect(only!.history).toEqual([
         expect.objectContaining({ version: 1, state: 'submitted' }),
         expect.objectContaining({ version: 2, state: 'approved' }),
@@ -301,6 +324,33 @@ if (!available) {
       const sent = [...bus.emitted('kycSubmitted'), ...bus.emitted('kycRejected')].map((e) => e.idempotencyKey);
       expect(sent).toEqual([`identity.kyc.submitted:${caseA!.id}:1`, `identity.kyc.rejected:${caseA!.id}:2`]);
       expect(await relay()).toBe(0);
+    });
+
+    it('a decision does not wait for a publish the relay is stuck in', async () => {
+      const userId = await person();
+      const record = await auth.submitKyc({ userId, tier: 'basic', jurisdiction: 'DE' });
+      let release!: () => void;
+      let entered!: () => void;
+      const inPublish = new Promise<void>((resolve) => (entered = resolve));
+      const stuck = {
+        publish: (async (...args: Parameters<typeof bus.publish>) => {
+          entered();
+          await new Promise<void>((resolve) => (release = resolve));
+          return bus.publish(...args);
+        }) as typeof bus.publish,
+      };
+      const running = relay(stuck);
+      await inPublish;
+      const decided = await Promise.race([
+        reject(record.id, await person()).then(() => 'decided'),
+        new Promise((resolve) => setTimeout(() => resolve('waited'), 3_000)),
+      ]);
+      release();
+      expect(decided).toBe('decided');
+      expect(await running).toBe(1);
+      // The reject appended while the relay ran goes out on the next run, after the submission.
+      expect(await relay()).toBe(1);
+      expect(bus.emitted('kycRejected')).toHaveLength(1);
     });
 
     it('a publish that fails leaves the row unpublished, for the next run to send again', async () => {

@@ -239,14 +239,17 @@ export function kycApproveProposal(recordId) {
   };
 }
 
-/** The four-eyes proposal for one KYC reject; the approval binds the record, as `kyc.reject` checks it. */
-export function kycRejectProposal(recordId) {
+/**
+ * The four-eyes proposal for one KYC reject. The approval binds the record and what the customer reads (the reason,
+ * the note and whether it shows), as `kyc.reject` checks it; this tool sends no note.
+ */
+export function kycRejectProposal(recordId, reasonCode) {
   return {
     actionType: 'kyc.reject',
     targetService: 'svc-identity',
     targetId: 'kyc.reject',
     expectedVersion: '1',
-    payloadHash: identityPayloadHash('kyc.reject', { recordId }),
+    payloadHash: identityPayloadHash('kyc.reject', { recordId, reasonCode, customerNote: '', noteVisible: 'false' }),
     policyVersion: MARKERS.policyVersion,
   };
 }
@@ -2083,7 +2086,7 @@ export async function rejectPending(ctx, handle, reasonCode) {
   if (todo.length === 0) return out;
   const pair = await approverSessions(ctx);
   for (const r of todo) {
-    const ids = await twoPerson(ctx, pair, kycRejectProposal(r.id));
+    const ids = await twoPerson(ctx, pair, kycRejectProposal(r.id, reasonCode));
     const token = await pair.a.complianceToken();
     const res = await ctx.edge.mutate(
       'identity',
