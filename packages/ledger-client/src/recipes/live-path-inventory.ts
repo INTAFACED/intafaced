@@ -49,6 +49,12 @@ export const RECIPE_MATRIX = {
   withdrawHold: { kind: 'live', module: 'ledger', proof: 'services/svc-pay/src/user-money-service.ts' },
   withdrawSettle: { kind: 'live', module: 'ledger', proof: 'services/svc-pay/src/user-money-service.ts' },
   withdrawReverse: { kind: 'live', module: 'ledger', proof: 'services/svc-pay/src/user-money-service.ts' },
+  withdrawReturned: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      '§13 — W-withdraw-07 returned withdrawal: rail boundary back to the person once per settled attempt, bound by svc-ledger to the posted withdraw.settle (same person, asset and rail, no more than it sent). No production writer posts it yet (svc-pay still parks a recorded return; its second-founder credit is the next PR); the recipe-gate catalog samples it and does not ledger.post.',
+  },
   tradeFill: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service/fills.ts' },
   tradeFillFeeCorrection: {
     kind: 'socket',
