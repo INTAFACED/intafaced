@@ -95,9 +95,9 @@ async function scenario(browser, name, width, fn) {
 }
 async function login(page, path = '/mining') {
   await page.goto('/login?redirect=' + encodeURIComponent(path));
-  await page.locator('input[autocomplete="username"]').fill('mining@example.invalid');
+  await page.locator('input[name="identifier"]').fill('mining@example.invalid');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect(page).toHaveURL(new RegExp(path + '$'));
 }
 async function fit(page, locator, width) {
@@ -265,7 +265,7 @@ test('guest return and unreadable original storage do not confer customer submis
     const signIn = page.locator('#main').getByRole('link', { name: 'Sign in', exact: true });
     expect(new URL(await signIn.getAttribute('href'), baseURL).searchParams.get('redirect')).toBe('/mining?public=reference#record');
     await signIn.click();
-    await expect(page.locator('input[autocomplete="username"]')).toBeVisible();
+    await expect(page.locator('input[name="identifier"]')).toBeVisible();
   });
   await scenario(browser, 'unreadable-original', 320, async ({ page, state }) => {
     await page.addInitScript(() => {

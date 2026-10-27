@@ -94,9 +94,9 @@ const address = (id, version) => '/helpdetail?id=' + encodeURIComponent(id) + (v
 const ready = (page) => page.locator('.help__body');
 async function login(page, destination = '/help') {
   await page.goto('/login?redirect=' + encodeURIComponent(destination));
-  await page.locator('input[autocomplete="username"]').fill('isolated-owner');
+  await page.locator('input[name="identifier"]').fill('isolated-owner');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   // Public rooms cannot be private safeReturnTo targets; enter Help after native authentication.
   await expect.poll(() => page.evaluate(() => location.pathname === '/money')).toBe(true);
   await page.evaluate((destination) => {
@@ -114,9 +114,9 @@ async function changeURL(page, destination) {
 async function locale(context, language) {
   const page = await context.newPage();
   await page.goto('/login?redirect=%2Fview');
-  await page.locator('input[autocomplete="username"]').fill('isolated-owner');
+  await page.locator('input[name="identifier"]').fill('isolated-owner');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await page
     .locator('select')
     .filter({ has: page.locator('option[value="es"]') })
@@ -540,9 +540,9 @@ test('native support sign-in preserves its complete safe return URL and actually
   await changeURL(page, destination);
   await page.getByRole('link', { name: 'Sign in', exact: true }).click();
   expect(await page.evaluate((destination) => new URL(location.href).searchParams.get('redirect') === destination, destination)).toBe(true);
-  await page.locator('input[autocomplete="username"]').fill('isolated-owner');
+  await page.locator('input[name="identifier"]').fill('isolated-owner');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect.poll(() => page.evaluate((destination) => location.pathname + location.search === destination, destination)).toBe(true);
   await expect(page.getByRole('heading', { name: 'Support', exact: true })).toBeVisible();
   expect(s.posts).toEqual([]);
