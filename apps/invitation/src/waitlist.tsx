@@ -5,7 +5,7 @@ import { PrimaryMetal } from './components/primary-metal';
 import { LivingBackdrop } from './components/living-backdrop';
 import { mutate, query } from '@outreach/transport';
 import heroPhone from './vendored/assets/images/outreach/graphite-fins-phone.webp';
-import lockupBar from '../../../packages/ui/brand/lockup-topbar.svg';
+import lockupBar from '../public/brand/lockup-topbar.svg';
 import './waitlist.css';
 
 /**

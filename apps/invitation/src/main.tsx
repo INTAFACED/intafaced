@@ -15,9 +15,10 @@ import { BlurFade } from './components/blur-fade';
 import { LivingBackdrop } from './components/living-backdrop';
 import { AMOUNT_ERROR, amountAmbiguity, groupAmount, parseAmount, storedAmount } from './lib/amount';
 import heroPhone from './vendored/assets/images/outreach/graphite-fins-phone.webp';
-// The brand's one source (packages/ui/brand, the owner's kit), bundled into /assets/ like any image.
-import lockupStacked from '../../../packages/ui/brand/lockup-stacked.svg';
-import lockupBar from '../../../packages/ui/brand/lockup-topbar.svg';
+// The owner's kit: this app's copy of packages/ui/brand (kept in step by packages/ui/scripts/brand-sync.mjs, checked by
+// its test), bundled into /assets/ like any image.
+import lockupStacked from '../public/brand/lockup-stacked.svg';
+import lockupBar from '../public/brand/lockup-topbar.svg';
 import './outreach.css';
 import { WaitlistPage } from './waitlist';
 
