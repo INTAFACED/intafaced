@@ -138,7 +138,8 @@ export function fund(email, asset, amount, ref) {
   return { out, tx: /ledger tx\s+(\S+)/.exec(out)?.[1], ref: /--ref\s+([A-Za-z0-9-]+)/.exec(out)?.[1] };
 }
 
-async function json(res) {
+/** A response as `{ status, body }`: the parsed JSON, or the raw text when it isn't JSON. */
+export async function json(res) {
   const text = await res.text();
   try {
     return { status: res.status, body: JSON.parse(text) };

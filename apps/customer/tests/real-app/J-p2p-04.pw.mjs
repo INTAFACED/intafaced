@@ -28,6 +28,8 @@ const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 /** This journey's own TEST method, which step 1 retires; no other journey pays with it. */
 const J04_METHOD = 'test-j04-transfer';
 const J04_LABEL = 'TEST J-p2p-04 transfer';
+/** The stack's TEST cash-in-person method (`local-test-gates.mjs p2p`), whose row carries cash rules. */
+const CASH_METHOD = 'test-cash-in-person';
 const AD = { price: '0.93', min: '10', max: '100' };
 // A part of a step whose door is not built yet refuses at once, so the run stays short.
 const UNBUILT = { timeout: 5_000 };
@@ -52,12 +54,13 @@ const keepCounter = (s) => run.write({ sellerPasskey: s.passkey().saved() });
  * The seller in the app on the passkey origin, the browser's (virtual) authenticator holding the account's TEST passkey.
  * The browser counts its own answers past every count the stored key used, so later API answers start well past them.
  */
-async function sellerInApp(browser, state) {
+async function sellerInApp(browser, state, who = 'seller') {
   const context = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
   const page = await context.newPage();
-  await browserHoldsPasskey(page, state.sellerPasskey);
-  run.write({ sellerPasskey: { ...state.sellerPasskey, signCount: state.sellerPasskey.signCount + 1000 } });
-  await signIn(page, state.seller);
+  const key = state[`${who}Passkey`];
+  await browserHoldsPasskey(page, key);
+  run.write({ [`${who}Passkey`]: { ...key, signCount: key.signCount + 1000 } });
+  await signIn(page, state[who]);
   return page;
 }
 
@@ -120,6 +123,7 @@ test('J-p2p-04 #1 the catalogue shows each method per country with what it asks 
     sellerId: me.body.result.data.userId,
     offerId: offer.id,
     tradeId: trade.id,
+    buyer,
     sellerPasskey: s.passkey().saved(),
   });
 
@@ -162,11 +166,40 @@ test('J-p2p-04 #1 cash in person and payment-note rules come from the method row
   await signIn(page, state.seller);
   await page.goto('/p2p/methods');
   await page.getByTestId('methods-catalogue').getByLabel('Country').selectOption('DE');
-  // The remittance note rules the method row carries, shown beside it (P-ads-merchant-19).
-  await expect(
-    page.locator(`[data-testid="catalogue-method"][data-method="${METHOD}"] [data-testid="catalogue-note-rules"]`),
-    'the catalogue shows no payment-note rules yet (P-ads-merchant-19 catalogue rules slice)',
-  ).toBeVisible(UNBUILT);
+  // The remittance note rules the bank transfer's row carries, shown beside it (P-ads-merchant-19).
+  const notes = page.locator(`[data-testid="catalogue-method"][data-method="${METHOD}"] [data-testid="catalogue-note-rules"]`);
+  await expect(notes).toContainText('Payment note');
+  await expect(notes).toContainText('TEST: write only the order number in the payment note.');
+  await expect(notes.getByTestId('catalogue-note-forbidden')).toHaveText('Never write: USDT, crypto, P2P');
+  // The TEST cash-in-person row: a locked price, the meeting and proof guidance, and its own release window.
+  const cash = page.locator(`[data-testid="catalogue-method"][data-method="${CASH_METHOD}"] [data-testid="catalogue-cash-rules"]`);
+  await expect(cash).toContainText('Cash in person');
+  await expect(cash).toContainText('The price is locked: an ad with a floating price cannot offer this method.');
+  await expect(cash).toContainText('Meeting: TEST: meet in a busy public place in daylight.');
+  await expect(cash).toContainText('Proof: TEST: count the notes together before the seller releases.');
+  await expect(cash.getByTestId('catalogue-cash-release')).toHaveText(
+    'Once the buyer marks the order paid, the seller has 10 minutes to release.',
+  );
+  // A transfer method shows no cash rules.
+  await expect(page.locator(`[data-testid="catalogue-method"][data-method="${METHOD}"] [data-testid="catalogue-cash-rules"]`)).toHaveCount(
+    0,
+  );
+  // The locked price is the service's rule, not only the page's: a floating ad listing the cash method is refused by name.
+  const s = await seller(state);
+  const floating = await s.raw.mutate('offers.create', {
+    side: 'sell',
+    asset: 'USDT',
+    fiatCurrency: 'EUR',
+    priceType: 'float',
+    price: '1.01',
+    minAmount: AD.min,
+    maxAmount: AD.max,
+    totalAmount: '100',
+    methods: [METHOD, CASH_METHOD],
+    terms: 'TEST terms: J-p2p-04 #1 floating cash ad',
+    idempotencyKey: `${J}:float-cash:${state.seller.handle}`,
+  });
+  expect(refusalCode(floating)).toBe('p2p.floating_not_allowed_for_method');
 });
 
 test('J-p2p-04 #2 a holder name that is not the verified name is refused and nothing is stored; a badly formatted IBAN shows the format hint', async ({
@@ -274,21 +307,144 @@ test('J-p2p-04 #3 saving a payment method asks for a step-up and shows it masked
   await expect(page.getByTestId('method-add-form').getByTestId('method-add-country')).toBeDisabled();
 });
 
-test('J-p2p-04 #4 removing a method an ad uses lists the ads first; confirming pauses them and tells me', async () => {
-  const state = journey();
-  const s = await seller(state);
-  const [bank] = (await s.query('instruments.list', { limit: 200 })).filter((row) => row.methodId === METHOD && row.status === 'active');
-  // Confirmed with the passkey, so the refusal is about the ads, not the confirmation.
-  const res = await s.raw.mutate('instruments.remove', { instrumentId: bank.id });
-  keepCounter(s);
-  expect(refusalCode(res), 'removing a method an ad uses refuses with no list of ads yet (P-ads-merchant-18 removal slice)').toBe(
-    'p2p.method_in_use',
-  );
+test('J-p2p-04 #4 removing a method an ad uses lists the ads first; confirming pauses them and tells me; re-adding it and resuming works', async ({
+  browser,
+  page: signUpPage,
+}) => {
+  test.setTimeout(240_000);
+  // Its own TEST seller with one euro account and one ad paid by it: every payment-method change asks identity for a
+  // confirmation, and identity allows eight a person in ten minutes, which #1 to #3 have already spent on theirs.
+  const who = await signUp(signUpPage, 'p2p04r');
+  await verify(signUpPage, who);
+  expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
+  const s = p2p(await api(who));
+  const bank = await testInstrument(s, who);
+  const ad = await s.mutate('offers.create', {
+    side: 'sell',
+    asset: 'USDT',
+    fiatCurrency: 'EUR',
+    priceType: 'fixed',
+    price: AD.price,
+    minAmount: AD.min,
+    maxAmount: AD.max,
+    totalAmount: '100',
+    methods: [METHOD],
+    terms: 'TEST terms: pay from an account in your own name.',
+    idempotencyKey: `${J}:offer:${who.handle}`,
+  });
+  run.write({ remover: who, removerPasskey: s.passkey().saved() });
+
+  // Straight to the service, confirmed but without saying yes to pausing: refused by name, and nothing changes.
+  const refused = await s.raw.mutate('instruments.remove', { instrumentId: bank.id });
+  run.write({ removerPasskey: s.passkey().saved() });
+  expect(refusalCode(refused)).toBe('p2p.method_in_use');
+  expect((await s.query('offers.get', { offerId: ad.id })).status).toBe('active');
+
+  // In the app: the review lists the ad and says it pauses; the passkey confirms; the method goes and the ad pauses.
+  const page = await sellerInApp(browser, run.read(), 'remover');
+  await page.goto('/p2p/methods');
+  await page
+    .locator(`[data-testid="saved-method"][data-instrument-id="${bank.id}"]`)
+    .getByRole('button', { name: 'Remove destination' })
+    .click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByTestId('method-remove-impact').locator(`[data-offer-id="${ad.id}"]`)).toHaveAttribute('data-pauses', 'true');
+  await expect(dialog.getByTestId('method-remove-warning')).toContainText('Removing this method pauses 1 of your ads');
+  await dialog.getByRole('button', { name: 'Use a passkey' }).click();
+  await expect(dialog.getByTestId('method-remove-confirmed')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Remove destination' }).click();
+  await expect(page.locator(`[data-testid="saved-method"][data-instrument-id="${bank.id}"]`)).toHaveCount(0);
+  expect(await s.query('offers.get', { offerId: ad.id })).toMatchObject({ status: 'paused', pauseReason: 'method_removed' });
+
+  // My offers lists it under paused, with why and the way back; resuming before a method is back is refused.
+  await page.goto('/uc/ad');
+  const row = page.getByTestId('paused-offers').locator(`[data-offer-id="${ad.id}"]`);
+  await expect(row).toHaveAttribute('data-pause-reason', 'method_removed');
+  await expect(row.getByTestId('pause-reason')).toContainText('you removed the last payment method it could be paid with');
+  expect(refusalCode(await s.raw.mutate('offers.resume', { offerId: ad.id }))).toBe('p2p.offer_method_no_destination');
+
+  // Re-add a euro account in the app, confirmed with the passkey, then resume the ad from My offers.
+  await page.goto('/p2p/methods');
+  const form = await pickMethod(page, 'TEST bank transfer');
+  await form.getByLabel('Account holder').fill(holderOf(who));
+  await form.getByLabel('IBAN').fill(TEST_IBAN);
+  await form.getByLabel('Your name for it (optional)').fill('TEST euro account again');
+  await form.getByRole('button', { name: 'Review' }).click();
+  await page.getByTestId('method-add-review').getByRole('button', { name: 'Use a passkey' }).click();
+  await expect(form.getByTestId('method-add-saved')).toBeVisible();
+  await page.goto('/uc/ad');
+  await page
+    .getByTestId('paused-offers')
+    .locator(`[data-offer-id="${ad.id}"]`)
+    .getByRole('button', { name: 'Inspect current offer' })
+    .click();
+  await page.getByRole('button', { name: 'Resume offer' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Resume offer' }).click();
+  await expect.poll(async () => (await s.query('offers.get', { offerId: ad.id })).status).toBe('active');
+  expect((await s.query('offers.get', { offerId: ad.id })).pauseReason).toBeNull();
+  await page.goto('/uc/ad');
+  await expect(page.getByTestId('paused-offers').locator(`[data-offer-id="${ad.id}"]`)).toHaveCount(0);
+
+  // The maker was told, once, in the inbox.
+  const notices = async () => {
+    const res = await s.session.get(`/api/notify/trpc/notify.list?input=${encodeURIComponent(JSON.stringify({ limit: 100 }))}`);
+    expect(res.status).toBe(200);
+    return res.body.result.data.items.filter((n) => n.kind === 'p2p.offer.paused' && n.params?.instrumentId === bank.id);
+  };
+  await expect
+    .poll(async () => (await notices()).length, {
+      timeout: 30_000,
+      message: 'svc-notify does not turn p2p.offer.paused into the maker’s notice yet (P-ads-merchant-18 notice slice)',
+    })
+    .toBe(1);
 });
 
-test('J-p2p-04 #5 reporting a sensitive remark in a payment note opens a case and tells the reported party', async () => {
+test('J-p2p-04 #5 reporting a sensitive remark in a payment note opens a case and tells the reported party', async ({ page, browser }) => {
+  test.setTimeout(120_000);
   const state = journey();
+  // The open order from #1: the buyer pays by this journey's TEST transfer and the seller quotes what the note said.
+  await signIn(page, state.seller);
+  await page.goto(`/p2p/orders/${state.tradeId}`);
+  const report = page.getByTestId('order-remark-report');
+  await expect(report).toBeVisible();
+  await report.locator('summary').click();
+  const quote = 'TEST: USDT for P2P order';
+  await report.getByLabel('The remark, as written').fill(quote);
+  await report.getByRole('button', { name: 'Report the remark' }).click();
+  const opened = page.getByTestId('order-remark-case');
+  await expect(opened).toContainText('A case is open for staff to decide.');
+  const caseId = await opened.getAttribute('data-case-id');
+  expect(caseId).toMatch(/^[0-9a-f-]{36}$/);
+  // The order page reads the report back on the next visit, so the form does not come back.
+  await page.reload();
+  await expect(page.getByTestId('order-remark-case')).toHaveAttribute('data-case-id', caseId);
+  await expect(page.getByTestId('order-remark-report')).toHaveCount(0);
+
+  // A second report on the same order is refused by name; the same report again answers the same case.
   const s = await seller(state);
-  const res = await s.bare.mutate('trades.reportSensitiveRemark', { tradeId: state.tradeId, reason: 'TEST sensitive remark' });
-  expect(res.status, 'svc-p2p has no sensitive-remark report yet (P-ads-merchant-19 report slice)').toBe(200);
+  expect(
+    refusalCode(await s.raw.mutate('trades.reportSensitiveRemark', { caseId: randomUUID(), tradeId: state.tradeId, remark: 'again' })),
+  ).toBe('p2p.remark_case_exists');
+  expect(await s.mutate('trades.reportSensitiveRemark', { caseId, tradeId: state.tradeId, remark: quote })).toMatchObject({
+    id: caseId,
+    reporterRole: 'seller',
+    status: 'open',
+  });
+  run.write({ remarkCaseId: caseId });
+
+  // The buyer, who is the reported party, sees on the order that a case is open, without the quote.
+  const buyerContext = await browser.newContext();
+  try {
+    const buyerPage = await buyerContext.newPage();
+    await signIn(buyerPage, state.buyer);
+    await buyerPage.goto(`/p2p/orders/${state.tradeId}`);
+    const against = buyerPage.getByTestId('order-remark-against-me');
+    await expect(against).toHaveAttribute('data-case-id', caseId);
+    await expect(against).toContainText('The other person on this order reported a remark in a payment note.');
+    await expect(buyerPage.getByText(quote)).toHaveCount(0);
+    // The buyer wrote the payment note, so the buyer gets no form, and the service refuses the buyer by name.
+    await expect(buyerPage.getByTestId('order-remark-report')).toHaveCount(0);
+  } finally {
+    await buyerContext.close();
+  }
 });

@@ -35,7 +35,7 @@ export function LegacyRoom({ area, path }: { area: LegacyArea; path: string }) {
       <Suspense
         fallback={
           <div data-testid="page" className="page">
-            <Loading label={t('Opening room')} />
+            <Loading room label={t('Opening room')} />
           </div>
         }
       >

@@ -229,15 +229,15 @@ export const ENFORCED = {
     kind: 'guard',
     must: /SKIP HONESTY SCAN FAILED/,
     note:
-      'refuses via its stale-entry ratchet rather than a zero-file branch: with no tree, every tolerated-offender path ' +
-      'is stale. Correct outcome, adjacent mechanism — recorded so nobody reads this row as a dedicated empty-scan guard.',
+      'refuses "scope is EMPTY" when it finds no test file. Its stale-entry ratchet used to do this job; stale entries ' +
+      'only warn since 2026-10-27, so the guard is now its own branch.',
   },
   'money-skip-honesty': {
     kind: 'guard',
     must: /MONEY SKIP HONESTY FAILED/,
     note:
-      'D26-P2-13 seal: with money roots absent it refuses "no money-path roots"; with roots empty of the inventoried ' +
-      'files it refuses via the stale-row ratchet. Either way it cannot print clean over nothing.',
+      'D26-P2-13 seal: with money roots absent it refuses "no money-path roots"; with roots that hold no test file it ' +
+      'refuses on its own branch (paid rows only warn since 2026-10-27). Either way it cannot print clean over nothing.',
   },
   'compose-secret-parity': {
     kind: 'uncaught',

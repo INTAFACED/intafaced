@@ -23,7 +23,8 @@ import {
 } from './copy-control-wire.js';
 import type { CopyFeeShareLaw, CopyJurisdictionLaw } from './fee-share-law.js';
 import { CopyError } from './errors.js';
-import { GateOpenLedger, GateOpenStore, OPEN_FOLLOW_GATE } from './test/follow-gate.fixture.js';
+import { MemoryCopyFollowStore } from './follow-store.js';
+import { GateOpenLedger, OPEN_FOLLOW_GATE } from './test/follow-gate.fixture.js';
 
 const SECRET = 'copy-desk-blockers-edge-secret-32chars';
 const FOLLOWER = '00000000-0000-4000-8000-0000000000a1';
@@ -101,7 +102,7 @@ describe('copy.deskStatus blockers', () => {
   it('both laws blank returns the fee-share and jurisdiction codes and no internal sentence', async () => {
     const copy = new CopyService(new GateOpenLedger(), {
       ...OPEN_FOLLOW_GATE,
-      store: new GateOpenStore(),
+      store: new MemoryCopyFollowStore(),
       feeShareLaw: { published: false },
       jurisdictionLaw: { published: false },
     });
@@ -130,7 +131,7 @@ describe('copy.deskStatus blockers', () => {
       undefined,
       new CopyService(new GateOpenLedger(), {
         ...OPEN_FOLLOW_GATE,
-        store: new GateOpenStore(),
+        store: new MemoryCopyFollowStore(),
         feeShareLaw: { published: false },
         jurisdictionLaw: { published: false },
       }),
@@ -154,7 +155,7 @@ describe('copy.deskStatus blockers', () => {
   it('opsStatus returns the sentences to an operator and refuses a customer', async () => {
     const copy = new CopyService(new GateOpenLedger(), {
       ...OPEN_FOLLOW_GATE,
-      store: new GateOpenStore(),
+      store: new MemoryCopyFollowStore(),
       feeShareLaw: { published: false },
       jurisdictionLaw: { published: false },
     });
@@ -178,7 +179,7 @@ describe('copy.deskStatus blockers', () => {
   it('follow with a blank served list refuses jurisdiction_blank with blockers and no internal id', async () => {
     const copy = new CopyService(new GateOpenLedger(), {
       ...OPEN_FOLLOW_GATE,
-      store: new GateOpenStore(),
+      store: new MemoryCopyFollowStore(),
       feeShareLaw: publishedFee,
       jurisdictionLaw: { published: false },
     });
@@ -206,7 +207,7 @@ describe('copy.deskStatus blockers', () => {
       undefined,
       new CopyService(new GateOpenLedger(), {
         ...OPEN_FOLLOW_GATE,
-        store: new GateOpenStore(),
+        store: new MemoryCopyFollowStore(),
         feeShareLaw: { published: false },
         jurisdictionLaw: { published: false },
       }),
@@ -216,7 +217,7 @@ describe('copy.deskStatus blockers', () => {
       undefined,
       new CopyService(new GateOpenLedger(), {
         ...OPEN_FOLLOW_GATE,
-        store: new GateOpenStore(),
+        store: new MemoryCopyFollowStore(),
         feeShareLaw: publishedFee,
         jurisdictionLaw: publishedJur,
       }),
@@ -263,7 +264,7 @@ describe('copy control dispositions', () => {
   it('each control returns one value from its own subset and stop is not flatten', async () => {
     const copy = new CopyService(new GateOpenLedger(), {
       ...OPEN_FOLLOW_GATE,
-      store: new GateOpenStore(),
+      store: new MemoryCopyFollowStore(),
       feeShareLaw: publishedFee,
       jurisdictionLaw: publishedJur,
       placeMirrorEnabled: true,

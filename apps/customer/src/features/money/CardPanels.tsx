@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import type { z } from 'zod';
+import { BrandLockup } from '@intafaced/ui';
 import { Button, Field } from '../../shared/ui';
 import { DepthPanel, DisabledAction, Fact } from './DepthParts';
 import {
@@ -39,7 +40,7 @@ export function CardFace({ card }: { card: CardRecord }) {
       aria-label={`${maskedPan(card.panTail)} ${state}`}
     >
       <div className="bd-card__top">
-        <strong>INTAFACED</strong>
+        <BrandLockup size={24} title="" className="bd-card__brand" />
         <span className="bd-card__state">{card.simulated ? t('faceTest') : state}</span>
       </div>
       <div className="bd-card__pan" lang="zxx" dir="ltr">

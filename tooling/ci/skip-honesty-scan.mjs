@@ -110,6 +110,14 @@ function walk(dir, out) {
 /** @type {string[]} */
 const files = [];
 for (const r of ROOTS) walk(join(ROOT, r), files);
+// Its own empty-scan guard: stale register entries only warn now (a fix never fails, owner decision 2026-10-27), so
+// they can no longer be what refuses a scan of nothing.
+if (files.length === 0) {
+  console.error(
+    `\n✖ SKIP HONESTY SCAN FAILED — scope is EMPTY: no test file under ${ROOTS.join(', ')}. A scan of nothing is not a pass.\n`,
+  );
+  process.exit(1);
+}
 
 /**
  * The register of offenders this change was not permitted to fix — see
@@ -151,7 +159,8 @@ for (const file of files) {
  * The other direction, and the one that matters in a year. An exemption whose
  * reason has gone stays forever by default and quietly covers the next offender
  * to land on that path. So: an entry that no longer violates, or names a file
- * that no longer exists, is itself a failure.
+ * that no longer exists, is reported with the line to delete. It warns rather
+ * than fails: a fix never fails the build (owner decision 2026-10-27).
  */
 const stale = [];
 const seen = new Set(tolerated.map((t) => t.file));
@@ -164,23 +173,16 @@ for (const entry of KNOWN_PRIVATE_PROBE) {
   );
 }
 
-if (stale.length > 0) {
-  console.error(`\n✖ SKIP HONESTY SCAN FAILED — ${stale.length} stale entr(ies) in tooling/ci/unreported-suites.mjs\n`);
-  for (const s of stale) console.error(`  · ${s}`);
-  console.error('\n  Delete the entry from PRIVATE_PROBE. A tolerated-offender list that is not');
-  console.error('  pruned stops being a record of debt and becomes blanket cover for whatever');
-  console.error('  lands on that path next — which is the same invisibility this gate exists');
-  console.error('  to remove, one level up.\n');
-  process.exit(1);
-}
+const warn = (msg) => console.log(process.env.GITHUB_ACTIONS ? `::warning title=Skip honesty::${msg}` : `  ! ${msg}`);
+for (const s of stale) warn(`${s} Delete its PRIVATE_PROBE entry in tooling/ci/unreported-suites.mjs.`);
 
 /**
  * UNJOURNALLED half of the same debt register. skip-honesty only used to prune
  * PRIVATE_PROBE, so half the register could rot forever while the file header
- * claimed "it cannot go stale". Same two-way rule:
- *   · entry names a missing file → fail (delete the entry)
- *   · file no longer conditionally skips → fail (debt paid; delete the entry)
- *   · file now journals via recordInfraProbe → fail (debt paid; delete the entry)
+ * claimed "it cannot go stale". Same rule, warning with the entry to delete:
+ *   · entry names a missing file → warn (delete the entry)
+ *   · file no longer conditionally skips → warn (debt paid; delete the entry)
+ *   · file now journals via recordInfraProbe → warn (debt paid; delete the entry)
  * We do not grow UNJOURNALLED here — growth of silent skips is a different gate.
  */
 const unjStale = [];
@@ -205,13 +207,7 @@ for (const entry of KNOWN_UNJOURNALLED) {
     unjStale.push(`${entry.file} now journals via recordInfraProbe — debt paid; delete the UNJOURNALLED entry.`);
   }
 }
-if (unjStale.length > 0) {
-  console.error(`\n✖ SKIP HONESTY SCAN FAILED — ${unjStale.length} stale UNJOURNALLED entr(ies) in tooling/ci/unreported-suites.mjs\n`);
-  for (const s of unjStale) console.error(`  · ${s}`);
-  console.error('\n  Delete the entry from UNJOURNALLED. A register half that never prunes is');
-  console.error('  the same invisibility PRIVATE_PROBE already refused to tolerate.\n');
-  process.exit(1);
-}
+for (const s of unjStale) warn(`${s} (UNJOURNALLED, tooling/ci/unreported-suites.mjs)`);
 
 if (violations.length > 0) {
   console.error(`\n✖ SKIP HONESTY SCAN FAILED — ${violations.length} suite(s) skip on a probe nobody can see\n`);

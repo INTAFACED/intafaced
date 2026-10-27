@@ -19,7 +19,7 @@ import {
 import { moneyRefusalWords } from './money-refusal-copy';
 import { DepthPanel } from './DepthParts';
 import { WithdrawStepUp } from './WithdrawStepUp';
-import { checkAddress, checkLabel, checkTag, coolingOf, shortenAddress } from './withdraw-model';
+import { SAVED_STATE_WORDS, checkAddress, checkLabel, checkTag, coolingOf, shortenAddress, shownState } from './withdraw-model';
 import { withdrawalCopy } from './withdrawal-copy';
 import './bank-depth.css';
 
@@ -27,24 +27,6 @@ const OWNERSHIP_KEYS = { pending: 'aOwnPending', expired: 'aOwnExpired' } as con
 
 /** Whether a row can be proved by signing: a wallet address the customer saved, still in the book. */
 const provable = (row: Destination) => row.kind === 'crypto' && row.origin === 'customer' && row.state !== 'archived';
-
-const STATE_KEYS = {
-  pending: 'aStatePending',
-  cooling: 'aStateCooling',
-  active: 'aStateActive',
-  blocked: 'aStateBlocked',
-  archived: 'aStateArchived',
-} as const;
-
-/**
- * What the status column says. An active or approved (cooling) entry is ready once its cooling-off has ended, which the
- * bank's own readiness answer says the same way; it is not ready while the cooling-off runs, nor while the bank has
- * published no cooling-off period at all (the bank refuses to send to it then), so it reads cooling off or blocked.
- */
-export function shownState(state: keyof typeof STATE_KEYS, cooling: 'ends' | 'ended' | 'unset'): keyof typeof STATE_KEYS {
-  if (state !== 'active' && state !== 'cooling') return state;
-  return cooling === 'ends' ? 'cooling' : cooling === 'unset' ? 'blocked' : 'active';
-}
 
 /**
  * The address book as a table. The columns always show; with no rows the body says why it is empty. Each row gives a short
@@ -128,7 +110,7 @@ export function AddressTable({
                           ? t('aCoolingUnset')
                           : t(cooling.state === 'ends' ? 'aCoolingEnds' : 'aCoolingEnded', { time: date(cooling.at) })}
                     </td>
-                    <td>{row.state ? t(STATE_KEYS[shownState(row.state, cooling.state)]) : t('aNotReturned')}</td>
+                    <td>{row.state ? t(SAVED_STATE_WORDS[shownState(row.state, cooling.state)]) : t('aNotReturned')}</td>
                     <td>
                       {onUse && provable(row) ? (
                         <Button variant="ghost" onClick={() => onUse(row)}>

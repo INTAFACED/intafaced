@@ -321,15 +321,14 @@ if (mode === 'test') {
       await page.waitForTimeout(1500);
       await shot('tab-funding');
     });
-    await tryStep('ADL tab shows disclosure, events, and the ticket asks for acknowledgement', async () => {
+    await tryStep('ADL tab shows disclosure and events; the ticket asks for no acknowledgement', async () => {
       await page.getByRole('tab', { name: 'ADL and liquidations' }).click();
       await page.waitForTimeout(2000);
       await shot('tab-adl');
-      const t = await page.locator('aside').innerText();
-      if (!/I have read this/.test(t)) throw new Error('no acknowledge button');
-      await page.getByRole('button', { name: 'I have read this' }).click();
-      await page.waitForTimeout(1500);
-      await shot('adl-acknowledged');
+      const main = await page.locator('main').innerText();
+      if (!/last-resort|insurance fund/.test(main)) throw new Error('no ADL disclosure copy in the ADL tab');
+      const aside = await page.locator('aside').innerText();
+      if (/I have read this/.test(aside)) throw new Error('the ticket still asks for an acknowledgement');
     });
     await tryStep('orders tab says there are no resting futures orders', async () => {
       await page.getByRole('tab', { name: 'Orders' }).click();

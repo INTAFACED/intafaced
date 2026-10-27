@@ -405,7 +405,7 @@ describe('public REST routes', () => {
     expect(body.refuseArms.some((a) => a.id === 'setMarginMode' && a.httpStatus === 200)).toBe(false);
     expect(body.routes.some((r) => r.name === 'openPosition')).toBe(true);
     expect(body.routes.some((r) => r.name === 'fetchAdlDisclosure')).toBe(true);
-    expect(body.refuseArms.some((a) => a.id === 'adlDisclosureRequired' && a.httpStatus === 403)).toBe(true);
+    expect(body.refuseArms.some((a) => a.id === 'adlDisclosureRequired')).toBe(false);
     expect(body.notes.rateLimit).toEqual({
       enforcedBy: 'edge',
       publicPerMinute: 300,

@@ -12,7 +12,6 @@ import { MemoryLedger, parseAmount, recipes } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readyTestAdmission } from '../controls/test-admission.js';
 import { CopyService } from './copy-service.js';
-import type { CopyDisclosureLaw } from './disclosure.js';
 import { CopyError } from './errors.js';
 import { assertMayFollow, assertReserveFits, copyFollowIdFor, copyQuoteAsset, parseCopyMinTier } from './follow-gate.js';
 import { MemoryCopyFollowStore, SqlCopyFollowStore, type CopyFollowStore } from './follow-store.js';
@@ -34,7 +33,6 @@ const LEADER = '00000000-0000-4000-8000-0000000000c1';
 const LEADER_2 = '00000000-0000-4000-8000-0000000000c2';
 const SESSION = '00000000-0000-4000-8000-0000000000d1';
 const NOW = new Date('2026-10-23T00:00:00.000Z');
-const LAW: CopyDisclosureLaw = { published: true, version: 'TEST-v1', text: 'TEST disclosure' };
 const fee: CopyFeeShareLaw = {
   published: true,
   leaderShareBps: 1000,
@@ -74,7 +72,6 @@ async function setup(
     store?: CopyFollowStore;
     minTier?: 'basic' | 'full' | null;
     usdt?: string;
-    disclosure?: CopyDisclosureLaw;
     sqlDirectory?: Sql;
   } = {},
 ) {
@@ -89,17 +86,12 @@ async function setup(
     accountAdmission: readyTestAdmission(),
     feeShareLaw: fee,
     jurisdictionLaw: jur,
-    disclosureLaw: opts.disclosure ?? LAW,
     minTier: opts.minTier === undefined ? 'full' : opts.minTier,
     store,
     ...(opts.sqlDirectory ? { directory: sqlLeaderDirectory(opts.sqlDirectory, { now: () => NOW, feeShareLaw: fee }) } : {}),
     now: () => NOW,
   });
   return { copy, ledger, store };
-}
-
-async function accepted(copy: CopyService, p = principal()) {
-  await copy.acceptDisclosure(p, { version: 'TEST-v1', clientAcceptId: 'accept-gate' });
 }
 
 async function refusedWithNothingWritten(ctx: Awaited<ReturnType<typeof setup>>, run: () => Promise<unknown>, code: string): Promise<void> {
@@ -113,14 +105,12 @@ async function refusedWithNothingWritten(ctx: Awaited<ReturnType<typeof setup>>,
 describe('who may start copying', () => {
   it('refuses a tier below the owner level before anything is written', async () => {
     const ctx = await setup({ usdt: '1000' });
-    await accepted(ctx.copy, principal({ tier: 'basic' }));
     await refusedWithNothingWritten(ctx, () => ctx.copy.startFollow(principal({ tier: 'basic' }), input()), 'trade.tier_insufficient');
     await refusedWithNothingWritten(ctx, () => ctx.copy.startFollow(principal({ tier: 'none' }), input()), 'trade.tier_insufficient');
   });
 
   it('refuses every follow while the owner has set no copy tier', async () => {
     const ctx = await setup({ usdt: '1000', minTier: null });
-    await accepted(ctx.copy);
     await refusedWithNothingWritten(
       ctx,
       () => ctx.copy.startFollow(principal({ tier: 'institutional' }), input()),
@@ -130,7 +120,6 @@ describe('who may start copying', () => {
 
   it('refuses a sub-account', async () => {
     const ctx = await setup({ usdt: '1000' });
-    await accepted(ctx.copy);
     const sub = principal({ sub_account: '00000000-0000-4000-8000-0000000000e1' } as Partial<Principal>);
     await refusedWithNothingWritten(ctx, () => ctx.copy.startFollow(sub, input()), 'trade.copy_subaccount_refused');
   });
@@ -141,12 +130,10 @@ describe('who may start copying', () => {
       accountAdmission: readyTestAdmission(),
       feeShareLaw: fee,
       jurisdictionLaw: { published: false },
-      disclosureLaw: LAW,
       minTier: 'full',
     });
     await expect(blank.startFollow(principal(), input())).rejects.toMatchObject({ code: 'trade.copy_jurisdiction_blank' });
     const ctx = await setup({ usdt: '1000' });
-    await accepted(ctx.copy);
     await refusedWithNothingWritten(
       ctx,
       () => ctx.copy.startFollow(principal(), input({ region: 'US' })),
@@ -154,22 +141,17 @@ describe('who may start copying', () => {
     );
   });
 
-  it('refuses until the current disclosure is accepted, and while none is published', async () => {
+  it('starts copying with no risk disclosure to accept (owner decision 2026-10-27)', async () => {
     const ctx = await setup({ usdt: '1000' });
-    await refusedWithNothingWritten(ctx, () => ctx.copy.startFollow(principal(), input()), 'trade.copy_disclosure_required');
-    const unpublished = await setup({ usdt: '1000', disclosure: { published: false } });
-    await refusedWithNothingWritten(
-      unpublished,
-      () => unpublished.copy.startFollow(principal(), input()),
-      'trade.copy_disclosure_unpublished',
-    );
+    const made = await ctx.copy.startFollow(principal(), input());
+    expect(made).toMatchObject({ fixedOrderSize: '25', reserve: { asset: 'USDT', amount: '500', released: false } });
+    expect(await ctx.store.listFollowsByFollower(FOLLOWER)).toHaveLength(1);
   });
 });
 
 describe('the fixed amount and the reserve', () => {
   it('refuses a zero fixed amount and one above the per-order cap, naming the cap', async () => {
     const ctx = await setup({ usdt: '1000' });
-    await accepted(ctx.copy);
     await refusedWithNothingWritten(
       ctx,
       () => ctx.copy.startFollow(principal(), input({ fixedOrderSize: '0' })),
@@ -185,14 +167,12 @@ describe('the fixed amount and the reserve', () => {
 
   it('stores no fixed size when none is given', async () => {
     const ctx = await setup({ usdt: '1000' });
-    await accepted(ctx.copy);
     const follow = await ctx.copy.startFollow(principal(), input({ fixedOrderSize: undefined }));
     expect(follow.fixedOrderSize).toBeNull();
   });
 
   it('refuses a reserve above the free balance, counting what other follows already reserve', async () => {
     const ctx = await setup({ usdt: '700' });
-    await accepted(ctx.copy);
     await refusedWithNothingWritten(
       ctx,
       () => ctx.copy.startFollow(principal(), input({ maxAggregateExposure: '700.01' })),
@@ -207,7 +187,6 @@ describe('the fixed amount and the reserve', () => {
 
   it('holds one reserve per follow, posts nothing, and a second press with the same key returns the same follow', async () => {
     const ctx = await setup({ usdt: '1000' });
-    await accepted(ctx.copy);
     const before = await ctx.ledger.balances('user', FOLLOWER);
     const first = await ctx.copy.startFollow(principal(), input());
     const again = await ctx.copy.startFollow(principal(), input());
@@ -225,7 +204,6 @@ describe('the fixed amount and the reserve', () => {
 
   it('releases the reserve when the follow is detached or removed, and posts nothing', async () => {
     const ctx = await setup({ usdt: '1000' });
-    await accepted(ctx.copy);
     const before = await ctx.ledger.balances('user', FOLLOWER);
     const first = await ctx.copy.startFollow(principal(), input());
     await ctx.copy.detach(principal(), { followId: first.followId });
@@ -251,7 +229,6 @@ describe('the reserve after review', () => {
       }
     }
     const ctx = await setup({ usdt: '1000', store: new FailOnce() });
-    await accepted(ctx.copy);
     await expect(ctx.copy.startFollow(principal(), input())).rejects.toThrow('database blip');
     const made = await ctx.copy.startFollow(principal(), input());
     expect(made.followId).toBe(copyFollowIdFor(FOLLOWER, LEADER, 'start-copy-0001'));
@@ -260,7 +237,6 @@ describe('the reserve after review', () => {
 
   it('counts only the unused part of another reserve, since its copied orders already left the free balance', async () => {
     const ctx = await setup({ usdt: '1000' });
-    await accepted(ctx.copy);
     const first = await ctx.copy.startFollow(principal(), input());
     await ctx.store.setExposure(first.followId, parseAmount('300'));
     expect(await ctx.store.sumUnusedReserves(FOLLOWER, 'USDT')).toBe(parseAmount('200'));
@@ -268,7 +244,6 @@ describe('the reserve after review', () => {
 
   it('releases the reserve when the follow is stopped', async () => {
     const ctx = await setup({ usdt: '1000' });
-    await accepted(ctx.copy);
     const first = await ctx.copy.startFollow(principal(), input());
     await ctx.copy.stop(principal(), { followId: first.followId });
     expect(await ctx.store.sumUnusedReserves(FOLLOWER, 'USDT')).toBe(0n);
@@ -367,7 +342,6 @@ describe('the reserve row on Postgres', () => {
 
   it('writes one row under copy.reserve:<followId> with the follow, survives a new store, and is released, not deleted', async () => {
     const ctx = await setup({ usdt: '1000', store: new SqlCopyFollowStore(db!.sql) });
-    await accepted(ctx.copy);
     const first = await ctx.copy.startFollow(principal(), input());
     const again = await ctx.copy.startFollow(principal(), input());
     expect(again.followId).toBe(first.followId);
@@ -396,7 +370,6 @@ describe('the reserve row on Postgres', () => {
     await ctx.ledger.post(
       recipes.deposit({ userId: follower, assetId: 'USDT', amount: parseAmount('1000'), rail: 'test', railRef: 'race-fund' }),
     );
-    await accepted(ctx.copy, p);
     const results = await Promise.allSettled([
       ctx.copy.startFollow(p, input({ maxAggregateExposure: '600', clientRequestId: 'race-a-0001' })),
       ctx.copy.startFollow(p, input({ leaderId: LEADER_2, maxAggregateExposure: '600', clientRequestId: 'race-b-0001' })),
@@ -445,7 +418,6 @@ describe('the reserve row on Postgres', () => {
     await ctx.ledger.post(
       recipes.deposit({ userId: follower, assetId: 'USDT', amount: parseAmount('1000'), rail: 'test', railRef: 'again-fund' }),
     );
-    await accepted(ctx.copy, p);
     const first = await ctx.copy.startFollow(p, input());
     await ctx.copy.unfollow(p, { followId: first.followId });
     expect(await ctx.store.sumUnusedReserves(follower, 'USDT')).toBe(0n);

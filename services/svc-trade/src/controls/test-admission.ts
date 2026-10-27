@@ -87,32 +87,7 @@ export class CopyService extends ProductionCopyService {
     super(ledger, {
       ...options,
       accountAdmission: options.accountAdmission ?? readyTestAdmission(),
-      // Legacy mirror tests predate the disclosure gate. A published TEST law
-      // lets them reach their own assertions. Production boot never uses this.
-      disclosureLaw: options.disclosureLaw ?? { published: true, version: 'TEST', text: 'TEST' },
     });
-  }
-
-  override planMirrorForFollow(
-    principal: Principal,
-    input: Parameters<ProductionCopyService['planMirrorForFollow']>[1],
-  ): ReturnType<ProductionCopyService['planMirrorForFollow']> {
-    return this.withLegacyDisclosure(principal, () => super.planMirrorForFollow(principal, input));
-  }
-
-  override placeMirrorForFollow(
-    principal: Principal,
-    input: Parameters<ProductionCopyService['placeMirrorForFollow']>[1],
-  ): ReturnType<ProductionCopyService['placeMirrorForFollow']> {
-    return this.withLegacyDisclosure(principal, () => super.placeMirrorForFollow(principal, input));
-  }
-
-  private async withLegacyDisclosure<T>(principal: Principal, run: () => Promise<T>): Promise<T> {
-    const view = await this.disclosure(principal);
-    if (view.published && view.version && !view.accepted) {
-      await this.acceptDisclosure(principal, { version: view.version, clientAcceptId: 'TEST-legacy-mirror' });
-    }
-    return run();
   }
 }
 export class OtcDeskService extends ProductionOtcDeskService {

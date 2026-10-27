@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { api, journeyState, tool, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { draftNotice, publishNotice } from './notices.mjs';
+import { TEST_UNSUPPORTED_DEPOSIT } from '../../../../tooling/scripts/local-test-gates.mjs';
 
 // J-wallet-02, in the running app (docs/roadmap/journeys.json): I deposit crypto and watch it arrive.
 // One test per step, titled "J-wallet-02 #<n>", run in order on one verified TEST account. The stack publishes TEST
@@ -9,8 +10,8 @@ import { draftNotice, publishNotice } from './notices.mjs';
 // deposit-terms), its chain is in memory, and a TEST transfer reaches svc-pay's own chain webhook signed with the stack's
 // secret (local-test-stack.mjs chain-deposit), as the chain watcher would deliver it. Every credit is read back from the
 // ledger through the customer's own API.
-// "part of #2" covers the switched-off network (the stack keeps TEST USDC on TEST Base off), the unverified person and an
-// unpublished asset; it counts as #2 once the unsupported-case lists are published too.
+// #2 reads the TEST unsupported-case list the stack publishes for USDC on TEST Ethereum (TEST_UNSUPPORTED_DEPOSIT), the
+// switched-off network (the stack keeps TEST USDC on TEST Base off), an unpublished asset and an unverified person.
 // #7 reads the inbox: svc-pay announces the credit (intafaced.pay.deposit_credit.posted) and svc-notify files it once.
 // #4 makes labelled extra addresses up to the stack's TEST cap of 3 open (BANK_DEPOSIT_ADDRESS_CAP), lets them expire with
 // the LOCAL TEST tool (local-test-stack.mjs expire-deposit-addresses) and sends to an expired one: held for release.
@@ -19,7 +20,6 @@ import { draftNotice, publishNotice } from './notices.mjs';
 // #1 restarts the bank with no custody port (LOCAL_STACK_BANK_DEPOSIT_CUSTODY=off, as a deployment with custody unset runs),
 // reads the whole room and its refusal, and restarts it connected again before #3, whatever happened (an afterEach hook
 // covers a step that times out).
-// Not here yet: #2's unsupported-case lists.
 const J = 'J-wallet-02';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ASSET = 'USDT';
@@ -407,7 +407,7 @@ test(`${J} #8 a funding incident on this asset and network shows on Deposit with
   await expect(card).toHaveCount(0);
 });
 
-test(`${J}, part of #2 a switched-off network shows the owner's banner and no address; an unverified person is sent to Verification; an unpublished asset says so`, async ({
+test(`${J} #2 chooses asset and network: an unsupported-case list shows with its checkbox before any address; a switched-off network shows the owner's banner and no address; an unpublished asset says so; an unverified person is sent to Verification`, async ({
   page,
 }) => {
   test.setTimeout(120_000);
@@ -429,10 +429,19 @@ test(`${J}, part of #2 a switched-off network shows the owner's banner and no ad
   const asked = await client.post('/api/bank/trpc/deposits.address', { assetId: 'USDC', networkId: 'base' });
   expect(asked.status).toBe(412);
   expect(asked.body?.error?.data?.cause?.code ?? asked.body?.error?.data?.intafacedCode).toBe('bank.deposit_network_halted');
-  // The other network of the same coin is untouched.
+  // The other network of the same coin is untouched, and the owner published what it will not credit there: the list shows,
+  // as written, with its checkbox, before any address.
   await network.selectOption({ label: 'TEST Ethereum' });
   await expect(page.getByTestId('deposit-halted')).toHaveCount(0);
-  await expect(page.getByRole('checkbox', { name: 'I will send only USDC on TEST Ethereum.' })).toBeVisible();
+  const notes = page.getByTestId('deposit-notes');
+  await expect(notes.getByRole('heading', { name: 'Not supported on this network' })).toBeVisible();
+  for (const item of TEST_UNSUPPORTED_DEPOSIT.cases) await expect(notes.getByRole('listitem').filter({ hasText: item })).toBeVisible();
+  const ack = page.getByRole('checkbox', { name: 'I will send only USDC on TEST Ethereum. I have read the notes above.' });
+  await expect(ack).not.toBeChecked();
+  await expect(page.getByRole('button', { name: 'Show my deposit address' })).toBeDisabled();
+  await expect(page.getByTestId('deposit-address')).toHaveCount(0);
+  await ack.check();
+  await expect(page.getByRole('button', { name: 'Show my deposit address' })).toBeEnabled();
 
   // An asset custody does not publish, asked for by link: nothing is chosen and the page says why.
   await page.goto('/uc/recharge?asset=BTC');

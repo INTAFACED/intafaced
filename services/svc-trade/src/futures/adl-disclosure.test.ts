@@ -3,14 +3,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
-import {
-  ADL_DISCLOSURE_COPY,
-  ADL_DISCLOSURE_REQUIRED,
-  ADL_DISCLOSURE_VERSION,
-  assertAdlDisclosureAcked,
-  memoryAdlDisclosureStore,
-  presentAdlDisclosureWire,
-} from './adl-disclosure.js';
+import { ADL_DISCLOSURE_COPY, ADL_DISCLOSURE_VERSION, memoryAdlDisclosureStore, presentAdlDisclosureWire } from './adl-disclosure.js';
 import {
   ADL_DISCLOSURE_BEFORE_ACTION,
   ADL_NO_ELIGIBLE_CANDIDATE,
@@ -47,28 +40,13 @@ describe('adl-disclosure', () => {
     expect(ADL_DISCLOSURE_COPY).not.toMatch(/\d+\s*%/);
   });
 
-  it('assertAdlDisclosureAcked refuses when no ack', async () => {
+  it('presents the ack state for the current version only; a stale version reads unacknowledged', async () => {
     const store = memoryAdlDisclosureStore();
-    await expect(assertAdlDisclosureAcked(store, USER_A)).rejects.toMatchObject({
-      code: ADL_DISCLOSURE_REQUIRED,
-      status: 403,
-    });
-  });
-
-  it('assertAdlDisclosureAcked passes after matching version ack', async () => {
-    const store = memoryAdlDisclosureStore();
-    await store.recordAck(USER_A, ADL_DISCLOSURE_VERSION, AT);
-    const ack = await assertAdlDisclosureAcked(store, USER_A);
-    expect(ack.userId).toBe(USER_A);
-    expect(presentAdlDisclosureWire(ack).acknowledged).toBe(true);
-  });
-
-  it('stale version does not satisfy current gate', async () => {
-    const store = memoryAdlDisclosureStore();
+    expect(presentAdlDisclosureWire(await store.getAck(USER_A)).acknowledged).toBe(false);
     await store.recordAck(USER_A, 'stale-v0', AT);
-    await expect(assertAdlDisclosureAcked(store, USER_A)).rejects.toMatchObject({
-      code: ADL_DISCLOSURE_REQUIRED,
-    });
+    expect(presentAdlDisclosureWire(await store.getAck(USER_A)).acknowledged).toBe(false);
+    const ack = await store.recordAck(USER_A, ADL_DISCLOSURE_VERSION, AT);
+    expect(presentAdlDisclosureWire(ack)).toMatchObject({ acknowledged: true, acknowledgedAt: AT.toISOString() });
   });
 });
 

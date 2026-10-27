@@ -36,8 +36,8 @@
  *   4. Every tracker row is claimed by a capability, or listed in
  *      `tracker_extra` with a basis that exists on disk. Both directions.
  *   5. The ratchet: the SET of gap ids and of orphan ids must equal the recorded
- *      baseline, by name. New drift fails on arrival; closing drift fails until
- *      the line comes out in the same PR. See "LANDING" below.
+ *      baseline, by name. New drift fails on arrival; closing drift warns until
+ *      the line comes out (a fix never fails; owner decision 2026-10-27). See "LANDING" below.
  *   6. Drop phases (§11): a phase marked `promised: true` whose capabilities
  *      are not all `done` fails — that is §25's "blocks the drop phase that
  *      promised it", enforced at the moment someone actually promises one.
@@ -59,11 +59,11 @@
  * over exactly the new drift the ratchet was built to stop. Identity has no
  * such hole: the new id is not in the list, and it fails on arrival.
  *
- * The ratchet is two-way on purpose. An id that is a gap today and is not in the
- * baseline is new drift and fails loudly. An id in the baseline that is no
- * longer a gap ALSO fails, because a baseline allowed to sit above the truth
- * silently re-opens the window it was meant to close — and is the room a swap
- * would otherwise hide in.
+ * An id that is a gap today and is not in the baseline is new drift and fails
+ * loudly. An id in the baseline that is no longer a gap warns, with the line to
+ * delete: a fix never fails the build (owner decision 2026-10-27). The cost is
+ * that a stale id which re-opens before its line is deleted passes quietly, so
+ * the warning names the line.
  *
  * WHAT IT DOES NOT DO — a gate that cries wolf gets disabled
  * ─────────────────────────────────────────────────────────
@@ -694,12 +694,11 @@ for (const dp of dropPhases) {
 //
 // So the baseline records WHICH, exactly as `BASELINE` does in
 // `tooling/ci/fabricated-money-scan.mjs` (deleted 2026-10-13): every frozen row written out by its
-// own identity, matched exactly, and failing in BOTH directions —
+// own identity, matched exactly —
 //
 //   · an id that is a gap today and is not in the list  → NEW. Fail.
-//   · an id in the list that is no longer a gap         → STALE. Fail, with the
-//     line to delete. Good news still has to be written down, or the list
-//     rots into blanket cover for things nobody looked at.
+//   · an id in the list that is no longer a gap         → STALE. Warn, with the
+//     line to delete (owner decision 2026-10-27: a fix never fails the build).
 //
 // It also makes the frozen debt legible. `41` names nothing; a list names the
 // forty-one capabilities somebody has to come back for, and a reviewer can see
@@ -736,13 +735,8 @@ function ratchet(label, actual, recorded, what, singular) {
   }
   for (const id of recorded) {
     if (!current.has(id)) {
-      fail(
-        'baseline',
-        `STALE baseline.${label} entry: "${id}" is no longer ${what} — good, but the baseline has to come with it.`,
-        `Delete that line from baseline.${label} in ${YAML_PATH}, in this same PR. A baseline parked above\n` +
-          '      the truth silently re-opens the window it was meant to close, which is how allowlists rot\n' +
-          '      into wallpaper — and it is the room a swap hides in.',
-      );
+      const msg = `STALE baseline.${label} entry: "${id}" is no longer ${what} — good; delete that line from baseline.${label} in ${YAML_PATH}.`;
+      console.log(process.env.GITHUB_ACTIONS ? `::warning title=Coverage check::${msg}` : `  ! ${msg}`);
     }
   }
 }

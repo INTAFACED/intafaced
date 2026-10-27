@@ -23,7 +23,7 @@
     "@intafaced/market-data": "workspace:*",
     "@intafaced/sbe-codec": "workspace:*",
     "@intafaced/telemetry": "workspace:*",
-    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/api": "^1.10.0",
     "fastify": "^5.12.7",
     "ws": "^8.22.0",
     "zod": "^4.6.7"

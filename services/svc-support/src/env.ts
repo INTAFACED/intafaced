@@ -1,6 +1,7 @@
 import { supportSurveyCapEnv } from './survey-cap-env.js';
 import { z } from 'zod';
 import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
+import { supportCustomerSeesEnv } from './customer-sees-env.js';
 
 /**
  * svc-support — durable tickets in Postgres (schema `support`).
@@ -84,6 +85,23 @@ const schema = serviceEnvSchema
        */
       SUPPORT_VIEW_PERSONAL_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).optional()),
       SUPPORT_VIEW_SHARED_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).optional()),
+      /**
+       * Which agent-set properties a customer reads on their own request (SP-tickets-04): a comma list of `priority` and
+       * `type`, or `none`. Blank reads unset and shows the customer neither. Never defaulted.
+       */
+      SUPPORT_CUSTOMER_SEES: supportCustomerSeesEnv,
+      /**
+       * The name of the desk group fraud reports go to (SP-tickets-01). Blank refuses every fraud report with
+       * support.fraud_route_unset; a name the desk has no group for refuses support.fraud_route_missing. Never defaulted.
+       */
+      // The desk's group names are 1 to 80 characters, so a longer name could never match one.
+      SUPPORT_FRAUD_GROUP: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(1).max(80).optional()),
+      /**
+       * How many live request forms and ticket fields the desk may keep (SP-tickets-03). Blank refuses every definition
+       * with support.form_cap_unset / support.field_cap_unset. Never defaulted.
+       */
+      SUPPORT_FORM_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).optional()),
+      SUPPORT_FIELD_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).optional()),
       /**
        * How many help-answer votes one account or signed-out reader may cast in the window below.
        * Either one blank refuses every vote with support.feedback_rate_limit_unset. Never defaulted.

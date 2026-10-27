@@ -11,6 +11,12 @@ const en = {
   stepUpSendSave: 'Save without confirming',
   addSaving: 'Saving',
   stepUpSendRemove: 'Remove without confirming',
+  removeImpactTitle: 'Your ads that use this method',
+  removeImpactNone: 'None of your active ads uses this method.',
+  removeImpactPauses: 'Pauses: this is the only method it can be paid with',
+  removeImpactStays: 'Stays up: it can still be paid with your other methods',
+  removeImpactWarning: 'Removing this method pauses {count} of your ads. You can resume them once you add a {fiat} method again.',
+  removeImpactChanged: 'Your ads changed while you were confirming. Nothing was removed; open this again to see which ads it affects.',
   stepUpDone: 'Confirmed. You can go ahead.',
   stepUpNone: 'Not confirmed. The change will be refused unless your account needs no check.',
   stepUpFirst: 'Confirm it’s you first.',
@@ -68,6 +74,16 @@ const en = {
   keyOffTitle: 'Adding payment methods is off',
   keyOff:
     'Saving payment details needs a key service that protects them, and the owner has not switched one on in this version. You can read the methods; saving is refused.',
+  cashTitle: 'Cash in person',
+  cashLocked: 'The price is locked: an ad with a floating price cannot offer this method.',
+  cashMeeting: 'Meeting',
+  cashProof: 'Proof',
+  cashRelease: 'Once the buyer marks the order paid, the seller has {minutes} minutes to release.',
+  cashReleaseSeconds: 'Once the buyer marks the order paid, the seller has {seconds} seconds to release.',
+  cashReleaseHours: 'Once the buyer marks the order paid, the seller has {hours} hours to release.',
+  cashReleaseHoursMinutes: 'Once the buyer marks the order paid, the seller has {hours} hours {minutes} minutes to release.',
+  noteTitle: 'Payment note',
+  noteForbidden: 'Never write',
 } as const;
 
 const es: Record<keyof typeof en, string> = {
@@ -80,6 +96,12 @@ const es: Record<keyof typeof en, string> = {
   stepUpSendSave: 'Guardar sin confirmar',
   addSaving: 'Guardando',
   stepUpSendRemove: 'Quitar sin confirmar',
+  removeImpactTitle: 'Tus anuncios que usan este método',
+  removeImpactNone: 'Ninguno de tus anuncios activos usa este método.',
+  removeImpactPauses: 'Se pausa: es el único método con el que se puede pagar',
+  removeImpactStays: 'Sigue activo: se puede pagar con tus otros métodos',
+  removeImpactWarning: 'Quitar este método pausa {count} de tus anuncios. Podrás reanudarlos cuando vuelvas a añadir un método en {fiat}.',
+  removeImpactChanged: 'Tus anuncios cambiaron mientras confirmabas. No se quitó nada; vuelve a abrir esto para ver a qué anuncios afecta.',
   stepUpDone: 'Confirmado. Puedes continuar.',
   stepUpNone: 'Sin confirmar. El cambio se rechazará salvo que tu cuenta no necesite comprobación.',
   stepUpFirst: 'Primero confirma que eres tú.',
@@ -139,6 +161,17 @@ const es: Record<keyof typeof en, string> = {
   keyOffTitle: 'Añadir métodos de pago está desactivado',
   keyOff:
     'Guardar datos de pago necesita un servicio de claves que los proteja, y el propietario no ha activado ninguno en esta versión. Puedes leer los métodos; guardar se rechaza.',
+  cashTitle: 'Efectivo en persona',
+  cashLocked: 'El precio está fijado: un anuncio con precio flotante no puede ofrecer este método.',
+  cashMeeting: 'Encuentro',
+  cashProof: 'Comprobación',
+  cashRelease: 'Cuando el comprador marca el pedido como pagado, el vendedor tiene {minutes} minutos para liberar.',
+  cashReleaseSeconds: 'Cuando el comprador marca el pedido como pagado, el vendedor tiene {seconds} segundos para liberar.',
+  cashReleaseHours: 'Cuando el comprador marca el pedido como pagado, el vendedor tiene {hours} horas para liberar.',
+  cashReleaseHoursMinutes:
+    'Cuando el comprador marca el pedido como pagado, el vendedor tiene {hours} horas {minutes} minutos para liberar.',
+  noteTitle: 'Concepto del pago',
+  noteForbidden: 'No escribas nunca',
 };
 
 const fr: Record<keyof typeof en, string> = {
@@ -152,6 +185,14 @@ const fr: Record<keyof typeof en, string> = {
   stepUpSendSave: 'Enregistrer sans confirmer',
   addSaving: 'Enregistrement',
   stepUpSendRemove: 'Retirer sans confirmer',
+  removeImpactTitle: 'Vos annonces qui utilisent ce moyen',
+  removeImpactNone: 'Aucune de vos annonces actives n’utilise ce moyen.',
+  removeImpactPauses: 'Mise en pause : c’est le seul moyen avec lequel elle peut être payée',
+  removeImpactStays: 'Reste en ligne : elle peut encore être payée avec vos autres moyens',
+  removeImpactWarning:
+    'Retirer ce moyen met en pause {count} de vos annonces. Vous pourrez les reprendre après avoir ajouté un moyen en {fiat}.',
+  removeImpactChanged:
+    'Vos annonces ont changé pendant la confirmation. Rien n’a été retiré ; rouvrez ceci pour voir les annonces concernées.',
   stepUpDone: 'Confirmé. Vous pouvez continuer.',
   stepUpNone: 'Non confirmé. Le changement sera refusé sauf si votre compte ne demande aucune vérification.',
   stepUpFirst: 'Confirmez d’abord que c’est vous.',
@@ -213,6 +254,17 @@ const fr: Record<keyof typeof en, string> = {
   keyOffTitle: 'L’ajout de moyens de paiement est désactivé',
   keyOff:
     'Enregistrer des coordonnées de paiement nécessite un service de clés qui les protège, et le propriétaire n’en a activé aucun dans cette version. Vous pouvez lire les moyens ; l’enregistrement est refusé.',
+  cashTitle: 'Espèces en personne',
+  cashLocked: 'Le prix est bloqué : une annonce à prix flottant ne peut pas proposer ce moyen.',
+  cashMeeting: 'Rencontre',
+  cashProof: 'Preuve',
+  cashRelease: 'Une fois que l’acheteur a marqué la commande payée, le vendeur a {minutes} minutes pour libérer.',
+  cashReleaseSeconds: 'Une fois que l’acheteur a marqué la commande payée, le vendeur a {seconds} secondes pour libérer.',
+  cashReleaseHours: 'Une fois que l’acheteur a marqué la commande payée, le vendeur a {hours} heures pour libérer.',
+  cashReleaseHoursMinutes:
+    'Une fois que l’acheteur a marqué la commande payée, le vendeur a {hours} heures {minutes} minutes pour libérer.',
+  noteTitle: 'Note de paiement',
+  noteForbidden: 'N’écrivez jamais',
 };
 
 export const methodsCopy = defineCopy('pay.p2p.methods', en, { es, fr });

@@ -252,9 +252,9 @@ for (const next of ['form', 'recovery'])
     const held = new Promise((resolve) => (release = resolve));
     const state = await actual(context, {}, async () => held);
     await page.goto('/login?redirect=' + encodeURIComponent(targets[0][1]));
-    await page.locator('input[autocomplete="username"]').fill('isolated-auth@example.invalid');
+    await page.locator('input[name="identifier"]').fill('isolated-auth@example.invalid');
     await page.locator('input[autocomplete="current-password"]').fill('isolated-test-password');
-    await page.locator('form button[type="submit"]').click();
+    await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
     await expect.poll(() => state.instance.counts.sessionWrites).toBe(1);
     const saved = await journal(page);
     await (next === 'form' ? formSwitch(page) : recovery(page)).click();

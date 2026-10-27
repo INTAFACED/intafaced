@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Market } from '../spot/types.js';
 import { readGatedList, type GatedListDeps } from './gated-list.js';
-import { AgreementError, AGREEMENT_REQUIRED } from './risk-agreements.js';
 import { EligibilityError } from './derivatives-eligibility.js';
 
 const perp = (symbol: string, status: Market['status'] = 'active') =>
@@ -16,9 +15,7 @@ function deps(over: Partial<GatedListDeps> = {}): GatedListDeps {
     orderPathRefusal: () => null,
     orderable: () => true,
     emailProved: async () => true,
-    checkEligibility: async () => {},
-    checkAgreements: async () => {},
-    adlAcknowledged: async () => true,
+    checkAccess: async () => {},
     ...over,
   };
 }
@@ -32,16 +29,12 @@ describe('per-account gated list', () => {
     ]);
   });
 
-  it('an unproved email and a blank eligibility level block every contract, and every other reason is listed too', async () => {
+  it('an unproved email and a low identity level block every contract, and every other reason is listed too', async () => {
     const list = await readGatedList(
       deps({
-        checkEligibility: async () => {
-          throw new EligibilityError('trade.derivatives_eligibility_unset', 'Derivatives eligibility is not set up yet.');
+        checkAccess: async () => {
+          throw new EligibilityError('trade.identity_level_insufficient', 'Your verification level is below what derivatives need.');
         },
-        checkAgreements: async () => {
-          throw new AgreementError(AGREEMENT_REQUIRED, 'Accept the current agreement before opening a position.');
-        },
-        adlAcknowledged: async () => false,
         emailProved: async () => false,
       }),
       subject,
@@ -49,12 +42,7 @@ describe('per-account gated list', () => {
     for (const contract of list) {
       expect(contract.open).toBe(false);
       expect(contract.code).toBe('trade.email_proof_required');
-      expect(contract.blockers.map((b) => b.code)).toEqual([
-        'trade.email_proof_required',
-        'trade.derivatives_eligibility_unset',
-        AGREEMENT_REQUIRED,
-        'trade.adl_disclosure_required',
-      ]);
+      expect(contract.blockers.map((b) => b.code)).toEqual(['trade.email_proof_required', 'trade.identity_level_insufficient']);
     }
   });
 
@@ -88,10 +76,7 @@ describe('per-account gated list', () => {
   it('a check that cannot be read blocks as unknown, never as open', async () => {
     const list = await readGatedList(
       deps({
-        checkAgreements: async () => {
-          throw new Error('connection reset');
-        },
-        adlAcknowledged: async () => {
+        checkAccess: async () => {
           throw new Error('connection reset');
         },
         emailProved: async () => {
@@ -101,10 +86,6 @@ describe('per-account gated list', () => {
       subject,
     );
     expect(list[0]).toMatchObject({ open: false, code: 'trade.gated_list_unknown' });
-    expect(list[0]!.blockers.map((b) => b.code)).toEqual([
-      'trade.gated_list_unknown',
-      'trade.gated_list_unknown',
-      'trade.gated_list_unknown',
-    ]);
+    expect(list[0]!.blockers.map((b) => b.code)).toEqual(['trade.gated_list_unknown', 'trade.gated_list_unknown']);
   });
 });

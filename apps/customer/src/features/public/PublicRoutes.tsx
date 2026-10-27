@@ -1,4 +1,4 @@
-import { Wordmark } from '@intafaced/ui';
+import { BrandLockup, BrandWordmark } from '@intafaced/ui';
 import { useSession } from '../session/session';
 import { Page, EmptyState } from '../../shared/ui';
 import { AuthForm } from './AuthForm';
@@ -24,10 +24,11 @@ import { pagesCopy } from './public-pages-copy';
 import { StatusPage } from './StatusPage';
 import { StatusSubscriptionPage } from './StatusSubscription';
 
-function Brand() {
+/** The public header carries the horizontal lockup (mark 28 pixels, small drawing); the footer line the wordmark alone. */
+function Brand({ footer }: { footer?: boolean }) {
   return (
-    <a href="/" className="brand">
-      <Wordmark />
+    <a href="/" className="brand" aria-label="INTAFACED">
+      {footer ? <BrandWordmark width={150} /> : <BrandLockup size={28} title="" />}
     </a>
   );
 }
@@ -118,7 +119,7 @@ export function PublicRoutes({ path }: { path: string }) {
         )}
       </main>
       <footer className="public-footer">
-        <Brand />
+        <Brand footer />
         <div>
           <a href="/help">{t('Help')}</a>
           <a href="/status">{t('Status')}</a>

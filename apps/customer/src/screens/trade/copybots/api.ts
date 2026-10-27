@@ -92,15 +92,6 @@ export type LeaderTrade = z.infer<typeof leaderTradeSchema>;
 const leaderTradesSchema = z.object({ trades: z.array(leaderTradeSchema), nextCursor: z.string().nullable() });
 
 /** Leaders per directory page and trades per lead page. The service refuses a read without one. */
-/** The owner's copy risk disclosure and whether this person accepted the current version. */
-export const copyDisclosureSchema = z.object({
-  published: z.boolean(),
-  version: z.string().nullable(),
-  text: z.string().nullable(),
-  accepted: z.boolean(),
-});
-export type CopyDisclosure = z.infer<typeof copyDisclosureSchema>;
-
 /** One order the copy placed for this person, read from their own order book. */
 export const copyPositionSchema = z.object({
   orderId: z.string(),
@@ -171,9 +162,6 @@ export function createRoomApi(api: ApiClient) {
       }),
     follows: tools.copyFollows,
     follow: (input: FollowRequest) => api.mutate('trade', 'copy.follow', input, copyFollowSchema),
-    disclosure: (signal?: AbortSignal) => api.query('trade', 'copy.disclosure', undefined, copyDisclosureSchema, { signal }),
-    acceptDisclosure: (input: { version: string; clientAcceptId: string }) =>
-      api.mutate('trade', 'copy.acceptDisclosure', input, z.object({ version: z.string() }).passthrough()),
     followAction: tools.copyAction,
     /** Lets the service place each copy as this person. The one-time key it answers with is never kept. */
     grantCopying: (followId: string) => api.mutate('trade', 'copy.grantSessionKey', { followId }, copyFollowSchema),

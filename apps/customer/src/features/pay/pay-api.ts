@@ -348,6 +348,9 @@ function takeRefusal(code: string, reason: Extract<ApiResult<never>, { ok: false
   return { ok: false, reason, message: 'The order was not placed.', code };
 }
 
+/** The most paused ads My offers lists (svc-p2p's page maximum); the room says when there may be more. */
+export const PAUSED_OFFERS_SHOWN = 200;
+
 export function createPersonalPayApi(
   api: ApiClient,
   userId: string | null,
@@ -1048,6 +1051,25 @@ export function createPersonalPayApi(
         undefined,
         p2pCurrent,
       ),
+    /**
+     * P-ads-merchant-19: the seller reports a sensitive remark the buyer wrote in the payment note. Moves nothing; a case
+     * opens and the buyer is told. `caseId` is made once per quote, so a lost reply sent again answers the same case.
+     */
+    async reportSensitiveRemark(tradeId: string, caseId: string, remark: string): Promise<ApiResult<s.RemarkCase>> {
+      // No device journal (guard.run would hold the resend back after a lost answer): svc-p2p answers the same case id
+      // and quote with the same case, so a resend is the retry.
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      return api.mutate('p2p', 'trades.reportSensitiveRemark', { caseId, tradeId, remark }, s.remarkCaseSchema);
+    },
+    /** P-ads-merchant-19: the person's own remark report on this order, and whether the other party reported them. */
+    async remarkCase(tradeId: string, signal?: AbortSignal): Promise<ApiResult<s.RemarkCasesOn>> {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      return api.query('p2p', 'trades.remarkCase', { tradeId }, s.remarkCasesOnSchema, { signal });
+    },
     /** P-trade-orders-20: the seller reports what arrived in their bank. Moves nothing; svc-p2p classifies it. */
     reportMismatch: (tradeId: string, kind: s.TradeMismatch['kind'], amountReceived: string) =>
       guard.run(
@@ -1107,14 +1129,44 @@ export function createPersonalPayApi(
       const stored = listed.ok ? listed.data.find((row) => row.id.toLowerCase() === input.instrumentId.toLowerCase()) : undefined;
       return stored ? { ok: true, data: stored } : result;
     },
-    removeInstrument: (instrumentId: string, stepUpApprovalId?: string) =>
+    /** P-ads-merchant-18: what removing this method does to the person's ads, read before they confirm. */
+    async methodRemovalImpact(instrumentId: string, signal?: AbortSignal): Promise<ApiResult<z.infer<typeof s.methodRemovalImpactSchema>>> {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      return api.query('p2p', 'instruments.removalImpact', { instrumentId }, s.methodRemovalImpactSchema, { signal });
+    },
+    /** `pauseOfferIds`: the ads the person was shown pausing with this method and agreed to; svc-p2p pauses no other. */
+    removeInstrument: (instrumentId: string, stepUpApprovalId?: string, pauseOfferIds: readonly string[] = []) =>
       guard.run(
         `${userId}:instrument:${instrumentId}`,
         () =>
-          api.mutate('p2p', 'instruments.remove', { instrumentId, ...(stepUpApprovalId ? { stepUpApprovalId } : {}) }, s.instrumentSchema),
+          api.mutate(
+            'p2p',
+            'instruments.remove',
+            {
+              instrumentId,
+              ...(stepUpApprovalId ? { stepUpApprovalId } : {}),
+              ...(pauseOfferIds.length ? { pauseOfferIds: [...pauseOfferIds] } : {}),
+            },
+            s.instrumentSchema,
+          ),
         undefined,
         p2pCurrent,
       ),
+    /** The person's own paused ads (the board lists active ads only), newest first. */
+    async pausedOffers(signal?: AbortSignal): Promise<ApiResult<s.Offer[]>> {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      return api.query(
+        'p2p',
+        'offers.mine',
+        { status: 'paused', limit: PAUSED_OFFERS_SHOWN },
+        z.array(s.offerSchema.refine((offer) => offer.makerId === userId, 'An ad in this list is not this account’s')),
+        { signal },
+      );
+    },
     /**
      * The person's own saved details for one method, masked by svc-p2p (the account holder whole, every other value as its
      * last four). svc-p2p logs every read in the same statement, the owner's included, so this runs only when the person

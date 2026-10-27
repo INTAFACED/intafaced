@@ -309,16 +309,9 @@ export interface PositionServiceDeps {
   maxLeverage?: Amount | null;
   now?: () => Date;
   /**
-   * DIRECTION:34 — ADL disclosure gate. When set (production), `open()` refuses
-   * until the trader has ack'd in-product disclosure. Omitted in hermetic unit
-   * tests that are not proving the public door; public-door + index always wire it.
-   */
-  assertAdlDisclosureAcked?: (userId: string) => Promise<void>;
-  /**
-   * D-account-07 — risk agreement accepted and derivatives eligibility held. When set (production always sets it),
-   * a non-reduce `open()` refuses until both hold, and refuses honestly when the owner has published nothing.
-   * A reduce-only open and every close never call it: a closing or reducing action is never blocked by a missing
-   * acceptance. Omitted only in hermetic tests that are not proving the gate.
+   * D-account-07 — the identity level derivatives need. When set (production always sets it), a non-reduce `open()`
+   * refuses while the caller's verification tier is below the published rule's. A reduce-only open and every close
+   * never call it. Omitted only in hermetic tests that are not proving the gate.
    */
   assertDerivativesAccess?: DerivativesAccessGate;
   /** Test-only crash seam after the external ledger accepts, before DB finalize. */
@@ -468,10 +461,9 @@ export class PositionService {
       lifecycleProof: matchedOrders?.lifecycleProof ?? null,
       assertDerivativesAccess: deps.assertDerivativesAccess ?? null,
       ...(deps.emailProof ? { emailProof: deps.emailProof } : {}),
-      // An opening order takes on exposure the same way the at-mark open did, so it answers to the same two doors.
-      assertOpeningAllowed: async (userId) => {
+      // An opening order takes on exposure the same way the at-mark open did, so it answers to the same exposure door.
+      assertOpeningAllowed: async () => {
         this.refuseNewPosition();
-        if (deps.assertAdlDisclosureAcked) await deps.assertAdlDisclosureAcked(userId);
       },
       admission: deps.accountAdmission,
       publishPosition: (positionId) => this.publishPositionById(positionId),
@@ -1422,14 +1414,6 @@ export class PositionService {
     }
 
     /**
-     * DIRECTION:34 — disclosure before open. Wired in production via
-     * `assertAdlDisclosureAcked`; missing ack is a named 403, not a silent open.
-     */
-    if (this.deps.assertAdlDisclosureAcked) {
-      await this.deps.assertAdlDisclosureAcked(input.userId);
-    }
-
-    /**
      * IDEMPOTENT OPEN KEY (required) — refuse before mark/ledger.
      * Same clientOpenId → same lock key → ledger no-ops on retry.
      * Parity with spot clientOrderId — omit no longer mints randomUUID (double margin).
@@ -1482,10 +1466,10 @@ export class PositionService {
     await assertEmailProved(this.deps.emailProof, input.userId);
 
     /**
-     * D-account-07 — agreement and eligibility before open. Reduce-only returned above, so a closing action is
-     * never held up by a missing acceptance. The tier is the caller's own principal claim, null when none was passed.
-     * It runs after the admitted-open replay: an open that was admitted and locked margin before a crash finishes on
-     * retry even if a new agreement or rules version was published meanwhile, so its margin is never left locked.
+     * D-account-07 — the identity level before open. Reduce-only returned above, so a closing action is never held
+     * up by it. The tier is the caller's own principal claim, null when none was passed. It runs after the
+     * admitted-open replay: an open that was admitted and locked margin before a crash finishes on retry even if a new
+     * rules version was published meanwhile, so its margin is never left locked.
      */
     if (this.deps.assertDerivativesAccess) {
       await this.deps.assertDerivativesAccess({

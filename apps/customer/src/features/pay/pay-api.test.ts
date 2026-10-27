@@ -1362,4 +1362,165 @@ describe('adding a P2P payment method (P-ads-merchant-18)', () => {
       ok: false,
     });
   });
+
+  // P-ads-merchant-18 (J-p2p-04 #4): the warning lists the ads, the removal says it may pause them, the paused ads are listed.
+  it('reads what a removal does to the ads, and sends the pause confirmation only when the person gave it', async () => {
+    const offerId = '66666666-6666-4666-8666-666666666666';
+    const impact = {
+      instrumentId,
+      methodId: 'test-bank-transfer',
+      fiatCurrency: 'EUR',
+      ads: [{ offerId, asset: 'USDT', fiatCurrency: 'EUR', pauses: true }],
+    };
+    const urls: string[] = [];
+    const sent: unknown[] = [];
+    const api = createApiClient({
+      fetch: async (url, options) => {
+        urls.push(String(url));
+        if (options?.method === 'POST') {
+          sent.push(JSON.parse(String(options.body)));
+          return response(header);
+        }
+        return response(impact);
+      },
+    });
+    const pay = createPersonalPayApi(api, userId, createPayMutationGuard());
+    expect(await pay.methodRemovalImpact(instrumentId)).toEqual({ ok: true, data: impact });
+    expect(urls[0]).toContain('instruments.removalImpact');
+    await pay.removeInstrument(instrumentId, 'approval-3', [offerId]);
+    await pay.removeInstrument(instrumentId, 'approval-4', []);
+    expect(sent).toEqual([
+      { instrumentId, stepUpApprovalId: 'approval-3', pauseOfferIds: [offerId] },
+      { instrumentId, stepUpApprovalId: 'approval-4' },
+    ]);
+  });
+
+  it('lists the person’s paused ads with the reason, and refuses a list holding someone else’s ad', async () => {
+    const ad = {
+      id: '66666666-6666-4666-8666-666666666666',
+      makerId: userId,
+      side: 'sell',
+      asset: 'USDT',
+      fiatCurrency: 'EUR',
+      priceType: 'fixed',
+      price: '1',
+      minAmount: '1',
+      maxAmount: '2',
+      remainingAmount: '2',
+      methods: ['test-bank-transfer'],
+      terms: '',
+      status: 'paused',
+      pauseReason: 'method_removed',
+      createdAt: '2026-10-25T00:00:00Z',
+    };
+    const urls: string[] = [];
+    const answer = (body: unknown) =>
+      createApiClient({
+        fetch: async (url) => {
+          urls.push(decodeURIComponent(String(url)));
+          return response(body);
+        },
+      });
+    expect(await createPersonalPayApi(answer([ad]), userId, createPayMutationGuard()).pausedOffers()).toEqual({ ok: true, data: [ad] });
+    expect(urls[0]).toContain('offers.mine');
+    expect(urls[0]).toContain('"status":"paused"');
+    const other = { ...ad, makerId: '77777777-7777-4777-8777-777777777777' };
+    expect(await createPersonalPayApi(answer([other]), userId, createPayMutationGuard()).pausedOffers()).toMatchObject({ ok: false });
+  });
+});
+
+describe('reporting a sensitive payment-note remark (P-ads-merchant-19, J-p2p-04 #5)', () => {
+  const tradeId = '0b6f1c1e-4a7d-4c55-9d1e-2f6f0e8a1b2c';
+  const caseId = '88888888-8888-4888-8888-888888888888';
+  const opened = {
+    id: caseId,
+    tradeId,
+    reporterId: userId,
+    reportedId: '22222222-2222-4222-8222-222222222222',
+    reporterRole: 'seller',
+    remark: 'USDT for order 12',
+    status: 'open',
+    openedAt: '2026-10-25T10:00:00.000Z',
+  };
+  it('sends the case id, the order and the quote, and reads the open case back', async () => {
+    const sent: { url: string; body: unknown }[] = [];
+    const api = createApiClient({
+      fetch: async (url, options) => {
+        sent.push({ url: String(url), body: JSON.parse(String(options?.body)) });
+        return response(opened);
+      },
+    });
+    const pay = createPersonalPayApi(api, userId, createPayMutationGuard());
+    expect(await pay.reportSensitiveRemark(tradeId, caseId, 'USDT for order 12')).toEqual({ ok: true, data: opened });
+    expect(sent).toEqual([
+      { url: expect.stringContaining('trades.reportSensitiveRemark'), body: { caseId, tradeId, remark: 'USDT for order 12' } },
+    ]);
+  });
+
+  it('sends a lost report again as it was, with no device journal holding the resend back', async () => {
+    const bodies: unknown[] = [];
+    let lose = true;
+    const api = createApiClient({
+      fetch: async (_url, options) => {
+        bodies.push(JSON.parse(String(options?.body)));
+        if (lose) {
+          lose = false;
+          return new Response(JSON.stringify({ error: { message: 'Connection ended' } }), { status: 503 });
+        }
+        return response(opened);
+      },
+    });
+    const pay = createPersonalPayApi(api, userId, createPayMutationGuard());
+    expect(await pay.reportSensitiveRemark(tradeId, caseId, 'USDT for order 12')).toMatchObject({ ok: false });
+    expect(await pay.reportSensitiveRemark(tradeId, caseId, 'USDT for order 12')).toEqual({ ok: true, data: opened });
+    expect(bodies).toEqual([
+      { caseId, tradeId, remark: 'USDT for order 12' },
+      { caseId, tradeId, remark: 'USDT for order 12' },
+    ]);
+  });
+
+  it('reads the person’s own case on the order and whether they were reported', async () => {
+    const urls: string[] = [];
+    const answer = (body: unknown) =>
+      createApiClient({
+        fetch: async (url) => {
+          urls.push(decodeURIComponent(String(url)));
+          return response(body);
+        },
+      });
+    const mine = { mine: opened, againstMe: null };
+    expect(await createPersonalPayApi(answer(mine), userId, createPayMutationGuard()).remarkCase(tradeId)).toEqual({
+      ok: true,
+      data: mine,
+    });
+    expect(urls[0]).toContain('trades.remarkCase');
+    expect(urls[0]).toContain(tradeId);
+    const against = { mine: null, againstMe: { caseId, openedAt: '2026-10-25T10:00:00.000Z' } };
+    expect(await createPersonalPayApi(answer(against), userId, createPayMutationGuard()).remarkCase(tradeId)).toEqual({
+      ok: true,
+      data: against,
+    });
+  });
+
+  it('passes a refusal through with its code, and refuses an answer that is not a case', async () => {
+    const refusing = createApiClient({
+      fetch: async () =>
+        new Response(
+          JSON.stringify({ error: { message: 'exists', data: { code: 'CONFLICT', cause: { code: 'p2p.remark_case_exists' } } } }),
+          {
+            status: 409,
+          },
+        ),
+    });
+    expect(
+      await createPersonalPayApi(refusing, userId, createPayMutationGuard()).reportSensitiveRemark(tradeId, caseId, 'x'),
+    ).toMatchObject({
+      ok: false,
+      code: 'p2p.remark_case_exists',
+    });
+    const odd = createApiClient({ fetch: async () => response({ ...opened, status: 'closed' }) });
+    expect(await createPersonalPayApi(odd, userId, createPayMutationGuard()).reportSensitiveRemark(tradeId, caseId, 'x')).toMatchObject({
+      ok: false,
+    });
+  });
 });

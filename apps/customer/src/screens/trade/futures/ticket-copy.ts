@@ -193,9 +193,6 @@ export const ticketCopy = defineCopy('trade.futures.ticket', {
   // Why Open or Review is off (one line each)
   'Off plane': 'Futures trading is switched off by the platform.',
   'Off signed out': 'Sign in to open a position.',
-  'Off disclosure loading': 'Reading the auto-deleveraging notice…',
-  'Off disclosure unread': 'The auto-deleveraging notice could not be read, so a position cannot be opened. Try again shortly.',
-  'Off disclosure ack': 'Read and acknowledge the auto-deleveraging notice before opening.',
   'Off locked': 'An earlier request is still unconfirmed on this device. Check its status first.',
   'Off mark unknown': 'There is no mark price for this contract right now.',
   'Off mark stale': 'The mark is older than 15 seconds. Wait for a fresh one.',
@@ -207,12 +204,6 @@ export const ticketCopy = defineCopy('trade.futures.ticket', {
   'Off over cap': 'This leverage is above the cap for this contract.',
   'Off balance unknown': 'Your free balance is unknown, so the cost cannot be checked.',
   'Off insufficient': 'Your free balance is lower than the margin plus fee.',
-
-  // Disclosure
-  'ADL title': 'Auto-deleveraging notice',
-  Acknowledge: 'I have read this',
-  Acknowledging: 'Saving…',
-  'Acknowledge failed': 'Your acknowledgement was not saved. Try again.',
 
   // States
   'Plane off title': 'Futures trading is switched off',

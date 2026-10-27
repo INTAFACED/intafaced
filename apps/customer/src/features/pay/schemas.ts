@@ -65,6 +65,8 @@ export const offerSchema = z.object({
   acceptsNonInstant: z.boolean().optional(),
   terms: z.string(),
   status: z.enum(['active', 'paused', 'closed']),
+  /** P-ads-merchant-18: why the service paused the ad; null when it was not the service (or it is not paused). */
+  pauseReason: z.enum(['method_removed']).nullable().optional(),
   createdAt: z.string(),
   /** Board reads, floating ads only: the market reference, or null when no market feed prices the pair. */
   referencePrice: amount.nullable().optional(),
@@ -147,6 +149,24 @@ export const tradeRemindersSchema = z.object({
   max: z.number().int().positive().nullable(),
 });
 export type TradeReminders = z.infer<typeof tradeRemindersSchema>;
+/** svc-p2p `trades.reportSensitiveRemark` (P-ads-merchant-19): the case a party's report of a payment-note remark opened. */
+export const remarkCaseSchema = z.object({
+  id,
+  tradeId: id,
+  reporterId: z.string(),
+  reportedId: z.string(),
+  reporterRole: z.enum(['buyer', 'seller']),
+  remark: z.string(),
+  status: z.literal('open'),
+  openedAt: z.string(),
+});
+export type RemarkCase = z.infer<typeof remarkCaseSchema>;
+/** svc-p2p `trades.remarkCase`: the person's own report on the order, and whether the other party reported them (no quote). */
+export const remarkCasesOnSchema = z.object({
+  mine: remarkCaseSchema.nullable(),
+  againstMe: z.object({ caseId: id, openedAt: z.string() }).nullable(),
+});
+export type RemarkCasesOn = z.infer<typeof remarkCasesOnSchema>;
 /**
  * svc-p2p `trades.reportMismatch` and `trades.get` `mismatch`: the seller's report of what arrived, and the owner's band
  * it was classified by (`reported` when the band is blank and a person decides).
@@ -266,6 +286,12 @@ export const methodSchema = z.object({
   fields: z.array(methodFieldSchema),
   enabled: z.boolean(),
   settlement: methodSettlementSchema.optional(),
+  /** P-ads-merchant-19: the row's payment-note rules and cash-in-person rules (cash in person when set), or null. */
+  noteRules: z
+    .object({ guidance: z.string(), forbidden: z.array(z.string()) })
+    .nullable()
+    .optional(),
+  cashRules: z.object({ meetingGuidance: z.string(), proof: z.string(), releaseWindowSeconds: z.number().int() }).nullable().optional(),
 });
 export const fiatSchema = z.object({ code: z.string(), name: z.string(), symbol: z.string(), minorUnits: z.number().int() });
 export const tradeDestinationSchema = z.object({
@@ -722,3 +748,11 @@ export type TakeQuote = z.infer<typeof takeQuoteSchema>;
 export type Reputation = z.infer<typeof reputationSchema>;
 export type Merchant = z.infer<typeof merchantSchema>;
 export type Payment = z.infer<typeof paymentSchema>;
+
+/** P-ads-merchant-18: the person's active sell ads that list a method, and which ones lose their last payable method. */
+export const methodRemovalImpactSchema = z.object({
+  instrumentId: id,
+  methodId: z.string(),
+  fiatCurrency: z.string(),
+  ads: z.array(z.object({ offerId: id, asset, fiatCurrency: z.string(), pauses: z.boolean() })),
+});

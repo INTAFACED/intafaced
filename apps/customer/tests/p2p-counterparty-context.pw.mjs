@@ -136,9 +136,9 @@ async function fixture(context) {
 }
 async function login(page, path = '/p2p') {
   await page.goto('/login?redirect=' + encodeURIComponent(path));
-  await page.locator('input[autocomplete="username"]').fill('counterparty@example.invalid');
+  await page.locator('input[name="identifier"]').fill('counterparty@example.invalid');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect(page.locator('.pay-room-tabs')).toBeVisible();
 }
 const record = (page) => page.locator('.p2p-counterparty');
@@ -350,9 +350,9 @@ test('late prior-owner response remains retired after actual sign-out and anothe
     state.owner = other;
     state.record = { ...established, avgReleaseSecs: 777 };
     await page.locator('#main').getByRole('link', { name: 'Sign in', exact: true }).click();
-    await page.locator('input[autocomplete="username"]').fill('other-owner@example.invalid');
+    await page.locator('input[name="identifier"]').fill('other-owner@example.invalid');
     await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-    await page.locator('form button[type="submit"]').click();
+    await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
     await expect(metric(page, 'average')).toHaveText('777s');
     state.pending();
     await stable(page);

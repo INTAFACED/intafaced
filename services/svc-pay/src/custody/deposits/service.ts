@@ -50,6 +50,7 @@ interface SettingRow {
   label: string;
   minimum_deposit: string;
   estimated_arrival_minutes: number;
+  unsupported_cases: string[];
   enabled: boolean;
   halt_note: string | null;
 }
@@ -61,7 +62,8 @@ export class CustodyDepositService {
     const [networks, settings] = await Promise.all([
       this.deps.registries.listRoutableNetworks(),
       this.deps.sql<SettingRow[]>`
-        SELECT s.asset_id, s.network_id, s.label, s.minimum_deposit, s.estimated_arrival_minutes, s.enabled, s.halt_note
+        SELECT s.asset_id, s.network_id, s.label, s.minimum_deposit, s.estimated_arrival_minutes, s.unsupported_cases, s.enabled,
+               s.halt_note
           FROM pay.custody_deposit_settings s
          WHERE s.enabled
             -- Switched off after it was on, or given a note for customers. A pair created off and never switched on has not
@@ -93,6 +95,8 @@ export class CustodyDepositService {
         estimatedArrivalMinutes: row.estimated_arrival_minutes,
         memoRequired: false,
         sharedAddressGroup: null,
+        // Sent only when the owner published some: no list is no key, as the contract has it (an empty list is refused there).
+        ...(row.unsupported_cases.length > 0 ? { unsupported: row.unsupported_cases } : {}),
       });
     }
     return { entries, halted };

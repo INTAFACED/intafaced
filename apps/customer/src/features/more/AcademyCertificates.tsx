@@ -124,7 +124,7 @@ function UnpublishedPathCard({ row }: { row: CertPathRow }) {
   return (
     <article className="academy-lms-card" data-certificate-path={row.path} data-state="unpublished">
       <h4>{pathLabel(t, row.path)}</h4>
-      <div className="academy-lms-meta">
+      <div data-testid="academy-lms-meta" className="academy-lms-meta">
         <span className="academy-lms-chip" data-status="unpublished">
           {t('stateUnpublished')}
         </span>
@@ -143,7 +143,7 @@ function CertificateCardView({ card, lessons, onView }: { card: CertificateCard;
   return (
     <article className="academy-lms-card" data-certificate={card.definition.id} data-state={card.state}>
       <h4 lang="und">{card.definition.title}</h4>
-      <div className="academy-lms-meta">
+      <div data-testid="academy-lms-meta" className="academy-lms-meta">
         <CertificateChip state={card.state} />
       </div>
       <ProgressBar percent={card.percent} label={t('certProgressLabel', { title: card.definition.title })} />

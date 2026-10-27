@@ -26,6 +26,7 @@ import {
   TEST_RETIRED_ASSET_ROW,
   TEST_DEPOSIT_NETWORKS,
   TEST_DEPOSIT_TERMS,
+  TEST_UNSUPPORTED_DEPOSIT,
   TEST_HALTED_DEPOSIT,
   TEST_WITHDRAWAL_LIMITS,
   networkRowMatches,
@@ -309,6 +310,12 @@ for (const t of TEST_DEPOSIT_TERMS) {
   assert.equal(t.enabled, !off);
   if (off) assert.match(t.haltNote, /^TEST: /);
   else assert.equal(t.haltNote, null);
+  // Exactly one TEST pair, switched on, publishes an unsupported-case list, each case marked TEST; the rest publish none.
+  const listed = t.assetId === TEST_UNSUPPORTED_DEPOSIT.assetId && t.networkId === TEST_UNSUPPORTED_DEPOSIT.networkId;
+  if (listed) {
+    assert.ok(t.enabled && t.unsupportedCases.length > 0);
+    for (const item of t.unsupportedCases) assert.match(item, /^TEST: /);
+  } else assert.deepEqual(t.unsupportedCases, []);
 }
 assert.equal(TEST_DEPOSIT_TERMS.filter((t) => !t.enabled).length, 1);
 // TEST withdrawal limits for every verified level, none for an unverified account, and the stack's svc-pay enforces them.

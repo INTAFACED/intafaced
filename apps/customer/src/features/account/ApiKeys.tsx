@@ -12,7 +12,7 @@ import './api-keys.css';
 export function KeySafety() {
   const { t } = copy.useCopy();
   return (
-    <section className="api-keys__safety security__card" aria-labelledby="api-keys-safety">
+    <section data-testid="security__card" className="api-keys__safety security__card" aria-labelledby="api-keys-safety">
       <h2 id="api-keys-safety">{t('safetyTitle')}</h2>
       <ul>
         <li>{t('safetyOnePurpose')}</li>
@@ -65,7 +65,7 @@ export function ApiKeys() {
       {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
       {resource.status === 'ready' && (
         <>
-          <section className="api-keys__cap security__card" aria-labelledby="api-keys-cap" role="status">
+          <section data-testid="security__card" className="api-keys__cap security__card" aria-labelledby="api-keys-cap" role="status">
             <h2 id="api-keys-cap">{t('capTitle')}</h2>
             <p>
               {resource.data.cap.limit === null
@@ -79,7 +79,7 @@ export function ApiKeys() {
             <p role="status">{t('empty')}</p>
           ) : (
             <div className="api-keys__table-wrap">
-              <table className="api-keys__table">
+              <table data-testid="api-keys__table" className="api-keys__table">
                 <thead>
                   <tr>
                     <th scope="col">{t('colName')}</th>

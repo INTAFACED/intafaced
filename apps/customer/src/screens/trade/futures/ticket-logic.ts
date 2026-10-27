@@ -155,9 +155,6 @@ export function reviewBlock(a: {
 export type OpenBlock =
   | 'planeOff'
   | 'signedOut'
-  | 'disclosureLoading'
-  | 'disclosureUnread'
-  | 'disclosureUnacknowledged'
   | 'locked'
   | 'markUnknown'
   | 'markStale'
@@ -173,7 +170,6 @@ export type OpenBlock =
 export function openBlock(a: {
   planeOff: boolean;
   signedOut: boolean;
-  disclosure: 'loading' | 'unread' | 'unacknowledged' | 'acknowledged';
   locked: boolean;
   markKnown: boolean;
   markStale: boolean;
@@ -183,9 +179,6 @@ export function openBlock(a: {
 }): OpenBlock {
   if (a.planeOff) return 'planeOff';
   if (a.signedOut) return 'signedOut';
-  if (a.disclosure === 'loading') return 'disclosureLoading';
-  if (a.disclosure === 'unread') return 'disclosureUnread';
-  if (a.disclosure === 'unacknowledged') return 'disclosureUnacknowledged';
   if (a.locked) return 'locked';
   if (!a.markKnown) return 'markUnknown';
   if (a.markStale) return 'markStale';

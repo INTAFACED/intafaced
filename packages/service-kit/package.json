@@ -1,0 +1,39 @@
+{
+  "name": "@intafaced/service-kit",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "slice:new": "node bin/slice-new.mjs",
+    "clean": "rimraf dist .turbo"
+  },
+  "dependencies": {
+    "@intafaced/auth": "workspace:*",
+    "@intafaced/contracts": "workspace:*",
+    "@intafaced/db": "workspace:*",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "prettier": "^3.9.10",
+    "rimraf": "^6.0.1",
+    "typescript": "^7.0.2",
+    "vitest": "^3.0.5"
+  }
+}

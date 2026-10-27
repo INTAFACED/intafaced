@@ -189,7 +189,7 @@ export function AcademyCourseInbox() {
                       <a className="academy-learning-link" href={academyMessagesHref(row.id)} lang="und">
                         {row.courseTitle}
                       </a>
-                      <div className="academy-lms-meta">
+                      <div data-testid="academy-lms-meta" className="academy-lms-meta">
                         <span className="academy-lms-chip" data-status={row.unread ? 'open' : 'recorded'}>
                           {row.unread ? t('teamMessagesUnread') : t('teamMessagesRead')}
                         </span>
@@ -253,7 +253,7 @@ export function AcademyCourseConversation({ conversationId }: { conversationId: 
               {state.data.messages.map((message) => (
                 <li key={message.id} data-course-message={message.id} data-from={message.from}>
                   <div className="academy-lms-stack">
-                    <div className="academy-lms-meta">
+                    <div data-testid="academy-lms-meta" className="academy-lms-meta">
                       <strong>{message.from === 'learner' ? t('teamMessagesFromYou') : t('teamMessagesFromTeam')}</strong>
                       <span>{formatMoment(message.sentAt.toISOString(), language)}</span>
                     </div>

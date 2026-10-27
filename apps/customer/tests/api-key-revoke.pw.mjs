@@ -137,9 +137,9 @@ async function scenario(browser, name, run, init = null) {
 async function login(page, destination = '/uc/safe', newDocument = true) {
   if (newDocument) await page.goto('/login?redirect=' + encodeURIComponent(destination));
   else await page.locator('a.button[href^="/login?redirect="]').click();
-  await page.locator('input[autocomplete="username"]').fill('isolated-owner');
+  await page.locator('input[name="identifier"]').fill('isolated-owner');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect.poll(() => page.evaluate(() => location.pathname + location.search + location.hash)).toBe(destination);
   if (destination.startsWith('/uc/safe')) await expect(section(page)).toBeVisible();
 }

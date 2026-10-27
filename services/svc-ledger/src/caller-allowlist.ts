@@ -109,6 +109,7 @@ export const LEDGER_POST_ALLOWLIST = {
     paymentRefundReverse: g('pay', 'services/svc-pay/src/payment-service/refunds.ts'),
     withdrawHold: g('ledger', 'services/svc-pay/src/user-money-service.ts'),
     withdrawReverse: g('ledger', 'services/svc-pay/src/user-money-service.ts'),
+    withdrawReturned: g('ledger', 'services/svc-pay/src/withdrawals/returns/service.ts'),
     withdrawSettle: g('ledger', 'services/svc-pay/src/user-money-service.ts'),
   },
   'svc-token': {

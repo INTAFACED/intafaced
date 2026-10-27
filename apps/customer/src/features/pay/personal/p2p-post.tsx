@@ -246,6 +246,8 @@ function refusalKey(failure: Failure | null) {
       return 'refusedThreshold' as const;
     case 'p2p.reference_price_unavailable':
       return 'refusedNoReference' as const;
+    case 'p2p.floating_not_allowed_for_method':
+      return 'refusedFloatingCash' as const;
     case 'p2p.content_rule_violation':
       return 'refusedContent' as const;
     case 'p2p.verification_limit_currency':

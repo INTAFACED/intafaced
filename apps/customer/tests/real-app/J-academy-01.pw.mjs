@@ -96,10 +96,10 @@ test(`${J} #6 a lesson opens in the reader by its address, with related items; a
   const [first] = await published({ limit: 1 });
   await page.goto(`/academy/${first.slug}`);
   await expect(page.getByRole('heading', { name: first.title, level: 2 })).toBeVisible();
-  await expect(page.locator('article.more-body')).not.toBeEmpty();
+  await expect(page.locator('article[data-testid="more-body"]')).not.toBeEmpty();
   await expect(pressed(page, 'Learning')).toHaveAttribute('aria-pressed', 'true');
   // Lessons carry no published or updated date in this build, so no date is shown.
-  await expect(page.locator('article.more-body time')).toHaveCount(0);
+  await expect(page.locator('article[data-testid="more-body"] time')).toHaveCount(0);
   const related = page.getByRole('heading', { name: 'Related', level: 2 });
   await expect(related).toBeVisible();
   await expect(page.getByRole('link', { name: 'Sign in' }).first()).toBeVisible();
@@ -107,7 +107,7 @@ test(`${J} #6 a lesson opens in the reader by its address, with related items; a
   for (const [name, slug] of TABS) {
     await page.goto(`/academy/${slug}`);
     await expect(pressed(page, name)).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.locator('article.more-body')).toHaveCount(0);
+    await expect(page.locator('article[data-testid="more-body"]')).toHaveCount(0);
   }
 });
 

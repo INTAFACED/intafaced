@@ -355,10 +355,10 @@ describe('svc-trade reduce-only matched futures orders (slice 6b, PG-backed)', (
       await assertBooksAgree();
     });
 
-    it('a reduce-only order is never gated, so a lapsed acceptance cannot trap a position; an opening order still is', async () => {
+    it('a reduce-only order is never gated, so no gate can trap a position; an opening order still is', async () => {
       const { alice } = await aliceLongBobShort();
       const gate = vi.fn(async () => {
-        throw Object.assign(new Error('agreement required'), { code: 'trade.agreement_required', status: 403 });
+        throw Object.assign(new Error('identity level insufficient'), { code: 'trade.identity_level_insufficient', status: 403 });
       });
       const svc = build({ assertDerivativesAccess: gate });
       const view = await svc.place(
@@ -369,7 +369,7 @@ describe('svc-trade reduce-only matched futures orders (slice 6b, PG-backed)', (
       expect(gate).not.toHaveBeenCalled();
       await expect(
         svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1'), clientOrderId: 'lapsed-open' })),
-      ).rejects.toMatchObject({ code: 'trade.agreement_required' });
+      ).rejects.toMatchObject({ code: 'trade.identity_level_insufficient' });
       expect(gate).toHaveBeenCalledTimes(1);
     });
 

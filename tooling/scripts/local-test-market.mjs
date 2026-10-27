@@ -48,7 +48,6 @@ import {
   readProcessIdentity,
   readLatestEmailConfirmToken,
 } from './local-test-state.mjs';
-import { TEST_ELIGIBILITY_ANSWERS } from './local-test-futures-terms.mjs';
 import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
@@ -759,7 +758,7 @@ async function runLoop(opts, home) {
 
 export const TAPE_CLIENT_PREFIX = 'LTEST-TAPE-';
 export const TAPE_RETIME_ROUTE = '/internal/local-test/tape-retime';
-/** Requests a second `history` sends: below Edge's local budget of 1200 a minute per address (local-stack-services/edge.mjs, EDGE_RATE_LIMIT_MAX), with room left. */
+/** Requests a second `history` sends: well below Edge's local budget of 6000 a minute per address (local-stack-services/edge.mjs, EDGE_RATE_LIMIT_MAX), with room left. */
 export const HISTORY_REQUESTS_PER_SECOND = 14;
 /**
  * Edge's local budget window (local-stack-services/edge.mjs, EDGE_RATE_LIMIT_WINDOW_MS). `history` ends by waiting out
@@ -1042,7 +1041,8 @@ const LIVE_FUTURES = new Set(['pending', 'held', 'submitting', 'open', 'submit_u
 
 /**
  * A futures order goes through the futures book (POST /api/v1/futures/orders) and answers to the doors a person's
- * does: a proved email, the published TEST agreements accepted, the TEST quiz passed, the ADL notice acknowledged.
+ * does: a proved email and the identity tier the TEST eligibility rules name (no agreement or quiz gates an open since
+ * owner decision 2026-10-27). The maker still acknowledges the ADL notice, which the ADL last-resort pass reads.
  * Hedge mode, so the maker's bids and asks can rest at once. Each step logs what it got; a refusal stays visible, and
  * the quotes then refuse with the same code.
  *
@@ -1054,21 +1054,6 @@ async function prepareFuturesMaker(maker) {
   const say = (what, r, ok) => log(`maker ${what}: ${ok ? 'ok' : `HTTP ${r.status} ${r.text.slice(0, 160)}`}`);
   const mode = await maker.http('PUT', '/api/v1/futures/position-mode', { mode: 'hedge', clientModeId: 'LTEST-maker-position-mode-hedge' });
   say('position mode hedge', mode, mode.status === 200);
-  const agreements = await maker.http('GET', '/api/v1/account/agreements');
-  for (const a of agreements.json?.agreements ?? []) {
-    if (!a.available) {
-      log(`maker agreement ${a.kind}: not published (${a.reason ?? 'no reason given'})`);
-      continue;
-    }
-    if (a.accepted) continue;
-    const r = await maker.http('POST', '/api/v1/account/agreements/accept', { kind: a.kind, version: a.version });
-    say(`accepts TEST ${a.kind} v${a.version}`, r, r.status === 200);
-  }
-  const quiz = await maker.http('POST', '/api/v1/account/derivatives-eligibility/assess', {
-    clientSubmissionId: 'LTEST-maker-quiz-1',
-    answers: TEST_ELIGIBILITY_ANSWERS,
-  });
-  say('TEST quiz', quiz, quiz.status === 200);
   const adl = await maker.http('POST', '/api/v1/futures/adl-disclosure/ack', {});
   say('ADL notice acknowledged', adl, adl.status === 200);
 }

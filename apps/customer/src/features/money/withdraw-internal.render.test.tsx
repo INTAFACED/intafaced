@@ -8,7 +8,13 @@ const query = vi.fn();
 const mutate = vi.fn();
 // The form also reads the caller's campaign rewards (the locked-rewards note): none here.
 const noRewards = { ok: true, data: { rewards: [], totals: [], more: false } };
-const route = (module: string, ...rest: unknown[]) => (module === 'campaigns' ? Promise.resolve(noRewards) : query(module, ...rest));
+// Only where an address leads is answered here; the form's other reads (limits, the address book) are not, and say so.
+const route = (module: string, procedure: string, ...rest: unknown[]) =>
+  module === 'campaigns'
+    ? Promise.resolve(noRewards)
+    : procedure === 'withdrawal.destination'
+      ? query(module, procedure, ...rest)
+      : Promise.resolve({ ok: false, reason: 'unreachable', message: 'not in this test' });
 vi.mock('../session/session', () => ({ useSession: () => ({ userId: 'u1', api: { query: route, mutate } }) }));
 vi.mock('./holdings', () => ({
   useHoldings: () => ({
@@ -21,9 +27,10 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 // The real dialog asks identity for a step-up token; here "Confirm" hands the action a TEST token and shows its refusal.
-vi.mock('./WithdrawStepUp', async () => {
+vi.mock('./WithdrawStepUp', async (original) => {
   const { useState } = await import('react');
   return {
+    ...(await original<typeof import('./WithdrawStepUp')>()),
     WithdrawStepUp: ({ run, onDone }: { run: (token: string) => Promise<{ ok: boolean; message?: string }>; onDone: () => void }) => {
       const [problem, setProblem] = useState('');
       return (
@@ -170,6 +177,27 @@ describe('Withdraw to another INTAFACED account', () => {
     expect(mutate).toHaveBeenCalledTimes(2);
     expect(mutate.mock.calls[1]![2]).toEqual(mutate.mock.calls[0]![2]);
     expect(document.querySelector('[data-testid="withdraw-outcome"]')).not.toBeNull();
+    expect(sessionStorage.length).toBe(0);
+  });
+
+  it('keeps a send whose ask is still in flight across a reload, and finishes it under the same reference', async () => {
+    query.mockResolvedValue({ ok: true, data: { kind: 'internal' } });
+    // The first ask never answers: the tab reloads (or crashes) while it is in flight.
+    mutate.mockReturnValueOnce(new Promise(() => {})).mockResolvedValueOnce(sent);
+    await fill(FRIEND, '10');
+    await click('Send inside INTAFACED');
+    await click('Confirm');
+    act(() => root?.unmount());
+    root = createRoot(host);
+    const again = root;
+    query.mockResolvedValue({ ok: true, data: { kind: 'unavailable', reason: 'unavailable' } });
+    await act(async () => again.render(<WithdrawForm />));
+    expect(input('Amount').value).toBe('10');
+    expect(input('Amount').readOnly).toBe(true);
+    await click('Confirm again to finish');
+    await click('Confirm');
+    expect(mutate).toHaveBeenCalledTimes(2);
+    expect(mutate.mock.calls[1]![2]).toEqual(mutate.mock.calls[0]![2]);
     expect(sessionStorage.length).toBe(0);
   });
 

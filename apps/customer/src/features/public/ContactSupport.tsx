@@ -15,7 +15,7 @@ export function ContactSupport({ context = 'general' }: { context?: 'general' | 
   const contact = useSupportContact();
   if (session)
     return (
-      <aside className="contact-card" aria-labelledby="contact-title">
+      <aside data-testid="contact-card" className="contact-card" aria-labelledby="contact-title">
         <h2 id="contact-title">{copy.t('titleSignedIn')}</h2>
         <p className="muted">{copy.t('bodySignedIn')}</p>
         <a className="button button--primary" href="/support">
@@ -26,7 +26,7 @@ export function ContactSupport({ context = 'general' }: { context?: 'general' | 
   const to = contact.email;
   const subject = copy.t(context === 'recovery' ? 'mailSubject' : 'mailSubjectGeneral');
   return (
-    <aside className="contact-card" aria-labelledby="contact-title">
+    <aside data-testid="contact-card" className="contact-card" aria-labelledby="contact-title">
       <h2 id="contact-title">{copy.t(context === 'recovery' ? 'titleRecovery' : 'titleSignedOut')}</h2>
       <p className="muted">{copy.t(context === 'recovery' ? 'bodyRecovery' : 'bodySignedOut')}</p>
       <h3>{copy.t('includeHeading')}</h3>

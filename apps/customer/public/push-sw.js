@@ -26,7 +26,9 @@ self.addEventListener('push', (event) => {
   }
   const title = typeof notice.title === 'string' && notice.title ? notice.title : 'Notification';
   const body = typeof notice.body === 'string' ? notice.body : '';
-  event.waitUntil(self.registration.showNotification(title, { body, data: { href: sameSite(notice.href) } }));
+  // The brand's app icon, and its one-colour mark as the status-bar badge (packages/ui/brand, served under /brand/).
+  const brand = { icon: '/brand/icon-192.png', badge: '/brand/badge-96.png' };
+  event.waitUntil(self.registration.showNotification(title, { body, ...brand, data: { href: sameSite(notice.href) } }));
 });
 
 self.addEventListener('notificationclick', (event) => {

@@ -4,6 +4,7 @@ import { useApi } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
 import { rewardsHubCopy } from './rewards-hub-copy';
+import { timeLeft } from './time-left';
 
 /**
  * My Rewards hub on /uc/promotion (CM-rewards-hub-01, J-campaigns-03): every campaign reward of the signed-in account in
@@ -11,13 +12,6 @@ import { rewardsHubCopy } from './rewards-hub-copy';
  * read from svc-campaigns on each visit; totals come from the rows it returns. A failed read shows the error and no
  * number at all, never an earlier one.
  */
-
-const UNITS = [
-  ['day', 86_400],
-  ['hour', 3_600],
-  ['minute', 60],
-  ['second', 1],
-] as const;
 
 function useFormat() {
   const { renderedLocale } = rewardsHubCopy.useCopy();
@@ -32,12 +26,7 @@ function useFormat() {
     });
     return {
       when: (isoTime: string) => time.format(new Date(isoTime)),
-      /** Time left, rounded up in the largest unit that has at least one whole of it. */
-      left: (seconds: number) => {
-        const s = Math.max(1, Math.ceil(seconds));
-        const [unit, size] = UNITS.find(([, n]) => s >= n)!;
-        return new Intl.NumberFormat(renderedLocale, { style: 'unit', unit, unitDisplay: 'long' }).format(Math.ceil(s / size));
-      },
+      left: (seconds: number) => timeLeft(seconds, renderedLocale),
     };
   }, [renderedLocale]);
 }

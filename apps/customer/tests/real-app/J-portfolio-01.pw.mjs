@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { api, bestPrices, fromUnits, fund, journeyState, tool, toUnits } from './stack.mjs';
-import { awayBid, confirm, deskPath, fundedTrader, held, openOrders, reviewLimit, signIn } from './desk.mjs';
+import { awayBid, chosePro, confirm, deskPath, fundedTrader, held, openOrders, reviewLimit, signIn } from './desk.mjs';
 
 // J-portfolio-01, in the running app (docs/roadmap/journeys.json): "After I trade, I see what I hold, what is locked and
 // what it is worth". One test per step, titled "J-portfolio-01 #<n>", run in order on one TEST account funded with TEST
@@ -268,36 +268,35 @@ test(`${J} #3 places a TEST limit order, then reads the breakdown: available fal
 
 const futuresAccess = (page) => page.getByTestId('futures-access');
 
-/** The TEST futures gates for this account, each cleared as the access panel names it: knowledge check, notice, agreements. */
+/** The futures desk, open for this account: no agreement, quiz or notice gates it (owner decision 2026-10-27). */
 async function openFuturesAccess(page) {
   await page.goto('/trade/futures');
   await expect(page.getByRole('button', { name: 'Open long' })).toBeVisible();
-  const panel = futuresAccess(page);
-  const open = panel.getByText('Open for your account');
-  await expect(open.or(panel.getByText('Blocked for your account'))).toBeVisible();
-  if (await open.isVisible()) return;
-  const reasons = panel.getByRole('list', { name: 'What blocks it' });
-  if (await reasons.locator('[data-code="trade.derivatives_eligibility_unset"]').count()) {
-    const quiz = page.getByTestId('futures-quiz');
-    await quiz.getByRole('radio', { name: /liquidated and can lose all of its margin/ }).check();
-    await quiz.getByRole('button', { name: 'Submit answers' }).click();
-    await expect(page.getByText('Passed. You can trade derivatives under the current rules.')).toBeVisible();
-  }
-  if (await reasons.locator('[data-code="trade.adl_disclosure_required"]').count()) {
-    await page.getByRole('button', { name: 'I have read this' }).click();
-    await expect(reasons.locator('[data-code="trade.adl_disclosure_required"]')).toHaveCount(0);
-  }
-  if (await reasons.locator('[data-code="trade.agreement_required"]').count()) {
-    for (const kind of ['derivatives_risk', 'margin_terms']) {
-      const card = panel.getByTestId(`agreement-${kind}`);
-      const accept = card.getByRole('button', { name: /^Accept / });
-      if (await accept.count()) {
-        await accept.click();
-        await expect(card).toContainText('Accepted');
-      }
-    }
-  }
-  await expect(open).toBeVisible();
+  await expect(futuresAccess(page).getByText('Open for your account')).toBeVisible();
+}
+
+/**
+ * Waits until the TEST perp's book offers at least `size` within a market open's protective limit (the mark plus the
+ * slippage cap, which the preview names as `orderPrice`). The market maker re-quotes the perp every few seconds
+ * and its quotes are sometimes all taken or a step past the cap; a market open sent then is refused
+ * trade.futures_order_unfilled with nothing opened (run 591 on main), which is the service working, not this step.
+ */
+async function fillableAsk(who, size, leverage) {
+  const me = await api(who);
+  await expect
+    .poll(
+      async () => {
+        const { body } = await me.post('/api/v1/positions/preview', { symbol: FUTURES, side: 'long', size, leverage });
+        if (!body?.orderPrice) return `no order price: ${JSON.stringify(body?.refusals ?? body).slice(0, 200)}`;
+        const { body: book } = await bestPrices(FUTURES, 20, 0);
+        const limit = toUnits(body.orderPrice);
+        const reachable = book.asks.filter(([price]) => toUnits(String(price)) <= limit);
+        const depth = reachable.reduce((sum, [, amount]) => sum + toUnits(String(amount)), 0n);
+        return depth >= toUnits(size) ? 'fillable' : `${fromUnits(depth)} on offer within the limit ${body.orderPrice}`;
+      },
+      { timeout: 60_000, intervals: [1_000], message: 'the TEST perp book has an ask a market open can fill' },
+    )
+    .toBe('fillable');
 }
 
 async function positionsOf(who) {
@@ -310,6 +309,8 @@ test(`${J} #4 reads collateral apart: a TEST futures margin sits under Locked, n
   test.setTimeout(150_000);
   const who = account();
   const { hold } = run.read();
+  // The step reads the Pro columns, so this browser has chosen Pro (the app opens in Simple).
+  await chosePro(page);
   await signIn(page, who);
   await openFuturesAccess(page);
   const ticket = page.getByRole('region', { name: 'Order ticket' });
@@ -320,6 +321,8 @@ test(`${J} #4 reads collateral apart: a TEST futures margin sits under Locked, n
   const dialog = page.getByRole('alertdialog');
   const tier = dialog.getByRole('region', { name: 'New margin tier' });
   if ((await tier.count()) > 0) await tier.getByRole('checkbox').click();
+  // Checked last, so the book it saw is the one the order meets.
+  await fillableAsk(who, '0.001', '5');
   await dialog.getByRole('button', { name: 'Confirm open long' }).click();
   const filled = page.getByText('Order filled');
   await expect(filled.or(dialog.getByText('The numbers moved since you reviewed'))).toBeVisible({ timeout: 20_000 });
@@ -366,6 +369,8 @@ test(`${J} #4 reads collateral apart: a TEST futures margin sits under Locked, n
 test(`${J} #5 cancels the order: the hold returns to available and nothing is set aside`, async ({ page }) => {
   const who = account();
   const { orderId } = run.read();
+  // The step reads the Pro columns, so this browser has chosen Pro (the app opens in Simple).
+  await chosePro(page);
   await signIn(page, who);
   await page.goto(deskPath('BTC/USDT'));
   await page.locator('[role=tab]', { hasText: 'Open orders' }).click();

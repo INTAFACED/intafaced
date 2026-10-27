@@ -113,6 +113,11 @@ if (rooted.length === 0) {
 /** @type {string[]} */
 const files = [];
 for (const r of rooted) walk(join(ROOT, r), files);
+// Paid rows only warn (owner decision 2026-10-27), so roots that hold no test file must refuse on their own.
+if (files.length === 0) {
+  console.error('\n✖ MONEY SKIP HONESTY FAILED — the money-path roots hold no test file. A seal that walks nothing is not a seal.\n');
+  process.exit(1);
+}
 
 /** @type {Map<string, string>} rel → stripped content for skipping files */
 const skipping = new Map();
@@ -133,6 +138,9 @@ const unreportedPrivate = new Set(UNREPORTED_PRIVATE.map((e) => e.file));
 
 /** @type {string[]} */
 const problems = [];
+/** Rows whose skip is gone: debt paid. They warn so a fix never needs a gate PR (owner decision 2026-10-27). */
+/** @type {string[]} */
+const paid = [];
 
 // Growth: skip not on register.
 for (const rel of skipping.keys()) {
@@ -148,12 +156,12 @@ for (const rel of skipping.keys()) {
 for (const entry of MONEY_SKIP_REGISTER) {
   const full = join(ROOT, entry.file);
   if (!existsSync(full)) {
-    problems.push(`${entry.file} is on the money-skip inventory but does not exist — delete the row.`);
+    paid.push(`${entry.file} is on the money-skip inventory but does not exist — delete the row.`);
     continue;
   }
   const content = skipping.get(entry.file);
   if (!content) {
-    problems.push(`${entry.file} is on the money-skip inventory but no longer skips — debt paid; delete the row.`);
+    paid.push(`${entry.file} is on the money-skip inventory but no longer skips — debt paid; delete the row.`);
     continue;
   }
 
@@ -217,6 +225,10 @@ for (const e of UNREPORTED_PRIVATE) {
         `"${row.kind}" — must be private-probe until the probe is journalled.`,
     );
   }
+}
+
+for (const p of paid) {
+  console.log(process.env.GITHUB_ACTIONS ? `::warning title=Money skip inventory::${p}` : `! ${p}`);
 }
 
 if (problems.length > 0) {

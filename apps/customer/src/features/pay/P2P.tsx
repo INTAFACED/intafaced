@@ -24,6 +24,7 @@ import { P2POrder } from './P2POrder';
 import { ReleaseAction } from './p2p-release';
 import { RemindSeller } from './p2p-remind';
 import { BuyerMismatch, ReportMismatch } from './p2p-mismatch';
+import { PaymentNoteRules, ReportRemark } from './p2p-remark';
 import { ValidatePayment } from './p2p-validate';
 import { orderCopy } from './p2p-order-copy';
 import { P2PCounterparty } from './P2PCounterparty';
@@ -258,6 +259,8 @@ function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: s
           <OrderReceipt pay={pay} trade={trade} />
           <OrderReview key={'review:' + trade.id + ':' + trade.status} pay={pay} trade={trade} />
           <OrderPaymentDetails key={trade.id + ':' + trade.status} trade={trade} pay={pay} userId={userId} />
+          <PaymentNoteRules trade={trade} pay={pay} userId={userId} />
+          <ReportRemark key={trade.id} trade={trade} pay={pay} userId={userId} />
           <OrderChat pay={pay} trade={trade} userId={userId} />
           <OrderDispute trade={trade} pay={pay} reloadOrder={reload} />
         </>

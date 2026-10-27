@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { accountStateSchema } from './identity.js';
+import { supportTicketCategorySchema } from './support-categories.js';
+import { supportCreateFormSchema } from './support-forms.js';
 
 /**
  * Support desk contracts (ops.support Stage-1 ticket spine).
@@ -12,14 +14,32 @@ import { accountStateSchema } from './identity.js';
 export const supportTicketStatusSchema = z.enum(['open', 'pending', 'on_hold', 'resolved', 'closed']);
 export type SupportTicketStatus = z.infer<typeof supportTicketStatusSchema>;
 
-export const supportTicketCategorySchema = z.enum(['account', 'trading', 'deposit_withdraw', 'phishing', 'other']);
-export type SupportTicketCategory = z.infer<typeof supportTicketCategorySchema>;
+export {
+  SUPPORT_CATEGORY_ROUTES,
+  SUPPORT_CATEGORY_UNKNOWN,
+  SUPPORT_FRAUD_REPORT_KEY_REQUIRED,
+  SUPPORT_FRAUD_ROUTE_MISSING,
+  SUPPORT_FRAUD_ROUTE_UNSET,
+  supportCategoriesSchema,
+  supportTicketCategorySchema,
+  type SupportCategories,
+  type SupportTicketCategory,
+} from './support-categories.js';
 
 /**
  * Pasted message headers on a phishing report (I-signin-sessions-27). The same
  * bound as `body`: a schema limit on text, not a product magnitude.
  */
 export const SUPPORT_MESSAGE_HEADERS_MAX = 10_000;
+
+/**
+ * What the customer reads as their request's status (SP-tickets-01, ENGINE TK-1): `awaiting_reply` when the team's last
+ * public reply waits on them, `solved` once resolved or closed, `open` otherwise. It says only whose turn it is, never a
+ * time; staff keep reading `status` and the lifecycle facts.
+ */
+export const SUPPORT_CUSTOMER_STATUSES = ['awaiting_reply', 'open', 'solved'] as const;
+export const supportCustomerStatusSchema = z.enum(SUPPORT_CUSTOMER_STATUSES);
+export type SupportCustomerStatus = z.infer<typeof supportCustomerStatusSchema>;
 
 export const supportTicketSchema = z.object({
   id: z.string().guid(),
@@ -33,10 +53,16 @@ export const supportTicketSchema = z.object({
   assigneeId: z.string().guid().nullable(),
   /** Set when this request was merged into another (SP-tickets-07); the request stays closed and readable. */
   mergedInto: z.string().guid().nullable().optional(),
+  /** Set on the owner's own reads (`listMine`, `get`, `createdByRequest`); absent from older services and staff lists. */
+  customerStatus: supportCustomerStatusSchema.optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
 export type SupportTicket = z.infer<typeof supportTicketSchema>;
+
+/** The caller's own request that a `support.create` key made, or null when that key made none (SP-tickets-01 recovery). */
+export const supportCreatedByRequestInputSchema = z.object({ clientRequestId: z.string().min(1).max(200) });
+export type SupportCreatedByRequestInput = z.infer<typeof supportCreatedByRequestInputSchema>;
 
 export const supportCommentSchema = z.object({
   id: z.string().guid(),
@@ -65,8 +91,13 @@ export const createTicketInputSchema = z.object({
    * ticket and creates no second one. Optional so older callers still parse.
    */
   clientRequestId: z.string().min(1).max(200).optional(),
+  /** The request type's form and its answers (SP-tickets-03). The service checks them against the stored form. */
+  form: supportCreateFormSchema.optional(),
 });
 export type CreateTicketInput = z.infer<typeof createTicketInputSchema>;
+
+/** `support.create` as it arrives: any category text, so the service can refuse an unknown one by name. */
+export const createTicketWireInputSchema = createTicketInputSchema.extend({ category: z.string().min(1).max(64) });
 
 /**
  * Who may read a help article (SP-help-centre-02). `public` is everyone, including a signed-out visitor;
@@ -389,6 +420,25 @@ export const supportTicketPropertiesSchema = z.object({
   updatedAt: z.string().datetime().nullable(),
 });
 export type SupportTicketProperties = z.infer<typeof supportTicketPropertiesSchema>;
+
+/** Which agent-set properties a customer reads on their own request (SP-tickets-04). The owner chooses; blank refuses. */
+export const SUPPORT_CUSTOMER_PROPERTIES = ['priority', 'type'] as const;
+export type SupportCustomerProperty = (typeof SUPPORT_CUSTOMER_PROPERTIES)[number];
+export const SUPPORT_CUSTOMER_PROPERTIES_UNSET = 'support.customer_properties_unset';
+
+/**
+ * The priority and type a customer reads on their own request. `unset` while the owner has not chosen what customers
+ * see; a property the owner does not show is null; a shown one not set by the desk yet has a null value.
+ */
+export const supportMyTicketPropertiesSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('unset'), code: z.literal(SUPPORT_CUSTOMER_PROPERTIES_UNSET) }),
+  z.object({
+    status: z.literal('ok'),
+    priority: z.object({ value: supportTicketPrioritySchema.nullable() }).nullable(),
+    ticketType: z.object({ value: supportTicketTypeSchema.nullable() }).nullable(),
+  }),
+]);
+export type SupportMyTicketProperties = z.infer<typeof supportMyTicketPropertiesSchema>;
 
 /**
  * Set any of priority, type and labels. An omitted field is left as it is; null

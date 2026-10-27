@@ -1,10 +1,12 @@
 import { WITHDRAWAL_STATUSES, isCancellable, shownStatus } from './withdrawals/status.js';
+import { payWithdrawalTierLimitsOutputSchema } from '@intafaced/contracts/pay-withdrawal-tier-limits';
 import { INTERNAL_RAIL } from './withdrawals/internal.js';
 import { ELIGIBILITY_REASONS } from './withdrawals/eligibility.js';
 import { WithdrawalQuoteError, withdrawalQuoteToTrpcError } from './withdrawals/quotes/errors.js';
 import { WithdrawalApprovalError, withdrawalApprovalToTrpcError } from './withdrawals/approvals/errors.js';
 import { AllowlistError, allowlistToTrpcError } from './withdrawals/allowlist/errors.js';
 import { quoteInputSchema, quoteViewSchema } from './withdrawals/quotes/schemas.js';
+import { RETURN_REASON_CODES } from './withdrawals/returns/schemas.js';
 import type { WithdrawalQuoteService } from './withdrawals/quotes/service.js';
 import { z } from 'zod';
 import type { Sql } from 'postgres';
@@ -2304,6 +2306,17 @@ export function createPayRouter(
         .query(({ ctx, input }) => wrap(async () => userMoney.withdrawalAllowance(ctx.principal.userId, input.assetId))),
 
       /**
+       * The owner's withdrawal limits for every KYC tier (D-148), as the verification ladder shows them
+       * (I-kyc-compliance-04): only figures the owner set, per tier and asset; a tier left out has no limit set, never a
+       * number. `enforced` is false when this deployment applies no limits. The same owner figures every customer is held
+       * to, nothing about the caller's own use. `trade:read` like the other withdrawal reads.
+       */
+      tierLimits: scopedProcedure('trade:read')
+        .input(z.object({}).strict().optional())
+        .output(payWithdrawalTierLimitsOutputSchema)
+        .query(() => wrap(async () => userMoney.withdrawalTierLimits())),
+
+      /**
        * The caller's own withdrawals in the customer status vocabulary (W-withdraw-06; a held row split by its dispatch
        * journal, as `withdrawal.get` shows it), filtered by asset, status, id and time and paged by a cursor. `limit` is required (blank refuses with `pay.withdrawal_list_limit_unset`):
        * there is no default page size. A status no stored value can mean yet returns an empty page, never a wrong row.
@@ -2338,6 +2351,9 @@ export function createPayRouter(
                 status: z.enum(WITHDRAWAL_STATUSES),
                 failure: z.object({ code: z.string(), known: z.boolean(), message: z.string() }).nullable(),
                 returned: z.boolean(),
+                returnedFunds: z
+                  .object({ amount: amountSchema, reasonCode: z.enum(RETURN_REASON_CODES).nullable(), credited: z.boolean() })
+                  .nullable(),
                 createdAt: z.string(),
               }),
             ),

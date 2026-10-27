@@ -257,6 +257,33 @@ export function withdrawReverse(input: WithdrawInput): PostRequest {
   };
 }
 
+/**
+ * Step 3: a settled withdrawal came back from the outside (W-withdraw-07). The rail returned some or all of what
+ * `withdrawSettle` sent, and it goes back to the person's available balance from the same rail boundary it left to.
+ *
+ * Its own post, not an edit of the settle: both stay in the journal and the trail reads "sent, came back". One return
+ * per withdrawal attempt (`withdraw.returned:<withdrawalId>`, the settle's own id), so a second delivery of the same
+ * return posts nothing. svc-ledger's door books it only against the posted `withdraw.settle:<withdrawalId>`: the same
+ * person, asset and rail, and no more than that settle sent (`withdraw-return-binding.ts`).
+ */
+export function withdrawReturned(input: WithdrawInput): PostRequest {
+  requirePositive('returned withdrawal amount', input.amount);
+  const withdrawalId = input.withdrawalId;
+  if (!withdrawalId || withdrawalId.trim() !== withdrawalId) {
+    throw new InvalidEntryError('withdrawalId is required, with no surrounding spaces');
+  }
+  return {
+    idempotencyKey: `withdraw.returned:${withdrawalId}`,
+    module: 'ledger',
+    reason: 'withdraw.returned',
+    meta: { rail: input.rail, withdrawalId },
+    entries: [
+      credit(railBoundary(input.rail, input.assetId), input.amount),
+      debit(userAvailable(input.userId, input.assetId), input.amount),
+    ],
+  };
+}
+
 // ── Trading ──────────────────────────────────────────────────────────────────
 
 export interface TradeFillInput {
@@ -1327,6 +1354,7 @@ export const recipes = {
   withdrawHold,
   withdrawSettle,
   withdrawReverse,
+  withdrawReturned,
   tradeFill,
   tradeFillFeeCorrection,
   tradeFillMakerRebate,

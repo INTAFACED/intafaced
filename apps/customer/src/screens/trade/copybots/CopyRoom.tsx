@@ -361,11 +361,6 @@ export function CopyRoom({ path }: { path: string }) {
                 },
               ]}
             />
-            <InfoNote>
-              {t(
-                'Copy trading can lose money. A leader’s past return is not a promise. Only copy what you can afford to lose, and set a loss limit.',
-              )}
-            </InfoNote>
           </PageSection>
         </TabsPanel>
       </Tabs>

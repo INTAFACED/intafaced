@@ -9,10 +9,13 @@ import { StepUpConfirm } from '../../money/StepUpConfirm';
 import { PayFailure, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from '../components';
 import { payCopy } from '../copy';
 import type { PersonalPayApi } from '../pay-api';
-import type { MethodField } from '../schemas';
+import type { z } from 'zod';
+import type { MethodField, methodSchema } from '../schemas';
 import { methodsCopy } from './payment-methods-copy';
 
-type Method = { methodId: string; country: string; label: string; fields: MethodField[]; enabled: boolean; settlement?: Settlement };
+type Method = z.infer<typeof methodSchema>;
+type NoteRules = NonNullable<Method['noteRules']>;
+type CashRules = NonNullable<Method['cashRules']>;
 type Settlement = { instant: true } | { instant: false; windowSeconds: number | null };
 type MethodsT = ReturnType<typeof methodsCopy.useCopy>['t'];
 
@@ -81,7 +84,7 @@ export function PaymentMethods({ pay, userId }: { pay: PersonalPayApi; userId: s
                 headers={[payCopy.t('label'), payCopy.t('method'), payCopy.t('currencyCountry'), payCopy.t('state'), '']}
               >
                 {rows.map((instrument) => (
-                  <tr key={instrument.id} data-testid="saved-method">
+                  <tr key={instrument.id} data-testid="saved-method" data-instrument-id={instrument.id}>
                     <td>{instrument.label || payCopy.t('unlabelledDestination')}</td>
                     <td>{instrument.methodId}</td>
                     <td>
@@ -178,35 +181,51 @@ function SavedDetails({ pay, instrumentId, fields }: { pay: PersonalPayApi; inst
 }
 
 /** Removing a saved method, confirmed with a passkey or authenticator code each time. */
+type Impact = { fiatCurrency: string; ads: Array<{ offerId: string; asset: string; pauses: boolean }> };
+
 function RemoveMethod({ pay, instrumentId, onRemoved }: { pay: PersonalPayApi; instrumentId: string; onRemoved: () => void }) {
   const { t } = methodsCopy.useCopy();
   // undefined: not confirmed yet; null: no factor on the account, so the removal goes without one and svc-p2p decides.
   const [approval, setApproval] = useState<string | null | undefined>(undefined);
+  // P-ads-merchant-18: which ads lose their last payable method, read when the review opens; they pause with it.
+  const [impact, setImpact] = useState<Impact | null>(null);
+  const [impactRead, setImpactRead] = useState(0);
   return (
     <ReviewedAction
       title={payCopy.t('removeDestination')}
       description={payCopy.t('thisRemovesTheDestinationFromFutureTrades')}
       review={
-        approval === undefined ? (
-          <StepUpConfirm
-            request={() => changeStepUp(instrumentId, 'remove', '')}
-            words={stepUpWords(t, 'stepUpSendRemove')}
-            disabled={false}
-            onApproved={(id) => setApproval(id)}
-          />
-        ) : (
-          <p className="muted" role="status" data-testid="method-remove-confirmed">
-            {approval ? t('stepUpDone') : t('stepUpNone')}
-          </p>
-        )
+        <div className="stack">
+          <ImpactRead key={impactRead} pay={pay} instrumentId={instrumentId} onRead={setImpact} />
+          {approval === undefined ? (
+            <StepUpConfirm
+              request={() => changeStepUp(instrumentId, 'remove', '')}
+              words={stepUpWords(t, 'stepUpSendRemove')}
+              disabled={impact === null}
+              onApproved={(id) => setApproval(id)}
+            />
+          ) : (
+            <p className="muted" role="status" data-testid="method-remove-confirmed">
+              {approval ? t('stepUpDone') : t('stepUpNone')}
+            </p>
+          )}
+        </div>
       }
-      ready={approval !== undefined}
+      ready={approval !== undefined && impact !== null}
       notReadyReason={t('stepUpFirst')}
       perform={async () => {
-        const result = await pay.removeInstrument(instrumentId, approval ?? undefined);
+        // The ads shown pausing are the ones agreed to: svc-p2p refuses if any other would pause.
+        const pausing = (impact?.ads ?? []).filter((ad) => ad.pauses).map((ad) => ad.offerId);
+        const result = await pay.removeInstrument(instrumentId, approval ?? undefined, pausing);
         // A confirmation is spent once, kept or refused: the next try asks again.
         if (!result.ok) {
           setApproval(undefined);
+          // An ad went up between the read and the confirmation: show the list again before anything pauses.
+          if (result.code === 'p2p.method_in_use') {
+            setImpact(null);
+            setImpactRead((n) => n + 1);
+            return { ...result, message: t('removeImpactChanged') };
+          }
           const words = result.code ? STEP_UP_REFUSALS[result.code as keyof typeof STEP_UP_REFUSALS] : undefined;
           if (words) return { ...result, message: t(words) };
         }
@@ -214,6 +233,49 @@ function RemoveMethod({ pay, instrumentId, onRemoved }: { pay: PersonalPayApi; i
       }}
       onConfirmed={onRemoved}
     />
+  );
+}
+
+/** Reads what the removal does to the person's ads each time the review opens, and shows it. */
+function ImpactRead({ pay, instrumentId, onRead }: { pay: PersonalPayApi; instrumentId: string; onRead: (impact: Impact | null) => void }) {
+  const impact = useResource((signal) => pay.methodRemovalImpact(instrumentId, signal), `pay:method-removal:${instrumentId}`);
+  const data = impact.resource.status === 'ready' ? impact.resource.data : null;
+  useEffect(() => onRead(data), [data, onRead]);
+  return (
+    <PayState resource={impact.resource} retry={impact.reload}>
+      {(read) => <RemovalImpact impact={read} />}
+    </PayState>
+  );
+}
+
+function RemovalImpact({ impact }: { impact: Impact }) {
+  const { t } = methodsCopy.useCopy();
+  const pausing = impact.ads.filter((ad) => ad.pauses).length;
+  if (impact.ads.length === 0)
+    return (
+      <p className="muted" data-testid="method-remove-impact">
+        {t('removeImpactNone')}
+      </p>
+    );
+  return (
+    <section className="stack" data-testid="method-remove-impact" aria-label={t('removeImpactTitle')}>
+      {pausing > 0 ? (
+        <p className="failure" role="alert" data-testid="method-remove-warning">
+          {t('removeImpactWarning', { count: String(pausing), fiat: impact.fiatCurrency })}
+        </p>
+      ) : null}
+      <h4>{t('removeImpactTitle')}</h4>
+      <ul>
+        {impact.ads.map((ad) => (
+          <li key={ad.offerId} data-offer-id={ad.offerId} data-pauses={ad.pauses ? 'true' : 'false'}>
+            <a className="text-link" href={`/uc/ad?offerId=${encodeURIComponent(ad.offerId)}`} lang="zxx">
+              {ad.asset} · {ad.offerId.slice(0, 8)}
+            </a>{' '}
+            <span className="muted">{ad.pauses ? t('removeImpactPauses') : t('removeImpactStays')}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -300,10 +362,58 @@ function Catalogue({ methods }: { methods: Method[] }) {
               ))}
             </ul>
             {method.fields.some((field) => field.holderName) ? <p data-testid="catalogue-own-name">{t('catalogueOwnName')}</p> : null}
+            {method.cashRules ? <CashRulesView rules={method.cashRules} /> : null}
+            {method.noteRules ? <NoteRulesView rules={method.noteRules} /> : null}
           </div>
           <Status value={method.enabled ? 'enabled' : 'disabled'} />
         </article>
       ))}
+    </div>
+  );
+}
+
+/** P-ads-merchant-19: the cash-in-person rules the method row carries: a locked price, the meeting, the proof, the release window. */
+function CashRulesView({ rules }: { rules: CashRules }) {
+  const { t } = methodsCopy.useCopy();
+  return (
+    <div className="stack" data-testid="catalogue-cash-rules">
+      <strong>{t('cashTitle')}</strong>
+      <p>{t('cashLocked')}</p>
+      <p>
+        {t('cashMeeting')}: {rules.meetingGuidance}
+      </p>
+      <p>
+        {t('cashProof')}: {rules.proof}
+      </p>
+      <p data-testid="catalogue-cash-release">{releaseText(rules.releaseWindowSeconds, t)}</p>
+    </div>
+  );
+}
+
+/**
+ * The seller's release window in words. A deadline is never shown longer than it is: whole minutes round down, and the
+ * seconds show when they are not whole minutes.
+ */
+function releaseText(seconds: number, t: MethodsT) {
+  if (seconds % 60 !== 0) return t('cashReleaseSeconds', { seconds: String(seconds) });
+  const minutes = seconds / 60;
+  if (minutes < 60) return t('cashRelease', { minutes: String(minutes) });
+  if (minutes % 60 === 0) return t('cashReleaseHours', { hours: String(minutes / 60) });
+  return t('cashReleaseHoursMinutes', { hours: String(Math.floor(minutes / 60)), minutes: String(minutes % 60) });
+}
+
+/** P-ads-merchant-19: what the payer writes in the payment note, and the words that never go in it. */
+function NoteRulesView({ rules }: { rules: NoteRules }) {
+  const { t } = methodsCopy.useCopy();
+  return (
+    <div className="stack" data-testid="catalogue-note-rules">
+      <strong>{t('noteTitle')}</strong>
+      <p>{rules.guidance}</p>
+      {rules.forbidden.length > 0 ? (
+        <p data-testid="catalogue-note-forbidden">
+          {t('noteForbidden')}: {rules.forbidden.join(', ')}
+        </p>
+      ) : null}
     </div>
   );
 }

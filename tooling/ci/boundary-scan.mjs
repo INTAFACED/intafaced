@@ -38,7 +38,7 @@
  * Opus reviews on each PR are the second line for those.
  *
  * Known exceptions live in `tooling/ci/boundary-allow.json`, each with a written reason. An entry that no longer
- * matches anything fails, so the list can only shrink.
+ * matches anything warns with the line to delete (a fix never fails the build; owner decision 2026-10-27).
  *
  *   node tooling/ci/boundary-scan.mjs
  *   node tooling/ci/boundary-scan.mjs --self-test
@@ -565,12 +565,14 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const baseline = existsSync(join(ROOT, RATCHET_FILE)) ? JSON.parse(readFileSync(join(ROOT, RATCHET_FILE), 'utf8')).files : {};
   const { open: openFindings, stale } = applyAllow(findings, allow);
   const open = [...openFindings, ...compareRatchet(duplicates, baseline)];
-  if (open.length || stale.length) {
-    console.error(
-      `\n✖ BOUNDARY SCAN FAILED — ${open.length} violation(s), ${stale.length} stale allow entr${stale.length === 1 ? 'y' : 'ies'}\n`,
-    );
+  // A stale allow entry is a fix nobody recorded: it warns, naming the line to delete (owner decision 2026-10-27).
+  for (const a of stale) {
+    const msg = `stale in ${ALLOW_FILE}: [${a.rule}] ${a.file} matches nothing; delete it.`;
+    console.log(process.env.GITHUB_ACTIONS ? `::warning title=Boundary scan::${msg}` : `  ! ${msg}`);
+  }
+  if (open.length) {
+    console.error(`\n✖ BOUNDARY SCAN FAILED — ${open.length} violation(s)\n`);
     for (const f of open) console.error(`  [${f.rule}] ${f.file}\n    → ${f.detail}\n`);
-    for (const a of stale) console.error(`  stale in ${ALLOW_FILE}: [${a.rule}] ${a.file} — matches nothing, delete it\n`);
     process.exit(1);
   }
   console.log(

@@ -20,8 +20,11 @@ export default ({
       IDENTITY_OWNERSHIP_SECRET: secrets.edgeAuthority,
       EDGE_ALLOWED_ORIGINS: `${CUSTOMER_ORIGIN},${CUSTOMER_LOCALHOST_ORIGIN},${INVITATION_ORIGIN}`,
       EDGE_RATE_LIMIT_ENABLED: 'true',
-      // Required, no default. LOCAL TEST values (generous: the UI polls).
-      EDGE_RATE_LIMIT_MAX: '1200',
+      // Required, no default. LOCAL TEST values. Every journey on a shard comes from one address, so this is the whole
+      // shard's budget, the polling pages it leaves open included: at 1200 a minute it ran out mid-run and the next
+      // steps were refused edge.rate_limited, sign-in included (runs 581 and 586 on main: J-cex-spot-02 #6,
+      // J-cex-spot-06 #5-6, J-derivatives-02 #6). Edge's own tests prove the limit; the journeys aren't about it.
+      EDGE_RATE_LIMIT_MAX: '6000',
       EDGE_RATE_LIMIT_WINDOW_MS: '60000',
       EDGE_BODY_LIMIT_BYTES: '1048576',
       EDGE_KILL_STATE_PATH: path.join(P.data, 'edge-kill-state.json'),

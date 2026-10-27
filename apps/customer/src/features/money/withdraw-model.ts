@@ -70,3 +70,25 @@ export function checkTag(input: string): EntryCheck {
   if (input === '') return 'ok';
   return input.trim() === input && input.length <= 64 && !CONTROL.test(input) ? 'ok' : 'invalid';
 }
+
+/** The states the bank gives a saved withdrawal address. */
+export type SavedAddressState = 'pending' | 'cooling' | 'active' | 'blocked' | 'archived';
+
+/**
+ * What the status column says. An active or approved (cooling) entry is ready once its cooling-off has ended, which the
+ * bank's own readiness answer says the same way; it is not ready while the cooling-off runs, nor while the bank has
+ * published no cooling-off period at all (the bank refuses to send to it then), so it reads cooling off or blocked.
+ */
+export function shownState(state: SavedAddressState, cooling: 'ends' | 'ended' | 'unset'): SavedAddressState {
+  if (state !== 'active' && state !== 'cooling') return state;
+  return cooling === 'ends' ? 'cooling' : cooling === 'unset' ? 'blocked' : 'active';
+}
+
+/** The copy key that names each shown state, in the address book and the withdraw form alike. */
+export const SAVED_STATE_WORDS = {
+  pending: 'aStatePending',
+  cooling: 'aStateCooling',
+  active: 'aStateActive',
+  blocked: 'aStateBlocked',
+  archived: 'aStateArchived',
+} as const satisfies Record<SavedAddressState, string>;

@@ -43,3 +43,25 @@ describe('the push worker opens only this site', () => {
     expect(press('//evil.example/x')).toBe(`${ORIGIN}/notifications`);
   });
 });
+
+describe('the push worker shows the brand', () => {
+  it('shows the app icon and the one-colour badge from the brand folder, and both files are served', () => {
+    const shown: { icon?: string; badge?: string }[] = [];
+    const handlers: Record<string, (event: unknown) => void> = {};
+    const self = {
+      location: { origin: ORIGIN },
+      addEventListener: (name: string, handler: (event: unknown) => void) => (handlers[name] = handler),
+      registration: { showNotification: (_title: string, options: { icon?: string; badge?: string }) => shown.push(options) },
+      clients: { openWindow: () => {} },
+    };
+    runInNewContext(source, { self, URL });
+    handlers.push!({ data: { json: () => ({ title: 'TEST notice' }) }, waitUntil: () => {} });
+    expect(shown[0]).toMatchObject({ icon: '/brand/icon-192.png', badge: '/brand/badge-96.png' });
+    for (const file of [shown[0]!.icon!, shown[0]!.badge!])
+      expect(
+        readFileSync(new URL(`../../../public${file}`, import.meta.url))
+          .subarray(1, 4)
+          .toString(),
+      ).toBe('PNG');
+  });
+});

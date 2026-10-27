@@ -14,6 +14,8 @@ export interface DepositNetwork {
   minimumDeposit: string;
   confirmationsRequired: number;
   estimatedArrivalMinutes: number;
+  /** The owner's cases custody will not credit on this network, as written; absent when none was published. */
+  unsupported?: readonly string[];
 }
 
 export interface DepositAsset {

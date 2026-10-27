@@ -20,9 +20,10 @@
  *
  *   · `skip-honesty-scan.mjs` does not fail on these, but the list CANNOT GROW —
  *     a new private probe anywhere else is still red.
- *   · It also cannot GO STALE. If an entry stops violating, the scan fails and
- *     tells you to delete the entry. An exemption outlives its reason by default;
- *     this one has to be removed on purpose.
+ *   · It is not left to go stale quietly. If an entry stops violating, the scan
+ *     warns and names the entry to delete; it does not fail, since a fix never
+ *     fails the build (owner decision 2026-10-27). Until it is deleted, the
+ *     verdict below still cannot say COMPLETE.
  *   · `infra-verdict.mjs` refuses to say COMPLETE while any entry stands. The
  *     strongest sentence it can print becomes "complete except for the suites
  *     below, which cannot report either way" — which is the true one.

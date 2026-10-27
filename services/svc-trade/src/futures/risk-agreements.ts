@@ -1,8 +1,6 @@
 /**
- * Versioned risk agreements and margin terms of use (D-account-07).
- *
- * The ADL disclosure ack (`adl-disclosure.ts`) is the pattern: a versioned document, a durable acknowledgement
- * per user, and a gate in front of a futures open. This is the same shape with three differences the spec asks for:
+ * Versioned risk agreements and margin terms of use (D-account-07): the data the operator publishes and the
+ * compliance view lists.
  *
  *   - the text is the owner's, per jurisdiction. Nothing here carries agreement wording, and a jurisdiction with no
  *     published text is refused (`trade.agreement_region_unavailable`), not shown a default;
@@ -10,8 +8,8 @@
  *     the version (and the exact jurisdiction text id) the user saw;
  *   - acceptance is idempotent on (user, kind, version): a repeat keeps the first row and its time.
  *
- * Opening a position needs the current version of each required kind accepted. Closing or reducing is a safety path
- * and never reaches this gate. No money moves here and no ledger recipe is imported.
+ * No customer door asks for an acceptance and no futures open waits on one (owner decision 2026-10-27, until launch
+ * prep). No money moves here and no ledger recipe is imported.
  */
 
 import type { Sql } from 'postgres';
@@ -23,18 +21,13 @@ export function isAgreementKind(value: unknown): value is AgreementKind {
   return typeof value === 'string' && (AGREEMENT_KINDS as readonly string[]).includes(value);
 }
 
-export const AGREEMENT_REQUIRED = 'trade.agreement_required' as const;
 export const AGREEMENT_UNPUBLISHED = 'trade.agreement_unpublished' as const;
 export const AGREEMENT_REGION_UNAVAILABLE = 'trade.agreement_region_unavailable' as const;
 export const AGREEMENT_VERSION_STALE = 'trade.agreement_version_stale' as const;
 export const AGREEMENT_KIND_UNKNOWN = 'trade.agreement_kind_unknown' as const;
 
 export type AgreementRefusalCode =
-  | typeof AGREEMENT_REQUIRED
-  | typeof AGREEMENT_UNPUBLISHED
-  | typeof AGREEMENT_REGION_UNAVAILABLE
-  | typeof AGREEMENT_VERSION_STALE
-  | typeof AGREEMENT_KIND_UNKNOWN;
+  typeof AGREEMENT_UNPUBLISHED | typeof AGREEMENT_REGION_UNAVAILABLE | typeof AGREEMENT_VERSION_STALE | typeof AGREEMENT_KIND_UNKNOWN;
 
 /** The stable id of one jurisdiction text of one version. Stored on every acceptance. */
 export function agreementTextId(kind: AgreementKind, version: number, region: string): string {
@@ -118,54 +111,6 @@ export function resolveAgreementText(
   return { version, text };
 }
 
-export type AgreementView =
-  | {
-      readonly kind: AgreementKind;
-      readonly available: true;
-      readonly version: number;
-      readonly textId: string;
-      readonly region: string;
-      readonly title: string;
-      readonly body: string;
-      readonly accepted: boolean;
-      readonly acceptedAt: string | null;
-    }
-  | {
-      readonly kind: AgreementKind;
-      readonly available: false;
-      readonly reason: typeof AGREEMENT_UNPUBLISHED | typeof AGREEMENT_REGION_UNAVAILABLE;
-      readonly message: string;
-    };
-
-/** What the customer reads for one kind in their region. A refusal is data here, so a page can render it. */
-export async function readAgreementView(
-  store: RiskAgreementStore,
-  userId: string,
-  kind: AgreementKind,
-  region: string | null,
-): Promise<AgreementView> {
-  try {
-    const { version, text } = resolveAgreementText(await store.current(kind), kind, region);
-    const acceptance = await store.getAcceptance(userId, kind, version.version);
-    return {
-      kind,
-      available: true,
-      version: version.version,
-      textId: text.textId,
-      region: text.region,
-      title: text.title,
-      body: text.body,
-      accepted: acceptance != null,
-      acceptedAt: acceptance ? acceptance.acceptedAt.toISOString() : null,
-    };
-  } catch (err) {
-    if (err instanceof AgreementError && (err.code === AGREEMENT_UNPUBLISHED || err.code === AGREEMENT_REGION_UNAVAILABLE)) {
-      return { kind, available: false, reason: err.code, message: err.message };
-    }
-    throw err;
-  }
-}
-
 export interface AcceptAgreementResult {
   readonly kind: AgreementKind;
   readonly version: number;
@@ -211,27 +156,6 @@ export async function acceptAgreement(
     acceptedAt: acceptance.acceptedAt.toISOString(),
     created,
   };
-}
-
-/**
- * Gate for a futures open: every required kind must be published for the region and the current version accepted.
- * Refuses with the document id (kind, version, text id) so a client can send the user to the right page.
- */
-export async function assertAgreementsAccepted(
-  store: RiskAgreementStore,
-  input: { userId: string; kinds: readonly AgreementKind[]; region: string | null },
-): Promise<void> {
-  for (const kind of input.kinds) {
-    const { version, text } = resolveAgreementText(await store.current(kind), kind, input.region);
-    const acceptance = await store.getAcceptance(input.userId, kind, version.version);
-    if (!acceptance) {
-      throw new AgreementError(AGREEMENT_REQUIRED, 'Accept the current agreement before opening a position.', {
-        kind,
-        version: version.version,
-        documentId: text.textId,
-      });
-    }
-  }
 }
 
 /** In-memory store for hermetic tests. `publish` is a test seam; production publishes through the operator door. */

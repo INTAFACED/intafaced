@@ -2,12 +2,13 @@
  * Pure rules for the support desk: how a request is described, filtered and ordered, how a help article is grouped, and
  * what the person can and cannot do to a request today. No React, no network, so every rule here has a test.
  */
+import type { SupportTicketCategory } from '@intafaced/contracts/support-categories';
 
 /** Help articles that describe features this release does not offer (Deposits and withdrawals, Paper vs live). */
 export const HIDDEN_FEATURE_ARTICLES: ReadonlySet<string> = new Set(['kb-deposit-withdraw-honest', 'kb-paper-vs-live']);
 
 export type TicketStatus = 'open' | 'pending' | 'on_hold' | 'resolved' | 'closed';
-export type TicketCategory = 'account' | 'trading' | 'deposit_withdraw' | 'other';
+export type TicketCategory = SupportTicketCategory;
 
 export interface TicketLike {
   id: string;
@@ -165,15 +166,68 @@ export function supportEmail(configured?: string | undefined): string | null {
 
 const REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Where one request opens in the support desk. The id is the request's own id; the desk checks it belongs to the caller. */
+/** Where one request opens: its own address (SP-tickets-01). The id is the request's own id; the desk checks it belongs to the caller. */
 export function supportRequestHref(ticketId: string): string {
-  return `/support?request=${encodeURIComponent(ticketId)}`;
+  return `/support/tickets/${encodeURIComponent(ticketId)}`;
 }
 
-/** The request a `/support?request=<id>` address names, or `null` when there is none or it is not an id. */
+/** "My requests". */
+export const SUPPORT_TICKETS_HREF = '/support/tickets';
+
+/** The request form, with a subject drafted from the words the person searched for when there are any. */
+export function supportNewHref(subject = ''): string {
+  const draft = subject.trim().slice(0, SUBJECT_MAX);
+  return draft ? `/support/new?${new URLSearchParams({ subject: draft })}` : '/support/new';
+}
+
+/** The request a `/support?request=<id>` address names (the address before requests had their own), or `null`. */
 export function requestFromSearch(search: string): string | null {
   const value = new URLSearchParams(search).get('request');
   return value !== null && REQUEST_ID.test(value) ? value.toLowerCase() : null;
+}
+
+const SUBJECT_MAX = 200;
+
+/**
+ * Which part of the support desk an address opens. An address under /support/tickets/ that is not an id opens no request,
+ * and any other address under /support/ is none of the desk's own.
+ */
+export type SupportRoute =
+  | { view: 'help' }
+  | { view: 'new'; subject: string }
+  | { view: 'requests' }
+  | { view: 'request'; id: string }
+  | { view: 'badRequest' }
+  | { view: 'unknown' };
+
+export function supportRoute(pathname: string, search: string): SupportRoute {
+  const path = pathname.replace(/\/+$/, '') || '/';
+  if (path === '/support/new')
+    return { view: 'new', subject: (new URLSearchParams(search).get('subject') ?? '').trim().slice(0, SUBJECT_MAX) };
+  if (path === '/support/tickets') return { view: 'requests' };
+  const one = /^\/support\/tickets\/([^/]+)$/.exec(path);
+  if (one) {
+    let id = '';
+    try {
+      id = decodeURIComponent(one[1]!);
+    } catch {
+      return { view: 'badRequest' };
+    }
+    return REQUEST_ID.test(id) ? { view: 'request', id: id.toLowerCase() } : { view: 'badRequest' };
+  }
+  if (path !== '/support') return { view: 'unknown' };
+  const legacy = requestFromSearch(search);
+  return legacy ? { view: 'request', id: legacy } : { view: 'help' };
+}
+
+/**
+ * What the customer reads as a request's status: whose turn it is. The service says so (`customerStatus`); an older
+ * service that does not falls back to the request's own status, where a finished request is solved.
+ */
+export type CustomerStatus = 'awaiting_reply' | 'open' | 'solved';
+export function customerStatus(row: { status: TicketStatus; customerStatus?: CustomerStatus | undefined }): CustomerStatus {
+  if (row.status === 'resolved' || row.status === 'closed') return 'solved';
+  return row.customerStatus ?? 'open';
 }
 
 /** A mailto link that never carries a password, code or key: only the subject and a plain prompt the person finishes. */
