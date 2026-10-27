@@ -481,6 +481,9 @@ describe('svc-p2p mount — instruments.methods schema dual-control', () => {
             fields: [...FIELDS],
             enabled: true,
             settlement: { instant: true },
+            kind: 'transfer' as const,
+            noteRules: null,
+            cashRules: null,
           };
         },
         setMethodSchemaEnabled: async (methodId: string, country: string, enabled: boolean, reason?: string) => {
@@ -492,6 +495,9 @@ describe('svc-p2p mount — instruments.methods schema dual-control', () => {
             fields: [...FIELDS],
             enabled,
             settlement: { instant: true },
+            kind: 'transfer' as const,
+            noteRules: null,
+            cashRules: null,
           };
         },
       }),
@@ -818,6 +824,42 @@ describe('svc-p2p mount — instruments.methods schema dual-control', () => {
     ]);
   });
 
+  it('binds the cash and payment-note rules to the approval: the approved rules register, other rules refuse', async () => {
+    // P-ads-merchant-19: rules make a method cash in person (a locked price, its own release window), so a second
+    // person approves them with the fields; a register that sends none hashes as before.
+    const fields = [{ key: 'iban', label: 'IBAN' }];
+    const noteRules = { guidance: 'Write only the order number.', forbidden: ['USDT'] };
+    const cashRules = { meetingGuidance: 'Meet in public.', proof: 'Count together.', releaseWindowSeconds: 600 };
+    const hash = p2pActionPayloadHash('p2p.method_register', {
+      methodId: registerInput.methodId,
+      country: registerInput.country,
+      label: registerInput.label,
+      fields: JSON.stringify(parseFieldSpecs(fields)),
+      enabled: 'preserve-or-default',
+      noteRules: JSON.stringify(noteRules),
+      cashRules: JSON.stringify(cashRules),
+    });
+    const approved = compliance(hashBoundApproval(hash));
+    await expect(
+      approved.caller.instruments.methods.register({ ...registerInput, fields, noteRules, cashRules, ...APPROVED }),
+    ).resolves.toMatchObject({ methodId: 'bank_transfer', confirmOperatorId: CONFIRM });
+    expect(approved.calls).toEqual([['register', expect.objectContaining({ noteRules, cashRules })]]);
+
+    const swapped = compliance(hashBoundApproval(hash));
+    await expect(
+      swapped.caller.instruments.methods.register({
+        ...registerInput,
+        fields,
+        noteRules,
+        cashRules: { ...cashRules, releaseWindowSeconds: 86_400 },
+        ...APPROVED,
+      }),
+    ).rejects.toThrow();
+    const dropped = compliance(hashBoundApproval(hash));
+    await expect(dropped.caller.instruments.methods.register({ ...registerInput, fields, noteRules, ...APPROVED })).rejects.toThrow();
+    expect([...swapped.calls, ...dropped.calls]).toEqual([]);
+  });
+
   /**
    * `registerMethodSchema` stores `parseFieldSpecs`, not the request array.
    * Key case, label whitespace, and a non-boolean `required` all change on
@@ -839,7 +881,17 @@ describe('svc-p2p mount — instruments.methods schema dual-control', () => {
         const fields = parseFieldSpecs(input.fields);
         const enabled = input.enabled ?? true;
         stored.push({ methodId: input.methodId, country: input.country, label: input.label, fields, enabled });
-        return { methodId: input.methodId, country: input.country, label: input.label, fields, enabled, settlement: { instant: true } };
+        return {
+          methodId: input.methodId,
+          country: input.country,
+          label: input.label,
+          fields,
+          enabled,
+          settlement: { instant: true },
+          kind: 'transfer' as const,
+          noteRules: null,
+          cashRules: null,
+        };
       },
     });
     const callerFor = (payloadHash: string) =>
@@ -2205,5 +2257,83 @@ describe('svc-p2p strict screening control', () => {
         .offers.list({ limit: 10 }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN', cause: { code: 'denied.screening_unconfigured' } });
     expect(reads).toBe(0);
+  });
+});
+
+describe('svc-p2p mount — sensitive-remark cases (P-ads-merchant-19, J-p2p-04 #5)', () => {
+  const TRADE = '44444444-4444-4444-8444-444444444444';
+  const CASE = '55555555-5555-4555-8555-555555555555';
+  const opened = {
+    id: CASE,
+    tradeId: TRADE,
+    reporterId: USER,
+    reportedId: '66666666-6666-4666-8666-666666666666',
+    reporterRole: 'seller' as const,
+    remark: 'USDT',
+    status: 'open' as const,
+    openedAt: new Date('2026-10-25T10:00:00.000Z'),
+  };
+  const writer = () => signed(principal({ scopes: ['p2p:read', 'p2p:write'] }));
+
+  it('reports as the signed-in party, trimmed, and maps a repeat to CONFLICT and a bad quote to BAD_REQUEST', async () => {
+    const seen: unknown[] = [];
+    let answer: () => unknown = () => opened;
+    const p2p = stubP2p({
+      reportSensitiveRemark: async (input: unknown) => {
+        seen.push(input);
+        return answer();
+      },
+    });
+    const caller = createP2pRouter(p2p, stubInstruments()).createCaller(writer());
+    expect(await caller.trades.reportSensitiveRemark({ caseId: CASE, tradeId: TRADE, remark: '  USDT  ' })).toMatchObject({
+      id: CASE,
+      openedAt: '2026-10-25T10:00:00.000Z',
+    });
+    expect(seen).toEqual([{ caseId: CASE, tradeId: TRADE, reporterId: USER, remark: 'USDT' }]);
+    answer = () => {
+      throw new P2pError('exists', 'p2p.remark_case_exists');
+    };
+    await expect(caller.trades.reportSensitiveRemark({ caseId: CASE, tradeId: TRADE, remark: 'x' })).rejects.toMatchObject({
+      code: 'CONFLICT',
+      cause: { code: 'p2p.remark_case_exists' },
+    });
+    answer = () => {
+      throw new P2pError('invalid', 'p2p.remark_invalid');
+    };
+    await expect(caller.trades.reportSensitiveRemark({ caseId: CASE, tradeId: TRADE, remark: 'x' })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      cause: { code: 'p2p.remark_invalid' },
+    });
+    await expect(caller.trades.reportSensitiveRemark({ caseId: CASE, tradeId: TRADE, remark: 'x'.repeat(281) })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
+    expect(seen).toHaveLength(3);
+  });
+
+  it('reads the caller’s own case and whether they were reported, and lists the open cases to moderators only', async () => {
+    let seen: { mine: typeof opened | null; againstMe: { caseId: string; openedAt: Date } | null } = { mine: opened, againstMe: null };
+    let listed = 0;
+    const p2p = stubP2p({
+      remarkCasesOn: async (tradeId: string, userId: string) => (tradeId === TRADE && userId === USER ? seen : null),
+      listRemarkCases: async () => {
+        listed += 1;
+        return [opened];
+      },
+    });
+    const MODERATOR = '77777777-7777-4777-8777-777777777777';
+    const caller = createP2pRouter(p2p, stubInstruments(), undefined, { moderatorUserIds: [MODERATOR] }).createCaller(writer());
+    expect(await caller.trades.remarkCase({ tradeId: TRADE })).toEqual({
+      mine: expect.objectContaining({ id: CASE, remark: 'USDT' }),
+      againstMe: null,
+    });
+    seen = { mine: null, againstMe: { caseId: CASE, openedAt: opened.openedAt } };
+    expect(await caller.trades.remarkCase({ tradeId: TRADE })).toEqual({
+      mine: null,
+      againstMe: { caseId: CASE, openedAt: '2026-10-25T10:00:00.000Z' },
+    });
+    await expect(caller.disputes.remarkCases({ limit: 10 })).rejects.toMatchObject({ cause: { code: 'p2p.not_a_moderator' } });
+    expect(listed).toBe(0);
+    const moderator = createP2pRouter(p2p, stubInstruments(), undefined, { moderatorUserIds: [USER] }).createCaller(writer());
+    expect(await moderator.disputes.remarkCases({ limit: 10 })).toEqual({ cases: [expect.objectContaining({ id: CASE })] });
   });
 });

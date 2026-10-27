@@ -4,7 +4,13 @@ import type { Sql } from 'postgres';
 import { isSupportedFiat } from '@intafaced/config';
 import {
   ANY_COUNTRY,
+  CASH_RELEASE_MAX_SECONDS,
+  CASH_RELEASE_MIN_SECONDS,
+  CASH_TEXT_MAX,
   InstrumentError,
+  NOTE_FORBIDDEN_MAX_WORDS,
+  NOTE_FORBIDDEN_WORD_MAX,
+  NOTE_GUIDANCE_MAX,
   fingerprintDetails,
   methodIdKey,
   normaliseCountry,
@@ -17,6 +23,8 @@ import {
   validateDetails,
   type FieldSpec,
   type InstrumentDetails,
+  type MethodCashRules,
+  type MethodNoteRules,
   type MethodSchema,
   type MethodSettlement,
 } from './instruments.js';
@@ -242,6 +250,8 @@ interface SchemaRow {
   enabled: boolean;
   instant: boolean;
   settlement_window_seconds: number | null;
+  note_rules: unknown;
+  cash_rules: unknown;
 }
 
 /**
@@ -364,6 +374,10 @@ export class InstrumentService {
     enabled?: boolean;
     /** P-disputes-security-09. Omitted on a replace keeps the row's profile; a new row is instant. */
     settlement?: MethodSettlement;
+    /** P-ads-merchant-19. Omitted keeps the row's rules; null clears them; a new row has none. */
+    noteRules?: MethodNoteRules | null;
+    /** P-ads-merchant-19. Rules make the method cash in person; null makes it a transfer; omitted keeps the row's. */
+    cashRules?: MethodCashRules | null;
   }): Promise<MethodSchema> {
     const methodId = normaliseMethodId(input.methodId);
     const country = normaliseCountry(input.country);
@@ -375,19 +389,28 @@ export class InstrumentService {
     const settlement = input.settlement === undefined ? null : parseSettlement(input.settlement);
     const instant = settlement?.instant ?? true;
     const windowSeconds = settlement && !settlement.instant ? settlement.windowSeconds : null;
+    const writeNotes = input.noteRules !== undefined;
+    const noteRules = input.noteRules ? parseNoteRules(input.noteRules) : null;
+    const writeCash = input.cashRules !== undefined;
+    const cashRules = input.cashRules ? parseCashRules(input.cashRules) : null;
 
     // A new row still defaults to enabled. A replace that omits `enabled` must
     // not copy that default onto a row `setMethodSchemaEnabled` turned off:
     // EXCLUDED.enabled would be true, and schemaFor would accept the rail again.
     const writeEnabled = input.enabled !== undefined;
     const rows = await this.sql<SchemaRow[]>`
-      INSERT INTO p2p.payment_method_schemas (method_id, country, label, fields, enabled, instant, settlement_window_seconds)
+      INSERT INTO p2p.payment_method_schemas (
+        method_id, country, label, fields, enabled, instant, settlement_window_seconds, note_rules, cash_rules
+      )
       VALUES (
-        ${methodId}, ${country}, ${label}, ${this.sql.json(fields as never)}, ${input.enabled ?? true}, ${instant}, ${windowSeconds}
+        ${methodId}, ${country}, ${label}, ${this.sql.json(fields as never)}, ${input.enabled ?? true}, ${instant}, ${windowSeconds},
+        ${noteRules === null ? null : this.sql.json(noteRules as never)}, ${cashRules === null ? null : this.sql.json(cashRules as never)}
       )
       ON CONFLICT (method_id, country) DO UPDATE SET
         label = EXCLUDED.label,
         fields = EXCLUDED.fields,
+        note_rules = CASE WHEN ${writeNotes}::boolean THEN EXCLUDED.note_rules ELSE payment_method_schemas.note_rules END,
+        cash_rules = CASE WHEN ${writeCash}::boolean THEN EXCLUDED.cash_rules ELSE payment_method_schemas.cash_rules END,
         instant = CASE WHEN ${settlement !== null}::boolean THEN EXCLUDED.instant ELSE payment_method_schemas.instant END,
         settlement_window_seconds = CASE
           WHEN ${settlement !== null}::boolean THEN EXCLUDED.settlement_window_seconds
@@ -713,6 +736,20 @@ export class InstrumentService {
   }
 
   /**
+   * P-ads-merchant-19: the methods any market's enabled row calls cash in person. A cash price is locked, so a floating
+   * ad may not list one; like the settlement profile this is a catalogue fact, never the seller's own market.
+   */
+  async cashMethods(methodIds: readonly string[], db: Sql = this.sql): Promise<ReadonlySet<string>> {
+    const keys = [...new Set(methodIds.map((id) => methodIdKey(id)))];
+    if (keys.length === 0) return new Set();
+    const rows = await db<Array<{ method_id: string }>>`
+      SELECT DISTINCT method_id FROM p2p.payment_method_schemas
+       WHERE enabled = true AND cash_rules IS NOT NULL AND method_id = ANY(${keys})
+    `;
+    return new Set(rows.map((row) => methodIdKey(row.method_id)));
+  }
+
+  /**
    * P-disputes-security-09: what the board says about each method before anyone takes. A method is non-instant when any
    * market's enabled row says so; its window is the longest of those (null when any of them is blank). The order itself
    * carries the exact profile of the market it pays into. The ad's consent check reads this too, so its answer never
@@ -877,7 +914,7 @@ export class InstrumentService {
   async attachToTrade(
     tx: Sql,
     input: { tradeId: string; sellerId: string; takerId: string; methodId: string; fiatCurrency: string; sink: DenialSink },
-  ): Promise<{ instrumentId: string; fingerprint: string; settlement: MethodSettlement }> {
+  ): Promise<{ instrumentId: string; fingerprint: string; settlement: MethodSettlement; cashReleaseSeconds: number | null }> {
     const methodId = methodIdKey(input.methodId);
     // Same payable rule as `liveMethodKeys`: an active row is not a rail once
     // the operator has emptied or disabled the schema. EXISTS, not JOIN, so a
@@ -932,8 +969,9 @@ export class InstrumentService {
     `;
 
     // The profile of the market the buyer pays into: exact country beating the wildcard, as every schema read does.
-    const [profile] = await tx<Array<{ instant: boolean; settlement_window_seconds: number | null }>>`
-      SELECT instant, settlement_window_seconds FROM p2p.payment_method_schemas
+    const [profile] = await tx<Array<{ instant: boolean; settlement_window_seconds: number | null; cash_release: number | null }>>`
+      SELECT instant, settlement_window_seconds, (cash_rules->>'releaseWindowSeconds')::integer AS cash_release
+        FROM p2p.payment_method_schemas
        WHERE method_id = ${instrument.method_id} AND enabled = true AND country IN (${instrument.country}, ${ANY_COUNTRY})
        ORDER BY (country = ${ANY_COUNTRY}) ASC
        LIMIT 1
@@ -942,6 +980,8 @@ export class InstrumentService {
       instrumentId: instrument.id,
       fingerprint: instrument.fingerprint,
       settlement: profile ? settlementOf(profile) : { instant: true },
+      // P-ads-merchant-19: an order paid in cash in person takes the row's release window, copied now like the profile.
+      cashReleaseSeconds: profile?.cash_release ?? null,
     };
   }
 
@@ -1377,6 +1417,11 @@ function toSchema(row: SchemaRow): MethodSchema {
     fields,
     enabled: row.enabled,
     settlement: settlementOf(row),
+    kind: row.cash_rules == null ? 'transfer' : 'cash_in_person',
+    // Stored rules were checked on the way in and their shape by the database; a read does not re-judge them against
+    // today's bounds, so one row never takes the whole catalogue (or the operator's fix for it) down.
+    noteRules: row.note_rules == null ? null : storedNoteRules(row.note_rules as MethodNoteRules),
+    cashRules: row.cash_rules == null ? null : storedCashRules(row.cash_rules as MethodCashRules),
   };
 }
 
@@ -1396,6 +1441,55 @@ function parseSettlement(input: MethodSettlement): MethodSettlement {
     );
   }
   return { instant: false, windowSeconds: window };
+}
+
+function storedNoteRules(row: MethodNoteRules): MethodNoteRules {
+  return { guidance: String(row.guidance), forbidden: Array.isArray(row.forbidden) ? row.forbidden.map(String) : [] };
+}
+
+function storedCashRules(row: MethodCashRules): MethodCashRules {
+  return { meetingGuidance: String(row.meetingGuidance), proof: String(row.proof), releaseWindowSeconds: Number(row.releaseWindowSeconds) };
+}
+
+/** An operator's payment-note rules, checked before they are stored. */
+function parseNoteRules(input: MethodNoteRules): MethodNoteRules {
+  const guidance = typeof input?.guidance === 'string' ? input.guidance.trim() : '';
+  const forbidden = Array.isArray(input?.forbidden) ? input.forbidden.map((word) => (typeof word === 'string' ? word.trim() : '')) : null;
+  if (
+    guidance.length === 0 ||
+    guidance.length > NOTE_GUIDANCE_MAX ||
+    forbidden === null ||
+    forbidden.length > NOTE_FORBIDDEN_MAX_WORDS ||
+    forbidden.some((word) => word.length === 0 || word.length > NOTE_FORBIDDEN_WORD_MAX)
+  ) {
+    throw new InstrumentError(
+      `Payment-note rules need guidance of 1 to ${NOTE_GUIDANCE_MAX} characters and at most ${NOTE_FORBIDDEN_MAX_WORDS} forbidden words of 1 to ${NOTE_FORBIDDEN_WORD_MAX}`,
+      'p2p.instrument_schema_invalid',
+    );
+  }
+  return { guidance, forbidden: [...new Set(forbidden)] };
+}
+
+/** An operator's cash-in-person rules: both texts set, and a release window the database also bounds. */
+function parseCashRules(input: MethodCashRules): MethodCashRules {
+  const meetingGuidance = typeof input?.meetingGuidance === 'string' ? input.meetingGuidance.trim() : '';
+  const proof = typeof input?.proof === 'string' ? input.proof.trim() : '';
+  const release = input?.releaseWindowSeconds;
+  if (
+    meetingGuidance.length === 0 ||
+    meetingGuidance.length > CASH_TEXT_MAX ||
+    proof.length === 0 ||
+    proof.length > CASH_TEXT_MAX ||
+    !Number.isInteger(release) ||
+    release < CASH_RELEASE_MIN_SECONDS ||
+    release > CASH_RELEASE_MAX_SECONDS
+  ) {
+    throw new InstrumentError(
+      `Cash-in-person rules need meeting and proof guidance of 1 to ${CASH_TEXT_MAX} characters and a release window of ${CASH_RELEASE_MIN_SECONDS} to ${CASH_RELEASE_MAX_SECONDS} seconds`,
+      'p2p.instrument_schema_invalid',
+    );
+  }
+  return { meetingGuidance, proof, releaseWindowSeconds: release };
 }
 
 /**

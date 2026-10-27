@@ -350,10 +350,18 @@ describe('svc-market listing eligibility', () => {
       const second = await listedVendor(OTHER_USER, 1);
       await listedVendor(LATER_USER, 1);
       const finished: string[] = [];
+      // The earlier vendor's lookup waits for the later one to finish, so the later one
+      // always finishes first. A fixed 30 ms head start was not enough: each lookup reads
+      // its slot count first, and on a busy runner the second read can land after the
+      // first lookup's timer (#6232). Reads made one after another never release the wait,
+      // and the 2 s fallback then leaves the order wrong, so the check still fails.
+      let laterDone!: () => void;
+      const later = new Promise<void>((resolve) => (laterDone = resolve));
       const reading = new VendorService(sql, {
         async entitlementOf(userId: string): Promise<VendorEntitlement> {
-          await new Promise((resolve) => setTimeout(resolve, userId === VENDOR_USER ? 30 : 1));
+          if (userId === VENDOR_USER) await Promise.race([later, new Promise((resolve) => setTimeout(resolve, 2_000))]);
           finished.push(userId);
+          if (userId === OTHER_USER) laterDone();
           return { tierName: 'Operator', vendorSlots: 1 };
         },
       });

@@ -217,6 +217,7 @@ import {
 
 export type P2pErrorCode =
   | 'p2p.non_instant_not_accepted'
+  | 'p2p.floating_not_allowed_for_method'
   | 'p2p.content_rule_violation'
   | 'p2p.content_rules_invalid'
   | 'p2p.posting_threshold_not_met'
@@ -233,6 +234,9 @@ export type P2pErrorCode =
   | 'p2p.remind_too_early'
   | 'p2p.remind_rate_limited'
   | 'p2p.mismatch_report_exists'
+  | 'p2p.remark_case_exists'
+  | 'p2p.remark_not_payee'
+  | 'p2p.remark_invalid'
   | 'rail.bank'
   | 'p2p.method_not_rail_validated'
   | 'p2p.rail_mismatch'
@@ -682,7 +686,7 @@ export interface TradeInstrumentAttacher {
   attachToTrade(
     tx: Sql,
     input: { tradeId: string; sellerId: string; takerId: string; methodId: string; fiatCurrency: string; sink: DenialSink },
-  ): Promise<{ instrumentId: string; fingerprint: string; settlement?: MethodSettlement }>;
+  ): Promise<{ instrumentId: string; fingerprint: string; settlement?: MethodSettlement; cashReleaseSeconds?: number | null }>;
 
   /**
    * THE ONE REFUSAL. Queues the attempt against the seller, then throws.
@@ -733,6 +737,12 @@ export interface TradeInstrumentAttacher {
    * a catalogue still builds (every method then reads instant).
    */
   boardSettlements?(methodIds: readonly string[], db?: Sql): Promise<ReadonlyMap<string, MethodSettlement>>;
+
+  /**
+   * P-ads-merchant-19: the methods any market's enabled row calls cash in person (a locked price). Optional so a test
+   * stub without a catalogue still builds (no method is then cash).
+   */
+  cashMethods?(methodIds: readonly string[], db?: Sql): Promise<ReadonlySet<string>>;
 }
 
 export interface P2pServiceOptions {
@@ -908,6 +918,28 @@ export interface MethodRemovalImpact {
   ads: MethodRemovalAd[];
 }
 
+/** P-ads-merchant-19: a case opened by a party's report of a sensitive remark in an order's payment note. */
+export interface RemarkCase {
+  readonly id: string;
+  readonly tradeId: string;
+  readonly reporterId: string;
+  readonly reportedId: string;
+  readonly reporterRole: 'buyer' | 'seller';
+  readonly remark: string;
+  readonly status: 'open';
+  readonly openedAt: Date;
+}
+
+/** A remark-case notice the sweep could not hand over, with the reason. */
+export interface RemarkCaseSweepFailure {
+  readonly caseId: string;
+  readonly code: string | null;
+  readonly error: string;
+}
+
+/** The longest remark a report quotes; the database checks the same. */
+export const REMARK_MAX = 280;
+
 /** One removal notice the sweep could not hand to the bus. */
 export interface OfferPauseSweepFailure {
   readonly instrumentId: string;
@@ -945,6 +977,8 @@ export interface TradeRecord {
   termsSnapshot: string | null;
   /** P-disputes-security-09: the method's profile in the market the buyer pays into, copied at take. */
   settlement: MethodSettlement;
+  /** P-ads-merchant-19: the cash-in-person release window copied at take, or null on a transfer method. */
+  cashReleaseSeconds?: number | null;
 }
 
 export interface DisputeRecord {
@@ -1008,6 +1042,7 @@ interface TradeRow {
   terms_snapshot: string | null;
   non_instant?: boolean;
   settlement_window_seconds?: number | null;
+  cash_release_seconds?: number | null;
 }
 
 interface OfferRow {
@@ -1213,6 +1248,31 @@ type MismatchRow = {
   tolerance_bps: number | null;
   reported_at: Date;
 };
+
+interface RemarkCaseRow {
+  id: string;
+  trade_id: string;
+  reporter_id: string;
+  reported_id: string;
+  reporter_role: 'buyer' | 'seller';
+  remark: string;
+  status: 'open';
+  opened_at: Date;
+  handed_at: Date | null;
+}
+
+function toRemarkCase(row: RemarkCaseRow): RemarkCase {
+  return {
+    id: row.id,
+    tradeId: row.trade_id,
+    reporterId: row.reporter_id,
+    reportedId: row.reported_id,
+    reporterRole: row.reporter_role,
+    remark: row.remark,
+    status: row.status,
+    openedAt: row.opened_at,
+  };
+}
 
 /** The order's amount report, read with `db` (the order's transaction, or the pool). */
 async function readMismatch(db: Sql, tradeId: string): Promise<MismatchReport | null> {
@@ -1641,6 +1701,21 @@ export class P2pService {
     throw new P2pError('The seller has not accepted non-instant payment methods on this ad', 'p2p.non_instant_not_accepted');
   }
 
+  /**
+   * P-ads-merchant-19: cash in person has a locked price, so a floating ad may not list a method any market calls cash.
+   * Checked at post, on an edit that changes the methods, and again at take (the operator may make a method cash later).
+   */
+  private async assertFloatingAllowed(input: { priceType: PriceType; methods: readonly unknown[]; db?: Sql }): Promise<void> {
+    if (input.priceType !== 'float' || !this.instruments.cashMethods) return;
+    const ids = input.methods.map(methodIdFromOfferEntry).filter((id): id is string => id !== null);
+    const cash = await this.instruments.cashMethods(ids, input.db);
+    if (cash.size === 0) return;
+    throw new P2pError(
+      `Cash in person has a locked price, so a floating ad cannot list ${[...cash].sort().join(', ')}; post it at a fixed price`,
+      'p2p.floating_not_allowed_for_method',
+    );
+  }
+
   /** P-trade-orders-03: the order's fiat amount against the owner's bounds for this asset and fiat pair. */
   private assertPairLimit(input: { asset: string; fiatCurrency: string; fiatAmount: Amount }): void {
     if (!this.takeLimits) return;
@@ -1934,6 +2009,7 @@ export class P2pService {
      * this rail" — the residual left after take refusals became uniform. Buy
      * offers skip this: the seller is the taker, unknown at post time.
      */
+    await this.assertFloatingAllowed({ priceType: input.priceType, methods: input.methods });
     if (input.side === 'sell') {
       const live = await this.instruments.liveMethodKeys(input.makerId, fiatCurrency);
       const missing = missingSellDestinations(input.methods, live);
@@ -2259,6 +2335,8 @@ export class P2pService {
     ) {
       throw noReference(preview.asset, preview.fiatCurrency, 'resumed');
     }
+    // P-ads-merchant-19: nor while it lists a method the operator made cash in person during the pause (a locked price).
+    if (preview.status === 'paused') await this.assertFloatingAllowed({ priceType: preview.priceType, methods: preview.methods });
     // P-ads-merchant-18: a paused sell ad comes back only while one of its methods still has a live destination, read under
     // the maker's instrument key so a removal running at the same moment either pauses it after this or is seen here.
     const rows = await transaction(
@@ -2748,6 +2826,9 @@ export class P2pService {
               }
             }
 
+            // P-ads-merchant-19: the operator may have made a listed method cash in person since the ad was posted.
+            await this.assertFloatingAllowed({ priceType: offer.priceType, methods: [input.method], db: tx });
+
             const attached = await this.instruments.attachToTrade(tx, {
               tradeId: input.tradeId,
               sellerId,
@@ -2761,12 +2842,17 @@ export class P2pService {
             // from it, whatever the operator changes later. The check above already refused a sell ad without consent
             // (the destination's market is one of the catalogue's), so this one only holds if a stub disagrees.
             const settlement = attached.settlement ?? { instant: true };
-            if (settlement.instant) return toTrade(inserted[0]);
-            if (offer.side === 'sell' && !offer.acceptsNonInstant) {
+            // P-ads-merchant-19: an order paid in cash in person keeps the row's release window, whatever changes later.
+            const cashRelease = attached.cashReleaseSeconds ?? null;
+            if (settlement.instant && cashRelease === null) return toTrade(inserted[0]);
+            if (!settlement.instant && offer.side === 'sell' && !offer.acceptsNonInstant) {
               throw new P2pError('This ad does not accept payment methods that are not instant', 'p2p.non_instant_not_accepted');
             }
             const [profiled] = await tx<TradeRow[]>`
-              UPDATE p2p.p2p_trades SET non_instant = true, settlement_window_seconds = ${settlement.windowSeconds}
+              UPDATE p2p.p2p_trades
+                 SET non_instant = ${!settlement.instant},
+                     settlement_window_seconds = ${settlement.instant ? null : settlement.windowSeconds},
+                     cash_release_seconds = ${cashRelease}
                WHERE id = ${input.tradeId}
               RETURNING *
             `;
@@ -2930,7 +3016,10 @@ export class P2pService {
           const now = await txNow(tx);
           // P-disputes-security-09: on a non-instant order the release timeout (which opens a dispute) never comes
           // before the payment window ends, so no dispute of any origin opens while the money may still be on its way.
-          const released = deadlineFor('fiat_sent', now, this.deadlines)!;
+          // P-ads-merchant-19: an order paid in cash in person takes the method row's release window, copied at take.
+          const released = trade.cashReleaseSeconds
+            ? new Date(now.getTime() + trade.cashReleaseSeconds * 1000)
+            : deadlineFor('fiat_sent', now, this.deadlines)!;
           const settledBy = trade.settlement.instant || !trade.deadlines.paymentBy ? null : new Date(trade.deadlines.paymentBy);
           const deadlineAt = settledBy && settledBy > released ? settledBy : released;
           const deadlines = withDeadline(trade.deadlines, 'fiat_sent', deadlineAt);
@@ -3217,6 +3306,143 @@ export class P2pService {
   /** An order's amount report, or null. Reads only; callers filter parties first. */
   async mismatchReport(tradeId: string): Promise<MismatchReport | null> {
     return readMismatch(this.sql, tradeId);
+  }
+
+  // ── Sensitive remarks in a payment note (P-ads-merchant-19) ───────────────────
+
+  /**
+   * J-p2p-04 #5: a party to an order reports a sensitive remark the other party wrote in the payment note (a coin name,
+   * "crypto", anything the method row's note rules forbid). A case opens against the other party, under the order's
+   * lock, one per (order, reporter): the same report again (a lost reply) returns the first, a different one refuses
+   * `p2p.remark_case_exists`. The case row is the outbox of the notice that tells the reported party; nothing moves.
+   */
+  async reportSensitiveRemark(input: { caseId: string; tradeId: string; reporterId: string; remark: string }): Promise<RemarkCase> {
+    const remark = input.remark.trim();
+    if (remark.length === 0 || remark.length > REMARK_MAX) {
+      throw new P2pError(`A reported remark is 1 to ${REMARK_MAX} characters, quoted from the payment note`, 'p2p.remark_invalid');
+    }
+    const done = await withSpan('p2p.reportSensitiveRemark', async () =>
+      transaction(
+        this.sql,
+        async (tx) => {
+          const trade = await this.lockTrade(tx, input.tradeId);
+          if (trade.buyerId !== input.reporterId && trade.sellerId !== input.reporterId) throw unknownTrade(input.tradeId);
+          // The buyer pays and writes the payment note; only the seller, who receives it, has a remark to report.
+          if (trade.sellerId !== input.reporterId) {
+            throw new P2pError('Only the seller, who receives the payment, reports a remark in its note', 'p2p.remark_not_payee');
+          }
+          // No payment note exists on an order that was never funded: the buyer pays only once the coin is held.
+          if (trade.escrowedAt === null) {
+            throw new TradeStateError(
+              `Trade ${input.tradeId} is ${trade.status} and was never funded: there is no payment note to report`,
+              isTerminal(trade.status) ? 'p2p.trade_terminal' : 'p2p.invalid_transition',
+              trade.status,
+              'escrowed',
+            );
+          }
+          const [existing] = await tx<RemarkCaseRow[]>`
+            SELECT * FROM p2p.remark_cases WHERE trade_id = ${input.tradeId} AND reporter_id = ${input.reporterId}
+          `;
+          if (existing) {
+            if (existing.id === input.caseId && existing.remark === remark) return { report: toRemarkCase(existing), fresh: false };
+            throw new P2pError('You already reported a remark on this order; open a dispute to add to it', 'p2p.remark_case_exists');
+          }
+          const reporterRole = trade.sellerId === input.reporterId ? 'seller' : 'buyer';
+          const reportedId = reporterRole === 'seller' ? trade.buyerId : trade.sellerId;
+          const openedAt = await txNow(tx);
+          const [row] = await tx<RemarkCaseRow[]>`
+            INSERT INTO p2p.remark_cases (id, trade_id, reporter_id, reported_id, reporter_role, remark, opened_at)
+            VALUES (${input.caseId}, ${input.tradeId}, ${input.reporterId}, ${reportedId}, ${reporterRole}, ${remark}, ${openedAt})
+            ON CONFLICT DO NOTHING
+            RETURNING *
+          `;
+          // The case id is already another report's (another order, or another person): never theirs to replay.
+          if (!row) throw new P2pError('That report id is already in use; start the report again', 'p2p.remark_case_exists');
+          return { report: toRemarkCase(row), fresh: true };
+        },
+        { isolation: 'read committed', maxAttempts: 5 },
+      ),
+    );
+    // Owed from the commit above; the sweep hands it over if this process dies first or the bus is down.
+    if (done.fresh) {
+      try {
+        await this.handOverRemarkCase(done.report);
+      } catch (err) {
+        recordSwallowed('p2p.remark_case_opened.publish', err);
+      }
+    }
+    return done.report;
+  }
+
+  /**
+   * The remark cases on this order as the caller may see them: their own report in full, and whether the other party
+   * reported them (when and under which case, never the quote). A caller who is not a party gets not found.
+   */
+  async remarkCasesOn(
+    tradeId: string,
+    userId: string,
+  ): Promise<{ mine: RemarkCase | null; againstMe: { caseId: string; openedAt: Date } | null }> {
+    const [trade] = await this.sql<{ buyer_id: string; seller_id: string }[]>`
+      SELECT buyer_id, seller_id FROM p2p.p2p_trades WHERE id = ${tradeId}
+    `;
+    if (!trade || (trade.buyer_id !== userId && trade.seller_id !== userId)) throw unknownTrade(tradeId);
+    const rows = await this.sql<RemarkCaseRow[]>`
+      SELECT * FROM p2p.remark_cases WHERE trade_id = ${tradeId} AND (reporter_id = ${userId} OR reported_id = ${userId})
+    `;
+    const mine = rows.find((row) => row.reporter_id === userId);
+    const against = rows.find((row) => row.reported_id === userId);
+    return {
+      mine: mine ? toRemarkCase(mine) : null,
+      againstMe: against ? { caseId: against.id, openedAt: against.opened_at } : null,
+    };
+  }
+
+  /** The open remark cases, oldest first: the queue staff read. Callers gate on the moderator check first. */
+  async listRemarkCases(limit: number): Promise<RemarkCase[]> {
+    const lim = assertSweepSettlementsLimit(limit);
+    const rows = await this.sql<RemarkCaseRow[]>`
+      SELECT * FROM p2p.remark_cases WHERE status = 'open' ORDER BY opened_at ASC, id ASC LIMIT ${lim}
+    `;
+    return rows.map(toRemarkCase);
+  }
+
+  private async handOverRemarkCase(report: RemarkCase) {
+    await this.bus.publish(
+      'p2pRemarkCaseOpened',
+      {
+        caseId: report.id,
+        tradeId: report.tradeId,
+        reportedId: report.reportedId,
+        reporterRole: report.reporterRole,
+        openedAt: report.openedAt.toISOString(),
+      },
+      { idempotencyKey: `p2p.remark_case.opened:${report.id}` },
+    );
+    await this.sql`UPDATE p2p.remark_cases SET handed_at = now() WHERE id = ${report.id} AND handed_at IS NULL`;
+  }
+
+  /** Hand over every remark-case notice still owed, oldest first. */
+  async sweepRemarkCases(limit?: number): Promise<{ sent: number; failures: RemarkCaseSweepFailure[] }> {
+    const lim = assertSweepSettlementsLimit(limit);
+    const owed = await this.sql<RemarkCaseRow[]>`
+      SELECT * FROM p2p.remark_cases WHERE handed_at IS NULL ORDER BY opened_at ASC LIMIT ${lim}
+    `;
+    let sent = 0;
+    const failures: RemarkCaseSweepFailure[] = [];
+    for (const row of owed) {
+      try {
+        await this.handOverRemarkCase(toRemarkCase(row));
+        sent++;
+      } catch (err) {
+        const code = (err as { code?: unknown })?.code;
+        failures.push({
+          caseId: row.id,
+          code: typeof code === 'string' ? code : null,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    return { sent, failures };
   }
 
   // ── Payment validation through a bank rail (P-trade-orders-11) ──────────────
@@ -4768,6 +4994,7 @@ export class P2pService {
       if (missingSellDestinations(input.methods, registered).length > 0) {
         throw new InstrumentError(resolveP2pCopy(P2P_COPY.methodUnknown), 'p2p.instrument_method_unknown');
       }
+      await this.assertFloatingAllowed({ priceType: preview.priceType, methods: input.methods });
       if (preview.side === 'sell') {
         const live = await this.instruments.liveMethodKeys(preview.makerId, preview.fiatCurrency);
         if (missingSellDestinations(input.methods, live).length > 0) {
@@ -5643,6 +5870,7 @@ function toTrade(row: TradeRow): TradeRecord {
     settledAt: row.settled_at,
     termsSnapshot: row.terms_snapshot,
     settlement: row.non_instant ? { instant: false, windowSeconds: row.settlement_window_seconds ?? null } : { instant: true },
+    cashReleaseSeconds: row.cash_release_seconds ?? null,
   };
 }
 

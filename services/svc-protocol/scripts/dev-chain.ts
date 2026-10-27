@@ -2,7 +2,7 @@ import { createHash, pbkdf2Sync } from 'node:crypto';
 import { createPublicClient, createWalletClient, defineChain, getContract, http, toHex } from 'viem';
 import type { Transport } from 'viem';
 import { HDKey, hdKeyToAccount } from 'viem/accounts';
-import type { Address, Hex, HDAccount, PublicClient, WalletClient } from 'viem';
+import type { Address, Chain, Hex, HDAccount, PublicClient, WalletClient } from 'viem';
 import { loadArtifact } from '../src/chain/artifacts.js';
 
 /**
@@ -135,7 +135,7 @@ export function withGasHeadroom(base: Transport): Transport {
   };
 }
 
-export const devChain = (rpcUrl: string, chainId: number = DEV_CHAIN_ID) =>
+export const devChain = (rpcUrl: string, chainId: number = DEV_CHAIN_ID): Chain =>
   defineChain({
     id: chainId,
     name: `intafaced-dev-${chainId}`,

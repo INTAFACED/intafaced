@@ -39,6 +39,9 @@ const schema = (fields: unknown[], overrides: Partial<MethodSchema> = {}): Metho
   enabled: true,
   fields: parseFieldSpecs(fields),
   settlement: { instant: true },
+  kind: 'transfer',
+  noteRules: null,
+  cashRules: null,
   ...overrides,
 });
 

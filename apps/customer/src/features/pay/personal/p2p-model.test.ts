@@ -361,6 +361,9 @@ describe('taking an offer', () => {
     expect(takeFailureKind({ reason: 'error', code: 'p2p.take_refused' })).toBe('methodRefused');
     expect(takeFailureKind({ reason: 'error', code: 'p2p.amount_above_max' })).toBe('outOfBounds');
     expect(takeFailureKind({ reason: 'error', code: 'p2p.release_unpostable' })).toBe('tooSmall');
+    // P-ads-merchant-19: a floating ad on a method made cash in person; the take rolled back, so nothing is pending.
+    expect(takeFailureKind({ reason: 'error', code: 'p2p.floating_not_allowed_for_method' })).toBe('floatingCashRefused');
+    expect(takeRefusalIsDefinite({ reason: 'error', code: 'p2p.floating_not_allowed_for_method' })).toBe(true);
     expect(takeFailureKind({ reason: 'invalid_response', code: 'pay.take_quote_changed' })).toBe('quoteChanged');
     expect(takeFailureKind({ reason: 'not_supported', code: 'pay.recovery_journal_unavailable' })).toBe('noRecord');
     expect(takeFailureKind({ reason: 'forbidden', code: 'denied.kyc_required', status: 403 })).toBe('verify');

@@ -196,6 +196,25 @@ if (!db) {
       expect(platform.participation?.restrictedRegions).toBeNull();
     });
 
+    it('review requests sent at once for one account make one review, and none of them raises (#6337, #6398)', async () => {
+      const s = service();
+      const c = await live({
+        name: 'TEST no business, many at once',
+        participation: { exclusions: ['business'], regionScope: 'platform', restrictedRegions: null },
+      });
+      for (let round = 0; round < 5; round += 1) {
+        const accountId = `account-firm-race-${round}`;
+        people.set(accountId, who({ accountType: 'business' }));
+        const answers = await Promise.all(Array.from({ length: 8 }, () => s.requestReview({ campaignId: c.id, accountId })));
+        expect(answers.filter((a) => a.created)).toHaveLength(1);
+        for (const a of answers) expect(a.review).toEqual(answers[0]!.review);
+      }
+      const [count] = await db!.sql<
+        { n: number }[]
+      >`SELECT count(*)::int AS n FROM campaigns.eligibility_reviews WHERE campaign_id = ${c.id}`;
+      expect(count?.n).toBe(5);
+    });
+
     it('an excluded account kind reads not_eligible, cannot join, and may ask for one review', async () => {
       const s = service();
       const c = await live({
