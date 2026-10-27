@@ -45,6 +45,7 @@ import { createOpsApprovalClient } from './operator-desks.js';
 import { OpsService } from './ops-service.js';
 import { OPS_IDENTITY_UNWIRED, OPS_SUPPORT_UNWIRED, OpsError } from './codes.js';
 import { opsReadyUrlHonesty } from './ready-honesty.js';
+import { homeConfigFromEnv } from './home-config.js';
 
 if (process.env.OPS_OUTREACH_RESTORE_QUARANTINED === '1') throw new Error('ops.crm.restore_quarantined');
 
@@ -186,6 +187,7 @@ const appRouter = createOpsRouter(
     preferences: crmSql ? new SqlPreferenceStore(crmSql) : undefined,
     serviceRecords: crmSql ? new SqlServiceRecordStore(crmSql) : undefined,
     staffHolds,
+    homeConfig: homeConfigFromEnv(env),
     alertSourceUrl: env.OPS_ALERT_SOURCE_URL,
     approvals: approvalConsumer,
     protocolListing: crmSql

@@ -5,7 +5,7 @@ import { fmtPrice, useMarkets, useTickers, type Loadable, type MarketRow, type T
 import { assetName, homeCopy } from '../screens/home/copy';
 import { navigate } from './location';
 import { coinHref, roomTitle, roomDescription, roomPath, searchRooms } from './navigation';
-import { HELP_RESULT_CAP, useHelpSearch, type HelpState } from './search-help';
+import { useHelpResultCap, useHelpSearch, type HelpState } from './search-help';
 import { ShellIcon } from './icons';
 import { shellCopy } from './shell-copy';
 import { usePreferences } from '../shared/preferences';
@@ -38,7 +38,7 @@ const typingTarget = (target: EventTarget | null) =>
  * Enter on a market opens the desk in Pro and the coin page in Simple.
  * The markets come from the shared data layer (useMarkets). TODO(B1): swap the hand-built list to the kit Autocomplete.
  */
-export function TopSearch({ compact, helpCap = HELP_RESULT_CAP }: { compact?: boolean; helpCap?: number | null }) {
+export function TopSearch({ compact, helpCap }: { compact?: boolean; helpCap?: number | null }) {
   const { t, requestedLocale } = shellCopy.useCopy();
   const { layoutMode } = usePreferences();
   const { mode } = useSession();
@@ -153,11 +153,15 @@ export function TopSearch({ compact, helpCap = HELP_RESULT_CAP }: { compact?: bo
   );
 }
 
-/** Loads the listed markets once, after the first use, and keeps them for the session. */
-function SearchData({ open, helpCap, ...props }: Omit<PanelProps, 'help'> & { open: boolean; helpCap: number | null }) {
+/**
+ * Loads the listed markets and the owner's help result cap once, after the first use, and keeps them for the session.
+ * A `helpCap` given by the caller (tests, previews) stands in for the owner's value.
+ */
+function SearchData({ open, helpCap, ...props }: Omit<PanelProps, 'help'> & { open: boolean; helpCap: number | null | undefined }) {
   const markets = useMarkets();
   const tickers = useTickers();
-  const help = useHelpSearch(props.query, open, helpCap);
+  const ownerCap = useHelpResultCap();
+  const help = useHelpSearch(props.query, open, helpCap === undefined ? ownerCap : helpCap);
   return open ? <SearchPanel {...props} help={help} source={markets} tickers={tickers} /> : null;
 }
 

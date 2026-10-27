@@ -12,6 +12,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, opsOutreachEnv }) => ({
     LEDGER_URL: urlOf('ledger'),
     OPS_STAFF_HOLD_CONFIRM_ACCOUNT: 'test-held-funds',
     OPS_STAFF_HOLD_EXPIRY_MAX_HOURS: '24',
+    // Home's owner values (home.config: J-home-ia-01 #4, J-home-ia-02 #5). LOCAL TEST values, not owner decisions. Unset,
+    // Home's work list refuses home.work_list_cap_unset and the header search's Help group says no limit is set.
+    OPS_HOME_WORK_LIST_CAP: '5',
+    OPS_HOME_WORK_LIST_ORDER: 'verification,payout_waiting,margin_health,loan_payment_due,card_frozen',
+    OPS_HOME_SEARCH_RESULT_CAP: '5',
     ...opsOutreachEnv(),
   }),
 });

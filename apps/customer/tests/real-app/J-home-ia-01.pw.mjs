@@ -1,5 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
-import { api, bestPrices, fund, toUnits } from './stack.mjs';
+import { ORIGIN, api, bestPrices, fund, toUnits } from './stack.mjs';
 import { fundedTrader, openOrders, signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 
@@ -233,20 +234,78 @@ test(`${J}, part of #5: a failed activity read says so with Try again, and the r
   await expect(list.getByTestId('home-activity__row')).toHaveCount(3);
 });
 
-test(`${J}, part of #4: Needs you is on Home, and while Home's list settings cannot be read it says so with its code and Try again, never "nothing needs you"`, async ({
+test(`${J} #4 Needs you: an unverified person gets one item to Verification that is gone after approval; with the margin warning level blank an open loan adds no item; with nothing to do it says nothing needs you`, async ({
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  const context = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 900 } });
+  const page = await context.newPage();
+  const fresh = await signUp(page, 'hmw');
+  const work = page.locator('section[aria-labelledby="home-work-title"]');
+  const rows = work.getByTestId('home-work__row');
+  // Every owner answered, so the list is the whole answer (not "nothing so far from the services that answered").
+  const settled = async () => {
+    await expect(work.locator('[data-slot="state-block"]')).toHaveCount(0);
+    await expect(work.locator('[data-missing]')).toHaveCount(0);
+  };
+
+  // Unverified: identity's one item, linking to Verification, and nothing else.
+  await page.goto('/');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toHaveAttribute('data-kind', 'verification');
+  await expect(rows.first()).toHaveAttribute('href', '/verification');
+  await expect(rows.first()).toContainText('Verify your identity');
+  await settled();
+  await expect(work).not.toContainText('Nothing needs you');
+  // The row opens the Verification room.
+  await rows.first().click();
+  await expect(page).toHaveURL(/\/verification$/);
+
+  // Approved by the stack's TEST operators: on the next load the item is gone, read from identity's record.
+  await verify(page, fresh);
+  await signIn(page, fresh);
+  await page.goto('/');
+  await expect(work.getByText('Nothing needs you right now.')).toBeVisible();
+  await expect(rows).toHaveCount(0);
+  await settled();
+
+  // An open loan while the owner's margin warning level is blank: no margin item and no error, only loans in a call would
+  // be listed (none is). The loan is the bank's TEST product from the stack's content seed.
+  expect(fund(fresh.email, 'BTC', '0.01').tx).toBeTruthy();
+  const client = await api(fresh);
+  const products = await client.get(`/api/bank/trpc/loans.products?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
+  expect(products.status, JSON.stringify(products.body).slice(0, 300)).toBe(200);
+  const product = products.body.result.data.find((row) => row.collateralAssetId === 'BTC' && row.debtAssetId === 'USDT');
+  expect(product, 'the TEST content seed publishes a BTC-backed USDT loan product').toBeTruthy();
+  const opened = await client.post('/api/bank/trpc/loans.open', {
+    loanId: randomUUID(),
+    productId: product.id,
+    collateralAmount: '0.01',
+    principal: '100',
+  });
+  expect(opened.status, JSON.stringify(opened.body).slice(0, 300)).toBe(200);
+  expect(opened.body.result.data.status).toBe('active');
+  await page.goto('/');
+  await expect(work.getByText('Nothing needs you right now.')).toBeVisible();
+  await expect(work.locator('[data-kind="margin_health"]')).toHaveCount(0);
+  await settled();
+  await context.close();
+});
+
+test(`${J}, part of #4: while Home's owner values cannot be read, Needs you says so with Try again, never "nothing needs you"`, async ({
   page,
 }) => {
   await signIn(page, who);
+  // The one outside thing in this run: the browser cannot reach svc-ops' home.config (the service itself is untouched).
+  let fail = true;
+  await page.route('**/home.config**', (route) => (fail ? route.abort('connectionrefused') : route.continue()));
   await page.goto('/');
   const work = page.locator('section[aria-labelledby="home-work-title"]');
-  await expect(work).toBeVisible();
-  // svc-ops runs on the local stack but has no `home.config` procedure yet (Home's owner values: the cap and order). Edge
-  // answers 404 and the app names it home.config_unwired. The list is refused and named; an empty list here would claim
-  // that nothing needs the person.
-  await expect(work.locator('[data-slot="state-block"]')).toContainText('Not served here');
-  await expect(work).toContainText('home.config_unwired');
+  await expect(work.locator('[data-slot="state-block"]')).toBeVisible();
   await expect(work).not.toContainText('Nothing needs you');
-  await expect(work.getByRole('button', { name: 'Try again' })).toBeVisible();
+  fail = false;
+  await work.getByRole('button', { name: 'Try again' }).click();
+  await expect(work.getByText('Nothing needs you right now.')).toBeVisible();
 });
 
 /** Each Get started step as the tile shows it: { step: status }, plus where each open step leads. */

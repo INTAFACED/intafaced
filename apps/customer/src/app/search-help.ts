@@ -1,19 +1,21 @@
 import { useEffect, useState } from 'react';
 import { z } from 'zod';
+import { HOME_CONFIG_PROCEDURE, homeConfigOutputSchema } from '@intafaced/contracts/home-work-items';
 import { publishedCopy, publishedLanguageFor } from '../shared/copy';
 import type { ApiClient } from '../shared/api';
 import { useApi } from '../features/session/session';
+import { useResource } from '../shared/resource';
 import { helpHref } from '../features/public/help-guards';
 import { HIDDEN_FEATURE_ARTICLES } from '../features/more/support-desk';
 import { kbSchema, type KbArticle } from '../features/more/support-schemas';
 import { isHiddenPath } from './feature-registry';
 
 /**
- * How many help articles the header search shows is an owner value (HM-navigation-04) and it is not set: until it is,
- * the Help group says so and the search never calls the service. The value comes in through `useHelpSearch`'s
- * `cap` argument, so setting it later is one place.
+ * How many help articles the header search shows is an owner value (HM-navigation-04), read from svc-ops' public
+ * `home.config` (`searchResultCap`). While it is blank the Help group says so and the search never calls the service;
+ * while it cannot be read the Help group says it did not load. Either way Help itself is still offered.
  */
-export const HELP_RESULT_CAP: number | null = null;
+export type HelpCap = number | null | 'loading' | 'failed';
 export const HELP_MIN_CHARS = 2;
 export const HELP_DEBOUNCE_MS = 250;
 
@@ -60,13 +62,26 @@ export async function searchHelp(
   return answer.ok ? { status: 'ready', rows: helpRows(answer.data, cap, depositsHidden) } : { status: 'failed' };
 }
 
+/** The owner's help result cap, read once when the search is first used. */
+export function useHelpResultCap(): HelpCap {
+  const api = useApi();
+  const { resource } = useResource(
+    (signal) => api.query('ops', HOME_CONFIG_PROCEDURE, undefined, homeConfigOutputSchema, { signal }),
+    'search-help-cap',
+  );
+  if (resource.status === 'loading') return 'loading';
+  return resource.status === 'ready' ? resource.data.searchResultCap : 'failed';
+}
+
 /** The Help group of the header search: waits for a pause in typing, drops an answer the person has typed past. */
-export function useHelpSearch(query: string, enabled: boolean, cap: number | null = HELP_RESULT_CAP): HelpState {
+export function useHelpSearch(query: string, enabled: boolean, cap: HelpCap): HelpState {
   const api = useApi();
   const [state, setState] = useState<HelpState>({ status: 'idle' });
   const q = query.trim();
   useEffect(() => {
     if (!enabled || q.length < HELP_MIN_CHARS) return setState({ status: 'idle' });
+    if (cap === 'loading') return setState({ status: 'loading' });
+    if (cap === 'failed') return setState({ status: 'failed' });
     if (cap === null) return setState({ status: 'unset' });
     const controller = new AbortController();
     setState({ status: 'loading' });
