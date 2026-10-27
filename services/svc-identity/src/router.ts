@@ -172,7 +172,7 @@ export function toTrpcError(err: unknown): TRPCError {
   }
 
   if (err instanceof KycAttemptsError) {
-    return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
+    return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: userCopy(err.code), cause: err });
   }
 
   if (err instanceof KycCapabilityError) {

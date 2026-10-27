@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { kycAttemptsSchema } from '@intafaced/contracts/identity-kyc-attempts';
 import { useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
@@ -9,7 +9,8 @@ import { verificationAttemptsCopy as copy } from './verification-attempts-copy';
  * I-kyc-compliance-10 (J-identity-08 #4): where the person stands against the owner's limit on rejected requests, on
  * the request form. No limit set says so. At the cap it counts down the seconds left and tells the page, which holds
  * the form; the service refuses a request there on its own (`kyc.attempts_exhausted`). `recordsKey` is the page's
- * status read, so a decision reads the standing again.
+ * status read, plus a count of such refusals, so a decision or a refusal reads the standing again. The countdown is not
+ * a live region: a screen reader would read it every second.
  */
 export function VerificationAttempts({ recordsKey, onLocked }: { recordsKey: string; onLocked: (locked: boolean) => void }) {
   const { api, userId } = useSession();
@@ -18,18 +19,21 @@ export function VerificationAttempts({ recordsKey, onLocked }: { recordsKey: str
     (signal) => api.query('identity', 'kyc.attempts.read', undefined, kycAttemptsSchema, { signal }),
     `verification-attempts:${userId}:${recordsKey}`,
   );
-  const lockedUntil = resource.status === 'ready' ? resource.data.lockedUntil : null;
-  const [now, setNow] = useState(() => Date.now());
-  const seconds = lockedUntil ? Math.ceil((Date.parse(lockedUntil) - now) / 1000) : 0;
+  // A re-read keeps the last known lock, so the form never opens while a lockout is only being read again.
+  const lastLockedUntil = useRef<string | null>(null);
+  if (resource.status === 'ready') lastLockedUntil.current = resource.data.lockedUntil;
+  const lockedUntil = lastLockedUntil.current;
+  const [, setTick] = useState(0);
+  const seconds = lockedUntil ? Math.ceil((Date.parse(lockedUntil) - Date.now()) / 1000) : 0;
   const locked = seconds > 0;
   useEffect(() => {
     onLocked(locked);
   }, [locked, onLocked]);
   useEffect(() => {
-    if (!lockedUntil) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    if (!locked) return;
+    const timer = window.setInterval(() => setTick((n) => n + 1), 1000);
     return () => window.clearInterval(timer);
-  }, [lockedUntil]);
+  }, [locked]);
   useEffect(() => () => onLocked(false), [onLocked]);
   if (resource.status === 'loading') return <Loading />;
   if (resource.status === 'failed')
@@ -43,12 +47,7 @@ export function VerificationAttempts({ recordsKey, onLocked }: { recordsKey: str
     );
   const { limit, denialsInWindow } = resource.data;
   return (
-    <div
-      className="verification__attempts"
-      data-testid="verification__attempts"
-      data-state={!limit ? 'unset' : locked ? 'locked' : 'open'}
-      role={locked ? 'status' : undefined}
-    >
+    <div className="verification__attempts" data-testid="verification__attempts" data-state={!limit ? 'unset' : locked ? 'locked' : 'open'}>
       <h3>
         <Copy k="title" />
       </h3>

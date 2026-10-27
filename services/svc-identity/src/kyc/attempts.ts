@@ -57,25 +57,40 @@ export function parseKycAttemptLimit(env: {
   };
 }
 
-/** Where the person stands against the limit at `now`. */
-export async function readKycAttempts(sql: Sql, limit: KycAttemptLimit | null, userId: string, now: Date): Promise<KycAttempts> {
-  if (!limit) return { limit: null, denialsInWindow: null, lockedUntil: null };
-  const since = new Date(now.getTime() - limit.windowHours * 3_600_000);
-  const rows = await sql<Array<{ at: Date }>>`
-    SELECT e.at FROM kyc_case_events e JOIN kyc_cases c ON c.id = e.case_id
-    WHERE c.user_id = ${userId} AND e.state = 'rejected' AND e.at > ${since} ORDER BY e.at DESC`;
-  const latest = rows[0]?.at;
-  const until = rows.length >= limit.maxDenials && latest ? new Date(latest.getTime() + limit.lockoutHours * 3_600_000) : null;
+/**
+ * Where the person stands against the limit, on the database's clock (the one the rejections were stamped with).
+ * Locked when the last `maxDenials` rejections all fall inside one window, until `lockoutHours` after the newest of
+ * them. That holds for the whole lockout even when it is longer than the window. `denialsInWindow` counts back from now.
+ */
+export async function readKycAttempts(sql: Sql, limit: KycAttemptLimit | null, userId: string): Promise<KycAttempts & { now: Date }> {
+  if (!limit) {
+    const [{ now }] = await sql<[{ now: Date }]>`SELECT now() AS now`;
+    return { limit: null, denialsInWindow: null, lockedUntil: null, now };
+  }
+  const window = `${limit.windowHours} hours`;
+  const [row] = await sql<[{ now: Date; in_window: number; locked_until: Date | null }]>`
+    WITH recent AS (
+      SELECT e.at FROM kyc_case_events e JOIN kyc_cases c ON c.id = e.case_id
+      WHERE c.user_id = ${userId} AND e.state = 'rejected' ORDER BY e.at DESC LIMIT ${limit.maxDenials}
+    ), span AS (SELECT count(*)::int AS n, max(at) AS newest, min(at) AS oldest FROM recent)
+    SELECT now() AS now,
+      (SELECT count(*)::int FROM kyc_case_events e JOIN kyc_cases c ON c.id = e.case_id
+        WHERE c.user_id = ${userId} AND e.state = 'rejected' AND e.at > now() - ${window}::interval) AS in_window,
+      CASE WHEN span.n >= ${limit.maxDenials} AND span.newest - span.oldest <= ${window}::interval
+        AND span.newest + ${`${limit.lockoutHours} hours`}::interval > now()
+        THEN span.newest + ${`${limit.lockoutHours} hours`}::interval END AS locked_until
+    FROM span`;
   return {
     limit: { ...limit },
-    denialsInWindow: rows.length,
-    lockedUntil: until && until > now ? until.toISOString() : null,
+    denialsInWindow: row.in_window,
+    lockedUntil: row.locked_until ? row.locked_until.toISOString() : null,
+    now: row.now,
   };
 }
 
 /** Before a request is stored: at the cap, refused with the seconds left. */
-export async function assertAttemptsLeft(sql: Sql, limit: KycAttemptLimit | null, userId: string, now: Date): Promise<void> {
-  const { lockedUntil } = await readKycAttempts(sql, limit, userId, now);
+export async function assertAttemptsLeft(sql: Sql, limit: KycAttemptLimit | null, userId: string): Promise<void> {
+  const { lockedUntil, now } = await readKycAttempts(sql, limit, userId);
   if (!lockedUntil) return;
   const retryAfterSeconds = Math.max(1, Math.ceil((new Date(lockedUntil).getTime() - now.getTime()) / 1000));
   throw new KycAttemptsError(`Too many rejected verification requests; a new request is refused for ${retryAfterSeconds} more seconds`, {

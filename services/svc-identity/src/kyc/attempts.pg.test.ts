@@ -134,11 +134,36 @@ if (!available) {
       // Two hours ago: still in the window, so the count stands, but the hour of lockout is over.
       await db.sql`UPDATE kyc_case_events SET at = at - interval '2 hours' WHERE id IN (${events})`;
       expect(await auth.kycAttempts(userId)).toMatchObject({ denialsInWindow: 2, lockedUntil: null });
-      await expect(readKycAttempts(db.sql, LIMIT, userId, new Date())).resolves.toMatchObject({ lockedUntil: null });
+      await expect(readKycAttempts(db.sql, LIMIT, userId)).resolves.toMatchObject({ lockedUntil: null });
       // Older than the window: they no longer count.
       await db.sql`UPDATE kyc_case_events SET at = at - interval '1 day' WHERE id IN (${events})`;
       expect(await auth.kycAttempts(userId)).toMatchObject({ denialsInWindow: 0, lockedUntil: null });
       await expect(auth.submitKyc({ userId, tier: 'basic', jurisdiction: 'DE' })).resolves.toMatchObject({ status: 'pending' });
+    });
+
+    it('a lockout longer than the window holds for its whole length', async () => {
+      const long = service();
+      long.useKycAttemptLimit(
+        parseKycAttemptLimit({ IDENTITY_KYC_MAX_DENIALS: '2', IDENTITY_KYC_DENIAL_WINDOW_HOURS: '24', IDENTITY_KYC_LOCKOUT_HOURS: '48' }),
+      );
+      const userId = await person();
+      await rejected(userId);
+      await rejected(userId);
+      const events = db.sql`
+        SELECT e.id FROM kyc_case_events e JOIN kyc_cases c ON c.id = e.case_id WHERE c.user_id = ${userId} AND e.state = 'rejected'`;
+      // Both 30 hours ago: out of the window now, but they fell inside one window, so the 48 hours still hold.
+      await db.sql`UPDATE kyc_case_events SET at = at - interval '30 hours' WHERE id IN (${events})`;
+      const read = await long.kycAttempts(userId);
+      expect(read.denialsInWindow).toBe(0);
+      expect(read.lockedUntil).not.toBeNull();
+      await expect(long.submitKyc({ userId, tier: 'basic', jurisdiction: 'DE' })).rejects.toMatchObject({ code: 'kyc.attempts_exhausted' });
+      // Two rejections more than a window apart never lock.
+      const spread = await person();
+      await rejected(spread);
+      await db.sql`UPDATE kyc_case_events SET at = at - interval '25 hours'
+        WHERE id IN (SELECT e.id FROM kyc_case_events e JOIN kyc_cases c ON c.id = e.case_id WHERE c.user_id = ${spread} AND e.state = 'rejected')`;
+      await rejected(spread);
+      expect(await long.kycAttempts(spread)).toMatchObject({ denialsInWindow: 1, lockedUntil: null });
     });
 
     it('with no limit set nothing is refused, and the read says none is set', async () => {

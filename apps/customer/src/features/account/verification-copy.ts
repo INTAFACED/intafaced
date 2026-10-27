@@ -50,6 +50,7 @@ export const verificationCopy = defineCopy(
     returned: 'Returned record',
     refused: 'Submission refused before insertion',
     refusedBody: 'The service refused this original submission before creating a new record.',
+    refusedLocked: 'Too many rejected requests: the service refused this one before creating a record. Try again in {seconds} seconds.',
     replyBoundary:
       'This reply does not say a new record was created or that this request changed its country. It does not approve a new tier.',
     retained: 'Local record still saved',
@@ -132,6 +133,8 @@ export const verificationCopy = defineCopy(
       returned: 'Registro devuelto',
       refused: 'Envío rechazado antes de la inserción',
       refusedBody: 'El servicio rechazó este envío original antes de crear un registro nuevo.',
+      refusedLocked:
+        'Demasiadas solicitudes rechazadas: el servicio rechazó esta antes de crear un registro. Inténtalo de nuevo en {seconds} segundos.',
       replyBoundary:
         'Esta respuesta no indica que se haya creado un registro nuevo ni que la solicitud cambiara su país. No aprueba un nivel nuevo.',
       retained: 'El registro local sigue guardado',
@@ -213,6 +216,8 @@ export const verificationCopy = defineCopy(
       returned: 'Dossier renvoyé',
       refused: 'Envoi refusé avant insertion',
       refusedBody: 'Le service a refusé cet envoi original avant de créer un nouveau dossier.',
+      refusedLocked:
+        'Trop de demandes refusées : le service a refusé celle-ci avant de créer un dossier. Réessayez dans {seconds} secondes.',
       replyBoundary:
         'Cette réponse ne dit pas qu’un nouveau dossier a été créé ni que la demande a changé son pays. Elle n’approuve aucun nouveau niveau.',
       retained: 'Dossier local encore enregistré',

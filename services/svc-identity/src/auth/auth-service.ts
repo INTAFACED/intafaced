@@ -2878,7 +2878,7 @@ export class AuthService {
       // Inactive is a compliance decision: a request whose level would grant it again is refused (I-kyc-compliance-07).
       await assertRequestable(tx, this.kycCapabilities, input.userId, input.tier);
       // Too many rejected requests in the owner's window: refused with the seconds left (I-kyc-compliance-10).
-      await assertAttemptsLeft(tx, this.kycAttemptLimit, input.userId, new Date());
+      await assertAttemptsLeft(tx, this.kycAttemptLimit, input.userId);
       const inserted = await tx<
         KycRow[]
       >`INSERT INTO kyc_records (user_id, tier, jurisdiction, provider_ref, status) VALUES (${input.userId}, ${input.tier}, ${input.jurisdiction}, ${input.providerRef ?? null}, 'pending') RETURNING id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at`;
@@ -2911,7 +2911,8 @@ export class AuthService {
 
   /** Where the person stands against the owner's limit on rejected requests (I-kyc-compliance-10). */
   async kycAttempts(userId: string): Promise<KycAttempts> {
-    return readKycAttempts(this.sql, this.kycAttemptLimit, userId, new Date());
+    const { now: _now, ...standing } = await readKycAttempts(this.sql, this.kycAttemptLimit, userId);
+    return standing;
   }
 
   /** A person's capabilities, every one with its state (I-kyc-compliance-07). An unknown person is `auth.not_found`. */
