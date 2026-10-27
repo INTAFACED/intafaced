@@ -108,16 +108,6 @@ const schema = serviceEnvSchema
       P2P_PAIR_LIMITS: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().optional()),
 
       /**
-       * P-disputes-security-08. The P2P risk notice version a person accepts
-       * before their first take. Empty is unset: every take then refuses
-       * `p2p.risk_notice_unset`. Changing it asks everyone to accept again.
-       */
-      P2P_RISK_NOTICE_VERSION: z.preprocess(
-        (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
-        z.string().trim().min(1).max(64).optional(),
-      ),
-
-      /**
        * P-ads-merchant-01. The advertiser terms version a person accepts before
        * posting an ad. Empty is unset: every post then refuses `p2p.config_unset`
        * naming this setting. Changing it asks every advertiser to accept again.

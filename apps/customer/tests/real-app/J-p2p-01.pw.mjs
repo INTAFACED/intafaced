@@ -27,8 +27,8 @@ import {
 // J-p2p-01, in the running app (docs/roadmap/journeys.json): I buy crypto from an ad, pay the seller outside, and
 // receive the coins. One test per step, titled "J-p2p-01 #<n>", run in order on one verified TEST buyer. The other side
 // is a verified TEST seller with a TEST USDT sell ad paid by the stack's TEST bank transfer (`local-test-gates.mjs
-// p2p`). Fiat never moves; the coins move through the ledger's escrow. The risk notice version is the labelled TEST
-// profile value (tooling/profiles/test-owner-values/p2p.json).
+// p2p`). Fiat never moves; the coins move through the ledger's escrow. No risk notice gates a take (owner decision
+// 2026-10-27, until launch prep).
 const J = 'J-p2p-01';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const AD = { price: '0.92', min: '10', max: '50', total: '200' };
@@ -118,7 +118,8 @@ test('J-p2p-01 #1 the P2P hub opens from More, lists every requirement, and a ta
   await expect(check(page, 'jurisdiction')).toHaveAttribute('data-state', 'met');
   await expect(check(page, 'deposit')).toHaveAttribute('data-state', 'met');
   await expect(check(page, 'deposit')).toContainText('Takers post no deposit.');
-  await expect(check(page, 'risk')).toHaveAttribute('data-state', 'not_met');
+  // No risk notice is a requirement (owner decision 2026-10-27).
+  await expect(check(page, 'risk')).toHaveCount(0);
 
   // Take refuses p2p.contact_required, and nothing was reserved.
   const b = p2p(await api(buyer));
@@ -140,7 +141,8 @@ test('J-p2p-01 #1 the P2P hub opens from More, lists every requirement, and a ta
   await rooms.getByRole('link', { name: 'Trading access', exact: true }).click();
   await expect(page).toHaveURL(/\/p2p\/access$/);
   await expect(check(page, 'contact')).toHaveAttribute('data-state', 'met');
-  await expect(check(page, 'risk')).toHaveAttribute('data-state', 'not_met');
+  await expect(check(page, 'risk')).toHaveCount(0);
+  await expect(eligibility(page)).toContainText('You meet every requirement to take an ad.');
 });
 
 test('J-p2p-01 #2 the ad board searches by coin, fiat, method and amount, sorts by price, pages without a repeat, and never lists a floating ad it cannot price', async ({
@@ -217,7 +219,9 @@ test('J-p2p-01 #2 the ad board searches by coin, fiat, method and amount, sorts 
   await expect(page.getByText('Floating-price ads are left out of an amount search')).toBeVisible();
 });
 
-test('J-p2p-01 #3 an ad shows the seller’s record and terms, and the risk notice must be accepted before taking', async ({ page }) => {
+test('J-p2p-01 #3 an ad shows the seller’s record and terms, and its requirements are met with no risk notice to accept', async ({
+  page,
+}) => {
   const state = journey();
   const b = p2p(await api(state.buyer));
   await signIn(page, state.buyer);
@@ -231,23 +235,21 @@ test('J-p2p-01 #3 an ad shows the seller’s record and terms, and the risk noti
   await expect(current).toContainText('1 order · 100% completed · releases in about');
   await expect(current).toContainText('TEST terms: pay from an account in your own name; no third-party payments.');
 
-  // Not accepted yet: the take panel names it, and the service refuses a take by name.
-  await expect(take.locator('li[data-check="risk"]')).toHaveAttribute('data-state', 'not_met');
-  const refused = await b.raw.mutate('trades.take', { offerId: state.offerId, tradeId: randomUUID(), amount: '10', method: METHOD });
-  expect(refused.status).toBe(403);
-  expect(refusalCode(refused)).toBe('p2p.risk_not_accepted');
-
-  await take.getByRole('button', { name: 'Read the risk and fraud notice' }).click();
-  const sheet = page.getByTestId('p2p-risk-sheet');
-  await expect(sheet).toContainText('It is not the other side of your trade.');
-  await expect(sheet).toContainText('Never cancel an order after you paid.');
-  await sheet.getByRole('button', { name: 'I have read this and accept it' }).click();
-  await expect(sheet).toHaveCount(0);
-  // Every requirement met: the take panel no longer lists any.
+  // Every requirement met with no risk notice to read or accept (owner decision 2026-10-27): the take panel lists none,
+  // the service says the buyer can take, and the old accept door is gone.
+  await expect(take).toBeVisible();
   await expect(take.getByRole('region', { name: 'Before you trade' })).toHaveCount(0);
-  const notice = await b.query('risk.notice');
-  expect(notice.acceptedAt).toBeTruthy();
-  expect((await b.query('access.eligibility')).canTake).toBe(true);
+  await expect(page.getByRole('button', { name: 'Read the risk and fraud notice' })).toHaveCount(0);
+  const eligible = await b.query('access.eligibility');
+  expect(eligible.canTake).toBe(true);
+  expect(eligible.checks.map((c) => c.id)).toEqual(['verification', 'contact', 'jurisdiction', 'deposit']);
+  // The fraud-safety guidance stays, read-only beside the take: nothing to tick or accept.
+  const safe = take.getByTestId('p2p-stay-safe');
+  await expect(safe).toBeVisible();
+  await expect(safe).toContainText('It is not the other side of your trade.');
+  await expect(safe).toContainText('Never cancel an order after you paid.');
+  await expect(safe.getByRole('button')).toHaveCount(0);
+  await expect(safe.getByRole('checkbox')).toHaveCount(0);
 });
 
 test('J-p2p-01 #4 a fiat amount becomes a quote held with a countdown, and a quote past its window refuses by name', async ({ page }) => {

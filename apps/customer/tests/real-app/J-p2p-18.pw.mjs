@@ -50,7 +50,7 @@ test('J-p2p-18 #1 the order list counts every order exactly, pages back to the o
   const sellerSession = await api(seller);
   // The seller confirms releases with a TEST passkey (P-trade-orders-07); one confirmation covers ten minutes of them.
   const s = p2p(sellerSession, await testPasskey(sellerSession));
-  // The buyer meets every take requirement: email confirmed by the sign-up code, the TEST risk notice accepted.
+  // The buyer meets every take requirement: email confirmed by the sign-up code.
   const b = await readyTaker(await api(buyer), buyer);
   await s.mutate('instruments.create', {
     instrumentId: randomUUID(),

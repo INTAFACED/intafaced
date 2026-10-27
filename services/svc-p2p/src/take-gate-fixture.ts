@@ -8,26 +8,18 @@ import type { InstrumentStepUp } from './instrument-step-up.js';
  * `createTakeGate` (index.ts); the gate itself is proved in `take-eligibility.test.ts`.
  */
 export function metTakeGate(): TakeGate {
-  const acceptedAt = new Date('2026-10-23T00:00:00.000Z');
   return {
     async eligibility() {
       return {
-        checks: (['verification', 'contact', 'jurisdiction', 'deposit', 'risk'] as const).map((id) => ({
+        checks: (['verification', 'contact', 'jurisdiction', 'deposit'] as const).map((id) => ({
           id,
           state: 'met' as const,
           reason: 'test.met',
           fix: null,
         })),
-        notice: { version: 'TEST', acceptedAt },
       };
     },
     async assertCanTake() {},
-    async riskNotice() {
-      return { version: 'TEST', acceptedAt };
-    },
-    async acceptRisk() {
-      return { version: 'TEST', acceptedAt };
-    },
   };
 }
 

@@ -354,7 +354,6 @@ export type TakeFailure =
   | 'verify'
   | 'region'
   | 'contact'
-  | 'risk'
   | 'stepUp'
   | 'stepUpExpired'
   | 'stepUpFailed'
@@ -412,8 +411,6 @@ export const DEFINITE_TAKE_CODES: ReadonlySet<string> = new Set([
   // The eligibility gate (svc-p2p take-eligibility.ts) runs before the take reserves or locks anything.
   'p2p.contact_required',
   'p2p.contact_unverifiable',
-  'p2p.risk_not_accepted',
-  'p2p.risk_notice_unset',
   'p2p.take_gate_unwired',
   // The take's fresh confirmation (svc-p2p take-step-up.ts) is checked after the eligibility gate, before anything moves.
   'auth.step_up_required',
@@ -504,8 +501,6 @@ export function takeFailureKind(failure: { reason: string; code?: string; status
       return 'methodRefused';
     case 'p2p.contact_required':
       return 'contact';
-    case 'p2p.risk_not_accepted':
-      return 'risk';
     case 'auth.step_up_required':
       return 'stepUp';
     case 'auth.step_up_expired':
@@ -515,7 +510,6 @@ export function takeFailureKind(failure: { reason: string; code?: string; status
     case 'p2p.step_up_unverifiable':
       return 'stepUpUnchecked';
     case 'p2p.contact_unverifiable':
-    case 'p2p.risk_notice_unset':
     case 'p2p.take_gate_unwired':
       return 'unchecked';
     case 'p2p.release_unpostable':

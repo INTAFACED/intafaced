@@ -270,7 +270,21 @@ describe('p2p export and erasure', () => {
 
     it('returns nothing for someone this service has never seen', async () => {
       const out = await erasure.exportFor('99999999-9999-4999-8999-999999999999');
-      expect(out).toMatchObject({ offers: [], trades: [], disputes: [], orderReviews: [], reputation: null, instruments: [] });
+      expect(out).toMatchObject({
+        offers: [],
+        trades: [],
+        disputes: [],
+        orderReviews: [],
+        reputation: null,
+        instruments: [],
+        riskAcceptances: [],
+      });
+    });
+
+    it('lists the caller’s past risk notice acceptances, and only theirs', async () => {
+      await sql`INSERT INTO p2p.risk_acceptances (user_id, version) VALUES (${MAKER}, 'TEST-v1'), (${TAKER}, 'TEST-v1')`;
+      const out = await erasure.exportFor(MAKER);
+      expect(out.riskAcceptances).toEqual([expect.objectContaining({ user_id: MAKER, version: 'TEST-v1' })]);
     });
 
     it('returns a review the caller wrote or received', async () => {
@@ -360,7 +374,16 @@ describe('p2p export and erasure', () => {
         { category: 'ads paused by a removed payment method', rows: 0 },
         { category: 'payment instrument details', rows: 1 },
         { category: 'payment details frozen onto trades', rows: 1 },
+        { category: 'risk notice acceptances', rows: 0 },
       ]);
+    });
+
+    it('erases the caller’s past risk notice acceptances and leaves everyone else’s', async () => {
+      await sql`INSERT INTO p2p.risk_acceptances (user_id, version) VALUES (${MAKER}, 'TEST-v1'), (${MAKER}, 'TEST-v2'), (${TAKER}, 'TEST-v1')`;
+      const report = await erasure.eraseFor(MAKER);
+      expect(report.erased).toContainEqual({ category: 'risk notice acceptances', rows: 2 });
+      expect(await sql`SELECT user_id FROM p2p.risk_acceptances WHERE user_id = ${MAKER}`).toHaveLength(0);
+      expect(await sql`SELECT user_id FROM p2p.risk_acceptances WHERE user_id = ${TAKER}`).toHaveLength(1);
     });
 
     /**

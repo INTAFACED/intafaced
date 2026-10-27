@@ -12,7 +12,7 @@ import { wasPlacedUnderHeldReference, type PersonalPayApi } from '../pay-api';
 import type { Offer, TakeQuote, Trade } from '../schemas';
 import { p2pDepth } from './p2p-depth-copy';
 import { TraderName, useTraders } from './Trader';
-import { P2PEligibilityPanel } from './Eligibility';
+import { P2PEligibilityPanel, StaySafe } from './Eligibility';
 import { TakeSettlementNotice } from './Settlement';
 import { StepUpConfirm } from '../../money/StepUpConfirm';
 import type { StepUpBegin } from '../../account/security-step-up';
@@ -86,8 +86,6 @@ export function takeFailureText(t: CopyT, kind: TakeFailure, context: 'quote' | 
       return t('failRegion');
     case 'contact':
       return t('failContact');
-    case 'risk':
-      return t('failRisk');
     case 'stepUp':
       return t('failStepUp');
     case 'stepUpExpired':
@@ -670,6 +668,7 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
         </section>
       ) : null}
       <P2PEligibilityPanel pay={pay} userId={userId} compact />
+      <StaySafe />
       <form
         onSubmit={(event) => {
           event.preventDefault();

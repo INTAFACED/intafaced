@@ -404,17 +404,16 @@ export const p2pStandingSchema = z.object({
 export const p2pEligibilitySchema = z.object({
   checks: z.array(
     z.object({
-      id: z.enum(['verification', 'contact', 'jurisdiction', 'deposit', 'risk']),
+      id: z.enum(['verification', 'contact', 'jurisdiction', 'deposit']),
       state: z.enum(['met', 'not_met', 'unknown']),
       reason: z.string(),
       fix: z.string().nullable(),
     }),
   ),
   canTake: z.boolean(),
-  notice: z.object({ version: z.string(), acceptedAt: z.string().nullable() }).nullable(),
 });
 export type P2PEligibility = z.infer<typeof p2pEligibilitySchema>;
-/** `risk.notice` / `risk.accept`: the owner-published notice version and when this person accepted it. */
+/** A versioned acceptance: the owner-published version and when this person accepted it (advertiser terms). */
 export const p2pRiskNoticeSchema = z.object({ version: z.string(), acceptedAt: z.string().nullable() });
 export type P2PRiskNotice = z.infer<typeof p2pRiskNoticeSchema>;
 /** P-ads-merchant-01: the caller's free balance of one coin, as svc-p2p reads it from the ledger. */
