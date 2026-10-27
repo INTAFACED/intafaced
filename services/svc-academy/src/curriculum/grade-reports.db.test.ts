@@ -60,7 +60,7 @@ async function course(): Promise<string> {
   return made.id;
 }
 
-const reports = (rows: number | null = 10) => new GradeReports(db.sql, { view: async (id) => book(id) }, rows);
+const reports = (rows: number | null = 10) => new GradeReports(db.sql, { viewIn: async (_tx, id) => book(id) }, rows);
 const stored = async () => (await db.sql<Array<{ n: number }>>`SELECT n FROM academy.course_grade_reports`).length;
 
 describe('grade report CSV', () => {
@@ -76,9 +76,18 @@ describe('grade report CSV', () => {
     );
   });
 
+  it('puts each score under its own column, whatever order a learner row lists them in', () => {
+    const two = book('c');
+    const OTHER = '99999999-9999-4999-8999-999999999999';
+    two.items.push({ itemId: OTHER, title: 'Journal', kind: 'assignment' });
+    two.learners[0] = { ...two.learners[0]!, items: [{ itemId: OTHER, state: 'pending', score: null }, ...two.learners[0]!.items] };
+    expect(gradeReportCsv(two, 1, T1).split('\r\n')[2]).toBe(`${L},0.8,pending,0.8,0.8`);
+  });
+
   it('keeps a title that starts like a formula as text', () => {
     expect(csvField('=HYPERLINK("x")')).toBe(`"'=HYPERLINK(""x"")"`);
     expect(csvField('-1')).toBe("'-1");
+    expect(csvField(' =1+1')).toBe("' =1+1");
   });
 });
 

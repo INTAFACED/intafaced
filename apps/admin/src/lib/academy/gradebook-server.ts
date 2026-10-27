@@ -10,7 +10,7 @@ import {
 import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
 import { partFrom, type PartLabels } from '@/lib/desk/part';
 import { explainRefusal } from '@/lib/desk/refusal-copy';
-import type { AcademyCourseGradebook, AcademyGradeReport, GradebookDeskReply, GradebookView } from './gradebook-model';
+import type { GradebookDeskReply, GradebookView } from './gradebook-model';
 
 /**
  * A course's grading policy and gradebook as the signed-in founder (AC-assignments-04). svc-academy records the founder
@@ -38,27 +38,25 @@ export async function loadGradebook(ctx: FounderCallContext, courseId: string): 
   return { gradebook: partFrom(book, (d) => d, ACADEMY), reports: partFrom(stored, (d) => d, ACADEMY), asOf: new Date().toISOString() };
 }
 
-/** One stored report with its CSV, exactly as svc-academy made it; null when it cannot be read. */
-export async function loadGradeReportFile(ctx: FounderCallContext, courseId: string, n: number): Promise<AcademyGradeReportFile | null> {
+/** One stored report with its CSV, exactly as svc-academy made it, or the typed refusal when it cannot be read. */
+export async function loadGradeReportFile(
+  ctx: FounderCallContext,
+  courseId: string,
+  n: number,
+): Promise<{ file: AcademyGradeReportFile } | { status: number; reply: GradebookDeskReply }> {
   const result = await founderCall(ctx, 'academy', 'admin.gradeReportFile', 'GET', { courseId, n }, readReportFile);
-  return result.kind === 'ok' ? result.data : null;
+  return result.kind === 'ok' && result.data ? { file: result.data } : refusal(result);
 }
 
-function reply(
-  result: FounderCallResult<AcademyCourseGradebook | AcademyGradeReport | null>,
-  what: string,
-): { status: number; reply: GradebookDeskReply } {
+/** Why a call gave no answer, as the desk shows it. */
+function refusal(result: FounderCallResult<unknown>): { status: number; reply: GradebookDeskReply } {
   const refused = (code: string | null, status: number, uncertain = false) => ({
     status: status >= 400 && status < 600 ? status : 502,
     reply: { ok: false as const, ...explainRefusal(code, status, uncertain) },
   });
   switch (result.kind) {
     case 'ok':
-      if (!result.data) return refused(null, 502, true);
-      return {
-        status: 200,
-        reply: 'sha256' in result.data ? { ok: true, what, report: result.data } : { ok: true, what, gradebook: result.data },
-      };
+      return refused(null, 502, true);
     case 'refused':
       return refused(result.refusal.code, result.refusal.status);
     case 'forbidden':
@@ -86,9 +84,13 @@ export async function changeGradebook(
     const asked = academyMakeGradeReportInputSchema.safeParse(input);
     if (!asked.success) return { why: 'Which course, and which report number?' };
     const made = await founderCall(ctx, 'academy', 'admin.makeGradeReport', 'POST', asked.data, readReport);
-    return reply(made, `grade report ${asked.data.n} made`);
+    if (made.kind !== 'ok' || !made.data) return refusal(made);
+    // A retried or stale request for a number already made answers that stored report: the time says when it was made.
+    return { status: 200, reply: { ok: true, what: `grade report ${made.data.n} made at ${made.data.madeAt}`, report: made.data } };
   }
   const parsed = academySaveGradingPolicyInputSchema.safeParse(input);
   if (!parsed.success) return { why: WHY };
-  return reply(await founderCall(ctx, 'academy', 'admin.saveGradingPolicy', 'POST', parsed.data, readGradebook), 'grading policy saved');
+  const saved = await founderCall(ctx, 'academy', 'admin.saveGradingPolicy', 'POST', parsed.data, readGradebook);
+  if (saved.kind !== 'ok' || !saved.data) return refusal(saved);
+  return { status: 200, reply: { ok: true, what: 'grading policy saved', gradebook: saved.data } };
 }

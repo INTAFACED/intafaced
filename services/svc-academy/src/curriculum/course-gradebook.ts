@@ -112,7 +112,8 @@ export class CourseGradebook {
     `;
   }
 
-  private async viewIn(sql: Db, courseId: string): Promise<AcademyCourseGradebook> {
+  /** The gradebook read on a connection the caller holds (a report reads it inside its own transaction). */
+  async viewIn(sql: Db, courseId: string): Promise<AcademyCourseGradebook> {
     const [course] = await sql`SELECT id FROM academy.courses WHERE id = ${courseId}`;
     if (!course) throw new AcademyError('no course has that id', 'academy.course_not_found');
     const [policy] = await sql<Array<{ revision: number; types: AcademyGradeType[]; set_by: string; set_at: Date; reason: string }>>`

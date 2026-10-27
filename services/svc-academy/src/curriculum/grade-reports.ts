@@ -26,9 +26,10 @@ export const gradeReportRefusals = defineRefusals('GradeReportError', {
 });
 const refuse = gradeReportRefusals.refuse;
 
-type Stored = { course_id: string; n: number; csv: string; sha256: string; rows: number; made_by: string; made_at: Date };
+type Meta = { course_id: string; n: number; sha256: string; rows: number; made_by: string; made_at: Date };
+type Stored = Meta & { csv: string };
 
-const meta = (r: Stored): AcademyGradeReport => ({
+const meta = (r: Meta): AcademyGradeReport => ({
   courseId: r.course_id,
   n: r.n,
   madeAt: r.made_at.toISOString(),
@@ -37,9 +38,12 @@ const meta = (r: Stored): AcademyGradeReport => ({
   sha256: r.sha256,
 });
 
-/** One CSV field: quoted when it holds a comma, quote or line break; a leading = + - @ is kept as text, never a formula. */
+/**
+ * One CSV field: quoted when it holds a comma, quote or line break. A value that starts with = + - @ (after any leading
+ * whitespace, which spreadsheets trim) is kept as text, never a formula.
+ */
 export function csvField(value: string): string {
-  const text = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  const text = /^\s*[=+\-@]/.test(value) ? `'${value}` : value;
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
@@ -47,17 +51,23 @@ export function csvField(value: string): string {
 export function gradeReportCsv(book: AcademyCourseGradebook, n: number, madeAt: Date): string {
   const types = book.policy?.types ?? [];
   const line = (cells: string[]) => cells.map(csvField).join(',');
+  // Cells are looked up by item id and type name, so a learner row can never shift a score under another column.
   const lines = [
     line(['grade report', String(n), 'made at', madeAt.toISOString()]),
     line(['learner', ...book.items.map((i) => i.title), ...types.map((t) => `${t.name} (${t.weight})`), 'total']),
-    ...book.learners.map((l) =>
-      line([
+    ...book.learners.map((l) => {
+      const cells = new Map(l.items.map((c) => [c.itemId, c]));
+      const averages = new Map(l.types.map((t) => [t.name, t.average]));
+      return line([
         l.userId,
-        ...l.items.map((c) => (c.state === 'graded' ? c.score! : c.state === 'pending' ? 'pending' : 'not attempted')),
-        ...l.types.map((t) => t.average ?? 'not attempted'),
+        ...book.items.map((i) => {
+          const c = cells.get(i.itemId);
+          return c?.state === 'graded' ? c.score! : c?.state === 'pending' ? 'pending' : 'not attempted';
+        }),
+        ...types.map((t) => averages.get(t.name) ?? 'not attempted'),
         l.total ?? (book.policy ? 'not attempted' : 'no policy'),
-      ]),
-    ),
+      ]);
+    }),
   ];
   return `${lines.join('\r\n')}\r\n`;
 }
@@ -66,15 +76,15 @@ export class GradeReports {
   /** `rowLimit` is `ACADEMY_GRADE_REPORT_ROWS` as read from env: null when blank. */
   constructor(
     private readonly sql: Sql,
-    private readonly gradebook: Pick<CourseGradebook, 'view'>,
+    private readonly gradebook: Pick<CourseGradebook, 'viewIn'>,
     private readonly rowLimit: number | null,
   ) {}
 
   /** The course's stored reports, newest first. */
   async list(courseId: string): Promise<{ courseId: string; reports: AcademyGradeReport[] }> {
     await this.course(this.sql, courseId);
-    const rows = await this.sql<Stored[]>`
-      SELECT course_id, n, '' AS csv, sha256, rows, made_by, made_at FROM academy.course_grade_reports
+    const rows = await this.sql<Meta[]>`
+      SELECT course_id, n, sha256, rows, made_by, made_at FROM academy.course_grade_reports
       WHERE course_id = ${courseId} ORDER BY n DESC
     `;
     return { courseId, reports: rows.map(meta) };
@@ -96,7 +106,8 @@ export class GradeReports {
         SELECT coalesce(max(n), 0)::int + 1 AS next FROM academy.course_grade_reports WHERE course_id = ${input.courseId}
       `;
       if (input.n !== next) refuse('academy.report_out_of_order', `the next report of this course is ${next}, not ${input.n}`);
-      const book = await this.gradebook.view(input.courseId);
+      // Read on this transaction's own connection: a second pooled connection while holding the lock could starve.
+      const book = await this.gradebook.viewIn(tx, input.courseId);
       if (book.learners.length > limit)
         refuse('academy.report_too_large', `${book.learners.length} learners, over the ${limit} rows one report holds`, {
           limit: String(limit),

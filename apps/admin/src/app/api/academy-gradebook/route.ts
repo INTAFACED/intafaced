@@ -43,8 +43,14 @@ export async function GET(request: Request) {
   const report = new URL(request.url).searchParams.get('report');
   if (report !== null) {
     if (!/^[1-9]\d{0,8}$/.test(report)) return incomplete('Which report?');
-    const file = await loadGradeReportFile(session, courseId, Number(report));
-    if (!file) return incomplete('That report could not be read. Nothing was made.');
+    let read: Awaited<ReturnType<typeof loadGradeReportFile>>;
+    try {
+      read = await loadGradeReportFile(session, courseId, Number(report));
+    } catch (error) {
+      return adminSessionErrorResponse(error);
+    }
+    if (!('file' in read)) return Response.json(read.reply, { status: read.status, headers: NO_STORE });
+    const { file } = read;
     // The stored snapshot, byte for byte: the hash the desk shows is the hash of this body.
     return new Response(file.csv, {
       headers: {

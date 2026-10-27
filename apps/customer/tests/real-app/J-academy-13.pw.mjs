@@ -140,7 +140,7 @@ test(`${J} #7 the gradebook marks work not attempted, not zero; each download is
   const downloads = [];
   for (const n of [1, 2]) {
     await reports.getByRole('button', { name: `Make grade report ${n}` }).click();
-    await expect(page.getByTestId('course-desk-outcome')).toContainText(`Done: grade report ${n} made`);
+    await expect(page.getByTestId('course-desk-outcome')).toContainText(`Done: grade report ${n} made at`);
     const line = reports.locator(`tr[data-report="${n}"]`);
     const [download] = await Promise.all([page.waitForEvent('download'), line.getByRole('link', { name: `Download report ${n}` }).click()]);
     downloads.push({

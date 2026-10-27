@@ -1326,9 +1326,9 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     next: 'Ask the owner to raise the report size. Nothing was made.',
   },
   'academy.report_out_of_order': {
-    title: 'Another report was made first',
-    body: 'Someone made a grade report of this course since the page was read, so this one would skip a number.',
-    next: 'The list below is read again. Make the report again if you still need a new one. Nothing was made.',
+    title: 'That report number skips one',
+    body: 'Reports of a course are numbered one after another, and this number is past the next one.',
+    next: 'The list below is read again. Make the next report from it. Nothing was made.',
   },
   'academy.report_not_found': {
     title: 'No such report',
