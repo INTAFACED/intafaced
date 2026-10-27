@@ -16,8 +16,9 @@
  * It never writes a ledger call: a slice that moves money adds a `packages/ledger-client` recipe by hand.
  */
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { SCOPES } from '@intafaced/auth';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
@@ -35,32 +36,69 @@ const pascal = (name) =>
 const camel = (name) => pascal(name)[0].toLowerCase() + pascal(name).slice(1);
 const snake = (name) => words(name).join('_');
 
+const FLAGS = ['service', 'name', 'slice', 'dir', 'area', 'scope'];
+
+/** Names the templates already use: a slice named for one would declare it twice or shadow it. */
+const RESERVED = new Set([
+  'sql',
+  'stored',
+  'row',
+  'z',
+  'tx',
+  'ctx',
+  'input',
+  'db',
+  'store',
+  'count',
+  'cap',
+  'found',
+  'rows',
+  'created',
+  'counted',
+]);
+
 export function parseArgs(argv) {
   const out = { dryRun: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--') continue;
     if (a === '--dry-run') out.dryRun = true;
-    else if (a.startsWith('--')) out[a.slice(2)] = argv[++i];
-    else throw new Error(`slice:new: unexpected argument "${a}"`);
+    else if (a.startsWith('--') && FLAGS.includes(a.slice(2))) out[a.slice(2)] = argv[++i];
+    else throw new Error(`slice:new: unexpected argument "${a}" (flags: ${FLAGS.map((f) => `--${f}`).join(' ')} --dry-run)`);
   }
   for (const key of ['service', 'name', 'slice']) if (!out[key]) throw new Error(`slice:new: --${key} is required`);
   if (!/^svc-[a-z0-9-]+$/.test(out.service)) throw new Error('slice:new: --service is a folder under services/, like svc-academy');
   if (!kebab.test(out.name)) throw new Error('slice:new: --name is kebab-case, like grade-reports');
+  if (RESERVED.has(camel(out.name)) || RESERVED.has(snake(out.name)))
+    throw new Error(`slice:new: --name ${out.name} clashes with a name the templates use; pick a more specific one`);
+  if (!/^[A-Za-z0-9-]+$/.test(out.slice)) throw new Error('slice:new: --slice is a slice id, like AC-assignments-04');
   if (out.dir !== undefined && !/^[a-z0-9-]+(\/[a-z0-9-]+)*$/.test(out.dir)) throw new Error('slice:new: --dir is a folder under src/');
   out.area ??= out.service.slice('svc-'.length).replace(/-/g, '_');
+  if (!/^[a-z][a-z0-9_]*$/.test(out.area)) throw new Error("slice:new: --area is the service's schema name, like academy");
   out.scope ??= out.service.slice('svc-'.length);
+  for (const verb of ['read', 'write'])
+    if (!SCOPES.includes(`${out.scope}:${verb}`))
+      throw new Error(`slice:new: ${out.scope}:${verb} is not a scope in packages/auth; pass --scope with one the service's callers hold`);
   return out;
+}
+
+/** The names one slice's files share, worked out once. */
+export function sliceNames(opts) {
+  const table = snake(opts.name);
+  return {
+    table,
+    Name: pascal(opts.name),
+    name_: camel(opts.name),
+    capEnv: `${opts.area.toUpperCase()}_${table.toUpperCase()}_CAP`,
+    code: (what) => `${opts.area}.${table}_${what}`,
+    module: opts.dir ? `./${opts.dir}/${opts.name}` : `./${opts.name}`,
+  };
 }
 
 /** Every file the scaffold writes, as { path (from the repo root), text }. Pure, so the test reads it. */
 export function sliceFiles(opts, now = new Date()) {
   const { service, name, slice, area, scope } = opts;
-  const table = snake(name);
-  const Name = pascal(name);
-  const name_ = camel(name);
-  const capEnv = `${area.toUpperCase()}_${table.toUpperCase()}_CAP`;
-  const code = (what) => `${area}.${table}_${what}`;
+  const { table, Name, name_, capEnv, code } = sliceNames(opts);
   const stamp = migrationStamp(now);
   const migration = `${stamp}_${table}`;
   const src = join('services', service, 'src', ...(opts.dir ? [opts.dir] : []));
@@ -232,43 +270,51 @@ describe('${slice} ${name.replace(/-/g, ' ')}', () => {
 
 /** What the builder adds by hand, in the shared files, one line each where it can be. */
 export function nextSteps(opts) {
-  const { service, name, area } = opts;
-  const table = snake(name);
-  const capEnv = `${area.toUpperCase()}_${table.toUpperCase()}_CAP`;
-  const at = opts.dir ? `./${opts.dir}/${name}` : `./${name}`;
+  const { service } = opts;
+  const { Name, name_, capEnv, module } = sliceNames(opts);
   return [
     `services/${service}/package.json: "@intafaced/service-kit": "workspace:*" in dependencies, then pnpm install`,
     `services/${service}/src/env.ts: ${capEnv}: blankAsUnset(z.coerce.number().int().min(0)),`,
-    `services/${service}/src/router.ts: ...${camel(name)}Procedures(new ${pascal(name)}(sql, env.${capEnv} ?? null)), from '${at}-router.js'`,
+    `services/${service}/src/router.ts: ...${name_}Procedures(new ${Name}(sql, env.${capEnv} ?? null)), from '${module}-router.js'`,
+    `services/${service}/src/db/migrate.ts or similar: only if the service lists its migrations by name (svc-ops does), add the new file`,
     `tooling/profiles/test-owner-values/<file whose service key is ${service}>.json: a labelled TEST value for ${capEnv}`,
     `packages/contracts: the input and output schemas, when the screen reads them`,
   ];
 }
 
-export function main(argv, cwd = ROOT, now = new Date()) {
+/** The repo's own Prettier settings, so the files pass the format check as written. SQL is left as written. */
+async function formatted(file, cwd) {
+  if (!file.path.endsWith('.ts')) return file.text;
+  const prettier = await import('prettier');
+  const config = (await prettier.resolveConfig(join(cwd, file.path))) ?? {};
+  return prettier.format(file.text, { ...config, filepath: file.path });
+}
+
+export async function main(argv, cwd = ROOT, now = new Date()) {
   const opts = parseArgs(argv);
   // The scaffold only checks the target folder exists and writes new files into it; it reads no service's source.
   const target = join(cwd, 'services', opts.service);
   if (!existsSync(target)) throw new Error(`slice:new: services/${opts.service} does not exist`);
   const files = sliceFiles(opts, now);
   for (const f of files) if (existsSync(join(cwd, f.path))) throw new Error(`slice:new: ${f.path} already exists; nothing written`);
-  for (const f of files) {
-    if (opts.dryRun) continue;
-    mkdirSync(dirname(join(cwd, f.path)), { recursive: true });
-    writeFileSync(join(cwd, f.path), f.text);
+  if (!opts.dryRun) {
+    const texts = await Promise.all(files.map((f) => formatted(f, cwd)));
+    files.forEach((f, i) => {
+      mkdirSync(dirname(join(cwd, f.path)), { recursive: true });
+      writeFileSync(join(cwd, f.path), texts[i]);
+    });
   }
-  const lines = [
+  return [
     `${opts.dryRun ? 'would write' : 'wrote'}:`,
-    ...files.map((f) => `  ${relative(cwd, join(cwd, f.path))}`),
+    ...files.map((f) => `  ${f.path}`),
     'still to add by hand:',
-    ...nextSteps(opts).map((s) => `  ${s}`),
-  ];
-  return lines.join('\n');
+    ...nextSteps(opts).map((step) => `  ${step}`),
+  ].join('\n');
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   try {
-    console.log(main(process.argv.slice(2)));
+    console.log(await main(process.argv.slice(2)));
   } catch (err) {
     console.error(err instanceof Error ? err.message : err);
     process.exit(1);

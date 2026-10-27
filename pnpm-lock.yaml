@@ -703,6 +703,9 @@ importers:
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
+      prettier:
+        specifier: ^3.9.10
+        version: 3.9.10
       rimraf:
         specifier: ^6.0.1
         version: 6.1.3

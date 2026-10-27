@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { TRPCError } from '@intafaced/contracts';
 import { defineRefusals } from '../refusals.js';
-import { edgeCallers, expectRefusal, refusalCodeOf, serviceMigrations, TEST_USER } from './index.js';
+import { edgeCallers, expectRefusal, refusalCodeOf, serviceMigrations, TEST_USER, testAdminUrl } from './index.js';
 
 function fakeService(): string {
   const root = mkdtempSync(join(tmpdir(), 'service-kit-'));
@@ -30,6 +30,14 @@ describe('serviceMigrations', () => {
   });
 });
 
+describe('testAdminUrl', () => {
+  it('keeps a test database and points any other at intafaced_test', () => {
+    expect(testAdminUrl('postgres://u:p@h:5432/intafaced_test')).toBe('postgres://u:p@h:5432/intafaced_test');
+    expect(testAdminUrl('postgres://u:p@h:5432/test')).toBe('postgres://u:p@h:5432/intafaced_test');
+    expect(testAdminUrl('')).toBeUndefined();
+  });
+});
+
 describe('edgeCallers', () => {
   const callers = edgeCallers({ serviceName: 'svc-kit-test', scopes: ['kit:read'] });
 
@@ -42,6 +50,12 @@ describe('edgeCallers', () => {
   it('takes overrides for one caller', () => {
     const other = '33333333-3333-4333-8333-333333333333';
     expect(callers.signed({ userId: other, sub: other, scopes: [] }).principal).toMatchObject({ userId: other, scopes: [] });
+  });
+
+  it('fills a partial principal from the defaults even when it sets the expiry', () => {
+    const other = '33333333-3333-4333-8333-333333333333';
+    const ctx = callers.signed({ userId: other, sub: other, expiresAt: new Date(Date.now() + 5_000) });
+    expect(ctx.principal).toMatchObject({ userId: other, scopes: ['kit:read'] });
   });
 
   it('gives anonymous and forged callers no principal', () => {
@@ -63,8 +77,14 @@ describe('expectRefusal', () => {
     await expect(expectRefusal(Promise.reject(new Error('boom')), 'x.gone')).rejects.toThrow();
   });
 
-  it('reads the code from a cause first', () => {
+  it('fails when the call rejects with nothing', async () => {
+    await expect(expectRefusal(Promise.reject(undefined), 'x.gone')).rejects.toThrow();
+  });
+
+  it("reads a TRPCError's code only from its cause, never its status", () => {
     expect(refusalCodeOf(new TRPCError({ code: 'NOT_FOUND', cause: new r.Error('x.gone') }))).toBe('x.gone');
+    expect(refusalCodeOf(new TRPCError({ code: 'NOT_FOUND', cause: new Error('plain') }))).toBeUndefined();
+    expect(refusalCodeOf(new TRPCError({ code: 'NOT_FOUND' }))).toBeUndefined();
     expect(refusalCodeOf('nothing')).toBeUndefined();
   });
 });

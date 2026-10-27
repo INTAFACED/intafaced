@@ -20,7 +20,10 @@ import { TRPCError } from '@intafaced/contracts';
 /** The tRPC status a refusal travels as. */
 export type RefusalStatus = TRPCError['code'];
 
-/** Strings that explain a refusal to a client (`limit`, `setting`); never money as a number. */
+/**
+ * Strings kept on a refusal for logs and tests (`limit`, `setting`); never money as a number. The wire carries only the
+ * code and the message, so anything a screen must show goes in the message or in a contracts field.
+ */
 export type RefusalDetails = Readonly<Record<string, string>>;
 
 /** The error every family's refusals extend, so a test or a router can tell a typed refusal from a crash. */

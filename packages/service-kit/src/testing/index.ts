@@ -15,7 +15,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, beforeEach, expect } from 'vitest';
 import type { Principal } from '@intafaced/auth';
-import { createEdgeContext, encodePrincipal, signPrincipalHeader, type Context } from '@intafaced/contracts';
+import { createEdgeContext, encodePrincipal, signPrincipalHeader, TRPCError, type Context } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 
 /** The nearest folder at or above `from` that holds `drizzle/`, the service's migrations. */
@@ -46,7 +46,7 @@ export interface ServiceDbOptions {
   readonly from: string;
   /** Extra SQL after the migrations, for a fixture the schema needs. */
   readonly extra?: readonly string[];
-  /** Admin URL; defaults to `TEST_DATABASE_URL`, as `createTestDatabase` does. */
+  /** Admin URL; defaults to `TEST_DATABASE_URL`, pointed at `intafaced_test` when it names another database. */
   readonly url?: string;
   /** Leave rows between tests (a file that builds one world and reads it many ways). Defaults to false. */
   readonly keepRows?: boolean;
@@ -58,6 +58,18 @@ export interface ServiceDb {
   readonly db: TestDatabase;
 }
 
+/**
+ * The admin URL a test database is made from. A shared server's `TEST_DATABASE_URL` may name a database that is not a
+ * test database (`/test`); `createTestDatabase` refuses those, so the database part becomes `intafaced_test`, as the
+ * hand-written `adminUrl()` in service tests does.
+ */
+export function testAdminUrl(raw = process.env.TEST_DATABASE_URL): string | undefined {
+  if (!raw) return undefined;
+  const url = new URL(raw);
+  if (!url.pathname.replace(/^\//, '').endsWith('_test')) url.pathname = '/intafaced_test';
+  return url.toString();
+}
+
 /** Registers the file's database hooks and returns a handle whose `sql` is ready once the tests run. */
 export function useServiceDb(options: ServiceDbOptions): ServiceDb {
   let db: TestDatabase | undefined;
@@ -66,9 +78,10 @@ export function useServiceDb(options: ServiceDbOptions): ServiceDb {
     return db;
   };
   beforeAll(async () => {
+    const url = options.url ?? testAdminUrl();
     db = await createTestDatabase({
       service: options.service,
-      ...(options.url !== undefined ? { url: options.url } : {}),
+      ...(url !== undefined ? { url } : {}),
       migrations: [...serviceMigrations(options.from), ...(options.extra ?? [])],
     });
   }, 120_000);
@@ -131,8 +144,8 @@ export function edgeCallers(options: EdgeCallerOptions): EdgeCallers {
       expiresAt: new Date(Date.now() + 60_000),
       ...overrides,
     }) as Principal;
-  const full = (p: Principal | Partial<Principal> | undefined): Principal =>
-    p && 'expiresAt' in p && p.expiresAt instanceof Date && typeof p.userId === 'string' ? (p as Principal) : principal(p);
+  // A whole principal passes through unchanged (its fields win); a partial one is filled from the defaults.
+  const full = (p: Principal | Partial<Principal> | undefined): Principal => principal(p ?? {});
   return {
     secret,
     principal,
@@ -157,8 +170,8 @@ export function edgeCallers(options: EdgeCallerOptions): EdgeCallers {
 export function refusalCodeOf(err: unknown): string | undefined {
   const read = (e: unknown): string | undefined =>
     e && typeof e === 'object' && 'code' in e && typeof e.code === 'string' ? e.code : undefined;
-  const cause = err && typeof err === 'object' && 'cause' in err ? read(err.cause) : undefined;
-  return cause ?? read(err);
+  // A TRPCError's own `code` is its status (NOT_FOUND), never a refusal: only its cause can carry one.
+  return err instanceof TRPCError ? read(err.cause) : read(err);
 }
 
 /**
@@ -166,13 +179,15 @@ export function refusalCodeOf(err: unknown): string | undefined {
  * Returns the error for further checks (details, nothing written).
  */
 export async function expectRefusal(call: Promise<unknown> | (() => Promise<unknown>), code: string, status?: string): Promise<unknown> {
+  let threw = false;
   let thrown: unknown;
   try {
     await (typeof call === 'function' ? call() : call);
   } catch (err) {
+    threw = true;
     thrown = err;
   }
-  expect(thrown, `expected a refusal ${code}, but the call succeeded`).toBeDefined();
+  expect(threw, `expected a refusal ${code}, but the call succeeded`).toBe(true);
   expect(refusalCodeOf(thrown)).toBe(code);
   if (status !== undefined) expect((thrown as { code?: unknown }).code).toBe(status);
   return thrown;
