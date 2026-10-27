@@ -1,10 +1,10 @@
 # The look gate (tooling/ci/look-gate/look-gate.mjs): the kit gallery and every Customer room, built and served under the
 # production security headers, checked for axe, worst-pixel contrast, money on glass, target size, obscured focus, CSP
-# violations, the rendered font, legal slots and pixel baselines; and Home's boot frame against Home's loading boxes. Rendering happens in one pinned Playwright image (by
+# violations, the rendered font and pixel baselines; and Home's boot frame against Home's loading boxes. Rendering happens in one pinned Playwright image (by
 # digest), so baselines taken from it compare pixel for pixel.
 #
 # It reports, and is not a required check. The script itself decides when a failure blocks (policy.mjs BLOCKING_FROM:
-# report-only for two weeks, then only a kit, baseline, legal-slot or migrated-room change on a failing new-look page).
+# report-only for two weeks, then only a kit, baseline or migrated-room change on a failing new-look page).
 # The rules come from main: the job runs main's copy of the script, so a pull request cannot loosen the gate it is
 # judged by (the pull request's own copy runs only while main has none).
 name: Look gate

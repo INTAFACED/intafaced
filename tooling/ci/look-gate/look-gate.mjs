@@ -18,8 +18,6 @@
  *   csp          any Content-Security-Policy violation (in-page events and report-uri reports);
  *   font         text drawn in a system fallback instead of the web font its font-family names first (a Geist→Arial
  *                swap, a font file that failed to load, a blocked font);
- *   legal        every legal slot (`data-moment` + `data-jurisdiction`): the registry's exact wording, body size, bold
- *                and opaque and pinned to the top for a risk band, 4.5:1, never clipped (policy.mjs `judgeLegal`);
  *   baseline     a pixel difference from `<package>/look-baselines/<room>/<viewport>.png` (no baseline: reported, the
  *                shot is in the artifact to commit with a `Baseline-change:` line).
  * On the phone it also renders right-to-left, at 200% text size, in forced colours and with every string in
@@ -28,7 +26,7 @@
  * text at the phone's height.
  *
  * Reports for two weeks; then a failure on the kit gallery or on a page drawn in the new look blocks a pull request
- * that changes the kit, a baseline, a legal-slot file or a migrated room (policy.mjs). CI runs main's copy.
+ * that changes the kit, a baseline or a migrated room (policy.mjs). CI runs main's copy.
  *
  * The founder console (apps/admin) is shot too, signed in as a TEST founder against a stand-in Edge (admin.mjs), at a
  * phone and a computer with no variants: its baselines catch a kit change that moves it. Rooms whose calls have no
@@ -63,7 +61,6 @@ const REPORT_PATH = '/__csp-report';
 // moves them for a second run on the same machine; its shots then show other addresses, so no baseline comes from it.
 const PORT_BASE = Number(process.env.LOOK_GATE_PORT_BASE ?? 47300);
 const REFUSAL = { code: 'look_gate.no_services', message: 'The look gate renders rooms without services.' };
-const REGISTRY_PATH = 'packages/ui/src/lit/templates/legal/registry.json';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -177,7 +174,7 @@ const INIT = `(() => {
 const FREEZE_CSS = `*, *::before, *::after { animation-duration: 0s !important; animation-delay: 0s !important; transition: none !important; caret-color: transparent !important; } * { scrollbar-width: none !important; }`;
 const HIDE_TEXT_CSS = `* { color: transparent !important; -webkit-text-fill-color: transparent !important; text-shadow: none !important; text-decoration-color: transparent !important; } ::placeholder { color: transparent !important; }`;
 
-/** Text boxes, money figures, controls, legal slots and font probes, measured in the page. Runs in the browser. */
+/** Text boxes, money figures, controls and font probes, measured in the page. Runs in the browser. */
 function measure({ maxText }) {
   // Any computed colour (rgb, color(srgb ...), oklch, a color-mix result) as sRGB 0-255 and alpha 0-1, read back from
   // a canvas so the browser does the conversion.
@@ -260,7 +257,6 @@ function measure({ maxText }) {
       fontWeight: Number(c.fontWeight) || 400,
       fontFamily: c.fontFamily,
       rects,
-      legal: !!el.closest('[data-moment][data-jurisdiction], [data-legal-slot]'),
     });
   }
 
@@ -298,44 +294,9 @@ function measure({ maxText }) {
     if (clash) small.push(`${nameOf(el)} ${Math.round(r.width)}x${Math.round(r.height)}`);
   }
 
-  const bodySize = parseFloat(getComputedStyle(document.body).fontSize) || 16;
-  const legal = [...document.querySelectorAll('[data-moment][data-jurisdiction], [data-legal-slot]')].map((el) => {
-    const c = getComputedStyle(el);
-    const r = el.getBoundingClientRect();
-    let opaqueWhy = '';
-    const bg = rgba(c.backgroundColor);
-    if (!bg || bg[3] < 1) opaqueWhy = `background ${c.backgroundColor}`;
-    if (c.backdropFilter && c.backdropFilter !== 'none') opaqueWhy ||= `backdrop-filter ${c.backdropFilter}`;
-    let pinned = null;
-    for (let n = el; n && n !== document.documentElement; n = n.parentElement) {
-      const s = getComputedStyle(n);
-      if (Number(s.opacity) < 1) opaqueWhy ||= `opacity ${s.opacity} on ${nameOf(n)}`;
-      if (n !== el && s.backdropFilter && s.backdropFilter !== 'none') opaqueWhy ||= `backdrop-filter on ${nameOf(n)}`;
-      if (!pinned && (s.position === 'sticky' || s.position === 'fixed')) pinned = s;
-    }
-    return {
-      key: el.getAttribute('data-moment') || el.getAttribute('data-legal-slot'),
-      jurisdiction: el.getAttribute('data-jurisdiction') || 'uk',
-      type: el.getAttribute('data-type') || el.getAttribute('data-legal-slot-type') || '',
-      missing: el.hasAttribute('data-missing') || el.getAttribute('data-legal-slot-state') === 'refused',
-      text: el.innerText,
-      fontSize: parseFloat(c.fontSize),
-      fontWeight: Number(c.fontWeight) || 400,
-      bold: el.hasAttribute('data-bold') || !!el.querySelector('[data-bold]') || Number(c.fontWeight) >= 700,
-      opaque: !opaqueWhy,
-      opaqueWhy,
-      pinnedTop: !!pinned && parseFloat(pinned.top) <= 1 && r.top <= 1,
-      position: pinned?.position ?? c.position,
-      top: Math.round(r.top),
-      clipped: el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1 || r.left < 0 || r.right > innerWidth + 1,
-      visible: visible(el),
-      rects: [box(r)],
-    };
-  });
-
   const declared = [...new Set([...document.fonts].map((f) => f.family.replace(/^['"]|['"]$/g, '')))];
   const lit = !!document.querySelector('[data-look="lit"]');
-  return { texts, money, small, legal, bodySize, declared, lit, overflowX: Math.max(0, document.documentElement.scrollWidth - innerWidth) };
+  return { texts, money, small, declared, lit, overflowX: Math.max(0, document.documentElement.scrollWidth - innerWidth) };
 }
 
 /** Wait until the page's size and text stop changing for a second (at most 6 s); false when they never do. */
@@ -417,12 +378,12 @@ async function renderedFonts(page, ids) {
   }
 }
 
-/** Which text probes the font check reads: headings, controls, body copy, figures and legal text, a few of each. */
+/** Which text probes the font check reads: headings, controls, body copy and figures, a few of each. */
 function fontProbes(texts) {
   const picked = [];
   const kinds = new Map();
   texts.forEach((t, i) => {
-    const kind = t.legal ? 'legal' : t.name.split(/[.#]/)[0];
+    const kind = t.name.split(/[.#]/)[0];
     const n = kinds.get(kind) ?? 0;
     if (n < 3) picked.push(i);
     kinds.set(kind, n + 1);
@@ -464,7 +425,7 @@ async function prepare(page, target = {}) {
   await page.routeWebSocket(/\/ws(\/|$)/, (ws) => ws.close({ code: 1011, reason: REFUSAL.code }));
 }
 
-async function check(context, origin, target, vpName, opts, registry) {
+async function check(context, origin, target, vpName, opts) {
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) =>
@@ -572,26 +533,6 @@ async function check(context, origin, target, vpName, opts, registry) {
       if (why) fontFails.push(`${t.name} "${t.text}": ${why}`);
     }
     add('font', [...new Set(fontFails)].slice(0, 15));
-
-    // legal slots
-    const legal = [];
-    if (m.legal.length && !registry) row.notes.push(`legal slots present but ${REGISTRY_PATH} is not on this branch`);
-    for (const slot of m.legal) {
-      // The worst text box inside this slot (text boxes are page coordinates, as is the slot's box).
-      const [sb] = slot.rects;
-      const inside = m.texts.filter(
-        (t) =>
-          t.legal &&
-          t.rects.some(
-            (r) => r.x >= sb.x - 1 && r.y >= sb.y - 1 && r.x + r.width <= sb.x + sb.width + 1 && r.y + r.height <= sb.y + sb.height + 1,
-          ),
-      );
-      slot.contrast = inside.length ? Math.min(...inside.map((t) => worstOf(t).ratio)) : null;
-      for (const why of policy.judgeLegal(slot, registry ?? {}, { bodySize: m.bodySize }))
-        legal.push(`${slot.key}/${slot.jurisdiction}: ${why}`);
-    }
-    if (!m.legal.length) row.notes.push('no legal slots on this page');
-    add('legal', legal);
 
     // focus not obscured
     const focus = [];
@@ -889,9 +830,9 @@ function importsLit(folder) {
   }
 }
 
-/** Whether a row's findings count toward the verdict: the kit gallery, a page drawn in the new look, or a legal slot. */
+/** Whether a row's findings count toward the verdict: the kit gallery or a page drawn in the new look. */
 export function isBlockable(r, litTargets) {
-  return r.target.startsWith('kit ') || litTargets.has(r.target) || Boolean(r.findings.legal);
+  return r.target.startsWith('kit ') || litTargets.has(r.target);
 }
 
 /**
@@ -911,7 +852,7 @@ export function focusDebt(rows, litTargets) {
   return [`## Old-room focus debt (stage C): ${seen.size}`, '', ...[...seen.values()].map((l) => `- ${l.replace(/\|/g, '/')}`), ''];
 }
 
-function report(rows, opts, meta) {
+function report(rows, opts) {
   const failing = rows.filter((r) => Object.keys(r.findings).length);
   // A target is drawn in the new look when any of its shots found it so: its variant and error rows count too.
   const litTargets = new Set(rows.filter((r) => r.lit).map((r) => r.target));
@@ -931,7 +872,7 @@ function report(rows, opts, meta) {
     '',
     `Verdict: **${v.mode}**${v.why ? ` (${v.why})` : ''}${v.blocking?.length ? `; blocking paths changed: ${v.blocking.slice(0, 5).join(', ')}` : ''}.`,
     '',
-    `Not checked yet: rooms with no fixture in apps/customer/tests/real-app/look-fixtures.mjs show their refuse state. Legal registry: ${meta.registry ? REGISTRY_PATH : 'not on this branch'}.`,
+    `Not checked yet: rooms with no fixture in apps/customer/tests/real-app/look-fixtures.mjs show their refuse state.`,
     '',
     ...focusDebt(rows, litTargets),
     '## Every page',
@@ -960,7 +901,6 @@ async function main(opts) {
   const { chromium } = await import('@playwright/test');
   const customerDist = join(ROOT, 'apps/customer/dist');
   const galleryDist = join(ROOT, 'packages/ui/.gallery-dist');
-  const registry = existsSync(join(ROOT, REGISTRY_PATH)) ? JSON.parse(readFileSync(join(ROOT, REGISTRY_PATH), 'utf8')) : null;
   const reports = [];
   const servers = [];
   const targets = [];
@@ -1037,7 +977,7 @@ async function main(opts) {
           locale: 'en-GB',
         });
         if (target.cookie) await context.addCookies([target.cookie]);
-        out.push(await check(context, target.origin, target, vpName, opts, registry));
+        out.push(await check(context, target.origin, target, vpName, opts));
         await context.close();
       }
       // The console's baselines are what it checks; its variants belong to its own redesign.
@@ -1066,7 +1006,7 @@ async function main(opts) {
     };
     rows.push(r);
   }
-  const v = report(rows, opts, { registry: !!registry });
+  const v = report(rows, opts);
   if (v.mode === 'block') process.exit(1);
 }
 
@@ -1148,62 +1088,6 @@ async function selfTest() {
   );
   ok(/no glyphs/.test(policy.judgeFont({ fontFamily: 'Geist Variable', declared, platform: [] })), 'nothing drawn');
   eq(policy.firstFamily(`"Inter Variable", Inter`), 'Inter Variable', 'first family unquoted');
-  // legal
-  const registry = {
-    'crypto-risk-band': {
-      type: 'risk-band',
-      uk: {
-        status: 'fixed',
-        runs: [{ text: 'Don’t invest unless', bold: true }, { text: ' ' }, { text: 'Take 2 mins to learn more', link: true }],
-      },
-      eu: { status: 'lawyer' },
-    },
-    'cfd-warning': { type: 'risk-band', uk: { status: 'fixed', runs: [{ text: '{percent}% of retail accounts lose money.' }] } },
-  };
-  const good = {
-    key: 'crypto-risk-band',
-    jurisdiction: 'uk',
-    type: 'risk-band',
-    missing: false,
-    text: 'Don’t invest unless  Take 2 mins to learn more',
-    fontSize: 16,
-    fontWeight: 700,
-    bold: true,
-    opaque: true,
-    pinnedTop: true,
-    clipped: false,
-    visible: true,
-    contrast: 7,
-  };
-  eq(policy.judgeLegal(good, registry), [], 'a correct risk band passes');
-  eq(policy.judgeLegal({ ...good, text: 'Crypto is risky' }, registry).length, 1, 'changed wording fails');
-  eq(
-    policy.judgeLegal({ ...good, opaque: false, opaqueWhy: 'backdrop-filter blur(20px)' }, registry),
-    ['background not opaque: backdrop-filter blur(20px)'],
-    'glass band fails',
-  );
-  eq(policy.judgeLegal({ ...good, bold: false }, registry).length, 1, 'not bold fails');
-  eq(policy.judgeLegal({ ...good, pinnedTop: false }, registry).length, 1, 'scrolls away fails');
-  eq(policy.judgeLegal({ ...good, fontSize: 12 }, registry).length, 1, 'small print fails');
-  eq(policy.judgeLegal({ ...good, contrast: 3.1 }, registry).length, 1, 'low contrast fails');
-  eq(policy.judgeLegal({ ...good, clipped: true }, registry), ['clipped'], 'clipped fails');
-  eq(policy.judgeLegal({ ...good, jurisdiction: 'eu' }, registry).length, 1, 'a lawyer wording drawn as text fails');
-  eq(
-    policy.judgeLegal({ ...good, jurisdiction: 'eu', missing: true, text: 'Wording pending' }, registry),
-    [],
-    'its designed refusal passes',
-  );
-  eq(
-    policy.judgeLegal({ ...good, key: 'cfd-warning', text: '74% of retail accounts lose money.' }, registry),
-    [],
-    'a filled placeholder passes',
-  );
-  eq(
-    policy.judgeLegal({ ...good, key: 'cfd-warning', text: '% of retail accounts lose money.' }, registry).length,
-    1,
-    'an empty placeholder fails',
-  );
-  eq(policy.judgeLegal({ ...good, key: 'made-up' }, registry), ['no registry entry "made-up"'], 'unknown moment fails');
   // pixels and png
   eq(
     policy.pixelDiff(new Uint8Array([1, 2, 3, 255]), new Uint8Array([2, 3, 4, 255]), { width: 1, height: 1 }).differing,
