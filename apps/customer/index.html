@@ -110,14 +110,37 @@
       #boot-frame .bf-keys i:nth-child(4) {
         inline-size: 5.1429rem;
       }
-      /* the look's actions panel (lit-spike.css): the keys sit on one solid panel */
-      html[data-look='lit'] #boot-frame .bf-keys {
-        padding: var(--if-space-3);
-        border-radius: 1.7143rem;
-        background: var(--if-panel);
+      /* the look (lit.css roles, in the entry stylesheet; lit-spike.css): the glass top bar, and the keys on one solid
+         panel with its sheen, lip and rim, the first key the metal pill */
+      html[data-look='lit'] #boot-frame .bf-top {
+        background: var(--lit-glass-bg);
       }
-      html[data-look='lit'] #boot-frame .bf-keys i {
-        background: var(--if-field);
+      html[data-look='lit'] #boot-frame .bf-keys {
+        position: relative;
+        padding: var(--if-space-3);
+        border-radius: var(--lit-radius-panel);
+        background: var(--lit-sheen), var(--lit-solid-bg);
+        box-shadow: var(--lit-solid-lip), var(--lit-solid-shadow);
+        isolation: isolate;
+      }
+      html[data-look='lit'] #boot-frame .bf-keys::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        padding: 0.0715rem;
+        pointer-events: none;
+        background: linear-gradient(0deg, var(--lit-solid-rim-dim), var(--lit-solid-rim));
+        -webkit-mask:
+          linear-gradient(var(--lit-solid-bg) 0 0) content-box,
+          linear-gradient(var(--lit-solid-bg) 0 0);
+        -webkit-mask-composite: xor;
+        mask-composite: exclude;
+      }
+      html[data-look='lit'] #boot-frame .bf-keys i:first-child {
+        border-radius: var(--lit-radius-key);
+        background: var(--lit-primary-bg);
+        box-shadow: var(--lit-primary-shadow);
       }
       /* section heads (one line of the section title) and their bodies */
       #boot-frame .bf-head {
@@ -153,11 +176,14 @@
         max-inline-size: 36rem;
         margin-block-start: var(--if-space-2);
         padding: var(--if-space-4);
-        border-radius: 1.7143rem;
+        border-radius: var(--lit-radius-panel);
+        background: var(--lit-solid-bg);
       }
       #boot-frame .bf-where i {
         inline-size: 6.5rem;
         block-size: 2.7143rem;
+        border-radius: var(--if-r-xs);
+        background: var(--lit-solid-bg-raised);
       }
       #boot-frame .bf-holdings {
         block-size: 10.2857rem;
