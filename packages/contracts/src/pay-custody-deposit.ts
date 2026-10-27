@@ -28,7 +28,8 @@ const decimalSchema = z.string().regex(/^(0|[1-9]\d{0,29})(\.\d{1,18})?$/);
 /**
  * One asset on one network that can take a deposit now. `memoRequired` is true for networks that route by memo or tag.
  * `sharedAddressGroup` names a group of assets that share one address on the network (for example every token on an EVM
- * chain); null means the address is the asset's own.
+ * chain); null means the address is the asset's own. `unsupported` is the owner's list of cases custody will not credit on this
+ * network, shown before any address (W-deposit-03); absent means none was published.
  */
 export const payCustodyDepositEntrySchema = z
   .object({
@@ -40,6 +41,7 @@ export const payCustodyDepositEntrySchema = z
     estimatedArrivalMinutes: z.number().int().min(1).max(100_000),
     memoRequired: z.boolean(),
     sharedAddressGroup: z.string().min(1).max(64).nullable(),
+    unsupported: z.array(z.string().min(1).max(280)).min(1).max(20).optional(),
   })
   .strict();
 export type PayCustodyDepositEntry = z.infer<typeof payCustodyDepositEntrySchema>;
@@ -235,12 +237,15 @@ export const payCustodyDepositRecordsReplySchema = z
 export type PayCustodyDepositRecordsReply = z.infer<typeof payCustodyDepositRecordsReplySchema>;
 
 export type PayCustodyDepositCatalogueResult =
-  { state: 'ok'; catalogue: PayCustodyDepositCatalogue } | { state: 'unavailable'; code: 'pay.custody_deposit_unavailable' };
+  | { state: 'ok'; catalogue: PayCustodyDepositCatalogue }
+  | { state: 'unavailable'; code: 'pay.custody_deposit_unavailable' };
 export type PayCustodyDepositAddressResult =
-  PayCustodyDepositAddressReply | { state: 'unavailable'; code: 'pay.custody_deposit_unavailable' };
+  | PayCustodyDepositAddressReply
+  | { state: 'unavailable'; code: 'pay.custody_deposit_unavailable' };
 
 export type PayCustodyDepositRecordsResult =
-  { state: 'ok'; records: PayCustodyDepositRecordsReply } | { state: 'unavailable'; code: 'pay.custody_deposit_unavailable' };
+  | { state: 'ok'; records: PayCustodyDepositRecordsReply }
+  | { state: 'unavailable'; code: 'pay.custody_deposit_unavailable' };
 
 /** What svc-bank holds. The HTTP client below is the only implementation outside tests. */
 export interface PayCustodyDepositPort {

@@ -177,6 +177,43 @@ describe('deposit settings (dual-controlled)', () => {
     expect(on.haltNote).toBeNull();
   });
 
+  it('publishes an unsupported-case list, keeps it when an edit leaves it out, and needs a second founder to take a case off a live pair', async () => {
+    const cases = ['TEST: a send from a smart contract', 'TEST: a send of an NFT'];
+    const created = await ds().save(input({ unsupportedCases: cases }));
+    expect(created.unsupportedCases).toEqual(cases);
+    expect(consumed).toHaveLength(0);
+    // An edit that does not name the list keeps it.
+    const kept = await ds().save(input({ expectedVersion: 1, minimumDeposit: '12' }));
+    expect(kept.unsupportedCases).toEqual(cases);
+    await ds().save({ ...input({ enabled: true, expectedVersion: 2, minimumDeposit: '12' }), ...approval });
+    // Adding a case to a live pair is one founder's change.
+    consumed = [];
+    const more = await ds().save(
+      input({ enabled: true, expectedVersion: 3, minimumDeposit: '12', unsupportedCases: [...cases, 'TEST: a third'] }),
+    );
+    expect(more.unsupportedCases).toHaveLength(3);
+    expect(consumed).toHaveLength(0);
+    // Taking one off stops warning customers, so it needs a second founder.
+    const fewer = input({ enabled: true, expectedVersion: 4, minimumDeposit: '12', unsupportedCases: [cases[0]] });
+    expect((await ds().preview(fewer)).reasons).toEqual(['unsupported_case_removed']);
+    approver = null;
+    await refused(ds().save({ ...fewer, ...approval }));
+    expect((await ds().list())[0].unsupportedCases).toHaveLength(3);
+    approver = SECOND;
+    const removed = await ds().save({ ...fewer, ...approval });
+    expect(removed.unsupportedCases).toEqual([cases[0]]);
+    const events = await ds().history({});
+    expect(events[0]).toMatchObject({ dualControl: true, approverId: SECOND });
+    expect(events[0].after).toMatchObject({ unsupportedCases: [cases[0]] });
+  });
+
+  it('refuses a blank, repeated or too long unsupported-case list', async () => {
+    await refused(ds().save(input({ unsupportedCases: [' '] })));
+    await refused(ds().save(input({ unsupportedCases: ['TEST same', 'TEST same'] })));
+    await refused(ds().save(input({ unsupportedCases: Array.from({ length: 21 }, (_, i) => `TEST case ${i}`) })));
+    expect(await ds().list()).toHaveLength(0);
+  });
+
   it('refuses a stale version', async () => {
     await ds().save(input());
     await ds().save(input({ expectedVersion: 1, minimumDeposit: '12' }));
