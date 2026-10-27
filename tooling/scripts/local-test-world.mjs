@@ -4051,9 +4051,10 @@ async function main() {
   else if (cmd === 'status') cmdStatus();
   else if (cmd === 'populate') await cmdPopulate(process.argv.slice(3));
   else if (cmd === 'approve-kyb') await cmdApproveKyb(process.argv[3]);
+  else if (cmd === 'open-dispute') await cmdOpenDispute(process.argv.slice(3));
   else
     die(
-      'usage: local-test-world.mjs watch | seed | status | approve-kyb <merchantId> | populate [--only a,b] [--login-file <path>] [--dry-run] [--verify]',
+      'usage: local-test-world.mjs watch | seed | status | approve-kyb <merchantId> | open-dispute <paymentId> <reason> | populate [--only a,b] [--login-file <path>] [--dry-run] [--verify]',
       2,
     );
 }
@@ -4071,6 +4072,89 @@ async function cmdApproveKyb(merchantId) {
   const out = await decideKybByFounderPair(log, merchantId);
   if (!out.ok) die(out.refusal, 3);
   console.log(JSON.stringify({ merchantId, kybStatus: out.kybStatus, approvalId: out.approvalId }));
+}
+
+const OPEN_DISPUTE_USAGE = 'usage: local-test-world.mjs open-dispute <paymentId> <reason>';
+/** svc-pay's openDispute takes a reason of at most 64 characters, and the label takes 11 of them. */
+const DISPUTE_REASON_MAX = 64 - 'LOCAL-TEST '.length;
+
+/** The arguments of `open-dispute`, or null. Everything is refused before the stack is touched. */
+export function openDisputeArgs(argv) {
+  const [paymentId, reason] = argv;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(paymentId ?? ''))) return null;
+  const why = String(reason ?? '').trim();
+  if (!why || why.length > DISPUTE_REASON_MAX || /[^\x20-\x7e]/.test(why)) return null;
+  return { paymentId: paymentId.toLowerCase(), reasonCode: `LOCAL-TEST ${why}` };
+}
+
+/**
+ * What `open-dispute` does with one payment, from the stack's own rows: `payment` is { merchantId, status, assetId,
+ * capturedAmount } or null, `existing` the dispute case with this id or null. The dispute id is the payment's business
+ * key, so a second run finds the first dispute and opens nothing. The amount is the payment's own captured amount, never
+ * a number from the caller, and only a captured or settled payment is disputed (as planMerchantDispute).
+ */
+export function planOpenDispute({ paymentId, payment, existing }) {
+  const disputeId = `LOCAL-TEST-dispute-${paymentId}`;
+  if (existing) return { kind: 'exists', disputeId, dispute: existing };
+  if (!payment) return { kind: 'refuse', reason: `dispute not opened: no payment ${paymentId} on this stack` };
+  if (payment.status !== 'captured' && payment.status !== 'settled') {
+    return { kind: 'refuse', reason: `dispute not opened: the payment is ${payment.status}, only a captured payment is disputed` };
+  }
+  if (!/^\d+(\.\d+)?$/.test(payment.capturedAmount) || !/[1-9]/.test(payment.capturedAmount)) {
+    return { kind: 'refuse', reason: 'dispute not opened: the payment has no captured amount' };
+  }
+  return {
+    kind: 'open',
+    disputeId,
+    fields: { disputeId, paymentId, merchantId: payment.merchantId, amount: payment.capturedAmount, assetId: payment.assetId },
+  };
+}
+
+/**
+ * The stack's founder pair opens a TEST dispute on one captured payment through svc-pay's own two-person door
+ * (pay.fraud.openDispute), as `populate` does for the sandbox merchant: the rails on the stack send no chargebacks. For
+ * journey tests that need a disputed payment. Reads the payment and any dispute already opened for it first (the stack's
+ * own database, as the approval lookup does), then prints the case.
+ */
+async function cmdOpenDispute(argv) {
+  const args = openDisputeArgs(argv);
+  if (!args) die(`${OPEN_DISPUTE_USAGE} (a reason of 1 to ${DISPUTE_REASON_MAX} plain characters)`, 2);
+  const { paths: p } = guard();
+  assertActiveLocalStack({ stateDir: p.stateDir, services: ['edge', 'identity', 'pay', 'ledger'] });
+  const secrets = readJson(p.secrets, null);
+  if (!secrets) die('secrets.json missing in the local stack state directory');
+  const id = args.paymentId; // a checked uuid, so it can sit in the query text
+  const [row] = psql(
+    secrets,
+    'svc_pay',
+    `SELECT p.merchant_id, p.status, p.currency,
+            COALESCE((SELECT SUM((e.payload->>'amount')::numeric) FROM pay.payment_events e
+                       WHERE e.payment_id = p.id AND e.event = 'captured'), 0)::text
+       FROM pay.payments p WHERE p.id = '${id}'`,
+  );
+  const [found] = psql(
+    secrets,
+    'svc_pay',
+    `SELECT status, amount, asset_id FROM pay.dispute_cases WHERE dispute_id = 'LOCAL-TEST-dispute-${id}'`,
+  );
+  const plan = planOpenDispute({
+    paymentId: id,
+    payment: row ? { merchantId: row[0], status: row[1], assetId: row[2], capturedAmount: trimAmount(row[3]) } : null,
+    existing: found ? { status: found[0], amount: found[1], assetId: found[2] } : null,
+  });
+  if (plan.kind === 'refuse') die(plan.reason, 3);
+  if (plan.kind === 'exists') {
+    console.log(JSON.stringify({ disputeId: plan.disputeId, status: plan.dispute.status, opened: false }));
+    return;
+  }
+  const out = await openDisputeByApprovalPair((m) => console.error(m), plan.fields, args.reasonCode);
+  if (!out.ok) die(out.refusal, 3);
+  console.log(JSON.stringify({ disputeId: plan.disputeId, status: out.status, ledgerWire: out.ledgerWire, opened: true }));
+}
+
+/** A numeric(38,18) as Postgres prints it, without the trailing zeros: 12.000000000000000000 is 12. */
+function trimAmount(text) {
+  return String(text).includes('.') ? String(text).replace(/0+$/, '').replace(/\.$/, '') : String(text);
 }
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) await main();

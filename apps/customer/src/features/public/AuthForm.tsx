@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
+import { BrandIris } from '@intafaced/ui';
 import { SocialSignIn } from './SocialSignIn';
 import { CodeSignIn } from './CodeSignIn';
 import { DeviceApproval } from './DeviceApproval';
@@ -457,6 +458,8 @@ export function AuthForm({ register }: { register: boolean }) {
   return (
     <section className="auth-layout" lang={publicLanguageFor('SIGN IN')}>
       <div className="auth-story">
+        {/* The sign-in moment: the mark opens once (the header beside it carries the lockup with the name). */}
+        <BrandIris size={64} mode="open" className="auth-story-mark" />
         <p className="eyebrow">{p('YOUR ACCOUNT, CONNECTED')}</p>
         <p className="auth-story-title">
           {register ? (

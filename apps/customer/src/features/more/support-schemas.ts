@@ -1,10 +1,11 @@
 import { z } from 'zod';
+import { supportTicketCategorySchema } from '@intafaced/contracts/support-categories';
 
 /** What the support service returns, as this app checks it. Kept in one place so the list, the detail and the form agree. */
 export const ticketSchema = z.object({
   id: z.string().guid(),
   userId: z.string().guid(),
-  category: z.enum(['account', 'trading', 'deposit_withdraw', 'phishing', 'other']),
+  category: supportTicketCategorySchema,
   subject: z.string().min(1).max(200),
   body: z.string().min(1).max(10000),
   status: z.enum(['open', 'pending', 'on_hold', 'resolved', 'closed']),
@@ -39,4 +40,15 @@ export type Ticket = z.infer<typeof ticketSchema>;
 export type Comment = z.infer<typeof commentSchema>;
 export type KbArticle = z.infer<typeof kbSchema>;
 
-export const CATEGORY_VALUES = ['account', 'trading', 'deposit_withdraw', 'phishing', 'other'] as const;
+export const CATEGORY_VALUES = supportTicketCategorySchema.options;
+
+/** The desk's priority and type the owner lets a customer read (SP-tickets-04); null when not shown. */
+export const myTicketPropertiesSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('unset'), code: z.literal('support.customer_properties_unset') }),
+  z.object({
+    status: z.literal('ok'),
+    priority: z.object({ value: z.enum(['low', 'normal', 'high', 'urgent']).nullable() }).nullable(),
+    ticketType: z.object({ value: z.enum(['question', 'problem', 'incident']).nullable() }).nullable(),
+  }),
+]);
+export type MyTicketProperties = z.infer<typeof myTicketPropertiesSchema>;

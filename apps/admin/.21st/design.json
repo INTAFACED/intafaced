@@ -8,7 +8,7 @@
   "sources": {
     "tokens": ["src/app/globals.css", "../../packages/ui/src/tokens.css"],
     "components": [],
-    "assets": ["public/intafaced-logo.svg"],
+    "assets": ["public/brand/lockup-topbar.svg", "public/brand/lockup-stacked.svg"],
     "instructions": []
   },
   "design": {

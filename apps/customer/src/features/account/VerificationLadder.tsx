@@ -102,6 +102,7 @@ export function VerificationLadder({
         {ladder.levels.map((rung) => (
           <li
             key={rung.level}
+            data-testid="verification__rung"
             className={rung.current ? 'verification__rung verification__rung--current' : 'verification__rung'}
             data-level={rung.level}
             aria-current={rung.current ? 'step' : undefined}
@@ -120,7 +121,7 @@ export function VerificationLadder({
               <Copy k="asks" />
             </h4>
             {rung.requirements.published ? (
-              <ul className="verification__requirements" data-published="true">
+              <ul data-testid="verification__requirements" className="verification__requirements" data-published="true">
                 {rung.requirements.keys.map((key) => (
                   <li key={key} data-requirement={key}>
                     <Copy k={key} />
@@ -128,19 +129,19 @@ export function VerificationLadder({
                 ))}
               </ul>
             ) : (
-              <p className="verification__requirements muted" data-published="false">
+              <p data-testid="verification__requirements" className="verification__requirements muted" data-published="false">
                 <Copy k="notPublished" />
               </p>
             )}
             {rung.reviewHours === null ? (
-              <p className="verification__review-time muted" data-stated="false">
+              <p data-testid="verification__review-time" className="verification__review-time muted" data-stated="false">
                 <Copy k="noReviewTime" />{' '}
                 <a className="text-link" href="/support">
                   <Copy k="noReviewTimeHelp" /> →
                 </a>
               </p>
             ) : (
-              <p className="verification__review-time" data-stated="true">
+              <p data-testid="verification__review-time" className="verification__review-time" data-stated="true">
                 {rung.reviewHours === 1 ? <Copy k="reviewTimeOne" /> : <Copy k="reviewTime" params={{ hours: String(rung.reviewHours) }} />}
               </p>
             )}

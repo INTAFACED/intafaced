@@ -232,7 +232,7 @@ export function PathProgrammesView({
                         <strong lang={isAcademyPath(row.pathSlug) ? undefined : 'zxx'}>
                           {isAcademyPath(row.pathSlug) ? pathLabel(t, row.pathSlug) : row.pathSlug}
                         </strong>
-                        <div className="academy-lms-meta">
+                        <div data-testid="academy-lms-meta" className="academy-lms-meta">
                           <time dateTime={row.enrolledAt}>
                             <Copy k="enrolledSince" params={{ date: formatDay(row.enrolledAt, language) }} />
                           </time>
@@ -263,7 +263,7 @@ export function PathProgrammesView({
               return (
                 <article key={path} className="academy-lms-card">
                   <h3>{pathLabel(t, path)}</h3>
-                  <div className="academy-lms-meta">
+                  <div data-testid="academy-lms-meta" className="academy-lms-meta">
                     <span>
                       <Copy k="lessonCount" params={{ count: group?.lessons.length ?? 0 }} />
                     </span>

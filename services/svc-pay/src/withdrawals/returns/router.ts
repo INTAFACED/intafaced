@@ -1,4 +1,5 @@
 import { router, TRPCError } from '@intafaced/contracts';
+import type { LedgerClient } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import type { FounderAuthority } from '../../founder-authority.js';
@@ -13,6 +14,7 @@ export type WithdrawalReturnMountDeps = Omit<WithdrawalReturnRouterDeps, 'founde
 export interface WithdrawalReturnRouterDeps {
   readonly founderAuthority: FounderAuthority;
   readonly sql: Sql;
+  readonly ledger: LedgerClient;
 }
 
 function actorOf(ctx: unknown): string {
@@ -31,11 +33,12 @@ async function wrap<T>(fn: () => Promise<T>): Promise<T> {
 
 /**
  * `founderAdmin.withdrawalReturns.*`: returned withdrawals (W-withdraw-07). Founder-only: every procedure is built from
- * `founderProcedure`. Mounted INSIDE the founderAdmin router. A return is recorded and parked; nothing is booked.
+ * `founderProcedure`. Mounted INSIDE the founderAdmin router. One founder records a return (parked, nothing booked); a
+ * second founder's `recredit` puts it back in the person's available balance, once.
  */
 export function createWithdrawalReturnRouter(deps: WithdrawalReturnRouterDeps) {
   const founder = founderProcedure(deps.founderAuthority);
-  const service = new WithdrawalReturnService({ sql: deps.sql });
+  const service = new WithdrawalReturnService({ sql: deps.sql, ledger: deps.ledger });
   return router({
     record: founder
       .input(recordInputSchema)
@@ -51,7 +54,7 @@ export function createWithdrawalReturnRouter(deps: WithdrawalReturnRouterDeps) {
       .query(({ input }) => wrap(() => service.list(input))),
     recredit: founder
       .input(recreditInputSchema)
-      .output(z.never())
-      .mutation(({ input }) => wrap(() => service.recredit(input.withdrawalId))),
+      .output(returnViewSchema)
+      .mutation(({ ctx, input }) => wrap(() => service.recredit(actorOf(ctx), input))),
   });
 }

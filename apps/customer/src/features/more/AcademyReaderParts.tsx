@@ -32,7 +32,7 @@ export function ReaderHeader({
           {pathLabel(t, path)}
         </a>
       </nav>
-      <div className="academy-lms-meta">
+      <div data-testid="academy-lms-meta" className="academy-lms-meta">
         {place.position > 0 && (
           <span>
             <Copy k="lessonPosition" params={{ position: place.position, total: place.total }} />

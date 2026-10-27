@@ -3,6 +3,7 @@ import {
   supportFieldAllowedOptions,
   supportFormFieldShown,
   supportFormValuesProblem,
+  supportOwn,
   type SupportField,
   type SupportFieldValue,
   type SupportForm,
@@ -25,10 +26,10 @@ export function formAnswers(form: SupportForm, fields: readonly SupportField[], 
     const field = byId.get(entry.fieldId);
     if (!field || !supportFormFieldShown(entry, out)) continue;
     if (field.kind === 'checkbox') {
-      out[entry.fieldId] = raw[entry.fieldId] === true;
+      out[entry.fieldId] = supportOwn(raw, entry.fieldId) === true;
       continue;
     }
-    const value = raw[entry.fieldId];
+    const value = supportOwn(raw, entry.fieldId);
     if (value === undefined || value === '' || typeof value === 'boolean') continue;
     if (field.kind === 'choice' && !supportFieldAllowedOptions(field, out).some((option) => option.value === value)) continue;
     out[entry.fieldId] = value.trim();

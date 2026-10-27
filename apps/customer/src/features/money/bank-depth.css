@@ -226,8 +226,8 @@
   gap: var(--if-space-3);
   font-size: var(--if-text-sm);
 }
-.bd-card__top strong {
-  letter-spacing: 0.08em;
+.bd-card__brand {
+  flex: none;
 }
 .bd-card__state {
   color: var(--if-accent-text);

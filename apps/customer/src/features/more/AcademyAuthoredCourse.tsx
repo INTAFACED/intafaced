@@ -138,7 +138,7 @@ export function AuthoredCourseBody({ data, note }: { data: AcademyCourseLearnerV
                         ) : (
                           <span lang="und">{item.title}</span>
                         )}
-                        <span className="academy-lms-meta">
+                        <span data-testid="academy-lms-meta" className="academy-lms-meta">
                           <span>{t(OUTLINE_KINDS[item.kind])}</span>
                           {item.lock && <span>{t(LOCKS[item.lock])}</span>}
                         </span>
@@ -272,7 +272,7 @@ export function AcademyAuthoredCourseCards({ whenEmpty = null }: { whenEmpty?: R
           <a className="academy-learning-link" href={academyCourseHref(card.slug)} lang="und">
             {card.title}
           </a>
-          <span className="academy-lms-meta">
+          <span data-testid="academy-lms-meta" className="academy-lms-meta">
             <span>{t('authoredItems', { count: card.items })}</span>
             <span>{priceText(t, card)}</span>
           </span>

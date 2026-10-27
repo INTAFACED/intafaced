@@ -122,7 +122,7 @@ export function AssignmentSubmissions({ data }: { data: AcademyAssignmentView })
       {data.submissions.map((s) => (
         <li key={s.version} className="academy-lms-card">
           <strong>{t('asgVersion', { version: s.version })}</strong>
-          <span className="academy-lms-meta">
+          <span data-testid="academy-lms-meta" className="academy-lms-meta">
             <span>{t(STATE_KEYS[s.state])}</span>
             <span>{s.late ? t('asgLate') : data.dueAt ? t('asgOnTime') : null}</span>
             <span>{t('asgSubmittedAt', { date: when(s.submittedAt, language) })}</span>
@@ -168,7 +168,9 @@ export function AssignmentGrade({
     <section className="academy-lms-stack" data-testid="assignment-grade" aria-label={t('grdTitle')}>
       <h3>{t('grdTitle')}</h3>
       <strong>{t('grdScore', { score: grade.score, points: grade.points })}</strong>
-      <span className="academy-lms-meta">{t('grdForVersion', { version: grade.version, date: when(grade.gradedAt, language) })}</span>
+      <span data-testid="academy-lms-meta" className="academy-lms-meta">
+        {t('grdForVersion', { version: grade.version, date: when(grade.gradedAt, language) })}
+      </span>
       <p lang="und" style={{ whiteSpace: 'pre-wrap' }}>
         {grade.comment ?? t('grdNoComment')}
       </p>
@@ -194,7 +196,7 @@ export function AssignmentBrief({ data }: { data: AcademyAssignmentView }) {
           {t('asgBack')}
         </a>
       </nav>
-      <p className="academy-lms-meta">
+      <p data-testid="academy-lms-meta" className="academy-lms-meta">
         <span data-testid="assignment-due">{data.dueAt ? t('asgDue', { date: when(data.dueAt, language) }) : t('asgNoDue')}</span>
         <span data-testid="assignment-points">{t('asgPoints', { points: data.points })}</span>
       </p>

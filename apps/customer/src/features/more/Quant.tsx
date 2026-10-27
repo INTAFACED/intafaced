@@ -275,7 +275,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                     [copyText('quant.venue'), <span lang="zxx">{result.venue}</span>],
                   ]}
                 />
-                <pre className="more-body" lang="und">
+                <pre data-testid="more-body" className="more-body" lang="und">
                   {result.logs.join('\n')}
                 </pre>
                 <DataTable

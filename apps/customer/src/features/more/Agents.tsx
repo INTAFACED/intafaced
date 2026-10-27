@@ -732,7 +732,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                   </Button>
                   {reply && (
                     <>
-                      <p className="more-body" lang="und">
+                      <p data-testid="more-body" className="more-body" lang="und">
                         {reply.text}
                       </p>
                       <p className="muted">

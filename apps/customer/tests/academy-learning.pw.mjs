@@ -101,9 +101,9 @@ async function network(context, options = {}) {
 }
 async function login(page, path = originalPath) {
   await page.goto('/login?redirect=' + encodeURIComponent(path));
-  await page.locator('input[autocomplete="username"]').fill('isolated-owner');
+  await page.locator('input[name="identifier"]').fill('isolated-owner');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect(page).toHaveURL('http://127.0.0.1:3234' + path);
 }
 const receipt = (page) => page.getByRole('region', { name: 'Lesson completion receipt', exact: true });

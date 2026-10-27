@@ -89,9 +89,9 @@ async function network(context, options = {}) {
 }
 async function login(page, path = '/blueprint', signed = true) {
   await page.goto('/login?redirect=' + encodeURIComponent(path));
-  await page.locator('input[autocomplete="username"]').fill('qualified-blueprint-owner');
+  await page.locator('input[name="identifier"]').fill('qualified-blueprint-owner');
   await page.locator('input[autocomplete="current-password"]').fill('qualified-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect(page).toHaveURL(new RegExp('/blueprint'));
   if (signed) await expect(page.locator('.blueprint-shared')).toBeVisible();
   else await expect(page.getByText('Sign in to continue', { exact: true })).toBeVisible();
@@ -188,9 +188,9 @@ test('signed room return preserves deliberate UUID/size and mentor action uses o
   await page.goto(path);
   await expect(page.getByText('Sign in to continue', { exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Sign in', exact: true }).click();
-  await page.locator('input[autocomplete="username"]').fill('qualified-owner');
+  await page.locator('input[name="identifier"]').fill('qualified-owner');
   await page.locator('input[autocomplete="current-password"]').fill('qualified-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect(page).toHaveURL(new RegExp(`subject=${second}&size=landscape`));
   await expect(image(page)).toBeVisible();
   expect(reads(state)[0].input).toEqual({ userId: second, size: 'landscape' });
@@ -270,9 +270,9 @@ test('401 clears actual session and re-login returns to intentional shared refer
   await expect(image(page)).toHaveCount(0);
   expired = false;
   await page.getByRole('link', { name: 'Sign in', exact: true }).click();
-  await page.locator('input[autocomplete="username"]').fill('qualified-owner');
+  await page.locator('input[name="identifier"]').fill('qualified-owner');
   await page.locator('input[autocomplete="current-password"]').fill('qualified-password');
-  await page.locator('form button[type="submit"]').click();
+  await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect(image(page)).toBeVisible();
   expect(reads(state).at(-1).input).toEqual({ userId: first, size: 'portrait' });
 });
@@ -300,14 +300,14 @@ for (const [entry, destination] of [
       await page.getByRole('link', { name: 'Create account', exact: true }).first().click();
       await expect(page).toHaveURL(new RegExp('/register\\?redirect='));
       expect(new URL(page.url()).searchParams.get('redirect')).toBe(path);
-      await page.locator('input[autocomplete="username"]').fill('qualified_owner');
+      await page.locator('input[name="identifier"]').fill('qualified_owner');
       await page.locator('input[autocomplete="email"]').fill('qualified-owner@example.invalid');
       await page.locator('input[autocomplete="new-password"]').fill('qualified-password');
     } else {
-      await page.locator('input[autocomplete="username"]').fill('qualified-owner');
+      await page.locator('input[name="identifier"]').fill('qualified-owner');
       await page.locator('input[autocomplete="current-password"]').fill('qualified-password');
     }
-    await page.locator('form button[type="submit"]').click();
+    await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
     await expect(page).toHaveURL(new URL(path, page.url()).href);
     await expect(viewer(page).getByRole('textbox')).toHaveValue(second);
     await expect(viewer(page).locator('select')).toHaveValue('landscape');

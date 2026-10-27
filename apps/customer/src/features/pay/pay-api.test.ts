@@ -1362,4 +1362,69 @@ describe('adding a P2P payment method (P-ads-merchant-18)', () => {
       ok: false,
     });
   });
+
+  // P-ads-merchant-18 (J-p2p-04 #4): the warning lists the ads, the removal says it may pause them, the paused ads are listed.
+  it('reads what a removal does to the ads, and sends the pause confirmation only when the person gave it', async () => {
+    const offerId = '66666666-6666-4666-8666-666666666666';
+    const impact = {
+      instrumentId,
+      methodId: 'test-bank-transfer',
+      fiatCurrency: 'EUR',
+      ads: [{ offerId, asset: 'USDT', fiatCurrency: 'EUR', pauses: true }],
+    };
+    const urls: string[] = [];
+    const sent: unknown[] = [];
+    const api = createApiClient({
+      fetch: async (url, options) => {
+        urls.push(String(url));
+        if (options?.method === 'POST') {
+          sent.push(JSON.parse(String(options.body)));
+          return response(header);
+        }
+        return response(impact);
+      },
+    });
+    const pay = createPersonalPayApi(api, userId, createPayMutationGuard());
+    expect(await pay.methodRemovalImpact(instrumentId)).toEqual({ ok: true, data: impact });
+    expect(urls[0]).toContain('instruments.removalImpact');
+    await pay.removeInstrument(instrumentId, 'approval-3', [offerId]);
+    await pay.removeInstrument(instrumentId, 'approval-4', []);
+    expect(sent).toEqual([
+      { instrumentId, stepUpApprovalId: 'approval-3', pauseOfferIds: [offerId] },
+      { instrumentId, stepUpApprovalId: 'approval-4' },
+    ]);
+  });
+
+  it('lists the person’s paused ads with the reason, and refuses a list holding someone else’s ad', async () => {
+    const ad = {
+      id: '66666666-6666-4666-8666-666666666666',
+      makerId: userId,
+      side: 'sell',
+      asset: 'USDT',
+      fiatCurrency: 'EUR',
+      priceType: 'fixed',
+      price: '1',
+      minAmount: '1',
+      maxAmount: '2',
+      remainingAmount: '2',
+      methods: ['test-bank-transfer'],
+      terms: '',
+      status: 'paused',
+      pauseReason: 'method_removed',
+      createdAt: '2026-10-25T00:00:00Z',
+    };
+    const urls: string[] = [];
+    const answer = (body: unknown) =>
+      createApiClient({
+        fetch: async (url) => {
+          urls.push(decodeURIComponent(String(url)));
+          return response(body);
+        },
+      });
+    expect(await createPersonalPayApi(answer([ad]), userId, createPayMutationGuard()).pausedOffers()).toEqual({ ok: true, data: [ad] });
+    expect(urls[0]).toContain('offers.mine');
+    expect(urls[0]).toContain('"status":"paused"');
+    const other = { ...ad, makerId: '77777777-7777-4777-8777-777777777777' };
+    expect(await createPersonalPayApi(answer([other]), userId, createPayMutationGuard()).pausedOffers()).toMatchObject({ ok: false });
+  });
 });

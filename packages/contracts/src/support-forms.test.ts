@@ -102,3 +102,43 @@ describe('supportFieldDefinitionProblem', () => {
     expect(supportFormValuesTrimmed({ model: '  P7 ', note: '  ', agree: false })).toEqual({ model: 'P7', agree: false });
   });
 });
+
+describe('a field id or option named like an object property', () => {
+  it('reads only own keys: `constructor` is unanswered, hidden and allows nothing', () => {
+    const parent: SupportField = {
+      id: 'constructor',
+      label: 'Kind',
+      kind: 'choice',
+      options: [{ value: 'a', label: 'A' }],
+      revision: 1,
+      updatedAt: at,
+    };
+    const child: SupportField = {
+      id: 'child',
+      label: 'Child',
+      kind: 'choice',
+      options: [{ value: 'b', label: 'B' }],
+      parent: { fieldId: 'constructor', allowed: { a: ['b'] } },
+      revision: 1,
+      updatedAt: at,
+    };
+    const form = {
+      fields: [
+        { fieldId: 'constructor', required: true },
+        { fieldId: 'child', required: false },
+      ],
+    };
+    expect(supportFormValuesProblem(form, [parent, child], {})).toEqual({ fieldId: 'constructor', problem: 'required' });
+    expect(supportFormValuesProblem(form, [parent, child], { constructor: 'a', child: 'b' })).toBeNull();
+    const toString = { ...child, parent: { fieldId: 'constructor', allowed: { a: ['b'] } } };
+    expect(
+      supportFormValuesProblem(form, [{ ...parent, options: [{ value: 'toString', label: 'T' }] }, toString], {
+        constructor: 'toString',
+        child: 'b',
+      }),
+    ).toEqual({
+      fieldId: 'child',
+      problem: 'not_allowed',
+    });
+  });
+});

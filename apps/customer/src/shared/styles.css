@@ -356,6 +356,10 @@ html[data-theme='light'] .button--danger {
   color: var(--color-muted);
   padding: var(--if-space-6) 0;
 }
+.loading--room .brand-iris {
+  flex: none;
+  color: var(--if-text);
+}
 .loading-dot {
   width: 8px;
   height: 8px;

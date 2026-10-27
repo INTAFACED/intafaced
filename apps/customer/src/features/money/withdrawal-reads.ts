@@ -65,10 +65,23 @@ export const withdrawalHistoryItemSchema = z.object({
   status: z.enum(WITHDRAWAL_SHOWN),
   failure: z.object({ code: z.string(), known: z.boolean(), message: z.string() }).nullable(),
   returned: z.boolean(),
+  /** What came back, when anything did, and whether it is back in available yet. An older svc-pay sends none. */
+  returnedFunds: z
+    .object({
+      amount: z
+        .string()
+        .regex(/^\d+(\.\d{1,18})?$/)
+        .pipe(decimalSchema),
+      reasonCode: z.string().nullable(),
+      credited: z.boolean(),
+    })
+    .nullable()
+    .optional(),
   createdAt: z.string().datetime({ offset: true }),
 });
 const withdrawalHistoryPageSchema = z.object({ items: z.array(withdrawalHistoryItemSchema), next: z.string().min(1).max(200).nullable() });
 export type WithdrawalHistoryItem = z.infer<typeof withdrawalHistoryItemSchema>;
+export type ReturnedFunds = NonNullable<WithdrawalHistoryItem['returnedFunds']>;
 export type WithdrawalHistoryPage = z.infer<typeof withdrawalHistoryPageSchema>;
 /** What the person filters History by. `null` is every coin, or every status. */
 export type WithdrawalHistoryFilter = { assetId: string | null; status: WithdrawalShown | null };
@@ -134,6 +147,24 @@ export function createWithdrawalReads(api: ApiClient, userId: string | null, cur
       )
         return refuse('invalid_response', 'withdrawal.window_invalid', 'invalidWindow');
       return result;
+    },
+    /**
+     * What came back from one of the person's own sent withdrawals (W-withdraw-07), read from History by its id: null when
+     * nothing did. svc-pay says whether it is back in available; the page never infers it.
+     */
+    async returnOf(withdrawalId: string, signal?: AbortSignal): Promise<ApiResult<ReturnedFunds | null>> {
+      const denied = admission(signal);
+      if (denied) return denied;
+      const parsed = withdrawalIdSchema.safeParse(withdrawalId);
+      if (!parsed.success) return refuse('error', 'withdrawal.input_invalid', 'invalidId');
+      const result = await api.query('pay', 'withdrawal.history', { id: parsed.data, limit: 1 }, withdrawalHistoryPageSchema, { signal });
+      const departed = admission(signal);
+      if (departed) return departed;
+      if (!result.ok) return result;
+      const [item, ...more] = result.data.items;
+      if (more.length > 0 || (item && (item.userId !== userId || item.id.toLowerCase() !== parsed.data)))
+        return refuse('invalid_response', 'withdrawal.owner_or_original_invalid', 'invalidOwner');
+      return { ok: true, data: item?.returnedFunds ?? null };
     },
     async get(withdrawalId: string, signal?: AbortSignal): Promise<ApiResult<WithdrawalRecord>> {
       const denied = admission(signal);

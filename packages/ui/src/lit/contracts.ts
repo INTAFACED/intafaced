@@ -298,7 +298,7 @@ export const components = {
   EmptyState: 'Empty with one next step',
   Dock: 'Phone navigation: floating pill, five doors, always fully visible',
   Rail: 'Computer navigation: five doors on the slab',
-  Logo: 'Mark, wordmark or lockup from one vector path; the brand kit swaps the path',
+  Logo: 'Mark, wordmark or lockup, drawn by the brand set from the kit files in packages/ui/brand',
   Stage: 'Host for a 3D object (from ./fx), with poster first and a flat tier; never on confirm or review',
   EqualChoice: '(B2) Two or more choices of equal weight: cooling-off, payee check, scam stop',
   Table: '(B2) Table with a phone row form (rows become stacked cards under compact)',

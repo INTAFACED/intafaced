@@ -1,5 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { defineRequestField, defineRequestForm, replyAsLead, setStatusAsLead } from './help-centre.mjs';
+import {
+  defineRequestField,
+  defineRequestForm,
+  ensureDeskGroup,
+  replyAsLead,
+  setPropertiesAsLead,
+  setStatusAsLead,
+} from './help-centre.mjs';
 import { signUp } from './desk.mjs';
 import { api, ORIGIN } from './stack.mjs';
 
@@ -214,10 +221,15 @@ test(`${J} #4 a fraud-report category says it goes to compliance, and an unknown
     clientRequestId: `j02:${RUN}:unknown`,
   });
   expect(JSON.stringify(res.body)).toContain('support.category_unknown');
-  // The owner's fraud-report category (SP-tickets-01 category list) names where it goes.
+  // A fraud report names where it goes: the compliance group the owner named (TEST Compliance on this stack).
+  await ensureDeskGroup('TEST Compliance');
   await page.goto('/support/new');
   const main = page.locator('main');
-  await expect(main.getByText('goes to our compliance team')).toBeVisible({ timeout: 5_000 });
+  await main.getByRole('combobox', { name: 'Topic' }).selectOption({ label: 'Report fraud on my account' });
+  await expect(main.getByRole('note').filter({ hasText: 'goes to our compliance team' })).toBeVisible({ timeout: 5_000 });
+  await main.getByLabel('Subject', { exact: true }).fill(`TEST ${J} ${RUN} fraud`);
+  await main.getByLabel('What happened').fill('TEST A payment I did not make.');
+  await expect(main.getByRole('button', { name: 'Review request' })).toBeEnabled();
 });
 
 test(`${J} #5 the review step sends one request with an audit event and "Open"; a lost reply re-reads the stored request and makes no second one`, async ({
@@ -301,13 +313,20 @@ test(`${J} #7 "My requests" at /support/tickets shows Awaiting your reply, Open 
   await fresh.context().close();
 });
 
-// Last, so its failure while unbuilt does not cost the steps before it their shared request.
+// Last, so that setting the desk's priority and type does not change what the steps before it read.
 test(`${J} #6 the request shows its type and priority where the owner allows it`, async ({ browser }) => {
   const ticket = need(shared.ticket, 'step 5 made no request');
   const page = await person(browser);
   await page.goto(`/support/tickets/${ticket.id}`);
   const main = page.locator('main');
   await expect(main.getByRole('heading', { name: ticket.subject })).toBeVisible();
-  // Customer-visible type and priority are SP-tickets-04's owner setting; until it lands the request shows neither.
-  await expect(main.getByText('Request type', { exact: true })).toBeVisible({ timeout: 5_000 });
+  // The owner lets customers read both (priority,type on this stack); the desk has set neither, so each says so.
+  const details = main.locator('.support-detail__head');
+  await expect(details).toContainText('Priority');
+  await expect(details).toContainText('None set');
+  // Once the desk sets them, the customer reads them on a fresh load.
+  await setPropertiesAsLead(ticket.id, 'high', 'problem');
+  await page.reload();
+  await expect(details).toContainText('High');
+  await expect(details).toContainText('Problem');
 });

@@ -1,6 +1,8 @@
 import type { Sql } from 'postgres';
+import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { PayError, assertWithdrawalListLimit } from '../payment-service.js';
 import { failureReason } from './reasons.js';
+import type { ReturnReasonCode } from './returns/schemas.js';
 import { shownFilterFor, shownStatus, WITHDRAWAL_CANCELED_CODE, type DispatchJournal, type WithdrawalStatus } from './status.js';
 
 /**
@@ -34,8 +36,13 @@ export interface WithdrawalHistoryItem {
   readonly status: WithdrawalStatus;
   /** Plain words for the failure, or the raw code when it is not one we explain. `null` when nothing failed. */
   readonly failure: { code: string; known: boolean; message: string } | null;
-  /** True when the funds of a sent withdrawal came back from the outside. The balance is not re-credited until the returned-funds recipe exists. */
+  /** True when the funds of a sent withdrawal came back from the outside. */
   readonly returned: boolean;
+  /**
+   * What came back, when anything did: the amount, why in words the customer may read (null on a return recorded before
+   * the code existed), and whether it is back in available yet. It is only `credited` once the ledger booked it.
+   */
+  readonly returnedFunds: { amount: string; reasonCode: ReturnReasonCode | null; credited: boolean } | null;
   readonly createdAt: string;
 }
 
@@ -59,6 +66,9 @@ interface Row {
   status: string;
   journal: DispatchJournal;
   returned: boolean;
+  returned_amount: string | null;
+  returned_reason_code: ReturnReasonCode | null;
+  returned_credited: boolean;
   created_at: string;
 }
 
@@ -96,10 +106,13 @@ export function createWithdrawalHistory(sql: Sql) {
       const rows = await sql<Row[]>`
         SELECT w.id, w.user_id, w.asset_id, w.amount::text AS amount, w.rail, w.destination, w.client_ref, w.rail_ref, w.attempts,
                w.failure_code, w.status::text AS status, a.outcome AS journal,
-               EXISTS (SELECT 1 FROM pay.withdrawal_returns wr WHERE wr.withdrawal_id = w.id) AS returned,
+               (wr.withdrawal_id IS NOT NULL) AS returned, wr.amount::text AS returned_amount, wr.reason_code AS returned_reason_code,
+               (wp.withdrawal_id IS NOT NULL) AS returned_credited,
                to_char(w.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at
           FROM pay.withdrawals w
           LEFT JOIN pay.withdrawal_rail_attempts a ON a.withdrawal_id = w.id AND a.attempt = w.attempts
+          LEFT JOIN pay.withdrawal_returns wr ON wr.withdrawal_id = w.id
+          LEFT JOIN pay.withdrawal_return_postings wp ON wp.withdrawal_id = w.id
          WHERE w.user_id = ${userId}
            AND (${filter.assetId ?? null}::text IS NULL OR w.asset_id = ${filter.assetId ?? null})
            AND (${stored}::text[] IS NULL OR w.status::text = ANY(${stored}::text[]))
@@ -129,6 +142,10 @@ export function createWithdrawalHistory(sql: Sql) {
           status,
           failure: reason ? { code: reason.code, known: reason.known, message: reason.customer } : null,
           returned: r.returned,
+          returnedFunds:
+            r.returned && r.returned_amount !== null
+              ? { amount: formatAmount(parseAmount(r.returned_amount)), reasonCode: r.returned_reason_code, credited: r.returned_credited }
+              : null,
           createdAt: r.created_at,
         };
       });

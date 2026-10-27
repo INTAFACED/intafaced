@@ -1015,6 +1015,27 @@ export const p2pTradeReminderSent = defineEvent(
   'The buyer reminded the seller to check the payment and release. A reminder is sent once per (tradeId, n).',
 );
 
+/**
+ * P-ads-merchant-18 / J-p2p-04 #4: the maker removed the last payment method some active sell ads could be paid with,
+ * confirmed, and those ads were paused in the same transaction (reason `method_removed`). One event per removal: an
+ * instrument is removed once, so consumers dedupe on instrumentId. The maker re-adds a method and resumes the ads.
+ */
+export const p2pOfferPaused = defineEvent(
+  'p2p',
+  'offer',
+  'paused',
+  1,
+  z.object({
+    instrumentId: z.string().guid(),
+    makerId: userIdSchema,
+    methodId: z.string().min(1).max(64),
+    offerIds: z.array(z.string().guid()).min(1).max(1000),
+    reason: z.literal('method_removed'),
+    pausedAt: z.string().datetime({ offset: true }),
+  }),
+  'Active sell ads were paused because the maker removed the only payment method they could still be paid with. Sent once per removed instrument.',
+);
+
 export const p2pChatMessageSent = defineEvent(
   'p2p',
   'chat_message',
@@ -1562,6 +1583,7 @@ export const EVENT_CATALOG = {
   p2pTradeExpired,
   p2pTradeFiatSent,
   p2pTradeReminderSent,
+  p2pOfferPaused,
   p2pChatMessageSent,
   p2pDisputeEscalated,
   p2pQuoteExpired,
@@ -2211,6 +2233,13 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       "svc-p2p publishes it from its reminder outbox (P-trade-orders-15, J-p2p-02 #2), and the seller sees the reminder on the order itself. svc-notify turns it into the seller's inbox notice in its own PR, idempotent by tradeId and n; until then no inbox notice is promised.",
+  },
+  {
+    event: 'p2pOfferPaused',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      "svc-p2p publishes it from its removal outbox (P-ads-merchant-18, J-p2p-04 #4), and the maker sees each paused ad and why on the ad itself. svc-notify turns it into the maker's inbox notice in its own PR, idempotent by instrumentId; until then no inbox notice is promised.",
   },
   {
     event: 'p2pDisputeEscalated',
