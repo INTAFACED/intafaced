@@ -572,7 +572,7 @@ export class SupportService implements SupportContract {
       }
       // A fraud report goes to the owner's compliance group; with none named or found it is refused before it exists. It
       // needs a key, so a crash between the ticket and its group is mended by the retry rather than leaving a duplicate.
-      // A replay of a key that already made the report returns it, even if the route changed since.
+      // A replay of a key that already made the report returns it once it is grouped, even if the route changed since.
       const compliance = SUPPORT_CATEGORY_ROUTES[input.category] === 'compliance';
       if (compliance && input.clientRequestId === undefined)
         throw new SupportError('a fraud report needs a request key', SUPPORT_FRAUD_REPORT_KEY_REQUIRED);
@@ -615,10 +615,13 @@ export class SupportService implements SupportContract {
       if (input.followsTicketId !== undefined) {
         await this.lifecycle.linkFollowUp(ticket.id, input.followsTicketId, ticket.createdAt);
       }
-      // Grouped only while ungrouped, so a replay after a crash here groups it, and never undoes a lead's later move.
-      // Until grouped, an ungrouped ticket is read by leads only (`deskCanSee`), so the gap exposes it to no agent. A group
-      // gone between the read and this write refuses, and the retry with the same key groups it once the route is right.
-      if (route && 'groupId' in route && (await this.groups.groupOfTicket(ticket.id)) === null) {
+      // Grouped only while ungrouped, so a replay after a crash here groups it. Until grouped, an ungrouped ticket is read
+      // by leads only (`deskCanSee`), so the gap exposes it to no agent. A group gone between the read and this write
+      // refuses, and so does a replay of a report that was never grouped while the route still refuses: the customer is
+      // never told a report went to compliance when it did not. The retry with the same key groups it once the route is right.
+      const ungrouped = route !== null && (await this.groups.groupOfTicket(ticket.id)) === null;
+      if (ungrouped && 'refusal' in route) throw new SupportError('the fraud report has not reached its group', route.refusal);
+      if (ungrouped && 'groupId' in route) {
         const grouped = await this.groups.setTicketGroup({
           ticketId: ticket.id,
           groupId: route.groupId,

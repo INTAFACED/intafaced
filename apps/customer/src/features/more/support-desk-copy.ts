@@ -218,9 +218,10 @@ export const deskCopy = defineCopy('support-desk', {
   type_question: 'Question',
   type_problem: 'Problem',
   type_incident: 'Incident',
-  fraudNote: 'A fraud report goes to our compliance team, not the support desk. Only that team reads it.',
+  fraudNote: 'A fraud report goes to our compliance team, not the general support queue.',
   fraudUnset: 'A fraud report cannot be sent here: the team that handles them has not been set up.',
   fraudUnread: 'We could not read where fraud reports go, so one cannot be sent right now.',
+  fraudChecking: 'Checking where fraud reports go…',
   phishingNote:
     'Do not click links, open attachments or reply to the message. Tell us what it said, and paste its full headers if you can. We never ask for your password or codes.',
   headersField: 'Message headers (optional)',

@@ -317,7 +317,9 @@ function NewRequest({
         ? { key: 'fraudNote' as const, blocks: false }
         : routes.resource.status === 'ready'
           ? { key: 'fraudUnset' as const, blocks: true }
-          : { key: 'fraudUnread' as const, blocks: true };
+          : routes.resource.status === 'loading'
+            ? { key: 'fraudChecking' as const, blocks: true }
+            : { key: 'fraudUnread' as const, blocks: true };
   const [formId, setFormId] = useState(''),
     [answers, setAnswers] = useState<FormAnswers>({});
   const form = forms?.forms.find((row) => row.id === formId) ?? null;

@@ -20,7 +20,8 @@ export const SUPPORT_FRAUD_REPORT_KEY_REQUIRED = 'support.fraud_report_key_requi
 
 /**
  * Where a request of each category goes: the support desk, or compliance (a fraud report is grouped into the owner's
- * compliance group as it is made, so only that group and the desk's leads read it).
+ * compliance group as it is made, so the desk reads it as that group's ticket: its members, its assignee and the roles the
+ * owner lets read every group, `SUPPORT_ALL_GROUPS_ROLES`).
  */
 export const SUPPORT_CATEGORY_ROUTES = {
   account: 'desk',

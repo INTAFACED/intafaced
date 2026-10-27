@@ -122,6 +122,10 @@ describe('fraud reports go to compliance (SP-tickets-01)', () => {
     groups.setTicketGroup = async () => 'unknown_group';
     await expect(me.create({ ...report, clientRequestId: 'fraud-4' })).rejects.toMatchObject({ message: 'support.fraud_route_missing' });
     groups.setTicketGroup = set;
+    // A replay of that never-grouped report while the route still refuses is refused too, never told it went through.
+    await lead.groupsSave({ groupId: group.id, name: 'Gone', idempotencyKey: 'group-rename-gone' });
+    await expect(me.create({ ...report, clientRequestId: 'fraud-4' })).rejects.toMatchObject({ message: 'support.fraud_route_missing' });
+    await lead.groupsSave({ groupId: group.id, name: 'TEST Compliance', idempotencyKey: 'group-rename-back-again' });
     const retried = await me.create({ ...report, clientRequestId: 'fraud-4' });
     expect(await groups.groupOfTicket(retried.id)).toBe(group.id);
   });
