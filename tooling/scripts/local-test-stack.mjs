@@ -13,6 +13,8 @@
  *   node tooling/scripts/local-test-stack.mjs bank-transfer <reference> <CCY> <amount> --tx <label> [--payer <name>]
  *                                         the TEST bank reports a pushed transfer quoting a hosted checkout's reference
  *   node tooling/scripts/local-test-stack.mjs status
+ *   node tooling/scripts/local-test-stack.mjs age-addresses <email> <hours>
+ *                                         move a TEST account's saved addresses back in time (the cooling-off wait)
  *
  * What it starts, all bound to 127.0.0.1, state in ~/.intafaced/local-test-stack/:
  *   Postgres 16 (own data dir) · NATS JetStream · svc-ledger · svc-identity ·
@@ -2460,6 +2462,41 @@ function runningAsCli() {
 
 // ── Entry ───────────────────────────────────────────────────────────────────
 
+/**
+ * LOCAL TEST clock for one account's address book: moves the saved and last-changed times of every address the
+ * account saved back by whole hours, standing in for the cooling-off wait (BANK_OFFRAMP_COOLING_HOURS) a journey cannot
+ * sit through. Only this stack's database, only addresses the customer saved, and nothing that holds or moves value.
+ */
+function cmdAgeAddresses(args) {
+  const [who, hoursRaw] = args;
+  if (!who || !/^[1-9]\d{0,3}$/.test(hoursRaw ?? ''))
+    fail('usage: node tooling/scripts/local-test-stack.mjs age-addresses <email-or-userId> <whole hours, 1 to 9999>', 2);
+  if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
+  const marker = readJson(P.marker);
+  if (marker.kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
+  if (!pgRunning()) fail('refusing: the local stack Postgres is not running. Run: pnpm local:stack');
+  const secrets = readJson(P.secrets);
+  const ids = psql(secrets, `SELECT id::text FROM identity.users WHERE email = :'who' OR id::text = :'who'`, {
+    db: DB_NAME,
+    user: 'svc_identity',
+    password: secrets.pgService,
+    vars: { who },
+    tuples: true,
+  })
+    .trim()
+    .split('\n')
+    .filter(Boolean);
+  if (ids.length !== 1) fail(`"${who}" matches ${ids.length} users in the local identity database`);
+  const moved = psql(
+    secrets,
+    `WITH moved AS (UPDATE bank.user_withdraw_destinations
+        SET created_at = created_at - make_interval(hours => :'hours'::int), updated_at = updated_at - make_interval(hours => :'hours'::int)
+      WHERE user_id = :'user' AND origin = 'customer' RETURNING 1) SELECT count(*) FROM moved`,
+    { db: DB_NAME, user: 'svc_bank', password: secrets.pgService, vars: { user: ids[0], hours: hoursRaw }, tuples: true },
+  ).trim();
+  say(`  LOCAL TEST: ${moved} saved address(es) of ${who} moved back ${hoursRaw} hours`);
+}
+
 if (runningAsCli()) await runCli();
 
 async function runCli() {
@@ -2492,6 +2529,7 @@ async function runCli() {
   else if (cmd === 'expire-deposit-addresses') cmdExpireDepositAddresses(rest);
   else if (cmd === 'expire-staff-holds') cmdExpireStaffHolds(rest);
   else if (cmd === 'age-task-progress') cmdAgeTaskProgress(rest);
+  else if (cmd === 'age-addresses') cmdAgeAddresses(rest);
   else if (cmd === 'customer-dist') cmdCustomerDist(rest);
   else if (cmd === 'status') {
     const ok = await healthTable({ gateMarket: true });
@@ -2500,7 +2538,7 @@ async function runCli() {
     process.exit(ok ? 0 : 1);
   } else
     fail(
-      `unknown command "${cmd}". Use: start | stop | status | fund | seed-withdrawal | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | expire-staff-holds | age-task-progress | plan | restart | customer-dist`,
+      `unknown command "${cmd}". Use: start | stop | status | fund | seed-withdrawal | age-addresses | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | expire-staff-holds | age-task-progress | plan | restart | customer-dist`,
       2,
     );
 }
