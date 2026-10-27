@@ -147,3 +147,44 @@ export async function setPropertiesAsLead(ticketId, priority, ticketType) {
     'setProperties',
   );
 }
+
+// The desk tokens, minted once per worker; a refused mint is not kept, so the next call tries again.
+let leadTokenOnce;
+let agentTokenOnce;
+const deskLeadToken = () => (leadTokenOnce ??= leadToken().catch((error) => ((leadTokenOnce = undefined), Promise.reject(error))));
+const agentToken = () => (agentTokenOnce ??= appointAgent().catch((error) => ((agentTokenOnce = undefined), Promise.reject(error))));
+
+/** A token for founder B as a support agent, appointed by the lead (founder A) the first time. */
+async function appointAgent() {
+  const { ctx, pair } = await founders();
+  const lead = await deskLeadToken();
+  const token = await pair.b.supportOpsToken();
+  const staff = data(await ctx.edge.query('support', 'staffList', undefined, lead), 'staffList');
+  if (!staff.some((member) => member.userId === pair.b.op.userId))
+    data(
+      await ctx.edge.mutate(
+        'support',
+        'staffAppoint',
+        { userId: pair.b.op.userId, role: 'agent', idempotencyKey: `journey:support-agent:${pair.b.op.userId}` },
+        lead,
+      ),
+      'staffAppoint',
+    );
+  return token;
+}
+
+/**
+ * One support desk call through Edge as the lead (founder A, 'lead') or the agent (founder B, 'agent'), answered as it came
+ * back ({ status, json, text }), so a step can read a refusal as well as a success.
+ */
+export async function asDesk(who, kind, procedure, input) {
+  const { ctx } = await founders();
+  const token = who === 'lead' ? await deskLeadToken() : await agentToken();
+  return kind === 'query' ? ctx.edge.query('support', procedure, input, token) : ctx.edge.mutate('support', procedure, input, token);
+}
+
+/** The user ids of the lead (founder A) and the agent (founder B). */
+export async function deskPeople() {
+  const { pair } = await founders();
+  return { lead: pair.a.op.userId, agent: pair.b.op.userId };
+}
