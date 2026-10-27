@@ -349,7 +349,7 @@ export const NOT_GATES = {
   'infra-verdict.mjs':
     'a reporter, not a gate: it prints which infrastructure-backed suites actually executed. It never fails a clean run — it exits 2 for "incomplete but permitted", which verify reports without failing. Run by verify.mjs after the test step.',
   'unreported-suites.mjs':
-    'data, not a scan — the register of suites that still skip invisibly, each with the specific reason it was left and what lifts it. It exports two lists and runs nothing. Both skip-honesty-scan.mjs and infra-verdict.mjs import it; the scan fails if an entry goes stale, so it cannot rot into blanket cover.',
+    'data, not a scan — the register of suites that still skip invisibly, each with the specific reason it was left and what lifts it. It exports two lists and runs nothing. Both skip-honesty-scan.mjs and infra-verdict.mjs import it; the scan warns if an entry goes stale, and the verdict cannot say COMPLETE while it stands.',
   'money-skip-inventory.mjs':
     'data, not a scan — D26-P2-13 register of every money-path test file that may skip, each with kind + why. money-skip-honesty-scan.mjs imports it, fails if the list grows and warns if it goes stale; a private-probe row must stay coupled to unreported-suites PRIVATE_PROBE (none remain).',
   'assert-test-db-env.mjs':

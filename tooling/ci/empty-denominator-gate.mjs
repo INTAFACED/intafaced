@@ -229,8 +229,8 @@ export const ENFORCED = {
     kind: 'guard',
     must: /SKIP HONESTY SCAN FAILED/,
     note:
-      'refuses via its stale-entry ratchet rather than a zero-file branch: with no tree, every tolerated-offender path ' +
-      'is stale. Correct outcome, adjacent mechanism — recorded so nobody reads this row as a dedicated empty-scan guard.',
+      'refuses "scope is EMPTY" when it finds no test file. Its stale-entry ratchet used to do this job; stale entries ' +
+      'only warn since 2026-10-27, so the guard is now its own branch.',
   },
   'money-skip-honesty': {
     kind: 'guard',
