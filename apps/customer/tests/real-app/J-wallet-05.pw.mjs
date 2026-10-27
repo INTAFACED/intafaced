@@ -346,7 +346,7 @@ test(`${J} #7 confirms with a fresh step-up while no signer is connected: refuse
   await expect(page.getByText('No withdrawals yet')).toBeVisible();
 });
 
-test(`${J} #6 reviews and confirms with a fresh step-up: no code or a wrong one is refused in words and sends nothing; then one withdrawal, a success panel naming it, and its record`, async ({
+test(`${J} #6 reviews and confirms with a fresh step-up: no code keeps Confirm shut, a wrong one is refused in words, and neither sends anything; then one withdrawal, a success panel naming it, and its record`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -357,8 +357,8 @@ test(`${J} #6 reviews and confirms with a fresh step-up: no code or a wrong one 
   await confirmSend(page).click();
   const dialog = stepUp(page);
   const code = dialog.getByLabel('Authenticator code or recovery code');
-  await dialog.getByRole('button', { name: 'Confirm' }).click();
-  await expect(dialog).toContainText('Enter the 6 digits from your authenticator app, or a recovery code.');
+  // With no code typed, Confirm stays shut: nothing can be sent without one.
+  await expect(dialog.getByRole('button', { name: 'Confirm' })).toBeDisabled();
   await code.fill('000000');
   await dialog.getByRole('button', { name: 'Confirm' }).click();
   await expect(dialog).toContainText('That code didn’t match. Check your authenticator app and try again.');
