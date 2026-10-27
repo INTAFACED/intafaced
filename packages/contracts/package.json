@@ -126,6 +126,10 @@
       "types": "./dist/support-forms.d.ts",
       "default": "./dist/support-forms.js"
     },
+    "./support-categories": {
+      "types": "./dist/support-categories.d.ts",
+      "default": "./dist/support-categories.js"
+    },
     "./outreach-public": {
       "types": "./dist/outreach-public.d.ts",
       "default": "./dist/outreach-public.js"

@@ -178,6 +178,8 @@ const support = new SupportService(
     personal: env.SUPPORT_VIEW_PERSONAL_CAP ?? null,
     shared: env.SUPPORT_VIEW_SHARED_CAP ?? null,
   }),
+  env.SUPPORT_FRAUD_GROUP ?? null,
+  env.SUPPORT_CUSTOMER_SEES ?? null,
 );
 const loop = createTicketKbLoopObserver();
 const appRouter = createSupportRouter(

@@ -20,7 +20,7 @@ import {
   type TicketStatus,
 } from './support-desk';
 import { SupportRequestActions } from './SupportRequestActions';
-import { commentSchema, ticketSchema, type Ticket } from './support-schemas';
+import { commentSchema, myTicketPropertiesSchema, ticketSchema, type MyTicketProperties, type Ticket } from './support-schemas';
 import { plainSupportResult } from './support-refusal';
 
 const STATUS_KEY = {
@@ -93,6 +93,24 @@ export function SupportAddressUnknown() {
 }
 
 /** One request: what was asked, every reply, the history, and the controls to reply, close, rate and attach a file. */
+/**
+ * The desk's priority and type as rows on the customer's request: only those the owner shows, each "None set" until the
+ * desk sets it. While the owner has not chosen, or the read fails, one row says so instead of leaving the place empty.
+ */
+export function propertyRows(
+  props: MyTicketProperties | null,
+  t: ReturnType<typeof deskCopy.useCopy>['t'],
+  failed = false,
+): [string, string][] {
+  if (failed) return [[t('propertiesRow'), t('propertiesUnread')]];
+  if (!props) return [];
+  if (props.status !== 'ok') return [[t('propertiesRow'), t('propertiesUnset')]];
+  const rows: [string, string][] = [];
+  if (props.priority) rows.push([t('priorityRow'), props.priority.value ? t(`priority_${props.priority.value}`) : t('propertyNone')]);
+  if (props.ticketType) rows.push([t('typeRow'), props.ticketType.value ? t(`type_${props.ticketType.value}`) : t('propertyNone')]);
+  return rows;
+}
+
 export function SupportRequest({
   id,
   action,
@@ -125,6 +143,11 @@ export function SupportRequest({
           { signal },
         ),
       `support-detail:${userId}:${id}`,
+    ),
+    // The desk's priority and type, where the owner lets the customer read them (SP-tickets-04).
+    properties = useResource(
+      (signal) => api.query('support', 'myTicketProperties', { ticketId: id }, myTicketPropertiesSchema, { signal }),
+      `support-properties:${userId}:${id}`,
     ),
     comments = useResource(
       (signal) =>
@@ -176,6 +199,11 @@ export function SupportRequest({
                     [copy.t('topic'), copyText(`support.category.${ticket.category}` as 'support.category.account')],
                     [copy.t('started'), <span lang="zxx">{stamp(ticket.createdAt, timeZone)}</span>],
                     [copy.t('lastActivity'), <span lang="zxx">{stamp(ticket.updatedAt, timeZone)}</span>],
+                    ...propertyRows(
+                      properties.resource.status === 'ready' ? properties.resource.data : null,
+                      copy.t,
+                      properties.resource.status === 'failed',
+                    ),
                   ]}
                 />
               </header>
