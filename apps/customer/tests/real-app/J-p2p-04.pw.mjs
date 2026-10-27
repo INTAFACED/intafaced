@@ -398,10 +398,12 @@ test('J-p2p-04 #4 removing a method an ad uses lists the ads first; confirming p
     })
     .toBe(1);
   await page.goto('/notifications');
-  await expect(page.getByText('Ads paused: payment method removed')).toBeVisible();
-  await expect(
-    page.getByText('You removed the only payment method 1 of your ads could be paid with, so it is paused.', { exact: false }),
-  ).toBeVisible();
+  // The newest notice with this title is this removal's; its link opens My offers.
+  const paused = page.getByTestId('notifications-item').filter({ hasText: 'Ad paused: payment method removed' }).first();
+  await expect(paused).toContainText('You removed the last payment method for 1 of your ads, so it is paused.');
+  await paused.getByRole('link').click();
+  await expect(page).toHaveURL(/\/uc\/ad/);
+  await expect(page.getByTestId('paused-offers')).toBeVisible();
 });
 
 test('J-p2p-04 #5 reporting a sensitive remark in a payment note opens a case and tells the reported party', async ({ page, browser }) => {
@@ -457,12 +459,9 @@ test('J-p2p-04 #5 reporting a sensitive remark in a payment note opens a case an
     const buyerPage = await buyerContext.newPage();
     await signIn(buyerPage, state.buyer);
     await buyerPage.goto('/notifications');
-    const notice = buyerPage.getByText('A payment-note remark was reported');
-    await expect(notice).toBeVisible();
-    await expect(
-      buyerPage.getByText('The other person on this order reported a remark in a payment note.', { exact: false }),
-    ).toBeVisible();
-    await notice.click();
+    const notice = buyerPage.getByTestId('notifications-item').filter({ hasText: 'A payment-note remark was reported' }).first();
+    await expect(notice).toContainText('The other person on this order reported a remark in a payment note.');
+    await notice.getByRole('link').click();
     // The app's order room for this trade (it opens the order by its id).
     await expect(buyerPage).toHaveURL(new RegExp(state.tradeId));
     const against = buyerPage.getByTestId('order-remark-against-me');

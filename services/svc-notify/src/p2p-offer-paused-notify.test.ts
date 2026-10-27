@@ -44,7 +44,7 @@ describe('ads-paused notice to the maker (P-ads-merchant-18, J-p2p-04 #4)', () =
     expect(row.params).toEqual({ instrumentId: INSTRUMENT, methodId: 'sepa', count: '2' });
     expect(renderInboxCopy(row, 'en')).toEqual({
       title: 'Ads paused: payment method removed',
-      body: 'You removed the only payment method 2 of your ads could be paid with, so they are paused. Add a payment method for their currency, then resume them from My offers.',
+      body: 'You removed the last payment method for 2 of your ads, so they are paused. Add a payment method they can be paid with, then resume them from My offers.',
     });
   });
 
@@ -57,9 +57,10 @@ describe('ads-paused notice to the maker (P-ads-merchant-18, J-p2p-04 #4)', () =
     await bus.publish('p2pOfferPaused', paused(INSTRUMENT, ['3c8b3e3f-6c9f-4e77-9f3a-4b8b2a0c3d4e']));
 
     const row = (await notify.list({ userId: MAKER, limit: 10, unreadOnly: false })).items[0]!;
-    expect(renderInboxCopy(row, 'en').body).toBe(
-      'You removed the only payment method 1 of your ads could be paid with, so it is paused. Add a payment method for its currency, then resume it from My offers.',
-    );
+    expect(renderInboxCopy(row, 'en')).toEqual({
+      title: 'Ad paused: payment method removed',
+      body: 'You removed the last payment method for 1 of your ads, so it is paused. Add a payment method it can be paid with, then resume it from My offers.',
+    });
   });
 
   it('keeps two removals apart', async () => {

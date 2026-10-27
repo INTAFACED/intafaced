@@ -51,7 +51,7 @@ describe('reported-remark notice to the reported party (P-ads-merchant-19, J-p2p
     });
   });
 
-  it('keeps two cases apart, for one person reported on two orders and for both parties of one order', async () => {
+  it('keeps two cases apart: one person reported on two orders, and another person told only of theirs', async () => {
     const notify = new NotifyService(new MemoryNotifyStore(), { fanoutEnabled: true });
     const bus = await wired(notify);
     const SECOND = '4d9c4f4a-7daa-4f88-8a4b-5c9c3b1d4e5f';

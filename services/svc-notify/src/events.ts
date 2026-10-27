@@ -568,8 +568,8 @@ export async function subscribeNotificationEvents(
 
   attachments.push(
     await attach(bus, 'p2pRemarkCaseOpened', p2pRemarkCaseOpened.subject, 'notify-p2p-remark-case-opened', async (payload) => {
-      // P-ads-merchant-19: the other party reported a remark in a payment note and a case opened for staff. The reported
-      // party is told once per case, for information: staff decide, and the order shows the case. The remark itself
+      // P-ads-merchant-19: the seller reported a remark in the buyer's payment note (svc-p2p lets only the seller report)
+      // and a case opened for staff. The reported party is told once per case, for information: staff decide, and the order shows the case. The remark itself
       // stays with svc-p2p and never travels on the bus.
       nakIfRetryable(
         await notify.create({
