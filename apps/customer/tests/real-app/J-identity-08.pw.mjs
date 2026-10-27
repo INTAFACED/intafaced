@@ -210,10 +210,60 @@ test(`${J} #4: too many failed attempts give a typed lockout with the seconds le
   await expect(cases).toHaveCount(2);
 });
 
-test(`${J} #5: proof of address, the risk questionnaire and tax certification, with honest refusals`, async ({ page }) => {
-  test.setTimeout(60_000);
+test(`${J} #5: proof of address, with honest refusals`, async ({ page }) => {
+  test.setTimeout(120_000);
   await atVerification(page);
-  await expect(page.getByRole('heading', { name: 'Proof of address' })).toBeVisible(UNBUILT);
+  const poa = page.getByRole('region', { name: 'Proof of address' });
+  // Asked for only after level Basic is approved.
+  await expect(poa.getByTestId('verification__poa-state')).toHaveText('Proof of address is asked for after level Basic is approved.');
+  await page.getByLabel('Level to request').selectOption({ label: 'Basic' });
+  await sendRequest(page);
+  tool('local-test-gates.mjs', 'verify');
+  await page.reload();
+
+  // The owner's TEST rule (90 days) and the lists for DE: what counts and what never does.
+  await expect(poa.getByTestId('verification__poa-rule')).toHaveText('Issued within the last 90 days.');
+  await expect(poa.getByTestId('verification__poa-documents')).toHaveAttribute('data-country', 'DE');
+  await expect(poa.getByTestId('verification__poa-accepted').locator('li')).toHaveText([
+    'TEST: Utility bill (gas, power, water)',
+    'TEST: Bank statement',
+  ]);
+  await expect(poa.getByTestId('verification__poa-refused').locator('li')).toHaveText(['TEST: Screenshots', 'TEST: Mobile phone bills']);
+  // A country with no list says none is published.
+  await poa.getByLabel('Country the document is from').fill('US');
+  await expect(poa.getByTestId('verification__poa-documents')).toHaveAttribute('data-published', 'false');
+  await expect(poa.getByTestId('verification__poa-documents')).toHaveText(
+    'No proof-of-address list is published for US, so a document from there is refused.',
+  );
+
+  // Too old for the rule: refused, naming it.
+  const day = (daysAgo) => new Date(Date.now() - daysAgo * 86_400_000).toISOString().slice(0, 10);
+  const pdf = { name: 'bill.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 TEST proof of address') };
+  await poa.getByLabel('Country the document is from').fill('DE');
+  await poa.getByRole('combobox', { name: 'Document' }).selectOption({ label: 'TEST: Utility bill (gas, power, water)' });
+  await poa.getByLabel('Date issued').fill(day(120));
+  await poa.getByLabel('The document', { exact: true }).setInputFiles(pdf);
+  await poa.getByRole('button', { name: 'Send proof of address' }).click();
+  await expect(poa.getByTestId('verification__poa-problem')).toHaveText(
+    'This document is older than 90 days. Send one issued within the last 90 days.',
+  );
+
+  // Recent: sent for review.
+  await poa.getByLabel('Date issued').fill(day(10));
+  await poa.getByRole('button', { name: 'Send proof of address' }).click();
+  await expect(poa.getByTestId('verification__poa-sent')).toContainText('Sent for review.');
+  await expect(poa.getByTestId('verification__poa-latest')).toHaveAttribute('data-status', 'submitted');
+
+  // From another country than the residence: sent, and flagged for the reviewer.
+  await poa.getByLabel('Country the document is from').fill('FR');
+  await poa.getByRole('combobox', { name: 'Document' }).selectOption({ label: 'TEST: Utility bill' });
+  await poa.getByLabel('Date issued').fill(day(5));
+  await poa.getByLabel('The document', { exact: true }).setInputFiles(pdf);
+  await poa.getByRole('button', { name: 'Send proof of address' }).click();
+  await expect(poa.getByTestId('verification__poa-mismatch')).toHaveText(
+    'This document is from FR, not where you live (DE), so the reviewer checks it.',
+  );
+  await expect(poa.getByTestId('verification__poa-latest')).toHaveAttribute('data-mismatch', 'true');
 });
 
 test(`${J}, part of #6 (I-kyc-compliance-01): one case record with history; a reject gives a plain reason, a resubmission opens a linked case, an approval unlocks at once`, async ({
