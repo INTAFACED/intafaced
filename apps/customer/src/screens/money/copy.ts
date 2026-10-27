@@ -132,7 +132,7 @@ const messages = {
 
   // Profit and loss
   'Profit and loss': 'Profit and loss',
-  'Pnl indicator label': 'This is an indicator worked out from your own trades. It is not tax advice and not a tax form.',
+  'Pnl indicator label': 'This is an indicator worked out from your own trades. It is not a tax form.',
   'Pnl method rule':
     'Each sale is matched against the lots you bought, one lot at a time, using the method you pick. The fee on a buy is inside the cost: you paid the full price and received the coins less the fee, so the average price includes it. Coins that arrived by deposit or transfer have no cost recorded, so a sale of them has no result.',
   'Matching method': 'Matching method',
@@ -582,7 +582,7 @@ const messages = {
   'Group by tax effect': 'Group by tax effect',
   'Hide tax effect groups': 'Hide tax effect groups',
   'Tax effect': 'Tax effect',
-  'Tax effect note': 'Each type of activity, grouped by whether it is income, a disposal or neutral for tax. Not tax advice.',
+  'Tax effect note': 'Each type of activity, grouped by whether it is income, a disposal or neutral for tax.',
   'Tax effect loading': 'Asking which types are which…',
   'Tax effect failed': 'Couldn’t load the tax effect of each type.',
   'Tax effect unset body': 'What each type of activity means for tax is not set, so no type is grouped and none is shown as taxed.',

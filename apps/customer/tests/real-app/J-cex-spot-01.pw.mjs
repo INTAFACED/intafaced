@@ -260,7 +260,7 @@ test(`${J} #11 reads the bought lot on Profit and loss, sells it, and reads the 
   await page.goto('/money/pnl');
   await expect(main).toContainText(/Realised/);
   await expect(main).toContainText(/[+−-]\$[\d,]+\.\d{2}/);
-  await expect(main).toContainText(/not tax advice/i);
+  await expect(main).toContainText(/not a tax form/i);
 });
 
 test(`${J} #12 opens Withdraw for TEST 10 USDT and is refused up front with the named blocker; nothing is held`, async ({ page }) => {
