@@ -38,13 +38,22 @@ test.describe.configure({ mode: 'default' });
 
 /** The person's own svc-bank API through Edge, with a session of its own (not the browser's). */
 async function bank(who) {
-  const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
+  const res = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
     method: 'POST',
     headers: { origin: ORIGIN, 'content-type': 'application/json' },
     body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
-  }).then((r) => r.json());
+  });
+  const text = await res.text();
+  const login = (() => {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return undefined;
+    }
+  })();
   const token = login?.result?.data?.accessToken;
-  if (!token) throw new Error(`sign-in for ${who.email} refused`);
+  // The refusal's own words, so a red run names why (run 591 gave only "refused").
+  if (!token) throw new Error(`sign-in for ${who.email} refused: ${res.status} ${text.slice(0, 300)}`);
   const headers = { origin: ORIGIN, authorization: `Bearer ${token}` };
   const answer = async (res) => {
     const body = await res.json();
