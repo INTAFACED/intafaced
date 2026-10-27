@@ -16,6 +16,8 @@ import {
   p2pEscrowLocked,
   p2pEscrowRefunded,
   p2pEscrowReleased,
+  p2pOfferPaused,
+  p2pRemarkCaseOpened,
   p2pTradeDisputed,
   p2pTradeFiatSent,
   positionUpdated,
@@ -539,6 +541,47 @@ export async function subscribeNotificationEvents(
           severity: 'action',
           sourceSubject: p2pTradeFiatSent.subject,
           sourceIdempotencyKey: `${payload.tradeId}:seller`,
+        }),
+      );
+    }),
+  );
+
+  attachments.push(
+    await attach(bus, 'p2pOfferPaused', p2pOfferPaused.subject, 'notify-p2p-offer-paused', async (payload) => {
+      // P-ads-merchant-18: the maker removed the only payment method some of their ads could be paid with, so svc-p2p
+      // paused them. One notice per removal: an instrument is removed once, so the instrument id is the business key.
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.makerId,
+          kind: 'p2p.offer.paused',
+          titleKey: 'notify.p2p.offer.paused.title',
+          bodyKey: 'notify.p2p.offer.paused.body',
+          params: { instrumentId: payload.instrumentId, methodId: payload.methodId, count: String(payload.offerIds.length) },
+          href: '/uc/ad',
+          severity: 'action',
+          sourceSubject: p2pOfferPaused.subject,
+          sourceIdempotencyKey: `${payload.instrumentId}:maker`,
+        }),
+      );
+    }),
+  );
+
+  attachments.push(
+    await attach(bus, 'p2pRemarkCaseOpened', p2pRemarkCaseOpened.subject, 'notify-p2p-remark-case-opened', async (payload) => {
+      // P-ads-merchant-19: the seller reported a remark in the buyer's payment note (svc-p2p lets only the seller report)
+      // and a case opened for staff. The reported party is told once per case, for information: staff decide, and the order shows the case. The remark itself
+      // stays with svc-p2p and never travels on the bus.
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.reportedId,
+          kind: 'p2p.remark_case.opened',
+          titleKey: 'notify.p2p.remark_case.opened.title',
+          bodyKey: 'notify.p2p.remark_case.opened.body',
+          params: { caseId: payload.caseId, tradeId: payload.tradeId },
+          href: `/p2p/orders/${payload.tradeId}`,
+          severity: 'info',
+          sourceSubject: p2pRemarkCaseOpened.subject,
+          sourceIdempotencyKey: `${payload.caseId}:reported`,
         }),
       );
     }),

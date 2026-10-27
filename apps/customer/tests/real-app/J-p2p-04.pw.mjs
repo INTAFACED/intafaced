@@ -394,9 +394,16 @@ test('J-p2p-04 #4 removing a method an ad uses lists the ads first; confirming p
   await expect
     .poll(async () => (await notices()).length, {
       timeout: 30_000,
-      message: 'svc-notify does not turn p2p.offer.paused into the maker’s notice yet (P-ads-merchant-18 notice slice)',
+      message: 'the maker’s p2p.offer.paused inbox notice for this removal (svc-notify durable notify-p2p-offer-paused)',
     })
     .toBe(1);
+  await page.goto('/notifications');
+  // The newest notice with this title is this removal's; the row is a link to My offers.
+  const paused = page.getByTestId('nf-row').filter({ hasText: 'Ad paused: payment method removed' }).first();
+  await expect(paused).toContainText('You removed the last payment method for 1 of your ads, so it is paused.');
+  await paused.click();
+  await expect(page).toHaveURL(/\/uc\/ad/);
+  await expect(page.getByTestId('paused-offers')).toBeVisible();
 });
 
 test('J-p2p-04 #5 reporting a sensitive remark in a payment note opens a case and tells the reported party', async ({ page, browser }) => {
@@ -432,12 +439,31 @@ test('J-p2p-04 #5 reporting a sensitive remark in a payment note opens a case an
   });
   run.write({ remarkCaseId: caseId });
 
-  // The buyer, who is the reported party, sees on the order that a case is open, without the quote.
+  // The buyer, who is the reported party, is told once in the inbox.
+  const buyer = await api(state.buyer);
+  const notices = async () => {
+    const res = await buyer.get(`/api/notify/trpc/notify.list?input=${encodeURIComponent(JSON.stringify({ limit: 100 }))}`);
+    expect(res.status).toBe(200);
+    return res.body.result.data.items.filter((n) => n.kind === 'p2p.remark_case.opened' && n.params?.caseId === caseId);
+  };
+  await expect
+    .poll(async () => (await notices()).length, {
+      timeout: 30_000,
+      message: 'the reported party’s p2p.remark_case.opened inbox notice (svc-notify durable notify-p2p-remark-case-opened)',
+    })
+    .toBe(1);
+
+  // In the app the notice opens the order, which shows that a case is open, without the quote.
   const buyerContext = await browser.newContext();
   try {
     const buyerPage = await buyerContext.newPage();
     await signIn(buyerPage, state.buyer);
-    await buyerPage.goto(`/p2p/orders/${state.tradeId}`);
+    await buyerPage.goto('/notifications');
+    const notice = buyerPage.getByTestId('nf-row').filter({ hasText: 'A payment-note remark was reported' }).first();
+    await expect(notice).toContainText('The other person on this order reported a remark in a payment note.');
+    await notice.click();
+    // The app's order room for this trade (it opens the order by its id).
+    await expect(buyerPage).toHaveURL(new RegExp(state.tradeId));
     const against = buyerPage.getByTestId('order-remark-against-me');
     await expect(against).toHaveAttribute('data-case-id', caseId);
     await expect(against).toContainText('The other person on this order reported a remark in a payment note.');

@@ -170,6 +170,15 @@ export const en = {
   'notify.p2p.trade.disputed.body': 'Dispute opened on trade {tradeId}. Reason: {reason}.',
   'notify.p2p.trade.fiat_sent.title': 'The buyer marked the order paid',
   'notify.p2p.trade.fiat_sent.body': 'Check that the payment for trade {tradeId} arrived in your account before you release.',
+  'notify.p2p.offer.paused.title': { one: 'Ad paused: payment method removed', other: 'Ads paused: payment method removed' },
+  'notify.p2p.offer.paused.body': {
+    one: 'You removed the last payment method for {count} of your ads, so it is paused. Add a payment method it can be paid with, then resume it from My offers.',
+    other:
+      'You removed the last payment method for {count} of your ads, so they are paused. Add a payment method they can be paid with, then resume them from My offers.',
+  },
+  'notify.p2p.remark_case.opened.title': 'A payment-note remark was reported',
+  'notify.p2p.remark_case.opened.body':
+    'The other person on this order reported a remark in a payment note. A case is open for staff to decide.',
   'notify.identity.kyc.approved.title': 'Verification approved',
   'notify.identity.kyc.approved.body': 'You are verified at the {tier} tier.',
   'notify.identity.security.totp_added.title': 'Authenticator app turned on',
