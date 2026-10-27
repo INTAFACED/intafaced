@@ -83,6 +83,8 @@ import {
   openDisputeApprovalFields,
   openDisputeApprovalSql,
   openDisputeHashedBody,
+  openDisputeArgs,
+  planOpenDispute,
   openDisputePayloadHash,
   planMerchantDispute,
   planMerchantPayoutRequest,
@@ -1357,6 +1359,38 @@ try {
     assert.match(body, /claims\.sub !== expected/);
     assert.match(body, /sess\.op\.userId !== expected/);
     assert.ok(body.indexOf('claims.sub !== expected') < body.indexOf('out.push('), 'identity check runs before the session is used');
+  }
+
+  // open-dispute (journey tests): the dispute id is the payment's business key, the reason is labelled LOCAL-TEST and
+  // fits svc-pay's 64 characters, the amount is the payment's own captured amount, and a second run opens nothing.
+  {
+    const pay = '0a1b2c3d-0000-4000-8000-00000000000a';
+    const merchantId = '0a1b2c3d-0000-4000-8000-00000000000b';
+    assert.deepEqual(openDisputeArgs([pay.toUpperCase(), ' product_not_received ']), {
+      paymentId: pay,
+      reasonCode: 'LOCAL-TEST product_not_received',
+    });
+    assert.equal(openDisputeArgs([pay, 'r'.repeat(53)]).reasonCode.length, 64);
+    for (const bad of [[], ['not-a-payment', 'r'], [pay], [pay, '  '], [pay, 'r'.repeat(54)], [pay, 'tab\there']]) {
+      assert.equal(openDisputeArgs(bad), null, `refused: ${JSON.stringify(bad)}`);
+    }
+    const payment = { merchantId, status: 'captured', assetId: 'USDT', capturedAmount: '12' };
+    assert.deepEqual(planOpenDispute({ paymentId: pay, payment, existing: null }), {
+      kind: 'open',
+      disputeId: `LOCAL-TEST-dispute-${pay}`,
+      fields: { disputeId: `LOCAL-TEST-dispute-${pay}`, paymentId: pay, merchantId, amount: '12', assetId: 'USDT' },
+    });
+    const existing = { status: 'open', amount: '12', assetId: 'USDT' };
+    assert.equal(planOpenDispute({ paymentId: pay, payment, existing }).kind, 'exists');
+    assert.equal(planOpenDispute({ paymentId: pay, payment: null, existing: null }).kind, 'refuse');
+    for (const status of ['created', 'authorized', 'failed', 'refunded', 'disputed']) {
+      assert.equal(planOpenDispute({ paymentId: pay, payment: { ...payment, status }, existing: null }).kind, 'refuse', status);
+    }
+    assert.equal(planOpenDispute({ paymentId: pay, payment: { ...payment, status: 'settled' }, existing: null }).kind, 'open');
+    assert.equal(planOpenDispute({ paymentId: pay, payment: { ...payment, capturedAmount: '0' }, existing: null }).kind, 'refuse');
+    const usage = run(home, ['open-dispute', 'nope']);
+    assert.equal(usage.status, 2);
+    assert.match(usage.stderr, /open-dispute <paymentId> <reason>/);
   }
 
   console.log('local-test-world: all checks passed');
