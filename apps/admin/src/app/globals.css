@@ -1034,11 +1034,28 @@ code {
   letter-spacing: 0.02em;
   color: var(--if-text-muted);
 }
-.adm-brand img {
+/* The brand is the kit's own file painted through a mask, so it takes the text token in every console theme. */
+.adm-lockup {
   display: block;
-  width: 164px;
-  height: auto;
+  width: 151px;
+  height: 24px;
   margin-bottom: 4px;
+  background: var(--if-text);
+  -webkit-mask: url('/brand/lockup-topbar.svg') center / contain no-repeat;
+  mask: url('/brand/lockup-topbar.svg') center / contain no-repeat;
+}
+.adm-brand--stacked {
+  display: grid;
+  justify-items: center;
+  gap: var(--s2);
+  margin-bottom: var(--s6);
+}
+.adm-lockup--stacked {
+  width: 218px;
+  height: 96px;
+  margin: 0;
+  -webkit-mask-image: url('/brand/lockup-stacked.svg');
+  mask-image: url('/brand/lockup-stacked.svg');
 }
 
 .adm-nav {
