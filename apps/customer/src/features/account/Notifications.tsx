@@ -178,6 +178,7 @@ function NotificationRoom({ userId }: { userId: string }) {
                   data.items.map((item) => (
                     <Fragment key={item.id}>
                       <article
+                        data-testid="notifications-item"
                         className={`notifications-item ${item.readAt ? 'read' : 'unread'}`}
                         lang="und"
                         aria-labelledby={`notification-title-${item.id}`}

@@ -25,7 +25,7 @@ test(`${J} #1 /dex signed out shows the Web3 shell, the testnet chip, the Not IN
   await expect(page.locator('[data-chip="label"]')).toHaveText('Not INTACHAIN · not audited');
   await expect(walletChip(page)).toHaveText('No wallet connected');
   await expect(page.getByRole('link', { name: 'Log in' })).toBeVisible();
-  const nav = page.locator('header nav.tb-nav a');
+  const nav = page.locator('header nav[data-testid="tb-nav"] a');
   await expect(nav).toHaveText(['Swap', 'Pools', 'Positions', 'Wallet', 'Explorer', 'Protocol']);
   await expect(page.locator('main h1')).toHaveText('DEX');
   const body = page.locator('body');
@@ -110,7 +110,7 @@ test(`${J} #6 the network card shows the name and chain id, "RPC: Not published"
 }) => {
   await installTestWallet(page, { chainId: 84532 });
   await page.goto('/chain');
-  const card = page.locator('main section, main .panel').filter({ has: page.getByRole('heading', { name: 'Network', exact: true }) });
+  const card = page.locator('main section').filter({ has: page.getByRole('heading', { name: 'Network', exact: true }) });
   const fact = (label) =>
     card
       .locator('dl div')

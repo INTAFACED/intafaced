@@ -351,7 +351,7 @@ export function PublicHelp() {
                     {articles.map((row) => {
                       const text = rendered(row);
                       return (
-                        <article className="help__row" key={row.id}>
+                        <article data-testid="help__row" className="help__row" key={row.id}>
                           <div className="help__row-heading">
                             <h2 lang={text.titleLanguage ?? languageFor('textUnavailable')}>{text.title ?? t('textUnavailable')}</h2>
                             <a
@@ -415,7 +415,11 @@ export function PublicHelp() {
           {(!visible || visible.status === 'loading') && <Loading label={t('loadingArticle')} />}
           {article && (
             <>
-              <article className="help__body help__measure" lang={rendered(article).bodyLanguage ?? languageFor('bodyUnavailable')}>
+              <article
+                data-testid="help__body"
+                className="help__body help__measure"
+                lang={rendered(article).bodyLanguage ?? languageFor('bodyUnavailable')}
+              >
                 {rendered(article).body ? (
                   paragraphs(article).map((paragraph, index) => <p key={index}>{paragraph}</p>)
                 ) : (

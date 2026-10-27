@@ -269,7 +269,7 @@ export function TopBar({
         <a className="tb-brand" href="/home" aria-label={t('Go to Home')}>
           <Wordmark />
         </a>
-        <nav className="tb-nav" aria-label={t('Main navigation')}>
+        <nav data-testid="tb-nav" className="tb-nav" aria-label={t('Main navigation')}>
           <ul>
             {tabs.map((tab) => (
               <NavTab key={tab.door} tab={tab} current={door} language={language} />

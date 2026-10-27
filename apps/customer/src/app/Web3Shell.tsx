@@ -73,7 +73,7 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
                 <Wordmark />
               </a>
               <ShellSwitch current="web3" here={path} />
-              <nav className="tb-nav" aria-label={t('shellNav')}>
+              <nav data-testid="tb-nav" className="tb-nav" aria-label={t('shellNav')}>
                 <ul>
                   {NAV.map((item) => (
                     <li key={item.key} data-testid="tb-item" className="tb-item">

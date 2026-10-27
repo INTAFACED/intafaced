@@ -142,7 +142,12 @@ export function ApiKeyRecords() {
   if (!owner || !session) return null;
   const failure = rendered.status === 'failed' ? rendered.failure : null;
   return (
-    <section className="api-key-records security__card" aria-labelledby={heading} lang={languageFor('api.records.title')}>
+    <section
+      data-testid="security__card"
+      className="api-key-records security__card"
+      aria-labelledby={heading}
+      lang={languageFor('api.records.title')}
+    >
       <header className="api-key-records__introduction">
         <h2 id={heading}>
           <Copy k="api.records.title" />

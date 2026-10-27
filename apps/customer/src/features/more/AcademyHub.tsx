@@ -39,7 +39,7 @@ export function AcademyHub() {
             <a className="academy-learning-link" href={`/academy/${encodeURIComponent(featured.slug)}`} lang="und">
               {featured.title}
             </a>
-            <span className="academy-lms-meta">
+            <span data-testid="academy-lms-meta" className="academy-lms-meta">
               <span>{pathLabel(t, featured.path)}</span>
               <span>{kindLabel(t, featured.kind)}</span>
               <span>
@@ -118,7 +118,7 @@ export function AcademyCourse({ slug, signedIn }: { slug: string | undefined; si
                   <a className="academy-learning-link" href={`/academy/${encodeURIComponent(row.slug)}`} lang="und">
                     {row.title}
                   </a>
-                  <span className="academy-lms-meta">
+                  <span data-testid="academy-lms-meta" className="academy-lms-meta">
                     <span>{kindLabel(t, row.kind)}</span>
                     <span>
                       <Copy k="minutes" params={{ minutes: row.estimatedMinutes }} />
@@ -184,7 +184,7 @@ export function AcademyCourseCards() {
             <a className="academy-learning-link" href={academyCourseHref(card.slug)}>
               {pathLabel(t, card.slug)}
             </a>
-            <span className="academy-lms-meta">
+            <span data-testid="academy-lms-meta" className="academy-lms-meta">
               <Copy k="courseItems" params={{ count: card.items, minutes: card.estimatedMinutes }} />
             </span>
           </li>
