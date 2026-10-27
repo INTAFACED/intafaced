@@ -270,7 +270,7 @@ function kbSearchScore(article: SupportKbArticle, q: string): number {
   // A version typed in the desk is matched on its text; a catalogue-keyed one on its keys and on the title people read.
   const title = article.title ?? article.titleKey;
   const body = article.body ?? article.bodyKey;
-  const shown = article.title === undefined ? publishedTitle(article.titleKey) : null;
+  const shown = article.title == null ? publishedTitle(article.titleKey) : null;
   if (title.toLowerCase().includes(q) || (shown !== null && shown.toLowerCase().includes(q))) score += 100;
   if (article.id.toLowerCase().includes(q)) score += 80;
   if (body.toLowerCase().includes(q)) score += 10;
