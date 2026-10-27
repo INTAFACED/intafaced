@@ -1,6 +1,6 @@
 import { expect } from '@playwright/test';
 import { approverSessions, makeContext, refusalText } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, api, bestPrices } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, api, bestPrices, toUnits } from './stack.mjs';
 
 // The copy journeys' other actors: the operator who lists a leader (the stack's TEST founder, through svc-trade's own
 // operator door, as the founder console would), and the leader's own orders on the real book.
@@ -41,20 +41,48 @@ export async function listLeader(who, displayName, { marketMode = 'spot', tenure
   return ref;
 }
 
-/** One IOC order of `who` that takes the best price on the book, so it fills at once against the TEST market maker. */
+/**
+ * One IOC order of `who` that fills in full at once against the TEST market maker. Its limit reaches as deep into the
+ * book as twice the amount, so a requote between the depth read and the order still leaves enough to take; it fills at
+ * the resting prices. An IOC that met nothing (the maker pulled every level first) is sent again under a new key; a
+ * part fill throws, since a split would change the trades the journey reads.
+ */
 export async function takeBest(who, side, amount, clientOrderId, symbol = 'BTC/USDT') {
-  const { bid, ask } = await bestPrices(symbol);
-  const res = await (
-    await api(who)
-  ).post('/api/v1/orders', {
-    symbol,
-    type: 'limit',
-    side,
-    amount,
-    price: side === 'buy' ? ask : bid,
-    timeInForce: 'IOC',
-    clientOrderId,
-  });
-  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
-  return res.body;
+  const client = await api(who);
+  for (let attempt = 0; ; attempt += 1) {
+    const { body: book } = await bestPrices(symbol);
+    const levels = side === 'buy' ? book.asks : book.bids;
+    let depth = 0n;
+    let price = levels[0][0];
+    for (const [p, size] of levels) {
+      price = p;
+      depth += toUnits(size);
+      if (depth >= 2n * toUnits(amount)) break;
+    }
+    const res = await client.post('/api/v1/orders', {
+      symbol,
+      type: 'limit',
+      side,
+      amount,
+      price,
+      timeInForce: 'IOC',
+      clientOrderId: attempt === 0 ? clientOrderId : `${clientOrderId}-r${attempt}`,
+    });
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
+    let order = res.body;
+    await expect
+      .poll(
+        async () => {
+          const read = await client.get(`/api/v1/orders/${order.id}?symbol=${encodeURIComponent(symbol)}`);
+          if (read.status === 200) order = read.body;
+          return order.status;
+        },
+        { timeout: 15_000 },
+      )
+      .not.toBe('open');
+    const filled = toUnits(order.filled ?? '0');
+    if (filled === toUnits(amount)) return order;
+    if (filled > 0n) throw new Error(`${side} ${amount} ${symbol} filled only ${order.filled}: ${JSON.stringify(order).slice(0, 300)}`);
+    if (attempt === 2) throw new Error(`${side} ${amount} ${symbol} met no resting order in 3 tries`);
+  }
 }
