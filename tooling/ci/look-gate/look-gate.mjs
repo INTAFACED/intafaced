@@ -355,15 +355,15 @@ async function settle(page) {
 }
 
 /**
- * Tab through the first stops; a focused box a `data-obscures` bar paints over fails (inside the bar's band and under
- * it in the stacking order). Runs in the browser after each Tab.
- */
-/**
  * A generated id (React's useId on the client `_r_…_` or server `_R_…_`, base-ui, Radix) changes between pages and
  * renders, so a control named by it would be listed once per id. Passed into the page as a source string.
  */
 const GENERATED_ID = String.raw`[:«»]|^(?:base-ui|radix)-|^_r_\w*_$`;
 
+/**
+ * Tab through the first stops; a focused box a `data-obscures` bar paints over fails (inside the bar's band and under
+ * it in the stacking order). Runs in the browser after each Tab.
+ */
 function focusState(generatedId) {
   const el = document.activeElement;
   if (!el || el === document.body) return null;
@@ -748,15 +748,19 @@ const CLIPPED_COPY = (generatedId) => {
       t.width = t.right - t.left;
     }
     if (!how && t.width > 0 && (t.left < r.left - 1 || t.right > r.right + 1)) how = 'spills out of its box';
-    // A box further out that clips this text where it cannot scroll to show it. A fixed box escapes every clip; an
-    // absolute one escapes the boxes between it and its containing block (the nearest positioned box).
+    // A box further out that clips this text where it cannot scroll to show it. A fixed box escapes every clip above it
+    // (its own still cuts: the dock, the top bar); an absolute one escapes the boxes between it and its containing block
+    // (the nearest positioned box).
     let escaped = c.position === 'absolute';
     for (let a = el.parentElement; !how && a && a !== document.body && c.position !== 'fixed'; a = a.parentElement) {
       const ac = getComputedStyle(a);
-      if (ac.position === 'fixed') break;
+      const last = ac.position === 'fixed';
       const skip = escaped && ac.position === 'static';
       if (ac.position !== 'static') escaped = ac.position === 'absolute';
-      if (skip || (ac.overflowX === 'visible' && ac.overflowY === 'visible')) continue;
+      if (skip || (ac.overflowX === 'visible' && ac.overflowY === 'visible')) {
+        if (last) break;
+        continue;
+      }
       const ar = a.getBoundingClientRect();
       const scrolls = (v) => v === 'auto' || v === 'scroll';
       const x = Math.abs(a.scrollLeft);
@@ -767,6 +771,7 @@ const CLIPPED_COPY = (generatedId) => {
       // Text wholly outside the box (a slide not shown, a closed panel) is hidden, not cut.
       const overlaps = t.right > ar.left && t.left < ar.right;
       if (t.width > 0 && overlaps && (startHidden || endHidden)) how = `is cut by ${name(a)}`;
+      if (last) break;
     }
     if (how && !out.has(name(el))) out.set(name(el), how);
     if (out.size >= 12) break;
@@ -1065,7 +1070,31 @@ async function main(opts) {
   if (v.mode === 'block') process.exit(1);
 }
 
-function selfTest() {
+/** The copy finder on small fixed pages, in a real browser: what only layout can show. */
+async function selfTestBrowser(eq) {
+  const { chromium } = await import('@playwright/test');
+  const browser = await chromium.launch(process.env.LOOK_GATE_CHROMIUM ? { executablePath: process.env.LOOK_GATE_CHROMIUM } : {});
+  try {
+    const page = await browser.newPage({ viewport: { width: 400, height: 400 } });
+    const cut = (outer) =>
+      page.setContent(
+        `<body style="margin:0">${outer.replace('%', '<span class="label" data-look-gate-copy style="display:block;width:max-content">A long pseudo label that runs on</span>')}</body>`,
+      );
+    const box = 'width:120px;overflow:hidden';
+    await cut(`<div class="row" style="${box}">%</div>`);
+    eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [['span.label', 'is cut by div.row']], 'a clipping row cuts its label');
+    await cut(`<nav class="dock" style="position:fixed;bottom:0;${box}">%</nav>`);
+    eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [['span.label', 'is cut by nav.dock']], 'a fixed bar cuts its own label');
+    await cut(`<div class="row" style="${box}"><nav class="dock" style="position:fixed;top:0;left:0;width:400px">%</nav></div>`);
+    eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [], 'a fixed bar escapes the row around it');
+    await cut(`<div class="row" style="${box}"><div style="transform:translateX(300px)">%</div></div>`);
+    eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [], 'text wholly outside the row is hidden, not cut');
+  } finally {
+    await browser.close();
+  }
+}
+
+async function selfTest() {
   let n = 0;
   const eq = (got, want, what) => {
     n++;
@@ -1302,9 +1331,10 @@ function selfTest() {
   eq([...fakeMark], [0, 0, 0, 0, 255, 0, 80, 255], 'and the differing pixel is marked');
   const h = securityHeaders({ reportUri: REPORT_PATH })['Content-Security-Policy'];
   ok(/script-src 'self';/.test(h) && /font-src 'self';/.test(h), 'the gate serves the production policy');
+  await selfTestBrowser(eq);
   console.log(`✓ look-gate --self-test OK (${n} checks)`);
 }
 
 const opts = args(process.argv.slice(2));
-if (opts.selfTest) selfTest();
+if (opts.selfTest) await selfTest();
 else await main(opts);
