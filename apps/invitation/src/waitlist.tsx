@@ -5,7 +5,7 @@ import { PrimaryMetal } from './components/primary-metal';
 import { LivingBackdrop } from './components/living-backdrop';
 import { mutate, query } from '@outreach/transport';
 import heroPhone from './vendored/assets/images/outreach/graphite-fins-phone.webp';
-import logo from './vendored/assets/images/logo.svg';
+import lockupBar from '../../../packages/ui/brand/lockup-topbar.svg';
 import './waitlist.css';
 
 /**
@@ -176,7 +176,7 @@ export function WaitlistPage() {
       <section role="main" className="outreach-workspace" aria-busy={busy} aria-labelledby="waitlist-heading">
         <div className="outreach-form-panel">
           <a className="brand-logo form-logo" href="/join" aria-label="INTAFACED">
-            <img src={logo} alt="INTAFACED" width={112} height={Math.round((112 * 35) / 150)} />
+            <img src={lockupBar} alt="INTAFACED" width={151} height={24} />
           </a>
           <div className="outreach-eyebrow-row">
             <p className="outreach-eyebrow">Waitlist</p>
