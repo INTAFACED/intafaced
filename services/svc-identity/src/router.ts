@@ -5,6 +5,8 @@ import { KycCaseError, kycRejectApprovalFields, requireRejectReason, type KycRej
 import { kycHistoryOutputSchema, kycReasonCodeSchema } from '@intafaced/contracts/identity-kyc-cases';
 import { kycCapabilitiesOutputSchema, kycCapabilitySchema } from '@intafaced/contracts/identity-kyc-capabilities';
 import { KycCapabilityError } from './kyc/capabilities.js';
+import { KycAttemptsError } from './kyc/attempts.js';
+import { kycAttemptsSchema } from '@intafaced/contracts/identity-kyc-attempts';
 import { z } from 'zod';
 import { router, publicProcedure, protectedProcedure, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts';
 import { rankPerksSchema, rankStateSchema, accountControlResultSchema } from '@intafaced/contracts';
@@ -167,6 +169,10 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'kyc_doc.decrypt_failed':
         return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err.message, cause: err });
     }
+  }
+
+  if (err instanceof KycAttemptsError) {
+    return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
   }
 
   if (err instanceof KycCapabilityError) {
@@ -2294,6 +2300,22 @@ export function createIdentityRouter(
             throw toTrpcError(err);
           }
         }),
+
+      /**
+       * The caller's standing against the owner's limit on rejected requests (I-kyc-compliance-10): the limit, or null
+       * when none is set; the rejections in the window; when a new request opens again. No `userId` input.
+       */
+      attempts: router({
+        read: scopedProcedure('identity:read')
+          .output(kycAttemptsSchema)
+          .query(async ({ ctx }) => {
+            try {
+              return await auth.kycAttempts(ctx.principal.userId);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+      }),
 
       /**
        * What a person's verification lets them do (I-kyc-compliance-07): custody, transfer and trade, crypto and fiat,

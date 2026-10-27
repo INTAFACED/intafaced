@@ -23,6 +23,7 @@ import { MemoryShareStore } from './affiliates/share-service.js';
 import { ReferralError } from './affiliates/referral-tree.js';
 import { KycCaseError, parseKycRejectReasons } from './kyc/cases.js';
 import { KycCapabilityError } from './kyc/capabilities.js';
+import { KycAttemptsError } from './kyc/attempts.js';
 
 /**
  * The tRPC boundary for KYC and step-up.
@@ -140,6 +141,7 @@ function stubServices(): Stub {
     listKycCases: record('listKycCases', () => []),
     assertKycRejectable: record('assertKycRejectable', () => undefined),
     listKycCapabilities: record('listKycCapabilities', () => capabilitiesRead),
+    kycAttempts: record('kycAttempts', () => ({ limit: null, denialsInWindow: null, lockedUntil: null })),
     assertKycCapabilityDeactivatable: record('assertKycCapabilityDeactivatable', () => undefined),
     deactivateKycCapability: record('deactivateKycCapability', () => capabilitiesRead),
     getKycRecord: record('getKycRecord', () => kycRecord()),
@@ -681,6 +683,31 @@ describe('kyc.reject names a reason from the owner list (I-kyc-compliance-01)', 
     expect(checked).toEqual([[RECORD, { reasonCode: 'document_unreadable', customerNote: null, noteVisible: false }]]);
     expect(consumed).toEqual([]);
     expect(stub.calls.filter((c) => c.method === 'rejectKycRecord')).toHaveLength(0);
+  });
+});
+
+describe('kyc.attempts (I-kyc-compliance-10)', () => {
+  it("read is the caller's own standing, with no id to tamper with", async () => {
+    const api = await caller(['identity:read']);
+    expect(await api.kyc.attempts.read()).toEqual({ limit: null, denialsInWindow: null, lockedUntil: null });
+    expect(stub.calls.find((c) => c.method === 'kycAttempts')!.args).toEqual([USER]);
+    await api.kyc.attempts.read({ userId: OPERATOR } as never);
+    expect(stub.calls.filter((c) => c.method === 'kycAttempts').map((c) => c.args[0])).toEqual([USER, USER]);
+  });
+
+  it('a request at the cap is refused TOO_MANY_REQUESTS, carrying the code and the seconds left', async () => {
+    const locked: AuthService = Object.assign(Object.create(stub.auth) as AuthService, {
+      async submitKyc() {
+        throw new KycAttemptsError('refused for 3600 more seconds', { retryAfterSeconds: 3600 });
+      },
+    });
+    const api = createIdentityRouter(locked, stub.rank, {}).createCaller(await ctx(['identity:write']));
+    const refused = await api.kyc.submit({ tier: 'basic', jurisdiction: 'DE' }).catch((e: unknown) => e);
+    expect(codeOf(refused)).toBe('TOO_MANY_REQUESTS');
+    expect((refused as { cause?: { code?: string; details?: unknown } }).cause).toMatchObject({
+      code: 'kyc.attempts_exhausted',
+      details: { retryAfterSeconds: 3600 },
+    });
   });
 });
 

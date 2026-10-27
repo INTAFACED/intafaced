@@ -271,6 +271,15 @@ const schema = serviceEnvSchema
        */
       IDENTITY_KYC_CAPABILITY_REASONS: z.string().optional(),
       /**
+       * Owner settings (I-kyc-compliance-10), set together or not at all: how many rejected verification requests a
+       * person may have inside `IDENTITY_KYC_DENIAL_WINDOW_HOURS`, and for how many hours after the last of them a new
+       * request is refused `kyc.attempts_exhausted`. NO DEFAULT. All unset is no limit, and /verification says so.
+       * Parsed at start by `parseKycAttemptLimit`; only some set, or malformed, stops the service.
+       */
+      IDENTITY_KYC_MAX_DENIALS: z.string().optional(),
+      IDENTITY_KYC_DENIAL_WINDOW_HOURS: z.string().optional(),
+      IDENTITY_KYC_LOCKOUT_HOURS: z.string().optional(),
+      /**
        * Owner setting for account limit overrides (J-ops-console-04 #12): a JSON object
        * `{ "maxLifetimeHours": "<whole hours>", "ceilings": { "<rail>": { "<asset>": "<decimal>" } } }`. NO DEFAULT. Blank,
        * not JSON or invalid means unset: every override refuses `identity.limit_ceiling_unset` and the console says "not

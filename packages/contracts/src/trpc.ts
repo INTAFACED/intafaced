@@ -102,11 +102,11 @@ function causeCode(cause: unknown): string | undefined {
 }
 
 /** The refusals that carry the seconds to wait. No other error changes shape. */
-const RETRY_AFTER_CODES = new Set(['auth.too_many_attempts', 'auth.email_confirm_rate_limited']);
+const RETRY_AFTER_CODES = new Set(['auth.too_many_attempts', 'auth.email_confirm_rate_limited', 'kyc.attempts_exhausted']);
 
 /**
- * `retryAfterSeconds` of an `auth.too_many_attempts` or `auth.email_confirm_rate_limited` refusal, so a client can
- * show "try again in N minutes".
+ * `retryAfterSeconds` of an `auth.too_many_attempts`, `auth.email_confirm_rate_limited` or `kyc.attempts_exhausted`
+ * refusal, so a client can show "try again in N minutes".
  */
 export function retryAfterSecondsOf(cause: unknown): number | undefined {
   if (!cause || typeof cause !== 'object' || !('code' in cause) || typeof cause.code !== 'string' || !RETRY_AFTER_CODES.has(cause.code)) {
@@ -453,7 +453,7 @@ const t = initTRPC.context<Context>().create({
         // Only on a stale profile.compare-and-set, so the client can show the row
         // that won. No other error grows a profile field.
         ...(conflictProfile(cause) ? { profile: conflictProfile(cause) } : {}),
-        // Only on `auth.too_many_attempts` and `auth.email_confirm_rate_limited`.
+        // Only on `auth.too_many_attempts`, `auth.email_confirm_rate_limited` and `kyc.attempts_exhausted`.
         ...(retryAfterSecondsOf(cause) !== undefined ? { retryAfterSeconds: retryAfterSecondsOf(cause) } : {}),
         // Only on sign-in's `auth.account_frozen`: `frozen` or `closed`.
         ...(accountState ? { accountState } : {}),

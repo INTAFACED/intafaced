@@ -62,6 +62,10 @@
       "types": "./dist/identity-kyc-cases.d.ts",
       "default": "./dist/identity-kyc-cases.js"
     },
+    "./identity-kyc-attempts": {
+      "types": "./dist/identity-kyc-attempts.d.ts",
+      "default": "./dist/identity-kyc-attempts.js"
+    },
     "./identity-kyc-capabilities": {
       "types": "./dist/identity-kyc-capabilities.d.ts",
       "default": "./dist/identity-kyc-capabilities.js"

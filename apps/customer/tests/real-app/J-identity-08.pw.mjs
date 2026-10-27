@@ -106,9 +106,35 @@ test(`${J} #3: with the face check switched off the selfie is kept for manual re
 });
 
 test(`${J} #4: too many failed attempts give a typed lockout with the seconds left, or say no limit is set`, async ({ page }) => {
-  test.setTimeout(60_000);
-  await atVerification(page);
-  await expect(page.getByText(/Try again in \d+ seconds|No attempt limit is set/)).toBeVisible(UNBUILT);
+  test.setTimeout(180_000);
+  const { who } = await atVerification(page);
+  const attempts = page.getByTestId('verification__attempts');
+  const cases = page.getByRole('region', { name: 'Case history' }).getByTestId('verification__case');
+  // The TEST limit: two rejected requests in 24 hours, then a new request is refused for an hour after the last.
+  await expect(attempts).toHaveAttribute('data-state', 'open');
+  await expect(attempts).toContainText('0 of 2 rejected requests in the last 24 hours.');
+
+  for (const n of [1, 2]) {
+    await page.getByLabel('Level to request').selectOption({ label: 'Basic' });
+    await sendRequest(page);
+    await page.reload();
+    await expect(cases).toHaveCount(n);
+    expect(tool('local-test-gates.mjs', 'kyc-reject', who.handle, 'document_unreadable')).toContain('rejected (document_unreadable)');
+    await page.reload();
+    await expect(cases.first()).toHaveAttribute('data-state', 'rejected');
+  }
+
+  // At the cap: the seconds left, counting down, and the form held.
+  await expect(attempts).toHaveAttribute('data-state', 'locked');
+  const locked = attempts.getByTestId('verification__attempts-locked');
+  await expect(locked).toHaveText(/^Too many rejected requests\. Try again in \d+ seconds\.$/);
+  const seconds = Number((await locked.textContent()).match(/in (\d+) seconds/)[1]);
+  expect(seconds).toBeGreaterThan(3500);
+  expect(seconds).toBeLessThanOrEqual(3600);
+  await expect(page.getByRole('button', { name: 'Review request' })).toBeDisabled();
+  await expect(cases.first().getByRole('button', { name: 'Send a new request' })).toBeDisabled();
+  await expect.poll(async () => Number((await locked.textContent()).match(/in (\d+) seconds/)[1])).toBeLessThan(seconds);
+  await expect(cases).toHaveCount(2);
 });
 
 test(`${J} #5: proof of address, the risk questionnaire and tax certification, with honest refusals`, async ({ page }) => {

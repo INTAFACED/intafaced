@@ -31,6 +31,21 @@
       "value": "[{\"code\":\"compliance_hold\",\"reason\":\"TEST: this was switched off after a compliance review.\",\"guidance\":\"TEST: ask Support what the review found.\"}]",
       "note": "TEST: one reason compliance can switch a capability off for, so the switch-off and its refusals can be shown (J-identity-08 #6)."
     },
+    "IDENTITY_KYC_MAX_DENIALS": {
+      "service": "identity",
+      "value": "2",
+      "note": "TEST: two rejected verification requests in the window, then a new request is refused for the lockout (J-identity-08 #4)."
+    },
+    "IDENTITY_KYC_DENIAL_WINDOW_HOURS": {
+      "service": "identity",
+      "value": "24",
+      "note": "TEST: rejected requests count for 24 hours (J-identity-08 #4)."
+    },
+    "IDENTITY_KYC_LOCKOUT_HOURS": {
+      "service": "identity",
+      "value": "1",
+      "note": "TEST: after the cap a new request is refused for one hour after the last rejection (J-identity-08 #4)."
+    },
     "IDENTITY_MFA_RESET_WAIT_SECONDS": {
       "service": "identity",
       "value": "20",
