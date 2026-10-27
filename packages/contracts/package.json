@@ -66,6 +66,10 @@
       "types": "./dist/pay-withdrawal-tier-limits.d.ts",
       "default": "./dist/pay-withdrawal-tier-limits.js"
     },
+    "./identity-kyc-capabilities": {
+      "types": "./dist/identity-kyc-capabilities.d.ts",
+      "default": "./dist/identity-kyc-capabilities.js"
+    },
     "./ops-staff-holds": {
       "types": "./dist/ops-staff-holds.d.ts",
       "default": "./dist/ops-staff-holds.js"
@@ -226,6 +230,10 @@
       "types": "./dist/academy-course-gradebook.d.ts",
       "default": "./dist/academy-course-gradebook.js"
     },
+    "./academy-grade-reports": {
+      "types": "./dist/academy-grade-reports.d.ts",
+      "default": "./dist/academy-grade-reports.js"
+    },
     "./academy-course-messages": {
       "types": "./dist/academy-course-messages.d.ts",
       "default": "./dist/academy-course-messages.js"
@@ -302,6 +310,6 @@
     "@typescript/typescript6": "6.0.2",
     "rimraf": "^6.0.1",
     "typescript": "^7.0.2",
-    "vitest": "^3.0.5"
+    "vitest": "^4.1.12"
   }
 }

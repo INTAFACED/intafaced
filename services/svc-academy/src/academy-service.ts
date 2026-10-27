@@ -49,6 +49,7 @@ import { CourseQuizzes } from './curriculum/course-quizzes.js';
 import { CourseRelease } from './curriculum/course-release.js';
 import { CourseItemRules } from './curriculum/course-item-rules.js';
 import { CourseGradebook } from './curriculum/course-gradebook.js';
+import { GradeReports } from './curriculum/grade-reports.js';
 import { PeerReviews, type GetObjectFn } from './curriculum/peer-review.js';
 import { AssignmentGrading } from './curriculum/grading.js';
 import { LearnHub } from './curriculum/learn-hub.js';
@@ -314,6 +315,8 @@ export interface AcademyServiceOptions {
   assignmentGet?: GetObjectFn;
   /** AC-assignments-02: seconds a grader holds a hand-in (`ACADEMY_GRADER_LEASE_SECONDS`). Unset, grading refuses. */
   graderLeaseSeconds?: number;
+  /** AC-assignments-04: learner rows one grade report holds (`ACADEMY_GRADE_REPORT_ROWS`). Unset, a report refuses. */
+  gradeReportRows?: number;
   /** AC-articles-01: how many topics a list shows (`ACADEMY_TOPICS_LIST_LIMIT`). Unset, the list refuses. */
   topicsListLimit?: number;
   /** Stage-1 tournament ladder kill-switch (`ACADEMY_TOURNAMENT_ENABLED`). */
@@ -422,6 +425,7 @@ export class AcademyService {
   readonly courseRelease: CourseRelease;
   readonly courseItemRules: CourseItemRules;
   readonly courseGradebook: CourseGradebook;
+  readonly gradeReports: GradeReports;
 
   constructor(
     private readonly sql: Sql,
@@ -475,6 +479,7 @@ export class AcademyService {
     this.courseRelease = new CourseRelease(sql);
     this.courseItemRules = new CourseItemRules(sql);
     this.courseGradebook = new CourseGradebook(sql);
+    this.gradeReports = new GradeReports(sql, this.courseGradebook, this.options.gradeReportRows ?? null);
     this.discussion = new CourseDiscussion(sql, {
       postMaxChars: this.options.postMaxChars ?? null,
       imageMaxBytes: this.options.postImageMaxBytes ?? null,

@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
 import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
 import type { DepthSnapshot, WireLevel } from '@intafaced/market-data';
-import { DepthHub } from '../depth/hub.js';
+import { DepthHub, type HubLogger } from '../depth/hub.js';
 import type { DepthSource } from '../depth/source.js';
 import { DropCopyHub } from '../drop-copy/hub.js';
 import { createDropCopyWebSocketGateway, DROP_COPY_STREAM_PATH } from '../drop-copy/gateway.js';
@@ -55,7 +55,7 @@ async function upgradeStatus(url: string): Promise<number> {
   });
 }
 
-function mountHubs(log: { info: ReturnType<typeof vi.fn>; warn: ReturnType<typeof vi.fn> }) {
+function mountHubs(log: HubLogger) {
   const source = new StubSource();
   const depthHub = new DepthHub(
     source,
@@ -102,7 +102,7 @@ function mountHubs(log: { info: ReturnType<typeof vi.fn>; warn: ReturnType<typeo
 
 describe('public + private WS co-mount (production shape)', () => {
   let server: Server;
-  const log = { info: vi.fn(), warn: vi.fn() };
+  const log = { info: vi.fn<HubLogger['info']>(), warn: vi.fn<HubLogger['warn']>() };
 
   afterEach(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));

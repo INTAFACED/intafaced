@@ -3223,6 +3223,66 @@
     ]
   },
   {
+    "id": "J-derivatives-21",
+    "title": "I trade a gold, forex or index perpetual around the clock",
+    "module": "derivatives",
+    "persona": "pro-trader",
+    "tier": "advanced",
+    "order": 3,
+    "steps": [
+      { "n": 1, "slices": ["D-multiasset-01", "D-multiasset-02"], "noSlice": false },
+      { "n": 2, "slices": ["D-multiasset-02"], "noSlice": false },
+      { "n": 3, "slices": ["D-multiasset-02"], "noSlice": false },
+      { "n": 4, "slices": ["D-multiasset-01"], "noSlice": false },
+      { "n": 5, "slices": ["D-multiasset-02"], "noSlice": false }
+    ]
+  },
+  {
+    "id": "J-derivatives-22",
+    "title": "I hold a gold or forex position over the weekend",
+    "module": "derivatives",
+    "persona": "pro-trader",
+    "tier": "advanced",
+    "order": 3,
+    "steps": [
+      { "n": 1, "slices": ["D-multiasset-03"], "noSlice": false },
+      { "n": 2, "slices": ["D-multiasset-03"], "noSlice": false },
+      { "n": 3, "slices": ["D-multiasset-03"], "noSlice": false },
+      { "n": 4, "slices": ["D-multiasset-03"], "noSlice": false },
+      { "n": 5, "slices": ["D-multiasset-04"], "noSlice": false }
+    ]
+  },
+  {
+    "id": "J-derivatives-23",
+    "title": "I take a funded-trading evaluation",
+    "module": "derivatives",
+    "persona": "pro-trader",
+    "tier": "advanced",
+    "order": 3,
+    "steps": [
+      { "n": 1, "slices": ["D-funded-01"], "noSlice": false },
+      { "n": 2, "slices": ["D-funded-01"], "noSlice": false },
+      { "n": 3, "slices": ["D-funded-02"], "noSlice": false },
+      { "n": 4, "slices": ["D-funded-02"], "noSlice": false },
+      { "n": 5, "slices": ["D-funded-02"], "noSlice": false }
+    ]
+  },
+  {
+    "id": "J-derivatives-24",
+    "title": "I trade a funded account and get my profit share",
+    "module": "derivatives",
+    "persona": "pro-trader",
+    "tier": "advanced",
+    "order": 3,
+    "steps": [
+      { "n": 1, "slices": ["D-funded-03"], "noSlice": false },
+      { "n": 2, "slices": ["D-funded-03"], "noSlice": false },
+      { "n": 3, "slices": ["D-funded-03"], "noSlice": false },
+      { "n": 4, "slices": ["D-funded-04"], "noSlice": false },
+      { "n": 5, "slices": ["D-funded-04"], "noSlice": false }
+    ]
+  },
+  {
     "id": "J-developer-01",
     "title": "Read the developer portal and find where to start",
     "module": "developer",

@@ -12,7 +12,9 @@ export async function fetchGradebook(courseId: string): Promise<GradebookView | 
     });
     if (!res.ok) return null;
     const body: unknown = await res.json();
-    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.gradebook) ? (body as unknown as GradebookView) : null;
+    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.gradebook) && isRecord(body.reports)
+      ? (body as unknown as GradebookView)
+      : null;
   } catch {
     return null;
   }
@@ -51,7 +53,12 @@ export async function postGradebookChange(body: Record<string, unknown>): Promis
       credentials: 'same-origin',
     });
     const answer: unknown = await res.json().catch(() => null);
-    if (isRecord(answer) && answer.ok === true && typeof answer.what === 'string' && isRecord(answer.gradebook))
+    if (
+      isRecord(answer) &&
+      answer.ok === true &&
+      typeof answer.what === 'string' &&
+      (isRecord(answer.gradebook) || isRecord(answer.report))
+    )
       return answer as unknown as GradebookDeskReply;
     if (isRecord(answer) && typeof answer.title === 'string' && typeof answer.body === 'string' && typeof answer.next === 'string')
       return {

@@ -315,7 +315,7 @@ async function main() {
   startIdentity();
 
   // Payments core, for the customer withdrawal journeys. No payout rail is configured: no chain RPC, no hot wallet,
-  // no sandbox rails, so a withdrawal must refuse with a named reason before anything is held.
+  // no payout sandbox, so a withdrawal must refuse with a named reason before anything is held.
   if (WITH_PAY)
     start('pay', 'node', ['services/svc-pay/dist/index.js'], {
       ...common,
@@ -329,6 +329,8 @@ async function main() {
       // SMOKE RIG ONLY — throwaway secrets and owner integers, fresh each run; not production values
       PAY_CRYPTO_WEBHOOK_SECRET: randomBytes(24).toString('base64url'),
       PAY_CARD_SANDBOX_WEBHOOK_SECRET: randomBytes(24).toString('base64url'),
+      // The TEST bank the profile's PAY_CHECKOUT_RAILS names registers only with its webhook secret; without it svc-pay refuses boot.
+      PAY_BANK_TRANSFER_SANDBOX_WEBHOOK_SECRET: randomBytes(24).toString('base64url'),
       // Owner integers and rails: the labelled TEST profile (tooling/profiles/test-owner-values/<service>.json)
       ...profileEnvFor('pay', common.APP_ENV),
       PAY_CRYPTO_WATCHER_ENABLED: 'false',

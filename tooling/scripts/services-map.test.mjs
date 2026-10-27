@@ -34,6 +34,15 @@ const schema = base.merge(z.object({
   assert.deepEqual(requiredNames(src), ['D_STRICT', 'E_PLAIN', 'F_WRAPPED']);
 });
 
+test("the service kit's blankAsUnset makes a field optional", () => {
+  const src = `
+const schema = base.merge(z.object({
+  A_ROWS: blankAsUnset(z.coerce.number().int().min(1)),
+  B_PLAIN: z.string().min(1),
+}));`;
+  assert.deepEqual(requiredNames(src), ['B_PLAIN']);
+});
+
 test('a helper that is not a schema builder does not make a field optional', () => {
   const src = `
 function parseThing(raw: string) { return raw.default(); }

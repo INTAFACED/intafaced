@@ -23,6 +23,7 @@
     "@intafaced/events": "workspace:*",
     "@intafaced/i18n": "workspace:*",
     "@intafaced/ledger-client": "workspace:*",
+    "@intafaced/service-kit": "workspace:*",
     "@intafaced/telemetry": "workspace:*",
     "@opentelemetry/api": "^1.10.0",
     "@trpc/server": "^11.19.0",
@@ -36,6 +37,6 @@
     "rimraf": "^6.0.1",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vitest": "^3.0.5"
+    "vitest": "^4.1.12"
   }
 }

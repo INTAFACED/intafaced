@@ -174,9 +174,16 @@ describe('audience table: what each registered approval type needs', () => {
       'academy.standing.set',
       'academy.standing.bulk',
     ].map((t) => T(t, 'svc-academy', t, 'operator')),
-    ...['kyc.approve', 'kyc.reject', 'kyc.doc.store', 'kyc.doc.get', 'kyc.doc.bind', 'affiliates.freeze', 'affiliates.unfreeze'].map((t) =>
-      T(t, 'svc-identity', t, 'operator'),
-    ),
+    ...[
+      'kyc.approve',
+      'kyc.reject',
+      'kyc.capabilities.set',
+      'kyc.doc.store',
+      'kyc.doc.get',
+      'kyc.doc.bind',
+      'affiliates.freeze',
+      'affiliates.unfreeze',
+    ].map((t) => T(t, 'svc-identity', t, 'operator')),
     ...['identity.freeze', 'identity.unfreeze', 'identity.disable_user'].map((t) => T(t, 'svc-identity', t, 'operator')),
   ];
 

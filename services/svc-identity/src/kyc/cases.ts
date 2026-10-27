@@ -33,10 +33,11 @@ export type KycRejectReasons = ReadonlyMap<string, KycRejectReason>;
 /**
  * `IDENTITY_KYC_REJECT_REASONS`: a JSON array of `{ "code", "reason", "guidance" }`. A code is lower case with
  * underscores; `reason` (up to 200 characters) is what the customer reads, `guidance` (up to 500) what to do next.
- * Unset or blank is an empty list. An empty array, a repeated code or a malformed entry stops the service.
+ * Unset or blank is an empty list. An empty array, a repeated code or a malformed entry stops the service. The capability
+ * switch-off reasons (`IDENTITY_KYC_CAPABILITY_REASONS`, I-kyc-compliance-07) have the same shape and are parsed here
+ * under their own name.
  */
-export function parseKycRejectReasons(raw: string | undefined): KycRejectReasons {
-  const setting = 'IDENTITY_KYC_REJECT_REASONS';
+export function parseKycRejectReasons(raw: string | undefined, setting = 'IDENTITY_KYC_REJECT_REASONS'): KycRejectReasons {
   const out = new Map<string, KycRejectReason>();
   if (raw === undefined || raw.trim() === '') return out;
   let parsed: unknown;
@@ -63,10 +64,10 @@ export function parseKycRejectReasons(raw: string | undefined): KycRejectReasons
 }
 
 /** The owner's reason for `code`, or a typed refusal. Checked before anything is spent or written. */
-export function requireRejectReason(reasons: KycRejectReasons, code: string): KycRejectReason {
-  if (reasons.size === 0) throw new KycCaseError('The owner has not published a list of reject reasons', 'kyc.reason_codes_unset');
+export function requireRejectReason(reasons: KycRejectReasons, code: string, list = 'reject reasons'): KycRejectReason {
+  if (reasons.size === 0) throw new KycCaseError(`The owner has not published a list of ${list}`, 'kyc.reason_codes_unset');
   const reason = reasons.get(code);
-  if (!reason) throw new KycCaseError(`${code} is not on the owner's list of reject reasons`, 'kyc.reason_code_unknown');
+  if (!reason) throw new KycCaseError(`${code} is not on the owner's list of ${list}`, 'kyc.reason_code_unknown');
   return reason;
 }
 
@@ -168,27 +169,35 @@ async function lockCase(tx: Sql, record: KycCaseRecord): Promise<CaseRow> {
   return row!;
 }
 
-/** Move the record's case to approved, with its history row. Approval announces itself through `kycApproved`. */
-export async function approveKycCase(tx: Sql, record: KycCaseRecord, decision: { by: string; at: Date }): Promise<void> {
+/**
+ * Move the record's case to approved, with its history row, and return the case id. Approval announces itself through
+ * `kycApproved`.
+ */
+export async function approveKycCase(tx: Sql, record: KycCaseRecord, decision: { by: string; at: Date }): Promise<string> {
   const row = await lockCase(tx, record);
-  if (row.state === 'approved') return;
+  if (row.state === 'approved') return row.id;
   const version = row.version + 1;
   await tx`UPDATE kyc_cases SET state = 'approved', version = ${version}, decided_by = ${decision.by}, decided_at = ${decision.at},
     updated_at = ${decision.at} WHERE id = ${row.id}`;
   await tx`INSERT INTO kyc_case_events (case_id, version, state, at, published_at)
     VALUES (${row.id}, ${version}, 'approved', ${decision.at}, ${decision.at})`;
+  return row.id;
 }
 
 /**
  * Move the record's case to rejected with a listed reason, with its history row (published as `kycRejected`). Pass
  * the record as the caller read it under its lock, before it moved. The same reject again (code, note and visibility)
  * is the same decision and returns; anything else on a rejected case is refused (`kyc.case_state`), so a retry never
- * rewrites what the customer read, nor reports a note as sent that never was.
+ * rewrites what the customer read, nor reports a note as sent that never was. Returns the case id.
  */
-export async function rejectKycCase(tx: Sql, record: KycCaseRecord, decision: { by: string; at: Date } & KycRejectDecision): Promise<void> {
+export async function rejectKycCase(
+  tx: Sql,
+  record: KycCaseRecord,
+  decision: { by: string; at: Date } & KycRejectDecision,
+): Promise<string> {
   const row = await lockCase(tx, record);
   if (row.state === 'rejected') {
-    if (sameReject(row, decision)) return;
+    if (sameReject(row, decision)) return row.id;
     throw rejectedAlready(row.reason_code);
   }
   if (row.state !== 'submitted')
@@ -199,6 +208,7 @@ export async function rejectKycCase(tx: Sql, record: KycCaseRecord, decision: { 
     decided_at = ${decision.at}, updated_at = ${decision.at} WHERE id = ${row.id}`;
   await tx`INSERT INTO kyc_case_events (case_id, version, state, reason_code, at)
     VALUES (${row.id}, ${version}, 'rejected', ${decision.reasonCode}, ${decision.at})`;
+  return row.id;
 }
 
 /**

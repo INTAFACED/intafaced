@@ -12,7 +12,7 @@ import { controlConfigureInputSchema, tierDefinitionSchema } from './control/sch
 // confirming founder must send the hash of the change they were shown, so populate keeps its own copy of the hasher and of the
 // change targets. Compute both on the same inputs, and parse populate's tiers and requests with svc-pay's own schemas, so the next
 // field svc-pay binds or requires turns this red instead of drifting.
-const populatePath = '../../../tooling/scripts/local-test-world.mjs';
+const populatePath = new URL('../../../tooling/scripts/local-test-world.mjs', import.meta.url).href;
 
 interface Populate {
   MERCHANT_TIERS: Array<{ assign: boolean; tier: Record<string, unknown> }>;

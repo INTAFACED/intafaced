@@ -1,5 +1,6 @@
 import { parseKycRequirementsByLevel, parseKycReviewHoursByLevel } from './kyc/levels.js';
 import { parseKycRejectReasons, relayKycCaseEvents } from './kyc/cases.js';
+import { parseKycCapabilitiesByLevel } from './kyc/capabilities.js';
 import { readFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -368,6 +369,7 @@ const transportMail = openIdentityMail({
 const antiPhishingMailKey = antiPhishingKey(parseTotpSecretKey(env.IDENTITY_TOTP_SECRET_KEY));
 const mail = transportMail && withAntiPhishingCode(transportMail, sql, antiPhishingMailKey);
 auth.usePasswordResetMail(mail);
+auth.useKycCapabilities(parseKycCapabilitiesByLevel(env.IDENTITY_KYC_CAPABILITIES_BY_LEVEL));
 auth.usePasswordResetTtl(env.IDENTITY_PASSWORD_RESET_TTL_SECONDS);
 auth.usePasswordResetPolicy({
   maxAttempts: env.IDENTITY_PASSWORD_RESET_MAX_ATTEMPTS,
@@ -603,6 +605,7 @@ export const appRouter = mergeRouters(
       reviewHours: parseKycReviewHoursByLevel(env.IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL),
     },
     kycRejectReasons: parseKycRejectReasons(env.IDENTITY_KYC_REJECT_REASONS),
+    kycCapabilityReasons: parseKycRejectReasons(env.IDENTITY_KYC_CAPABILITY_REASONS, 'IDENTITY_KYC_CAPABILITY_REASONS'),
     social,
     referral,
     share,

@@ -208,34 +208,43 @@ test(`${J} #3 opens another person's order id: "Order not found" with no hint, a
 
 test(`${J} #4 reads the fills of a partly filled order, then cancel gives back exactly the rest`, async ({ page }) => {
   const who = account();
-  // A buy inside the spread is the best bid alone; another TEST trader sells into half of it, so it fills as maker. The
-  // market maker can fill the rest when it requotes; then the order is not partly filled, and a new one is made.
+  // The buy rests 1% under the best bid, below the market maker's whole ladder. Another TEST trader sells the bids
+  // ahead of it and half of it, so it fills as maker. Inside the spread it was the best bid, and the market maker's own
+  // taker sells into the best bid every few cycles: it filled the rest between this check and Cancel (run 600 on main).
+  // The maker's walk moves at most 12 bps a cycle of 8 s, so its bids need over a minute to come down this far.
   let order;
   let part;
   let price;
-  for (let attempt = 0; attempt < 3 && part?.status !== 'open'; attempt++) {
-    const { bid, ask } = await bestPrices();
+  const partlyFilled = (o) => o?.status === 'open' && o.filled !== '0';
+  for (let attempt = 0; attempt < 3 && !partlyFilled(part); attempt++) {
+    const { bid } = await bestPrices();
     const tick = toUnits('0.01');
-    price = fromUnits(((toUnits(bid) + toUnits(ask)) / 2n / tick) * tick);
-    expect(toUnits(price) > toUnits(bid) && toUnits(price) < toUnits(ask)).toBe(true);
+    price = fromUnits(((toUnits(bid) * 99n) / 100n / tick) * tick);
     order = await place(who, { type: 'limit', side: 'buy', amount: '0.002', price, timeInForce: 'GTC' }, `part${attempt}`);
     const other = await api(otherTrader());
-    const { body: book } = await bestPrices();
-    const ahead = book.bids.filter(([p]) => toUnits(p) > toUnits(price)).reduce((sum, [, size]) => sum + toUnits(size), 0n);
-    const sell = await other.post('/api/v1/orders', {
-      symbol: SYMBOL,
-      type: 'limit',
-      side: 'sell',
-      amount: fromUnits(ahead + toUnits('0.001')),
-      price,
-      timeInForce: 'IOC',
-      clientOrderId: `${J}-4-${order.id}`,
-    });
-    expect(sell.status).toBeLessThan(300);
-    await expect.poll(async () => (await orderById(who, order.id)).filled, { timeout: 20_000 }).not.toBe('0');
+    // The maker places its new ladder before it cancels the old one, so a book read in between counts bids that are
+    // gone by the time the sale lands, and the sale stops short of this order: sell again from a fresh read.
+    for (let sale = 0; sale < 3 && (await orderById(who, order.id)).filled === '0'; sale++) {
+      const { body: book } = await bestPrices();
+      const ahead = book.bids.filter(([p]) => toUnits(p) > toUnits(price)).reduce((sum, [, size]) => sum + toUnits(size), 0n);
+      const sell = await other.post('/api/v1/orders', {
+        symbol: SYMBOL,
+        type: 'limit',
+        side: 'sell',
+        amount: fromUnits(ahead + toUnits('0.001')),
+        price,
+        timeInForce: 'IOC',
+        clientOrderId: `${J}-4-${order.id}-${sale}`,
+      });
+      expect(sell.status).toBeLessThan(300);
+      await expect
+        .poll(async () => (await orderById(who, order.id)).filled, { timeout: 5_000 })
+        .not.toBe('0')
+        .catch(() => {});
+    }
     part = await orderById(who, order.id);
   }
-  expect(part.status, 'a partly filled order to read').toBe('open');
+  expect(partlyFilled(part), `a partly filled order to read, not ${part.status} with ${part.filled} filled`).toBe(true);
   run.write({ partial: order.id, partialPrice: price });
 
   await signIn(page, who);
