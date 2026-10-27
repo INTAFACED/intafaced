@@ -283,7 +283,7 @@ export function JobActions({
           title={t('deleteAction')}
           description={t('deleteReview')}
           review={
-            <dl className="pay-details">
+            <dl data-testid="pay-details" className="pay-details">
               <div>
                 <dt>{t('colReport')}</dt>
                 <dd>{kindName(t, job.kind)}</dd>
@@ -433,7 +433,7 @@ export function RequestForm({
           disabled={Boolean(bad) || columns.length === 0}
           disabledReason={columns.length === 0 ? t('errNoColumns') : t('errRange')}
           review={
-            <dl className="pay-details">
+            <dl data-testid="pay-details" className="pay-details">
               <div>
                 <dt>{t('colReport')}</dt>
                 <dd>{t(`kind_${kind}`)}</dd>

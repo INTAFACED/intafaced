@@ -461,6 +461,7 @@ function Changes({ current }: { current: () => boolean }) {
                     <span className="numeric">{t('tally', { count: change.approvalCount, required: change.requiredApprovals })}</span>
                   </div>
                   <a
+                    data-testid="withdrawal-open"
                     className="button button--secondary withdrawal-open"
                     href={href(change.id)}
                     aria-label={t('openChange', { id: change.id })}
@@ -527,7 +528,7 @@ function Detail({ id, current }: { id: string; current: () => boolean }) {
             [t('failureCode'), change.failureCode === null ? t('none') : <span lang="und">{change.failureCode}</span>],
           ];
           return (
-            <div className="withdrawal-detail">
+            <div data-testid="withdrawal-detail" className="withdrawal-detail">
               <div className="withdrawal-detail-value">
                 <span className={tone(change.status)}>{t(change.status)}</span>
                 <span className="numeric">{t('tally', { count: change.approvalCount, required: change.requiredApprovals })}</span>
@@ -586,7 +587,7 @@ export function WithdrawalAllowlist({ context, search }: { context: AllowlistRea
   if (!context.current()) return <p role="status">{t('changed')}</p>;
   return (
     <Page eyebrow={t('money')} title={t('title')} description={t('description')}>
-      <div className="withdrawal-page">
+      <div data-testid="withdrawal-page" className="withdrawal-page">
         {!requested.ok ? (
           <p data-testid="failure" className="failure" role="alert">
             {t('invalidId')}

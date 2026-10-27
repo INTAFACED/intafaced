@@ -55,7 +55,7 @@ export function MoneyActivity() {
         </>
       }
     >
-      <div className="money-activity">
+      <div data-testid="money-activity" className="money-activity">
         <aside className="money-activity-coverage" aria-label={t('activity.coverage')}>
           <strong>{t('activity.bank.only')}</strong>
           <p>{t('activity.history.dependency')}</p>
@@ -113,11 +113,12 @@ function ActivitySource({ source, asset }: { source: Source; asset?: string }) {
           {() => (
             <>
               {rows.length ? (
-                <div className="money-activity-list">
+                <div data-testid="money-activity-list" className="money-activity-list">
                   {rows.map((record) => (
                     <button
                       type="button"
                       key={record.id}
+                      data-testid="money-activity-row"
                       className="money-activity-row"
                       aria-controls="money-record-details"
                       aria-pressed={selected === record.id}

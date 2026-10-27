@@ -467,8 +467,8 @@ export function ApiKeyRevocation({ action }: { action: ReturnType<typeof useApiK
   return (
     <>
       {known && (
-        <div className="api-key-revoke api-key-revoke--known" role="status">
-          <h3 ref={outcome} className="api-key-revoke__outcome-heading" tabIndex={-1}>
+        <div data-testid="api-key-revoke--known" className="api-key-revoke api-key-revoke--known" role="status">
+          <h3 ref={outcome} data-testid="api-key-revoke__outcome-heading" className="api-key-revoke__outcome-heading" tabIndex={-1}>
             <Copy k={proofTitle} />
           </h3>
           <p>
@@ -514,8 +514,8 @@ export function ApiKeyRevocation({ action }: { action: ReturnType<typeof useApiK
         </div>
       )}
       {!known && saved?.read.status === 'present' && (
-        <div className="api-key-revoke api-key-revoke--unknown" role="status">
-          <h3 ref={outcome} className="api-key-revoke__outcome-heading" tabIndex={-1}>
+        <div data-testid="api-key-revoke--unknown" className="api-key-revoke api-key-revoke--unknown" role="status">
+          <h3 ref={outcome} data-testid="api-key-revoke__outcome-heading" className="api-key-revoke__outcome-heading" tabIndex={-1}>
             <Copy k="api.revoke.unknown" />
           </h3>
           <p>
@@ -525,7 +525,7 @@ export function ApiKeyRevocation({ action }: { action: ReturnType<typeof useApiK
           <p className="muted">
             <Copy k="api.revoke.blocked.body" />
           </p>
-          <div className="api-key-revoke__current">
+          <div data-testid="api-key-revoke__current" className="api-key-revoke__current">
             <h4>
               <Copy k="api.revoke.current.title" />
             </h4>
@@ -555,8 +555,13 @@ export function ApiKeyRevocation({ action }: { action: ReturnType<typeof useApiK
         </div>
       )}
       {saved?.read.status === 'unreadable' && (
-        <div className="api-key-revoke api-key-revoke--unavailable" role="status">
-          <h3 ref={known ? undefined : outcome} className="api-key-revoke__outcome-heading" tabIndex={-1}>
+        <div data-testid="api-key-revoke--unavailable" className="api-key-revoke api-key-revoke--unavailable" role="status">
+          <h3
+            ref={known ? undefined : outcome}
+            data-testid="api-key-revoke__outcome-heading"
+            className="api-key-revoke__outcome-heading"
+            tabIndex={-1}
+          >
             <Copy k="api.revoke.unavailable" />
           </h3>
           <p className="muted">
@@ -574,7 +579,7 @@ export function ApiKeyRevocation({ action }: { action: ReturnType<typeof useApiK
       )}
       {dialog && (
         <Dialog title={<Copy k="api.revoke.review.title" />} onClose={action.close}>
-          <div className="api-key-revoke__review">
+          <div data-testid="api-key-revoke__review" className="api-key-revoke__review">
             <p className="muted">
               <Copy k="api.revoke.review.source" />
             </p>
@@ -630,7 +635,7 @@ export function ApiKeyRevocation({ action }: { action: ReturnType<typeof useApiK
                 <Copy k={known ? proofTitle : saved?.read.status === 'present' ? 'api.revoke.unknown' : 'api.revoke.admission.refused'} />
               </p>
             )}
-            <div className="api-key-revoke__actions">
+            <div data-testid="api-key-revoke__actions" className="api-key-revoke__actions">
               {dialog.phase === 'review' && (
                 <Button onClick={() => void action.confirm()}>
                   <Copy k="api.revoke.confirm" />

@@ -213,7 +213,7 @@ async function invoke(page, slot = '__savedP2P') {
 async function capture(page, name) {
   const facts = await page.locator('#main').evaluate((main) => {
     const button = [...main.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Release escrow');
-    const footer = document.querySelector('.mobile-doors');
+    const footer = document.querySelector('[data-testid="mobile-doors"]');
     return {
       viewport: { width: innerWidth, height: innerHeight },
       scrollY,
@@ -230,7 +230,7 @@ async function capture(page, name) {
   await page.screenshot({ path: join(evidence, name + '.png') });
   return facts;
 }
-const original = (page) => page.locator('.p2p-original');
+const original = (page) => page.getByTestId('p2p-original');
 const checkOriginal = (page) => page.getByRole('button', { name: 'Check original order action', exact: true });
 
 test('seller arrival and critical review preserve identity exact quantities and reachable actions at four widths', async ({ browser }) => {
@@ -240,7 +240,7 @@ test('seller arrival and critical review preserve identity exact quantities and 
       'seller-fit-' + width,
       async ({ page, state }) => {
         await login(page);
-        const core = page.locator('.p2p-order-core');
+        const core = page.getByTestId('p2p-order-core');
         await expect(core).toContainText(orderId);
         await expect(core).toContainText('You are the seller');
         await expect(core).toContainText('USDT');
@@ -275,7 +275,7 @@ test('seller arrival and critical review preserve identity exact quantities and 
 test('a handler retained from a closed cancellation cannot submit when a new review opens', async ({ browser }) => {
   await scenario(browser, 'reopened-review-handler', async ({ page, state }) => {
     await login(page);
-    await page.locator('.p2p-order-other summary').click();
+    await page.locator(':is([data-testid="p2p-order-other"], [data-testid="order-mismatch"]) summary').click();
     const reason = page.getByLabel('Cancellation reason', { exact: true });
     await reason.fill('first private reason');
     await page.getByRole('button', { name: 'Cancel order', exact: true }).click();
@@ -300,8 +300,8 @@ test('current GET and preflight reject wrong identity ownership malformed data a
     await scenario(browser, 'current-' + name, async ({ page, state }) => {
       state.replyTrade = async () => ({ status: 200, data });
       await login(page, null);
-      await expect(page.locator('.p2p-order .failure')).toBeVisible();
-      await expect(page.locator('.p2p-order-identity')).toHaveCount(0);
+      await expect(page.locator('[data-testid="p2p-order"] [data-testid="failure"]')).toBeVisible();
+      await expect(page.getByTestId('p2p-order-identity')).toHaveCount(0);
       expect(state.writes).toEqual([]);
     });
   for (const [name, changed] of [
@@ -315,7 +315,7 @@ test('current GET and preflight reject wrong identity ownership malformed data a
       await page.getByRole('button', { name: 'Release escrow', exact: true }).click();
       state.order = { ...order, ...changed };
       await confirm(page).click();
-      await expect(page.locator('.p2p-order')).toContainText('changed');
+      await expect(page.getByTestId('p2p-order')).toContainText('changed');
       await expect(page.getByRole('dialog')).toHaveCount(0);
       expect(state.writes).toEqual([]);
       expect(await page.evaluate((key) => localStorage.getItem(key), originalKey)).toBeNull();
@@ -339,7 +339,7 @@ test('an unknown dispatched original survives source failure reload tab closure 
     await confirm(page).click();
     await expect(original(page)).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Can’t connect right now', exact: true })).toBeVisible();
-    await expect(page.locator('.p2p-order-identity')).toHaveCount(0);
+    await expect(page.getByTestId('p2p-order-identity')).toHaveCount(0);
     await expect.poll(() => state.writes.length).toBe(1);
     expect(await page.evaluate((key) => localStorage.getItem(key), originalKey)).toBe(unknownRaw);
     await invoke(peer, '__peerReview');
@@ -358,7 +358,7 @@ test('an unknown dispatched original survives source failure reload tab closure 
     await page.close();
     await expect(original(peer)).toBeVisible();
     await checkOriginal(peer).click();
-    await expect(peer.locator('.p2p-order')).toContainText('still unresolved');
+    await expect(peer.getByTestId('p2p-order')).toContainText('still unresolved');
     expect(await peer.evaluate((key) => localStorage.getItem(key), originalKey)).toBe(unknownRaw);
     expect(state.writes).toHaveLength(1);
   });
@@ -387,7 +387,7 @@ test('only matching terminal settlement evidence clears an original; late proof 
       await checkOriginal(page).click();
       await expect(original(page)).toHaveCount(0);
       expect(await page.evaluate((key) => localStorage.getItem(key), originalKey)).toBeNull();
-      await expect(page.locator('.p2p-original-result')).toContainText('Current order state checked');
+      await expect(page.getByTestId('p2p-original-result')).toContainText('Current order state checked');
       expect(state.writes).toEqual([]);
       await capture(page, 'matching-original-proof-390');
     },
@@ -458,7 +458,7 @@ test('wrong or malformed financial replies retain a minimal unknown original', a
 test('seller sent-payment cancellation and buyer sent-payment restrictions match the real participant contract', async ({ browser }) => {
   await scenario(browser, 'seller-cancel-sent', async ({ page, state }) => {
     await login(page);
-    await page.locator('.p2p-order-other summary').click();
+    await page.locator(':is([data-testid="p2p-order-other"], [data-testid="order-mismatch"]) summary').click();
     await page.getByLabel('Cancellation reason', { exact: true }).fill('Receipt not confirmed');
     await page.getByRole('button', { name: 'Cancel order', exact: true }).click();
     await expect(page.getByRole('dialog')).toContainText('does not refund an external bank payment');
@@ -477,7 +477,7 @@ test('seller sent-payment cancellation and buyer sent-payment restrictions match
   await scenario(browser, 'buyer-sent-restrictions', async ({ page, state }) => {
     state.owner = order.buyerId;
     await login(page, null);
-    await expect(page.locator('.p2p-order-core')).toContainText('You are the buyer');
+    await expect(page.getByTestId('p2p-order-core')).toContainText('You are the buyer');
     await expect(page.getByRole('button', { name: 'Cancel order', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Release escrow', exact: true })).toHaveCount(0);
     expect(state.writes).toEqual([]);
@@ -499,9 +499,9 @@ test('payment details use deliberate current recovery and refuse unrelated instr
     expect(state.reads.filter((r) => r.procedure === 'trades.paymentInstrument')).toHaveLength(0);
     await page.getByRole('button', { name: 'Reveal agreed payment details', exact: true }).click();
     const section = page
-      .locator('.pay-section')
+      .getByTestId('pay-section')
       .filter({ has: page.getByRole('heading', { name: 'External payment destination', exact: true }) });
-    await expect(section.locator('.failure')).toBeVisible();
+    await expect(section.getByTestId('failure')).toBeVisible();
     state.replyDestination = async () => ({ status: 200, data: details });
     await section.getByRole('button', { name: 'Try again', exact: true }).click();
     await expect(section).toContainText(details.details.account);
@@ -509,14 +509,14 @@ test('payment details use deliberate current recovery and refuse unrelated instr
     await page.getByRole('button', { name: 'Refresh status', exact: true }).click();
     await expect(page.locator('#main')).not.toContainText(details.details.account);
     state.replyTrade = async () => ({ status: 200, data: { ...order } });
-    await page.locator('.p2p-order .failure').getByRole('button', { name: 'Try again', exact: true }).click();
+    await page.locator('[data-testid="p2p-order"] [data-testid="failure"]').getByRole('button', { name: 'Try again', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Reveal agreed payment details', exact: true })).toBeVisible();
     for (const changed of [{ tradeId: order.offerId }, { methodId: 'unrelated-method' }, { fiatCurrency: 'EUR' }]) {
       state.replyDestination = async () => ({ status: 200, data: { ...details, ...changed } });
       if (await page.getByRole('button', { name: 'Reveal agreed payment details', exact: true }).count())
         await page.getByRole('button', { name: 'Reveal agreed payment details', exact: true }).click();
       else await section.getByRole('button', { name: 'Try again', exact: true }).click();
-      await expect(section.locator('.failure')).toBeVisible();
+      await expect(section.getByTestId('failure')).toBeVisible();
       await expect(page.locator('#main')).not.toContainText(details.details.account);
     }
     expect(state.writes).toEqual([]);
@@ -530,7 +530,7 @@ test('passive locale changes retain focus and long exact terms remain inspectabl
     async ({ page, context, state }) => {
       state.order = { ...order, amount: '99999999999999999999.999999999999999999' };
       await login(page);
-      const refresh = page.locator('.p2p-order-role button');
+      const refresh = page.locator('[data-testid="p2p-order-role"] button');
       await refresh.focus();
       const peer = await context.newPage();
       await peer.goto('/help');
@@ -543,19 +543,19 @@ test('passive locale changes retain focus and long exact terms remain inspectabl
           const key = 'intafaced.customer.view.v1';
           localStorage.setItem(key, JSON.stringify({ ...JSON.parse(localStorage.getItem(key) || '{}'), language, hideBalances: true }));
         }, language);
-        await expect(page.locator('.p2p-order')).toContainText(label);
+        await expect(page.getByTestId('p2p-order')).toContainText(label);
         await expect(refresh).toBeFocused();
-        await expect(page.locator('.p2p-order')).toHaveAttribute('lang', language === 'ar' ? 'en' : language);
+        await expect(page.getByTestId('p2p-order')).toHaveAttribute('lang', language === 'ar' ? 'en' : language);
       }
       await peer.evaluate(() =>
         localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ language: 'en', hideBalances: false })),
       );
-      const region = page.locator('.p2p-order-core .pay-amount-scroll').first();
+      const region = page.locator('[data-testid="p2p-order-core"] [data-testid="pay-amount-scroll"]').first();
       await expect(region).toHaveAttribute('tabindex', '0');
       await region.focus();
       await region.press('End');
       expect(await region.evaluate((n) => n.scrollLeft)).toBeGreaterThan(0);
-      await expect(page.locator('.p2p-order-core .pay-amount-unit').first()).toHaveText('USDT');
+      await expect(page.locator('[data-testid="p2p-order-core"] [data-testid="pay-amount-unit"]').first()).toHaveText('USDT');
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
       await capture(page, 'long-exact-locale-320');
       const longFit = await capture(page, 'long-exact-primary-fit-320');
@@ -590,7 +590,7 @@ test('described hash departures owner changes and late dispatched replies preser
     await page.getByRole('button', { name: 'Sign out', exact: true }).click();
     state.owner = order.buyerId;
     await login(page, null, false);
-    await expect(page.locator('.p2p-order-core')).toContainText('You are the buyer');
+    await expect(page.getByTestId('p2p-order-core')).toContainText('You are the buyer');
     await invoke(page);
     expect(state.writes).toEqual([]);
     await expect(page.getByRole('button', { name: 'Release escrow', exact: true })).toHaveCount(0);
@@ -639,12 +639,12 @@ test('a known original reply with failed device cleanup recovers locally without
     await page.getByRole('button', { name: 'Release escrow', exact: true }).click();
     await confirm(page).click();
     await expect(original(page)).toBeVisible();
-    await expect(page.locator('.p2p-order-core')).toContainText('released');
+    await expect(page.getByTestId('p2p-order-core')).toContainText('released');
     const reads = state.reads.filter((r) => r.procedure === 'trades.get').length;
     await page.evaluate(() => window.__restoreP2PCleanup());
     await checkOriginal(page).click();
     await expect(original(page)).toHaveCount(0);
-    await expect(page.locator('.p2p-order-core')).toContainText('released');
+    await expect(page.getByTestId('p2p-order-core')).toContainText('released');
     expect(await page.evaluate((key) => localStorage.getItem(key), originalKey)).toBeNull();
     expect(state.writes).toHaveLength(1);
     // One ordinary fresh GET after successful local cleanup; no proof GET or replay.
@@ -673,12 +673,12 @@ test('buyer escrowed review authorizes the exact external payment and terminal r
     await scenario(browser, 'seller-status-' + status, async ({ page, state }) => {
       state.order = { ...order, status };
       await login(page, null);
-      await expect(page.locator('.p2p-order-identity')).toContainText(status.replaceAll('_', ' '));
+      await expect(page.getByTestId('p2p-order-identity')).toContainText(status.replaceAll('_', ' '));
       await expect(page.getByRole('button', { name: 'Release escrow', exact: true })).toHaveCount(0);
       if (['released', 'cancelled', 'disputed'].includes(status))
         await expect(page.getByRole('button', { name: 'Cancel order', exact: true })).toHaveCount(0);
-      await page.locator('.p2p-order-facts summary').click();
-      await expect(page.locator('.p2p-order-facts')).toContainText('Not confirmed');
+      await page.locator('[data-testid="p2p-order-facts"] summary').click();
+      await expect(page.getByTestId('p2p-order-facts')).toContainText('Not confirmed');
       expect(state.writes).toEqual([]);
     });
   }
@@ -691,10 +691,10 @@ test('unreadable journal storage refuses financial admission while current order
     async ({ page, state }) => {
       await login(page, null);
       await expect(original(page)).toBeVisible();
-      await expect(page.locator('.p2p-order-core')).toContainText(orderId);
+      await expect(page.getByTestId('p2p-order-core')).toContainText(orderId);
       await expect(page.getByRole('button', { name: 'Release escrow', exact: true })).toHaveCount(0);
       await checkOriginal(page).click();
-      await expect(page.locator('.p2p-order')).toContainText('storage is unavailable');
+      await expect(page.getByTestId('p2p-order')).toContainText('storage is unavailable');
       expect(state.writes).toEqual([]);
       await capture(page, 'unreadable-journal-current-320');
     },
@@ -733,7 +733,7 @@ test('participant refund recovery requires its own matching cancelled resolution
       state.order = { ...order, status: 'cancelled', resolution: 'refunded', settledAt: '2026-10-11T00:00:00Z' };
       await checkOriginal(page).click();
       await expect(original(page)).toHaveCount(0);
-      await expect(page.locator('.p2p-original-result')).toContainText('cancelled');
+      await expect(page.getByTestId('p2p-original-result')).toContainText('cancelled');
       expect(await page.evaluate((key) => localStorage.getItem(key), originalKey)).toBeNull();
       expect(state.writes).toEqual([]);
     },

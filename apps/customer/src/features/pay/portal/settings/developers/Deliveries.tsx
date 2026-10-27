@@ -267,7 +267,7 @@ export function RetryButton({
       disabled={!canManage}
       disabledReason={t('readOnlyRole')}
       review={
-        <dl className="pay-details">
+        <dl data-testid="pay-details" className="pay-details">
           <div>
             <dt>{t('colEvent')}</dt>
             <dd>{delivery.eventType}</dd>

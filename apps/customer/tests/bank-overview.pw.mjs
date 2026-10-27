@@ -43,10 +43,14 @@ const space = (id, kind, name, balance) => ({
   lockedUntil: null,
   ledgerAccount: { ownerType: 'user', ownerId: owner, assetId: 'USDT', kind: 'available' },
 });
-const row = (page, asset) => page.locator(`main a.money-holding[href="/portfolio/${encodeURIComponent(asset)}"]`);
+const row = (page, asset) => page.locator(`main a[data-testid="money-holding"][href="/portfolio/${encodeURIComponent(asset)}"]`);
 const quantity = (page, asset) =>
-  row(page, asset).locator('.money-quantity-value, .money-holding-values > strong:not(:has(.money-quantity-value))').first();
-const bankNav = (page) => page.locator('main .money-bank-nav');
+  row(page, asset)
+    .locator(
+      '[data-testid="money-quantity-value"], [data-testid="money-holding-values"] > strong:not(:has([data-testid="money-quantity-value"]))',
+    )
+    .first();
+const bankNav = (page) => page.locator('main [data-testid="money-bank-nav"]');
 const main = (page) => page.locator('main');
 const currentURL = (page) => page.evaluate(() => location.pathname + location.search + location.hash);
 const pause = () => {
@@ -178,7 +182,7 @@ async function capture(page, name, state) {
   );
   await page.screenshot({ path: `${evidence}/${name}-viewport.png` });
   await page.screenshot({ path: `${evidence}/${name}-whole.png`, fullPage: true });
-  await page.locator('main .money-overview-lane').screenshot({ path: `${evidence}/${name}-holdings.png` });
+  await page.locator('main [data-testid="money-overview-lane"]').screenshot({ path: `${evidence}/${name}-holdings.png` });
 }
 async function exactAmounts(page) {
   await expect(quantity(page, 'USDT')).toHaveText(/^8,000\s*(?:USDT)?$/);
@@ -198,8 +202,8 @@ test('four widths promote supported quantities and useful tasks while keeping al
         .locator('a')
         .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('href'))),
     ).toEqual(paths);
-    const primary = main(page).locator(`a.money-space-row[href="/bank/spaces?space=${primaryId}"]`);
-    const named = main(page).locator(`a.money-space-row[href="/bank/spaces?space=${namedId}"]`);
+    const primary = main(page).locator(`a[data-testid="money-space-row"][href="/bank/spaces?space=${primaryId}"]`);
+    const named = main(page).locator(`a[data-testid="money-space-row"][href="/bank/spaces?space=${namedId}"]`);
     await expect(primary).toContainText('Primary · included in your account balances');
     await expect(named).toContainText('Named space · balance shown separately');
     await expect(named).toContainText('1,250 USDT');
@@ -217,12 +221,12 @@ test('four widths promote supported quantities and useful tasks while keeping al
       await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
       await page.evaluate(() => document.fonts.ready);
       const geometry = await row(page, 'USDT').evaluate((element) => {
-        const q = element.querySelector('.money-holding-values > strong');
-        const missing = document.querySelector('main .money-total');
+        const q = element.querySelector('[data-testid="money-holding-values"] > strong');
+        const missing = document.querySelector('main [data-testid="money-total"]');
         const tasks = [...document.querySelectorAll('main a.button')].filter((node) =>
           ['/bank/spaces', '/bank/transfers', '/uc/withdraw'].includes(node.getAttribute('href')),
         );
-        const nav = document.querySelector('.mobile-doors');
+        const nav = document.querySelector('[data-testid="mobile-doors"]');
         const navTop = nav?.getClientRects().length ? nav.getBoundingClientRect().top : innerHeight;
         return {
           width: innerWidth,
@@ -277,7 +281,7 @@ test('four widths promote supported quantities and useful tasks while keeping al
             if (!node?.matches('main a.button') || !['/bank/spaces', '/bank/transfers', '/uc/withdraw'].includes(node.getAttribute('href')))
               return null;
             const box = node.getBoundingClientRect(),
-              nav = document.querySelector('.mobile-doors');
+              nav = document.querySelector('[data-testid="mobile-doors"]');
             return {
               href: node.getAttribute('href'),
               top: box.top,
@@ -380,7 +384,7 @@ test('privacy masks all amounts including zero; long exact units fit English Spa
         await login(page);
         await expect(quantity(page, asset)).toHaveText(/^9,999,999,999,999,999,999\.000000000000000001(?: UNFAMILIAR-LONG-ASSET)?$/);
         await expect(row(page, asset).locator('dd')).toHaveText([`9,999,999,999,999,999,999.000000000000000001 ${asset}`, `0 ${asset}`]);
-        await expect(main(page).locator('.money-space-row').last()).toContainText(state.spaces[1].name);
+        await expect(main(page).getByTestId('money-space-row').last()).toContainText(state.spaces[1].name);
         const hide = { en: 'Hide amounts', es: 'Ocultar importes', fr: 'Masquer les montants', ar: 'Hide amounts' }[language];
         const show = { en: 'Show amounts', es: 'Mostrar importes', fr: 'Afficher les montants', ar: 'Show amounts' }[language];
         await main(page).getByRole('button', { name: hide, exact: true }).click();
@@ -388,7 +392,8 @@ test('privacy masks all amounts including zero; long exact units fit English Spa
           await expect(quantity(page, current)).toHaveText('••••');
           await expect(row(page, current).locator('dd')).toHaveText(['••••', '••••']);
         }
-        for (const saved of await main(page).locator('.money-space-row .numeric').all()) await expect(saved).toHaveText('••••');
+        for (const saved of await main(page).locator('[data-testid="money-space-row"] [data-testid="numeric"]').all())
+          await expect(saved).toHaveText('••••');
         await capture(page, `${language}-hidden`, state);
         await main(page).getByRole('button', { name: show, exact: true }).click();
         await expect(row(page, 'BTC').locator('dd').last()).toHaveText('0 BTC');
@@ -421,7 +426,7 @@ test('returned zero empty loading available-only fallback and unavailable source
       state.data.balances = {};
       await refresh(page);
       await expect(main(page).getByText('No account balances returned', { exact: true })).toBeVisible();
-      await expect(main(page).locator('.money-holding')).toHaveCount(0);
+      await expect(main(page).getByTestId('money-holding')).toHaveCount(0);
       state.balanceStatus = 503;
       state.spaces = [space(primaryId, 'primary', 'Main', '7500')];
       state.unnamed = [{ assetId: 'USDT', balance: '7500' }];
@@ -433,14 +438,14 @@ test('returned zero empty loading available-only fallback and unavailable source
       await capture(page, 'available-only-320', state);
       state.spacesStatus = state.unnamedStatus = 503;
       await refresh(page);
-      await expect(main(page).locator('.money-holding')).toHaveCount(0);
+      await expect(main(page).getByTestId('money-holding')).toHaveCount(0);
       await expect(main(page).getByText('Holdings could not be loaded.', { exact: true })).toBeVisible();
       await expect(main(page).locator('time')).toHaveCount(0);
       state.balanceStatus = state.spacesStatus = state.unnamedStatus = 200;
       state.data = structuredClone(balances);
       state.held = pause();
       await refresh(page);
-      await expect(main(page).locator('.money-holding')).toHaveCount(0);
+      await expect(main(page).getByTestId('money-holding')).toHaveCount(0);
       await expect(bankNav(page).locator('a[href="/bank/spaces"]')).toBeVisible();
       await capture(page, 'loading-320', state);
       state.held.release();
@@ -515,7 +520,7 @@ test('unknown and unreadable originals stay before content byte-exact through re
         await expect(banner).toBeVisible();
         const geometry = await banner.evaluate((element) => {
           const b = element.getBoundingClientRect(),
-            nav = document.querySelector('.mobile-doors');
+            nav = document.querySelector('[data-testid="mobile-doors"]');
           return { top: b.top, bottom: b.bottom, navTop: nav?.getClientRects().length ? nav.getBoundingClientRect().top : innerHeight };
         });
         expect(geometry.top).toBeGreaterThanOrEqual(0);

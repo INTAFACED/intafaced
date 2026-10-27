@@ -188,7 +188,7 @@ export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>,
 export function Loading({ label, room }: { label?: ReactNode; room?: boolean }) {
   const { Copy } = uiCopy.useCopy();
   return (
-    <div className={room ? 'loading loading--room' : 'loading'} role="status">
+    <div data-testid="loading" className={room ? 'loading loading--room' : 'loading'} role="status">
       {room ? <BrandIris size={24} mode="loop" /> : <span className="loading-dot" />}
       {label ?? <Copy k="loading" />}…
     </div>
@@ -238,6 +238,7 @@ export function Dialog({ title, children, onClose }: { title: ReactNode; childre
   }, []);
   return (
     <dialog
+      data-testid="dialog"
       className="dialog"
       ref={ref}
       aria-labelledby={titleId}

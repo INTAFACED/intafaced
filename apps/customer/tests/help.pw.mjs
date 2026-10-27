@@ -91,7 +91,7 @@ async function network(context, options = {}) {
   return state;
 }
 const address = (id, version) => '/helpdetail?id=' + encodeURIComponent(id) + (version === undefined ? '' : '&version=' + version);
-const ready = (page) => page.locator('.help__body');
+const ready = (page) => page.getByTestId('help__body');
 async function login(page, destination = '/help') {
   await page.goto('/login?redirect=' + encodeURIComponent(destination));
   await page.locator('input[name="identifier"]').fill('isolated-owner');
@@ -103,7 +103,7 @@ async function login(page, destination = '/help') {
     history.pushState(null, '', destination);
     dispatchEvent(new PopStateEvent('popstate'));
   }, destination);
-  await expect(page.locator('.help')).toBeVisible();
+  await expect(page.getByTestId('help')).toBeVisible();
 }
 async function changeURL(page, destination) {
   await page.evaluate((destination) => {
@@ -127,7 +127,11 @@ async function shot(page, name) {
   await page.screenshot({
     path: evidence + '/' + name + '.png',
     fullPage: true,
-    mask: [page.locator('.help__private,input[name="help-search"],input[autocomplete="username"],input[autocomplete="current-password"]')],
+    mask: [
+      page.locator(
+        '[data-testid="help__private"],input[name="help-search"],input[autocomplete="username"],input[autocomplete="current-password"]',
+      ),
+    ],
   });
 }
 
@@ -139,7 +143,7 @@ test('direct exact article outside the loaded catalogue uses only its original g
   expect(s.gets.length).toBe(1);
   expect(s.gets[0].procedure).toBe('getKb');
   expect(s.gets[0].input.id === id && s.gets[0].input.version === 7).toBe(true);
-  await expect(page.locator('.help__heading')).toContainText('Published version 7');
+  await expect(page.getByTestId('help__heading')).toContainText('Published version 7');
   expect(s.posts).toEqual([]);
   expect(s.allPosts).toEqual([]);
 });
@@ -207,12 +211,12 @@ test('omitted published and generation remain readable legacy latest without inv
   const legacy = { id: 'legacy', titleKey: 'support.kb.account_access.title', bodyKey: 'support.kb.account_access.body' },
     s = await network(context, { lists: [legacy], getKb: (route) => reply(route, legacy) });
   await page.goto('/help');
-  await expect(page.locator('.help__list')).toContainText('Published answer');
-  await expect(page.locator('.help__list')).not.toContainText('version 1');
+  await expect(page.getByTestId('help__list')).toContainText('Published answer');
+  await expect(page.getByTestId('help__list')).not.toContainText('version 1');
   await page.getByRole('link', { name: 'Read answer: ' + title, exact: true }).click();
   await expect(ready(page)).toContainText(body);
   expect(Object.keys(s.gets.at(-1).input)).toEqual(['id']);
-  await expect(page.locator('.help__heading')).toContainText('Published answer');
+  await expect(page.getByTestId('help__heading')).toContainText('Published answer');
 });
 test('null latest is an explicit empty read without a silent catalogue fallback', async ({ context, page }) => {
   const s = await network(context, { getKb: (route) => reply(route, null) });
@@ -231,13 +235,13 @@ test('actual named 412 without cause identifies missing requested version and la
   });
   await page.goto(address('kb-account-access', 3));
   await expect(page.getByRole('heading', { name: 'This version is unavailable', exact: true })).toBeVisible();
-  await expect(page.locator('.help__original')).toContainText('Requested version 3');
+  await expect(page.getByTestId('help__original')).toContainText('Requested version 3');
   expect(s.gets.length).toBe(1);
   await page.getByRole('link', { name: 'Read latest version', exact: true }).click();
   await expect(ready(page)).toContainText(body);
   expect(s.gets.length).toBe(2);
   expect(Object.keys(s.gets[1].input)).toEqual(['id']);
-  await expect(page.locator('.help__heading')).toContainText('Published version 2');
+  await expect(page.getByTestId('help__heading')).toContainText('Published version 2');
   expect(s.posts).toEqual([]);
   await page.goBack();
   await expect(page.getByRole('heading', { name: 'This version is unavailable', exact: true })).toBeVisible();
@@ -261,8 +265,8 @@ test('failed exact read retry preserves original ID version and never claims pub
   const s = await network(context, { getKb: (route, input) => (failed ? refusal(route) : reply(route, row(input.id, input.version))) });
   await page.goto(address('kb-account-access', 4));
   await expect(page.getByRole('heading', { name: 'Answer unavailable', exact: true })).toBeVisible();
-  await expect(page.locator('.help__original')).toContainText('Requested version 4');
-  await expect(page.locator('.help')).not.toContainText('Published version 4');
+  await expect(page.getByTestId('help__original')).toContainText('Requested version 4');
+  await expect(page.getByTestId('help')).not.toContainText('Published version 4');
   await shot(page, 'failed-exact');
   failed = false;
   await page.getByRole('button', { name: 'Try again', exact: true }).click();
@@ -278,8 +282,8 @@ test('readable published content remains separate from unknown or interpolated c
   await page.goto(address('kb-account-access', 1));
   await expect(page.getByRole('heading', { name: 'Article text unavailable', exact: true })).toBeVisible();
   await expect(ready(page)).toContainText('no readable text');
-  await expect(page.locator('.help')).not.toContainText('opaque.unknown.title');
-  await expect(page.locator('.help')).not.toContainText('ui.list.items');
+  await expect(page.getByTestId('help')).not.toContainText('opaque.unknown.title');
+  await expect(page.getByTestId('help')).not.toContainText('ui.list.items');
   expect(s.posts).toEqual([]);
 });
 for (const [name, bodyKey] of [
@@ -323,7 +327,7 @@ test('maximum opaque decoded ID remains exact and fits at 320 without storage or
   expect(s.gets.length === 1 && s.gets[0].input.id === id && s.gets[0].input.version === 9).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(await page.evaluate((id) => !JSON.stringify({ ...localStorage, ...sessionStorage }).includes(id), id)).toBe(true);
-  await expect(page.locator('.help')).not.toContainText('Published version 9');
+  await expect(page.getByTestId('help')).not.toContainText('Published version 9');
   await shot(page, 'long-exact-failure-320');
   expect(s.posts).toEqual([]);
 });
@@ -332,15 +336,15 @@ test('natural search filters actual loaded prose locally and private query never
     lists: [row(), row('security', 1, { titleKey: 'support.kb.security_basics.title', bodyKey: 'support.kb.security_basics.body' })],
   });
   await page.goto('/help');
-  await expect(page.locator('.help__row')).toHaveCount(2);
+  await expect(page.getByTestId('help__row')).toHaveCount(2);
   await page.getByLabel('Search loaded answers', { exact: true }).fill('password');
   await page.getByRole('button', { name: 'Search', exact: true }).click();
-  await expect(page.locator('.help__row')).toHaveCount(1);
-  await expect(page.locator('.help__row')).toContainText(title);
+  await expect(page.getByTestId('help__row')).toHaveCount(1);
+  await expect(page.getByTestId('help__row')).toContainText(title);
   const privateQuery = 'isolated-help-private-search-value';
   await page.getByLabel('Search loaded answers', { exact: true }).fill(privateQuery);
   await page.keyboard.press('Enter');
-  await expect(page.locator('.help__empty')).toContainText('No matches in loaded answers');
+  await expect(page.getByTestId('help__empty')).toContainText('No matches in loaded answers');
   expect(s.gets.length).toBe(1);
   expect(s.gets[0].input.q).toBe('');
   expect(
@@ -356,12 +360,12 @@ test('full bounded catalogue expands only 100 through 500 with no cursor total o
   const s = await network(context, { lists: rows });
   await page.goto('/help');
   for (const limit of [100, 200, 300, 400, 500]) {
-    await expect(page.locator('.help__row')).toHaveCount(limit);
+    await expect(page.getByTestId('help__row')).toHaveCount(limit);
     expect(s.gets.at(-1).input).toEqual({ q: '', limit });
     if (limit < 500) await page.getByRole('button', { name: 'Load more published answers', exact: true }).click();
   }
   await expect(page.getByRole('button', { name: 'Load more published answers', exact: true })).toHaveCount(0);
-  await expect(page.locator('.help')).toContainText('may not include the complete catalogue');
+  await expect(page.getByTestId('help')).toContainText('may not include the complete catalogue');
   expect(s.gets.map((x) => x.input.limit)).toEqual([100, 200, 300, 400, 500]);
   expect(s.posts).toEqual([]);
 });
@@ -373,7 +377,7 @@ for (const [name, rows] of [
     await network(context, { lists: rows });
     await page.goto('/help');
     await expect(page.getByRole('button', { name: 'Load more published answers', exact: true })).toHaveCount(0);
-    await expect(page.locator('.help')).toContainText(name === 'empty' ? 'No published answers returned' : title);
+    await expect(page.getByTestId('help')).toContainText(name === 'empty' ? 'No published answers returned' : title);
   });
 for (const [name, rows] of [
   ['duplicates', [row(), row()]],
@@ -384,8 +388,8 @@ for (const [name, rows] of [
   test('invalid public catalogue hides unverifiable rows: ' + name, async ({ context, page }) => {
     await network(context, { searchKb: (route) => reply(route, rows) });
     await page.goto('/help');
-    await expect(page.locator('.help .failure')).toBeVisible();
-    await expect(page.locator('.help__row')).toHaveCount(0);
+    await expect(page.locator('[data-testid="help"] [data-testid="failure"]')).toBeVisible();
+    await expect(page.getByTestId('help__row')).toHaveCount(0);
   });
 test('loading and failed window expansion conceal all former public rows and retry same window', async ({ context, page }) => {
   const gate = held();
@@ -402,15 +406,15 @@ test('loading and failed window expansion conceal all former public rows and ret
     },
   });
   await page.goto('/help');
-  await expect(page.locator('.help__row')).toHaveCount(100);
+  await expect(page.getByTestId('help__row')).toHaveCount(100);
   await page.getByRole('button', { name: 'Load more published answers', exact: true }).click();
-  await expect(page.locator('.help__row')).toHaveCount(0);
+  await expect(page.getByTestId('help__row')).toHaveCount(0);
   gate.release();
-  await expect(page.locator('.help .failure')).toBeVisible();
-  await expect(page.locator('.help__row')).toHaveCount(0);
+  await expect(page.locator('[data-testid="help"] [data-testid="failure"]')).toBeVisible();
+  await expect(page.getByTestId('help__row')).toHaveCount(0);
   failed = false;
   await page.getByRole('button', { name: 'Try again', exact: true }).click();
-  await expect(page.locator('.help__row')).toHaveCount(1);
+  await expect(page.getByTestId('help__row')).toHaveCount(1);
   expect(s.gets.map((x) => x.input.limit)).toEqual([100, 200, 200]);
   expect(s.posts).toEqual([]);
 });
@@ -477,10 +481,10 @@ test('native refresh changes owner discards held old public context and clears p
     },
   });
   await login(page);
-  await expect(page.locator('.help__row')).toHaveCount(1);
+  await expect(page.getByTestId('help__row')).toHaveCount(1);
   await page.getByLabel('Search loaded answers', { exact: true }).fill('isolated-help-private-owner-search');
   await page.keyboard.press('Enter');
-  await expect(page.locator('.help__empty')).toBeVisible();
+  await expect(page.getByTestId('help__empty')).toBeVisible();
   await changeURL(page, address('kb-account-access', 1));
   await expect.poll(() => s.gets.filter((x) => x.procedure === 'getKb').length).toBe(1);
   s.owner = other;
@@ -490,7 +494,7 @@ test('native refresh changes owner discards held old public context and clears p
   await expect(page.getByRole('heading', { name: 'Order status', exact: true })).toHaveCount(0);
   await page.getByRole('link', { name: '← Published answers', exact: true }).click();
   await expect(page.getByLabel('Search loaded answers', { exact: true })).toHaveValue('');
-  await expect(page.locator('.help__row')).toHaveCount(1);
+  await expect(page.getByTestId('help__row')).toHaveCount(1);
   expect(s.posts).toEqual([]);
 });
 test('held read from a closed native tab cannot contaminate a fresh tab or create durable private state', async ({ context, page }) => {
@@ -560,7 +564,7 @@ for (const [language, headingText, retryText] of [
         const s = await network(context, { getKb: (route) => refusal(route), searchKb: (route) => refusal(route) });
         const view = await locale(context, language);
         await page.goto(room === 'article' ? address('kb-account-access', 1) : '/help');
-        const raw = page.locator('.help .failure p').filter({ hasText: 'Isolated public read unavailable' });
+        const raw = page.locator('[data-testid="help"] [data-testid="failure"] p').filter({ hasText: 'Isolated public read unavailable' });
         await expect(raw).toBeVisible();
         expect(await raw.evaluate((element) => element.closest('[lang]').getAttribute('lang'))).toBe('und');
         const retryButton = page.getByRole('button', { name: retryText, exact: true });
@@ -586,19 +590,19 @@ for (const [language, headingText, label] of [
       await shot(page, 'browse-' + language + '-' + width);
       await page.getByLabel(label, { exact: true }).fill('password');
       await page.keyboard.press('Enter');
-      await expect(page.locator('.help__row')).toHaveCount(1);
-      const answer = page.locator('.help__row-heading a');
+      await expect(page.getByTestId('help__row')).toHaveCount(1);
+      const answer = page.locator('[data-testid="help__row-heading"] a');
       await answer.focus();
       await page.keyboard.press('Enter');
       await expect(ready(page)).toContainText(body);
-      await expect(page.locator('.help h1')).toBeFocused();
-      await expect(page.locator('.help h1')).toHaveAttribute('lang', 'en');
+      await expect(page.locator('[data-testid="help"] h1')).toBeFocused();
+      await expect(page.locator('[data-testid="help"] h1')).toHaveAttribute('lang', 'en');
       await expect(ready(page)).toHaveAttribute('lang', 'en');
       if (language !== 'en')
-        await expect(page.locator('.help__heading')).toContainText(language === 'es' ? 'se muestra en inglés' : 'affichée en anglais');
+        await expect(page.getByTestId('help__heading')).toContainText(language === 'es' ? 'se muestra en inglés' : 'affichée en anglais');
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       expect(
-        await page.locator('.help__link').evaluateAll((links) => links.every((link) => link.getBoundingClientRect().height >= 44)),
+        await page.getByTestId('help__link').evaluateAll((links) => links.every((link) => link.getBoundingClientRect().height >= 44)),
       ).toBe(true);
       const axe = await new AxeBuilder({ page }).analyze();
       expect(axe.violations.filter((x) => ['critical', 'serious'].includes(x.impact)).map((x) => x.id)).toEqual([]);

@@ -300,7 +300,7 @@ test('preserved getItem-only fault keeps original bytes and refuses ordinary Buy
     Storage.prototype.getItem = window.__moreGetter;
   });
   await page.getByRole('button', { name: 'Retry recovery storage', exact: true }).click();
-  await expect(page.locator('.failure').filter({ hasText: originalId })).toBeVisible();
+  await expect(page.getByTestId('failure').filter({ hasText: originalId })).toBeVisible();
   await page.getByRole('button', { name: 'Check original outcome', exact: true }).click();
   await expect.poll(() => rawSaved(page)).toBeNull();
   await expect(buyButton(page)).toBeEnabled();

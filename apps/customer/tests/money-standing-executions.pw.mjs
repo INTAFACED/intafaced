@@ -361,7 +361,7 @@ async function aboveFooter(locator, minimum = 0) {
     .poll(() =>
       locator.evaluate((node, minimum) => {
         const b = node.getBoundingClientRect();
-        const nav = document.querySelector('.mobile-doors');
+        const nav = document.querySelector('[data-testid="mobile-doors"]');
         const n = nav?.getBoundingClientRect();
         const edge = nav && getComputedStyle(nav).display !== 'none' && n.height > 0 ? n.top : innerHeight;
         return {
@@ -379,7 +379,7 @@ async function snapshot(page, state, name, locale = 'en') {
   await page.evaluate(() => document.fonts.ready);
   const observation = await page.evaluate(() => {
     const selected = document.getElementById('money-selected-instruction-heading')?.closest('section');
-    const nav = document.querySelector('.mobile-doors'),
+    const nav = document.querySelector('[data-testid="mobile-doors"]'),
       n = nav?.getBoundingClientRect();
     const box = (node) => {
       const b = node?.getBoundingClientRect();
@@ -395,8 +395,8 @@ async function snapshot(page, state, name, locale = 'en') {
       footerTop: nav && getComputedStyle(nav).display !== 'none' && n.height ? n.top : innerHeight,
       active: document.activeElement?.outerHTML,
       heading: box(document.getElementById('money-selected-instruction-heading')),
-      reference: box(selected?.querySelector('.money-standing-reference dd')),
-      firstOutcome: box(selected?.querySelector('.money-execution-outcome')),
+      reference: box(selected?.querySelector('[data-testid="money-standing-reference"] dd')),
+      firstOutcome: box(selected?.querySelector('[data-testid="money-execution-outcome"]')),
       selectedDOM: selected?.outerHTML,
       mainDOM: document.querySelector('#main')?.outerHTML,
     };
@@ -454,7 +454,7 @@ async function scenario(browser, name, run, width = 1440, height = 1000) {
   }
 }
 async function enterTransfers(page) {
-  await main(page).locator('.money-bank-nav a[href="/bank/transfers"]').click();
+  await main(page).locator('[data-testid="money-bank-nav"] a[href="/bank/transfers"]').click();
   await expect.poll(() => currentURL(page)).toBe('/bank/transfers');
 }
 async function viewLocale(page, requested) {
@@ -485,12 +485,12 @@ async function inspect(page, row, locale = 'en', keyboard = false) {
 async function ready(page, row, rows, locale = 'en', hidden = false, requested = locale) {
   const panel = selection(page, locale),
     returned = historyRegion(page, locale);
-  await expect(panel.locator('.money-standing-reference dd')).toHaveText(row.id);
-  await expect(panel.locator('.money-standing-facts .numeric')).toHaveText(
+  await expect(panel.locator('[data-testid="money-standing-reference"] dd')).toHaveText(row.id);
+  await expect(panel.locator('[data-testid="money-standing-facts"] [data-testid="numeric"]')).toHaveText(
     hidden ? `•••• ${row.assetId}` : exactFunds(row.amount, row.assetId),
   );
-  await expect(panel.locator('.money-standing-facts time')).toHaveAttribute('datetime', row.nextRunAt);
-  await expect(panel.locator('.money-standing-facts dd[lang="und"]')).toHaveText(`${row.cadence} · ${row.status}`);
+  await expect(panel.locator('[data-testid="money-standing-facts"] time')).toHaveAttribute('datetime', row.nextRunAt);
+  await expect(panel.locator('[data-testid="money-standing-facts"] dd[lang="und"]')).toHaveText(`${row.cadence} · ${row.status}`);
   await expect(returned.getByRole('article')).toHaveCount(rows.length);
   for (const item of rows.length <= 4 ? rows : [rows[0], rows.at(-1)]) {
     const occurrenceNumber = new Intl.NumberFormat(requested === 'ar' ? 'ar-EG' : requested, {
@@ -501,16 +501,16 @@ async function ready(page, row, rows, locale = 'en', hidden = false, requested =
     }).format(item.occurrence);
     const article = returned.getByRole('article', { name: ui[locale].occurrence(occurrenceNumber), exact: true });
     await expect(article).toHaveCount(1);
-    await expect(article.locator('.money-execution-status dd')).toHaveText(item.status);
-    await expect(article.locator('.money-execution-quantity dd')).toHaveText(
+    await expect(article.locator('[data-testid="money-execution-status"] dd')).toHaveText(item.status);
+    await expect(article.locator('[data-testid="money-execution-quantity"] dd')).toHaveText(
       hidden ? `•••• ${row.assetId}` : exactFunds(item.amount, row.assetId),
     );
-    await expect(article.locator('.money-execution-refusal')).toHaveCount(item.rejectionCode === null ? 0 : 1);
+    await expect(article.getByTestId('money-execution-refusal')).toHaveCount(item.rejectionCode === null ? 0 : 1);
     if (item.rejectionCode !== null)
-      await expect(article.locator('.money-execution-refusal dd')).toHaveText(
+      await expect(article.locator('[data-testid="money-execution-refusal"] dd')).toHaveText(
         item.rejectionCode === '' ? ui[locale].emptyReference : item.rejectionCode,
       );
-    await expect(article.locator('.money-execution-ledger dd')).toHaveText(
+    await expect(article.locator('[data-testid="money-execution-ledger"] dd')).toHaveText(
       item.ledgerTxId === null ? ui[locale].noLedger : item.ledgerTxId === '' ? ui[locale].emptyReference : item.ledgerTxId,
     );
   }
@@ -568,7 +568,7 @@ test('four widths identify the current instruction and readable outcomes through
         await enterTransfers(page);
         expect(
           await main(page)
-            .locator('.money-bank-nav a')
+            .locator('[data-testid="money-bank-nav"] a')
             .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('href'))),
         ).toEqual(paths);
         await inspect(page, row, locale, width >= 768);
@@ -576,25 +576,24 @@ test('four widths identify the current instruction and readable outcomes through
         await snapshot(page, state, `standing-${width}-${requested}-arrival`, locale);
         await expect(panel.getByRole('heading', { name: ui[locale].outcomes, exact: true })).toBeFocused();
         await aboveFooter(panel.getByRole('heading', { name: ui[locale].outcomes, exact: true }));
-        await aboveFooter(panel.locator('.money-standing-reference dd'));
+        await aboveFooter(panel.locator('[data-testid="money-standing-reference"] dd'));
         await aboveFooter(historyRegion(page, locale).getByRole('article').first());
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-        await expect(panel.locator('.money-standing-reference dd')).toHaveAttribute('lang', 'zxx');
-        await expect(historyRegion(page, locale).getByRole('article').first().locator('.money-execution-status dd')).toHaveAttribute(
-          'lang',
-          'und',
-        );
+        await expect(panel.locator('[data-testid="money-standing-reference"] dd')).toHaveAttribute('lang', 'zxx');
+        await expect(
+          historyRegion(page, locale).getByRole('article').first().locator('[data-testid="money-execution-status"] dd'),
+        ).toHaveAttribute('lang', 'und');
         const b = state.instructions.get(ownerA)[7];
         await inspect(page, b, locale);
         await ready(page, b, state.results.get(b.id), locale, false, requested);
         expect(executionReads(state).at(-1).input).toEqual({ scheduleId: b.id, limit: 50 });
-        await main(page).locator('.money-bank-nav a[href="/bank"]').click();
+        await main(page).locator('[data-testid="money-bank-nav"] a[href="/bank"]').click();
         await main(page).getByRole('button', { name: ui[locale].hide, exact: true }).click();
         await enterTransfers(page);
         await inspect(page, row, locale);
         await ready(page, row, results, locale, true, requested);
         await snapshot(page, state, `standing-${width}-${requested}-hidden`, locale);
-        await main(page).locator('.money-bank-nav a[href="/bank"]').click();
+        await main(page).locator('[data-testid="money-bank-nav"] a[href="/bank"]').click();
         await main(page).getByRole('button', { name: ui[locale].show, exact: true }).click();
         await enterTransfers(page);
         await inspect(page, row, locale);
@@ -627,7 +626,7 @@ test('current execution reads recover from real-shaped refusals and respect owne
       return reply;
     };
     await refreshInstructions(page);
-    await expect(selection(page).locator('.money-standing-facts')).toHaveCount(0);
+    await expect(selection(page).getByTestId('money-standing-facts')).toHaveCount(0);
     await expect(historyRegion(page)).toHaveCount(0);
     const beforeRetired = executionReads(state).length;
     await invoke(page, '__preRevalidationInspect');
@@ -644,7 +643,7 @@ test('current execution reads recover from real-shaped refusals and respect owne
     ]) {
       state.executionReply = async () => refusal();
       await refreshOutcomes(page);
-      await expect(historyRegion(page).locator('.failure')).toBeVisible();
+      await expect(historyRegion(page).getByTestId('failure')).toBeVisible();
       await expect(historyRegion(page).getByRole('article')).toHaveCount(0);
       await snapshot(page, state, `standing-${name}-before-retry`);
       state.executionReply = normal;
@@ -670,7 +669,7 @@ test('current execution reads recover from real-shaped refusals and respect owne
     state.executionReply = normal;
     await historyRegion(page).getByRole('button', { name: ui.en.refresh, exact: true }).click();
     await expect(selection(page).getByRole('heading', { name: ui.en.missing, exact: true })).toBeVisible();
-    await expect(selection(page).locator('.money-standing-facts')).toHaveCount(0);
+    await expect(selection(page).getByTestId('money-standing-facts')).toHaveCount(0);
     await expect(historyRegion(page)).toHaveCount(0);
     await inspect(page, b);
     await ready(page, b, state.results.get(b.id));
@@ -678,7 +677,7 @@ test('current execution reads recover from real-shaped refusals and respect owne
     state.listReply = async () => ({ status: 200, data: [b, { ...b, amount: '99' }] });
     await refreshInstructions(page);
     await expect(selection(page).getByRole('heading', { name: ui.en.conflict, exact: true })).toBeVisible();
-    await expect(selection(page).locator('.money-standing-facts')).toHaveCount(0);
+    await expect(selection(page).getByTestId('money-standing-facts')).toHaveCount(0);
     await expect(historyRegion(page)).toHaveCount(0);
     await expect(inspector(page, b)).toHaveCount(2);
     for (const button of await inspector(page, b).all()) await expect(button).toBeDisabled();
@@ -690,7 +689,7 @@ test('current execution reads recover from real-shaped refusals and respect owne
       data: [{ occurrence: 0, amount: 'NaN', status: 'settled', ledgerTxId: null, rejectionCode: null }],
     });
     await refreshOutcomes(page);
-    await expect(historyRegion(page).locator('.failure')).toBeVisible();
+    await expect(historyRegion(page).getByTestId('failure')).toBeVisible();
     await expect(historyRegion(page).getByRole('article')).toHaveCount(0);
     state.executionReply = normal;
     await retryOutcomes(page);
@@ -722,7 +721,7 @@ test('current execution reads recover from real-shaped refusals and respect owne
     for (const row of state.instructions.get(ownerA)) state.results.set(row.id, executionRows(row, 200));
     await login(page, '/bank/transfers');
     await ownerProof(page);
-    await expect(main(page).locator('.money-standing-record')).toHaveCount(50);
+    await expect(main(page).getByTestId('money-standing-record')).toHaveCount(50);
     const ownerArrivalReads = listReads(state).length;
     expect(ownerArrivalReads).toBeGreaterThanOrEqual(1);
     expect(listReads(state).map((read) => read.input.limit)).toEqual(Array(ownerArrivalReads).fill(50));
@@ -732,10 +731,10 @@ test('current execution reads recover from real-shaped refusals and respect owne
     }
     for (const limit of [100, 150, 200]) {
       await main(page)
-        .locator('.money-standing-orders .money-continuation')
+        .locator('[data-testid="money-standing-orders"] [data-testid="money-continuation"]')
         .getByRole('button', { name: `Load up to ${limit}`, exact: true })
         .click();
-      await expect(main(page).locator('.money-standing-record')).toHaveCount(limit);
+      await expect(main(page).getByTestId('money-standing-record')).toHaveCount(limit);
     }
     const row = state.instructions.get(ownerA)[3];
     await inspect(page, row);
@@ -782,7 +781,7 @@ test('late and retired instruction controls preserve current URL, actor, dialog 
     await ready(page, b, state.results.get(b.id));
     hold.release();
     await frames(page);
-    await expect(selection(page).locator('.money-standing-reference dd')).toHaveText(b.id);
+    await expect(selection(page).locator('[data-testid="money-standing-reference"] dd')).toHaveText(b.id);
     for (const mode of ['query', 'hash-aba', 'query-aba', 'pathname']) {
       await captureHandler(historyRegion(page).getByRole('button', { name: ui.en.refreshOutcomes, exact: true }), '__oldStandingRefresh');
       await page.evaluate((mode) => {
@@ -905,7 +904,7 @@ test('late and retired instruction controls preserve current URL, actor, dialog 
         expect(await readBankOriginalRaw(page)).toBe(bankOriginalRaw);
         await snapshot(page, state, `standing-original-${unreadable ? 'unreadable' : 'unknown'}-guard`);
         await restoreOriginalRead(page);
-        await main(page).locator('.money-bank-nav a[href="/bank"]').click();
+        await main(page).locator('[data-testid="money-bank-nav"] a[href="/bank"]').click();
         await enterTransfers(page);
         await inspect(page, row);
         await ready(page, row, state.results.get(row.id));
@@ -913,7 +912,7 @@ test('late and retired instruction controls preserve current URL, actor, dialog 
         const normal = state.executionReply;
         state.executionReply = async () => readRefusals.unavailable();
         await refreshOutcomes(page);
-        await expect(historyRegion(page).locator('.failure')).toBeVisible();
+        await expect(historyRegion(page).getByTestId('failure')).toBeVisible();
         expect(await readBankOriginalRaw(page)).toBe(bankOriginalRaw);
         state.executionReply = normal;
         await retryOutcomes(page);

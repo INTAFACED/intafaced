@@ -15,7 +15,12 @@ export function PredictionCatalogue({
 }) {
   const { Copy, t, languageFor, directionFor } = predictionCatalogueCopy.useCopy();
   return (
-    <section className="prediction-catalogue" lang={languageFor('questions')} dir={directionFor('questions')}>
+    <section
+      data-testid="prediction-catalogue"
+      className="prediction-catalogue"
+      lang={languageFor('questions')}
+      dir={directionFor('questions')}
+    >
       <h2>
         <Copy k="questions" />
       </h2>
@@ -31,7 +36,7 @@ export function PredictionCatalogue({
               </p>
             </div>
           ) : (
-            <div className="prediction-catalogue-records">
+            <div data-testid="prediction-catalogue-records" className="prediction-catalogue-records">
               {rows.map((m) => (
                 <article key={m.id}>
                   <h3 lang="und" dir="auto">
@@ -65,6 +70,7 @@ export function PredictionCatalogue({
       ) : (
         <Button
           variant={resource.status === 'ready' && resource.data.length === 0 ? 'primary' : 'secondary'}
+          data-testid="prediction-catalogue-refresh"
           className="prediction-catalogue-refresh"
           onClick={refresh}
           disabled={resource.status === 'loading'}

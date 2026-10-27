@@ -29,7 +29,13 @@ function marketRefusal(reason: RefusalReason, key: MarketFailureKey) {
 function MarketPrice({ price, assetId }: { price: string; assetId: string }) {
   return (
     <div className="market-purchases-value" style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
-      <div className="market-purchases-exact-price" tabIndex={0} role="group" aria-label={copyText('market.price')}>
+      <div
+        data-testid="market-purchases-exact-price"
+        className="market-purchases-exact-price"
+        tabIndex={0}
+        role="group"
+        aria-label={copyText('market.price')}
+      >
         <strong className="numeric" lang="zxx">
           {displayAmount(price)}
         </strong>
@@ -308,13 +314,13 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                 ) : null}
                 <div className="more-rooms market-catalogue-list">
                   {rows.map((row) => (
-                    <article className="more-room-link market-catalogue-row" key={row.id}>
-                      <div className="market-catalogue-main">
+                    <article data-testid="more-room-link" className="more-room-link market-catalogue-row" key={row.id}>
+                      <div data-testid="market-catalogue-main" className="market-catalogue-main">
                         <h3 lang="und">{row.title}</h3>
-                        <p className="market-catalogue-description" lang="und">
+                        <p data-testid="market-catalogue-description" className="market-catalogue-description" lang="und">
                           {row.description}
                         </p>
-                        <dl className="market-catalogue-facts">
+                        <dl data-testid="market-catalogue-facts" className="market-catalogue-facts">
                           <div>
                             <dt>
                               <Text k="market.seller" />
@@ -339,7 +345,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                           )}
                         </dl>
                       </div>
-                      <div className="market-catalogue-decision">
+                      <div data-testid="market-catalogue-decision" className="market-catalogue-decision">
                         <div className="market-catalogue-price">
                           <span className="muted">
                             <Text k="market.price" />

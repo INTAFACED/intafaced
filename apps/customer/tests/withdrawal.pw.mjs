@@ -85,14 +85,16 @@ async function setup(page, options = {}) {
   await page.getByLabel('Password', { exact: true }).fill('isolated-password');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   if (options.signedOut) await expect(page.locator('main').getByRole('link', { name: 'Sign in', exact: true })).toBeVisible();
-  else await expect(page.locator('main .withdrawal-page')).toBeVisible();
+  else await expect(page.locator('main :is([data-testid="withdrawal-page"], [data-testid="approve-address"])')).toBeVisible();
   return state;
 }
 const privateVisible = (page, value) => page.locator('main').evaluate((node, text) => node.textContent.includes(text), value);
 async function fit(page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   const sizes = await page
-    .locator('main .withdrawal-page button, main .withdrawal-page a.button, main .withdrawal-page input')
+    .locator(
+      'main :is([data-testid="withdrawal-page"], [data-testid="approve-address"]) button, main :is([data-testid="withdrawal-page"], [data-testid="approve-address"]) a.button, main :is([data-testid="withdrawal-page"], [data-testid="approve-address"]) input',
+    )
     .evaluateAll((nodes) =>
       nodes.map((node) => {
         const r = node.getBoundingClientRect();
@@ -105,7 +107,7 @@ async function capture(page, name) {
   await page.screenshot({
     path: evidence + '/' + name + '.png',
     fullPage: true,
-    mask: [page.locator('[data-withdrawal-private], [data-withdrawal-amount], .money-reference, input')],
+    mask: [page.locator('[data-withdrawal-private], [data-withdrawal-amount], [data-testid="money-reference"], input')],
     maskColor: '#171717',
   });
 }
@@ -118,21 +120,21 @@ async function move(page, path) {
 
 test('same-turn sign out invalidates retained original lookup while the current owner lookup works', async ({ page }) => {
   const state = await setup(page);
-  await expect(page.locator('.withdrawal-row')).toHaveCount(2);
+  await expect(page.getByTestId('withdrawal-row')).toHaveCount(2);
   await page.getByLabel('Withdrawal ID', { exact: true }).fill(id);
   await page.evaluate(() => {
-    const form = document.querySelector('.withdrawal-lookup');
+    const form = document.querySelector('[data-testid="withdrawal-lookup"]');
     const props = form[Object.keys(form).find((key) => key.startsWith('__reactProps$'))];
     props.onSubmit({ preventDefault() {} });
   });
-  await expect(page.locator('.withdrawal-facts')).toBeVisible();
+  await expect(page.getByTestId('withdrawal-facts')).toBeVisible();
   await page.getByRole('link', { name: 'View your withdrawals', exact: true }).click();
-  await expect(page.locator('.withdrawal-row')).toHaveCount(2);
+  await expect(page.getByTestId('withdrawal-row')).toHaveCount(2);
   await page.getByLabel('Withdrawal ID', { exact: true }).fill(id);
   await page.getByRole('button', { name: 'Open person menu', exact: true }).click();
   const reads = state.reads.length;
   const observed = await page.evaluate(() => {
-    const form = document.querySelector('.withdrawal-lookup');
+    const form = document.querySelector('[data-testid="withdrawal-lookup"]');
     const props = (node) => node[Object.keys(node).find((key) => key.startsWith('__reactProps$'))];
     const retained = props(form).onSubmit;
     let fiber = form[Object.keys(form).find((key) => key.startsWith('__reactFiber$'))];
@@ -164,7 +166,7 @@ for (const locale of ['en', 'es', 'fr'])
     test(`owned list and detail fit ${locale} ${width}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 1000 });
       const state = await setup(page);
-      await expect(page.locator('.withdrawal-row')).toHaveCount(2);
+      await expect(page.getByTestId('withdrawal-row')).toHaveCount(2);
       await page.evaluate(
         ({ prefsKey, locale }) => {
           localStorage.setItem(prefsKey, JSON.stringify({ language: locale }));
@@ -173,7 +175,11 @@ for (const locale of ['en', 'es', 'fr'])
         { prefsKey, locale },
       );
       await expect
-        .poll(() => page.locator('.withdrawal-page').evaluate((node, language) => node.closest('[lang]')?.lang === language, locale))
+        .poll(() =>
+          page
+            .locator(':is([data-testid="withdrawal-page"], [data-testid="approve-address"])')
+            .evaluate((node, language) => node.closest('[lang]')?.lang === language, locale),
+        )
         .toBe(true);
       expect(
         await page
@@ -190,13 +196,13 @@ for (const locale of ['en', 'es', 'fr'])
       expect(await page.locator('main').evaluate((node) => !node.textContent.includes('Design sample'))).toBe(true);
       await fit(page);
       await capture(page, `isolated-list-${locale}-${width}`);
-      await page.locator('.withdrawal-open').first().focus();
+      await page.getByTestId('withdrawal-open').first().focus();
       await page.keyboard.press('Enter');
-      await expect(page.locator('.withdrawal-facts')).toBeVisible();
+      await expect(page.getByTestId('withdrawal-facts')).toBeVisible();
       expect(await privateVisible(page, original.clientRef)).toBe(true);
       expect(await privateVisible(page, original.destination.ref)).toBe(true);
       expect(await page.locator('[data-withdrawal-private]').evaluateAll((nodes) => nodes.every((node) => node.lang === 'und'))).toBe(true);
-      expect(await page.locator('.withdrawal-facts img, .withdrawal-facts script').count()).toBe(0);
+      expect(await page.locator('[data-testid="withdrawal-facts"] img, [data-testid="withdrawal-facts"] script').count()).toBe(0);
       await fit(page);
       await capture(page, `isolated-detail-${locale}-${width}`);
       await page.evaluate(
@@ -208,9 +214,9 @@ for (const locale of ['en', 'es', 'fr'])
       );
       await expect.poll(() => page.locator('[data-withdrawal-amount]').evaluate((node) => node.textContent === '•••• USDT')).toBe(true);
       const before = state.reads.length;
-      await page.locator('.withdrawal-detail button').click();
+      await page.locator('[data-testid="withdrawal-detail"] button').click();
       await expect.poll(() => state.reads.length > before).toBe(true);
-      await expect(page.locator('.withdrawal-facts')).toBeVisible();
+      await expect(page.getByTestId('withdrawal-facts')).toBeVisible();
       expect(state.reads.filter((read) => read.procedure === 'withdrawal.get').every((read) => read.input.withdrawalId === id)).toBe(true);
     });
   }
@@ -227,10 +233,10 @@ test('explicit window expands only on a full response and stops at 200', async (
           : state.detail,
       ),
   });
-  await expect(page.locator('.withdrawal-row')).toHaveCount(50);
+  await expect(page.getByTestId('withdrawal-row')).toHaveCount(50);
   for (const limit of [100, 150, 200]) {
     await page.getByRole('button', { name: 'Load up to ' + limit, exact: true }).click();
-    await expect(page.locator('.withdrawal-row')).toHaveCount(limit);
+    await expect(page.getByTestId('withdrawal-row')).toHaveCount(limit);
   }
   await expect(page.getByRole('button', { name: /Load up to/ })).toHaveCount(0);
   expect([...new Set(state.reads.map((read) => read.input.limit))]).toEqual([50, 100, 150, 200]);
@@ -249,15 +255,15 @@ test('empty bounded read, loading, failure and refresh preserve honest states', 
       return reply(route, []);
     },
   });
-  await expect(page.locator('main .loading')).toBeVisible();
-  await expect(page.locator('.withdrawal-row')).toHaveCount(0);
+  await expect(page.locator('main [data-testid="loading"]')).toBeVisible();
+  await expect(page.getByTestId('withdrawal-row')).toHaveCount(0);
   mode = 'empty';
   await reply(held, []);
   await expect(page.getByRole('heading', { name: 'No withdrawal records returned', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /Load up to/ })).toHaveCount(0);
   mode = 'failure';
   await page.getByRole('button', { name: 'Refresh records', exact: true }).click();
-  await expect(page.locator('main .failure')).toBeVisible();
+  await expect(page.locator('main [data-testid="failure"]')).toBeVisible();
   mode = 'empty';
   await page.getByRole('button', { name: 'Try again', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'No withdrawal records returned', exact: true })).toBeVisible();
@@ -278,11 +284,11 @@ for (const kind of ['numeric', 'owner', 'original', 'status'])
       path: '/uc/withdraw?withdrawalId=' + id,
       read: (route) => reply(route, { ...original, ...(bad ? change : {}) }),
     });
-    await expect(page.locator('main .failure')).toBeVisible();
+    await expect(page.locator('main [data-testid="failure"]')).toBeVisible();
     expect(await privateVisible(page, original.destination.ref)).toBe(false);
     bad = false;
     await page.getByRole('button', { name: 'Try again', exact: true }).click();
-    await expect(page.locator('.withdrawal-facts')).toBeVisible();
+    await expect(page.getByTestId('withdrawal-facts')).toBeVisible();
     expect(state.reads.every((read) => read.input.withdrawalId === id)).toBe(true);
   });
 for (const kind of ['malformed', 'duplicate'])
@@ -294,7 +300,7 @@ for (const kind of ['malformed', 'duplicate'])
     expect(state.reads.length).toBe(0);
     await page.getByLabel('Withdrawal ID', { exact: true }).fill(id);
     await page.getByRole('button', { name: 'Open record', exact: true }).click();
-    await expect(page.locator('.withdrawal-facts')).toBeVisible();
+    await expect(page.getByTestId('withdrawal-facts')).toBeVisible();
     expect(state.reads.every((read) => read.procedure === 'withdrawal.get' && read.input.withdrawalId === id)).toBe(true);
   });
 for (const kind of ['named404', 'unmounted404', 'forbidden403'])
@@ -311,12 +317,12 @@ for (const kind of ['named404', 'unmounted404', 'forbidden403'])
             )
           : reply(route, original),
     });
-    await expect(page.locator('main .failure')).toBeVisible();
+    await expect(page.locator('main [data-testid="failure"]')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Withdrawal not found', exact: true })).toHaveCount(kind === 'named404' ? 1 : 0);
     expect(await privateVisible(page, original.destination.ref)).toBe(false);
     denied = false;
     await page.getByRole('button', { name: kind === 'named404' ? 'Refresh this record' : 'Try again', exact: true }).click();
-    await expect(page.locator('.withdrawal-facts')).toBeVisible();
+    await expect(page.getByTestId('withdrawal-facts')).toBeVisible();
     expect(state.reads.every((read) => read.input.withdrawalId === id)).toBe(true);
   });
 test('401 returns through real Login to the same original under a new API session', async ({ page }) => {
@@ -332,30 +338,30 @@ test('401 returns through real Login to the same original under a new API sessio
   await page.getByLabel('Email or handle', { exact: true }).fill('same-owner@example.invalid');
   await page.getByLabel('Password', { exact: true }).fill('isolated-password');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.locator('.withdrawal-facts')).toBeVisible();
+  await expect(page.getByTestId('withdrawal-facts')).toBeVisible();
   expect(state.token).toBe(2);
   expect(state.reads.every((read) => read.input.withdrawalId === id)).toBe(true);
 });
 for (const departure of ['query', 'hash'])
   test(`observed ${departure} ABA retires handlers and private fields synchronously`, async ({ page }) => {
     const state = await setup(page);
-    await expect(page.locator('.withdrawal-row')).toHaveCount(2);
+    await expect(page.getByTestId('withdrawal-row')).toHaveCount(2);
     await page.getByLabel('Withdrawal ID', { exact: true }).fill(id);
     const departed = await page.evaluate((kind) => {
-      const button = document.querySelector('.withdrawal-page button');
-      const form = document.querySelector('.withdrawal-lookup');
+      const button = document.querySelector(':is([data-testid="withdrawal-page"], [data-testid="approve-address"]) button');
+      const form = document.querySelector('[data-testid="withdrawal-lookup"]');
       const props = (node) => node[Object.keys(node).find((key) => key.startsWith('__reactProps'))];
       window.retired = { refresh: props(button).onClick, submit: props(form).onSubmit };
       const original = location.href;
       history.pushState(null, '', original + (kind === 'query' ? '?departed=1' : '#departed'));
       dispatchEvent(kind === 'query' ? new PopStateEvent('popstate') : new HashChangeEvent('hashchange'));
-      const cleared = !document.querySelector('.withdrawal-lookup input')?.value;
+      const cleared = !document.querySelector('[data-testid="withdrawal-lookup"] input')?.value;
       history.pushState(null, '', original);
       dispatchEvent(kind === 'query' ? new PopStateEvent('popstate') : new HashChangeEvent('hashchange'));
       return cleared;
     }, departure);
     expect(departed).toBe(true);
-    await expect(page.locator('.withdrawal-row')).toHaveCount(2);
+    await expect(page.getByTestId('withdrawal-row')).toHaveCount(2);
     const before = state.reads.length;
     await page.evaluate(() => {
       window.retired.refresh();
@@ -367,16 +373,16 @@ for (const departure of ['query', 'hash'])
   });
 test('same URL event remains valid and retained detail handlers retire on unmount', async ({ page }) => {
   const state = await setup(page, { path: '/uc/withdraw?withdrawalId=' + id });
-  await expect(page.locator('.withdrawal-facts')).toBeVisible();
+  await expect(page.getByTestId('withdrawal-facts')).toBeVisible();
   await page.evaluate(() => {
-    const node = document.querySelector('.withdrawal-detail button');
+    const node = document.querySelector('[data-testid="withdrawal-detail"] button');
     window.retiredRefresh = node[Object.keys(node).find((key) => key.startsWith('__reactProps'))].onClick;
     dispatchEvent(new PopStateEvent('popstate'));
   });
   const before = state.reads.length;
   await page.evaluate(() => window.retiredRefresh());
   await expect.poll(() => state.reads.length > before).toBe(true);
-  await expect(page.locator('.withdrawal-facts')).toBeVisible();
+  await expect(page.getByTestId('withdrawal-facts')).toBeVisible();
   await move(page, '/support');
   const after = state.reads.length;
   await page.evaluate(() => window.retiredRefresh());
@@ -395,9 +401,9 @@ test('late detail cannot contaminate another original after full URL departure',
       return reply(route, { ...original, id: otherId, clientRef: 'other-original-only-in-memory' });
     },
   });
-  await expect(page.locator('main .loading')).toBeVisible();
+  await expect(page.locator('main [data-testid="loading"]')).toBeVisible();
   await move(page, '/uc/withdraw?withdrawalId=' + otherId);
-  await expect(page.locator('.withdrawal-facts')).toBeVisible();
+  await expect(page.getByTestId('withdrawal-facts')).toBeVisible();
   await reply(held, original).catch(() => {});
   expect(await privateVisible(page, original.clientRef)).toBe(false);
   expect(await privateVisible(page, 'other-original-only-in-memory')).toBe(true);
@@ -417,14 +423,14 @@ test('owner and API replacement retire private reads and retained refresh throug
       return reply(route, { ...original, id: state.actor === other ? otherId : id, userId: state.actor });
     },
   });
-  await expect(page.locator('.withdrawal-facts')).toBeVisible();
+  await expect(page.getByTestId('withdrawal-facts')).toBeVisible();
   await page.evaluate(() => {
-    const node = document.querySelector('.withdrawal-detail button');
+    const node = document.querySelector('[data-testid="withdrawal-detail"] button');
     window.retiredOwnerRefresh = node[Object.keys(node).find((key) => key.startsWith('__reactProps'))].onClick;
   });
   hold = true;
-  await page.locator('.withdrawal-detail button').click();
-  await expect(page.locator('main .loading')).toBeVisible();
+  await page.locator('[data-testid="withdrawal-detail"] button').click();
+  await expect(page.locator('main [data-testid="loading"]')).toBeVisible();
   await page.getByRole('button', { name: 'Open person menu', exact: true }).click();
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
   await expect(page.locator('main').getByRole('link', { name: 'Sign in', exact: true })).toBeVisible();
@@ -434,14 +440,14 @@ test('owner and API replacement retire private reads and retained refresh throug
   await page.getByLabel('Email or handle', { exact: true }).fill('other-owner@example.invalid');
   await page.getByLabel('Password', { exact: true }).fill('isolated-password');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.locator('main .failure')).toBeVisible();
+  await expect(page.locator('main [data-testid="failure"]')).toBeVisible();
   const before = state.reads.length;
   await page.evaluate(() => window.retiredOwnerRefresh());
   expect(state.reads.length).toBe(before);
   await reply(held, original).catch(() => {});
   expect(await privateVisible(page, original.destination.ref)).toBe(false);
   await move(page, '/uc/withdraw?withdrawalId=' + otherId);
-  await expect(page.locator('.withdrawal-facts')).toBeVisible();
+  await expect(page.getByTestId('withdrawal-facts')).toBeVisible();
   expect(state.token).toBe(2);
 });
 test('existing unknown journal bytes survive list/detail reads and huge exact amount remains readable', async ({ page }) => {
@@ -452,11 +458,11 @@ test('existing unknown journal bytes survive list/detail reads and huge exact am
     { journalKey },
   );
   const state = await setup(page);
-  await expect(page.locator('.withdrawal-row')).toHaveCount(2);
+  await expect(page.getByTestId('withdrawal-row')).toHaveCount(2);
   const before = await page.evaluate((key) => localStorage.getItem(key), journalKey);
   state.detail.amount = '99999999999999999999.000000000000000001';
-  await page.locator('.withdrawal-open').first().click();
-  await expect(page.locator('.withdrawal-facts')).toBeVisible();
+  await page.getByTestId('withdrawal-open').first().click();
+  await expect(page.getByTestId('withdrawal-facts')).toBeVisible();
   expect(
     await page
       .locator('[data-withdrawal-amount]')

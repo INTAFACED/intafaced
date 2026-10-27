@@ -87,7 +87,7 @@ export function Prediction() {
     return () => clearInterval(timer);
   }, [instrument?.symbol, terms]);
   return (
-    <div className="prediction-room">
+    <div data-testid="prediction-room" className="prediction-room">
       <div className="prediction-room-reading">
         <PredictionCatalogue
           resource={markets.resource}

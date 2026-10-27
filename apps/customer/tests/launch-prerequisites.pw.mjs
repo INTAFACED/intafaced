@@ -7,7 +7,7 @@ const evidence = process.env.LAUNCH_PREREQUISITES_EVIDENCE,
 const owner = '11111111-1111-4111-8111-111111111111',
   originalKey = 'intafaced:more:pending:' + owner + ':quant-backtest';
 const original = JSON.stringify({ id: '33333333-3333-4333-8333-333333333333', title: 'Original historical attempt' });
-const room = (page) => page.locator('.launch-room');
+const room = (page) => page.getByTestId('launch-room');
 const scenarios = [];
 async function scenario(browser, name, width, fn) {
   const out = join(evidence, name);
@@ -132,10 +132,10 @@ test('Launch and own participation distinguish required missing capabilities fro
       const listing = rows.filter({ has: page.getByText('Trading-market listing', { exact: true }) });
       await expect(listing.locator('dd')).toContainText('asset-listing request');
       await expect(listing.locator('dd')).not.toContainText('Market');
-      await expect(page.locator('.launch-room-market')).toContainText('do not issue an asset');
+      await expect(page.getByTestId('launch-room-market')).toContainText('do not issue an asset');
       await expect(room(page).getByRole('table')).toHaveCount(0);
       await fit(page, room(page).getByRole('link', { name: 'Contact Support', exact: true }), width);
-      const accessibility = await new AxeBuilder({ page }).include('.launch-room').analyze();
+      const accessibility = await new AxeBuilder({ page }).include('[data-testid="launch-room"]').analyze();
       expect(accessibility.violations.filter((v) => ['serious', 'critical'].includes(v.impact))).toEqual([]);
       await page.evaluate(() => scrollTo(0, 0));
       await page.screenshot({ path: join(out, 'overview.png'), fullPage: true });
@@ -216,10 +216,10 @@ test('the Mining liveness read still distinguishes responding process from absen
   await scenario(browser, 'mining-seam', 390, async ({ page, state }) => {
     await login(page, '/mining');
     await expect(page.getByRole('heading', { name: 'Mining activity unavailable', exact: true })).toBeVisible();
-    await page.locator('.mining-room summary').click();
+    await page.locator('[data-testid="mining-room"] summary').click();
     await expect(page.getByText('mining.ledger_unavailable', { exact: true })).toHaveCount(0);
-    await expect(page.locator('.mining-room')).toContainText('have not been tested');
-    await expect(page.locator('.mining-room')).toContainText('The pool offers no customer access, so nothing can be submitted here');
+    await expect(page.getByTestId('mining-room')).toContainText('have not been tested');
+    await expect(page.getByTestId('mining-room')).toContainText('The pool offers no customer access, so nothing can be submitted here');
     expect(state.reads.filter((r) => r.procedure === 'health')).toHaveLength(1);
   });
 });

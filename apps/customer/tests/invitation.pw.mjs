@@ -99,7 +99,7 @@ async function password(page) {
   await page.locator('input[name="identifier"]').fill('isolated-owner');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
   await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
-  await expect(page.locator('.invitation')).toBeVisible();
+  await expect(page.getByTestId('invitation')).toBeVisible();
 }
 async function login(page, capability = link) {
   await page.goto('/login?invite=' + capability);
@@ -123,13 +123,13 @@ async function helpBack(page) {
   await page.getByRole('navigation', { name: 'Public navigation', exact: true }).getByRole('link', { name: 'Help', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'How can we help?', exact: true })).toBeVisible();
   await page.goBack();
-  await expect(page.locator('.invitation')).toBeVisible();
+  await expect(page.getByTestId('invitation')).toBeVisible();
 }
 async function shot(page, name) {
   await page.screenshot({
     path: evidence + '/' + name + '.png',
     fullPage: true,
-    mask: [page.locator('.invitation__private,input[autocomplete="username"],input[autocomplete="current-password"]')],
+    mask: [page.locator('[data-testid="invitation__private"],input[autocomplete="username"],input[autocomplete="current-password"]')],
   });
 }
 async function setLocale(context, language) {
@@ -151,8 +151,8 @@ test('guest invitation offers native sign-in return without private reads or acc
   await expect(page.getByRole('heading', { name: 'Your account comes first.', exact: true })).toBeVisible();
   expect(s.posts).toEqual([]);
   expect(s.reads).toEqual([]);
-  expect(await page.locator('.invitation').textContent()).not.toContain(link);
-  await page.locator('.invitation').getByRole('link', { name: 'Sign in', exact: true }).click();
+  expect(await page.getByTestId('invitation').textContent()).not.toContain(link);
+  await page.getByTestId('invitation').getByRole('link', { name: 'Sign in', exact: true }).click();
   await password(page);
   expect(await page.evaluate((expected) => new URL(location.href).searchParams.get('token') === expected, link)).toBe(true);
   await expect(review(page)).toBeEnabled();
@@ -168,7 +168,7 @@ test('guest invitation offers native sign-in return without private reads or acc
 test('header sign-in preserves the original invitation and never automatically accepts', async ({ context, page }) => {
   const s = await network(context);
   await page.goto(invitation);
-  await page.locator('.public-signin').click();
+  await page.getByTestId('public-signin').click();
   await password(page);
   expect(await page.evaluate((expected) => new URL(location.href).searchParams.get('token') === expected, link)).toBe(true);
   await expect(review(page)).toBeVisible();
@@ -179,9 +179,9 @@ test('header sign-in preserves the original invitation and never automatically a
 test('auth alternate header and form links retain the original invitation', async ({ context, page }) => {
   await network(context);
   await page.goto(invitation);
-  await page.locator('.invitation').getByRole('link', { name: 'Create account', exact: true }).click();
+  await page.getByTestId('invitation').getByRole('link', { name: 'Create account', exact: true }).click();
   expect(await page.evaluate((expected) => new URL(location.href).searchParams.get('invite') === expected, link)).toBe(true);
-  await page.locator('.public-signin').click();
+  await page.getByTestId('public-signin').click();
   expect(await page.evaluate((expected) => new URL(location.href).searchParams.get('invite') === expected, link)).toBe(true);
   await password(page);
   await expect(review(page)).toBeVisible();
@@ -194,14 +194,14 @@ for (const [name, destination] of [
   test('header auth alternation preserves the original accepted return: ' + name, async ({ context, page }) => {
     const s = await network(context);
     await page.goto('/login?redirect=' + encodeURIComponent(destination));
-    await page.locator('.public-signin').click();
+    await page.getByTestId('public-signin').click();
     expect(
       await page.evaluate(
         (expected) => location.pathname === '/register' && new URL(location.href).searchParams.get('redirect') === expected,
         destination,
       ),
     ).toBe(true);
-    await page.locator('.public-signin').click();
+    await page.getByTestId('public-signin').click();
     expect(
       await page.evaluate(
         (expected) => location.pathname === '/login' && new URL(location.href).searchParams.get('redirect') === expected,
@@ -223,11 +223,11 @@ for (const [name, destination] of [
   test('header auth alternation safely returns an unavailable original room to Money: ' + name, async ({ context, page }) => {
     const s = await network(context);
     await page.goto('/login?redirect=' + encodeURIComponent(destination));
-    await page.locator('.public-signin').click();
+    await page.getByTestId('public-signin').click();
     expect(
       await page.evaluate(() => location.pathname === '/register' && new URL(location.href).searchParams.get('redirect') === '/money'),
     ).toBe(true);
-    await page.locator('.public-signin').click();
+    await page.getByTestId('public-signin').click();
     await page.locator('input[name="identifier"]').fill('isolated-owner');
     await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
     await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
@@ -237,7 +237,7 @@ for (const [name, destination] of [
 test('header auth alternation preserves a validated invitation alongside its original return', async ({ context, page }) => {
   const s = await network(context);
   await page.goto('/login?redirect=%2Fuc%2Fsafe&invite=' + link);
-  await page.locator('.public-signin').click();
+  await page.getByTestId('public-signin').click();
   expect(
     await page.evaluate(
       (expected) =>
@@ -246,7 +246,7 @@ test('header auth alternation preserves a validated invitation alongside its ori
       link,
     ),
   ).toBe(true);
-  await page.locator('.public-signin').click();
+  await page.getByTestId('public-signin').click();
   await password(page);
   expect(
     await page.evaluate(
@@ -260,13 +260,13 @@ test('header auth alternation preserves a validated invitation alongside its ori
 test('header auth alternation drops malformed invitation while preserving its safe return', async ({ context, page }) => {
   const s = await network(context);
   await page.goto('/login?redirect=%2Fuc%2Fsafe&invite=invalid');
-  await page.locator('.public-signin').click();
+  await page.getByTestId('public-signin').click();
   expect(
     await page.evaluate(
       () => !new URL(location.href).searchParams.has('invite') && new URL(location.href).searchParams.get('redirect') === '/uc/safe',
     ),
   ).toBe(true);
-  await page.locator('.public-signin').click();
+  await page.getByTestId('public-signin').click();
   await page.locator('input[name="identifier"]').fill('isolated-owner');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
   await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
@@ -276,7 +276,7 @@ test('header auth alternation drops malformed invitation while preserving its sa
 test('header auth alternation preserves the accepted legacy return path', async ({ context, page }) => {
   await network(context);
   await page.goto('/login/returnUrl/' + encodeURIComponent('/uc/safe'));
-  await page.locator('.public-signin').click();
+  await page.getByTestId('public-signin').click();
   expect(
     await page.evaluate(() => location.pathname === '/register' && new URL(location.href).searchParams.get('redirect') === '/uc/safe'),
   ).toBe(true);
@@ -285,8 +285,8 @@ for (const address of ['/invite', '/invite?token=invalid'])
   test('missing or invalid invitation never propagates capability: ' + address, async ({ context, page }) => {
     const s = await network(context);
     await page.goto(address);
-    await expect(page.locator('.invitation__card').getByRole('heading')).toBeVisible();
-    await expect(page.locator('.public-signin')).toHaveAttribute('href', '/login');
+    await expect(page.getByTestId('invitation__card').getByRole('heading')).toBeVisible();
+    await expect(page.getByTestId('public-signin')).toHaveAttribute('href', '/login');
     expect(s.posts).toEqual([]);
     expect(s.reads).toEqual([]);
     await expect(review(page)).toHaveCount(0);
@@ -297,9 +297,9 @@ test('native review has exact owner, held capability, consequences, focus and Ca
   await review(page).focus();
   await page.keyboard.press('Enter');
   await expect(page.locator('#invitation-review-title')).toBeFocused();
-  expect(await page.locator('.invitation__owner').textContent()).toContain(owner);
-  expect(await page.locator('.invitation').textContent()).not.toContain(link);
-  await expect(page.locator('.invitation__card')).toContainText('Repeating acceptance can record another visit.');
+  expect(await page.getByTestId('invitation__owner').textContent()).toContain(owner);
+  expect(await page.getByTestId('invitation').textContent()).not.toContain(link);
+  await expect(page.getByTestId('invitation__card')).toContainText('Repeating acceptance can record another visit.');
   await page.getByRole('button', { name: 'Cancel review', exact: true }).click();
   await expect(review(page)).toBeFocused();
   expect(s.posts).toEqual([]);
@@ -309,15 +309,15 @@ test('original reply true records status without inventing a new link referrer',
   const s = await network(context, { current: edge() });
   await login(page);
   await send(page);
-  await expect(page.locator('.invitation')).toContainText('This reply can include an existing relationship.');
+  await expect(page.getByTestId('invitation')).toContainText('This reply can include an existing relationship.');
   expect(s.posts.length).toBe(1);
   expect(Object.keys(s.posts[0].input)).toEqual(['token']);
   expect(s.posts[0].idempotencyHeaderAbsent).toBe(true);
   expect(await journal(page)).toBe(null);
   await read(page).click();
-  await expect(page.locator('.invitation__current')).toContainText('A referral is recorded now');
-  expect(await page.locator('.invitation__current').textContent()).toContain(referrer);
-  await expect(page.locator('.invitation__current')).toContainText('This read does not confirm the original attempt.');
+  await expect(page.getByTestId('invitation__current')).toContainText('A referral is recorded now');
+  expect(await page.getByTestId('invitation__current').textContent()).toContain(referrer);
+  await expect(page.getByTestId('invitation__current')).toContainText('This read does not confirm the original attempt.');
   expect(s.posts.length).toBe(1);
   await shot(page, 'known-current-desktop');
 });
@@ -325,10 +325,10 @@ test('known false is no attribution reported, with owned nullable current read',
   const s = await network(context, { 'affiliates.shareHits': (route) => reply(route, { hits: 9, attributed: false }) });
   await login(page);
   await send(page);
-  await expect(page.locator('.invitation')).toContainText('No attribution reported.');
+  await expect(page.getByTestId('invitation')).toContainText('No attribution reported.');
   expect(await journal(page)).toBe(null);
   await read(page).click();
-  await expect(page.locator('.invitation__current')).toContainText('No referral is recorded now');
+  await expect(page.getByTestId('invitation__current')).toContainText('No referral is recorded now');
   expect(s.posts.length).toBe(1);
 });
 test('post-hit referral409 stays unknown and cannot be repeated through Help and Back', async ({ context, page }) => {
@@ -350,7 +350,7 @@ test('post-hit referral409 stays unknown and cannot be repeated through Help and
   expect(s.posts.length).toBe(1);
   expect(hits).toBe(1);
   await read(page).click();
-  await expect(page.locator('.invitation__current')).toContainText('No referral is recorded now');
+  await expect(page.getByTestId('invitation__current')).toContainText('No referral is recorded now');
   expect(await journal(page)).toBe(bytes);
 });
 test('unknown survives reload and fresh native sign-in without replay or inferred resolution', async ({ context, page }) => {
@@ -360,7 +360,7 @@ test('unknown survives reload and fresh native sign-in without replay or inferre
   await expect(original(page)).toBeVisible();
   const bytes = await journal(page);
   await page.reload();
-  await page.locator('.invitation').getByRole('link', { name: 'Sign in', exact: true }).click();
+  await page.getByTestId('invitation').getByRole('link', { name: 'Sign in', exact: true }).click();
   await password(page);
   await expect(original(page)).toBeVisible();
   expect(await journal(page)).toBe(bytes);
@@ -376,7 +376,7 @@ test('unknown blocks a different capability for this owner while current read re
   await login(page, replacement);
   await expect(original(page)).toBeVisible();
   await read(page).click();
-  await expect(page.locator('.invitation__current')).toContainText('A referral is recorded now');
+  await expect(page.getByTestId('invitation__current')).toContainText('A referral is recorded now');
   expect(await journal(page)).toBe(bytes);
   expect(s.posts.length).toBe(1);
   await expect(review(page)).toHaveCount(0);
@@ -398,7 +398,7 @@ for (const attributed of [true, false])
       await review(page).click();
       expect(s.posts.length).toBe(1);
       await accept(page).click();
-      await expect(page.locator('.invitation')).toContainText(
+      await expect(page.getByTestId('invitation')).toContainText(
         attributed ? 'This reply can include an existing relationship.' : 'The service reported no attribution from this check.',
       );
       expect(s.posts.filter((row) => row.actor === 'b').length).toBe(1);
@@ -462,7 +462,7 @@ test('pending original becomes durable unknown through native Help and Back, lat
   await helpBack(page);
   await expect(original(page)).toBeVisible();
   gate.release();
-  await expect(page.locator('.invitation')).not.toContainText('This reply can include an existing relationship.');
+  await expect(page.getByTestId('invitation')).not.toContainText('This reply can include an existing relationship.');
   expect(await journal(page)).toBe(bytes);
   expect(s.posts.length).toBe(1);
 });
@@ -500,7 +500,7 @@ test('held original reply after actual token refresh cannot contaminate fresh co
   await expect.poll(() => s.sequence).toBe(2);
   gate.release();
   await expect(original(page)).toBeVisible();
-  await expect(page.locator('.invitation')).not.toContainText('This reply can include an existing relationship.');
+  await expect(page.getByTestId('invitation')).not.toContainText('This reply can include an existing relationship.');
   expect(await journal(page)).toBe(bytes);
   expect(s.posts.length).toBe(1);
 });
@@ -522,9 +522,9 @@ test('held old owner reply cannot contaminate owner B acceptance or erase owner 
   s.owner = other;
   await login(page, replacement);
   await send(page);
-  await expect(page.locator('.invitation')).toContainText('No attribution reported.');
+  await expect(page.getByTestId('invitation')).toContainText('No attribution reported.');
   gate.release();
-  await expect(page.locator('.invitation')).not.toContainText('This reply can include an existing relationship.');
+  await expect(page.getByTestId('invitation')).not.toContainText('This reply can include an existing relationship.');
   expect(await journal(page)).toBe(bytes);
   s.owner = owner;
   await login(page);
@@ -544,7 +544,7 @@ test('native same-mounted query change discards frozen review and requires a new
   await expect(review(page)).toBeEnabled();
   expect(s.posts).toEqual([]);
   await send(page);
-  await expect(page.locator('.invitation')).toContainText('This reply can include an existing relationship.');
+  await expect(page.getByTestId('invitation')).toContainText('This reply can include an existing relationship.');
   expect(s.posts[0].input.token === replacement).toBe(true);
 });
 test('held preflight same-mounted URL departure cannot dispatch the old capability', async ({ context, page }) => {
@@ -577,7 +577,7 @@ test('new tab retains an earlier owner unknown and performs only useful owned GE
   await login(next, replacement);
   await expect(original(next)).toBeVisible();
   await read(next).click();
-  await expect(next.locator('.invitation__current')).toContainText('No referral is recorded now');
+  await expect(next.getByTestId('invitation__current')).toContainText('No referral is recorded now');
   expect(await journal(next)).toBe(bytes);
   expect(s.posts.length).toBe(1);
 });
@@ -619,13 +619,13 @@ test('actual owner WebLock excludes a second tab while preflight is held', async
   const next = await context.newPage();
   await login(next, replacement);
   await send(next);
-  await expect(next.locator('.invitation')).toContainText('Another tab is checking an invitation for this account.');
+  await expect(next.getByTestId('invitation')).toContainText('Another tab is checking an invitation for this account.');
   expect(s.posts).toEqual([]);
   gate.release();
-  await expect(page.locator('.invitation')).toContainText('This reply can include an existing relationship.');
+  await expect(page.getByTestId('invitation')).toContainText('This reply can include an existing relationship.');
   await review(next).click();
   await accept(next).click();
-  await expect(next.locator('.invitation')).toContainText('This reply can include an existing relationship.');
+  await expect(next.getByTestId('invitation')).toContainText('This reply can include an existing relationship.');
   expect(s.posts.length).toBe(2);
 });
 for (const mode of ['read-denied', 'write-denied', 'locks-unavailable'])
@@ -644,14 +644,14 @@ for (const mode of ['read-denied', 'write-denied', 'locks-unavailable'])
     await login(page);
     if (mode === 'locks-unavailable') await page.evaluate(() => Object.defineProperty(navigator, 'locks', { value: undefined }));
     if (mode !== 'read-denied') await send(page);
-    await expect(page.locator('.invitation')).toContainText(
+    await expect(page.getByTestId('invitation')).toContainText(
       mode === 'locks-unavailable'
         ? 'Safe coordination between tabs is unavailable.'
         : 'This browser cannot safely save or read the original reference.',
     );
     expect(s.posts).toEqual([]);
     await read(page).click();
-    await expect(page.locator('.invitation__current')).toContainText('No referral is recorded now');
+    await expect(page.getByTestId('invitation__current')).toContainText('No referral is recorded now');
   });
 for (const records of [
   [record(originalRef, { owner: other })],
@@ -673,10 +673,10 @@ for (const records of [
       const s = await network(context);
       await login(page);
       await expect(review(page)).toBeDisabled();
-      await expect(page.locator('.invitation')).toContainText('This browser cannot safely save or read the original reference.');
+      await expect(page.getByTestId('invitation')).toContainText('This browser cannot safely save or read the original reference.');
       expect(s.posts).toEqual([]);
       await read(page).click();
-      await expect(page.locator('.invitation__current')).toContainText('No referral is recorded now');
+      await expect(page.getByTestId('invitation__current')).toContainText('No referral is recorded now');
     },
   );
 test('multiple independent unknown originals keep all exact references and bytes without a invented cap', async ({ context, page }) => {
@@ -687,7 +687,7 @@ test('multiple independent unknown originals keep all exact references and bytes
   await expect(original(page)).toHaveCount(205);
   const bytes = await journal(page);
   await read(page).click();
-  await expect(page.locator('.invitation__current')).toContainText('No referral is recorded now');
+  await expect(page.getByTestId('invitation__current')).toContainText('No referral is recorded now');
   expect(await journal(page)).toBe(bytes);
   expect(s.posts).toEqual([]);
   await expect(review(page)).toHaveCount(0);
@@ -702,11 +702,11 @@ for (const [status, message, code] of refusals)
     const s = await network(context, { 'affiliates.shareHits': (route) => fail(route, status, message, code) });
     await login(page);
     await send(page);
-    await expect(page.locator('.invitation')).toContainText('The service refused this original attempt before recording a visit.');
+    await expect(page.getByTestId('invitation')).toContainText('The service refused this original attempt before recording a visit.');
     expect(await journal(page)).toBe(null);
     expect(s.posts.length).toBe(1);
     await expect(original(page)).toHaveCount(0);
-    await expect(page.locator('.invitation')).toContainText('HTTP ' + status + ' · ' + code);
+    await expect(page.getByTestId('invitation')).toContainText('HTTP ' + status + ' · ' + code);
   });
 for (const [status, message, code] of [
   [404, 'Different service message', 'share.unknown'],
@@ -760,18 +760,18 @@ test('known reply and local cleanup failure remain known and only local finish r
   const s = await network(context);
   await login(page);
   await send(page);
-  await expect(page.locator('.invitation')).toContainText('Local record still saved');
+  await expect(page.getByTestId('invitation')).toContainText('Local record still saved');
   await expect(original(page)).toHaveCount(0);
   const bytes = await journal(page);
   expect(JSON.parse(bytes).length).toBe(1);
   await read(page).click();
   expect(await journal(page)).toBe(bytes);
-  await expect(page.locator('.invitation')).toContainText('The service reply is known.');
+  await expect(page.getByTestId('invitation')).toContainText('The service reply is known.');
   await page.evaluate(() => {
     window.invitationCleanupDenied = false;
   });
   await page.getByRole('button', { name: 'Finish local record', exact: true }).click();
-  await expect(page.locator('.invitation')).toContainText('This known local record is finished.');
+  await expect(page.getByTestId('invitation')).toContainText('This known local record is finished.');
   expect(await journal(page)).toBe(null);
   expect(s.posts.length).toBe(1);
   await shot(page, 'known-local-finalized');
@@ -809,7 +809,7 @@ test('known local finish cannot overwrite an independent original added during d
     { key, extra: record(secondRef) },
   );
   gate.release();
-  await expect(page.locator('.invitation')).toContainText('Local record still saved');
+  await expect(page.getByTestId('invitation')).toContainText('Local record still saved');
   const before = JSON.parse(await journal(page));
   expect(before.length).toBe(2);
   const extraBytes = JSON.stringify(before.find((row) => row.localRef === secondRef));
@@ -817,7 +817,7 @@ test('known local finish cannot overwrite an independent original added during d
     window.invitationCleanupDenied = false;
   });
   await page.getByRole('button', { name: 'Finish local record', exact: true }).click();
-  await expect(page.locator('.invitation')).toContainText('This known local record is finished.');
+  await expect(page.getByTestId('invitation')).toContainText('This known local record is finished.');
   await expect(original(page)).toHaveCount(1);
   const after = JSON.parse(await journal(page));
   expect(after.length).toBe(1);
@@ -835,13 +835,13 @@ test('remount only knows durable retained state, never reconstructs known reply 
   const s = await network(context, { current: edge() });
   await login(page);
   await send(page);
-  await expect(page.locator('.invitation')).toContainText('Local record still saved');
+  await expect(page.getByTestId('invitation')).toContainText('Local record still saved');
   const bytes = await journal(page);
   await helpBack(page);
   await expect(original(page)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Finish local record', exact: true })).toHaveCount(0);
   await read(page).click();
-  await expect(page.locator('.invitation__current')).toContainText('A referral is recorded now');
+  await expect(page.getByTestId('invitation__current')).toContainText('A referral is recorded now');
   expect(await journal(page)).toBe(bytes);
   expect(s.posts.length).toBe(1);
 });
@@ -860,16 +860,16 @@ test('owned current read hides old private row through loading and error, then G
   });
   await login(page);
   await read(page).click();
-  await expect(page.locator('.invitation__current')).toContainText(referrer);
+  await expect(page.getByTestId('invitation__current')).toContainText(referrer);
   phase = 1;
   await read(page).click();
-  await expect(page.locator('.invitation__current')).not.toContainText(referrer);
+  await expect(page.getByTestId('invitation__current')).not.toContainText(referrer);
   gate.release();
-  await expect(page.locator('.invitation__current .failure')).toContainText('Original English read failure');
-  await expect(page.locator('.invitation__current')).not.toContainText(referrer);
+  await expect(page.locator('[data-testid="invitation__current"] [data-testid="failure"]')).toContainText('Original English read failure');
+  await expect(page.getByTestId('invitation__current')).not.toContainText(referrer);
   phase = 2;
-  await page.locator('.invitation__current .failure').getByRole('button').click();
-  await expect(page.locator('.invitation__current')).toContainText('No referral is recorded now');
+  await page.locator('[data-testid="invitation__current"] [data-testid="failure"]').getByRole('button').click();
+  await expect(page.getByTestId('invitation__current')).toContainText('No referral is recorded now');
   expect(s.posts).toEqual([]);
 });
 for (const data of [
@@ -885,10 +885,10 @@ for (const data of [
       const s = await network(context, { current: data });
       await login(page);
       await read(page).click();
-      await expect(page.locator('.invitation__current .failure')).toBeVisible();
-      expect(await page.locator('.invitation__current').textContent()).not.toContain(referrer);
+      await expect(page.locator('[data-testid="invitation__current"] [data-testid="failure"]')).toBeVisible();
+      expect(await page.getByTestId('invitation__current').textContent()).not.toContain(referrer);
       await send(page);
-      await expect(page.locator('.invitation')).toContainText('The current account could not be checked before acceptance.');
+      await expect(page.getByTestId('invitation')).toContainText('The current account could not be checked before acceptance.');
       expect(s.posts).toEqual([]);
       expect(await journal(page)).toBe(null);
     },
@@ -900,7 +900,7 @@ for (const width of [320, 390, 768, 1440])
     await login(page);
     await review(page).click();
     await expect(page.locator('#invitation-review-title')).toBeFocused();
-    await expect(page.locator('.invitation__current')).toHaveCount(0);
+    await expect(page.getByTestId('invitation__current')).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(await accept(page).evaluate((button) => button.getBoundingClientRect().height >= 44)).toBe(true);
     await shot(page, 'review-' + width);
@@ -910,7 +910,7 @@ for (const width of [320, 390, 768, 1440])
     await expect(original(page)).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await read(page).click();
-    await expect(page.locator('.invitation__current')).toContainText('No referral is recorded now');
+    await expect(page.getByTestId('invitation__current')).toContainText('No referral is recorded now');
     expect(s.posts.length).toBe(1);
     await shot(page, 'unknown-' + width);
   });
@@ -931,15 +931,17 @@ for (const [language, translatedRead] of [
       await login(page);
       await review(page).click();
       const view = await setLocale(context, language);
-      await expect(page.locator('.invitation')).toHaveAttribute('lang', language);
-      await page.locator('.invitation__card .button--primary').click();
-      await expect(page.locator('.invitation .failure')).toContainText('Original English acceptance failure');
+      await expect(page.getByTestId('invitation')).toHaveAttribute('lang', language);
+      await page.locator('[data-testid="invitation__card"] .button--primary').click();
+      await expect(page.locator('[data-testid="invitation"] [data-testid="failure"]')).toContainText('Original English acceptance failure');
       expect(s.posts[0].input.token === link).toBe(true);
       expect(s.posts[0].actor).toBe('a');
       failRead = true;
       await page.getByRole('button', { name: translatedRead, exact: true }).click();
-      await expect(page.locator('.invitation__current .failure')).toContainText('Original English read failure');
-      const languages = await page.locator('.invitation .failure p').evaluateAll((nodes) =>
+      await expect(page.locator('[data-testid="invitation__current"] [data-testid="failure"]')).toContainText(
+        'Original English read failure',
+      );
+      const languages = await page.locator('[data-testid="invitation"] [data-testid="failure"] p').evaluateAll((nodes) =>
         nodes.map((node) => {
           for (let parent = node; parent; parent = parent.parentElement)
             if (parent.hasAttribute('lang')) return parent.getAttribute('lang');
@@ -961,7 +963,7 @@ test('long opaque provider explanation wraps and stays und with native actionabl
   await expect(original(page)).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await read(page).click();
-  await expect(page.locator('.invitation__current')).toContainText('No referral is recorded now');
+  await expect(page.getByTestId('invitation__current')).toContainText('No referral is recorded now');
   expect(s.posts.length).toBe(1);
   await shot(page, 'long-opaque-320');
 });
@@ -1006,20 +1008,20 @@ test('held current GET under token refresh hides the old private reply and retri
   await expect.poll(() => s.reads.length).toBe(1);
   await expect.poll(() => s.sequence).toBe(2);
   gate.release();
-  await expect(page.locator('.invitation__current')).not.toContainText(referrer);
+  await expect(page.getByTestId('invitation__current')).not.toContainText(referrer);
   await expect(read(page)).toBeEnabled();
   await read(page).click();
-  await expect(page.locator('.invitation__current')).toContainText('No referral is recorded now');
+  await expect(page.getByTestId('invitation__current')).toContainText('No referral is recorded now');
   expect(s.posts).toEqual([]);
 });
 test('HTTP401 after dispatch retains the original despite native session clearing and fresh login', async ({ context, page }) => {
   const s = await network(context, { 'affiliates.shareHits': (route) => fail(route, 401, 'Isolated principal expired', 'UNAUTHORIZED') });
   await login(page);
   await send(page);
-  await expect(page.locator('.invitation').getByRole('link', { name: 'Sign in', exact: true })).toBeVisible();
+  await expect(page.getByTestId('invitation').getByRole('link', { name: 'Sign in', exact: true })).toBeVisible();
   const bytes = await journal(page);
   expect(JSON.parse(bytes).length).toBe(1);
-  await page.locator('.invitation').getByRole('link', { name: 'Sign in', exact: true }).click();
+  await page.getByTestId('invitation').getByRole('link', { name: 'Sign in', exact: true }).click();
   await password(page);
   await expect(original(page)).toBeVisible();
   expect(await journal(page)).toBe(bytes);
@@ -1036,7 +1038,7 @@ test('silent browser save failure is verified before POST and refuses closed', a
   const s = await network(context);
   await login(page);
   await send(page);
-  await expect(page.locator('.invitation')).toContainText('This browser cannot safely save or read the original reference.');
+  await expect(page.getByTestId('invitation')).toContainText('This browser cannot safely save or read the original reference.');
   expect(s.posts).toEqual([]);
   expect(await journal(page)).toBe(null);
 });
@@ -1046,7 +1048,7 @@ test('corrupt JSON journal refuses before POST with useful current read', async 
   await login(page);
   await expect(review(page)).toBeDisabled();
   await read(page).click();
-  await expect(page.locator('.invitation__current')).toContainText('No referral is recorded now');
+  await expect(page.getByTestId('invitation__current')).toContainText('No referral is recorded now');
   expect(s.posts).toEqual([]);
 });
 for (const outcome of ['false', 'refused'])
@@ -1065,16 +1067,16 @@ for (const outcome of ['false', 'refused'])
     });
     await login(page);
     await send(page);
-    await expect(page.locator('.invitation')).toContainText('Local record still saved');
+    await expect(page.getByTestId('invitation')).toContainText('Local record still saved');
     await expect(original(page)).toHaveCount(0);
-    await expect(page.locator('.invitation')).toContainText(
+    await expect(page.getByTestId('invitation')).toContainText(
       outcome === 'false' ? 'The service reported no attribution' : 'before recording a visit',
     );
     await page.evaluate(() => {
       window.invitationCleanupDenied = false;
     });
     await page.getByRole('button', { name: 'Finish local record', exact: true }).click();
-    await expect(page.locator('.invitation')).toContainText('This known local record is finished.');
+    await expect(page.getByTestId('invitation')).toContainText('This known local record is finished.');
     expect(await journal(page)).toBe(null);
     expect(s.posts.length).toBe(1);
   });
@@ -1090,7 +1092,7 @@ test('known local finish requires exact original fields and preserves a changed 
   const s = await network(context);
   await login(page);
   await send(page);
-  await expect(page.locator('.invitation')).toContainText('Local record still saved');
+  await expect(page.getByTestId('invitation')).toContainText('Local record still saved');
   await page.evaluate((key) => {
     const records = JSON.parse(localStorage.getItem(key));
     records[0].createdAt = '2026-10-08T22:41:00.000Z';
@@ -1099,7 +1101,7 @@ test('known local finish requires exact original fields and preserves a changed 
   }, key);
   const bytes = await journal(page);
   await page.getByRole('button', { name: 'Finish local record', exact: true }).click();
-  await expect(page.locator('.invitation')).toContainText('This browser cannot safely save or read the original reference.');
+  await expect(page.getByTestId('invitation')).toContainText('This browser cannot safely save or read the original reference.');
   expect(await journal(page)).toBe(bytes);
   expect(s.posts.length).toBe(1);
 });
@@ -1110,10 +1112,10 @@ for (const language of ['en', 'es', 'fr'])
     });
     await login(page);
     const view = await setLocale(context, language);
-    await page.locator('.invitation__card .button--primary').click();
-    await page.locator('.invitation__card .button--primary').click();
-    await expect(page.locator('.invitation .failure')).toContainText('Original English preflight failure');
-    const inherited = await page.locator('.invitation .failure p').evaluate((node) => {
+    await page.locator('[data-testid="invitation__card"] .button--primary').click();
+    await page.locator('[data-testid="invitation__card"] .button--primary').click();
+    await expect(page.locator('[data-testid="invitation"] [data-testid="failure"]')).toContainText('Original English preflight failure');
+    const inherited = await page.locator('[data-testid="invitation"] [data-testid="failure"] p').evaluate((node) => {
       for (let parent = node; parent; parent = parent.parentElement) if (parent.hasAttribute('lang')) return parent.getAttribute('lang');
       return '';
     });
@@ -1176,7 +1178,7 @@ async function batchedDeparture(page, buttonText, kind = 'query') {
   return page.evaluate(
     ({ buttonText, kind, replacement }) => {
       const before = location.href;
-      const stale = [...document.querySelectorAll('.invitation button')].find((button) => button.textContent === buttonText);
+      const stale = [...document.querySelectorAll('[data-testid="invitation"] button')].find((button) => button.textContent === buttonText);
       const next = kind === 'hash' ? before + '#departed' : '/invite?token=' + replacement;
       history.pushState(null, '', next);
       dispatchEvent(kind === 'hash' ? new HashChangeEvent('hashchange') : new PopStateEvent('popstate'));
@@ -1222,7 +1224,7 @@ test('synchronous departure rejects the stale current-read callback even when th
   expect(s.reads).toEqual([]);
   expect(s.posts).toEqual([]);
   await read(page).click();
-  await expect(page.locator('.invitation__current')).toContainText('No referral is recorded now');
+  await expect(page.getByTestId('invitation__current')).toContainText('No referral is recorded now');
   expect(s.reads.length).toBe(1);
 });
 test('same-URL popstate is not a departure and preserves the deliberate original review', async ({ context, page }) => {
@@ -1259,9 +1261,9 @@ test('held private current read is discarded across batched departure and a usef
   await expect.poll(() => s.reads.length).toBe(1);
   await batchedDeparture(page, 'Read current status');
   gate.release();
-  await expect(page.locator('.invitation__current')).not.toContainText(referrer);
+  await expect(page.getByTestId('invitation__current')).not.toContainText(referrer);
   await read(page).click();
-  await expect(page.locator('.invitation__current')).toContainText('No referral is recorded now');
+  await expect(page.getByTestId('invitation__current')).toContainText('No referral is recorded now');
   expect(s.reads.length).toBe(2);
   expect(s.posts).toEqual([]);
   expect(await journal(page)).toBe(null);
@@ -1289,7 +1291,7 @@ test('dispatched original remains byte-identical unknown after ABA late known re
   await expect(page.getByRole('heading', { name: 'Referral status recorded.', exact: true })).toHaveCount(0);
   s.current = edge();
   await read(page).click();
-  await expect(page.locator('.invitation__current')).toContainText('A referral is recorded now');
+  await expect(page.getByTestId('invitation__current')).toContainText('A referral is recorded now');
   await expect(original(page)).toBeVisible();
   expect(await journal(page)).toBe(bytes);
   await login(page);

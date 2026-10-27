@@ -209,12 +209,12 @@ for (const phase of ['loading', 'failed', 'empty'])
     };
     await selected(page).getByRole('button', { name: 'Refresh session', exact: true }).click();
     await expect(selected(page).getByText(first, { exact: true })).toBeVisible();
-    await expect(selected(page).locator('.agent-session-history')).toHaveCount(0);
+    await expect(selected(page).getByTestId('agent-session-history')).toHaveCount(0);
     await shot(page, 'history-' + phase);
     if (release) release();
     else delete state['session.log'];
     if (phase !== 'loading') await selected(page).getByRole('button', { name: 'Refresh session', exact: true }).click();
-    await expect(selected(page).locator('.agent-session-history li')).toHaveCount(2);
+    await expect(selected(page).locator('[data-testid="agent-session-history"] li')).toHaveCount(2);
     expect(state.writes).toEqual([]);
   });
 for (const mismatch of ['foreign', 'duplicate', 'backwards', 'negative', 'amount'])
@@ -232,8 +232,8 @@ for (const mismatch of ['foreign', 'duplicate', 'backwards', 'negative', 'amount
     const state = await network(context, { history: invalid });
     await login(page);
     await inspect(page);
-    await expect(selected(page).locator('.agent-session-history')).toHaveCount(0);
-    await expect(selected(page).locator('.failure')).toBeVisible();
+    await expect(selected(page).getByTestId('agent-session-history')).toHaveCount(0);
+    await expect(selected(page).getByTestId('failure')).toBeVisible();
     expect(state.writes).toEqual([]);
   });
 test('native recorded-window filter and exact larger bound preserve original session', async ({ page, context }) => {
@@ -375,7 +375,7 @@ test('native read-only journey has no serious accessibility defects', async ({ p
   await network(context);
   await login(page);
   await inspect(page);
-  const result = await new AxeBuilder({ page }).include('.agent-session-journey').analyze();
+  const result = await new AxeBuilder({ page }).include('[data-testid="agent-session-journey"]').analyze();
   expect(result.violations.filter((v) => ['critical', 'serious'].includes(v.impact))).toEqual([]);
   writeFileSync(evidence + '/axe.json', JSON.stringify(result, null, 2));
 });
@@ -396,7 +396,7 @@ test('native stale read cannot replace newly selected original session', async (
   await page.getByRole('button', { name: 'Inspect session', exact: true }).nth(1).click();
   await expect(selected(page).getByText(second, { exact: true })).toBeVisible();
   release();
-  await expect(selected(page).locator('.agent-session-history')).not.toContainText(first);
+  await expect(selected(page).getByTestId('agent-session-history')).not.toContainText(first);
   expect(state.writes).toEqual([]);
 });
 test('native long exact amount and unit fit320 and ordinary private boundary', async ({ page, context }) => {
@@ -432,7 +432,7 @@ test('native Tab reaches same-session refresh with visible touch target', async 
     }),
   ).toBe(true);
   await page.keyboard.press('Enter');
-  await expect(selected(page).locator('.agent-session-history li')).toHaveCount(2);
+  await expect(selected(page).locator('[data-testid="agent-session-history"] li')).toHaveCount(2);
   await shot(page, 'tab-refresh320');
 });
 test('native logout during successful fresh preflight sends no completion', async ({ page, context }) => {
@@ -552,7 +552,7 @@ for (const locale of ['en', 'es', 'fr'])
     const state = await network(context);
     await login(page);
     await inspect(page);
-    const rows = page.locator('.agent-session-history > li');
+    const rows = page.locator('[data-testid="agent-session-history"] > li');
     const originalOpen = await rows.first().elementHandle();
     const originalComplete = await rows.nth(1).elementHandle();
     const headings = {
@@ -579,8 +579,8 @@ for (const locale of ['en', 'es', 'fr'])
       await expect(rows.nth(index).locator(':scope > small').first()).toHaveAttribute('lang', 'zxx');
       await expect(rows.nth(index).locator(':scope > strong span').first()).toHaveAttribute('lang', locale);
     }
-    await expect(page.locator('.agent-session-journey')).not.toContainText('0.000000000000000001');
-    await expect(page.locator('.agent-session-history')).not.toContainText('0.015');
+    await expect(page.getByTestId('agent-session-journey')).not.toContainText('0.000000000000000001');
+    await expect(page.getByTestId('agent-session-history')).not.toContainText('0.015');
     expect(state.writes).toEqual([]);
     await shot(page, 'history-heading-' + locale);
   });

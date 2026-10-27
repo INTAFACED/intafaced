@@ -43,7 +43,7 @@ export function Mining({ tab: first = 'Overview' }: { tab?: MiningTab }) {
 function MiningStatusRoom({ status }: { status: Status }) {
   const { Copy, languageFor, directionFor } = miningCopy.useCopy();
   return (
-    <div className="mining-room" lang={languageFor('unavailableTitle')} dir={directionFor('unavailableTitle')}>
+    <div data-testid="mining-room" className="mining-room" lang={languageFor('unavailableTitle')} dir={directionFor('unavailableTitle')}>
       <section className="mining-room-primary">
         <div className="mining-room-status">
           <h2>
@@ -60,7 +60,7 @@ function MiningStatusRoom({ status }: { status: Status }) {
           <h3 className="mining-room-required">
             <Copy k="required" />
           </h3>
-          <dl className="mining-room-requirements">
+          <dl data-testid="mining-room-requirements" className="mining-room-requirements">
             {(['workers', 'shares', 'credits'] as const).map((key) => (
               <div key={key}>
                 <dt>
@@ -91,7 +91,7 @@ function MiningStatusRoom({ status }: { status: Status }) {
             <Read resource={status.resource} retry={status.reload}>
               {(s) => (
                 <>
-                  <dl className="mining-room-health-record">
+                  <dl data-testid="mining-room-health-record" className="mining-room-health-record">
                     <div>
                       <dt>
                         <Copy k="process" />
@@ -127,7 +127,7 @@ function MiningStatusRoom({ status }: { status: Status }) {
                       </dd>
                     </div>
                   </dl>
-                  <Button variant="secondary" className="mining-room-refresh" onClick={status.reload}>
+                  <Button variant="secondary" data-testid="mining-room-refresh" className="mining-room-refresh" onClick={status.reload}>
                     <Copy k="refresh" />
                   </Button>
                 </>

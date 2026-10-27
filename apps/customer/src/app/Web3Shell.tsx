@@ -122,7 +122,7 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
               )}
               <RegionContext.Provider value={regionBlocked}>{children}</RegionContext.Provider>
             </main>
-            <nav className="mobile-doors web3-doors" aria-label={t('shellNavPhone')}>
+            <nav data-testid="mobile-doors" className="mobile-doors web3-doors" aria-label={t('shellNavPhone')}>
               {PHONE.map((key) => {
                 const item = NAV.find((entry) => entry.key === key)!;
                 return (

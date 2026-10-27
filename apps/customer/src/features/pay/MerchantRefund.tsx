@@ -376,7 +376,7 @@ export function MerchantRefund({
   });
   if (!live() || pay.access('pay:read')) return null;
   return (
-    <section className="merchant-refund" aria-labelledby={titleId} ref={form} lang={requestedLocale}>
+    <section data-testid="merchant-refund" className="merchant-refund" aria-labelledby={titleId} ref={form} lang={requestedLocale}>
       <header>
         <h3 id={titleId}>
           {receipt
@@ -413,7 +413,7 @@ export function MerchantRefund({
               <Copy k="cleanupBody" />
             </p>
           </div>
-          <div className="merchant-refund-actions">
+          <div data-testid="merchant-refund-actions" className="merchant-refund-actions">
             <Button onClick={() => void cleanup(receipt)} disabled={shown?.busy}>
               <Copy k="cleanupAction" />
             </Button>
@@ -543,7 +543,7 @@ export function MerchantRefund({
       </Button>
       {currentReview && (
         <Dialog closeLabel={t('back')} title={t('review')} onClose={() => dismiss(currentReview, false)}>
-          <div className="merchant-refund merchant-refund-review">
+          <div data-testid="merchant-refund" className="merchant-refund merchant-refund-review">
             <p className="muted">
               <Copy k="reviewBody" />
             </p>
@@ -560,7 +560,7 @@ export function MerchantRefund({
                 <Copy k="continuityBody" />
               </p>
             </div>
-            <div className="merchant-refund-actions">
+            <div data-testid="merchant-refund-actions" className="merchant-refund-actions">
               <Button onClick={() => void confirm(currentReview)} disabled={shown?.busy}>
                 <Copy k="confirm" />
               </Button>

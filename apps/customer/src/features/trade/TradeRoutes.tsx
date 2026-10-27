@@ -91,6 +91,7 @@ function TradeModeRoutes({ path }: { path: string }) {
   if (activeMode === 'Bots') return <BotsRoom path={path} />;
   return (
     <div
+      data-testid="trade-root"
       className="trade-root"
       lang={copy.forLocale(preferences.language).renderedLocale}
       dir={uiDirection(copy.forLocale(preferences.language).renderedLocale)}

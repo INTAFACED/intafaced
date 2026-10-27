@@ -59,7 +59,7 @@ export function ScheduleExecutions({ id, asset }: { id: string; asset: string })
   const { Copy } = standingCopy.useCopy();
   return (
     <Section title={<Copy k="outcomes" />}>
-      <dl className="money-standing-reference">
+      <dl data-testid="money-standing-reference" className="money-standing-reference">
         <dt>
           <Copy k="reference" />
         </dt>
@@ -152,12 +152,16 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
                 <ol className="money-execution-list">
                   {rows.map((row, index) => (
                     <li key={`${row.occurrence}:${index}`}>
-                      <article className="money-execution-outcome" aria-label={t('occurrence', { occurrence: row.occurrence })}>
+                      <article
+                        data-testid="money-execution-outcome"
+                        className="money-execution-outcome"
+                        aria-label={t('occurrence', { occurrence: row.occurrence })}
+                      >
                         <header>
                           <h4>
                             <Copy k="occurrence" params={{ occurrence: row.occurrence }} />
                           </h4>
-                          <dl className="money-execution-status">
+                          <dl data-testid="money-execution-status" className="money-execution-status">
                             <dt className="money-execution-label">
                               <Copy k="status" />
                             </dt>
@@ -166,7 +170,7 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
                             </dd>
                           </dl>
                         </header>
-                        <dl className="money-execution-quantity">
+                        <dl data-testid="money-execution-quantity" className="money-execution-quantity">
                           <dt className="money-execution-label">
                             <Copy k="quantity" />
                           </dt>
@@ -175,7 +179,7 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
                           </dd>
                         </dl>
                         {row.rejectionCode !== null && (
-                          <dl className="money-execution-refusal">
+                          <dl data-testid="money-execution-refusal" className="money-execution-refusal">
                             <dt className="money-visually-hidden">
                               <Copy k="refusal" />
                             </dt>
@@ -184,7 +188,7 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
                             </dd>
                           </dl>
                         )}
-                        <dl className="money-execution-ledger">
+                        <dl data-testid="money-execution-ledger" className="money-execution-ledger">
                           <dt>
                             <Copy k="ledger" />
                           </dt>

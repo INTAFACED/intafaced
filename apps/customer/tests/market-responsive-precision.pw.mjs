@@ -87,7 +87,7 @@ async function geometry(row) {
       const value = node.getBoundingClientRect();
       return { x: value.x, y: value.y, left: value.left, right: value.right, width: value.width, height: value.height };
     };
-    const price = element.querySelector('.market-purchases-exact-price');
+    const price = element.querySelector('[data-testid="market-purchases-exact-price"]');
     const amount = price.querySelector('strong');
     const range = document.createRange();
     range.selectNodeContents(amount);
@@ -95,14 +95,14 @@ async function geometry(row) {
     const text = amount.firstChild;
     last.setStart(text, text.textContent.length - 1);
     last.setEnd(text, text.textContent.length);
-    const button = element.querySelector('.market-catalogue-decision > .button');
-    const vendor = element.querySelector('.market-catalogue-facts code');
-    const offer = element.querySelector('.market-catalogue-facts > div:nth-child(2) dd');
+    const button = element.querySelector('[data-testid="market-catalogue-decision"] > .button');
+    const vendor = element.querySelector('[data-testid="market-catalogue-facts"] code');
+    const offer = element.querySelector('[data-testid="market-catalogue-facts"] > div:nth-child(2) dd');
     const vendorRange = document.createRange();
     vendorRange.selectNodeContents(vendor);
     const offerRange = document.createRange();
     offerRange.selectNodeContents(offer);
-    const metadata = [...element.querySelectorAll('.market-catalogue-facts > div')].map((node) => {
+    const metadata = [...element.querySelectorAll('[data-testid="market-catalogue-facts"] > div')].map((node) => {
       const label = node.querySelector('dt');
       const value = node.querySelector('dd');
       const labelInk = document.createRange();
@@ -120,9 +120,9 @@ async function geometry(row) {
       hovered: element.matches(':hover'),
       columns: getComputedStyle(element).gridTemplateColumns,
       row: rect(element),
-      main: rect(element.querySelector('.market-catalogue-main')),
+      main: rect(element.querySelector('[data-testid="market-catalogue-main"]')),
       title: rect(element.querySelector('h3')),
-      description: rect(element.querySelector('.market-catalogue-description')),
+      description: rect(element.querySelector('[data-testid="market-catalogue-description"]')),
       vendorText: vendor.textContent,
       vendorLineFragments: vendorRange.getClientRects().length,
       offerText: offer.textContent,

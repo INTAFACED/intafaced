@@ -61,7 +61,7 @@ function OfferLimits({ offer }: { offer: Offer }) {
 export function OfferPrice({ offer }: { offer: Offer }) {
   const { Copy, t } = offerCopy.useCopy();
   return (
-    <div className="p2p-offer-price">
+    <div data-testid="p2p-offer-price" className="p2p-offer-price">
       {offer.priceType === 'float' ? (
         <>
           <span className="muted">
@@ -241,7 +241,13 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
   const originals = deviceOriginals(userId);
   return (
     <div className={`p2p-offer-workspace${selected ? ' has-selection' : ''}`} lang={languageFor('current')} dir={directionFor('current')}>
-      <div className="p2p-offer-market" tabIndex={-1} ref={marketHeading} aria-label={payCopy.t('p2pOffers')}>
+      <div
+        data-testid="p2p-offer-market"
+        className="p2p-offer-market"
+        tabIndex={-1}
+        ref={marketHeading}
+        aria-label={payCopy.t('p2pOffers')}
+      >
         <PaySection
           title={mine ? payCopy.t('yourOffers') : payCopy.t('offerBoard')}
           description={mine ? t('ownerWindow') : undefined}
@@ -260,7 +266,7 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
             </PayNotice>
           )}
           {originals.ids.length > 0 && (
-            <section className="p2p-offer-device" aria-label={t('originals')}>
+            <section data-testid="p2p-offer-device" className="p2p-offer-device" aria-label={t('originals')}>
               <h3>
                 <Copy k="originals" />
               </h3>
@@ -291,7 +297,7 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
               </a>
             </p>
           ) : null}
-          <details className="p2p-offer-filters">
+          <details data-testid="p2p-offer-filters" className="p2p-offer-filters">
             <summary>
               <Copy k="filters" />
             </summary>
@@ -482,7 +488,7 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
           <Button variant="ghost" onClick={list.reload}>
             <Copy k="refreshMarket" />
           </Button>
-          <details className="p2p-offer-known">
+          <details data-testid="p2p-offer-known" className="p2p-offer-known">
             <summary>
               <Copy k="known" />
             </summary>
@@ -626,7 +632,7 @@ function OfferInspector({
     refresh();
   }
   return (
-    <section className="p2p-offer-inspector" aria-label={t('current')}>
+    <section data-testid="p2p-offer-inspector" className="p2p-offer-inspector" aria-label={t('current')}>
       <Button variant="ghost" onClick={close}>
         {t(mine ? 'backOwn' : 'back')}
       </Button>
@@ -746,7 +752,7 @@ function CurrentOffer({
   }
   return (
     <div className="p2p-current-offer">
-      <div className="p2p-offer-role">
+      <div data-testid="p2p-offer-role" className="p2p-offer-role">
         <strong>
           <OfferSide offer={offer} own={own} />
         </strong>

@@ -983,6 +983,7 @@ export function MarketChart({
   const orderDetail = chartOrders.find((order) => order.id === (dragging?.id ?? focusedOrder));
   return (
     <section
+      data-testid="trade-chart"
       className={`trade-chart ${fullscreen ? 'trade-chart--fullscreen' : ''}`}
       data-derived-linked={derivedDaily && multi ? '' : undefined}
       ref={frame}
@@ -991,7 +992,7 @@ export function MarketChart({
       aria-modal={fullscreen ? true : undefined}
       tabIndex={fullscreen ? -1 : undefined}
     >
-      <div className="trade-chart-toolbar">
+      <div data-testid="trade-chart-toolbar" className="trade-chart-toolbar">
         <label className="trade-inline">
           <CopyText k="interval" />
           <select aria-label={copy.t('chartInterval')} value={interval} onChange={(event) => setIntervalValue(event.target.value)}>
@@ -1195,7 +1196,7 @@ export function MarketChart({
         </div>
       )}
       {inspected && resource.status === 'ready' && (
-        <p className="trade-candle-inspection">
+        <p data-testid="trade-candle-inspection" className="trade-candle-inspection">
           {derivedDaily && (
             <>
               <CopyText k="dailyHistoryInspection" params={{ start: tradeDate(inspected[0]) }} />
@@ -1211,6 +1212,7 @@ export function MarketChart({
         </p>
       )}
       <div
+        data-testid="trade-chart-canvas"
         className="trade-chart-canvas"
         style={{ '--trade-phone-chart-height': `${Math.max(420, 288 + lowerPanes * 66)}px` } as CSSProperties}
         role="group"
@@ -1249,7 +1251,12 @@ export function MarketChart({
           }
         }}
       >
-        <div className="trade-engine" ref={host} style={{ visibility: resource.status === 'ready' ? undefined : 'hidden' }} />
+        <div
+          data-testid="trade-engine"
+          className="trade-engine"
+          ref={host}
+          style={{ visibility: resource.status === 'ready' ? undefined : 'hidden' }}
+        />
         {resource.status === 'loading' ? (
           <Loading label={<CopyText k={'loadingMarketHistory'} />} />
         ) : resource.status === 'failed' ? (

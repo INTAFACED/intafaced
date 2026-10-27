@@ -368,14 +368,14 @@ test('Token authored current-stake refusal stays English and preserves original 
   state.stake = '0';
   await dialog.getByRole('button', { name: 'Cast vote', exact: true }).click();
   const refusal = page
-    .locator('.failure')
+    .getByTestId('failure')
     .getByText(
       'A positive current stake estimate is required before reviewing a vote. The service still decides the authoritative cast-time weight.',
       { exact: true },
     );
   await expect(refusal).toBeVisible();
   expect(await refusal.evaluate((node) => node.closest('[lang]')?.getAttribute('lang'))).toBe('en');
-  await expect(page.locator('.token-proposal-body')).toContainText(originalDescription);
+  await expect(page.getByTestId('token-proposal-body')).toContainText(originalDescription);
   expect(state.writes).toEqual([]);
   await fallback(page);
 });
@@ -385,7 +385,7 @@ test('Agents hidden cost uses actual English metadata while exact service values
   await context.addInitScript((key) => localStorage.setItem(key, JSON.stringify({ language: 'ar', hideBalances: true })), preferenceKey);
   await login(page, '/agents');
   await page.getByRole('button', { name: 'Inspect session', exact: true }).click();
-  const hidden = page.locator('.agent-session-history dd').filter({ hasText: /^Hidden$/ });
+  const hidden = page.locator('[data-testid="agent-session-history"] dd').filter({ hasText: /^Hidden$/ });
   await expect(hidden).toHaveCount(1);
   await expect(hidden).toHaveAttribute('lang', 'en');
   expect(state.reads.some((r) => r.procedure === 'session.log' && r.input.sessionId === originalId)).toBe(true);
@@ -398,8 +398,8 @@ test('ordinary Trade wrapper keeps empty Arabic request in English LTR without o
   const state = await network(context, page, baseURL);
   await context.addInitScript((key) => localStorage.setItem(key, JSON.stringify({ language: 'ar' })), preferenceKey);
   await login(page, '/exchange');
-  await expect(page.locator('.trade-root')).toHaveAttribute('lang', 'en');
-  await expect(page.locator('.trade-root')).toHaveAttribute('dir', 'ltr');
+  await expect(page.getByTestId('trade-root')).toHaveAttribute('lang', 'en');
+  await expect(page.getByTestId('trade-root')).toHaveAttribute('dir', 'ltr');
   await fallback(page);
   expect(state.writes).toEqual([]);
 });

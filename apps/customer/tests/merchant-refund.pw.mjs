@@ -128,12 +128,12 @@ async function mount(page, state, options = {}) {
   await page.waitForFunction(() => Boolean(window.refundFixture));
   await page.evaluate(() => window.refundFixture.signIn());
   await page.getByRole('button', { name: /^(Open|Abrir|Ouvrir)$/ }).click();
-  await expect(page.locator('section.merchant-refund').first()).toBeVisible();
+  await expect(page.locator('section[data-testid="merchant-refund"]').first()).toBeVisible();
 }
 async function review(page, value = '25') {
-  await page.locator('.merchant-refund input').fill(value);
+  await page.locator('[data-testid="merchant-refund"] input').fill(value);
   await page
-    .locator('.merchant-refund > button')
+    .locator('[data-testid="merchant-refund"] > button')
     .filter({ hasText: /Review refund|Revisar reembolso|Vérifier le remboursement/ })
     .click();
   await expect(page.getByRole('dialog')).toBeVisible();
@@ -164,7 +164,7 @@ test('actual ordinary Customer stays unactivated with no Business provider or me
   await page.getByLabel('Password', { exact: true }).fill('isolated-password');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page).toHaveURL(/\/pay\/payments/);
-  await expect(page.locator('section.merchant-refund')).toHaveCount(0);
+  await expect(page.locator('section[data-testid="merchant-refund"]')).toHaveCount(0);
   expect(state.requests.filter((r) => r.name === 'merchant.me' || r.name === 'payment.refund')).toEqual([]);
 });
 test('unknown original survives independent reload with no amount/body persistence or blind replay', async ({ page }) => {
@@ -172,7 +172,7 @@ test('unknown original survives independent reload with no amount/body persisten
   await mount(page, state);
   await review(page, '25.000000000000000001');
   await confirm(page).click();
-  await expect(page.locator('section.merchant-refund')).toContainText('Refund outcome unknown');
+  await expect(page.locator('section[data-testid="merchant-refund"]')).toContainText('Refund outcome unknown');
   const raw = await saved(page);
   expect(JSON.parse(raw)).toEqual({ status: 'uncertain', reference: state.posts[0].refundId });
   expect(raw).not.toContain('amount');
@@ -180,8 +180,8 @@ test('unknown original survives independent reload with no amount/body persisten
   await page.waitForFunction(() => window.refundFixture);
   await page.evaluate(() => window.refundFixture.signIn());
   await page.getByRole('button', { name: 'Open', exact: true }).click();
-  await expect(page.locator('section.merchant-refund')).toContainText(state.posts[0].refundId);
-  await expect(page.locator('.merchant-refund input')).toHaveCount(0);
+  await expect(page.locator('section[data-testid="merchant-refund"]')).toContainText(state.posts[0].refundId);
+  await expect(page.locator('[data-testid="merchant-refund"] input')).toHaveCount(0);
   expect(state.posts).toHaveLength(1);
 });
 for (const terminal of ['refunded', 'refund.reversed'])
@@ -190,8 +190,10 @@ for (const terminal of ['refunded', 'refund.reversed'])
     await mount(page, state, { fault: 'removeItem' });
     await review(page);
     await confirm(page).click();
-    await expect(page.locator('section.merchant-refund')).toContainText(terminal === 'refunded' ? 'Refund recorded' : 'Refund reversed');
-    await expect(page.locator('section.merchant-refund')).toContainText('Local recovery record retained');
+    await expect(page.locator('section[data-testid="merchant-refund"]')).toContainText(
+      terminal === 'refunded' ? 'Refund recorded' : 'Refund reversed',
+    );
+    await expect(page.locator('section[data-testid="merchant-refund"]')).toContainText('Local recovery record retained');
     const ref = state.posts[0].refundId,
       reads = state.requests.length;
     state.history = [];
@@ -202,7 +204,7 @@ for (const terminal of ['refunded', 'refund.reversed'])
     await expect.poll(() => saved(page)).toBe(null);
     expect(state.posts).toHaveLength(1);
     expect(state.requests.length).toBe(reads);
-    await expect(page.locator('section.merchant-refund')).toContainText(ref);
+    await expect(page.locator('section[data-testid="merchant-refund"]')).toContainText(ref);
     await expect(page.getByRole('button', { name: 'Review a new refund', exact: true })).toBeEnabled();
   });
 for (const fault of ['getItem', 'setItem', 'silent-setItem'])
@@ -213,7 +215,9 @@ for (const fault of ['getItem', 'setItem', 'silent-setItem'])
       await review(page);
       await confirm(page).click();
     }
-    await expect(page.locator('section.merchant-refund')).toContainText(/Cannot read the saved refund|could not be verified/);
+    await expect(page.locator('section[data-testid="merchant-refund"]')).toContainText(
+      /Cannot read the saved refund|could not be verified/,
+    );
     expect(state.posts).toHaveLength(0);
   });
 test('legacy lost original identity cannot be reconstructed from successful payment status or history', async ({ page }) => {
@@ -222,7 +226,7 @@ test('legacy lost original identity cannot be reconstructed from successful paym
     history: [historyEvent('refunded', reference)],
   });
   await mount(page, state, { raw: 'uncertain' });
-  await expect(page.locator('section.merchant-refund')).toContainText('no original refund reference');
+  await expect(page.locator('section[data-testid="merchant-refund"]')).toContainText('no original refund reference');
   await page.getByRole('button', { name: 'Check original refund', exact: true }).click();
   expect(await saved(page)).toBe('uncertain');
   expect(state.posts).toHaveLength(0);
@@ -236,7 +240,7 @@ test('200 oldest-first intermediate events do not settle the original', async ({
   });
   await mount(page, state, { raw: JSON.stringify({ status: 'uncertain', reference }) });
   await page.getByRole('button', { name: 'Check original refund', exact: true }).click();
-  await expect(page.locator('section.merchant-refund')).toContainText('first 200 recorded payment events');
+  await expect(page.locator('section[data-testid="merchant-refund"]')).toContainText('first 200 recorded payment events');
   expect(await saved(page)).toBe(JSON.stringify({ status: 'uncertain', reference }));
   expect(state.posts).toHaveLength(0);
 });
@@ -244,15 +248,15 @@ test('malformed terminal offset preserves the original without room errors', asy
   const state = fixtureState({ history: [historyEvent('refunded', reference, '25', '2026-10-10T09:42:00+24:00')] });
   await mount(page, state, { raw: JSON.stringify({ status: 'uncertain', reference }) });
   await page.getByRole('button', { name: 'Check original refund', exact: true }).click();
-  await expect(page.locator('section.merchant-refund')).toContainText('No matching outcome returned');
+  await expect(page.locator('section[data-testid="merchant-refund"]')).toContainText('No matching outcome returned');
   expect(await saved(page)).not.toBe(null);
 });
 test('retired review A Confirm/Edit/Close cannot dispatch or clear current review B', async ({ page }) => {
   const state = fixtureState();
   await mount(page, state);
   await review(page, '25');
-  await retain(page, 'oldConfirm', 'dialog .merchant-refund-actions button:first-child');
-  await retain(page, 'oldEdit', 'dialog .merchant-refund-actions button:last-child');
+  await retain(page, 'oldConfirm', 'dialog [data-testid="merchant-refund-actions"] button:first-child');
+  await retain(page, 'oldEdit', 'dialog [data-testid="merchant-refund-actions"] button:last-child');
   await retain(page, 'oldClose', 'dialog > header button');
   await page.getByRole('dialog').getByRole('button', { name: 'Edit amount', exact: true }).click();
   await review(page, '30');
@@ -271,14 +275,14 @@ test('retired review A Confirm/Edit/Close cannot dispatch or clear current revie
 test('retired original A Check cannot read or clear original B; current B Check can', async ({ page }) => {
   const state = fixtureState();
   await mount(page, state, { raw: JSON.stringify({ status: 'uncertain', reference }) });
-  await retain(page, 'oldOriginalCheck', 'section.merchant-refund > button:first-of-type');
+  await retain(page, 'oldOriginalCheck', 'section[data-testid="merchant-refund"] > button:first-of-type');
   state.history = [historyEvent('refunded', reference)];
   await page.getByRole('button', { name: 'Check original refund', exact: true }).click();
   await page.getByRole('button', { name: 'Review a new refund', exact: true }).click();
   state.history = [];
   await review(page, '30');
   await confirm(page).click();
-  await expect(page.locator('section.merchant-refund')).toContainText('Refund outcome unknown');
+  await expect(page.locator('section[data-testid="merchant-refund"]')).toContainText('Refund outcome unknown');
   const rawB = await saved(page),
     refB = JSON.parse(rawB).reference;
   expect(refB).not.toBe(reference);
@@ -290,7 +294,7 @@ test('retired original A Check cannot read or clear original B; current B Check 
   expect(await saved(page)).toBe(rawB);
   expect(state.posts).toHaveLength(1);
   await page.getByRole('button', { name: 'Check original refund', exact: true }).click();
-  await expect(page.locator('section.merchant-refund')).toContainText('Refund recorded');
+  await expect(page.locator('section[data-testid="merchant-refund"]')).toContainText('Refund recorded');
   expect(await saved(page)).toBe(null);
   expect(state.posts).toHaveLength(1);
 });
@@ -298,7 +302,7 @@ test('same-task observed query/hash ABA retires retained Confirm before private 
   const state = fixtureState();
   await mount(page, state);
   await review(page);
-  await retain(page, 'oldConfirm', 'dialog .merchant-refund-actions button:first-child');
+  await retain(page, 'oldConfirm', 'dialog [data-testid="merchant-refund-actions"] button:first-child');
   const privateRemoved = await page.evaluate(() => {
     const href = location.href;
     history.replaceState(null, '', href + '?other=1#departed');
@@ -310,7 +314,7 @@ test('same-task observed query/hash ABA retires retained Confirm before private 
   });
   expect(privateRemoved).toBe(true);
   expect(state.posts).toHaveLength(0);
-  await expect(page.locator('.merchant-refund input')).toBeVisible();
+  await expect(page.locator('[data-testid="merchant-refund"] input')).toBeVisible();
   await review(page, '26');
   await confirm(page).click();
   await expect.poll(() => state.posts.length).toBe(1);
@@ -337,8 +341,8 @@ test('synchronous actual Session clear prevents retained Confirm and private bac
   const state = fixtureState();
   await mount(page, state);
   await review(page);
-  await retain(page, 'oldConfirm', 'dialog .merchant-refund-actions button:first-child');
-  await retain(page, 'oldBack', '.merchant-refund > button:last-of-type');
+  await retain(page, 'oldConfirm', 'dialog [data-testid="merchant-refund-actions"] button:first-child');
+  await retain(page, 'oldBack', '[data-testid="merchant-refund"] > button:last-of-type');
   const href = page.url();
   await page.evaluate(() => {
     window.refundFixture.clearSameTask(() => {
@@ -360,7 +364,7 @@ test('held history after actual owner replacement cannot publish or clean the de
   await page.evaluate(() => window.refundFixture.replaceOwner());
   state.holdHistory = false;
   await reply(state.heldHistory, state.history);
-  await expect(page.locator('section.merchant-refund')).toHaveCount(0);
+  await expect(page.locator('section[data-testid="merchant-refund"]')).toHaveCount(0);
   expect(await saved(page)).toBe(raw);
   expect(state.posts).toHaveLength(0);
 });
@@ -379,7 +383,7 @@ test('independent same-owner tabs share native admission and preserve one origin
   state.holdMerchant = false;
   await reply(state.heldMerchant, merchant);
   await expect.poll(() => state.posts.length).toBe(1);
-  await expect(other.locator('section.merchant-refund')).toContainText(state.posts[0].refundId);
+  await expect(other.locator('section[data-testid="merchant-refund"]')).toContainText(state.posts[0].refundId);
   expect(JSON.parse(await saved(other)).reference).toBe(state.posts[0].refundId);
   await other.close();
 });
@@ -401,7 +405,7 @@ for (const locale of ['en', 'es', 'fr'])
       await page.screenshot({ path: `${evidence}/${locale}-${width}-review.png`, fullPage: true });
       await confirm(page).click();
       await expect(page.getByRole('dialog')).toHaveCount(0);
-      const root = page.locator('section.merchant-refund');
+      const root = page.locator('section[data-testid="merchant-refund"]');
       const recoveryFit = await root.evaluate(
         (node) => node.getBoundingClientRect().right <= innerWidth + 1 && node.scrollWidth <= node.clientWidth + 1,
       );

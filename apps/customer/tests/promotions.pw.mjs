@@ -244,7 +244,7 @@ test('lost create original survives Support/history and new/closed tab with only
   await login(next);
   await page.close();
   await expect(panel(next).getByRole('button', { name: 'Review link request', exact: true })).toBeDisabled();
-  await next.locator('.referral-heading').getByRole('button').click();
+  await next.getByTestId('referral-heading').getByRole('button').click();
   expect(await journal(next)).toBe(before);
   expect(count(state, 'createShare')).toBe(1);
   expect(count(state, 'shareHits')).toBe(0);
@@ -308,7 +308,7 @@ for (const mode of ['denied', 'quota', 'corrupt', 'no-locks', 'held-lock'])
       await panel(page).getByRole('button', { name: 'Review link request', exact: true }).click();
       if (mode !== 'denied') await page.getByRole('dialog').getByRole('button', { name: 'Get or create link', exact: true }).click();
     }
-    await expect(page.locator('.notice')).toBeVisible();
+    await expect(page.getByTestId('notice')).toBeVisible();
     expect(count(state, 'createShare')).toBe(0);
     expect(count(state, 'revokeShare')).toBe(0);
     if (mode === 'held-lock') await page.evaluate(() => window.releasePromoLock());
@@ -491,7 +491,7 @@ for (const action of ['Review revocation', 'Copy link'])
       Object.defineProperty(navigator, 'clipboard', { value: { writeText: () => window.countPromoRetainedCopy() } });
     });
     await page.evaluate((action) => {
-      const stale = [...document.querySelectorAll('.promotions__link button')].find((node) => node.textContent === action);
+      const stale = [...document.querySelectorAll('[data-testid="promotions__link"] button')].find((node) => node.textContent === action);
       const original = location.pathname + location.search;
       history.pushState(null, '', original + '?promo-context=departed');
       window.dispatchEvent(new PopStateEvent('popstate'));
@@ -550,7 +550,7 @@ for (const kind of ['createShare', 'revokeShare'])
     await expect(originals(page).getByRole('button', { name: 'Finish matching local record', exact: true })).toHaveCount(0);
     expect(await journal(page)).toBe(before);
     await expect(panel(page).getByRole('button', { name: 'Review link request', exact: true })).toBeDisabled();
-    await page.locator('.referral-heading button').click();
+    await page.locator('[data-testid="referral-heading"] button').click();
     await expect(page.locator('#promotion-referrals')).toContainText('No referrer returned');
     await originals(page).getByRole('link', { name: 'Get account help →', exact: true }).click();
     await expect(page).toHaveURL(new URL('/support', test.info().project.use.baseURL).href);
@@ -641,7 +641,7 @@ test('held known link readiness does not steal focus from a deliberately moved c
   });
   await login(page);
   await create(page);
-  const refresh = page.locator('.referral-heading button');
+  const refresh = page.locator('[data-testid="referral-heading"] button');
   await refresh.focus();
   hold.release();
   await expect(panel(page).getByRole('textbox')).toBeVisible();
@@ -666,7 +666,7 @@ for (const visits of [0, 2147483647])
     await network(context, { 'affiliates.createShare': (route) => reply(route, link({ hits: visits })) });
     await login(page);
     await create(page);
-    await expect(panel(page).locator('.promotions__visits strong')).toHaveText(String(visits));
+    await expect(panel(page).locator('[data-testid="promotions__visits"] strong')).toHaveText(String(visits));
     await expect(page.locator('#main')).toContainText('not sign-ups');
     expect(await journal(page)).toBeNull();
   });
@@ -712,13 +712,16 @@ for (const language of ['en', 'es', 'fr'])
       if (language !== 'en') await locale(context, language);
       await page.setViewportSize({ width, height: 900 });
       await login(page);
-      const button = page.locator('.promotions__link .button');
+      const button = page.locator('[data-testid="promotions__link"] .button');
       await button.focus();
       await page.keyboard.press('Enter');
       await expect(page.getByRole('dialog')).toBeVisible();
       expect(count(state, 'createShare')).toBe(0);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      const result = await new AxeBuilder({ page }).include('.promotions').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+      const result = await new AxeBuilder({ page })
+        .include('[data-testid="promotions"]')
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
+        .analyze();
       expect(result.violations).toEqual([]);
       await page.keyboard.press('Escape');
       await expect(page.getByRole('dialog')).toHaveCount(0);

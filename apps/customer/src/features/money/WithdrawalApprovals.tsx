@@ -105,6 +105,7 @@ function List({ current }: { current: () => boolean }) {
                         <time dateTime={request.expiresAt}>{date(request.expiresAt)}</time>
                       </div>
                       <a
+                        data-testid="withdrawal-open"
                         className="button button--secondary withdrawal-open"
                         href={href(request.id)}
                         aria-label={t('openRequest', { id: request.id })}
@@ -226,7 +227,7 @@ function Detail({ id, current }: { id: string; current: () => boolean }) {
           {(request) => {
             const own = request.userId === userId;
             return (
-              <div className="withdrawal-detail">
+              <div data-testid="withdrawal-detail" className="withdrawal-detail">
                 <div className="withdrawal-detail-value">
                   <strong className="numeric" lang="und" data-withdrawal-amount>
                     {hideBalances ? `•••• ${request.assetId}` : amount(request.amount, request.assetId)}
@@ -290,7 +291,7 @@ export function WithdrawalApprovals({ context, search }: { context: ApprovalRead
   if (!context.current()) return <p role="status">{t('changed')}</p>;
   return (
     <Page eyebrow={t('money')} title={t('title')} description={t('description')}>
-      <div className="withdrawal-page">
+      <div data-testid="withdrawal-page" className="withdrawal-page">
         {!requested.ok ? (
           <p data-testid="failure" className="failure" role="alert">
             {t('invalidId')}

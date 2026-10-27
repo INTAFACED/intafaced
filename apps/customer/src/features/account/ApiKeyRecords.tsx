@@ -143,7 +143,7 @@ export function ApiKeyRecords() {
   const failure = rendered.status === 'failed' ? rendered.failure : null;
   return (
     <section
-      data-testid="security__card"
+      data-testid="api-key-records"
       className="api-key-records security__card"
       aria-labelledby={heading}
       lang={languageFor('api.records.title')}
@@ -157,7 +157,7 @@ export function ApiKeyRecords() {
         </p>
       </header>
       {failure && (
-        <div className="api-key-records__failure" role="status">
+        <div data-testid="api-key-records__failure" className="api-key-records__failure" role="status">
           <h3>
             <Copy
               k={
@@ -194,7 +194,7 @@ export function ApiKeyRecords() {
           )}
         </div>
       )}
-      <div className="api-key-records__controls">
+      <div data-testid="api-key-records__controls" className="api-key-records__controls">
         {failure?.reason !== 'unauthorized' && (
           <Button variant="secondary" disabled={rendered.status === 'loading'} onClick={() => void read()}>
             <Copy
@@ -215,7 +215,7 @@ export function ApiKeyRecords() {
         ) : (
           <ul className="api-key-records__rows">
             {rendered.rows.map((record) => (
-              <li key={record.id} className="api-key-records__row">
+              <li key={record.id} data-testid="api-key-records__row" className="api-key-records__row">
                 <div className="api-key-records__name">
                   <h3>{record.name ? <bdi lang="und">{record.name}</bdi> : <Copy k="api.records.unnamed" />}</h3>
                   <p className="muted">
@@ -284,6 +284,7 @@ export function ApiKeyRecords() {
                 {canReviewApiKeyRevoke(record) && (
                   <Button
                     variant="secondary"
+                    data-testid="api-key-revoke__row-action"
                     className="api-key-revoke__row-action"
                     disabled={revocation.blocked}
                     onClick={(event) => revocation.review(record, event?.currentTarget)}

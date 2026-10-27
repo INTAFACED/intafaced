@@ -362,7 +362,7 @@ export function Invitation() {
           ? knownBody(latestReceipt)
           : 'description';
   return (
-    <div className={`invitation${visibleReview ? ' invitation--review' : ''}`} lang={languageFor('title')}>
+    <div data-testid="invitation" className={`invitation${visibleReview ? ' invitation--review' : ''}`} lang={languageFor('title')}>
       <section className="invitation__intro">
         <div>
           <p className="eyebrow">{t(!userId ? 'guestEyebrow' : latestReceipt ? 'knownEyebrow' : 'eyebrow')}</p>
@@ -417,7 +417,7 @@ export function Invitation() {
                 {t('before')}
               </h2>
             </div>
-            <div className="invitation__owner">
+            <div data-testid="invitation__owner" className="invitation__owner">
               <span className="muted">{t('owner')}</span>
               <span data-testid="invitation__private" className="invitation__private" lang="zxx">
                 {visibleReview.owner}

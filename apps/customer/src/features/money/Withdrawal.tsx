@@ -78,6 +78,7 @@ function Lookup({ current, invalid = false }: { current: () => boolean; invalid?
   return (
     <Section title={t('find')} description={t('findNote')}>
       <form
+        data-testid="withdrawal-lookup"
         className="withdrawal-lookup"
         onSubmit={(event) => {
           event.preventDefault();
@@ -244,6 +245,7 @@ function List({ current }: { current: () => boolean }) {
                           <time dateTime={item.createdAt}>{date(item.createdAt)}</time>
                         </div>
                         <a
+                          data-testid="withdrawal-open"
                           className="button button--secondary withdrawal-open"
                           href={href(item.id)}
                           aria-label={t('detailFor', { id: item.id })}
@@ -449,7 +451,7 @@ function Detail({ id, current }: { id: string; current: () => boolean }) {
       </p>
       <ReadResult resource={resource} retry={refresh}>
         {(record) => (
-          <div className="withdrawal-detail">
+          <div data-testid="withdrawal-detail" className="withdrawal-detail">
             <div className="withdrawal-detail-value">
               <strong className="numeric" lang="und" data-withdrawal-amount>
                 {hideBalances ? `•••• ${record.assetId}` : amount(record.amount, record.assetId)}
@@ -519,7 +521,7 @@ export function Withdrawal({ context, search }: { context: WithdrawalReadContext
   const listing = requested.ok && !requested.id;
   return (
     <Page eyebrow={t('money')} title={t('title')} description={t('description')}>
-      <div className="withdrawal-page">
+      <div data-testid="withdrawal-page" className="withdrawal-page">
         {listing && <WithdrawForm />}
         {!requested.ok ? (
           <Lookup current={current} invalid />

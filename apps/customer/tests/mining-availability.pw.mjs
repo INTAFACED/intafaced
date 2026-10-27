@@ -8,7 +8,7 @@ const baseURL = process.env.MINING_AVAILABILITY_BASE_URL;
 const owner = '11111111-1111-4111-8111-111111111111';
 const originalKey = 'intafaced:more:pending:' + owner + ':quant-backtest';
 const original = JSON.stringify({ id: '33333333-3333-4333-8333-333333333333', title: 'Original historical attempt' });
-const room = (page) => page.locator('.mining-room');
+const room = (page) => page.getByTestId('mining-room');
 const health = (configured = true, jobs = configured ? ['mining.epoch_payout'] : []) => ({
   ok: true,
   service: 'svc-mining-pool',
@@ -129,7 +129,7 @@ test('customer tasks lead optional public status and actual Support and More des
       await expect(room(page).getByRole('heading', { name: 'Mining activity unavailable', exact: true })).toBeVisible();
       await expect(room(page).locator('details')).not.toHaveAttribute('open', '');
       await expect(room(page).getByText('Responding', { exact: true })).not.toBeVisible();
-      const rows = room(page).locator('.mining-room-requirements > div');
+      const rows = room(page).locator('[data-testid="mining-room-requirements"] > div');
       await expect(rows).toHaveCount(3);
       for (const label of ['Workers', 'Accepted shares', 'Credits and payouts'])
         await expect(rows.filter({ has: page.getByText(label, { exact: true }) }).getByText('Unavailable', { exact: true })).toBeVisible();
@@ -146,7 +146,7 @@ test('customer tasks lead optional public status and actual Support and More des
       await expect(room(page)).toContainText('do not establish a successful run or payment');
       await fit(page, room(page).getByRole('button', { name: 'Refresh service status', exact: true }), width);
       await page.screenshot({ path: join(out, 'expanded.png'), fullPage: true });
-      const axe = await new AxeBuilder({ page }).include('.mining-room').analyze();
+      const axe = await new AxeBuilder({ page }).include('[data-testid="mining-room"]').analyze();
       expect(axe.violations.filter((v) => ['serious', 'critical'].includes(v.impact))).toEqual([]);
       await support.click();
       await expect(page).toHaveURL(/\/support$/);
@@ -170,29 +170,29 @@ test('refresh discards previous facts during loading, current refusal and malfor
     state.plan.push({ hold: true });
     await login(page);
     await openStatus(page, 320);
-    await expect(room(page).locator('.loading')).toBeVisible();
-    await expect(room(page).locator('.mining-room-health-record')).toHaveCount(0);
+    await expect(room(page).getByTestId('loading')).toBeVisible();
+    await expect(room(page).getByTestId('mining-room-health-record')).toHaveCount(0);
     await expect.poll(() => state.holds.length).toBe(1);
     await state.holds.shift().fulfill({ json: health() });
     await expect(room(page).getByText('mining.epoch_payout', { exact: true })).toBeVisible();
     state.plan.push({ hold: true });
     await room(page).getByRole('button', { name: 'Refresh service status', exact: true }).click();
-    await expect(room(page).locator('.loading')).toBeVisible();
-    await expect(room(page).locator('.mining-room-health-record')).toHaveCount(0);
+    await expect(room(page).getByTestId('loading')).toBeVisible();
+    await expect(room(page).getByTestId('mining-room-health-record')).toHaveCount(0);
     await expect.poll(() => state.holds.length).toBe(1);
     await state.holds.shift().fulfill({ status: 404, json: { error: 'mining.route_unavailable' } });
-    await expect(room(page).locator('.failure')).toBeVisible();
-    await expect(room(page).locator('.mining-room-health-record')).toHaveCount(0);
+    await expect(room(page).getByTestId('failure')).toBeVisible();
+    await expect(room(page).getByTestId('mining-room-health-record')).toHaveCount(0);
     await page.screenshot({ path: join(out, 'failed.png'), fullPage: true });
     state.plan.push({ json: { ...health(), service: 'wrong-service' } });
-    await room(page).locator('.failure button').click();
-    await expect(room(page).locator('.failure')).toContainText('verified');
-    await expect(room(page).locator('.mining-room-health-record')).toHaveCount(0);
+    await room(page).locator('[data-testid="failure"] button').click();
+    await expect(room(page).getByTestId('failure')).toContainText('verified');
+    await expect(room(page).getByTestId('mining-room-health-record')).toHaveCount(0);
     state.plan.push({ abort: true });
-    await room(page).locator('.failure button').click();
-    await expect(room(page).locator('.failure')).toContainText('reach');
+    await room(page).locator('[data-testid="failure"] button').click();
+    await expect(room(page).getByTestId('failure')).toContainText('reach');
     state.plan.push({ json: health(false) });
-    await room(page).locator('.failure button').click();
+    await room(page).locator('[data-testid="failure"] button').click();
     await expect(room(page).getByText('Not set up', { exact: true })).toHaveCount(2);
     await expect(room(page).getByText('No jobs registered', { exact: true })).toBeVisible();
     await expect(room(page).getByText('mining.ledger_unavailable', { exact: true })).toHaveCount(0);
@@ -208,7 +208,7 @@ test('departure retires a late read and a saved old refresh handler without rest
     await openStatus(page, 390);
     await expect(room(page).getByText('mining.epoch_payout', { exact: true })).toBeVisible();
     await page.evaluate(() => {
-      window.oldMiningRefresh = document.querySelector('.mining-room-refresh');
+      window.oldMiningRefresh = document.querySelector('[data-testid="mining-room-refresh"]');
     });
     state.plan.push({ hold: true });
     await room(page).getByRole('button', { name: 'Refresh service status', exact: true }).click();

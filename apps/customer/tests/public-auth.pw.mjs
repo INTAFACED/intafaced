@@ -95,7 +95,7 @@ async function shot(page, name) {
   });
 }
 async function helpBack(page) {
-  await page.locator('.public-header').getByRole('link', { name: 'Help', exact: true }).click();
+  await page.getByTestId('public-header').getByRole('link', { name: 'Help', exact: true }).click();
   await expect(page).toHaveURL(new URL('/help', test.info().project.use.baseURL).href);
   await page.goBack();
 }
@@ -171,7 +171,7 @@ for (const identifier of ['', '   ']) {
     await expect(email).toHaveAttribute('aria-invalid', 'true');
     await expect(email).toHaveAccessibleDescription('Enter your email or handle before using a passkey.');
     await expect(email).toBeFocused();
-    await expect(page.locator('.failure')).toHaveCount(0);
+    await expect(page.getByTestId('failure')).toHaveCount(0);
     await expect(page.getByLabel('Password', { exact: true })).toHaveValue('');
     expect(state.writes).toEqual([]);
     expect(await journal(page)).toBeNull();
@@ -349,7 +349,7 @@ test('unknown registration survives Help/remount; fresh sign-in never certifies 
   await expect(page.locator('input[autocomplete="new-password"]')).toHaveValue('');
   await helpBack(page);
   await expect(registerUnknown(page)).toBeVisible();
-  await page.locator('.auth-form').getByRole('link', { name: 'Sign in', exact: true }).click();
+  await page.getByTestId('auth-form').getByRole('link', { name: 'Sign in', exact: true }).click();
   await fields(page, false, { identifier: 'fresh-auth@example.invalid' });
   await submit(page).click();
   await expect(page).toHaveURL(new URL('/money', test.info().project.use.baseURL).href);
@@ -463,7 +463,7 @@ test('storage failure refuses password dispatch while public Help remains usable
   await submit(page).click();
   await expect(page.getByRole('status').filter({ hasText: 'cannot safely save' })).toBeVisible();
   expect(count(state, 'auth.login')).toBe(0);
-  await page.locator('.public-header').getByRole('link', { name: 'Help', exact: true }).click();
+  await page.getByTestId('public-header').getByRole('link', { name: 'Help', exact: true }).click();
   await expect(page).toHaveURL(new URL('/help', test.info().project.use.baseURL).href);
 });
 test('two native tabs coordinate only pending work and fresh intent survives an older unknown', async ({ page, context }) => {
@@ -548,7 +548,7 @@ test('held native passkey result after route departure sends no verification', a
   await page.getByRole('textbox', { name: 'Email or handle', exact: true }).fill('isolated-auth@example.invalid');
   await page.getByRole('button', { name: 'Use a passkey', exact: true }).click();
   await expect.poll(() => page.evaluate(() => typeof window.releaseNative === 'function')).toBe(true);
-  await page.locator('.public-header').getByRole('link', { name: 'Help', exact: true }).click();
+  await page.getByTestId('public-header').getByRole('link', { name: 'Help', exact: true }).click();
   await page.evaluate(() => window.releaseNative());
   await page.goBack();
   await expect(page.getByRole('heading', { name: 'Sign in to your account', exact: true })).toBeVisible();
@@ -641,7 +641,10 @@ for (const width of [320, 390, 768, 1440])
 test('public authentication semantic controls have no serious accessibility violations', async ({ page, context }) => {
   await network(context);
   await page.goto('/login');
-  const result = await new AxeBuilder({ page }).include('.auth-layout').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  const result = await new AxeBuilder({ page })
+    .include('[data-testid="auth-layout"]')
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
+    .analyze();
   expect(result.violations.map((v) => ({ id: v.id, count: v.nodes.length }))).toEqual([]);
 });
 for (const width of [320, 390])

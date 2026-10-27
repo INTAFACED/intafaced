@@ -8,7 +8,7 @@ const baseURL = process.env.PREDICTION_CATALOGUE_BASE_URL;
 const owner = '11111111-1111-4111-8111-111111111111';
 const originalKey = 'intafaced:more:pending:' + owner + ':quant-backtest';
 const original = JSON.stringify({ id: '33333333-3333-4333-8333-333333333333', title: 'Original historical attempt' });
-const room = (page) => page.locator('.prediction-room');
+const room = (page) => page.getByTestId('prediction-room');
 const listing = (overrides = {}) => ({
   id: 'illustrative-event',
   kind: 'outcome',
@@ -161,7 +161,7 @@ test('verified empty catalogue can be checked again through the actual read and 
       for (const label of ['Outcome admission', 'Fees and precision', 'Order placement'])
         await expect(rows.filter({ has: page.getByText(label, { exact: true }) }).getByText('Unavailable', { exact: true })).toBeVisible();
       await page.screenshot({ path: join(out, 'requirements.png'), fullPage: true });
-      const axe = await new AxeBuilder({ page }).include('.prediction-room').analyze();
+      const axe = await new AxeBuilder({ page }).include('[data-testid="prediction-room"]').analyze();
       expect(axe.violations.filter((v) => ['serious', 'critical'].includes(v.impact))).toEqual([]);
       const support = room(page).getByRole('link', { name: 'Contact Support →', exact: true });
       await fit(page, support, width);
@@ -186,17 +186,19 @@ test('current loading and failed reads retire old listings, malformed or ambiguo
   await scenario(browser, 'read-recovery', 320, async ({ page, state, out }) => {
     state.plan.push({ json: [listing()] });
     await login(page);
-    await expect(page.locator('.prediction-catalogue h3')).toContainText('illustrative published condition');
+    await expect(page.locator('[data-testid="prediction-catalogue"] h3')).toContainText('illustrative published condition');
     state.plan.push({ hold: true });
     await room(page).getByRole('button', { name: 'Refresh questions', exact: true }).click();
-    await expect(page.locator('.prediction-catalogue .loading')).toBeVisible();
-    await expect(page.locator('.prediction-catalogue-records')).toHaveCount(0);
+    await expect(page.locator('[data-testid="prediction-catalogue"] [data-testid="loading"]')).toBeVisible();
+    await expect(page.getByTestId('prediction-catalogue-records')).toHaveCount(0);
     await expect.poll(() => state.holds.length).toBe(1);
     await state.holds
       .shift()
       .fulfill({ status: 503, json: { error: 'isolated.catalogue_unavailable', message: 'Isolated catalogue unavailable' } });
-    await expect(page.locator('.prediction-catalogue .failure')).toContainText('Isolated catalogue unavailable');
-    await expect(page.locator('.prediction-catalogue')).toContainText('does not establish');
+    await expect(page.locator('[data-testid="prediction-catalogue"] [data-testid="failure"]')).toContainText(
+      'Isolated catalogue unavailable',
+    );
+    await expect(page.getByTestId('prediction-catalogue')).toContainText('does not establish');
     await expect(room(page).getByRole('heading', { name: 'No questions are listed', exact: true })).toHaveCount(0);
     await page.screenshot({ path: join(out, 'failed.png'), fullPage: true });
     const bad = [
@@ -220,15 +222,15 @@ test('current loading and failed reads retire old listings, malformed or ambiguo
     arrays.push([listing(), listing()], [listing(), listing({ id: 'another-event' })]);
     for (const rows of arrays) {
       state.plan.push({ json: rows });
-      await page.locator('.prediction-catalogue .failure button').click();
-      await expect(page.locator('.prediction-catalogue .failure')).toContainText('verified');
-      await expect(page.locator('.prediction-catalogue-records')).toHaveCount(0);
+      await page.locator('[data-testid="prediction-catalogue"] [data-testid="failure"] button').click();
+      await expect(page.locator('[data-testid="prediction-catalogue"] [data-testid="failure"]')).toContainText('verified');
+      await expect(page.getByTestId('prediction-catalogue-records')).toHaveCount(0);
     }
     state.plan.push({ abort: true });
-    await page.locator('.prediction-catalogue .failure button').click();
-    await expect(page.locator('.prediction-catalogue .failure')).toContainText('reach');
+    await page.locator('[data-testid="prediction-catalogue"] [data-testid="failure"] button').click();
+    await expect(page.locator('[data-testid="prediction-catalogue"] [data-testid="failure"]')).toContainText('reach');
     state.plan.push({ json: [] });
-    await page.locator('.prediction-catalogue .failure button').click();
+    await page.locator('[data-testid="prediction-catalogue"] [data-testid="failure"] button').click();
     await expect(room(page).getByRole('heading', { name: 'No questions are listed', exact: true })).toBeVisible();
     await page.screenshot({ path: join(out, 'recovered.png'), fullPage: true });
     expect(state.catalogueReads).toBe(9);
@@ -273,7 +275,7 @@ test('prospective published metadata keeps outcome reads and exact collateral pl
       ],
     });
     await room(page).getByRole('button', { name: 'Refresh questions', exact: true }).click();
-    await expect(page.locator('.prediction-catalogue h3')).toHaveText('Updated illustrative condition');
+    await expect(page.locator('[data-testid="prediction-catalogue"] h3')).toHaveText('Updated illustrative condition');
     await page.locator('.prediction-room-planning summary').click();
     await expect(qty).toHaveValue('');
     await expect(room(page)).not.toContainText('3.000000000000000001 ILLUSTRATIVE-EUR');
@@ -286,7 +288,7 @@ test('departing during a catalogue read retires its late result and saved old re
     await login(page);
     await expect(room(page).getByRole('button', { name: 'Refresh questions', exact: true })).toBeEnabled();
     await page.evaluate(() => {
-      window.oldPredictionRefresh = document.querySelector('.prediction-catalogue-refresh');
+      window.oldPredictionRefresh = document.querySelector('[data-testid="prediction-catalogue-refresh"]');
     });
     state.plan.push({ hold: true });
     await room(page).getByRole('button', { name: 'Refresh questions', exact: true }).click();
@@ -299,7 +301,7 @@ test('departing during a catalogue read retires its late result and saved old re
     await expect(room(page).getByRole('heading', { name: 'No questions are listed', exact: true })).toBeVisible();
     await state.holds.shift().fulfill({ json: [listing()] });
     await page.evaluate(() => window.oldPredictionRefresh.click());
-    await expect(page.locator('.prediction-catalogue-records')).toHaveCount(0);
+    await expect(page.getByTestId('prediction-catalogue-records')).toHaveCount(0);
     expect(state.catalogueReads).toBe(3);
     await page.screenshot({ path: join(out, 'current-only.png'), fullPage: true });
   });
@@ -319,8 +321,8 @@ test('passive locale changes preserve native requirement focus and open state wi
       ['ar', 'Listed questions', 'en'],
     ]) {
       await peer.evaluate((language) => localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ language })), language);
-      await expect(page.locator('.prediction-catalogue').getByRole('heading', { name: title, exact: true })).toBeVisible();
-      await expect(page.locator('.prediction-catalogue')).toHaveAttribute('lang', lang);
+      await expect(page.getByTestId('prediction-catalogue').getByRole('heading', { name: title, exact: true })).toBeVisible();
+      await expect(page.getByTestId('prediction-catalogue')).toHaveAttribute('lang', lang);
       expect(await page.evaluate(() => document.activeElement === window.predictionFocus)).toBe(true);
       await expect(room(page).locator('.prediction-room-details')).toHaveAttribute('open', '');
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);

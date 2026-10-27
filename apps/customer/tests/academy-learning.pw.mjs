@@ -143,8 +143,8 @@ test('native published certificate to original required lesson to durable receip
   await expect(page).toHaveURL(new RegExp(`/academy/${slug}\\?cert=${certId}$`));
   await expect(pathPanel(page)).toContainText('3 of 7 required lessons recorded');
   await expect(pathPanel(page).locator('li[aria-current="step"]')).toContainText('Still required');
-  await expect(page.locator('article.more-body')).toContainText('Size is the output, not an input');
-  await expect(page.locator('article.more-body')).toHaveAttribute('lang', 'en');
+  await expect(page.locator('article[data-testid="more-body"]')).toContainText('Size is the output, not an input');
+  await expect(page.locator('article[data-testid="more-body"]')).toHaveAttribute('lang', 'en');
   await review(page);
   expect(state.writes).toEqual([]);
   await expect(page.getByRole('dialog')).toContainText(slug);
@@ -187,7 +187,7 @@ test('native standalone real lesson remains readable and completable without enr
 }) => {
   const state = await network(context);
   await login(page, '/academy/markets-reading-the-book');
-  await expect(page.locator('article.more-body')).toBeVisible();
+  await expect(page.locator('article[data-testid="more-body"]')).toBeVisible();
   await review(page);
   await send(page);
   await expect(receipt(page)).toBeVisible();
@@ -202,7 +202,7 @@ test('native bounded filtered discovery keeps actual library and selected certif
   await login(page, '/academy');
   await page.getByRole('combobox', { name: 'Published certificate', exact: true }).selectOption(certId);
   await page.getByRole('combobox', { name: 'Learning path', exact: true }).selectOption('markets');
-  await expect(page.locator('.more-room-link').first()).toHaveAttribute('href', /path=markets/);
+  await expect(page.getByTestId('more-room-link').first()).toHaveAttribute('href', /path=markets/);
   await expect(pathPanel(page)).toContainText('Position sizing without invent');
   expect(state.reads.filter((r) => r.procedure === 'curriculum').every((r) => r.input.limit > 0 && r.input.limit <= 200)).toBe(true);
   expect(state.writes).toEqual([]);
@@ -256,13 +256,13 @@ test('native empty published definitions do not create a new certificate', async
   const state = await network(context, { definitions: [] });
   await login(page, '/academy');
   await expect(pathPanel(page)).toContainText('No certificate is published for this learning path');
-  await expect(page.locator('.more-room-link').first()).toBeVisible();
+  await expect(page.getByTestId('more-room-link').first()).toBeVisible();
   expect(state.writes).toEqual([]);
 });
 test('native wrong original lesson slug prevents reading or completion', async ({ page, context }) => {
   const state = await network(context, { curriculumItemLocalized: (route, input, reply) => reply(lesson({ ...input, slug: next })) });
   await login(page);
-  await expect(page.locator('.academy-learning-reader')).toContainText('could not be verified');
+  await expect(page.getByTestId('academy-learning-reader')).toContainText('could not be verified');
   await expect(page.getByRole('button', { name: 'Review lesson completion', exact: true })).toHaveCount(0);
   expect(state.writes).toEqual([]);
 });
@@ -373,8 +373,8 @@ for (const locale of ['es', 'fr'])
       const dialog = page.getByRole('dialog');
       await expect(dialog).toHaveAccessibleName(locale === 'es' ? 'Revisar finalización de la lección' : 'Examiner la fin de leçon');
       await expect(dialog.getByText(slug, { exact: true })).toHaveAttribute('lang', 'zxx');
-      await expect(page.locator('article.more-body')).toHaveAttribute('lang', 'en');
-      await expect(page.locator('article.more-body')).toContainText('Size is the output, not an input');
+      await expect(page.locator('article[data-testid="more-body"]')).toHaveAttribute('lang', 'en');
+      await expect(page.locator('article[data-testid="more-body"]')).toContainText('Size is the output, not an input');
       await shot(page, 'review-' + locale);
       await dialog.locator('.actions button').last().click();
       await expect.poll(() => state.writes.length).toBe(1);
@@ -404,8 +404,8 @@ for (const width of [320, 390, 768])
     await page.keyboard.press('Enter');
     await expect(pathPanel(page)).toContainText('4 of 7');
     await expect(pathPanel(page).getByRole('link', { name: 'Read next required lesson', exact: true })).toBeVisible();
-    expect(await page.locator('article.more-body').evaluate((element) => getComputedStyle(element).fontSize)).toBe('16px');
-    expect(await page.locator('article.more-body').evaluate((element) => getComputedStyle(element).lineHeight)).toBe('26px');
+    expect(await page.locator('article[data-testid="more-body"]').evaluate((element) => getComputedStyle(element).fontSize)).toBe('16px');
+    expect(await page.locator('article[data-testid="more-body"]').evaluate((element) => getComputedStyle(element).lineHeight)).toBe('26px');
     await shot(page, 'completion-phone-' + width);
     expect(state.writes).toHaveLength(1);
   });
@@ -436,7 +436,7 @@ test('native session loss mid successful fresh read sends no completion and hide
   release();
   await expect(page.getByRole('heading', { name: 'Sign in to continue', exact: true })).toBeVisible();
   expect(state.writes).toEqual([]);
-  await expect(page.locator('article.more-body')).toHaveCount(0);
+  await expect(page.locator('article[data-testid="more-body"]')).toHaveCount(0);
 });
 test('native owner switch cannot display prior account progress or receipt', async ({ page, context }) => {
   const state = await network(context);
@@ -488,8 +488,8 @@ test('native original-bound grant receipt rejects wrong account without clearing
 test('native serious accessibility checks cover actual lesson and path', async ({ page, context }) => {
   await network(context);
   await login(page);
-  await expect(page.locator('article.more-body')).toBeVisible();
-  const result = await new AxeBuilder({ page }).include('.academy-learning-layout').analyze();
+  await expect(page.locator('article[data-testid="more-body"]')).toBeVisible();
+  const result = await new AxeBuilder({ page }).include('[data-testid="academy-learning-layout"]').analyze();
   expect(result.violations.filter((v) => ['critical', 'serious'].includes(v.impact))).toEqual([]);
   writeFileSync(evidence + '/axe.json', JSON.stringify(result, null, 2));
 });
@@ -575,7 +575,7 @@ for (const locale of ['es', 'fr'])
           : 'The original lesson context could not be saved. No completion was sent.';
     await expect(page.getByText(message, { exact: true })).toBeVisible();
     expect(await page.getByText(message, { exact: true }).evaluate((element) => element.closest('[lang]').lang)).toBe(locale);
-    await expect(page.locator('article.more-body')).toHaveAttribute('lang', 'en');
+    await expect(page.locator('article[data-testid="more-body"]')).toHaveAttribute('lang', 'en');
     expect(state.writes).toEqual([]);
   });
 for (const locale of ['es', 'fr'])
@@ -845,7 +845,7 @@ test('native unpublished URL certificate cannot interpret complete progress or o
   await expect(page.getByRole('button', { name: 'Request certification', exact: true })).toHaveCount(0);
   expect(state.reads.filter((r) => r.procedure === 'certProgress')).toEqual([]);
   await page.getByRole('button', { name: 'Learning', exact: true }).click();
-  await expect(page.locator('.more-room-link').first()).toBeVisible();
+  await expect(page.getByTestId('more-room-link').first()).toBeVisible();
   await expect(pathPanel(page)).not.toContainText('2 of 2');
   await expect(pathPanel(page).getByRole('link', { name: 'Read next required lesson', exact: true })).toHaveCount(0);
   expect(state.reads.filter((r) => r.procedure === 'certProgress')).toEqual([]);

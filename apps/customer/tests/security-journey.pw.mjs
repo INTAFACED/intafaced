@@ -681,7 +681,7 @@ for (const width of [320, 390, 768])
       body: document.documentElement.scrollWidth,
       viewport: innerWidth,
       rail: getComputedStyle(document.querySelector('.rail')).display,
-      doors: document.querySelector('.mobile-doors').getBoundingClientRect().top,
+      doors: document.querySelector('[data-testid="mobile-doors"]').getBoundingClientRect().top,
     }));
     expect(measure.body <= measure.viewport).toBe(true);
     const button = page.getByRole('button', { name: 'Sign out everywhere', exact: true });
@@ -692,7 +692,7 @@ for (const width of [320, 390, 768])
       .poll(async () =>
         button.evaluate((node) => {
           const r = node.getBoundingClientRect(),
-            nav = document.querySelector('.mobile-doors').getBoundingClientRect();
+            nav = document.querySelector('[data-testid="mobile-doors"]').getBoundingClientRect();
           return r.bottom <= nav.top + 1 && r.top >= 0;
         }),
       )
@@ -708,7 +708,7 @@ test('Security native keyboard review and bounded accessibility scan', async ({ 
   await expect(page.getByRole('dialog')).toContainText(credential);
   await page.keyboard.press('Escape');
   await expect(button).toBeFocused();
-  const result = await new AxeBuilder({ page }).include('.security').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  const result = await new AxeBuilder({ page }).include('[data-testid="security"]').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
   expect(result.violations.map((r) => ({ id: r.id, count: r.nodes.length }))).toEqual([]);
 });
 test('held removal fresh-read after native route departure sends no mutation or phantom guard', async ({ page, context }) => {
@@ -810,12 +810,12 @@ test('Spec2 regression older unknown stays uncertain while unrelated setup alone
   await auth(page).getByRole('button', { name: 'Start authenticator setup', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Start authenticator setup', exact: true }).click();
   await expect.poll(() => writeCount(state, 'totp.enrol')).toBe(1);
-  const oldCard = page.locator('.security__unknown').filter({ hasText: credential });
+  const oldCard = page.getByTestId('security__unknown').filter({ hasText: credential });
   await expect(oldCard.getByRole('heading', { name: 'Confirmation not received', exact: true })).toBeVisible();
   await expect(oldCard.getByRole('heading', { name: 'Sending the original action', exact: true })).toHaveCount(0);
   await expect(
     page
-      .locator('.security__unknown')
+      .getByTestId('security__unknown')
       .filter({ hasText: 'Authenticator setup' })
       .getByRole('heading', { name: 'Sending the original action', exact: true }),
   ).toBeVisible();
@@ -960,9 +960,11 @@ test('setup readiness announces only nonsecret preparation and continues keyboar
   await expect(announcement).toHaveText(readyMessage);
   await expect(announcement).toHaveAttribute('aria-live', 'polite');
   await expect(announcement).toHaveAttribute('aria-atomic', 'true');
-  expect(await originalLiveNode.evaluate((node) => node.isConnected && node === document.querySelector('.security__announcement'))).toBe(
-    true,
-  );
+  expect(
+    await originalLiveNode.evaluate(
+      (node) => node.isConnected && node === document.querySelector('[data-testid="security__announcement"]'),
+    ),
+  ).toBe(true);
   expect(await announcement.evaluate((node, secret) => !node.textContent.includes(secret), state.lastSetup.secret)).toBe(true);
   expect(await announcement.evaluate((node, uri) => !node.textContent.includes(uri), state.lastSetup.uri)).toBe(true);
   expect(state.lastSetup.recoveryCodes.some((value) => readyMessage.includes(value))).toBe(false);
@@ -1065,7 +1067,7 @@ for (const width of [320, 390, 768])
       .poll(() =>
         heading.evaluate((node) => {
           const box = node.getBoundingClientRect(),
-            doors = document.querySelector('.mobile-doors').getBoundingClientRect();
+            doors = document.querySelector('[data-testid="mobile-doors"]').getBoundingClientRect();
           return box.top >= 0 && box.bottom <= doors.top + 1 && document.documentElement.scrollWidth <= innerWidth;
         }),
       )
@@ -1079,7 +1081,7 @@ for (const width of [320, 390, 768])
       .poll(() =>
         reveal.evaluate((node) => {
           const box = node.getBoundingClientRect(),
-            doors = document.querySelector('.mobile-doors').getBoundingClientRect();
+            doors = document.querySelector('[data-testid="mobile-doors"]').getBoundingClientRect();
           return box.top >= 0 && box.bottom <= doors.top + 1 && box.height >= 44;
         }),
       )

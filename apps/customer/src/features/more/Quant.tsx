@@ -438,7 +438,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
       ) : (
         <div lang={languageFor('draft')} dir={directionFor('draft')}>
           {latestFailure && (
-            <div className="quant-latest-failure">
+            <div data-testid="quant-latest-failure" className="quant-latest-failure">
               <h3>
                 <Copy k="latestFailed" />
               </h3>
@@ -454,7 +454,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
           )}
           {action.feedback}
           {action.unresolvedId && (
-            <div className="quant-original-context">
+            <div data-testid="quant-original-context" className="quant-original-context">
               <p>
                 <Copy k="originalAttempt" />
               </p>
@@ -472,7 +472,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
               </div>
             </div>
           )}
-          <div className="quant-workbench">
+          <div data-testid="quant-workbench" className="quant-workbench">
             <div>
               <QuantHistoricalRecord snapshot={bt} view={action.viewIdentity} />
               <Button
@@ -485,7 +485,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 <Copy k="configure" />
               </Button>
             </div>
-            <div className="quant-analysis-draft" ref={draft}>
+            <div data-testid="quant-analysis-draft" className="quant-analysis-draft" ref={draft}>
               <Panel title={t('draft')}>
                 <p className="muted">
                   <Copy k="draftBody" />

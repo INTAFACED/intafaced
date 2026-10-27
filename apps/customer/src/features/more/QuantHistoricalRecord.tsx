@@ -23,8 +23,8 @@ export function QuantHistoricalRecord({ snapshot, view }: { snapshot: Historical
     </time>
   );
   return (
-    <Panel className="quant-history" title={copyText('quant.historical.result')}>
-      <div className="quant-history-body" lang={languageFor('completed')} dir={directionFor('completed')}>
+    <Panel data-testid="quant-history" className="quant-history" title={copyText('quant.historical.result')}>
+      <div data-testid="quant-history-body" className="quant-history-body" lang={languageFor('completed')} dir={directionFor('completed')}>
         {record ? (
           <>
             <header className="quant-history-header">
@@ -72,6 +72,7 @@ export function QuantHistoricalRecord({ snapshot, view }: { snapshot: Historical
                     <span lang={requestedLocale}>{count.format(record.data[part].fillCount)}</span>
                   </h4>
                   <div
+                    data-testid="quant-history-amount"
                     className="quant-history-amount"
                     tabIndex={0}
                     aria-label={t(part === 'inSample' ? 'inFills' : 'outFills') + ' · ' + t('quote')}

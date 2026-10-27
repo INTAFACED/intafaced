@@ -374,7 +374,7 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
       </Page>
     );
   return (
-    <div className="promotions" lang={languageFor('title')}>
+    <div data-testid="promotions" className="promotions" lang={languageFor('title')}>
       <Page title={t('title')} description={t('description')}>
         <p className="promotions__owner">
           <Copy k="owner" /> · <span lang="zxx">{userId}</span>
@@ -509,7 +509,7 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
         {view === 'overview' && <RewardsHub />}
         <div className={view === 'overview' ? 'promotions__columns' : 'promotions__columns promotions__columns--single'}>
           {view !== 'records' && (
-            <section className="promotions__link" aria-label={t('linkTitle')}>
+            <section data-testid="promotions__link" className="promotions__link" aria-label={t('linkTitle')}>
               <h2 ref={readyHeading} tabIndex={-1}>
                 <Copy k="linkTitle" />
               </h2>
@@ -519,7 +519,7 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
                     <Copy k="snapshot" />
                   </p>
                   {privateField(visibleLink, t('link'))}
-                  <div className="promotions__visits">
+                  <div data-testid="promotions__visits" className="promotions__visits">
                     <span>
                       <Copy k="visits" />
                     </span>

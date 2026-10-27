@@ -93,16 +93,16 @@ async function login(page, path = '/blueprint', signed = true) {
   await page.locator('input[autocomplete="current-password"]').fill('qualified-password');
   await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect(page).toHaveURL(new RegExp('/blueprint'));
-  if (signed) await expect(page.locator('.blueprint-shared')).toBeVisible();
+  if (signed) await expect(page.getByTestId('blueprint-shared')).toBeVisible();
   else await expect(page.getByText('Sign in to continue', { exact: true })).toBeVisible();
 }
-const viewer = (page) => page.locator('.blueprint-shared');
+const viewer = (page) => page.getByTestId('blueprint-shared');
 async function open(page, subject = first, size = 'portrait') {
   await viewer(page).getByRole('textbox').fill(subject);
   await viewer(page).locator('select').selectOption(size);
   await viewer(page).locator('form button[type="submit"]').click();
 }
-const image = (page) => viewer(page).locator('.blueprint-shared-image');
+const image = (page) => viewer(page).getByTestId('blueprint-shared-image');
 const reads = (state) => state.reads.filter((read) => read.proc === 'cardOf');
 async function urls(page) {
   return page.evaluate(() => window.__artifactUrls);
@@ -154,7 +154,7 @@ for (const [locale, width] of [
     await page.keyboard.press('Tab');
     await page.keyboard.press('Enter');
     await expect(image(page)).toBeVisible();
-    await expect(viewer(page).locator('.blueprint-shared-context')).toContainText(first);
+    await expect(viewer(page).getByTestId('blueprint-shared-context')).toContainText(first);
     expect(reads(state).at(-1).input).toEqual({ userId: first, size: 'portrait' });
     expect(
       await image(page).evaluate((el) => Math.abs(el.getBoundingClientRect().width / el.getBoundingClientRect().height - 0.8) < 0.01),
@@ -162,12 +162,12 @@ for (const [locale, width] of [
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     const src = await image(page).getAttribute('src');
     expect(await page.evaluate((src) => fetch(src).then((r) => r.text()), src)).toBe(samples.portrait);
-    await viewer(page).locator('.blueprint-shared-actions button').first().click();
+    await viewer(page).locator('[data-testid="blueprint-shared-actions"] button').first().click();
     await expect(page.getByRole('dialog')).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toHaveCount(0);
     const downloadEvent = page.waitForEvent('download');
-    await viewer(page).locator('.blueprint-shared-actions button').nth(1).click();
+    await viewer(page).locator('[data-testid="blueprint-shared-actions"] button').nth(1).click();
     const download = await downloadEvent;
     const path = await download.path();
     expect(readFileSync(path, 'utf8')).toBe(samples.portrait);
@@ -217,7 +217,7 @@ for (const [status, code, title] of [
     await open(page, second, 'landscape');
     await expect(viewer(page).getByRole('heading', { name: title, exact: true })).toBeVisible();
     await expect(image(page)).toHaveCount(0);
-    await expect(viewer(page).locator('.blueprint-shared-context')).toContainText(second);
+    await expect(viewer(page).getByTestId('blueprint-shared-context')).toContainText(second);
     failure = false;
     await viewer(page).getByRole('button', { name: 'Retry this card', exact: true }).click();
     await expect(image(page)).toBeVisible();
@@ -326,8 +326,8 @@ test('canonical manual departure dispatches once, refuses retained handlers and 
   await login(page, '/blueprint?discard=unused#discard');
   await viewer(page).getByRole('textbox').fill(first);
   await viewer(page).locator('select').selectOption('landscape');
-  await retain(page, '.blueprint-shared input', 'onChange', 'preDepartureEdit');
-  await retain(page, '.blueprint-shared form', 'onSubmit', 'preDepartureSubmit');
+  await retain(page, '[data-testid="blueprint-shared"] input', 'onChange', 'preDepartureEdit');
+  await retain(page, '[data-testid="blueprint-shared"] form', 'onSubmit', 'preDepartureSubmit');
   await page.evaluate(() => {
     window.preDepartureSubmit?.({ preventDefault() {} });
     window.preDepartureSubmit?.({ preventDefault() {} });
@@ -348,7 +348,7 @@ test('canonical manual departure dispatches once, refuses retained handlers and 
   await viewer(page).locator('form button[type="submit"]').click();
   await expect(image(page)).toHaveAttribute('width', '1080');
   held.release();
-  await expect(viewer(page).locator('.blueprint-shared-context')).toContainText(second);
+  await expect(viewer(page).getByTestId('blueprint-shared-context')).toContainText(second);
   await expect(viewer(page).getByRole('textbox')).toHaveValue(second);
   await expect(viewer(page).locator('select')).toHaveValue('portrait');
   expect(reads(held.state).map((read) => read.input)).toEqual([
@@ -369,7 +369,7 @@ test('held late read cannot publish over opposing current subject and size', asy
   await open(page, second, 'landscape');
   await expect(image(page)).toHaveAttribute('width', '1200');
   held.release();
-  await expect(viewer(page).locator('.blueprint-shared-context')).toContainText(second);
+  await expect(viewer(page).getByTestId('blueprint-shared-context')).toContainText(second);
   await expect(image(page)).toHaveAttribute('width', '1200');
 });
 for (const kind of ['query', 'hash', 'subject', 'size'])
@@ -378,8 +378,8 @@ for (const kind of ['query', 'hash', 'subject', 'size'])
     await login(page);
     await open(page);
     await expect(image(page)).toBeVisible();
-    await retain(page, '.blueprint-shared form', 'onSubmit', 'submitOld');
-    await retain(page, '.blueprint-shared-actions button:nth-child(2)', 'onClick', 'downloadOld');
+    await retain(page, '[data-testid="blueprint-shared"] form', 'onSubmit', 'submitOld');
+    await retain(page, '[data-testid="blueprint-shared-actions"] button:nth-child(2)', 'onClick', 'downloadOld');
     const before = reads(state).length;
     await page.evaluate((kind) => {
       const original = location.href,
@@ -405,9 +405,9 @@ test('same-turn draft subject and size ABA refuses retained edits, submit and ar
   await login(page);
   await open(page);
   await expect(image(page)).toBeVisible();
-  await retain(page, '.blueprint-shared input', 'onChange', 'editOld');
-  await retain(page, '.blueprint-shared form', 'onSubmit', 'submitOld');
-  await retain(page, '.blueprint-shared-actions button:first-child', 'onClick', 'fullOld');
+  await retain(page, '[data-testid="blueprint-shared"] input', 'onChange', 'editOld');
+  await retain(page, '[data-testid="blueprint-shared"] form', 'onSubmit', 'submitOld');
+  await retain(page, '[data-testid="blueprint-shared-actions"] button:first-child', 'onClick', 'fullOld');
   await invoke(page, 'editOld', second);
   await viewer(page).getByRole('textbox').fill(first);
   await viewer(page).locator('select').selectOption('landscape');
@@ -431,11 +431,11 @@ test('captured retry and image failure cannot clobber a fresh same-context inten
   await login(page);
   await open(page);
   await expect(viewer(page).getByRole('button', { name: 'Retry this card', exact: true })).toBeVisible();
-  await retain(page, '.blueprint-shared-failure button', 'onClick', 'retryOld');
+  await retain(page, '[data-testid="blueprint-shared-failure"] button', 'onClick', 'retryOld');
   broken = false;
   await viewer(page).getByRole('button', { name: 'Retry this card', exact: true }).click();
   await expect(image(page)).toBeVisible();
-  await retain(page, '.blueprint-shared-image', 'onError', 'errorOld');
+  await retain(page, '[data-testid="blueprint-shared-image"]', 'onError', 'errorOld');
   await open(page, second, 'landscape');
   await expect(image(page)).toHaveAttribute('width', '1200');
   const before = reads(state).length;
@@ -462,7 +462,7 @@ test('actual same-turn Sign out refuses retained lookup before React finishes se
   await login(page);
   await open(page);
   await expect(image(page)).toBeVisible();
-  await retain(page, '.blueprint-shared form', 'onSubmit', 'submitOld');
+  await retain(page, '[data-testid="blueprint-shared"] form', 'onSubmit', 'submitOld');
   const before = reads(state).length;
   await page.getByRole('button', { name: 'Open person menu', exact: true }).click();
   await page.evaluate(() => {
@@ -569,7 +569,7 @@ test('rendered actor/API/token changes reject an old retained viewer handler aft
   await login(page);
   await open(page);
   await expect(image(page)).toBeVisible();
-  await retain(page, '.blueprint-shared form', 'onSubmit', 'originalActorSubmit');
+  await retain(page, '[data-testid="blueprint-shared"] form', 'onSubmit', 'originalActorSubmit');
   await page.getByRole('button', { name: 'Open person menu', exact: true }).click();
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
   state.owner = second;
@@ -618,7 +618,7 @@ test('coalesced native hash assignments reject the old lookup before queued hash
   await expect(image(page)).toBeVisible();
   await page.evaluate(() => history.replaceState(null, '', location.pathname + location.search + '#native-original'));
   await expect(image(page)).toBeVisible();
-  await retain(page, '.blueprint-shared form', 'onSubmit', 'oldNativeHashSubmit');
+  await retain(page, '[data-testid="blueprint-shared"] form', 'onSubmit', 'oldNativeHashSubmit');
   const before = reads(state).length;
   await page.evaluate(() => {
     const original = location.href;

@@ -67,7 +67,7 @@ try {
           assert((await details.innerText()).includes(failure.json.error.message));
           const before = reads;
           await page.getByRole('button', { name: 'Try again', exact: true }).click();
-          await page.waitForFunction(() => !document.querySelector('.loading'));
+          await page.waitForFunction(() => !document.querySelector('[data-testid="loading"]'));
           await page.getByRole('heading', { name: title, exact: true }).waitFor();
           assert(reads > before, 'Retry must repeat a GET');
         }

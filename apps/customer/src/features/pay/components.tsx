@@ -173,7 +173,7 @@ export function PayPagination({
 }
 export function PayDetails({ values }: { values: [string, ReactNode, string?][] }) {
   return (
-    <dl className="pay-details">
+    <dl data-testid="pay-details" className="pay-details">
       {values.map(([label, value, labelLanguage]) => (
         <div key={label} className={isValidElement(value) && value.type === PayAmount ? 'pay-details-amount' : undefined}>
           <dt lang={labelLanguage}>{label}</dt>
@@ -206,6 +206,7 @@ export function PayAmount({ value, unit, label }: { value: string; unit: string;
     <span className="pay-exact-amount">
       <span className="pay-amount-value">
         <span
+          data-testid="pay-amount-scroll"
           className="pay-amount-scroll"
           ref={viewport}
           tabIndex={overflows ? 0 : undefined}
@@ -226,6 +227,7 @@ export function PayAmount({ value, unit, label }: { value: string; unit: string;
           }}
         >
           <span
+            data-testid="pay-amount-digits"
             className="pay-amount-digits numeric"
             ref={digits}
             lang="zxx"
@@ -242,7 +244,7 @@ export function PayAmount({ value, unit, label }: { value: string; unit: string;
             <Amount value={displayed} sensitive={false} />
           </span>
         </span>{' '}
-        <span className="pay-amount-unit" lang="zxx">
+        <span data-testid="pay-amount-unit" className="pay-amount-unit" lang="zxx">
           {unit}
         </span>
       </span>

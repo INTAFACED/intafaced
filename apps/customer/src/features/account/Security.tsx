@@ -575,7 +575,7 @@ export function Security() {
   const sessionBlocked = familyBlocked(journal, 'sessions');
   const uncertainty = journal.records.filter((row) => row.state === 'sent');
   return (
-    <div lang={languageFor('title')} className="security">
+    <div lang={languageFor('title')} data-testid="security" className="security">
       <Page title={<Copy k="title" />} description={<Copy k="description" />}>
         <VerifyEmail />
         <SecurityChecklist revision={methodsRevision} />
@@ -592,7 +592,7 @@ export function Security() {
             activeStage.record.kind === record.kind;
           const heading = sending ? 'sent' : retained ? 'guardRetained' : preparation ? 'preparationUnknown' : 'unknown';
           return (
-            <section key={record.requestId} className="security__unknown stack" aria-label={t(heading)}>
+            <section key={record.requestId} data-testid="security__unknown" className="security__unknown stack" aria-label={t(heading)}>
               <h2>
                 <Copy k={heading} />
               </h2>
@@ -712,7 +712,7 @@ export function Security() {
             <p>
               <Copy k="authenticatorBody" />
             </p>
-            <p className="security__announcement" role="status" aria-live="polite" aria-atomic="true">
+            <p data-testid="security__announcement" className="security__announcement" role="status" aria-live="polite" aria-atomic="true">
               {visibleSetup && !codesShown ? <Copy k="setupReady" /> : null}
             </p>
             {visibleSetup ? (
@@ -838,7 +838,7 @@ export function Security() {
                 <Copy k="blockedSessions" />
               </p>
             )}
-            <fieldset className="security__session-inspection" disabled={sessionBlocked}>
+            <fieldset data-testid="security__session-inspection" className="security__session-inspection" disabled={sessionBlocked}>
               <IdentitySessions key={`${userId}:${seatVersion}:${sessionBlocked ? 'readonly' : 'writable'}`} />
             </fieldset>
             {sessionBlocked && (

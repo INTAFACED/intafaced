@@ -170,12 +170,12 @@ async function capture(page, state, name) {
     width: innerWidth,
     scrollWidth: document.documentElement.scrollWidth,
     scrollY,
-    footerTop: document.querySelector('.mobile-doors')?.getClientRects().length
-      ? document.querySelector('.mobile-doors').getBoundingClientRect().top
+    footerTop: document.querySelector('[data-testid="mobile-doors"]')?.getClientRects().length
+      ? document.querySelector('[data-testid="mobile-doors"]').getBoundingClientRect().top
       : innerHeight,
-    selected: n.querySelector('.money-selected-ramp')?.getBoundingClientRect().toJSON(),
-    facts: n.querySelector('.money-ramp-facts')?.getBoundingClientRect().toJSON(),
-    first: n.querySelector('.money-ramp-record')?.getBoundingClientRect().toJSON(),
+    selected: n.querySelector('[data-testid="money-selected-ramp"]')?.getBoundingClientRect().toJSON(),
+    facts: n.querySelector('[data-testid="money-ramp-facts"]')?.getBoundingClientRect().toJSON(),
+    first: n.querySelector('[data-testid="money-ramp-record"]')?.getBoundingClientRect().toJSON(),
     heading: n.querySelector('#money-selected-ramp-heading')?.getBoundingClientRect().toJSON(),
     active: document.activeElement?.id,
     dom: n.outerHTML,
@@ -192,7 +192,7 @@ const select = async (page, id, keyboard = false) => {
     await b.focus();
     await page.keyboard.press('Enter');
   } else await b.click();
-  await expect(page.locator('.money-selected-ramp')).toContainText(id);
+  await expect(page.getByTestId('money-selected-ramp')).toContainText(id);
 };
 test('current owner incoming and outgoing inspection preserves whole reference and exact quantity at four widths', async ({ browser }) => {
   for (const direction of ['in', 'out'])
@@ -204,11 +204,11 @@ test('current owner incoming and outgoing inspection preserves whole reference a
           await login(page);
           if (direction === 'out') await page.getByRole('button', { name: 'Outgoing', exact: true }).click();
           const row = state.rows[direction][0];
-          await expect(page.locator('.money-ramp-record')).toHaveCount(20);
+          await expect(page.getByTestId('money-ramp-record')).toHaveCount(20);
           const before = await capture(page, state, direction + '-list-' + width);
           expect(before.first.bottom).toBeLessThanOrEqual(before.footerTop);
           await select(page, row.id, width !== 320);
-          const panel = page.locator('.money-selected-ramp');
+          const panel = page.getByTestId('money-selected-ramp');
           await expect(panel).toContainText('12.345678901234567801');
           await expect(panel).toContainText('USDT');
           await expect(panel).toContainText('pending');
@@ -240,11 +240,11 @@ test('current record reads retire facts on failure missing conflict and malforme
     await login(page);
     const row = state.rows.in[0];
     await select(page, row.id);
-    const panel = page.locator('.money-selected-ramp');
+    const panel = page.getByTestId('money-selected-ramp');
     state.reply = async () => state.refusal(400, 'bank.ramp_read_unavailable', 'Isolated current record read failed');
     await page.getByRole('button', { name: 'Refresh records', exact: true }).click();
     await expect(panel).toContainText('Isolated current record read failed');
-    await expect(panel.locator('.money-ramp-facts')).toHaveCount(0);
+    await expect(panel.getByTestId('money-ramp-facts')).toHaveCount(0);
     await expect(panel).toContainText(row.id);
     await capture(page, state, 'current-read-failure-320');
     state.reply = async () => ({ status: 200, data: [row] });
@@ -257,16 +257,16 @@ test('current record reads retire facts on failure missing conflict and malforme
     state.reply = async () => ({ status: 200, data: [row, { ...row, id: row.id.toUpperCase() }] });
     await panel.getByRole('button', { name: 'Refresh records', exact: true }).click();
     await expect(panel).toContainText('Record could not be identified');
-    await expect(panel.locator('.money-ramp-facts')).toHaveCount(0);
+    await expect(panel.getByTestId('money-ramp-facts')).toHaveCount(0);
     state.reply = async () => ({ status: 200, data: [{ ...row, amount: 12.3 }] });
     await panel.getByRole('button', { name: 'Refresh records', exact: true }).click();
-    await expect(panel.locator('.money-ramp-facts')).toHaveCount(0);
+    await expect(panel.getByTestId('money-ramp-facts')).toHaveCount(0);
     await expect(panel).not.toContainText(row.railRef);
     state.reply = async () => ({ status: 200, data: [row] });
     await panel.getByRole('button', { name: 'Try again', exact: true }).click();
     await expect(panel).toContainText(row.railRef);
     await page.getByRole('button', { name: 'All records', exact: true }).click();
-    await expect(page.locator('.money-selected-ramp')).toHaveCount(0);
+    await expect(page.getByTestId('money-selected-ramp')).toHaveCount(0);
     await expect(page.locator('#money-ramp-list-heading')).toBeFocused();
 
     expect(state.documents).toHaveLength(1);
@@ -277,17 +277,17 @@ test('current record reads retire facts on failure missing conflict and malforme
     async ({ page, state }) => {
       state.rows.in = records('in', 200);
       await login(page);
-      await expect(page.locator('.money-ramp-record')).toHaveCount(50);
+      await expect(page.getByTestId('money-ramp-record')).toHaveCount(50);
       for (const count of [100, 150, 200]) {
         await page.getByRole('button', { name: 'Load up to ' + count, exact: true }).click();
-        await expect(page.locator('.money-ramp-record')).toHaveCount(count);
+        await expect(page.getByTestId('money-ramp-record')).toHaveCount(count);
       }
       await expect(page.getByRole('button', { name: /^Load up to / })).toHaveCount(0);
       const limits = state.reads.filter((r) => r.procedure === 'ramps.onramps').map((r) => r.input.limit);
       expect(limits.filter((v, i) => i === 0 || limits[i - 1] !== v)).toEqual([50, 100, 150, 200]);
       expect(limits.every((v) => [50, 100, 150, 200].includes(v))).toBe(true);
       await select(page, state.rows.in[199].id, true);
-      await expect(page.locator('.money-selected-ramp')).toContainText(state.rows.in[199].railRef);
+      await expect(page.getByTestId('money-selected-ramp')).toContainText(state.rows.in[199].railRef);
     },
     1440,
   );
@@ -297,7 +297,7 @@ test('URL departures late responses and owner changes retire inspector handlers 
   await scenario(browser, 'url-and-late-response', async ({ page, state }) => {
     await login(page);
     const row = state.rows.in[0];
-    await expect(page.locator('.money-ramp-record')).toHaveCount(20);
+    await expect(page.getByTestId('money-ramp-record')).toHaveCount(20);
     await page.getByRole('button', { name: 'Inspect rail record ' + row.id, exact: true }).evaluate((b) => {
       const p = Object.keys(b).find((k) => k.startsWith('__reactProps$'));
       if (!p || typeof b[p].onClick !== 'function') throw Error('Current native inspector handler unavailable');
@@ -310,8 +310,8 @@ test('URL departures late responses and owner changes retire inspector handlers 
       dispatchEvent(new PopStateEvent('popstate'));
       window.__savedRailInspect();
     });
-    await expect(page.locator('.money-selected-ramp')).toHaveCount(0);
-    await expect(page.locator('.money-ramp-record')).toHaveCount(20);
+    await expect(page.getByTestId('money-selected-ramp')).toHaveCount(0);
+    await expect(page.getByTestId('money-ramp-record')).toHaveCount(20);
     await select(page, row.id);
     let finish;
     state.reply = (direction) =>
@@ -323,11 +323,11 @@ test('URL departures late responses and owner changes retire inspector handlers 
     await page.getByRole('button', { name: 'Refresh records', exact: true }).click();
     await expect.poll(() => typeof finish).toBe('function');
     await page.getByRole('button', { name: 'Outgoing', exact: true }).click();
-    await expect(page.locator('.money-ramp-record')).toHaveCount(20);
+    await expect(page.getByTestId('money-ramp-record')).toHaveCount(20);
     finish({ status: 200, data: [{ ...row, railRef: 'retired-private-rail-reference' }] });
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     await expect(page.locator('#main')).not.toContainText('retired-private-rail-reference');
-    await expect(page.locator('.money-selected-ramp')).toHaveCount(0);
+    await expect(page.getByTestId('money-selected-ramp')).toHaveCount(0);
     await capture(page, state, 'late-prior-direction-320');
   });
   const originalKey = 'intafaced.customer.bank-unconfirmed.v1:' + owner;
@@ -362,7 +362,7 @@ test('URL departures late responses and owner changes retire inspector handlers 
       });
       await page.getByRole('button', { name: 'Open person menu', exact: true }).click();
       await page.getByRole('button', { name: 'Sign out', exact: true }).click();
-      await expect(page.locator('.money-ramp-record')).toHaveCount(0);
+      await expect(page.getByTestId('money-ramp-record')).toHaveCount(0);
       state.owner = '22222222-2222-4222-8222-222222222222';
       state.rows = { in: records('in', 20, state.owner), out: records('out', 20, state.owner) };
       await page.evaluate(() => {
@@ -372,9 +372,9 @@ test('URL departures late responses and owner changes retire inspector handlers 
       await page.locator('input[name="identifier"]').fill('other-owner@example.invalid');
       await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
       await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
-      await expect(page.locator('.money-ramp-record')).toHaveCount(20);
+      await expect(page.getByTestId('money-ramp-record')).toHaveCount(20);
       await page.evaluate(() => window.__savedRailInspect());
-      await expect(page.locator('.money-selected-ramp')).toHaveCount(0);
+      await expect(page.getByTestId('money-selected-ramp')).toHaveCount(0);
       await expect(page.locator('#main')).not.toContainText(row.id);
       expect(await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), originalKey)).toEqual(saved);
       await capture(page, state, 'new-owner-retired-inspector-390');
@@ -399,7 +399,7 @@ test('passive display changes long references and unreadable original storage pr
       await login(page);
       const row = state.rows.in[0];
       await select(page, row.id);
-      const panel = page.locator('.money-selected-ramp');
+      const panel = page.getByTestId('money-selected-ramp');
       const focused = panel.locator('header button');
       await focused.focus();
       const peer = await context.newPage();
@@ -415,15 +415,15 @@ test('passive display changes long references and unreadable original storage pr
       };
       for (const language of ['es', 'fr', 'ar']) {
         await preferences(language, true);
-        await expect(panel.locator('.numeric')).toHaveText('••••');
+        await expect(panel.getByTestId('numeric')).toHaveText('••••');
         await expect(panel).not.toContainText(row.amount);
         await expect(panel).toContainText(row.railRef);
-        await expect(page.locator('.money-rail-window')).toHaveAttribute('lang', language === 'ar' ? 'en' : language);
-        await expect(page.locator('.money-rail-window')).toHaveAttribute('dir', 'ltr');
+        await expect(page.getByTestId('money-rail-window')).toHaveAttribute('lang', language === 'ar' ? 'en' : language);
+        await expect(page.getByTestId('money-rail-window')).toHaveAttribute('dir', 'ltr');
         await expect(focused).toBeFocused();
       }
       await preferences('en', false);
-      await expect(panel.locator('.numeric')).toHaveText(row.amount);
+      await expect(panel.getByTestId('numeric')).toHaveText(row.amount);
       await expect(focused).toBeFocused();
       const refresh = page.getByRole('button', { name: 'Refresh records', exact: true });
       state.rows.in = [{ ...row, railRef: 'current-response-reference' }];
@@ -446,22 +446,22 @@ test('passive display changes long references and unreadable original storage pr
     state.rows.in = [row];
     await login(page);
     await select(page, row.id, true);
-    const panel = page.locator('.money-selected-ramp');
+    const panel = page.getByTestId('money-selected-ramp');
     await expect(panel).toContainText(row.assetId);
     await expect(panel).toContainText(row.railRef);
-    await expect(panel.locator('.numeric')).toHaveText('12,345,678,901,234,567,890.123456789012345678');
+    await expect(panel.getByTestId('numeric')).toHaveText('12,345,678,901,234,567,890.123456789012345678');
     const frame = await capture(page, state, 'long-selected-320');
     expect(frame.scrollWidth).toBeLessThanOrEqual(320);
     expect(frame.heading.top).toBeGreaterThanOrEqual(0);
-    await panel.locator('.money-ramp-notes p').last().scrollIntoViewIfNeeded();
+    await panel.locator('[data-testid="money-ramp-notes"] p').last().scrollIntoViewIfNeeded();
     await page.evaluate(() => scrollBy(0, 84));
-    const last = await panel.locator('.money-ramp-notes p').last().boundingBox();
+    const last = await panel.locator('[data-testid="money-ramp-notes"] p').last().boundingBox();
     expect(last.y + last.height).toBeLessThanOrEqual(775);
     state.rows.in = [{ ...row, assetId: '', railRef: '', rail: '', status: '' }];
     await page.getByRole('button', { name: 'Refresh records', exact: true }).click();
     await expect(panel).toContainText('Asset not returned');
     await expect(panel).toContainText('Value not returned');
-    await expect(panel.locator('.numeric')).toHaveCount(0);
+    await expect(panel.getByTestId('numeric')).toHaveCount(0);
     await capture(page, state, 'missing-values-320');
   });
   await scenario(
@@ -470,7 +470,7 @@ test('passive display changes long references and unreadable original storage pr
     async ({ page, state }) => {
       await login(page);
       await select(page, state.rows.in[0].id);
-      await expect(page.locator('.money-selected-ramp')).toContainText(state.rows.in[0].railRef);
+      await expect(page.getByTestId('money-selected-ramp')).toContainText(state.rows.in[0].railRef);
       await capture(page, state, 'unreadable-original-inspection-320');
     },
     320,
@@ -496,7 +496,7 @@ test('funding destinations remain reachable by keyboard without discarding the u
       target.endsWith('recharge') ? 'deposit-destination-320' : 'withdrawal-destination-320',
       async ({ page, state }) => {
         await login(page);
-        await expect(page.locator('.money-ramp-record')).toHaveCount(20);
+        await expect(page.getByTestId('money-ramp-record')).toHaveCount(20);
         for (const path of [
           '/bank',
           '/bank/spaces',
@@ -508,13 +508,13 @@ test('funding destinations remain reachable by keyboard without discarding the u
           '/bank/analytics',
           '/bank/business',
         ])
-          await expect(page.locator('.money-bank-nav a[href="' + path + '"]')).toHaveCount(1);
-        await page.locator('.money-ramp-entry a[href="' + target + '"]').focus();
+          await expect(page.locator('[data-testid="money-bank-nav"] a[href="' + path + '"]')).toHaveCount(1);
+        await page.locator('[data-testid="money-ramp-entry"] a[href="' + target + '"]').focus();
         await page.keyboard.press('Enter');
         await expect(page).toHaveURL(new URL(target, process.env.RAIL_RECORDS_BASE_URL).href);
         await expect(page.locator('#main h1')).toBeVisible();
         await expect(page.locator('#main')).toBeFocused();
-        await expect(page.locator('.money-ramp-record')).toHaveCount(0);
+        await expect(page.getByTestId('money-ramp-record')).toHaveCount(0);
         expect(await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), key)).toEqual(saved);
         await capture(page, state, target.endsWith('recharge') ? 'deposit-arrival-320' : 'withdrawal-arrival-320');
       },

@@ -173,7 +173,7 @@ export function BlueprintSharedCard({ path }: { path: string }) {
   const modal = full && fullRef.current === full && artifactCurrent(full.artifact) ? full : null;
   const parsed = sharedCardSelection.safeParse(draft);
   return (
-    <section className="blueprint-shared" aria-label={t('title')} lang={languageFor('title')}>
+    <section data-testid="blueprint-shared" className="blueprint-shared" aria-label={t('title')} lang={languageFor('title')}>
       <Panel title={t('title')}>
         <p className="muted">{t('intro')}</p>
         <form
@@ -218,7 +218,7 @@ export function BlueprintSharedCard({ path }: { path: string }) {
         </form>
         {selected && dimensions && (
           <div className={`blueprint-shared-result ${selected.size}`}>
-            <div className="blueprint-shared-context">
+            <div data-testid="blueprint-shared-context" className="blueprint-shared-context">
               <span className="muted">{t('requested')}</span>
               <code>{selected.userId}</code>
               <span className="muted">
@@ -229,6 +229,7 @@ export function BlueprintSharedCard({ path }: { path: string }) {
             {artifact && (
               <>
                 <img
+                  data-testid="blueprint-shared-image"
                   className="blueprint-shared-image"
                   src={artifact.url}
                   alt={t('alt')}
@@ -243,7 +244,7 @@ export function BlueprintSharedCard({ path }: { path: string }) {
                     setView({ status: 'failed', intent: artifact.intent, failure: 'invalidResponse' });
                   }}
                 />
-                <div className="blueprint-shared-actions">
+                <div data-testid="blueprint-shared-actions" className="blueprint-shared-actions">
                   <Button
                     variant="secondary"
                     onClick={() => {
@@ -288,7 +289,7 @@ export function BlueprintSharedCard({ path }: { path: string }) {
               </>
             )}
             {failure && (
-              <div className="blueprint-shared-failure" role="status">
+              <div data-testid="blueprint-shared-failure" className="blueprint-shared-failure" role="status">
                 <h3>{t(failure.failure === 'unsafe' ? 'invalidResponse' : failure.failure)}</h3>
                 <p>
                   {t(

@@ -164,9 +164,9 @@ export function P2POrder({
     if (result.ok) query.reload();
   }
   return (
-    <div className="p2p-order" lang={languageFor('seller')} dir={directionFor('seller')}>
+    <div data-testid="p2p-order" className="p2p-order" lang={languageFor('seller')} dir={directionFor('seller')}>
       {locked && (
-        <section className="p2p-original" aria-labelledby="p2p-original-heading">
+        <section data-testid="p2p-original" className="p2p-original" aria-labelledby="p2p-original-heading">
           <h2 id="p2p-original-heading" ref={heading} tabIndex={-1}>
             <Copy k="original" />
           </h2>
@@ -191,7 +191,7 @@ export function P2POrder({
       )}
       {recovery &&
         (recovery.ok ? (
-          <section className="p2p-original-result" role="status">
+          <section data-testid="p2p-original-result" className="p2p-original-result" role="status">
             <h2>
               <Copy k="checked" />
             </h2>
@@ -216,9 +216,9 @@ export function P2POrder({
           const held = ['escrowed', 'fiat_sent', 'disputed'].includes(trade.status);
           return (
             <div className="p2p-order-columns">
-              <div className="p2p-order-core">
+              <div data-testid="p2p-order-core" className="p2p-order-core">
                 <header data-testid="p2p-order-identity" className="p2p-order-identity">
-                  <div className="p2p-order-role">
+                  <div data-testid="p2p-order-role" className="p2p-order-role">
                     <strong>
                       <Copy k={seller ? 'seller' : 'buyer'} />
                     </strong>
@@ -280,7 +280,7 @@ export function P2POrder({
                 {renderActions(trade, query.reload, locked, outcome)}
               </div>
               <div className="p2p-order-secondary">
-                <details className="p2p-order-facts">
+                <details data-testid="p2p-order-facts" className="p2p-order-facts">
                   <summary>
                     <Copy k="details" />
                   </summary>

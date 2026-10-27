@@ -102,7 +102,7 @@ export function RankPerks() {
     if (resource.status !== 'failed') return null;
     const failure = resource.failure;
     return (
-      <div className="rank-perks__failure" role="status">
+      <div data-testid="rank-perks__failure" className="rank-perks__failure" role="status">
         <h3>
           <Copy k={half === 'rank' ? 'failedRank' : 'failedPerks'} />
         </h3>
@@ -131,7 +131,7 @@ export function RankPerks() {
   const benefit = perks.resource.status === 'ready' ? perks.resource.data : null;
   return (
     <section data-testid="rank-perks" className="rank-perks" aria-label={t('title')}>
-      <section className="rank-perks__rank" aria-labelledby={`${id}-rank`}>
+      <section data-testid="rank-perks__rank" className="rank-perks__rank" aria-labelledby={`${id}-rank`}>
         <header className="rank-perks__heading">
           <h2 id={`${id}-rank`}>
             <Copy k="rank" />
@@ -166,7 +166,7 @@ export function RankPerks() {
           </>
         )}
       </section>
-      <section className="rank-perks__perks" aria-labelledby={`${id}-perks`}>
+      <section data-testid="rank-perks__perks" className="rank-perks__perks" aria-labelledby={`${id}-perks`}>
         <header className="rank-perks__heading">
           <h2 id={`${id}-perks`}>
             <Copy k="perks" />

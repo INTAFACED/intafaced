@@ -198,9 +198,9 @@ export function PublicHelp() {
   const titleLanguage =
     article && !switchedOff ? (rendered(article).titleLanguage ?? languageFor('textUnavailable')) : languageFor('title');
   const original = selection.kind === 'article' && (
-    <div className="help__original">
+    <div data-testid="help__original" className="help__original">
       <p className="muted">{t('requestedArticle')}</p>
-      <p lang="und" className="help__private">
+      <p lang="und" data-testid="help__private" className="help__private">
         {selection.id}
       </p>
       <p className="muted">
@@ -218,20 +218,20 @@ export function PublicHelp() {
     <div className="help__side">
       <ContactSupport />
       {articleRecovery && (
-        <a href="/findPwd" className="help__link text-link">
+        <a href="/findPwd" data-testid="help__link" className="help__link text-link">
           {t('recovery')}
         </a>
       )}
     </div>
   );
   return (
-    <div className="help" lang={languageFor('title')}>
+    <div data-testid="help" className="help" lang={languageFor('title')}>
       {selection.kind !== 'browse' && !switchedOff && (
-        <a href="/help" className="help__link text-link">
+        <a href="/help" data-testid="help__link" className="help__link text-link">
           {t('back')}
         </a>
       )}
-      <header className="help__heading">
+      <header data-testid="help__heading" className="help__heading">
         <h1 ref={heading} tabIndex={-1} lang={titleLanguage}>
           {title}
         </h1>
@@ -246,7 +246,7 @@ export function PublicHelp() {
               </>
             )}{' '}
             ·{' '}
-            <span lang="und" className="help__private">
+            <span lang="und" data-testid="help__private" className="help__private">
               {article.id}
             </span>
           </p>
@@ -294,7 +294,7 @@ export function PublicHelp() {
         <>
           <section className="help__card help__measure">
             <p>{t('invalidBody')}</p>
-            <a href="/help" className="help__link text-link">
+            <a href="/help" data-testid="help__link" className="help__link text-link">
               {t('browse')}
             </a>
           </section>
@@ -347,15 +347,16 @@ export function PublicHelp() {
               )}
               {loaded && (
                 <>
-                  <div className="help__list">
+                  <div data-testid="help__list" className="help__list">
                     {articles.map((row) => {
                       const text = rendered(row);
                       return (
                         <article data-testid="help__row" className="help__row" key={row.id}>
-                          <div className="help__row-heading">
+                          <div data-testid="help__row-heading" className="help__row-heading">
                             <h2 lang={text.titleLanguage ?? languageFor('textUnavailable')}>{text.title ?? t('textUnavailable')}</h2>
                             <a
                               href={helpHref(row.id, helpVersion(row))}
+                              data-testid="help__link"
                               className="help__link text-link"
                               aria-label={`${t('readAnswer')}: ${text.title ?? t('textUnavailable')}`}
                             >
@@ -380,7 +381,7 @@ export function PublicHelp() {
                     })}
                   </div>
                   {!articles.length && !ranking && (
-                    <div className="help__empty" role="status">
+                    <div data-testid="help__empty" className="help__empty" role="status">
                       <h2>{t(loaded.articles.length ? 'noMatches' : 'empty')}</h2>
                       <p className="muted">{t(loaded.articles.length ? 'noMatchesBody' : 'emptyBody')}</p>
                       {typed && <RequestEntry query={typed} found={false} contact />}
@@ -428,7 +429,7 @@ export function PublicHelp() {
               </article>
               {selection.version !== undefined && (
                 <div className="help__measure help__latest">
-                  <a href={helpHref(selection.id)} className="help__link text-link">
+                  <a href={helpHref(selection.id)} data-testid="help__link" className="help__link text-link">
                     {t('readLatest')}
                   </a>
                   <p className="help__caption muted">{t('latestBoundary')}</p>
@@ -482,7 +483,7 @@ export function PublicHelp() {
                 </section>
               )}
               {selection.version !== undefined && (
-                <a href={helpHref(selection.id)} className="help__link text-link">
+                <a href={helpHref(selection.id)} data-testid="help__link" className="help__link text-link">
                   {t('readLatest')}
                 </a>
               )}

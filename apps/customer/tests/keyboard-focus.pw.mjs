@@ -36,7 +36,7 @@ const failure = (route) =>
     status: 503,
     json: { error: { message: 'Original English market read unavailable', data: { code: 'acceptance.unavailable' } } },
   });
-const room = (page) => page.locator('.market-purchases');
+const room = (page) => page.getByTestId('market-purchases');
 const detail = (page) => room(page).getByRole('region', { name: 'Selected original purchase', exact: true });
 const access = (page) => room(page).getByRole('region', { name: 'Current subscription access', exact: true });
 async function network(page, handlers = {}, identity = () => owner) {
@@ -88,7 +88,7 @@ async function frames(page) {
 async function geometry(target) {
   return target.evaluate((el) => {
     const r = el.getBoundingClientRect(),
-      nav = document.querySelector('.mobile-doors')?.getBoundingClientRect();
+      nav = document.querySelector('[data-testid="mobile-doors"]')?.getBoundingClientRect();
     const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
     return {
       top: r.top,
@@ -130,7 +130,7 @@ for (const startingWidth of [320, 390, 1440])
     expect(after.top).toBeGreaterThanOrEqual(0);
     expect(after.bottom).toBeLessThanOrEqual(after.usableBottom);
     expect(after.height).toBeGreaterThanOrEqual(44);
-    await expect(detail(page).locator('.market-purchases-reference')).toHaveText(original);
+    await expect(detail(page).getByTestId('market-purchases-reference')).toHaveText(original);
     expect(calls.reads.filter((x) => x.proc === 'subscriptionAccess')).toEqual([]);
     expect(await page.evaluate((key) => localStorage.getItem(key), markerKey)).toBeNull();
     await page.keyboard.press('Enter');
@@ -138,7 +138,7 @@ for (const startingWidth of [320, 390, 1440])
     expect(calls.reads.filter((x) => x.proc === 'subscriptionAccess')).toEqual([
       { proc: 'subscriptionAccess', input: { listingId: listing } },
     ]);
-    await expect(detail(page).locator('.market-purchases-reference')).toHaveText(original);
+    await expect(detail(page).getByTestId('market-purchases-reference')).toHaveText(original);
     expect(marketWrites(calls)).toEqual([]);
     expect(calls.errors).toEqual([]);
   });
@@ -190,7 +190,7 @@ test('pointer focus and mobile navigation keep native scroll and destinations', 
   await frames(page);
   expect(await page.evaluate(() => scrollY)).toBe(before);
   await expect(summary).toBeFocused();
-  const doors = page.locator('.mobile-doors a');
+  const doors = page.locator('[data-testid="mobile-doors"] a');
   const hrefs = await doors.evaluateAll((links) => links.map((link) => link.getAttribute('href')));
   expect(hrefs).toEqual(['/money', '/exchange', '/pay', '/more']);
   await doors.first().focus();

@@ -130,7 +130,7 @@ async function network(context, options = {}) {
   context.pages().forEach((page) => page.on('download', () => state.downloads++));
   return state;
 }
-const panel = (page) => page.locator('.blueprint-crew');
+const panel = (page) => page.getByTestId('blueprint-crew');
 const exportCount = (state) => state.reads.filter((proc) => proc === 'export').length;
 async function signIn(page, destination = '/blueprint?crew=own') {
   await page.goto('/login?redirect=' + encodeURIComponent(destination));
@@ -164,8 +164,8 @@ test('deliberate initial read exposes actual membership/roster/exact XP with no 
   await currentRead(page);
   await expect(panel(page).getByText('Northline', { exact: true })).toBeVisible();
   await expect(panel(page).getByText('-9007199254740993', { exact: true })).toBeVisible();
-  await expect(panel(page).locator('.blueprint-crew-roster')).toContainText(peer);
-  await expect(panel(page).locator('.blueprint-crew-identity')).toContainText('Builder');
+  await expect(panel(page).getByTestId('blueprint-crew-roster')).toContainText(peer);
+  await expect(panel(page).getByTestId('blueprint-crew-identity')).toContainText('Builder');
   await expect(panel(page)).toContainText('2 of 6');
   await expect(panel(page)).toContainText('not a live update time');
   await expect(panel(page).locator('[lang="und"]')).toHaveText('Northline');
@@ -191,7 +191,7 @@ for (const [width, language, title, button, role] of [
     await action.focus();
     await page.keyboard.press('Enter');
     await expect(panel(page)).toContainText(role);
-    await expect(panel(page).locator('.blueprint-crew-note')).toBeVisible();
+    await expect(panel(page).getByTestId('blueprint-crew-note')).toBeVisible();
     await panel(page).getByRole('button').scrollIntoViewIfNeeded();
     const box = await panel(page).getByRole('button').boundingBox();
     expect(box.height).toBeGreaterThanOrEqual(44);
@@ -234,12 +234,12 @@ test('malformed displayed timestamps refuse the old snapshot and keep current re
     await panel(page).getByRole('button', { name: 'Read again', exact: true }).click();
     await expect(panel(page)).toContainText('Crew information can’t be verified');
     await expect(panel(page)).not.toContainText('Northline');
-    await expect(panel(page).locator('.blueprint-crew-roster')).toHaveCount(0);
+    await expect(panel(page).getByTestId('blueprint-crew-roster')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Reload the app', exact: true })).toHaveCount(0);
     state.exportReply = change('2026-10-10T12:00:00+05:30');
     await panel(page).getByRole('button', { name: 'Retry crew read', exact: true }).click();
     await expect(panel(page)).toContainText('Northline');
-    await expect(panel(page).locator('.blueprint-crew-roster')).toContainText(peer);
+    await expect(panel(page).getByTestId('blueprint-crew-roster')).toContainText(peer);
     await expect(panel(page)).toContainText('UTC');
   }
   expect(exportCount(state)).toBe(7);
@@ -301,7 +301,7 @@ for (const mode of ['query', 'hash', 'mixed']) {
       history.replaceState(null, '', changed);
       history.replaceState(null, '', original);
       window.__retainedCrewRead();
-      return document.querySelector('.blueprint-crew').textContent.includes('Northline');
+      return document.querySelector('[data-testid="blueprint-crew"]').textContent.includes('Northline');
     }, mode);
     expect(visible).toBe(false);
     expect(exportCount(state)).toBe(1);
@@ -414,7 +414,7 @@ for (const operation of ['onboard', 'erase']) {
     await panel(page).getByRole('button', { name: 'Read again' }).click();
     await expect(panel(page)).toContainText('No recorded crew placement');
     expect(await page.evaluate((owner) => localStorage.getItem('intafaced:more:pending:' + owner + ':blueprint'), owner)).toBe(marker);
-    await expect(page.locator('.failure').filter({ hasText: 'Earlier request:' })).toBeVisible();
+    await expect(page.getByTestId('failure').filter({ hasText: 'Earlier request:' })).toBeVisible();
     expect(state.writes.filter((proc) => proc === operation).length).toBe(1);
     expect(state.external).toBe(0);
     expect(state.downloads).toBe(0);

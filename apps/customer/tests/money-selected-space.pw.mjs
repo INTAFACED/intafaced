@@ -171,7 +171,7 @@ async function snapshot(page, state, name) {
   await page.evaluate(() => document.fonts.ready);
   const observed = await page.evaluate(
     ({ name, targetName, targetId }) => {
-      const nav = document.querySelector('.mobile-doors'),
+      const nav = document.querySelector('[data-testid="mobile-doors"]'),
         n = nav?.getBoundingClientRect(),
         edge = nav && getComputedStyle(nav).display !== 'none' && n.height > 0 ? n.top : innerHeight;
       const heading = [...document.querySelectorAll('#main h1,#main h2,#main h3')].find((node) => node.textContent.trim() === targetName);
@@ -287,7 +287,7 @@ async function aboveFooter(locator, minimum = 0) {
     .poll(() =>
       locator.evaluate((node, minimum) => {
         const r = node.getBoundingClientRect(),
-          nav = document.querySelector('.mobile-doors'),
+          nav = document.querySelector('[data-testid="mobile-doors"]'),
           n = nav?.getBoundingClientRect();
         const edge = nav && getComputedStyle(nav).display !== 'none' && n.height > 0 ? n.top : innerHeight;
         return {
@@ -325,9 +325,9 @@ async function ready(page, { id = targetId, name = targetName, asset = 'USDT', l
   return panel;
 }
 async function ordinarySelectedLink(page, id = targetId, keyboard = false) {
-  const anchor = main(page).locator(`a.money-space-row[href="${selectedURL(id)}"]`);
+  const anchor = main(page).locator(`a[data-testid="money-space-row"][href="${selectedURL(id)}"]`);
   if ((await anchor.count()) === 0) {
-    const more = main(page).locator('.money-continuation').getByRole('button');
+    const more = main(page).getByTestId('money-continuation').getByRole('button');
     await expect(more).toHaveCount(1);
     await more.click();
   }
@@ -374,7 +374,7 @@ async function retry(page) {
 async function bankNavigation(page) {
   expect(
     await main(page)
-      .locator('.money-bank-nav a')
+      .locator('[data-testid="money-bank-nav"] a')
       .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('href'))),
   ).toEqual(paths);
 }
@@ -435,7 +435,7 @@ test('four widths preserve chosen space facts, privacy, natural Transfer entry a
         expect(JSON.stringify(await inspectStorage(page))).not.toContain('0.000000000000000001');
         await page.keyboard.press('Escape');
         await expect(page.getByRole('dialog')).toHaveCount(0);
-        await main(page).locator('.money-bank-nav a[href="/bank"]').click();
+        await main(page).locator('[data-testid="money-bank-nav"] a[href="/bank"]').click();
         await main(page).getByRole('button', { name: ui[locale].hide, exact: true }).click();
         await ordinarySelectedLink(page);
         const hidden = await ready(page, { locale, asset: state.asset, balance: null });
@@ -463,7 +463,7 @@ test('four widths preserve chosen space facts, privacy, natural Transfer entry a
     const panel = await ready(page, { id: primaryId, name: 'Zero current primary', balance: '0' });
     await expect(panel).toContainText('Primary');
     await snapshot(page, state, 'primary-zero-before-generic');
-    await main(page).locator('.money-bank-nav a[href="/bank/spaces"]').click();
+    await main(page).locator('[data-testid="money-bank-nav"] a[href="/bank/spaces"]').click();
     await expect(selection(page)).toHaveCount(0);
     await expect.poll(() => listReads(state).at(-1).input.limit).toBe(50);
     await bankNavigation(page);
@@ -774,7 +774,7 @@ test('current URL and owner leases refuse retired results while dialogs and orig
       await page.evaluate(() => {
         Storage.prototype.getItem = window.__selectedOriginalGet;
       });
-      await main(page).locator('.money-bank-nav a[href="/bank"]').click();
+      await main(page).locator('[data-testid="money-bank-nav"] a[href="/bank"]').click();
       await ordinarySelectedLink(page);
       await ready(page);
       state.answer = async () => ({ status: 503, code: 'fixture.original_read_unreachable' });

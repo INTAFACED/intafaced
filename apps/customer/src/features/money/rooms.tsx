@@ -478,7 +478,12 @@ function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
     if (selected) arrive(heading.current);
   }, [selected?.serial]);
   return (
-    <div className="money-standing-orders" lang={languageFor('instructions')} dir={directionFor('instructions')}>
+    <div
+      data-testid="money-standing-orders"
+      className="money-standing-orders"
+      lang={languageFor('instructions')}
+      dir={directionFor('instructions')}
+    >
       {selected && (
         <section
           data-testid="money-selected-instruction"
@@ -489,7 +494,7 @@ function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
             <h2 id="money-selected-instruction-heading" ref={heading} tabIndex={-1}>
               <Copy k="outcomes" />
             </h2>
-            <dl className="money-standing-reference">
+            <dl data-testid="money-standing-reference" className="money-standing-reference">
               <dt>
                 <Copy k="instruction" />
               </dt>
@@ -884,7 +889,7 @@ function Earn({ open }: { open: (spec: ActionSpec) => void }) {
   return (
     <BankPage room="Earn" description={earnCopy.t('description')}>
       {pools.resource.status === 'ready' && <EarnCompare pools={pools.resource.data} />}
-      <div className="money-earn-lanes">
+      <div data-testid="money-earn-lanes" className="money-earn-lanes">
         <Section
           title={copyText('rooms.your.positions')}
           actions={
@@ -1145,7 +1150,7 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
         <ResourceView resource={health.resource} reload={health.reload}>
           {(risk) => (
             <>
-              <div className="money-risk">
+              <div data-testid="money-risk" className="money-risk">
                 <strong>
                   {risk.portfolioLtvBps === Number.MAX_SAFE_INTEGER ? loanCopy.t('portfolioRange') : bps(risk.portfolioLtvBps)}
                   <Text k="rooms.ltv" />
@@ -1289,7 +1294,7 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
             <>
               {rows.length ? (
                 rows.map((loan) => (
-                  <article className="money-record money-loan-record" key={loan.id} data-loan-id={loan.id}>
+                  <article data-testid="money-loan-record" className="money-record money-loan-record" key={loan.id} data-loan-id={loan.id}>
                     <header>
                       <div>
                         <h3>
@@ -1826,7 +1831,7 @@ function BankOverview() {
       }
     >
       <BankNavigation current="Overview" />
-      <div className="money-overview-lane">
+      <div data-testid="money-overview-lane" className="money-overview-lane">
         <Section
           title={copyText('index.holdings')}
           actions={
@@ -1883,9 +1888,9 @@ function BankOverview() {
                           )}
                         </small>
                       </span>
-                      <span className="money-holding-values">
+                      <span data-testid="money-holding-values" className="money-holding-values">
                         <strong className="numeric" dir="ltr">
-                          <span className="money-quantity-value">
+                          <span data-testid="money-quantity-value" className="money-quantity-value">
                             {hideBalances ? '••••' : displayAmount(holding.quantity ?? holding.available)}
                           </span>
                           {!hideBalances && (

@@ -118,7 +118,7 @@ export function SupportHelpArticles({ action, onStartRequest }: { action: Return
               <p className="muted" role="status">
                 {shown.length === 1 ? copy.t('articleCountOne') : copy.t('articleCount', { count: shown.length })}
               </p>
-              <div className="more-articles">
+              <div data-testid="more-articles" className="more-articles">
                 {shown.map((row) => (
                   <Article key={row.id} row={row} action={action} hiddenIds={depositsHidden ? HIDDEN_FEATURE_ARTICLES : EMPTY} />
                 ))}

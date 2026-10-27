@@ -336,7 +336,7 @@ test('actual French phone review and long opaque refusal retain native focus tar
     expect(fit.height).toBeGreaterThanOrEqual(44);
     expect(fit.hit).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    const axe = await new AxeBuilder({ page }).include('.dialog').analyze();
+    const axe = await new AxeBuilder({ page }).include('[data-testid="dialog"]').analyze();
     expect(axe.violations.filter((x) => ['serious', 'critical'].includes(x.impact))).toEqual([]);
     await page.screenshot({ path: output + '/review-fr-' + width + '.png', fullPage: true });
   }
@@ -406,7 +406,7 @@ for (const [mode, outcome] of [
       .getByRole('button', { name: text('en', confirmKeys[mode]), exact: true })
       .click();
     await expect(page.getByText(catalogs.en['common.outcome.not.confirmed'], { exact: true })).toBeVisible();
-    await expect(page.locator('.more-success')).toHaveCount(0);
+    await expect(page.getByTestId('more-success')).toHaveCount(0);
     await expect(page.getByRole('button', { name: text('en', stageKeys[mode]), exact: true })).toBeDisabled();
     const originalMarker = await page.evaluate((key) => localStorage.getItem(key), markerKey(mode));
     expect(JSON.parse(originalMarker).title).toBe(text('en', reviewKeys[mode]));

@@ -101,7 +101,7 @@ async function capture(page, name) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 }
 async function focusHit(control) {
-  await control.locator('..').locator('.market-purchases-exact-price').focus();
+  await control.locator('..').getByTestId('market-purchases-exact-price').focus();
   await control.page().keyboard.press('Tab');
   await expect(control).toBeFocused();
   await expect
@@ -120,7 +120,7 @@ for (const count of [1, 3, 7])
         calls = await network(context, rows);
       await page.setViewportSize({ width, height: 1000 });
       await login(page, '/market');
-      const articles = page.locator('article.more-room-link');
+      const articles = page.locator('article[data-testid="more-room-link"]');
       await expect(articles).toHaveCount(count);
       const before = await articles.first().evaluate((el) => {
         const parent = el.parentElement,
@@ -131,7 +131,7 @@ for (const count of [1, 3, 7])
           parent: { x: p.x, width: p.width },
           columns: getComputedStyle(parent).gridTemplateColumns,
           background: getComputedStyle(parent).backgroundColor,
-          price: getComputedStyle(el.querySelector('.numeric')).fontSize,
+          price: getComputedStyle(el.querySelector('[data-testid="numeric"]')).fontSize,
         };
       });
       writeFileSync(dir + '/layout-' + count + '-' + width + '.json', JSON.stringify(before, null, 2));
@@ -168,7 +168,7 @@ for (const width of [320, 390, 768, 1440])
       calls = await network(context, rows, { mine: true });
     await page.setViewportSize({ width, height: 1000 });
     await login(page, '/market/mine');
-    const articles = page.locator('article.more-room-link');
+    const articles = page.locator('article[data-testid="more-room-link"]');
     await expect(articles).toHaveCount(2);
     const first = articles.first(),
       second = articles.last();
@@ -201,8 +201,8 @@ for (const width of [320, 390])
       await login(page, '/market');
       const view = await context.newPage();
       await login(view, '/view');
-      const article = page.locator('article.more-room-link'),
-        price = article.locator('.market-purchases-exact-price');
+      const article = page.locator('article[data-testid="more-room-link"]'),
+        price = article.getByTestId('market-purchases-exact-price');
       await expect(price).toHaveAttribute('aria-label', t('en', 'price'));
       await expect(price).toHaveText(displayed);
       const original = await price.elementHandle();
@@ -240,12 +240,12 @@ for (const path of ['/market', '/market/mine'])
         await expect(page.getByText(provider, { exact: true })).toBeVisible();
         expect(await page.getByText(provider, { exact: true }).evaluate((el) => el.closest('[lang]').lang)).toBe('und');
         await page.getByRole('button', { name: 'Try again', exact: true }).click();
-        await expect(page.locator('article.more-room-link')).toHaveCount(1);
+        await expect(page.locator('article[data-testid="more-room-link"]')).toHaveCount(1);
       } else {
         await expect(
           page.getByText(t('en', path.endsWith('mine') ? 'you.have.no.listings' : 'no.listings.are.available'), { exact: true }),
         ).toBeVisible();
-        await expect(page.locator('article.more-room-link')).toHaveCount(0);
+        await expect(page.locator('article[data-testid="more-room-link"]')).toHaveCount(0);
       }
       expect(calls.writes).toEqual([]);
       expect(calls.errors).toEqual([]);

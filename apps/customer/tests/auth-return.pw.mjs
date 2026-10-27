@@ -71,12 +71,12 @@ async function matches(page, path, destination, invite) {
   );
 }
 async function switched(page, path, destination, invite) {
-  await expect(page.locator('.auth-form')).toBeVisible();
+  await expect(page.getByTestId('auth-form')).toBeVisible();
   expect(await matches(page, path, destination, invite)).toBe(true);
 }
-const formSwitch = (page) => page.locator('.public-auth-form-links a');
-const headerSwitch = (page) => page.locator('.public-signin');
-const recovery = (page) => page.locator('.auth-form form > a[href^="/findPwd"]');
+const formSwitch = (page) => page.locator('[data-testid="public-auth-form-links"] a');
+const headerSwitch = (page) => page.getByTestId('public-signin');
+const recovery = (page) => page.locator('[data-testid="auth-form"] form > a[href^="/findPwd"]');
 async function fit(page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 }
@@ -212,7 +212,7 @@ async function fields(page, register = false) {
   await page.locator('input[name="identifier"]').fill('return-context@example.invalid');
   await page.locator('input[autocomplete="' + (register ? 'new-password' : 'current-password') + '"]').fill('isolated-test-password');
 }
-const unknown = (page) => page.locator('.public-auth-unknown');
+const unknown = (page) => page.getByTestId('public-auth-unknown');
 const journal = (page) => page.evaluate((key) => localStorage.getItem(key), key);
 for (const [label, destination, invite] of [
   ['bare', undefined, undefined],
@@ -396,7 +396,7 @@ test('retained rendered submit passkey and input callbacks reject same-task depa
   await originalLogin(page);
   const saved = await olderUnknown(page);
   await page.evaluate(() => {
-    const form = document.querySelector('.auth-form form'),
+    const form = document.querySelector('[data-testid="auth-form"] form'),
       submit = form.querySelector('button[type="submit"]'),
       passkey = form.querySelector('button[type="button"]');
     const original = location.pathname + location.search;
@@ -526,7 +526,7 @@ test('late known actual passkey options across ABA keep preparation unknown and 
       return real(options);
     };
   });
-  await page.locator('.auth-form button[type="button"]').click();
+  await page.locator('[data-testid="auth-form"] button[type="button"]').click();
   await state.arrived;
   const saved = await journal(page);
   await departureReturn(page);
@@ -552,7 +552,7 @@ test('held actual native credential after ABA cannot start verification or alter
       return result;
     };
   });
-  await page.locator('.auth-form button[type="button"]').click();
+  await page.locator('[data-testid="auth-form"] button[type="button"]').click();
   await page.waitForFunction(() => window.__authCredentialReady);
   expect(await journal(page)).toBe(saved);
   await departureReturn(page, 'hash');

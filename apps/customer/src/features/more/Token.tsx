@@ -377,7 +377,7 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
           </Panel>
         </div>
       ) : tab === 'Governance' ? (
-        <div className="token-governance">
+        <div data-testid="token-governance" className="token-governance">
           <BallotContext saved={ballot} choose={selection.choose} />
           {action.feedback}
           <div className="token-governance-layout">
@@ -416,6 +416,7 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
                         <Button
                           key={p.id}
                           variant="ghost"
+                          data-testid="token-proposal-row"
                           className="token-proposal-row"
                           aria-label={G.t('inspect', { id: p.id })}
                           aria-pressed={selection.id === p.id}
@@ -449,7 +450,7 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
               )}
             </div>
           </div>
-          <details className="token-create">
+          <details data-testid="token-create" className="token-create">
             <summary>{copyText('token.create.a.proposal')}</summary>
             <Panel title={copyText('token.create.a.proposal')}>
               <p className="muted">
@@ -595,7 +596,7 @@ function BallotContext({ saved, choose }: { saved: SavedBallot; choose: (id: str
   if (saved.status === 'unreadable') return <p role="alert">{G.t('unreadable')}</p>;
   const b = saved.data;
   return (
-    <div className="token-ballot-context">
+    <div data-testid="token-ballot-context" className="token-ballot-context">
       <Panel title={b.status === 'recorded' ? G.t('receipt') : G.t('request')}>
         <p role="status">{G.t(b.status === 'recorded' ? 'recorded' : b.status)}</p>
         <Details
@@ -808,13 +809,13 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
             />
             <section className="token-proposal-section">
               <h3>{G.t('body')}</h3>
-              <pre className="token-proposal-body" lang="und">
+              <pre data-testid="token-proposal-body" className="token-proposal-body" lang="und">
                 {JSON.stringify(p.body, null, 2)}
               </pre>
             </section>
             <section className="token-proposal-section">
               <h3>{G.t('tally')}</h3>
-              <dl className="token-tally">
+              <dl data-testid="token-tally" className="token-tally">
                 {[
                   ['for', p.tally.forWeight],
                   ['against', p.tally.againstWeight],

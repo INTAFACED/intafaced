@@ -199,7 +199,7 @@ export function useAcademyAction() {
         </div>
       )}
       {!operation.current && shown.result?.ok && shown.success && (
-        <p role="status" className="more-success">
+        <p role="status" data-testid="more-success" className="more-success">
           <PresentedCopy value={shown.success} />
         </p>
       )}

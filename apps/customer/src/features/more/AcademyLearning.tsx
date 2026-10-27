@@ -433,9 +433,13 @@ export function AcademyLearning({
     </div>
   );
   return (
-    <div lang={current.languageFor('learningPath')} className={slug ? 'academy-learning-layout' : 'academy-learning-stack'}>
+    <div
+      lang={current.languageFor('learningPath')}
+      data-testid={slug ? 'academy-learning-layout' : undefined}
+      className={slug ? 'academy-learning-layout' : 'academy-learning-stack'}
+    >
       {slug ? (
-        <div className="academy-learning-reader">
+        <div data-testid="academy-learning-reader" className="academy-learning-reader">
           <Panel title={copyText('academy.learning.item')}>
             <div className="academy-learning-stack">
               {recovery}
@@ -588,7 +592,7 @@ export function AcademyLearning({
                 <>
                   <div className="more-rooms">
                     {rows.map((r) => (
-                      <a className="more-room-link" key={r.slug} href={lessonHref(r.slug, certId, r.path)}>
+                      <a data-testid="more-room-link" className="more-room-link" key={r.slug} href={lessonHref(r.slug, certId, r.path)}>
                         <small>
                           <span>{kindLabel(lms, r.kind)}</span> · <Copy k="readingMinutes" params={{ minutes: r.estimatedMinutes }} />
                         </small>

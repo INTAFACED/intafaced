@@ -129,9 +129,9 @@ test('actual App offers verified main assets and buy-only rules with phone focus
   await signIn(page);
   const select = page.getByLabel('Spend from main account', { exact: true });
   await expect(select.locator('option')).toHaveText(['Choose a spending asset', 'USDC', 'USDT']);
-  await expect(page.locator('.money-repeat-rule')).toHaveCount(2);
+  await expect(page.getByTestId('money-repeat-rule')).toHaveCount(2);
   await expect(page.getByText('2 matching instructions in 4 returned Bank automation records.')).toBeVisible();
-  await expect(page.locator('.money-repeat-lanes')).not.toContainText('ETH');
+  await expect(page.getByTestId('money-repeat-lanes')).not.toContainText('ETH');
   await select.selectOption('USDC');
   await expect(page.getByText('0 USDC available now', { exact: true })).toBeVisible();
   for (const width of [1440, 768, 390, 320]) {
@@ -141,13 +141,13 @@ test('actual App offers verified main assets and buy-only rules with phone focus
     await expect(page.getByRole('button', { name: 'Set up repeat buy', exact: true })).toBeFocused();
     const fit = await page.getByRole('button', { name: 'Set up repeat buy', exact: true }).evaluate((el) => {
       const r = el.getBoundingClientRect(),
-        bar = document.querySelector('.mobile-doors')?.getBoundingClientRect();
+        bar = document.querySelector('[data-testid="mobile-doors"]')?.getBoundingClientRect();
       return { hit: el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)), bottom: r.bottom, barTop: bar?.top };
     });
     expect(fit.hit).toBe(true);
     if (width <= 1000) expect(fit.bottom).toBeLessThanOrEqual(fit.barTop);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    const a = await new AxeBuilder({ page }).include('.money-repeat-lanes').analyze();
+    const a = await new AxeBuilder({ page }).include('[data-testid="money-repeat-lanes"]').analyze();
     expect(a.violations.filter((v) => ['serious', 'critical'].includes(v.impact))).toEqual([]);
     await page.evaluate(() => {
       document.activeElement?.blur();
@@ -195,7 +195,7 @@ for (const scenario of ['policy changed', 'source removed', 'source read failed'
 test('lifecycle review includes exact original rule context and rejects changed owner read', async ({ page }) => {
   const state = await setup(page);
   await signIn(page);
-  await page.locator('.money-repeat-rule').first().getByRole('button', { name: 'Pause', exact: true }).click();
+  await page.getByTestId('money-repeat-rule').first().getByRole('button', { name: 'Pause', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText(ruleId);
   await expect(dialog).toContainText('25 USDC');
@@ -208,9 +208,9 @@ test('lifecycle review includes exact original rule context and rejects changed 
   expect(state.writes).toEqual([]);
   expect(await journal(page)).toEqual([]);
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-  const rules = page.locator('.money-repeat-lanes > section').last();
+  const rules = page.locator('[data-testid="money-repeat-lanes"] > section').last();
   await rules.getByRole('button', { name: 'Refresh', exact: true }).click();
-  await page.locator('.money-repeat-rule').last().getByRole('button', { name: 'Resume', exact: true }).click();
+  await page.getByTestId('money-repeat-rule').last().getByRole('button', { name: 'Resume', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('eligible on a later runner check');
   state.policy.convertWired = false;
   await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click();
@@ -230,12 +230,12 @@ test('unknown create survives failed and matching rule reads without another wri
   expect(pending[0]).not.toHaveProperty('amount');
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   state.listFail = true;
-  await page.locator('.money-repeat-lanes > section').last().getByRole('button', { name: 'Refresh', exact: true }).click();
+  await page.locator('[data-testid="money-repeat-lanes"] > section').last().getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(page.locator('#bank-unconfirmed')).toContainText(pending[0].reference);
   state.listFail = false;
   state.rows = [rule];
-  await page.locator('.money-repeat-lanes > section').last().getByRole('button', { name: 'Try again', exact: true }).click();
-  await expect(page.locator('.money-repeat-rule')).toHaveCount(1);
+  await page.locator('[data-testid="money-repeat-lanes"] > section').last().getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect(page.getByTestId('money-repeat-rule')).toHaveCount(1);
   await page.getByLabel('Spend from main account', { exact: true }).selectOption('USDC');
   await page.getByRole('button', { name: 'Set up repeat buy', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -247,8 +247,8 @@ test('failed setup source still permits stopping a returned owned instruction', 
   const state = await setup(page);
   state.balanceFail = true;
   await signIn(page);
-  await expect(page.locator('.money-repeat-lanes > section').first().locator('.failure')).toBeVisible();
-  await page.locator('.money-repeat-rule').first().getByRole('button', { name: 'Pause', exact: true }).click();
+  await expect(page.locator('[data-testid="money-repeat-lanes"] > section').first().getByTestId('failure')).toBeVisible();
+  await page.getByTestId('money-repeat-rule').first().getByRole('button', { name: 'Pause', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('Confirmed by the service');
   expect(state.writes).toEqual([{ procedure: 'autoInvest.pause', body: { ruleId } }]);

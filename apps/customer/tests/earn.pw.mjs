@@ -148,7 +148,7 @@ test('Earn puts owned principal first and suppresses known locked or unknown mat
   const state = await setup(page),
     errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  const sections = page.locator('.money-earn-lanes > section'),
+  const sections = page.locator('[data-testid="money-earn-lanes"] > section'),
     rows = sections.first().locator('.money-record');
   await expect(sections.locator('h2')).toHaveText(['Your positions', 'Available pools']);
   await expect(rows).toHaveCount(3);
@@ -165,7 +165,7 @@ test('Earn puts owned principal first and suppresses known locked or unknown mat
     await expect(review).toBeFocused();
     const r = await review.evaluate((el) => {
       const box = el.getBoundingClientRect(),
-        nav = document.querySelector('.mobile-doors')?.getBoundingClientRect();
+        nav = document.querySelector('[data-testid="mobile-doors"]')?.getBoundingClientRect();
       return {
         hit: el.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)),
         bottom: box.bottom,
@@ -175,7 +175,7 @@ test('Earn puts owned principal first and suppresses known locked or unknown mat
     expect(r.hit).toBe(true);
     if (width <= 1000) expect(r.bottom).toBeLessThanOrEqual(r.navTop);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    const a = await new AxeBuilder({ page }).include('.money-earn-lanes').analyze();
+    const a = await new AxeBuilder({ page }).include('[data-testid="money-earn-lanes"]').analyze();
     expect(a.violations.filter((v) => ['serious', 'critical'].includes(v.impact))).toEqual([]);
     await page.evaluate(() => {
       document.activeElement?.blur();
@@ -234,7 +234,7 @@ test('changed pool terms and disabled automation refuse current review without s
   await expect(page.getByRole('dialog')).toContainText('No request was sent.');
   expect(state.writes).toEqual([]);
   await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
-  await page.locator('.money-earn-lanes > section').last().getByRole('button', { name: 'Refresh', exact: true }).click();
+  await page.locator('[data-testid="money-earn-lanes"] > section').last().getByRole('button', { name: 'Refresh', exact: true }).click();
   await page.getByRole('button', { name: 'Threshold sweep', exact: true }).click();
   await page.getByLabel('Keep available (USDC)', { exact: true }).fill('1');
   await page.getByRole('button', { name: 'Review', exact: true }).click();
@@ -255,7 +255,7 @@ test('unknown withdrawal is not resolved or replayed by empty active position re
   expect(pending[0].recordRefs.positionId).toBe(positionId);
   state.positions = [];
   await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
-  await page.locator('.money-earn-lanes > section').first().getByRole('button', { name: 'Refresh', exact: true }).click();
+  await page.locator('[data-testid="money-earn-lanes"] > section').first().getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(page.getByText('No active earn positions returned', { exact: true })).toBeVisible();
   await expect(page.locator('#bank-unconfirmed')).toContainText(pending[0].reference);
   expect(await journal(page)).toEqual(pending);

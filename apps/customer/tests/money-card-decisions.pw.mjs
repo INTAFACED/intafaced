@@ -356,7 +356,7 @@ const paths = [
   '/bank/analytics',
   '/bank/business',
 ];
-const panel = (page) => main(page).locator('.money-selected-card');
+const panel = (page) => main(page).getByTestId('money-selected-card');
 const historyPanel = (page, locale = 'en') => panel(page).getByRole('region', { name: ui[locale].decisions, exact: true });
 const inspector = (page, row, locale = 'en') => main(page).getByRole('button', { name: ui[locale].inspect(row.id), exact: true });
 const listReads = (state) => state.reads.filter((r) => r.path.endsWith('/cards.list'));
@@ -368,13 +368,13 @@ const refreshCards = (page, locale = 'en') => main(page).getByRole('button', { n
 const refreshDecisions = (page, locale = 'en') =>
   historyPanel(page, locale).getByRole('button', { name: ui[locale].refreshDecisions, exact: true }).click();
 const retry = (page) => historyPanel(page).getByRole('button', { name: 'Try again', exact: true }).click();
-const enterCards = (page) => main(page).locator('.money-bank-nav a[href="/bank/cards"]').click();
+const enterCards = (page) => main(page).locator('[data-testid="money-bank-nav"] a[href="/bank/cards"]').click();
 async function aboveFooter(locator, minimum = 0) {
   await expect
     .poll(() =>
       locator.evaluate((node, minimum) => {
         const b = node.getBoundingClientRect(),
-          n = document.querySelector('.mobile-doors'),
+          n = document.querySelector('[data-testid="mobile-doors"]'),
           r = n?.getBoundingClientRect();
         const bottom = n && getComputedStyle(n).display !== 'none' && r.height ? r.top : innerHeight;
         return b.left >= -0.5 && b.right <= innerWidth + 0.5 && b.top >= 0 && b.bottom <= bottom + 0.5 && b.height >= minimum;
@@ -396,10 +396,10 @@ async function inspect(page, row, locale = 'en', keyboard = false) {
 async function ready(page, card, rows, locale = 'en', hidden = false) {
   const p = panel(page),
     h = historyPanel(page, locale);
-  await expect(p.locator('.money-card-reference dd')).toHaveText(card.id);
-  await expect(p.locator('.money-card-identity')).toContainText(card.panTail);
-  await expect(p.locator('.money-card-identity')).toContainText(card.assetId);
-  await expect(p.locator('.money-card-identity')).toContainText(card.settlementAssetId);
+  await expect(p.locator('[data-testid="money-card-reference"] dd')).toHaveText(card.id);
+  await expect(p.getByTestId('money-card-identity')).toContainText(card.panTail);
+  await expect(p.getByTestId('money-card-identity')).toContainText(card.assetId);
+  await expect(p.getByTestId('money-card-identity')).toContainText(card.settlementAssetId);
   await expect(h.getByRole('article')).toHaveCount(rows.length);
   for (const [index, row] of rows.length <= 3
     ? rows.map((r, i) => [i, r])
@@ -409,18 +409,20 @@ async function ready(page, card, rows, locale = 'en', hidden = false) {
       ]) {
     const a = h.getByRole('article').nth(index);
     await expect(a.locator('h4')).toHaveText(row.decision);
-    await expect(a.locator('.money-card-status dd')).toHaveText(row.status);
-    await expect(a.locator('.money-card-funding .numeric')).toHaveText(hidden ? '••••' : quantity(row.amount));
-    await expect(a.locator('.money-card-funding .money-caption')).toHaveText(card.assetId);
-    await expect(a.locator('.money-card-decision-time time')).toHaveAttribute('datetime', row.decidedAt);
-    await expect(a.locator('.money-card-decision-time time')).toHaveAttribute('dir', 'auto');
-    await expect(a.locator('.money-card-authorization dd')).toHaveText(row.authorizationRef);
-    await expect(a.locator('.money-card-decline')).toHaveCount(row.declineCode === null ? 0 : 1);
-    if (row.declineCode !== null) await expect(a.locator('.money-card-decline dd')).toHaveText(row.declineCode);
-    await expect(a.locator('.money-card-conversion')).toHaveCount(row.conversion === null ? 0 : 1);
+    await expect(a.locator('[data-testid="money-card-status"] dd')).toHaveText(row.status);
+    await expect(a.locator('[data-testid="money-card-funding"] [data-testid="numeric"]')).toHaveText(
+      hidden ? '••••' : quantity(row.amount),
+    );
+    await expect(a.locator('[data-testid="money-card-funding"] .money-caption')).toHaveText(card.assetId);
+    await expect(a.locator('[data-testid="money-card-decision-time"] time')).toHaveAttribute('datetime', row.decidedAt);
+    await expect(a.locator('[data-testid="money-card-decision-time"] time')).toHaveAttribute('dir', 'auto');
+    await expect(a.locator('[data-testid="money-card-authorization"] dd')).toHaveText(row.authorizationRef);
+    await expect(a.getByTestId('money-card-decline')).toHaveCount(row.declineCode === null ? 0 : 1);
+    if (row.declineCode !== null) await expect(a.locator('[data-testid="money-card-decline"] dd')).toHaveText(row.declineCode);
+    await expect(a.getByTestId('money-card-conversion')).toHaveCount(row.conversion === null ? 0 : 1);
     if (row.conversion) {
-      const c = a.locator('.money-card-conversion');
-      await expect(c.locator('.numeric')).toHaveText(hidden ? '••••' : quantity(row.conversion.settlementAmount));
+      const c = a.getByTestId('money-card-conversion');
+      await expect(c.getByTestId('numeric')).toHaveText(hidden ? '••••' : quantity(row.conversion.settlementAmount));
       await expect(c).toContainText(row.conversion.settlementAssetId);
       await expect(c).toContainText(`${quantity(row.conversion.rate)} ${row.conversion.settlementAssetId} / ${card.assetId}`);
       await expect(c).toContainText(row.conversion.rateQuality);
@@ -432,14 +434,14 @@ async function ready(page, card, rows, locale = 'en', hidden = false) {
 async function snapshot(page, state, name) {
   await page.evaluate(() => document.fonts.ready);
   const observation = await page.evaluate(() => {
-    const p = document.querySelector('.money-selected-card'),
-      n = document.querySelector('.mobile-doors'),
+    const p = document.querySelector('[data-testid="money-selected-card"]'),
+      n = document.querySelector('[data-testid="mobile-doors"]'),
       nr = n?.getBoundingClientRect();
     const box = (e) => {
       const b = e?.getBoundingClientRect();
       return b ? { top: b.top, bottom: b.bottom, left: b.left, right: b.right, width: b.width, height: b.height } : null;
     };
-    const glyphs = [...(p?.querySelectorAll('.money-card-funding .numeric') ?? [])].slice(0, 1).map((e) => {
+    const glyphs = [...(p?.querySelectorAll('[data-testid="money-card-funding"] [data-testid="numeric"]') ?? [])].slice(0, 1).map((e) => {
       const range = document.createRange();
       range.selectNodeContents(e);
       return {
@@ -456,8 +458,8 @@ async function snapshot(page, state, name) {
       scrollY,
       footerTop: n && getComputedStyle(n).display !== 'none' && nr.height ? nr.top : innerHeight,
       heading: box(document.getElementById('money-selected-card-heading')),
-      reference: box(p?.querySelector('.money-card-reference dd')),
-      firstDecision: box(p?.querySelector('.money-card-decision')),
+      reference: box(p?.querySelector('[data-testid="money-card-reference"] dd')),
+      firstDecision: box(p?.querySelector('[data-testid="money-card-decision"]')),
       glyphs,
       active: document.activeElement?.outerHTML,
       selectedDOM: p?.outerHTML,
@@ -595,14 +597,14 @@ test('current full card identity, exact decisions and natural arrival at four wi
         await expect.poll(() => currentURL(page)).toBe('/bank/cards');
         expect(
           await main(page)
-            .locator('.money-bank-nav a')
+            .locator('[data-testid="money-bank-nav"] a')
             .evaluateAll((nodes) => nodes.map((n) => n.getAttribute('href'))),
         ).toEqual(paths);
         await inspect(page, a, locale, width >= 768);
         const p = await ready(page, a, rows, locale);
         await expect(p.getByRole('heading', { name: ui[locale].selected, exact: true })).toBeFocused();
         await aboveFooter(p.getByRole('heading', { name: ui[locale].selected, exact: true }));
-        await aboveFooter(p.locator('.money-card-reference dd'));
+        await aboveFooter(p.locator('[data-testid="money-card-reference"] dd'));
         await aboveFooter(historyPanel(page, locale).getByRole('article').first());
         const obs = await snapshot(page, state, `cards-${width}-${requested}-arrival`);
         expect(obs.scrollWidth).toBeLessThanOrEqual(width);
@@ -611,15 +613,16 @@ test('current full card identity, exact decisions and natural arrival at four wi
             expect(r.left).toBeGreaterThanOrEqual(g.bounds.left - 0.5);
             expect(r.right).toBeLessThanOrEqual(g.bounds.right + 0.5);
           }
-        await expect(p.locator('.money-card-configuration .numeric')).toHaveText(quantity(a.perAuthorizationLimit));
-        await expect(p.locator('.money-card-reference dd')).toHaveAttribute('lang', 'zxx');
-        await expect(historyPanel(page, locale).getByRole('article').first().locator('.money-card-status dd')).toHaveAttribute(
-          'lang',
-          'und',
+        await expect(p.locator('[data-testid="money-card-configuration"] [data-testid="numeric"]')).toHaveText(
+          quantity(a.perAuthorizationLimit),
         );
+        await expect(p.locator('[data-testid="money-card-reference"] dd')).toHaveAttribute('lang', 'zxx');
+        await expect(
+          historyPanel(page, locale).getByRole('article').first().locator('[data-testid="money-card-status"] dd'),
+        ).toHaveAttribute('lang', 'und');
         expect(decisionReads(state).at(-1).input).toEqual({ cardId: a.id, limit: 50 });
         await expect(p.getByRole('button', { name: /Freeze|Unfreeze|Close card/ })).toHaveCount(0);
-        await expect(main(page).locator('.money-card-programme')).toBeVisible();
+        await expect(main(page).getByTestId('money-card-programme')).toBeVisible();
         await p
           .getByRole('button', {
             name: requested === 'fr' ? 'Tous les enregistrements' : requested === 'es' ? 'Todos los registros' : 'All records',
@@ -634,13 +637,13 @@ test('current full card identity, exact decisions and natural arrival at four wi
         expect(b.panTail).toBe(a.panTail);
         expect(b.id).not.toBe(a.id);
         expect(decisionReads(state).at(-1).input.cardId).toBe(b.id);
-        await main(page).locator('.money-bank-nav a[href="/bank"]').click();
+        await main(page).locator('[data-testid="money-bank-nav"] a[href="/bank"]').click();
         await main(page).getByRole('button', { name: ui[locale].hide, exact: true }).click();
         await enterCards(page);
         await inspect(page, a, locale);
         await ready(page, a, rows, locale, true);
         await snapshot(page, state, `cards-${width}-${requested}-hidden`);
-        await main(page).locator('.money-bank-nav a[href="/bank"]').click();
+        await main(page).locator('[data-testid="money-bank-nav"] a[href="/bank"]').click();
         await main(page).getByRole('button', { name: ui[locale].show, exact: true }).click();
         await enterCards(page);
         await inspect(page, a, locale);
@@ -676,7 +679,7 @@ test('current owner-window and real-shaped card failures recover with bounded ne
       };
       await captureHandler(inspector(page, b), '__oldCardsInspect');
       await refreshCards(page);
-      await expect(panel(page).locator('.money-card-identity')).toHaveCount(0);
+      await expect(panel(page).getByTestId('money-card-identity')).toHaveCount(0);
       await expect(historyPanel(page)).toHaveCount(0);
       const before = decisionReads(state).length;
       await invoke(page, '__oldCardsInspect');
@@ -692,7 +695,7 @@ test('current owner-window and real-shaped card failures recover with bounded ne
       ]) {
         state.authorizationReply = async () => make();
         await refreshDecisions(page);
-        await expect(historyPanel(page).locator('.failure')).toBeVisible();
+        await expect(historyPanel(page).getByTestId('failure')).toBeVisible();
         await expect(historyPanel(page).getByRole('article')).toHaveCount(0);
         await snapshot(page, state, 'cards-' + name);
         await captureHandler(historyPanel(page).getByRole('button', { name: 'Try again', exact: true }), '__oldCardRetry');
@@ -708,7 +711,7 @@ test('current owner-window and real-shaped card failures recover with bounded ne
       state.authorizationReply = async () => readRefusals.missing();
       await refreshDecisions(page);
       await expect(historyPanel(page).getByRole('heading', { name: 'Card not found by this read', exact: true })).toBeVisible();
-      await expect(panel(page).locator('.money-card-identity')).toHaveCount(0);
+      await expect(panel(page).getByTestId('money-card-identity')).toHaveCount(0);
       await historyPanel(page).getByText('Service detail', { exact: true }).click();
       await expect(historyPanel(page).getByText('bank.card_not_found', { exact: true })).toBeVisible();
       expect(decisionReads(state).at(-1).refusal.status).toBe(400);
@@ -722,7 +725,7 @@ test('current owner-window and real-shaped card failures recover with bounded ne
         return r;
       };
       await retry(page);
-      await expect(panel(page).locator('.money-card-identity')).toHaveCount(0);
+      await expect(panel(page).getByTestId('money-card-identity')).toHaveCount(0);
       missHold.release();
       state.authorizationReply = normal;
       await ready(page, a, state.authorizationsByCard.get(a.id));
@@ -735,7 +738,7 @@ test('current owner-window and real-shaped card failures recover with bounded ne
       });
       await refreshCards(page);
       await expect(panel(page).getByRole('heading', { name: 'Card not in this response', exact: true })).toBeVisible();
-      await expect(panel(page).locator('.money-card-identity')).toHaveCount(0);
+      await expect(panel(page).getByTestId('money-card-identity')).toHaveCount(0);
       await expect(historyPanel(page)).toHaveCount(0);
       await snapshot(page, state, 'cards-current-window-absent');
       await inspect(page, b);
@@ -744,24 +747,24 @@ test('current owner-window and real-shaped card failures recover with bounded ne
       await refreshCards(page);
       await expect(panel(page).getByRole('heading', { name: 'Card could not be identified', exact: true })).toBeVisible();
       for (const button of await inspector(page, b).all()) await expect(button).toBeDisabled();
-      await expect(panel(page).locator('.money-card-identity')).toHaveCount(0);
+      await expect(panel(page).getByTestId('money-card-identity')).toHaveCount(0);
       state.listReply = listNormal;
       await refreshCards(page);
       await ready(page, b, state.authorizationsByCard.get(b.id));
       for (const reply of [readRefusals.unavailable(), { status: 200, data: [{ ...b, perAuthorizationLimit: 'NaN' }] }]) {
         state.listReply = async () => reply;
         await refreshCards(page);
-        await expect(panel(page).locator('.failure')).toBeVisible();
-        await expect(panel(page).locator('.money-card-identity')).toHaveCount(0);
+        await expect(panel(page).getByTestId('failure')).toBeVisible();
+        await expect(panel(page).getByTestId('money-card-identity')).toHaveCount(0);
         await expect(historyPanel(page)).toHaveCount(0);
-        await expect(panel(page).locator('.money-card-reference dd')).toHaveText(b.id);
+        await expect(panel(page).locator('[data-testid="money-card-reference"] dd')).toHaveText(b.id);
         state.listReply = listNormal;
-        await panel(page).locator('.failure').getByRole('button', { name: 'Try again', exact: true }).click();
+        await panel(page).getByTestId('failure').getByRole('button', { name: 'Try again', exact: true }).click();
         await ready(page, b, state.authorizationsByCard.get(b.id));
       }
       state.authorizationReply = async () => ({ status: 200, data: [{ ...decisionRows(b)[0], amount: 'NaN' }] });
       await refreshDecisions(page);
-      await expect(historyPanel(page).locator('.failure')).toBeVisible();
+      await expect(historyPanel(page).getByTestId('failure')).toBeVisible();
       state.authorizationReply = normal;
       await retry(page);
       await ready(page, b, state.authorizationsByCard.get(b.id));
@@ -791,28 +794,28 @@ test('current owner-window and real-shaped card failures recover with bounded ne
     state.cardsByOwner.set(ownerA, rows);
     for (const row of rows) state.authorizationsByCard.set(row.id, decisionRows(row, 200));
     await login(page, '/bank/cards');
-    await expect(main(page).locator('.money-card-record')).toHaveCount(50);
+    await expect(main(page).getByTestId('money-card-record')).toHaveCount(50);
     const initial = listReads(state).length;
     expect(initial).toBeGreaterThanOrEqual(1);
     expect(listReads(state).map((r) => r.input.limit)).toEqual(Array(initial).fill(50));
     await captureHandler(
       main(page)
-        .locator('.money-owner-cards > .money-section .money-continuation')
+        .locator('[data-testid="money-owner-cards"] > [data-testid="money-section"] [data-testid="money-continuation"]')
         .getByRole('button', { name: 'Load up to 100', exact: true }),
       '__oldCardListMore',
     );
     for (const limit of [100, 150, 200]) {
       await main(page)
-        .locator('.money-owner-cards > .money-section .money-continuation')
+        .locator('[data-testid="money-owner-cards"] > [data-testid="money-section"] [data-testid="money-continuation"]')
         .getByRole('button', { name: `Load up to ${limit}`, exact: true })
         .click();
-      await expect(main(page).locator('.money-card-record')).toHaveCount(limit);
+      await expect(main(page).getByTestId('money-card-record')).toHaveCount(limit);
       if (limit === 150) {
         const before = listReads(state).length;
         await invoke(page, '__oldCardListMore');
         await frames(page);
         expect(listReads(state)).toHaveLength(before);
-        await expect(main(page).locator('.money-card-record')).toHaveCount(150);
+        await expect(main(page).getByTestId('money-card-record')).toHaveCount(150);
       }
     }
     const row = rows[3];
@@ -871,7 +874,7 @@ test('retired card callbacks, late responses and unknown originals preserve the 
     await ready(page, b, state.authorizationsByCard.get(b.id));
     hold.release();
     await frames(page);
-    await expect(panel(page).locator('.money-card-reference dd')).toHaveText(b.id);
+    await expect(panel(page).locator('[data-testid="money-card-reference"] dd')).toHaveText(b.id);
     for (const mode of ['query', 'hash-aba', 'query-aba', 'pathname']) {
       await captureHandler(historyPanel(page).getByRole('button', { name: 'Refresh decisions', exact: true }), '__oldCardsRefresh');
       await captureHandler(main(page).getByRole('button', { name: 'Refresh cards', exact: true }).last(), '__oldCardsList');
@@ -926,7 +929,7 @@ test('retired card callbacks, late responses and unknown originals preserve the 
     await invoke(page, '__beforeLoading');
     await frames(page);
     expect(decisionReads(state)).toHaveLength(before);
-    await main(page).locator('.money-bank-nav a[href="/bank/transfers"]').click();
+    await main(page).locator('[data-testid="money-bank-nav"] a[href="/bank/transfers"]').click();
     await main(page).getByLabel('From your space', { exact: true }).selectOption(primaryId);
     await main(page).getByRole('button', { name: 'Continue', exact: true }).click();
     const dialog = page.getByRole('dialog');
@@ -983,7 +986,7 @@ test('retired card callbacks, late responses and unknown originals preserve the 
       ownerHold.release();
       await frames(page);
       await ready(page, b, state.authorizationsByCard.get(b.id));
-      await expect(panel(page).locator('.money-card-reference dd')).toHaveText(b.id);
+      await expect(panel(page).locator('[data-testid="money-card-reference"] dd')).toHaveText(b.id);
       expect(decisionReads(state).at(-1).authorization).toBe(`Bearer ${state.logins.at(-1).token}`);
       expect(state.logins[0].token).not.toBe(state.logins.at(-1).token);
       expect(await page.evaluate(() => performance.timeOrigin)).toBe(origin);
@@ -1002,7 +1005,7 @@ test('retired card callbacks, late responses and unknown originals preserve the 
       await ready(page, a, state.authorizationsByCard.get(a.id));
       expect(await readBankOriginalRaw(page)).toBe(bankOriginalRaw);
       await snapshot(page, state, `cards-original-${unreadable ? 'unreadable' : 'unknown'}`);
-      await main(page).locator('.money-bank-nav a[href="/bank/transfers"]').click();
+      await main(page).locator('[data-testid="money-bank-nav"] a[href="/bank/transfers"]').click();
       await main(page).getByLabel('From your space', { exact: true }).selectOption(primaryId);
       await main(page).getByRole('button', { name: 'Continue', exact: true }).click();
       await expect(page.getByRole('dialog')).toHaveCount(0);

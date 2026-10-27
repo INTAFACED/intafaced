@@ -19,7 +19,7 @@ const provider = 'Original provider / resultado / Ω <opaque> 0.0000000000000000
 const environments = new Map(),
   summary = [];
 const selected = (page) => page.locator('#token-selected-proposal');
-const detailBody = (page) => selected(page).locator('.token-proposal-body');
+const detailBody = (page) => selected(page).getByTestId('token-proposal-body');
 const deferred = () => {
   let resolve;
   const promise = new Promise((r) => {
@@ -227,8 +227,8 @@ async function open(page) {
   await expect(selected(page).getByRole('button', { name: text('reviewFor'), exact: true })).toBeEnabled();
 }
 async function remount(page) {
-  await page.locator('.door-nav a[href="/more"]:visible, .mobile-doors a[href="/more"]:visible').click();
-  await page.locator('.more-room-link[href="/token"]').click();
+  await page.locator('.door-nav a[href="/more"]:visible, [data-testid="mobile-doors"] a[href="/more"]:visible').click();
+  await page.locator('[data-testid="more-room-link"][href="/token"]').click();
   await expect(page).toHaveURL(/\/token$/);
 }
 async function stage(page, locale = 'en', choice = 'for') {
@@ -297,7 +297,7 @@ for (const width of [1440, 768, 390, 320])
     expect(await detailBody(page).textContent()).toBe(JSON.stringify(body, null, 2));
     if (width <= 390) {
       const tally = await selected(page)
-        .locator('.token-tally')
+        .getByTestId('token-tally')
         .evaluate((dl) =>
           [...dl.children].map((row) => {
             const label = row.querySelector('dt'),
@@ -339,7 +339,7 @@ test('bounded list expands only to published200 cap', async ({ page, context, ba
   await page.getByRole('button', { name: 'Governance', exact: true }).click();
   for (const count of [100, 150, 200]) {
     await page.getByRole('button', { name: 'Load a larger window', exact: true }).click();
-    await expect(page.locator('.token-proposal-row')).toHaveCount(count);
+    await expect(page.getByTestId('token-proposal-row')).toHaveCount(count);
   }
   await expect(page.getByRole('button', { name: 'Load a larger window', exact: true })).toHaveCount(0);
   expect(calls.reads.filter((r) => r.procedure === 'listProposals').map((r) => r.input.limit)).toEqual([50, 100, 150, 200]);
@@ -365,19 +365,19 @@ for (const locale of ['es', 'fr'])
     await expect(page.getByRole('dialog')).toContainText(text('hidden', locale));
     await expect(detailBody(page)).toHaveText(JSON.stringify(body, null, 2));
     await confirm(page, state, locale);
-    await expect(page.locator('.token-ballot-context')).toContainText(text('recorded', locale));
+    await expect(page.getByTestId('token-ballot-context')).toContainText(text('recorded', locale));
     const ballot = JSON.parse(await stored(page, ballotKey));
     expect(ballot.receipt).toMatchObject({ proposalId: first, userId: actor, choice: 'for', weight: state.responseWeight });
     expect(await stored(page, markerKey)).toBeNull();
-    await expect(page.locator('.token-ballot-context')).not.toContainText(state.responseWeight);
+    await expect(page.getByTestId('token-ballot-context')).not.toContainText(state.responseWeight);
     await view.locator('input[type="checkbox"]').first().uncheck();
-    await expect(page.locator('.token-ballot-context')).toContainText(state.responseWeight);
+    await expect(page.getByTestId('token-ballot-context')).toContainText(state.responseWeight);
     expect(await page.evaluate(() => performance.timeOrigin)).toBe(timeOrigin);
     expect(calls.writes).toHaveLength(1);
     await capture(page, 'receipt-' + locale);
     await view.close();
     await remount(page);
-    await expect(page.locator('.token-ballot-context')).toContainText(state.responseWeight);
+    await expect(page.getByTestId('token-ballot-context')).toContainText(state.responseWeight);
   });
 test('native phone Tab Enter and dialog focus cast exact positive tiny weight', async ({ page, context, baseURL }) => {
   const { state, calls } = await network(context, page, baseURL);
@@ -396,8 +396,11 @@ test('native phone Tab Enter and dialog focus cast exact positive tiny weight', 
   await tabTo(page, page.getByRole('dialog').getByRole('button', { name: text('cast'), exact: true }));
   state.preflight = true;
   await page.keyboard.press('Space');
-  await expect(page.locator('.token-ballot-context')).toContainText('0.000000000000000001');
-  const axe = await new AxeBuilder({ page }).include('.token-governance').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  await expect(page.getByTestId('token-ballot-context')).toContainText('0.000000000000000001');
+  const axe = await new AxeBuilder({ page })
+    .include('[data-testid="token-governance"]')
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
+    .analyze();
   expect(axe.violations).toEqual([]);
   calls.observations.push({ nativeTabEnterSpace: true, axeViolations: [] });
   await capture(page, 'phone-keyboard-receipt');
@@ -409,7 +412,7 @@ test('fresh reordered JSON keys preserve material terms and allow authoritative 
   await stage(page);
   state.preflightMode = 'reordered';
   await confirm(page, state);
-  await expect(page.locator('.token-ballot-context')).toContainText(state.responseWeight);
+  await expect(page.getByTestId('token-ballot-context')).toContainText(state.responseWeight);
   expect(calls.writes).toHaveLength(1);
 });
 for (const choice of ['against', 'abstain'])
@@ -420,7 +423,7 @@ for (const choice of ['against', 'abstain'])
     await open(page);
     await stage(page, 'en', choice);
     await confirm(page, state);
-    await expect(page.locator('.token-ballot-context')).toContainText(text('recorded'));
+    await expect(page.getByTestId('token-ballot-context')).toContainText(text('recorded'));
     expect(JSON.parse(await stored(page, ballotKey))).toMatchObject({
       actor,
       proposalId: first,
@@ -449,7 +452,7 @@ for (const outcome of [
     await open(page);
     await stage(page);
     await confirm(page, state);
-    await expect(page.locator('.token-ballot-context')).toContainText(text('unknown'));
+    await expect(page.getByTestId('token-ballot-context')).toContainText(text('unknown'));
     const marker = await stored(page, markerKey),
       ballot = JSON.parse(await stored(page, ballotKey));
     expect(ballot).toMatchObject({ actor, proposalId: first, choice: 'for', status: 'unknown' });
@@ -459,7 +462,7 @@ for (const outcome of [
     await expect(selected(page).getByRole('button', { name: text('reviewFor'), exact: true })).toBeDisabled();
     await remount(page);
     expect(await stored(page, markerKey)).toBe(marker);
-    await expect(page.locator('.token-ballot-context')).toContainText(first);
+    await expect(page.getByTestId('token-ballot-context')).toContainText(first);
     expect(calls.writes).toHaveLength(1);
   });
 test('unknown original survives current passed tally duplicate403 failed read retry and another selection', async ({
@@ -483,9 +486,9 @@ test('unknown original survives current passed tally duplicate403 failed read re
   await page.getByRole('combobox', { name: text('kindFilter'), exact: true }).selectOption('grant');
   await page.getByRole('button', { name: text('inspect').replace('{id}', second), exact: true }).click();
   await expect(detailBody(page)).toContainText('Another original proposal');
-  await expect(page.locator('.token-ballot-context')).toContainText(first);
+  await expect(page.getByTestId('token-ballot-context')).toContainText(first);
   await page
-    .locator('.token-ballot-context')
+    .getByTestId('token-ballot-context')
     .getByRole('button', { name: text('readOriginal'), exact: true })
     .click();
   await expect(detailBody(page)).toHaveText(JSON.stringify(body, null, 2));
@@ -495,7 +498,7 @@ test('unknown original survives current passed tally duplicate403 failed read re
     .click();
   await expect(detailBody(page)).toHaveCount(0);
   expect(await stored(page, markerKey)).toBe(marker);
-  await expect(selected(page).locator('.failure')).toContainText(provider);
+  await expect(selected(page).getByTestId('failure')).toContainText(provider);
   state.detailMode = 'failed';
   await selected(page).getByRole('button', { name: 'Try again', exact: true }).click();
   await expect(selected(page)).toContainText(provider);
@@ -519,7 +522,7 @@ for (const mode of ['wrong-id', 'bad-time', 'bad-tally', 'bad-total', 'bad-body'
       .getByRole('button', { name: text('refresh'), exact: true })
       .click();
     await expect(detailBody(page)).toHaveCount(0);
-    await expect(selected(page).locator('.failure')).toBeVisible();
+    await expect(selected(page).getByTestId('failure')).toBeVisible();
     await expect(selected(page)).toContainText(first);
     expect(calls.writes).toEqual([]);
     state.detailMode = 'valid';
@@ -544,7 +547,7 @@ for (const mode of [
     await stage(page);
     state.preflightMode = mode;
     await confirm(page, state);
-    await expect(page.locator('.token-ballot-context')).toContainText(text('refused'));
+    await expect(page.getByTestId('token-ballot-context')).toContainText(text('refused'));
     expect(calls.writes).toEqual([]);
     expect(await stored(page, markerKey)).toBeNull();
     expect(JSON.parse(await stored(page, ballotKey))).toMatchObject({ actor, proposalId: first, choice: 'for', status: 'refused' });
@@ -557,7 +560,7 @@ for (const weight of ['0', '-1', 'not-a-weight'])
     await stage(page);
     state.stake = weight;
     await confirm(page, state);
-    await expect(page.locator('.token-ballot-context')).toContainText(text('refused'));
+    await expect(page.getByTestId('token-ballot-context')).toContainText(text('refused'));
     expect(calls.writes).toEqual([]);
     expect(await stored(page, markerKey)).toBeNull();
   });
@@ -599,7 +602,7 @@ test('native signout during fresh read hides old actor and sends no vote', async
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
   await expect(page.getByText('Sign in to continue', { exact: true })).toBeVisible();
   state.hold.resolve();
-  await expect(page.locator('.token-ballot-context')).toHaveCount(0);
+  await expect(page.getByTestId('token-ballot-context')).toHaveCount(0);
   expect(calls.writes).toEqual([]);
   state.actor = anotherActor;
   await page.locator('#main').getByRole('link', { name: 'Sign in', exact: true }).click();
@@ -608,7 +611,7 @@ test('native signout during fresh read hides old actor and sends no vote', async
   await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect(page).toHaveURL(/\/token$/);
   await page.getByRole('button', { name: 'Governance', exact: true }).click();
-  await expect(page.locator('.token-ballot-context')).toHaveCount(0);
+  await expect(page.getByTestId('token-ballot-context')).toHaveCount(0);
   await expect(selected(page)).not.toContainText(first);
 });
 test('retained create close dependencies and unpublished stake unit stay honest', async ({ page, context, baseURL }) => {
@@ -617,7 +620,7 @@ test('retained create close dependencies and unpublished stake unit stay honest'
   await expect(page.getByText('Which token is staked', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /^Stake|^Unstake/ })).toHaveCount(0);
   await open(page);
-  await page.locator('.token-create > summary').click();
+  await page.locator('[data-testid="token-create"] > summary').click();
   await page.getByLabel('Proposal body as JSON object', { exact: true }).fill(JSON.stringify({ title: 'Original creation body' }));
   await page.getByRole('button', { name: 'Review proposal', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Submit proposal', exact: true }).click();
@@ -649,10 +652,10 @@ test('unknown canonical Support navigation and return preserve both original jou
   await open(page);
   await stage(page);
   await confirm(page, state);
-  await expect(page.locator('.token-ballot-context')).toContainText(text('unknown'));
+  await expect(page.getByTestId('token-ballot-context')).toContainText(text('unknown'));
   const marker = await stored(page, markerKey),
     ballot = await stored(page, ballotKey);
-  const support = page.locator('.token-ballot-context').getByRole('link', { name: text('support'), exact: true });
+  const support = page.getByTestId('token-ballot-context').getByRole('link', { name: text('support'), exact: true });
   await expect(support).toHaveAttribute('href', '/support');
   await tabTo(page, support);
   await page.keyboard.press('Enter');
@@ -662,13 +665,16 @@ test('unknown canonical Support navigation and return preserve both original jou
   expect(await stored(page, ballotKey)).toBe(ballot);
   await page.goBack();
   await expect(page).toHaveURL(/\/token$/);
-  await expect(page.locator('.token-ballot-context')).toContainText(first);
-  await expect(page.locator('.token-ballot-context')).toContainText(actor);
+  await expect(page.getByTestId('token-ballot-context')).toContainText(first);
+  await expect(page.getByTestId('token-ballot-context')).toContainText(actor);
   await expect(selected(page).getByRole('button', { name: text('reviewFor'), exact: true })).toBeDisabled();
   expect(await stored(page, markerKey)).toBe(marker);
   expect(await stored(page, ballotKey)).toBe(ballot);
   expect(calls.writes).toHaveLength(1);
-  const axe = await new AxeBuilder({ page }).include('.token-ballot-context').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  const axe = await new AxeBuilder({ page })
+    .include('[data-testid="token-ballot-context"]')
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
+    .analyze();
   expect(axe.violations).toEqual([]);
   calls.observations.push({ nativeSupportTabEnter: true, axeViolations: [] });
   await capture(page, 'unknown-support-return');

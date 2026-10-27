@@ -71,7 +71,7 @@ function OwnerRecords({ userId, resource, reload, limit, renderCancel }: Props &
   const rows = valid && parsed?.success ? parsed.data : null;
   const current = rows?.find((row) => row.id === selected);
   return (
-    <section className="market-purchases" aria-label={t('title')} lang={languageFor('title')}>
+    <section data-testid="market-purchases" className="market-purchases" aria-label={t('title')} lang={languageFor('title')}>
       <p className="market-purchases-description">
         <Copy k="meaning" />
       </p>
@@ -121,7 +121,7 @@ function OwnerRecords({ userId, resource, reload, limit, renderCancel }: Props &
                       <span lang="zxx">{row.assetId}</span>
                     </p>
                     <Timestamp value={row.createdAt} />
-                    <code className="market-purchases-reference muted" lang="zxx">
+                    <code data-testid="market-purchases-reference" className="market-purchases-reference muted" lang="zxx">
                       {row.id}
                     </code>
                     {row.accessUntil && renderCancel(row)}
@@ -148,7 +148,7 @@ function OwnerRecords({ userId, resource, reload, limit, renderCancel }: Props &
                 <Copy k="hide" />
               </Button>
             </header>
-            <p className="market-purchases-reference" lang="zxx">
+            <p data-testid="market-purchases-reference" className="market-purchases-reference" lang="zxx">
               {selected}
             </p>
             {current ? (
@@ -224,7 +224,13 @@ function OriginalRecord({ row }: { row: MarketPurchaseRecord }) {
         <p className="market-purchases-description">
           <Copy k="price" />
         </p>
-        <div className="market-purchases-exact-price" tabIndex={0} role="group" aria-label={t('price')}>
+        <div
+          data-testid="market-purchases-exact-price"
+          className="market-purchases-exact-price"
+          tabIndex={0}
+          role="group"
+          aria-label={t('price')}
+        >
           <strong className="numeric">{hideBalances ? <span aria-label={t('amountHidden')}>••••</span> : displayAmount(row.price)}</strong>
         </div>
         <span lang="zxx">{row.assetId}</span>
@@ -300,7 +306,7 @@ function CurrentAccess({ row }: { row: MarketPurchaseRecord }) {
             ? 'notSubscription'
             : null;
   return (
-    <section className="market-purchases-access" aria-label={t('currentAccess')}>
+    <section data-testid="market-purchases-access" className="market-purchases-access" aria-label={t('currentAccess')}>
       <h4>
         <Copy k="currentAccess" />
       </h4>
@@ -314,7 +320,7 @@ function CurrentAccess({ row }: { row: MarketPurchaseRecord }) {
       ) : access.resource.status === 'loading' ? (
         <Loading label={<Copy k="checking" />} />
       ) : failure ? (
-        <div className="market-purchases-access-outcome" role="status">
+        <div data-testid="market-purchases-access-outcome" className="market-purchases-access-outcome" role="status">
           <h4>
             <Copy k="accessUnavailable" />
           </h4>
@@ -337,7 +343,7 @@ function CurrentAccess({ row }: { row: MarketPurchaseRecord }) {
           )}
         </div>
       ) : access.resource.status === 'ready' && access.resource.data ? (
-        <div className="market-purchases-access-outcome" role="status">
+        <div data-testid="market-purchases-access-outcome" className="market-purchases-access-outcome" role="status">
           <h4>
             <Copy k="grant" />
           </h4>

@@ -164,7 +164,7 @@ function SavedDetails({ pay, instrumentId, fields }: { pay: PersonalPayApi; inst
     );
   return (
     <div className="stack" data-testid="saved-method-details">
-      <dl className="pay-details">
+      <dl data-testid="pay-details" className="pay-details">
         {Object.entries(shown.data.details).map(([key, value]) => (
           <div key={key} style={{ display: 'contents' }}>
             <dt>{fields?.find((field) => field.key === key)?.label ?? key}</dt>
@@ -678,7 +678,7 @@ function AddMethod({
         >
           <div className="form-stack" data-testid="method-add-review">
             <p className="muted">{t('addReviewIntro')}</p>
-            <dl className="pay-details">
+            <dl data-testid="pay-details" className="pay-details">
               <dt>{t('addMethod')}</dt>
               <dd>{method.label}</dd>
               <dt>{t('addCountry')}</dt>

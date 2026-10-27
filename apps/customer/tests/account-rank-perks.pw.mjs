@@ -97,9 +97,9 @@ async function login(page, path = original) {
   await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect(page).toHaveURL(new URL(path, test.info().project.use.baseURL).href);
 }
-const feature = (page) => page.locator('.rank-perks'),
-  rankHalf = (page) => page.locator('.rank-perks__rank'),
-  perksHalf = (page) => page.locator('.rank-perks__perks');
+const feature = (page) => page.getByTestId('rank-perks'),
+  rankHalf = (page) => page.getByTestId('rank-perks__rank'),
+  perksHalf = (page) => page.getByTestId('rank-perks__perks');
 const count = (state, procedure) => state.reads.filter((row) => row.procedure === procedure).length;
 async function shot(page, name) {
   await page.screenshot({ path: evidence + '/' + name + '.png', fullPage: true });
@@ -211,7 +211,7 @@ for (const [name, procedure, value] of [
     await login(page);
     const broken = procedure === 'rank.get' ? rankHalf(page) : perksHalf(page),
       good = procedure === 'rank.get' ? perksHalf(page) : rankHalf(page);
-    await expect(broken.locator('.rank-perks__failure')).toBeVisible();
+    await expect(broken.getByTestId('rank-perks__failure')).toBeVisible();
     await expect(good).toContainText(procedure === 'rank.get' ? '50 bps' : 'Rank 2');
     expect(state.writes).toEqual([]);
   });
@@ -378,7 +378,10 @@ for (const [locale, rankLabel, perkLabel, retryLabel, refreshLabel] of [
       expect((await rankHalf(page).locator('dd').first().textContent()).replace(/\D/g, '')).toBe(large);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       expect((await refresh.boundingBox()).height).toBeGreaterThanOrEqual(44);
-      const axe = await new AxeBuilder({ page }).include('.rank-perks').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+      const axe = await new AxeBuilder({ page })
+        .include('[data-testid="rank-perks"]')
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
+        .analyze();
       expect(axe.violations).toEqual([]);
       expect(state.writes).toEqual([]);
       await shot(page, `rank-${locale}-${width}`);

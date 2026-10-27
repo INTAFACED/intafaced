@@ -69,7 +69,7 @@ function RecordFacts({ row }: { row: RailRecord }) {
           ['settle', row.settleLedgerTxId],
         ];
   return (
-    <article className="money-ramp-facts">
+    <article data-testid="money-ramp-facts" className="money-ramp-facts">
       <Identity row={row} />
       <Quantity row={row} />
       <dl className="money-ramp-metadata">
@@ -100,7 +100,7 @@ function RecordFacts({ row }: { row: RailRecord }) {
           </div>
         ))}
       </dl>
-      <div className="money-ramp-notes">
+      <div data-testid="money-ramp-notes" className="money-ramp-notes">
         {row.simulated && (
           <p className="money-caption">
             <Copy k="simulated" />
@@ -143,9 +143,9 @@ function RailWindow({ direction }: { direction: Direction }) {
     target?.scrollIntoView({ block: 'start' });
   }, [selected?.serial]);
   return (
-    <div className="money-rail-window" lang={languageFor('recordsIn')} dir={directionFor('recordsIn')}>
+    <div data-testid="money-rail-window" className="money-rail-window" lang={languageFor('recordsIn')} dir={directionFor('recordsIn')}>
       {selected && (
-        <section className="money-selected-ramp" aria-labelledby="money-selected-ramp-heading">
+        <section data-testid="money-selected-ramp" className="money-selected-ramp" aria-labelledby="money-selected-ramp-heading">
           <header>
             <h2 id="money-selected-ramp-heading" ref={heading} tabIndex={-1}>
               <Copy k="selected" />
@@ -208,7 +208,7 @@ function RailWindow({ direction }: { direction: Direction }) {
             <>
               {other.length ? (
                 other.map((row, index) => (
-                  <article className="money-ramp-record" key={`${row.id}:${index}`}>
+                  <article data-testid="money-ramp-record" className="money-ramp-record" key={`${row.id}:${index}`}>
                     <Identity row={row} />
                     <Quantity row={row} />
                     <div className="money-ramp-preview">
@@ -336,7 +336,7 @@ export function OwnerRailRecords() {
   const [direction, setDirection] = useState<Direction>('in');
   return (
     <div className="money-owner-ramps" lang={languageFor('direction')} dir={directionFor('direction')}>
-      <div className="money-ramp-entry">
+      <div data-testid="money-ramp-entry" className="money-ramp-entry">
         <p className="money-caption">
           <Copy k="fundingUnavailable" />
         </p>

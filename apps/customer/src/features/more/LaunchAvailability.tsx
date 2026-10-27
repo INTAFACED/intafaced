@@ -44,7 +44,7 @@ export function Launch({ orders = false, tab: first }: { orders?: boolean; tab?:
 function LaunchRequirements({ orders = false }: { orders?: boolean }) {
   const { Copy, t, languageFor, directionFor } = launchCopy.useCopy();
   return (
-    <div className="launch-room" lang={languageFor('launchUnavailable')} dir={directionFor('launchUnavailable')}>
+    <div data-testid="launch-room" className="launch-room" lang={languageFor('launchUnavailable')} dir={directionFor('launchUnavailable')}>
       <SubNav
         aria-label={t('nav')}
         active={orders ? 'participation' : 'overview'}
@@ -104,7 +104,7 @@ function LaunchRequirements({ orders = false }: { orders?: boolean }) {
               <Copy k={orders ? 'returnLink' : 'historyLink'} />
             </a>
           </section>
-          <section className="launch-room-market">
+          <section data-testid="launch-room-market" className="launch-room-market">
             <div className="launch-room-side-copy">
               <h3>
                 <Copy k="market" />

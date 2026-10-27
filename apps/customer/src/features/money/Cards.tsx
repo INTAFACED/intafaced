@@ -22,7 +22,7 @@ export function CardReference({ id }: { id: string }) {
       <summary>
         <Copy k="details" />
       </summary>
-      <dl className="money-card-reference">
+      <dl data-testid="money-card-reference" className="money-card-reference">
         <dt>
           <Copy k="reference" />
         </dt>
@@ -37,7 +37,7 @@ export function CardReference({ id }: { id: string }) {
 function CardIdentity({ card }: { card: CardRecord }) {
   const { Copy } = cardCopy.useCopy();
   return (
-    <div className="money-card-identity">
+    <div data-testid="money-card-identity" className="money-card-identity">
       <CardFace card={card} />
       <h3>
         <Text k={card.simulated ? 'rooms.simulation.record' : 'rooms.card'} /> ·{' '}
@@ -94,7 +94,7 @@ function CardQuantity({ value, asset }: { value: string; asset: string }) {
 function CardConfiguration({ card, expanded = false }: { card: CardRecord; expanded?: boolean }) {
   const { Copy } = cardCopy.useCopy();
   return (
-    <details className="money-card-configuration" open={expanded}>
+    <details data-testid="money-card-configuration" className="money-card-configuration" open={expanded}>
       <summary>
         <Copy k="configured" />
       </summary>
@@ -204,12 +204,12 @@ export function CardActions({
 function Decision({ row, asset }: { row: CardDecision; asset: string }) {
   const { Copy } = cardCopy.useCopy();
   return (
-    <article className="money-card-decision">
+    <article data-testid="money-card-decision" className="money-card-decision">
       <header>
         <h4 lang="und" dir="auto">
           {row.decision}
         </h4>
-        <dl className="money-card-status">
+        <dl data-testid="money-card-status" className="money-card-status">
           <dt>
             <Copy k="status" />
           </dt>
@@ -218,7 +218,7 @@ function Decision({ row, asset }: { row: CardDecision; asset: string }) {
           </dd>
         </dl>
       </header>
-      <dl className="money-card-funding">
+      <dl data-testid="money-card-funding" className="money-card-funding">
         <dt className="money-visually-hidden">
           <Copy k="quantity" />
         </dt>
@@ -226,7 +226,7 @@ function Decision({ row, asset }: { row: CardDecision; asset: string }) {
           <CardQuantity value={row.amount} asset={asset} />
         </dd>
       </dl>
-      <dl className="money-card-decision-time">
+      <dl data-testid="money-card-decision-time" className="money-card-decision-time">
         <div>
           <dt className="money-visually-hidden">
             <Copy k="decidedAt" />
@@ -250,7 +250,7 @@ function Decision({ row, asset }: { row: CardDecision; asset: string }) {
           </dd>
         </div>
       </dl>
-      <dl className="money-card-authorization">
+      <dl data-testid="money-card-authorization" className="money-card-authorization">
         <dt>
           <Copy k="authorization" />
         </dt>
@@ -259,7 +259,7 @@ function Decision({ row, asset }: { row: CardDecision; asset: string }) {
         </dd>
       </dl>
       {row.declineCode !== null && (
-        <dl className="money-card-decline">
+        <dl data-testid="money-card-decline" className="money-card-decline">
           <dt>
             <Copy k="decline" />
           </dt>
@@ -269,7 +269,7 @@ function Decision({ row, asset }: { row: CardDecision; asset: string }) {
         </dl>
       )}
       {row.conversion && (
-        <div className="money-card-conversion">
+        <div data-testid="money-card-conversion" className="money-card-conversion">
           <h5>
             <Copy k="conversion" />
           </h5>
@@ -523,8 +523,8 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
     else if (serial.current) arrive(listHeading.current);
   }, [selected?.serial]);
   return (
-    <div className="money-owner-cards" lang={languageFor('records')} dir={directionFor('records')}>
-      <div className="money-card-programme">
+    <div data-testid="money-owner-cards" className="money-owner-cards" lang={languageFor('records')} dir={directionFor('records')}>
+      <div data-testid="money-card-programme" className="money-card-programme">
         <ResourceView
           resource={programme.resource}
           reload={() => {
@@ -551,7 +551,7 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
       </div>
       <OrderCard open={open} programme={orderProgramme} assets={orderAssets} />
       {selected && (
-        <section className="money-selected-card" aria-labelledby="money-selected-card-heading">
+        <section data-testid="money-selected-card" className="money-selected-card" aria-labelledby="money-selected-card-heading">
           <header>
             <h2 id="money-selected-card-heading" ref={heading} tabIndex={-1}>
               <Copy k="selected" />
@@ -611,7 +611,7 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
             <>
               {other.length ? (
                 other.map((row, index) => (
-                  <article className="money-card-record" key={`${row.id}:${index}`}>
+                  <article data-testid="money-card-record" className="money-card-record" key={`${row.id}:${index}`}>
                     <CardIdentity card={row} />
                     <div className="money-card-record-actions">
                       <Button

@@ -210,7 +210,7 @@ export function AddEndpoint({
           disabled={!canManage || !url.trim() || Boolean(problem)}
           disabledReason={canManage ? t('urlFixFirst') : t('readOnlyRole')}
           review={
-            <dl className="pay-details">
+            <dl data-testid="pay-details" className="pay-details">
               <div>
                 <dt>{t('colAddress')}</dt>
                 <dd className="pp-wrap">{shownEndpointUrl(url.trim())}</dd>

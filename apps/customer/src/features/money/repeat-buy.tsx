@@ -106,7 +106,7 @@ export function AutoInvestRules({ asset, open }: { asset?: string; open: (spec: 
             <>
               {rows.length ? (
                 rows.map((rule) => (
-                  <article className="money-record money-repeat-rule" key={rule.id}>
+                  <article data-testid="money-repeat-rule" className="money-record money-repeat-rule" key={rule.id}>
                     <header>
                       <div>
                         <h3>
@@ -256,7 +256,7 @@ function PersonalRepeatBuy({ asset, open }: { asset: string; open: (spec: Action
         </a>
       }
     >
-      <div className="money-repeat-lanes">
+      <div data-testid="money-repeat-lanes" className="money-repeat-lanes">
         <Section
           title={t('newTitle')}
           description={t('mainSource')}

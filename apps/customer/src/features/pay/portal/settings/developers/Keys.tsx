@@ -31,7 +31,7 @@ export function KeyRevoke({ api, apiKey, onDone }: { api: Pick<SettingsBApi, 'ke
       title={t('revokeKey')}
       description={t('revokeEffect')}
       review={
-        <dl className="pay-details">
+        <dl data-testid="pay-details" className="pay-details">
           <div>
             <dt>{t('colName')}</dt>
             <dd>
@@ -288,7 +288,7 @@ export function CreateKey({
           disabled={blocked || !trimmed || Boolean(nameError) || picked.length === 0}
           disabledReason={blocked ? t('createKeyOwnerOnly') : t('createKeyNeeds')}
           review={
-            <dl className="pay-details">
+            <dl data-testid="pay-details" className="pay-details">
               <div>
                 <dt>{t('colName')}</dt>
                 <dd>{trimmed}</dd>

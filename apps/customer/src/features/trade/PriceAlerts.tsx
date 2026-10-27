@@ -100,7 +100,7 @@ export function PriceAlerts({ market }: { market: Listing }) {
         (market.paper || !userId || mode !== 'Personal' ? (
           createPortal(
             <Dialog title={<Copy k="title" />} onClose={() => setOpen(false)}>
-              <div lang={languageFor('title')} className="price-alerts">
+              <div lang={languageFor('title')} data-testid="price-alerts" className="price-alerts">
                 <p>
                   <Copy k={market.paper ? 'simulation' : mode !== 'Personal' ? 'company' : 'signIn'} />
                 </p>
@@ -429,7 +429,7 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
         if (!running.current) onClose();
       }}
     >
-      <div className="price-alerts" lang={languageFor('title')}>
+      <div data-testid="price-alerts" className="price-alerts" lang={languageFor('title')}>
         <p className="muted">
           <span lang="">{market.symbol}</span> · <Copy k="personal" />
         </p>
@@ -482,7 +482,7 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
         )}
         {busy && <Loading label={<Copy k="working" />} />}
         {result && (
-          <section className="price-alerts-result" role="status">
+          <section data-testid="price-alerts-result" className="price-alerts-result" role="status">
             <strong>
               <Copy k={result.key} />
             </strong>
@@ -506,7 +506,7 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
           </section>
         )}
         {review && !stored.marker ? (
-          <section className="price-alerts-review">
+          <section data-testid="price-alerts-review" className="price-alerts-review">
             <p>
               <Copy k="price" params={{ quote: market.quote, base: market.base }} />
             </p>
@@ -626,7 +626,7 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
             <>
               {rows.length ? (
                 rows.map((row) => (
-                  <article className="price-alerts-row" key={row.id}>
+                  <article data-testid="price-alerts-row" className="price-alerts-row" key={row.id}>
                     <div>
                       <strong>{condition(row)}</strong>
                       <span className={'price-alerts-status price-alerts-status--' + row.status}>
@@ -658,7 +658,7 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
           )}
         </section>
         {selectedId && (
-          <section className="price-alerts-selection" aria-label={t('selected')}>
+          <section data-testid="price-alerts-selection" className="price-alerts-selection" aria-label={t('selected')}>
             <header>
               <h3>
                 <Copy k="selected" />

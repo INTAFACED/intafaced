@@ -25,7 +25,7 @@ const firstEvidence = {
   slippage: 'isolated-native-slippage-evidence',
   latency: 'isolated-native-latency-evidence',
 };
-const record = (page) => page.locator('.quant-history');
+const record = (page) => page.getByTestId('quant-history');
 const review = (page) => page.getByRole('button', { name: 'Review historical analysis', exact: true });
 const stable = (page) =>
   page.evaluate(async () => {
@@ -195,8 +195,8 @@ test('original result remains identifiable after edited draft and a definitive f
       await expect(
         page.getByText('connect data lake is not wired — fills are absent, candles are not invented', { exact: true }),
       ).toBeVisible();
-      await expect(page.locator('.quant-latest-failure')).toContainText(B);
-      await expect(page.locator('.quant-latest-failure')).toContainText('ETH/EUR');
+      await expect(page.getByTestId('quant-latest-failure')).toContainText(B);
+      await expect(page.getByTestId('quant-latest-failure')).toContainText('ETH/EUR');
       await original(page);
       await record(page).locator('summary').click();
       for (const source of Object.values(firstEvidence)) await expect(record(page).getByText(source, { exact: true })).toBeVisible();
@@ -228,7 +228,7 @@ test('original result remains identifiable after edited draft and a definitive f
       await page.evaluate(() => scrollTo(0, 0));
       await page.screenshot({ path: join(out, 'failed-new.png'), fullPage: true });
       await record(page).locator('summary').focus();
-      const axe = await new AxeBuilder({ page }).include('.quant-workbench').analyze();
+      const axe = await new AxeBuilder({ page }).include('[data-testid="quant-workbench"]').analyze();
       expect(axe.violations.filter((v) => ['critical', 'serious'].includes(v.impact))).toEqual([]);
     });
 });
@@ -242,7 +242,7 @@ test('unknown original remains accessible through closure and an independent sam
     await run(page);
     await expect.poll(() => state.writes.length).toBe(1);
     await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), key)).not.toBeNull();
-    await expect(page.locator('.failure').filter({ hasText: 'outcome' }).first()).toBeVisible();
+    await expect(page.getByTestId('failure').filter({ hasText: 'outcome' }).first()).toBeVisible();
     await expect(review(page)).toBeDisabled();
     const raw = await page.evaluate((key) => localStorage.getItem(key), key),
       marker = JSON.parse(raw);
@@ -263,7 +263,7 @@ test('unknown original remains accessible through closure and an independent sam
     await expect(record(independent)).toContainText('No completed analysis in this view');
     await expect(independent.getByRole('link', { name: 'Contact Support', exact: true })).toBeVisible();
     expect(state.writes).toHaveLength(1);
-    await independent.locator('.quant-original-context').getByRole('link', { name: 'Studio', exact: true }).click();
+    await independent.getByTestId('quant-original-context').getByRole('link', { name: 'Studio', exact: true }).click();
     await expect(independent).toHaveURL(/\/quant\/studio$/);
     expect(await independent.evaluate((key) => localStorage.getItem(key), key)).toBe(raw);
   });
@@ -288,7 +288,7 @@ test('explicit UTC intervals are identical across device zones including a local
         await page.getByLabel('In-sample end', { exact: true }).fill('2026-03-07T01:00');
         await expect(review(page)).toBeDisabled();
         await page
-          .locator('.quant-analysis-draft form')
+          .locator('[data-testid="quant-analysis-draft"] form')
           .evaluate((form) => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
         await expect(page.getByRole('dialog')).toHaveCount(0);
         expect(state.writes).toHaveLength(0);
@@ -364,7 +364,7 @@ test('batched native departures retire completed records and old handlers; late 
     state.pending();
     await (await response).finished();
     await stable(page);
-    await expect(page.locator('.loading')).toHaveCount(0);
+    await expect(page.getByTestId('loading')).toHaveCount(0);
     await expect(record(page).getByText(A, { exact: true })).toHaveCount(0);
     expect(await page.evaluate((key) => localStorage.getItem(key), key)).toBe(raw);
     await expect(review(page)).toBeDisabled();
@@ -436,7 +436,7 @@ test('unreadable and opaque original storage prevents both reviewed and saved-ha
     await page.getByLabel('Strategy ID', { exact: true }).fill(B);
     await expect(review(page)).toBeDisabled();
     await page
-      .locator('.quant-analysis-draft form')
+      .locator('[data-testid="quant-analysis-draft"] form')
       .evaluate((form) => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect(state.writes).toHaveLength(0);
@@ -469,7 +469,7 @@ test('mismatched or malformed service results stay unknown under their original 
       await expect(page.getByText('Outcome not confirmed', { exact: true })).toBeVisible();
       await expect(review(page)).toBeDisabled();
       await expect(record(page).getByText(A, { exact: true })).toHaveCount(0);
-      await expect(page.locator('.more-success')).toHaveCount(0);
+      await expect(page.getByTestId('more-success')).toHaveCount(0);
       const raw = await page.evaluate((key) => localStorage.getItem(key), key);
       expect(Object.keys(JSON.parse(raw)).sort()).toEqual(['id', 'title']);
       await expect(page.getByText(JSON.parse(raw).id, { exact: true })).toBeVisible();
@@ -546,7 +546,7 @@ test('exact long reported values, passive locales and keyboard disclosure fit wi
     ]) {
       await peer.evaluate((language) => localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ language })), language);
       await expect(record(page).getByRole('heading', { name: title, exact: true })).toBeVisible();
-      await expect(page.locator('.quant-history-body')).toHaveAttribute('lang', lang);
+      await expect(page.getByTestId('quant-history-body')).toHaveAttribute('lang', lang);
       expect(await page.evaluate(() => document.activeElement === window.originalQuantFocus)).toBe(true);
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
       await expect(record(page).locator('[data-exact-amount]').first()).toHaveAttribute('data-exact-amount', long);
@@ -556,7 +556,7 @@ test('exact long reported values, passive locales and keyboard disclosure fit wi
     }
     await page.keyboard.press('Enter');
     await expect(record(page).getByText(firstEvidence.fees, { exact: true })).not.toBeVisible();
-    const amounts = record(page).locator('.quant-history-amount');
+    const amounts = record(page).getByTestId('quant-history-amount');
     await amounts.first().focus();
     await page.keyboard.press('End');
     expect(await amounts.first().evaluate((n) => n.scrollWidth > n.clientWidth)).toBe(true);
@@ -597,7 +597,7 @@ test('deployment catalogue failure recovers through its actual bounded read and 
     expect(state.writes).toHaveLength(0);
     expect(state.reads.filter((r) => r.procedure === 'studio.list')).toHaveLength(2);
     await expect(page.locator('.quant-catalogue')).toContainText('shared in-process');
-    await expect(page.locator('.quant-analysis-draft')).toContainText('execution and performance producer');
+    await expect(page.getByTestId('quant-analysis-draft')).toContainText('execution and performance producer');
     await page.screenshot({ path: join(out, 'catalogue.png'), fullPage: true });
   });
 });

@@ -109,7 +109,7 @@ async function signIn(page) {
   await page.getByLabel('Password', { exact: true }).fill('isolated-password');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page).toHaveURL(/\/bank\/loans$/);
-  await expect(page.locator('.money-loan-record')).toHaveCount(7);
+  await expect(page.getByTestId('money-loan-record')).toHaveCount(7);
 }
 const card = (page, i = 0) => page.locator(`[data-loan-id="${ids[i]}"]`);
 const refresh = (page) => page.getByRole('button', { name: 'Refresh loans and health', exact: true });
@@ -129,9 +129,9 @@ test('actual App uses each loan ratio and per-action status admission with nativ
     errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await signIn(page);
-  await expect(card(page, 0).locator('.money-loan-risk')).toContainText('50.13%');
-  await expect(card(page, 1).locator('.money-loan-risk')).toContainText('60.13%');
-  await expect(card(page, 2).locator('.money-loan-risk')).toContainText('Loan risk unavailable');
+  await expect(card(page, 0).getByTestId('money-loan-risk')).toContainText('50.13%');
+  await expect(card(page, 1).getByTestId('money-loan-risk')).toContainText('60.13%');
+  await expect(card(page, 2).getByTestId('money-loan-risk')).toContainText('Loan risk unavailable');
   await expect(card(page, 2)).toContainText('Principal credit is unconfirmed');
   await expect(card(page, 2)).toContainText('Principal in pending record');
   await expect(card(page, 3)).toContainText('Unbounded or capped LTV');
@@ -160,13 +160,13 @@ test('actual App uses each loan ratio and per-action status admission with nativ
     await expect(next).toBeFocused();
     const fit = await next.evaluate((el) => {
       const r = el.getBoundingClientRect(),
-        bar = document.querySelector('.mobile-doors')?.getBoundingClientRect();
+        bar = document.querySelector('[data-testid="mobile-doors"]')?.getBoundingClientRect();
       return { hit: el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)), bottom: r.bottom, barTop: bar?.top };
     });
     expect(fit.hit).toBe(true);
     if (width <= 1000) expect(fit.bottom).toBeLessThanOrEqual(fit.barTop);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    const audit = await new AxeBuilder({ page }).include('.money-loan-record').analyze();
+    const audit = await new AxeBuilder({ page }).include('[data-testid="money-loan-record"]').analyze();
     expect(audit.violations.filter((v) => ['serious', 'critical'].includes(v.impact))).toEqual([]);
     await page.screenshot({ path: evidence + `/loans-${width}.png`, fullPage: true });
   }
@@ -214,20 +214,20 @@ test('risk failed, omitted and restored reads never reuse a different loan ratio
   await signIn(page);
   state.healthFail = true;
   await refresh(page).click();
-  await expect(card(page).locator('.money-loan-risk')).toContainText('Loan risk unavailable');
-  await expect(card(page).locator('.money-loan-risk')).toContainText('No usable individual ratio');
-  await expect(card(page).locator('.money-loan-risk')).not.toContainText('50.13%');
+  await expect(card(page).getByTestId('money-loan-risk')).toContainText('Loan risk unavailable');
+  await expect(card(page).getByTestId('money-loan-risk')).toContainText('No usable individual ratio');
+  await expect(card(page).getByTestId('money-loan-risk')).not.toContainText('50.13%');
   state.healthFail = false;
   state.health.loans = state.health.loans.filter((x) => x.loanId !== ids[0]);
   await card(page).getByRole('button', { name: 'Refresh loan risk', exact: true }).click();
-  await expect(card(page).locator('.money-loan-risk')).toContainText('Loan risk unavailable');
-  await expect(card(page).locator('.money-loan-risk')).not.toContainText('60.13%');
+  await expect(card(page).getByTestId('money-loan-risk')).toContainText('Loan risk unavailable');
+  await expect(card(page).getByTestId('money-loan-risk')).not.toContainText('60.13%');
   state.health.loans.push({ loanId: ids[0], debtValue: '5000', collateralValue: '10000', ltvBps: 5000 });
   state.health.portfolioLtvBps = Number.MAX_SAFE_INTEGER;
   await refresh(page).click();
-  await expect(card(page).locator('.money-loan-risk')).toContainText('50%');
-  await expect(page.locator('.money-risk')).toContainText('Unbounded or capped LTV');
-  await expect(page.locator('.money-risk')).not.toContainText('LTV LTV');
+  await expect(card(page).getByTestId('money-loan-risk')).toContainText('50%');
+  await expect(page.getByTestId('money-risk')).toContainText('Unbounded or capped LTV');
+  await expect(page.getByTestId('money-risk')).not.toContainText('LTV LTV');
   expect(state.writes).toEqual([]);
 });
 
@@ -236,7 +236,7 @@ for (const ratio of [-1, Number.MAX_SAFE_INTEGER + 1]) {
     const state = await setup(page);
     state.health.portfolioLtvBps = ratio;
     await signIn(page);
-    await expect(page.locator('.money-risk')).toHaveCount(0);
+    await expect(page.getByTestId('money-risk')).toHaveCount(0);
     await expect(page.getByText('The service response could not be verified.', { exact: true }).first()).toBeVisible();
     expect(state.writes).toEqual([]);
   });
@@ -406,7 +406,7 @@ test('unknown collateral release preserves original loan guard through matching,
   await expect(page.getByRole('dialog')).toHaveCount(0);
   state.rows = [];
   await refresh(page).click();
-  await expect(page.locator('.money-loan-record')).toHaveCount(0);
+  await expect(page.getByTestId('money-loan-record')).toHaveCount(0);
   state.listFail = true;
   await refresh(page).click();
   await expect(page.locator('#bank-unconfirmed')).toContainText(ids[0]);

@@ -72,7 +72,7 @@ export function AcademyGrantRecords({ action, titles }: { action: AcademyAction;
         </p>
       </header>
       {snapshot.status === 'grant' && !proof && (
-        <section className="academy-grant-original" aria-label={t('unknown')}>
+        <section data-testid="academy-grant-original" className="academy-grant-original" aria-label={t('unknown')}>
           <h3>
             <Copy k="unknown" />
           </h3>
@@ -94,7 +94,7 @@ export function AcademyGrantRecords({ action, titles }: { action: AcademyAction;
         </section>
       )}
       {proof && (
-        <section className="academy-grant-original" aria-label={t('confirmed')}>
+        <section data-testid="academy-grant-original" className="academy-grant-original" aria-label={t('confirmed')}>
           <h3>
             <Copy k="confirmed" />
           </h3>

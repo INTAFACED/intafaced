@@ -48,7 +48,7 @@ export function HelpLibraryNav() {
         <ul className="help__topics">
           {read.data.categories.map((category) => (
             <li key={category.id}>
-              <a className="help__link text-link" href={helpCategoryHref(category.id)} lang="und">
+              <a data-testid="help__link" className="help__link text-link" href={helpCategoryHref(category.id)} lang="und">
                 {category.name}
               </a>
               {category.sections.length > 0 && (
@@ -84,13 +84,13 @@ function Crumbs({ category }: { category?: { id: string; name: string } }) {
   const { t, languageFor } = copy.useCopy();
   return (
     <nav aria-label={t('breadcrumbs')} className="help__crumbs">
-      <a href="/help" className="help__link text-link" lang={languageFor('libraryHome')}>
+      <a href="/help" data-testid="help__link" className="help__link text-link" lang={languageFor('libraryHome')}>
         {t('libraryHome')}
       </a>
       {category && (
         <>
           {' › '}
-          <a href={helpCategoryHref(category.id)} className="help__link text-link" lang="und">
+          <a href={helpCategoryHref(category.id)} data-testid="help__link" className="help__link text-link" lang="und">
             {category.name}
           </a>
         </>
@@ -106,7 +106,7 @@ function Refused({ kind }: { kind: 'off' | 'missing' }) {
   return (
     <>
       <Crumbs />
-      <header className="help__heading">
+      <header data-testid="help__heading" className="help__heading">
         <h1 lang={languageFor(title)} tabIndex={-1}>
           {t(title)}
         </h1>
@@ -146,21 +146,26 @@ function CategoryPage({ id }: { id: string }) {
   return (
     <>
       <Crumbs />
-      <header className="help__heading">
+      <header data-testid="help__heading" className="help__heading">
         <h1 lang="und">{category.name}</h1>
       </header>
       <div className="help__browse">
-        <div className="help__list">
+        <div data-testid="help__list" className="help__list">
           {category.sections.length === 0 && (
-            <div className="help__empty" role="status">
+            <div data-testid="help__empty" className="help__empty" role="status">
               <h2 lang={languageFor('categoryEmptyTitle')}>{t('categoryEmptyTitle')}</h2>
             </div>
           )}
           {category.sections.map((section) => (
             <article data-testid="help__row" className="help__row" key={section.id}>
-              <div className="help__row-heading">
+              <div data-testid="help__row-heading" className="help__row-heading">
                 <h2 lang="und">{section.name}</h2>
-                <a href={helpSectionHref(section.id)} className="help__link text-link" aria-label={`${t('openSection')}: ${section.name}`}>
+                <a
+                  href={helpSectionHref(section.id)}
+                  data-testid="help__link"
+                  className="help__link text-link"
+                  aria-label={`${t('openSection')}: ${section.name}`}
+                >
                   {t('openSection')} →
                 </a>
               </div>
@@ -205,13 +210,13 @@ function SectionPage({ id }: { id: string }) {
   return (
     <>
       <Crumbs category={category} />
-      <header className="help__heading">
+      <header data-testid="help__heading" className="help__heading">
         <h1 lang="und">{section.name}</h1>
       </header>
       <div className="help__browse">
-        <div className="help__list">
+        <div data-testid="help__list" className="help__list">
           {articles.length === 0 ? (
-            <div className="help__empty" role="status">
+            <div data-testid="help__empty" className="help__empty" role="status">
               <h2 lang={languageFor('sectionEmptyTitle')}>{t('sectionEmptyTitle')}</h2>
               <p className="muted" lang={languageFor('sectionEmptyBody')}>
                 {t('sectionEmptyBody')}
@@ -223,9 +228,14 @@ function SectionPage({ id }: { id: string }) {
               const first = row.body ? supportKbParagraphs(row.body)[0] : undefined;
               return (
                 <article data-testid="help__row" className="help__row" key={row.id}>
-                  <div className="help__row-heading">
+                  <div data-testid="help__row-heading" className="help__row-heading">
                     <h2 lang={row.language ?? 'und'}>{title}</h2>
-                    <a href={helpHref(row.id)} className="help__link text-link" aria-label={`${t('readAnswer')}: ${title}`}>
+                    <a
+                      href={helpHref(row.id)}
+                      data-testid="help__link"
+                      className="help__link text-link"
+                      aria-label={`${t('readAnswer')}: ${title}`}
+                    >
                       {t('readAnswer')} →
                     </a>
                   </div>
@@ -251,7 +261,7 @@ function SectionPage({ id }: { id: string }) {
 export function HelpLibrary({ at }: { at: Exclude<HelpLibraryPath, null> }) {
   const { languageFor } = copy.useCopy();
   return (
-    <div className="help" lang={languageFor('title')}>
+    <div data-testid="help" className="help" lang={languageFor('title')}>
       {at.kind === 'category' ? <CategoryPage id={at.id} /> : <SectionPage id={at.id} />}
     </div>
   );

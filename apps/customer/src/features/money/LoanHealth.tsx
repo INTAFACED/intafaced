@@ -80,7 +80,7 @@ export function LoanHealth({ loan, resource, reload }: { loan: Loan; resource: R
   const valid = ratio !== undefined && Number.isSafeInteger(ratio) && ratio >= 0;
   const ranged = ratio === Number.MAX_SAFE_INTEGER;
   return (
-    <section className="money-loan-risk" aria-label={t('riskFor', { loanId: loan.id })}>
+    <section data-testid="money-loan-risk" className="money-loan-risk" aria-label={t('riskFor', { loanId: loan.id })}>
       <div className="money-loan-risk-value">
         <h4>{t('riskLabel')}</h4>
         <strong className={valid && !ranged ? 'numeric' : 'money-loan-risk-message'}>

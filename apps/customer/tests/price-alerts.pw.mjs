@@ -195,7 +195,7 @@ test('native price watch exact review and explicit dispatch work at four widths'
     expect(fit.height).toBeGreaterThanOrEqual(44);
     expect(fit.hit).toBe(true);
     expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
-    const a = await new AxeBuilder({ page }).include('.price-alerts').analyze();
+    const a = await new AxeBuilder({ page }).include('[data-testid="price-alerts"]').analyze();
     expect(a.violations.filter((v) => ['serious', 'critical'].includes(v.impact))).toEqual([]);
     await page.screenshot({ path: dir + '/review-' + width + '.png', fullPage: true });
   }
@@ -257,17 +257,17 @@ test('owned market and predicate filtering preserves selected ID through failed 
     { ...original, id: '66666666-6666-4666-8666-666666666666', kind: 'funding' },
   );
   const dialog = await open(page);
-  await expect(dialog.locator('.price-alerts-row')).toHaveCount(1);
+  await expect(dialog.getByTestId('price-alerts-row')).toHaveCount(1);
   await dialog.getByRole('button', { name: 'Inspect alert', exact: true }).click();
   state.readFail = true;
   await dialog.getByRole('button', { name: 'Refresh alerts', exact: true }).click();
-  await expect(dialog.locator('.price-alerts-selection')).toContainText(id);
-  await expect(dialog.locator('.price-alerts-selection')).toContainText('Your original selection remains here.');
+  await expect(dialog.getByTestId('price-alerts-selection')).toContainText(id);
+  await expect(dialog.getByTestId('price-alerts-selection')).toContainText('Your original selection remains here.');
   state.readFail = false;
   state.items = [];
   await dialog.getByRole('button', { name: 'Refresh alerts', exact: true }).click();
   await expect(dialog).toContainText('No price alerts returned for this market');
-  await expect(dialog.locator('.price-alerts-selection')).toContainText(id);
+  await expect(dialog.getByTestId('price-alerts-selection')).toContainText(id);
   state.items = [original];
   await dialog.getByRole('button', { name: 'Refresh alerts', exact: true }).click();
   await expect(dialog.getByRole('button', { name: 'Review cancellation', exact: true })).toBeVisible();
@@ -278,7 +278,7 @@ test('cancellation reviews original watch and follows authoritative returned sta
     dialog = await open(page);
   await dialog.getByRole('button', { name: 'Inspect alert', exact: true }).click();
   await dialog.getByRole('button', { name: 'Review cancellation', exact: true }).click();
-  await expect(dialog.locator('.price-alerts-review')).toContainText(id);
+  await expect(dialog.getByTestId('price-alerts-review')).toContainText(id);
   expect(state.writes).toEqual([]);
   await dialog.getByRole('button', { name: 'Cancel this alert', exact: true }).click();
   await expect(dialog).toContainText('The service returned this alert as cancelled.');
@@ -356,7 +356,7 @@ for (const [direction, kind, mark] of [
     await expect(dialog).toContainText('Original alert action unconfirmed');
     expect((await pending(page)).alertId).toBe(id);
     expect(state.writes).toHaveLength(1);
-    await expect(dialog.locator('.price-alerts-result')).toHaveCount(0);
+    await expect(dialog.getByTestId('price-alerts-result')).toHaveCount(0);
   });
 test('signed-out chart entry performs no private alert read', async ({ page }) => {
   const state = await setup(page, { signedOut: true }),
@@ -437,9 +437,9 @@ test('all-kind account window controls continuation even when current-market fil
     original,
   ];
   const dialog = await open(page);
-  await expect(dialog.locator('.price-alerts-row')).toHaveCount(0);
+  await expect(dialog.getByTestId('price-alerts-row')).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Read a larger account window', exact: true }).click();
-  await expect(dialog.locator('.price-alerts-row')).toHaveCount(1);
+  await expect(dialog.getByTestId('price-alerts-row')).toHaveCount(1);
   await expect(dialog).toContainText('latest 100 account alerts');
   expect(state.writes).toEqual([]);
 });
@@ -510,7 +510,7 @@ for (const mode of ['foreign owner', 'duplicate ID'])
     state.items = mode === 'foreign owner' ? [{ ...original, userId: '22222222-2222-4222-8222-222222222222' }] : [original, original];
     const dialog = await open(page);
     await expect(dialog).toContainText('The service response could not be verified.');
-    await expect(dialog.locator('.price-alerts-row')).toHaveCount(0);
+    await expect(dialog.getByTestId('price-alerts-row')).toHaveCount(0);
     await expect(dialog.getByRole('button', { name: 'Review price alert', exact: true })).toBeDisabled();
     expect(state.writes).toEqual([]);
   });

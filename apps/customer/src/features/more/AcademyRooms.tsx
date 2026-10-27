@@ -65,7 +65,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
               <>
                 <div className="more-rooms">
                   {rows.map((r) => (
-                    <article className="more-room-link" key={r.id}>
+                    <article data-testid="more-room-link" className="more-room-link" key={r.id}>
                       <strong>{r.name}</strong>
                       <p>
                         {r.kind} · {r.access}

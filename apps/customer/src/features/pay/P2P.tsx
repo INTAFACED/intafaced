@@ -83,6 +83,7 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
       }
     >
       <nav
+        data-testid="pay-room-tabs"
         className={`pay-room-tabs${tradeId || current === '/chat' ? ' pay-order-tabs' : ''}`}
         aria-label={payCopy.t('p2pRooms')}
         onFocus={(event) => {
@@ -444,7 +445,7 @@ export function OrderActions({
         {trade.sellerId === userId && trade.status === 'fiat_sent' && <ReportMismatch trade={trade} pay={pay} onReported={reload} />}
       </div>
       {['created', 'escrowed'].includes(trade.status) && (
-        <details className="p2p-order-other">
+        <details data-testid="p2p-order-other" className="p2p-order-other">
           <summary>
             <Copy k="other" />
           </summary>

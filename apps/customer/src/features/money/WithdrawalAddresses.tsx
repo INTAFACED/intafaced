@@ -847,7 +847,7 @@ export function WithdrawalAddresses({ open }: { open?: (spec: ActionSpec) => voi
     : undefined;
   return (
     <Page eyebrow={t('aEyebrow')} title={t('aTitle')} description={t('aLead')}>
-      <div className="withdrawal-page bd-stack">
+      <div data-testid="withdrawal-page" className="withdrawal-page bd-stack">
         <DepthPanel title={t('aTableTitle')}>
           <AddressBook
             resource={book.resource}

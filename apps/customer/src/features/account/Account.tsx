@@ -485,7 +485,13 @@ export function Account() {
                 <Failure result={preflightFailure} retry={reload} />
               </div>
             )}
-            <p className="subaccounts__announcement" role="status" aria-live="polite" aria-atomic="true">
+            <p
+              data-testid="subaccounts__announcement"
+              className="subaccounts__announcement"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            >
               {busy
                 ? t('sending')
                 : visibleReceipts.length

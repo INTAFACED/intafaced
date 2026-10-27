@@ -319,7 +319,7 @@ export function MobileTabs({ door, language }: { door: Door | undefined; languag
   const { session, restoring } = useSession();
   const tabs = tabSpecs(layoutMode, Boolean(session) || restoring);
   return (
-    <nav className="mobile-doors" data-obscures="bottom" aria-label={t('Customer doors on phone')}>
+    <nav data-testid="mobile-doors" className="mobile-doors" data-obscures="bottom" aria-label={t('Customer doors on phone')}>
       {MOBILE_DOOR_ORDER.map((name) => tabs.find((tab) => tab.door === name)).flatMap((tab) =>
         tab
           ? [

@@ -38,7 +38,7 @@ const failure = (route) =>
     status: 503,
     json: { error: { message: 'Original English market read unavailable', data: { code: 'acceptance.unavailable' } } },
   });
-const room = (page) => page.locator('.market-purchases');
+const room = (page) => page.getByTestId('market-purchases');
 const detail = (page) => room(page).getByRole('region', { name: 'Selected original purchase', exact: true });
 const access = (page) => room(page).getByRole('region', { name: 'Current subscription access', exact: true });
 async function network(page, handlers = {}, identity = () => owner) {
@@ -178,7 +178,7 @@ for (const mode of ['foreign', 'numeric', 'duplicate', 'oversized'])
             : Array.from({ length: 51 }, (_, i) => row({ id: String(i + 1).padStart(8, '0') + '-0000-4000-8000-000000000000' }));
     const calls = await network(page, { myPurchases: (route) => reply(route, rows) });
     await login(page);
-    await expect(room(page).locator('.loading')).toHaveCount(0);
+    await expect(room(page).getByTestId('loading')).toHaveCount(0);
     await expect(room(page).getByRole('button', { name: 'Inspect purchase', exact: true })).toHaveCount(0);
     await expect(room(page)).not.toContainText('0.000000000000000001');
     expect(calls.reads.filter((x) => x.proc === 'subscriptionAccess')).toHaveLength(0);
@@ -418,8 +418,8 @@ for (const locale of ['es', 'fr'])
     });
     await expect(room(page)).toHaveAttribute('lang', locale);
     await room(page).locator('button[aria-pressed]').first().click();
-    await room(page).locator('.market-purchases-access > button').click();
-    await expect(room(page).locator('.market-purchases-access-outcome')).toBeVisible();
+    await room(page).locator('[data-testid="market-purchases-access"] > button').click();
+    await expect(room(page).getByTestId('market-purchases-access-outcome')).toBeVisible();
     for (const el of await room(page).locator('[data-i18n^="more.market-purchases."]').all())
       await expect(el).toHaveAttribute('lang', locale);
     await expect(room(page).getByText(listing, { exact: true })).toHaveAttribute('lang', 'zxx');

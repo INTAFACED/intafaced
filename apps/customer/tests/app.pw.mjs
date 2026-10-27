@@ -124,8 +124,8 @@ test('Money holding opens filtered asset activity and inspects exact records at 
   await page.getByRole('link', { name: /BTC activity/ }).click();
   await expect(page).toHaveURL(/\/uc\/record\?asset=BTC$/);
   await expect(page.getByRole('heading', { name: 'BTC activity', exact: true })).toBeVisible();
-  await expect(page.locator('.money-activity-row')).toHaveCount(1);
-  await expect(page.locator('.money-activity-list')).not.toContainText('USDT');
+  await expect(page.getByTestId('money-activity-row')).toHaveCount(1);
+  await expect(page.getByTestId('money-activity-list')).not.toContainText('USDT');
   await expect(page.getByText('1 matching BTC records in 2 returned.')).toBeVisible();
   await page.getByRole('button', { name: 'Outgoing', exact: true }).click();
   const details = page.locator('#money-record-details');
@@ -143,13 +143,13 @@ test('Money holding opens filtered asset activity and inspects exact records at 
     await expect(details.getByRole('link', { name: /Open Support/ })).toBeFocused();
     const reachable = await details.getByRole('link', { name: /Open Support/ }).evaluate((el) => {
       const r = el.getBoundingClientRect();
-      const bar = document.querySelector('.mobile-doors')?.getBoundingClientRect();
+      const bar = document.querySelector('[data-testid="mobile-doors"]')?.getBoundingClientRect();
       return { hit: el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)), bottom: r.bottom, barTop: bar?.top };
     });
     expect(reachable.hit).toBe(true);
     if (width <= 1000) expect(reachable.bottom).toBeLessThanOrEqual(reachable.barTop);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    const axe = await new AxeBuilder({ page }).include('.money-activity').analyze();
+    const axe = await new AxeBuilder({ page }).include('[data-testid="money-activity"]').analyze();
     expect(axe.violations.filter((v) => ['serious', 'critical'].includes(v.impact))).toEqual([]);
   }
   await page.getByRole('button', { name: 'Hide amounts', exact: true }).click();
@@ -197,7 +197,7 @@ test('Money activity retains selected original ID through loading failed empty a
   await expect(details).not.toContainText('0.000000000000000001');
   await expect(details).toContainText('Current details are unavailable');
   await held.fulfill({ status: 503, json: { error: 'Unavailable', message: 'The service is offline.' } });
-  await expect(page.locator('.money-activity .failure')).toBeVisible();
+  await expect(page.locator('[data-testid="money-activity"] [data-testid="failure"]')).toBeVisible();
   await expect(details).toContainText(activityId);
   mode = 'empty';
   await page.getByRole('button', { name: 'Try again', exact: true }).click();
@@ -233,7 +233,7 @@ test('Money activity continuation uses fetched count when no matching asset is o
   await expect(page.getByText('No matching records in this read', { exact: true })).toBeVisible();
   await expect(page.getByText('0 matching BTC records in 50 returned.')).toBeVisible();
   await page.getByRole('button', { name: 'Load up to 100', exact: true }).click();
-  await expect(page.locator('.money-activity-row')).toHaveCount(1);
+  await expect(page.getByTestId('money-activity-row')).toHaveCount(1);
   await expect(page.getByText('1 matching BTC records in 51 returned.')).toBeVisible();
   expect(limits).toContain(50);
   expect(limits.at(-1)).toBe(100);
@@ -278,7 +278,7 @@ test('Money activity keeps standing instructions distinct and reads the selected
   await signIn(page, '/uc/record?asset=BTC');
   await page.getByRole('button', { name: 'Scheduled', exact: true }).click();
   await expect(page.getByText('These are scheduled instructions, not posted transfers.', { exact: false })).toBeVisible();
-  await expect(page.locator('.money-activity-row')).toHaveCount(1);
+  await expect(page.getByTestId('money-activity-row')).toHaveCount(1);
   await page.getByRole('button', { name: new RegExp('Inspect.*' + invitationId) }).click();
   await expect(page.locator('#money-record-details')).toContainText('bank.insufficient_available');
   await expect(page.locator('#money-record-details')).toContainText('No ledger reference returned');
@@ -297,21 +297,21 @@ for (const query of ['asset=', 'asset=BTC&asset=USDT', 'asset=THIS-ASSET-CODE-IS
     });
     await signIn(page, '/uc/record?' + query);
     await expect(page.getByRole('heading', { name: 'Asset context is invalid', exact: true })).toBeVisible();
-    await expect(page.locator('.money-activity-row')).toHaveCount(0);
+    await expect(page.getByTestId('money-activity-row')).toHaveCount(0);
     expect(reads).toEqual([]);
   });
 
 test('Money activity for all assets retains explicit units and rejects numeric monetary responses', async ({ page }) => {
   await activityApi(page);
   await signIn(page, '/uc/record');
-  await expect(page.locator('.money-activity-row')).toHaveCount(2);
-  await expect(page.locator('.money-activity-list')).toContainText('9 USDT');
+  await expect(page.getByTestId('money-activity-row')).toHaveCount(2);
+  await expect(page.getByTestId('money-activity-list')).toContainText('9 USDT');
   await page.route('**/api/bank/trpc/ramps.onramps?*', (route) =>
     reply(route, [{ ...activityRecord, amount: 0.1, railRef: 'invalid', ledgerTxId: null }]),
   );
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
-  await expect(page.locator('.money-activity .failure')).toBeVisible();
-  await expect(page.locator('.money-activity-row')).toHaveCount(0);
+  await expect(page.locator('[data-testid="money-activity"] [data-testid="failure"]')).toBeVisible();
+  await expect(page.getByTestId('money-activity-row')).toHaveCount(0);
 });
 
 for (const publishedMarket of [false, true])
@@ -695,7 +695,7 @@ test('Money holding to Send preserves BTC through source selection and exact rev
   await page.route('**/api/bank/trpc/spaces.list?*', (route) => reply(route, [usd, btc]));
   await page.route('**/api/bank/trpc/spaces.unnamed?*', (route) => reply(route, []));
   await signIn(page, '/portfolio');
-  await page.locator('.money-holding').click();
+  await page.getByTestId('money-holding').click();
   await expect(page).toHaveURL(/\/portfolio\/BTC$/);
   await expect(page.locator('.money-holding-quantity')).toHaveText('0.300000000000000001 BTC');
   await expect(page.getByText('Total account value', { exact: true })).toHaveCount(0);

@@ -39,7 +39,7 @@ export function PublicHeader({ path }: { path: string }) {
   const alternateAuth = path.startsWith('/login') ? '/register' : '/login';
   const authHref = publicAuthHref(publicAuthContext(path, location.search), alternateAuth);
   return (
-    <header className="public-header">
+    <header data-testid="public-header" className="public-header">
       <Brand />
       <nav aria-label={t('Public navigation')}>
         <a href="/exchange">{t('Trade')}</a>
@@ -48,14 +48,14 @@ export function PublicHeader({ path }: { path: string }) {
       </nav>
       {session || restoreFailed ? (
         // When the service did not answer, /home is where the Retry screen lives; Sign in would wrongly say the person is signed out.
-        <a href="/home" className="public-signin" data-session="signed-in">
+        <a href="/home" data-testid="public-signin" className="public-signin" data-session="signed-in">
           {t('Open your account')} <span aria-hidden="true">↗</span>
         </a>
       ) : restoring ? (
         // The boot refresh has not answered: say nothing rather than offering Sign in to someone who may already be signed in.
-        <span className="public-signin" aria-hidden="true" />
+        <span data-testid="public-signin" className="public-signin" aria-hidden="true" />
       ) : (
-        <a href={authHref} className="public-signin" data-session="signed-out">
+        <a href={authHref} data-testid="public-signin" className="public-signin" data-session="signed-out">
           {path.startsWith('/login') ? t('Create account') : t('Sign in')} <span aria-hidden="true">↗</span>
         </a>
       )}

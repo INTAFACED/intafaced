@@ -48,7 +48,7 @@ function OwnerCode() {
 
   const shown = made ?? (resource.status === 'ready' ? resource.data : null);
   return (
-    <section className="promotions__link" aria-label={t('title')}>
+    <section data-testid="promotions__link" className="promotions__link" aria-label={t('title')}>
       <h2>
         <Copy k="title" />
       </h2>

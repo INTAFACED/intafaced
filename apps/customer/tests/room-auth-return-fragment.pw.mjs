@@ -77,7 +77,7 @@ async function network(context) {
   return state;
 }
 const gate = (page) => page.getByRole('link', { name: 'Sign in', exact: true });
-const formAlternate = (page) => page.locator('.public-auth-form-links a');
+const formAlternate = (page) => page.locator('[data-testid="public-auth-form-links"] a');
 async function returnContext(page, original) {
   expect(new URL(page.url()).searchParams.get('redirect')).toBe(original);
   expect(new URL(await formAlternate(page).getAttribute('href'), page.url()).searchParams.get('redirect')).toBe(original);
@@ -106,14 +106,14 @@ async function authenticate(page, target, original) {
   }
   await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
   await expect(page).toHaveURL(new URL(original, page.url()).href);
-  await expect(page.locator('.blueprint-shared')).toBeVisible();
+  await expect(page.getByTestId('blueprint-shared')).toBeVisible();
 }
 async function firstLogin(page) {
   await page.goto('/login?redirect=%2Fblueprint');
   await page.locator('input[name="identifier"]').fill('qualified-owner');
   await page.locator('input[autocomplete="current-password"]').fill('qualified-password');
   await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
-  await expect(page.locator('.blueprint-shared')).toBeVisible();
+  await expect(page.getByTestId('blueprint-shared')).toBeVisible();
 }
 async function navigateRoom(page, href) {
   await page.evaluate((href) => {
@@ -129,7 +129,7 @@ for (const target of ['login', 'register']) {
     await expect(gate(page)).toHaveAttribute('href', '/login?redirect=' + encodeURIComponent(destination));
     await gate(page).click();
     await authenticate(page, target, destination);
-    await expect(page.locator('.blueprint-shared-image')).toHaveAttribute('width', '1200');
+    await expect(page.getByTestId('blueprint-shared-image')).toHaveAttribute('width', '1200');
     expect(state.auth).toEqual(['auth.' + target]);
     expect(state.reads.filter((read) => read.procedure === 'cardOf').map((read) => read.input)).toEqual([
       { userId: subject, size: 'landscape' },
@@ -152,13 +152,13 @@ for (const target of ['login', 'register']) {
       const state = await network(context);
       await firstLogin(page);
       await navigateRoom(page, '/view');
-      await expect(page.locator('.blueprint-shared')).toHaveCount(0);
+      await expect(page.getByTestId('blueprint-shared')).toHaveCount(0);
       state.expired = procedure;
       const original = procedure === 'cardOf' ? destination : '/blueprint?section=owner#identity-profile';
       await navigateRoom(page, original);
       await expect(page.getByRole('heading', { name: 'Sign in to continue', exact: true })).toBeVisible();
       expect(state.reads.filter((read) => read.unauthorized).map((read) => read.procedure)).toEqual([procedure]);
-      await expect(page.locator('.blueprint-shared')).toHaveCount(0);
+      await expect(page.getByTestId('blueprint-shared')).toHaveCount(0);
       await expect(gate(page)).toHaveAttribute('href', '/login?redirect=' + encodeURIComponent(original));
       state.expired = null;
       await gate(page).click();
@@ -201,6 +201,6 @@ test('fragment-only supported destination keeps its room label and exact authent
   await network(context);
   const original = '/blueprint#identity-profile';
   await page.goto('/login?redirect=' + encodeURIComponent(original));
-  await expect(page.locator('.public-auth-context')).toContainText('Identity Blueprint');
+  await expect(page.getByTestId('public-auth-context')).toContainText('Identity Blueprint');
   await authenticate(page, 'register', original);
 });

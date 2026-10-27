@@ -557,7 +557,7 @@ test('native session journey has no serious or critical accessibility violations
   await network(context);
   await login(page);
   await expect(seatButton(page)).toBeVisible();
-  const report = await new AxeBuilder({ page }).include('.identity-sessions').analyze();
+  const report = await new AxeBuilder({ page }).include('[data-testid="identity-sessions"]').analyze();
   writeFileSync(evidence + '/axe.json', JSON.stringify(report, null, 2));
   expect(report.violations.filter((v) => ['serious', 'critical'].includes(v.impact))).toEqual([]);
 });

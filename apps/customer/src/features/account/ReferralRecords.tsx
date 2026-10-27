@@ -184,7 +184,7 @@ function OwnerRecords({ userId }: { userId: string }) {
   }
   return (
     <section className="referral-records" aria-label={t('title')} lang={languageFor('title')}>
-      <header className="referral-heading">
+      <header data-testid="referral-heading" className="referral-heading">
         <h2>
           <Copy k="title" />
         </h2>

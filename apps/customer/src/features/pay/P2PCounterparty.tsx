@@ -117,8 +117,9 @@ export function P2PCounterparty({ pay, userId, returnTo }: { pay: PersonalPayApi
   const count = new Intl.NumberFormat(requestedLocale, { maximumFractionDigits: 0 });
   const back = { offer: 'backOffer', order: 'backOrder', offers: 'backOffers', orders: 'backOrders' } as const;
   return (
-    <div className="p2p-counterparty" lang={languageFor('record')} dir={directionFor('record')}>
+    <div data-testid="p2p-counterparty" className="p2p-counterparty" lang={languageFor('record')} dir={directionFor('record')}>
       <a
+        data-testid="p2p-counterparty-return"
         className="text-link p2p-counterparty-return"
         href={destination.href}
         onClick={(event) => {

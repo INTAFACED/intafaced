@@ -183,7 +183,7 @@ test('canonical grant original check survives definition and progress failure wi
   state.certProgress = (route) => route.fulfill({ status: 503, json: { error: { message: 'Progress unavailable' } } });
   await login(page);
   await expect(originalCheck(page)).toBeVisible();
-  await expect(page.locator('.academy-grant-original')).toContainText(certId);
+  await expect(page.getByTestId('academy-grant-original')).toContainText(certId);
   await originalCheck(page).click();
   await expect(page.getByRole('region', { name: 'Grant recorded', exact: true })).toContainText(at);
   expect(await marker(page)).toBe(null);
@@ -197,7 +197,7 @@ test('empty grant lookup retains original; deliberate current reread can prove i
   await seed(page, raw);
   await login(page);
   await originalCheck(page).click();
-  await expect(page.locator('.academy-grant-original')).toContainText('No matching grant returned');
+  await expect(page.getByTestId('academy-grant-original')).toContainText('No matching grant returned');
   expect(await marker(page)).toBe(raw);
   expect(state.writes).toEqual([]);
   state.store.grant(owner, certId, new Date(at));
@@ -213,7 +213,7 @@ test('malformed finite-date and duplicate record replies never clear original or
   state.myCerts = (_route, _input, reply) => reply([{ ...state.store.listCerts(owner)[0], grantedAt: '2026-10-10T08:00:00+24:00' }]);
   await login(page);
   await originalCheck(page).click();
-  await expect(page.locator('.academy-grant-original')).toContainText('Original grant is not confirmed');
+  await expect(page.getByTestId('academy-grant-original')).toContainText('Original grant is not confirmed');
   expect(await marker(page)).toBe(raw);
   state.myCerts = (_route, _input, reply) => reply([state.store.listCerts(owner)[0], state.store.listCerts(owner)[0]]);
   await originalCheck(page).click();
@@ -285,7 +285,7 @@ test('retained original A Check cannot read or clear later marker B with the sam
   await seed(page, JSON.stringify(pending()));
   state.store.grant(owner, certId, new Date(at));
   await login(page);
-  await retain(page, 'oldCheck', '.academy-grant-original button');
+  await retain(page, 'oldCheck', '[data-testid="academy-grant-original"] button');
   await originalCheck(page).click();
   await expect(page.getByRole('region', { name: 'Grant recorded', exact: true })).toBeVisible();
   state.grantCert = (route) => route.fulfill({ status: 503, json: { error: { message: 'Lost grant reply' } } });
@@ -470,7 +470,7 @@ test('held original history after navigation cannot clean or publish; current re
   };
   await originalCheck(page).click();
   await expect.poll(() => typeof release).toBe('function');
-  await page.locator('.academy-grant-original a[href="/support"]').click();
+  await page.locator('[data-testid="academy-grant-original"] a[href="/support"]').click();
   release();
   expect(await marker(page)).toBe(raw);
   delete state.myCerts;
@@ -512,10 +512,10 @@ for (const locale of ['en', 'es', 'fr'])
       );
       await seed(page, JSON.stringify(pending('original-long', 'x'.repeat(64))));
       await login(page);
-      const button = page.locator('.academy-grant-original button');
+      const button = page.locator('[data-testid="academy-grant-original"] button');
       await button.focus();
       await page.keyboard.press('Enter');
-      await expect(page.locator('.academy-grant-original')).toBeVisible();
+      await expect(page.getByTestId('academy-grant-original')).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       expect(state.writes).toEqual([]);
       await shot(page, `original-${locale}-${width}`);

@@ -368,7 +368,7 @@ export function useAction(room: string, recovery?: { recover: (reference: string
           />
         </div>
       ) : shown.success ? (
-        <p className="more-success" role="status">
+        <p data-testid="more-success" className="more-success" role="status">
           <PresentedCopy value={shown.success} />
         </p>
       ) : null}

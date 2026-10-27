@@ -139,9 +139,9 @@ async function login(page, path = '/p2p') {
   await page.locator('input[name="identifier"]').fill('counterparty@example.invalid');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
   await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
-  await expect(page.locator('.pay-room-tabs')).toBeVisible();
+  await expect(page.getByTestId('pay-room-tabs')).toBeVisible();
 }
-const record = (page) => page.locator('.p2p-counterparty');
+const record = (page) => page.getByTestId('p2p-counterparty');
 const metric = (page, key) => record(page).locator(`[data-counterparty-metric="${key}"]`);
 const stable = (page) => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 async function scenario(browser, name, width, run) {
@@ -188,7 +188,7 @@ test('offer inspection shows reported decision metrics and restores fresh select
     await scenario(browser, 'offer-' + width, width, async ({ page, state, out }) => {
       const origin = '/p2p?asset=USDT&fiatCurrency=USD&side=sell&limit=200#selected-offer';
       await login(page, origin);
-      await page.locator('.p2p-offer-row button').first().click();
+      await page.locator('[data-testid="p2p-offer-row"] button').first().click();
       await save(page, page.getByRole('link', { name: 'Review counterparty →', exact: true }), '__oldProfile');
       await page.getByRole('link', { name: 'Review counterparty →', exact: true }).click();
       await expect(metric(page, 'completion')).toHaveText('98%');
@@ -215,7 +215,7 @@ test('offer inspection shows reported decision metrics and restores fresh select
       await refresh.scrollIntoViewIfNeeded();
       const fits = await refresh.evaluate((node) => {
         const r = node.getBoundingClientRect(),
-          footer = document.querySelector('.mobile-doors');
+          footer = document.querySelector('[data-testid="mobile-doors"]');
         const bottom = footer?.getClientRects().length ? footer.getBoundingClientRect().top : innerHeight;
         return r.height >= 44 && r.top >= 0 && r.bottom <= bottom + 1;
       });
@@ -223,16 +223,16 @@ test('offer inspection shows reported decision metrics and restores fresh select
       await page.screenshot({ path: join(out, 'counterparty-actions.png') });
       state.offer.terms = 'Fresh terms after inspection';
       await page.goBack();
-      await expect(page.locator('.p2p-offer-inspector')).toContainText('Fresh terms after inspection');
+      await expect(page.getByTestId('p2p-offer-inspector')).toContainText('Fresh terms after inspection');
       expect(state.reads.filter((r) => r.procedure === 'offers.get').length).toBe(2);
       expect(new URL(page.url()).hash).toBe('#selected-offer');
-      await page.locator('.p2p-offer-inspector').getByRole('button', { name: 'Back to offers', exact: true }).click();
+      await page.getByTestId('p2p-offer-inspector').getByRole('button', { name: 'Back to offers', exact: true }).click();
       expect(new URL(page.url()).searchParams.has('offerId')).toBe(false);
-      await expect(page.locator('.p2p-offer-market')).toBeFocused();
-      await page.locator('.p2p-offer-row button').first().click();
+      await expect(page.getByTestId('p2p-offer-market')).toBeFocused();
+      await page.locator('[data-testid="p2p-offer-row"] button').first().click();
       await page.getByRole('link', { name: 'Review counterparty →', exact: true }).click();
       await record(page).getByRole('link', { name: 'Back to this offer', exact: true }).click();
-      await expect(page.locator('.p2p-offer-inspector')).toContainText('Fresh terms after inspection');
+      await expect(page.getByTestId('p2p-offer-inspector')).toContainText('Fresh terms after inspection');
       expect(new URL(page.url()).hash).toBe('#selected-offer');
     });
 });
@@ -240,16 +240,16 @@ test('current order context returns with a fresh owner read and no revived priva
   await scenario(browser, 'order-return', 390, async ({ page, state, out }) => {
     const origin = '/chat?tradeId=' + orderId + '#order-details';
     await login(page, origin);
-    await expect(page.locator('.p2p-order')).toContainText(orderId);
-    await page.locator('.p2p-order-facts > summary').click();
-    await page.locator('.p2p-order-facts a').click();
+    await expect(page.getByTestId('p2p-order')).toContainText(orderId);
+    await page.locator('[data-testid="p2p-order-facts"] > summary').click();
+    await page.locator('[data-testid="p2p-order-facts"] a').click();
     await expect(metric(page, 'completion')).toHaveText('98%');
-    await expect(page.locator('.pay-room-tabs a[aria-current="page"]')).toHaveText('Your orders');
+    await expect(page.locator('[data-testid="pay-room-tabs"] a[aria-current="page"]')).toHaveText('Your orders');
     await expect(record(page).getByRole('link', { name: 'Back to this order', exact: true })).toHaveAttribute('href', origin);
     await page.screenshot({ path: join(out, 'counterparty.png') });
     state.order = { ...state.order, status: 'disputed' };
     await record(page).getByRole('link', { name: 'Back to this order', exact: true }).click();
-    await expect(page.locator('.p2p-order')).toContainText('disputed');
+    await expect(page.getByTestId('p2p-order')).toContainText('disputed');
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect(state.reads.filter((r) => r.procedure === 'trades.get').length).toBe(2);
     expect(page.url()).toContain('#order-details');
@@ -363,14 +363,14 @@ test('original references survive counterparty navigation, tab closure and indep
   await scenario(browser, 'original-preservation', 390, async ({ page, context, state }) => {
     await login(page);
     await page.evaluate(({ key }) => localStorage.setItem(key, 'opaque-original-must-survive'), { key: originalKey });
-    await page.locator('.p2p-offer-row button').first().click();
+    await page.locator('[data-testid="p2p-offer-row"] button').first().click();
     await page.getByRole('link', { name: 'Review counterparty →', exact: true }).click();
     await expect(metric(page, 'completion')).toHaveText('98%');
     const selected = await record(page).getByRole('link', { name: 'Back to this offer', exact: true }).getAttribute('href');
     await page.close();
     const next = await context.newPage();
     await login(next, selected);
-    await expect(next.locator('.p2p-offer-inspector')).toContainText(offerId);
+    await expect(next.getByTestId('p2p-offer-inspector')).toContainText(offerId);
     expect(await next.evaluate((key) => localStorage.getItem(key), originalKey)).toBe('opaque-original-must-survive');
     state.failed = true;
     await next.getByRole('link', { name: 'Review counterparty →', exact: true }).click();
@@ -411,7 +411,7 @@ test('long reported counts and badges fit; passive ES FR and fallback language k
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
       await page.screenshot({ path: join(out, language + '.png') });
     }
-    const links = page.locator('.pay-room-tabs a');
+    const links = page.locator('[data-testid="pay-room-tabs"] a');
     await expect(links).toHaveCount(5);
     await links.first().focus();
     for (let i = 0; i < 5; i++) {
@@ -434,13 +434,13 @@ test('unsafe or private return parameters are removed; login/register preserve c
     const good = '/p2p?asset=USDT&fiatCurrency=USD&side=sell&limit=200&offerId=' + offerId + '#offer-details';
     const target = profile(subject, good);
     await page.goto('/login?redirect=' + encodeURIComponent(target));
-    const register = page.locator('.public-auth-form-links a');
+    const register = page.locator('[data-testid="public-auth-form-links"] a');
     expect(new URL(await register.getAttribute('href'), page.url()).searchParams.get('redirect')).toBe(target);
     await register.click();
-    expect(new URL(await page.locator('.public-auth-form-links a').getAttribute('href'), page.url()).searchParams.get('redirect')).toBe(
-      target,
-    );
-    await page.locator('.public-auth-form-links a').click();
+    expect(
+      new URL(await page.locator('[data-testid="public-auth-form-links"] a').getAttribute('href'), page.url()).searchParams.get('redirect'),
+    ).toBe(target);
+    await page.locator('[data-testid="public-auth-form-links"] a').click();
     await login(page, target);
     await expect(record(page).getByRole('link', { name: 'Back to this offer', exact: true })).toHaveAttribute('href', good);
     for (const [candidate, expected] of [
@@ -457,7 +457,7 @@ test('unsafe or private return parameters are removed; login/register preserve c
         },
         profile(subject, candidate),
       );
-      await expect(record(page).locator('.p2p-counterparty-return')).toHaveAttribute('href', expected);
+      await expect(record(page).getByTestId('p2p-counterparty-return')).toHaveAttribute('href', expected);
     }
     const count = state.reads.filter((r) => r.procedure === 'reputation.get').length;
     await page.evaluate((href) => {

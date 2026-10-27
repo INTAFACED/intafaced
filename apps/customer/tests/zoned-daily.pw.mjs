@@ -228,20 +228,20 @@ async function mount(
   } else await page.goto(path);
   return state;
 }
-const primary = (page) => page.locator('.trade-chart').first();
+const primary = (page) => page.getByTestId('trade-chart').first();
 async function daily(page) {
   await primary(page).getByLabel('Chart interval', { exact: true }).selectOption('1d');
 }
 async function ready(page, zone = 'America/New_York') {
   const canonical = await page.evaluate((zone) => new Intl.DateTimeFormat('en', { timeZone: zone }).resolvedOptions().timeZone, zone);
   await expect(primary(page).locator('[data-zoned-source]').first()).toContainText(canonical);
-  await expect(primary(page).locator('.trade-engine canvas').first()).toBeVisible();
+  await expect(primary(page).locator('[data-testid="trade-engine"] canvas').first()).toBeVisible();
 }
 async function inspect(page) {
-  const canvas = primary(page).locator('.trade-chart-canvas');
+  const canvas = primary(page).getByTestId('trade-chart-canvas');
   await canvas.focus();
   await canvas.press('ArrowLeft');
-  return primary(page).locator('.trade-candle-inspection');
+  return primary(page).getByTestId('trade-candle-inspection');
 }
 test('View accepts browser-recognized named aliases containing digits', async ({ page }) => {
   const state = await mount(page, { path: '/view', signedIn: true });
@@ -515,7 +515,7 @@ test('actor and API departure during a held guest read cannot publish into the s
   await page.evaluate(() => {
     const link = document.createElement('a');
     link.href = '/login?redirect=%2Fexchange';
-    document.querySelector('.trade-chart').append(link);
+    document.querySelector('[data-testid="trade-chart"]').append(link);
     link.click();
   });
   await page.getByLabel('Email or handle', { exact: true }).fill('integration@example.invalid');
@@ -558,9 +558,9 @@ test('late chart imports and retained click handlers cannot stage old prices aft
   );
   await expect(price).toHaveValue('79999');
   await ready(page);
-  await primary(page).locator('.trade-chart-canvas').focus();
-  await primary(page).locator('.trade-chart-canvas').press('ArrowLeft');
-  await primary(page).locator('.trade-chart-canvas').press('Enter');
+  await primary(page).getByTestId('trade-chart-canvas').focus();
+  await primary(page).getByTestId('trade-chart-canvas').press('ArrowLeft');
+  await primary(page).getByTestId('trade-chart-canvas').press('Enter');
   await expect(price).toHaveValue('80001.000000000000000009');
   expect(state.writes).toEqual([]);
 });
@@ -610,7 +610,7 @@ test('manual refresh rejects a held linked import in the same turn and fresh cur
   await expect(primary(page).locator('[data-zoned-source]')).toHaveCount(2);
   state.hold = true;
   const proof = await page.evaluate(async () => {
-    const chart = document.querySelector('.trade-chart');
+    const chart = document.querySelector('[data-testid="trade-chart"]');
     const button = [...chart.querySelectorAll('button')].find((node) => node.textContent.trim() === 'Refresh history');
     const propsKey = Object.keys(button).find((key) => key.startsWith('__reactProps$'));
     const retainedRefresh = button[propsKey].onClick;
@@ -648,7 +648,7 @@ test('published-schema whole read failures retain no prefix, retry deliberately,
   await primary(page).getByRole('button', { name: 'Refresh history', exact: true }).click();
   await expect(primary(page)).toContainText('The service response could not be verified.');
   await expect(primary(page).locator('[data-zoned-source]')).toHaveCount(0);
-  await expect(primary(page).locator('.trade-engine canvas')).toHaveCount(0);
+  await expect(primary(page).locator('[data-testid="trade-engine"] canvas')).toHaveCount(0);
   state.invalid = false;
   state.failure = true;
   await primary(page).getByRole('button', { name: 'Try again', exact: true }).click();
@@ -662,7 +662,7 @@ test('published-schema whole read failures retain no prefix, retry deliberately,
   state.failure = false;
   await primary(page).getByRole('button', { name: 'Use native UTC', exact: true }).click();
   await expect(primary(page).getByLabel('Daily chart starts at', { exact: true })).toHaveValue('nativeUTC');
-  await expect(primary(page).locator('.trade-engine canvas').first()).toBeVisible();
+  await expect(primary(page).locator('[data-testid="trade-engine"] canvas').first()).toBeVisible();
   expect(state.reads.at(-1).timeframe).toBe('1d');
   expect(state.writes).toEqual([]);
   expect(state.pageErrors).toEqual([]);
@@ -676,7 +676,7 @@ test('shape-valid source outside its captured grid refuses the whole derived res
   await expect(primary(page)).toContainText('The source history is invalid, outside the captured window, or reaches its cap.');
   await expect(primary(page)).toContainText('No derived daily candles are shown.');
   await expect(primary(page).locator('[data-zoned-source]')).toHaveCount(0);
-  await expect(primary(page).locator('.trade-engine canvas')).toHaveCount(0);
+  await expect(primary(page).locator('[data-testid="trade-engine"] canvas')).toHaveCount(0);
   state.offGrid = false;
   await primary(page).getByRole('button', { name: 'Try again', exact: true }).click();
   await ready(page, 'Asia/Kathmandu');
@@ -796,10 +796,10 @@ for (const language of ['en', 'es', 'fr'])
         mask: [page.locator('.daily-zone-form input')],
       });
       await page.goto('/exchange');
-      await primary(page).locator('.trade-chart-toolbar select').first().selectOption('1d');
+      await primary(page).locator('[data-testid="trade-chart-toolbar"] select').first().selectOption('1d');
       await expect(primary(page).locator('[data-zoned-source]')).toContainText('America/New_York');
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
-      const select = primary(page).locator('.trade-chart-toolbar select').nth(2),
+      const select = primary(page).locator('[data-testid="trade-chart-toolbar"] select').nth(2),
         bounds = await select.boundingBox();
       expect(bounds.height).toBeGreaterThanOrEqual(44);
       await page.screenshot({ path: `${evidence}/chart-${language}-${width}.png`, fullPage: true, mask: [page.locator('input')] });

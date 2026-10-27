@@ -101,7 +101,13 @@ export function BlueprintCrew() {
   const date = (value: string) =>
     new Intl.DateTimeFormat(requestedLocale, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }).format(new Date(value)) + ' UTC';
   return (
-    <section id="blueprint-crew" className="blueprint-crew" aria-label={t('title')} lang={languageFor('title')}>
+    <section
+      id="blueprint-crew"
+      data-testid="blueprint-crew"
+      className="blueprint-crew"
+      aria-label={t('title')}
+      lang={languageFor('title')}
+    >
       <Panel title={t('title')}>
         {rendered.status === 'idle' ? <p className="muted">{t('intro')}</p> : null}
         {rendered.status === 'loading' ? <p role="status">{t('loading')}</p> : null}
@@ -120,7 +126,7 @@ export function BlueprintCrew() {
         {data?.status === 'placed' ? (
           <>
             <p className="muted">{t('placed')}</p>
-            <dl className="blueprint-crew-identity">
+            <dl data-testid="blueprint-crew-identity" className="blueprint-crew-identity">
               <div>
                 <dt>{t('crew')}</dt>
                 <dd className="blueprint-crew-name" lang={data.crew.name.trim() ? 'und' : languageFor('unnamed')}>
@@ -151,12 +157,12 @@ export function BlueprintCrew() {
               </div>
             </dl>
             {!data.profileAvailable ? (
-              <aside className="blueprint-crew-note">
+              <aside data-testid="blueprint-crew-note" className="blueprint-crew-note">
                 <strong>{t('profileUnavailable')}</strong>
                 <p>{t('profileDetail')}</p>
               </aside>
             ) : null}
-            <div className="blueprint-crew-roster">
+            <div data-testid="blueprint-crew-roster" className="blueprint-crew-roster">
               <h3>{t('roster')}</h3>
               <ul>
                 {data.members.map((member) => (

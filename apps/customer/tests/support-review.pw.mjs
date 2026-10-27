@@ -206,7 +206,7 @@ for (const mode of ['create', 'reply'])
         expect(await page.evaluate((key) => localStorage.getItem(key), markerKey)).toBe(bytes);
         await expect(page.getByRole('button', { name: t('es', stageKey), exact: true })).toBeDisabled();
       }
-      if (outcome !== 'success') await expect(page.locator('.failure h3 span[lang]').first()).toHaveAttribute('lang', 'es');
+      if (outcome !== 'success') await expect(page.locator('[data-testid="failure"] h3 span[lang]').first()).toHaveAttribute('lang', 'es');
       for (const width of [320, 390]) {
         await page.setViewportSize({ width, height: 1000 });
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -263,7 +263,7 @@ test('native missing KB content follows authored fallback language in second-tab
   const view = await context.newPage();
   await login(view, '/view');
   const origin = await page.evaluate(() => performance.timeOrigin),
-    articles = page.locator('.more-articles details');
+    articles = page.locator('[data-testid="more-articles"] details');
   await expect(articles).toHaveCount(rows.length);
   const nodes = await articles.elementHandles();
   for (let index = 0; index < rows.length; index++) await articles.nth(index).locator('summary').click();

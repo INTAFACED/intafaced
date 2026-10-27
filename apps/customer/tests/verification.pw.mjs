@@ -232,7 +232,7 @@ for (const [name, corrupt] of [
     const s = await network(context);
     s['kyc.status'] = (r) => reply(r, { tier: 'basic', records: corrupt(s.rows) });
     await login(page);
-    await expect(page.locator('.failure')).toBeVisible();
+    await expect(page.getByTestId('failure')).toBeVisible();
     await expect(records(page)).not.toContainText(a);
     expect(count(s)).toBe(0);
   });
@@ -242,7 +242,7 @@ test('failed GET hides selection, retry is read only, and independent request re
   await page.getByRole('button', { name: 'Inspect record ' + a, exact: true }).click();
   s['kyc.status'] = (r) => fail(r);
   await page.getByRole('button', { name: 'Refresh records', exact: true }).click();
-  await expect(page.locator('.failure')).toBeVisible();
+  await expect(page.getByTestId('failure')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Selected record', exact: true })).toHaveCount(0);
   await review(page);
   await expect(page.getByRole('dialog')).toBeVisible();
@@ -418,7 +418,7 @@ for (const mode of ['quota', 'denied', 'corrupt', 'no locks', 'lock busy'])
       });
     await review(page);
     if (mode !== 'corrupt') await page.getByRole('dialog').getByRole('button', { name: 'Submit this request', exact: true }).click();
-    await expect(page.locator('.notice')).toBeVisible();
+    await expect(page.getByTestId('notice')).toBeVisible();
     expect(count(s)).toBe(0);
     if (mode === 'lock busy') await page.evaluate(() => window.releaseVerificationLock());
   });
@@ -537,7 +537,7 @@ test('native locale change preserves frozen review terms and only exact two-fiel
   await changeLocale(context, 'fr');
   await expect(page.getByRole('dialog')).toContainText('Institutionnel');
   await page.getByRole('dialog').locator('.button--primary').click();
-  await expect(page.locator('.verification__original')).toContainText('Un dossier a été renvoyé.');
+  await expect(page.getByTestId('verification__original')).toContainText('Un dossier a été renvoyé.');
   expect(s.privateWrites.filter((r) => r.procedure === 'kyc.submit').map((r) => r.input)).toEqual([
     { tier: 'institutional', jurisdiction: 'FR' },
   ]);
@@ -584,7 +584,7 @@ test('unknown320 plus failed current GET retains original; retry only reads', as
   const before = await journal(page);
   s['kyc.status'] = (r) => fail(r);
   await page.getByRole('button', { name: 'Refresh records', exact: true }).click();
-  await expect(page.locator('.failure')).toBeVisible();
+  await expect(page.getByTestId('failure')).toBeVisible();
   await expect(records(page)).not.toContainText(a);
   await shot(page, 'unknown320-failed-current-read');
   delete s['kyc.status'];
@@ -601,11 +601,14 @@ for (const language of ['en', 'es', 'fr'])
       if (language !== 'en') await changeLocale(context, language);
       await page.setViewportSize({ width, height: 900 });
       await login(page);
-      await expect(page.locator('.verification__rows li')).toHaveCount(2);
+      await expect(page.locator('[data-testid="verification__rows"] li')).toHaveCount(2);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      const result = await new AxeBuilder({ page }).include('.verification').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+      const result = await new AxeBuilder({ page })
+        .include('[data-testid="verification"]')
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
+        .analyze();
       expect(result.violations).toEqual([]);
-      await page.locator('.verification__request select').selectOption('institutional');
+      await page.locator('[data-testid="verification__request"] select').selectOption('institutional');
       await page.locator('input[name="kyc-country"]').fill('fr');
       await page.locator('form button[type="submit"]').click();
       await expect(page.getByRole('dialog')).toBeVisible();

@@ -69,7 +69,7 @@ export function Section({
   children: ReactNode;
 }) {
   return (
-    <section className="money-section">
+    <section data-testid="money-section" className="money-section">
       <header>
         <div>
           <h2>{title}</h2>
@@ -83,7 +83,7 @@ export function Section({
 }
 export function Continuation({ count, limit, onMore }: { count: number; limit: number; onMore: () => void }) {
   return (
-    <div className="money-continuation">
+    <div data-testid="money-continuation" className="money-continuation">
       <span>
         {count}
         <Text k="components.records.returned.requested.limit" />.{' '}

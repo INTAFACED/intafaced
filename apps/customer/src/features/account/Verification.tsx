@@ -345,7 +345,7 @@ export function Verification() {
                   ),
               )
               .map((local) => (
-                <article key={local.requestId} className="verification__original" role="status">
+                <article key={local.requestId} data-testid="verification__original" className="verification__original" role="status">
                   <h2>
                     <Copy k={busy ? 'sending' : 'unknown'} />
                   </h2>
@@ -373,7 +373,7 @@ export function Verification() {
                 </article>
               ))}
             {visibleKnown.map((receipt) => (
-              <article key={receipt.local.requestId} className="verification__original" role="status">
+              <article key={receipt.local.requestId} data-testid="verification__original" className="verification__original" role="status">
                 <h2>
                   <Copy k={receipt.refused ? 'refused' : 'known'} />
                 </h2>
@@ -480,7 +480,7 @@ export function Verification() {
                     </Button>
                   )}
                   {resource.data.records.length ? (
-                    <ul className="verification__rows">
+                    <ul data-testid="verification__rows" className="verification__rows">
                       {resource.data.records.map((row) => (
                         <li key={row.id}>
                           <div className="verification__row">

@@ -306,7 +306,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
         />
       ) : tab === 'Sessions' ? (
         <>
-          <div className="agent-session-journey">
+          <div data-testid="agent-session-journey" className="agent-session-journey">
             <Panel title={sessionCopy.t('records')} role="region" aria-label={sessionCopy.t('records')}>
               <p className="muted">{sessionCopy.t('intro')}</p>
               <Button variant="secondary" onClick={log.reload}>
@@ -937,7 +937,7 @@ function SessionHistory({ rows }: { rows: AgentAction[] }) {
   const preferences = usePreferences();
   const authored = sessionCopy.forLocale(preferences.language);
   return (
-    <ol className="agent-session-history" aria-label={copyText('agents.agent.audit.activity')}>
+    <ol data-testid="agent-session-history" className="agent-session-history" aria-label={copyText('agents.agent.audit.activity')}>
       {rows.map((row) => (
         <li key={row.id}>
           <strong>

@@ -456,7 +456,7 @@ export function AuthForm({ register }: { register: boolean }) {
   // A second step a code answers: the authenticator app's, or one of the recovery codes saved with it.
   const codeStep = passwordStep === 'needCode' || passwordStep === 'needCodeOrPasskey' || passwordStep === 'codeMismatch';
   return (
-    <section className="auth-layout" lang={publicLanguageFor('SIGN IN')}>
+    <section data-testid="auth-layout" className="auth-layout" lang={publicLanguageFor('SIGN IN')}>
       <div className="auth-story">
         {/* The sign-in moment: the mark opens once (the header beside it carries the lockup with the name). */}
         <BrandIris size={64} mode="open" className="auth-story-mark" />
@@ -483,7 +483,7 @@ export function AuthForm({ register }: { register: boolean }) {
         </p>
         <div className="auth-story-line" />
       </div>
-      <div className="auth-form">
+      <div data-testid="auth-form" className="auth-form">
         <LanguageMenu
           className="public-auth-language"
           keptIn={userId ? (accountStatus === 'not-saved' ? 'not-saved' : 'account') : 'browser'}
@@ -521,6 +521,7 @@ export function AuthForm({ register }: { register: boolean }) {
         {(selected ? [selected] : []).map((record) => (
           <section
             key={record.localRef}
+            data-testid="public-auth-unknown"
             className="public-auth-unknown"
             aria-label={t(
               pending && activeRecord === record.localRef
@@ -603,7 +604,7 @@ export function AuthForm({ register }: { register: boolean }) {
           <>
             <p className="eyebrow">{register ? p('GET STARTED') : p('SIGN IN')}</p>
             <h1>{register ? p('Create your account') : p('Sign in to your account')}</h1>
-            <div className="public-auth-context">
+            <div data-testid="public-auth-context" className="public-auth-context">
               <Copy k="after" />
               <span>{inviteToken ? t('invitation') : roomTitle(findRoom(destination.split(/[?#]/)[0] ?? '/money')!, requestedLocale)}</span>
             </div>
@@ -764,7 +765,7 @@ export function AuthForm({ register }: { register: boolean }) {
                   {result.code && <small lang="zxx">{result.code}</small>}
                 </div>
               )}
-              <p className="muted public-auth-form-links">
+              <p data-testid="public-auth-form-links" className="muted public-auth-form-links">
                 {register ? (
                   <>
                     {p('Already have an account?')}{' '}

@@ -114,14 +114,15 @@ async function login(page, path = '/p2p') {
   await page.locator('input[name="identifier"]').fill('offer-owner@example.invalid');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
   await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
-  await expect(page.locator('.pay-room-tabs')).toBeVisible();
+  await expect(page.getByTestId('pay-room-tabs')).toBeVisible();
 }
 const stable = (page) => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-const inspector = (page) => page.locator('.p2p-offer-inspector');
-const firstInspect = (page) => page.locator('.p2p-offer-row').first().getByRole('button', { name: 'Inspect current offer', exact: true });
+const inspector = (page) => page.getByTestId('p2p-offer-inspector');
+const firstInspect = (page) =>
+  page.getByTestId('p2p-offer-row').first().getByRole('button', { name: 'Inspect current offer', exact: true });
 async function inspect(page) {
   await firstInspect(page).click();
-  await expect(inspector(page).locator('.pay-details dd').getByText('Current payment terms', { exact: true })).toBeVisible();
+  await expect(inspector(page).locator('[data-testid="pay-details"] dd').getByText('Current payment terms', { exact: true })).toBeVisible();
 }
 async function save(page, locator, name) {
   await locator.evaluate((node, key) => {
@@ -177,9 +178,9 @@ test('offer arrival and current inspection are readable at four widths', async (
         const fit = await firstInspect(page).evaluate((button) => ({
           rect: button.getBoundingClientRect().toJSON(),
           width: innerWidth,
-          footer: document.querySelector('.mobile-doors')?.getBoundingClientRect().top || innerHeight,
+          footer: document.querySelector('[data-testid="mobile-doors"]')?.getBoundingClientRect().top || innerHeight,
           scrollWidth: document.documentElement.scrollWidth,
-          filtersOpen: document.querySelector('.p2p-offer-filters')?.open,
+          filtersOpen: document.querySelector('[data-testid="p2p-offer-filters"]')?.open,
         }));
         state.observations.push(fit);
         expect(fit.rect.left).toBeGreaterThanOrEqual(0);
@@ -214,7 +215,7 @@ test('floating multiplier uses reference dimensions without a fabricated fiat pr
       await login(page);
       await expect(firstInspect(page)).toBeVisible();
       await inspect(page);
-      const price = inspector(page).locator('.p2p-offer-price');
+      const price = inspector(page).getByTestId('p2p-offer-price');
       await expect(price).toContainText('1.02');
       await expect(price).toContainText('× reference price');
       await expect(price).toContainText('Resolved USD / USDT price is not returned.');
@@ -238,11 +239,15 @@ test('failed and mismatched current records remove old facts; a current retry re
       state.replyGet = async () => reply;
       await inspector(page).getByRole('button', { name: 'Refresh current offer', exact: true }).click();
       await expect(inspector(page)).toContainText('Current price, terms and availability are not shown');
-      await expect(inspector(page).locator('.pay-details dd').getByText('Current payment terms', { exact: true })).toHaveCount(0);
-      await expect(inspector(page).locator('.p2p-offer-price')).toHaveCount(0);
+      await expect(
+        inspector(page).locator('[data-testid="pay-details"] dd').getByText('Current payment terms', { exact: true }),
+      ).toHaveCount(0);
+      await expect(inspector(page).getByTestId('p2p-offer-price')).toHaveCount(0);
       state.replyGet = async () => ({ status: 200, data: { ...state.current } });
       await inspector(page).getByRole('button', { name: 'Refresh current offer', exact: true }).click();
-      await expect(inspector(page).locator('.pay-details dd').getByText('Current payment terms', { exact: true })).toBeVisible();
+      await expect(
+        inspector(page).locator('[data-testid="pay-details"] dd').getByText('Current payment terms', { exact: true }),
+      ).toBeVisible();
       expect(state.writes).toEqual([]);
     });
   }
@@ -260,7 +265,9 @@ test('owner selected current record survives a bounded market window becoming em
       await expect(inspector(page).getByRole('button', { name: 'Resume offer', exact: true })).toBeVisible();
       await page.getByRole('button', { name: 'Show up to 200', exact: true }).click();
       await expect(page.getByRole('heading', { name: 'No offers returned for these filters' })).toBeVisible();
-      await expect(inspector(page).locator('.pay-details dd').getByText('Current payment terms', { exact: true })).toBeVisible();
+      await expect(
+        inspector(page).locator('[data-testid="pay-details"] dd').getByText('Current payment terms', { exact: true }),
+      ).toBeVisible();
       expect(state.reads.filter((read) => read.procedure === 'offers.get')).toHaveLength(1);
       expect(state.writes).toEqual([]);
     },
@@ -359,7 +366,7 @@ test('unknown originals survive tab closure, independent owner entry and failed 
     const returned = await context.newPage();
     state.replyGet = async () => ({ status: 503 });
     await login(returned);
-    await returned.locator('.p2p-offer-device').getByRole('button', { name: offerId, exact: true }).click();
+    await returned.getByTestId('p2p-offer-device').getByRole('button', { name: offerId, exact: true }).click();
     await expect(inspector(returned).getByRole('button', { name: 'Check original offer action', exact: true })).toBeVisible();
     await expect(inspector(returned)).toContainText('Current price, terms and availability are not shown');
     expect(await journal(returned)).toBe(original);
@@ -389,21 +396,23 @@ test('a known paused reference can resume and close with current full reviews', 
       return { status: 200, data: { ...state.current } };
     };
     await login(page, '/uc/ad');
-    await page.locator('.p2p-offer-known > summary').click();
-    await page.locator('.p2p-offer-known input').fill(offerId);
-    await page.locator('.p2p-offer-known button').click();
-    await expect(inspector(page).locator('.pay-details dd').getByText('Current payment terms', { exact: true })).toBeVisible();
+    await page.locator('[data-testid="p2p-offer-known"] > summary').click();
+    await page.locator('[data-testid="p2p-offer-known"] input').fill(offerId);
+    await page.locator('[data-testid="p2p-offer-known"] button').click();
+    await expect(
+      inspector(page).locator('[data-testid="pay-details"] dd').getByText('Current payment terms', { exact: true }),
+    ).toBeVisible();
     await inspector(page).getByRole('button', { name: 'Resume offer', exact: true }).click();
     await expect(page.getByRole('dialog')).toContainText(offerId);
     await expect(page.getByRole('dialog')).toContainText('Current payment terms');
     await page.getByRole('dialog').getByRole('button', { name: 'Confirm resume offer', exact: true }).click();
-    await expect(inspector(page).locator('.p2p-offer-role .pay-status')).toHaveText('active');
+    await expect(inspector(page).locator('[data-testid="p2p-offer-role"] .pay-status')).toHaveText('active');
     expect(await journal(page)).toBeNull();
     await expect.poll(() => state.reads.filter((read) => read.procedure === 'offers.list').length).toBe(2);
     await inspector(page).getByRole('button', { name: 'Close offer', exact: true }).click();
     await expect(page.getByRole('dialog')).toContainText('Existing order escrow remains governed by each order.');
     await page.getByRole('dialog').getByRole('button', { name: 'Confirm close offer', exact: true }).click();
-    await expect(inspector(page).locator('.p2p-offer-role .pay-status')).toHaveText('closed');
+    await expect(inspector(page).locator('[data-testid="p2p-offer-role"] .pay-status')).toHaveText('closed');
     await expect(inspector(page).getByRole('button', { name: 'Resume offer', exact: true })).toHaveCount(0);
     expect(await journal(page)).toBeNull();
     expect(state.writes.map((write) => write.procedure)).toEqual(['offers.resume', 'offers.close']);
@@ -508,7 +517,7 @@ test('passive locale changes preserve focus, exact quantities, all destinations 
       await expect(inspector(page)).toContainText('Oferta actual');
       expect(await page.evaluate(() => document.activeElement === window.__focusBefore)).toBe(true);
       const exact = inspector(page)
-        .locator('.pay-amount-scroll[tabindex="0"]')
+        .locator('[data-testid="pay-amount-scroll"][tabindex="0"]')
         .filter({
           has: page.locator(`[data-exact-amount="${state.current.remainingAmount}"]`),
         });
@@ -517,17 +526,17 @@ test('passive locale changes preserve focus, exact quantities, all destinations 
       await page.keyboard.press('End');
       expect(await exact.evaluate((n) => n.scrollLeft)).toBeGreaterThan(0);
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
-      await expect(exact.locator('.pay-amount-digits')).toHaveAttribute('data-exact-amount', state.current.remainingAmount);
+      await expect(exact.getByTestId('pay-amount-digits')).toHaveAttribute('data-exact-amount', state.current.remainingAmount);
       expect((await exact.textContent()).replaceAll(',', '')).toBe(state.current.remainingAmount);
-      await expect(page.locator('.pay-room-tabs a')).toHaveCount(5);
+      await expect(page.locator('[data-testid="pay-room-tabs"] a')).toHaveCount(5);
       await inspector(page).getByRole('button', { name: 'Volver a las ofertas', exact: true }).click();
-      await page.locator('.p2p-offer-known > summary').click();
-      await page.locator('.p2p-offer-known input').fill('invalid');
-      await page.locator('.p2p-offer-known button').click();
+      await page.locator('[data-testid="p2p-offer-known"] > summary').click();
+      await page.locator('[data-testid="p2p-offer-known"] input').fill('invalid');
+      await page.locator('[data-testid="p2p-offer-known"] button').click();
       await expect(page.getByRole('alert')).toContainText('Introduce un ID de oferta válido.');
       await peer.evaluate(() => localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ language: 'fr' })));
       await expect(page.getByRole('alert')).toContainText('Saisissez un ID d’offre valide.');
-      const links = page.locator('.pay-room-tabs a');
+      const links = page.locator('[data-testid="pay-room-tabs"] a');
       await links.first().focus();
       for (let index = 0; index < 5; index++) {
         if (index) await page.keyboard.press('Tab');

@@ -192,7 +192,7 @@ function ChangeAddress({
         disabled={!canManage || same || !url.trim() || Boolean(problem)}
         disabledReason={canManage ? t('urlFixFirst') : t('readOnlyRole')}
         review={
-          <dl className="pay-details">
+          <dl data-testid="pay-details" className="pay-details">
             <div>
               <dt>{t('from')}</dt>
               <dd className="pp-wrap">{shownEndpointUrl(endpoint.url)}</dd>

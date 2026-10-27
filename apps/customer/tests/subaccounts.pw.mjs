@@ -221,7 +221,7 @@ for (const width of [320, 390, 768, 1440])
       const field = page.getByRole('textbox', { name: 'Label', exact: true });
       await expect(field).toBeFocused();
       const rect = await field.boundingBox(),
-        nav = await page.locator('.mobile-doors').boundingBox();
+        nav = await page.getByTestId('mobile-doors').boundingBox();
       expect(rect.y).toBeGreaterThanOrEqual(0);
       expect(rect.y + rect.height).toBeLessThan(nav ? nav.y : 900);
     } else {
@@ -435,7 +435,7 @@ for (const denial of ['write denial', 'read denial', 'malformed journal', 'locks
       await expect(page.getByRole('dialog')).toHaveCount(0);
     } else if (denial !== 'malformed journal') await create(page);
     else await expect(page.getByRole('button', { name: 'Review subaccount', exact: true })).toBeDisabled();
-    await expect(page.locator('.notice')).toBeVisible();
+    await expect(page.getByTestId('notice')).toBeVisible();
     expect(createCount(s)).toBe(0);
     await page.getByRole('button', { name: 'Refresh subaccounts' }).click();
     await expect(list(page)).toContainText(a);
@@ -620,7 +620,7 @@ test('two real tabs cannot dispatch one owner create concurrently', async ({ con
   await create(page);
   await expect.poll(() => createCount(s)).toBe(1);
   await second.getByRole('dialog').getByRole('button', { name: 'Create subaccount' }).click();
-  await expect(second.locator('.notice')).toContainText('Another tab');
+  await expect(second.getByTestId('notice')).toContainText('Another tab');
   hold.release();
   await expect(requests(page)).toContainText('Creation is not confirmed');
   expect(createCount(s)).toBe(1);
@@ -638,10 +638,10 @@ test('native visible screen passes serious and critical accessibility checks', a
 test('known outcome updates an already mounted nonsecret polite status', async ({ context, page }) => {
   await network(context);
   await login(page);
-  await expect(page.locator('.subaccounts__announcement')).toHaveText('');
+  await expect(page.getByTestId('subaccounts__announcement')).toHaveText('');
   await page.evaluate(() => {
     window.statusUpdates = [];
-    const region = document.querySelector('.subaccounts__announcement');
+    const region = document.querySelector('[data-testid="subaccounts__announcement"]');
     new MutationObserver(() => window.statusUpdates.push(region.textContent)).observe(region, {
       childList: true,
       characterData: true,
@@ -649,8 +649,8 @@ test('known outcome updates an already mounted nonsecret polite status', async (
     });
   });
   await create(page);
-  await expect(page.locator('.subaccounts__announcement')).toHaveText('The service created the original strategy subaccount.');
-  await expect(page.locator('.subaccounts__announcement')).toHaveAttribute('aria-live', 'polite');
+  await expect(page.getByTestId('subaccounts__announcement')).toHaveText('The service created the original strategy subaccount.');
+  await expect(page.getByTestId('subaccounts__announcement')).toHaveAttribute('aria-live', 'polite');
   const messages = await page.evaluate(() => window.statusUpdates);
   expect(messages).toContain('The service created the original strategy subaccount.');
   expect(messages.join(' ')).not.toContain('Private purpose');

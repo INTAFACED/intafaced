@@ -291,23 +291,23 @@ for (const mode of Object.keys(modes))
       for (const locale of ['fr', 'es', 'en']) {
         if (locale !== 'fr') await language(view, page, locale);
         if (outcome === 'success') {
-          await expect(page.locator('.more-success')).toHaveText(text(locale, modes[mode].success));
-          await expect(page.locator('.more-success')).toHaveAttribute('lang', locale);
+          await expect(page.getByTestId('more-success')).toHaveText(text(locale, modes[mode].success));
+          await expect(page.getByTestId('more-success')).toHaveAttribute('lang', locale);
           expect(await page.evaluate((key) => localStorage.getItem(key), markerKey)).toBeNull();
         } else if (outcome === 'refused') {
-          const message = page.locator('.failure p').filter({ hasText: provider });
+          const message = page.locator('[data-testid="failure"] p').filter({ hasText: provider });
           await expect(message).toHaveText(provider);
           expect(await message.evaluate((x) => x.closest('[lang]').lang)).toBe('und');
           expect(await page.evaluate((key) => localStorage.getItem(key), markerKey)).toBeNull();
         } else {
           expect(JSON.parse(await page.evaluate((key) => localStorage.getItem(key), markerKey))).toEqual(originalMarker);
           if (mode === 'purchase') {
-            const explanation = page.locator('.failure p').filter({ hasText: provider });
+            const explanation = page.locator('[data-testid="failure"] p').filter({ hasText: provider });
             await expect(explanation).toHaveText(provider);
             expect(await explanation.evaluate((x) => x.closest('[lang]').lang)).toBe('und');
           }
-          await expect(page.locator('.failure').getByText(originalMarker.title, { exact: true })).toHaveAttribute('lang', 'und');
-          await expect(page.locator('.more-success')).toHaveCount(0);
+          await expect(page.getByTestId('failure').getByText(originalMarker.title, { exact: true })).toHaveAttribute('lang', 'und');
+          await expect(page.getByTestId('more-success')).toHaveCount(0);
           await expect(page.getByRole('button', { name: catalogs[locale]['common.check.original.outcome'], exact: true })).toHaveCount(
             mode === 'purchase' ? 1 : 0,
           );
@@ -331,13 +331,13 @@ test('native changed purchase terms refuses locally and follows View without dis
     .getByRole('dialog')
     .getByRole('button', { name: text('en', 'confirm.purchase'), exact: true })
     .click();
-  await expect(page.locator('.failure')).toContainText(text('en', 'the.listing.terms.changed.reload.the.catalogue'));
+  await expect(page.getByTestId('failure')).toContainText(text('en', 'the.listing.terms.changed.reload.the.catalogue'));
   const view = await context.newPage();
   await login(view, '/view');
   for (const locale of ['es', 'fr']) {
     await language(view, page, locale);
-    await expect(page.locator('.failure')).toContainText(text(locale, 'the.listing.terms.changed.reload.the.catalogue'));
-    expect(await page.locator('.failure p').evaluate((x) => x.closest('[lang]').lang)).toBe(locale);
+    await expect(page.getByTestId('failure')).toContainText(text(locale, 'the.listing.terms.changed.reload.the.catalogue'));
+    expect(await page.locator('[data-testid="failure"] p').evaluate((x) => x.closest('[lang]').lang)).toBe(locale);
   }
   expect(calls.writes).toEqual([]);
   expect(await page.evaluate((key) => localStorage.getItem(key), markerKey)).toBeNull();
@@ -356,7 +356,7 @@ for (const width of [320, 390])
         const displayed = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (fraction ? '.' + fraction : '');
         const label = width + '-' + (amount === exactPrice ? 'nano' : 'long');
         await login(page, '/market');
-        const catalogue = page.locator('.more-room-link');
+        const catalogue = page.getByTestId('more-room-link');
         const cataloguePrice = catalogue.getByRole('group', { name: text('en', 'price'), exact: true });
         await expect(cataloguePrice).toHaveText(displayed);
         await cataloguePrice.focus();
@@ -504,8 +504,8 @@ for (const [mode, field, value] of mismatches)
       .click();
     await expect.poll(() => calls.writes.length).toBe(1);
     await page.screenshot({ path: dir + '/binding-' + mode + '-' + field + '.png', fullPage: true });
-    await expect(page.locator('.more-success')).toHaveCount(0);
-    await expect(page.locator('.failure[role="alert"]').first()).toBeVisible();
+    await expect(page.getByTestId('more-success')).toHaveCount(0);
+    await expect(page.locator('[data-testid="failure"][role="alert"]').first()).toBeVisible();
     const marker = JSON.parse(calls.journals[0]);
     expect(JSON.parse(await page.evaluate((key) => localStorage.getItem(key), markerKey))).toEqual(marker);
     expect(marker.title).toBe(text('en', modes[mode].review));
@@ -561,13 +561,13 @@ for (const outcome of ['pending', 'incomplete', 'missing', 'rejected', 'settled'
     for (const locale of ['en', 'es', 'fr']) {
       if (locale !== 'en') await language(view, page, locale);
       if (resolved) {
-        await expect(page.locator('.more-success')).toHaveText(catalogs[locale]['common.original.outcome.verified']);
+        await expect(page.getByTestId('more-success')).toHaveText(catalogs[locale]['common.original.outcome.verified']);
         expect(await page.evaluate((key) => localStorage.getItem(key), markerKey)).toBeNull();
       } else {
-        await expect(page.locator('.failure').first()).toContainText(text(locale, key));
+        await expect(page.getByTestId('failure').first()).toContainText(text(locale, key));
         expect(JSON.parse(await page.evaluate((key) => localStorage.getItem(key), markerKey))).toEqual(marker);
         await expect(page.getByText(marker.title, { exact: true })).toHaveAttribute('lang', 'und');
-        await expect(page.locator('.more-success')).toHaveCount(0);
+        await expect(page.getByTestId('more-success')).toHaveCount(0);
       }
     }
     expect(calls.writes).toEqual([{ procedure: 'purchase', input: { listingId, purchaseId: reference } }]);
@@ -587,7 +587,7 @@ test('native changed seller before purchase dispatch refuses original listing te
     .getByRole('dialog')
     .getByRole('button', { name: text('en', 'confirm.purchase'), exact: true })
     .click();
-  await expect(page.locator('.failure')).toContainText(text('en', 'the.listing.terms.changed.reload.the.catalogue'));
+  await expect(page.getByTestId('failure')).toContainText(text('en', 'the.listing.terms.changed.reload.the.catalogue'));
   expect(calls.writes).toEqual([]);
   expect(await page.evaluate((key) => localStorage.getItem(key), markerKey)).toBeNull();
 });
@@ -614,7 +614,7 @@ test('native cross-tab Web Lock refuses dispatch and retains localized authored 
     .click();
   for (const locale of ['en', 'es', 'fr']) {
     if (locale !== 'en') await language(view, page, locale);
-    await expect(page.locator('.failure')).toContainText(catalogs[locale]['common.this.account.has.an.action.running.in']);
+    await expect(page.getByTestId('failure')).toContainText(catalogs[locale]['common.this.account.has.an.action.running.in']);
     expect(await page.evaluate((key) => localStorage.getItem(key), markerKey)).toBeNull();
   }
   expect(calls.writes).toEqual([]);
