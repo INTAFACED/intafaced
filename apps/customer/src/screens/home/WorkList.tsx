@@ -4,7 +4,7 @@ import { dayTime } from './clock';
 import { homeCopy } from './copy';
 import { Amount, fmtAmount, Skeleton, StateBlock, StatusTag } from './deps';
 import { IN_PANEL, STATE_IN_COLUMN } from './panel';
-import { HOME_CONFIG_UNWIRED, type WorkList as List } from './work-list';
+import { HOME_CONFIG_UNWIRED, ratioPercent, type WorkList as List } from './work-list';
 import { useWorkList } from './work-list-data';
 import { usePreferences } from '../../shared/preferences';
 
@@ -145,6 +145,11 @@ function Row({ item, hidden }: { item: WorkItem; hidden: boolean }) {
           </span>
           <span className="home-work__meta">
             {due ? <Copy k="Work due" params={{ when: due }} /> : null}
+            {item.ratio ? (
+              <span className="home-work__ratio">
+                <Copy k="Work ratio" params={{ ratio: ratioPercent(item.ratio) }} />
+              </span>
+            ) : null}
             {item.amount ? <Amount value={`${fmtAmount(item.amount.value, { places: 18 })} ${item.amount.asset}`} hidden={hidden} /> : null}
             {item.reasonCode ? (
               <span className="home-work__code" dir="ltr">

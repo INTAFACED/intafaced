@@ -8,6 +8,7 @@ import {
   type WorkItemKind,
   type WorkItemSource,
 } from '@intafaced/contracts/home-work-items';
+import { classifyRefusal } from '../../data/refusal-codes';
 
 /**
  * Home's work list (HM-dashboard-03): what needs the person now, merged from each owner's own `workItems.list`. Every
@@ -24,8 +25,8 @@ export type SourceRead =
   | { state: 'ready'; items: readonly WorkItem[] }
   /** The owner does not answer this read on this deployment yet (no such procedure, or the service is not running). */
   | { state: 'unwired' }
-  /** The owner answered with a refusal or an answer Home cannot trust: its code when it gave one. */
-  | { state: 'failed'; code?: string };
+  /** The owner answered with a refusal or an answer Home cannot trust: its code and HTTP status when it gave them. */
+  | { state: 'failed'; code?: string; status?: number };
 
 /** The owner values read, as Home holds them. */
 export type ConfigRead =
@@ -74,9 +75,15 @@ export function workList(config: ConfigRead, sources: Readonly<Record<WorkItemSo
   const missing: Extract<WorkList, { state: 'ready' }>['missing'] = [];
   // While one owner is still loading the list is not final: show it loading rather than a partial list that reshuffles.
   if (WORK_SOURCES.some((source) => sources[source].state === 'loading')) return { state: 'loading' };
+  // An owner that refuses until the person is verified (a 403 that says verify first) has nothing of theirs to list yet, and
+  // identity's verification item is already the one ask: that refusal is not a source Home failed to check. Without that
+  // item, or as any other answer (an outage, a 5xx that happens to name KYC), it stays a failure.
+  const identity = sources.identity;
+  const asksToVerify = identity.state === 'ready' && identity.items.some((item) => item.kind === 'verification');
   for (const source of WORK_SOURCES) {
     const read = sources[source];
     if (read.state === 'ready') merged.push(...read.items);
+    else if (read.state === 'failed' && asksToVerify && read.status === 403 && classifyRefusal(read.code) === 'verify') continue;
     else if (read.state === 'failed') missing.push({ source, state: 'failed', code: read.code });
     else if (read.state === 'unwired') missing.push({ source, state: 'unwired' });
   }
@@ -90,4 +97,14 @@ export function workList(config: ConfigRead, sources: Readonly<Record<WorkItemSo
     : null;
   const all = sorted ? sorted.map((entry) => entry.item) : merged;
   return { state: 'ready', items: all.slice(0, cap), more: Math.max(0, all.length - cap), ordered: order !== null, missing };
+}
+
+/** A ratio from the owner's record ("0.8512", where 1 is 100%) as the percent it reads as ("85.12%"), without a float. */
+export function ratioPercent(ratio: string): string {
+  const [whole = '0', frac = ''] = ratio.split('.');
+  const digits = `${whole}${frac.padEnd(2, '0')}`;
+  const point = whole.length + 2;
+  const head = digits.slice(0, point).replace(/^0+(?=\d)/, '');
+  const tail = digits.slice(point).replace(/0+$/, '');
+  return `${head}${tail ? `.${tail}` : ''}%`;
 }

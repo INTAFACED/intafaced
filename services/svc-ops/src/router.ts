@@ -1,5 +1,7 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
+import type { HomeConfig } from '@intafaced/contracts';
+import { createHomeConfigRouter, homeConfigFromEnv } from './home-config.js';
 import {
   opsCostEntryInputSchema,
   opsCostEntrySchema,
@@ -251,6 +253,8 @@ export interface OperatorDeskConfig {
   readonly serviceRecords?: ServiceRecordStore;
   /** Staff holds on funds. Absent means every call refuses `ops.hold_storage_unconfigured`. */
   readonly staffHolds?: StaffHoldDesk;
+  /** Home's owner values for the public `home.config` read. Absent means every value is blank. */
+  readonly homeConfig?: HomeConfig;
 }
 
 export function createOpsRouter(
@@ -825,6 +829,8 @@ export function createOpsRouter(
       }),
 
     protocolListing: createProtocolListingRouter(desks.protocolListing),
+
+    home: createHomeConfigRouter(desks.homeConfig ?? homeConfigFromEnv({})),
 
     alertRules: createAlertRulesRouter(desks.alertRules, desks.alertState),
 

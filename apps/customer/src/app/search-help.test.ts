@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { HELP_MIN_CHARS, HELP_RESULT_CAP, helpRows, searchHelp } from './search-help';
+import { HELP_MIN_CHARS, helpRows, searchHelp } from './search-help';
 
 const article = (id: string, extra: Record<string, unknown> = {}) => ({
   id,
@@ -16,10 +16,6 @@ const fake = (answer: unknown) => {
 const answering = (data: unknown) => fake({ ok: true as const, data });
 
 describe('help results in the header search', () => {
-  it('has no result limit until an owner sets one', () => {
-    expect(HELP_RESULT_CAP).toBeNull();
-  });
-
   it('keeps published articles with a published title, in order, up to the limit', () => {
     const rows = helpRows(
       [

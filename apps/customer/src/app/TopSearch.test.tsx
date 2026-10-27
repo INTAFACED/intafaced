@@ -8,6 +8,8 @@ import { TopSearch } from './TopSearch';
 
 let host: HTMLDivElement, root: Root;
 const fetcher = vi.fn();
+/** The owner's help result limit as svc-ops' `home.config` answers it. */
+let helpCap: number | null = null;
 
 const input = () => host.querySelector<HTMLInputElement>('input[name="global-search"]')!;
 const panel = () => host.querySelector('.tb-search-panel');
@@ -30,19 +32,27 @@ async function mount(helpCap?: number | null) {
 }
 
 beforeEach(() => {
+  helpCap = null;
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
   vi.stubGlobal('fetch', fetcher);
-  // Markets and the session refresh are down; Help answers when asked.
+  // Markets and the session refresh are down; Home's owner values leave the help result limit blank; Help answers when asked.
   fetcher.mockReset().mockImplementation(async (url: string) =>
-    String(url).includes('searchKb')
+    String(url).includes('home.config')
       ? new Response(
-          JSON.stringify({
-            result: { data: [{ id: 'kb-account-access', titleKey: 'support.kb.account_access.title', bodyKey: 'b', version: 1 }] },
-          }),
-          { status: 200 },
+          JSON.stringify({ result: { data: { workListCap: null, workListOrder: null, searchResultCap: helpCap, revision: 0 } } }),
+          {
+            status: 200,
+          },
         )
-      : new Response('{}', { status: 503 }),
+      : String(url).includes('searchKb')
+        ? new Response(
+            JSON.stringify({
+              result: { data: [{ id: 'kb-account-access', titleKey: 'support.kb.account_access.title', bodyKey: 'b', version: 1 }] },
+            }),
+            { status: 200 },
+          )
+        : new Response('{}', { status: 503 }),
   );
   host = document.createElement('div');
   document.body.append(host);
@@ -91,6 +101,42 @@ describe('header search: where a page lives and the Help group', () => {
     await act(async () => void (await vi.advanceTimersByTimeAsync(300)));
     expect(host.textContent).toContain('Help articles did not load.');
     expect(rowTexts().some((text) => text?.includes('Money > '))).toBe(true);
+  });
+
+  it("reads the help result limit from Home's owner values and lists that many articles", async () => {
+    vi.useFakeTimers();
+    helpCap = 2;
+    await mount();
+    await type('sign in');
+    await act(async () => void (await vi.advanceTimersByTimeAsync(300)));
+    expect(helpCalls()).toHaveLength(1);
+    expect(String(helpCalls()[0]![0])).toContain(encodeURIComponent('"limit":2'));
+    expect(rowTexts()).toContain('Open Help');
+  });
+
+  it('says Help did not load, and still offers Help, when the owner values cannot be read', async () => {
+    fetcher.mockImplementation(async () => new Response('{}', { status: 500 }));
+    await mount();
+    await type('password');
+    expect(host.textContent).toContain('Help articles did not load.');
+    expect(rowTexts()).toContain('Open Help');
+    expect(helpCalls()).toHaveLength(0);
+  });
+
+  it('reads the owner values again when the results reopen after a failed read', async () => {
+    const answer = fetcher.getMockImplementation()!;
+    let down = true;
+    fetcher.mockImplementation(async (url: string) =>
+      down && String(url).includes('home.config') ? new Response('{}', { status: 500 }) : answer(url),
+    );
+    await mount();
+    await type('password');
+    expect(host.textContent).toContain('Help articles did not load.');
+    down = false;
+    await press('Escape', input());
+    await act(async () => input().focus());
+    await type('password');
+    expect(host.textContent).toContain('Help articles are hidden: no limit for the number of results is set.');
   });
 
   it('opens on "/" outside a field, but a "/" typed into a field stays a character', async () => {

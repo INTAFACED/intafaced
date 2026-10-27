@@ -40,7 +40,9 @@ function configRead(resource: Resource<z.infer<typeof homeConfigOutputSchema>>):
 function sourceRead(source: WorkItemSource, resource: Resource<unknown>): SourceRead {
   if (resource.status === 'loading') return { state: 'loading' };
   if (resource.status === 'ready') return sourceAnswer(source, resource.data);
-  return unwired(resource.failure) ? { state: 'unwired' } : { state: 'failed', code: resource.failure.code };
+  if (unwired(resource.failure)) return { state: 'unwired' };
+  const { code, status } = resource.failure;
+  return { state: 'failed', ...(code === undefined ? {} : { code }), ...(status === undefined ? {} : { status }) };
 }
 
 /** The owner's answer is checked against the contract in `sourceAnswer`, where a wrong row drops the whole answer. */

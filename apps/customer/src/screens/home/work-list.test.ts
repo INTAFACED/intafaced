@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { WORK_LIST_CAP_UNSET, type HomeConfig, type WorkItem } from '@intafaced/contracts/home-work-items';
-import { HOME_CONFIG_FAILED, HOME_CONFIG_UNWIRED, sourceAnswer, workList, type SourceRead } from './work-list';
+import { HOME_CONFIG_FAILED, HOME_CONFIG_UNWIRED, ratioPercent, sourceAnswer, workList, type SourceRead } from './work-list';
 
 const config = (over: Partial<HomeConfig> = {}) =>
   ({ state: 'ready', config: { workListCap: 5, workListOrder: null, searchResultCap: null, revision: 1, ...over } }) as const;
@@ -102,6 +102,24 @@ describe('Home work list (HM-dashboard-03)', () => {
     expect(workList(config(), all(ready(), ready(), ready()))).toMatchObject({ items: [], missing: [] });
   });
 
+  it("takes an owner's verify-first refusal as covered by identity's verification item, and only then", () => {
+    const verifyFirst: SourceRead = { state: 'failed', code: 'denied.kyc_required', status: 403 };
+    expect(workList(config(), all(ready(verify), verifyFirst, verifyFirst))).toMatchObject({ items: [verify], missing: [] });
+    // Without the verification item a verify-first refusal is still a source Home could not check.
+    expect(workList(config(), all(ready(), verifyFirst, ready()))).toMatchObject({
+      items: [],
+      missing: [{ source: 'bank', state: 'failed', code: 'denied.kyc_required' }],
+    });
+    // A KYC-sounding code on an outage is not a verify-first answer.
+    expect(
+      workList(config(), all(ready(verify), { state: 'failed', code: 'kyc.provider_unavailable', status: 503 }, ready())),
+    ).toMatchObject({ missing: [{ source: 'bank', state: 'failed', code: 'kyc.provider_unavailable' }] });
+    // Any other refusal stays named, verification item or not.
+    expect(workList(config(), all(ready(verify), { state: 'failed', code: 'bank.unavailable' }, ready()))).toMatchObject({
+      missing: [{ source: 'bank', state: 'failed', code: 'bank.unavailable' }],
+    });
+  });
+
   it('drops an owner’s whole answer when it is not the contract or names another owner’s kind', () => {
     expect(sourceAnswer('identity', { items: [verify] })).toEqual({ state: 'ready', items: [verify] });
     expect(sourceAnswer('identity', { items: [card] })).toEqual({ state: 'failed', code: 'home.work_items_invalid' });
@@ -109,5 +127,19 @@ describe('Home work list (HM-dashboard-03)', () => {
     expect(sourceAnswer('bank', { items: [card, card] })).toMatchObject({ state: 'failed' });
     expect(sourceAnswer('pay', { items: [{ ...payout, amount: { value: 12.5, asset: 'USDT' } }] })).toMatchObject({ state: 'failed' });
     expect(sourceAnswer('pay', null)).toMatchObject({ state: 'failed' });
+  });
+});
+
+describe('the loan-to-value a margin row shows', () => {
+  it.each([
+    ['0.85', '85%'],
+    ['0.8512', '85.12%'],
+    ['1', '100%'],
+    ['1.2', '120%'],
+    ['0.05', '5%'],
+    ['0.005', '0.5%'],
+    ['0', '0%'],
+  ])('reads %s as %s, digit for digit', (ratio, shown) => {
+    expect(ratioPercent(ratio)).toBe(shown);
   });
 });
