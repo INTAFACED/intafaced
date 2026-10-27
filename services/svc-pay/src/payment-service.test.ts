@@ -20,6 +20,7 @@ import {
   type PostRequest,
 } from '@intafaced/ledger-client';
 import { PayService, PayError, type PaymentView } from './payment-service.js';
+import { NOOP_GUARDS } from './seams/guards.js';
 import { loadKybDecisionBinding } from './kyb-decision-binding.js';
 import { defaultDisputeCaseStore } from './fraud/dispute-case.js';
 import { REFERENCE_RAIL_ROUTING_PROFILES, type RailRoutingProfile } from './routing/decide.js';
@@ -431,21 +432,62 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
-    it('refuses to capture a disputed payment again: it stays disputed and its captured total is unchanged', async () => {
+    it('a capture retried on a disputed payment returns it as it is: still disputed, nothing captured again', async () => {
       const m = await merchant();
       const payment = await cardPayment(m.id, '12');
       await pay.capture(payment.id);
       await pay.markDisputed(payment.id, { disputeId: 'dp-capture-retry' });
-      const booked = ledger.totalsByAsset().USDT;
+      const clearing = await clearingOf(m.id);
+      const boundary = await boundaryOf('card-sandbox');
+      const history = await events(payment.id);
 
-      await expect(pay.capture(payment.id)).rejects.toMatchObject({ code: 'pay.invalid_transition' });
+      const again = await pay.capture(payment.id);
 
-      const after = await pay.getPayment(payment.id);
-      expect(after.status).toBe('disputed');
-      expect(formatAmount(after.capturedAmount)).toBe('12');
-      expect((await events(payment.id)).filter((e) => e === 'captured')).toHaveLength(1);
-      expect(ledger.totalsByAsset().USDT).toBe(booked);
+      expect(again.status).toBe('disputed');
+      expect(formatAmount(again.capturedAmount)).toBe('12');
+      expect(await events(payment.id)).toEqual(history);
+      expect(await clearingOf(m.id)).toBe(clearing);
+      expect(await boundaryOf('card-sandbox')).toBe(boundary);
       expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('a capture that finds the payment disputed inside its transaction books nothing and appends nothing', async () => {
+      const m = await merchant();
+      const payment = await cardPayment(m.id, '12');
+      // The capture read `authorized` before admission; a concurrent capture and a dispute land before its transaction reads again.
+      const racing = new PayService(sql, ledger, rails, {
+        guards: {
+          ...NOOP_GUARDS,
+          beforePaymentAdmit: async (ctx) => {
+            if (ctx.kind === 'payment.capture') await ctx.tx`UPDATE pay.payments SET status = 'disputed' WHERE id = ${ctx.paymentId}`;
+          },
+        },
+      });
+      const clearing = await clearingOf(m.id);
+      const boundary = await boundaryOf('card-sandbox');
+
+      const result = await racing.capture(payment.id);
+
+      expect(result.status).toBe('disputed');
+      expect((await events(payment.id)).filter((e) => e === 'captured')).toHaveLength(0);
+      expect(await clearingOf(m.id)).toBe(clearing);
+      expect(await boundaryOf('card-sandbox')).toBe(boundary);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('refuses to capture a payment that was never authorized', async () => {
+      const m = await merchant();
+      const created = await pay.createPayment({
+        merchantId: m.id,
+        amount: amt('12'),
+        assetId: 'USDT',
+        method: 'card',
+        railAdapter: 'card-sandbox',
+        instrument: { kind: 'card', token: 'tok_ok' },
+      });
+
+      await expect(pay.capture(created.id)).rejects.toMatchObject({ code: 'pay.invalid_transition' });
+      expect((await pay.getPayment(created.id)).status).toBe('created');
     });
 
     it('appends every transition and overwrites nothing', async () => {
