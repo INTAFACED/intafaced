@@ -5,7 +5,7 @@ import { useCallback, useState } from 'react';
 import './desk.css';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
 import { fetchGradebook, postGradebookChange } from '@/lib/academy/gradebook-browser';
-import type { AcademyCourseGradebook, GradebookDeskReply, GradebookView } from '@/lib/academy/gradebook-model';
+import type { AcademyCourseGradebook, AcademyGradeReport, GradebookDeskReply, GradebookView } from '@/lib/academy/gradebook-model';
 import { Failed, Outcome } from '@/components/academy-courses-desk';
 
 /**
@@ -15,8 +15,9 @@ import { Failed, Outcome } from '@/components/academy-courses-desk';
  * up to exactly 1, or svc-academy refuses and names the sum) and how many of its lowest scores to drop. The table shows
  * each enrolled learner's score per item as a fraction (0.65 is 65 percent), "not attempted" or "pending" where there is
  * none (never a zero), each type's average after the lowest are dropped, and the weighted total of the types they have a
- * score in. Every figure comes from svc-academy, cut at 18 places, never rounded here. Grading scales, periods, a late
- * policy and the downloadable report are later parts.
+ * score in. Every figure comes from svc-academy, cut at 18 places, never rounded here. A grade report is a stored
+ * snapshot of the table with the time it was made and its SHA-256; downloading one serves that snapshot. Grading scales,
+ * periods and a late policy are later parts.
  */
 
 type Item = AcademyCourseGradebook['items'][number];
@@ -192,6 +193,66 @@ function Table({ book }: { book: AcademyCourseGradebook }) {
   );
 }
 
+/** The stored reports. A new one takes the next number, so a retried click answers the report it made. */
+function Reports({
+  courseId,
+  reports,
+  busy,
+  onMake,
+}: {
+  courseId: string;
+  reports: readonly AcademyGradeReport[];
+  busy: boolean;
+  onMake: (n: number) => void;
+}) {
+  const next = (reports[0]?.n ?? 0) + 1;
+  return (
+    <div className="dk-stack" data-testid="grade-reports">
+      <div className="dk-row">
+        <button type="button" className="adm-btn" disabled={busy} onClick={() => onMake(next)}>
+          Make grade report {next}
+        </button>
+      </div>
+      {reports.length === 0 ? (
+        <p className="dk-muted" data-testid="grade-reports-empty">
+          No report yet. A report stores the gradebook as it reads when you make it.
+        </p>
+      ) : (
+        <table className="adm-table">
+          <thead>
+            <tr>
+              <th>Report</th>
+              <th>Made</th>
+              <th>Learners</th>
+              <th>SHA-256</th>
+              <th>File</th>
+            </tr>
+          </thead>
+          <tbody>
+            {reports.map((r) => (
+              <tr key={r.n} data-report={r.n}>
+                <td>{r.n}</td>
+                <td data-testid="report-made-at" data-at={r.madeAt}>
+                  {formatWhen(r.madeAt)}
+                </td>
+                <td>{r.rows}</td>
+                <td>
+                  <code data-testid="report-sha256">{r.sha256}</code>
+                </td>
+                <td>
+                  <a href={`/api/academy-gradebook?courseId=${encodeURIComponent(courseId)}&report=${r.n}`} download>
+                    Download report {r.n}
+                  </a>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 export function AcademyGradebook({ courseId, initial }: { courseId: string; initial: GradebookView | null }) {
   const [view, setView] = useState(initial);
   const [busy, setBusy] = useState(false);
@@ -202,9 +263,9 @@ export function AcademyGradebook({ courseId, initial }: { courseId: string; init
     if (next) setView(next);
   }, [courseId]);
 
-  const send = async (body: Record<string, unknown>) => {
+  const send = async (op: 'savePolicy' | 'makeReport', body: Record<string, unknown>) => {
     setBusy(true);
-    const answer = await postGradebookChange({ op: 'savePolicy', courseId, ...body });
+    const answer = await postGradebookChange({ op, courseId, ...body });
     setReply(answer);
     setBusy(false);
     // Whatever the answer, the page shows the gradebook as svc-academy holds it now; a refused form keeps what was typed.
@@ -239,12 +300,20 @@ export function AcademyGradebook({ courseId, initial }: { courseId: string; init
             {book.items.length === 0 ? (
               <p className="dk-muted">The course has no assignment with a brief or graded quiz yet.</p>
             ) : (
-              <PolicyForm key={book.policy?.revision ?? 0} book={book} busy={busy} onSave={(b) => void send(b)} />
+              <PolicyForm key={book.policy?.revision ?? 0} book={book} busy={busy} onSave={(b) => void send('savePolicy', b)} />
             )}
           </section>
           <section className="dk-stack" aria-labelledby="h-gradebook">
             <h2 id="h-gradebook">Learners</h2>
             <Table book={book} />
+          </section>
+          <section className="dk-stack" aria-labelledby="h-reports">
+            <h2 id="h-reports">Grade reports</h2>
+            {view?.reports.kind === 'ok' ? (
+              <Reports courseId={courseId} reports={view.reports.data.reports} busy={busy} onMake={(n) => void send('makeReport', { n })} />
+            ) : (
+              <Failed title="Could not read the grade reports" message={view?.reports.message ?? ''} code={view?.reports.code ?? null} />
+            )}
           </section>
         </>
       )}

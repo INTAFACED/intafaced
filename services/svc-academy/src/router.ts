@@ -179,6 +179,7 @@ import {
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 import { AcademyError } from './errors.js';
+import { gradeReportProcedures } from './curriculum/grade-reports-router.js';
 import { relatedItems } from './curriculum/related.js';
 import { listPublicCourses, searchPublicCurriculum } from './curriculum/public-catalogue.js';
 import { OwnerDecisionError } from './curriculum/lessons.js';
@@ -3270,6 +3271,7 @@ export function createAcademyRouter(
       ),
 
     admin: router({
+      ...gradeReportProcedures(academy.gradeReports),
       /** AC-course-structure-01: the courses staff created, newest first, and how many are in each state. */
       courses: scopedProcedure('admin:read', { module: 'academy' })
         .input(academyCourseListInputSchema)

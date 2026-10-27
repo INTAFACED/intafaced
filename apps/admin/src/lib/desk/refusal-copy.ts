@@ -1315,6 +1315,26 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'svc-academy has no course with this id.',
     next: 'Go back to the course list. Nothing was changed.',
   },
+  'academy.report_limit_unset': {
+    title: 'The report size is not set',
+    body: 'The owner has not set how many learner rows one grade report may hold, so no report is made.',
+    next: 'The owner sets the limit for this deployment. Nothing was made.',
+  },
+  'academy.report_too_large': {
+    title: 'Too many learners for one report',
+    body: 'This course has more enrolled learners than one grade report may hold.',
+    next: 'Ask the owner to raise the report size. Nothing was made.',
+  },
+  'academy.report_out_of_order': {
+    title: 'Another report was made first',
+    body: 'Someone made a grade report of this course since the page was read, so this one would skip a number.',
+    next: 'The list below is read again. Make the report again if you still need a new one. Nothing was made.',
+  },
+  'academy.report_not_found': {
+    title: 'No such report',
+    body: 'This course has no stored grade report with that number.',
+    next: 'Pick a report from the list. Nothing was made.',
+  },
   'admin.session_required': {
     title: 'You are signed out',
     body: 'Your founder session ended.',

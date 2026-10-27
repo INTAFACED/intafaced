@@ -29,6 +29,7 @@ export interface SettingRow {
   readonly refusalCode:
     | AcademyErrorCode
     | 'academy.prize_pool_unset'
+    | 'academy.report_limit_unset'
     | 'academy.ambassador_pay.rates_unset'
     | 'academy.ambassador_revenue_share.rates_unset'
     | null;
@@ -43,6 +44,7 @@ export interface SettingsEnv {
   readonly ACADEMY_UPLOAD_MAX_BYTES?: number | undefined;
   readonly ACADEMY_TOPICS_LIST_LIMIT?: number | undefined;
   readonly ACADEMY_GRADER_LEASE_SECONDS?: number | undefined;
+  readonly ACADEMY_GRADE_REPORT_ROWS?: number | undefined;
   readonly ACADEMY_CERT_ISSUE_SWEEP_SECONDS?: number | undefined;
   readonly ACADEMY_PROGRAMME_MAX_COURSES?: number | undefined;
   readonly ACADEMY_POST_MAX_CHARS?: number | undefined;
@@ -216,6 +218,13 @@ export function settingsRegister(env: SettingsEnv): readonly SettingRow[] {
       store: 'env',
       readOnly: false,
       refusalCode: 'academy.grader_lease_unset',
+    },
+    {
+      key: 'grade_report_rows',
+      state: state(positiveInt(env.ACADEMY_GRADE_REPORT_ROWS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.report_limit_unset',
     },
     {
       // Blank runs no sweep, so a delayed certificate would wait for its learner to come back: delayed rules refuse.

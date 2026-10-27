@@ -2,12 +2,14 @@ import { readAdminJson } from '@/lib/admin-json';
 import { adminBffSession } from '@/lib/admin-bff-gate';
 import { adminSessionErrorResponse } from '@/lib/founder-session';
 import { moduleDisabledResponse } from '@/lib/modules';
-import { changeGradebook, isGradebookOp, loadGradebook } from '@/lib/academy/gradebook-server';
+import { changeGradebook, isGradebookOp, loadGradebook, loadGradeReportFile } from '@/lib/academy/gradebook-server';
 
 /**
  * The gradebook of a course staff made (AC-assignments-04).
  *
- *   GET ?courseId=<uuid>   the grading policy, the course's graded items and each enrolled learner's scores
+ *   GET ?courseId=<uuid>   the grading policy, the course's graded items, each enrolled learner's scores and the stored reports
+ *   GET ?courseId=<uuid>&report=<n>   stored grade report n as a CSV download, with its SHA-256
+ *   POST { op: 'makeReport', courseId, n }   stores report n: the gradebook now, with its time and hash
  *   POST { op: 'savePolicy', courseId, revision, types, reason }   weights adding up to exactly 1, with dropped lowest
  *
  * Founder-only. svc-academy records the founder from their own token.
@@ -38,6 +40,21 @@ export async function GET(request: Request) {
   if (session instanceof Response) return session;
   const courseId = new URL(request.url).searchParams.get('courseId') ?? '';
   if (!UUID.test(courseId)) return incomplete('Which course?');
+  const report = new URL(request.url).searchParams.get('report');
+  if (report !== null) {
+    if (!/^[1-9]\d{0,8}$/.test(report)) return incomplete('Which report?');
+    const file = await loadGradeReportFile(session, courseId, Number(report));
+    if (!file) return incomplete('That report could not be read. Nothing was made.');
+    // The stored snapshot, byte for byte: the hash the desk shows is the hash of this body.
+    return new Response(file.csv, {
+      headers: {
+        ...NO_STORE,
+        'content-type': 'text/csv; charset=utf-8',
+        'content-disposition': `attachment; filename="grade-report-${courseId}-${file.n}.csv"`,
+        'x-report-sha256': file.sha256,
+      },
+    });
+  }
   return Response.json(await loadGradebook(session, courseId), { headers: NO_STORE });
 }
 
