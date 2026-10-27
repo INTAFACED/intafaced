@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS "identity"."kyc_poa_submissions" (
   "country"          text NOT NULL CHECK ("country" ~ '^[A-Z]{2}$'),
   "issued_on"        date NOT NULL,
   "country_mismatch" boolean NOT NULL,
+  -- The file's SHA-256, so the same document sent again returns its pending submission instead of a second one.
+  "file_sha256"      text NOT NULL CHECK ("file_sha256" ~ '^[0-9a-f]{64}$'),
   "status"           text NOT NULL DEFAULT 'submitted' CHECK ("status" IN ('submitted', 'accepted', 'rejected')),
   "created_at"       timestamptz NOT NULL DEFAULT now()
 );

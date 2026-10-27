@@ -112,6 +112,20 @@ export function parseKycUploadCaps(env: {
   return { maxBytes, contentTypes };
 }
 
+/**
+ * The owner's file caps, shared by the ID photo and proof of address: unset refuses, then the content type must be
+ * listed and the decoded bytes within the cap. Returns the content type as stored (lower case).
+ */
+export function assertWithinUploadCaps(caps: KycProfileUploadCaps | null, rawContentType: string, bytes: Buffer): string {
+  if (!caps) throw new KycProfileError('No size and type limits are published for documents', 'kyc.upload_caps_unset');
+  const contentType = rawContentType.trim().toLowerCase();
+  if (!caps.contentTypes.includes(contentType))
+    throw new KycProfileError('That file type is not accepted', 'kyc.upload_type', { contentTypes: caps.contentTypes });
+  if (bytes.length === 0 || bytes.length > caps.maxBytes)
+    throw new KycProfileError(`The file is over the ${caps.maxBytes}-byte limit`, 'kyc.upload_too_large', { maxBytes: caps.maxBytes });
+  return contentType;
+}
+
 const EMPTY: KycProfileFields = kycProfileFieldsSchema.parse({
   residence: null,
   nationality: null,
@@ -287,13 +301,7 @@ export class KycProfileDesk {
   /** Stores the ID photo in the vault, then the draft refers to it and moves on to review. */
   async upload(userId: string, input: { version: number; contentType: string; bytes: Buffer }): Promise<KycProfileDraft> {
     this.requireKey();
-    const caps = this.settings.uploadCaps;
-    if (!caps) throw new KycProfileError('No size and type limits are published for ID photos', 'kyc.upload_caps_unset');
-    const contentType = input.contentType.trim().toLowerCase();
-    if (!caps.contentTypes.includes(contentType))
-      throw new KycProfileError('That file type is not accepted', 'kyc.upload_type', { contentTypes: caps.contentTypes });
-    if (input.bytes.length === 0 || input.bytes.length > caps.maxBytes)
-      throw new KycProfileError(`The file is over the ${caps.maxBytes}-byte limit`, 'kyc.upload_too_large', { maxBytes: caps.maxBytes });
+    const contentType = assertWithinUploadCaps(this.settings.uploadCaps, input.contentType, input.bytes);
     const vault = this.settings.vault;
     if (!vault) throw new KycProfileError('The document vault is not configured', 'kyc.profile_unconfigured');
     const hash = this.fingerprint('upload', input.version, { contentType, sha256: createHash('sha256').update(input.bytes).digest('hex') });

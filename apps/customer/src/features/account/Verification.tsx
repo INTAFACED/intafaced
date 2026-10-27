@@ -639,7 +639,7 @@ export function Verification() {
         ) : (
           <>
             {offeredTiers.length > 0 && <VerificationGuided tier={chosenTier} disabled={blocked} onSent={reload} />}
-            <VerificationProofOfAddress recordsKey={casesKey} />
+            <VerificationProofOfAddress recordsKey={casesKey} disabled={blocked} />
             <VerificationCapabilities recordsKey={casesKey} />
             <VerificationCases
               recordsKey={casesKey}

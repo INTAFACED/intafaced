@@ -15,6 +15,8 @@ const listed = z.object({ type: typeCode, label: z.string().min(1).max(120) });
 export const kycPoaSubmissionSchema = z.object({
   id: z.string().uuid(),
   type: typeCode,
+  /** The owner's label for the type in the document's own country; null when that list no longer has it. */
+  label: z.string().min(1).max(120).nullable(),
   country: alpha2,
   issuedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   status: z.enum(['submitted', 'accepted', 'rejected']),

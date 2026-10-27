@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { kycPoaReadSchema, kycPoaSubmissionSchema, type KycPoaSubmission } from '@intafaced/contracts/identity-kyc-poa';
+import { useRef, useState } from 'react';
+import { kycPoaReadSchema, kycPoaSubmissionSchema, type KycPoaRead, type KycPoaSubmission } from '@intafaced/contracts/identity-kyc-poa';
 import type { ApiResult } from '../../shared/api';
+import { base64Of, kib, localToday } from '../../shared/file-base64';
 import { useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
@@ -8,17 +9,7 @@ import { verificationPoaCopy as copy } from './verification-poa-copy';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type Problem = { kind: 'copy'; text: string } | { kind: 'failure'; result: Refusal };
-const kib = (bytes: number) => Math.ceil(bytes / 1024);
 const statusKey = { submitted: 'statusSubmitted', accepted: 'statusAccepted', rejected: 'statusRejected' } as const;
-
-function base64Of(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error);
-    reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ''));
-    reader.readAsDataURL(file);
-  });
-}
 
 /**
  * I-kyc-compliance-11 (J-identity-08 #5): proof of address on /verification, asked for once level Basic is approved.
@@ -27,7 +18,7 @@ function base64Of(file: File): Promise<string> {
  * the service. A document from another country than the residence is sent flagged, and the page says the reviewer
  * checks it. `recordsKey` is the page's status read, so an approval reads this again.
  */
-export function VerificationProofOfAddress({ recordsKey }: { recordsKey: string }) {
+export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKey: string; disabled: boolean }) {
   const { api, userId } = useSession();
   const { t, Copy } = copy.useCopy();
   const [country, setCountry] = useState<string | null>(null);
@@ -43,9 +34,13 @@ export function VerificationProofOfAddress({ recordsKey }: { recordsKey: string 
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<Problem | null>(null);
   const [sent, setSent] = useState<KycPoaSubmission | null>(null);
+  // A re-read (another country, a send) keeps the form on screen with the last answer, so typing and the chosen
+  // file are never thrown away; only the first read shows loading.
+  const last = useRef<KycPoaRead | null>(null);
+  if (resource.status === 'ready') last.current = resource.data;
 
   const body = () => {
-    if (resource.status === 'loading') return <Loading />;
+    const data = resource.status === 'ready' ? resource.data : last.current;
     if (resource.status === 'failed')
       return (
         <>
@@ -55,7 +50,9 @@ export function VerificationProofOfAddress({ recordsKey }: { recordsKey: string 
           <Failure result={resource.failure} retry={reload} />
         </>
       );
-    const { requested, residence, maxAgeDays, documents, latest, uploadCaps } = resource.data;
+    if (!data) return <Loading />;
+    const { requested, residence, maxAgeDays, documents, latest, uploadCaps } = data;
+    const reading = resource.status === 'loading';
     if (!requested)
       return (
         <p className="muted" data-testid="verification__poa-state" data-state="not-requested">
@@ -72,8 +69,9 @@ export function VerificationProofOfAddress({ recordsKey }: { recordsKey: string 
         case 'kyc.poa_date_invalid':
           return setProblem({ kind: 'copy', text: t('dateInvalid') });
         case 'kyc.poa_types_unset':
-        case 'kyc.poa_type_unlisted':
           return setProblem({ kind: 'copy', text: t('unpublished', { country: shownCountry }) });
+        case 'kyc.poa_type_unlisted':
+          return setProblem({ kind: 'copy', text: t('typeUnlisted', { country: shownCountry }) });
         case 'kyc.poa_rule_unset':
           return setProblem({ kind: 'copy', text: t('ruleUnset') });
         case 'kyc.upload_caps_unset':
@@ -133,7 +131,7 @@ export function VerificationProofOfAddress({ recordsKey }: { recordsKey: string 
             <Copy
               k="latest"
               params={{
-                type: [...documents.accepted, ...documents.rejected].find((row) => row.type === latest.type)?.label ?? latest.type,
+                type: latest.label ?? latest.type,
                 country: latest.country,
                 issuedOn: latest.issuedOn,
                 status: t(statusKey[latest.status]),
@@ -159,6 +157,7 @@ export function VerificationProofOfAddress({ recordsKey }: { recordsKey: string 
             hint={t('countryHint')}
             onChange={(event) => {
               setType('');
+              setProblem(null);
               setCountry(event.target.value.trim().toUpperCase());
             }}
           />
@@ -212,6 +211,7 @@ export function VerificationProofOfAddress({ recordsKey }: { recordsKey: string 
             name="poa-issued-on"
             type="date"
             required
+            max={localToday()}
             value={issuedOn}
             disabled={busy}
             hint={t('issuedOnHint')}
@@ -236,7 +236,10 @@ export function VerificationProofOfAddress({ recordsKey }: { recordsKey: string 
               <Copy k="capsUnset" />
             </p>
           )}
-          <Button type="submit" disabled={busy || !file || !uploadCaps || !maxAgeDays || !documents.published || !type}>
+          <Button
+            type="submit"
+            disabled={disabled || busy || reading || !file || !uploadCaps || !maxAgeDays || !documents.published || !type}
+          >
             <Copy k={busy ? 'sending' : 'send'} />
           </Button>
         </form>

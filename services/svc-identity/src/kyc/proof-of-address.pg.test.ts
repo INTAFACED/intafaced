@@ -160,6 +160,12 @@ if (!available) {
       expect(await docs(userId)).toBe(2);
       expect((await desk.read(userId)).latest).toEqual(flagged);
       expect((await desk.listFor(userId, 10)).map((s) => s.country)).toEqual(['FR', 'DE']);
+      expect(ok.label).toBe('TEST: Utility bill');
+      // The same document sent again returns its pending submission and stores nothing more.
+      expect(await send(userId, { country: 'FR' })).toEqual(flagged);
+      expect(await docs(userId)).toBe(2);
+      // Dated today on a calendar east of UTC (already tomorrow in UTC) is accepted.
+      await expect(send(userId, { issuedOn: '2026-10-28' })).resolves.toMatchObject({ issuedOn: '2026-10-28' });
     });
   });
 }

@@ -28,6 +28,7 @@ export const verificationPoaCopy = defineCopy('account.verificationPoa', {
   statusRejected: 'Rejected',
   mismatch: 'This document is from {country}, not where you live ({residence}), so the reviewer checks it.',
   tooOld: 'This document is older than {days} days. Send one issued within the last {days} days.',
+  typeUnlisted: 'That document is not on the list for {country}. Choose one from the list above.',
   typeRefused: 'That kind of document is not accepted as proof of address.',
   dateInvalid: 'Enter the real date the document was issued. It cannot be in the future.',
   tooLarge: 'This file is {size} KiB. The limit is {kib} KiB.',

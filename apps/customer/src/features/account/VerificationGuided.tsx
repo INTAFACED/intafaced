@@ -12,6 +12,7 @@ import {
 } from '@intafaced/contracts/identity-kyc-profile';
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
+import { base64Of, kib } from '../../shared/file-base64';
 import { useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
@@ -21,17 +22,6 @@ type Tier = KycProfileDraft['tier'];
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type Problem = { kind: 'copy'; text: string } | { kind: 'failure'; result: Refusal };
 const sentSchema = z.object({ recordId: z.string().uuid(), documentCheck: z.literal('not_connected') });
-const kib = (bytes: number) => Math.ceil(bytes / 1024);
-
-/** Reads a file as canonical base64 without its data-URL prefix. */
-function base64Of(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error);
-    reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ''));
-    reader.readAsDataURL(file);
-  });
-}
 
 /**
  * I-kyc-compliance-08 (J-identity-08 #2): guided verification on /verification. Six steps with progress; each save

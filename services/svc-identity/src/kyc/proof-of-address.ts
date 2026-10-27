@@ -11,7 +11,9 @@ import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import type { KycPoaRead, KycPoaSubmission } from '@intafaced/contracts/identity-kyc-poa';
 import type { KycProfileUploadCaps } from '@intafaced/contracts/identity-kyc-profile';
+import { createHash } from 'node:crypto';
 import type { KycDocumentVault } from './document-store.js';
+import { assertWithinUploadCaps } from './profile.js';
 
 export type KycPoaErrorCode =
   | 'kyc.poa_not_requested'
@@ -21,10 +23,7 @@ export type KycPoaErrorCode =
   | 'kyc.poa_type_refused'
   | 'kyc.poa_too_old'
   | 'kyc.poa_date_invalid'
-  | 'kyc.poa_unconfigured'
-  | 'kyc.upload_caps_unset'
-  | 'kyc.upload_too_large'
-  | 'kyc.upload_type';
+  | 'kyc.poa_unconfigured';
 
 export class KycPoaError extends Error {
   constructor(
@@ -78,6 +77,8 @@ export function parseKycPoaTypes(raw: string | undefined): KycPoaTypeList | null
   const out = new Map<string, { accepted: Listed[]; rejected: Listed[] }>();
   for (const [country, value] of Object.entries(parsed)) {
     if (!/^[A-Z]{2}$/.test(country)) throw new Error(`${setting}: ${country} is not a two-letter country code`);
+    if (!value || typeof value !== 'object' || Array.isArray(value))
+      throw new Error(`${setting}: ${country} must be {"accepted": [...], "rejected": [...]}`);
     const v = value as { accepted?: unknown; rejected?: unknown };
     const seen = new Set<string>();
     const accepted = rows(country, v.accepted, 'accepted', seen);
@@ -97,9 +98,10 @@ type Row = {
   created_at: Date;
 };
 
-const view = (row: Row): KycPoaSubmission => ({
+const toView = (row: Row, label: string | null): KycPoaSubmission => ({
   id: row.id,
   type: row.type,
+  label,
   country: row.country,
   issuedOn: row.issued_on,
   status: row.status,
@@ -117,6 +119,13 @@ export class KycPoaDesk {
       readonly vault: KycDocumentVault | undefined;
     },
   ) {}
+
+  /** A submission with the owner's label for its type in its own country, or null when the list no longer has it. */
+  private view(row: Row): KycPoaSubmission {
+    const list = this.settings.types?.get(row.country);
+    const found = list && [...list.accepted, ...list.rejected].find((r) => r.type === row.type);
+    return toView(row, found ? found.label : null);
+  }
 
   /** The country on the person's highest approved, unexpired level; null when none is approved. */
   private async residence(sql: Sql, userId: string): Promise<string | null> {
@@ -144,7 +153,7 @@ export class KycPoaDesk {
       residence,
       maxAgeDays: this.settings.maxAgeDays,
       documents: this.lists(country ?? residence),
-      latest: latest ? view(latest) : null,
+      latest: latest ? this.view(latest) : null,
       uploadCaps: this.settings.uploadCaps,
     };
   }
@@ -169,28 +178,35 @@ export class KycPoaDesk {
     if (!list.accepted.some((r) => r.type === input.type))
       throw new KycPoaError(`That document is not listed for ${input.country}`, 'kyc.poa_type_unlisted', { country: input.country });
     const issued = new Date(`${input.issuedOn}T00:00:00Z`);
-    if (Number.isNaN(issued.getTime()) || issued.toISOString().slice(0, 10) !== input.issuedOn || issued.getTime() > now.getTime())
+    // Today on the person's own calendar may already be tomorrow in UTC (up to UTC+14), so that much is allowed.
+    if (
+      Number.isNaN(issued.getTime()) ||
+      issued.toISOString().slice(0, 10) !== input.issuedOn ||
+      issued.getTime() > now.getTime() + 14 * 3_600_000
+    )
       throw new KycPoaError('The date issued is not a real date in the past', 'kyc.poa_date_invalid');
-    const ageDays = Math.floor((now.getTime() - issued.getTime()) / DAY);
+    const ageDays = Math.max(0, Math.floor((now.getTime() - issued.getTime()) / DAY));
     if (ageDays > maxAgeDays) throw new KycPoaError(`The document is older than ${maxAgeDays} days`, 'kyc.poa_too_old', { maxAgeDays });
-    const caps = this.settings.uploadCaps;
-    if (!caps) throw new KycPoaError('No size and type limits are published for documents', 'kyc.upload_caps_unset');
-    const contentType = input.contentType.trim().toLowerCase();
-    if (!caps.contentTypes.includes(contentType))
-      throw new KycPoaError('That file type is not accepted', 'kyc.upload_type', { contentTypes: caps.contentTypes });
-    if (input.bytes.length === 0 || input.bytes.length > caps.maxBytes)
-      throw new KycPoaError(`The file is over the ${caps.maxBytes}-byte limit`, 'kyc.upload_too_large', { maxBytes: caps.maxBytes });
+    const contentType = assertWithinUploadCaps(this.settings.uploadCaps, input.contentType, input.bytes);
     const vault = this.settings.vault;
     if (!vault) throw new KycPoaError('The document vault is not configured', 'kyc.poa_unconfigured');
+    // The same document sent again (a retry, a second click) returns the pending submission it made.
+    const sha256 = createHash('sha256').update(input.bytes).digest('hex');
+    const [same] = await this.sql<Row[]>`
+      SELECT id, type, country, issued_on::text AS issued_on, status, country_mismatch, created_at FROM kyc_poa_submissions
+      WHERE user_id = ${userId} AND status = 'submitted' AND type = ${input.type} AND country = ${input.country}
+        AND issued_on = ${input.issuedOn}::date AND file_sha256 = ${sha256}
+      ORDER BY created_at DESC LIMIT 1`;
+    if (same) return this.view(same);
     // The vault first: a crash after this leaves an unreferenced ciphertext row, never a submission pointing at nothing.
     const stored = await vault.put({ userId, contentType, bytes: input.bytes, storedBy: userId });
     try {
       return await transaction(this.sql, async (tx) => {
         const [row] = await tx<Row[]>`
-          INSERT INTO kyc_poa_submissions (user_id, document_id, type, country, issued_on, country_mismatch)
-          VALUES (${userId}, ${stored.id}, ${input.type}, ${input.country}, ${input.issuedOn}::date, ${input.country !== residence})
+          INSERT INTO kyc_poa_submissions (user_id, document_id, type, country, issued_on, country_mismatch, file_sha256)
+          VALUES (${userId}, ${stored.id}, ${input.type}, ${input.country}, ${input.issuedOn}::date, ${input.country !== residence}, ${sha256})
           RETURNING id, type, country, issued_on::text AS issued_on, status, country_mismatch, created_at`;
-        return view(row!);
+        return this.view(row!);
       });
     } catch (err) {
       await vault.deleteFor(stored.id, { kind: 'owner', userId }).catch(() => undefined);
@@ -203,6 +219,6 @@ export class KycPoaDesk {
     const rows = await this.sql<Row[]>`
       SELECT id, type, country, issued_on::text AS issued_on, status, country_mismatch, created_at
       FROM kyc_poa_submissions WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT ${limit}`;
-    return rows.map(view);
+    return rows.map((row) => this.view(row));
   }
 }
