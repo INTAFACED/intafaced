@@ -52,26 +52,29 @@ export function TotalUnitNote({
   displayCurrency,
   hidden,
   className,
+  testId,
 }: {
   data: HomePortfolio;
   displayCurrency: UiDisplayCurrency;
   hidden: boolean;
   className: string;
+  testId?: string;
 }) {
   const { t } = homeCopy.useCopy();
   const { inBtc, btcMissing } = totalUnit(data, displayCurrency);
   // Only a currency other than USD or BTC asks the bank for a rate.
-  if (displayCurrency !== 'USD' && displayCurrency !== 'BTC') return <RateNote currency={displayCurrency} className={className} />;
+  if (displayCurrency !== 'USD' && displayCurrency !== 'BTC')
+    return <RateNote currency={displayCurrency} className={className} testId={testId} />;
   if (inBtc)
     return (
-      <p className={className} data-total-unit="BTC">
+      <p className={className} data-testid={testId} data-total-unit="BTC">
         {/* The dollar figure is a balance too: it stays out of the note while balances are hidden. */}
         {hidden ? t('Shown in BTC hidden') : t('Shown in BTC', { usd: dollars(data.totalUsd) })}
       </p>
     );
   if (btcMissing)
     return (
-      <p className={className} data-total-unit="USD">
+      <p className={className} data-testid={testId} data-total-unit="USD">
         {t('BTC price missing')}
       </p>
     );
@@ -79,13 +82,13 @@ export function TotalUnitNote({
 }
 
 /** The total stays in USD for a currency the bank was asked about: no rate (refused by name), or it could not be asked. */
-function RateNote({ currency, className }: { currency: UiDisplayCurrency; className: string }) {
+function RateNote({ currency, className, testId }: { currency: UiDisplayCurrency; className: string; testId?: string }) {
   const { t } = homeCopy.useCopy();
   const rate = useDisplayRate(currency);
   if (rate.state === 'no_rate') {
     const reference = refusalCopy(rate.code).reference;
     return (
-      <p className={className} data-total-unit="USD" data-refusal={rate.code}>
+      <p className={className} data-testid={testId} data-total-unit="USD" data-refusal={rate.code}>
         {t('No rate for display currency', { currency })}
         {reference ? ` ${reference}` : null}
       </p>
@@ -93,7 +96,7 @@ function RateNote({ currency, className }: { currency: UiDisplayCurrency; classN
   }
   if (rate.state === 'unchecked')
     return (
-      <p className={className} data-total-unit="USD">
+      <p className={className} data-testid={testId} data-total-unit="USD">
         {t('Display currency not checked', { currency })}
       </p>
     );

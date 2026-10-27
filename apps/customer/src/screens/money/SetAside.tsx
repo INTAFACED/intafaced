@@ -93,7 +93,7 @@ export function SetAside({ asset, hidden }: { asset: string; hidden: boolean }) 
     }
   }
   return (
-    <section className="money-card money-detail__card" aria-label={t('Set aside title')}>
+    <section data-testid="money-card" className="money-card money-detail__card" aria-label={t('Set aside title')}>
       <h2 className="money-detail__h">{t('Set aside title')}</h2>
       <p className="money-detail__note">{t('Set aside intro')}</p>
       {body}

@@ -43,13 +43,13 @@ const pct = (price, percent) => fromUnits(((toUnits(price) * BigInt(percent)) / 
 const shown = (price) => Number(price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const tab = (page, name) => page.locator('[role=tab]', { hasText: new RegExp(`^${name}$`) });
-const form = (page, side) => page.locator(`form.dk-form[data-side=${side}]`);
+const form = (page, side) => page.locator(`form[data-testid="dk-form"][data-side=${side}]`);
 const field = (page, side, name) => form(page, side).getByRole('textbox', { name, exact: true });
-const openTable = (page) => page.locator('.dk-bottom-body table');
+const openTable = (page) => page.getByTestId('dk-bottom-body').locator('table');
 const rowOf = (page, id) =>
   openTable(page)
     .locator('tbody tr')
-    .filter({ has: page.locator(`a.dk-order-link[href$="${encodeURIComponent(id)}"]`) });
+    .filter({ has: page.locator(`a[data-testid="dk-order-link"][href$="${encodeURIComponent(id)}"]`) });
 
 /** Each step starts from no open orders and nothing held, so a step that failed earlier leaves nothing behind for this one. */
 async function fresh(who) {

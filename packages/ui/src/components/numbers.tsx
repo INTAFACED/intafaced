@@ -10,7 +10,14 @@ import { cn } from './cn.js';
  * tabular figures, the right colour and the hide-balances rule.
  *
  * `null` (unknown) always draws "—", never 0.
+ *
+ * Every figure is drawn left to right and isolated (`LTR`), so on an
+ * Arabic or Hebrew page "+$206.29 (+1.68%)" keeps its sign in front and its
+ * brackets in place instead of reading "(1.68%+) $206.29+".
  */
+
+/** Left to right and isolated, after any props so a caller cannot undo it; `data-ltr` is the kit's marker for such values. */
+export const LTR = { dir: 'ltr', 'data-ltr': '' } as const;
 
 export const UNKNOWN = '—';
 export const HIDDEN_MASK = '••••';
@@ -76,6 +83,7 @@ function NumberText({ value, masked, className, slot, ...props }: ValueProps & {
       aria-label={masked ? 'Hidden' : undefined}
       className={cn('if-num whitespace-nowrap tabular-nums', unknown && !masked && 'text-fg-2', className)}
       {...props}
+      {...LTR}
     >
       {masked ? HIDDEN_MASK : (value ?? UNKNOWN)}
     </span>
@@ -113,6 +121,7 @@ export function Pct({ value, arrow = false, direction, className, ...props }: Pc
       data-direction={dir}
       className={cn('if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums', directionClass[dir], className)}
       {...props}
+      {...LTR}
     >
       {arrow && value != null && GLYPH[dir] ? (
         <span aria-hidden="true" className="text-[0.7em] leading-none">
@@ -143,6 +152,7 @@ export function ChangeText({ value, direction, suffix, sensitive, hidden, classN
   return (
     <span data-slot="change-text" data-direction={dir} className={cn('inline-flex items-baseline gap-1.5', className)} {...props}>
       <span
+        {...LTR}
         className={cn('if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums', masked ? 'text-fg-2' : directionClass[dir])}
       >
         {!masked && value != null && GLYPH[dir] ? (

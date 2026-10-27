@@ -54,12 +54,12 @@ export const NO_ANSWER_RETRY_MS = 4000;
 /** The service did not reply. Inside the retry window it offers Try again; once the window has closed it says the service is not running here. */
 export function NoAnswerNote({ service, closed, reload, t }: { service: string; closed: boolean; reload: () => void; t: Translate }) {
   return closed ? (
-    <div className="failure" role="status">
+    <div data-testid="failure" className="failure" role="status">
       <h3>{t('serviceNotRunning', { service })}</h3>
       <p>{t('serviceNotRunningBody')}</p>
     </div>
   ) : (
-    <div className="failure" role="status">
+    <div data-testid="failure" className="failure" role="status">
       <h3>{t('serviceNoAnswer', { service })}</h3>
       <p>{t('serviceNoAnswerBody')}</p>
       <Button variant="secondary" onClick={reload}>
@@ -121,7 +121,7 @@ export function Answer<T>({
     const words = t('serviceNotConnected', { service: service ?? t('svc_protocol') });
     const noAnswer = !notConnected && resource.failure.code === NO_ANSWER_CODE;
     const reason = notConnected ? (
-      <div className="failure" role="status">
+      <div data-testid="failure" className="failure" role="status">
         <p>{words}</p>
       </div>
     ) : noAnswer ? (

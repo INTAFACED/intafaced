@@ -34,9 +34,11 @@ export default function NotificationsPage() {
   const shown = state.status === 'ready' ? state.items.filter((item) => topic === 'all' || categoryOf(item.kind) === topic) : [];
   const anyUnread = state.status === 'ready' && state.items.some((item) => !item.readAt);
   return (
-    <div className="if-notify">
+    <div data-testid="if-notify" className="if-notify">
       <div className="nf-head">
-        <h1 className="nf-h1">{copy.t('Notifications')}</h1>
+        <h1 data-testid="nf-h1" className="nf-h1">
+          {copy.t('Notifications')}
+        </h1>
         <div className="nf-head__actions">
           <Button variant="secondary" size={32} disabled={!anyUnread} onClick={() => void inbox.readAll()}>
             {copy.t('Mark all as read')}
@@ -67,7 +69,12 @@ export default function NotificationsPage() {
             ))}
         </div>
       ) : null}
-      <section className="nf-card" aria-label={copy.t('Notification list')} aria-busy={state.status === 'loading' || undefined}>
+      <section
+        data-testid="nf-card"
+        className="nf-card"
+        aria-label={copy.t('Notification list')}
+        aria-busy={state.status === 'loading' || undefined}
+      >
         {state.status === 'loading' ? (
           <StateBlock kind="loading" rows={5} rowHeight={72} label={copy.t('Notification list')} className="nf-card__loading" />
         ) : state.status === 'failed' ? (

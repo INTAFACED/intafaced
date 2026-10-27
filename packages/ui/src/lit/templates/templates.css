@@ -1,0 +1,1198 @@
+/**
+ * Structure of the eight templates. Reads only --lit-* roles (src/lit/contracts.ts), so with the look switched off
+ * the same layout renders flat in today's skin. Layout follows the room's own width: compact < 600, medium
+ * 600-1023, expanded >= 1024. Logical properties only, so dir="rtl" mirrors it. No blur here: content-layer
+ * panels are solid and money sits on them.
+ */
+
+.lt-room {
+  container: room / inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-section);
+  color: var(--lit-text-1);
+  font-family: var(--lit-font-ui);
+  font-size: var(--lit-type-body-size);
+  line-height: var(--lit-type-body-line);
+  position: relative;
+  min-inline-size: 0;
+}
+
+.lt-sr {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---- legal band, only with LegalSlotsSwitch on: fixed at the top, its own border, never faded, never a brand colour (COBS 4.12A 36R, 38R) ---- */
+
+.lt-band-slot {
+  position: sticky;
+  inset-block-start: var(--lit-topbar-h);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+}
+
+.lt-legal-band {
+  min-block-size: var(--lit-legal-band-min-h);
+}
+
+/* ---- title row, stale line ---- */
+
+.lt-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--lit-gap-item);
+}
+
+.lt-title {
+  margin: 0;
+  font-size: var(--lit-type-title-size);
+  line-height: var(--lit-type-title-line);
+  font-weight: var(--lit-type-title-weight);
+  letter-spacing: var(--lit-type-title-tracking);
+}
+
+.lt-description {
+  margin: calc(var(--lit-gap-item) / 2) 0 0;
+  color: var(--lit-text-2);
+}
+
+.lt-stale {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--lit-gap-item);
+  align-items: center;
+  justify-content: space-between;
+  padding-block: var(--lit-gap-item);
+  padding-inline: var(--lit-pad-panel);
+  border: 1px solid var(--lit-warn-text);
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  font-size: var(--lit-type-body-size);
+  line-height: var(--lit-type-body-line);
+}
+
+.lt-stale > p {
+  margin: 0;
+}
+
+/* Stale figures look old: dimmed, with a dotted underline, beside the "as of" strip. */
+.lt-room[data-stale] .lt-figure {
+  color: var(--lit-text-2);
+  text-decoration: underline dotted var(--lit-warn-text);
+  text-underline-offset: 0.25rem;
+}
+
+/* A live dot inside stale data goes grey: never a "Live" mark on old or empty data. */
+.lt-room[data-stale] [data-live] {
+  filter: grayscale(1);
+  opacity: 0.6;
+}
+
+/* ---- regions, panels ---- */
+
+.lt-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-section);
+  min-inline-size: 0;
+}
+
+.lt-region {
+  background: var(--lit-solid-bg);
+  border: 1px solid var(--lit-line);
+  border-radius: var(--lit-radius-panel);
+  box-shadow: var(--lit-solid-lip), var(--lit-solid-shadow);
+  padding: var(--lit-pad-panel);
+  min-inline-size: 0;
+  overflow-wrap: break-word;
+}
+
+/* Bare regions: controls that sit on the page, not in a panel. Locked behind a gate, they take a panel like the
+   rest, so no locked outline sits bare on the page. */
+.lt-region:is(
+    [data-region='actions'],
+    [data-region='filters'],
+    [data-region='export'],
+    [data-region='tools'],
+    [data-region='meta'],
+    [data-region='rooms']
+  ):not(:has(> .lt-locked)) {
+  background: none;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+}
+
+.lt-grid {
+  display: grid;
+  gap: var(--lit-gap-section);
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+
+.lt-col-main,
+.lt-col-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-section);
+  min-inline-size: 0;
+}
+
+.lt-col-side:empty {
+  display: none;
+}
+
+.lt-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--lit-gap-item);
+  align-items: center;
+}
+
+.lt-toolbar > [data-region='export'] {
+  margin-inline-start: auto;
+}
+
+.lt-grid-reading {
+  max-inline-size: 45rem;
+}
+
+@container room (min-width: 600px) {
+  .lt-figures {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container room (min-width: 1024px) {
+  .lt-grid-main-side {
+    grid-template-columns: minmax(0, 2fr) minmax(17.5rem, 1fr);
+  }
+  .lt-grid-list-detail {
+    grid-template-columns: minmax(0, 1fr) minmax(20rem, 25rem);
+  }
+  .lt-grid-list-detail > [data-region='detail'] {
+    position: sticky;
+    inset-block-start: calc(var(--lit-topbar-h) + var(--lit-gap-section));
+  }
+  .lt-room[data-band] .lt-grid-list-detail > [data-region='detail'] {
+    inset-block-start: calc(var(--lit-topbar-h) + var(--lit-legal-band-min-h) + var(--lit-gap-section));
+  }
+  .lt-grid-flow {
+    grid-template-columns: minmax(0, 40rem) minmax(17.5rem, 1fr);
+  }
+  .lt-grid-settings {
+    grid-template-columns: 13.75rem minmax(0, 1fr) minmax(13.75rem, 18.75rem);
+  }
+  .lt-grid-reading-toc {
+    grid-template-columns: 13.75rem minmax(0, 45rem);
+  }
+  .lt-grid-reading-toc > [data-region='toc'] {
+    position: sticky;
+    inset-block-start: calc(var(--lit-topbar-h) + var(--lit-gap-section));
+  }
+  .lt-figures {
+    grid-template-columns: repeat(var(--lt-figures, 4), minmax(0, 1fr));
+  }
+  .lt-figures[data-count='1'] {
+    --lt-figures: 1;
+  }
+  .lt-figures[data-count='2'] {
+    --lt-figures: 2;
+  }
+  .lt-figures[data-count='3'] {
+    --lt-figures: 3;
+  }
+}
+
+.lt-figures {
+  display: grid;
+  gap: var(--lit-gap-item);
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* ---- the desk: explicit areas for every panel ---- */
+
+.lt-desk {
+  display: grid;
+  gap: var(--lit-gap-item);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: 'instrument' 'chart' 'ticket' 'book' 'tape' 'orders' 'pairs';
+}
+
+.lt-desk > [data-region='instrument'] {
+  grid-area: instrument;
+}
+.lt-desk > [data-region='pairs'] {
+  grid-area: pairs;
+}
+.lt-desk > [data-region='chart'] {
+  grid-area: chart;
+}
+.lt-desk > [data-region='book'] {
+  grid-area: book;
+}
+.lt-desk > [data-region='tape'] {
+  grid-area: tape;
+}
+.lt-desk > [data-region='ticket'] {
+  grid-area: ticket;
+}
+.lt-desk > [data-region='orders'] {
+  grid-area: orders;
+}
+
+@container room (min-width: 1024px) {
+  .lt-desk[data-desk='pro'] {
+    grid-template-columns: 13.75rem minmax(0, 1fr) 16.25rem 18.75rem;
+    grid-template-areas:
+      'pairs instrument instrument instrument'
+      'pairs chart book ticket'
+      'pairs chart tape ticket'
+      'pairs orders orders orders';
+  }
+  .lt-desk[data-desk='simple'] {
+    grid-template-columns: minmax(0, 1fr) 21.25rem;
+    grid-template-areas:
+      'instrument instrument'
+      'chart ticket';
+  }
+}
+
+/* ---- stepper ---- */
+
+.lt-stepper {
+  display: flex;
+  gap: calc(var(--lit-gap-item) / 2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  counter-reset: step;
+}
+
+.lt-stepper li {
+  flex: 1;
+  min-inline-size: 0;
+  border-block-start: 0.1875rem solid var(--lit-line-strong);
+  padding-block-start: calc(var(--lit-gap-item) / 2);
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-label-size);
+  overflow-wrap: anywhere;
+}
+
+.lt-stepper li[data-step='done'] {
+  border-color: var(--lit-text-2);
+  color: var(--lit-text-2);
+}
+
+.lt-stepper li[data-step='current'] {
+  border-color: var(--lit-accent);
+  color: var(--lit-text-1);
+  font-weight: 600;
+}
+
+@container room (max-width: 599px) {
+  .lt-stepper li:not([data-step='current']) {
+    font-size: 0;
+  }
+}
+
+/* ---- states ---- */
+
+.lt-ghost {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+}
+
+.lt-ghost-item {
+  display: block;
+  block-size: var(--lit-row-h);
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg-raised);
+}
+
+.lt-ghost[data-ghost='figure'] .lt-ghost-item {
+  block-size: calc(var(--lit-type-hero-size) * 1.6);
+  inline-size: 60%;
+}
+.lt-ghost[data-ghost='chart'] .lt-ghost-item {
+  block-size: 13.75rem;
+}
+.lt-ghost[data-ghost='text'] .lt-ghost-item {
+  block-size: 1em;
+}
+.lt-ghost[data-ghost='text'] .lt-ghost-item:last-child {
+  inline-size: 70%;
+}
+.lt-ghost[data-ghost='grid'] {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+}
+.lt-ghost[data-ghost='grid'] .lt-ghost-item {
+  block-size: 8.75rem;
+}
+.lt-ghost[data-ghost='keys'] {
+  flex-direction: row;
+}
+.lt-ghost[data-ghost='keys'] .lt-ghost-item {
+  flex: 1;
+  block-size: 3.5rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .lt-ghost[data-busy] .lt-ghost-item {
+    animation: lt-pulse 1.4s var(--lit-ease) infinite alternate;
+  }
+}
+
+@keyframes lt-pulse {
+  to {
+    opacity: 0.55;
+  }
+}
+
+/*
+ * Gated: the room's layout stays under the kit's Gate (veil, inert, one card; product law: never an empty page).
+ * Data regions become locked outlines with their heading and a lock, never skeleton bars or figures, so a gate
+ * never reads as loading. Help and navigation sit outside the Gate at full strength.
+ */
+/* The gate card lines up with the room's start edge, like everything else in it. Its copy takes the direction of
+   its own words, so English copy on a right-to-left page keeps its full stop at the end. */
+.lt-room .lit-gate__card {
+  align-self: flex-start;
+}
+.lt-room .lit-gate__card [data-part] {
+  unicode-bidi: plaintext;
+}
+
+/* A side-column template gates only its main area (GateArea); the live column keeps its place. */
+.lt-gate-cols,
+.lt-reading-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-section);
+}
+@container room (min-width: 1024px) {
+  .lt-grid-settings > .lt-gate-area {
+    grid-column: 2 / -1;
+  }
+  .lt-grid-settings .lt-gate-cols {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(13.75rem, 18.75rem);
+  }
+}
+
+/* Controls behind a gate stay, named and dimmed as disabled (about 4:1), so a customer sees what verifying unlocks;
+   the room is inert, so none of them can be used. */
+.lit-gate__room :is(button, a[href], select, input, textarea, [role='tab']) {
+  opacity: 0.45;
+}
+/* A disabled primary loses its light, so it never looks more pressable than its siblings. */
+.lit-gate__room .lt-button-primary {
+  background: var(--lit-secondary-bg);
+  color: var(--lit-secondary-fg);
+  box-shadow: none;
+  border-color: var(--lit-line-strong);
+}
+
+.lt-live {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+}
+
+.lt-locked {
+  display: flex;
+  align-items: center;
+  gap: var(--lit-gap-item);
+  min-block-size: var(--lit-row-h);
+  padding-inline: var(--lit-pad-panel);
+  border: 1px dashed var(--lit-text-3);
+  border-radius: var(--lit-radius-control);
+  color: var(--lit-text-2);
+  font-weight: 600;
+}
+
+.lt-locked[data-ghost='chart'],
+.lt-locked[data-ghost='grid'],
+.lt-locked[data-ghost='form'] {
+  min-block-size: calc(var(--lit-row-h) * 2);
+}
+
+.lt-lock {
+  inline-size: 1rem;
+  block-size: 1rem;
+  flex: none;
+}
+
+/* A region held in a partial or stale room: its place stays, with words instead of figures. */
+.lt-held {
+  margin: 0;
+  color: var(--lit-text-2);
+  font-weight: 600;
+}
+
+/* A whole-room state sits on the page in its own card, not in a card inside a card. */
+.lt-region[data-holds-state] {
+  background: none;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+}
+
+.lt-refusal,
+.lt-empty {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--lit-gap-item) / 2);
+  align-items: flex-start;
+  border-radius: var(--lit-radius-tile);
+  padding: var(--lit-pad-panel);
+}
+
+.lt-refusal {
+  background: var(--lit-refusal-bg);
+  color: var(--lit-refusal-fg);
+  border: 1px solid var(--lit-refusal-border);
+}
+
+.lt-refusal[data-refusal='platform-pause'],
+.lt-refusal[data-refusal='account-hold'] {
+  border-inline-start-width: 0.25rem;
+}
+
+.lt-refusal-title,
+.lt-empty-title {
+  margin: 0;
+  font-size: var(--lit-type-heading-size);
+  line-height: var(--lit-type-heading-line);
+  font-weight: var(--lit-type-heading-weight);
+}
+
+.lt-refusal-body,
+.lt-empty-body {
+  margin: 0;
+  color: var(--lit-text-2);
+}
+
+.lt-ref {
+  margin: 0;
+  font-family: var(--lit-font-mono);
+  font-size: var(--lit-type-micro-size);
+  color: var(--lit-text-3);
+}
+
+/* ---- buttons (stand-ins until the component sheet lands; same roles) ---- */
+
+.lt-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-block-size: max(2.75rem, var(--lit-control-h, 2.75rem));
+  padding-inline: var(--lit-pad-panel);
+  border-radius: 999px; /* look-drift-allow: a full pill at any height; no radius role is fully round */
+  border: 1px solid transparent;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform var(--lit-t-quick) var(--lit-ease);
+}
+
+.lt-button-primary {
+  background: var(--lit-primary-bg);
+  color: var(--lit-primary-fg);
+  box-shadow: var(--lit-primary-shadow);
+}
+
+.lt-button-secondary,
+.lt-button-equal {
+  background: var(--lit-secondary-bg);
+  color: var(--lit-secondary-fg);
+  box-shadow: var(--lit-secondary-shadow);
+  border-color: var(--lit-line-strong);
+}
+
+.lt-button:focus-visible,
+.lt-link:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
+.lt-link {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--lit-accent-text);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  min-block-size: 1.5rem;
+}
+
+.lt-actions,
+.lt-equal {
+  display: flex;
+  gap: var(--lit-gap-item);
+  flex-wrap: wrap;
+}
+
+/* Equal weight: same size, style and level. */
+.lt-equal > .lt-button {
+  flex: 1 1 0;
+}
+
+/* ---- figures, receipt, review, key-value ---- */
+
+.lt-figure {
+  margin: 0;
+  font-family: var(--lit-font-figure);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--lit-type-figure-size);
+  line-height: var(--lit-type-figure-line);
+  font-weight: var(--lit-type-figure-weight);
+}
+
+.lt-figure-hero {
+  font-size: var(--lit-type-hero-size);
+  line-height: var(--lit-type-hero-line);
+  font-weight: var(--lit-type-hero-weight);
+  letter-spacing: var(--lit-type-hero-tracking);
+}
+
+.lt-test {
+  display: inline-block;
+  vertical-align: middle;
+  line-height: 1.6;
+  background: var(--lit-test-tag-bg);
+  color: var(--lit-test-tag-fg);
+  font-family: var(--lit-font-mono);
+  font-size: var(--lit-type-micro-size);
+  padding-inline: calc(var(--lit-gap-item) / 2);
+  border-radius: calc(var(--lit-radius-control) / 3);
+  inline-size: fit-content;
+}
+
+.lt-mono {
+  font-family: var(--lit-font-mono);
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.lt-receipt,
+.lt-review {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+}
+
+.lt-receipt-status {
+  margin: 0;
+  color: var(--lit-text-2);
+  font-weight: 600;
+}
+
+.lt-receipt[data-status='failed'] .lt-receipt-status {
+  color: var(--lit-error-text);
+}
+
+/* Returned money is safe in the balance: neutral, never the failure red. */
+.lt-receipt[data-returned] .lt-receipt-status {
+  color: var(--lit-text-1);
+}
+
+.lt-receipt-to,
+.lt-receipt-where {
+  margin: 0;
+  color: var(--lit-text-2);
+}
+
+.lt-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.lt-step {
+  display: grid;
+  grid-template-columns: 1.25rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--lit-gap-item);
+  min-block-size: var(--lit-row-h);
+  border-block-end: 1px solid var(--lit-line);
+}
+
+.lt-step-dot {
+  inline-size: 0.625rem;
+  block-size: 0.625rem;
+  border-radius: 50%;
+  border: 2px solid var(--lit-line-strong);
+}
+
+.lt-step[data-step='done'] .lt-step-dot {
+  background: var(--lit-up);
+  border-color: var(--lit-up);
+}
+.lt-step[data-step='current'] .lt-step-dot {
+  border-color: var(--lit-accent);
+}
+.lt-step[data-step='failed'] .lt-step-dot {
+  background: var(--lit-down);
+  border-color: var(--lit-down);
+}
+
+.lt-step-at {
+  color: var(--lit-text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.lt-kv {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.lt-kv > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--lit-gap-item);
+  min-block-size: var(--lit-row-h);
+  align-items: center;
+  border-block-end: 1px solid var(--lit-line);
+}
+
+.lt-kv dt {
+  color: var(--lit-text-2);
+}
+
+.lt-kv dd {
+  margin: 0;
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.lt-kv > div[data-total] {
+  font-weight: 700;
+}
+
+.lt-kv > div[data-unset] dd {
+  color: var(--lit-warn-text);
+}
+
+.lt-kv-note {
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-label-size);
+}
+
+/* ---- In-flight lane: under the body on a phone (the shell's dock sits below it), at the top on a computer ---- */
+
+.lt-body {
+  order: 2;
+}
+.lt-inflight {
+  order: 3;
+}
+
+.lt-inflight {
+  background: var(--lit-solid-bg-raised);
+  border: 1px solid var(--lit-line);
+  border-radius: var(--lit-radius-tile);
+  padding-block: var(--lit-gap-item);
+  padding-inline: var(--lit-gap-item);
+}
+
+.lt-inflight-title {
+  margin: 0 0 calc(var(--lit-gap-item) / 2);
+  font-size: var(--lit-type-label-size);
+  color: var(--lit-text-2);
+  font-weight: 600;
+}
+
+.lt-inflight ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.lt-inflight li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: var(--lit-gap-item);
+  align-items: center;
+  min-block-size: var(--lit-control-h);
+}
+
+.lt-inflight-amount {
+  font-variant-numeric: tabular-nums;
+}
+
+.lt-inflight-dots {
+  display: inline-flex;
+  gap: calc(var(--lit-gap-item) / 2);
+}
+
+.lt-inflight-dots > span {
+  inline-size: 0.4375rem;
+  block-size: 0.4375rem;
+  border-radius: 50%;
+  background: var(--lit-line-strong);
+}
+
+.lt-inflight-dots > span[data-step='done'] {
+  background: var(--lit-up);
+}
+
+.lt-inflight-dots > span[data-step='current'] {
+  background: var(--lit-accent);
+}
+
+.lt-inflight-dots > span[data-step='failed'] {
+  background: var(--lit-down);
+}
+
+@media (forced-colors: active) {
+  .lit-legal,
+  .lt-refusal,
+  .lt-region {
+    border-color: CanvasText;
+  }
+  .lt-step-dot,
+  .lt-inflight-dots > span {
+    forced-color-adjust: none;
+    background: CanvasText;
+  }
+}
+
+/* ---- components owned by B2 (src/lit/components/b2-*.tsx) ---- */
+
+.lt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--lit-gap-item) / 2);
+  font-size: var(--lit-type-label-size);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.lt-chip-mark {
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+
+.lt-chip[data-status='pending'] {
+  color: var(--lit-status-pending);
+}
+.lt-chip[data-status='done'] {
+  color: var(--lit-status-done);
+}
+.lt-chip[data-status='done'] .lt-chip-mark {
+  background: currentColor;
+}
+.lt-chip[data-status='failed'] {
+  color: var(--lit-status-failed);
+}
+.lt-chip[data-status='failed'] .lt-chip-mark {
+  border-radius: 1px;
+  transform: rotate(45deg);
+}
+.lt-chip[data-status='unknown'] {
+  color: var(--lit-status-unknown);
+}
+.lt-chip[data-status='unknown'] .lt-chip-mark {
+  border-style: dashed;
+}
+
+.lt-tabs {
+  display: flex;
+  gap: calc(var(--lit-gap-item) / 2);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+/* A row that scrolls (tabs, a room's section index: add lt-scroll-row) fades at its far end until it is scrolled
+   there, so a cut tab reads as "more", not as broken. The timeline is inactive when nothing overflows, so a row
+   that fits never fades. */
+.lt-tabs,
+.lt-scroll-row {
+  animation: lt-tabs-more linear both;
+  animation-timeline: scroll(self inline);
+}
+@keyframes lt-tabs-more {
+  0%,
+  95% {
+    mask-image: linear-gradient(to right, black calc(100% - 2.5rem), transparent); /* look-drift-allow: mask alpha, not a colour; LTR end */
+  }
+  100% {
+    mask-image: none;
+  }
+}
+[dir='rtl'] .lt-tabs,
+[dir='rtl'] .lt-scroll-row {
+  animation-name: lt-tabs-more-rtl;
+}
+@keyframes lt-tabs-more-rtl {
+  0%,
+  95% {
+    mask-image: linear-gradient(to left, black calc(100% - 2.5rem), transparent); /* look-drift-allow: mask alpha, not a colour; RTL end */
+  }
+  100% {
+    mask-image: none;
+  }
+}
+
+.lt-tab {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: var(--lit-control-h);
+  padding-inline: var(--lit-pad-panel);
+  border-radius: 999px; /* look-drift-allow: a full pill at any height; no radius role is fully round */
+  color: var(--lit-text-2);
+  text-decoration: none;
+  white-space: nowrap;
+  border: 1px solid var(--lit-line);
+}
+
+.lt-tab[aria-current='page'] {
+  color: var(--lit-text-1);
+  background: var(--lit-solid-bg-raised);
+  border-color: var(--lit-control-rim-active);
+}
+
+.lt-sheet {
+  background: var(--lit-glass-bg);
+  backdrop-filter: var(--lit-glass-blur);
+  color: var(--lit-text-1);
+  border: 1px solid var(--lit-glass-rim);
+  box-shadow: var(--lit-glass-shadow);
+  border-radius: var(--lit-radius-panel);
+  padding: var(--lit-pad-panel);
+  inline-size: min(100vw - 1rem, 30rem);
+  max-block-size: 85vh;
+}
+
+.lt-sheet::backdrop {
+  background: var(--lit-scrim);
+}
+
+.lt-sheet-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--lit-gap-item);
+}
+
+.lt-sheet-title {
+  margin: 0;
+  font-size: var(--lit-type-heading-size);
+}
+
+.lt-table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.lt-table th {
+  color: var(--lit-text-2);
+  font-weight: 500;
+  font-size: var(--lit-type-label-size);
+  text-align: start;
+  padding-block: var(--lit-gap-item);
+  padding-inline: var(--lit-gap-item);
+  border-block-end: 1px solid var(--lit-line-strong);
+}
+
+.lt-table td {
+  padding-inline: var(--lit-gap-item);
+  block-size: var(--lit-row-h);
+  border-block-end: 1px solid var(--lit-line);
+}
+
+.lt-table [data-align='end'] {
+  text-align: end;
+}
+
+.lt-table tr[data-selected] td {
+  background: var(--lit-solid-bg-raised);
+}
+
+.lt-row-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.lt-row-link:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
+/* Phone: each row becomes a stacked block, each value under its own label. */
+@container room (max-width: 599px) {
+  .lt-table thead {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .lt-table,
+  .lt-table tbody,
+  .lt-table tr,
+  .lt-table td {
+    display: block;
+  }
+  .lt-table tr {
+    padding-block: var(--lit-gap-item);
+    border-block-end: 1px solid var(--lit-line);
+  }
+  .lt-table td {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--lit-gap-item);
+    block-size: auto;
+    min-block-size: 1.75rem;
+    border: 0;
+    padding-inline: 0;
+  }
+  .lt-table td::before {
+    content: attr(data-label);
+    color: var(--lit-text-2);
+  }
+}
+
+.lt-chart {
+  margin: 0;
+}
+
+.lt-chart svg {
+  display: block;
+  inline-size: 100%;
+  block-size: 12.5rem;
+}
+
+.lt-chart-line {
+  fill: none;
+  stroke: var(--lit-accent);
+  stroke-width: 2;
+}
+
+.lt-chart[data-tone='up'] .lt-chart-line {
+  stroke: var(--lit-up);
+}
+.lt-chart[data-tone='down'] .lt-chart-line {
+  stroke: var(--lit-down);
+}
+
+.lt-chart-area {
+  fill: var(--lit-accent-deep);
+  opacity: 0.6;
+}
+
+.lt-chart-live {
+  fill: var(--lit-accent);
+}
+
+.lt-bar {
+  fill: var(--lit-accent);
+}
+
+.lt-chart-refused {
+  margin: 0;
+  color: var(--lit-warn-text);
+}
+
+.lt-parts {
+  margin: var(--lit-gap-item) 0 0;
+}
+
+.lt-parts-bar {
+  display: flex;
+  gap: calc(var(--lit-gap-item) / 2);
+  block-size: 0.75rem;
+  border-radius: calc(var(--lit-radius-control) / 3);
+  overflow: hidden;
+}
+
+.lt-parts-bar > span {
+  flex-basis: 0;
+  min-inline-size: 0.125rem;
+}
+
+.lt-parts-list {
+  list-style: none;
+  margin: var(--lit-gap-item) 0 0;
+  padding: 0;
+}
+
+.lt-parts-list li {
+  display: grid;
+  grid-template-columns: 0.75rem minmax(0, 1fr) auto;
+  gap: var(--lit-gap-item);
+  align-items: center;
+  min-block-size: var(--lit-row-h);
+  border-block-end: 1px solid var(--lit-line);
+}
+
+.lt-parts-swatch {
+  inline-size: 0.625rem;
+  block-size: 0.625rem;
+  border-radius: calc(var(--lit-radius-control) / 3);
+}
+
+.lt-parts-value {
+  font-variant-numeric: tabular-nums;
+}
+
+:is(.lt-parts-bar > span, .lt-parts-swatch)[data-part='0'] {
+  background: var(--lit-accent);
+}
+:is(.lt-parts-bar > span, .lt-parts-swatch)[data-part='1'] {
+  background: var(--lit-accent-hot);
+}
+:is(.lt-parts-bar > span, .lt-parts-swatch)[data-part='2'] {
+  background: var(--lit-accent-pair);
+}
+:is(.lt-parts-bar > span, .lt-parts-swatch)[data-part='3'] {
+  background: var(--lit-text-2);
+}
+:is(.lt-parts-bar > span, .lt-parts-swatch)[data-part='4'],
+:is(.lt-parts-bar > span, .lt-parts-swatch)[data-part='5'] {
+  background: var(--lit-text-3);
+}
+
+/* Figures are isolated left-to-right (a minus sign and currency stay in place) but sit where the page's text starts. */
+.lt-figure[dir='ltr'],
+.lt-parts-value[dir='ltr'] {
+  text-align: match-parent;
+}
+
+/* ---- review: the outcome button first and full width on a phone, Edit under it at the same size ---- */
+
+@container room (max-width: 599px) {
+  .lt-review-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+@container room (min-width: 600px) {
+  .lt-review-actions {
+    flex-direction: row-reverse;
+    justify-content: flex-end;
+  }
+}
+
+/*
+ * Text the room writes keeps its own direction inside a right-to-left page: an English sentence keeps its full stop
+ * at its end, and an amount stays beside its unit, while layout still follows the page.
+ */
+.lt-refusal-body,
+.lt-empty-body,
+.lt-receipt-where,
+.lt-receipt-to,
+.lt-kv-note,
+.lt-held {
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+/* With plaintext, "start" follows the words, so English on a right-to-left page would sit at the left. These lines
+   follow the page instead, under the amount or title above them. */
+[dir='rtl'] :is(.lt-refusal-body, .lt-empty-body, .lt-receipt-where, .lt-receipt-to, .lt-kv-note, .lt-held),
+[dir='rtl'] .lt-room .lit-gate__card [data-part] {
+  text-align: right; /* look-drift-allow: the page's start in RTL; plaintext would resolve start from the words */
+}
+
+/* ---- segmented switch (Buy or Sell) ---- */
+
+.lt-segmented {
+  display: flex;
+  padding: 0.25rem;
+  gap: 0.25rem;
+  border: 1px solid var(--lit-line);
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-solid-bg-raised);
+}
+
+.lt-segment {
+  flex: 1 1 0;
+  min-block-size: var(--lit-control-h);
+  border: 1px solid transparent;
+  border-radius: calc(var(--lit-radius-control) - 0.25rem);
+  background: none;
+  color: var(--lit-text-2);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.lt-segment[aria-checked='true'] {
+  background: var(--lit-secondary-bg);
+  color: var(--lit-text-1);
+  border-color: var(--lit-line-strong);
+}
+
+.lt-segment:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
+.lt-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.lt-field input {
+  min-block-size: var(--lit-control-h);
+  padding-inline: var(--lit-gap-item);
+  border: 1px solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  font: inherit;
+}
+
+.lt-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.lt-hint {
+  margin: 0;
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+
+/* Direction: a credit and a bid read up, a debit and an ask read down, with a sign as well as colour. Only inside a
+   template room, and with no specificity, so a kit component that sets data-dir (Change) keeps its own rules. */
+:where(.lt-room) :where([data-dir='up']) {
+  color: var(--lit-up-text);
+}
+
+:where(.lt-room) :where([data-dir='down']) {
+  color: var(--lit-down-text);
+}
+
+.lt-chip[data-returned] {
+  color: var(--lit-text-1);
+}
+
+.lt-chip[data-returned] .lt-chip-mark {
+  background: var(--lit-text-2);
+}

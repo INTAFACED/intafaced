@@ -14,7 +14,7 @@
 /** The `data-look` value that switches the skin on. */
 export const LIT_LOOK = 'lit' as const;
 
-/** `data-accent` on the root. Blue is the default (Nino, 26 Oct 2026); the others are a switch. */
+/** `data-accent` on the root. Blue is the default (owner decision, 26 Oct 2026); the others are a switch. */
 export const accents = ['blue', 'ember', 'violet', 'emerald'] as const;
 export type Accent = (typeof accents)[number];
 export const defaultAccent: Accent = 'blue';
@@ -22,7 +22,8 @@ export const defaultAccent: Accent = 'blue';
 /**
  * `data-surfaces` on the root. `solid` replaces every glass and translucent surface with an opaque one and
  * turns blur off. It is the in-app switch for people who need it (Safari never exposes Reduce Transparency to
- * the web) and is also on whenever `prefers-contrast: more` or `forced-colors: active` matches.
+ * the web) and is also on whenever `prefers-contrast: more`, `forced-colors: active` or `prefers-reduced-transparency: reduce`
+ * matches.
  */
 export const surfaceModes = ['glass', 'solid'] as const;
 export type SurfaceMode = (typeof surfaceModes)[number];
@@ -31,7 +32,7 @@ export type SurfaceMode = (typeof surfaceModes)[number];
 export const schemes = ['dark', 'light'] as const;
 export type Scheme = (typeof schemes)[number];
 
-/** Simple is the default for everyone; Pro is the switch that turns on the trading desk (OWNER 74.1). */
+/** Simple is the default for everyone; Pro is the switch that turns on the trading desk. */
 export const modes = ['simple', 'pro'] as const;
 export type Mode = (typeof modes)[number];
 
@@ -83,6 +84,8 @@ export const roles = {
   'solid-rim-dim': 'Rim colour on the side away from the light',
   'solid-wall': 'The visible wall under a panel (thickness)',
   'solid-shadow': 'Drop shadow stack under a panel',
+  sheen: 'Top highlight laid over a solid panel (a background layer)',
+  'fill-shadow': 'Highlight, drop and glow of a lit fill (selected segment, current door)',
   'corner-glow': 'Colour of the light pooling in a tile corner (components place it; `transparent` when flat)',
   'glass-bg': 'Nav and sheet layers only: translucent body',
   'glass-blur': 'backdrop-filter value for nav and sheet; `none` in solid mode',
@@ -90,7 +93,7 @@ export const roles = {
   'glass-rim-dim': 'Rim colour of a glass layer away from the light',
   'glass-shadow': 'Shadow stack of a glass layer',
   scrim: 'Behind a sheet or dialog',
-  veil: 'Dims a gated room behind its gate; the layout stays visible',
+  veil: 'Dims what sits behind a sheet or dialog; a gated room is never veiled, its withheld bodies keep their space and show nothing',
 
   // Controls. One primary per view.
   'primary-bg': 'The one primary button (metal pill). Image role: use with the `background` shorthand only',
@@ -172,7 +175,7 @@ export const typeRoles = {
 } as const;
 export type TypeRole = keyof typeof typeRoles;
 
-/** Every room is built from one of these (ROOM-INVENTORY.md, 26 Oct 2026). */
+/** Every room is built from one of these (the room inventory, 26 Oct 2026). */
 export const templates = {
   reading: 'Reading and status pages (help, status, docs, fees)',
   overview: 'Balance or business home (home, money, pay)',
@@ -186,7 +189,7 @@ export const templates = {
 export type TemplateId = keyof typeof templates;
 
 /**
- * The states every template draws (ROOM-INVENTORY.md "States"). The warning band is not a state: it is the
+ * The states every template draws (the room inventory's states). The warning band is not a state: it is the
  * fixed `legal` slot on every template. The first-buy warning is a risk moment (an overlay), not a state.
  */
 export const templateStates = ['ready', 'loading', 'empty', 'refused', 'gated', 'money-status', 'confirm', 'receipt'] as const;
@@ -218,7 +221,7 @@ export interface Refusal {
 export type Jurisdiction = 'uk' | 'eu' | 'unset';
 
 /**
- * Legal slot types (the slot types of RULES-AND-TRUST.md section B). What a slot is for is its `moment`
+ * Legal slot types (the legal and trust rules' slot types). What a slot is for is its `moment`
  * (for example `crypto-risk-band`, `first-buy`, `scam-stop`, `payee-check`, `cooling-off`, `credit-band`,
  * `mica-marketing`, `withdrawal-button`, `talk-to-a-person`, `regulated-status`); the registry in
  * `./templates/` holds the exact texts. Text comes only from the registry, never from a room.
@@ -242,7 +245,7 @@ export const templateSlots = {
   overview: ['legal', 'notices', 'header', 'hero', 'actions', 'needs-you', 'rooms', 'sections', 'in-flight'],
   'record-list': ['legal', 'notices', 'header', 'filters', 'summary', 'table', 'detail', 'export', 'in-flight'],
   monitor: ['legal', 'notices', 'header', 'figures', 'panels', 'charts', 'explain', 'in-flight'],
-  flow: ['legal', 'notices', 'header', 'steps', 'form', 'summary', 'review', 'actions', 'receipt', 'in-flight'],
+  flow: ['legal', 'notices', 'header', 'steps', 'form', 'summary', 'review', 'scam-warning', 'actions', 'receipt', 'in-flight'],
   settings: ['legal', 'notices', 'header', 'index', 'sections', 'explain', 'in-flight'],
   catalogue: ['legal', 'notices', 'header', 'featured', 'filters', 'grid', 'item', 'in-flight'],
   desk: ['legal', 'notices', 'instrument', 'pairs', 'chart', 'book', 'tape', 'ticket', 'orders', 'positions', 'in-flight'],
@@ -290,6 +293,7 @@ export const components = {
   Holdings: 'Holdings list: the text equivalent of the sphere, always present',
   LegalSlot: 'Renders a legal slot from the registry',
   RiskMoment: 'First-buy warning overlay, equal-weight choices',
+  Gate: "The gated state: the gate card in the flow at the top, then the room's layout, inert, with names and disabled controls readable and withheld bodies (data-withheld) kept blank",
   RefusalBox: 'Refused or parked, naming the blocker',
   EmptyState: 'Empty with one next step',
   Dock: 'Phone navigation: floating pill, five doors, always fully visible',
@@ -311,6 +315,6 @@ export const components = {
 } as const;
 export type ComponentName = keyof typeof components;
 
-/** The five doors, in order (OWNER 74.4). */
+/** The five doors, in order. */
 export const doors = ['home', 'money', 'trade', 'pay', 'more'] as const;
 export type Door = (typeof doors)[number];

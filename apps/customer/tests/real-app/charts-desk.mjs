@@ -7,7 +7,7 @@ export const WORKBENCH = '/charts/BTC-USDT';
 
 export async function openWorkbench(page) {
   await page.goto(WORKBENCH);
-  await expect(page.locator('.cw .wc-host')).toBeVisible();
+  await expect(page.getByTestId('cw').getByTestId('wc-host')).toBeVisible();
   await expect(page.getByRole('toolbar', { name: 'Drawing tools' })).toBeVisible();
 }
 
@@ -45,7 +45,7 @@ async function barCentres(page, box) {
  * point is always on a bar and two points with different fractions are on different bars. `fy` is a fraction of the height.
  */
 export async function plot(page, fx, fy) {
-  const box = await page.locator('.cw .wc-host').boundingBox();
+  const box = await page.getByTestId('cw').getByTestId('wc-host').boundingBox();
   if (!box) throw new Error('the chart has no box on the page');
   const bars = await barCentres(page, box);
   const index = Math.round(fx * (bars.length - 1));
@@ -63,8 +63,8 @@ export async function pick(page, name) {
 }
 
 export const rows = (page) => page.locator('[data-drawing-id]');
-export const pointText = (row) => row.locator('[data-testid="drawing-points"]');
-export const figureLines = (row) => row.locator('[data-testid="drawing-figures"] li');
+export const pointText = (row) => row.getByTestId('drawing-points');
+export const figureLines = (row) => row.getByTestId('drawing-figures').locator('li');
 
 /** The prices in a row's point text, in the order stored: "... · 65000.10 | ... · 65100.50" gives ["65000.10", "65100.50"]. */
 export const pricesOf = (text) => [...text.matchAll(/· (-?\d+(?:\.\d+)?)/g)].map((m) => m[1]);

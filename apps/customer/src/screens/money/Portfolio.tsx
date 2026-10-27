@@ -104,7 +104,7 @@ function ActionPills({ loading, mode, layout }: { loading: boolean; mode: PillMo
   const { t } = moneyCopy.useCopy();
   const pills = livePills(mode, layout);
   return (
-    <nav className="money-actions" aria-label={t('Actions')}>
+    <nav data-testid="money-actions" className="money-actions" aria-label={t('Actions')}>
       {pills.map((pill, index) =>
         loading ? (
           <Skeleton key={pill.id} width={PILL_WIDTH[pill.id]} height={40} circle />
@@ -157,7 +157,7 @@ function Headline({ view, hidden, copy, pro }: { view: MoneyView; hidden: boolea
   const hasCrypto = (dec(view.cryptoUsd) ?? 0n) > 0n;
   return (
     <>
-      <div className="money-total">
+      <div data-testid="money-total" className="money-total">
         {inBtc ? (
           <HeroNumber value={satoshis(view.btc!.total)} decimals={8} prefix="₿" size={pro ? 'hero-pro' : 'hero'} hidden={hidden} />
         ) : (
@@ -165,12 +165,16 @@ function Headline({ view, hidden, copy, pro }: { view: MoneyView; hidden: boolea
         )}
       </div>
       {inBtc ? (
-        <p className="money-note">
+        <p data-testid="money-note" className="money-note">
           {/* The dollar figure is a balance too: it stays out of the note while balances are hidden. */}
           {hidden ? t('Shown in BTC hidden') : t('Shown in BTC', { usd: view.totalUsd ? `$${cents(view.totalUsd)}` : '—' })}
         </p>
       ) : null}
-      {btcMissing ? <p className="money-note">{t('BTC price missing')}</p> : null}
+      {btcMissing ? (
+        <p data-testid="money-note" className="money-note">
+          {t('BTC price missing')}
+        </p>
+      ) : null}
       {view.cashUsd !== null && view.cryptoUsd !== null ? (
         <p className="money-split" data-testid="total-split">
           <span data-part="cash">
@@ -183,14 +187,14 @@ function Headline({ view, hidden, copy, pro }: { view: MoneyView; hidden: boolea
         </p>
       ) : null}
       {view.change24hUsd !== null && hasCrypto ? (
-        <p className="money-change">
+        <p data-testid="money-change" className="money-change">
           <ChangeText value={change(view.change24hUsd, view.change24hPct)} hidden={hidden} suffix={changeLabel} />
           <InfoTip text={t('Today change rule')} label={t('Today change rule label')} />
         </p>
       ) : null}
       <DerivedTotalNote source={view.source} className="money-note" />
       {unpriced > 0 ? (
-        <p className="money-note">
+        <p data-testid="money-note" className="money-note">
           {unpriced === 1 ? t('Asset not counted') : t('Assets not counted', { count: unpriced })}
           <InfoTip text={t('Not counted list', { assets: view.unpriced.join(', ') })} label={t('Not counted label')} />
         </p>
@@ -215,8 +219,8 @@ function Colgroup({ pro }: { pro: boolean }) {
       <col className="money-col--coin" />
       <col className="money-col--amount" />
       <col className="money-col--price money-cell--price" />
-      <col className="money-col--value money-cell--value" />
-      <col className="money-col--today money-cell--today" />
+      <col data-testid="money-cell--value" className="money-col--value money-cell--value" />
+      <col data-testid="money-cell--today" className="money-col--today money-cell--today" />
       {pro ? <col className="money-col--free money-cell--pro" /> : null}
       {pro ? <col className="money-col--used money-cell--pro" /> : null}
       {pro ? <col className="money-col--locked money-cell--pro" /> : null}
@@ -241,7 +245,7 @@ function RowActions({ row, markets, copy, layout }: { row: MoneyRow; markets: Lo
     { id: 'Send', href: send, label: t('Send {asset}', { asset: row.asset }) },
   ] as const;
   return (
-    <div className="money-row__actions">
+    <div data-testid="money-row__actions" className="money-row__actions">
       {items.map((item) =>
         item.href ? (
           <Button key={item.id} variant="ghost" size={28} nativeButton={false} render={<a href={item.href} aria-label={item.label} />}>
@@ -310,12 +314,12 @@ function CoinRow({
   const change = useChangeText();
   const today = row.usdChange24h === null || cash ? null : change(row.usdChange24h, row.changeRatio);
   return (
-    <tr className="money-row" data-asset={row.asset}>
+    <tr data-testid="money-row" className="money-row" data-asset={row.asset}>
       <td>
         {/* No link: the coin page is M3. The Buy, Sell and Send buttons on the row are the way on. */}
         <div className="money-coin">
           <CoinIcon asset={row.asset} size={32} />
-          <span className="money-coin__text">
+          <span data-testid="money-coin__text" className="money-coin__text">
             <span className="money-coin__top">
               <span className="money-coin__ticker">{row.asset}</span>
               {row.share !== null ? (
@@ -331,6 +335,7 @@ function CoinRow({
       <td className="money-num">
         {/* The amount itself opens the entries behind it, so the cell shows nothing but the figure. */}
         <a
+          data-testid="money-num__entries"
           className="money-num__entries"
           href={balanceEntriesHref(row.asset)}
           title={copy.t('See the entries', { asset: row.asset })}
@@ -351,10 +356,15 @@ function CoinRow({
       <td className="money-num money-cell--price" data-col="price" title={row.priceUsd === null ? copy.t('No price published') : undefined}>
         {row.priceUsd === null ? '—' : fmtCoinPrice(row.priceUsd)}
       </td>
-      <td className="money-num money-cell--value" data-col="value" title={row.usdValue === null ? copy.t('No price published') : undefined}>
+      <td
+        data-testid="money-cell--value"
+        className="money-num money-cell--value"
+        data-col="value"
+        title={row.usdValue === null ? copy.t('No price published') : undefined}
+      >
         <Money value={value(row.usdValue)} hidden={hidden} />
       </td>
-      <td className="money-num money-cell--today">
+      <td data-testid="money-cell--today" className="money-num money-cell--today">
         <ChangeText value={today} hidden={hidden} className="money-today" />
       </td>
       {layout === 'pro' ? <HeldCells held={held} hidden={hidden} /> : null}
@@ -385,7 +395,7 @@ function CoinTable({
   const { t } = copy;
   const pro = layout === 'pro';
   return (
-    <table className="money-table">
+    <table data-testid="money-table" className="money-table">
       <Colgroup pro={pro} />
       {head ? (
         <thead>
@@ -398,10 +408,10 @@ function CoinTable({
             <th scope="col" className="money-num money-cell--price">
               {t('Price')}
             </th>
-            <th scope="col" className="money-num money-cell--value">
+            <th scope="col" data-testid="money-cell--value" className="money-num money-cell--value">
               {t('Value')}
             </th>
-            <th scope="col" className="money-num money-cell--today">
+            <th scope="col" data-testid="money-cell--today" className="money-num money-cell--today">
               {t('Today')}
             </th>
             {pro ? (
@@ -476,15 +486,15 @@ function HoldingsCard({
   const folded = main === rows ? [] : small;
   const value = useValueText();
   return (
-    <section id={id} className="money-card" aria-labelledby={`money-${id}-title`}>
-      <header className="money-card__head">
+    <section id={id} data-testid="money-card" className="money-card" aria-labelledby={`money-${id}-title`}>
+      <header data-testid="money-card__head" className="money-card__head">
         <h2 id={`money-${id}-title`}>{title}</h2>
-        <Money value={value(total)} hidden={hidden} className="money-card__total" />
+        <Money value={value(total)} hidden={hidden} data-testid="money-card__total" className="money-card__total" />
       </header>
       <CoinTable rows={main} hidden={hidden} markets={markets} copy={copy} head layout={layout} helds={helds} />
       {folded.length > 0 ? (
         <Collapsible className="money-small">
-          <CollapsibleTrigger className="money-small__trigger">
+          <CollapsibleTrigger data-testid="money-small__trigger" className="money-small__trigger">
             <span>{t('Small balances')}</span>
             <span className="money-small__count">
               {folded.length === 1 ? t('1 coin under $1') : t('{count} coins under $1', { count: folded.length })}
@@ -507,8 +517,8 @@ function HoldingsCard({
 
 function CardSkeleton({ rows }: { rows: number }) {
   return (
-    <section className="money-card" aria-hidden="true">
-      <header className="money-card__head">
+    <section data-testid="money-card" className="money-card" aria-hidden="true">
+      <header data-testid="money-card__head" className="money-card__head">
         <Skeleton width={72} height={28} className="bg-field" />
         <Skeleton width={112} height={28} className="bg-field" />
       </header>
@@ -531,14 +541,14 @@ function CardSkeleton({ rows }: { rows: number }) {
 function Accounts({ accounts, hidden, copy }: { accounts: NamedAccount[]; hidden: boolean; copy: Copy }) {
   const { t } = copy;
   return (
-    <section id="accounts" className="money-card" aria-labelledby="money-accounts-title">
-      <header className="money-card__head">
+    <section id="accounts" data-testid="money-card" className="money-card" aria-labelledby="money-accounts-title">
+      <header data-testid="money-card__head" className="money-card__head">
         <h2 id="money-accounts-title">{t('Your accounts')}</h2>
       </header>
       <p className="money-card__note">{t('Your accounts note')}</p>
       <ul className="money-accounts">
         {accounts.map((account) => (
-          <li key={account.id} className="money-accounts__row">
+          <li key={account.id} data-testid="money-accounts__row" className="money-accounts__row">
             <CoinIcon asset={account.asset} size={32} />
             <span className="money-accounts__name">{account.name}</span>
             <Amount value={`${fmtAmount(decOrNull(dec(account.balance)), { round: 'down' })} ${account.asset}`} hidden={hidden} />
@@ -625,6 +635,7 @@ export default function Portfolio() {
     body = (
       <StateBlock
         kind="error"
+        testId="money-state"
         className="money-state"
         title={t('Couldn’t load your balance')}
         onRetry={portfolio.retry}
@@ -637,6 +648,7 @@ export default function Portfolio() {
     body = (
       <StateBlock
         kind="refused"
+        testId="money-state"
         className="money-state"
         title={words.title}
         body={words.body}
@@ -649,6 +661,7 @@ export default function Portfolio() {
       <>
         <StateBlock
           kind="empty"
+          testId="money-state"
           className="money-state"
           title={t('Nothing held')}
           body={t('Nothing held body')}
@@ -710,7 +723,7 @@ export default function Portfolio() {
           <Accounts accounts={accounts.data} hidden={hideBalances} copy={copy} />
         ) : null}
         {isHiddenPath('/money/pnl') ? null : (
-          <a className="money-pnl-link" href="/money/pnl">
+          <a data-testid="money-pnl-link" className="money-pnl-link" href="/money/pnl">
             <span>{t('Profit and loss')}</span>
             <span className="money-pnl-link__hint">{t('Profit and loss hint')}</span>
           </a>
@@ -722,15 +735,16 @@ export default function Portfolio() {
   return (
     <UnitContext.Provider value={unit}>
       <div
+        data-testid="if-money"
         className="if-money"
         data-source={view?.source ?? undefined}
         data-density={layout === 'pro' ? 'pro' : undefined}
         data-unit={unit.code}
       >
         <h1 className="if-sr">{t('Money')}</h1>
-        <div className="money-head">
+        <div data-testid="money-head" className="money-head">
           <div className="money-head__main">
-            <div className="money-label">
+            <div data-testid="money-label" className="money-label">
               <span>{t('Est. total value')}</span>
               <button
                 type="button"
@@ -744,17 +758,17 @@ export default function Portfolio() {
             </div>
             {portfolio.status === 'loading' ? (
               <div aria-busy="true" aria-label={t('Est. total value')}>
-                <div className="money-total">
+                <div data-testid="money-total" className="money-total">
                   <Skeleton width={240} height={56} />
                 </div>
-                <div className="money-change">
+                <div data-testid="money-change" className="money-change">
                   <Skeleton width={180} height={20} />
                 </div>
               </div>
             ) : view ? (
               <Headline view={view} hidden={hideBalances} copy={copy} pro={layout === 'pro'} />
             ) : portfolio.status === 'empty' ? (
-              <div className="money-total">
+              <div data-testid="money-total" className="money-total">
                 {/* The balance call answered with no assets, so zero is correct here and only here. */}
                 <HeroNumber value="0.00" decimals={2} prefix="$" size={layout === 'pro' ? 'hero-pro' : 'hero'} hidden={hideBalances} />
               </div>
@@ -794,7 +808,7 @@ function NoRateNote({ currency, rate, copy }: { currency: string; rate: DisplayR
   if (rate.state === 'no_rate') {
     const words = refusalCopy(rate.code);
     return (
-      <p className="money-note" role="status" data-refusal={rate.code}>
+      <p data-testid="money-note" className="money-note" role="status" data-refusal={rate.code}>
         {copy.t('No rate for display currency', { currency })}
         {words.reference ? <span className="money-note__ref"> {words.reference}</span> : null}
       </p>
@@ -802,7 +816,7 @@ function NoRateNote({ currency, rate, copy }: { currency: string; rate: DisplayR
   }
   if (rate.state === 'unchecked')
     return (
-      <p className="money-note" role="status">
+      <p data-testid="money-note" className="money-note" role="status">
         {copy.t('Display currency not checked', { currency })}
       </p>
     );

@@ -876,7 +876,7 @@ export function Security() {
               isPreEffectRefusal(currentResponse.record.kind, currentResponse.answer) ? (
                 // The factor gate refused before any change: this session has not passed a second factor. Confirming it is
                 // them here sends the same change once more; signing in again with the code or a passkey also works.
-                <div className="failure" role="status">
+                <div data-testid="failure" className="failure" role="status">
                   <h3>{secondFactor.title}</h3>
                   {stepUpKind(currentResponse.record?.kind) ? (
                     <p lang={languageFor('stepUpBody')}>{t('stepUpBody')}</p>

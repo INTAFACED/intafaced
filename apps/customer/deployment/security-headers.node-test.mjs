@@ -106,7 +106,10 @@ test('nginx accepts the config with the snippets in place', (t) => {
       .replaceAll('/etc/nginx/snippets/', `${join(temp, 'snippets')}/`)
       .replace('/usr/share/nginx/html', temp)
       .replaceAll('svc-edge:4000', '127.0.0.1:1')
-      .replaceAll('svc-ws:4014', '127.0.0.1:1');
+      .replaceAll('svc-ws:4014', '127.0.0.1:1')
+      // nginx -t binds the listen sockets; port 80 needs root, which a CI runner's user is not.
+      .replace(/listen 80;/, 'listen 127.0.0.1:18080;')
+      .replace(/listen \[::\]:80;/, 'listen 127.0.0.1:18081;');
     const config = join(temp, 'nginx.conf');
     writeFileSync(
       config,
@@ -193,4 +196,26 @@ test('the template substitutes only its two CUSTOMER_CSP_ placeholders, so nginx
   const dockerfile = read('Dockerfile');
   assert.match(dockerfile, /NGINX_ENVSUBST_FILTER=\^CUSTOMER_CSP_/);
   assert.match(dockerfile, /NGINX_ENVSUBST_OUTPUT_DIR=\/etc\/nginx\/snippets/);
+});
+
+test('securityHeaders gives a non-nginx server the same headers, word for word', async () => {
+  const { securityHeaders } = await import('./render-security-headers.mjs');
+  const fromNginx = Object.fromEntries(headers(renderSecurityHeaders({})).map(([k, v]) => [k, v]));
+  const local = Object.fromEntries(Object.entries(securityHeaders()).map(([k, v]) => [k.toLowerCase(), v]));
+  assert.deepEqual(local, fromNginx, 'with no origins it equals the container render');
+  const withMedia = securityHeaders({ mediaSrc: "'self' blob: http://127.0.0.1:3240", reportUri: '/__csp-report' });
+  const csp = withMedia['Content-Security-Policy'];
+  assert.match(csp, /media-src 'self' blob: http:\/\/127\.0\.0\.1:3240;/);
+  assert.match(csp, /script-src 'self';/);
+  assert.match(csp, /; report-uri \/__csp-report$/);
+  for (const bad of ["'self'; script-src *", "'self' 'unsafe-eval'", '*', 'https://*.example.com', "'self'  blob:"])
+    assert.throws(() => securityHeaders({ connectSrc: bad }), /cannot hold/, bad);
+  assert.doesNotThrow(() => securityHeaders({ connectSrc: "'self' wss://lk.example.com https://s3.example.com:9000" }));
+  assert.throws(() => securityHeaders({ reportUri: 'https://evil.test/r' }), /same-origin path/);
+});
+
+test('apiSecurityHeaders is the /api/ snippet', async () => {
+  const { apiSecurityHeaders } = await import('./render-security-headers.mjs');
+  const api = Object.entries(apiSecurityHeaders()).map(([k, v]) => [k.toLowerCase(), v]);
+  assert.deepEqual(api, headers(read('security-headers-api.conf')));
 });

@@ -19,6 +19,7 @@ import {
 import { createLedgerRouter } from './router.js';
 import { stubApprovalConsumer } from './ledger/action-approval-consume.js';
 import { RECIPE_REQUIRED_CODE } from './recipe-gate.js';
+import { WITHDRAW_RETURN_UNBOUND_CODE } from './withdraw-return-binding.js';
 import type { LedgerService } from './service.js';
 import { userCopy } from './user-copy.js';
 
@@ -193,6 +194,46 @@ describe('post — who may call it at all', () => {
       cause: expect.objectContaining({ code: RECIPE_REQUIRED_CODE }),
     });
     expect(posted).toBe(false);
+  });
+});
+
+describe('post — a returned withdrawal is bound to its settle on this door too', () => {
+  const returned = toWire(
+    recipes.withdrawReturned({ userId: USER, assetId: 'USDT', amount: amt('40'), rail: 'crypto-native', withdrawalId: 'wd-1:1' }),
+  );
+
+  function counting() {
+    const seen = { posted: false };
+    const service = stubService({
+      getTxByKey: async () => null,
+      post: async () => {
+        seen.posted = true;
+        return { id: 'tx-1', hash: 'abc', postedAt: new Date() };
+      },
+    });
+    return { seen, caller: async () => createLedgerRouter(service).createCaller(await ctx([])) };
+  }
+
+  it('refuses a return with no posted settle as BAD_REQUEST, and never posts', async () => {
+    const { seen, caller } = counting();
+    await expect((await caller()).post(returned)).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      cause: expect.objectContaining({ code: WITHDRAW_RETURN_UNBOUND_CODE }),
+    });
+    expect(seen.posted).toBe(false);
+  });
+
+  it('refuses a caller-chosen reason that borrows withdraw.returned from another module', async () => {
+    const { seen, caller } = counting();
+    const borrowed = toWire(
+      recipes.rewardPay({ userId: USER, assetId: 'USDT', amount: amt('40'), reason: 'withdraw.returned', rewardId: 'r-1' }),
+    );
+    await expect((await caller()).post(borrowed)).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: expect.stringContaining('not the ledger module'),
+      cause: expect.objectContaining({ code: WITHDRAW_RETURN_UNBOUND_CODE }),
+    });
+    expect(seen.posted).toBe(false);
   });
 });
 

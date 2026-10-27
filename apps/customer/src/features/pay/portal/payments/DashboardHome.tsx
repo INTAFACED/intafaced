@@ -79,7 +79,7 @@ export function LayoutDashboardView({
   const labels = { today: `${t('today')}: ${dayText(todayDay)}`, rolling_7d: t('week'), rolling_30d: t('month') };
   const actions =
     role === 'owner' ? (
-      <nav className="plo-actions" aria-label={t('available')}>
+      <nav data-testid="plo-actions" className="plo-actions" aria-label={t('available')}>
         <Button variant="primary" nativeButton={false} role="link" render={<a href={'/pay/links/new'} />}>
           <Link2 size={16} aria-hidden="true" />
           {t('createLink')}
@@ -122,6 +122,7 @@ export function LayoutDashboardView({
                   <div className="plo-balance-asset" key={balance.assetCode}>
                     <MoneyDisplay
                       sensitive
+                      testId="plo-balance-amount"
                       className="plo-number"
                       value={balance.available}
                       asset={balance.assetCode}
@@ -248,7 +249,7 @@ export function MetricStrip({ snap, period, when, issued }: { snap: Snapshot; pe
   const refunds = `/pay/refunds?${new URLSearchParams({ ...(range.from ? { from: range.from } : {}), ...(range.to ? { to: range.to } : {}) })}`;
   const payments = (status?: string) => `/pay/payments?${new URLSearchParams({ ...(status ? { status } : {}), date: key })}`;
   return (
-    <div className="plo-kpi-strip">
+    <div data-testid="plo-kpi-strip" className="plo-kpi-strip">
       {[
         [t('captured'), <MoneyLines items={snap.captured} />, payments()],
         [t('count'), snap.paymentCount, payments()],
@@ -322,7 +323,7 @@ function VolumeChart({ resource, retry, todayDay }: { resource: Resource<Series>
   const [pick, setPick] = useState('');
   const [table, setTable] = useState(false);
   return (
-    <section className="plo-volume">
+    <section data-testid="plo-volume" className="plo-volume">
       <div className="plo-section-head">
         <ChoiceGroup
           items={['1', '7', '30']}

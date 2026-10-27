@@ -68,7 +68,7 @@ export function PushDevice({ onSent, onChanged }: { onSent: () => void; onChange
         {copy.t('pushAllow')}
       </Button>
       {permission && (
-        <p className="nf-push__state" role="status">
+        <p data-testid="nf-push__state" className="nf-push__state" role="status">
           {copy.t(
             permission === 'granted'
               ? step.kind === 'sent' && step.note === 'codeSent'

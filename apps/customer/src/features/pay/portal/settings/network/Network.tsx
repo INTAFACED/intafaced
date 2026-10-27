@@ -106,7 +106,7 @@ function CreateSub({ portal, merchantId, allowed, done }: { portal: PortalApi; m
   const why = !allowed ? t('netOwnerOnly') : userId.trim() === '' ? t('netNeedUser') : bps === null ? t('netNeedFee') : undefined;
   return (
     <PaySection title={t('netCreateTitle')} description={t('netCreateBody')}>
-      <div className="form-stack pp-form">
+      <div data-testid="form-stack" className="form-stack pp-form">
         <Field
           label={`${t('netUserLabel')} *`}
           value={userId}
@@ -131,7 +131,7 @@ function CreateSub({ portal, merchantId, allowed, done }: { portal: PortalApi; m
           variant="primary"
           description={t('netCreateReview')}
           review={
-            <dl className="pp-facts">
+            <dl data-testid="pp-facts" className="pp-facts">
               <div>
                 <dt>{t('netUserLabel')}</dt>
                 <dd>{userId.trim()}</dd>

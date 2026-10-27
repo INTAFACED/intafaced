@@ -73,7 +73,7 @@ test(`${J} #1 opens /bank and sees its own Overview with the Bank rooms`, async 
   await signIn(page, who);
   await page.goto('/bank');
   await expect(page.getByRole('heading', { level: 1, name: 'Bank' })).toBeVisible();
-  const rooms = page.locator('main .money-bank-nav');
+  const rooms = page.locator('main [data-testid="money-bank-nav"]');
   await expect(rooms.getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page');
   for (const room of ['Spaces', 'Transfers', 'Earn', 'Loans', 'Cards', 'Ramps', 'Analytics', 'Business']) {
     await expect(rooms.getByRole('link', { name: room })).toHaveAttribute('href', `/bank/${room.toLowerCase()}`);
@@ -81,7 +81,7 @@ test(`${J} #1 opens /bank and sees its own Overview with the Bank rooms`, async 
   await expect(rooms.getByRole('link')).toHaveCount(9);
   // Overview is the bank's own page, with the person's balance by currency and space.
   await expect(page.getByText('Your spaces').first()).toBeVisible();
-  await expect(page.locator('main .money-space-row').filter({ hasText: 'Main' }).first()).toContainText('100 USDT');
+  await expect(page.locator('main [data-testid="money-space-row"]').filter({ hasText: 'Main' }).first()).toContainText('100 USDT');
   // An address the bank does not have is an honest unavailable page, not a blank one.
   await page.goto('/bank/no-such-room');
   await expect(page.getByText('This address is not available')).toBeVisible();

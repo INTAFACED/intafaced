@@ -64,7 +64,7 @@ export function HomeNotices() {
   const { banner, strip } = useMemo(() => homeNotices(lastStatus, lastAnnouncement, now), [lastStatus, lastAnnouncement, now]);
   if (banner.length === 0 && strip === null) return null;
   return (
-    <div className="home-notices">
+    <div data-testid="home-notices" className="home-notices">
       {banner.map((notice) => (
         <NoticeRow key={notice.id} notice={notice} banner />
       ))}
@@ -80,6 +80,7 @@ export function NoticeRow({ notice, banner }: { notice: HomeNotice; banner: bool
   const until = notice.endsAt ? dayTime(notice.endsAt, timeZone) : null;
   return (
     <section
+      data-testid="home-notice"
       className={banner ? 'home-notice home-notice--banner' : 'home-notice'}
       role={kind.role}
       aria-label={t(kind.label)}

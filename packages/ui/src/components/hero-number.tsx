@@ -3,7 +3,7 @@
 import * as React from 'react';
 import NumberFlow, { usePrefersReducedMotion } from '@number-flow/react';
 import { motion } from '../theme/tokens.js';
-import { HIDDEN_MASK, UNKNOWN, useHideBalances } from './numbers.js';
+import { HIDDEN_MASK, LTR, UNKNOWN, useHideBalances } from './numbers.js';
 import { cn } from './cn.js';
 
 /**
@@ -64,6 +64,7 @@ export function HeroNumber({
   const reduced = usePrefersReducedMotion();
   const masked = sensitive && (hidden ?? fromContext);
   const sizeClass = size === 'hero' ? 'text-hero' : 'text-hero-pro';
+  // The unit is a ticker (USD, BTC), part of the figure, so it sits inside the left-to-right run.
 
   return (
     <span
@@ -71,6 +72,7 @@ export function HeroNumber({
       data-hidden={masked || undefined}
       className={cn('if-num inline-flex items-baseline gap-2 font-bold text-fg tabular-nums', sizeClass, className)}
       {...props}
+      {...LTR}
     >
       {masked ? (
         <span aria-label="Hidden" className="font-normal tracking-wider">

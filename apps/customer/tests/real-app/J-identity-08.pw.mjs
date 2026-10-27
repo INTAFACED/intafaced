@@ -76,8 +76,17 @@ test(`${J}, part of #1 (I-kyc-compliance-05): requirements not published say non
 test(`${J}, part of #1 (I-kyc-compliance-04, withdrawal limits): owner limits not set read "not set"`, async ({ page }) => {
   test.setTimeout(90_000);
   const { rung } = await atVerification(page);
-  // Each level's withdrawal limits are svc-pay's owner-set figures (D-148); unset is "Limit not set", never a number.
-  await expect(rung('basic').locator('.verification__limits')).toContainText('Limit not set', UNBUILT);
+  // Each level's withdrawal limits are svc-pay's owner-set figures (D-148). The stack's TEST gates set figures for the
+  // verified levels only (local-test-gates.mjs TEST_WITHDRAWAL_LIMITS), so level none reads "Limit not set", never a number.
+  for (const level of LEVELS)
+    await expect(rung(level).locator('.verification__limits [data-limits]').first()).toHaveAttribute('data-limits', /^(set|unset)$/);
+  const none = rung('none').locator('.verification__limits');
+  await expect(none.locator('[data-limits="unset"]')).toHaveText('Limit not set');
+  await expect(none.locator('li')).toHaveCount(0);
+  // A level with figures lists each coin's figures as the owner set them (the gates publish TEST figures for basic).
+  await expect(rung('basic').locator('.verification__limits [data-limits="set"] li').first()).toHaveText(
+    /^[A-Z0-9]+: up to \d+(\.\d+)? per withdrawal and \d+(\.\d+)? in 24 hours$/,
+  );
 });
 
 test(`${J} #2: guided verification resumes at the step left, a country with no document list says so, an over-size file names the cap`, async ({

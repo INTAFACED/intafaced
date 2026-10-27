@@ -9,6 +9,8 @@ export const ticketSchema = z.object({
   body: z.string().min(1).max(10000),
   status: z.enum(['open', 'pending', 'on_hold', 'resolved', 'closed']),
   assigneeId: z.string().guid().nullable(),
+  /** Whose turn it is, as the customer reads it (SP-tickets-01). Absent from an older service. */
+  customerStatus: z.enum(['awaiting_reply', 'open', 'solved']).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

@@ -48,7 +48,7 @@ export function OrderReceipt({ pay, trade }: { pay: PersonalPayApi; trade: Trade
       {result === null ? null : result.ok ? (
         <ReceiptView data={result.data} />
       ) : words ? (
-        <p className="failure" role="alert">
+        <p data-testid="failure" className="failure" role="alert">
           {words}
         </p>
       ) : (

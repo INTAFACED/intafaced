@@ -5,6 +5,7 @@ import '../../../shared/styles.css';
 import '../../../features/public/public.css';
 import '../../../app/redesign.css';
 import '../../../app/shell.css';
+import '../../../app/lit-look-styles';
 import './harness-tokens.css';
 import { StrictMode, useEffect, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -32,7 +33,7 @@ function Page() {
     <HideBalancesProvider hidden={hideBalances}>
       <TooltipProvider>
         <div className="if-app">
-          <nav className="harness-bar" aria-label="Harness stand-in for the top bar">
+          <nav data-testid="harness-bar" className="harness-bar" aria-label="Harness stand-in for the top bar">
             <a href="/home">intafaced</a>
             <a href="/home" aria-current="page">
               Home

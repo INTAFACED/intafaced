@@ -1,0 +1,99 @@
+# The look gate (tooling/ci/look-gate/look-gate.mjs): the kit gallery and every Customer room, built and served under the
+# production security headers, checked for axe, worst-pixel contrast, money on glass, target size, obscured focus, CSP
+# violations, the rendered font and pixel baselines; and Home's boot frame against Home's loading boxes. Rendering happens in one pinned Playwright image (by
+# digest), so baselines taken from it compare pixel for pixel.
+#
+# It reports, and is not a required check. The script itself decides when a failure blocks (policy.mjs BLOCKING_FROM:
+# report-only for two weeks, then only a kit, baseline or migrated-room change on a failing new-look page).
+# The rules come from main: the job runs main's copy of the script, so a pull request cannot loosen the gate it is
+# judged by (the pull request's own copy runs only while main has none).
+name: Look gate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'apps/customer/**'
+      - 'apps/admin/**'
+      - 'packages/ui/**'
+      - 'tooling/ci/look-gate/**'
+      - '.github/workflows/look-gate.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: look-gate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  TURBO_TELEMETRY_DISABLED: 1
+
+jobs:
+  look:
+    name: Look gate (${{ matrix.shard }}/3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container:
+      # mcr.microsoft.com/playwright:v1.64.1-noble, the version in the lockfile.
+      image: mcr.microsoft.com/playwright@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7a99334ab4c3ca19f19770e9b8ea
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          pnpm install --frozen-lockfile
+
+      - name: Build the Customer app, the founder console and the kit gallery
+        run: |
+          pnpm turbo run build --filter=@intafaced/customer --filter=@intafaced/admin
+          pnpm --filter @intafaced/ui gallery:build
+
+      # Main's rules: its copy of tooling/ci/look-gate sits next to the pull request's, so relative imports still resolve.
+      - name: Take the gate from main
+        run: |
+          git fetch --no-tags origin main
+          if git cat-file -e origin/main:tooling/ci/look-gate/look-gate.mjs 2>/dev/null; then
+            mkdir -p tooling/ci/.look-gate-main
+            git archive origin/main tooling/ci/look-gate | tar -x --strip-components=3 -C tooling/ci/.look-gate-main
+            echo "GATE=tooling/ci/.look-gate-main/look-gate.mjs" >> "$GITHUB_ENV"
+          else
+            echo "::notice::main has no look gate yet; running this pull request's copy"
+            echo "GATE=tooling/ci/look-gate/look-gate.mjs" >> "$GITHUB_ENV"
+          fi
+
+      - name: Self-test
+        run: node "$GATE" --self-test
+
+      - name: Look gate
+        id: gate
+        run: node "$GATE" --shard ${{ matrix.shard }}/3 --out look-gate-out --changed-from origin/main
+
+      # Home's boot frame against Home's loading boxes (apps/customer/src/app/boot-frame.pw.mjs), so the frame and Home
+      # cannot drift apart. It builds its own copy of the app (under a minute); one shard runs it, also after a gate failure,
+      # never after a failed build.
+      - name: Boot frame on Home's boxes
+        if: ${{ matrix.shard == 1 && (success() || steps.gate.outcome == 'failure') }}
+        run: pnpm exec playwright test --config apps/customer/src/app/boot-frame.playwright.config.mjs
+
+      - name: Keep the shots and the report
+        if: success() || failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: look-gate-${{ matrix.shard }}
+          path: look-gate-out
+          retention-days: 7
+          if-no-files-found: ignore

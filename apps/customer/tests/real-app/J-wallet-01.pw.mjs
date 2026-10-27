@@ -127,16 +127,16 @@ test(`${J} #4 holds an asset with no published price: its value says so, never z
   await signIn(page, who);
   await page.goto('/money');
   await page.mouse.move(0, 600);
-  const gold = page.locator('tr.money-row[data-asset="XAU"]');
+  const gold = page.locator('tr[data-testid="money-row"][data-asset="XAU"]');
   await expect(gold).toBeVisible();
   await expect(gold).toContainText('1 XAU');
-  const value = gold.locator('td.money-cell--value');
+  const value = gold.locator('td[data-testid="money-cell--value"]');
   await expect(value).toHaveText('—');
   await expect(value).toHaveAttribute('title', 'No price published');
-  await expect(gold.locator('td.money-cell--today')).toHaveText('—');
+  await expect(gold.locator('td[data-testid="money-cell--today"]')).toHaveText('—');
   await expect(gold).not.toContainText('$0');
   // The total counts only what has a price, and says which coin it leaves out.
-  const note = page.locator('.money-note').filter({ hasText: 'Excludes' });
+  const note = page.getByTestId('money-note').filter({ hasText: 'Excludes' });
   await expect(note).toContainText('Excludes 1 coin (no USD price)');
   await expect(note).toContainText('Not counted: XAU');
 });

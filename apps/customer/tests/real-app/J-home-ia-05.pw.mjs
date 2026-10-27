@@ -10,8 +10,8 @@ const J = 'J-home-ia-05';
 
 test.describe.configure({ mode: 'serial' });
 
-const bell = (page) => page.locator('.tb-bell');
-const popup = (page) => page.locator('.nf-pop');
+const bell = (page) => page.getByTestId('tb-bell');
+const popup = (page) => page.getByTestId('nf-pop');
 const uuidText = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 const rawKey = /notify\.[a-z_.]+/;
 
@@ -42,12 +42,12 @@ test(`${J} #1 the bell shows the unread count and a popover of recent notices in
   await signIn(page, who);
   await page.goto('/');
   await expect(bell(page)).toHaveAttribute('aria-label', 'Notifications, 3 unread');
-  await expect(bell(page).locator('.tb-badge')).toHaveText('3');
+  await expect(bell(page).getByTestId('tb-badge')).toHaveText('3');
   await bell(page).click();
   await expect(popup(page)).toBeVisible();
-  await expect(popup(page).locator('.nf-row')).toHaveCount(3);
-  await expect(popup(page).locator('.nf-row[data-unread]')).toHaveCount(3);
-  const titles = await popup(page).locator('.nf-title').allInnerTexts();
+  await expect(popup(page).getByTestId('nf-row')).toHaveCount(3);
+  await expect(popup(page).locator('[data-testid="nf-row"][data-unread]')).toHaveCount(3);
+  const titles = await popup(page).getByTestId('nf-title').allInnerTexts();
   expect(titles).toEqual(['Order cancelled', 'Order filled', 'Verification approved']);
   const words = await popup(page).innerText();
   expect(words).not.toMatch(uuidText);
@@ -58,30 +58,30 @@ test(`${J} #2 a fill notice opens the trade in Activity and is marked read; a ca
   await signIn(page, who);
   await page.goto('/');
   await bell(page).click();
-  await popup(page).locator('.nf-row', { hasText: 'Order filled' }).click();
+  await popup(page).locator('[data-testid="nf-row"]', { hasText: 'Order filled' }).click();
   await expect(page).toHaveURL(/\/money\/activity\?tab=trades&asset=BTC$/);
   await expect(popup(page)).toHaveCount(0);
-  await expect(bell(page).locator('.tb-badge')).toHaveText('2');
+  await expect(bell(page).getByTestId('tb-badge')).toHaveText('2');
   await bell(page).click();
-  await expect(popup(page).locator('.nf-row', { hasText: 'Order filled' })).not.toHaveAttribute('data-unread');
-  await popup(page).locator('.nf-row', { hasText: 'Order cancelled' }).click();
+  await expect(popup(page).locator('[data-testid="nf-row"]', { hasText: 'Order filled' })).not.toHaveAttribute('data-unread');
+  await popup(page).locator('[data-testid="nf-row"]', { hasText: 'Order cancelled' }).click();
   await expect(page).toHaveURL(/\/money\/activity\?tab=orders/);
-  await expect(bell(page).locator('.tb-badge')).toHaveText('1');
+  await expect(bell(page).getByTestId('tb-badge')).toHaveText('1');
 });
 
 test(`${J} #3 the full page: All and Unread, Mark all as read clears the dots and the badge, an empty Unread tab`, async ({ page }) => {
   await signIn(page, who);
   await page.goto('/notifications');
-  await expect(page.locator('.nf-row')).toHaveCount(3);
+  await expect(page.getByTestId('nf-row')).toHaveCount(3);
   await page.getByRole('tab', { name: 'Unread' }).click();
-  await expect(page.locator('.nf-row')).toHaveCount(1);
-  await expect(page.locator('.nf-row')).toContainText('Verification approved');
+  await expect(page.getByTestId('nf-row')).toHaveCount(1);
+  await expect(page.getByTestId('nf-row')).toContainText('Verification approved');
   await page.getByRole('button', { name: 'Mark all as read' }).click();
   await expect(page.getByText("You're all caught up.")).toBeVisible();
-  await expect(bell(page).locator('.tb-badge')).toHaveCount(0);
+  await expect(bell(page).getByTestId('tb-badge')).toHaveCount(0);
   await page.getByRole('tab', { name: 'All' }).click();
-  await expect(page.locator('.nf-row')).toHaveCount(3);
-  await expect(page.locator('.nf-row[data-unread]')).toHaveCount(0);
+  await expect(page.getByTestId('nf-row')).toHaveCount(3);
+  await expect(page.locator('[data-testid="nf-row"][data-unread]')).toHaveCount(0);
   // Fewer notices than the page size: no Load more.
   await expect(page.getByRole('button', { name: 'Load more' })).toHaveCount(0);
   expect(await page.locator('main').innerText()).not.toMatch(uuidText);
@@ -100,7 +100,7 @@ async function countPrompts(page) {
   return () => page.evaluate(() => window.__prompts);
 }
 
-const pushCard = (page) => page.locator('.nf-channelcard[data-channel="push"]');
+const pushCard = (page) => page.locator('[data-testid="nf-channelcard"][data-channel="push"]');
 
 test(`${J} #4 Allow notifications on this device asks the browser only on the press, and a block says what is lost and how to change it`, async ({
   browser,
@@ -114,10 +114,10 @@ test(`${J} #4 Allow notifications on this device asks the browser only on the pr
   await expect(card.getByRole('button', { name: 'Allow notifications on this device' })).toBeVisible();
   // Nothing is asked, and no state is claimed, on load.
   expect(await prompts()).toBe(0);
-  await expect(card.locator('.nf-push__state')).toHaveCount(0);
+  await expect(card.getByTestId('nf-push__state')).toHaveCount(0);
   // This browser answers the prompt with a block (no grant was given to the context).
   await card.getByRole('button', { name: 'Allow notifications on this device' }).click();
-  await expect(card.locator('.nf-push__state')).toHaveText('Blocked on this device.');
+  await expect(card.getByTestId('nf-push__state')).toHaveText('Blocked on this device.');
   expect(await prompts()).toBe(1);
   await expect(card).toContainText('No alert reaches this device while notifications are blocked; your in-app inbox still works.');
   await expect(card).toContainText('open this site’s settings in your browser, allow notifications');
@@ -138,7 +138,7 @@ test(`${J} #5 allowed while the push gateway is not configured: the service-off 
   await page.goto('/notifications?view=settings');
   const card = pushCard(page);
   await card.getByRole('button', { name: 'Allow notifications on this device' }).click();
-  await expect(card.locator('.nf-push__state')).toHaveText('Allowed on this device, not registered.');
+  await expect(card.getByTestId('nf-push__state')).toHaveText('Allowed on this device, not registered.');
   // Already allowed: the browser is not asked again.
   expect(await prompts()).toBe(0);
   const off = card.locator('[data-not-connected="vendor.push"]');

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { transferQuoteSchema } from '../pay/schemas';
 import { decimalSchema as money, parseAmount, signedDecimalSchema } from '../../shared/money';
 import { spaceSchema } from './client';
+import { businessListSchema, businessSchema } from './business-schema';
 
 export const scheduleSchema = z.object({
   id: z.string(),
@@ -342,14 +343,7 @@ export const ruleSchema = z.object({
   status: z.enum(['active', 'paused', 'cancelled']),
   createdAt: z.string(),
 });
-export const businessSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  assetId: z.string(),
-  spendThreshold: money,
-  status: z.enum(['active', 'closed']),
-  createdAt: z.string(),
-});
+export { businessSchema } from './business-schema';
 export const memberRoleSchema = z.enum(['admin', 'maker', 'checker']);
 export const approvalSchema = z.object({
   id: z.string(),
@@ -962,7 +956,7 @@ export const bankReads = {
   }),
   'autoInvest.list': z.array(ruleSchema),
   'analytics.spend': analyticsSchema,
-  'business.list': z.array(businessSchema),
+  'business.list': businessListSchema,
   'business.pending': z.array(pendingApprovalSchema),
   'business.members': teamSchema,
   'business.myRole': z.object({ role: memberRoleSchema }),

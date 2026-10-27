@@ -43,7 +43,13 @@ export function SelectedSpace({
         : null;
   const quantity = space ? funds(space.balance, space.assetId) : '';
   return (
-    <section className="money-selected-space" aria-label={t('selected')} lang={languageFor('selected')} dir={directionFor('selected')}>
+    <section
+      data-testid="money-selected-space"
+      className="money-selected-space"
+      aria-label={t('selected')}
+      lang={languageFor('selected')}
+      dir={directionFor('selected')}
+    >
       <header>
         <p className="money-selected-label">
           <Copy k="selected" />

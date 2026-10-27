@@ -27,11 +27,11 @@ const shot = async (page, name) => {
 };
 const open = async (page, path = '/coin/BTC') => {
   await page.goto(path);
-  await page.locator('.if-coin').waitFor();
+  await page.getByTestId('if-coin').waitFor();
 };
 const ready = async (page) => {
   await expect(page.getByTestId('price')).toBeVisible();
-  await expect(page.locator('.coin-chart canvas').first()).toBeAttached();
+  await expect(page.getByTestId('coin-chart').locator('canvas').first()).toBeAttached();
 };
 const pro = (page) => page.addInitScript((key) => localStorage.setItem(key, JSON.stringify({ layoutMode: 'pro' })), PREFERENCES_KEY);
 const box = async (locator) => await locator.first().boundingBox();
@@ -40,7 +40,7 @@ const texts = (locator) => locator.evaluateAll((nodes) => nodes.map((node) => no
 const priceText = (page) =>
   page.getByTestId('price').evaluate((node) => node.querySelector('[role="img"]')?.getAttribute('aria-label') ?? node.textContent.trim());
 const expectPrice = (page, text) => expect.poll(() => priceText(page).catch(() => null), { timeout: 7000 }).toBe(text);
-const noForbidden = async (page) => expect(await page.locator('.if-coin').innerText()).not.toMatch(forbidden);
+const noForbidden = async (page) => expect(await page.getByTestId('if-coin').innerText()).not.toMatch(forbidden);
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => localStorage.clear());
@@ -58,21 +58,21 @@ test('Simple, loaded, 1440x900: grid, header, chart, range pills, stats, holding
   await ready(page);
 
   // Coin bar: 64 high, name over ticker, star, About anchor.
-  expect(Math.round((await box(page.locator('.coin-bar'))).height)).toBe(64);
+  expect(Math.round((await box(page.getByTestId('coin-bar'))).height)).toBe(64);
   await expect(page.getByTestId('coin-name')).toHaveText('Bitcoin');
-  await expect(page.locator('.coin-bar__ticker')).toHaveText('BTC');
-  expect(await texts(page.locator('.coin-bar__tabs button'))).toEqual(['Overview', 'About']);
-  expect(await page.locator('.coin-bar a[href^="#"], .if-coin a[href^="#"]').count()).toBe(0);
+  await expect(page.getByTestId('coin-bar__ticker')).toHaveText('BTC');
+  expect(await texts(page.getByTestId('coin-bar__tabs').locator('button'))).toEqual(['Overview', 'About']);
+  expect(await page.locator('[data-testid="coin-bar"] a[href^="#"], [data-testid="if-coin"] a[href^="#"]').count()).toBe(0);
 
   // Title row.
-  await expect(page.locator('.coin-title')).toHaveText('Bitcoin price');
+  await expect(page.getByTestId('coin-title')).toHaveText('Bitcoin price');
   await expect(page.getByTestId('pair')).toHaveText('BTC/USDT');
 
   // Two columns: container 1224, left 912, gap 24, right 288, left card first, Buy card top-aligned with it.
-  expect(Math.round((await box(page.locator('.if-coin'))).width)).toBe(1224);
-  const left = await box(page.locator('.coin-price-card'));
-  const buy = await box(page.locator('.buy-card'));
-  const stats = await box(page.locator('.coin-stats'));
+  expect(Math.round((await box(page.getByTestId('if-coin'))).width)).toBe(1224);
+  const left = await box(page.getByTestId('coin-price-card'));
+  const buy = await box(page.getByTestId('buy-card'));
+  const stats = await box(page.getByTestId('coin-stats'));
   expect(Math.round(left.width)).toBe(912);
   expect(Math.round(buy.width)).toBe(288);
   expect(Math.round(buy.x - (left.x + left.width))).toBe(24);
@@ -80,10 +80,13 @@ test('Simple, loaded, 1440x900: grid, header, chart, range pills, stats, holding
   expect(Math.round(stats.width)).toBe(288);
   expect(stats.y).toBeGreaterThan(buy.y + buy.height);
   // The 288 px Buy card: "Available …" wraps under the pay-with select instead of running over it, inside the card.
-  const payRowLoc = page.locator('.buy-card .buy-row').filter({ has: page.getByTestId('available') });
+  const payRowLoc = page
+    .getByTestId('buy-card')
+    .getByTestId('buy-row')
+    .filter({ has: page.getByTestId('available') });
   const payRow = await box(payRowLoc);
   const available = await box(page.getByTestId('available'));
-  const payLabel = await box(payRowLoc.locator('.buy-row__text'));
+  const payLabel = await box(payRowLoc.getByTestId('buy-row__text'));
   expect(available.y).toBeGreaterThanOrEqual(payLabel.y + payLabel.height - 1);
   expect(available.x).toBeGreaterThanOrEqual(payRow.x);
   expect(available.x + available.width).toBeLessThanOrEqual(payRow.x + payRow.width + 0.5);
@@ -99,11 +102,11 @@ test('Simple, loaded, 1440x900: grid, header, chart, range pills, stats, holding
   await expect(page.getByTestId('change')).toContainText('▲');
 
   // Range pills: five, in order, 1D pressed; each loads the candles the spec names.
-  expect(await texts(page.locator('.coin-ranges button'))).toEqual(['1D', '1W', '1M', '1Y', 'All']);
-  await expect(page.locator('.coin-ranges button', { hasText: '1D' })).toHaveAttribute('aria-pressed', 'true');
+  expect(await texts(page.getByTestId('coin-ranges').locator('button'))).toEqual(['1D', '1W', '1M', '1Y', 'All']);
+  await expect(page.getByTestId('coin-ranges').locator('button', { hasText: '1D' })).toHaveAttribute('aria-pressed', 'true');
 
   // Line chart present, with the attribution the licence asks for, no volume pane (one canvas pair for the pane).
-  expect(Math.round((await box(page.locator('.coin-price-card__chart'))).height)).toBe(360);
+  expect(Math.round((await box(page.getByTestId('chart-area'))).height)).toBe(360);
 
   // Footer: last update in the viewer's zone with its offset.
   await expect(page.getByTestId('updated')).toHaveText(/^Last updated \d{1,2} \w{3} 2026, \d{2}:\d{2} \(UTC\)$/);
@@ -115,13 +118,13 @@ test('Simple, loaded, 1440x900: grid, header, chart, range pills, stats, holding
   await expect(page.getByTestId('stat-volume')).toContainText('24h volume (BTC)');
   await expect(page.getByTestId('stat-balance')).toContainText('0.25 BTC');
   await expect(page.getByTestId('stat-balance')).toContainText('$16,953.10');
-  expect(await page.locator('.coin-stats .coin-term').count()).toBe(4);
-  expect(Math.round((await box(page.locator('[data-testid="stat-high"]'))).height)).toBe(49);
-  await expect(page.locator('.coin-stats')).not.toContainText(/market cap|supply|rating/i);
+  expect(await page.getByTestId('coin-stats').getByTestId('coin-term').count()).toBe(4);
+  expect(Math.round((await box(page.getByTestId('stat-high'))).height)).toBe(49);
+  await expect(page.getByTestId('coin-stats')).not.toContainText(/market cap|supply|rating/i);
 
   // Your BTC: only because it is held. Amount, value, available, in orders, Send and Convert.
   const yours = page.getByTestId('your-coin');
-  await expect(yours.locator('.coin-h2')).toHaveText('Your BTC');
+  await expect(yours.getByTestId('coin-h2')).toHaveText('Your BTC');
   await expect(yours).toContainText('0.25 BTC');
   await expect(yours).toContainText('$16,953.10');
   await expect(yours).toContainText('Available');
@@ -135,9 +138,9 @@ test('Simple, loaded, 1440x900: grid, header, chart, range pills, stats, holding
 
   // Recent activity: the newest five BTC fills (no ETH, no IFC), "View all" into Activity.
   await expect(page.locator('#coin-recent-title')).toHaveText('Recent BTC activity');
-  const rows = page.locator('.coin-recent tbody tr');
+  const rows = page.getByTestId('recent').locator('tbody tr');
   expect(await rows.count()).toBe(5);
-  const recent = await texts(page.locator('.coin-recent .dk-trade-what'));
+  const recent = await texts(page.getByTestId('recent').getByTestId('dk-trade-what'));
   expect(recent).toEqual([
     'Bought 0.00015 BTC',
     'Sold 0.0002 BTC',
@@ -145,12 +148,12 @@ test('Simple, loaded, 1440x900: grid, header, chart, range pills, stats, holding
     'Bought 0.0004 BTC', // the BTC/USDC fill
     'Bought 0.002 BTC',
   ]);
-  await expect(page.locator('.coin-recent__all')).toHaveAttribute('href', '/money/activity?tab=trades&asset=BTC');
+  await expect(page.getByTestId('coin-recent__all')).toHaveAttribute('href', '/money/activity?tab=trades&asset=BTC');
 
   // The Buy card is the real one, compact and locked to this coin.
-  await expect(page.locator('.buy-card')).toHaveAttribute('data-compact', 'true');
-  await expect(page.locator('.buy-card')).toContainText('Enter an amount');
-  expect(await page.locator('.buy-card [aria-label="Change coin"]').count()).toBe(0);
+  await expect(page.getByTestId('buy-card')).toHaveAttribute('data-compact', 'true');
+  await expect(page.getByTestId('buy-card')).toContainText('Enter an amount');
+  expect(await page.getByTestId('buy-card').locator('[aria-label="Change coin"]').count()).toBe(0);
 
   await noForbidden(page);
   await shot(page, 'simple-loaded');
@@ -177,11 +180,11 @@ test('recent activity: no BTC fill in a short list says none; in a full page of 
   // A short list (fewer than the 100 the call returns) with no BTC: that is everything, so "none yet" is true.
   await mock(page, { fills: () => [fill(1, 'ETH/USDT'), fill(2, 'ETH/USDT')] });
   await open(page, '/coin/BTC');
-  await expect(page.locator('.coin-recent__empty')).toContainText('No BTC activity yet');
+  await expect(page.getByTestId('coin-recent__empty')).toContainText('No BTC activity yet');
   // A full page of ETH fills: older BTC fills may exist, so it must not claim none, and View all is offered.
   await mock(page, { fills: () => Array.from({ length: 100 }, (_, index) => fill(index + 1, 'ETH/USDT')) });
   await open(page, '/coin/BTC');
-  const empty = page.locator('.coin-recent__empty');
+  const empty = page.getByTestId('coin-recent__empty');
   await expect(empty).toContainText('No BTC trades in your latest 100');
   await expect(empty).not.toContainText('No BTC activity yet');
   await expect(empty.locator('a')).toHaveText('View all');
@@ -208,11 +211,11 @@ test('the coin bar stays under the top bar when the page scrolls, and About scro
   await ready(page);
   await page.mouse.wheel(0, 700);
   await page.waitForTimeout(300);
-  expect(Math.round((await box(page.locator('.coin-bar'))).y)).toBe(48);
-  await page.locator('.coin-bar__tabs button', { hasText: 'About' }).click();
-  await expect(page.locator('.coin-bar__tabs button', { hasText: 'About' })).toHaveAttribute('aria-current', 'true');
+  expect(Math.round((await box(page.getByTestId('coin-bar'))).y)).toBe(48);
+  await page.getByTestId('coin-bar__tabs').locator('button', { hasText: 'About' }).click();
+  await expect(page.getByTestId('coin-bar__tabs').locator('button', { hasText: 'About' })).toHaveAttribute('aria-current', 'true');
   await shot(page, 'simple-scrolled-about');
-  await page.locator('.coin-bar__tabs button', { hasText: 'Overview' }).click();
+  await page.getByTestId('coin-bar__tabs').locator('button', { hasText: 'Overview' }).click();
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeLessThan(5);
 });
 
@@ -221,7 +224,7 @@ test('scrubbing the chart writes the hovered price into the header, leaving rest
   await open(page);
   await ready(page);
   await expectPrice(page, '$67,812.40');
-  const host = await box(page.locator('.coin-chart__host'));
+  const host = await box(page.getByTestId('coin-chart__host'));
   await page.mouse.move(host.x + 80, host.y + host.height / 2);
   await page.mouse.move(host.x + 90, host.y + host.height / 2, { steps: 4 });
   const scrub = page.getByTestId('scrub-price');
@@ -244,7 +247,7 @@ test('range pills are a ToggleGroup: arrow keys move between them, Enter picks, 
   const api = await mock(page);
   await open(page);
   await ready(page);
-  const pill = (label) => page.locator('.coin-ranges button', { hasText: new RegExp(`^${label}$`) });
+  const pill = (label) => page.getByTestId('coin-ranges').locator('button', { hasText: new RegExp(`^${label}$`) });
   await pill('1D').focus();
   await page.keyboard.press('ArrowRight');
   expect(await page.evaluate(() => document.activeElement?.textContent)).toBe('1W');
@@ -273,7 +276,7 @@ test('tooltips open on keyboard focus', async ({ page }) => {
   await mock(page);
   await open(page);
   await ready(page);
-  await page.locator('.coin-stats .coin-term').first().focus();
+  await page.getByTestId('coin-stats').getByTestId('coin-term').first().focus();
   const tip = page.locator('[data-slot="tooltip-content"]');
   await expect(tip).toBeVisible();
   await expect(tip).toContainText('The highest price traded in the last 24 hours.');
@@ -315,13 +318,13 @@ test('Pro: a Trade button to the desk replaces the Buy card, and the stats come 
   await mock(page);
   await open(page);
   await ready(page);
-  expect(await page.locator('.buy-card').count()).toBe(0);
+  expect(await page.getByTestId('buy-card').count()).toBe(0);
   const trade = page.getByTestId('trade-button');
   await expect(trade).toHaveText('Trade BTC/USDT');
   await expect(trade).toHaveAttribute('href', '/trade/spot/BTC-USDT');
   expect(Math.round((await box(trade)).height)).toBe(40);
   expect(Math.round((await box(trade)).width)).toBe(288);
-  expect((await box(page.locator('.coin-stats'))).y).toBeGreaterThan((await box(trade)).y);
+  expect((await box(page.getByTestId('coin-stats'))).y).toBeGreaterThan((await box(trade)).y);
   await shot(page, 'pro-loaded');
 });
 
@@ -329,8 +332,8 @@ test('USDT: counted at 1 USD, no chart, no range pills, no buy card', async ({ p
   await mock(page);
   await open(page, '/coin/USDT');
   await expect(page.getByTestId('dollar-price')).toHaveText('$1.00 (counted at 1 USD)');
-  await expect(page.locator('.coin-title')).toHaveText('Tether price');
-  expect(await page.locator('.coin-chart, .coin-ranges, .buy-card').count()).toBe(0);
+  await expect(page.getByTestId('coin-title')).toHaveText('Tether price');
+  expect(await page.locator('[data-testid="coin-chart"], [data-testid="coin-ranges"], [data-testid="buy-card"]').count()).toBe(0);
   await expect(page.getByTestId('your-coin')).toContainText('9,993 USDT');
   await expect(page.locator('#coin-about h2')).toHaveText('About Tether');
   await expect(page.locator('#coin-recent-title')).toHaveText('Recent USDT activity');
@@ -345,9 +348,9 @@ test('IFC: no About section until its wording is approved', async ({ page }) => 
   await mock(page);
   await open(page, '/coin/IFC');
   await ready(page);
-  await expect(page.locator('.coin-title')).toHaveText('IFC price');
+  await expect(page.getByTestId('coin-title')).toHaveText('IFC price');
   expect(await page.locator('#coin-about').count()).toBe(0);
-  expect(await page.locator('.coin-bar__tabs').count()).toBe(0);
+  expect(await page.getByTestId('coin-bar__tabs').count()).toBe(0);
   // Not held: no "Your IFC" card, and the balance row says 0 IFC.
   expect(await page.getByTestId('your-coin').count()).toBe(0);
   await expect(page.getByTestId('stat-balance')).toContainText('0 IFC');
@@ -361,14 +364,14 @@ test('an unknown asset goes back to the markets list; a lower-case address works
   await expect(page.getByTestId('elsewhere')).toBeVisible();
   await open(page, '/coin/btc');
   await ready(page);
-  await expect(page.locator('.coin-title')).toHaveText('Bitcoin price');
+  await expect(page.getByTestId('coin-title')).toHaveText('Bitcoin price');
 });
 
 test('loading: the final shape in skeletons, then the page', async ({ page }) => {
   const api = await mock(page, { markets: 'hang' });
   await open(page);
   await expect(page.getByTestId('coin-loading')).toBeVisible();
-  expect(Math.round((await box(page.locator('.coin-grid'))).y)).toBeGreaterThan(100);
+  expect(Math.round((await box(page.getByTestId('coin-grid'))).y)).toBeGreaterThan(100);
   await shot(page, 'loading-page');
   await api.release();
   await ready(page);
@@ -378,7 +381,11 @@ test('loading: price card skeleton while the ticker and candles load', async ({ 
   const api = await mock(page, { ticker: 'hang', ohlcv: 'hang' });
   await open(page);
   await expect(
-    page.locator('.coin-price-card .coin-price-card__chart [data-slot="skeleton"], .coin-price-card [data-slot="skeleton"]').first(),
+    page
+      .locator(
+        '[data-testid="coin-price-card"] [data-testid="chart-area"] [data-slot="skeleton"], [data-testid="coin-price-card"] [data-slot="skeleton"]',
+      )
+      .first(),
   ).toBeVisible();
   await expect(page.getByTestId('price')).toHaveCount(0);
   await shot(page, 'loading-card');
@@ -393,8 +400,8 @@ test('empty: a market that has never traded says so, with the pills still usable
   await expectPrice(page, '$67,812.40');
   // Nothing to measure a change against: a dash, never a made-up number.
   await expect(page.getByTestId('change')).toContainText('—');
-  await page.locator('.coin-ranges button', { hasText: '1W' }).click();
-  await expect(page.locator('.coin-ranges button', { hasText: '1W' })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByTestId('coin-ranges').locator('button', { hasText: '1W' }).click();
+  await expect(page.getByTestId('coin-ranges').locator('button', { hasText: '1W' })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('chart-empty')).toBeVisible();
   await shot(page, 'empty-chart');
 });
@@ -407,8 +414,8 @@ test('a market younger than a day: the change says since when, the stats say the
   await expect(page.getByTestId('stat-young')).toContainText('This market is less than a day old, so these figures start at');
   await expect(page.getByTestId('change')).toContainText(/Since \d{1,2} \w{3}, \d{2}:\d{2}/);
   // 1Y and All: one daily or weekly candle cannot be drawn, so the next finer candles are read until there is a line.
-  await page.locator('.coin-ranges button', { hasText: 'All' }).click();
-  await expect(page.locator('.coin-chart canvas').first()).toBeAttached();
+  await page.getByTestId('coin-ranges').locator('button', { hasText: 'All' }).click();
+  await expect(page.getByTestId('coin-chart').locator('canvas').first()).toBeAttached();
   expect(await page.getByTestId('chart-empty').count()).toBe(0);
   await expect(page.getByTestId('change')).toContainText('All time');
   const asked = api.seen('ohlcv').filter((call) => call.symbol === 'BTC/USDT');
@@ -422,7 +429,7 @@ test('a market younger than a day: the change says since when, the stats say the
       asked.some((call) => call.timeframe === timeframe && call.limit === limit),
       `${timeframe}x${limit}`,
     ).toBe(true);
-  await page.locator('.coin-ranges button', { hasText: '1Y' }).click();
+  await page.getByTestId('coin-ranges').locator('button', { hasText: '1Y' }).click();
   await expect(page.getByTestId('change')).toContainText(/Since \d{1,2} \w{3}, \d{2}:\d{2}/);
   await shot(page, 'young-market');
 });
@@ -431,9 +438,9 @@ test('error: the chart fails alone, the price and the Buy card stay', async ({ p
   await mock(page, { ohlcv: 'error' });
   await open(page);
   await expect(page.getByRole('button', { name: 'Try again' }).first()).toBeVisible();
-  await expect(page.locator('.coin-price-card')).toContainText('Couldn’t load the chart.');
+  await expect(page.getByTestId('coin-price-card')).toContainText('Couldn’t load the chart.');
   await expectPrice(page, '$67,812.40');
-  await expect(page.locator('.buy-card')).toBeVisible();
+  await expect(page.getByTestId('buy-card')).toBeVisible();
   await noForbidden(page);
   await shot(page, 'error-chart');
 });
@@ -441,7 +448,7 @@ test('error: the chart fails alone, the price and the Buy card stay', async ({ p
 test('error: the markets list fails, one retry, no raw codes', async ({ page }) => {
   await mock(page, { markets: 'error' });
   await open(page);
-  await expect(page.locator('.if-coin')).toContainText('Couldn’t load the price.');
+  await expect(page.getByTestId('if-coin')).toContainText('Couldn’t load the price.');
   await noForbidden(page);
   await shot(page, 'error-page');
 });
@@ -449,16 +456,16 @@ test('error: the markets list fails, one retry, no raw codes', async ({ page }) 
 test('refused: a typed refusal reads as words, with its reference, never the raw code', async ({ page }) => {
   await mock(page, { markets: refusal('trade.account_restricted', 'held', 403) });
   await open(page);
-  await expect(page.locator('.if-coin [data-slot="state-block"]')).toBeVisible();
-  expect(await page.locator('.if-coin').innerText()).not.toMatch(/trade\.account_restricted|\btrade\./);
+  await expect(page.getByTestId('if-coin').locator('[data-slot="state-block"]')).toBeVisible();
+  expect(await page.getByTestId('if-coin').innerText()).not.toMatch(/trade\.account_restricted|\btrade\./);
   await shot(page, 'refused-page');
 });
 
 test('refused: the price is refused, the page says why in plain words', async ({ page }) => {
   await mock(page, { ticker: refusal('trade.market_closed', 'closed', 403) });
   await open(page);
-  await expect(page.locator('.coin-price-card')).toBeVisible();
-  expect(await page.locator('.coin-price-card').innerText()).not.toMatch(/trade\.market_closed/);
+  await expect(page.getByTestId('coin-price-card')).toBeVisible();
+  expect(await page.getByTestId('coin-price-card').innerText()).not.toMatch(/trade\.market_closed/);
   await shot(page, 'refused-price');
 });
 
@@ -480,14 +487,14 @@ for (const mode of ['simple', 'pro']) {
     const api = await mock(page, { markets: 'hang' });
     await open(page);
     await expect(page.getByTestId('coin-loading')).toBeVisible();
-    await expect(page.locator('.coin-nomarket')).toHaveCount(0);
+    await expect(page.getByTestId('coin-nomarket')).toHaveCount(0);
     await api.release();
     await expectPrice(page, '$67,812.40');
     await mock(page, { markets: { status: 503, json: { error: { message: 'Test catalogue unavailable' } } } });
     await open(page);
-    await expect(page.locator('.coin-problem')).toContainText('Couldn’t load the price');
+    await expect(page.getByTestId('coin-problem')).toContainText('Couldn’t load the price');
     await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
-    await expect(page.locator('.coin-nomarket')).toHaveCount(0);
+    await expect(page.getByTestId('coin-nomarket')).toHaveCount(0);
     await expect(page.getByTestId('coin-loading')).toHaveCount(0);
   });
 
@@ -495,12 +502,12 @@ for (const mode of ['simple', 'pro']) {
     if (mode === 'pro') await pro(page);
     await mock(page, { markets: () => [] });
     await open(page);
-    await expect(page.locator('.coin-nomarket')).toContainText('BTC');
+    await expect(page.getByTestId('coin-nomarket')).toContainText('BTC');
     await expect(page.getByTestId('coin-loading')).toHaveCount(0);
     await expect(page.getByTestId('your-coin')).toContainText('0.25 BTC');
     await expect(page.getByTestId('your-coin')).toContainText('—');
     await expect(page.getByTestId('price')).toHaveCount(0);
-    await expect(page.locator('.buy-card')).toHaveCount(0);
+    await expect(page.getByTestId('buy-card')).toHaveCount(0);
     await expect(page.getByTestId('trade-button')).toHaveCount(0);
     await page.screenshot({ path: join(shots, `phase2-empty-${mode}.png`) });
     await open(page, '/coin/ZZZ');
@@ -524,7 +531,7 @@ for (const mode of ['simple', 'pro']) {
         await document.fonts.ready;
       });
       await expectPrice(page, '$67,812.40');
-      const figure = await box(page.locator('.coin-price-card__figure'));
+      const figure = await box(page.getByTestId('coin-price-card__figure'));
       const number = page.getByTestId('price').locator('number-flow-react');
       await expect.poll(async () => (await number.boundingBox())?.width ?? 0).toBeGreaterThan(100);
       const price = await box(number);

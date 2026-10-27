@@ -182,7 +182,7 @@ function AddressRow({
       <strong lang="und">{name}</strong>
       {row.label !== null && <small> {fallback}</small>}
       <p>
-        <span className="numeric" style={{ overflowWrap: 'anywhere' }}>
+        <span data-testid="numeric" className="numeric" style={{ overflowWrap: 'anywhere' }}>
           {row.address}
         </span>
       </p>
@@ -191,7 +191,9 @@ function AddressRow({
       {row.memo && (
         <div role="note">
           <strong>{t('memoTitle')}</strong>
-          <p className="numeric">{row.memo}</p>
+          <p data-testid="numeric" className="numeric">
+            {row.memo}
+          </p>
           <CopyButton value={row.memo} label={t('copyMemo')} />
         </div>
       )}

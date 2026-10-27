@@ -177,7 +177,7 @@ test(`${J} #5 History filters by coin and status and pages past 200; an empty re
   await page.goto('/uc/withdraw');
   await page.mouse.move(0, 600);
   const windowNote = page.getByTestId('withdrawal-window');
-  const rows = page.getByTestId('withdrawal-history').locator('.withdrawal-row');
+  const rows = page.getByTestId('withdrawal-history').getByTestId('withdrawal-row');
   const coin = page.locator('select[name="withdrawal-coin"]');
   const state = page.locator('select[name="withdrawal-status"]');
   // Every coin and status: the newest page of 50, and more behind it.

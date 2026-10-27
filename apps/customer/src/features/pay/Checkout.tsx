@@ -65,7 +65,7 @@ function CheckoutReadState<T>({
     (failure.code === missingCode || (failure.code === 'NOT_FOUND' && failure.message.startsWith(`${missingCode}:`)))
   ) {
     return (
-      <div className="failure" role="status">
+      <div data-testid="failure" className="failure" role="status">
         <h3>{t(kind === 'link' ? 'linkMissing' : 'sessionMissing')}</h3>
         <p>{t(kind === 'link' ? 'linkHelp' : 'sessionHelp')}</p>
         <Button variant="secondary" onClick={retry}>

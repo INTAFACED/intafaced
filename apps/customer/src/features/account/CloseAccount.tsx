@@ -180,7 +180,7 @@ export function CloseAccount() {
       ) : (
         <>
           {closure?.status === 'blocked' && (
-            <div className="failure" role="status">
+            <div data-testid="failure" className="failure" role="status">
               <h3>{t('blockedTitle')}</h3>
               <p>{t('blockedBody')}</p>
             </div>

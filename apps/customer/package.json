@@ -8,10 +8,11 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:deployment": "node --test deployment/host-dispatch.node-test.mjs deployment/validate-env.node-test.mjs",
+    "test:deployment": "node --test deployment/host-dispatch.node-test.mjs deployment/validate-env.node-test.mjs deployment/security-headers.node-test.mjs",
     "test:journeys": "vitest run --config vitest.journeys.config.ts",
     "test:real-app": "playwright test --config tests/real-app/real-app.playwright.config.mjs",
     "test:watch": "vitest",
+    "room:new": "node scripts/new-room.mjs",
     "preview": "vite preview --host 127.0.0.1 --port 3200",
     "clean": "rimraf dist .turbo"
   },

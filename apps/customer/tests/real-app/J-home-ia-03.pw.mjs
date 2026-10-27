@@ -30,23 +30,16 @@ async function device(browser) {
   const page = await context.newPage();
   await signIn(page, who);
   await page.goto('/home');
-  await expect(page.locator('.if-home-pro')).toBeVisible();
+  await expect(page.getByTestId('if-home-pro')).toBeVisible();
   return { context, page };
 }
 
 /** The tiles Pro Home draws, top to bottom, by the tile each element is. */
-const TILE_OF = { 'hp-started': 'started', 'hp-activity': 'activity', 'hp-markets': 'markets' };
+const TILE_OF = { 'hp-started': 'started', 'hp-assets-panel': 'holdings', 'hp-activity': 'activity', 'hp-markets': 'markets' };
 async function drawnTiles(page) {
-  return page.locator('.if-home-pro > *').evaluateAll(
-    (nodes, names) =>
-      nodes
-        .map((node) => {
-          for (const [cls, id] of Object.entries(names)) if (node.classList.contains(cls)) return id;
-          return node.getAttribute('aria-labelledby') === 'hp-assets-title' ? 'holdings' : null;
-        })
-        .filter(Boolean),
-    TILE_OF,
-  );
+  return page
+    .locator('[data-testid="if-home-pro"] > *')
+    .evaluateAll((nodes, names) => nodes.map((node) => names[node.getAttribute('data-testid')]).filter(Boolean), TILE_OF);
 }
 
 async function openCustomise(page) {
@@ -87,8 +80,8 @@ test(`${J} #1 Customise Home hides and reorders tiles on the account: the same l
 
   // After a reload the tile is gone, and Customise lists it as hidden; the other tiles keep the new order.
   await a.page.reload();
-  await expect(a.page.locator('.if-home-pro')).toBeVisible();
-  await expect(a.page.locator('.hp-markets')).toHaveCount(0);
+  await expect(a.page.getByTestId('if-home-pro')).toBeVisible();
+  await expect(a.page.getByTestId('hp-markets')).toHaveCount(0);
   const mine = await drawnTiles(a.page);
   expect(mine).not.toContain('markets');
   dialog = await openCustomise(a.page);
@@ -99,7 +92,7 @@ test(`${J} #1 Customise Home hides and reorders tiles on the account: the same l
 
   // Another device, with nothing stored in its browser, shows the same Home.
   const b = await device(browser);
-  await expect(b.page.locator('.hp-markets')).toHaveCount(0);
+  await expect(b.page.getByTestId('hp-markets')).toHaveCount(0);
   expect(await drawnTiles(b.page)).toEqual(mine);
 
   // Both devices have the layout open at the same version. A changes it first; B's change then meets a version
@@ -114,8 +107,8 @@ test(`${J} #1 Customise Home hides and reorders tiles on the account: the same l
   await expect(onB.locator('[data-tile="markets"]')).toHaveAttribute('data-hidden', 'true');
   await onB.getByRole('button', { name: 'Done' }).click();
   await b.page.reload();
-  await expect(b.page.locator('.hp-activity')).toHaveCount(0);
-  await expect(b.page.locator('.hp-markets')).toHaveCount(0);
+  await expect(b.page.getByTestId('hp-activity')).toHaveCount(0);
+  await expect(b.page.getByTestId('hp-markets')).toHaveCount(0);
 
   // Reset returns the shipped order with every tile shown, on both devices.
   const reset = await openCustomise(b.page);
@@ -125,7 +118,7 @@ test(`${J} #1 Customise Home hides and reorders tiles on the account: the same l
   await expect.poll(() => drawnTiles(b.page)).toEqual(shipped);
   await onA.getByRole('button', { name: 'Done' }).click();
   await a.page.reload();
-  await expect(a.page.locator('.if-home-pro')).toBeVisible();
+  await expect(a.page.getByTestId('if-home-pro')).toBeVisible();
   await expect.poll(() => drawnTiles(a.page)).toEqual(shipped);
 
   await a.context.close();

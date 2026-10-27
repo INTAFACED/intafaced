@@ -64,6 +64,7 @@ function BasisForm({
 
   return (
     <form
+      data-testid="money-note-form"
       className="money-note-form"
       aria-label={t('Enter a cost for this lot')}
       onSubmit={(event) => {
@@ -157,11 +158,13 @@ export function MissingCost({
   const noLot = missing.items.filter((item) => item.kind === 'disposal' && item.lotId === null);
   if (lots.length === 0 && noLot.length === 0) return null;
   return (
-    <section className="money-card" aria-label={t('Missing cost')}>
-      <header className="money-card__head">
+    <section data-testid="money-card" className="money-card" aria-label={t('Missing cost')}>
+      <header data-testid="money-card__head" className="money-card__head">
         <h2>{t('Missing cost')}</h2>
       </header>
-      <p className="money-note">{t('Missing cost lead')}</p>
+      <p data-testid="money-note" className="money-note">
+        {t('Missing cost lead')}
+      </p>
       <ul className="money-missing">
         {lots.map((item) => {
           const lot = book.lots.find((row) => row.id === item.lotId);
@@ -181,7 +184,7 @@ export function MissingCost({
                 <Amount value={`${fmtAmount(item.qty)} ${item.assetId}`} hidden={hidden} /> {t('Missing lot left')}
               </p>
               {sales.map((sale, index) => (
-                <p key={`${sale.saleTxId}:${index}`} className="money-note" data-effect="unknown-share">
+                <p key={`${sale.saleTxId}:${index}`} data-testid="money-note" className="money-note" data-effect="unknown-share">
                   {t('Unknown share', { qty: `${masked(sale.qty)} ${sale.assetId}` })}
                 </p>
               ))}
@@ -203,7 +206,9 @@ export function MissingCost({
           </li>
         ))}
       </ul>
-      <p className="money-note">{t('Missing cost rule')}</p>
+      <p data-testid="money-note" className="money-note">
+        {t('Missing cost rule')}
+      </p>
     </section>
   );
 }

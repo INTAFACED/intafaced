@@ -14,6 +14,8 @@ export interface StateAction {
 
 export type StateBlockProps = {
   className?: string;
+  /** A test hook for the room that places this block (data-testid). */
+  testId?: string;
 } & (
   | {
       /** Skeleton rows of the exact final size; no layout shift when data arrives. */
@@ -72,6 +74,7 @@ export function StateBlock(props: StateBlockProps) {
     return (
       <div
         data-slot="state-block"
+        data-testid={props.testId}
         data-kind="loading"
         role="status"
         aria-busy="true"
@@ -88,7 +91,7 @@ export function StateBlock(props: StateBlockProps) {
   const base = 'flex flex-col items-center justify-center gap-1 px-4 py-8 text-center';
   if (props.kind === 'empty') {
     return (
-      <div data-slot="state-block" data-kind="empty" className={cn(base, props.className)}>
+      <div data-slot="state-block" data-testid={props.testId} data-kind="empty" className={cn(base, props.className)}>
         <h3 className="text-md font-medium text-fg">{props.title}</h3>
         {props.body ? <p className="text-base text-fg-2">{props.body}</p> : null}
         {props.action ? (
@@ -102,7 +105,7 @@ export function StateBlock(props: StateBlockProps) {
   if (props.kind === 'error') {
     const title = props.title ?? `Couldn't load ${props.thing ?? 'this'}.`;
     return (
-      <div data-slot="state-block" data-kind="error" role="alert" className={cn(base, props.className)}>
+      <div data-slot="state-block" data-testid={props.testId} data-kind="error" role="alert" className={cn(base, props.className)}>
         <p className="text-md font-medium text-fg">{title}</p>
         <div className="mt-3">
           <Button variant="secondary" size={40} onClick={props.onRetry}>
@@ -113,7 +116,7 @@ export function StateBlock(props: StateBlockProps) {
     );
   }
   return (
-    <div data-slot="state-block" data-kind="refused" className={cn(base, props.className)}>
+    <div data-slot="state-block" data-testid={props.testId} data-kind="refused" className={cn(base, props.className)}>
       <p className="text-md font-medium text-fg">{props.title}</p>
       <p className="text-base text-fg-2">{props.body}</p>
       {props.action ? (
