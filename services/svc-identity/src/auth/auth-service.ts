@@ -10,6 +10,17 @@ import {
   type KycRejectDecision,
   type KycRejectReasons,
 } from '../kyc/cases.js';
+import {
+  assertDeactivatable,
+  assertRequestable,
+  deactivateCapability,
+  grantOnApproval,
+  listCapabilities,
+  markRequested,
+  releaseOnReject,
+  type KycCapabilityMap,
+} from '../kyc/capabilities.js';
+import type { KycCapabilitiesOutput, KycCapability } from '@intafaced/contracts/identity-kyc-capabilities';
 import type { KycCase } from '@intafaced/contracts/identity-kyc-cases';
 import type {
   AccountState,
@@ -566,6 +577,8 @@ export class AuthService {
   private readonly recoveryMs: number;
   /** Owner-published reset lifetime. Undefined = unpublished — reset refuses, never invents 900. */
   private passwordResetTtlSeconds: number | undefined;
+  /** The owner's level-to-capability mapping (I-kyc-compliance-07). Empty until index.ts installs it: grants nothing. */
+  private kycCapabilities: KycCapabilityMap = new Map();
   private passwordResetMail: PasswordResetMail | undefined;
   private passwordResetMaxAttempts: number | undefined;
   private passwordResetRequestMax: number | undefined;
@@ -641,6 +654,11 @@ export class AuthService {
 
   useLogger(log: { warn(obj: Record<string, unknown>, msg: string): void }): void {
     this.log = log;
+  }
+
+  /** Install the owner's level-to-capability mapping. Empty means none is published: an approval grants no capability. */
+  useKycCapabilities(map: KycCapabilityMap): void {
+    this.kycCapabilities = map;
   }
 
   /** Install the mail handoff. Unset refuses every reset request the same way. */
@@ -2848,12 +2866,18 @@ export class AuthService {
       if (approved) return toKycRecord(approved);
       const pending = existing.find((r) => r.status === 'pending');
       if (pending) return toKycRecord(pending);
+      // Inactive is a compliance decision: a request whose level would grant it again is refused (I-kyc-compliance-07).
+      await assertRequestable(tx, this.kycCapabilities, input.userId, input.tier);
       const inserted = await tx<
         KycRow[]
       >`INSERT INTO kyc_records (user_id, tier, jurisdiction, provider_ref, status) VALUES (${input.userId}, ${input.tier}, ${input.jurisdiction}, ${input.providerRef ?? null}, 'pending') RETURNING id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at`;
       const record = toKycRecord(inserted[0]!);
       // The case opens with the record, in this transaction (I-kyc-compliance-01).
-      await openKycCase(tx, record);
+      const caseId = await openKycCase(tx, record);
+      const heldTier = existing
+        .filter((r) => r.status === 'approved')
+        .reduce<KycTier>((best, r) => (TIER_ORDER[r.tier] > TIER_ORDER[best] ? r.tier : best), 'none');
+      await markRequested(tx, this.kycCapabilities, { userId: record.userId, tier: record.tier, heldTier, caseId, at: record.createdAt });
       return record;
     });
   }
@@ -2872,6 +2896,39 @@ export class AuthService {
     const users = await this.sql<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${userId}`;
     if (!users[0]) throw new AuthError('User not found', 'auth.not_found');
     return listKycCases(this.sql, userId, published, reasons);
+  }
+
+  /** A person's capabilities, every one with its state (I-kyc-compliance-07). An unknown person is `auth.not_found`. */
+  async listKycCapabilities(userId: string, reasons: KycRejectReasons): Promise<KycCapabilitiesOutput> {
+    const users = await this.sql<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${userId}`;
+    if (!users[0]) throw new AuthError('User not found', 'auth.not_found');
+    return listCapabilities(this.sql, this.kycCapabilities, userId, await this.kycTier(userId), reasons);
+  }
+
+  /** Refuses (`kyc.capability_state`) what the decision would refuse, before the four-eyes approval is spent. */
+  async assertKycCapabilityDeactivatable(userId: string, capability: KycCapability, reasonCode: string): Promise<void> {
+    await assertDeactivatable(this.sql, userId, capability, reasonCode);
+  }
+
+  /**
+   * Compliance switches one capability off for good (terminal `inactive`), with a listed reason code. Nobody decides
+   * their own; the router has spent the four-eyes approval and checked the code is listed.
+   */
+  async deactivateKycCapability(input: {
+    userId: string;
+    capability: KycCapability;
+    reasonCode: string;
+    reviewerId: string;
+    approvalParties: readonly string[];
+    reasons: KycRejectReasons;
+  }): Promise<KycCapabilitiesOutput> {
+    await transaction(this.sql, async (tx) => {
+      const users = await tx<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${input.userId} FOR UPDATE`;
+      if (!users[0]) throw new AuthError('User not found', 'auth.not_found');
+      assertNotOwnKyc(input.userId, [input.reviewerId, ...input.approvalParties]);
+      await deactivateCapability(tx, { ...input, by: input.reviewerId, at: new Date() });
+    });
+    return this.listKycCapabilities(input.userId, input.reasons);
   }
 
   /**
@@ -2926,7 +2983,10 @@ export class AuthService {
         KycRow[]
       >`UPDATE kyc_records SET status = 'approved', reviewed_at = now(), reviewed_by = ${input.reviewerId}, expires_at = ${input.expiresAt ?? null} WHERE id = ${row.id} RETURNING id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at`;
       const record = toKycRecord(updated[0]!);
-      await approveKycCase(tx, toKycRecord(row), { by: input.reviewerId, at: record.reviewedAt ?? new Date() });
+      const at = record.reviewedAt ?? new Date();
+      const caseId = await approveKycCase(tx, toKycRecord(row), { by: input.reviewerId, at });
+      // The capabilities the owner maps to this level become active with the approval, never after it.
+      await grantOnApproval(tx, this.kycCapabilities, { userId: record.userId, tier: record.tier, caseId, by: input.reviewerId, at });
       return { record, granted: true };
     });
     if (outcome.granted) await this.announceKycApproval(outcome.record);
@@ -2977,7 +3037,9 @@ export class AuthService {
         KycRow[]
       >`UPDATE kyc_records SET status = 'rejected', reviewed_at = now(), reviewed_by = ${input.reviewerId} WHERE id = ${row.id} RETURNING id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at`;
       const record = toKycRecord(updated[0]!);
-      await rejectKycCase(tx, toKycRecord(row), { ...decision, at: record.reviewedAt ?? new Date() });
+      const at = record.reviewedAt ?? new Date();
+      const caseId = await rejectKycCase(tx, toKycRecord(row), { ...decision, at });
+      await releaseOnReject(tx, this.kycCapabilities, { userId: record.userId, tier: record.tier, caseId, by: input.reviewerId, at });
       return record;
     });
   }

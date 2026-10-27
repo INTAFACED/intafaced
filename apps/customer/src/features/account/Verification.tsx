@@ -7,6 +7,7 @@ import { Button, Dialog, EmptyState, Failure, Field, Loading, Page } from '../..
 import { verificationCopy as copy } from './verification-copy';
 import { VerificationLadder } from './VerificationLadder';
 import { VerificationCases } from './VerificationCases';
+import { VerificationCapabilities } from './VerificationCapabilities';
 import { KYC_LADDER_LEVELS } from '@intafaced/contracts/identity-kyc-levels';
 import {
   finishVerification,
@@ -614,17 +615,20 @@ export function Verification() {
         {casesKey === null ? (
           <Loading />
         ) : (
-          <VerificationCases
-            recordsKey={casesKey}
-            offered={offeredTiers}
-            resubmitDisabled={blocked}
-            onResubmit={(level) => {
-              const parsed = requestedTier.safeParse(level);
-              if (!parsed.success) return;
-              setTier(parsed.data);
-              jump();
-            }}
-          />
+          <>
+            <VerificationCapabilities recordsKey={casesKey} />
+            <VerificationCases
+              recordsKey={casesKey}
+              offered={offeredTiers}
+              resubmitDisabled={blocked}
+              onResubmit={(level) => {
+                const parsed = requestedTier.safeParse(level);
+                if (!parsed.success) return;
+                setTier(parsed.data);
+                jump();
+              }}
+            />
+          </>
         )}
         {privateVisible && review && same(review) && (
           <Dialog title={t('reviewTitle')} onClose={close}>

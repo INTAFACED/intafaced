@@ -295,6 +295,7 @@
   min-width: 0;
 }
 .verification__case-list,
+.verification__capabilities-list,
 .verification__case-steps {
   list-style: none;
   margin: 0;
@@ -302,10 +303,12 @@
   display: flex;
   flex-direction: column;
 }
-.verification__case-list {
+.verification__case-list,
+.verification__capabilities-list {
   gap: var(--if-space-3);
 }
-.verification__case {
+.verification__case,
+.verification__capability {
   border: 0.0625rem solid var(--if-line);
   border-radius: var(--if-r-sm);
   padding: var(--if-space-4);
