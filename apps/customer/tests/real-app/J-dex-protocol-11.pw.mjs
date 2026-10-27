@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { UNBUILT, connectWallet, dexRun } from './dex.mjs';
+import { TOKEN_A, UNBUILT, connectWallet, dexRun } from './dex.mjs';
 
 // J-dex-protocol-11, in the running app (docs/roadmap/journeys.json): buy a little every week with a recurring order.
 // One test per step, titled "J-dex-protocol-11 #<n>", run in order with one TEST wallet holding TEST token A and a chosen
@@ -11,7 +11,6 @@ import { UNBUILT, connectWallet, dexRun } from './dex.mjs';
 //   stack, and the stack has no TEST chain for a round to fill on.
 const J = 'J-dex-protocol-11';
 const dex = dexRun(J);
-const TOKEN_A = { address: '0x00000000000000000000000000000000000a11ce', name: 'TEST Token A', version: '1', decimals: 6, nonce: 0 };
 
 test.describe.configure({ mode: 'default' });
 
@@ -65,15 +64,13 @@ test(`${J} #3 reopens the page after a round was sent but not recorded: the next
   page,
 }) => {
   await openRecurring(page);
-  const sent = rounds(page).getByRole('row').filter({ hasText: 'Sent' });
-  await expect(sent).toHaveCount(1, UNBUILT);
+  // Pinned by its round name, so it stays the same row when its state moves on from "Sent".
+  const name = await rounds(page).getByRole('row').filter({ hasText: 'Sent' }).getByTestId('round-name').innerText(UNBUILT);
+  const sent = rounds(page).getByRole('row').filter({ hasText: name });
   await page.reload();
   await expect(sent).toContainText('Recorded from its transaction');
-  await expect(
-    rounds(page)
-      .getByRole('row')
-      .filter({ hasText: /Round 2/ }),
-  ).toHaveCount(1);
+  // Recorded once from the chain, not sent a second time.
+  await expect(sent).toHaveCount(1);
 });
 
 test(`${J} #4 opens progress after two rounds: "2 of 4", 50 percent and the next fill time`, async ({ page }) => {

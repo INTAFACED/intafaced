@@ -1,7 +1,7 @@
+import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
-import { UNBUILT, connectWallet, dexRun, walletSection } from './dex.mjs';
-import { signIn, signUp, verify } from './desk.mjs';
-import { fund } from './stack.mjs';
+import { TOKEN_A, UNBUILT, connectWallet, dexRun, walletSection } from './dex.mjs';
+import { fundedTrader, signIn } from './desk.mjs';
 
 // J-dex-protocol-04, in the running app (docs/roadmap/journeys.json): send and receive tokens, use a claim link and scan
 // a code. One test per step, titled "J-dex-protocol-04 #<n>", run in order with one TEST wallet holding TEST tokens and
@@ -15,7 +15,6 @@ import { fund } from './stack.mjs';
 //   (D-bridge-chain-02).
 const J = 'J-dex-protocol-04';
 const dex = dexRun(J);
-const TOKEN_A = { address: '0x00000000000000000000000000000000000a11ce', name: 'TEST Token A', version: '1', decimals: 6, nonce: 0 };
 const FRIEND = '0x52908400098527886E0F7030069857D2E4169EE7';
 // A contract address on the TEST chain: sending to it needs a tick.
 const CONTRACT = '0x0000000000000000000000000000000000c0ffee';
@@ -173,7 +172,6 @@ test(`${J} #7 opens Activity and toggles failed and spam: the counts change with
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export' }).click();
   const file = await (await download).path();
-  const { readFileSync } = await import('node:fs');
   expect(readFileSync(file, 'utf8').trim().split('\n').length - 1).toBe(rows);
 });
 
@@ -196,10 +194,8 @@ test(`${J} #9 opens Withdraw from the exchange with a wallet connected: destinat
   page,
 }) => {
   test.setTimeout(240_000);
-  const who = await signUp(page, 'dex04');
-  await verify(page, who);
+  const who = await fundedTrader(page, 'dex04', '10');
   await signIn(page, who);
-  expect(fund(who.email, 'USDT', '10').tx).toBeTruthy();
   const wallet = await connectWallet(page, dex, { tokens: [TOKEN_A] });
   await page.goto('/uc/withdraw?to=wallet');
   const form = page.getByTestId('withdraw-form');

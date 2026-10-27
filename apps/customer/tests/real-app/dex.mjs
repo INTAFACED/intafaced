@@ -9,6 +9,15 @@ import { installTestWallet, testWalletKey, TEST_WALLET } from './test-wallet.mjs
 /** The wait for a part a step needs that may not be built yet: short, so an unbuilt step fails fast and says where. */
 export const UNBUILT = { timeout: 5_000 };
 export const CHAIN_ID = 84532;
+// TEST tokens only the TEST wallet knows (its stand-in for a node answers for them). Fixed addresses, so rows can be read.
+export const TOKEN_A = { address: '0x00000000000000000000000000000000000a11ce', name: 'TEST Token A', version: '1', decimals: 6, nonce: 0 };
+export const TOKEN_B = {
+  address: '0x00000000000000000000000000000000000b0b00',
+  name: 'TEST Token B',
+  version: '1',
+  decimals: 18,
+  nonce: 0,
+};
 
 /** One journey run's state, with one TEST wallet key kept for every step of the run. */
 export function dexRun(journey) {
@@ -35,11 +44,6 @@ export async function connectWallet(page, dex, { tokens = [], chainId = CHAIN_ID
   await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
   await expect(page.getByRole('button', { name: 'Disconnect' })).toBeVisible();
   return wallet;
-}
-
-/** Opens a Web3 room from the shell's top navigation by its name, as a person does. */
-export async function openFromNav(page, name) {
-  await page.getByTestId('tb-nav').getByRole('link', { name, exact: true }).click(UNBUILT);
 }
 
 /** Opens one section of the wallet room (Overview, Activity, Approvals, Session keys, Accounts, Safety, ...) by its tab. */

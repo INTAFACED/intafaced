@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { UNBUILT, connectWallet, dexRun } from './dex.mjs';
+import { CHAIN_ID, TOKEN_A, TOKEN_B, UNBUILT, connectWallet, dexRun, walletSection } from './dex.mjs';
+import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
 
 // J-dex-protocol-02, in the running app (docs/roadmap/journeys.json): swap one token for another. One test per step,
 // titled "J-dex-protocol-02 #<n>", run in order with one TEST wallet on Base Sepolia holding TEST token A and no
@@ -13,8 +14,6 @@ import { UNBUILT, connectWallet, dexRun } from './dex.mjs';
 // - #11 (paying the network fee in a TEST stable token, RC-dex-protocol-02) has no paymaster on the stack.
 const J = 'J-dex-protocol-02';
 const dex = dexRun(J);
-const TOKEN_A = { address: '0x00000000000000000000000000000000000a11ce', name: 'TEST Token A', version: '1', decimals: 6, nonce: 0 };
-const TOKEN_B = { address: '0x00000000000000000000000000000000000b0b00', name: 'TEST Token B', version: '1', decimals: 18, nonce: 0 };
 
 test.describe.configure({ mode: 'default' });
 
@@ -30,6 +29,13 @@ async function openSwap(page) {
   await page.goto('/dex');
   await expect(swap(page)).toBeVisible(UNBUILT);
   return wallet;
+}
+
+/** Switches the form to Manual, accepting its one-time notice when this browser has not seen it yet. */
+async function chooseManual(page) {
+  await swap(page).getByRole('radio', { name: 'Manual' }).check(UNBUILT);
+  const notice = page.getByRole('dialog', { name: 'Manual mode' });
+  if (await notice.isVisible()) await notice.getByRole('button', { name: 'I understand' }).click();
 }
 
 /** Picks token A in, token B out and types `amount`. */
@@ -126,7 +132,7 @@ test(`${J} #5 sets slippage to 1 percent, then above the ceiling: the derived mi
   page,
 }) => {
   await openSwap(page);
-  await swap(page).getByRole('radio', { name: 'Manual' }).check(UNBUILT);
+  await chooseManual(page);
   await quoteAB(page);
   const slippage = swap(page).getByRole('textbox', { name: /^Slippage/ });
   await slippage.fill('1');
@@ -184,10 +190,35 @@ test(`${J} #8 signs the swap in the wallet: submitted, confirming, filled; the c
 
 test(`${J} #9 retries after the price moved: failed with the reason in a sentence, no automatic retry, a new quote needed`, async ({
   page,
+  browser,
 }) => {
   await openSwap(page);
+  await chooseManual(page);
+  await quoteAB(page, '10');
+  await swap(page)
+    .getByRole('textbox', { name: /^Slippage/ })
+    .fill('0.1');
+  await swapButton(page).click();
+
+  // Before this swap is signed, another TEST wallet swaps a large amount in the same pool and moves the price.
+  const other = await browser.newContext();
+  try {
+    const mover = await other.newPage();
+    await installTestWallet(mover, { chainId: CHAIN_ID, tokens: [TOKEN_A, TOKEN_B] });
+    await mover.goto('/wallet');
+    await mover.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
+    await mover.goto('/dex');
+    await quoteAB(mover, '1000');
+    await swapButton(mover).click();
+    await mover.getByRole('button', { name: 'Continue in wallet' }).click();
+    await expect(mover.getByRole('region', { name: 'Swap status' }).getByRole('status')).toHaveText('Filled', { timeout: 60_000 });
+  } finally {
+    await other.close();
+  }
+
+  await page.getByRole('button', { name: 'Continue in wallet' }).click();
   const card = page.getByRole('region', { name: 'Swap status' });
-  await expect(card.getByRole('status')).toHaveText('Failed', UNBUILT);
+  await expect(card.getByRole('status')).toHaveText('Failed', { timeout: 60_000 });
   await expect(card).toContainText('The price moved past your minimum, so nothing was swapped.');
   await expect(card.getByRole('button', { name: 'Get a new quote' })).toBeVisible();
   await expect(card.getByRole('button', { name: /retry/i })).toHaveCount(0);
@@ -197,7 +228,7 @@ test(`${J} #10 opens the approvals list and revokes the allowance: spender and a
   page,
 }) => {
   await connectWallet(page, dex, { tokens: [TOKEN_A, TOKEN_B] });
-  await page.getByRole('button', { name: 'Approvals', exact: true }).click();
+  await walletSection(page, 'Approvals');
   const approvals = page.getByRole('table', { name: 'Approvals' });
   const row = approvals.getByRole('row').filter({ hasText: 'TEST Token A' });
   await expect(row).toBeVisible(UNBUILT);

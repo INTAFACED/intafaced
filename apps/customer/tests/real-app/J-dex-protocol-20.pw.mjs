@@ -136,6 +136,8 @@ test(`${J} #6 registers as a filler and reads the open-order feed: intents in no
   await expect(fillers(page).getByRole('alert')).toContainText('Register as a filler to read the open-order feed.', UNBUILT);
   await fillers(page).getByRole('button', { name: 'Register as a filler' }).click();
   const feed = fillers(page).getByRole('table', { name: 'Open intents' });
+  // Wait for the feed to load before reading it, so an empty list never passes as "in order".
+  await expect(feed.getByTestId('intent-nonce').nth(1)).toBeVisible();
   const nonces = await feed.getByTestId('intent-nonce').allInnerTexts();
   expect(nonces.map(Number)).toEqual([...nonces.map(Number)].sort((a, b) => a - b));
   await expect(fillers(page).getByRole('button', { name: 'Next page' })).toBeVisible();

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { UNBUILT, connectWallet, dexRun } from './dex.mjs';
+import { TOKEN_A, UNBUILT, connectWallet, dexRun } from './dex.mjs';
 
 // J-dex-protocol-10, in the running app (docs/roadmap/journeys.json): place, edit and cancel limit, take-profit, stop and
 // trailing orders from my own wallet. One test per step, titled "J-dex-protocol-10 #<n>", run in order with one TEST
@@ -13,8 +13,6 @@ import { UNBUILT, connectWallet, dexRun } from './dex.mjs';
 //   stack, and the stack has no TEST chain, oracle or keeper for the price-cross steps (#3, #4, #5, #7, #8).
 const J = 'J-dex-protocol-10';
 const dex = dexRun(J);
-// TEST token A, known only to the TEST wallet. 6 decimals, like the TEST token in J-dex-protocol-01.
-const TOKEN_A = { address: '0x00000000000000000000000000000000000a11ce', name: 'TEST Token A', version: '1', decimals: 6, nonce: 0 };
 
 test.describe.configure({ mode: 'default' });
 
@@ -22,6 +20,29 @@ const room = (page) => page.getByRole('main');
 const orderForm = (page) => page.getByRole('form', { name: 'New order' });
 const orderList = (page) => page.getByRole('table', { name: 'Your orders' });
 const orderRow = (page, text) => orderList(page).getByRole('row').filter({ hasText: text });
+// A row by its order type cell, matched whole, so "Stop" never matches a take-profit linked to a stop.
+const ofKind = (page, kind) =>
+  orderList(page)
+    .getByRole('row')
+    .filter({ has: page.getByRole('cell', { name: kind, exact: true }) });
+// A row by its state cell, matched whole, so "Open" never matches a "60 open" remainder.
+const inState = (page, state) =>
+  orderList(page)
+    .getByRole('row')
+    .filter({ has: page.getByRole('cell', { name: state, exact: true }) });
+
+/** The first order in `state`, pinned by its order id so it stays the same row when its state changes. */
+async function pinned(page, state) {
+  const id = await inState(page, state).first().getByTestId('order-id').innerText(UNBUILT);
+  return orderRow(page, id);
+}
+
+/** The vault credit exactly as the page writes it, e.g. "1,000.50 TEST A". */
+async function creditText(vault) {
+  const text = await vault.getByTestId('vault-credit').innerText(UNBUILT);
+  expect(text).toMatch(/^[\d,.]+ TEST A$/);
+  return text;
+}
 
 /** Opens the Orders room with the run's wallet connected. */
 async function openOrders(page) {
@@ -129,11 +150,11 @@ test(`${J} #4 creates a take-profit and stop pair: one leg filling cancels its s
     .getByRole('textbox', { name: /^Stop price/ })
     .fill('0.80');
   await orderForm(page).getByRole('button', { name: 'Place order' }).click();
-  await expect(orderRow(page, 'Take-profit')).toContainText('Open');
-  await expect(orderRow(page, 'Stop')).toContainText('Open');
+  await expect(ofKind(page, 'Take-profit')).toContainText('Open');
+  await expect(ofKind(page, 'Stop')).toContainText('Open');
   // The take-profit leg fills in full; its stop sibling ends with the link as its reason.
-  await expect(orderRow(page, 'Take-profit')).toContainText('Filled');
-  await expect(orderRow(page, 'Stop')).toContainText('Cancelled by link');
+  await expect(ofKind(page, 'Take-profit')).toContainText('Filled');
+  await expect(ofKind(page, 'Stop')).toContainText('Cancelled by link');
 });
 
 test(`${J} #5 creates a bracket and a trailing stop: the bracket covers the filled part of its parent, the trailing trigger follows the price one way only`, async ({
@@ -145,18 +166,24 @@ test(`${J} #5 creates a bracket and a trailing stop: the bracket covers the fill
   await orderForm(page).getByRole('button', { name: 'Place order' }).click();
   const bracket = orderRow(page, 'Bracket');
   await expect(bracket).toBeVisible();
-  // Its exit legs cover only the part of the parent that filled.
-  await expect(bracket).toContainText(/Covers \d+(\.\d+)? of 20 filled/);
+  // Its exit legs cover exactly the part of the parent that filled, and no more.
+  const filled = (await bracket.getByTestId('order-filled').innerText()).replace(/ .*/, '');
+  await expect(bracket.getByTestId('bracket-cover')).toHaveText(`Covers ${filled} of 20`);
 
   await fillOrder(page, { kind: 'Trailing stop', amount: '10', trigger: '5%', expiry: '24' });
   await orderForm(page).getByRole('button', { name: 'Place order' }).click();
   const trailing = orderRow(page, 'Trailing stop');
-  const triggerOf = async () => Number((await trailing.getByTestId('order-trigger').innerText()).replace(/[^\d.]/g, ''));
-  const first = await triggerOf();
-  // A rise moves the trigger up; a fall afterwards leaves it where it was.
-  await expect.poll(triggerOf).toBeGreaterThan(first);
-  const raised = await triggerOf();
-  await expect.poll(triggerOf).toBe(raised);
+  const read = async (id) => Number((await trailing.getByTestId(id).innerText()).replace(/[^\d.]/g, ''));
+  // The TEST price moves up and then down. Sampled over that move, the trigger rises with the price and never falls.
+  const samples = [];
+  for (let i = 0; i < 40; i += 1) {
+    samples.push({ mark: await read('order-mark'), trigger: await read('order-trigger') });
+    await page.waitForTimeout(500);
+  }
+  const triggers = samples.map((x) => x.trigger);
+  expect(triggers).toEqual([...triggers].sort((a, b) => a - b));
+  expect(triggers.at(-1)).toBeGreaterThan(triggers[0]);
+  expect(samples.some((x, i) => i > 0 && x.mark < samples[i - 1].mark)).toBe(true);
 });
 
 test(`${J} #6 opens the order list and filters by state: open, filled and expired orders, paged at 100, with history`, async ({ page }) => {
@@ -164,10 +191,12 @@ test(`${J} #6 opens the order list and filters by state: open, filled and expire
   const filter = room(page).getByRole('combobox', { name: 'State' });
   for (const state of ['Open', 'Filled', 'Expired']) {
     await filter.selectOption({ label: state }, UNBUILT);
-    const rows = orderList(page).getByRole('row');
-    // Every row shown is in the chosen state (the header row aside).
-    const count = await rows.count();
-    for (let i = 1; i < count; i += 1) await expect(rows.nth(i)).toContainText(state);
+    // At least one row in the chosen state, and none in any other (the header row is the only row left).
+    await expect(inState(page, state).first()).toBeVisible();
+    const others = orderList(page)
+      .getByRole('row')
+      .filter({ hasNot: page.getByRole('cell', { name: state, exact: true }) });
+    await expect(others).toHaveCount(1);
   }
   await expect(room(page).getByRole('navigation', { name: 'Pages' })).toContainText('100 a page');
   await orderList(page).getByRole('row').nth(1).getByRole('button', { name: 'History' }).click();
@@ -178,8 +207,8 @@ test(`${J} #7 edits the trigger of an open order, then a filled one: the version
   page,
 }) => {
   await openOrders(page);
-  const open = orderRow(page, 'Open').first();
-  await open.getByRole('button', { name: 'Edit' }).click(UNBUILT);
+  const open = await pinned(page, 'Open');
+  await open.getByRole('button', { name: 'Edit' }).click();
   const edit = page.getByRole('dialog', { name: 'Edit order' });
   const version = Number((await open.getByTestId('order-version').innerText()).replace(/\D/g, ''));
   await edit.getByRole('textbox', { name: /^Trigger price/ }).fill('1.30');
@@ -190,7 +219,7 @@ test(`${J} #7 edits the trigger of an open order, then a filled one: the version
   await expect(page.getByRole('dialog', { name: 'Order history' })).toContainText(`Keeper checked at 1.30 (v${version + 1})`);
   await page.keyboard.press('Escape');
 
-  const filled = orderRow(page, 'Filled').first();
+  const filled = await pinned(page, 'Filled');
   await expect(filled.getByRole('button', { name: 'Edit' })).toBeDisabled();
   await expect(filled).toContainText('A filled order cannot be edited.');
 });
@@ -200,9 +229,8 @@ test(`${J} #8 cancels an order and withdraws: the unfilled rest returns to the w
 }) => {
   await openOrders(page);
   const vault = room(page).getByRole('region', { name: 'Order vault' });
-  const credit = async () => Number((await vault.getByTestId('vault-credit').innerText()).replace(/[^\d.]/g, ''));
-  const open = orderRow(page, 'Open').first();
-  await open.getByRole('button', { name: 'Cancel' }).click(UNBUILT);
+  const open = await pinned(page, 'Open');
+  await open.getByRole('button', { name: 'Cancel' }).click();
   await page.getByRole('dialog', { name: 'Cancel order' }).getByRole('button', { name: 'Cancel order' }).click();
   await expect(open).toContainText('Cancelled');
   // A keeper fill landing in the same second finds the order cancelled in the stored state and is refused.
@@ -210,9 +238,9 @@ test(`${J} #8 cancels an order and withdraws: the unfilled rest returns to the w
   await expect(page.getByRole('dialog', { name: 'Order history' })).toContainText('Fill refused: the order was cancelled');
   await page.keyboard.press('Escape');
 
-  const before = await credit();
+  const before = await creditText(vault);
   await vault.getByRole('button', { name: 'Withdraw to my wallet' }).click();
-  await expect(vault.getByRole('status')).toContainText(`${before} TEST A returned to your wallet`);
+  await expect(vault.getByRole('status')).toContainText(`${before} returned to your wallet`);
   await expect(vault.getByTestId('vault-credit')).toHaveText('0 TEST A');
 });
 
@@ -221,7 +249,7 @@ test(`${J} #9 sends tokens straight to the vault by mistake: the credit is uncha
 }) => {
   const wallet = await openOrders(page);
   const vault = room(page).getByRole('region', { name: 'Order vault' });
-  const before = await vault.getByTestId('vault-credit').innerText(UNBUILT);
+  const before = await creditText(vault);
   // A plain token transfer to the vault address (sent from the wallet on the TEST chain) is not a deposit: no credit moves.
   await expect(vault.getByRole('status')).toContainText('Tokens sent to the vault without a deposit are not credited');
   await expect(vault.getByTestId('vault-credit')).toHaveText(before);

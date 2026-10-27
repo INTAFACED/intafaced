@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { UNBUILT, connectWallet, dexRun } from './dex.mjs';
+import { CHAIN_ID, TOKEN_A, TOKEN_B, UNBUILT, connectWallet, dexRun } from './dex.mjs';
+import { installTestWallet, testWalletKey, TEST_WALLET } from './test-wallet.mjs';
 
 // J-dex-protocol-12, in the running app (docs/roadmap/journeys.json): add liquidity to a pool, see impermanent loss and
 // take it out. One test per step, titled "J-dex-protocol-12 #<n>", run in order with one TEST wallet holding TEST tokens
@@ -12,8 +13,6 @@ import { UNBUILT, connectWallet, dexRun } from './dex.mjs';
 // - the stack has no TEST chain, factory or pool for a deposit to go to.
 const J = 'J-dex-protocol-12';
 const dex = dexRun(J);
-const TOKEN_A = { address: '0x00000000000000000000000000000000000a11ce', name: 'TEST Token A', version: '1', decimals: 6, nonce: 0 };
-const TOKEN_B = { address: '0x00000000000000000000000000000000000b0b00', name: 'TEST Token B', version: '1', decimals: 18, nonce: 0 };
 
 test.describe.configure({ mode: 'default' });
 
@@ -26,6 +25,18 @@ async function openPools(page) {
   await page.goto('/dex/pools');
   await expect(pools(page)).toBeVisible();
   return wallet;
+}
+
+/** A second TEST wallet of this run, in its own browser, for a share moved out of the person's wallet. */
+async function otherWallet(browser) {
+  const state = dex.run.read();
+  const privateKey = state.otherKey ?? dex.run.write({ otherKey: testWalletKey() }).otherKey;
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  const wallet = await installTestWallet(page, { chainId: CHAIN_ID, privateKey });
+  await page.goto('/wallet');
+  await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
+  return { context, page, wallet };
 }
 
 async function openPosition(page) {
@@ -100,18 +111,47 @@ test(`${J} #4 enters 100:100 into a 1000:2000 pool: only 50:100 is pulled; a min
 
 test(`${J} #5 opens the position: LP shares, share of the pool and fees earned; a share moved to another wallet shows as that wallet's`, async ({
   page,
+  browser,
 }) => {
   await openPosition(page);
   for (const term of ['LP shares', 'Share of the pool', 'Fees earned'])
     await expect(position(page).getByRole('term').filter({ hasText: term })).toBeVisible();
+
+  // Some shares move to another wallet: that wallet now shows them as its own position.
+  const other = await otherWallet(browser);
+  try {
+    await position(page).getByRole('button', { name: 'Send shares' }).click();
+    const move = page.getByRole('dialog', { name: 'Send shares' });
+    await move.getByRole('textbox', { name: /^To/ }).fill(other.wallet.address);
+    await move.getByRole('textbox', { name: /^Shares/ }).fill('1');
+    await move.getByRole('button', { name: 'Continue in wallet' }).click();
+    await other.page.goto('/dex/positions');
+    await expect(other.page.getByRole('main').getByRole('link', { name: /TEST Token A \/ TEST Token B/ })).toBeVisible({ timeout: 60_000 });
+  } finally {
+    await other.context.close();
+  }
 });
 
 test(`${J} #6 opens the impermanent-loss card after the price moves to 1414:1414: held amounts, share amounts and the difference; a transferred share reads "Entry unknown"`, async ({
   page,
+  browser,
 }) => {
   await openPosition(page);
   const card = position(page).getByRole('region', { name: 'Impermanent loss' });
   for (const term of ['If held', 'In the pool', 'Difference']) await expect(card.getByRole('term').filter({ hasText: term })).toBeVisible();
+
+  // The wallet that received shares in #5 never deposited, so its entry is unknown rather than guessed.
+  const other = await otherWallet(browser);
+  try {
+    await other.page.goto('/dex/positions');
+    await other.page
+      .getByRole('main')
+      .getByRole('link', { name: /TEST Token A \/ TEST Token B/ })
+      .click(UNBUILT);
+    await expect(other.page.getByRole('region', { name: 'Impermanent loss' })).toContainText('Entry unknown');
+  } finally {
+    await other.context.close();
+  }
 });
 
 test(`${J} #7 adds a single token with swap-and-add: about half swapped, shares at least the minimum; a failed second step leaves nothing half done`, async ({
@@ -130,8 +170,12 @@ test(`${J} #8 collects fees, then removes all shares: fees compound into the pos
   page,
 }) => {
   await openPosition(page);
+  const shares = async () => Number((await position(page).getByTestId('lp-shares').innerText()).replace(/[^\d.]/g, ''));
+  const before = await shares();
   await position(page).getByRole('button', { name: 'Collect fees' }).click();
   await expect(position(page).getByRole('status')).toContainText('Fees added to your position');
+  // Compounded: the fees became more shares in the same position.
+  await expect.poll(shares).toBeGreaterThan(before);
   await position(page).getByRole('button', { name: 'Remove all' }).click();
   await page.getByRole('button', { name: 'Continue in wallet' }).click();
   await expect(page.getByRole('status')).toContainText(/Returned [\d.]+ TEST Token A and [\d.]+ TEST Token B/);
