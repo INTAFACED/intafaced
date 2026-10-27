@@ -1,12 +1,26 @@
+import { createHash } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import { signIn, signUp } from './desk.mjs';
-import { ORIGIN } from './stack.mjs';
+import { nextCode } from './identity-factors.mjs';
+import { businessReadyPerson, openBusiness, verifiedBusiness } from './merchant.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN } from './stack.mjs';
 
 // J-home-ia-02, in the running app (docs/roadmap/journeys.json): I find any room I need. Tests titled "J-home-ia-02 #<n>"
-// prove a whole step. One TEST person, signed up once; the signed-out step uses a fresh browser.
+// prove a whole step. One TEST person, signed up once; the signed-out step uses a fresh browser. #7's Business half makes
+// its own verified TEST merchant with one TEST card payment, and a TEST business profile to search from.
+// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
+// - #5: svc-support's help search matches an article's id and keys, not the title a person reads, so typing the title
+//   lists nothing under Help.
+// - #6: the header search sends no search-miss count (kind `search_miss`) when nothing is found.
+// - #7: in Business mode the header search does not look up merchant payments by id.
 const J = 'J-home-ia-02';
+const RUN = Date.now().toString(36);
+const UNBUILT = { timeout: 5_000 };
+// A published help article in the platform's own catalogue (svc-support kb-catalog, kb-account-access).
+const ARTICLE = 'Sign-in and account access';
 
-test.describe.configure({ mode: 'serial' });
+// Not serial: a step that is not built yet fails alone and the next worker signs a new person up and goes on.
+test.describe.configure({ mode: 'default' });
 
 let who;
 
@@ -156,6 +170,165 @@ test(`${J} #4 typing "chain" lists the parked room and says it opens to its bloc
   await expect(row).toContainText('Opens to its blockers');
   await row.click();
   await expect(page).toHaveURL(/\/chain$/);
+});
+
+test(`${J} #5 typing a help article's title lists it under Help and opens it; with no help result limit set the search says so and still offers Help`, async ({
+  page,
+}) => {
+  await signIn(page, who);
+  // The result limit is an owner value. While it is blank (as it is until the owner sets it), Help says why it lists no
+  // articles and still offers Help itself. The stack publishes a TEST limit, so this part answers home.config as blank.
+  const blankCap = async (route) => {
+    if (!route.request().url().includes('home.config')) return route.continue();
+    const res = await route.fetch();
+    const body = await res.json();
+    // Only home.config's answer is changed; any other answer in a batch, or an error, goes through as it came.
+    const blank = (one) =>
+      one?.result?.data && 'searchResultCap' in one.result.data
+        ? { ...one, result: { ...one.result, data: { ...one.result.data, searchResultCap: null } } }
+        : one;
+    await route.fulfill({ response: res, json: Array.isArray(body) ? body.map(blank) : blank(body) });
+  };
+  await page.route('**/api/ops/trpc/**', blankCap);
+  await page.goto('/home');
+  const unset = await search(page, ARTICLE);
+  await expect(
+    unset.getByRole('status').filter({ hasText: 'Help articles are hidden: no limit for the number of results is set.' }),
+  ).toBeVisible();
+  await unset.getByRole('option', { name: 'Open Help', exact: true }).click();
+  await expect(page).toHaveURL(/\/support$/);
+  await page.unroute('**/api/ops/trpc/**', blankCap);
+
+  // With the limit set, the article is listed under Help by the title a person reads, and opens.
+  await page.goto('/home');
+  const panel = await search(page, ARTICLE);
+  const article = panel.getByRole('option', { name: ARTICLE, exact: true });
+  await expect(article).toBeVisible(UNBUILT);
+  await article.click();
+  await expect(page).toHaveURL(/\/helpdetail\?id=kb-account-access/);
+  await expect(page.locator('main')).toContainText(ARTICLE);
+});
+
+test(`${J} #6 a search that finds nothing says so plainly, and one miss is counted for the founders without who searched`, async ({
+  page,
+}) => {
+  await signIn(page, who);
+  await page.goto('/home');
+  const counted = [];
+  page.on('request', (req) => {
+    if ((req.postData() ?? '').includes('search_miss')) counted.push(req.postData());
+  });
+  const words = `zq nothing ${RUN}`;
+  const panel = await search(page, words);
+  await expect(panel.getByRole('status').filter({ hasText: `No results for "${words}"` })).toBeVisible();
+  // Help is still offered, so a miss has somewhere to go.
+  await expect(panel.getByRole('option', { name: 'Open Help', exact: true })).toBeVisible();
+
+  // One count of kind search_miss goes to the founders' metrics desk (HM-desks-02), carrying neither the account nor
+  // the words searched (storing the words is a separate owner switch, off while blank).
+  await expect.poll(() => counted.length, UNBUILT).toBe(1);
+  expect(counted[0]).not.toContain(words);
+  expect(counted[0]).not.toContain(RUN);
+  expect(counted[0]).not.toContain(who.email);
+  expect(counted[0]).not.toContain(who.handle);
+});
+
+/** A stable uuid for a journey key, so a create sent again in this run names the same record (idempotency keys are business keys). */
+function uuidOf(seed) {
+  const h = createHash('sha256').update(seed).digest('hex');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
+
+/** One authenticated call through Edge as `who`; the answer's data, or an error naming the refusal. */
+async function call(route, token, body) {
+  const res = await fetch(`${EDGE}${route}`, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers: {
+      origin: ORIGIN,
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const text = await res.text();
+  const json = (() => {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return null;
+    }
+  })();
+  if (!res.ok || !json?.result) throw new Error(`${route} refused: ${res.status} ${text.slice(0, 300)}`);
+  return json.result.data;
+}
+
+test(`${J} #7 in Business mode a merchant payment id finds the payment; in Personal mode Business-only rooms are absent from search`, async ({
+  browser,
+  page,
+}) => {
+  test.setTimeout(600_000);
+  // Personal: Business-only rooms such as Payouts are not offered. The search has settled once Help has answered.
+  await signIn(page, who);
+  await page.goto('/home');
+  const personal = await search(page, 'payouts');
+  await expect(personal.getByRole('option', { name: 'Open Help', exact: true })).toBeVisible();
+  await expect(personal.getByRole('status').filter({ hasText: 'Searching Help' })).toHaveCount(0);
+  await expect(personal.getByRole('option', { name: /Payouts/ })).toHaveCount(0);
+
+  // Business: a verified TEST merchant takes one TEST card payment, and its owner, in a browser of its own, switches to a
+  // TEST business profile.
+  const context = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 900 } });
+  try {
+    const owner = await context.newPage();
+    const person = await businessReadyPerson(owner, 'nav7', '/pay/onboarding');
+    const merchantId = await openBusiness(owner, person, `TEST Search ${RUN}`);
+    await verifiedBusiness(owner, person, merchantId);
+    const { code, step } = await nextCode(person.totp, person.secret, person.step);
+    person.step = step;
+    const login = await call('/api/identity/trpc/auth.login', null, {
+      deviceKey: DEVICE_KEY,
+      identifier: person.email,
+      password: person.password,
+      totpCode: code,
+    });
+    const payment = await call('/api/pay/trpc/payment.create', login.accessToken, {
+      requestId: uuidOf(`${J}:payment:${RUN}`),
+      merchantId,
+      amount: '12.00',
+      assetId: 'USDT',
+      method: 'card',
+      railAdapter: 'card-sandbox',
+      customerRef: `TEST-${RUN}`,
+      metadata: { reference: `${J}-${RUN}` },
+      instrument: { kind: 'card', token: 'tok_ok' },
+    });
+    await call('/api/bank/trpc/business.create', login.accessToken, {
+      accountId: uuidOf(`${J}:business:${RUN}`),
+      name: `TEST Search ${RUN}`,
+      assetId: 'USDT',
+      spendThreshold: '10',
+    });
+    await owner.goto('/home');
+    await owner.getByRole('button', { name: 'Account menu' }).click();
+    await owner
+      .getByTestId('profile-business')
+      .filter({ hasText: `TEST Search ${RUN}` })
+      .click();
+    await expect(owner).toHaveURL(/\/pay\/merchant/);
+    // The merchant portal has no header search; Home does, and the profile stays Business.
+    await owner.goto('/home');
+
+    // Business rooms are offered now, and the payment is found by its id and opens its record.
+    const business = await search(owner, 'payouts');
+    await expect(business.getByRole('option', { name: /Payouts/ }).first()).toBeVisible();
+    const found = await search(owner, payment.id);
+    const row = found.getByRole('option').filter({ hasText: payment.id });
+    await expect(row).toBeVisible(UNBUILT);
+    await row.click();
+    await expect(owner).toHaveURL(new RegExp(payment.id));
+  } finally {
+    await context.close();
+  }
 });
 
 test(`${J} #8 a deep link while signed out: public rooms open, private rooms ask to sign in and come back to the same room`, async ({
