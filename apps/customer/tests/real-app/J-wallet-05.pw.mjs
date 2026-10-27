@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { EDGE, ORIGIN, ROOT, fund, journeyState, mailedLines, toUnits, tool } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fund, journeyState, mailedLines, toUnits, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
@@ -10,9 +10,10 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // age-addresses`). The fee, the quote lifetime and the limits are the TEST withdrawal terms the stack's founders publish
 // in svc-pay (`local-test-gates.mjs withdraw-terms`): a fixed 1.5 network fee on TEST Ethereum and TEST Base, the fee on
 // top, a 90-second quote, and USDT limits of 1000 a withdrawal and 5000 a day for verified accounts.
-// Not here yet: #1 (minimum, maximum, step and tag rules have no catalogue in svc-pay), #2 (the fraud list and screening at
-// send), #4's two parallel sends, #5 (travel rule), #6 (a sent withdrawal and its success panel) and #8 (status): svc-pay has
-// no custody signer for any network, so every send to an outside wallet is refused before a claim.
+// Not here yet: #1 (minimum, maximum, step and tag rules have no catalogue in svc-pay), #2 (the fraud list at send), #4's
+// two parallel sends, #6 (a sent withdrawal and its success panel) and #8 (status): svc-pay has
+// no custody signer for any network, so every send to an outside wallet is refused before a claim. #5 (travel rule) and the
+// sanctions clause of #2 wait for launch (owner decision 2026-10-27, no compliance work until then).
 const J = 'J-wallet-05';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ADDRESS = '0x52908400098527886E0F7030069857D2E4169EE7';
@@ -62,7 +63,12 @@ async function customerApi() {
   const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
     method: 'POST',
     headers: { origin: ORIGIN, 'content-type': 'application/json' },
-    body: JSON.stringify({ identifier: state.account.email, password: state.account.password, totpCode: await freshCode() }),
+    body: JSON.stringify({
+      deviceKey: DEVICE_KEY,
+      identifier: state.account.email,
+      password: state.account.password,
+      totpCode: await freshCode(),
+    }),
   }).then((res) => res.json());
   const token = login?.result?.data?.accessToken;
   if (!token) throw new Error(`sign-in refused: ${JSON.stringify(login).slice(0, 300)}`);
