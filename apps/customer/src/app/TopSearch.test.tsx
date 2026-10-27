@@ -139,6 +139,27 @@ describe('header search: where a page lives and the Help group', () => {
     expect(host.textContent).toContain('Help articles are hidden: no limit for the number of results is set.');
   });
 
+  it('counts a submitted search that found nothing once, with no words or account in the call, and stays on "No results"', async () => {
+    await mount();
+    await type('zzqx nothing here');
+    expect(host.textContent).toContain('No results for "zzqx nothing here"');
+    await press('Enter', input());
+    await press('Enter', input());
+    const misses = fetcher.mock.calls.filter(([url]) => String(url).includes('navMetrics.searchMiss'));
+    expect(misses).toHaveLength(1);
+    expect(String(misses[0]![0])).not.toContain('zzqx');
+    expect(JSON.stringify(misses[0]![1] ?? {})).not.toContain('zzqx');
+    expect(host.textContent).toContain('No results for "zzqx nothing here"');
+    expect(rowTexts()).toContain('Open Help');
+  });
+
+  it('does not count a search that found something', async () => {
+    await mount();
+    await type('earn');
+    await press('Enter', input());
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes('navMetrics.searchMiss'))).toHaveLength(0);
+  });
+
   it('opens on "/" outside a field, but a "/" typed into a field stays a character', async () => {
     await mount();
     expect(panel()).toBeNull();
