@@ -62,6 +62,11 @@ export interface FormsStore {
   values(ticketId: string): Promise<SupportTicketFieldValues | null>;
   /** Keep the answers of a request once; a second write for the same request changes nothing. */
   recordValues(values: SupportTicketFieldValues, at: string): Promise<void>;
+  /**
+   * Run one definition change alone, fields and forms together: what `work` reads stays true until its write lands, so a
+   * field retired while a form that lists it is defined cannot both pass their checks.
+   */
+  exclusive<R>(work: (store: FormsStore) => Promise<R>): Promise<R>;
 }
 
 export interface RequestFormCaps {
@@ -77,16 +82,16 @@ export class RequestForms {
     private readonly now: () => string = () => new Date().toISOString(),
   ) {}
 
-  private async fields(): Promise<SupportField[]> {
-    return (await this.store.list<SupportField>('field')).map((row) => ({
+  private async fields(store: FormsStore = this.store): Promise<SupportField[]> {
+    return (await store.list<SupportField>('field')).map((row) => ({
       ...row.definition,
       revision: row.revision,
       updatedAt: row.updatedAt,
     }));
   }
 
-  private async forms(): Promise<SupportForm[]> {
-    return (await this.store.list<SupportForm>('form')).map((row) => ({
+  private async forms(store: FormsStore = this.store): Promise<SupportForm[]> {
+    return (await store.list<SupportForm>('form')).map((row) => ({
       ...row.definition,
       revision: row.revision,
       updatedAt: row.updatedAt,
@@ -95,38 +100,43 @@ export class RequestForms {
 
   /** The live forms and the fields they use, for the customer request form. */
   async catalogue(): Promise<SupportRequestForms> {
-    const forms = (await this.forms()).filter((form) => form.retired !== true).sort((a, b) => a.name.localeCompare(b.name));
+    const [all, fields] = await Promise.all([this.forms(), this.fields()]);
+    const forms = all.filter((form) => form.retired !== true).sort((a, b) => a.name.localeCompare(b.name));
     const used = new Set(forms.flatMap((form) => form.fields.map((entry) => entry.fieldId)));
-    return { forms, fields: (await this.fields()).filter((field) => used.has(field.id)) };
+    return { forms, fields: fields.filter((field) => used.has(field.id)) };
   }
 
   /** Every form and field, retired ones too, for the desk. */
   async all(): Promise<SupportRequestForms> {
-    return { forms: await this.forms(), fields: await this.fields() };
+    const [forms, fields] = await Promise.all([this.forms(), this.fields()]);
+    return { forms, fields };
   }
 
   async defineField(input: SupportFieldDefineInput, by: string): Promise<SupportField> {
-    if (this.caps.fields === null) throw new RequestFormError('the field cap is not set', 'support.field_cap_unset');
+    const cap = this.caps.fields;
+    if (cap === null) throw new RequestFormError('the field cap is not set', 'support.field_cap_unset');
     if (!(SUPPORT_FIELD_KINDS as readonly string[]).includes(input.kind))
       throw new RequestFormError(`field kind ${input.kind} is not offered`, 'support.field_kind_unsupported');
     const { expectedRevision, reason, ...rest } = input;
     const definition = { ...rest, kind: input.kind as SupportFieldKind };
     const problem = supportFieldDefinitionProblem(definition);
     if (problem) throw new RequestFormError(problem, 'support.form_definition_invalid');
-    const fields = await this.fields();
-    if (definition.parent) {
-      const parent = fields.find((field) => field.id === definition.parent!.fieldId);
-      if (!parent || parent.kind !== 'choice')
-        throw new RequestFormError('a dependent field needs a choice field as its parent', 'support.field_unknown');
-      const parentValues = new Set((parent.options ?? []).map((option) => option.value));
-      if (Object.keys(definition.parent.allowed).some((value) => !parentValues.has(value)))
-        throw new RequestFormError('the parent has no such option', 'support.form_definition_invalid');
-    }
-    const prior = fields.find((field) => field.id === definition.id);
-    if (prior && prior.kind !== definition.kind)
-      throw new RequestFormError('a field keeps its kind; define a new field instead', 'support.form_definition_invalid');
-    if (prior) await this.checkUsers(definition, fields);
-    return this.write('field', definition, expectedRevision, this.caps.fields, by, reason) as Promise<SupportField>;
+    return this.store.exclusive(async (store) => {
+      const fields = await this.fields(store);
+      if (definition.parent) {
+        const parent = fields.find((field) => field.id === definition.parent!.fieldId);
+        if (!parent || parent.kind !== 'choice')
+          throw new RequestFormError('a dependent field needs a choice field as its parent', 'support.field_unknown');
+        const parentValues = new Set((parent.options ?? []).map((option) => option.value));
+        if (Object.keys(definition.parent.allowed).some((value) => !parentValues.has(value)))
+          throw new RequestFormError('the parent has no such option', 'support.form_definition_invalid');
+      }
+      const prior = fields.find((field) => field.id === definition.id);
+      if (prior && prior.kind !== definition.kind)
+        throw new RequestFormError('a field keeps its kind; define a new field instead', 'support.form_definition_invalid');
+      if (prior) await this.checkUsers(store, definition, fields);
+      return (await this.write(store, 'field', definition, expectedRevision, cap, by, reason)) as SupportField;
+    });
   }
 
   /**
@@ -134,8 +144,12 @@ export class RequestForms {
    * retirement, and each live form that lists it must still be valid with the new definition (a removed option a
    * `showWhen` names, a new parent below it on the form).
    */
-  private async checkUsers(definition: Omit<SupportField, 'revision' | 'updatedAt'>, fields: SupportField[]): Promise<void> {
-    const forms = (await this.forms()).filter(
+  private async checkUsers(
+    store: FormsStore,
+    definition: Omit<SupportField, 'revision' | 'updatedAt'>,
+    fields: SupportField[],
+  ): Promise<void> {
+    const forms = (await this.forms(store)).filter(
       (form) => form.retired !== true && form.fields.some((entry) => entry.fieldId === definition.id),
     );
     const dependents = fields.filter((field) => field.retired !== true && field.parent?.fieldId === definition.id);
@@ -153,14 +167,18 @@ export class RequestForms {
   }
 
   async defineForm(input: SupportFormDefineInput, by: string): Promise<SupportForm> {
-    if (this.caps.forms === null) throw new RequestFormError('the form cap is not set', 'support.form_cap_unset');
+    const cap = this.caps.forms;
+    if (cap === null) throw new RequestFormError('the form cap is not set', 'support.form_cap_unset');
     const { expectedRevision, reason, ...definition } = input;
-    // Retiring a form only takes it off the picker; it need not still fit fields that changed since.
-    if (definition.retired !== true) assertFormFits(definition, new Map((await this.fields()).map((field) => [field.id, field])));
-    return this.write('form', definition, expectedRevision, this.caps.forms, by, reason) as Promise<SupportForm>;
+    return this.store.exclusive(async (store) => {
+      // Retiring a form only takes it off the picker; it need not still fit fields that changed since.
+      if (definition.retired !== true) assertFormFits(definition, new Map((await this.fields(store)).map((field) => [field.id, field])));
+      return (await this.write(store, 'form', definition, expectedRevision, cap, by, reason)) as SupportForm;
+    });
   }
 
   private async write<T extends { id: string } & Retirable>(
+    store: FormsStore,
     kind: Kind,
     definition: T,
     expected: number,
@@ -169,7 +187,7 @@ export class RequestForms {
     reason: string,
   ) {
     const at = this.now();
-    const result = await this.store.put(kind, definition.id, definition, expected, cap, at, by, reason);
+    const result = await store.put(kind, definition.id, definition, expected, cap, at, by, reason);
     if (result === 'stale') throw new RequestFormError('the definition changed since it was read', 'support.form_revision_stale');
     if (result === 'cap_reached')
       throw kind === 'field'
@@ -180,10 +198,11 @@ export class RequestForms {
 
   /** Check a request's answers against its live form. Throws the typed refusal; returns what to keep beside the ticket. */
   async check(form: SupportCreateForm): Promise<Omit<SupportTicketFieldValues, 'ticketId'>> {
-    const stored = (await this.forms()).find((row) => row.id === form.formId && row.retired !== true);
+    const [forms, fields] = await Promise.all([this.forms(), this.fields()]);
+    const stored = forms.find((row) => row.id === form.formId && row.retired !== true);
     if (!stored) throw new RequestFormError('no such request type', 'support.form_unknown');
     const values = supportFormValuesTrimmed(form.values);
-    const problem = supportFormValuesProblem(stored, await this.fields(), values);
+    const problem = supportFormValuesProblem(stored, fields, values);
     if (problem) throw new RequestFormError(`${problem.fieldId}: ${problem.problem}`, 'support.field_value_invalid');
     return { formId: stored.id, formRevision: stored.revision, values };
   }
@@ -200,6 +219,7 @@ export class RequestForms {
 /** Refuse a form whose questions do not fit the fields they name: unknown or retired, repeated, or depending on a field below. */
 function assertFormFits(definition: Pick<SupportForm, 'fields'>, fields: ReadonlyMap<string, SupportField>): void {
   const seen = new Set<string>();
+  const entries = new Map<string, SupportForm['fields'][number]>();
   for (const entry of definition.fields) {
     const field = fields.get(entry.fieldId);
     if (!field || field.retired === true) throw new RequestFormError(`no live field ${entry.fieldId}`, 'support.field_unknown');
@@ -216,7 +236,12 @@ function assertFormFits(definition: Pick<SupportForm, 'fields'>, fields: Readonl
     }
     if (field.parent && !seen.has(field.parent.fieldId))
       throw new RequestFormError('a dependent field needs its parent above it on the form', 'support.form_definition_invalid');
+    // A dependent choice with its parent hidden has nothing to offer, so it hides under the same condition.
+    const parentWhen = field.parent ? entries.get(field.parent.fieldId)?.showWhen : undefined;
+    if (parentWhen && (entry.showWhen?.fieldId !== parentWhen.fieldId || entry.showWhen?.value !== parentWhen.value))
+      throw new RequestFormError('a dependent field shows only when its parent does', 'support.form_definition_invalid');
     seen.add(entry.fieldId);
+    entries.set(entry.fieldId, entry);
   }
 }
 
@@ -224,6 +249,13 @@ export class MemoryFormsStore implements FormsStore {
   private readonly rows = new Map<string, Stored<unknown>>();
   private readonly answers = new Map<string, SupportTicketFieldValues>();
   readonly log: { kind: Kind; id: string; revision: number; by: string; reason: string; at: string }[] = [];
+  private queue: Promise<unknown> = Promise.resolve();
+
+  exclusive<R>(work: (store: FormsStore) => Promise<R>): Promise<R> {
+    const run = this.queue.then(() => work(this));
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
 
   async list<T>(kind: Kind): Promise<Stored<T>[]> {
     return [...this.rows.entries()].filter(([key]) => key.startsWith(`${kind}:`)).map(([, row]) => row as Stored<T>);
@@ -263,8 +295,22 @@ export class MemoryFormsStore implements FormsStore {
 type DefinitionRow = { definition: unknown; revision: number; updated_at: Date | string };
 const iso = (v: Date | string) => (v instanceof Date ? v : new Date(v)).toISOString();
 
+const DEFINITIONS_LOCK = 'support.request_definitions';
+
 export class SqlFormsStore implements FormsStore {
-  constructor(private readonly sql: Sql) {}
+  /** `locked`: this store runs inside `exclusive`'s transaction, which already holds the definitions lock. */
+  constructor(
+    private readonly sql: Sql,
+    private readonly locked = false,
+  ) {}
+
+  exclusive<R>(work: (store: FormsStore) => Promise<R>): Promise<R> {
+    if (this.locked) return work(this);
+    return this.sql.begin(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${DEFINITIONS_LOCK}))`;
+      return work(new SqlFormsStore(tx as unknown as Sql, true));
+    }) as Promise<R>;
+  }
 
   async list<T>(kind: Kind): Promise<Stored<T>[]> {
     const rows = await this.sql<DefinitionRow[]>`
@@ -283,9 +329,14 @@ export class SqlFormsStore implements FormsStore {
     by: string,
     reason: string,
   ): Promise<PutResult> {
-    return this.sql.begin(async (tx) => {
-      // One writer per kind at a time, so the live count read here is the count the write lands on.
-      await tx`SELECT pg_advisory_xact_lock(hashtext(${`support.request_definitions:${kind}`}))`;
+    // One definition writer at a time, so the revision and the live count read here are what the write lands on.
+    return this.exclusive(async (store) => {
+      const tx = (store as SqlFormsStore).sql;
+      // The revision first, as the memory store does: a stale read is told so even when the cap is full.
+      const [current] = await tx<{ revision: number }[]>`
+        SELECT revision FROM support.request_definitions WHERE kind = ${kind} AND id = ${id}
+      `;
+      if ((current?.revision ?? 0) !== expected) return 'stale' as const;
       if (definition.retired !== true) {
         const [row] = await tx<{ n: number }[]>`
           SELECT count(*)::int AS n FROM support.request_definitions
@@ -313,7 +364,7 @@ export class SqlFormsStore implements FormsStore {
         VALUES (${kind}, ${id}, ${expected + 1}, ${tx.json(definition as never)}, ${by}, ${reason}, ${at})
       `;
       return 'written' as const;
-    }) as Promise<PutResult>;
+    });
   }
 
   async values(ticketId: string): Promise<SupportTicketFieldValues | null> {

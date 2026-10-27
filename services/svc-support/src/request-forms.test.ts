@@ -271,6 +271,33 @@ describe('request forms per type (SP-tickets-03)', () => {
     await expect(me.create({ ...send, clientRequestId: 'crash-2' })).rejects.toMatchObject({ message: 'support.form_unknown' });
   });
 
+  it('a field retired while a form that lists it is defined: never both', async () => {
+    const { lead } = desk();
+    const l = await lead();
+    await l.defineRequestField({ id: 'device', label: 'Device', kind: 'text', expectedRevision: 0, reason: R });
+    const results = await Promise.allSettled([
+      l.defineRequestField({ id: 'device', label: 'Device', kind: 'text', retired: true, expectedRevision: 1, reason: R }),
+      l.defineRequestForm({ id: 'f', name: 'F', fields: [{ fieldId: 'device', required: true }], expectedRevision: 0, reason: R }),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+  });
+
+  it('a dependent choice below a hidden parent must hide with it', async () => {
+    const { lead } = desk();
+    const l = await lead();
+    await cardForm(l);
+    await l.defineRequestField({ id: 'need', label: 'Need help', kind: 'checkbox', expectedRevision: 0, reason: R });
+    const fields = (when?: { fieldId: string; value: boolean }) => [
+      { fieldId: 'need', required: false },
+      { fieldId: 'device', required: true, showWhen: { fieldId: 'need', value: true } },
+      { fieldId: 'system', required: true, ...(when ? { showWhen: when } : {}) },
+    ];
+    await expect(l.defineRequestForm({ id: 'g', name: 'G', fields: fields(), expectedRevision: 0, reason: R })).rejects.toMatchObject({
+      message: 'support.form_definition_invalid',
+    });
+    await l.defineRequestForm({ id: 'g', name: 'G', fields: fields({ fieldId: 'need', value: true }), expectedRevision: 0, reason: R });
+  });
+
   it('the field cap is counted in the write itself, and text answers are kept trimmed', async () => {
     const { lead, as } = desk({ forms: 5, fields: 1 });
     const l = await lead();

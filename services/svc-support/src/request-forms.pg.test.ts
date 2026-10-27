@@ -91,5 +91,30 @@ if (!url) {
       const log = await db.sql`SELECT id, revision FROM support.request_definition_log ORDER BY at, id, revision`;
       expect(log.map((row) => `${row.id}@${row.revision}`)).toEqual(['one@1', 'one@2', 'two@1']);
     });
+
+    it('with the cap full, a create for an id that exists is told its read is stale', async () => {
+      const forms = new RequestForms(new SqlFormsStore(db.sql), { forms: 5, fields: 1 });
+      await forms.defineField({ id: 'one', label: 'One', kind: 'text', expectedRevision: 0, reason: R }, LEAD);
+      await forms.defineField({ id: 'two', label: 'Two', kind: 'text', expectedRevision: 0, reason: R }, LEAD).catch(() => undefined);
+      await expect(
+        forms.defineField({ id: 'one', label: 'Again', kind: 'text', expectedRevision: 0, reason: R }, LEAD),
+      ).rejects.toMatchObject({ code: 'support.form_revision_stale' });
+    });
+
+    it('a field retired on one connection while a form that lists it is defined on another: never both', async () => {
+      const second = postgres(db.url, { max: 1, onnotice: () => undefined });
+      try {
+        const a = new RequestForms(new SqlFormsStore(db.sql), { forms: 5, fields: 5 });
+        const b = new RequestForms(new SqlFormsStore(second), { forms: 5, fields: 5 });
+        await a.defineField({ id: 'device', label: 'Device', kind: 'text', expectedRevision: 0, reason: R }, LEAD);
+        const results = await Promise.allSettled([
+          a.defineField({ id: 'device', label: 'Device', kind: 'text', retired: true, expectedRevision: 1, reason: R }, LEAD),
+          b.defineForm({ id: 'f', name: 'F', fields: [{ fieldId: 'device', required: true }], expectedRevision: 0, reason: R }, LEAD),
+        ]);
+        expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+      } finally {
+        await second.end({ timeout: 5 });
+      }
+    });
   });
 }

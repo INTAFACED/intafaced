@@ -45,7 +45,7 @@ import { MemorySurveyBook, type SurveyBook } from './survey-settings.js';
 import { surveyProcedures } from './survey-router.js';
 import { MemoryHelpCentreBook, type HelpCentreBook } from './help-centre.js';
 import { helpCentreGate, helpCentreProcedures } from './help-centre-router.js';
-import { MemoryFormsStore, RequestForms } from './request-forms.js';
+import { MemoryFormsStore, RequestFormError, RequestForms } from './request-forms.js';
 import { mapRequestForm, requestFormProcedures } from './request-forms-router.js';
 import { MemoryKbLibraryBook, type KbLibraryBook } from './kb-library.js';
 import { kbLibraryProcedures } from './kb-library-router.js';
@@ -221,15 +221,19 @@ export function createSupportRouter(
         // replay of a key whose ticket already exists is not refused for a form changed since: it returns that ticket,
         // and keeps the answers only if they still fit and none were kept (a crash between the two writes).
         let checked: Awaited<ReturnType<RequestForms['check']>> | null = null;
-        if (input.form) {
-          const prior = input.clientRequestId ? await support.createdByRequest({ userId, clientRequestId: input.clientRequestId }) : null;
-          try {
-            checked = await forms.check(input.form);
-          } catch (err) {
-            if (!prior) throw mapRequestForm(err);
-          }
-        }
         try {
+          if (input.form) {
+            try {
+              checked = await forms.check(input.form);
+            } catch (err) {
+              // Only a refusal of the answers is forgiven, and only for a key whose ticket already exists.
+              if (!(err instanceof RequestFormError)) throw err;
+              const prior = input.clientRequestId
+                ? await support.createdByRequest({ userId, clientRequestId: input.clientRequestId })
+                : null;
+              if (!prior) throw mapRequestForm(err);
+            }
+          }
           const { form: _form, ...ticketInput } = input;
           const ticket = await support.createTicket({ userId, ...ticketInput });
           // The answers are kept once per request; a replay that finds them kept changes nothing.

@@ -1,4 +1,5 @@
 import {
+  SUPPORT_FIELD_TEXT_MAX,
   supportFieldAllowedOptions,
   supportFormFieldShown,
   supportFormValuesProblem,
@@ -13,19 +14,24 @@ import { deskCopy } from './support-desk-copy';
 export type FormAnswers = Record<string, SupportFieldValue>;
 
 /**
- * The answers to send: only fields the form shows for these answers, without empty text or an unticked box, and without a
- * dependent choice its parent no longer allows (picking another parent value clears it).
+ * The answers to send: only fields the form shows for these answers, without empty text, and without a dependent choice
+ * its parent no longer allows (picking another parent value clears it). A shown box is always sent, unticked as `false`,
+ * so a question shown only while a box is unticked can appear.
  */
 export function formAnswers(form: SupportForm, fields: readonly SupportField[], raw: FormAnswers): FormAnswers {
   const byId = new Map(fields.map((field) => [field.id, field]));
   const out: FormAnswers = {};
   for (const entry of form.fields) {
     const field = byId.get(entry.fieldId);
+    if (!field || !supportFormFieldShown(entry, out)) continue;
+    if (field.kind === 'checkbox') {
+      out[entry.fieldId] = raw[entry.fieldId] === true;
+      continue;
+    }
     const value = raw[entry.fieldId];
-    if (!field || value === undefined || value === '' || value === false) continue;
-    if (!supportFormFieldShown(entry, out)) continue;
+    if (value === undefined || value === '' || typeof value === 'boolean') continue;
     if (field.kind === 'choice' && !supportFieldAllowedOptions(field, out).some((option) => option.value === value)) continue;
-    out[entry.fieldId] = typeof value === 'string' ? value.trim() : value;
+    out[entry.fieldId] = value.trim();
   }
   return out;
 }
@@ -41,12 +47,15 @@ export function formReady(form: SupportForm, fields: readonly SupportField[], ra
  */
 export function RequestTypeFields({
   catalogue,
+  unread,
   formId,
   onFormId,
   answers,
   onAnswers,
 }: {
   catalogue: SupportRequestForms | null;
+  /** True only when reading the request types failed; while they load, the picker offers a general request quietly. */
+  unread: boolean;
   formId: string;
   onFormId: (id: string) => void;
   answers: FormAnswers;
@@ -56,6 +65,7 @@ export function RequestTypeFields({
   const forms = catalogue?.forms ?? [];
   const form = forms.find((row) => row.id === formId) ?? null;
   const shown = form && catalogue ? formAnswers(form, catalogue.fields, answers) : {};
+  const fieldsById = new Map((catalogue?.fields ?? []).map((field) => [field.id, field]));
   // A changed answer drops the answers it no longer allows (a hidden field, a child its parent now refuses), so they do
   // not come back picked when the parent changes back. The field being typed in keeps its raw text.
   const set = (fieldId: string, value: SupportFieldValue) => {
@@ -77,12 +87,12 @@ export function RequestTypeFields({
           ))}
         </select>
         {catalogue && forms.length === 0 && <small>{copy.t('requestTypeNone')}</small>}
-        {!catalogue && <small>{copy.t('requestTypeUnread')}</small>}
+        {unread && <small>{copy.t('requestTypeUnread')}</small>}
       </label>
       {form &&
         catalogue &&
         form.fields.map((entry) => {
-          const field = catalogue.fields.find((row) => row.id === entry.fieldId);
+          const field = fieldsById.get(entry.fieldId);
           if (!field || !supportFormFieldShown(entry, shown)) return null;
           const value = answers[field.id];
           const label = (
@@ -132,7 +142,7 @@ export function RequestTypeFields({
               inputMode={field.kind === 'decimal' ? 'decimal' : undefined}
               hint={field.kind === 'decimal' ? copy.t('fieldDecimalHint') : undefined}
               required={entry.required}
-              maxLength={2000}
+              maxLength={SUPPORT_FIELD_TEXT_MAX}
               value={typeof value === 'string' ? value : ''}
               onChange={(event) => set(field.id, event.target.value)}
             />

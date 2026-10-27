@@ -27,14 +27,13 @@ import {
 } from './support-desk';
 import { readRatedTicketIds } from './support-calls';
 import { CATEGORY_VALUES, ticketSchema, type Ticket } from './support-schemas';
-import { supportRequestFormsSchema, type SupportFieldValue, type SupportRequestForms } from '@intafaced/contracts/support-forms';
+import { supportRequestFormsSchema, type SupportField, type SupportFieldValue } from '@intafaced/contracts/support-forms';
 import { formAnswers, formReady, RequestTypeFields, type FormAnswers } from './SupportRequestForm';
 
 import './support-desk.css';
 
 /** An answer as the review step reads it: a choice by its label, a box as yes or no, text as typed. */
-function answerText(forms: SupportRequestForms, fieldId: string, value: SupportFieldValue): string {
-  const field = forms.fields.find((row) => row.id === fieldId);
+function answerText(field: SupportField | undefined, value: SupportFieldValue): string {
   if (typeof value === 'boolean') return value ? copyText('support.answer.yes') : copyText('support.answer.no');
   return field?.options?.find((option) => option.value === value)?.label ?? value;
 }
@@ -327,13 +326,10 @@ function NewRequest({
                   ...(form && sendForm && forms
                     ? [
                         [copy.t('requestTypeField'), <span lang="und">{form.name}</span>] as [string, ReactNode],
-                        ...Object.entries(sendForm.values).map(
-                          ([fieldId, value]) =>
-                            [
-                              forms.fields.find((field) => field.id === fieldId)?.label ?? fieldId,
-                              <span lang="und">{answerText(forms, fieldId, value)}</span>,
-                            ] as [string, ReactNode],
-                        ),
+                        ...Object.entries(sendForm.values).map(([fieldId, value]) => {
+                          const field = forms.fields.find((row) => row.id === fieldId);
+                          return [field?.label ?? fieldId, <span lang="und">{answerText(field, value)}</span>] as [string, ReactNode];
+                        }),
                       ]
                     : []),
                 ]}
@@ -399,6 +395,7 @@ function NewRequest({
         />
         <RequestTypeFields
           catalogue={forms}
+          unread={catalogue.resource.status === 'failed'}
           formId={formId}
           onFormId={(id) => {
             setFormId(id);
