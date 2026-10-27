@@ -14,7 +14,8 @@ const tagOf: Record<KycCaseState, 'pending' | 'filled' | 'cancelled' | 'working'
   submitted: 'pending',
   approved: 'filled',
   rejected: 'cancelled',
-  expired: 'working',
+  // A lapsed approval no longer counts, so it reads as ended, never as work in progress.
+  expired: 'cancelled',
 };
 
 /**

@@ -243,6 +243,66 @@ if (!available) {
       await expect(auth.listKycCases(userId, 0, REASONS)).rejects.toThrow();
     });
 
+    it('a resubmission follows only a rejected case at the same level', async () => {
+      const userId = await person();
+      const operator = await person();
+      const basic = await auth.submitKyc({ userId, tier: 'basic', jurisdiction: 'DE' });
+      await reject(basic.id, operator);
+      const full = await auth.submitKyc({ userId, tier: 'full', jurisdiction: 'DE' });
+      const again = await auth.submitKyc({ userId, tier: 'basic', jurisdiction: 'DE' });
+      const byRecord = new Map((await history(userId)).map((c) => [c.recordId, c]));
+      expect(byRecord.get(full.id)!.followsCaseId).toBeNull();
+      expect(byRecord.get(again.id)!.followsCaseId).toBe(byRecord.get(basic.id)!.id);
+      // A rejected case is followed once: a later reject and resubmit follows the newer case, not the first again.
+      await reject(again.id, operator);
+      const third = await auth.submitKyc({ userId, tier: 'basic', jurisdiction: 'DE' });
+      const latest = new Map((await history(userId)).map((c) => [c.recordId, c]));
+      expect(latest.get(third.id)!.followsCaseId).toBe(latest.get(again.id)!.id);
+    });
+
+    it('an approval whose level lapsed reads expired, with an expired step at the lapse, and nothing is written', async () => {
+      const userId = await person();
+      const record = await auth.submitKyc({ userId, tier: 'basic', jurisdiction: 'DE' });
+      await auth.approveKycRecord({ recordId: record.id, reviewerId: await person(), approvalParties: [] });
+      const [lapse] = await db.sql<Array<{ at: Date }>>`
+        UPDATE kyc_records SET expires_at = now() - interval '1 hour' WHERE id = ${record.id} RETURNING expires_at AS at`;
+      const before = await counts(userId);
+      const [only] = await history(userId);
+      expect(only).toMatchObject({ state: 'expired', version: 2, expiresAt: lapse!.at.toISOString() });
+      expect(only!.history).toEqual([
+        expect.objectContaining({ version: 1, state: 'submitted' }),
+        expect.objectContaining({ version: 2, state: 'approved' }),
+        { version: 3, state: 'expired', at: lapse!.at.toISOString() },
+      ]);
+      expect(await counts(userId)).toEqual(before);
+      const [stored] = await db.sql<Array<{ state: string }>>`SELECT state FROM kyc_cases WHERE record_id = ${record.id}`;
+      expect(stored!.state).toBe('approved');
+    });
+
+    it("the relay sends a case's rows in version order, and one case that fails does not hold the others back", async () => {
+      const first = await person();
+      const second = await person();
+      const operator = await person();
+      const a = await auth.submitKyc({ userId: first, tier: 'basic', jurisdiction: 'DE' });
+      await reject(a.id, operator);
+      await auth.submitKyc({ userId: second, tier: 'basic', jurisdiction: 'DE' });
+      const [caseA] = await history(first);
+      const failing = {
+        publish: (async (...args: Parameters<typeof bus.publish>) => {
+          if ((args[1] as { caseId: string }).caseId === caseA!.id) throw new Error('bus down for one case');
+          return bus.publish(...args);
+        }) as typeof bus.publish,
+      };
+      await expect(relay(failing)).rejects.toThrow('bus down for one case');
+      expect(bus.emitted('kycSubmitted').map((e) => e.payload.userId)).toEqual([second]);
+      expect(bus.emitted('kycRejected')).toHaveLength(0);
+      bus.reset();
+      expect(await relay()).toBe(2);
+      const sent = [...bus.emitted('kycSubmitted'), ...bus.emitted('kycRejected')].map((e) => e.idempotencyKey);
+      expect(sent).toEqual([`identity.kyc.submitted:${caseA!.id}:1`, `identity.kyc.rejected:${caseA!.id}:2`]);
+      expect(await relay()).toBe(0);
+    });
+
     it('a publish that fails leaves the row unpublished, for the next run to send again', async () => {
       const userId = await person();
       await auth.submitKyc({ userId, tier: 'basic', jurisdiction: 'DE' });

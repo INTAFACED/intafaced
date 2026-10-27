@@ -2230,6 +2230,7 @@ export function createIdentityRouter(
             assertOperatorKycReview({ service: ctx.service, kid: ctx.principal.kid });
             await refuseOwnKyc(input.recordId, ctx.principal.userId, input);
             requireRejectReason(options.kycRejectReasons ?? new Map(), input.reasonCode);
+            await auth.assertKycRejectable(input.recordId, input.reasonCode);
             const parties = await consumePrivileged(ctx.principal.userId, input, 'kyc.reject', { recordId: input.recordId });
             return presentKyc(
               await auth.rejectKycRecord({

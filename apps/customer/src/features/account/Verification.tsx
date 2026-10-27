@@ -79,6 +79,11 @@ export function Verification() {
   const heldLevel = resource.status === 'ready' ? resource.data.tier : 'none';
   const offeredTiers = KYC_LADDER_LEVELS.slice(KYC_LADDER_LEVELS.indexOf(heldLevel) + 1) as RequestedTier[];
   const chosenTier = offeredTiers.includes(tier) ? tier : (offeredTiers[0] ?? tier);
+  // Case history reads again when a request is sent or decided. The key holds while the status re-reads, so the
+  // history neither reads twice nor blinks back to loading.
+  const lastCasesKey = useRef('reading');
+  if (resource.status === 'ready') lastCasesKey.current = resource.data.records.map((row) => `${row.id}.${row.status}`).join(',');
+  const casesKey = lastCasesKey.current;
   useEffect(() => {
     mounted.current = true;
     const changed = (event: StorageEvent) => {
@@ -605,11 +610,13 @@ export function Verification() {
           }}
         />
         <VerificationCases
-          recordsKey={resource.status === 'ready' ? resource.data.records.map((row) => `${row.id}.${row.status}`).join(',') : 'reading'}
+          recordsKey={casesKey}
           offered={offeredTiers}
           resubmitDisabled={blocked}
           onResubmit={(level) => {
-            setTier(level);
+            const parsed = requestedTier.safeParse(level);
+            if (!parsed.success) return;
+            setTier(parsed.data);
             jump();
           }}
         />

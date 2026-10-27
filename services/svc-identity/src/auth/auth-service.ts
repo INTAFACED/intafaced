@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
-import { approveKycCase, listKycCases, openKycCase, rejectKycCase, type KycRejectReasons } from '../kyc/cases.js';
+import { approveKycCase, assertRejectable, listKycCases, openKycCase, rejectKycCase, type KycRejectReasons } from '../kyc/cases.js';
 import type { KycCase } from '@intafaced/contracts/identity-kyc-cases';
 import type {
   AccountState,
@@ -2864,6 +2864,14 @@ export class AuthService {
     const users = await this.sql<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${userId}`;
     if (!users[0]) throw new AuthError('User not found', 'auth.not_found');
     return listKycCases(this.sql, userId, published, reasons);
+  }
+
+  /**
+   * Refuses (`kyc.case_state`) a reject the decision would refuse anyway, a record already rejected with another code or
+   * before reasons existed, so the router checks it before the four-eyes approval is spent.
+   */
+  async assertKycRejectable(recordId: string, reasonCode: string): Promise<void> {
+    await assertRejectable(this.sql, recordId, reasonCode);
   }
 
   async listPendingKyc(limit: number): Promise<KycRecordView[]> {

@@ -21,7 +21,7 @@ import { MemoryWaitlistStore } from './waitlist/waitlist-store.js';
 import { WaitlistService } from './waitlist/waitlist-service.js';
 import { MemoryShareStore } from './affiliates/share-service.js';
 import { ReferralError } from './affiliates/referral-tree.js';
-import { parseKycRejectReasons } from './kyc/cases.js';
+import { KycCaseError, parseKycRejectReasons } from './kyc/cases.js';
 
 /**
  * The tRPC boundary for KYC and step-up.
@@ -126,6 +126,7 @@ function stubServices(): Stub {
     listKycRecords: record('listKycRecords', () => [kycRecord()]),
     listPendingKyc: record('listPendingKyc', () => [kycRecord()]),
     listKycCases: record('listKycCases', () => []),
+    assertKycRejectable: record('assertKycRejectable', () => undefined),
     getKycRecord: record('getKycRecord', () => kycRecord()),
     kycTier: record('kycTier', () => 'none' as const),
     approveKycRecord: record('approveKycRecord', () =>
@@ -599,6 +600,33 @@ describe('kyc.reject names a reason from the owner list (I-kyc-compliance-01)', 
     const refused = await unset.kyc.reject({ recordId: RECORD, reasonCode: 'document_unreadable', ...kycDual }).catch((e: unknown) => e);
     expect(codeOf(refused)).toBe('PRECONDITION_FAILED');
     expect((refused as { cause?: { code?: string } }).cause?.code).toBe('kyc.reason_codes_unset');
+    expect(consumed).toEqual([]);
+    expect(stub.calls.filter((c) => c.method === 'rejectKycRecord')).toHaveLength(0);
+  });
+
+  it('refuses a case already rejected with another code before the approval is spent', async () => {
+    const consumed: unknown[] = [];
+    const approvals = {
+      ...stubActionApprovals(CONFIRM_KYC),
+      async consume(...args: Parameters<ReturnType<typeof stubActionApprovals>['consume']>) {
+        consumed.push(args);
+        return stubActionApprovals(CONFIRM_KYC).consume(...args);
+      },
+    };
+    const checked: unknown[] = [];
+    const auth: AuthService = Object.assign(Object.create(stub.auth) as AuthService, {
+      async assertKycRejectable(...args: unknown[]) {
+        checked.push(args);
+        throw new KycCaseError('This case is already rejected with document_expired', 'kyc.case_state');
+      },
+    });
+    const api = createIdentityRouter(auth, stub.rank, { actionApprovals: approvals, kycRejectReasons: KYC_REASONS }).createCaller(
+      await ctx(['admin:compliance'], { userId: OPERATOR }),
+    );
+    const refused = await api.kyc.reject({ recordId: RECORD, reasonCode: 'document_unreadable', ...kycDual }).catch((e: unknown) => e);
+    expect(codeOf(refused)).toBe('CONFLICT');
+    expect((refused as { cause?: { code?: string } }).cause?.code).toBe('kyc.case_state');
+    expect(checked).toEqual([[RECORD, 'document_unreadable']]);
     expect(consumed).toEqual([]);
     expect(stub.calls.filter((c) => c.method === 'rejectKycRecord')).toHaveLength(0);
   });
