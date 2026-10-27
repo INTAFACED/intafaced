@@ -79,12 +79,14 @@ jobs:
         run: node "$GATE" --self-test
 
       - name: Look gate
+        id: gate
         run: node "$GATE" --shard ${{ matrix.shard }}/3 --out look-gate-out --changed-from origin/main
 
       # Home's boot frame against Home's loading boxes (apps/customer/src/app/boot-frame.pw.mjs), so the frame and Home
-      # cannot drift apart. It builds its own copy of the app; one shard runs it.
+      # cannot drift apart. It builds its own copy of the app (under a minute); one shard runs it, also after a gate failure,
+      # never after a failed build.
       - name: Boot frame on Home's boxes
-        if: ${{ !cancelled() && matrix.shard == 1 }}
+        if: ${{ matrix.shard == 1 && (success() || steps.gate.outcome == 'failure') }}
         run: pnpm exec playwright test --config apps/customer/src/app/boot-frame.playwright.config.mjs
 
       - name: Keep the shots and the report
