@@ -29,7 +29,8 @@ export default async function ConsoleLayout({ children }: { children: ReactNode 
       <SkipLink />
       <header className="adm-topbar">
         <a className="adm-brand" href={prefs.homePage.value} data-testid="console-home-link">
-          <img src="/intafaced-logo.svg" alt="INTAFACED" width="164" height="30" />
+          {/* The console bar: the kit's top-bar lockup, 24 px tall (public/brand, from packages/ui/brand). */}
+          <span className="adm-lockup" role="img" aria-label="INTAFACED" />
           <small>Founder console</small>
         </a>
         <Nav modules={modules} />
