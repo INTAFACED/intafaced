@@ -1704,31 +1704,17 @@ export const WIRING_SOCKETS = [
   },
   {
     event: 'kycSubmitted',
-    missing: 'publisher',
-    class: 'A',
-    reason:
-      'Declared by the I-kyc-compliance-01 events PR. svc-identity publishes it from an outbox row after the case transition commits (svc-identity PR, next). The case is a durable row that /verification and the compliance queue read.',
-  },
-  {
-    event: 'kycSubmitted',
     missing: 'subscriber',
     class: 'A',
     reason:
-      'No subscriber yet: the review queue reads the case table; no other service needs the event yet. No publisher exists yet either, so no customer is promised a notice.',
-  },
-  {
-    event: 'kycRejected',
-    missing: 'publisher',
-    class: 'A',
-    reason:
-      'Declared by the I-kyc-compliance-01 events PR. svc-identity publishes it from an outbox row after the case transition commits (svc-identity PR, next). The case is a durable row that /verification and the compliance queue read.',
+      'No subscriber yet: the review queue and /verification read the case table; no other service needs the event yet. svc-identity publishes it from the case history row after commit (I-kyc-compliance-01).',
   },
   {
     event: 'kycRejected',
     missing: 'subscriber',
     class: 'A',
     reason:
-      'No subscriber yet: svc-notify writes the reject notice with the reason and resubmit link in its own PR. No publisher exists yet either, so no customer is promised a notice.',
+      'No subscriber yet: svc-notify writes the reject notice with the reason and resubmit link in its own PR, so no mail is promised; the customer reads the reason and the resubmit action on /verification. svc-identity publishes it from the case history row after commit (I-kyc-compliance-01).',
   },
   {
     event: 'kycInfoRequested',

@@ -1,6 +1,8 @@
 import { SecurityLockError } from './auth/security-lock.js';
 import { createKycLevelsRouter } from './kyc/levels-router.js';
 import { EMPTY_KYC_LADDER_SETTINGS, type KycLadderSettings } from './kyc/levels.js';
+import { KycCaseError, kycRejectApprovalFields, requireRejectReason, type KycRejectReasons } from './kyc/cases.js';
+import { kycHistoryOutputSchema, kycReasonCodeSchema } from '@intafaced/contracts/identity-kyc-cases';
 import { z } from 'zod';
 import { router, publicProcedure, protectedProcedure, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts';
 import { rankPerksSchema, rankStateSchema, accountControlResultSchema } from '@intafaced/contracts';
@@ -162,6 +164,17 @@ export function toTrpcError(err: unknown): TRPCError {
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
       case 'kyc_doc.decrypt_failed':
         return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err.message, cause: err });
+    }
+  }
+
+  if (err instanceof KycCaseError) {
+    switch (err.code) {
+      case 'kyc.reason_codes_unset':
+        return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+      case 'kyc.reason_code_unknown':
+        return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+      case 'kyc.case_state':
+        return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
     }
   }
 
@@ -729,6 +742,8 @@ export function createIdentityRouter(
     webauthnEnabled?: boolean;
     /** The owner's published verification requirements and review times (I-kyc-compliance-05). Absent = none published. */
     kycLadder?: KycLadderSettings;
+    /** The owner's reject reasons (IDENTITY_KYC_REJECT_REASONS, I-kyc-compliance-01). Absent or empty: every reject refuses. */
+    kycRejectReasons?: KycRejectReasons;
     /** Social sign-in. Absent means no provider is registered: every start answers `idp.social`. */
     social?: SocialSignin;
     /**
@@ -2189,11 +2204,20 @@ export function createIdentityRouter(
           }
         }),
 
-      /** The other half of a review. Grants nothing and announces nothing. Dual-control matches approve. */
+      /**
+       * The other half of a review. Grants nothing. Dual-control matches approve. A reject names a code from the owner's
+       * reason list (I-kyc-compliance-01), checked before the approval is spent: unset refuses `kyc.reason_codes_unset`,
+       * a code not listed `kyc.reason_code_unknown`. The case records it with the reviewer's note, which the customer
+       * sees only when `noteVisible`, and `kycRejected` goes out after commit. A retry with the same code returns the
+       * stored result; another code on a rejected case refuses `kyc.case_state`.
+       */
       reject: scopedProcedure('admin:compliance')
         .input(
           z.object({
             recordId: z.string().guid(),
+            reasonCode: kycReasonCodeSchema,
+            customerNote: z.string().trim().min(1).max(500).nullish(),
+            noteVisible: z.boolean().optional(),
             confirmOperatorId: z.string().max(128).nullish(),
             approvalId: z.string().max(128).nullish(),
             operationId: z.string().max(128).nullish(),
@@ -2205,11 +2229,24 @@ export function createIdentityRouter(
             requireMfa(ctx.principal);
             assertOperatorKycReview({ service: ctx.service, kid: ctx.principal.kid });
             await refuseOwnKyc(input.recordId, ctx.principal.userId, input);
-            const parties = await consumePrivileged(ctx.principal.userId, input, 'kyc.reject', { recordId: input.recordId });
+            requireRejectReason(options.kycRejectReasons ?? new Map(), input.reasonCode);
+            const customerNote = input.customerNote ?? null;
+            const noteVisible = input.noteVisible ?? false;
+            await auth.assertKycRejectable(input.recordId, { reasonCode: input.reasonCode, customerNote, noteVisible });
+            // The second operator approves what the customer will read: the reason, the note and whether it shows.
+            const parties = await consumePrivileged(
+              ctx.principal.userId,
+              input,
+              'kyc.reject',
+              kycRejectApprovalFields({ recordId: input.recordId, reasonCode: input.reasonCode, customerNote, noteVisible }),
+            );
             return presentKyc(
               await auth.rejectKycRecord({
                 recordId: input.recordId,
                 reviewerId: ctx.principal.userId,
+                reasonCode: input.reasonCode,
+                customerNote,
+                noteVisible,
                 service: ctx.service,
                 kid: ctx.principal.kid,
                 confirmActorId: input.confirmOperatorId,
@@ -2218,6 +2255,33 @@ export function createIdentityRouter(
                 approvalParties: [parties.requesterId, parties.approverId],
               }),
             );
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * The caller's own verification cases, newest first, with each one's history and, for a reject, the owner's reason
+       * and fix guidance (I-kyc-compliance-01). No `userId` input: nobody reads another person's cases through this.
+       */
+      history: scopedProcedure('identity:read')
+        .input(z.object({ limit: z.number().int().min(1).max(200) }))
+        .output(kycHistoryOutputSchema)
+        .query(async ({ ctx, input }) => {
+          try {
+            return { cases: await auth.listKycCases(ctx.principal.userId, input.limit, options.kycRejectReasons ?? new Map()) };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /** Compliance reads any person's cases, the same shape the person sees. An unknown user is `auth.not_found`. */
+      historyFor: scopedProcedure('admin:compliance')
+        .input(z.object({ userId: z.string().guid(), limit: z.number().int().min(1).max(200) }))
+        .output(kycHistoryOutputSchema)
+        .query(async ({ input }) => {
+          try {
+            return { cases: await auth.listKycCases(input.userId, input.limit, options.kycRejectReasons ?? new Map()) };
           } catch (err) {
             throw toTrpcError(err);
           }

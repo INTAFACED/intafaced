@@ -1432,6 +1432,7 @@ if (!available) {
       const second = await auth.submitKyc({ userId: session.userId, tier: 'full', jurisdiction: 'DE' });
       await expect(
         auth.rejectKycRecord({
+          reasonCode: 'document_unreadable',
           recordId: second.id,
           reviewerId: operator.userId,
           kid: 'agent-key',
@@ -1463,9 +1464,9 @@ if (!available) {
         await expect(auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId, approvalParties })).rejects.toMatchObject(
           self,
         );
-        await expect(auth.rejectKycRecord({ recordId: submitted.id, reviewerId: operator.userId, approvalParties })).rejects.toMatchObject(
-          self,
-        );
+        await expect(
+          auth.rejectKycRecord({ reasonCode: 'document_unreadable', recordId: submitted.id, reviewerId: operator.userId, approvalParties }),
+        ).rejects.toMatchObject(self);
       }
 
       expect(await auth.kycTier(session.userId)).toBe('none');
@@ -1588,7 +1589,12 @@ if (!available) {
       const session = await register();
       const operator = await register();
       const submitted = await auth.submitKyc({ userId: session.userId, tier: 'basic', jurisdiction: 'DE' });
-      await auth.rejectKycRecord({ recordId: submitted.id, reviewerId: operator.userId, approvalParties: [] });
+      await auth.rejectKycRecord({
+        reasonCode: 'document_unreadable',
+        recordId: submitted.id,
+        reviewerId: operator.userId,
+        approvalParties: [],
+      });
 
       await expect(
         auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId, approvalParties: [] }),
@@ -1603,14 +1609,24 @@ if (!available) {
       const operator = await register();
       const submitted = await auth.submitKyc({ userId: session.userId, tier: 'basic', jurisdiction: 'DE' });
 
-      const rejected = await auth.rejectKycRecord({ recordId: submitted.id, reviewerId: operator.userId, approvalParties: [] });
+      const rejected = await auth.rejectKycRecord({
+        reasonCode: 'document_unreadable',
+        recordId: submitted.id,
+        reviewerId: operator.userId,
+        approvalParties: [],
+      });
       expect(rejected.status).toBe('rejected');
       expect(rejected.reviewedBy).toBe(operator.userId);
       expect(rejected.reviewedAt).toBeInstanceOf(Date);
       expect(await auth.kycTier(session.userId)).toBe('none');
 
       // Re-reject is a no-op (same stamps), not a second write.
-      const again = await auth.rejectKycRecord({ recordId: submitted.id, reviewerId: 'other-op', approvalParties: [] });
+      const again = await auth.rejectKycRecord({
+        reasonCode: 'document_unreadable',
+        recordId: submitted.id,
+        reviewerId: 'other-op',
+        approvalParties: [],
+      });
       expect(again.reviewedBy).toBe(operator.userId);
       expect(again.reviewedAt?.getTime()).toBe(rejected.reviewedAt?.getTime());
     });
@@ -1619,7 +1635,12 @@ if (!available) {
       const session = await register();
       const operator = await register();
       const first = await auth.submitKyc({ userId: session.userId, tier: 'basic', jurisdiction: 'DE' });
-      await auth.rejectKycRecord({ recordId: first.id, reviewerId: operator.userId, approvalParties: [] });
+      await auth.rejectKycRecord({
+        reasonCode: 'document_unreadable',
+        recordId: first.id,
+        reviewerId: operator.userId,
+        approvalParties: [],
+      });
 
       const second = await auth.submitKyc({ userId: session.userId, tier: 'basic', jurisdiction: 'DE' });
       expect(second.id).not.toBe(first.id);
@@ -1640,7 +1661,12 @@ if (!available) {
       await auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId, approvalParties: [] });
 
       await expect(
-        auth.rejectKycRecord({ recordId: submitted.id, reviewerId: operator.userId, approvalParties: [] }),
+        auth.rejectKycRecord({
+          reasonCode: 'document_unreadable',
+          recordId: submitted.id,
+          reviewerId: operator.userId,
+          approvalParties: [],
+        }),
       ).rejects.toMatchObject({
         code: 'auth.kyc_not_pending',
       });

@@ -7,6 +7,7 @@
  *   node tooling/scripts/local-test-gates.mjs lifecycle  publish the market lifecycle (the "owner" stand-in)
  *   node tooling/scripts/local-test-gates.mjs open       open the books in matching (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs verify     test accounts submit, test operators approve "full"
+ *   node tooling/scripts/local-test-gates.mjs kyc-reject <handle> <reasonCode>   test operators reject a journey account's request
  *   node tooling/scripts/local-test-gates.mjs terms      publish TEST personal transfer limits (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs assets     publish TEST supported assets and networks (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs deposit-terms   publish TEST crypto deposit networks and terms in svc-pay (two-person approval)
@@ -235,6 +236,21 @@ export function kycApproveProposal(recordId) {
     targetId: 'kyc.approve',
     expectedVersion: '1',
     payloadHash: identityPayloadHash('kyc.approve', { recordId }),
+    policyVersion: MARKERS.policyVersion,
+  };
+}
+
+/**
+ * The four-eyes proposal for one KYC reject. The approval binds the record and what the customer reads (the reason,
+ * the note and whether it shows), as `kyc.reject` checks it; this tool sends no note.
+ */
+export function kycRejectProposal(recordId, reasonCode) {
+  return {
+    actionType: 'kyc.reject',
+    targetService: 'svc-identity',
+    targetId: 'kyc.reject',
+    expectedVersion: '1',
+    payloadHash: identityPayloadHash('kyc.reject', { recordId, reasonCode, customerNote: '', noteVisible: 'false' }),
     policyVersion: MARKERS.policyVersion,
   };
 }
@@ -2081,6 +2097,35 @@ export async function approvePending(ctx, sessions = null, { userIds = null } = 
   return out;
 }
 
+/**
+ * Reject one journey account's pending requests through the two-person path, with a code from the stack's TEST reject
+ * reasons (J-identity-08 #6). Only `@local-test.invalid` accounts.
+ */
+export async function rejectPending(ctx, handle, reasonCode) {
+  if (!/^[a-z0-9_]{3,32}$/i.test(handle ?? '') || !/^[a-z][a-z0-9_]{1,63}$/.test(reasonCode ?? ''))
+    throw new Error('usage: local-test-gates.mjs kyc-reject <handle> <reasonCode>');
+  const { users, pending } = listAccountsAndTiers(ctx.secrets);
+  const user = users.find((u) => u.handle === handle);
+  if (!user || !user.email.endsWith('@local-test.invalid')) throw new Error(`kyc-reject: ${handle} is not a journey account`);
+  const todo = pending.filter((r) => r.userId === user.id);
+  const out = [];
+  if (todo.length === 0) return out;
+  const pair = await approverSessions(ctx);
+  for (const r of todo) {
+    const ids = await twoPerson(ctx, pair, kycRejectProposal(r.id, reasonCode));
+    const token = await pair.a.complianceToken();
+    const res = await ctx.edge.mutate(
+      'identity',
+      'kyc.reject',
+      { recordId: r.id, reasonCode, approvalId: ids.approvalId, operationId: ids.operationId },
+      token,
+    );
+    const ok = data(res)?.status === 'rejected';
+    out.push({ handle, recordId: r.id, tier: r.tier, ok, why: ok ? `rejected (${reasonCode})` : refusalText(res) });
+  }
+  return out;
+}
+
 /** Submit what this stack can submit for itself, then approve everything pending. */
 export async function verifyAll(ctx) {
   const before = listAccountsAndTiers(ctx.secrets);
@@ -2157,6 +2202,10 @@ async function main() {
         say(
           `  still without a verified tier (must submit the request themselves, e.g. tap Verify in the app): ${r.stillWithoutFull.join(', ')}`,
         );
+    } else if (cmd === 'kyc-reject') {
+      const rows = await rejectPending(ctx, process.argv[3], process.argv[4]);
+      for (const r of rows) say(`  ${r.ok ? 'OK     ' : 'REFUSED'} ${r.handle} ${r.tier}: ${r.why}`);
+      if (rows.length === 0) say('  no pending verification requests');
     } else if (cmd === 'terms') {
       for (const r of await publishTransferTerms(ctx)) say(`  terms     ${r.assetId.padEnd(10)} published, approved by ${r.approvedBy}`);
     } else if (cmd === 'futures') {
@@ -2251,7 +2300,7 @@ async function main() {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
       die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | halt <SYMBOL> | resume <SYMBOL> | age <handle> <seconds> | status',
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | age <handle> <seconds> | status',
         2,
       );
     }

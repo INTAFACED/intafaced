@@ -1,4 +1,5 @@
 import { parseKycRequirementsByLevel, parseKycReviewHoursByLevel } from './kyc/levels.js';
+import { parseKycRejectReasons, relayKycCaseEvents } from './kyc/cases.js';
 import { readFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -601,6 +602,7 @@ export const appRouter = mergeRouters(
       requirements: parseKycRequirementsByLevel(env.IDENTITY_KYC_REQUIREMENTS_BY_LEVEL),
       reviewHours: parseKycReviewHoursByLevel(env.IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL),
     },
+    kycRejectReasons: parseKycRejectReasons(env.IDENTITY_KYC_REJECT_REASONS),
     social,
     referral,
     share,
@@ -1099,6 +1101,17 @@ setInterval(() => {
     .catch((err) => app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'identity.death_notice_relay_failed'))
     .finally(() => {
       deathNoticeRelayRunning = false;
+    });
+}, 3_000).unref();
+// KYC case history (I-kyc-compliance-01): kycSubmitted and kycRejected from their own rows, at least once; one run at a time.
+let kycCaseRelayRunning = false;
+setInterval(() => {
+  if (kycCaseRelayRunning) return;
+  kycCaseRelayRunning = true;
+  void relayKycCaseEvents({ sql, bus, now: () => new Date() })
+    .catch((err) => app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'identity.kyc_case_relay_failed'))
+    .finally(() => {
+      kycCaseRelayRunning = false;
     });
 }, 3_000).unref();
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });

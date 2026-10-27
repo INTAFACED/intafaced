@@ -21,6 +21,7 @@ import { MemoryWaitlistStore } from './waitlist/waitlist-store.js';
 import { WaitlistService } from './waitlist/waitlist-service.js';
 import { MemoryShareStore } from './affiliates/share-service.js';
 import { ReferralError } from './affiliates/referral-tree.js';
+import { KycCaseError, parseKycRejectReasons } from './kyc/cases.js';
 
 /**
  * The tRPC boundary for KYC and step-up.
@@ -124,6 +125,8 @@ function stubServices(): Stub {
     submitKyc: record('submitKyc', () => kycRecord()),
     listKycRecords: record('listKycRecords', () => [kycRecord()]),
     listPendingKyc: record('listPendingKyc', () => [kycRecord()]),
+    listKycCases: record('listKycCases', () => []),
+    assertKycRejectable: record('assertKycRejectable', () => undefined),
     getKycRecord: record('getKycRecord', () => kycRecord()),
     kycTier: record('kycTier', () => 'none' as const),
     approveKycRecord: record('approveKycRecord', () =>
@@ -231,12 +234,21 @@ function stubServices(): Stub {
   };
 }
 
+/** TEST reject reasons: the owner's list is NO DEFAULT, so the router is given one. */
+const KYC_REASONS = parseKycRejectReasons(
+  JSON.stringify([{ code: 'document_unreadable', reason: 'TEST reason', guidance: 'TEST guidance' }]),
+);
+
 let stub: Stub;
 let router: ReturnType<typeof createIdentityRouter>;
 
 beforeEach(() => {
   stub = stubServices();
-  router = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, actionApprovals: stubActionApprovals(CONFIRM_KYC) });
+  router = createIdentityRouter(stub.auth, stub.rank, {
+    registrationOpen: true,
+    actionApprovals: stubActionApprovals(CONFIRM_KYC),
+    kycRejectReasons: KYC_REASONS,
+  });
 });
 
 const caller = async (scopes: string[], opts?: Parameters<typeof ctx>[1]) => router.createCaller(await ctx(scopes, opts));
@@ -345,7 +357,10 @@ describe('kyc.approve is the operator action that grants custodial access', () =
     // The record belongs to USER. An operator who is that user cannot decide it, approve or reject,
     // and neither can a second operator named as that user.
     const self = await caller(['admin:compliance'], { userId: USER });
-    for (const run of [() => self.kyc.approve({ recordId: RECORD, ...kycDual }), () => self.kyc.reject({ recordId: RECORD, ...kycDual })]) {
+    for (const run of [
+      () => self.kyc.approve({ recordId: RECORD, ...kycDual }),
+      () => self.kyc.reject({ recordId: RECORD, reasonCode: 'document_unreadable', ...kycDual }),
+    ]) {
       const err = await run().catch((e: unknown) => e);
       expect(codeOf(err)).toBe('FORBIDDEN');
       expect((err as { cause?: { code?: string } }).cause?.code).toBe('auth.kyc_self_review');
@@ -369,7 +384,7 @@ describe('kyc.approve is the operator action that grants custodial access', () =
         return parties;
       },
     };
-    const api = createIdentityRouter(stub.auth, stub.rank, { actionApprovals: approvals }).createCaller(
+    const api = createIdentityRouter(stub.auth, stub.rank, { actionApprovals: approvals, kycRejectReasons: KYC_REASONS }).createCaller(
       await ctx(['admin:compliance'], { userId: OPERATOR }),
     );
     const refusals = [
@@ -378,7 +393,10 @@ describe('kyc.approve is the operator action that grants custodial access', () =
     ];
     for (const row of refusals) {
       parties = row;
-      for (const run of [() => api.kyc.approve({ recordId: RECORD, ...kycDual }), () => api.kyc.reject({ recordId: RECORD, ...kycDual })]) {
+      for (const run of [
+        () => api.kyc.approve({ recordId: RECORD, ...kycDual }),
+        () => api.kyc.reject({ recordId: RECORD, reasonCode: 'document_unreadable', ...kycDual }),
+      ]) {
         const err = await run().catch((e: unknown) => e);
         expect((err as { cause?: { code?: string } }).cause?.code).toBe('auth.kyc_self_review');
       }
@@ -398,7 +416,7 @@ describe('kyc.approve is the operator action that grants custodial access', () =
   it('hands both people on the consumed approval to the decision, which refuses either being the subject', async () => {
     const api = await caller(['admin:compliance'], { userId: OPERATOR });
     await api.kyc.approve({ recordId: RECORD, ...kycDual });
-    await api.kyc.reject({ recordId: RECORD, ...kycDual });
+    await api.kyc.reject({ recordId: RECORD, reasonCode: 'document_unreadable', ...kycDual });
     for (const method of ['approveKycRecord', 'rejectKycRecord']) {
       const call = stub.calls.find((c) => c.method === method)!;
       expect((call.args[0] as { approvalParties?: string[] }).approvalParties).toEqual(['requester', CONFIRM_KYC]);
@@ -407,13 +425,19 @@ describe('kyc.approve is the operator action that grants custodial access', () =
 
   it('holds the same bar on reject', async () => {
     const unauthorised = await caller(['identity:write']);
-    expect(codeOf(await unauthorised.kyc.reject({ recordId: RECORD }).catch((e: unknown) => e))).toBe('FORBIDDEN');
+    expect(codeOf(await unauthorised.kyc.reject({ recordId: RECORD, reasonCode: 'document_unreadable' }).catch((e: unknown) => e))).toBe(
+      'FORBIDDEN',
+    );
 
     const noMfa = await caller(['admin:compliance'], { userId: OPERATOR, mfa: false });
-    expect(codeOf(await noMfa.kyc.reject({ recordId: RECORD }).catch((e: unknown) => e))).toBe('UNAUTHORIZED');
+    expect(codeOf(await noMfa.kyc.reject({ recordId: RECORD, reasonCode: 'document_unreadable' }).catch((e: unknown) => e))).toBe(
+      'UNAUTHORIZED',
+    );
 
     const operator = await caller(['admin:compliance'], { userId: OPERATOR });
-    await expect(operator.kyc.reject({ recordId: RECORD, ...kycDual })).resolves.toMatchObject({ status: 'rejected' });
+    await expect(operator.kyc.reject({ recordId: RECORD, reasonCode: 'document_unreadable', ...kycDual })).resolves.toMatchObject({
+      status: 'rejected',
+    });
   });
 
   it('approve/reject without a distinct confirmOperatorId refuses and does not review', async () => {
@@ -428,7 +452,7 @@ describe('kyc.approve is the operator action that grants custodial access', () =
     expect(codeOf(same)).toBe('PRECONDITION_FAILED');
     expect((same as { cause?: { code?: string } }).cause?.code).toBe('action_approval.missing');
 
-    const rejectMissing = await api.kyc.reject({ recordId: RECORD }).catch((e: unknown) => e);
+    const rejectMissing = await api.kyc.reject({ recordId: RECORD, reasonCode: 'document_unreadable' }).catch((e: unknown) => e);
     expect(codeOf(rejectMissing)).toBe('PRECONDITION_FAILED');
     expect((rejectMissing as { cause?: { code?: string } }).cause?.code).toBe('action_approval.missing');
 
@@ -474,7 +498,7 @@ describe('kyc.approve is the operator action that grants custodial access', () =
     expect((err as Error).message).toMatch(/agent must never write reviewed_by/);
     expect(stub.calls.filter((c) => c.method === 'approveKycRecord')).toHaveLength(0);
 
-    const rejectErr = await api.kyc.reject({ recordId: RECORD }).catch((e: unknown) => e);
+    const rejectErr = await api.kyc.reject({ recordId: RECORD, reasonCode: 'document_unreadable' }).catch((e: unknown) => e);
     expect(codeOf(rejectErr)).toBe('FORBIDDEN');
     expect(stub.calls.filter((c) => c.method === 'rejectKycRecord')).toHaveLength(0);
   });
@@ -536,6 +560,140 @@ describe('kyc.submit', () => {
 
     const call = stub.calls.find((c) => c.method === 'submitKyc')!;
     expect((call.args[0] as { jurisdiction: string }).jurisdiction).toBe('DE');
+  });
+});
+
+describe('kyc.reject names a reason from the owner list (I-kyc-compliance-01)', () => {
+  it('passes the code, the note and its visibility to the decision', async () => {
+    const api = await caller(['admin:compliance'], { userId: OPERATOR });
+    await api.kyc.reject({
+      recordId: RECORD,
+      reasonCode: 'document_unreadable',
+      customerNote: ' TEST note ',
+      noteVisible: true,
+      ...kycDual,
+    });
+    const call = stub.calls.find((c) => c.method === 'rejectKycRecord')!;
+    expect(call.args[0]).toMatchObject({ reasonCode: 'document_unreadable', customerNote: 'TEST note', noteVisible: true });
+  });
+
+  it('refuses a reject without a code, with an unknown code, or while the owner list is unset, before the approval is spent', async () => {
+    const consumed: unknown[] = [];
+    const approvals = {
+      ...stubActionApprovals(CONFIRM_KYC),
+      async consume(...args: Parameters<ReturnType<typeof stubActionApprovals>['consume']>) {
+        consumed.push(args);
+        return stubActionApprovals(CONFIRM_KYC).consume(...args);
+      },
+    };
+    const listed = createIdentityRouter(stub.auth, stub.rank, { actionApprovals: approvals, kycRejectReasons: KYC_REASONS }).createCaller(
+      await ctx(['admin:compliance'], { userId: OPERATOR }),
+    );
+    const none = await listed.kyc.reject({ recordId: RECORD, ...kycDual } as never).catch((e: unknown) => e);
+    expect(codeOf(none)).toBe('BAD_REQUEST');
+    const unknown = await listed.kyc.reject({ recordId: RECORD, reasonCode: 'not_listed', ...kycDual }).catch((e: unknown) => e);
+    expect(codeOf(unknown)).toBe('BAD_REQUEST');
+    expect((unknown as { cause?: { code?: string } }).cause?.code).toBe('kyc.reason_code_unknown');
+    const unset = createIdentityRouter(stub.auth, stub.rank, { actionApprovals: approvals }).createCaller(
+      await ctx(['admin:compliance'], { userId: OPERATOR }),
+    );
+    const refused = await unset.kyc.reject({ recordId: RECORD, reasonCode: 'document_unreadable', ...kycDual }).catch((e: unknown) => e);
+    expect(codeOf(refused)).toBe('PRECONDITION_FAILED');
+    expect((refused as { cause?: { code?: string } }).cause?.code).toBe('kyc.reason_codes_unset');
+    expect(consumed).toEqual([]);
+    expect(stub.calls.filter((c) => c.method === 'rejectKycRecord')).toHaveLength(0);
+  });
+
+  it('the four-eyes approval binds the reason, the note and whether it shows, not only the record', async () => {
+    const hashes: string[] = [];
+    const approvals = {
+      ...stubActionApprovals(CONFIRM_KYC),
+      async consume(...args: Parameters<ReturnType<typeof stubActionApprovals>['consume']>) {
+        hashes.push(args[1].payloadHash);
+        return stubActionApprovals(CONFIRM_KYC).consume(...args);
+      },
+    };
+    const api = createIdentityRouter(stub.auth, stub.rank, { actionApprovals: approvals, kycRejectReasons: KYC_REASONS }).createCaller(
+      await ctx(['admin:compliance'], { userId: OPERATOR }),
+    );
+    await api.kyc.reject({
+      recordId: RECORD,
+      reasonCode: 'document_unreadable',
+      customerNote: ' TEST note ',
+      noteVisible: true,
+      ...kycDual,
+    });
+    await api.kyc.reject({ recordId: RECORD, reasonCode: 'document_unreadable', ...kycDual });
+    expect(hashes).toEqual([
+      identityActionPayloadHash('kyc.reject', {
+        recordId: RECORD,
+        reasonCode: 'document_unreadable',
+        customerNote: 'TEST note',
+        noteVisible: 'true',
+      }),
+      identityActionPayloadHash('kyc.reject', {
+        recordId: RECORD,
+        reasonCode: 'document_unreadable',
+        customerNote: '',
+        noteVisible: 'false',
+      }),
+    ]);
+    expect(new Set(hashes).size).toBe(2);
+  });
+
+  it('refuses a case already rejected with another code before the approval is spent', async () => {
+    const consumed: unknown[] = [];
+    const approvals = {
+      ...stubActionApprovals(CONFIRM_KYC),
+      async consume(...args: Parameters<ReturnType<typeof stubActionApprovals>['consume']>) {
+        consumed.push(args);
+        return stubActionApprovals(CONFIRM_KYC).consume(...args);
+      },
+    };
+    const checked: unknown[] = [];
+    const auth: AuthService = Object.assign(Object.create(stub.auth) as AuthService, {
+      async assertKycRejectable(...args: unknown[]) {
+        checked.push(args);
+        throw new KycCaseError('This case is already rejected with document_expired', 'kyc.case_state');
+      },
+    });
+    const api = createIdentityRouter(auth, stub.rank, { actionApprovals: approvals, kycRejectReasons: KYC_REASONS }).createCaller(
+      await ctx(['admin:compliance'], { userId: OPERATOR }),
+    );
+    const refused = await api.kyc.reject({ recordId: RECORD, reasonCode: 'document_unreadable', ...kycDual }).catch((e: unknown) => e);
+    expect(codeOf(refused)).toBe('CONFLICT');
+    expect((refused as { cause?: { code?: string } }).cause?.code).toBe('kyc.case_state');
+    expect(checked).toEqual([[RECORD, { reasonCode: 'document_unreadable', customerNote: null, noteVisible: false }]]);
+    expect(consumed).toEqual([]);
+    expect(stub.calls.filter((c) => c.method === 'rejectKycRecord')).toHaveLength(0);
+  });
+});
+
+describe('kyc.history and kyc.historyFor', () => {
+  it("reads only the caller's own cases, with the owner list", async () => {
+    const api = await caller(['identity:read']);
+    expect(await api.kyc.history({ limit: 20 })).toEqual({ cases: [] });
+    const call = stub.calls.find((c) => c.method === 'listKycCases')!;
+    expect(call.args.slice(0, 2)).toEqual([USER, 20]);
+    expect(call.args[2]).toBe(KYC_REASONS);
+    // There is no userId input: another person's id is not read, it is refused as input.
+    const other = await api.kyc.history({ limit: 20, userId: OPERATOR } as never).catch((e: unknown) => e);
+    expect(other).toEqual({ cases: [] });
+    expect(stub.calls.filter((c) => c.method === 'listKycCases').every((c) => c.args[0] === USER)).toBe(true);
+  });
+
+  it("keeps any person's cases behind admin:compliance", async () => {
+    const user = await caller(['identity:read']);
+    expect(codeOf(await user.kyc.historyFor({ userId: OPERATOR, limit: 5 }).catch((e: unknown) => e))).toBe('FORBIDDEN');
+    const operator = await caller(['admin:compliance'], { userId: OPERATOR });
+    await operator.kyc.historyFor({ userId: USER, limit: 5 });
+    expect(stub.calls.filter((c) => c.method === 'listKycCases').map((c) => c.args[0])).toEqual([USER]);
+  });
+
+  it('an unknown person is NOT_FOUND', async () => {
+    const operator = await caller(['admin:compliance'], { userId: OPERATOR });
+    stub.fail(new AuthError('User not found', 'auth.not_found'));
+    expect(codeOf(await operator.kyc.historyFor({ userId: USER, limit: 5 }).catch((e: unknown) => e))).toBe('NOT_FOUND');
   });
 });
 

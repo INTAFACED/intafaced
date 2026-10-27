@@ -6,6 +6,7 @@ import { useResource } from '../../shared/resource';
 import { Button, Dialog, EmptyState, Failure, Field, Loading, Page } from '../../shared/ui';
 import { verificationCopy as copy } from './verification-copy';
 import { VerificationLadder } from './VerificationLadder';
+import { VerificationCases } from './VerificationCases';
 import { KYC_LADDER_LEVELS } from '@intafaced/contracts/identity-kyc-levels';
 import {
   finishVerification,
@@ -78,6 +79,12 @@ export function Verification() {
   const heldLevel = resource.status === 'ready' ? resource.data.tier : 'none';
   const offeredTiers = KYC_LADDER_LEVELS.slice(KYC_LADDER_LEVELS.indexOf(heldLevel) + 1) as RequestedTier[];
   const chosenTier = offeredTiers.includes(tier) ? tier : (offeredTiers[0] ?? tier);
+  // Case history reads again when a request is sent or decided. It waits for the first status read, and the key holds
+  // while the status re-reads, so the history neither reads twice nor blinks back to loading.
+  const lastCasesKey = useRef<string | null>(null);
+  if (resource.status === 'ready') lastCasesKey.current = resource.data.records.map((row) => `${row.id}.${row.status}`).join(',');
+  // A status read that failed still lets the history read on its own.
+  const casesKey = lastCasesKey.current ?? (resource.status === 'failed' ? 'status-unread' : null);
   useEffect(() => {
     mounted.current = true;
     const changed = (event: StorageEvent) => {
@@ -604,6 +611,21 @@ export function Verification() {
             jump();
           }}
         />
+        {casesKey === null ? (
+          <Loading />
+        ) : (
+          <VerificationCases
+            recordsKey={casesKey}
+            offered={offeredTiers}
+            resubmitDisabled={blocked}
+            onResubmit={(level) => {
+              const parsed = requestedTier.safeParse(level);
+              if (!parsed.success) return;
+              setTier(parsed.data);
+              jump();
+            }}
+          />
+        )}
         {privateVisible && review && same(review) && (
           <Dialog title={t('reviewTitle')} onClose={close}>
             <div className="verification__review stack">
