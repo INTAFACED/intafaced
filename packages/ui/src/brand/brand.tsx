@@ -69,9 +69,19 @@ export function BrandWordmark({ width = 150, title, className, ...props }: SvgPr
   );
 }
 
+type Placement = { x: number; y: number; scale: number };
+const place = (p: Placement) => `translate(${p.x} ${p.y}) scale(${p.scale})`;
+
+/** The smallest mark height (pixels) at which a lockup's wordmark still meets the wordmark's 150-pixel minimum. */
+function minMark(l: { mark: Placement; wordmark: Placement }): number {
+  return Math.ceil((150 * 1000 * l.mark.scale) / (G.wordmark.width * l.wordmark.scale));
+}
+
 /**
- * Mark and wordmark locked together. `size` is the mark's height in CSS pixels. Horizontal under 64 pixels is the kit's
- * top-bar lockup (small mark); the kit's minimum is 24.
+ * Mark and wordmark locked together, placed as the kit's lockup files place them. `size` is the mark's height in CSS
+ * pixels. Horizontal under 64 pixels is the kit's top-bar lockup (small mark), from 64 its master lockup; stacked takes
+ * the mark drawing for its size. Never smaller than the kit allows: 24 pixels for the horizontal lockup (BRAND.md), and
+ * for the stacked one no smaller than keeps its wordmark 150 pixels wide.
  */
 export function BrandLockup({
   layout = 'horizontal',
@@ -80,46 +90,25 @@ export function BrandLockup({
   className,
   ...props
 }: SvgProps & { layout?: 'horizontal' | 'stacked'; size?: number; title?: string }) {
-  if (layout === 'stacked') {
-    const s = G.stacked;
-    const px = Math.max(MIN_MARK, size);
-    const unit = px / 1000;
-    return (
-      <svg
-        data-slot="brand-lockup"
-        data-layout="stacked"
-        className={className}
-        viewBox={`0 0 ${s.width} ${s.height}`}
-        width={Math.round(s.width * unit * 100) / 100}
-        height={Math.round(s.height * unit * 100) / 100}
-        fill="currentColor"
-        focusable="false"
-        {...a11y(title)}
-        {...props}
-      >
-        <path transform={`translate(${s.mark.x} ${s.mark.y}) scale(${s.mark.scale})`} d={G.mark[brandDrawing(px)]} />
-        <path transform={`translate(${s.wordmark.x} ${s.wordmark.y}) scale(${s.wordmark.scale})`} d={G.wordmark.d} />
-      </svg>
-    );
-  }
-  const px = Math.max(24, size);
-  const h = px >= 64 ? G.horizontal : G.topbar;
-  const unit = px / 1000;
+  const kit = layout === 'stacked' ? G.stacked : size >= 64 ? G.horizontal : G.topbar;
+  const px = Math.max(layout === 'stacked' ? minMark(kit) : 24, size);
+  const drawing = layout === 'stacked' ? brandDrawing(px) : kit.drawing;
+  const unit = px / (1000 * kit.mark.scale);
   return (
     <svg
       data-slot="brand-lockup"
-      data-layout="horizontal"
+      data-layout={layout}
       className={className}
-      viewBox={`0 0 ${h.width} ${h.height}`}
-      width={Math.round(h.width * unit * 100) / 100}
-      height={px}
+      viewBox={`0 0 ${kit.width} ${kit.height}`}
+      width={Math.round(kit.width * unit * 100) / 100}
+      height={Math.round(kit.height * unit * 100) / 100}
       fill="currentColor"
       focusable="false"
       {...a11y(title)}
       {...props}
     >
-      <path d={G.mark[px >= 64 ? 'master' : 'small']} />
-      <path transform={`translate(${h.wordmark.x} ${h.wordmark.y}) scale(${h.wordmark.scale})`} d={G.wordmark.d} />
+      <path data-part="mark" transform={place(kit.mark)} d={G.mark[drawing]} />
+      <path data-part="wordmark" transform={place(kit.wordmark)} d={G.wordmark.d} />
     </svg>
   );
 }

@@ -184,21 +184,13 @@ export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>,
     </div>
   );
 }
-export function Loading({ label }: { label?: ReactNode }) {
+/** Data on its way. `room`: a room's code is still arriving, so the brand's iris turns instead of the dot. */
+export function Loading({ label, room }: { label?: ReactNode; room?: boolean }) {
   const { Copy } = uiCopy.useCopy();
   return (
-    <div className="loading" role="status">
-      <span className="loading-dot" />
+    <div className={room ? 'loading loading--room' : 'loading'} role="status">
+      {room ? <BrandIris size={24} mode="loop" /> : <span className="loading-dot" />}
       {label ?? <Copy k="loading" />}…
-    </div>
-  );
-}
-/** A room's code is still arriving: the brand's iris loop, then the words. Inside a room, data waits with `Loading`. */
-export function RoomLoading({ label }: { label: ReactNode }) {
-  return (
-    <div className="loading loading--room" role="status">
-      <BrandIris size={24} mode="loop" />
-      {label}…
     </div>
   );
 }

@@ -496,6 +496,10 @@
   align-items: center;
   color: var(--lit-text-1);
 }
+.lit-logo [data-slot='brand-mark'],
+.lit-logo [data-part='mark'] {
+  fill: var(--lit-accent);
+}
 .lit-logo[data-lit] svg {
   filter: drop-shadow(0 0 6px var(--lit-accent));
 }

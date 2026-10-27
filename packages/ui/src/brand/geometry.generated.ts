@@ -29,6 +29,12 @@ export const BRAND_GEOMETRY = {
   horizontal: {
     width: 6310.5,
     height: 1000,
+    drawing: 'master',
+    mark: {
+      x: 0,
+      y: 0,
+      scale: 1,
+    },
     wordmark: {
       x: 1190.9,
       y: 312.5,
@@ -38,6 +44,12 @@ export const BRAND_GEOMETRY = {
   topbar: {
     width: 6310.5,
     height: 1000,
+    drawing: 'small',
+    mark: {
+      x: 0,
+      y: 0,
+      scale: 1,
+    },
     wordmark: {
       x: 1190.9,
       y: 312.5,
@@ -47,6 +59,7 @@ export const BRAND_GEOMETRY = {
   stacked: {
     width: 3413.1,
     height: 1500,
+    drawing: 'master',
     mark: {
       x: 1206.5,
       y: 0,

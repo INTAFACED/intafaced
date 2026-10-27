@@ -358,7 +358,7 @@ html[data-theme='light'] .button--danger {
 }
 .loading--room .brand-iris {
   flex: none;
-  color: var(--color-text);
+  color: var(--if-text);
 }
 .loading-dot {
   width: 8px;

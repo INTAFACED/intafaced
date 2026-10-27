@@ -1,5 +1,5 @@
 import { Component, Suspense, lazy, useEffect, type MouseEvent, type ReactNode } from 'react';
-import { Page, EmptyState, Button, RoomLoading } from '../shared/ui';
+import { Page, EmptyState, Button, Loading } from '../shared/ui';
 import { deskPairLabel, findRoom, resolveAlias, roomTitle, safeReturnTo, type Room } from './navigation';
 import { useLocation, useReturnLocation, currentReturnLocation, navigate } from './location';
 import { Shell } from './Shell';
@@ -161,7 +161,7 @@ export function App() {
   const fallback = (
     <div className="legacy-room">
       <div data-testid="page" className="page">
-        <RoomLoading label={t('Opening room')} />
+        <Loading room label={t('Opening room')} />
       </div>
     </div>
   );

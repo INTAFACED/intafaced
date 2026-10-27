@@ -150,7 +150,7 @@
 .auth-story-mark {
   display: block;
   margin-block-end: var(--if-space-8);
-  color: var(--color-text);
+  color: var(--if-text);
 }
 .auth-story .eyebrow {
   font-size: var(--if-text-xs);

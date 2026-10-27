@@ -39,6 +39,12 @@ describe('brand', () => {
     expect(html(<BrandMark size={8} />)).toContain('width="16"');
     expect(html(<BrandLockup size={12} />)).toContain('height="24"');
     expect(html(<BrandWordmark width={60} />)).toContain('width="150"');
+    // the stacked lockup's wordmark stays at least 150 pixels wide
+    const stacked = html(<BrandLockup layout="stacked" size={16} />);
+    const width = Number(/width="([\d.]+)"/.exec(stacked)![1]);
+    expect(
+      (width * (BRAND_GEOMETRY.wordmark.width * BRAND_GEOMETRY.stacked.wordmark.scale)) / BRAND_GEOMETRY.stacked.width,
+    ).toBeGreaterThanOrEqual(150);
   });
 
   it('takes its colour from the text around it, never a raw value', () => {
@@ -53,6 +59,19 @@ describe('brand', () => {
     expect(html(<BrandLockup />)).toContain('aria-label="INTAFACED"');
     expect(html(<BrandMark />)).toContain('aria-hidden="true"');
     expect(html(<BrandMark title="INTAFACED" />)).toContain('role="img"');
+  });
+
+  it('places mark and wordmark where the kit lockup files place them', () => {
+    for (const [el, kit] of [
+      [<BrandLockup size={24} />, BRAND_GEOMETRY.topbar],
+      [<BrandLockup size={96} />, BRAND_GEOMETRY.horizontal],
+      [<BrandLockup layout="stacked" size={96} />, BRAND_GEOMETRY.stacked],
+    ] as const) {
+      const out = html(el);
+      expect(out).toContain(`viewBox="0 0 ${kit.width} ${kit.height}"`);
+      expect(out).toContain(`transform="translate(${kit.mark.x} ${kit.mark.y}) scale(${kit.mark.scale})"`);
+      expect(out).toContain(`transform="translate(${kit.wordmark.x} ${kit.wordmark.y}) scale(${kit.wordmark.scale})"`);
+    }
   });
 
   it('the horizontal lockup uses the top-bar drawing under 64 pixels and the master from 64', () => {
