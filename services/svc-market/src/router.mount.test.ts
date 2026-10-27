@@ -653,7 +653,7 @@ describe('svc-market mount — commerce scopes', () => {
       })),
       createListing: vi.fn(async () => listingRow),
       archiveListing: vi.fn(async () => ({ ...listingRow, status: 'archived' as const })),
-      myListings: vi.fn(async () => [listingRow]),
+      myListings: vi.fn(async (_userId: string, _opts?: { limit?: number }) => [listingRow]),
       publicListings: vi.fn(async () => [listingRow]),
       purchase: vi.fn(async () => ({
         id: purchaseId,
@@ -672,7 +672,7 @@ describe('svc-market mount — commerce scopes', () => {
         accessUntil: null,
         periodSeconds: null,
       })),
-      purchasesOf: vi.fn(async () => []),
+      purchasesOf: vi.fn(async (_buyerId: string, _opts?: { limit?: number }): Promise<never[]> => []),
       cancelSubscription: vi.fn(),
       subscriptionAccess: vi.fn(),
       opsSales: vi.fn(),
