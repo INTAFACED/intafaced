@@ -50,6 +50,7 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
   const address = account.address.toLowerCase();
   const calls = Object.assign({}, ...tokens.map((token) => tokenAnswers(chainId, address, token)));
   const requests = [];
+  const sends = [];
   let rejectNext = false;
   let otherKeyNext = false;
   // Signing runs here, outside the page: the key never enters the browser.
@@ -69,17 +70,27 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
     const { EIP712Domain: _domain, ...rest } = types;
     return { signature: await account.signTypedData({ domain, types: rest, primaryType, message }) };
   });
+  // A transaction the page asks to send is kept, so a test can read what was built; with no TEST chain it is never sent.
+  await page.exposeFunction('__testWalletSend', (method, params) => {
+    sends.push({ method, params });
+  });
+  // The wallet remembers that it authorised this page across navigations and reloads, as a real one does, so the app's
+  // eth_accounts restore finds the account again. A new page starts unauthorised.
+  let authorised = false;
+  await page.exposeFunction('__testWalletAuthorised', (next) => {
+    if (next !== undefined) authorised = next;
+    return authorised;
+  });
   await page.addInitScript(
     ({ info, address, startChain, calls }) => {
       let chain = startChain;
-      let connected = false;
       const listeners = new Map();
       const emit = (event, value) => (listeners.get(event) ?? []).forEach((listener) => listener(value));
       const hex = (id) => `0x${id.toString(16)}`;
       const provider = {
         async request({ method, params }) {
-          if (method === 'eth_requestAccounts') return ((connected = true), [address]);
-          if (method === 'eth_accounts') return connected ? [address] : [];
+          if (method === 'eth_requestAccounts') return (await window.__testWalletAuthorised(true), [address]);
+          if (method === 'eth_accounts') return (await window.__testWalletAuthorised()) ? [address] : [];
           if (method === 'eth_chainId') return hex(chain);
           if (method === 'eth_call') {
             const answer = calls[`${String(params[0].to).toLowerCase()}:${String(params[0].data).toLowerCase()}`];
@@ -96,6 +107,8 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
             emit('chainChanged', hex(chain));
             return null;
           }
+          if (['eth_sendTransaction', 'eth_sendRawTransaction', 'wallet_sendCalls'].includes(method))
+            await window.__testWalletSend(method, params);
           throw Object.assign(new Error(`The TEST wallet does not answer ${method}`), { code: 4200 });
         },
         on: (event, listener) => listeners.set(event, [...(listeners.get(event) ?? []), listener]),
@@ -124,6 +137,8 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
     address,
     /** Every signature the page asked for, in order: `{ method, params }`. */
     requests,
+    /** Every transaction or call batch the page asked the wallet to send, in order: `{ method, params }`. None reaches a chain. */
+    sends,
     /** The next signature request is refused the way a person pressing Reject in the wallet refuses it (code 4001). */
     rejectNext: () => {
       rejectNext = true;
