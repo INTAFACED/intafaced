@@ -6,7 +6,7 @@
 
 | Service | Purpose | HTTP port | Host | Required env (no default) |
 | --- | --- | --- | --- | --- |
-| `svc-academy` | Live lobbies with capacity tiers (§8.3, §XIII) plus the curriculum library (list · body · study guide · depth). | 4016 | compose network only | `DATABASE_POOL_MAX`, `DATABASE_URL`, `EDGE_PRINCIPAL_SECRET`, `INTERNAL_SERVICE_SECRET` |
+| `svc-academy` | Live lobbies with capacity tiers (§8.3, §XIII) plus the curriculum library (list · body · study guide · depth). | 4016 | compose network only | `ACADEMY_GRADE_REPORT_ROWS`, `DATABASE_POOL_MAX`, `DATABASE_URL`, `EDGE_PRINCIPAL_SECRET`, `INTERNAL_SERVICE_SECRET` |
 | `svc-agents` | The agent fleet runtime and model gateway (§8.2). | 4008 | compose network only | `AGENTS_FEE_ASSET_ID`, `AGENTS_METERING_ENABLED`, `AGENTS_USAGE_WINDOW_MINUTES`, `DATABASE_POOL_MAX`, `DATABASE_URL`, `EDGE_PRINCIPAL_SECRET`, `INTERNAL_SERVICE_SECRET`, `LEDGER_URL` |
 | `svc-bank` | Multi-currency accounts over the ledger (§8.1). | 4009 | compose network only | `DATABASE_POOL_MAX`, `DATABASE_URL`, `EDGE_PRINCIPAL_SECRET`, `INTERNAL_SERVICE_SECRET`, `LOAN_QUOTE_ASSET_ID`, `LOAN_SWEEP_BATCH_SIZE`, `TRANSFER_BATCH_SIZE` |
 | `svc-blueprint` | The Identity Blueprint (§7.1). Phase 4. | 4011 | compose network only | `DATABASE_POOL_MAX`, `DATABASE_URL`, `EDGE_PRINCIPAL_SECRET` |
