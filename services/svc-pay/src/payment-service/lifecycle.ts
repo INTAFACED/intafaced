@@ -407,6 +407,19 @@ export async function authorize(
 }
 
 /**
+ * Only an authorized payment is captured. `disputed -> captured` is a legal move, but it belongs to a won dispute
+ * (restoreAfterWonDispute), never to a capture call: a capture retried after a dispute opened would append a second
+ * `captured` event (doubling the captured total, so the refundable amount) and read the payment as paid again.
+ */
+function refuseDisputedCapture(row: { id: string; status: string }): void {
+  if (row.status !== 'disputed') return;
+  throw new PayError(`Payment ${row.id} is disputed; only a won dispute returns it to captured`, 'pay.invalid_transition', {
+    from: row.status,
+    to: 'captured',
+  });
+}
+
+/**
  * `authorized → captured`. THE INBOUND MONEY PATH.
  *
  * The rail moves first and the ledger books second: we only book value we
@@ -420,19 +433,6 @@ export async function authorize(
  * the merchant is made whole. That is the entire reason both halves are keyed
  * on the payment rather than on the attempt.
  */
-/**
- * Only an authorized payment is captured. `disputed -> captured` is a legal move, but it belongs to a won dispute
- * (restoreAfterWonDispute), never to a capture call: a capture retried after a dispute opened would append a second
- * `captured` event (doubling the captured total, so the refundable amount) and read the payment as paid again.
- */
-function refuseDisputedCapture(row: { id: string; status: string }): void {
-  if (row.status !== 'disputed') return;
-  throw new PayError(`Payment ${row.id} is disputed; only a won dispute returns it to captured`, 'pay.invalid_transition', {
-    from: row.status,
-    to: 'captured',
-  });
-}
-
 export async function capture(
   svc: PayServiceInternal,
   paymentId: string,
@@ -445,7 +445,7 @@ export async function capture(
 ): Promise<PaymentView> {
   const original = await readPayment(svc.sql, paymentId);
   if (['captured', 'settled'].includes(original.status)) return svc.getPayment(paymentId);
-  // Refused before anything is admitted, and again under the payment lock for a dispute that opens in between.
+  // Refused before anything is admitted, and again under the payment lock below.
   refuseDisputedCapture(original);
   return withMoneySpan('pay.capture', { operation: 'capture', paymentId }, async (span) =>
     svc
@@ -477,9 +477,7 @@ export async function capture(
           // irreversible capture, recreating the stale-eligibility race.
           const row = await lockPayment(tx, paymentId);
           if (row.status === 'captured' || row.status === 'settled') return svc.view(tx, row);
-          // Only an authorized payment is captured. `disputed -> captured` is a legal move, but it belongs to a won
-          // dispute (restoreAfterWonDispute), never to a capture call: a capture retried after a dispute opened would
-          // book a second `captured` event (doubling the captured total) and read the payment as paid again.
+          // A dispute can open between the first read and this lock.
           refuseDisputedCapture(row);
           assertTransition(row, 'captured');
           if (svc.rails.has(row.rail_adapter) && svc.rails.get(row.rail_adapter).checksPayerName) await assertNoPayerNameHold(tx, row.id);
