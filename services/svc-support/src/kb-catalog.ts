@@ -7,6 +7,7 @@
  */
 
 import type { SupportKbArticle } from '@intafaced/contracts';
+import { en } from '@intafaced/i18n';
 
 /**
  * Day-one platform KB spine. Keys are catalog ids for @intafaced/i18n —
@@ -251,6 +252,12 @@ export function listPlatformKb(): readonly SupportKbArticle[] {
   return publishedOnly(PLATFORM_KB_SPINE).map((a) => assertKbArticle({ ...a }));
 }
 
+/** The English title a catalogue-keyed article shows (the copy catalogue's text for its key), or null without one. */
+function publishedTitle(titleKey: string): string | null {
+  const text = (en as Readonly<Record<string, unknown>>)[titleKey];
+  return typeof text === 'string' ? text : null;
+}
+
 /**
  * How closely one article matches a query. A label (tag or category) outranks
  * a title, which outranks the body. Zero means it is not a hit.
@@ -260,10 +267,11 @@ function kbSearchScore(article: SupportKbArticle, q: string): number {
   let score = 0;
   if (labels.some((label) => label === q)) score += 300;
   else if (labels.some((label) => label.includes(q))) score += 200;
-  // A version typed in the desk is matched on its text; a catalogue-keyed one on its keys.
+  // A version typed in the desk is matched on its text; a catalogue-keyed one on its keys and on the title people read.
   const title = article.title ?? article.titleKey;
   const body = article.body ?? article.bodyKey;
-  if (title.toLowerCase().includes(q)) score += 100;
+  const shown = article.title === undefined ? publishedTitle(article.titleKey) : null;
+  if (title.toLowerCase().includes(q) || (shown !== null && shown.toLowerCase().includes(q))) score += 100;
   if (article.id.toLowerCase().includes(q)) score += 80;
   if (body.toLowerCase().includes(q)) score += 10;
   return score;

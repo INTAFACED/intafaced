@@ -158,6 +158,35 @@ test(`${J} #4 typing "chain" lists the parked room and says it opens to its bloc
   await expect(page).toHaveURL(/\/chain$/);
 });
 
+test(`${J} #5 typing a help article's title lists it under Help and opens it; with no help result limit set the search says so and still offers Help`, async ({
+  page,
+}) => {
+  await signIn(page, who);
+  await page.goto('/home');
+  // The title as the Help centre shows it; the stack's owner values (TEST) set how many articles the search lists.
+  const panel = await search(page, 'Sign-in and account access');
+  const article = panel.getByRole('option').filter({ hasText: 'Sign-in and account access' });
+  await expect(article).toBeVisible();
+  await expect(panel.getByRole('option', { name: 'Open Help' })).toBeVisible();
+  await article.click();
+  await expect(page).toHaveURL(/\/helpdetail\?id=kb-account-access/);
+  await expect(page.locator('main')).toContainText('Sign-in and account access');
+
+  // The one outside thing here: the browser is told the help result limit is blank (svc-ops itself is untouched).
+  await page.route('**/home.config**', (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ result: { data: { workListCap: null, workListOrder: null, searchResultCap: null, revision: 0 } } }),
+    }),
+  );
+  await page.goto('/home');
+  const unset = await search(page, 'Sign-in and account access');
+  await expect(unset).toContainText('Help articles are hidden: no limit for the number of results is set.');
+  await expect(unset.getByRole('option').filter({ hasText: 'Sign-in and account access' })).toHaveCount(0);
+  await unset.getByRole('option', { name: 'Open Help' }).click();
+  await expect(page).toHaveURL(/\/support$/);
+});
+
 test(`${J} #8 a deep link while signed out: public rooms open, private rooms ask to sign in and come back to the same room`, async ({
   browser,
 }) => {
