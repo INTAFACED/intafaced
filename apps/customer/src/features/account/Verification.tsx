@@ -8,6 +8,7 @@ import { verificationCopy as copy } from './verification-copy';
 import { VerificationLadder } from './VerificationLadder';
 import { VerificationCases } from './VerificationCases';
 import { VerificationCapabilities } from './VerificationCapabilities';
+import { VerificationAttempts } from './VerificationAttempts';
 import { KYC_LADDER_LEVELS } from '@intafaced/contracts/identity-kyc-levels';
 import {
   finishVerification,
@@ -35,6 +36,8 @@ type Known = {
   local: VerificationOriginal;
   row?: VerificationRecord;
   refused: boolean;
+  /** Set when the refusal was the attempt limit: the seconds the service said were left. */
+  retryAfterSeconds?: number;
   retained: boolean;
   finalized?: boolean;
 };
@@ -53,6 +56,9 @@ export function Verification() {
     [known, setKnown] = useState<Known[]>([]);
   const [problem, setProblem] = useState<Problem | null>(null),
     [selected, setSelected] = useState<VerificationRecord | null>(null);
+  // At the owner's limit on rejected requests the form holds until the lockout ends (I-kyc-compliance-10).
+  const [locked, setLocked] = useState(false),
+    [lockRefusals, setLockRefusals] = useState(0);
   const [stored, setStored] = useState<{ owner: string | null; value: VerificationJournal }>(() => ({
     owner: userId,
     value: userId ? readVerification(userId) : emptyJournal,
@@ -124,7 +130,7 @@ export function Verification() {
   const same = (intent: Original) => sameActor(intent) && original.current === intent;
   const journal = stored.owner === userId ? stored.value : userId ? readVerification(userId) : emptyJournal;
   const busy = Boolean(active && sameActor(active));
-  const blocked = !userId || busy || !api.canWrite() || verificationBlocked(journal);
+  const blocked = !userId || busy || locked || !api.canWrite() || verificationBlocked(journal);
   const visibleKnown = known.filter((receipt) => sameActor(receipt.original));
   function sync(owner: string) {
     if (mounted.current && current.current.userId === owner) setStored({ owner, value: readVerification(owner) });
@@ -217,10 +223,20 @@ export function Verification() {
         if (!same(intent)) return;
         if (answer.ok || verificationRefused(answer)) {
           const retained = !finishVerification(local);
+          const lockout = !answer.ok && answer.code === 'kyc.attempts_exhausted';
           setKnown((previous) => [
             ...previous,
-            { original: intent, local, ...(answer.ok ? { row: { ...answer.data } } : {}), refused: !answer.ok, retained },
+            {
+              original: intent,
+              local,
+              ...(answer.ok ? { row: { ...answer.data } } : {}),
+              ...(lockout && answer.retryAfterSeconds ? { retryAfterSeconds: answer.retryAfterSeconds } : {}),
+              refused: !answer.ok,
+              retained,
+            },
           ]);
+          // The attempt limit refused it: read the standing again, so the countdown and the held form show.
+          if (lockout) setLockRefusals((n) => n + 1);
         }
         // Every unqualified failure remains unknown. No current list match releases it.
         sync(intent.owner);
@@ -390,6 +406,10 @@ export function Verification() {
                       <Copy k="replyBoundary" />
                     </p>
                   </>
+                ) : receipt.retryAfterSeconds ? (
+                  <p>
+                    <Copy k="refusedLocked" params={{ seconds: String(receipt.retryAfterSeconds) }} />
+                  </p>
                 ) : (
                   <p>
                     <Copy k="refusedBody" />
@@ -544,6 +564,7 @@ export function Verification() {
             <p className="muted">
               <Copy k="requestBody" />
             </p>
+            {casesKey !== null && <VerificationAttempts recordsKey={`${casesKey}:${lockRefusals}`} onLocked={setLocked} />}
             {offeredTiers.length > 0 ? (
               <form
                 ref={form}

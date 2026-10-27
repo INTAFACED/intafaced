@@ -105,7 +105,10 @@ export function finishVerification(original: VerificationOriginal) {
   );
 }
 /** Actual kyc.submit router maps the missing owner SELECT to localized404 with
- * this named cause before existing-record selection or INSERT. No generic4xx/500. */
+ * this named cause before existing-record selection or INSERT. No generic4xx/500.
+ * The attempt limit (I-kyc-compliance-10) refuses inside the same transaction before the INSERT: 429 with its code. */
 export function verificationRefused(answer: ApiResult<unknown>) {
-  return !answer.ok && answer.status === 404 && answer.reason === 'not_mounted' && answer.code === 'auth.not_found' && !answer.messageCopy;
+  if (answer.ok) return false;
+  if (answer.status === 429 && answer.code === 'kyc.attempts_exhausted') return true;
+  return answer.status === 404 && answer.reason === 'not_mounted' && answer.code === 'auth.not_found' && !answer.messageCopy;
 }

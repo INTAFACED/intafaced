@@ -5,6 +5,8 @@ import { KycCaseError, kycRejectApprovalFields, requireRejectReason, type KycRej
 import { kycHistoryOutputSchema, kycReasonCodeSchema } from '@intafaced/contracts/identity-kyc-cases';
 import { kycCapabilitiesOutputSchema, kycCapabilitySchema } from '@intafaced/contracts/identity-kyc-capabilities';
 import { KycCapabilityError } from './kyc/capabilities.js';
+import { KycAttemptsError } from './kyc/attempts.js';
+import { kycAttemptsSchema } from '@intafaced/contracts/identity-kyc-attempts';
 import { z } from 'zod';
 import { router, publicProcedure, protectedProcedure, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts';
 import { rankPerksSchema, rankStateSchema, accountControlResultSchema } from '@intafaced/contracts';
@@ -167,6 +169,10 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'kyc_doc.decrypt_failed':
         return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err.message, cause: err });
     }
+  }
+
+  if (err instanceof KycAttemptsError) {
+    return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: userCopy(err.code), cause: err });
   }
 
   if (err instanceof KycCapabilityError) {
@@ -546,6 +552,11 @@ const kycRecordOutput = z.object({
   createdAt: z.string(),
 });
 
+/** A KYC decision is an operator's: any service caller or agent key is refused, whatever its name. */
+function refuseAgentKycReview(ctx: { service?: string | null; principal: { kid?: string | null } }): void {
+  assertOperatorKycReview({ service: ctx.service, kid: ctx.principal.kid });
+}
+
 /**
  * What a KYC record looks like on the wire.
  *
@@ -554,11 +565,6 @@ const kycRecordOutput = z.object({
  * the reviewing operator to the user under review is how a compliance officer
  * acquires a personal adversary. Both stay server-side.
  */
-/** A KYC decision is an operator's: any service caller or agent key is refused, whatever its name. */
-function refuseAgentKycReview(ctx: { service?: string | null; principal: { kid?: string | null } }): void {
-  assertOperatorKycReview({ service: ctx.service, kid: ctx.principal.kid });
-}
-
 function presentKyc(record: KycRecordView) {
   return {
     id: record.id,
@@ -2299,6 +2305,22 @@ export function createIdentityRouter(
             throw toTrpcError(err);
           }
         }),
+
+      /**
+       * The caller's standing against the owner's limit on rejected requests (I-kyc-compliance-10): the limit, or null
+       * when none is set; the rejections in the window; when a new request opens again. No `userId` input.
+       */
+      attempts: router({
+        read: scopedProcedure('identity:read')
+          .output(kycAttemptsSchema)
+          .query(async ({ ctx }) => {
+            try {
+              return await auth.kycAttempts(ctx.principal.userId);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+      }),
 
       /**
        * What a person's verification lets them do (I-kyc-compliance-07): custody, transfer and trade, crypto and fiat,
