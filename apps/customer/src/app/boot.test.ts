@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -130,10 +130,11 @@ describe('index.html and the frame', () => {
     expect(source).toMatch(/html\[data-boot='home'\] #boot-frame \{\s*display: block;/);
   });
 
-  it('holds no figures and no words but the wordmark, and is hidden from assistive technology', () => {
+  it('holds no figures and no words, only the brand, and is hidden from assistive technology', () => {
     const frame = source.slice(source.indexOf('<div id="boot-frame"'), source.indexOf('<div id="root">'));
     expect(frame).toContain('aria-hidden="true"');
-    expect(frame.replace(/<[^>]+>/g, '').replace(/\s+/g, '')).toBe('intafaced·');
+    expect(frame).toContain('<span class="bf-brand"></span>');
+    expect(frame.replace(/<[^>]+>/g, '').replace(/\s+/g, '')).toBe('');
   });
 
   it('keeps the no-eval setting ahead of the app module', () => {
@@ -146,10 +147,27 @@ describe('index.html and the frame', () => {
     expect(style.replace(/1px solid/g, '')).not.toMatch(/\d+px/);
   });
 
-  it('draws the wordmark in the system face, so it starts no web font download', () => {
-    const rule = source.slice(source.indexOf('#boot-frame .bf-top {'), source.indexOf('#boot-frame .bf-top span'));
-    expect(rule).toMatch(/font:\s+700 [^;]*system-ui,\s+sans-serif;/);
-    expect(rule).not.toMatch(/--if-font|Inter/);
+  it('draws the brand as the app bar does, from the kit files in the text colour, and starts no web font download', () => {
+    const style = source.slice(source.indexOf('<style>'), source.indexOf('</style>'));
+    const rule = style.slice(style.indexOf('#boot-frame .bf-brand {'));
+    expect(rule).toMatch(/mask: url\(\/brand\/lockup-topbar\.svg\)/);
+    expect(rule).toMatch(/background: var\(--if-text\)/);
+    expect(style).toMatch(/mask-image: url\(\/brand\/mark-small\.svg\)/);
+    expect(style).not.toMatch(/--if-font|Inter/);
+    for (const file of ['lockup-topbar.svg', 'mark-small.svg']) expect(existsSync(join(here, '../../public/brand', file))).toBe(true);
+  });
+
+  it('names the tab, the home-screen icon and the shared link with the brand files', () => {
+    for (const href of [
+      '/brand/favicon.svg',
+      '/brand/favicon-32.png',
+      '/brand/apple-touch-icon-180.png',
+      '/manifest.webmanifest',
+      '/brand/og-image.png',
+    ])
+      expect(source).toContain(`"${href}"`);
+    const manifest = JSON.parse(readFileSync(join(here, '../../public/manifest.webmanifest'), 'utf8')) as { icons: { src: string }[] };
+    for (const icon of manifest.icons) expect(existsSync(join(here, '../../public', icon.src))).toBe(true);
   });
 });
 

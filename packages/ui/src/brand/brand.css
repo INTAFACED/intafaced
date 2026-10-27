@@ -1,0 +1,92 @@
+/*
+ * The iris motion (BRAND.md): one blade per eighth turns about its outer vertex while the whole mark turns about its
+ * centre. The loop ends where it began; nothing bounces or overshoots. Reduced motion turns nothing.
+ */
+.brand-iris__spin {
+  transform-box: view-box;
+  transform-origin: 50% 50%;
+}
+.brand-iris__blade {
+  transform-box: view-box;
+  transform-origin: 0 0;
+}
+.brand-iris[data-mode='loop'] .brand-iris__spin {
+  animation: brand-iris-spin 1400ms cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+.brand-iris[data-mode='loop'] .brand-iris__blade {
+  animation: brand-iris-blade 1400ms cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+.brand-iris[data-mode='open'] .brand-iris__spin {
+  animation: brand-iris-open-spin 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.brand-iris[data-mode='open'] .brand-iris__blade {
+  animation: brand-iris-open-blade 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes brand-iris-spin {
+  from {
+    transform: rotate(0);
+  }
+  to {
+    transform: rotate(45deg);
+  }
+}
+@keyframes brand-iris-blade {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  50% {
+    transform: rotate(10deg);
+  }
+}
+@keyframes brand-iris-open-spin {
+  from {
+    transform: rotate(-22.5deg);
+  }
+  to {
+    transform: rotate(0);
+  }
+}
+@keyframes brand-iris-open-blade {
+  from {
+    transform: rotate(24deg);
+  }
+  to {
+    transform: rotate(0);
+  }
+}
+@keyframes brand-iris-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .brand-iris .brand-iris__spin,
+  .brand-iris .brand-iris__blade {
+    animation: none;
+  }
+  .brand-iris[data-mode='loop'] {
+    animation: brand-iris-breathe 1600ms ease-in-out infinite;
+  }
+}
+
+/* The app bar's brand: lockup when wide, mark alone on a phone (the shell's phone break, 767 px). */
+.brand-bar {
+  display: inline-flex;
+  align-items: center;
+}
+.brand-bar__compact {
+  display: none;
+}
+@media (max-width: 767px) {
+  .brand-bar__wide {
+    display: none;
+  }
+  .brand-bar__compact {
+    display: block;
+  }
+}

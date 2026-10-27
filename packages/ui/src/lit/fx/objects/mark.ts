@@ -1,31 +1,28 @@
 import { Shape } from 'three';
+import { BRAND_GEOMETRY } from '../../../brand/geometry.generated.js';
 
 /**
- * INTAFACED stand-in mark: three slanted panes stepping down (inter-face). Replaced by the brand kit's one vector path
- * when it arrives; the logo object and `markPath` both read it from here.
+ * The INTAFACED mark (the kit's eight-blade aperture, master drawing) as three.js shapes, one per blade, centred and
+ * one unit across with y up. The geometry is the brand set's (`../../../brand/geometry.generated.ts`), so the 3D logo
+ * follows a kit swap.
  */
 export function markShapes(): Shape[] {
-  const pane = (x: number, y: number, w: number, h: number, sl: number, r: number): Shape => {
-    const sh = new Shape();
-    const p: Array<[number, number]> = [
-      [x, y],
-      [x + w, y],
-      [x + w + sl, y + h],
-      [x + sl, y + h],
-    ];
-    sh.moveTo(p[0]![0] + r, p[0]![1]);
-    for (let i = 0; i < 4; i++) {
-      const a = p[(i + 1) % 4]!;
-      const b = p[(i + 2) % 4]!;
-      const pa = p[i]!;
-      const da = Math.hypot(b[0] - a[0], b[1] - a[1]);
-      const dp = Math.hypot(a[0] - pa[0], a[1] - pa[1]);
-      sh.lineTo(a[0] - ((a[0] - pa[0]) / dp) * r, a[1] - ((a[1] - pa[1]) / dp) * r);
-      sh.quadraticCurveTo(a[0], a[1], a[0] + ((b[0] - a[0]) / da) * r, a[1] + ((b[1] - a[1]) / da) * r);
-    }
-    return sh;
-  };
-  return [pane(-0.62, -0.5, 0.34, 1.0, 0.3, 0.06), pane(-0.16, -0.5, 0.34, 0.72, 0.21, 0.06), pane(0.3, -0.5, 0.34, 0.42, 0.13, 0.06)];
+  return BRAND_GEOMETRY.mark.master
+    .split('Z')
+    .map((blade) => blade.replace('M', '').trim())
+    .filter(Boolean)
+    .map((blade) => {
+      const points = blade.split(/\s*L\s*/).map((p) => p.trim().split(/\s+/).map(Number) as [number, number]);
+      const sh = new Shape();
+      points.forEach(([x, y], i) => {
+        const px = (x - 500) / 1000;
+        const py = (500 - y) / 1000;
+        if (i === 0) sh.moveTo(px, py);
+        else sh.lineTo(px, py);
+      });
+      sh.closePath();
+      return sh;
+    });
 }
 
 export function roundedRect(s: number, r: number): Shape {
