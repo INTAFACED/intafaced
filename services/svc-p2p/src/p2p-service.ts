@@ -235,6 +235,7 @@ export type P2pErrorCode =
   | 'p2p.remind_rate_limited'
   | 'p2p.mismatch_report_exists'
   | 'p2p.remark_case_exists'
+  | 'p2p.remark_not_payee'
   | 'p2p.remark_invalid'
   | 'rail.bank'
   | 'p2p.method_not_rail_validated'
@@ -3326,6 +3327,10 @@ export class P2pService {
         async (tx) => {
           const trade = await this.lockTrade(tx, input.tradeId);
           if (trade.buyerId !== input.reporterId && trade.sellerId !== input.reporterId) throw unknownTrade(input.tradeId);
+          // The buyer pays and writes the payment note; only the seller, who receives it, has a remark to report.
+          if (trade.sellerId !== input.reporterId) {
+            throw new P2pError('Only the seller, who receives the payment, reports a remark in its note', 'p2p.remark_not_payee');
+          }
           // No payment note exists on an order that was never funded: the buyer pays only once the coin is held.
           if (trade.escrowedAt === null) {
             throw new TradeStateError(

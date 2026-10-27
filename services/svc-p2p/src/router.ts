@@ -596,6 +596,8 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.self_trade':
       case 'p2p.trading_disabled':
       case 'p2p.not_a_moderator':
+      // P-ads-merchant-19: the buyer writes the payment note; only the seller reports a remark in it.
+      case 'p2p.remark_not_payee':
       case 'p2p.blocked':
       case 'p2p.contact_self':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
@@ -834,8 +836,9 @@ const methodSchemaOutput = z.object({
   settlement: settlementOutput,
   /** P-ads-merchant-19: cash in person when the row carries cash rules; the rules themselves, or null. */
   kind: z.enum(['transfer', 'cash_in_person']),
-  noteRules: noteRulesInput.nullable(),
-  cashRules: cashRulesInput.nullable(),
+  // Unbounded on the way out: the bounds judge what an operator registers, never a stored row on a read.
+  noteRules: z.object({ guidance: z.string(), forbidden: z.array(z.string()).readonly() }).nullable(),
+  cashRules: z.object({ meetingGuidance: z.string(), proof: z.string(), releaseWindowSeconds: z.number() }).nullable(),
 });
 
 /**
@@ -1650,9 +1653,9 @@ export function createP2pRouter(
         .mutation(async ({ ctx, input }) => guard(async () => toReminderOut(await p2p.remindSeller(input.tradeId, ctx.principal.userId)))),
 
       /**
-       * P-ads-merchant-19 / J-p2p-04 #5: a party to an order reports a sensitive remark the other party wrote in the
-       * payment note. A case opens against the other party and they are told (svc-notify, by caseId). One per party per
-       * order: the same report again returns the first, a different one (or a case id already used) refuses
+       * P-ads-merchant-19 / J-p2p-04 #5: the seller reports a sensitive remark the buyer wrote in the payment note (the
+       * buyer is refused `p2p.remark_not_payee`). A case opens against the buyer and they are told (svc-notify, by
+       * caseId). One per order: the same report again returns the first, a different one (or a case id already used) refuses
        * `p2p.remark_case_exists`. An order never funded has no payment note: `p2p.invalid_transition` (or
        * `p2p.trade_terminal` once it is cancelled).
        */

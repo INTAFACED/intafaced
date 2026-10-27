@@ -442,6 +442,8 @@ test('J-p2p-04 #5 reporting a sensitive remark in a payment note opens a case an
     await expect(against).toHaveAttribute('data-case-id', caseId);
     await expect(against).toContainText('The other person on this order reported a remark in a payment note.');
     await expect(buyerPage.getByText(quote)).toHaveCount(0);
+    // The buyer wrote the payment note, so the buyer gets no form, and the service refuses the buyer by name.
+    await expect(buyerPage.getByTestId('order-remark-report')).toHaveCount(0);
   } finally {
     await buyerContext.close();
   }

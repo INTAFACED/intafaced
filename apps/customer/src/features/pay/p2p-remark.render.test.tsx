@@ -146,7 +146,7 @@ describe('Report a sensitive payment-note remark (J-p2p-04 #5)', () => {
     expect(host.querySelector('[data-testid="order-remark-report"]')).toBeNull();
   });
 
-  it('tells the reported party a case is open, without the quote, and still lets them report once themselves', async () => {
+  it('tells the buyer a case is open against them, without the quote, and offers the buyer no form: they wrote the note', async () => {
     await render(
       <ReportRemark
         trade={trade()}
@@ -156,7 +156,7 @@ describe('Report a sensitive payment-note remark (J-p2p-04 #5)', () => {
     );
     const notice = host.querySelector('[data-testid="order-remark-against-me"]')!;
     expect(notice.textContent).toContain('The other person on this order reported a remark in a payment note.');
-    expect(host.querySelector('[data-testid="order-remark-report"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="order-remark-report"]')).toBeNull();
   });
 
   it('is not offered on an order that was never funded, open or cancelled', async () => {
@@ -184,6 +184,22 @@ describe('Payment-note rules on the order (P-ads-merchant-19)', () => {
     const rules = host.querySelector('[data-testid="order-note-rules"]')!;
     expect(rules.textContent).toContain('TEST: the order number only.');
     expect(host.querySelector('[data-testid="order-note-forbidden"]')!.textContent).toContain('Never write: USDT, P2P');
+  });
+
+  it('matches the method id as svc-p2p does, and shows each market’s rules under its country when they differ', async () => {
+    const methods = vi.fn(async () => ({
+      ok: true as const,
+      data: [
+        methodRow('test-bank-transfer', { guidance: 'TEST: DE note.', forbidden: [] }),
+        { ...methodRow('test-bank-transfer', { guidance: 'TEST: FR note.', forbidden: ['USDT'] }), country: 'FR' },
+      ],
+    }));
+    const upper = { ...trade('escrowed'), method: ' TEST-Bank-Transfer ' };
+    await render(<PaymentNoteRules trade={upper} pay={{ methods } as unknown as PersonalPayApi} userId={BUYER} />);
+    const markets = [...host.querySelectorAll('[data-testid="order-note-rules-market"]')].map((m) => m.textContent);
+    expect(markets).toEqual([expect.stringContaining('DE'), expect.stringContaining('FR')]);
+    expect(markets[0]).toContain('TEST: DE note.');
+    expect(markets[1]).toContain('TEST: FR note.');
   });
 
   it('shows nothing to the seller, after payment, for a method without rules, or when the catalogue cannot be read', async () => {

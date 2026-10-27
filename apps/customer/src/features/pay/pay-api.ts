@@ -1052,11 +1052,12 @@ export function createPersonalPayApi(
         p2pCurrent,
       ),
     /**
-     * P-ads-merchant-19: a party reports a sensitive remark the other wrote in the payment note. Moves nothing; a case
-     * opens and the other party is told. `caseId` is made once per quote, so a lost reply sent again answers the same case.
+     * P-ads-merchant-19: the seller reports a sensitive remark the buyer wrote in the payment note. Moves nothing; a case
+     * opens and the buyer is told. `caseId` is made once per quote, so a lost reply sent again answers the same case.
      */
     async reportSensitiveRemark(tradeId: string, caseId: string, remark: string): Promise<ApiResult<s.RemarkCase>> {
-      // No device journal: svc-p2p answers the same case id and quote with the same case, so a resend is the retry.
+      // No device journal (guard.run would hold the resend back after a lost answer): svc-p2p answers the same case id
+      // and quote with the same case, so a resend is the retry.
       const denied = signedIn();
       if (denied) return denied;
       if (!p2pCurrent()) return p2pDeparted();

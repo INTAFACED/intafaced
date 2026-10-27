@@ -124,11 +124,10 @@ describe('svc-p2p sensitive-remark cases (P-ads-merchant-19)', () => {
     expect(await p2p.listRemarkCases(10)).toHaveLength(1);
   });
 
-  it('lets each party report once, each against the other', async () => {
-    await report(SELLER);
-    const byBuyer = await report(BUYER, 'P2P');
-    expect(byBuyer).toMatchObject({ reporterId: BUYER, reportedId: SELLER, reporterRole: 'buyer' });
-    expect(await p2p.listRemarkCases(10)).toHaveLength(2);
+  it('refuses the buyer, who wrote the payment note: only the seller reports a remark in it', async () => {
+    await expect(report(BUYER, 'P2P')).rejects.toMatchObject({ code: 'p2p.remark_not_payee' });
+    expect(await sql`SELECT 1 FROM p2p.remark_cases`).toHaveLength(0);
+    expect(notices()).toHaveLength(0);
   });
 
   it('answers a stranger as if the order did not exist, and refuses an empty or long remark before any lock', async () => {
@@ -146,9 +145,9 @@ describe('svc-p2p sensitive-remark cases (P-ads-merchant-19)', () => {
     const first = await report(SELLER);
     const other = crypto.randomUUID();
     await p2p.takeOffer({ tradeId: other, offerId, takerId: STRANGER, amount: parseAmount('20'), method: 'sepa', tier: 'basic' });
-    await expect(
-      p2p.reportSensitiveRemark({ caseId: first.id, tradeId: other, reporterId: STRANGER, remark: 'USDT' }),
-    ).rejects.toMatchObject({ code: 'p2p.remark_case_exists' });
+    await expect(p2p.reportSensitiveRemark({ caseId: first.id, tradeId: other, reporterId: SELLER, remark: 'USDT' })).rejects.toMatchObject(
+      { code: 'p2p.remark_case_exists' },
+    );
     expect(await p2p.listRemarkCases(10)).toEqual([first]);
     expect(notices()).toHaveLength(1);
   });
@@ -161,7 +160,7 @@ describe('svc-p2p sensitive-remark cases (P-ads-merchant-19)', () => {
       p2p.takeOffer({ tradeId: unfunded, offerId, takerId: STRANGER, amount: parseAmount('20'), method: 'sepa', tier: 'basic' }),
     ).rejects.toThrow('lost lock acknowledgement');
     expect((await p2p.getTrade(unfunded)).status).toBe('created');
-    for (const reporterId of [SELLER, STRANGER]) {
+    for (const reporterId of [SELLER]) {
       await expect(
         p2p.reportSensitiveRemark({ caseId: crypto.randomUUID(), tradeId: unfunded, reporterId, remark: 'USDT' }),
       ).rejects.toMatchObject({ code: 'p2p.invalid_transition' });
