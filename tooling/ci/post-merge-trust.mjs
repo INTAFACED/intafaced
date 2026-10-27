@@ -18,8 +18,9 @@
  *   one "Journey broken on main: <J-id>" issue per journey, naming the commits between the last run it passed and the
  *   first run it failed. A journey's issue closes when every step it names passes again.
  *   The run summary lists the steps newly passing and newly failing against the run before.
- *   A shard that hit its time limit: open (or comment on) one "Broken on main: Real-app journeys (time limit)" issue
- *   naming the jobs; it closes on the next run where no job hit its limit.
+ *   A shard that hit its time limit (the job's, or the limit the shard puts on its own journeys so it still reports):
+ *   open (or comment on) one "Broken on main: Real-app journeys (time limit)" issue naming the jobs; it closes on the
+ *   next run where no job hit its limit.
  *
  * A job that hits its time limit ends "cancelled", not "timed_out", like a run replaced by a newer one. A cancelled
  * run whose job carries GitHub's "exceeded the maximum execution time" annotation counts as timed out (red).
@@ -38,7 +39,8 @@ export const JOURNEYS_WORKFLOW = 'Real-app journeys';
 export const JOURNEYS_ARTIFACT = 'real-app-journeys';
 const STEP_TITLE = /^(J-[a-z0-9-]+-\d+)\s+#(\d+)\b/;
 const COUNTED = new Set(['success', 'failure', 'timed_out']);
-const TIME_LIMIT = /exceeded the maximum execution time/i;
+// GitHub's job limit, or the Real-app journeys shard's own limit on its journeys (the shard step names it this way).
+const TIME_LIMIT = /exceeded the maximum execution time|journeys reached their time limit/i;
 /** How many cancelled runs to look into for a timeout when walking back (a replaced run has no jobs, one cheap call). */
 const CANCELLED_LOOKUPS = 20;
 
@@ -357,9 +359,9 @@ async function timeLimitCheck({ repo, name, runId, sha, runUrl, timedOut }) {
   const title = timeLimitIssueTitle(name);
   if (timedOut.length) {
     const body = [
-      `${timedOut.map((j) => `\`${j}\``).join(', ')} hit the job time limit on \`${sha.slice(0, 10)}\` ([run ${runId}](${runUrl})), so ${timedOut.length === 1 ? 'its' : 'their'} journeys did not finish and count as not passing.`,
+      `${timedOut.map((j) => `\`${j}\``).join(', ')} hit a time limit on \`${sha.slice(0, 10)}\` ([run ${runId}](${runUrl})), so ${timedOut.length === 1 ? 'its' : 'their'} journeys did not finish and count as not passing.`,
       '',
-      'Split the slow shard further or find the step that hangs; never shorten or skip a journey to fit.',
+      'Find the step that hangs, or give the journeys more shards (MAX_SHARDS in tooling/scripts/journey-shards.mjs); never shorten or skip a journey to fit.',
       '',
       '_Opened by tooling/ci/post-merge-trust.mjs. It closes itself on the next run where no job hits its limit._',
     ].join('\n');
@@ -530,6 +532,18 @@ function selfTest() {
     { name: 'Real-app journeys', annotations: [] },
   ];
   eq(timedOutJobNames(limitJobs), ['Journeys (shard 3 of 8)'], 'a time-limit annotation marks the job');
+  eq(
+    timedOutJobNames([
+      {
+        name: 'Journeys (shard 9 of 12)',
+        annotations: [
+          { message: "this shard's journeys reached their time limit (60 minutes); the journeys it did not reach count as not run" },
+        ],
+      },
+    ]),
+    ['Journeys (shard 9 of 12)'],
+    "a shard's own journey limit marks the job",
+  );
   eq(runConclusion('cancelled', timedOutJobNames(limitJobs)), 'timed_out', 'a time-limit cancel is a timeout');
   eq(runConclusion('cancelled', []), 'cancelled', 'a replaced run stays cancelled');
   eq(runConclusion('failure', ['x']), 'failure', 'a red run with a timed-out job stays red');

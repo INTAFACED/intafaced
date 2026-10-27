@@ -41,12 +41,17 @@ permissions:
 
 env:
   TURBO_TELEMETRY_DISABLED: 1
+  # Playwright stops a shard's journeys after an hour, before the job's own limit, so the shard still sends its report;
+  # the planner warns when a shard comes near it.
+  JOURNEY_GLOBAL_TIMEOUT_MS: 3600000
 
 jobs:
   # Splits the journey files across the shards by their times in the last finished runs on main, so the shards end
   # together (tooling/scripts/journey-shards.mjs; Playwright's own --shard split by count left one shard 33 minutes
-  # behind the shortest in run 338). If planning fails for any reason the shards fall back to Playwright's split, so a
-  # broken planner slows a run down and never stops one.
+  # behind the shortest in run 338), and picks how many shards keep each near 25 minutes of journeys (8 to 24), so the
+  # suite can grow without a shard reaching its limit. If planning fails for any reason the run falls back to 8 shards
+  # and Playwright's split, so a broken planner never stops a run; on a suite that needs more shards, journeys past a
+  # shard's limit then count as not run and the time-limit issue names the shards.
   plan:
     name: Plan the shards
     runs-on: ubuntu-24.04
@@ -56,6 +61,8 @@ jobs:
       actions: read # to download the last finished runs' reports
     outputs:
       shards: ${{ steps.plan.outputs.shards }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      count: ${{ steps.plan.outputs.count }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -84,21 +91,27 @@ jobs:
           node --test tooling/scripts/journey-shards.test.mjs
           reports=()
           for f in "$RUNNER_TEMP"/last/*/report.json; do [ -f "$f" ] && reports+=(--report "$f"); done
-          shards=$(node tooling/scripts/journey-shards.mjs --shards 8 "${reports[@]}")
-          echo "shards=$shards" >> "$GITHUB_OUTPUT"
+          shards=$(node tooling/scripts/journey-shards.mjs --shards auto "${reports[@]}")
+          {
+            echo "shards=$shards"
+            echo "matrix=$(jq -c '[range(1; length + 1)]' <<<"$shards")"
+            echo "count=$(jq length <<<"$shards")"
+          } >> "$GITHUB_OUTPUT"
 
   journeys:
-    name: Journeys (shard ${{ matrix.shard }} of 8)
+    name: Journeys (shard ${{ matrix.shard }} of ${{ strategy.job-total }})
     needs: plan
     # The shards run even when planning failed (they fall back to Playwright's split).
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
-    # About 14 minutes of setup plus one shard of the journeys.
-    timeout-minutes: 60
+    # Setup (about 10 minutes, once 21 when the browser's system packages were slow) plus at most 60 minutes of journeys,
+    # which Playwright stops itself (JOURNEY_GLOBAL_TIMEOUT_MS below), so the job's own limit is never what ends a shard
+    # and a long shard still sends its report. (Failure it prevents: a shard the job limit cuts sends no report at all.)
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: ${{ fromJSON(needs.plan.outputs.matrix || '[1, 2, 3, 4, 5, 6, 7, 8]') }}
     # The owner's labelled TEST screening placeholder, for every stack command in this job (see the check step). Secrets,
     # not variables, so the logs show *** and not the list.
     env:
@@ -207,19 +220,27 @@ jobs:
           TOTAL: ${{ strategy.job-total }}
         run: |
           config=apps/customer/tests/real-app/real-app.playwright.config.mjs
+          split=()
           if [ -z "$SHARDS" ]; then
             echo "::warning::no shard plan (see the Plan the shards job), so Playwright splits the journeys by count"
-            pnpm exec playwright test --config "$config" --trace off --shard "$SHARD/$TOTAL"
-            exit
+            split=(--shard "$SHARD/$TOTAL")
+          else
+            if [ "$(jq length <<<"$SHARDS")" != "$TOTAL" ]; then
+              echo "::error::the plan has $(jq length <<<"$SHARDS") shards and the matrix $TOTAL; change both together"
+              exit 1
+            fi
+            JOURNEY_FILES=$(jq -r --argjson n "$SHARD" '.[$n - 1]' <<<"$SHARDS")
+            echo "$JOURNEY_FILES" | tr ' ' '\n'
+            export JOURNEY_FILES
           fi
-          if [ "$(jq length <<<"$SHARDS")" != "$TOTAL" ]; then
-            echo "::error::the plan has $(jq length <<<"$SHARDS") shards and the matrix $TOTAL; change both together"
-            exit 1
+          code=0
+          pnpm exec playwright test --config "$config" --trace off "${split[@]}" || code=$?
+          # Playwright's own limit ended the journeys: name it the way Main trust's post-merge job finds a time limit, so
+          # it opens the time-limit issue that says to split the shards further.
+          if jq -e '[.errors[]?.message // ""] | any(test("Timed out waiting [0-9.]+s for the"))' "$JOURNEY_REPORT" >/dev/null 2>&1; then
+            echo "::error::this shard's journeys reached their time limit ($((JOURNEY_GLOBAL_TIMEOUT_MS / 60000)) minutes); the journeys it did not reach count as not run"
           fi
-          JOURNEY_FILES=$(jq -r --argjson n "$SHARD" '.[$n - 1]' <<<"$SHARDS")
-          echo "$JOURNEY_FILES" | tr ' ' '\n'
-          export JOURNEY_FILES
-          pnpm exec playwright test --config "$config" --trace off
+          exit "$code"
 
       # The stack serves the Customer app under its production security headers with a report-uri (local-test-stack.mjs,
       # customerSecurityHeaders), so anything a journey's browser was refused (an inline script, a font or a connect to an
@@ -254,7 +275,7 @@ jobs:
   # report.json that Main trust's post-merge job compares run to run. Red when any shard was red.
   scoreboard:
     name: Real-app journeys
-    needs: journeys
+    needs: [plan, journeys]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -277,6 +298,7 @@ jobs:
       - name: Merge the shards
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHARD_COUNT: ${{ needs.plan.outputs.count || 8 }}
         run: |
           mkdir -p "$RUNNER_TEMP/shards" "$RUNNER_TEMP/blobs" "$RUNNER_TEMP/journeys"
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern 'real-app-journeys-shard-*' --dir "$RUNNER_TEMP/shards" || true
@@ -286,20 +308,22 @@ jobs:
             find "$d" -name '*.zip' | while read -r z; do cp "$z" "$RUNNER_TEMP/blobs/$(basename "$d")-$(basename "$z")"; done
           done
           found=$(find "$RUNNER_TEMP/blobs" -name '*.zip' | wc -l)
-          echo "shard reports found: $found of 8"
+          echo "shard reports found: $found of $SHARD_COUNT"
           if [ "$found" -gt 0 ]; then
             PLAYWRIGHT_JSON_OUTPUT_NAME="$RUNNER_TEMP/journeys/report.json" pnpm exec playwright merge-reports --reporter json "$RUNNER_TEMP/blobs" > /dev/null
           fi
 
       - name: Scoreboard
         if: always()
+        env:
+          SHARD_COUNT: ${{ needs.plan.outputs.count || 8 }}
         run: |
           report="$RUNNER_TEMP/journeys/report.json"
           if [ -f "$report" ]; then
             node tooling/scripts/roadmap.mjs --progress --results "$report" >> "$GITHUB_STEP_SUMMARY"
-            missing=$((8 - $(find "$RUNNER_TEMP/blobs" -name '*.zip' | wc -l)))
+            missing=$((SHARD_COUNT - $(find "$RUNNER_TEMP/blobs" -name '*.zip' | wc -l)))
             if [ "$missing" -gt 0 ]; then
-              echo "Note: $missing of 8 shards sent no report (their stack or browser did not start); their journeys count as not passing." >> "$GITHUB_STEP_SUMMARY"
+              echo "Note: $missing of $SHARD_COUNT shards sent no report (their stack or browser did not start); their journeys count as not passing." >> "$GITHUB_STEP_SUMMARY"
             fi
           else
             echo "No journey report: no shard's stack or browser started. See the shard jobs." >> "$GITHUB_STEP_SUMMARY"

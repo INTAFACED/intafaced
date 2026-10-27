@@ -12,6 +12,9 @@ export default defineConfig({
   fullyParallel: false,
   retries: 0,
   timeout: 90_000,
+  // The Real-app journeys workflow stops a shard's journeys here, before its job's own limit, so the shard still sends
+  // its report and only the journeys it did not reach count as not run. Unset locally: no limit.
+  globalTimeout: Number(process.env.JOURNEY_GLOBAL_TIMEOUT_MS ?? 0),
   expect: { timeout: 15_000 },
   // A sharded run (the Real-app journeys workflow) also writes a blob per shard, which one job merges into the JSON report.
   reporter: [
