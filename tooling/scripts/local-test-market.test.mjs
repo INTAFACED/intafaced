@@ -16,6 +16,7 @@ import {
   buildLadder,
   createPriceWalk,
   crossingSide,
+  crossesOn,
   fromScaled,
   TAPE_CLIENT_PREFIX,
   tapeWindow,
@@ -24,6 +25,10 @@ import {
 } from './local-test-market.mjs';
 
 const script = resolve(dirname(fileURLToPath(import.meta.url)), 'local-test-market.mjs');
+// The script reads the stack's folder from LOCAL_STACK_STATE when it is set (a cloud container sets it), so `start` below
+// would start the TEST market maker on the running stack instead of refusing in this test's empty home (failure it
+// prevents: it did, and a history run on that stack then met the maker's trades). These checks are about that home only.
+delete process.env.LOCAL_STACK_STATE;
 const run = (home, args) => spawnSync(process.execPath, [script, ...args], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
 
 const home = mkdtempSync(join(tmpdir(), 'local-test-market-test-'));
@@ -171,6 +176,13 @@ for (const q of ladder) {
 
 // The taker must alternate sides so it cannot drain one asset (it once bought forever and every order got 400).
 assert.deepEqual([1, 2, 3, 4].map(crossingSide), ['buy', 'sell', 'buy', 'sell']);
+// The taker crosses each market every sixth cycle, half the markets at a time, and BTC/USDT (the one the journeys run
+// waits for) on the very first cycle.
+const crossCycles = (symbol) => Array.from({ length: 20 }, (_, i) => i + 1).filter((c) => crossesOn(c, symbol));
+assert.deepEqual(crossCycles('BTC/USDT'), [1, 7, 13, 19]);
+assert.deepEqual(crossCycles('ETH/USDT'), [1, 7, 13, 19]);
+assert.deepEqual(crossCycles('ETH/BTC'), [4, 10, 16]);
+assert.deepEqual(crossCycles('BTC/USDT:USDT'), [4, 10, 16]);
 
 console.log('local-test-market: guard and price-walk checks passed');
 

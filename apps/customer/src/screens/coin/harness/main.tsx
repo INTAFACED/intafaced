@@ -1,7 +1,6 @@
 // Test harness only. Mounts the Coin page at /coin/:asset with the real theme, the REAL top bar (so the coin bar's sticky
 // offset is the real one) and providers, without the rest of the app shell, signed in as a labelled fake user (add
 // ?signedout=1 to stay signed out). Every API call is answered by the Playwright test: no service is contacted.
-import '../../../shared/tokens.css';
 import '../../../shared/styles.css';
 import '../../../features/public/public.css';
 import '../../../app/redesign.css';

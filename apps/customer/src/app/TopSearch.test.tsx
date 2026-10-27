@@ -58,7 +58,7 @@ describe('header search: where a page lives and the Help group', () => {
   it('shows each page with the place it lives, and a parked room says it opens to its blockers', async () => {
     await mount();
     await type('earn');
-    expect(rowTexts().some((text) => text?.includes('Bank > '))).toBe(true);
+    expect(rowTexts().some((text) => text?.includes('Money > '))).toBe(true);
     await type('chain');
     expect(rowTexts().find((text) => text?.includes('More > '))).toContain('Opens to its blockers');
   });
@@ -90,7 +90,7 @@ describe('header search: where a page lives and the Help group', () => {
     await type('earn');
     await act(async () => void (await vi.advanceTimersByTimeAsync(300)));
     expect(host.textContent).toContain('Help articles did not load.');
-    expect(rowTexts().some((text) => text?.includes('Bank > '))).toBe(true);
+    expect(rowTexts().some((text) => text?.includes('Money > '))).toBe(true);
   });
 
   it('opens on "/" outside a field, but a "/" typed into a field stays a character', async () => {

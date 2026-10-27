@@ -129,10 +129,22 @@ describe('reading a refusal that has come back', () => {
       'sharedPots.linkCard',
       'sharedPots.remove',
       'sharedPots.unlinkCard',
+      'spaces.create',
       'transfers.create',
       'transfers.toUser',
       'transfers.updateSchedule',
     ]);
+  });
+  it('reads a duplicate space name as changing nothing, with a way out', () => {
+    const settled = settleRefusal(
+      { ok: false, reason: 'error', status: 409, code: 'bank.space_name_taken', message: 'bank.space_name_taken' },
+      'spaces.create',
+    );
+    expect(settled.refusedFirst).toBe(true);
+    expect(settled.outcome).toMatchObject({
+      reason: 'error',
+      message: expect.stringMatching(/Pick another name\. Nothing was changed\.$/),
+    });
   });
   it('reads a shared pot refusal as changing nothing, and a viewer’s refused transfer as sending nothing', () => {
     for (const code of [

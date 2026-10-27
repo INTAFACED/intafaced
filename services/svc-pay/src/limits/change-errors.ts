@@ -1,6 +1,7 @@
 import { TRPCError } from '@intafaced/contracts';
 import { ActionApprovalConsumeError } from '../action-approval-consume.js';
 import { DualControlError } from '../dual-control.js';
+import { guardRefusalToTrpc, PayGuardRefusal } from '../seams/guards.js';
 
 export type LimitChangeErrorCode =
   | 'limits.not_found'
@@ -38,5 +39,7 @@ export function limitChangeToTrpcError(error: unknown): unknown {
   if (error instanceof DualControlError || error instanceof ActionApprovalConsumeError) {
     return new TRPCError({ code: 'PRECONDITION_FAILED', message: error.message, cause: error });
   }
+  // The customer allowance read refuses with the guard's own codes; the message is the code only, as on the customer door.
+  if (error instanceof PayGuardRefusal) return guardRefusalToTrpc(error);
   return error;
 }

@@ -30,23 +30,35 @@ export function HoldingsChange({ hidden }: { hidden: boolean }) {
   if (result.status === 'loading') body = <Skeleton width="100%" height={96} className="bg-field" />;
   else if (result.status === 'error')
     body = (
-      <StateBlock kind="error" className="money-state" title={t('Change unreadable')} onRetry={result.retry} retryLabel={t('Try again')} />
+      <StateBlock
+        kind="error"
+        testId="money-state"
+        className="money-state"
+        title={t('Change unreadable')}
+        onRetry={result.retry}
+        retryLabel={t('Try again')}
+      />
     );
   else if (result.status === 'refused') {
     // The bank's own value-history refusals have their own words (pick a later start, history down); others the shared ones.
     const own = VALUE_REFUSAL[result.code];
     const words = refusalCopy(result.code);
     body = (
-      <p className="money-note" data-refused={result.code}>
+      <p data-testid="money-note" className="money-note" data-refused={result.code}>
         {own ? t(own) : `${words.title}. ${words.body ?? ''}`} {words.reference ?? ''}
       </p>
     );
-  } else if (result.status === 'empty' || result.data.rows.length === 0) body = <p className="money-note">{t('Change nothing held')}</p>;
+  } else if (result.status === 'empty' || result.data.rows.length === 0)
+    body = (
+      <p data-testid="money-note" className="money-note">
+        {t('Change nothing held')}
+      </p>
+    );
   else body = <ChangeTable data={result.data} hidden={hidden} copy={copy} timeZone={timeZone} />;
 
   return (
-    <section className="money-card" aria-label={t('Holdings change')}>
-      <header className="money-card__head">
+    <section data-testid="money-card" className="money-card" aria-label={t('Holdings change')}>
+      <header data-testid="money-card__head" className="money-card__head">
         <h2>{t('Holdings change')}</h2>
       </header>
       <div className="money-alloc__switch" role="group" aria-label={t('Change range')}>
@@ -63,7 +75,9 @@ export function HoldingsChange({ hidden }: { hidden: boolean }) {
         ))}
       </div>
       {body}
-      <p className="money-note">{t('Holdings change rule')}</p>
+      <p data-testid="money-note" className="money-note">
+        {t('Holdings change rule')}
+      </p>
     </section>
   );
 }
@@ -83,6 +97,7 @@ function ChangeTable({
   const value = useValueText();
   return (
     <table
+      data-testid="money-table"
       className="money-table"
       aria-label={t('Holdings change table', { from: stamp(data.from, timeZone), to: stamp(data.to, timeZone) })}
     >

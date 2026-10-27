@@ -13,6 +13,7 @@ import { PayGuardRefusal, composeGuards } from '../seams/guards.js';
 import { UserMoneyService } from '../user-money-service.js';
 import { loadWithdrawalLimitMode, loadWithdrawalLimits } from './config.js';
 import { createWithdrawalLimitGuards, type KycTierOf } from './guards.js';
+import { createIdentityLimitOverrideClient, type LimitOverride, type LimitOverrideOf } from './identity-override.js';
 import { createIdentityKycTierClient } from './identity-tier.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -41,6 +42,7 @@ async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> 
 const LIMITS = JSON.stringify({ basic: { USDT: { perTx: '10', rolling24h: '15' } } });
 const REQUIRED = { PAY_WITHDRAWAL_LIMITS: 'required', PAY_WITHDRAWAL_LIMITS_BY_TIER: LIMITS };
 const basic: KycTierOf = async () => 'basic';
+const noOverride: LimitOverrideOf = async () => null;
 
 describe('D-148 per-customer withdrawal limits (real Postgres)', () => {
   let adminStop: () => Promise<void> = async () => undefined;
@@ -67,10 +69,11 @@ describe('D-148 per-customer withdrawal limits (real Postgres)', () => {
     await adminStop();
   }, 30_000);
 
-  const money = (env: Record<string, string>, tierOf?: KycTierOf) =>
+  /** `null` leaves the override read unwired. */
+  const money = (env: Record<string, string>, tierOf?: KycTierOf, overrideOf: LimitOverrideOf | null = noOverride) =>
     new UserMoneyService(sql, ledger, rails, {
       operatorCreditRails: ['card-sandbox'],
-      guards: composeGuards(createWithdrawalLimitGuards({ sql, env, tierOf })),
+      guards: composeGuards(createWithdrawalLimitGuards({ sql, env, tierOf, overrideOf: overrideOf ?? undefined })),
     });
 
   async function fund(service: UserMoneyService, userId = USER) {
@@ -234,5 +237,82 @@ describe('D-148 per-customer withdrawal limits (real Postgres)', () => {
     const again = await service.withdraw(request('10', 'same'));
     expect(again.id).toBe(first.id);
     expect((await service.withdraw(request('5', 'next'))).status).toBe('sent');
+  });
+
+  describe('a founder override (J-ops-console-04 #12)', () => {
+    const inAnHour = () => new Date(Date.now() + 3_600_000);
+    const fixed =
+      (o: Omit<LimitOverride, 'expiresAt'> | null): LimitOverrideOf =>
+      async () =>
+        o && { ...o, expiresAt: inAnHour() };
+
+    it('a raise lets a withdrawal through above the base; a null figure keeps the base figure', async () => {
+      const service = money(REQUIRED, basic, fixed({ perTx: amt('12'), rolling24h: null }));
+      await fund(service);
+      expect((await service.withdraw(request('12', 'raised'))).status).toBe('sent');
+      const hit = await refusal(service.withdraw(request('4', 'rolling')));
+      expect(hit.code).toBe('pay.guard_withdrawal_limit_exceeded');
+      expect(hit.remaining).toEqual({ perTx: '12', rolling24h: '3' });
+    });
+
+    it('a lowered limit refuses with the override as the allowance, and the base returns once identity stops answering it', async () => {
+      let override: Omit<LimitOverride, 'expiresAt'> | null = { perTx: amt('4'), rolling24h: amt('6') };
+      const service = money(REQUIRED, basic, async () => override && { ...override, expiresAt: inAnHour() });
+      await fund(service);
+      const low = await refusal(service.withdraw(request('5', 'low')));
+      expect(low.code).toBe('pay.guard_withdrawal_limit_exceeded');
+      expect(low.remaining).toEqual({ perTx: '4', rolling24h: '6' });
+      expect(await sql`SELECT 1 FROM pay.withdrawals`).toHaveLength(0);
+      override = null;
+      expect((await service.withdraw(request('5', 'low'))).status).toBe('sent');
+    });
+
+    it('no override read wired refuses, since a lowered limit must never be skipped; a failed read refuses with no claim', async () => {
+      const unwired = money(REQUIRED, basic, null);
+      await fund(unwired);
+      expect((await refusal(unwired.withdraw(request('1', 'unwired')))).code).toBe('pay.guard_withdrawal_override_unwired');
+      const dark = money(REQUIRED, basic, async () => {
+        throw new Error('identity unreachable: limit override not read');
+      });
+      expect((await refusal(dark.withdraw(request('1', 'dark')))).code).toBe('pay.guard_unavailable');
+      expect(await sql`SELECT 1 FROM pay.withdrawals`).toHaveLength(0);
+    });
+
+    it('an override never stands in for an unset base figure', async () => {
+      const service = money({ PAY_WITHDRAWAL_LIMITS: 'required' }, basic, fixed({ perTx: amt('100'), rolling24h: amt('100') }));
+      await fund(service);
+      expect((await refusal(service.withdraw(request('1', 'nobase')))).code).toBe('pay.guard_withdrawal_limit_unset');
+    });
+
+    it('with the identity override client wired: applied until its end time by our own clock too, then the base', async () => {
+      let clock = new Date();
+      const expiresAt = new Date(clock.getTime() + 60_000).toISOString();
+      const fetchImpl = (async (input: string | URL | Request) => {
+        const url = new URL(String(input));
+        const userId = decodeURIComponent(url.pathname.split('/').pop() ?? '');
+        return new Response(
+          JSON.stringify({
+            userId,
+            rail: url.searchParams.get('rail'),
+            assetId: url.searchParams.get('assetId'),
+            override: { version: '1', perTx: '20', rolling24h: '20', expiresAt },
+          }),
+          { status: 200 },
+        );
+      }) as typeof fetch;
+      const overrideOf = createIdentityLimitOverrideClient({
+        baseUrl: 'http://identity.test',
+        internalSecret: 'x'.repeat(32),
+        fetchImpl,
+        now: () => clock,
+      });
+      const service = money(REQUIRED, basic, overrideOf);
+      await fund(service);
+      expect((await service.withdraw(request('20', 'wired'))).status).toBe('sent');
+      await sql`UPDATE pay.withdrawals SET updated_at = now() - interval '25 hours' WHERE client_ref = 'wired'`;
+      clock = new Date(clock.getTime() + 61_000);
+      const back = await refusal(service.withdraw(request('11', 'after')));
+      expect(back.remaining).toEqual({ perTx: '10', rolling24h: '15' });
+    });
   });
 });

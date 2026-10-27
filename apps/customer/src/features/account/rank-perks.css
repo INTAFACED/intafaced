@@ -2,9 +2,9 @@
   display: grid;
   grid-template-columns: minmax(0, 352px) minmax(0, 1fr);
   align-items: start;
-  gap: 48px;
-  padding-bottom: 32px;
-  margin-bottom: 32px;
+  gap: var(--if-space-12);
+  padding-bottom: var(--if-space-8);
+  margin-bottom: var(--if-space-8);
   border-bottom: 1px solid var(--color-divider);
   font-family: var(--font-sans);
   min-width: 0;
@@ -13,14 +13,14 @@
 .rank-perks__perks {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--if-space-6);
   min-width: 0;
 }
 .rank-perks__heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--if-space-3);
 }
 .rank-perks__heading h2 {
   min-width: 0;
@@ -40,19 +40,19 @@
 .rank-perks__counts {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--if-space-6);
   margin: 0;
 }
 .rank-perks__counts > div {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--if-space-2);
   min-width: 0;
 }
 .rank-perks dt,
 .rank-perks__updated,
 .rank-perks__boundary {
-  font-size: 14px;
+  font-size: var(--if-text-base);
   line-height: 22px;
   color: var(--color-muted);
 }
@@ -62,7 +62,7 @@
   font-variant-numeric: tabular-nums;
 }
 .rank-perks__counts dd {
-  font-size: 24px;
+  font-size: var(--if-text-xl);
   line-height: 32px;
   font-weight: 600;
 }
@@ -75,15 +75,15 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) 120px;
   align-items: center;
-  gap: 20px;
-  padding: 12px 0;
+  gap: var(--if-space-5);
+  padding: var(--if-space-3) 0;
   min-height: 48px;
   border-top: 1px solid var(--color-divider);
 }
 .rank-perks__rows dt,
 .rank-perks__rows dd {
-  font-size: 16px;
-  line-height: 24px;
+  font-size: var(--if-text-md);
+  line-height: var(--if-leading-md);
   color: var(--color-text);
 }
 .rank-perks__rows dd {
@@ -93,19 +93,19 @@
 .rank-perks__failure {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 20px;
+  gap: var(--if-space-3);
+  padding: var(--if-space-5);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: 10px;
   overflow-wrap: anywhere;
 }
 .rank-perks__failure h3 {
-  font-size: 16px;
-  line-height: 24px;
+  font-size: var(--if-text-md);
+  line-height: var(--if-leading-md);
 }
 .rank-perks__failure p {
-  font-size: 14px;
+  font-size: var(--if-text-base);
   line-height: 22px;
   color: var(--color-muted);
 }
@@ -117,7 +117,7 @@
 @media (max-width: 899px) {
   .rank-perks {
     grid-template-columns: minmax(0, 1fr);
-    gap: 32px;
+    gap: var(--if-space-8);
   }
   .rank-perks__heading {
     flex-wrap: wrap;
@@ -129,11 +129,11 @@
     max-width: 100%;
   }
   .rank-perks__counts dd {
-    font-size: 20px;
-    line-height: 28px;
+    font-size: var(--if-text-lg);
+    line-height: var(--if-leading-lg);
   }
   .rank-perks__rows > div {
     grid-template-columns: minmax(0, 1fr) 80px;
-    gap: 12px;
+    gap: var(--if-space-3);
   }
 }

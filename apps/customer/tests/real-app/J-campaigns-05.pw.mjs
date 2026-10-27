@@ -71,8 +71,8 @@ async function accept(page, token) {
   await page.getByRole('button', { name: 'Review invitation' }).click();
   await page.getByRole('button', { name: 'Accept this invitation' }).click();
   return page
-    .locator('section.invitation__card')
-    .filter({ has: page.locator('h2.invitation__outcome') })
+    .locator('section[data-testid="invitation__card"]')
+    .filter({ has: page.locator('h2[data-testid="invitation__outcome"]') })
     .last();
 }
 
@@ -159,10 +159,10 @@ test(`${J} #4 my friend signs up from the link and is attached to me once`, asyn
   // The relationship screen shows the referrer and the date.
   await friendPage.getByRole('button', { name: 'Read current status' }).click();
   await expect(friendPage.getByText('A referral is recorded now')).toBeVisible();
-  await expect(friendPage.locator('.invitation__current dd').first()).toHaveText(referrerId);
+  await expect(friendPage.getByTestId('invitation__current').locator('dd').first()).toHaveText(referrerId);
   const edge = (await (await api(friend)).get('/api/identity/trpc/affiliates.myReferrer')).body.result.data;
   expect(edge.referrerId).toBe(referrerId);
-  await expect(friendPage.locator('.invitation__current time')).toHaveAttribute('datetime', edge.attributedAt);
+  await expect(friendPage.getByTestId('invitation__current').locator('time')).toHaveAttribute('datetime', edge.attributedAt);
 
   // Opening the same link again is the same relationship, not a second one.
   const again = await identity(friend, 'affiliates.shareHits', { token });
@@ -232,7 +232,7 @@ test(`${J} #5 after the window: refused by name and offered a reviewed change`, 
   await change.getByRole('button', { name: 'Request a review' }).click();
   await expect(change.locator('[data-rebind="under_review"]')).toContainText('waiting for a second person to review it');
   const referrerId = (await identity(referrer, 'affiliates.createShare')).data.referrerId;
-  await expect(change.locator('dd.invitation__private')).toHaveText(referrerId);
+  await expect(change.locator('dd[data-testid="invitation__private"]')).toHaveText(referrerId);
   await expect(change.getByRole('button', { name: 'Request a review' })).toHaveCount(0);
 
   // Asking again for the same link is the same request; nothing is attached until the review.
@@ -314,8 +314,8 @@ test(`${J} #6 a second person approves; the new parent applies from then; approv
   await page.goto(`/invite?token=${token}`);
   await page.getByRole('button', { name: 'Read current status' }).click();
   await expect(page.getByText('A referral is recorded now')).toBeVisible();
-  await expect(page.locator('.invitation__current dl dd').first()).toHaveText(referrerId);
-  await expect(page.locator('.invitation__current dl time').first()).toHaveAttribute('datetime', edge.attributedAt);
+  await expect(page.getByTestId('invitation__current').locator('dl dd').first()).toHaveText(referrerId);
+  await expect(page.getByTestId('invitation__current').locator('dl time').first()).toHaveAttribute('datetime', edge.attributedAt);
   const change = page.getByRole('region', { name: 'Referrer change review' });
   await expect(change.locator('[data-rebind="approved"]')).toContainText('The new referrer applies from');
   await expect(change.getByText('TEST: link reached them after sign-up')).toBeVisible();

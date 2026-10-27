@@ -325,7 +325,7 @@ export function SettlementDetailPage({
               <TestBanner />
               <Freshness asOf={readAt} />
               <PaySection title={t('stlFactsTitle')}>
-                <dl className="pp-facts">
+                <dl data-testid="pp-facts" className="pp-facts">
                   <div>
                     <dt>{t('colStatus')}</dt>
                     <dd>{chip}</dd>
@@ -362,7 +362,7 @@ export function SettlementDetailPage({
               </PaySection>
 
               <PaySection title={t('stlStatementTitle')} description={t('stlStatementBody')}>
-                <dl className="pp-facts">
+                <dl data-testid="pp-facts" className="pp-facts">
                   <div>
                     <dt>{t('lineGross')}</dt>
                     <dd>
@@ -389,7 +389,7 @@ export function SettlementDetailPage({
                 {snap === null ? (
                   <p className="muted">{t('feeNotRecorded')}</p>
                 ) : (
-                  <dl className="pp-facts">
+                  <dl data-testid="pp-facts" className="pp-facts">
                     <div>
                       <dt>{t('feeCharged')}</dt>
                       <dd>

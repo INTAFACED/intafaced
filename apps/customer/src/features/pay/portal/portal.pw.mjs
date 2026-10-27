@@ -85,7 +85,7 @@ const noSideScroll = async (page) =>
     )
     .toBe('fits');
 const axe = async (page) => {
-  const audit = await new AxeBuilder({ page }).include('.pp').withTags(['wcag2a', 'wcag2aa']).analyze();
+  const audit = await new AxeBuilder({ page }).include('[data-testid="pp"]').withTags(['wcag2a', 'wcag2aa']).analyze();
   expect(audit.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(' | ')}`)).toEqual([]);
 };
 
@@ -93,18 +93,18 @@ test('dashboard: Home-style figures, daily chart, retained insights and phone wi
   const { mock, seen } = await setup(page);
   await signIn(page, '/pay/merchant');
   await expect(page.getByRole('heading', { name: 'Business overview', level: 1 })).toHaveCount(1);
-  await expect(page.locator('.plo-kpi-strip')).toBeVisible();
+  await expect(page.getByTestId('plo-kpi-strip')).toBeVisible();
   await expect(page.getByText('4 s behind').first()).toBeVisible();
   // the big number is the USDT balance you can pay out, worked out from the settlements
-  await expect(page.locator('.plo-number')).toHaveText(
+  await expect(page.getByTestId('plo-balance-amount')).toHaveText(
     (Number(mock.world.balance('USDT').proceeds) / 1e6).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
   );
   await page.getByRole('button', { name: '30 days', exact: true }).first().click();
   expect(mock.calls.some((c) => c.procedure === 'merchantMetrics.snapshot' && c.input.window.preset === 'rolling_30d')).toBe(true);
   // the daily chart is open when the page opens: no click needed
-  await expect(page.locator('.plo-volume')).toBeVisible();
+  await expect(page.getByTestId('plo-volume')).toBeVisible();
   // two assets are paid in, so the chart offers both; this check follows USDT
-  await page.locator('.plo-volume').getByRole('group', { name: 'Asset' }).getByRole('button', { name: 'USDT', exact: true }).click();
+  await page.getByTestId('plo-volume').getByRole('group', { name: 'Asset' }).getByRole('button', { name: 'USDT', exact: true }).click();
   await expect(page.getByRole('img', { name: /Payment volume · USDT/ })).toBeVisible();
   await page.getByRole('button', { name: 'View data table', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Payment volume USDT', exact: true })).toBeVisible();
@@ -147,7 +147,7 @@ test('onboarding: verification then payout destination, with activation explicit
   await page.getByRole('button', { name: 'Send for review' }).click();
   const dialog = page.getByRole('dialog', { name: 'Review: Send for review' });
   await expect(dialog.getByText('TEST-dossier-777')).toBeVisible();
-  await dialog.locator('.form-stack > button').last().click();
+  await dialog.locator('[data-testid="form-stack"] > button').last().click();
   await expect(page.getByText('INTAFACED is reviewing it')).toBeVisible();
   expect(mock.calls.filter((c) => c.procedure === 'merchant.submitKyb')).toHaveLength(1);
   await page.getByRole('listitem').filter({ hasText: 'Step 3 of 3' }).getByRole('link', { name: 'Continue' }).click();
@@ -159,7 +159,7 @@ test('onboarding: verification then payout destination, with activation explicit
   await snap(page, '07-onboarding-payout');
   await page.getByRole('button', { name: 'Save destination' }).click();
   await page.getByRole('dialog').getByLabel('6-digit code from your authenticator app *').fill(TEST_TOTP_CODE);
-  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
   await expect(page.getByText('Destination saved.', { exact: true })).toBeVisible();
   await expect(page.getByText('Waiting for your verification to be approved')).toBeVisible();
   await expect(page.getByText(/Saving a destination does not activate payments/).first()).toBeVisible();
@@ -196,7 +196,7 @@ test('team: change a role, invite, and a refused change reads in plain words', a
   await page.getByRole('button', { name: 'Change role', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Review: Change role' });
   await expect(dialog.getByText(/TEST Dev changes from Developer to Viewer/)).toBeVisible();
-  await dialog.locator('.form-stack > button').last().click();
+  await dialog.locator('[data-testid="form-stack"] > button').last().click();
   await expect(page.getByText('TEST Dev changed from Developer to Viewer')).toBeVisible();
   expect(mock.calls.find((c) => c.procedure === 'merchantOps.team.changeRole').input).toMatchObject({ role: 'viewer' });
   // A refusal from the service: words, not a code.
@@ -209,7 +209,7 @@ test('team: change a role, invite, and a refused change reads in plain words', a
   );
   await page.getByLabel('Email address *').fill('new.person@test.invalid');
   await page.getByRole('button', { name: 'Send invitation' }).click();
-  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
   await expect(page.getByText(/Team changes need a session verified with two-step sign-in/).first()).toBeVisible();
   await expect(page.getByText('pay.team_interactive_only')).toHaveCount(0);
   await axe(page);
@@ -223,7 +223,7 @@ test('team: invite by email shows the address as it will be sent, says they join
   const members = page.getByRole('region', { name: 'Members' });
   // An email invite already waiting is listed masked, never in full.
   await expect(members.getByText('Invited · p***@test.invalid')).toBeVisible();
-  await expect(page.locator('.pp')).not.toContainText('pending.person@test.invalid');
+  await expect(page.getByTestId('pp')).not.toContainText('pending.person@test.invalid');
   await page.getByLabel('Email address *').fill('  Priya.N@Test.INVALID ');
   await expect(page.getByText('The invitation goes to priya.n@test.invalid.')).toBeVisible();
   await page.getByLabel('Role *').selectOption('finance');
@@ -233,7 +233,7 @@ test('team: invite by email shows the address as it will be sent, says they join
     dialog.getByText('Invite priya.n@test.invalid as Finance. They join after confirming that email and accepting.'),
   ).toBeVisible();
   await snap(page, '10b-team-invite-email-review');
-  await dialog.locator('.form-stack > button').last().click();
+  await dialog.locator('[data-testid="form-stack"] > button').last().click();
   await expect(
     page.getByText('Invitation sent to priya.n@test.invalid. They join after confirming that email and accepting.'),
   ).toBeVisible();
@@ -255,7 +255,7 @@ test('team: an invalid address is caught before sending; the account-id way stay
   await page.getByRole('button', { name: 'Invite by account ID instead' }).click();
   await page.getByLabel('Account ID *').fill('TEST-user-new');
   await page.getByRole('button', { name: 'Send invitation' }).click();
-  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
   await expect.poll(() => mock.calls.filter((c) => c.procedure === 'merchantOps.team.invite').length).toBe(1);
   expect(mock.calls.find((c) => c.procedure === 'merchantOps.team.invite').input).toEqual({ userId: 'TEST-user-new', role: 'viewer' });
 });
@@ -265,7 +265,7 @@ test('team: when email invitations are switched off the refusal says so in plain
   await signIn(page, '/pay/team');
   await page.getByLabel('Email address *').fill('priya.n@test.invalid');
   await page.getByRole('button', { name: 'Send invitation' }).click();
-  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
   await expect(page.getByText('Email invitations are switched off on this system.').first()).toBeVisible();
   await expect(page.getByText('pay.team_email_invite_unconfigured')).toHaveCount(0);
   await snap(page, '10d-team-invite-email-off');
@@ -277,21 +277,21 @@ test('team: pending invitations can be accepted or declined', async ({ page }) =
   await expect(page.getByText('Invitation to join a team as Developer')).toBeVisible();
   await snap(page, '11-team-invitation');
   await page.getByRole('button', { name: 'Accept', exact: true }).click();
-  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
   await expect(page.getByText('Invitation to join a team as Developer')).toHaveCount(0);
 });
 
 test('disputes: filter in the URL, open one, upload evidence, then contest', async ({ page }) => {
   const { mock } = await setup(page);
   await signIn(page, '/pay/disputes');
-  await expect(page.locator('.pe-table tbody tr')).toHaveCount(3);
+  await expect(page.getByTestId('pe-table').locator('tbody tr')).toHaveCount(3);
   await expect(page.getByText('No deadline').first()).toBeVisible();
   await snap(page, '12-disputes');
   await page.getByLabel('Status').selectOption('won');
   await expect(page).toHaveURL(/status=won/);
-  await expect(page.locator('.pe-table tbody tr')).toHaveCount(1);
+  await expect(page.getByTestId('pe-table').locator('tbody tr')).toHaveCount(1);
   await page.getByLabel('Status').selectOption('');
-  await page.locator('.pe-table').getByRole('link', { name: 'Open', exact: true }).first().click();
+  await page.getByTestId('pe-table').getByRole('link', { name: 'Open', exact: true }).first().click();
   await expect(page.getByRole('heading', { name: 'Dispute', level: 1 })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Contest the dispute' })).toBeDisabled();
   await expect(page.getByText('Add at least one piece of evidence to contest.')).toBeVisible();
@@ -299,14 +299,14 @@ test('disputes: filter in the URL, open one, upload evidence, then contest', asy
   await page.getByLabel('File *').setInputFiles({ name: 'TEST-receipt.txt', mimeType: 'text/plain', buffer: content });
   await expect(page.getByText(/TEST-receipt\.txt · 21 B · ready/)).toBeVisible();
   await page.getByRole('button', { name: 'Add evidence', exact: true }).click();
-  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
   await expect(page.getByRole('cell', { name: /TEST-receipt\.txt/ }).first()).toBeVisible();
   const sent = mock.calls.find((c) => c.procedure === 'merchantOps.disputes.uploadEvidence').input;
   expect(sent).toMatchObject({ fileName: 'TEST-receipt.txt', contentType: 'text/plain', contentBase64: content.toString('base64') });
   expect(sent.sha256).toBe(createHash('sha256').update(content).digest('hex'));
   await snap(page, '13-dispute-detail');
   await page.getByRole('button', { name: 'Contest the dispute' }).click();
-  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
   await expect(page.getByText('You contested the dispute')).toBeVisible();
   const decision = mock.calls.find((c) => c.procedure === 'merchantOps.disputes.respond').input;
   expect(decision.requestId).toMatch(/^[0-9a-f-]{36}$/);
@@ -355,7 +355,7 @@ test('exports: request, watch it build, download it', async ({ page }) => {
   await page.getByRole('button', { name: 'Request a report', exact: true }).last().click();
   const dialog = page.getByRole('dialog', { name: 'Review: Request a report' });
   await expect(dialog.getByText('Settlements')).toBeVisible();
-  await dialog.locator('.form-stack > button').last().click();
+  await dialog.locator('[data-testid="form-stack"] > button').last().click();
   const jobs = page.getByRole('region', { name: 'Your report files' });
   await expect(jobs.getByRole('row', { name: /Settlements.*(Waiting|Building)/ })).toBeVisible();
   const request = mock.calls.find((c) => c.procedure === 'merchantOps.exports.create').input;
@@ -401,7 +401,7 @@ test('every portal page survives an unreachable service with a retry, and calls 
   await expect(page.getByRole('button', { name: 'Try again' }).first()).toBeVisible();
   for (const path of ['/pay/disputes', '/pay/customers', '/pay/exports', '/pay/notifications', '/pay/merchant']) {
     await go(page, path);
-    await expect(page.getByRole('main').or(page.locator('.page')).first()).toBeVisible();
+    await expect(page.getByRole('main').or(page.getByTestId('page')).first()).toBeVisible();
     await expect(page.getByText(/pay\.[a-z_]+/)).toHaveCount(0);
   }
   expect(seen.filter((u) => /founderAdmin/i.test(u))).toEqual([]);
@@ -426,7 +426,7 @@ test('payments: totals with their period, filters the service applies, load more
   await expect(totals).toBeVisible();
   await expect(totals.getByRole('link', { name: /Failed/ })).toHaveAttribute('href', /status=failed&date=30d/);
   await expect(page.getByText('Updated just now').first()).toBeVisible();
-  const rows = page.locator('.pe-table tbody tr');
+  const rows = page.getByTestId('pe-table').locator('tbody tr');
   await expect(rows).toHaveCount(25);
   await expect(page.getByText('25 shown · Load more')).toBeVisible();
   await snap(page, '20-payments-desktop');
@@ -590,7 +590,7 @@ test('payout detail: the checker approves with a reason, the service gets the fi
     ),
   ).toBeVisible();
   await expect(dialog.getByText('Checked the destination')).toBeVisible();
-  await dialog.locator('.form-stack > button').last().click();
+  await dialog.locator('[data-testid="form-stack"] > button').last().click();
   await expect(page.getByText('Approved').first()).toBeVisible();
   const sent = mock.calls.find((c) => c.procedure === 'merchantControl.approvals.decide').input;
   expect(sent).toEqual({
@@ -614,7 +614,7 @@ test('payout detail: the person who asked cannot approve, and can take the reque
   const asked = page.getByRole('dialog', { name: "Confirm it's you" });
   await asked.getByLabel('6-digit code from your authenticator app').fill(TEST_TOTP_CODE);
   await asked.getByRole('button', { name: 'Confirm', exact: true }).click();
-  await page.getByRole('dialog', { name: 'Review: Cancel my request' }).locator('.form-stack > button').last().click();
+  await page.getByRole('dialog', { name: 'Review: Cancel my request' }).locator('[data-testid="form-stack"] > button').last().click();
   await expect(page.getByText('The approval on this payout no longer counts')).toBeVisible();
   expect(mock.calls.find((c) => c.procedure === 'merchantControl.approvals.cancel').input).toMatchObject({ reason: 'Wrong amount' });
 });
@@ -625,14 +625,14 @@ test('payout detail: an approved payout over what is left of today’s limit say
   await signIn(page, `/pay/payouts/${STL_WAITING}`);
   await page.getByLabel('Your reason *').fill('Checked the destination');
   await page.getByRole('button', { name: 'Approve payout' }).click();
-  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
   await expect(page.getByText('more than you have left of today’s payout limit, so it cannot be sent yet')).toBeVisible();
   await expect(page.getByRole('link', { name: 'Send this payout' })).toHaveCount(0);
   // The other one fits under the limit, so the owner can approve it and go on to send it.
   await signIn(page, `/pay/payouts/${STL_OWN}`);
   await page.getByLabel('Your reason *').fill('Checked the destination');
   await page.getByRole('button', { name: 'Approve payout' }).click();
-  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
   await expect(page.getByRole('link', { name: 'Send this payout' }).first()).toBeVisible();
 });
 
@@ -673,14 +673,14 @@ test('payout detail: a refused decision is plain words, and a retry then goes th
   );
   await page.getByLabel('Your reason *').fill('Looks right');
   await page.getByRole('button', { name: 'Reject payout' }).click();
-  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
   await expect(page.getByText(/The payout changed after you opened it, so your decision was not recorded/).first()).toBeVisible();
   await expect(page.getByText('pay.approval_payload_mismatch')).toHaveCount(0);
   await snap(page, '34-approvals-refused');
   await page.unroute('**/api/pay/trpc/merchantControl.approvals.decide');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Reject payout' }).click();
-  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
   await expect(page.getByText('Rejected').first()).toBeVisible();
   expect(mock.calls.filter((c) => c.procedure === 'merchantControl.approvals.decide').at(-1).input).toMatchObject({ decision: 'reject' });
 });
@@ -794,12 +794,12 @@ test('a page whose service is not switched on says what it is waiting for, and e
 }) => {
   await setup(page, 'soon');
   await signIn(page, '/pay/pricing');
-  await expect(page.locator('.pfo-soon').first()).toBeVisible();
+  await expect(page.getByTestId('pfo-soon').first()).toBeVisible();
   await expect(page.locator('body')).not.toContainText(/coming soon|arrives soon/i);
   await go(page, '/pay/limits');
-  await expect(page.locator('.pfo-soon').first()).toBeVisible();
+  await expect(page.getByTestId('pfo-soon').first()).toBeVisible();
   await go(page, '/pay/approvals');
-  await expect(page.locator('.pfo-soon').first()).toBeVisible();
+  await expect(page.getByTestId('pfo-soon').first()).toBeVisible();
   await snap(page, '45-approvals-not-switched-on');
   const offline = await page.context().newPage();
   const { seen } = await setup(offline, 'down');
@@ -855,7 +855,7 @@ test('payout detail: a decision that was voided meanwhile is shown as refused, n
   await page.getByLabel('Your reason *').fill('Looks right');
   await page.getByRole('button', { name: 'Approve payout' }).click();
   const dialog = page.getByRole('dialog', { name: 'Review: Approve payout' });
-  await dialog.locator('.form-stack > button').last().click();
+  await dialog.locator('[data-testid="form-stack"] > button').last().click();
   await expect(dialog.getByText('The request was voided because the payout changed, so your decision did not count.')).toBeVisible();
   await expect(page.getByText('The service confirmed the action')).toHaveCount(0);
   await snap(page, '46-approvals-voided-result');
@@ -918,11 +918,11 @@ test('payouts: when approvals cannot be read, a payout shows "Approval unknown",
   await setup(page);
   await page.route('**/api/pay/trpc/merchantControl.approvals.list*', (route) => json(route, { message: 'x' }, 503));
   await signIn(page, '/pay/payouts');
-  await expect(page.locator('.pp-chip', { hasText: 'Approval unknown' }).first()).toBeVisible();
-  await expect(page.locator('.pp-chip', { hasText: 'Ready to pay out' })).toHaveCount(0);
+  await expect(page.locator('[data-testid="pp-chip"]', { hasText: 'Approval unknown' }).first()).toBeVisible();
+  await expect(page.locator('[data-testid="pp-chip"]', { hasText: 'Ready to pay out' })).toHaveCount(0);
   await snap(page, '49-payouts-approval-unknown');
   await go(page, `/pay/payouts/${STL_WAITING}`);
-  await expect(page.locator('.pp-chip', { hasText: 'Approval unknown' }).first()).toBeVisible();
+  await expect(page.locator('[data-testid="pp-chip"]', { hasText: 'Approval unknown' }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Approve payout' })).toHaveCount(0);
 });
 

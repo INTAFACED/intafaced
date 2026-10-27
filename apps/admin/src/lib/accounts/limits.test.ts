@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { accountLimitResultSchema } from '@intafaced/contracts';
-import { aboveCeiling, ceilingFor, limitsReply } from './limits';
+import { aboveCeiling, allowanceAssets, allowanceRefusal, ceilingFor, limitsReply } from './limits';
 import { readLimitClearForm, readLimitSetForm } from './limits-forms';
 
 const founder = '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b';
@@ -115,5 +115,31 @@ describe('limit override words', () => {
       current: null,
     });
     expect(limitsReply(conflict).ok).toBe(false);
+  });
+});
+
+describe('what svc-pay applies', () => {
+  it('names svc-pay’s own refusal in words, and an unknown or missing code as it is', () => {
+    expect(allowanceRefusal('pay.guard_withdrawal_limit_unset')).toContain('has not set a withdrawal limit');
+    expect(allowanceRefusal('pay.guard_withdrawal_override_unwired')).toContain('pay.guard_withdrawal_override_unwired');
+    expect(allowanceRefusal('pay.something_new')).toBe(
+      'svc-pay did not answer with this customer’s withdrawal allowance (pay.something_new).',
+    );
+    expect(allowanceRefusal(null)).toBe('svc-pay did not answer with this customer’s withdrawal allowance.');
+  });
+
+  it('lists the assets svc-pay has a base limit set for, once each and sorted; a cleared one is left out', () => {
+    const limit = { perTx: '50', rolling24h: '100' };
+    expect(
+      allowanceAssets([
+        { tier: 'full', assetId: 'USDT', limit },
+        { tier: 'basic', assetId: 'USDC', limit },
+        { tier: 'basic', assetId: 'USDT', limit },
+        { tier: 'none', assetId: 'BTC', limit: null },
+      ]),
+    ).toEqual(['USDC', 'USDT']);
+    expect(allowanceAssets([])).toEqual([]);
+    expect(allowanceAssets({ rows: [] })).toBeNull();
+    expect(allowanceAssets([{ assetId: 7, limit }])).toBeNull();
   });
 });

@@ -27,7 +27,9 @@ async function withAuthenticator(page) {
   const who = person();
   await signUpInBrowser(page, who);
   const { secret, step } = await addAuthenticator(page, await totpOf());
-  const codes = (await page.locator('.security__recovery .recovery-codes li').allInnerTexts()).map((code) => code.trim());
+  const codes = (await page.getByTestId('security__recovery').getByTestId('recovery-codes').locator('li').allInnerTexts()).map((code) =>
+    code.trim(),
+  );
   expect(codes.length).toBeGreaterThan(1);
   return { who, secret, step, codes };
 }
@@ -68,7 +70,7 @@ test(`${J} #1 a recovery code at the second step is accepted once and spent; the
   await expect(other).not.toHaveURL(/\/login/);
   // Security on the new browser counts the same.
   await other.goto('/uc/safe');
-  await expect(other.locator('.security__authenticator').filter({ hasText: 'Recovery codes left' })).toContainText(
+  await expect(other.getByTestId('security__authenticator').filter({ hasText: 'Recovery codes left' })).toContainText(
     `Recovery codes left: ${codes.length - 1}`,
   );
   await context.close();
@@ -164,7 +166,7 @@ test(`${J} #3 a reset stops when cancelled from a signed-in session; otherwise i
   await expect.poll(() => mailedLines(who.email, 'mfa-reset-cancelled').length).toBeGreaterThan(cancelled);
   await page.reload();
   await expect(page.getByRole('button', { name: 'Stop this reset' })).toHaveCount(0);
-  await expect(page.locator('.security__authenticator').filter({ hasText: 'Recovery codes left' })).toBeVisible();
+  await expect(page.getByTestId('security__authenticator').filter({ hasText: 'Recovery codes left' })).toBeVisible();
   await first.context.close();
 
   // Not cancelled: once the TEST wait (20 s, tooling/profiles/test-owner-values/identity.json) has passed, the password
@@ -204,7 +206,7 @@ test(`${J} #4 replacing the authenticator on the new phone ends the old device's
     .getByRole('button', { name: 'Open Security' })
     .click();
   await expect(other).toHaveURL(/\/uc\/safe/);
-  const card = other.locator('.security__authenticator').filter({ hasText: 'Recovery codes left' });
+  const card = other.getByTestId('security__authenticator').filter({ hasText: 'Recovery codes left' });
   await card.getByRole('button', { name: 'Replace', exact: true }).click();
   await card.getByLabel('6-digit code or a recovery code').fill(codes[1]);
   await card.getByRole('button', { name: 'Confirm', exact: true }).click();
@@ -212,18 +214,20 @@ test(`${J} #4 replacing the authenticator on the new phone ends the old device's
   await card.getByLabel('Code from the new app').fill(totp(key));
   await card.getByLabel('Next code or a recovery code').fill(codes[2]);
   await card.getByRole('button', { name: 'Replace authenticator app' }).click();
-  const told = card.locator('.notice[role=status]');
+  const told = card.locator('[data-testid="notice"][role=status]');
   await expect(told).toContainText('Authenticator app replaced');
   await expect(told).toContainText('The recovery code you used is spent');
   await expect(told).toContainText('Every other device was signed out (1)');
 
   // New recovery codes, shown once: none of the old ones, and gone from the page after "I saved them".
-  const fresh = (await card.locator('.security__recovery .recovery-codes li').allInnerTexts()).map((code) => code.trim());
+  const fresh = (await card.getByTestId('security__recovery').getByTestId('recovery-codes').locator('li').allInnerTexts()).map((code) =>
+    code.trim(),
+  );
   expect(fresh.length).toBeGreaterThan(1);
   for (const old of codes) expect(fresh).not.toContain(old);
   await card.getByLabel('I saved these codes somewhere safe').check();
   await card.getByRole('button', { name: 'I saved them' }).click();
-  await expect(card.locator('.security__recovery')).toHaveCount(0);
+  await expect(card.getByTestId('security__recovery')).toHaveCount(0);
   await expect(card).toContainText(`Recovery codes left: ${fresh.length}`);
 
   // The old phone's session has ended.
@@ -383,7 +387,7 @@ test.describe('recovery keys', () => {
     await virtualAuthenticator(page);
     await addPasskey(page);
     await page.goto('/uc/safe');
-    const card = page.locator('.security__recovery-keys');
+    const card = page.getByTestId('security__recovery-keys');
     await expect(page.getByRole('heading', { name: 'Recovery keys' })).toBeVisible();
     await expect(card).toContainText('No recovery keys set. If something happens to you, your balances stay frozen.');
     await expect(card).toContainText('Only keys you set can move your trading balances. Staff will not sell or transfer them.');

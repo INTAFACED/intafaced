@@ -767,7 +767,7 @@ export function MutationDialog({
                 {termsFor.blocked}
               </p>
             )}
-            <p className="money-reference">
+            <p data-testid="money-reference" className="money-reference">
               <Text k="components.request.reference" />
               {requestId}
             </p>
@@ -832,7 +832,7 @@ export function MutationDialog({
                 <p className="notice">
                   <Text k="components.this.request.may.have.completed.keep.this" />
                 </p>
-                <p className="money-reference">
+                <p data-testid="money-reference" className="money-reference">
                   <Text k="components.request.reference" />
                   {requestId}
                 </p>

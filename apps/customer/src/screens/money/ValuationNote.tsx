@@ -25,8 +25,8 @@ export function ValuationNote({
 }) {
   const { t } = copy;
   return (
-    <section id="valuation" className="money-card" aria-labelledby="money-valuation-title">
-      <header className="money-card__head">
+    <section id="valuation" data-testid="money-card" className="money-card" aria-labelledby="money-valuation-title">
+      <header data-testid="money-card__head" className="money-card__head">
         <h2 id="money-valuation-title">{t('How these values are worked out')}</h2>
       </header>
       <p className="money-card__note" data-testid="valuation-time">
@@ -38,7 +38,7 @@ export function ValuationNote({
           : t('Valued on this device at {time}', { time: clockTime(view.asOf, timeZone) })}
       </p>
       <p className="money-card__note">{t('Stable coins rule')}</p>
-      <table className="money-table money-valuation">
+      <table data-testid="money-table" className="money-table money-valuation">
         <thead>
           <tr>
             <th scope="col">{t('Coin')}</th>

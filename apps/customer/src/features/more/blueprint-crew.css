@@ -1,7 +1,7 @@
 .blueprint-crew .if-panel__body {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--if-space-5);
 }
 .blueprint-crew {
   min-width: 0;
@@ -15,7 +15,7 @@
 }
 .blueprint-crew p {
   font-size: 15px;
-  line-height: 24px;
+  line-height: var(--if-leading-md);
 }
 .blueprint-crew dl {
   margin: 0;
@@ -23,33 +23,33 @@
 .blueprint-crew dl > div {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--if-space-1);
   min-width: 0;
 }
 .blueprint-crew dt {
   color: var(--color-muted);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--if-text-sm);
+  line-height: var(--if-leading-base);
 }
 .blueprint-crew dd {
   margin: 0;
   font-size: 15px;
-  line-height: 24px;
+  line-height: var(--if-leading-md);
 }
 .blueprint-crew-identity {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--if-space-3);
 }
 .blueprint-crew .blueprint-crew-name {
-  font-size: 24px;
+  font-size: var(--if-text-xl);
   line-height: 32px;
 }
 .blueprint-crew-facts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  padding-top: 16px;
+  gap: var(--if-space-4);
+  padding-top: var(--if-space-4);
   border-top: 1px solid var(--color-divider);
 }
 .blueprint-crew-xp {
@@ -58,13 +58,13 @@
 .blueprint-crew-note {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 12px;
-  border-radius: 4px;
+  gap: var(--if-space-1);
+  padding: var(--if-space-3);
+  border-radius: var(--if-r-xs);
   background: var(--color-surface-raised);
 }
 .blueprint-crew-note strong {
-  font-size: 14px;
+  font-size: var(--if-text-base);
   font-weight: 500;
 }
 .blueprint-crew-note p {
@@ -73,8 +73,8 @@
 .blueprint-crew-roster {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding-top: 16px;
+  gap: var(--if-space-4);
+  padding-top: var(--if-space-4);
   border-top: 1px solid var(--color-divider);
 }
 .blueprint-crew-roster ul {
@@ -83,44 +83,44 @@
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--if-space-4);
 }
 .blueprint-crew-roster li {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding-bottom: 12px;
+  gap: var(--if-space-1);
+  padding-bottom: var(--if-space-3);
   border-bottom: 1px solid var(--color-divider);
 }
 .blueprint-crew-roster strong {
-  font-size: 14px;
+  font-size: var(--if-text-base);
   font-weight: 500;
 }
 .blueprint-crew-roster li > span:first-of-type {
   font-size: 15px;
-  line-height: 24px;
+  line-height: var(--if-leading-md);
 }
 .blueprint-crew-roster li > span:last-of-type {
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--if-text-sm);
+  line-height: var(--if-leading-base);
 }
 .blueprint-crew-failure,
 .blueprint-crew-export-time {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--if-space-2);
 }
 .blueprint-crew p.blueprint-crew-export-time {
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--if-text-sm);
+  line-height: var(--if-leading-base);
 }
 .blueprint-crew-failure p {
   color: var(--color-muted);
 }
 .blueprint-crew-export-time {
-  font-size: 13px;
-  line-height: 20px;
-  gap: 4px;
+  font-size: var(--if-text-sm);
+  line-height: var(--if-leading-base);
+  gap: var(--if-space-1);
 }
 .blueprint-crew .button {
   align-self: flex-start;
@@ -133,6 +133,6 @@
 .blueprint-opt-in {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--if-space-2-5);
   color: var(--color-text);
 }

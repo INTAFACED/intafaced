@@ -12,7 +12,7 @@ export const currentInstruction = currentOwnerRecord<StandingInstruction>;
 export function StandingFacts({ instruction }: { instruction: StandingInstruction }) {
   const { Copy } = standingCopy.useCopy();
   return (
-    <dl className="money-standing-facts">
+    <dl data-testid="money-standing-facts" className="money-standing-facts">
       <div>
         <dt>
           <Copy k="amount" />
@@ -99,6 +99,7 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
   const failure = query.resource.status === 'failed' ? query.resource.failure : null;
   return (
     <div
+      data-testid="money-execution-history"
       className="money-execution-history"
       role="region"
       aria-label={t('returned')}

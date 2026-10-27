@@ -1,7 +1,7 @@
 @layer components {
   .apps-room {
     display: grid;
-    gap: 24px;
+    gap: var(--if-space-6);
     max-width: 720px;
   }
   .apps-list {
@@ -9,16 +9,16 @@
     margin: 0;
     padding: 0;
     display: grid;
-    gap: 16px;
+    gap: var(--if-space-4);
   }
   .apps-row,
   .apps-form,
   .apps-secret {
     display: grid;
-    gap: 8px;
-    padding: 16px;
+    gap: var(--if-space-2);
+    padding: var(--if-space-4);
     border: 1px solid var(--if-line, currentColor);
-    border-radius: var(--if-r-md, 12px);
+    border-radius: var(--if-r-md, var(--if-r-md));
   }
   .apps-row h3,
   .apps-form h2,
@@ -28,7 +28,7 @@
   .apps-row dl {
     display: grid;
     grid-template-columns: max-content 1fr;
-    gap: 4px 12px;
+    gap: var(--if-space-1) var(--if-space-3);
     margin: 0;
   }
   .apps-row dd {
@@ -42,13 +42,13 @@
   }
   .apps-secret__value {
     display: block;
-    padding: 12px;
+    padding: var(--if-space-3);
     overflow-wrap: anywhere;
     user-select: all;
   }
   .apps-kind {
     display: grid;
-    gap: 4px;
+    gap: var(--if-space-1);
     border: 0;
     padding: 0;
   }
@@ -57,7 +57,7 @@
   }
   .consent-room {
     display: grid;
-    gap: 16px;
+    gap: var(--if-space-4);
     max-width: 520px;
   }
   .consent-scopes {
@@ -65,11 +65,11 @@
     margin: 0;
     padding: 0;
     display: grid;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .consent-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 12px;
+    gap: var(--if-space-3);
   }
 }

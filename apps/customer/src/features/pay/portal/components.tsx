@@ -59,7 +59,7 @@ export function PortalFailure({ result, retry, notLive }: { result: Failed; retr
   // The same refusal, twice on one page, is said once.
   if (once && !once.claim(key, id)) return null;
   return (
-    <div className="failure" role={result.reason === 'uncertain' ? 'alert' : 'status'}>
+    <div data-testid="failure" className="failure" role={result.reason === 'uncertain' ? 'alert' : 'status'}>
       <h3>{refusalTitle(result)}</h3>
       <p>{refusalText(result)}</p>
       {result.requestId && (
@@ -275,7 +275,7 @@ export function BackLink({ href, children }: { href: string; children: ReactNode
 /** A summary line of key facts (B5): label and value pairs, ids copyable by selection. */
 export function Facts({ items }: { items: ReadonlyArray<readonly [string, ReactNode]> }) {
   return (
-    <dl className="pp-facts">
+    <dl data-testid="pp-facts" className="pp-facts">
       {items.map(([label, value]) => (
         <div key={label}>
           <dt>{label}</dt>

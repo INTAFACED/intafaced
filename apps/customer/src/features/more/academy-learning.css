@@ -1,7 +1,7 @@
 .academy-learning-layout {
   display: grid;
   grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
-  gap: 24px;
+  gap: var(--if-space-6);
   align-items: start;
 }
 .academy-learning-reader {
@@ -19,7 +19,7 @@
 }
 .academy-learning-stack {
   display: grid;
-  gap: 24px;
+  gap: var(--if-space-6);
 }
 .academy-learning-stack h2,
 .academy-learning-stack h3,
@@ -27,11 +27,11 @@
   margin-top: 0;
 }
 .academy-learning-stack h2 {
-  font-size: 24px;
+  font-size: var(--if-text-xl);
   line-height: 1.25;
 }
 .academy-learning-stack .more-body {
-  font-size: 16px;
+  font-size: var(--if-text-md);
   line-height: 26px;
 }
 .academy-learning-stack .more-body p:empty {
@@ -40,66 +40,66 @@
 .academy-learning-lessons {
   list-style: none;
   display: grid;
-  gap: 12px;
+  gap: var(--if-space-3);
   margin: 0;
   padding: 0;
 }
 .academy-learning-lessons li {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
+  gap: var(--if-space-3);
   align-items: center;
 }
 .academy-learning-lessons li[aria-current='step'] {
-  border-left: 2px solid var(--color-accent);
-  padding-left: 12px;
+  border-left: 2px solid var(--if-lime);
+  padding-left: var(--if-space-3);
 }
 .academy-learning-link {
   display: inline-flex;
   min-height: 44px;
   align-items: center;
-  padding: 10px 14px;
+  padding: var(--if-space-2-5) var(--if-space-3-5);
   border: 1px solid var(--color-divider);
-  border-radius: 8px;
+  border-radius: var(--if-r-sm);
   font-weight: 600;
   text-decoration: none;
   color: var(--color-text);
 }
 .academy-learning-link:hover {
-  border-color: var(--color-accent);
+  border-color: var(--if-lime);
 }
 .academy-learning-link:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--if-focus);
   outline-offset: 3px;
 }
 .academy-learning-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: var(--if-space-3);
   align-items: center;
 }
 .academy-learning-receipt,
 .academy-learning-unknown {
   display: grid;
-  gap: 16px;
-  padding: 20px;
+  gap: var(--if-space-4);
+  padding: var(--if-space-5);
   border: 1px solid var(--color-divider);
   border-radius: 10px;
   background: var(--color-surface-raised);
 }
 .academy-learning-receipt {
-  border-left: 2px solid var(--color-accent);
+  border-left: 2px solid var(--if-lime);
 }
 .academy-learning-ref {
   overflow-wrap: anywhere;
-  font-size: 13px;
+  font-size: var(--if-text-sm);
   line-height: 1.5;
 }
 .academy-learning-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  font-size: 13px;
+  gap: var(--if-space-2);
+  font-size: var(--if-text-sm);
   color: var(--color-muted);
 }
 @media (max-width: 800px) {
@@ -114,14 +114,14 @@
 }
 @media (max-width: 420px) {
   .academy-learning-layout {
-    gap: 16px;
+    gap: var(--if-space-4);
   }
   .academy-learning-stack {
-    gap: 20px;
+    gap: var(--if-space-5);
   }
   .academy-learning-receipt,
   .academy-learning-unknown {
-    padding: 16px;
+    padding: var(--if-space-4);
   }
   .academy-learning-actions > * {
     width: 100%;
@@ -142,25 +142,25 @@
 }
 
 .academy-learning-stack .more-body h3 {
-  font-size: 20px;
-  line-height: 28px;
+  font-size: var(--if-text-lg);
+  line-height: var(--if-leading-lg);
 }
 .academy-learning-stack .more-body ol,
 .academy-learning-stack .more-body ul {
-  padding-left: 32px;
+  padding-left: var(--if-space-8);
 }
 .academy-learning-stack .more-body li {
   padding-left: 0;
-  margin-bottom: 16px;
+  margin-bottom: var(--if-space-4);
 }
 
 .academy-learning-lessons li {
-  padding: 16px 0;
+  padding: var(--if-space-4) 0;
   border-top: 1px solid var(--color-divider);
 }
 .academy-learning-lessons strong {
-  font-size: 16px;
-  line-height: 24px;
+  font-size: var(--if-text-md);
+  line-height: var(--if-leading-md);
   font-weight: 400;
 }
 .academy-learning-lessons li[aria-current='step'] strong {
@@ -168,15 +168,15 @@
 }
 .academy-learning-lessons small {
   display: block;
-  margin-top: 8px;
+  margin-top: var(--if-space-2);
   color: var(--color-muted);
-  font-size: 14px;
-  line-height: 20px;
+  font-size: var(--if-text-base);
+  line-height: var(--if-leading-base);
 }
 .academy-learning-lessons small code {
   display: block;
-  margin-top: 4px;
-  font-size: 13px;
+  margin-top: var(--if-space-1);
+  font-size: var(--if-text-sm);
 }
 .academy-learning-lessons .academy-learning-link {
   width: 112px;

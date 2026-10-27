@@ -4,7 +4,7 @@
     .p2p-offer-workspace {
       display: grid;
       grid-template-columns: minmax(0, 1fr);
-      gap: 32px;
+      gap: var(--if-space-8);
       align-items: start;
     }
     .p2p-offer-workspace.has-selection {
@@ -24,11 +24,11 @@
     .p2p-current-offer {
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: var(--if-space-4);
     }
     .p2p-offer-inspector {
       border-left: 1px solid var(--if-line);
-      padding-left: 32px;
+      padding-left: var(--if-space-8);
       scroll-margin-block-start: 24px;
     }
     .p2p-offer-inspector > .button {
@@ -41,26 +41,26 @@
     .p2p-offer-device {
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: var(--if-space-1);
     }
     .p2p-offer-identity {
-      gap: 8px;
+      gap: var(--if-space-2);
     }
     .p2p-offer-inspector h2 {
-      font-size: 24px;
+      font-size: var(--if-text-xl);
       line-height: 32px;
       font-weight: 600;
       letter-spacing: -0.02em;
       margin: 0;
     }
     .p2p-offer-inspector h3 {
-      font-size: 20px;
-      line-height: 28px;
+      font-size: var(--if-text-lg);
+      line-height: var(--if-leading-lg);
       margin: 0;
     }
     .p2p-offer-reference {
-      font-size: 13px;
-      line-height: 20px;
+      font-size: var(--if-text-sm);
+      line-height: var(--if-leading-base);
       overflow-wrap: anywhere;
     }
     .p2p-offer-list {
@@ -71,14 +71,14 @@
     .p2p-offer-row {
       display: grid;
       grid-template-columns: minmax(180px, 1.1fr) minmax(160px, 1fr) minmax(180px, 1.1fr) 164px;
-      gap: 20px;
+      gap: var(--if-space-5);
       align-items: center;
       border-bottom: 1px solid var(--if-line);
-      padding: 20px 0;
+      padding: var(--if-space-5) 0;
     }
     .p2p-offer-maker > strong {
-      font-size: 16px;
-      line-height: 24px;
+      font-size: var(--if-text-md);
+      line-height: var(--if-leading-md);
     }
     .p2p-offer-maker [data-slot='status-tag'] {
       align-self: flex-start;
@@ -87,7 +87,7 @@
       display: flex;
       flex-wrap: wrap;
       align-items: baseline;
-      gap: 4px 8px;
+      gap: var(--if-space-1) var(--if-space-2);
       min-width: 0;
     }
     .p2p-offer-range > .pay-exact-amount {
@@ -97,7 +97,7 @@
       justify-content: flex-start;
     }
     .p2p-offer-price .numeric {
-      font-size: 24px;
+      font-size: var(--if-text-xl);
       line-height: 32px;
       font-weight: 600;
       letter-spacing: -0.015em;
@@ -109,7 +109,7 @@
       display: flex;
       flex-wrap: wrap;
       align-items: baseline;
-      gap: 4px 8px;
+      gap: var(--if-space-1) var(--if-space-2);
       min-width: 0;
     }
     .p2p-offer-quantities > span > .pay-exact-amount {
@@ -122,7 +122,7 @@
     .p2p-offer-inspect {
       width: 164px;
       min-height: 44px;
-      color: var(--if-lime);
+      color: var(--if-accent-text);
     }
     .p2p-offer-filters,
     .p2p-offer-known {
@@ -131,16 +131,16 @@
     .p2p-offer-filters > summary,
     .p2p-offer-known > summary {
       min-height: 44px;
-      padding-block: 12px;
+      padding-block: var(--if-space-3);
       cursor: pointer;
-      color: var(--if-lime);
+      color: var(--if-accent-text);
     }
     .p2p-offer-original {
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: var(--if-space-3);
       border-left: 2px solid var(--if-lime);
-      padding-left: 12px;
+      padding-left: var(--if-space-3);
     }
     .p2p-offer-original p,
     .p2p-offer-inspector > p {
@@ -154,14 +154,14 @@
     .p2p-offer-review {
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: var(--if-space-4);
       min-width: 0;
     }
     .p2p-offer-review .pay-details > div,
     .p2p-current-offer .pay-details > div {
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: var(--if-space-2);
     }
     .p2p-offer-review .pay-details dd,
     .p2p-current-offer .pay-details dd {
@@ -176,7 +176,7 @@
       display: flex;
       align-items: center;
       flex-wrap: wrap;
-      gap: 8px;
+      gap: var(--if-space-2);
     }
     .has-selection .p2p-offer-row {
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -206,11 +206,11 @@
       .p2p-offer-row,
       .has-selection .p2p-offer-row {
         grid-template-columns: minmax(0, 1fr);
-        gap: 12px;
-        padding-block: 16px;
+        gap: var(--if-space-3);
+        padding-block: var(--if-space-4);
       }
       .p2p-offer-quantities {
-        gap: 4px;
+        gap: var(--if-space-1);
       }
     }
   }

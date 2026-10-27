@@ -109,6 +109,13 @@ export function timedOutJobNames(jobs) {
 /** A run's conclusion with a time-limit cancel read as "timed_out". */
 export const runConclusion = (conclusion, timedOut) => (conclusion === 'cancelled' && timedOut.length ? 'timed_out' : conclusion);
 
+/** Checks a commit can break without touching their code: the issue says so, so nobody reverts an innocent commit. */
+const OUTSIDE_CAUSES = {
+  'PR checks':
+    'If the red job is Dependency audit, the cause is usually a new advisory on a dependency nobody changed: the job log names it. Fix that with a dependency update (or a KNOWN entry with its reason), not a revert. A red Gitleaks is the commit: revert or fix it.',
+};
+export const outsideCause = (check) => (OUTSIDE_CAUSES[check] ? ['', OUTSIDE_CAUSES[check]] : []);
+
 export const checkIssueTitle = (check) => `Broken on main: ${check}`;
 export const timeLimitIssueTitle = (check) => `Broken on main: ${check} (time limit)`;
 export const journeyIssueTitle = (journey) => `Journey broken on main: ${journey}`;
@@ -193,7 +200,8 @@ async function timedOutJobs(repo, runId) {
 async function earlierRuns(repo, workflowId, runId, createdAt, want) {
   const { json } = await gh('GET', `/repos/${repo}/actions/workflows/${workflowId}/runs?branch=main&status=completed&per_page=100`);
   const runs = (json?.workflow_runs ?? [])
-    .filter((r) => r.id !== Number(runId) && r.created_at < createdAt)
+    // A pull request from a fork's own `main` branch reports head_branch "main" too; only main's own runs count.
+    .filter((r) => r.id !== Number(runId) && r.created_at < createdAt && (r.event === 'push' || r.event === 'workflow_dispatch'))
     .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
   const out = [];
   let lookups = 0;
@@ -295,6 +303,7 @@ async function wholeRunCheck(ctx) {
       '',
       commits.length === 1 ? 'The breaking commit:' : `The breaking commit is one of these ${commits.length} ([compare](${url})):`,
       ...commitLines(commits),
+      ...outsideCause(name),
       '',
       '_Opened by tooling/ci/post-merge-trust.mjs. Nothing is skipped or blocked; fix or revert the commit._',
     ].join('\n');
@@ -337,6 +346,7 @@ export function untrackedRedBody({ name, sha, runId, runUrl, prev, lastGreen, ra
           ...commitLines(range.commits),
         ]
       : ['No green run in the last 100 finished runs on main, so no commit range can be named.']),
+    ...outsideCause(name),
     '',
     '_Opened by tooling/ci/post-merge-trust.mjs. Nothing is skipped or blocked; it closes itself when the check passes again._',
   ].join('\n');
@@ -494,6 +504,19 @@ function selfTest() {
   });
   eq(checkRedShas([untracked]), ['cccccccccc'], 'an untracked red names its sha, so a later green closes it');
   eq(untracked.includes('`bbbbbbbbbb` feat: x (#9)'), true, 'an untracked red lists the commits since the last green');
+  eq(untracked.includes('new advisory'), false, 'a code check carries no outside-cause line');
+  eq(
+    untrackedRedBody({
+      name: 'PR checks',
+      sha: 'c'.repeat(40),
+      runId: 3,
+      runUrl: 'u',
+      prev: run(2, 'b'.repeat(40)),
+      lastGreen: null,
+    }).includes('not a revert'),
+    true,
+    'a Dependency audit red says the cause can be outside the commits',
+  );
   eq(
     untrackedRedBody({ name: 'x', sha: 'c'.repeat(40), runId: 3, runUrl: 'u', prev: run(2, 'b'.repeat(40)), lastGreen: null }).includes(
       'No green run',
@@ -540,7 +563,7 @@ function selfTest() {
     '- … 1 older commits (see the compare link)',
     'long ranges are cut',
   );
-  console.log('✓ post-merge-trust --self-test OK (24 fixtures)');
+  console.log('✓ post-merge-trust --self-test OK (26 fixtures)');
 }
 
 async function main() {

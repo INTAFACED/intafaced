@@ -2,18 +2,18 @@
   display: inline-flex;
   align-items: center;
   min-height: 24px;
-  padding: 2px 10px;
+  padding: var(--if-space-0-5) var(--if-space-2-5);
   border: 1px solid var(--color-divider);
-  border-radius: 999px;
-  font-size: 12px;
-  line-height: 18px;
+  border-radius: var(--if-r-pill);
+  font-size: var(--if-text-xs);
+  line-height: var(--if-leading-sm);
   font-weight: 500;
   color: var(--color-muted);
   white-space: nowrap;
 }
 .depth-pill--ready {
-  color: var(--color-accent);
-  border-color: var(--color-accent);
+  color: var(--if-accent-text);
+  border-color: var(--if-lime);
 }
 .depth-pill--paper {
   color: var(--color-text);
@@ -29,8 +29,8 @@
 .depth-step {
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr);
-  gap: 16px;
-  padding: 16px 0;
+  gap: var(--if-space-4);
+  padding: var(--if-space-4) 0;
   border-top: 1px solid var(--color-divider);
 }
 .depth-step-index {
@@ -40,13 +40,13 @@
   height: 28px;
   border: 1px solid var(--color-divider);
   border-radius: 50%;
-  font-size: 13px;
+  font-size: var(--if-text-sm);
   color: var(--color-muted);
 }
 .depth-step-main {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--if-space-2);
   min-width: 0;
 }
 .depth-step-head {
@@ -54,19 +54,19 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 8px 16px;
+  gap: var(--if-space-2) var(--if-space-4);
 }
 .depth-step h3,
 .depth-step p {
   margin: 0;
 }
 .depth-step h3 {
-  font-size: 16px;
-  line-height: 24px;
+  font-size: var(--if-text-md);
+  line-height: var(--if-leading-md);
   font-weight: 500;
 }
 .depth-step p {
-  font-size: 14px;
+  font-size: var(--if-text-base);
   line-height: 22px;
   overflow-wrap: anywhere;
 }
@@ -76,27 +76,27 @@
 .depth-step-action {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: var(--if-space-3);
   align-items: center;
 }
 .depth-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 16px;
+  gap: var(--if-space-4);
   margin: 0;
 }
 .depth-stats > div {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--if-space-1);
   min-width: 0;
-  padding-top: 12px;
+  padding-top: var(--if-space-3);
   border-top: 1px solid var(--color-divider);
 }
 .depth-stats dt {
   color: var(--color-muted);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--if-text-sm);
+  line-height: var(--if-leading-base);
 }
 .depth-stats dd {
   margin: 0;
@@ -107,25 +107,25 @@
 }
 .depth-stats small {
   color: var(--color-muted);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: var(--if-text-xs);
+  line-height: var(--if-leading-sm);
 }
 .depth-disabled {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--if-space-2);
   align-items: flex-start;
 }
 .depth-disabled p {
   margin: 0;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--if-text-sm);
+  line-height: var(--if-leading-base);
 }
 .depth-filters {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: 12px 16px;
+  gap: var(--if-space-3) var(--if-space-4);
 }
 .depth-filters .field {
   min-width: 160px;
@@ -134,16 +134,16 @@
 .depth-cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 16px;
+  gap: var(--if-space-4);
 }
 .depth-card {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--if-space-2);
   min-width: 0;
-  padding: 16px;
+  padding: var(--if-space-4);
   border: 1px solid var(--color-divider);
-  border-radius: 12px;
+  border-radius: var(--if-r-md);
 }
 .depth-card h3,
 .depth-card p {
@@ -151,34 +151,34 @@
   overflow-wrap: anywhere;
 }
 .depth-card h3 {
-  font-size: 16px;
-  line-height: 24px;
+  font-size: var(--if-text-md);
+  line-height: var(--if-leading-md);
   font-weight: 500;
 }
 .depth-card p {
-  font-size: 14px;
+  font-size: var(--if-text-base);
   line-height: 22px;
 }
 .depth-card[aria-current='true'] {
-  border-color: var(--color-accent);
+  border-color: var(--if-lime);
 }
 .depth-card-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--if-space-2);
   margin-top: auto;
 }
 .depth-memory {
   border: 1px dashed var(--color-divider);
-  border-radius: 8px;
-  padding: 12px 16px;
-  font-size: 14px;
+  border-radius: var(--if-r-sm);
+  padding: var(--if-space-3) var(--if-space-4);
+  font-size: var(--if-text-base);
   line-height: 22px;
 }
 @media (max-width: 800px) {
   .depth-step {
     grid-template-columns: minmax(0, 1fr);
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .depth-step-index {
     display: none;

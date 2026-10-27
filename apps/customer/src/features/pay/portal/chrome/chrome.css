@@ -15,9 +15,9 @@
   z-index: 30;
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: var(--if-space-6);
   height: 56px;
-  padding: 0 24px;
+  padding: 0 var(--if-space-6);
   background: var(--if-bg);
   border-bottom: 1px solid var(--if-line);
   color: var(--if-fg);
@@ -34,16 +34,16 @@
 .pfo-top-end {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--if-space-4);
   margin-left: auto;
 }
 .pfo-search-button {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--if-space-2);
   width: 240px;
   height: 36px;
-  padding: 0 12px;
+  padding: 0 var(--if-space-3);
   border: 0;
   border-radius: var(--if-r-pill);
   background: var(--if-field);
@@ -60,12 +60,12 @@
   color: var(--if-fg-3);
 }
 .pfo-searchbox form {
-  margin-top: 8px;
+  margin-top: var(--if-space-2);
 }
 .pfo-searchbox input {
   width: 100%;
   height: 40px;
-  padding: 0 12px;
+  padding: 0 var(--if-space-3);
   border: 1px solid var(--if-line);
   border-radius: var(--if-r-md);
   background: var(--if-field);
@@ -74,8 +74,8 @@
 }
 .pfo-results {
   display: grid;
-  gap: 2px;
-  margin: 12px 0 0;
+  gap: var(--if-space-0-5);
+  margin: var(--if-space-3) 0 0;
   padding: 0;
   max-height: 50vh;
   overflow: auto;
@@ -84,10 +84,10 @@
 .pfo-results a {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--if-space-3);
   min-height: 40px;
   align-items: center;
-  padding: 0 12px;
+  padding: 0 var(--if-space-3);
   border-radius: var(--if-r-sm);
   color: var(--if-fg);
   text-decoration: none;
@@ -97,19 +97,19 @@
 }
 .pfo-results a span {
   color: var(--if-fg-3);
-  font-size: 12px;
+  font-size: var(--if-text-xs);
 }
 .pfo-results-empty {
-  padding: 8px 12px;
+  padding: var(--if-space-2) var(--if-space-3);
   color: var(--if-fg-2);
-  font-size: 14px;
+  font-size: var(--if-text-base);
 }
 .pfo-personal {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--if-space-1-5);
   min-height: 36px;
-  font-size: 13px;
+  font-size: var(--if-text-sm);
   white-space: nowrap;
   color: var(--if-fg-2);
 }
@@ -135,7 +135,7 @@
 .pfo-business {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--if-space-2-5);
   min-height: 44px;
   padding: 0;
   border: 0;
@@ -158,7 +158,7 @@
 .pfo-business-text {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--if-space-2);
   min-width: 0;
 }
 .pfo-business-chevron {
@@ -166,15 +166,15 @@
 }
 .pfo-accounts {
   display: grid;
-  gap: 12px;
-  margin-top: 24px;
+  gap: var(--if-space-3);
+  margin-top: var(--if-space-6);
 }
 .pfo-accounts a {
-  padding: 16px;
+  padding: var(--if-space-4);
   border: 1px solid var(--if-line);
   border-radius: var(--if-r-md);
   color: var(--if-fg);
-  font-size: 14px;
+  font-size: var(--if-text-base);
   text-decoration: none;
 }
 .pfo-accounts a:hover {
@@ -182,19 +182,19 @@
 }
 .pfo-accounts span {
   display: block;
-  margin-top: 4px;
-  font-size: 12px;
+  margin-top: var(--if-space-1);
+  font-size: var(--if-text-xs);
   color: var(--if-fg-2);
 }
 
 /* Phone menu. Lime marks only the current page. */
 .pfo-menu section + section {
-  margin-top: 20px;
+  margin-top: var(--if-space-5);
 }
 .pfo-menu h2 {
-  margin: 0 0 4px;
-  padding: 0 12px;
-  font-size: 12px;
+  margin: 0 0 var(--if-space-1);
+  padding: 0 var(--if-space-3);
+  font-size: var(--if-text-xs);
   font-weight: 500;
   color: var(--if-fg-3);
 }
@@ -203,10 +203,10 @@
   display: flex;
   align-items: center;
   min-height: 34px;
-  padding: 6px 12px;
+  padding: var(--if-space-1-5) var(--if-space-3);
   border-radius: var(--if-r-sm);
   color: var(--if-fg-2);
-  font-size: 13px;
+  font-size: var(--if-text-sm);
   text-decoration: none;
 }
 .pfo-menu a:hover {
@@ -224,11 +224,11 @@
   top: 9px;
   bottom: 9px;
   width: 2px;
-  border-radius: 2px;
+  border-radius: var(--if-r-2xs);
   background: var(--if-lime);
 }
 .pfo-app :where(a, button, input):focus-visible {
-  outline: 2px solid var(--if-lime);
+  outline: 2px solid var(--if-focus);
   outline-offset: 2px;
 }
 
@@ -240,15 +240,15 @@
   min-height: 44px;
 }
 .pfo-tabs .plo-subtabs {
-  gap: 20px;
-  padding: 12px 0 0;
+  gap: var(--if-space-5);
+  padding: var(--if-space-3) 0 0;
 }
 .pfo-tabs .plo-subtabs a {
   min-height: 28px;
-  font-size: 12px;
+  font-size: var(--if-text-xs);
 }
 .pfo-tabs .plo-heading {
-  margin: 28px 0 24px;
+  margin: var(--if-space-7) 0 var(--if-space-6);
 }
 .pfo-tabs .plo-heading h1 {
   margin-top: 0;
@@ -263,13 +263,13 @@
   width: min(320px, calc(100vw - 48px));
   max-width: none;
   height: 100dvh;
-  padding: 20px 12px 24px;
+  padding: var(--if-space-5) var(--if-space-3) var(--if-space-6);
   overflow-y: auto;
   border-radius: 0 var(--if-r-lg) var(--if-r-lg) 0;
 }
 .pfo-drawer-title {
-  margin: 4px 12px 20px;
-  font-size: 16px;
+  margin: var(--if-space-1) var(--if-space-3) var(--if-space-5);
+  font-size: var(--if-text-md);
 }
 .pfo-menu a {
   min-height: 34px;
@@ -281,45 +281,45 @@
 .pfo-drawer-link {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--if-space-2);
   min-height: 44px;
-  margin: 0 0 16px;
-  padding: 0 12px;
+  margin: 0 0 var(--if-space-4);
+  padding: 0 var(--if-space-3);
   color: var(--if-fg-2);
-  font-size: 13px;
+  font-size: var(--if-text-sm);
   text-decoration: none;
 }
 .pfo-drawer-link {
-  margin: 16px 0 0;
+  margin: var(--if-space-4) 0 0;
 }
 
 /* One calm card for a part that is not live yet. Its first line names what it is waiting for. */
 .pfo-soon {
   display: grid;
   justify-items: start;
-  gap: 8px;
-  padding: 24px;
+  gap: var(--if-space-2);
+  padding: var(--if-space-6);
   border: 1px solid var(--if-line);
   border-radius: var(--if-r-lg);
   background: var(--if-panel);
   color: var(--if-fg);
 }
 .pfo-soon--page {
-  padding: 40px 24px;
+  padding: var(--if-space-10) var(--if-space-6);
 }
 .pfo-soon .pfo-soon-reason {
   color: var(--if-fg);
   font-weight: 500;
 }
 .pfo-soon h3 {
-  margin: 8px 0 0;
-  font-size: 16px;
+  margin: var(--if-space-2) 0 0;
+  font-size: var(--if-text-md);
   font-weight: 500;
 }
 .pfo-soon p {
   margin: 0;
   max-width: 62ch;
-  font-size: 14px;
+  font-size: var(--if-text-base);
   line-height: 1.55;
   color: var(--if-fg-2);
 }
@@ -331,7 +331,7 @@
 
 @media (max-width: 1100px) {
   .pfo-top {
-    gap: 16px;
+    gap: var(--if-space-4);
   }
   .pfo-brand {
     width: 100px;
@@ -342,8 +342,8 @@
 }
 @media (max-width: 760px) {
   .pfo-top {
-    gap: 8px;
-    padding: 0 16px;
+    gap: var(--if-space-2);
+    padding: 0 var(--if-space-4);
   }
   .pfo-phone {
     display: block;
@@ -360,8 +360,8 @@
     display: none;
   }
   .pfo-tabs .plo-subtabs {
-    gap: 20px;
-    padding-top: 4px;
+    gap: var(--if-space-5);
+    padding-top: var(--if-space-1);
   }
   .pfo-tabs .plo-subtabs a {
     min-height: 44px;
@@ -369,7 +369,7 @@
     align-items: center;
   }
   .pfo-soon {
-    padding: 20px;
+    padding: var(--if-space-5);
   }
   .pfo-search-button {
     width: 36px;
@@ -386,8 +386,8 @@
 .pfo-nobiz {
   display: grid;
   justify-items: start;
-  gap: 12px;
-  padding: 40px 24px;
+  gap: var(--if-space-3);
+  padding: var(--if-space-10) var(--if-space-6);
   border: 1px solid var(--if-line);
   border-radius: var(--if-r-lg);
   background: var(--if-panel);
@@ -401,19 +401,19 @@
 .pfo-nobiz p {
   margin: 0;
   max-width: 56ch;
-  font-size: 14px;
+  font-size: var(--if-text-base);
   line-height: 1.55;
   color: var(--if-fg-2);
 }
 .pfo-action-off {
   display: grid;
   justify-items: end;
-  gap: 4px;
+  gap: var(--if-space-1);
 }
 .pfo-action-off small {
   max-width: 26ch;
   text-align: right;
-  font-size: 12px;
+  font-size: var(--if-text-xs);
   color: var(--if-fg-2);
 }
 @media (max-width: 720px) {
@@ -427,6 +427,6 @@
 
 .pfo-soon .pfo-soon-code {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--if-text-xs);
   color: var(--muted, inherit);
 }

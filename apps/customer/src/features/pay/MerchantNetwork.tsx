@@ -199,6 +199,7 @@ export function MerchantPermissions({ pay }: { pay: BusinessPayApi }) {
     <div className="stack">
       <PaySection title={payCopy.t('permissionSubject')} description={payCopy.t('authorityOverASubjectMerchantIsChecked')}>
         <form
+          data-testid="pay-filters"
           className="pay-filters"
           onSubmit={(event) => {
             event.preventDefault();

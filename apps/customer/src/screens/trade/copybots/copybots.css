@@ -7,8 +7,8 @@
   .cb-page {
     display: flex;
     flex-direction: column;
-    gap: 16px;
-    padding-bottom: 96px;
+    gap: var(--if-space-4);
+    padding-bottom: var(--if-space-24);
     color: var(--if-fg);
     font-family: var(--if-font-ui);
   }
@@ -16,27 +16,27 @@
     display: inline-flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .cb-note {
     display: flex;
     align-items: flex-start;
-    gap: 12px;
+    gap: var(--if-space-3);
     margin: 0;
-    padding: 12px 16px;
+    padding: var(--if-space-3) var(--if-space-4);
     border: 1px solid var(--if-line);
-    border-radius: 8px;
+    border-radius: var(--if-r-sm);
     background: var(--if-panel);
     color: var(--if-fg-2);
-    font-size: 14px;
-    line-height: 20px;
+    font-size: var(--if-text-base);
+    line-height: var(--if-leading-base);
   }
   .cb-note[data-tone='warn'] {
     border-color: var(--if-warn);
   }
   .cb-note > svg {
     flex: none;
-    margin-top: 2px;
+    margin-top: var(--if-space-0-5);
     color: var(--if-warn-text);
   }
   .cb-note > div {
@@ -50,22 +50,22 @@
   }
   .cb-note-body,
   .cb-note-ref {
-    margin: 4px 0 0;
+    margin: var(--if-space-1) 0 0;
   }
   .cb-note-ref {
-    font-size: 12px;
+    font-size: var(--if-text-xs);
     color: var(--if-fg-3);
   }
   .cb-reasons {
-    margin: 4px 0 0;
+    margin: var(--if-space-1) 0 0;
     padding-left: 18px;
     list-style: disc;
   }
   .cb-wrap {
     display: block;
-    padding: 8px 0;
+    padding: var(--if-space-2) 0;
     white-space: normal;
-    line-height: 20px;
+    line-height: var(--if-leading-base);
   }
   .cb-toolbar > :first-child {
     width: min(360px, 100%);
@@ -74,52 +74,52 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 16px;
-    margin-bottom: 12px;
+    gap: var(--if-space-4);
+    margin-bottom: var(--if-space-3);
   }
   .cb-rankings {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    margin-bottom: 12px;
+    gap: var(--if-space-2);
+    margin-bottom: var(--if-space-3);
   }
   .cb-metrics {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 12px;
-    margin: 0 0 12px;
+    gap: var(--if-space-3);
+    margin: 0 0 var(--if-space-3);
   }
   .cb-metric {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    padding: 12px;
+    gap: var(--if-space-1);
+    padding: var(--if-space-3);
     border: 1px solid var(--if-line);
-    border-radius: 8px;
+    border-radius: var(--if-r-sm);
   }
   .cb-metric dt {
     color: var(--if-fg-muted);
-    font-size: 13px;
+    font-size: var(--if-text-sm);
   }
   .cb-metric dd {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--if-space-1);
     margin: 0;
     color: var(--if-fg);
-    font-size: 14px;
+    font-size: var(--if-text-base);
   }
   .cb-metric-def {
     color: var(--if-fg-muted);
-    font-size: 12px;
+    font-size: var(--if-text-xs);
   }
   .cb-switch,
   .cb-check {
     display: inline-flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--if-space-2-5);
     color: var(--if-fg);
-    font-size: 14px;
+    font-size: var(--if-text-base);
   }
   .cb-dialog {
     max-width: 560px;
@@ -129,8 +129,8 @@
   .cb-form {
     display: flex;
     flex-direction: column;
-    gap: 16px;
-    margin: 16px 0;
+    gap: var(--if-space-4);
+    margin: var(--if-space-4) 0;
   }
   .cb-fieldset {
     margin: 0;
@@ -140,8 +140,8 @@
   .cb-checklist {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px 16px;
-    margin: 8px 0 0;
+    gap: var(--if-space-2) var(--if-space-4);
+    margin: var(--if-space-2) 0 0;
     padding: 0;
     list-style: none;
     max-height: 220px;
@@ -150,15 +150,15 @@
   .cb-checklist label {
     display: inline-flex;
     align-items: center;
-    gap: 10px;
-    font-size: 14px;
+    gap: var(--if-space-2-5);
+    font-size: var(--if-text-base);
   }
   .cb-label {
     display: block;
-    margin-bottom: 6px;
+    margin-bottom: var(--if-space-1-5);
     color: var(--if-fg-2);
-    font-size: 12px;
-    line-height: 16px;
+    font-size: var(--if-text-xs);
+    line-height: var(--if-leading-xs);
     font-weight: 500;
   }
   .cb-selectfield {
@@ -168,26 +168,26 @@
   .cb-error {
     margin: 0;
     color: var(--if-error-text);
-    font-size: 12px;
+    font-size: var(--if-text-xs);
   }
   .cb-h3 {
-    margin: 16px 0 4px;
+    margin: var(--if-space-4) 0 var(--if-space-1);
     color: var(--if-fg);
-    font-size: 14px;
-    line-height: 20px;
+    font-size: var(--if-text-base);
+    line-height: var(--if-leading-base);
     font-weight: 600;
   }
   .cb-cost {
-    padding: 8px 12px 12px;
+    padding: var(--if-space-2) var(--if-space-3) var(--if-space-3);
     border: 1px solid var(--if-line);
-    border-radius: 8px;
+    border-radius: var(--if-r-sm);
   }
   .cb-disclosure {
     display: grid;
-    gap: 8px;
-    padding: 8px 12px 12px;
+    gap: var(--if-space-2);
+    padding: var(--if-space-2) var(--if-space-3) var(--if-space-3);
     border: 1px solid var(--if-line);
-    border-radius: 8px;
+    border-radius: var(--if-r-sm);
   }
   .cb-disclosure-text {
     max-height: 160px;
@@ -197,21 +197,21 @@
   .cb-action-row {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 8px;
+    gap: var(--if-space-2);
+    margin-top: var(--if-space-2);
   }
   .cb-why {
-    margin: 8px 0 0;
+    margin: var(--if-space-2) 0 0;
     padding-left: 18px;
     color: var(--if-fg-2);
-    font-size: 12px;
-    line-height: 16px;
+    font-size: var(--if-text-xs);
+    line-height: var(--if-leading-xs);
   }
   .cb-progress {
     display: flex;
     align-items: center;
-    gap: 12px;
-    margin: 8px 0;
+    gap: var(--if-space-3);
+    margin: var(--if-space-2) 0;
   }
   .cb-progress progress {
     flex: 1;
@@ -220,25 +220,25 @@
   }
   .cb-mono {
     font-family: var(--if-font-mono);
-    font-size: 12px;
+    font-size: var(--if-text-xs);
   }
   .cb-statuscell {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 2px;
+    gap: var(--if-space-0-5);
   }
   .cb-statuscell small {
     color: var(--if-fg-2);
-    font-size: 12px;
-    line-height: 16px;
+    font-size: var(--if-text-xs);
+    line-height: var(--if-leading-xs);
     white-space: normal;
   }
   .cb-byid {
     display: flex;
     align-items: flex-end;
-    gap: 12px;
-    margin-top: 16px;
+    gap: var(--if-space-3);
+    margin-top: var(--if-space-4);
     max-width: 520px;
   }
   .cb-byid > :first-child {
@@ -256,7 +256,7 @@
   }
   .cb-cost [data-slot='key-value-row'] {
     grid-column: 1 / -1 !important;
-    padding-block: 8px;
+    padding-block: var(--if-space-2);
   }
   .cb-cost [data-slot='key-value-row'] dd {
     text-align: left !important;

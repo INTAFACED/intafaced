@@ -16,6 +16,7 @@ export function TopCards({ cards, mode, onSeeAll }: { cards: Card[]; mode: Mode;
   const signedIn = Boolean(useSession().session);
   return (
     <section
+      data-testid="mkt-cards"
       className="mkt-cards"
       aria-label={t('Markets')}
       style={{ '--mkt-card-count': Math.max(1, Math.min(3, cards.length)) } as CSSProperties}
@@ -23,8 +24,8 @@ export function TopCards({ cards, mode, onSeeAll }: { cards: Card[]; mode: Mode;
       {cards.map((card) => {
         const title = t(TITLE[card.id]);
         return (
-          <article key={card.id} className="mkt-card" data-card={card.id}>
-            <header className="mkt-card__head">
+          <article key={card.id} data-testid="mkt-card" className="mkt-card" data-card={card.id}>
+            <header data-testid="mkt-card__head" className="mkt-card__head">
               <h2>{title}</h2>
               <button
                 type="button"
@@ -38,9 +39,9 @@ export function TopCards({ cards, mode, onSeeAll }: { cards: Card[]; mode: Mode;
             <ul className="mkt-card__list">
               {card.entries.map(({ market, ticker }) => (
                 <li key={market.symbol}>
-                  <a className="mkt-card__row" href={marketTarget(market, mode, isHiddenPath, signedIn)}>
+                  <a data-testid="mkt-card__row" className="mkt-card__row" href={marketTarget(market, mode, isHiddenPath, signedIn)}>
                     <CoinIcon asset={market.base} size={24} />
-                    <span className="mkt-card__name" title={assetName(market.base, copy) ?? undefined}>
+                    <span data-testid="mkt-card__name" className="mkt-card__name" title={assetName(market.base, copy) ?? undefined}>
                       {market.base}
                       <span className="mkt-muted">/{market.quote}</span>
                     </span>
@@ -61,15 +62,15 @@ export function TopCards({ cards, mode, onSeeAll }: { cards: Card[]; mode: Mode;
 
 export function TopCardsSkeleton() {
   return (
-    <section className="mkt-cards" aria-hidden="true">
+    <section data-testid="mkt-cards" className="mkt-cards" aria-hidden="true">
       {[0, 1, 2].map((index) => (
-        <div key={index} className="mkt-card">
-          <div className="mkt-card__head">
+        <div key={index} data-testid="mkt-card" className="mkt-card">
+          <div data-testid="mkt-card__head" className="mkt-card__head">
             <Skeleton width={96} height={20} className={IN_PANEL} />
           </div>
           <div className="mkt-card__list">
             {[0, 1, 2].map((row) => (
-              <div key={row} className="mkt-card__row">
+              <div key={row} data-testid="mkt-card__row" className="mkt-card__row">
                 <Skeleton width={24} height={24} circle className={IN_PANEL} />
                 <Skeleton width={88} height={20} className={IN_PANEL} />
                 <span className="mkt-card__price" />

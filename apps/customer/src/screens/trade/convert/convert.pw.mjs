@@ -16,7 +16,7 @@ const shot = async (page, name) => {
 const forbidden = /unavailable|not connected|restricted|fixture|lifecycle|undefined|NaN|\[object/i;
 const open = async (page, path = '/trade/convert?asset=ETH') => {
   await page.goto(path);
-  await page.locator('.cvt-card').waitFor();
+  await page.locator(':is([data-testid="cvt-card"], [data-testid="cvt-card--skeleton"], [data-testid="cvt-receipt"])').waitFor();
 };
 const amount = (page) => page.getByLabel('Amount to convert');
 const preview = (page) => page.getByRole('button', { name: 'Preview conversion' });
@@ -36,19 +36,26 @@ test('convert 10 USDT to ETH: quote, countdown, review, convert, receipt, new ba
   await open(page);
 
   // Layout (UI-SPEC 5.8): container 1224, two columns, card 520, headline "Convert / USDT to ETH" at 48/58.
-  expect(Math.round((await box(page.locator('.if-convert'))).width)).toBe(1224);
-  expect(Math.round((await box(page.locator('.cvt-card'))).width)).toBe(520);
-  await expect(page.locator('.cvt-hero h1')).toContainText('Convert');
-  await expect(page.getByTestId('headline-pair')).toHaveText('USDT to ETH');
-  await expect(page.locator('.cvt-hero p')).toHaveText('Quoted price · No order book needed · Instant');
+  expect(Math.round((await box(page.getByTestId('if-convert'))).width)).toBe(1224);
   expect(
-    await page.locator('.cvt-hero h1').evaluate((node) => getComputedStyle(node).fontSize + '/' + getComputedStyle(node).lineHeight),
+    Math.round(
+      (await box(page.locator(':is([data-testid="cvt-card"], [data-testid="cvt-card--skeleton"], [data-testid="cvt-receipt"])'))).width,
+    ),
+  ).toBe(520);
+  await expect(page.getByTestId('cvt-hero').locator('h1')).toContainText('Convert');
+  await expect(page.getByTestId('headline-pair')).toHaveText('USDT to ETH');
+  await expect(page.getByTestId('cvt-hero').locator('p')).toHaveText('Quoted price · No order book needed · Instant');
+  expect(
+    await page
+      .getByTestId('cvt-hero')
+      .locator('h1')
+      .evaluate((node) => getComputedStyle(node).fontSize + '/' + getComputedStyle(node).lineHeight),
   ).toBe('48px/58px');
   expect(Math.round((await box(page.getByTestId('from-field'))).height)).toBe(132);
-  expect(Math.round((await box(page.locator('.cvt-swap'))).width)).toBe(40);
+  expect(Math.round((await box(page.getByTestId('cvt-swap'))).width)).toBe(40);
   // Order inside the card: head, From, swap overlapping both, To, then the button.
   const ys = await page.evaluate(() =>
-    ['.cvt-card__head', '[data-testid=from-field]', '[data-testid=to-field]', '[data-slot=button]'].map(
+    ['[data-testid="cvt-card__head"]', '[data-testid=from-field]', '[data-testid=to-field]', '[data-slot=button]'].map(
       (s) => document.querySelector(s).getBoundingClientRect().top,
     ),
   );
@@ -221,7 +228,7 @@ test('1280x800: card, review and receipt fit without scrolling sideways', async 
 test('selling the coin sends the typed amount as the quantity; swap and the pickers', async ({ page }) => {
   const api = await mock(page);
   await open(page);
-  await page.locator('.cvt-swap').click();
+  await page.getByTestId('cvt-swap').click();
   await expect(page.getByTestId('headline-pair')).toHaveText('ETH to USDT');
   await expect(page.getByTestId('cvt-available')).toHaveText('Available 2 ETH');
   await amount(page).fill('0.01');
@@ -232,14 +239,14 @@ test('selling the coin sends the typed amount as the quantity; swap and the pick
   await expect(amount(page)).toHaveValue('0.01');
   // From picker: assets that appear in an open market, with the balance of each.
   await page.getByRole('button', { name: 'Change the From asset' }).click();
-  await expect(page.locator('.picker__ticker')).toHaveText(['USDT', 'USDC', 'BTC', 'ETH', 'IFC']);
-  await expect(page.locator('.picker__row', { hasText: 'BTC' })).toContainText('0.25');
+  await expect(page.getByTestId('picker__ticker')).toHaveText(['USDT', 'USDC', 'BTC', 'ETH', 'IFC']);
+  await expect(page.getByTestId('picker__row').filter({ hasText: 'BTC' })).toContainText('0.25');
   await shot(page, 'convert-1440x900-picker');
-  await page.locator('.picker__row', { hasText: 'BTC' }).click();
+  await page.getByTestId('picker__row').filter({ hasText: 'BTC' }).click();
   // BTC can only be swapped for USDT or USDC: ETH is dropped from To.
   await expect(page.getByTestId('headline-pair')).toHaveText('BTC to USDT');
   await page.getByRole('button', { name: 'Change the To asset' }).click();
-  await expect(page.locator('.picker__ticker')).toHaveText(['USDT', 'USDC']);
+  await expect(page.getByTestId('picker__ticker')).toHaveText(['USDT', 'USDC']);
 });
 
 test('Max puts in the whole available balance', async ({ page }) => {
@@ -348,8 +355,12 @@ test('the book cannot fill that much: plain words, nothing asked of the customer
   });
   await open(page);
   await amount(page).fill('9000');
-  await expect(page.locator('.cvt-note')).toHaveText('That’s more than we can convert in one go right now. Try a smaller amount.');
-  expect(await page.locator('.cvt-note').innerText()).not.toMatch(/book|depth/i);
+  await expect(page.locator(':is([data-testid="cvt-note"], [data-testid="over-cost"], [data-testid="check-note"])')).toHaveText(
+    'That’s more than we can convert in one go right now. Try a smaller amount.',
+  );
+  expect(
+    await page.locator(':is([data-testid="cvt-note"], [data-testid="over-cost"], [data-testid="check-note"])').innerText(),
+  ).not.toMatch(/book|depth/i);
 });
 
 test('the quote call fails: the card says so and "Get a new price" asks again', async ({ page }) => {
@@ -537,7 +548,7 @@ test('an earlier unresolved request blocks a conversion, even after a reload', a
 test('loading: skeletons of the final size while markets arrive', async ({ page }) => {
   const held = await mock(page, { markets: 'hang' });
   await page.goto('/trade/convert');
-  await page.locator('.cvt-card--skeleton').waitFor();
+  await page.getByTestId('cvt-card--skeleton').waitFor();
   await shot(page, 'convert-1440x900-loading');
   await held.release();
   await expect(page.getByTestId('from-field')).toBeVisible();
@@ -569,8 +580,8 @@ test('signed out: the button asks to log in', async ({ page }) => {
 test('plain words, the questions, and a keyboard path', async ({ page }) => {
   await mock(page);
   await open(page);
-  expect(await page.locator('.if-convert').innerText()).not.toMatch(forbidden);
-  await expect(page.locator('.cvt-faq h2')).toHaveText('Questions');
+  expect(await page.getByTestId('if-convert').innerText()).not.toMatch(forbidden);
+  await expect(page.getByTestId('cvt-faq').locator('h2')).toHaveText('Questions');
   await expect(page.locator('[data-slot="accordion-trigger"]')).toHaveText([
     'How is the price set?',
     'Why does the price expire?',

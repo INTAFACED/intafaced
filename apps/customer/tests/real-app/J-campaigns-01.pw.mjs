@@ -109,7 +109,7 @@ test(`${J} #1 /campaigns with nothing running shows the full catalogue layout an
   await expect(page.getByTestId('campaign-types')).toBeVisible();
   // Whatever the service lists is what the page shows: no invented card. On the fresh stack of a journeys run nothing runs.
   const listed = (await catalogueOf(me)).campaigns;
-  await expect(page.locator('[data-testid="campaign-card"]')).toHaveCount(listed.length);
+  await expect(page.getByTestId('campaign-card')).toHaveCount(listed.length);
   if (listed.length === 0) {
     await expect(page.getByTestId('campaign-catalogue')).toContainText('No campaign is running right now');
   }
@@ -251,5 +251,5 @@ test(`${J} #7 /campaigns/mine shows the campaign I joined`, async ({ browser }) 
   await expect(row).toBeVisible({ timeout: 30_000 });
   await expect(row.getByRole('link', { name: campaignName })).toBeVisible();
   await expect(row).toContainText('Joined');
-  await expect(page.locator('[data-testid="my-campaign"]')).toHaveCount(1);
+  await expect(page.getByTestId('my-campaign')).toHaveCount(1);
 });

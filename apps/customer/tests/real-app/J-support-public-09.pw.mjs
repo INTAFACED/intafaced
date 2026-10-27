@@ -181,7 +181,7 @@ test.describe('with a key', () => {
     await expect(page.locator('input[name=scope][value="support:ops"]')).toHaveCount(0);
     await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Your new key' })).toBeVisible();
-    const key = (await page.locator('.api-keys__key code').textContent())?.trim();
+    const key = (await page.getByTestId('api-keys__key').locator('code').textContent())?.trim();
     expect(key).toMatch(/^ifc_[A-Za-z0-9_-]{20,}$/);
     await page.context().close();
     dev = { key, mine: mine.body.result.data.id, theirs: theirs.body.result.data.id, who };

@@ -58,6 +58,10 @@
       "types": "./dist/identity-kyc-levels.d.ts",
       "default": "./dist/identity-kyc-levels.js"
     },
+    "./pay-withdrawal-tier-limits": {
+      "types": "./dist/pay-withdrawal-tier-limits.d.ts",
+      "default": "./dist/pay-withdrawal-tier-limits.js"
+    },
     "./ops-staff-holds": {
       "types": "./dist/ops-staff-holds.d.ts",
       "default": "./dist/ops-staff-holds.js"
@@ -117,6 +121,14 @@
     "./support-help-centre": {
       "types": "./dist/support-help-centre.d.ts",
       "default": "./dist/support-help-centre.js"
+    },
+    "./support-forms": {
+      "types": "./dist/support-forms.d.ts",
+      "default": "./dist/support-forms.js"
+    },
+    "./support-categories": {
+      "types": "./dist/support-categories.d.ts",
+      "default": "./dist/support-categories.js"
     },
     "./outreach-public": {
       "types": "./dist/outreach-public.d.ts",

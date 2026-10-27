@@ -168,7 +168,7 @@ export function InputSection() {
                 label="Amount"
                 density={density}
                 labelAction={
-                  <button type="button" className="rounded-xs text-lime focus-visible:outline-2 focus-visible:outline-lime">
+                  <button type="button" className="rounded-xs text-accent-text focus-visible:outline-2 focus-visible:outline-focus">
                     Max
                   </button>
                 }

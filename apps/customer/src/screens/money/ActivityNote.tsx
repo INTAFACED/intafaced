@@ -97,6 +97,7 @@ function WordsField({ item, field, initial }: { item: ActivityItem; field: keyof
 
   return (
     <form
+      data-testid="money-note-form"
       className="money-note-form"
       onSubmit={(event) => {
         event.preventDefault();

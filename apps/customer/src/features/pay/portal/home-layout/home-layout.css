@@ -3,7 +3,7 @@
   .plo {
     width: min(var(--if-container-max), calc(100% - 56px));
     margin: 0 auto;
-    padding: 24px 0 100px;
+    padding: var(--if-space-6) 0 100px;
     color: var(--if-fg);
     font-family: var(--if-font-ui);
   }
@@ -21,7 +21,7 @@
   }
   .plo :where(a, button):focus-visible,
   .plo-grouped :where(a, button):focus-visible {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: 4px;
   }
   .plo-content {
@@ -31,34 +31,34 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
-    margin: 32px 0;
+    gap: var(--if-space-4);
+    margin: var(--if-space-8) 0;
   }
   .plo-heading h1 {
-    font-size: 24px;
+    font-size: var(--if-text-xl);
     font-weight: 600;
     letter-spacing: -0.6px;
-    margin-top: 8px;
+    margin-top: var(--if-space-2);
   }
   .plo-heading p {
     color: var(--if-fg-2);
-    font-size: 14px;
-    margin-top: 8px;
+    font-size: var(--if-text-base);
+    margin-top: var(--if-space-2);
   }
   .plo-eyebrow {
-    font-size: 12px;
+    font-size: var(--if-text-xs);
     color: var(--if-fg-2) !important;
   }
   .plo-tabs {
     display: flex;
-    gap: 28px;
+    gap: var(--if-space-7);
     border-bottom: 1px solid var(--if-line);
     overflow-x: auto;
     scrollbar-width: none;
   }
   .plo-tabs a {
     flex-shrink: 0;
-    font-size: 14px;
+    font-size: var(--if-text-base);
     color: var(--if-fg-2);
     min-height: 48px;
     display: flex;
@@ -71,12 +71,12 @@
   }
   .plo-subtabs {
     display: flex;
-    gap: 24px;
+    gap: var(--if-space-6);
     padding: 18px 0 0;
     overflow-x: auto;
   }
   .plo-subtabs a {
-    font-size: 13px;
+    font-size: var(--if-text-sm);
     color: var(--if-fg-2);
     white-space: nowrap;
     min-height: 30px;
@@ -88,7 +88,7 @@
     width: 100%;
     display: grid;
     grid-template-columns: minmax(0, 792fr) minmax(0, 408fr);
-    gap: 24px;
+    gap: var(--if-space-6);
   }
   .plo-main,
   .plo-rail {
@@ -97,21 +97,21 @@
   .plo-rail {
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: var(--if-space-6);
   }
   .plo-balance {
-    padding: 0 0 32px;
+    padding: 0 0 var(--if-space-8);
   }
   .plo-label {
     color: var(--if-fg-2);
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--if-text-sm);
+    line-height: var(--if-leading-base);
   }
   .plo-balance-asset {
     display: flex;
     align-items: baseline;
-    gap: 12px;
-    margin: 4px 0 8px;
+    gap: var(--if-space-3);
+    margin: var(--if-space-1) 0 var(--if-space-2);
     flex-wrap: wrap;
   }
   .plo-number {
@@ -123,40 +123,40 @@
     overflow-wrap: anywhere;
   }
   .plo-unit {
-    font-size: 16px;
+    font-size: var(--if-text-md);
     color: var(--if-fg-2);
   }
   .plo .pp-asof {
     font-size: 11px;
-    margin: 8px 0 0;
+    margin: var(--if-space-2) 0 0;
     color: var(--if-fg-2);
-    line-height: 18px;
+    line-height: var(--if-leading-sm);
   }
   .plo .pp-asof p {
-    margin-top: 6px;
+    margin-top: var(--if-space-1-5);
   }
   .plo-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 24px;
+    gap: var(--if-space-2);
+    margin-top: var(--if-space-6);
   }
   .plo-actions [data-slot='button'] {
-    border-radius: 999px;
-    font-size: 13px;
-    gap: 8px;
+    border-radius: var(--if-r-pill);
+    font-size: var(--if-text-sm);
+    gap: var(--if-space-2);
   }
   .plo-card {
-    border-radius: 16px;
+    border-radius: var(--if-r-lg);
     background: var(--if-panel);
-    padding: 24px;
-    margin: 0 0 24px;
+    padding: var(--if-space-6);
+    margin: 0 0 var(--if-space-6);
   }
   .plo-rail .plo-card {
     margin: 0;
   }
   .plo h2 {
-    font-size: 16px;
+    font-size: var(--if-text-md);
     font-weight: 600;
     letter-spacing: -0.2px;
   }
@@ -164,12 +164,12 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 20px;
+    gap: var(--if-space-3);
+    margin-bottom: var(--if-space-5);
     flex-wrap: wrap;
   }
   .plo-section-head > a {
-    font-size: 12px;
+    font-size: var(--if-text-xs);
     color: var(--if-fg-2);
     min-height: 32px;
     display: flex;
@@ -181,26 +181,26 @@
   .plo-account-status {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--if-space-2);
     align-items: center;
-    font-size: 12px;
-    margin-bottom: 16px;
+    font-size: var(--if-text-xs);
+    margin-bottom: var(--if-space-4);
   }
   .plo-account p {
-    font-size: 12px;
+    font-size: var(--if-text-xs);
     color: var(--if-fg-2);
-    line-height: 20px;
+    line-height: var(--if-leading-base);
   }
   .plo-pending {
     font-size: 22px;
   }
   .plo-metrics {
-    padding: 8px 0 28px;
+    padding: var(--if-space-2) 0 var(--if-space-7);
   }
   .plo-kpi-strip {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 16px;
+    gap: var(--if-space-4);
   }
   .plo-kpi-strip a {
     min-width: 0;
@@ -209,7 +209,7 @@
     display: block;
     font-size: 11px;
     color: var(--if-fg-2);
-    margin-bottom: 8px;
+    margin-bottom: var(--if-space-2);
   }
   .plo-kpi-strip strong {
     font-size: 18px;
@@ -217,7 +217,7 @@
     overflow-wrap: anywhere;
   }
   .plo-kpi-strip .pp-money-lines {
-    gap: 4px;
+    gap: var(--if-space-1);
   }
   .plo .pp-unit {
     font-size: 11px;
@@ -231,9 +231,9 @@
   .plo-payment-feed a {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--if-space-3);
     min-height: 80px;
-    padding: 12px 0;
+    padding: var(--if-space-3) 0;
   }
   .plo-payment-icon {
     display: inline-flex;
@@ -251,10 +251,10 @@
     flex: 1;
   }
   .plo-payment-label strong {
-    font-size: 13px;
+    font-size: var(--if-text-sm);
     font-weight: 500;
     display: block;
-    margin-bottom: 6px;
+    margin-bottom: var(--if-space-1-5);
   }
   .plo-payment-label > span {
     font-size: 11px;
@@ -264,7 +264,7 @@
     font-size: 10px;
   }
   .plo-payment-amount {
-    font-size: 14px;
+    font-size: var(--if-text-base);
     text-align: right;
   }
   .plo-payment-amount .pp-unit {
@@ -274,30 +274,30 @@
     display: none;
   }
   .plo-rail .plo-payment-label strong {
-    font-size: 12px;
+    font-size: var(--if-text-xs);
   }
   .plo-rail .plo-payment-amount {
-    font-size: 12px;
+    font-size: var(--if-text-xs);
   }
   .plo-rail .plo-payment-feed a {
-    gap: 8px;
+    gap: var(--if-space-2);
     min-height: 72px;
   }
   .plo-volume {
-    margin-bottom: 24px;
+    margin-bottom: var(--if-space-6);
   }
   .plo-chart-caption {
-    font-size: 12px;
+    font-size: var(--if-text-xs);
     color: var(--if-fg-2);
-    margin-bottom: 12px !important;
+    margin-bottom: var(--if-space-3) !important;
   }
   .plo-chart {
     height: 230px;
     display: flex;
     gap: 5px;
     align-items: end;
-    padding-top: 24px;
-    margin-top: 8px;
+    padding-top: var(--if-space-6);
+    margin-top: var(--if-space-2);
     border-bottom: 1px solid var(--if-line);
     background: repeating-linear-gradient(to top, transparent 0, transparent calc(25% - 1px), var(--if-line) 25%);
   }
@@ -319,14 +319,14 @@
     justify-content: space-between;
     color: var(--if-fg-2);
     font-size: 11px;
-    margin: 12px 0;
+    margin: var(--if-space-3) 0;
   }
   .plo-grouped a {
     display: flex;
     align-items: center;
     min-height: 44px;
-    padding: 8px 12px;
-    border-radius: 8px;
+    padding: var(--if-space-2) var(--if-space-3);
+    border-radius: var(--if-r-sm);
     color: var(--if-fg-2);
   }
   .plo-grouped a[aria-current],
@@ -336,26 +336,26 @@
   }
   .tb-menu:has(.plo-grouped) {
     width: 340px;
-    padding: 12px 20px;
+    padding: var(--if-space-3) var(--if-space-5);
     max-height: 75vh;
     overflow-y: auto;
   }
   /* The existing Payments component keeps its data, filters, export and review flows. */
   .if-business .plo .pay-section {
     background: transparent;
-    padding: 0 0 28px;
+    padding: 0 0 var(--if-space-7);
     border: 0;
     border-radius: 0;
   }
   .if-business .plo .pay-section > header {
-    margin-bottom: 20px;
+    margin-bottom: var(--if-space-5);
   }
   .if-business .plo .pp-kpis {
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 20px;
+    gap: var(--if-space-5);
     border-top: 1px solid var(--if-line);
     border-bottom: 1px solid var(--if-line);
-    padding: 20px 0;
+    padding: var(--if-space-5) 0;
   }
   .if-business .plo .pp-kpi {
     border: 0;
@@ -370,7 +370,7 @@
   .if-business .plo .pp-filter-row {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 12px;
+    gap: var(--if-space-3);
     align-items: start;
   }
   .if-business .plo .pp-filter-row > * {
@@ -383,14 +383,14 @@
     align-items: end;
   }
   .if-business .plo [data-slot='table-container'] {
-    border-radius: 12px;
+    border-radius: var(--if-r-md);
   }
   .plo-content {
-    padding-top: 28px;
+    padding-top: var(--if-space-7);
   }
   .plo-subtabs {
-    padding-top: 4px;
-    gap: 24px;
+    padding-top: var(--if-space-1);
+    gap: var(--if-space-6);
     scrollbar-width: thin;
   }
   .plo-subtabs a {
@@ -403,37 +403,37 @@
     border-color: var(--if-line);
   }
   .if-business .plo [data-slot='button'] {
-    border-radius: 999px;
+    border-radius: var(--if-r-pill);
   }
   .if-business .plo .pay-section {
     background: var(--if-panel);
-    padding: 24px;
-    border-radius: 16px;
+    padding: var(--if-space-6);
+    border-radius: var(--if-r-lg);
   }
   .plo-heading {
     margin-top: 0;
   }
   .plo [data-slot='status-tag'] {
-    border-radius: 999px;
+    border-radius: var(--if-r-pill);
     border-color: transparent;
-    padding-inline: 8px;
+    padding-inline: var(--if-space-2);
   }
   .plo-money-exact {
     display: inline-flex;
     flex-wrap: wrap;
     align-items: baseline;
-    gap: 6px;
+    gap: var(--if-space-1-5);
   }
   .plo-money-exact button {
     font-size: 11px;
     min-height: 32px;
-    padding: 2px 6px;
+    padding: var(--if-space-0-5) var(--if-space-1-5);
   }
   .if-business .plo .pp-kpi-value {
     overflow-wrap: anywhere;
   }
   .plo [data-slot='accordion-panel'] .pp-dashboard {
-    padding-top: 20px;
+    padding-top: var(--if-space-5);
   }
   @media (max-width: 1000px) {
     .plo-home-grid {
@@ -441,32 +441,32 @@
     }
     .plo-kpi-strip {
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      row-gap: 24px;
+      row-gap: var(--if-space-6);
     }
   }
   @media (max-width: 760px) {
     .plo {
       width: calc(100% - 32px);
-      padding: 12px 0 120px;
+      padding: var(--if-space-3) 0 120px;
     }
     .plo-home-grid {
       display: block;
     }
     .plo-rail {
-      margin-top: 24px;
+      margin-top: var(--if-space-6);
     }
     .plo-tabs {
-      gap: 24px;
+      gap: var(--if-space-6);
     }
     .plo-tabs a {
-      font-size: 12px;
+      font-size: var(--if-text-xs);
       min-height: 48px;
     }
     .plo-subtabs {
-      gap: 24px;
+      gap: var(--if-space-6);
     }
     .plo-content {
-      padding-top: 24px;
+      padding-top: var(--if-space-6);
     }
     .plo-number {
       font-size: 40px;
@@ -474,28 +474,28 @@
       letter-spacing: -1.4px;
     }
     .plo-balance-asset {
-      gap: 8px;
+      gap: var(--if-space-2);
     }
     .plo-unit {
-      font-size: 14px;
+      font-size: var(--if-text-base);
     }
     .plo-balance {
-      padding-bottom: 28px;
+      padding-bottom: var(--if-space-7);
     }
     .plo-heading {
-      margin: 0 0 24px;
+      margin: 0 0 var(--if-space-6);
       flex-wrap: wrap;
     }
     .plo-heading h1 {
-      font-size: 24px;
+      font-size: var(--if-text-xl);
     }
     .plo-actions {
-      gap: 8px;
-      margin-top: 20px;
+      gap: var(--if-space-2);
+      margin-top: var(--if-space-5);
     }
     .plo-actions [data-slot='button'] {
-      font-size: 12px;
-      padding-inline: 14px;
+      font-size: var(--if-text-xs);
+      padding-inline: var(--if-space-3-5);
       min-height: 44px;
     }
     .plo-actions [data-slot='button'] svg {
@@ -503,7 +503,7 @@
     }
     .plo-card,
     .if-business .plo .pay-section {
-      padding: 20px;
+      padding: var(--if-space-5);
     }
     .plo .pp-asof {
       font-size: 10px;
@@ -513,10 +513,10 @@
       gap: 3px;
     }
     .plo-payment-label strong {
-      font-size: 12px;
+      font-size: var(--if-text-xs);
     }
     .plo-payment-amount {
-      font-size: 13px;
+      font-size: var(--if-text-sm);
     }
     .if-business .plo .pp-kpis {
       grid-template-columns: repeat(2, minmax(0, 1fr));

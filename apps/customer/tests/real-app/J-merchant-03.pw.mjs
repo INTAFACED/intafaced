@@ -48,7 +48,7 @@ async function addMember(page, who, role, ownerWho) {
   await page.getByLabel('Account ID *').fill(who.userId);
   await page.getByRole('combobox', { name: /^Role \*/ }).selectOption({ label: role });
   await page.getByRole('button', { name: 'Send invitation' }).click();
-  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
   await expect(
     page
       .getByRole('row')
@@ -63,7 +63,7 @@ async function addMember(page, who, role, ownerWho) {
     await expect(accept).toBeVisible({ timeout: 3000 });
   }).toPass({ timeout: 30_000 });
   await accept.click();
-  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
   await expect(accept).toHaveCount(0);
 }
 
@@ -143,7 +143,7 @@ test(`${J} #2 the owner adds a product with type, unit label, descriptor and ima
   await page.getByLabel('Product ID').fill(id);
   await save.click();
   await expect(page).toHaveURL(/\/pay\/products\/[0-9a-f-]{36}$/);
-  const facts = page.locator('dl.pp-facts');
+  const facts = page.locator('dl[data-testid="pp-facts"]');
   await expect(facts).toContainText('TEST Poster');
   await expect(facts).toContainText('Physical good');
   await expect(facts).toContainText(id);
@@ -456,7 +456,7 @@ test(`${J} #6 copying the catalogue between test and live makes no duplicates, a
   await expect(liveList.getByText('TEST Sample guide', { exact: true })).toHaveCount(1);
   await expect(liveList.getByText('TEST Sample mug', { exact: true })).toHaveCount(0);
   await liveList.getByRole('row').filter({ hasText: 'TEST Sample guide' }).getByRole('link').last().click();
-  const facts = page.locator('dl.pp-facts');
+  const facts = page.locator('dl[data-testid="pp-facts"]');
   await expect(facts).toContainText('Live catalogue');
   await expect(facts.getByRole('link', { name: 'Its product in the test catalogue' })).toBeVisible();
   const guideUrl = page.url();

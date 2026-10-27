@@ -1,29 +1,29 @@
 .academy-grant-records {
   display: grid;
-  gap: 24px;
+  gap: var(--if-space-6);
   min-width: 0;
   font-family: var(--font-sans);
   overflow-wrap: anywhere;
 }
 .academy-grant-records header {
   display: grid;
-  gap: 8px;
+  gap: var(--if-space-2);
 }
 .academy-grant-records h2 {
-  font-size: 24px;
+  font-size: var(--if-text-xl);
   line-height: 32px;
 }
 .academy-grant-records h3 {
-  font-size: 20px;
-  line-height: 28px;
+  font-size: var(--if-text-lg);
+  line-height: var(--if-leading-lg);
 }
 .academy-grant-records p {
   line-height: 1.5;
 }
 .academy-grant-original {
   display: grid;
-  gap: 16px;
-  padding: 24px 0;
+  gap: var(--if-space-4);
+  padding: var(--if-space-6) 0;
   border-block: 1px solid var(--color-border);
   min-width: 0;
 }
@@ -40,27 +40,27 @@
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: var(--if-space-3);
 }
 .academy-grant-list {
   display: grid;
-  gap: 16px;
+  gap: var(--if-space-4);
   min-width: 0;
 }
 .academy-grant-list article {
   display: grid;
-  gap: 12px;
-  padding: 24px 0;
+  gap: var(--if-space-3);
+  padding: var(--if-space-6) 0;
   border-bottom: 1px solid var(--color-border);
 }
 .academy-grant-list article h4 {
-  font-size: 20px;
-  line-height: 28px;
+  font-size: var(--if-text-lg);
+  line-height: var(--if-leading-lg);
 }
 .academy-grant-records code,
 .academy-grant-records time {
   font-family: var(--font-sans);
-  font-size: 14px;
+  font-size: var(--if-text-base);
   overflow-wrap: anywhere;
 }
 .academy-grant-records .more-details > div {
@@ -69,11 +69,11 @@
 @media (max-width: 390px) {
   .academy-grant-records .more-details > div {
     display: grid;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
 }
 .academy-grant-certificates {
   display: grid;
-  gap: 32px;
+  gap: var(--if-space-8);
   min-width: 0;
 }

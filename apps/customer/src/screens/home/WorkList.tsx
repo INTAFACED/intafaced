@@ -43,11 +43,11 @@ const SEVERITY = {
  * room. With the owner values blank the list is refused with its code; an owner that has not answered is named, so an
  * empty list never claims "nothing needs you" on a missing answer.
  */
-export function WorkList({ hidden, className = 'home-section' }: { hidden: boolean; className?: string }) {
+export function WorkList({ hidden, className = 'home-section', testId }: { hidden: boolean; className?: string; testId?: string }) {
   const { t } = homeCopy.useCopy();
   const { list, retry } = useWorkList();
   return (
-    <section className={`${className} home-work`} aria-labelledby="home-work-title">
+    <section data-testid={testId} className={`${className} home-work`} aria-labelledby="home-work-title">
       <div className="home-section__head">
         <h2 className="home-h2" id="home-work-title">
           {t('Needs you')}
@@ -59,12 +59,12 @@ export function WorkList({ hidden, className = 'home-section' }: { hidden: boole
 }
 
 function Body({ list, hidden, retry }: { list: List; hidden: boolean; retry: () => void }) {
-  const { t } = homeCopy.useCopy();
+  const { t, Copy } = homeCopy.useCopy();
   if (list.state === 'loading')
     return (
       <div className="home-work__rows" aria-hidden="true">
         {[0, 1].map((index) => (
-          <div className="home-work__row" key={index}>
+          <div data-testid="home-work__row" className="home-work__row" key={index}>
             <Skeleton width={180} height={36} className={IN_PANEL} />
           </div>
         ))}
@@ -86,6 +86,9 @@ function Body({ list, hidden, retry }: { list: List; hidden: boolean; retry: () 
   }
   const unwired = list.missing.filter((entry) => entry.state === 'unwired');
   const failed = list.missing.filter((entry) => entry.state === 'failed');
+  // Each sentence carries its own language and direction (Copy): an English fallback on a right-to-left page keeps
+  // its full stop and brackets where English puts them.
+  const noneKey = list.missing.length === 0 ? 'Work nothing' : 'Work nothing so far';
   const names = (entries: typeof list.missing) => entries.map((entry) => t(SOURCE_NAME[entry.source])).join(', ');
   return (
     <>
@@ -97,21 +100,29 @@ function Body({ list, hidden, retry }: { list: List; hidden: boolean; retry: () 
         </ul>
       ) : (
         <p className="home-work__none" data-complete={list.missing.length === 0}>
-          {t(list.missing.length === 0 ? 'Work nothing' : 'Work nothing so far')}
+          <Copy k={noneKey} />
         </p>
       )}
-      {list.more > 0 ? <p className="home-work__note">{t('Work more', { count: String(list.more) })}</p> : null}
-      {list.ordered ? null : list.items.length > 1 ? <p className="home-work__note">{t('Work order unset')}</p> : null}
+      {list.more > 0 ? (
+        <p className="home-work__note">
+          <Copy k="Work more" params={{ count: String(list.more) }} />
+        </p>
+      ) : null}
+      {list.ordered ? null : list.items.length > 1 ? (
+        <p className="home-work__note">
+          <Copy k="Work order unset" />
+        </p>
+      ) : null}
       {unwired.length > 0 ? (
         <p className="home-work__note" data-missing="unwired">
-          {t('Work sources unwired', { sources: names(unwired) })}
+          <Copy k="Work sources unwired" params={{ sources: names(unwired) }} />
         </p>
       ) : null}
       {failed.length > 0 ? (
         <p className="home-work__note" data-missing="failed">
-          {t('Work sources failed', { sources: names(failed) })}{' '}
+          <Copy k="Work sources failed" params={{ sources: names(failed) }} />{' '}
           <button type="button" className="home-link" onClick={retry}>
-            {t('Try again')}
+            <Copy k="Try again" />
           </button>
         </p>
       ) : null}
@@ -120,20 +131,26 @@ function Body({ list, hidden, retry }: { list: List; hidden: boolean; retry: () 
 }
 
 function Row({ item, hidden }: { item: WorkItem; hidden: boolean }) {
-  const { t } = homeCopy.useCopy();
+  const { t, Copy } = homeCopy.useCopy();
   const { timeZone } = usePreferences();
   const known = titleOf(item.titleKey);
   const due = item.dueAt ? dayTime(item.dueAt, timeZone) : null;
   const severity = SEVERITY[item.severity];
   return (
     <li>
-      <a className="home-work__row" href={item.link} data-kind={item.kind} data-severity={item.severity}>
+      <a data-testid="home-work__row" className="home-work__row" href={item.link} data-kind={item.kind} data-severity={item.severity}>
         <span className="home-work__what">
-          <span className="home-work__title">{t(known ?? KIND_TITLE[item.kind])}</span>
+          <span className="home-work__title">
+            <Copy k={known ?? KIND_TITLE[item.kind]} />
+          </span>
           <span className="home-work__meta">
-            {due ? <span>{t('Work due', { when: due })}</span> : null}
+            {due ? <Copy k="Work due" params={{ when: due }} /> : null}
             {item.amount ? <Amount value={`${fmtAmount(item.amount.value, { places: 18 })} ${item.amount.asset}`} hidden={hidden} /> : null}
-            {item.reasonCode ? <span className="home-work__code">{item.reasonCode}</span> : null}
+            {item.reasonCode ? (
+              <span className="home-work__code" dir="ltr">
+                {item.reasonCode}
+              </span>
+            ) : null}
           </span>
         </span>
         <StatusTag status={severity.status} label={t(severity.label)} />

@@ -8,6 +8,10 @@ import {
   controlHeights,
   cssValue,
   cssVars,
+  defaultLook,
+  legacyVars,
+  looks,
+  renderLegacyCss,
   radii,
   redUpOverrides,
   renderTokensCss,
@@ -118,6 +122,27 @@ describe('contrast (WCAG 2.2 AA) on the surfaces the tokens sit on', () => {
     expect(contrast(t['on-down']!, t['down']!)).toBeGreaterThanOrEqual(4.5);
   });
 
+  it('keeps faint text (fg-3) at WCAG AA on the surfaces text sits on', () => {
+    for (const surface of ['bg', 'panel', 'hover', 'field'] as const) {
+      expect(contrast(colors['fg-3'], colors[surface]), surface).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it('defines the focus ring the screens use', () => {
+    expect(css).toContain('--if-focus: var(--if-lime);');
+    expect(themeCss).toContain('--color-focus: var(--if-focus);');
+  });
+
+  it('gives the accent as text its own name, today the same lime', () => {
+    expect(css).toContain('--if-accent-text: var(--if-lime);');
+    expect(themeCss).toContain('--color-accent-text: var(--if-accent-text);');
+    // Today it is the lime, so the lime is held to AA on the surfaces accent text sits on.
+    expect(aliases['accent-text']).toBe('var(--if-lime)');
+    for (const surface of ['bg', 'panel', 'hover', 'field'] as const) {
+      expect(contrast(colors.lime, colors[surface]), surface).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
   it('only overrides tokens that exist', () => {
     for (const key of Object.keys(redUpOverrides)) expect(key in colors).toBe(true);
   });
@@ -186,13 +211,46 @@ describe('theme.css (Tailwind @theme mapping)', () => {
     expect(code).not.toContain('preflight');
   });
 
-  it('does not reuse a custom property name from apps/customer/src/shared/tokens.css', () => {
-    const legacy = join(here, '../../../../apps/customer/src/shared/tokens.css');
-    if (!existsSync(legacy)) return; // package used outside the monorepo
-    const legacyNames = new Set([...readFileSync(legacy, 'utf8').matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]!));
+  it("does not reuse one of the customer app's older names as a theme key", () => {
+    const legacyNames = new Set(Object.keys(legacyVars));
     const mine = [...themeCss.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]!).filter((n) => !n.endsWith('*'));
     const clashes = mine.filter((n) => legacyNames.has(n));
     expect(clashes).toEqual([]);
+  });
+
+  it('customer-legacy.css is exactly what tokens.ts generates', () => {
+    expect(read('customer-legacy.css')).toBe(renderLegacyCss());
+  });
+
+  it("is the customer app's one token source: the old stylesheet is gone and nothing imports it", () => {
+    const app = join(here, '../../../../apps/customer');
+    if (!existsSync(app)) return; // package used outside the monorepo
+    expect(existsSync(join(app, 'src/shared/tokens.css'))).toBe(false);
+    const skip = new Set(['node_modules', 'dist', 'test-results', 'playwright-report']);
+    const files = (dir: string, out: string[] = []): string[] => {
+      for (const name of readdirSync(dir)) {
+        if (skip.has(name)) continue;
+        const full = join(dir, name);
+        if (statSync(full).isDirectory()) files(full, out);
+        else if (/\.(tsx?|m?js|css|html)$/.test(name)) out.push(full);
+      }
+      return out;
+    };
+    expect(files(app).filter((f) => /shared\/tokens\.css/.test(readFileSync(f, 'utf8')))).toEqual([]);
+    expect(readFileSync(join(app, 'src/app/redesign.css'), 'utf8')).toContain("@import '@intafaced/ui/theme/customer-legacy.css';");
+  });
+});
+
+describe('looks: stable names, values per look', () => {
+  // Only --if-* names: customer-legacy.css loads after tokens.css, so a look could not override an older name.
+  const names = new Set(Object.keys(cssVars()));
+
+  it('has the default look, which keeps the values written in tokens.ts', () => {
+    expect(looks[defaultLook]).toEqual({});
+  });
+
+  it.each(Object.entries(looks))('look %s sets only names that exist', (_id, vars) => {
+    expect(Object.keys(vars).filter((n) => !names.has(n))).toEqual([]);
   });
 });
 

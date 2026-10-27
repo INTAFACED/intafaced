@@ -192,7 +192,7 @@ export function AddEndpoint({
           {t('readOnlyRole')}
         </p>
       )}
-      <div className="form-stack pp-form">
+      <div data-testid="form-stack" className="form-stack pp-form">
         <Field
           label={t('urlLabel')}
           hint={t('urlHint')}

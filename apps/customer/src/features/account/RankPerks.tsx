@@ -130,7 +130,7 @@ export function RankPerks() {
   const value = rank.resource.status === 'ready' ? rank.resource.data : null;
   const benefit = perks.resource.status === 'ready' ? perks.resource.data : null;
   return (
-    <section className="rank-perks" aria-label={t('title')}>
+    <section data-testid="rank-perks" className="rank-perks" aria-label={t('title')}>
       <section className="rank-perks__rank" aria-labelledby={`${id}-rank`}>
         <header className="rank-perks__heading">
           <h2 id={`${id}-rank`}>

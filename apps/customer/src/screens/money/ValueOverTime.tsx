@@ -54,7 +54,7 @@ function ValueRows({ data, hidden, copy }: { data: BankValueOverTime; hidden: bo
   return (
     <details className="money-pnl-points">
       <summary>{t('Value points table')}</summary>
-      <table className="money-table" aria-label={t('Value points table')}>
+      <table data-testid="money-table" className="money-table" aria-label={t('Value points table')}>
         <thead>
           <tr>
             <th scope="col">{t('Pnl point time')}</th>
@@ -83,7 +83,7 @@ function ValueMissing({ data, copy }: { data: BankValueOverTime; copy: Copy }) {
   const missing = valueMissingOf(data.points);
   if (missing.count === 0) return null;
   return (
-    <div className="money-note" data-label="value-missing" data-count={missing.count}>
+    <div data-testid="money-note" className="money-note" data-label="value-missing" data-count={missing.count}>
       <p>{t('Pnl missing points', { count: String(missing.count) })}</p>
       <ul>
         {missing.coins.map((assetId) => (
@@ -106,24 +106,28 @@ function BridgeCard({ result, hidden, copy }: { result: ValueRead; hidden: boole
   const { timeZone } = usePreferences();
   if (result.status !== 'ready') {
     return (
-      <section className="money-card" aria-label={t('Bridge')}>
-        <header className="money-card__head">
+      <section data-testid="money-card" className="money-card" aria-label={t('Bridge')}>
+        <header data-testid="money-card__head" className="money-card__head">
           <h2>{t('Bridge')}</h2>
         </header>
         {result.note}
-        <p className="money-note">{t('Bridge rule')}</p>
+        <p data-testid="money-note" className="money-note">
+          {t('Bridge rule')}
+        </p>
       </section>
     );
   }
   const { data } = result;
   const { bridge } = data;
   return (
-    <section className="money-card" aria-label={t('Bridge')}>
-      <header className="money-card__head">
+    <section data-testid="money-card" className="money-card" aria-label={t('Bridge')}>
+      <header data-testid="money-card__head" className="money-card__head">
         <h2>{t('Bridge')}</h2>
       </header>
-      <p className="money-note">{t('Bridge range', { from: stamp(data.from, timeZone), to: stamp(data.to, timeZone) })}</p>
-      <table className="money-table" data-bridge="value">
+      <p data-testid="money-note" className="money-note">
+        {t('Bridge range', { from: stamp(data.from, timeZone), to: stamp(data.to, timeZone) })}
+      </p>
+      <table data-testid="money-table" className="money-table" data-bridge="value">
         <tbody>
           {BRIDGE_LEGS.map(({ leg, sign }) => {
             const value = bridgeValue(bridge, leg);
@@ -144,11 +148,13 @@ function BridgeCard({ result, hidden, copy }: { result: ValueRead; hidden: boole
         </tbody>
       </table>
       {bridge.missing.length > 0 ? (
-        <p className="money-note" data-label="bridge-missing">
+        <p data-testid="money-note" className="money-note" data-label="bridge-missing">
           {t('Bridge unknown', { assets: bridge.missing.map((item) => item.assetId).join(', ') })}
         </p>
       ) : null}
-      <p className="money-note">{t('Bridge rule')}</p>
+      <p data-testid="money-note" className="money-note">
+        {t('Bridge rule')}
+      </p>
     </section>
   );
 }
@@ -188,9 +194,23 @@ export function ValueOverTimeCards({
 
   let read: ValueRead;
   if (ask.kind === 'invalid') {
-    read = { status: 'other', note: <p className="money-note">{t('Range invalid')}</p> };
+    read = {
+      status: 'other',
+      note: (
+        <p data-testid="money-note" className="money-note">
+          {t('Range invalid')}
+        </p>
+      ),
+    };
   } else if (range === null || result.status === 'empty') {
-    read = { status: 'other', note: <p className="money-note">{t('Value all needs a start')}</p> };
+    read = {
+      status: 'other',
+      note: (
+        <p data-testid="money-note" className="money-note">
+          {t('Value all needs a start')}
+        </p>
+      ),
+    };
   } else if (result.status === 'loading') {
     read = { status: 'other', note: <Skeleton width="100%" height={LINE_H} className="bg-field" /> };
   } else if (result.status === 'error') {
@@ -199,6 +219,7 @@ export function ValueOverTimeCards({
       note: (
         <StateBlock
           kind="error"
+          testId="money-state"
           className="money-state"
           title={t('Value over time unreadable')}
           onRetry={result.retry}
@@ -212,7 +233,7 @@ export function ValueOverTimeCards({
     read = {
       status: 'other',
       note: (
-        <p className="money-note" data-refused={result.code}>
+        <p data-testid="money-note" className="money-note" data-refused={result.code}>
           {own ? t(own) : `${words.title}. ${words.body ?? ''}`} {words.reference ?? ''}
         </p>
       ),
@@ -223,8 +244,8 @@ export function ValueOverTimeCards({
 
   return (
     <>
-      <section className="money-card" aria-label={t('Value over time')}>
-        <header className="money-card__head">
+      <section data-testid="money-card" className="money-card" aria-label={t('Value over time')}>
+        <header data-testid="money-card__head" className="money-card__head">
           <h2>{t('Value over time')}</h2>
         </header>
         {picker ? <RangePicker key={search} search={search} offset={offset} copy={copy} /> : null}
@@ -241,7 +262,7 @@ export function ValueOverTimeCards({
               copy={copy}
             />
             <ValueMissing data={read.data} copy={copy} />
-            <p className="money-note" data-value-interval={read.data.interval}>
+            <p data-testid="money-note" className="money-note" data-value-interval={read.data.interval}>
               {t(INTERVAL_COPY[read.data.interval])}
             </p>
             <ValueRows data={read.data} hidden={hidden} copy={copy} />
@@ -249,7 +270,9 @@ export function ValueOverTimeCards({
         ) : (
           read.note
         )}
-        <p className="money-note">{t('Value over time rule')}</p>
+        <p data-testid="money-note" className="money-note">
+          {t('Value over time rule')}
+        </p>
       </section>
       <BridgeCard result={read} hidden={hidden} copy={copy} />
     </>

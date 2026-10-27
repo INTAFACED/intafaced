@@ -50,9 +50,10 @@ const fields = z.object({
   favoritesView: z.enum(['list', 'cards']).default('list'),
   /**
    * Simple (Robinhood-like) or Pro (dense desk). Layout only: it never changes data, prices or what an action does.
-   * A first visit lands on Pro (PLT-0009); a stored Simple choice stays Simple.
+   * A first visit lands on Simple, for everyone (owner decision 2026-10-26, replacing PLT-0009's Pro); a stored Pro choice
+   * stays Pro.
    */
-  layoutMode: z.enum(['simple', 'pro']).default('pro'),
+  layoutMode: z.enum(['simple', 'pro']).default('simple'),
   /**
    * Which profile the person is looking at: `personal`, or `business:<id>` for a business they belong to. A view choice only,
    * no service reads it. The session checks it against the person's real memberships (`features/session/profiles.ts`).

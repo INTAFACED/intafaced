@@ -1,4 +1,3 @@
-import { QuantDisclosure } from './QuantDisclosure';
 import { t as copyText, Text } from './copy';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
@@ -276,7 +275,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                     [copyText('quant.venue'), <span lang="zxx">{result.venue}</span>],
                   ]}
                 />
-                <pre className="more-body" lang="und">
+                <pre data-testid="more-body" className="more-body" lang="und">
                   {result.logs.join('\n')}
                 </pre>
                 <DataTable
@@ -435,7 +434,6 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
               return true;
             }}
           />
-          <QuantDisclosure />
         </div>
       ) : (
         <div lang={languageFor('draft')} dir={directionFor('draft')}>

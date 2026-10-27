@@ -49,7 +49,7 @@ async function mount(page, path) {
         React.useEffect(() => {
           context.commit(session);
         }, []);
-        return React.createElement(Shell, { door: 'Assets' }, React.createElement(MoneyRoutes, { path }));
+        return React.createElement(Shell, { door: 'Money' }, React.createElement(MoneyRoutes, { path }));
       }
       createRoot(host).render(React.createElement(SessionProvider, null, React.createElement(Setup)));
     },

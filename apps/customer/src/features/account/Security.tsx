@@ -625,12 +625,12 @@ export function Security() {
           );
         })}
         {(problem || journal.failed) && (
-          <p className="notice" role="status">
+          <p data-testid="notice" className="notice" role="status">
             <Copy k={journal.failed ? 'storage' : problem!} />
           </p>
         )}
         <div className="security__layout">
-          <section className="security__passkeys security__card" aria-label={t('passkeys')}>
+          <section data-testid="security__passkeys" className="security__passkeys security__card" aria-label={t('passkeys')}>
             <div className="section-heading">
               <h2>
                 <Copy k="passkeys" />
@@ -660,18 +660,18 @@ export function Security() {
                 </p>
               </div>
             ) : (
-              <ul className="security__rows">
+              <ul data-testid="security__rows" className="security__rows">
                 {resource.data.map((key) => (
-                  <li key={key.credentialId} className="security__row">
+                  <li key={key.credentialId} data-testid="security__row" className="security__row">
                     <div>
                       <time dateTime={key.createdAt} lang={requestedLocale}>
                         {t('added', { time: stamp(key.createdAt, timeZone) })}
                       </time>
-                      <span className="security__ref" lang="zxx">
+                      <span data-testid="security__ref" className="security__ref" lang="zxx">
                         {key.credentialId}
                       </span>
                       {key.transports && (
-                        <span className="security__ref" lang="zxx">
+                        <span data-testid="security__ref" className="security__ref" lang="zxx">
                           {key.transports.join(', ')}
                         </span>
                       )}
@@ -705,7 +705,7 @@ export function Security() {
               ) : null}
             </div>
           </section>
-          <section className="security__authenticator security__card" aria-label={t('authenticator')}>
+          <section data-testid="security__authenticator" className="security__authenticator security__card" aria-label={t('authenticator')}>
             <h2 ref={authenticatorHeading} tabIndex={-1}>
               <Copy k="authenticator" />
             </h2>
@@ -742,7 +742,7 @@ export function Security() {
                           <summary>
                             <Copy k="uri" />
                           </summary>
-                          <code className="security__ref" lang="zxx">
+                          <code data-testid="security__ref" className="security__ref" lang="zxx">
                             {visibleSetup.data.uri}
                           </code>
                         </details>
@@ -767,26 +767,26 @@ export function Security() {
                   </>
                 )}
                 {visibleSetup.confirmed && (
-                  <p className="notice" role="status">
+                  <p data-testid="notice" className="notice" role="status">
                     <Copy k="confirmationAccepted" />
                   </p>
                 )}
                 {codesShown && (
                   // Shown once, after the authenticator works. "I saved them" drops the codes and the setup key from
                   // this page; nothing here is ever written to storage.
-                  <div className="security__recovery stack" data-security-sensitive="true">
+                  <div data-testid="security__recovery" className="security__recovery stack" data-security-sensitive="true">
                     <h3>
                       <Copy k="recoveryTitle" />
                     </h3>
                     {!visibleSetup.confirmed && (
-                      <p className="notice" role="status">
+                      <p data-testid="notice" className="notice" role="status">
                         <Copy k="recoveryUnknown" />
                       </p>
                     )}
                     <p>
                       <Copy k="recoveryOnce" />
                     </p>
-                    <ul className="recovery-codes">
+                    <ul data-testid="recovery-codes" className="recovery-codes">
                       {visibleSetup.data.recoveryCodes.map((value) => (
                         <li key={value} lang="zxx">
                           {value}
@@ -832,7 +832,7 @@ export function Security() {
           <SecurityLock />
           <FreezeAccount />
           <CloseAccount />
-          <section className="security__sessions security__card">
+          <section data-testid="security__card" className="security__sessions security__card">
             {sessionBlocked && (
               <p className="muted">
                 <Copy k="blockedSessions" />
@@ -859,7 +859,7 @@ export function Security() {
         {currentResponse &&
           (currentResponse.answer.ok ? (
             currentResponse.receipt && (
-              <section className="notice stack" aria-label={t('receipt')}>
+              <section data-testid="notice" className="notice stack" aria-label={t('receipt')}>
                 <h2>
                   <Copy k="receipt" />
                 </h2>
@@ -876,7 +876,7 @@ export function Security() {
               isPreEffectRefusal(currentResponse.record.kind, currentResponse.answer) ? (
                 // The factor gate refused before any change: this session has not passed a second factor. Confirming it is
                 // them here sends the same change once more; signing in again with the code or a passkey also works.
-                <div className="failure" role="status">
+                <div data-testid="failure" className="failure" role="status">
                   <h3>{secondFactor.title}</h3>
                   {stepUpKind(currentResponse.record?.kind) ? (
                     <p lang={languageFor('stepUpBody')}>{t('stepUpBody')}</p>
@@ -898,7 +898,7 @@ export function Security() {
                 />
               )}
               {currentResponse.answer.code && (
-                <p className="security__ref" lang="zxx">
+                <p data-testid="security__ref" className="security__ref" lang="zxx">
                   {currentResponse.answer.code}
                 </p>
               )}

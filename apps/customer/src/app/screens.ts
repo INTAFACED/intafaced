@@ -9,22 +9,37 @@ export type ScreenComponent = LazyExoticComponent<ComponentType<ScreenProps>>;
  * replaces its file, the stub there renders the old view inside `.legacy-room`, so every route
  * keeps working through the migration. Each stub file belongs to that screen's builder.
  */
-export const screens: Record<ScreenId, ScreenComponent> = {
-  home: lazy(() => import('../screens/home')),
-  money: lazy(() => import('../screens/money')),
-  coin: lazy(() => import('../screens/coin')),
-  'trade/markets': lazy(() => import('../screens/trade/markets')),
-  'trade/desk': lazy(() => import('../screens/trade/desk')),
-  'trade/buy': lazy(() => import('../screens/trade/buy')),
-  'trade/convert': lazy(() => import('../screens/trade/convert')),
-  'trade/options': lazy(() => import('../screens/trade/options')),
-  'trade/execution': lazy(() => import('../screens/trade/execution')),
-  'trade/otc': lazy(() => import('../screens/trade/otc')),
-  'trade/futures': lazy(() => import('../screens/trade/futures')),
-  'trade/margin': lazy(() => import('../screens/trade/margin')),
-  charts: lazy(() => import('../screens/charts')),
-  pay: lazy(() => import('../screens/pay')),
-  more: lazy(() => import('../screens/more')),
-  notifications: lazy(() => import('../screens/notifications')),
-  account: lazy(() => import('../screens/account')),
+type Loader = () => Promise<{ default: ComponentType<ScreenProps> }>;
+
+const loaders: Record<ScreenId, Loader> = {
+  home: () => import('../screens/home'),
+  money: () => import('../screens/money'),
+  coin: () => import('../screens/coin'),
+  'trade/markets': () => import('../screens/trade/markets'),
+  'trade/desk': () => import('../screens/trade/desk'),
+  'trade/buy': () => import('../screens/trade/buy'),
+  'trade/convert': () => import('../screens/trade/convert'),
+  'trade/options': () => import('../screens/trade/options'),
+  'trade/execution': () => import('../screens/trade/execution'),
+  'trade/otc': () => import('../screens/trade/otc'),
+  'trade/futures': () => import('../screens/trade/futures'),
+  'trade/margin': () => import('../screens/trade/margin'),
+  charts: () => import('../screens/charts'),
+  pay: () => import('../screens/pay'),
+  more: () => import('../screens/more'),
+  notifications: () => import('../screens/notifications'),
+  account: () => import('../screens/account'),
 };
+
+export const screens = Object.fromEntries(Object.entries(loaders).map(([id, load]) => [id, lazy(load)])) as Record<
+  ScreenId,
+  ScreenComponent
+>;
+
+/**
+ * Starts downloading a screen's code before it can render (a signed-in room waits for the boot refresh first), so
+ * the two happen side by side. `lazy` reuses the same module when the screen renders.
+ */
+export function preloadScreen(id: ScreenId): void {
+  void loaders[id]().catch(() => undefined);
+}

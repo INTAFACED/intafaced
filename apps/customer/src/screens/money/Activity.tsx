@@ -362,21 +362,25 @@ function Row({ group, copy, hidden }: { group: ActivityGroup; copy: Copy; hidden
     sub = parts.length > 0 ? parts.join(' · ') : null;
   }
   return (
-    <tr className="money-act" data-kind={item.kind}>
+    <tr data-testid="money-act" className="money-act" data-kind={item.kind}>
       <td>
         <div className="money-act__what">
           <span className="money-act__icon" data-direction={item.direction} aria-hidden="true">
             <Icon size={18} />
           </span>
           <span className="money-act__text">
-            <a className="money-act__title money-act__link" href={detailHref(group)}>
+            <a data-testid="money-act__title" className="money-act__title money-act__link" href={detailHref(group)}>
               {title}
             </a>
-            {sub ? <span className="money-act__sub">{sub}</span> : null}
+            {sub ? (
+              <span data-testid="money-act__sub" className="money-act__sub">
+                {sub}
+              </span>
+            ) : null}
           </span>
         </div>
       </td>
-      <td className="money-act__time">
+      <td data-testid="money-act__time" className="money-act__time">
         <time dateTime={item.postedAt}>{stamp(item.postedAt, timeZone)}</time>
       </td>
       <td className="money-num">
@@ -387,11 +391,13 @@ function Row({ group, copy, hidden }: { group: ActivityGroup; copy: Copy; hidden
           data-direction={item.direction}
         />
       </td>
-      <td className="money-act__status money-cell--status">
+      <td data-testid="money-act__status" className="money-act__status money-cell--status">
         {holding ? (
-          <span className="money-act__hold">{t('Set aside')}</span>
+          <span data-testid="money-act__hold" className="money-act__hold">
+            {t('Set aside')}
+          </span>
         ) : (
-          <span className="money-act__done">
+          <span data-testid="money-act__done" className="money-act__done">
             <Check size={14} aria-hidden="true" />
             {t('Completed')}
           </span>
@@ -405,7 +411,7 @@ function SkeletonRows({ count, label }: { count: number; label: string }) {
   return (
     <div aria-busy="true" role="status" aria-label={label} className="money-act-skeleton">
       {Array.from({ length: count }, (_, index) => (
-        <div className="money-act-skeleton__row" key={index}>
+        <div data-testid="money-act-skeleton__row" className="money-act-skeleton__row" key={index}>
           <Skeleton width={32} height={32} circle className="bg-field" />
           <Skeleton width={180} height={20} className="bg-field" />
           <span className="money-skeleton-gap" />
@@ -473,7 +479,11 @@ function Body({
     (!everyLine || asset !== null || filtered) && rows.length === 0 && feed.hasMore && pages.current < AUTO_PAGES && !feed.moreFailed;
   const more = feed.hasMore ? (
     <div className="money-more">
-      {feed.moreFailed ? <p className="money-more__note">{t('Couldn’t load more')}</p> : null}
+      {feed.moreFailed ? (
+        <p data-testid="money-more__note" className="money-more__note">
+          {t('Couldn’t load more')}
+        </p>
+      ) : null}
       <Button variant="secondary" size={40} loading={feed.loadingMore} onClick={feed.loadMore}>
         {feed.moreFailed ? t('Try again') : t('Load more')}
       </Button>
@@ -484,6 +494,7 @@ function Body({
       <>
         <StateBlock
           kind="empty"
+          testId="money-state"
           className="money-state"
           title={t('No matches')}
           body={feed.hasMore ? t('No matches more body') : t('No matches body')}
@@ -499,6 +510,7 @@ function Body({
       why === 'more' ? (
         <StateBlock
           kind="empty"
+          testId="money-state"
           className="money-state"
           title={asset ? t('No {asset} activity in the latest items', { asset }) : t(TAB_LATEST[tab as Exclude<LedgerTab, 'all'>])}
           body={t('Load more to look further back')}
@@ -506,6 +518,7 @@ function Body({
       ) : why === 'asset' && asset ? (
         <StateBlock
           kind="empty"
+          testId="money-state"
           className="money-state"
           title={t('No {asset} activity', { asset })}
           body={t('No {asset} activity body', { asset })}
@@ -513,6 +526,7 @@ function Body({
       ) : (
         <StateBlock
           kind="empty"
+          testId="money-state"
           className="money-state"
           title={t(tab === 'all' ? 'No activity yet' : TAB_EMPTY[tab as Exclude<LedgerTab, 'all'>])}
           body={tab === 'all' ? t('No activity yet body') : t('Nothing of this kind yet body')}
@@ -533,7 +547,7 @@ function Body({
       <ExportButton feed={feed} rows={rows} copy={copy} sort={filters.sort} />
       <StatementPanel />
       <TaxEffects />
-      <table className="money-table money-table--activity">
+      <table data-testid="money-table" className="money-table money-table--activity">
         <colgroup>
           <col className="money-act-col--what" />
           <col className="money-act-col--time" />
@@ -589,6 +603,7 @@ function Content({
       return (
         <StateBlock
           kind="error"
+          testId="money-state"
           className="money-state"
           title={t('Couldn’t load your activity')}
           onRetry={activity.retry}
@@ -600,6 +615,7 @@ function Content({
       return (
         <StateBlock
           kind="refused"
+          testId="money-state"
           className="money-state"
           title={words.title}
           body={words.body}
@@ -609,10 +625,12 @@ function Content({
       );
     }
     case 'empty':
-      if (asked) return <StateBlock kind="empty" className="money-state" title={t('No matches')} body={t('No matches body')} />;
+      if (asked)
+        return <StateBlock kind="empty" testId="money-state" className="money-state" title={t('No matches')} body={t('No matches body')} />;
       return (
         <StateBlock
           kind="empty"
+          testId="money-state"
           className="money-state"
           title={t('No activity yet')}
           body={t('No activity yet body')}
@@ -673,10 +691,10 @@ export default function Activity({ search }: { search: string }) {
     tabList.current?.querySelector('[data-active]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [tab]);
   return (
-    <div className="if-money if-money--activity" data-density={layoutMode === 'pro' ? 'pro' : undefined}>
+    <div data-testid="if-money" className="if-money if-money--activity" data-density={layoutMode === 'pro' ? 'pro' : undefined}>
       <h1 className="money-title">{t('Activity')}</h1>
       <Tabs value={tab} onValueChange={(next) => navigate(tabHref(next as Tab, assetFromSearch(search)))}>
-        <TabsList ref={tabList} divider aria-label={t('Activity filters')} className="money-tabs">
+        <TabsList ref={tabList} divider aria-label={t('Activity filters')} data-testid="money-tabs" className="money-tabs">
           {TABS.map((id) => (
             <TabsTab key={id} value={id}>
               {t(TAB_LABEL[id])}
@@ -698,7 +716,7 @@ export default function Activity({ search }: { search: string }) {
         </div>
       ) : null}
       {isLedgerTab(tab) && <FilterBar filters={filters} onChange={setFilters} copy={copy} />}
-      <section className="money-card money-card--activity" aria-label={t('Activity')}>
+      <section data-testid="money-card" className="money-card money-card--activity" aria-label={t('Activity')}>
         {tab === 'trades' ? (
           <TradesPanel asset={asset} />
         ) : tab === 'orders' ? (

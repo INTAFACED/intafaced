@@ -41,14 +41,24 @@ export function NotificationRow({
         <Icon size={18} strokeWidth={2} />
       </span>
       <span className="nf-text">
-        <span className="nf-title">{title}</span>
-        {body ? <span className="nf-body">{body}</span> : null}
+        <span data-testid="nf-title" className="nf-title">
+          {title}
+        </span>
+        {body ? (
+          <span data-testid="nf-body" className="nf-body">
+            {body}
+          </span>
+        ) : null}
       </span>
       <span className="nf-meta">
         <time dateTime={item.createdAt} title={fullTime(item.createdAt, timeZone, now)}>
           {label}
         </time>
-        {unread ? <span className="nf-dot" role="img" aria-label={copy.t('Unread')} /> : <span className="nf-dot-gap" aria-hidden="true" />}
+        {unread ? (
+          <span data-testid="nf-dot" className="nf-dot" role="img" aria-label={copy.t('Unread')} />
+        ) : (
+          <span className="nf-dot-gap" aria-hidden="true" />
+        )}
       </span>
     </>
   );
@@ -63,11 +73,11 @@ export function NotificationRow({
     }
   };
   return href ? (
-    <a className="nf-row" data-unread={unread || undefined} href={href} onClick={handle}>
+    <a data-testid="nf-row" className="nf-row" data-unread={unread || undefined} href={href} onClick={handle}>
       {inner}
     </a>
   ) : (
-    <button type="button" className="nf-row" data-unread={unread || undefined} onClick={handle}>
+    <button type="button" data-testid="nf-row" className="nf-row" data-unread={unread || undefined} onClick={handle}>
       {inner}
     </button>
   );

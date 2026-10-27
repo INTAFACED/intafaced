@@ -135,7 +135,12 @@ export function TimeLine({
     setHover(best);
   };
   const focus = hover === null ? null : points[hover]!;
-  if (!chart) return <p className="money-note">{t('Pnl chart none')}</p>;
+  if (!chart)
+    return (
+      <p data-testid="money-note" className="money-note">
+        {t('Pnl chart none')}
+      </p>
+    );
   return (
     <figure className="money-pnl-chart">
       <div className="money-pnl-chart__plot">

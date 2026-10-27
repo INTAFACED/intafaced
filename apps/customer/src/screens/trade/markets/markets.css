@@ -10,7 +10,7 @@
   .if-markets {
     width: calc(100% - 2 * var(--if-gutter));
     margin: 0 auto;
-    padding: 24px 0 64px;
+    padding: var(--if-space-6) 0 var(--if-space-16);
     color: var(--if-fg);
     font-family: var(--if-font-ui);
   }
@@ -47,7 +47,7 @@
   .if-markets :focus-visible,
   .mkt-table :focus-visible,
   .mkt-cards :focus-visible {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: 2px;
   }
   .mkt-muted {
@@ -59,14 +59,14 @@
     display: grid;
     /* As many columns as cards drawn, up to three, so two cards fill the row (critic M8). */
     grid-template-columns: repeat(var(--mkt-card-count, 3), minmax(0, 1fr));
-    gap: 24px;
-    margin-bottom: 32px;
+    gap: var(--if-space-6);
+    margin-bottom: var(--if-space-8);
   }
   .mkt-card {
     display: flex;
     flex-direction: column;
     height: 224px;
-    padding: 16px;
+    padding: var(--if-space-4);
     border-radius: var(--if-r-lg);
     background: var(--if-panel);
   }
@@ -75,10 +75,10 @@
     align-items: center;
     justify-content: space-between;
     height: 32px;
-    margin-bottom: 4px;
+    margin-bottom: var(--if-space-1);
   }
   .mkt-card__head h2 {
-    font: 600 16px/24px var(--if-font-ui);
+    font: 600 var(--if-text-md)/var(--if-leading-md) var(--if-font-ui);
   }
   .mkt-card__more {
     display: inline-flex;
@@ -107,10 +107,10 @@
     display: grid;
     grid-template-columns: 24px minmax(0, 1fr) auto 72px;
     align-items: center;
-    column-gap: 12px;
+    column-gap: var(--if-space-3);
     height: 52px;
     margin: 0 -8px;
-    padding: 0 8px;
+    padding: 0 var(--if-space-2);
     border-radius: var(--if-r-sm);
     transition: background var(--if-t-fast) var(--if-ease);
   }
@@ -121,16 +121,16 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font: 500 14px/20px var(--if-font-ui);
+    font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
   }
   .mkt-card__price {
-    font: 400 14px/20px var(--if-font-ui);
+    font: 400 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     font-variant-numeric: tabular-nums;
     text-align: right;
   }
   .mkt-card__pct {
     justify-self: end;
-    font: 400 14px/20px var(--if-font-ui);
+    font: 400 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
   }
 
   /* Page head: the one h1 and the freshness chip */
@@ -138,27 +138,27 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
-    margin-bottom: 16px;
+    gap: var(--if-space-4);
+    margin-bottom: var(--if-space-4);
   }
   .mkt-page__head h1 {
-    font: 600 24px/32px var(--if-font-ui);
+    font: 600 var(--if-text-xl)/32px var(--if-font-ui);
   }
 
   /* List: the name cell and the "show more" row under the kit table */
   .mkt-namecell {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--if-space-2);
     min-width: 0;
   }
   .mkt-more {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 16px;
-    padding: 16px 0;
-    font: 400 13px/18px var(--if-font-ui);
+    gap: var(--if-space-4);
+    padding: var(--if-space-4) 0;
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
   }
 
   /* Tabs, search, chips */
@@ -166,12 +166,12 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
+    gap: var(--if-space-4);
     min-height: 44px;
     scroll-margin-top: calc(var(--if-topbar-h) + 16px);
   }
   .mkt-tabs__list {
-    gap: 24px;
+    gap: var(--if-space-6);
   }
   .mkt-tab {
     height: 44px;
@@ -187,29 +187,29 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 4px;
-    margin: 16px 0;
+    gap: var(--if-space-1);
+    margin: var(--if-space-4) 0;
   }
   .mkt-chips__end {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
+    gap: var(--if-space-2);
     margin-left: auto;
   }
   .mkt-chips__divider {
     width: 1px;
     height: 16px;
-    margin: 0 8px;
+    margin: 0 var(--if-space-2);
     background: var(--if-line);
   }
   .mkt-notice {
     display: flex;
     align-items: center;
-    gap: 12px;
-    margin-bottom: 8px;
+    gap: var(--if-space-3);
+    margin-bottom: var(--if-space-2);
     color: var(--if-fg-2);
-    font: 400 13px/18px var(--if-font-ui);
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
   }
 
   /* Table */
@@ -223,13 +223,13 @@
     display: grid;
     grid-template-columns: var(--mkt-cols);
     align-items: center;
-    column-gap: 16px;
+    column-gap: var(--if-space-4);
   }
   .mkt-header {
     height: 40px;
-    padding: 0 16px;
+    padding: 0 var(--if-space-4);
     color: var(--if-fg-2);
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
   }
   .mkt-head--num {
     text-align: right;
@@ -240,7 +240,7 @@
   .mkt-sort {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--if-space-1);
     padding: 0;
     border: 0;
     border-radius: var(--if-r-xs);
@@ -260,7 +260,7 @@
   .mkt-row {
     position: relative;
     height: 60px;
-    padding: 0 16px;
+    padding: 0 var(--if-space-4);
     border-radius: var(--if-r-sm);
     transition: background var(--if-t-fast) var(--if-ease);
   }
@@ -276,20 +276,20 @@
   }
   .mkt-cell--num {
     justify-content: flex-end;
-    font: 400 14px/20px var(--if-font-ui);
+    font: 400 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
     font-variant-numeric: tabular-nums;
   }
   .mkt-cell--name {
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .mkt-cell--action {
     justify-content: flex-end;
-    gap: 4px;
+    gap: var(--if-space-1);
     position: relative;
     z-index: 1;
   }
   .mkt-price {
-    font: 500 14px/20px var(--if-font-ui);
+    font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
   }
   .mkt-volume {
     font-variant-numeric: tabular-nums;
@@ -297,7 +297,7 @@
   /* "since 19:29" on a market younger than a day: its 24h figures start later than the header says. */
   .mkt-since {
     color: var(--if-fg-2);
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     white-space: nowrap;
   }
   .mkt-stack {
@@ -312,13 +312,13 @@
     display: inline-flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 4px;
+    gap: var(--if-space-1);
   }
   /* The row is one big link: the anchor around the name stretches over the whole row, buttons sit above it. */
   .mkt-link {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--if-space-3);
     min-width: 0;
   }
   .mkt-link::after {
@@ -331,7 +331,7 @@
     outline: none;
   }
   .mkt-link:focus-visible::after {
-    outline: 2px solid var(--if-lime);
+    outline: 2px solid var(--if-focus);
     outline-offset: -2px;
   }
   .mkt-name {
@@ -343,18 +343,18 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font: 500 16px/24px var(--if-font-ui);
+    font: 500 var(--if-text-md)/var(--if-leading-md) var(--if-font-ui);
   }
   .mkt-name__quote {
     font-weight: 400;
-    font-size: 14px;
+    font-size: var(--if-text-base);
   }
   .mkt-name__full {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     color: var(--if-fg-2);
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
   }
   .mkt-star,
   .mkt-star-gap {
@@ -381,7 +381,7 @@
   }
   .mkt-star--on,
   .mkt-star--on:hover {
-    color: var(--if-lime);
+    color: var(--if-accent-text);
   }
   .mkt-range {
     width: 100%;
@@ -406,14 +406,14 @@
   .mkt-range__ends {
     display: flex;
     justify-content: space-between;
-    gap: 8px;
-    margin-top: 6px;
+    gap: var(--if-space-2);
+    margin-top: var(--if-space-1-5);
     color: var(--if-fg-2);
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     font-variant-numeric: tabular-nums;
   }
   .mkt-empty {
-    padding: 24px 0;
+    padding: var(--if-space-6) 0;
   }
 
   /* Desk markets panel (280 px): star | pair + name/volume | price + change */
@@ -421,17 +421,17 @@
     display: flex;
     justify-content: space-between;
     height: 32px;
-    padding: 0 16px;
+    padding: 0 var(--if-space-4);
   }
   .mkt-panel__head-left,
   .mkt-panel__head-right {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--if-space-1);
   }
   .mkt-row--panel {
     grid-template-columns: 24px minmax(0, 1fr) auto;
-    column-gap: 8px;
+    column-gap: var(--if-space-2);
   }
   .mkt-panel__name .mkt-link {
     flex-direction: column;
@@ -439,7 +439,7 @@
     gap: 0;
   }
   .mkt-panel__pair {
-    font: 500 13px/18px var(--if-font-ui);
+    font: 500 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
   }
   .mkt-panel__sub {
     overflow: hidden;
@@ -447,7 +447,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     color: var(--if-fg-2);
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     font-variant-numeric: tabular-nums;
   }
   .mkt-panel__name {
@@ -457,10 +457,10 @@
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
   }
   .mkt-panel__price {
-    font: 500 13px/18px var(--if-font-ui);
+    font: 500 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
   }
 
   /* Below 1280: the range and volume go first, then everything but name, price and change. */
@@ -474,7 +474,7 @@
       display: none;
     }
     .mkt-cards {
-      gap: 16px;
+      gap: var(--if-space-4);
     }
   }
   @media (max-width: 1023px) {
@@ -494,19 +494,19 @@
     .mkt-header:not(.mkt-header--panel),
     .mkt-row:not(.mkt-row--panel) {
       grid-template-columns: var(--mkt-cols-phone);
-      column-gap: 8px;
-      padding: 0 4px;
+      column-gap: var(--if-space-2);
+      padding: 0 var(--if-space-1);
     }
     .mkt-table [data-col='action'] {
       display: none;
     }
     /* Keep the complete quote visible when the base and quote cannot share a phone lane. */
     .mkt-row:not(.mkt-row--panel) .mkt-name__ticker {
-      line-height: 20px;
+      line-height: var(--if-leading-base);
     }
     .mkt-row:not(.mkt-row--panel) .mkt-name__quote {
       display: block;
-      line-height: 16px;
+      line-height: var(--if-leading-xs);
     }
 
     .mkt-cards {

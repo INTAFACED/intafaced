@@ -23,18 +23,18 @@ test(`${J} #7 (identity's half): the security lock turns on at once, stops a pas
   await signUpInBrowser(page, who);
 
   await page.goto('/uc/safe');
-  const card = page.locator('.security__lock');
+  const card = page.getByTestId('security__lock');
   await expect(card).toContainText('The lock is off.');
   await card.getByRole('button', { name: 'Turn on the lock' }).click();
   await expect(card).toContainText('Password changes and resets stop at once.');
   await expect(card).toContainText('To ask to unlock later you need your authenticator app or a passkey');
   await expect(card).toContainText('does not stop them');
   await card.getByRole('button', { name: 'Turn it on now' }).click();
-  await expect(card.locator('.notice')).toHaveText('The lock is on.');
-  await expect(card.locator('.security__lock-state')).toContainText('The lock is on since');
+  await expect(card.getByTestId('notice')).toHaveText('The lock is on.');
+  await expect(card.getByTestId('security__lock-state')).toContainText('The lock is on since');
 
   // While it holds, the password does not change, and the page says why.
-  const password = page.locator('.security__password');
+  const password = page.getByTestId('security__password');
   await password.getByLabel('Current password').fill(who.password);
   const next = `TEST-${randomBytes(9).toString('base64url')}-7b`;
   await password.getByLabel('New password', { exact: true }).fill(next);
@@ -50,8 +50,8 @@ test(`${J} #7 (identity's half): the security lock turns on at once, stops a pas
   const { code } = await nextCode(totp, secret, step);
   await card.getByLabel('6-digit code from your authenticator app').fill(code);
   await card.getByRole('button', { name: 'Ask with code' }).click();
-  await expect(card.locator('.notice')).toContainText('Unlock asked for. The lock ends');
-  const state = card.locator('.security__lock-state');
+  await expect(card.getByTestId('notice')).toContainText('Unlock asked for. The lock ends');
+  const state = card.getByTestId('security__lock-state');
   await expect(state).toContainText('The lock ends');
   const shown = await state.textContent();
 
@@ -59,7 +59,7 @@ test(`${J} #7 (identity's half): the security lock turns on at once, stops a pas
   await page.reload();
   await expect(state).toHaveText(shown ?? '');
   await card.getByRole('button', { name: 'Keep it locked' }).click();
-  await expect(card.locator('.notice')).toHaveText('Your unlock request is withdrawn. The lock stays on.');
+  await expect(card.getByTestId('notice')).toHaveText('Your unlock request is withdrawn. The lock stays on.');
   await expect(state).toContainText('The lock is on since');
   await expect(card.getByRole('button', { name: 'Ask to unlock' })).toBeVisible();
 });

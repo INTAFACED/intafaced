@@ -54,8 +54,8 @@ export function Page({
   children: ReactNode;
 }) {
   return (
-    <div className="page">
-      <header className="page-heading">
+    <div data-testid="page" className="page">
+      <header data-testid="page-heading" className="page-heading">
         <div>
           {eyebrow && <p className="eyebrow">{eyebrow}</p>}
           <h1>{title}</h1>
@@ -127,7 +127,7 @@ export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>,
   if (isServiceNotConnected(result.code)) {
     // The gateway's own text is never shown for this answer: say plainly that the service is not connected here.
     return (
-      <div className="failure" role="status">
+      <div data-testid="failure" className="failure" role="status">
         <h3>
           <Copy k="not_mounted" />
         </h3>
@@ -144,7 +144,7 @@ export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>,
     // A write that may have gone through is never called refused or unchanged; the code only gives the support reference.
     const uncertain = result.reason === 'uncertain';
     return (
-      <div className="failure" role={uncertain ? 'alert' : 'status'}>
+      <div data-testid="failure" className="failure" role={uncertain ? 'alert' : 'status'}>
         <h3>{uncertain ? <Copy k="uncertain" /> : words.title}</h3>
         <p>{uncertain ? <Copy k="gatewayUncertain" /> : words.body}</p>
         {!uncertain && words.action && (
@@ -162,7 +162,7 @@ export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>,
     );
   }
   return (
-    <div className="failure" role={result.reason === 'uncertain' ? 'alert' : 'status'}>
+    <div data-testid="failure" className="failure" role={result.reason === 'uncertain' ? 'alert' : 'status'}>
       <h3>
         <Copy k={result.reason} />
       </h3>

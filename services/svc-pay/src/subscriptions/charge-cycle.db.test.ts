@@ -502,6 +502,41 @@ describe('svc-pay subscription charge cycle PG-hard', () => {
       expect(await clearingOf(m.id)).toBe('0');
     });
 
+    it('a suspended merchant gets no new invoice or pre-charge notice: the cycle is a named rejection', async () => {
+      const notified: number[] = [];
+      const { subs } = build({ defaultFeeBps: 250, notifyPreCharge: (event) => void notified.push(event.occurrence) });
+      const m = await merchant();
+      const { sub } = await mandateAndSubscription(subs, { merchantId: m.id });
+      await sql`UPDATE pay.merchants SET status = 'suspended' WHERE id = ${m.id}`;
+
+      await subs.runDueSubscriptions({ limit: 50, now: JAN });
+
+      expect(opened).toEqual([]);
+      // Refused before the pre-charge notice: the customer is not told of an invoice that never opens.
+      expect(notified).toEqual([]);
+      const [cycle] = await cyclesOf(subs, sub.id);
+      expect(cycle!.status).toBe('rejected');
+      expect(cycle!.rejectionCode).toBe('pay.merchant_inactive');
+      expect(await clearingOf(m.id)).toBe('0');
+    });
+
+    it('a KYB-rejected merchant gets no new invoice or pre-charge notice: the cycle is a named rejection', async () => {
+      const notified: number[] = [];
+      const { subs } = build({ defaultFeeBps: 250, notifyPreCharge: (event) => void notified.push(event.occurrence) });
+      const m = await merchant();
+      const { sub } = await mandateAndSubscription(subs, { merchantId: m.id });
+      await sql`UPDATE pay.merchants SET kyb_status = 'rejected' WHERE id = ${m.id}`;
+
+      await subs.runDueSubscriptions({ limit: 50, now: JAN });
+
+      expect(opened).toEqual([]);
+      // Refused before the pre-charge notice: the customer is not told of an invoice that never opens.
+      expect(notified).toEqual([]);
+      const [cycle] = await cyclesOf(subs, sub.id);
+      expect(cycle!.status).toBe('rejected');
+      expect(cycle!.rejectionCode).toBe('pay.kyb_required');
+    });
+
     it('an unpaid invoice becomes a named failure rather than pending forever', async () => {
       const { subs } = build({ defaultFeeBps: 250 });
       const m = await merchant();

@@ -73,7 +73,7 @@ export function MenuCheckboxItem({ className, children, ...props }: MenuPrimitiv
   return (
     <MenuPrimitive.CheckboxItem data-slot="menu-checkbox-item" className={cn(itemRow, 'pr-9', className)} {...props}>
       {children}
-      <MenuPrimitive.CheckboxItemIndicator className="absolute right-3 inline-flex items-center text-lime">
+      <MenuPrimitive.CheckboxItemIndicator className="absolute right-3 inline-flex items-center text-accent-text">
         <Check size={16} strokeWidth={2} aria-hidden="true" />
       </MenuPrimitive.CheckboxItemIndicator>
     </MenuPrimitive.CheckboxItem>
@@ -88,7 +88,7 @@ export function MenuRadioItem({ className, children, ...props }: MenuPrimitive.R
   return (
     <MenuPrimitive.RadioItem data-slot="menu-radio-item" className={cn(itemRow, 'pr-9', className)} {...props}>
       {children}
-      <MenuPrimitive.RadioItemIndicator className="absolute right-3 inline-flex items-center text-lime">
+      <MenuPrimitive.RadioItemIndicator className="absolute right-3 inline-flex items-center text-accent-text">
         <Check size={16} strokeWidth={2} aria-hidden="true" />
       </MenuPrimitive.RadioItemIndicator>
     </MenuPrimitive.RadioItem>

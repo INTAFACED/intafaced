@@ -12,7 +12,7 @@
 }
 .status-group {
   display: grid;
-  gap: var(--spacing-8);
+  gap: var(--if-space-2);
 }
 .status-group h3 {
   margin: 0;
@@ -21,27 +21,27 @@
 .pub-card ul.status-components {
   list-style: none;
   padding: 0;
-  gap: var(--spacing-12);
+  gap: var(--if-space-3);
 }
 .status-component {
   display: grid;
-  gap: var(--spacing-4);
-  padding-bottom: var(--spacing-12);
+  gap: var(--if-space-1);
+  padding-bottom: var(--if-space-3);
   border-bottom: 1px solid var(--color-border);
 }
 .status-component__head {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
-  gap: var(--spacing-8);
+  gap: var(--if-space-2);
 }
 .status-component__basis {
-  font-size: var(--text-13);
+  font-size: var(--if-text-sm);
 }
 .status-chip {
-  font-size: var(--text-13);
-  padding: 0 var(--spacing-8);
-  border-radius: var(--radius-8);
+  font-size: var(--if-text-sm);
+  padding: 0 var(--if-space-2);
+  border-radius: var(--if-r-sm);
   border: 1px solid var(--color-border);
 }
 .status-chip--operational {
@@ -61,13 +61,13 @@
   margin: 0;
   padding: 0;
   display: flex;
-  gap: 2px;
+  gap: var(--if-space-0-5);
   flex-wrap: wrap;
 }
 .status-uptime__day {
   width: 8px;
   height: 24px;
-  border-radius: 2px;
+  border-radius: var(--if-r-2xs);
   border: 1px solid var(--color-border);
 }
 .status-uptime__day--operational {
@@ -83,7 +83,7 @@
 }
 .status-incident {
   display: grid;
-  gap: var(--spacing-4);
+  gap: var(--if-space-1);
 }
 .status-incident h3 {
   margin: 0;
@@ -91,13 +91,13 @@
 }
 .status-postmortem {
   display: grid;
-  gap: var(--spacing-4);
-  padding-top: var(--spacing-8);
+  gap: var(--if-space-1);
+  padding-top: var(--if-space-2);
   border-top: 1px solid var(--color-border);
 }
 .status-postmortem h4 {
   margin: 0;
-  font-size: var(--text-14);
+  font-size: var(--if-text-base);
 }
 .status-postmortem__body {
   margin: 0;
@@ -105,9 +105,9 @@
 }
 .status-timeline {
   margin: 0;
-  padding-left: var(--spacing-20);
+  padding-left: var(--if-space-5);
   display: grid;
-  gap: var(--spacing-4);
+  gap: var(--if-space-1);
 }
 
 .status-subscribe__channels {

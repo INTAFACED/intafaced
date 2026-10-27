@@ -1,52 +1,52 @@
 .protocol-room .protocol-facts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px 24px;
+  gap: var(--if-space-4) var(--if-space-6);
   margin: 0;
 }
 .protocol-room .protocol-facts dt {
   color: var(--color-muted);
-  font-size: 13px;
+  font-size: var(--if-text-sm);
 }
 .protocol-room .protocol-facts dd {
-  margin: 4px 0 0;
+  margin: var(--if-space-1) 0 0;
   overflow-wrap: anywhere;
 }
 .protocol-room .protocol-actions {
   list-style: none;
-  margin: 16px 0 0;
+  margin: var(--if-space-4) 0 0;
   padding: 0;
   display: grid;
-  gap: 16px;
+  gap: var(--if-space-4);
 }
 .protocol-room .protocol-actions__reason {
-  margin: 8px 0 0;
+  margin: var(--if-space-2) 0 0;
   color: var(--color-muted);
 }
 .protocol-room .protocol-quote {
   display: grid;
-  gap: 16px;
+  gap: var(--if-space-4);
   max-width: 420px;
-  margin-block: 16px;
+  margin-block: var(--if-space-4);
 }
 .protocol-room .protocol-rails {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 24px;
+  gap: var(--if-space-6);
 }
 .protocol-room .protocol-refuse__title {
   font-weight: 500;
-  margin: 0 0 8px;
+  margin: 0 0 var(--if-space-2);
 }
 .protocol-room .page > * + * {
-  margin-top: 16px;
+  margin-top: var(--if-space-4);
 }
 
 .protocol-room .page-heading .eyebrow {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: var(--if-space-2);
 }
 .protocol-room .protocol-pill {
   text-transform: none;

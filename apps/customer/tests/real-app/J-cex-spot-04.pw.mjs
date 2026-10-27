@@ -20,7 +20,7 @@ function account() {
   return who;
 }
 
-const buyForm = (page) => page.locator('form.dk-form[data-side="buy"]');
+const buyForm = (page) => page.locator('form[data-testid="dk-form"][data-side="buy"]');
 const tab = (page, name) => page.locator('[role=tab]', { hasText: new RegExp(`^${name}$`) });
 
 /** The pair's published rules from the public market list. */
@@ -73,7 +73,7 @@ test(`${J} #2 reads the pair's rules on the ticket and in the market's Info: tic
   expect(rules.protection.collar).not.toBe('not set');
   expect(rules.protection.openOrdersPerMarket).not.toBe('not set');
   await openDesk(page, who);
-  const ticket = page.locator('details.dk-rules');
+  const ticket = page.locator('details[data-testid="dk-rules"]');
   await ticket.locator('summary').click();
   const expected = [
     ['Price step', `${rules.tick} USDT`],
@@ -129,7 +129,7 @@ test(`${J} #4 types a buy price above the band: refused before review with the b
   await tab(page, 'Limit').click();
   await buyForm(page).getByRole('textbox', { name: 'Price' }).fill(above);
   await previewed(page, () => buyForm(page).getByRole('textbox', { name: 'Amount' }).fill(amountFor(above, rules.lot)));
-  const note = buyForm(page).locator('.dk-note--bad');
+  const note = buyForm(page).getByTestId('dk-note--bad');
   await expect(note).toContainText('Price is outside the allowed range');
   await expect(note).toContainText(/takes buy prices up to [\d,.]+ and sell prices down to [\d,.]+ right now/);
   await expect(note).not.toContainText('trade.');
@@ -173,7 +173,7 @@ test(`${J} #5 reaches the open-order cap: the next order is refused with the cap
     await tab(page, 'Limit').click();
     await buyForm(page).getByRole('textbox', { name: 'Price' }).fill(price);
     await previewed(page, () => buyForm(page).getByRole('textbox', { name: 'Amount' }).fill(amount));
-    const note = buyForm(page).locator('.dk-note--bad');
+    const note = buyForm(page).getByTestId('dk-note--bad');
     await expect(note).toContainText('Too many open orders');
     await expect(note).toContainText(`You have ${cap} open orders here and this market allows ${cap}.`);
     await expect(buyForm(page).getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
@@ -229,7 +229,7 @@ test(`${J} #6 trades a pair whose band or cap the owner has not published: a typ
     // The desk shows the rule as not published, and the order check refuses in words before review.
     await openDesk(page, who, pair);
     const sent = placements(page);
-    const rules = page.locator('details.dk-rules');
+    const rules = page.locator('details[data-testid="dk-rules"]');
     await rules.locator('summary').click();
     const row = (name) => rules.locator('dl > div').filter({ has: page.locator('dt', { hasText: new RegExp(`^${name}$`) }) });
     await expect(row('Price band').locator('dd')).toHaveText('Not published');
@@ -237,7 +237,7 @@ test(`${J} #6 trades a pair whose band or cap the owner has not published: a typ
     await tab(page, 'Limit').click();
     await buyForm(page).getByRole('textbox', { name: 'Price' }).fill(price);
     await previewed(page, () => buyForm(page).getByRole('textbox', { name: 'Amount' }).fill(amount));
-    const note = buyForm(page).locator('.dk-note--bad');
+    const note = buyForm(page).getByTestId('dk-note--bad');
     await expect(note).toContainText('No price band is published');
     await expect(note).not.toContainText('trade.');
     await expect(buyForm(page).getByRole('button', { name: 'Buy BTC' })).toBeDisabled();

@@ -46,9 +46,9 @@
     z-index: 40;
     display: flex;
     align-items: center;
-    gap: 32px;
+    gap: var(--if-space-8);
     height: 48px;
-    padding: 0 24px;
+    padding: 0 var(--if-space-6);
     background: var(--tb-bg);
     border-bottom: 1px solid var(--tb-line);
   }
@@ -84,7 +84,7 @@
   }
   .tb-nav > ul {
     display: flex;
-    gap: 24px;
+    gap: var(--if-space-6);
     height: 100%;
   }
   .tb-item {
@@ -96,10 +96,10 @@
     position: relative;
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--if-space-1);
     height: 100%;
-    font-size: 14px;
-    line-height: 20px;
+    font-size: var(--if-text-base);
+    line-height: var(--if-leading-base);
     font-weight: 500;
     color: var(--tb-fg-2);
   }
@@ -131,9 +131,9 @@
     z-index: 50;
     background: var(--tb-panel);
     border: 1px solid var(--if-line-popup);
-    border-radius: 16px;
+    border-radius: var(--if-r-lg);
     box-shadow: var(--if-shadow-menu);
-    padding: 8px;
+    padding: var(--if-space-2);
     animation: tb-pop var(--if-t-menu, 160ms) var(--tb-ease);
   }
   @keyframes tb-pop {
@@ -146,14 +146,17 @@
     top: calc(100% - 4px);
     left: -16px;
     width: 340px;
+    /* Money and Trade list 13 and 14 rows in Pro: a short screen scrolls the menu, so every row stays reachable. */
+    max-height: calc(100vh - 64px - var(--if-banner-offset, 0px));
+    overflow-y: auto;
   }
   .tb-menu-item {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--if-space-3);
     min-height: 56px;
-    padding: 8px 12px;
-    border-radius: 12px;
+    padding: var(--if-space-2) var(--if-space-3);
+    border-radius: var(--if-r-md);
     color: var(--tb-fg);
   }
   .tb-menu-item:hover,
@@ -170,13 +173,13 @@
     min-width: 0;
   }
   .tb-menu-item strong {
-    font-size: 14px;
-    line-height: 20px;
+    font-size: var(--if-text-base);
+    line-height: var(--if-leading-base);
     font-weight: 500;
   }
   .tb-menu-item small {
-    font-size: 12px;
-    line-height: 16px;
+    font-size: var(--if-text-xs);
+    line-height: var(--if-leading-xs);
     color: var(--tb-fg-2);
   }
 
@@ -184,19 +187,19 @@
   .tb-right {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--if-space-3);
     margin-left: auto;
   }
   .tb-search {
     position: relative;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--if-space-2);
     width: 240px;
     height: 32px;
-    padding: 0 12px;
+    padding: 0 var(--if-space-3);
     background: var(--tb-field);
-    border-radius: 999px;
+    border-radius: var(--if-r-pill);
     color: var(--tb-fg-2);
   }
   .tb-search:focus-within {
@@ -212,7 +215,7 @@
     border: 0;
     color: var(--tb-fg);
     font: inherit;
-    font-size: 13px;
+    font-size: var(--if-text-sm);
   }
   .tb-search input:focus-visible {
     outline: none;
@@ -226,8 +229,8 @@
   .tb-search kbd {
     flex: none;
     font: inherit;
-    font-size: 12px;
-    line-height: 16px;
+    font-size: var(--if-text-xs);
+    line-height: var(--if-leading-xs);
     color: var(--tb-fg-3);
   }
   .tb-search-panel {
@@ -243,20 +246,20 @@
     padding: 0;
   }
   .tb-group-title {
-    padding: 8px 12px 4px;
-    font-size: 12px;
-    line-height: 16px;
+    padding: var(--if-space-2) var(--if-space-3) var(--if-space-1);
+    font-size: var(--if-text-xs);
+    line-height: var(--if-leading-xs);
     color: var(--tb-fg-2);
   }
   .tb-option {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    gap: 12px;
-    padding: 8px 12px;
-    border-radius: 8px;
-    font-size: 14px;
-    line-height: 20px;
+    gap: var(--if-space-3);
+    padding: var(--if-space-2) var(--if-space-3);
+    border-radius: var(--if-r-sm);
+    font-size: var(--if-text-base);
+    line-height: var(--if-leading-base);
     color: var(--tb-fg);
     cursor: pointer;
   }
@@ -266,7 +269,7 @@
   .tb-option-main {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--if-space-2);
     min-width: 0;
   }
   .tb-option .tb-option-name {
@@ -276,14 +279,14 @@
     font-variant-numeric: tabular-nums;
   }
   .tb-option small {
-    font-size: 12px;
+    font-size: var(--if-text-xs);
     color: var(--tb-fg-2);
     text-align: right;
   }
   .tb-empty {
     margin: 0;
-    padding: 16px 12px;
-    font-size: 14px;
+    padding: var(--if-space-4) var(--if-space-3);
+    font-size: var(--if-text-base);
     color: var(--tb-fg-2);
   }
   .tb-icon-button {
@@ -292,26 +295,12 @@
     place-items: center;
     width: 32px;
     height: 32px;
-    border-radius: 999px;
+    border-radius: var(--if-r-pill);
     color: var(--tb-fg-2);
-  }
-  /* The More grid: phone only (IA-SPEC 1.3, Option A). On wider screens More is a top-bar door. */
-  .tb-more {
-    display: none;
-    place-items: center;
-    width: 32px;
-    height: 32px;
-    border-radius: 999px;
-    color: var(--tb-fg-2);
-  }
-  .tb-more:hover,
-  .tb-more[aria-current='page'] {
-    color: var(--tb-fg);
-    background: var(--tb-hover);
   }
   .tb-menu-group {
-    margin: 8px 12px 4px;
-    font-size: 12px;
+    margin: var(--if-space-2) var(--if-space-3) var(--if-space-1);
+    font-size: var(--if-text-xs);
     color: var(--tb-fg-2);
     text-transform: uppercase;
     letter-spacing: 0.04em;
@@ -327,12 +316,12 @@
     right: -4px;
     min-width: 16px;
     height: 16px;
-    padding: 0 4px;
-    border-radius: 999px;
+    padding: 0 var(--if-space-1);
+    border-radius: var(--if-r-pill);
     background: var(--tb-lime);
     color: var(--tb-on-lime);
-    font-size: 12px;
-    line-height: 16px;
+    font-size: var(--if-text-xs);
+    line-height: var(--if-leading-xs);
     font-weight: 600;
     text-align: center;
   }
@@ -349,21 +338,21 @@
   .tb-account-summary {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    padding: 10px 12px;
+    gap: var(--if-space-0-5);
+    padding: var(--if-space-2-5) var(--if-space-3);
     min-height: 64px;
     overflow-wrap: anywhere;
   }
   .tb-account-summary strong {
-    font-size: 14px;
-    line-height: 20px;
+    font-size: var(--if-text-base);
+    line-height: var(--if-leading-base);
     color: var(--tb-fg);
   }
   .tb-account-summary small,
   .tb-account-heading,
   .tb-account-note {
-    font-size: 12px;
-    line-height: 16px;
+    font-size: var(--if-text-xs);
+    line-height: var(--if-leading-xs);
     color: var(--tb-fg-2);
   }
   .tb-account-summary__skeleton {
@@ -374,10 +363,10 @@
     background: var(--tb-hover);
   }
   .tb-account-heading {
-    padding: 8px 12px 2px;
+    padding: var(--if-space-2) var(--if-space-3) var(--if-space-0-5);
   }
   .tb-account-note {
-    padding: 6px 12px;
+    padding: var(--if-space-1-5) var(--if-space-3);
   }
   .tb-account-link {
     padding: 0;
@@ -401,37 +390,37 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    padding: 4px 10px;
-    border-radius: 999px;
+    padding: var(--if-space-1) var(--if-space-2-5);
+    border-radius: var(--if-r-pill);
     border: 1px solid var(--tb-line);
-    font-size: 12px;
-    line-height: 16px;
+    font-size: var(--if-text-xs);
+    line-height: var(--if-leading-xs);
     color: var(--tb-fg);
   }
   .tb-account-item {
     display: block;
     width: 100%;
-    padding: 10px 12px;
-    border-radius: 8px;
-    font-size: 14px;
-    line-height: 20px;
+    padding: var(--if-space-2-5) var(--if-space-3);
+    border-radius: var(--if-r-sm);
+    font-size: var(--if-text-base);
+    line-height: var(--if-leading-base);
     text-align: left;
     color: var(--tb-fg);
   }
   .tb-account-mode {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 10px 12px;
+    gap: var(--if-space-1-5);
+    padding: var(--if-space-2-5) var(--if-space-3);
   }
   .tb-account-mode__label {
-    font-size: 12px;
-    line-height: 16px;
+    font-size: var(--if-text-xs);
+    line-height: var(--if-leading-xs);
     color: var(--tb-fg-2);
   }
   .tb-account-divider {
     height: 1px;
-    margin: 4px 0;
+    margin: var(--if-space-1) 0;
     background: var(--tb-line);
   }
   .tb-account-item:hover,
@@ -439,17 +428,17 @@
     background: var(--tb-hover);
   }
   .tb-login {
-    font-size: 14px;
+    font-size: var(--if-text-base);
     font-weight: 500;
   }
   .tb-signup {
     display: inline-flex;
     align-items: center;
     height: 32px;
-    padding: 0 16px;
+    padding: 0 var(--if-space-4);
     border: 1px solid var(--tb-fg);
-    border-radius: 999px;
-    font-size: 14px;
+    border-radius: var(--if-r-pill);
+    font-size: var(--if-text-base);
     font-weight: 500;
   }
   .tb-restoring {
@@ -458,8 +447,8 @@
   }
   .tb-note {
     margin: 0;
-    padding: 12px 24px;
-    font-size: 14px;
+    padding: var(--if-space-3) var(--if-space-6);
+    font-size: var(--if-text-base);
     color: var(--tb-fg-2);
   }
 
@@ -474,29 +463,29 @@
     align-items: center;
     justify-content: center;
     min-height: 28px;
-    padding: 6px 12px;
+    padding: var(--if-space-1-5) var(--if-space-3);
     overflow-wrap: anywhere;
     text-align: center;
-    margin: 8px 24px 0;
+    margin: var(--if-space-2) var(--if-space-6) 0;
     border: 1px solid var(--tb-lime);
-    border-radius: 4px;
-    color: var(--tb-lime);
-    font-size: 12px;
-    line-height: 16px;
+    border-radius: var(--if-r-xs);
+    color: var(--if-accent-text);
+    font-size: var(--if-text-xs);
+    line-height: var(--if-leading-xs);
   }
   .tb-dev {
     max-width: 1224px;
     margin: 0 auto;
-    padding: 32px 24px 64px;
+    padding: var(--if-space-8) var(--if-space-6) var(--if-space-16);
   }
   .tb-dev h1 {
-    margin: 0 0 8px;
-    font-size: 28px;
+    margin: 0 0 var(--if-space-2);
+    font-size: var(--if-text-2xl);
     line-height: 36px;
     letter-spacing: -0.02em;
   }
   .tb-dev p {
-    margin: 0 0 24px;
+    margin: 0 0 var(--if-space-6);
     color: var(--tb-fg-2);
   }
   .tb-dev-scroll {
@@ -505,12 +494,12 @@
   .tb-dev table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 13px;
-    line-height: 18px;
+    font-size: var(--if-text-sm);
+    line-height: var(--if-leading-sm);
   }
   .tb-dev th,
   .tb-dev td {
-    padding: 10px 12px 10px 0;
+    padding: var(--if-space-2-5) var(--if-space-3) var(--if-space-2-5) 0;
     border-top: 1px solid var(--tb-line);
     text-align: left;
     vertical-align: top;
@@ -529,20 +518,20 @@
   .tb-dev code {
     display: block;
     font-family: var(--if-font-mono, ui-monospace, monospace);
-    font-size: 12px;
+    font-size: var(--if-text-xs);
   }
   .tb-tag {
     display: inline-block;
-    padding: 0 8px;
+    padding: 0 var(--if-space-2);
     border: 1px solid var(--tb-line);
-    border-radius: 4px;
-    font-size: 12px;
-    line-height: 18px;
+    border-radius: var(--if-r-xs);
+    font-size: var(--if-text-xs);
+    line-height: var(--if-leading-sm);
     font-weight: 500;
   }
   .tb-tag--live {
     border-color: var(--tb-lime);
-    color: var(--tb-lime);
+    color: var(--if-accent-text);
   }
   .tb-tag--hidden,
   .tb-tag--blocked {
@@ -573,17 +562,14 @@
   }
   @media (max-width: 767px) {
     .tb {
-      gap: 12px;
-      padding: 0 16px;
+      gap: var(--if-space-3);
+      padding: 0 var(--if-space-4);
     }
     .tb-nav {
       display: none;
     }
-    .tb-more {
-      display: inline-grid;
-    }
     .if-app {
-      padding-bottom: 64px;
+      padding-bottom: var(--if-space-16);
     }
     .mobile-doors {
       display: flex;
@@ -592,7 +578,7 @@
       z-index: 40;
       background: var(--tb-bg);
       border-top: 1px solid var(--tb-line);
-      padding: 6px 8px max(6px, env(safe-area-inset-bottom));
+      padding: var(--if-space-1-5) var(--if-space-2) max(var(--if-space-1-5), env(safe-area-inset-bottom));
     }
     .mobile-doors a {
       flex: 1;
@@ -601,13 +587,13 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 2px;
+      gap: var(--if-space-0-5);
       color: var(--tb-fg-2);
-      font-size: 12px;
+      font-size: var(--if-text-xs);
       text-decoration: none;
     }
     .mobile-doors a[aria-current='page'] {
-      color: var(--tb-lime);
+      color: var(--if-accent-text);
     }
     .tb-search-panel {
       position: fixed;
@@ -623,6 +609,6 @@
 }
 
 .tb-account-language {
-  padding: 8px 12px;
+  padding: var(--if-space-2) var(--if-space-3);
   list-style: none;
 }

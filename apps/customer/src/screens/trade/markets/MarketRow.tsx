@@ -90,9 +90,9 @@ function RangeCell({ market, ticker }: { market: MarketData; ticker: TickerRow |
       aria-label={`${t('Low {price}', { price: priceText(market, low) })}, ${t('High {price}', { price: priceText(market, high) })}`}
     >
       <div className="mkt-range__bar" aria-hidden="true">
-        <span className="mkt-range__marker" style={{ left: `${position}%` }} />
+        <span data-testid="mkt-range__marker" className="mkt-range__marker" style={{ left: `${position}%` }} />
       </div>
-      <div className="mkt-range__ends" aria-hidden="true">
+      <div data-testid="mkt-range__ends" className="mkt-range__ends" aria-hidden="true">
         <span>{priceText(market, low)}</span>
         <span>{priceText(market, high)}</span>
       </div>
@@ -143,7 +143,7 @@ export function MarketRow({
 
   if (variant === 'panel')
     return (
-      <div className="mkt-row mkt-row--panel" {...rowProps}>
+      <div data-testid="mkt-row" className="mkt-row mkt-row--panel" {...rowProps}>
         <div role="cell" className="mkt-panel__star">
           {favorite ? <MarketStar asset={market.base} favorite={favorite} /> : null}
         </div>
@@ -162,7 +162,11 @@ export function MarketRow({
         <div role="cell" className="mkt-panel__figures">
           <Price className="mkt-panel__price" value={price} />
           <Pct value={change} />
-          {since ? <span className="mkt-since">{since}</span> : null}
+          {since ? (
+            <span data-testid="mkt-since" className="mkt-since">
+              {since}
+            </span>
+          ) : null}
         </div>
       </div>
     );
@@ -174,25 +178,35 @@ export function MarketRow({
         <a className="mkt-link" data-row-link href={target}>
           <CoinIcon asset={market.base} size={32} />
           <span className="mkt-name">
-            <span className="mkt-name__ticker">
+            <span data-testid="mkt-name__ticker" className="mkt-name__ticker">
               {market.base}
-              <span className="mkt-muted mkt-name__quote">/{market.quote}</span>
+              <span data-testid="mkt-name__quote" className="mkt-muted mkt-name__quote">
+                /{market.quote}
+              </span>
             </span>
-            {name ? <span className="mkt-name__full">{name}</span> : null}
+            {name ? (
+              <span data-testid="mkt-name__full" className="mkt-name__full">
+                {name}
+              </span>
+            ) : null}
           </span>
         </a>
       </div>
     ),
     price: (
-      <div role="cell" className="mkt-cell mkt-cell--num" data-col="price" key="price">
+      <div role="cell" data-testid="mkt-cell--num" className="mkt-cell mkt-cell--num" data-col="price" key="price">
         <Price className="mkt-price" value={price} />
       </div>
     ),
     change: (
-      <div role="cell" className="mkt-cell mkt-cell--num" data-col="change" key="change">
+      <div role="cell" data-testid="mkt-cell--num" className="mkt-cell mkt-cell--num" data-col="change" key="change">
         <span className="mkt-stack">
           <Pct value={change} arrow />
-          {since ? <span className="mkt-since">{since}</span> : null}
+          {since ? (
+            <span data-testid="mkt-since" className="mkt-since">
+              {since}
+            </span>
+          ) : null}
         </span>
       </div>
     ),
@@ -207,12 +221,16 @@ export function MarketRow({
       </div>
     ),
     volume: (
-      <div role="cell" className="mkt-cell mkt-cell--num" data-col="volume" key="volume">
+      <div role="cell" data-testid="mkt-cell--num" className="mkt-cell mkt-cell--num" data-col="volume" key="volume">
         <span className="mkt-stack">
           <span className="mkt-volume" data-slot="volume">
             {volumeText(market, ticker)}
           </span>
-          {since ? <span className="mkt-since">{since}</span> : null}
+          {since ? (
+            <span data-testid="mkt-since" className="mkt-since">
+              {since}
+            </span>
+          ) : null}
         </span>
       </div>
     ),
@@ -245,7 +263,7 @@ export function MarketRow({
   };
 
   return (
-    <div className="mkt-row" {...rowProps}>
+    <div data-testid="mkt-row" className="mkt-row" {...rowProps}>
       {(columns ?? ALL_COLUMNS).map((column) => cells[column])}
     </div>
   );

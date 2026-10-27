@@ -1,11 +1,11 @@
 .support-desk {
   display: grid;
-  gap: var(--spacing-20);
+  gap: var(--if-space-5);
   min-width: 0;
 }
 .support-pane {
   display: grid;
-  gap: var(--spacing-16);
+  gap: var(--if-space-4);
   min-width: 0;
 }
 .support-pane > p {
@@ -15,36 +15,36 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
   align-items: end;
-  gap: var(--spacing-16);
+  gap: var(--if-space-4);
 }
 .support-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--spacing-8);
+  gap: var(--if-space-2);
 }
 .support-chip {
   min-height: 36px;
-  padding: 0 var(--spacing-14);
+  padding: 0 var(--if-space-3-5);
   border: 1px solid var(--color-border);
-  border-radius: 999px;
+  border-radius: var(--if-r-pill);
   background: transparent;
   color: var(--color-muted);
   font: inherit;
-  font-size: var(--text-14);
+  font-size: var(--if-text-base);
   cursor: pointer;
 }
 .support-chip span {
-  margin-left: var(--spacing-4);
+  margin-left: var(--if-space-1);
   opacity: 0.75;
 }
 .support-chip:hover,
 .support-chip--on {
   color: var(--color-text);
-  border-color: var(--color-accent);
+  border-color: var(--if-lime);
 }
 .support-chip:focus-visible,
 .support-row:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--if-focus);
   outline-offset: 2px;
 }
 .support-rows {
@@ -60,10 +60,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--spacing-16);
+  gap: var(--if-space-4);
   width: 100%;
   min-height: 64px;
-  padding: var(--spacing-12) 0;
+  padding: var(--if-space-3) 0;
   border: 0;
   background: transparent;
   color: var(--color-text);
@@ -76,7 +76,7 @@
 }
 .support-row__main {
   display: grid;
-  gap: var(--spacing-4);
+  gap: var(--if-space-1);
   min-width: 0;
 }
 .support-row__subject {
@@ -84,24 +84,24 @@
   overflow-wrap: anywhere;
 }
 .support-row__meta {
-  font-size: var(--text-13);
+  font-size: var(--if-text-sm);
 }
 .support-status {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   min-height: 24px;
-  padding: 0 var(--spacing-10);
+  padding: 0 var(--if-space-2-5);
   border: 1px solid var(--color-border);
-  border-radius: 999px;
-  font-size: var(--text-13);
+  border-radius: var(--if-r-pill);
+  font-size: var(--if-text-sm);
   white-space: nowrap;
 }
 .support-status--open,
 .support-status--pending,
 .support-status--on_hold {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
+  border-color: var(--if-lime);
+  color: var(--if-accent-text);
 }
 .support-status--resolved,
 .support-status--closed {
@@ -109,7 +109,7 @@
 }
 .support-detail {
   display: grid;
-  gap: var(--spacing-16);
+  gap: var(--if-space-4);
   min-width: 0;
 }
 .support-detail__bar {
@@ -117,11 +117,11 @@
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: var(--spacing-12);
+  gap: var(--if-space-3);
 }
 .support-detail__head {
   display: grid;
-  gap: var(--spacing-8);
+  gap: var(--if-space-2);
 }
 .support-detail__head h2,
 .support-detail__head p {
@@ -132,21 +132,21 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--spacing-12);
+  gap: var(--if-space-3);
 }
 .support-thread {
   display: grid;
-  gap: var(--spacing-12);
+  gap: var(--if-space-3);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 .support-bubble {
   display: grid;
-  gap: var(--spacing-4);
-  padding: var(--spacing-12) var(--spacing-16);
+  gap: var(--if-space-1);
+  padding: var(--if-space-3) var(--if-space-4);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-12);
+  border-radius: var(--if-r-md);
   background: var(--color-surface);
   max-width: min(640px, 100%);
 }
@@ -160,25 +160,25 @@
 }
 .support-bubble--team {
   justify-self: end;
-  border-color: var(--color-accent);
+  border-color: var(--if-lime);
 }
 .support-reply {
   display: grid;
-  gap: var(--spacing-12);
+  gap: var(--if-space-3);
 }
 .support-actions {
   display: grid;
-  gap: var(--spacing-12);
-  padding-top: var(--spacing-16);
+  gap: var(--if-space-3);
+  padding-top: var(--if-space-4);
   border-top: 1px solid var(--color-divider);
 }
 .support-actions h3 {
   margin: 0;
-  font-size: var(--text-16);
+  font-size: var(--if-text-md);
 }
 .support-actions ul {
   display: grid;
-  gap: var(--spacing-12);
+  gap: var(--if-space-3);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -187,8 +187,8 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   justify-items: start;
-  gap: var(--spacing-8);
-  padding-bottom: var(--spacing-12);
+  gap: var(--if-space-2);
+  padding-bottom: var(--if-space-3);
   border-bottom: 1px solid var(--color-divider);
 }
 .support-actions li:last-child {
@@ -197,20 +197,20 @@
 .support-rate {
   display: grid;
   justify-items: start;
-  gap: var(--spacing-8);
+  gap: var(--if-space-2);
   width: 100%;
 }
 .support-feedback {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--spacing-8) var(--spacing-12);
-  margin-top: var(--spacing-12);
+  gap: var(--if-space-2) var(--if-space-3);
+  margin-top: var(--if-space-3);
 }
 .support-related {
   display: grid;
-  gap: var(--spacing-8);
-  margin-top: var(--spacing-12);
+  gap: var(--if-space-2);
+  margin-top: var(--if-space-3);
 }
 .support-related h4,
 .support-related ul {
@@ -219,37 +219,37 @@
 .support-new {
   grid-template-columns: minmax(0, 1.6fr) minmax(240px, 1fr);
   align-items: start;
-  gap: var(--spacing-32);
+  gap: var(--if-space-8);
 }
 .support-new form {
   display: grid;
-  gap: var(--spacing-16);
+  gap: var(--if-space-4);
 }
 .support-new form > p {
   margin: 0;
 }
 .support-warning {
-  padding: var(--spacing-12) var(--spacing-16);
+  padding: var(--if-space-3) var(--if-space-4);
   border: 1px solid var(--color-border);
-  border-left: 3px solid var(--color-accent);
-  border-radius: var(--radius-8);
+  border-left: 3px solid var(--if-lime);
+  border-radius: var(--if-r-sm);
   background: var(--color-surface);
 }
 .support-tips {
-  padding: var(--spacing-16);
+  padding: var(--if-space-4);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-12);
+  border-radius: var(--if-r-md);
   background: var(--color-surface);
 }
 .support-tips h3 {
-  margin: 0 0 var(--spacing-8);
-  font-size: var(--text-16);
+  margin: 0 0 var(--if-space-2);
+  font-size: var(--if-text-md);
 }
 .support-tips ul {
   margin: 0;
-  padding-left: var(--spacing-20);
+  padding-left: var(--if-space-5);
   display: grid;
-  gap: var(--spacing-8);
+  gap: var(--if-space-2);
   color: var(--color-muted);
 }
 @media (max-width: 720px) {

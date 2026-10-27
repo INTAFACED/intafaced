@@ -297,7 +297,7 @@ function PrefRow({
   }, [pref.kind, dirty, onDirty]);
   const kind: NotificationKind = pref.kind;
   return (
-    <li className="pp-pref">
+    <li data-testid="pp-pref" className="pp-pref">
       <div>
         <strong>{t(`notifKind_${kind}` as 'notifKind_dispute_due')}</strong>
         <p className="muted">{t(`notifHelp_${kind}` as 'notifHelp_dispute_due')}</p>

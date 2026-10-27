@@ -110,7 +110,7 @@ export default function TradeConvertScreen({ search }: ScreenProps) {
   let card: React.ReactNode;
   if (markets.status === 'loading')
     card = (
-      <div className="cvt-card cvt-card--skeleton" aria-busy="true">
+      <div data-testid="cvt-card--skeleton" className="cvt-card cvt-card--skeleton" aria-busy="true">
         <Skeleton height={28} width={120} />
         <Skeleton height={132} />
         <Skeleton height={132} />
@@ -119,20 +119,20 @@ export default function TradeConvertScreen({ search }: ScreenProps) {
     );
   else if (markets.status === 'error')
     card = (
-      <div className="cvt-card">
+      <div data-testid="cvt-card" className="cvt-card">
         <StateBlock kind="error" title={t('Couldn’t load assets')} onRetry={markets.retry} retryLabel={t('Retry')} />
       </div>
     );
   else if (markets.status === 'refused') {
     const copy = refusalCopy(markets.code);
     card = (
-      <div className="cvt-card">
+      <div data-testid="cvt-card" className="cvt-card">
         <StateBlock kind="refused" title={copy.title} body={copy.body} code={copy.reference} action={copy.action} />
       </div>
     );
   } else if (!shown)
     card = (
-      <div className="cvt-card">
+      <div data-testid="cvt-card" className="cvt-card">
         <StateBlock
           kind="empty"
           title={t('No convert title')}
@@ -146,9 +146,9 @@ export default function TradeConvertScreen({ search }: ScreenProps) {
   return (
     <>
       <TradeSubNav active="convert" />
-      <div className="if-convert">
+      <div data-testid="if-convert" className="if-convert">
         <div className="cvt-grid">
-          <header className="cvt-hero">
+          <header data-testid="cvt-hero" className="cvt-hero">
             <h1>
               <span>{t('Convert')}</span>
               <span data-testid="headline-pair">{shown ? t('{from} to {to}', { from: shown.from, to: shown.to }) : ''}</span>
@@ -158,7 +158,7 @@ export default function TradeConvertScreen({ search }: ScreenProps) {
           {card}
         </div>
         {signedIn ? <RecentConversions /> : null}
-        <section className="cvt-faq" aria-labelledby="cvt-faq-title">
+        <section data-testid="cvt-faq" className="cvt-faq" aria-labelledby="cvt-faq-title">
           <h2 id="cvt-faq-title">{t('Questions')}</h2>
           <Accordion>
             {(
@@ -451,7 +451,7 @@ function ConvertCard({
           <span className="buy-receipt__badge" aria-hidden="true" data-tone="ok">
             ✓
           </span>
-          <h2 className="buy-receipt__title">
+          <h2 data-testid="buy-receipt__title" className="buy-receipt__title">
             {t('Converted {from} to {to}', {
               from: `${fmtAmount(result.inAmount, { places: 18 })} ${result.inAsset}`,
               to: `${fmtAmount(result.outAmount, { places: 18 })} ${result.outAsset}`,
@@ -497,8 +497,8 @@ function ConvertCard({
     );
 
   return (
-    <section className="cvt-card" aria-label={t('Convert')}>
-      <div className="cvt-card__head">
+    <section data-testid="cvt-card" className="cvt-card" aria-label={t('Convert')}>
+      <div data-testid="cvt-card__head" className="cvt-card__head">
         <h2>{t('Convert')}</h2>
         <a className="cvt-card__history" href={ACTIVITY_HREF} aria-label={t('Conversion history')}>
           <History size={20} aria-hidden="true" />
@@ -540,7 +540,7 @@ function ConvertCard({
           </div>
         </div>
 
-        <button type="button" className="cvt-swap" onClick={swap} aria-label={t('Swap')}>
+        <button type="button" data-testid="cvt-swap" className="cvt-swap" onClick={swap} aria-label={t('Swap')}>
           <ArrowDownUp size={18} aria-hidden="true" />
         </button>
 
@@ -620,14 +620,18 @@ function ConvertCard({
           action={state.copy.action}
         />
       ) : null}
-      {state.status === 'depth' ? <p className="cvt-note">{t('Too big')}</p> : null}
+      {state.status === 'depth' ? (
+        <p data-testid="cvt-note" className="cvt-note">
+          {t('Too big')}
+        </p>
+      ) : null}
       {state.status === 'overCost' ? (
         <p className="cvt-note" data-testid="over-cost">
           {dec(amount) === dec(available.value) ? shortText : t('Too small after price')}
         </p>
       ) : null}
       {quoteOverBalance ? (
-        <p className="cvt-note" role="alert">
+        <p data-testid="cvt-note" className="cvt-note" role="alert">
           {shortText}
         </p>
       ) : null}

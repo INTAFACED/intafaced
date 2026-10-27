@@ -1,7 +1,7 @@
 .prediction-room {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-  gap: 48px;
+  gap: var(--if-space-12);
   align-items: start;
 }
 .prediction-room-reading,
@@ -9,7 +9,7 @@
 .prediction-catalogue {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--if-space-6);
   min-width: 0;
 }
 .prediction-room h2,
@@ -20,25 +20,25 @@
   margin: 0;
 }
 .prediction-room h2 {
-  font-size: 20px;
-  line-height: 28px;
+  font-size: var(--if-text-lg);
+  line-height: var(--if-leading-lg);
   font-weight: 600;
 }
 .prediction-room h3 {
-  font-size: 16px;
-  line-height: 24px;
+  font-size: var(--if-text-md);
+  line-height: var(--if-leading-md);
   font-weight: 500;
 }
 .prediction-room p,
 .prediction-room dd {
-  font-size: 14px;
+  font-size: var(--if-text-base);
   line-height: 22px;
 }
 .prediction-catalogue-status,
 .prediction-room-review-copy {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--if-space-2);
 }
 .prediction-catalogue-refresh {
   width: 100%;
@@ -51,16 +51,16 @@
 .prediction-catalogue-records article {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 16px 0;
+  gap: var(--if-space-2);
+  padding: var(--if-space-4) 0;
   border-top: 1px solid var(--color-divider);
 }
 .prediction-catalogue-records article button {
   align-self: start;
-  margin-top: 8px;
+  margin-top: var(--if-space-2);
 }
 .prediction-room-review-copy {
-  padding-top: 16px;
+  padding-top: var(--if-space-4);
   border-top: 1px solid var(--color-divider);
 }
 .prediction-room-link {
@@ -74,29 +74,29 @@
 }
 .prediction-room summary {
   min-height: 44px;
-  padding: 12px 0;
-  font-size: 14px;
-  line-height: 20px;
-  color: var(--color-accent);
+  padding: var(--if-space-3) 0;
+  font-size: var(--if-text-base);
+  line-height: var(--if-leading-base);
+  color: var(--if-accent-text);
   cursor: pointer;
 }
 .prediction-room summary:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--if-focus);
   outline-offset: 3px;
 }
 .prediction-room-requirements > div {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 16px 0;
+  gap: var(--if-space-2);
+  padding: var(--if-space-4) 0;
   border-top: 1px solid var(--color-divider);
 }
 .prediction-room-requirements dt {
   display: flex;
   align-items: baseline;
-  gap: 12px;
-  font-size: 14px;
-  line-height: 20px;
+  gap: var(--if-space-3);
+  font-size: var(--if-text-base);
+  line-height: var(--if-leading-base);
   font-weight: 500;
 }
 .prediction-room-requirements dt > span:first-child {
@@ -107,8 +107,8 @@
   width: 88px;
   flex: 0 0 88px;
   text-align: end;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--if-text-sm);
+  line-height: var(--if-leading-base);
   font-weight: 400;
   color: var(--color-muted);
   overflow-wrap: anywhere;
@@ -117,12 +117,12 @@
   color: var(--color-muted);
 }
 .prediction-room-planning .field {
-  margin-block: 16px;
+  margin-block: var(--if-space-4);
 }
 @media (max-width: 1100px) {
   .prediction-room {
     grid-template-columns: minmax(0, 1fr);
-    gap: 32px;
+    gap: var(--if-space-8);
   }
   .prediction-catalogue-refresh {
     max-width: 100%;
@@ -140,7 +140,7 @@
 .prediction-ticket {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--if-space-4);
   min-width: 0;
 }
 .prediction-ticket h2,
@@ -149,23 +149,23 @@
   margin: 0;
 }
 .prediction-ticket__blocker {
-  padding: 12px 16px;
+  padding: var(--if-space-3) var(--if-space-4);
   border: 1px solid var(--color-border);
-  border-left: 3px solid var(--color-accent);
-  border-radius: 8px;
+  border-left: 3px solid var(--if-lime);
+  border-radius: var(--if-r-sm);
   display: grid;
-  gap: 8px;
+  gap: var(--if-space-2);
 }
 .prediction-ticket__group {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--if-space-2);
   margin: 0;
   padding: 0;
   border: 0;
 }
 .prediction-ticket__group legend {
   padding: 0;
-  margin-bottom: 8px;
-  font-size: 14px;
+  margin-bottom: var(--if-space-2);
+  font-size: var(--if-text-base);
 }

@@ -11,28 +11,28 @@
 .identity-sessions__row {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding-block: 24px;
+  gap: var(--if-space-4);
+  padding-block: var(--if-space-6);
   border-top: 1px solid var(--color-border);
 }
 .identity-sessions__row > div {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--if-space-2);
   flex: 1;
   min-width: 0;
 }
 .identity-sessions__row time {
-  font-size: 16px;
-  line-height: 24px;
+  font-size: var(--if-text-md);
+  line-height: var(--if-leading-md);
 }
 .identity-sessions__mine {
   align-self: flex-start;
-  font-size: 13px;
-  line-height: 20px;
-  padding: 0 8px;
-  border: 1px solid var(--color-accent);
-  border-radius: 999px;
+  font-size: var(--if-text-sm);
+  line-height: var(--if-leading-base);
+  padding: 0 var(--if-space-2);
+  border: 1px solid var(--if-lime);
+  border-radius: var(--if-r-pill);
 }
 .identity-sessions__row > button {
   flex-shrink: 0;
@@ -43,13 +43,13 @@
 .identity-sessions__context {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--if-space-4);
   margin: 0;
 }
 .identity-sessions__context > div {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--if-space-2);
   min-width: 0;
 }
 .identity-sessions__context dt {
@@ -60,9 +60,9 @@
   overflow-wrap: anywhere;
 }
 .identity-sessions__unknown {
-  border-left: 2px solid var(--color-accent);
-  padding: 20px;
-  border-radius: 8px;
+  border-left: 2px solid var(--if-lime);
+  padding: var(--if-space-5);
+  border-radius: var(--if-r-sm);
   background: var(--color-surface-raised);
 }
 .identity-sessions__support {

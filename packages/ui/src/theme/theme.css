@@ -13,7 +13,7 @@
  *   @import '@intafaced/ui/base.css';          (fonts + .if-app base, in @layer base)
  *   @import 'tailwindcss/utilities.css' layer(utilities);
  *
- * Theme key names avoid every custom property in apps/customer/src/shared/tokens.css
+ * Theme key names avoid every older customer name in tokens.ts `legacyVars`
  * (--color-background, --font-sans, ...); tokens.test.ts checks that.
  */
 
@@ -76,6 +76,8 @@
   --color-lime-press: var(--if-lime-press);
   --color-on-lime: var(--if-on-lime);
   --color-lime-soft: var(--if-lime-soft);
+  --color-focus: var(--if-focus);
+  --color-accent-text: var(--if-accent-text);
   --color-warn: var(--if-warn);
   --color-warn-text: var(--if-warn-text);
   --color-scrim: var(--if-scrim);

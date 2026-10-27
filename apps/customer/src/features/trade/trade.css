@@ -7,11 +7,11 @@
   align-items: center;
   gap: 22px;
   height: 40px;
-  padding-inline: 20px;
+  padding-inline: var(--if-space-5);
   border-bottom: 1px solid var(--color-divider);
   background: var(--color-shell);
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--if-text-sm);
 }
 .trade-mode-links {
   display: flex;
@@ -32,17 +32,17 @@
 }
 .trade-modes a[aria-current] {
   color: var(--color-text);
-  border-bottom: 2px solid var(--color-accent);
+  border-bottom: 2px solid var(--if-lime);
 }
 .trade-simulation {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--if-space-1-5);
   margin-left: auto;
   flex-shrink: 0;
 }
 .trade-root input[type='checkbox'] {
-  accent-color: var(--color-accent);
+  accent-color: var(--if-lime);
   width: 16px;
   height: 16px;
 }
@@ -58,16 +58,16 @@
 .trade-root select {
   width: auto;
   min-height: 32px;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
+  padding: var(--if-space-1) var(--if-space-2);
+  border-radius: var(--if-r-xs);
+  font-size: var(--if-text-xs);
 }
 .trade-favorites {
   height: 32px;
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding-inline: 20px;
+  gap: var(--if-space-4);
+  padding-inline: var(--if-space-5);
   background: var(--color-shell);
   border-bottom: 1px solid var(--color-divider);
   overflow-x: auto;
@@ -75,7 +75,7 @@
   font-size: 11px;
 }
 .trade-favorites button[aria-pressed='true'] {
-  color: var(--color-accent);
+  color: var(--if-accent-text);
 }
 .trade-chart {
   min-width: 0;
@@ -90,10 +90,10 @@
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 12px;
+  gap: var(--if-space-2-5);
+  padding: 0 var(--if-space-3);
   border-bottom: 1px solid var(--color-divider);
-  font-size: 12px;
+  font-size: var(--if-text-xs);
 }
 .trade-chart-toolbar > details {
   position: relative;
@@ -104,8 +104,8 @@
 .trade-chart-toolbar .button {
   min-height: 32px;
   margin-left: auto;
-  padding: 3px 6px;
-  font-size: 20px;
+  padding: 3px var(--if-space-1-5);
+  font-size: var(--if-text-lg);
 }
 .trade-chart-toolbar .trade-inline {
   gap: 5px;
@@ -116,18 +116,18 @@
   left: 0;
   z-index: 8;
   width: 220px;
-  padding: 12px;
+  padding: var(--if-space-3);
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border);
   box-shadow: 0 10px 28px #0008;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--if-space-2-5);
 }
 .trade-menu label {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--if-space-2);
 }
 .trade-menu small {
   color: var(--color-muted);
@@ -139,10 +139,10 @@
 }
 .trade-chart-context {
   display: flex;
-  gap: 12px;
+  gap: var(--if-space-3);
   align-items: center;
   min-height: 36px;
-  padding: 8px 12px;
+  padding: var(--if-space-2) var(--if-space-3);
   font-size: 11px;
   color: var(--color-muted);
   flex-wrap: wrap;
@@ -152,7 +152,7 @@
 }
 .trade-candle-inspection {
   margin: 0;
-  padding: 6px 12px;
+  padding: var(--if-space-1-5) var(--if-space-3);
   font-size: 10px;
   color: var(--color-muted);
   font-variant-numeric: tabular-nums;
@@ -178,7 +178,7 @@
 .trade-chart-canvas > [lang] > .failure {
   position: relative;
   z-index: 1;
-  margin: 24px;
+  margin: var(--if-space-6);
 }
 .trade-drawings {
   position: absolute;
@@ -199,7 +199,7 @@
   background: var(--color-shell) !important;
   border: 1px solid var(--color-warning) !important;
   border-radius: 3px;
-  padding: 3px 6px;
+  padding: 3px var(--if-space-1-5);
   font-size: 10px;
   touch-action: none;
   cursor: ns-resize !important;
@@ -226,8 +226,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 12px;
-  padding: 4px 12px;
+  gap: var(--if-space-1) var(--if-space-3);
+  padding: var(--if-space-1) var(--if-space-3);
   border-top: 1px solid var(--color-divider);
   font-size: 11px;
   color: var(--color-muted);
@@ -245,11 +245,11 @@
 .trade-chart-footer {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--if-space-3);
   justify-content: space-between;
   font-size: 10px;
   color: var(--color-muted);
-  padding: 7px 12px;
+  padding: 7px var(--if-space-3);
   border-top: 1px solid var(--color-divider);
 }
 .trade-chart-footer input {
@@ -258,7 +258,7 @@
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border);
   color: var(--color-text);
-  padding: 3px 6px;
+  padding: 3px var(--if-space-1-5);
   border-radius: 3px;
 }
 .trade-chart--fullscreen {
@@ -277,55 +277,55 @@
 .trade-root .tabs {
   border-bottom: 1px solid var(--color-divider);
   display: flex;
-  gap: 20px;
-  padding-inline: 12px;
+  gap: var(--if-space-5);
+  padding-inline: var(--if-space-3);
   height: 40px;
   flex-shrink: 0;
   align-items: stretch;
 }
 .trade-root .tabs button {
-  padding: 8px 0;
-  font-size: 12px;
+  padding: var(--if-space-2) 0;
+  font-size: var(--if-text-xs);
   white-space: nowrap;
   color: var(--color-muted);
 }
 .trade-root .tabs button.selected {
   color: var(--color-text);
-  border-bottom: 2px solid var(--color-accent);
+  border-bottom: 2px solid var(--if-lime);
 }
 .trade-ticket-body {
   min-height: 508px;
-  padding: 12px 16px;
+  padding: var(--if-space-3) var(--if-space-4);
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  font-size: 12px;
+  gap: var(--if-space-1-5);
+  font-size: var(--if-text-xs);
 }
 .trade-ticket-body .tabs {
   height: 36px;
   padding: 0;
 }
 .trade-ticket-body > .tabs[aria-label='Order side'] {
-  gap: 2px;
+  gap: var(--if-space-0-5);
   background: var(--color-selected);
   border: 0;
-  padding: 2px;
-  border-radius: 4px;
+  padding: var(--if-space-0-5);
+  border-radius: var(--if-r-xs);
 }
 .trade-ticket-body > .tabs[aria-label='Order side'] button {
   flex: 1;
   border: 0;
   border-radius: 3px;
   padding: 5px;
-  font-size: 13px;
+  font-size: var(--if-text-sm);
 }
 .trade-ticket-body > .tabs[aria-label='Order side'] button.selected {
-  background: var(--color-accent);
-  color: #000;
+  background: var(--if-lime);
+  color: var(--if-on-lime);
   font-weight: 600;
 }
 .trade-ticket-body .field {
-  gap: 4px;
+  gap: var(--if-space-1);
   font-size: 11px;
 }
 .trade-ticket-body .field input {
@@ -333,22 +333,22 @@
   min-height: 38px;
   background: var(--color-surface-raised);
   font-size: 15px;
-  border-radius: 4px;
-  padding: 8px 12px;
+  border-radius: var(--if-r-xs);
+  padding: var(--if-space-2) var(--if-space-3);
 }
 .trade-ticket-body .field small {
   font-size: 10px;
 }
 .trade-ticket-body .button {
   min-height: 40px;
-  padding: 8px 12px;
-  border-radius: 4px;
-  font-size: 13px;
+  padding: var(--if-space-2) var(--if-space-3);
+  border-radius: var(--if-r-xs);
+  font-size: var(--if-text-sm);
 }
 .trade-inline {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--if-space-2);
   font-size: 11px;
 }
 .trade-inline select {
@@ -363,7 +363,7 @@
 .trade-review > div {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--if-space-3);
 }
 .trade-review dt {
   color: var(--color-muted);
@@ -382,7 +382,7 @@
 }
 .trade-blotter .empty-state {
   min-height: 110px;
-  padding: 16px;
+  padding: var(--if-space-4);
 }
 .trade-blotter .empty-mark {
   display: none;
@@ -392,7 +392,7 @@
 }
 .trade-blotter th,
 .trade-blotter td {
-  padding: 8px 12px;
+  padding: var(--if-space-2) var(--if-space-3);
   white-space: nowrap;
 }
 .trade-blotter th {
@@ -402,19 +402,19 @@
 }
 .trade-row-actions {
   display: flex;
-  gap: 10px;
+  gap: var(--if-space-2-5);
 }
 .trade-row-actions button {
   color: var(--color-muted);
 }
 .trade-row-actions button:hover {
-  color: var(--color-accent);
+  color: var(--if-accent-text);
 }
 .trade-note {
   display: block;
   font-size: 11px;
   color: var(--color-muted);
-  padding: 8px 12px;
+  padding: var(--if-space-2) var(--if-space-3);
   overflow-wrap: anywhere;
 }
 .trade-chart[data-derived-linked] {
@@ -426,29 +426,29 @@
 }
 .trade-daily-refresh {
   display: block;
-  margin-top: 8px;
+  margin-top: var(--if-space-2);
   min-height: 32px;
-  padding: 6px 8px;
+  padding: var(--if-space-1-5) var(--if-space-2);
   border: 1px solid var(--color-border);
   border-radius: 3px;
 }
 .trade-refusal {
   color: var(--color-warning);
-  font-size: 12px;
+  font-size: var(--if-text-xs);
   border-left: 2px solid var(--color-warning);
-  padding-left: 10px;
+  padding-left: var(--if-space-2-5);
 }
 .trade-tools {
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: var(--if-space-7);
 }
 .trade-tool-form {
   max-width: 620px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding-block: 20px;
+  gap: var(--if-space-4);
+  padding-block: var(--if-space-5);
   border-block: 1px solid var(--color-divider);
 }
 .trade-tool-form select {
@@ -456,12 +456,12 @@
 }
 .trade-capability {
   border-top: 1px solid var(--color-divider);
-  padding-top: 24px;
+  padding-top: var(--if-space-6);
 }
 .trade-capability p {
   color: var(--color-muted);
   max-width: 740px;
-  margin-top: 10px;
+  margin-top: var(--if-space-2-5);
 }
 .trade-capability h2 {
   font-size: 18px;
@@ -469,11 +469,11 @@
 .trade-capability-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 28px;
+  gap: var(--if-space-7);
 }
 @media (max-width: 1200px) {
   .trade-chart-toolbar {
-    gap: 6px;
+    gap: var(--if-space-1-5);
   }
   .trade-chart-toolbar .trade-inline {
     font-size: 0;
@@ -520,27 +520,27 @@
 @media (max-width: 600px) {
   .trade-modes {
     gap: 18px;
-    padding-inline: 12px;
+    padding-inline: var(--if-space-3);
   }
   .trade-simulation {
     margin-left: 0;
-    padding-right: 12px;
+    padding-right: var(--if-space-3);
   }
   .trade-mode-links {
     gap: 18px;
   }
   .trade-favorites {
-    padding-inline: 12px;
+    padding-inline: var(--if-space-3);
   }
   .trade-chart:not(.trade-chart--fullscreen) {
     min-height: 400px;
   }
   .trade-chart-toolbar {
-    gap: 8px;
+    gap: var(--if-space-2);
     flex-wrap: wrap;
     height: auto;
     min-height: 40px;
-    padding-block: 6px;
+    padding-block: var(--if-space-1-5);
     position: relative;
   }
   .trade-chart-toolbar select {
@@ -559,17 +559,17 @@
     overflow: auto;
   }
   .trade-chart-context {
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .trade-chart-footer {
     font-size: 10px;
   }
   .trade-ticket-body {
-    padding: 16px;
-    gap: 16px;
+    padding: var(--if-space-4);
+    gap: var(--if-space-4);
   }
   .trade-ticket-body .field {
-    font-size: 12px;
+    font-size: var(--if-text-xs);
   }
   .trade-ticket-body .field input {
     min-height: 44px;
@@ -578,7 +578,7 @@
     min-height: 40px;
   }
   .trade-root .page {
-    padding: 24px 16px 80px;
+    padding: var(--if-space-6) var(--if-space-4) 80px;
   }
 }
 @media (max-height: 550px) and (orientation: landscape) {
@@ -628,15 +628,15 @@
   height: auto;
   min-height: 44px;
   flex-wrap: wrap;
-  padding-block: 6px;
+  padding-block: var(--if-space-1-5);
 }
 .trade-chart-toolbar select {
   max-width: 100%;
 }
 [data-zoned-source] {
   overflow-wrap: anywhere;
-  font-size: 14px;
-  line-height: 20px;
+  font-size: var(--if-text-base);
+  line-height: var(--if-leading-base);
 }
 .trade-secondary-view {
   display: flex;
@@ -652,7 +652,7 @@
 .trade-secondary-view > .failure,
 .trade-secondary-view > .empty-state {
   margin: auto 0;
-  padding: 16px;
+  padding: var(--if-space-4);
 }
 @media (max-width: 980px) {
   .trade-book--absent {
@@ -677,15 +677,15 @@
 .trade-holding-close {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin: 16px;
-  padding: 16px;
+  gap: var(--if-space-3);
+  margin: var(--if-space-4);
+  padding: var(--if-space-4);
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--if-r-sm);
   background: var(--color-surface);
   overflow-wrap: anywhere;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--if-text-sm);
+  line-height: var(--if-leading-base);
 }
 .trade-holding-close > strong {
   font-size: 26px;

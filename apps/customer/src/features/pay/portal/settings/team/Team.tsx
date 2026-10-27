@@ -356,7 +356,7 @@ function MemberPanel({
         </button>
       }
     >
-      <dl className="pp-facts">
+      <dl data-testid="pp-facts" className="pp-facts">
         <div>
           <dt>{t('colRole')}</dt>
           <dd>{t(`role_${member.role}` as 'role_owner')}</dd>
@@ -449,7 +449,7 @@ export function InviteReview({ userId = '', email, label, role }: { userId?: str
   return (
     <>
       <p>{address !== null ? t('inviteReviewEmail', { who: address, role: roleName }) : t('inviteReview', { who: id, role: roleName })}</p>
-      <dl className="pp-facts">
+      <dl data-testid="pp-facts" className="pp-facts">
         {address !== null ? (
           <div>
             <dt>{t('fEmail')}</dt>
@@ -498,7 +498,7 @@ function InviteForm({ portal, role, refresh }: { portal: PortalApi; role: Member
   return (
     <div id="invite">
       <PaySection title={t('inviteTitle')} description={byEmail ? t('inviteBody') : t('inviteBodyId')}>
-        <div className="form-stack pp-form">
+        <div data-testid="form-stack" className="form-stack pp-form">
           {byEmail ? (
             <Field
               label={`${t('fEmail')} *`}

@@ -98,3 +98,52 @@ export async function setAudience(id, baseRevision, audience) {
   const { ctx } = await founders();
   return data(await ctx.edge.mutate('support', 'setKbAudience', { id, baseRevision, audience }, await leadToken()), 'setKbAudience');
 }
+
+/** A public reply from the support team on a request, written by the support lead. */
+export async function replyAsLead(ticketId, body) {
+  const { ctx } = await founders();
+  return data(await ctx.edge.mutate('support', 'comment', { ticketId, body }, await leadToken()), 'comment');
+}
+
+/** Move a request to a status as the support lead, with the reason on its trail. */
+export async function setStatusAsLead(ticketId, status, note) {
+  const { ctx } = await founders();
+  return data(await ctx.edge.mutate('support', 'setStatus', { ticketId, status, note }, await leadToken()), 'setStatus');
+}
+
+/** Define or change a ticket field (SP-tickets-03) as the support lead. */
+export async function defineRequestField(row) {
+  const { ctx } = await founders();
+  return data(await ctx.edge.mutate('support', 'defineRequestField', row, await leadToken()), 'defineRequestField');
+}
+
+/** Define or change a request type's form as the support lead. */
+export async function defineRequestForm(row) {
+  const { ctx } = await founders();
+  return data(await ctx.edge.mutate('support', 'defineRequestForm', row, await leadToken()), 'defineRequestForm');
+}
+
+/** The desk group with this name, made by the support lead when the desk has none (the TEST fraud-report route). */
+export async function ensureDeskGroup(name) {
+  const { ctx } = await founders();
+  const token = await leadToken();
+  const groups = data(await ctx.edge.query('support', 'groupsList', undefined, token), 'groupsList');
+  return (
+    groups.find((group) => group.name === name) ??
+    data(await ctx.edge.mutate('support', 'groupsSave', { name, idempotencyKey: `group:${name}` }, token), 'groupsSave')
+  );
+}
+
+/** Set a request's priority and type as the support lead (SP-tickets-04). */
+export async function setPropertiesAsLead(ticketId, priority, ticketType) {
+  const { ctx } = await founders();
+  return data(
+    await ctx.edge.mutate(
+      'support',
+      'setProperties',
+      { ticketId, priority, ticketType, reason: 'TEST', clientRequestId: `props:${ticketId}:${priority}:${ticketType}` },
+      await leadToken(),
+    ),
+    'setProperties',
+  );
+}

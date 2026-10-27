@@ -13,10 +13,10 @@ export function RulesTab() {
         ))}
       </ul>
       <p className="m-0 flex gap-4 text-sm">
-        <a className="text-lime hover:underline" href="/trade/futures">
+        <a className="text-accent-text hover:underline" href="/trade/futures">
           {t('Go to Futures')}
         </a>
-        <a className="text-lime hover:underline" href="/execution">
+        <a className="text-accent-text hover:underline" href="/execution">
           {t('Go to Execution')}
         </a>
       </p>

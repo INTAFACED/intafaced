@@ -5,7 +5,7 @@ export function DataTable({ headers, children, label }: { headers: readonly Reac
   return (
     <div
       data-slot="data-table"
-      className="w-full overflow-x-auto rounded-md focus-visible:outline-2 focus-visible:outline-lime"
+      className="w-full overflow-x-auto rounded-md focus-visible:outline-2 focus-visible:outline-focus"
       tabIndex={0}
       role="region"
       aria-label={label}

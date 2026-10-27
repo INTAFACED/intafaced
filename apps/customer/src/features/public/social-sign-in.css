@@ -1,7 +1,7 @@
 .public-auth-social {
   display: grid;
-  gap: 12px;
-  margin-top: 16px;
+  gap: var(--if-space-3);
+  margin-top: var(--if-space-4);
 }
 
 .public-auth-social > p {

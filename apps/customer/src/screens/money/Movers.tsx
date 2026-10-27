@@ -45,8 +45,8 @@ export function Movers({ view, hidden, copy, sinceLabel }: { view: MoneyView; hi
   const anyCrypto = movers.best.length + movers.worst.length + movers.flat.length + movers.unranked.length > 0;
   if (!anyCrypto) return null;
   return (
-    <section id="movers" className="money-card" aria-labelledby="money-movers-title">
-      <header className="money-card__head">
+    <section id="movers" data-testid="money-card" className="money-card" aria-labelledby="money-movers-title">
+      <header data-testid="money-card__head" className="money-card__head">
         <h2 id="money-movers-title">{t('Movers')}</h2>
         <span className="money-card__note">{sinceLabel}</span>
       </header>

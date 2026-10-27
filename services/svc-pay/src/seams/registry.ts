@@ -5,6 +5,7 @@ import type { MerchantControlsMode } from '../control/mode.js';
 import { composeGuards, type PayGuards } from './guards.js';
 import { createCustodyPolicyGuards, type CustodyPolicyMode } from '../custody/policy/guards.js';
 import { createWithdrawalLimitGuards, type KycTierOf } from '../limits/guards.js';
+import type { LimitOverrideOf } from '../limits/identity-override.js';
 import type { LimitSource } from '../limits/source.js';
 import { createW1ControlGuards } from './slots/w1-control.js';
 import { createW5HaltsGuards } from './slots/w5-halts.js';
@@ -32,6 +33,8 @@ export function buildPayGuards(deps: {
   ledger?: LedgerClient;
   merchantControls?: MerchantControlsMode;
   kycTierOf?: KycTierOf;
+  /** A founder's override for the customer and asset (J-ops-console-04 #12). */
+  limitOverrideOf?: LimitOverrideOf;
   /** Where the owner-set withdrawal figures live. Omitted: the retired environment source (tests). */
   limitSource?: LimitSource;
   /**
@@ -50,7 +53,7 @@ export function buildPayGuards(deps: {
     }),
     createRcMerchant08CategoryGuards(deps),
     createW9ScreeningGuards({ ...deps, ...deps.screening }),
-    createWithdrawalLimitGuards({ sql: deps.sql, tierOf: deps.kycTierOf, source: deps.limitSource }),
+    createWithdrawalLimitGuards({ sql: deps.sql, tierOf: deps.kycTierOf, overrideOf: deps.limitOverrideOf, source: deps.limitSource }),
     createCustodyPolicyGuards({ sql: deps.sql, mode: deps.custodyPolicyMode ?? 'off' }),
     createW1ControlGuards(deps),
     createW6ConversionGuards(deps),
