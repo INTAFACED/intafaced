@@ -11,6 +11,8 @@
  *   contrast     the worst background pixel under every text box (a shot with all text hidden), 4.5:1, or 3:1 for
  *                large text (B4 rules, section 1);
  *   money        a money figure (`[data-slot="money"]`) on a panel less than 80% opaque;
+ *   gpu          the GPU budget (gpu-budget.mjs): blur only on nav and sheet layers, at most 3 blurred surfaces and one
+ *                3D canvas a screenful, a canvas at most 1.5x its box, no 3D on a confirm or review step;
  *   targets      a control smaller than 24x24 px with no 24 px of clear space (WCAG 2.5.8);
  *   focus        a focused control hidden under a `data-obscures` bar (WCAG 2.4.11), over the first 25 tab stops;
  *   csp          any Content-Security-Policy violation (in-page events and report-uri reports);
@@ -45,6 +47,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { securityHeaders } from '../../../apps/customer/deployment/render-security-headers.mjs';
 import { crop, decodePng, encodePng } from './png.mjs';
 import * as policy from './policy.mjs';
+import * as gpu from './gpu-budget.mjs';
 import { sweepRoutes } from '../../../apps/customer/tests/real-app/routes.mjs';
 import * as world from '../../../apps/customer/tests/real-app/look-fixtures.mjs';
 import { fixtureAnswer as answerAt } from './fixture-answer.mjs';
@@ -554,6 +557,7 @@ async function check(context, origin, target, vpName, opts, registry) {
       'money',
       m.money.map((x) => `${x.name} "${x.text}" on a panel ${Math.round(x.alpha * 100)}% opaque (needs 80%+)`),
     );
+    add('gpu', gpu.judgeGpu(await page.evaluate(gpu.measureGpu), viewport.height));
     add('targets', m.small.slice(0, 20));
 
     // rendered font
@@ -1068,6 +1072,7 @@ function selfTest() {
     if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(`${what}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
   };
   const ok = (cond, what) => eq(!!cond, true, what);
+  gpu.selfTest(eq);
   // contrast
   eq(Number(policy.contrast([0, 0, 0], [255, 255, 255]).toFixed(1)), 21, 'black on white is 21:1');
   eq(Number(policy.contrast([118, 118, 118], [255, 255, 255]).toFixed(2)), 4.54, '#767676 on white is 4.54:1');
