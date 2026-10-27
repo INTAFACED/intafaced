@@ -37,9 +37,9 @@ import { fileURLToPath } from 'node:url';
  * module with a TRK spec and no caller yet. Parking them here is the point:
  * unwired work stays VISIBLE and owned instead of quietly collecting dust.
  *
- * This list may only SHRINK. When a parked module gains a caller the scan says
- * so and the row must be deleted - that is the whole mechanism. Adding a row is
- * a decision to owe the wiring, not a way to pass the gate.
+ * This list may only SHRINK. When a parked module gains a caller the scan warns
+ * and the row is deleted - that is the whole mechanism. Adding a row is a
+ * decision to owe the wiring, not a way to pass the gate.
  */
 /** Empty when every Stage-1 residual that was parked has a real caller. List may only shrink. */
 const PARKED = new Map([]);
@@ -158,11 +158,10 @@ if (missingKeepers.length) {
 const freed = [...PARKED.keys()].filter((p) => !failures.includes(p));
 const unparked = failures.filter((f) => !PARKED.has(f));
 
-if (freed.length) {
-  console.error(`\n  x REACHABILITY - ${freed.length} PARKED module(s) now have a caller. Good - delete their rows:\n`);
-  for (const f of freed) console.error(`      ${f}`);
-  console.error('\n  Remove them from PARKED in tooling/ci/reachability-scan.mjs. The list may only shrink.\n');
-  process.exit(1);
+// A freed row warns rather than fails: a fix never fails the build (owner decision 2026-10-27).
+for (const f of freed) {
+  const msg = `PARKED module ${f} now has a caller. Good - delete its row from PARKED in tooling/ci/reachability-scan.mjs.`;
+  console.log(process.env.GITHUB_ACTIONS ? `::warning title=Reachability::${msg}` : `  ! ${msg}`);
 }
 
 if (unparked.length) {

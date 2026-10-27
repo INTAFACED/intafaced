@@ -349,9 +349,9 @@ export const NOT_GATES = {
   'infra-verdict.mjs':
     'a reporter, not a gate: it prints which infrastructure-backed suites actually executed. It never fails a clean run — it exits 2 for "incomplete but permitted", which verify reports without failing. Run by verify.mjs after the test step.',
   'unreported-suites.mjs':
-    'data, not a scan — the register of suites that still skip invisibly, each with the specific reason it was left and what lifts it. It exports two lists and runs nothing. Both skip-honesty-scan.mjs and infra-verdict.mjs import it; the scan fails if an entry goes stale, so it cannot rot into blanket cover.',
+    'data, not a scan — the register of suites that still skip invisibly, each with the specific reason it was left and what lifts it. It exports two lists and runs nothing. Both skip-honesty-scan.mjs and infra-verdict.mjs import it; the scan warns if an entry goes stale, and the verdict cannot say COMPLETE while it stands.',
   'money-skip-inventory.mjs':
-    'data, not a scan — D26-P2-13 register of every money-path test file that may skip, each with kind + why. money-skip-honesty-scan.mjs imports it and fails if the list grows or goes stale; a private-probe row must stay coupled to unreported-suites PRIVATE_PROBE (none remain).',
+    'data, not a scan — D26-P2-13 register of every money-path test file that may skip, each with kind + why. money-skip-honesty-scan.mjs imports it, fails if the list grows and warns if it goes stale; a private-probe row must stay coupled to unreported-suites PRIVATE_PROBE (none remain).',
   'assert-test-db-env.mjs':
     'asserts the TEST_DATABASE_URL_* env the CI Tests job sets up. It is meaningless without that env, so it belongs to that job (residual #9) rather than to a laptop run.',
   'dependency-audit.mjs':
@@ -471,6 +471,9 @@ function main() {
       } else {
         console.log(`      ${summary.trim()}`);
       }
+      // A passing gate's own warnings (a stale entry to delete; a fix never fails, owner decision 2026-10-27) must
+      // still reach the run's annotations, so they are passed through rather than folded into the summary line.
+      for (const line of output.split('\n')) if (line.startsWith('::warning')) console.log(line);
     } else if (gate.advisory) {
       advisoryNoise.push({ gate, output });
       console.log(`  ⚠ ${gate.id.padEnd(22)} ${String(ms).padStart(5)}ms  ${gate.doctrine} (advisory)`);
