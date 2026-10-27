@@ -45,7 +45,7 @@ async function createKey(page, name, choose) {
   await page.getByLabel('Key name').fill(name);
   await choose();
   await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
-  const key = (await page.getByTestId('api-keys__key').locator('code').textContent())?.trim();
+  const key = (await page.getByTestId('api-keys__key').textContent())?.trim();
   expect(key).toMatch(/^ifc_[A-Za-z0-9_-]{20,}$/);
   await page.getByLabel('I have stored this key somewhere safe').check();
   await page.getByRole('button', { name: 'Done' }).click();

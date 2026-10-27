@@ -90,7 +90,7 @@ test(`${J} #4 asks Copy-Intel for a returns ranking: a typed refusal and no boar
   await workspace.getByRole('textbox', { name: /^Ask the agent/ }).fill('TEST: rank the leaders by returns');
   await workspace.getByRole('button', { name: 'Run' }).click();
   await expect(workspace.getByRole('alert')).toContainText('agents.copy_intel.returns_board_refused');
-  await expect(workspace.getByRole('table', { name: /ranking/i })).toHaveCount(0);
+  await expect(tableIn(workspace, 'Leader ranking')).toHaveCount(0);
 });
 
 test(`${J} #5 opens the Launch, Risk and Compliance, and Growth agent pages: run history and drafts; a growth proposal to publish stays a draft`, async ({

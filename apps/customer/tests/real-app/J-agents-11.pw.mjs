@@ -54,16 +54,17 @@ async function invite(page, owner, member) {
   await page.getByLabel('Account ID *').fill(member.userId);
   await page.getByRole('combobox', { name: /^Role \*/ }).selectOption({ label: 'Finance' });
   await page.getByRole('button', { name: 'Send invitation' }).click();
-  await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
+  // The review dialog's confirm carries the action's own name.
+  await page.getByRole('dialog').getByRole('button', { name: 'Send invitation' }).click();
   await forgetSession(page);
   await signInWithCode(page, member, '/pay/team');
-  const accept = page.locator('li').filter({ hasText: 'Finance' }).getByRole('button', { name: 'Accept' }).first();
+  const accept = page.getByRole('listitem').filter({ hasText: 'Finance' }).getByRole('button', { name: 'Accept' }).first();
   await expect(async () => {
     await page.reload();
     await expect(accept).toBeVisible({ timeout: 3000 });
   }).toPass({ timeout: 30_000 });
   await accept.click();
-  await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Accept' }).click();
   await expect(accept).toHaveCount(0);
   await forgetSession(page);
 }
