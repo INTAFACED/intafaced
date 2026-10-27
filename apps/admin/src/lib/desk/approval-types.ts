@@ -1,3 +1,4 @@
+import { readOpenedDocument, type OpenedDocument } from '@/lib/kyc-documents/document';
 import { isApprovalId } from './approval-packet';
 import type { RefusalView } from './refusal-copy';
 
@@ -14,7 +15,10 @@ export interface ApprovalView {
   readonly approverId: string | null;
 }
 
-export type ExecuteReply = { readonly ok: true; readonly detail: string } | { readonly ok: false; readonly refusal: RefusalView };
+/** A run that reads rather than changes (opening a KYC document) also carries what it read, for the page that asked only. */
+export type ExecuteReply =
+  | { readonly ok: true; readonly detail: string; readonly document?: OpenedDocument }
+  | { readonly ok: false; readonly refusal: RefusalView };
 
 export type StepReply =
   | {
@@ -26,7 +30,7 @@ export type StepReply =
       /** approve only: false when identity's row is not for the request this founder read. Reject it. */
       readonly matchesReviewedRequest?: boolean;
     }
-  | { readonly ok: true; readonly step: 'execute'; readonly detail: string }
+  | { readonly ok: true; readonly step: 'execute'; readonly detail: string; readonly document?: OpenedDocument }
   | { readonly ok: false; readonly step: StepName | null; readonly refusal: RefusalView };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -63,7 +67,10 @@ export function readStepReply(raw: unknown): StepReply {
       const refusal = readRefusal(raw.refusal);
       if (refusal) return { ok: false, step, refusal };
     } else if (step === 'execute' && typeof raw.detail === 'string') {
-      return { ok: true, step, detail: raw.detail };
+      if (raw.document === undefined) return { ok: true, step, detail: raw.detail };
+      // A document that does not read exactly is not shown, and the run is reported as not understood.
+      const document = readOpenedDocument(raw.document);
+      if (document) return { ok: true, step, detail: raw.detail, document };
     } else if (step !== null && step !== 'execute') {
       const approval = readApproval(raw.approval);
       if (approval) {

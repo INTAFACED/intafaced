@@ -18,7 +18,8 @@ import type { RecipeName } from '@intafaced/ledger-client';
  * `feeCharge` is the exception to the recipe's own module. The registry sample
  * uses a caller-chosen module; the live meter defaults that module to `agents`
  * (`meter.ts`, `options.module ?? 'agents'`) and `svc-agents` `index.ts` does
- * not override it. The allowlist requires module `agents`.
+ * not override it. The allowlist requires module `agents`. svc-trade posts it with module `trade`, for a spot fee
+ * paid in the platform token (`fee-ifc.ts`).
  */
 
 export interface RecipeGrant {
@@ -60,6 +61,13 @@ export const LEDGER_POST_ALLOWLIST = {
     withdrawReverse: g('ledger', 'services/svc-bank/src/cards/card-service.ts'),
     withdrawSettle: g('ledger', 'services/svc-bank/src/cards/card-service.ts'),
   },
+  'svc-campaigns': {
+    rewardPay: g('token', 'services/svc-campaigns/src/payouts.ts'),
+    sweepFeesToRewards: g('token', 'services/svc-campaigns/src/payouts.ts'),
+    campaignRewardLock: g('campaigns', 'services/svc-campaigns/src/payouts.ts'),
+    campaignRewardUnlock: g('campaigns', 'services/svc-campaigns/src/payouts.ts'),
+    campaignRewardForfeit: g('campaigns', 'services/svc-campaigns/src/payouts.ts'),
+  },
   'svc-identity': {
     rewardPay: g('token', 'services/svc-identity/src/affiliates/payout-engine.ts'),
     sweepFeesToRewards: g('token', 'services/svc-identity/src/affiliates/payout-engine.ts'),
@@ -69,6 +77,11 @@ export const LEDGER_POST_ALLOWLIST = {
   },
   'svc-mining-pool': {
     rewardPay: g('token', 'services/svc-mining-pool/src/ledger.ts'),
+  },
+  'svc-ops': {
+    staffHoldConfirm: g('ops', 'services/svc-ops/src/staff-holds/desk.ts'),
+    staffHoldPlace: g('ops', 'services/svc-ops/src/staff-holds/desk.ts'),
+    staffHoldRelease: g('ops', 'services/svc-ops/src/staff-holds/desk.ts'),
   },
   'svc-p2p': {
     escrowLock: g('p2p', 'services/svc-p2p/src/p2p-service.ts'),
@@ -107,6 +120,7 @@ export const LEDGER_POST_ALLOWLIST = {
     unstake: g('token', 'services/svc-token/src/token-service.ts'),
   },
   'svc-trade': {
+    feeCharge: g('trade', 'services/svc-trade/src/spot/fee-ifc.ts'),
     futuresFundingPay: g('trade', 'services/svc-trade/src/futures/funding-settlement.ts'),
     futuresInsuranceTopup: g('trade', 'services/svc-trade/src/admin/insurance-topup.ts'),
     futuresMarginAdd: g('trade', 'services/svc-trade/src/futures/position-service.ts'),
@@ -125,6 +139,7 @@ export const LEDGER_POST_ALLOWLIST = {
     rewardPay: g('token', 'services/svc-trade/src/copy/fee-share.ts'),
     sweepFeesToRewards: g('token', 'services/svc-trade/src/copy/fee-share.ts'),
     tradeFill: g('trade', 'services/svc-trade/src/spot/trade-service/fills.ts'),
+    tradeFillMakerRebate: g('trade', 'services/svc-trade/src/spot/trade-service/fills.ts'),
   },
 } as const satisfies Record<string, Grants>;
 

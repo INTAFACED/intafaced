@@ -13,6 +13,8 @@ import {
   GuardError,
   LOAN_RESERVE_AMOUNT,
   LOAN_RESERVE_FUNDING_ID,
+  MAX_AGE_DAYS,
+  MAX_POOL_FUNDING,
   NAME_PREFIX,
   NAME_SUFFIX,
   P2P_COUNTRY,
@@ -28,11 +30,14 @@ import {
   applyHouse,
   applyLoans,
   applyP2p,
+  ageLoan,
   earnFundingId,
   earnPoolName,
+  fundEarnPool,
   guardSeed,
   houseSeedId,
   main,
+  parseArgs,
   statusReport,
   toWire,
   unseedAll,
@@ -435,6 +440,10 @@ function world() {
     async readPools(names) {
       return earn.pools.filter((pool) => names.includes(pool.name)).map((pool) => ({ ...pool }));
     },
+    async readPoolById(poolId) {
+      const pool = earn.pools.find((row) => row.id === poolId);
+      return pool ? { ...pool } : null;
+    },
     async readProducts(names) {
       return loans.products.filter((product) => names.includes(product.name)).map((product) => ({ ...product }));
     },
@@ -782,9 +791,9 @@ test('house inventory stocks both sides of the stack default markets', () => {
   const symbols = JSON.parse(found[1].replaceAll("'", '"'));
   const stocked = new Set(TEST_HOUSE_INVENTORY.map((row) => row.assetId));
   for (const symbol of symbols) {
-    const [base, quote] = symbol.split('/');
-    assert.ok(stocked.has(base), base);
-    assert.ok(stocked.has(quote), quote);
+    // A perpetual names its settle asset after a colon (`BTC/USDT:USDT`); every asset it names is stocked.
+    const [base, rest] = symbol.split('/');
+    for (const asset of [base, ...rest.split(':')]) assert.ok(stocked.has(asset), asset);
   }
   const quoteSrc = readFileSync(path.join(repo, 'services/svc-trade/src/convert/quote.ts'), 'utf8');
   assert.match(quoteSrc, /baseAsset/);
@@ -874,7 +883,8 @@ test('money tables are decimal strings and the seed does not touch service trees
   const needles = ['local-test-seed', 'TEST_HOUSE_INVENTORY', 'local_test_bank', 'LOCAL-TEST-seed-house', 'TEST_EARN'];
   const skip = new Set(['node_modules', 'dist', '.git', 'coverage', '.turbo', 'vendor']);
   // What ships: docs may describe the seed and tests may name it as a caller or fixture; runtime code may not.
-  const notShipped = (name) => /\.(test|spec)\.[cm]?[jt]sx?$/.test(name) || name.endsWith('.md');
+  // Playwright journeys (`*.pw.mjs`) are tests too: J-bank-11 calls `age-loan` as its starting state.
+  const notShipped = (name) => /\.(test|spec|pw)\.[cm]?[jt]sx?$/.test(name) || name.endsWith('.md');
   const hits = [];
   const walk = (dir) => {
     for (const name of readdirSync(dir)) {
@@ -984,4 +994,77 @@ test('resolvePostgres loads the postgres package svc-bank declares', async () =>
     rmSync(fixture, { recursive: true, force: true });
     rmSync(bare, { recursive: true, force: true });
   }
+});
+
+test('age-loan: whole days from 1 to the cap on a loan id, and only the TEST products are offered as agable', async () => {
+  const LOAN = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+  const calls = [];
+  const deps = {
+    async ageLoanRows(loanId, days, products) {
+      calls.push({ loanId, days, products });
+      return { openedAt: '2026-10-09T10:00:00.000Z', drawnAt: '2026-10-09T10:00:01.000Z' };
+    },
+  };
+  for (const bad of ['0', '-1', '1.5', String(MAX_AGE_DAYS + 1), 'x']) {
+    await assert.rejects(ageLoan(deps, LOAN, bad), GuardError, `days ${bad}`);
+  }
+  await assert.rejects(ageLoan(deps, 'not-a-loan', '15'), GuardError);
+  assert.equal(calls.length, 0);
+  const report = await ageLoan(deps, LOAN, '15');
+  assert.deepEqual(calls, [{ loanId: LOAN, days: 15, products: TEST_LOANS.map((row) => row.name) }]);
+  assert.match(report.lines[0], /moved back 15 days/);
+  assert.equal(report.lines[1], FUNDS_LABEL);
+});
+
+test('age-loan: a loan the database refuses to age is a guard refusal naming why', async () => {
+  const deps = { ageLoanRows: async () => ({ refused: 'already has events after its opening' }) };
+  await assert.rejects(ageLoan(deps, '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', '3'), /already has events after its opening/);
+});
+
+test('fund-earn-pool: one TEST pool funded once per ref from a labelled TEST deposit; anything else refused', async () => {
+  const { deps, earn, ledger } = world();
+  const journey = { id: '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', name: 'TEST J-bank-08 flexible local-1', status: 'open', assetId: 'USDT' };
+  const real = { id: '1a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', name: 'Instant access', status: 'open', assetId: 'USDT' };
+  const closed = { id: '2a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', name: 'TEST closed', status: 'closed', assetId: 'USDT' };
+  earn.pools.push(journey, real, closed);
+  const report = await fundEarnPool(deps, journey.id, '25', 'jb08-local-1');
+  assert.deepEqual(
+    ledger.attempts.map((attempt) => attempt.wire.idempotencyKey),
+    [
+      `deposit:local-test:LOCAL-TEST-seed-funder-pool-${journey.id}-jb08-local-1-v1`,
+      `bank.earn.fund:${journey.id}:local-test-jb08-local-1`,
+    ],
+  );
+  for (const attempt of ledger.attempts) assert.equal(attempt.wire.meta.label, FUNDS_LABEL);
+  assert.match(report.lines[0], /reserve funded 25 USDT/);
+  // The same ref again is the same two keys: the ledger answers them and nothing moves twice.
+  await fundEarnPool(deps, journey.id, '25', 'jb08-local-1');
+  assert.ok(ledger.attempts.slice(2).every((attempt) => attempt.noop));
+  const before = ledger.attempts.length;
+  for (const [poolId, amount, ref, why] of [
+    [real.id, '25', 'jb08-x', /not a TEST pool/],
+    [closed.id, '25', 'jb08-x', /is closed/],
+    ['3a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', '25', 'jb08-x', /not on this stack/],
+    ['not-a-pool', '25', 'jb08-x', /pool id/],
+    [journey.id, '0', 'jb08-x', /above 0/],
+    [journey.id, formatAmount(parseAmount(MAX_POOL_FUNDING) + parseAmount('1')), 'jb08-x', /at most/],
+    [journey.id, '-1', 'jb08-x', /exact decimal/],
+    [journey.id, '25', 'x', /ref/],
+  ]) {
+    await assert.rejects(fundEarnPool(deps, poolId, amount, ref), why, `${poolId} ${amount} ${ref}`);
+  }
+  assert.equal(ledger.attempts.length, before);
+});
+
+test('age-loan takes exactly its two operands; every other command still takes none', () => {
+  assert.deepEqual(parseArgs(['age-loan', 'id', '3', '--state', '/x']), { command: 'age-loan', operands: ['id', '3'], stateDir: '/x' });
+  assert.throws(() => parseArgs(['age-loan', 'id']), GuardError);
+  assert.throws(() => parseArgs(['age-loan', 'id', '3', 'extra']), /unknown argument "extra"/);
+  assert.throws(() => parseArgs(['apply', 'extra']), /unknown argument "extra"/);
+  assert.deepEqual(parseArgs(['fund-earn-pool', 'id', '25', 'ref1', '--state', '/x']), {
+    command: 'fund-earn-pool',
+    operands: ['id', '25', 'ref1'],
+    stateDir: '/x',
+  });
+  assert.throws(() => parseArgs(['fund-earn-pool', 'id', '25']), /needs <poolId> <amount> <ref>/);
 });

@@ -7,33 +7,33 @@
   .st {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 6px 12px;
+    gap: var(--if-space-2);
+    padding: var(--if-space-1-5) var(--if-space-3);
     border-top: 1px solid var(--if-line);
     min-width: 0;
-    font: 500 13px/18px var(--if-font-ui);
+    font: 500 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .st-bar {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px 12px;
+    gap: var(--if-space-2) var(--if-space-3);
   }
   .st-chips {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: var(--if-space-1-5);
   }
   .st-chip,
   .st-toggle {
     height: 26px;
-    padding: 0 8px;
+    padding: 0 var(--if-space-2);
     border: 1px solid var(--if-line);
-    border-radius: 999px;
+    border-radius: var(--if-r-pill);
     background: transparent;
     color: var(--if-fg);
-    font: 500 12px/16px var(--if-font-ui);
+    font: 500 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     cursor: pointer;
     white-space: nowrap;
   }
@@ -47,7 +47,7 @@
   .st-check {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--if-space-1-5);
   }
   /* The app's base reset strips native checkboxes to 0 by 0; the studies draw them at a usable size. */
   .st input[type='checkbox'],
@@ -61,7 +61,7 @@
   .st-legend {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--if-space-1);
   }
   .st-legend:empty {
     display: none;
@@ -70,7 +70,7 @@
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
-    gap: 4px 10px;
+    gap: var(--if-space-1) var(--if-space-2-5);
   }
   .st-row-name {
     color: var(--if-fg);
@@ -82,7 +82,7 @@
   .st-row-values,
   .st-value {
     display: inline-flex;
-    gap: 4px;
+    gap: var(--if-space-1);
     flex-wrap: wrap;
   }
   .st-value-text {
@@ -103,7 +103,7 @@
   }
   .st-table th,
   .st-table td {
-    padding: 2px 6px;
+    padding: var(--if-space-0-5) var(--if-space-1-5);
     text-align: right;
     border-bottom: 1px solid var(--if-line);
   }
@@ -114,15 +114,15 @@
   .st-window {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 8px;
+    gap: var(--if-space-1-5);
+    padding: var(--if-space-2);
     border: 1px solid var(--if-line);
-    border-radius: 8px;
+    border-radius: var(--if-r-sm);
   }
   .st-ohlc {
     display: grid;
     grid-template-columns: auto auto auto auto;
-    gap: 2px 10px;
+    gap: var(--if-space-0-5) var(--if-space-2-5);
     margin: 0;
     font-variant-numeric: tabular-nums;
   }
@@ -139,12 +139,12 @@
     list-style: none;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--if-space-0-5);
   }
   .st-dialog {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--if-space-3);
     max-height: 80vh;
     overflow-y: auto;
   }
@@ -152,19 +152,19 @@
   .st-field input,
   .st-field select {
     min-height: 32px;
-    padding: 0 8px;
+    padding: 0 var(--if-space-2);
     border: 1px solid var(--if-line);
-    border-radius: 8px;
+    border-radius: var(--if-r-sm);
     background: var(--if-field);
     color: var(--if-fg);
-    font: 500 14px/20px var(--if-font-ui);
+    font: 500 var(--if-text-base)/var(--if-leading-base) var(--if-font-ui);
   }
   .st-field input[aria-invalid='true'] {
     border-color: var(--if-down);
   }
   .st-group h3 {
-    margin: 8px 0 4px;
-    font: 600 12px/16px var(--if-font-ui);
+    margin: var(--if-space-2) 0 var(--if-space-1);
+    font: 600 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .st-group ul {
@@ -173,42 +173,42 @@
     list-style: none;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--if-space-1);
   }
   .st-group li {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--if-space-2);
     color: var(--if-fg);
   }
   .st-settings {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: var(--if-space-2-5);
   }
   .st-field {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    font: 500 12px/16px var(--if-font-ui);
+    gap: var(--if-space-0-5);
+    font: 500 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
   .st-shown {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px 10px;
+    gap: var(--if-space-1-5) var(--if-space-2-5);
     margin: 0;
     padding: 0;
     border: 0;
   }
   .st-shown legend {
     width: 100%;
-    margin-bottom: 4px;
+    margin-bottom: var(--if-space-1);
   }
   .st-actions {
     display: flex;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
 }

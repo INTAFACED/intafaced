@@ -4,11 +4,14 @@ import type { Resource } from '../../shared/resource';
 import { useSession } from '../session/session';
 import { date, useBankRead, type ActionSpec } from './components';
 import {
+  approvalMailAskedSchema,
   destinationCheckSchema,
+  destinationReadinessSchema,
   destinationRemovedSchema,
   destinationSchema,
   type Destination,
   type DestinationCheck,
+  type DestinationReadiness,
   type WithdrawAsset,
   walletProofStartedSchema,
   walletProofVerifiedSchema,
@@ -34,11 +37,12 @@ const STATE_KEYS = {
 } as const;
 
 /**
- * What the status column says. An active entry is not ready while its cooling-off has not ended, nor while the bank has
+ * What the status column says. An active or approved (cooling) entry is ready once its cooling-off has ended, which the
+ * bank's own readiness answer says the same way; it is not ready while the cooling-off runs, nor while the bank has
  * published no cooling-off period at all (the bank refuses to send to it then), so it reads cooling off or blocked.
  */
 export function shownState(state: keyof typeof STATE_KEYS, cooling: 'ends' | 'ended' | 'unset'): keyof typeof STATE_KEYS {
-  if (state !== 'active') return state;
+  if (state !== 'active' && state !== 'cooling') return state;
   return cooling === 'ends' ? 'cooling' : cooling === 'unset' ? 'blocked' : 'active';
 }
 
@@ -56,12 +60,14 @@ export function AddressTable({
   onRename,
   onRemove,
   onProve,
+  onUse,
 }: {
   rows: readonly Destination[];
   now?: number;
   onRename?: (row: Destination) => void;
   onRemove?: (row: Destination) => void;
   onProve?: (row: Destination) => void;
+  onUse?: (row: Destination) => void;
 }) {
   const { t } = withdrawalCopy.useCopy();
   return (
@@ -116,12 +122,19 @@ export function AddressTable({
                     </td>
                     <td>{date(row.addedAt)}</td>
                     <td>
-                      {cooling.state === 'unset'
-                        ? t('aCoolingUnset')
-                        : t(cooling.state === 'ends' ? 'aCoolingEnds' : 'aCoolingEnded', { time: date(cooling.at) })}
+                      {row.state === 'pending'
+                        ? t('aCoolingAfterApproval')
+                        : cooling.state === 'unset'
+                          ? t('aCoolingUnset')
+                          : t(cooling.state === 'ends' ? 'aCoolingEnds' : 'aCoolingEnded', { time: date(cooling.at) })}
                     </td>
                     <td>{row.state ? t(STATE_KEYS[shownState(row.state, cooling.state)]) : t('aNotReturned')}</td>
                     <td>
+                      {onUse && provable(row) ? (
+                        <Button variant="ghost" onClick={() => onUse(row)}>
+                          {t('aUse')}
+                        </Button>
+                      ) : null}
                       {onRename && row.state !== 'archived' ? (
                         <Button variant="ghost" onClick={() => onRename(row)}>
                           {t('aRename')}
@@ -167,6 +180,7 @@ export function AddressBook({
   onRename,
   onRemove,
   onProve,
+  onUse,
 }: {
   resource: Resource<readonly Destination[]>;
   reload: () => void;
@@ -174,10 +188,254 @@ export function AddressBook({
   onRename?: (row: Destination) => void;
   onRemove?: (row: Destination) => void;
   onProve?: (row: Destination) => void;
+  onUse?: (row: Destination) => void;
 }) {
   if (resource.status === 'loading') return <Loading />;
   if (resource.status === 'failed') return <Failure result={resource.failure} retry={reload} />;
-  return <AddressTable rows={resource.data} now={now} onRename={onRename} onRemove={onRemove} onProve={onProve} />;
+  return <AddressTable rows={resource.data} now={now} onRename={onRename} onRemove={onRemove} onProve={onProve} onUse={onUse} />;
+}
+
+/** The bank's refusals for the security lock (W-withdraw-09), which have plain words of their own. */
+const lockRefusal = (code: string | undefined) =>
+  code === 'bank.security_locked' || code === 'bank.security_lock_unavailable' || code === 'bank.security_lock_unset';
+
+/** The answer to "can money be sent to this address now?" in the customer's words, first reason first. */
+export function readinessWords(
+  answer: DestinationReadiness,
+  label: string,
+  t: ReturnType<typeof withdrawalCopy.useCopy>['t'],
+): { text: string; locked: boolean } {
+  switch (answer.state) {
+    case 'ready':
+      return { text: t('aUseReady', { label }), locked: false };
+    case 'cooling':
+      return {
+        text: answer.coolingOffEndsAt ? t('aUseCooling', { label, time: date(answer.coolingOffEndsAt) }) : t('aUseCoolingNoEnd', { label }),
+        locked: false,
+      };
+    case 'cooling_unset':
+      return { text: t('aUseCoolingUnset', { label }), locked: false };
+    case 'blocked':
+      return { text: t('aUseBlocked', { label }), locked: false };
+    case 'approval_pending':
+      return { text: t('aUseApproval', { label }), locked: false };
+    case 'locked':
+      return {
+        text: `${t('aUseLocked')} ${answer.lockUnlocksAt ? t('aUseLockEnds', { time: date(answer.lockUnlocksAt) }) : t('aUseLockAsk')}`,
+        locked: true,
+      };
+  }
+}
+
+/**
+ * "Withdraw to this address" (W-withdraw-09): the bank says whether money may be sent to this saved address now
+ * (`ramps.destinations.readiness`), with the lock and cooling-off rules its send path applies. A new address is refused
+ * with the time its cooling-off ends and a locked account with the lock. Nothing is sent from here.
+ */
+export function UseAddress({ row, onClose, onApproved }: { row: Destination; onClose: () => void; onApproved?: () => void }) {
+  const { t } = withdrawalCopy.useCopy();
+  const { api } = useSession();
+  const [answer, setAnswer] = useState<DestinationReadiness | null>(null);
+  // The refusal's code, or '' when the bank gave none; worded at render, in the language shown then.
+  const [failed, setFailed] = useState<string | null>(null);
+  // Approved here: the waiting answer no longer stands, and the approval says what happens next.
+  const [approvedHere, setApprovedHere] = useState(false);
+  useEffect(() => {
+    let live = true;
+    api
+      .query('bank', 'ramps.destinations.readiness', { destinationId: row.destinationId }, destinationReadinessSchema)
+      .then((result) => {
+        if (!live) return;
+        if (result.ok) setAnswer(result.data);
+        else setFailed(result.code ?? '');
+      })
+      .catch(() => {
+        if (live) setFailed('');
+      });
+    return () => {
+      live = false;
+    };
+  }, [api, row.destinationId]);
+  const problem = failed === null ? null : (moneyRefusalWords(failed) ?? t('aUseFailed'));
+  const words = answer ? readinessWords(answer, row.label ?? shortenAddress(row.ref), t) : null;
+  return (
+    <div className="bd-stack" data-testid="address-use">
+      {!answer && !problem && <p role="status">{t('aUseChecking')}</p>}
+      {words && !approvedHere && <p role={answer?.state === 'ready' ? 'status' : 'alert'}>{words.text}</p>}
+      {problem && <p role="alert">{problem}</p>}
+      {answer?.state === 'approval_pending' && (
+        <>
+          <ApproveHere
+            row={row}
+            onApproved={() => {
+              setApprovedHere(true);
+              onApproved?.();
+            }}
+          />
+          {!approvedHere && <ApprovalMail destinationId={row.destinationId} openUntil={answer.approvalLinkExpiresAt ?? null} />}
+        </>
+      )}
+      <p>
+        {words?.locked && (
+          <a className="button button--secondary" href="/uc/safe">
+            {t('aUseSecurity')}
+          </a>
+        )}
+        <Button variant="ghost" onClick={onClose}>
+          {t('aUseClose')}
+        </Button>
+      </p>
+    </div>
+  );
+}
+
+/** The bank's refusals of approving on this device, in the customer's words. */
+function approveHereWords(code: string | undefined, t: ReturnType<typeof withdrawalCopy.useCopy>['t']): string {
+  switch (code) {
+    case 'bank.address_approval_same_device':
+      return t('aApproveHereSame');
+    case 'bank.address_approval_device_unknown':
+      return t('aApproveHereUnknown');
+    case 'bank.address_approval_device_untrusted':
+      return t('aApproveHereUntrusted');
+    case 'bank.address_approval_device_unavailable':
+      return t('aApproveHereUnavailable');
+    case 'bank.address_approval_not_pending':
+      return t('aApprovalNotPending');
+    default:
+      return moneyRefusalWords(code) ?? t('aApproveHereFailed');
+  }
+}
+
+/**
+ * "Approve on this device" (W-withdraw-09): approves a waiting address from a signed-in device that did not save it,
+ * after a fresh confirmation. The bank tells the devices apart from the access tokens, never from anything sent here, and
+ * refuses the device that saved it, saying where to approve instead.
+ */
+export function ApproveHere({ row, onApproved }: { row: Destination; onApproved?: () => void }) {
+  const { t } = withdrawalCopy.useCopy();
+  const { api } = useSession();
+  const [confirming, setConfirming] = useState(false);
+  const [done, setDone] = useState<Destination | null>(null);
+  const [refused, setRefused] = useState<string | null>(null);
+  const answered = useRef<Destination | null>(null);
+  const label = row.label ?? shortenAddress(row.ref);
+  if (done) {
+    return (
+      <div className="bd-stack" data-testid="address-approve-here">
+        <p role="status">
+          {done.coolingOffEndsAt ? t('apDone', { label, time: date(done.coolingOffEndsAt) }) : t('apDoneNoTime', { label })}
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="bd-stack" data-testid="address-approve-here">
+      {refused && <p role="alert">{refused}</p>}
+      <p>
+        <Button
+          variant="primary"
+          onClick={() => {
+            setRefused(null);
+            setConfirming(true);
+          }}
+        >
+          {t('aApproveHere')}
+        </Button>
+      </p>
+      {confirming && (
+        <WithdrawStepUp
+          why={t('aApproveWhy')}
+          run={async (bearer) => {
+            const answer = await api.mutate(
+              'bank',
+              'ramps.destinations.approval.onDevice',
+              { destinationId: row.destinationId },
+              destinationSchema,
+              { bearer },
+            );
+            if (answer.ok) {
+              answered.current = answer.data;
+              return answer;
+            }
+            if (
+              answer.code === 'bank.address_approval_same_device' ||
+              answer.code === 'bank.address_approval_device_unknown' ||
+              answer.code === 'bank.address_approval_device_untrusted'
+            ) {
+              // Nothing the person can fix in this dialog: it closes and the panel says where to approve instead.
+              setRefused(approveHereWords(answer.code, t));
+              setConfirming(false);
+            }
+            return { ...answer, message: approveHereWords(answer.code, t) };
+          }}
+          onDone={() => {
+            setConfirming(false);
+            setDone(answered.current);
+            onApproved?.();
+          }}
+          onCancel={() => setConfirming(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** The bank's refusals of an approval-link request, in the customer's words. */
+function approvalMailWords(code: string | undefined, t: ReturnType<typeof withdrawalCopy.useCopy>['t']): string {
+  switch (code) {
+    case 'bank.address_approval_email_unproved':
+      return t('aApprovalMailUnproved');
+    case 'bank.address_approval_mail_unavailable':
+      return t('aApprovalMailOff');
+    case 'bank.address_approval_link_unset':
+      return t('aApprovalLinkUnset');
+    case 'bank.address_approval_not_pending':
+      return t('aApprovalNotPending');
+    default:
+      return moneyRefusalWords(code) ?? t('aApprovalMailFailed');
+  }
+}
+
+/**
+ * "Email me an approval link" (W-withdraw-09): the bank asks identity to mail a single-use link to the email address on
+ * the account. The answer says the link was asked for and until when it works, never that it arrived. Asking again
+ * replaces the open link, so only the newest email works.
+ */
+export function ApprovalMail({ destinationId, openUntil }: { destinationId: string; openUntil: string | null }) {
+  const { t } = withdrawalCopy.useCopy();
+  const { api } = useSession();
+  const [busy, setBusy] = useState(false);
+  const [asked, setAsked] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const until = asked ?? openUntil;
+  async function ask() {
+    if (busy) return;
+    setBusy(true);
+    setProblem(null);
+    try {
+      const answer = await api.mutate('bank', 'ramps.destinations.approval.requestMail', { destinationId }, approvalMailAskedSchema);
+      if (answer.ok) setAsked(answer.data.expiresAt);
+      else setProblem(approvalMailWords(answer.code, t));
+    } catch {
+      setProblem(t('aApprovalMailFailed'));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="bd-stack" data-testid="address-approval-mail">
+      {until && (
+        <p role="status">{asked ? t('aApprovalMailAsked', { time: date(asked) }) : t('aUseApprovalOpen', { time: date(until) })}</p>
+      )}
+      {problem && <p role="alert">{problem}</p>}
+      <p>
+        <Button variant="secondary" onClick={() => void ask()} disabled={busy}>
+          {until ? t('aApprovalMailAgain') : t('aApprovalMail')}
+        </Button>
+      </p>
+    </div>
+  );
 }
 
 type ProofOffer = { proofId: string; message: string; expiresAt: string };
@@ -269,7 +527,7 @@ export function ProveOwnership({ row, onProved, onClose }: { row: Destination; o
       {!offer && !problem && <p role="status">{t('aProveStarting')}</p>}
       {offer && !provedUntil && !lapsed && (
         <form className="bd-stack" onSubmit={verify} noValidate>
-          <label className="field">
+          <label data-testid="field" className="field">
             <span>{t('aProveMessage')}</span>
             <textarea readOnly value={offer.message} rows={6} lang="und" data-testid="wallet-proof-message" />
             <small>{t('aProveUntil', { time: date(offer.expiresAt) })}</small>
@@ -288,7 +546,7 @@ export function ProveOwnership({ row, onProved, onClose }: { row: Destination; o
             </Button>
             {copied && <small role="status"> {t('aProveCopied')}</small>}
           </p>
-          <label className="field">
+          <label data-testid="field" className="field">
             <span>{t('aProveSignature')}</span>
             <textarea
               value={signature}
@@ -436,7 +694,7 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
   return (
     <>
       <form className="bd-stack" onSubmit={submit} noValidate aria-label={t('aAddTitle')}>
-        <label className="field">
+        <label data-testid="field" className="field">
           <span>{t('aLabel')}</span>
           <input
             value={draft.label}
@@ -449,7 +707,7 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
             {t(shown('label') ?? 'aLabelHint')}
           </small>
         </label>
-        <label className="field">
+        <label data-testid="field" className="field">
           <span>{t('aAsset')}</span>
           <select
             value={draft.assetId}
@@ -468,7 +726,7 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
           </select>
           {shown('asset') && <small role="alert">{t('aAssetPick')}</small>}
         </label>
-        <label className="field">
+        <label data-testid="field" className="field">
           <span>{t('aNetwork')}</span>
           <select
             value={draft.network}
@@ -486,7 +744,7 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
           </select>
           <small id="address-network-hint">{t('aNetworkHint')}</small>
         </label>
-        <label className="field">
+        <label data-testid="field" className="field">
           <span>{t('aAddress')}</span>
           <input
             value={draft.address}
@@ -501,7 +759,7 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
             {t(shown('address') ?? 'aAddressHint')}
           </small>
         </label>
-        <label className="field">
+        <label data-testid="field" className="field">
           <span>{t('aTag')}</span>
           <input
             value={draft.tag}
@@ -552,7 +810,8 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
             // The two address refusals in the customer's own words; the check above makes them rare.
             if (!answer.ok && answer.code === 'bank.address_lookalike') return { ...answer, message: t('aLookalikeRefused') };
             if (!answer.ok && answer.code === 'bank.address_checksum_mismatch') return { ...answer, message: t('aAddressChecksum') };
-            return answer;
+            // The security lock's refusals in the customer's words; any other refusal keeps the bank's own sentence.
+            return !answer.ok && lockRefusal(answer.code) ? { ...answer, message: moneyRefusalWords(answer.code)! } : answer;
           }}
           onDone={() => {
             setConfirming(false);
@@ -582,6 +841,7 @@ export function WithdrawalAddresses({ open }: { open?: (spec: ActionSpec) => voi
   const [removing, setRemoving] = useState<Destination | null>(null);
   const [removed, setRemoved] = useState<string | null>(null);
   const [proving, setProving] = useState<Destination | null>(null);
+  const [using, setUsing] = useState<Destination | null>(null);
   // Renaming changes only the label (`bank:write`), so it needs no confirmation.
   const rename = open
     ? (row: Destination) =>
@@ -616,7 +876,9 @@ export function WithdrawalAddresses({ open }: { open?: (spec: ActionSpec) => voi
               setRemoving(row);
             }}
             onProve={(row) => setProving(row)}
+            onUse={(row) => setUsing(row)}
           />
+          {using && <UseAddress key={using.destinationId} row={using} onClose={() => setUsing(null)} onApproved={book.reload} />}
           {removed && <p role="status">{t('aRemoved', { label: removed })}</p>}
           {proving && <ProveOwnership key={proving.destinationId} row={proving} onProved={book.reload} onClose={() => setProving(null)} />}
         </DepthPanel>
@@ -638,6 +900,8 @@ export function WithdrawalAddresses({ open }: { open?: (spec: ActionSpec) => voi
             }
             onDone={() => {
               setRemoved(removing.label ?? shortenAddress(removing.ref));
+              // An answer about the removed address no longer stands.
+              if (using?.destinationId === removing.destinationId) setUsing(null);
               setRemoving(null);
               book.reload();
             }}

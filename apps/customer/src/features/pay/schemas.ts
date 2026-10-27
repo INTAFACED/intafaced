@@ -56,6 +56,13 @@ export const offerSchema = z.object({
   maxAmount: amount,
   remainingAmount: amount,
   methods: z.array(z.unknown()),
+  /**
+   * P-disputes-security-09: the listed methods whose money arrives within a settlement window, with the longest window
+   * any market sets (null: the published payment time applies). Instant methods are not listed.
+   */
+  nonInstantMethods: z.array(z.object({ methodId: z.string(), windowSeconds: z.number().int().positive().nullable() })).optional(),
+  /** P-disputes-security-09: the seller accepted non-instant methods when posting. */
+  acceptsNonInstant: z.boolean().optional(),
   terms: z.string(),
   status: z.enum(['active', 'paused', 'closed']),
   createdAt: z.string(),
@@ -88,6 +95,12 @@ export const displayStatuses = [
   'cancelled_by_timeout',
   'cancelled_by_dispute_ruling',
 ] as const;
+/** How money on a payment method arrives in one market (svc-p2p settlement profile). */
+export const methodSettlementSchema = z.union([
+  z.object({ instant: z.literal(true) }),
+  z.object({ instant: z.literal(false), windowSeconds: z.number().int().positive().nullable() }),
+]);
+export type MethodSettlement = z.infer<typeof methodSettlementSchema>;
 export const tradeSchema = z.object({
   id,
   offerId: id,
@@ -114,7 +127,41 @@ export const tradeSchema = z.object({
   feeBps: z.number().int().min(0).max(9_999).optional(),
   fee: amount.nullable().optional(),
   netAmount: amount.nullable().optional(),
+  /** `trades.get` only: the method's settlement profile in the market the buyer pays into, copied at take. */
+  settlement: methodSettlementSchema.optional(),
+  /** `trades.get` only: while the escrow is held, the split a release would post (null once it is not held). */
+  releasePreview: z.object({ fee: amount, netAmount: amount }).nullable().optional(),
+  /** `trades.get` only: what of this order is still in escrow (zero once the release or refund posted; null while `created`). */
+  escrowHeld: amount.nullable().optional(),
+  /** `trades.get` only: the buyer's reminders to the seller (P-trade-orders-15). */
+  reminders: z.lazy(() => tradeRemindersSchema).optional(),
+  mismatch: z.lazy(() => tradeMismatchSchema.nullable()).optional(),
+  /** svc-p2p `trades.get` `paymentValidation`: what stops the bank rail checking this order, or null. */
+  paymentValidation: z.object({ blocker: z.enum(['rail.bank', 'p2p.method_not_rail_validated']).nullable() }).optional(),
 });
+/** svc-p2p `trades.remind` and `trades.get` `reminders`: how many went, the last, when the next may go, the owner's count. */
+export const tradeRemindersSchema = z.object({
+  count: z.number().int().nonnegative(),
+  lastAt: z.string().datetime().nullable(),
+  nextAt: z.string().datetime().nullable(),
+  max: z.number().int().positive().nullable(),
+});
+export type TradeReminders = z.infer<typeof tradeRemindersSchema>;
+/**
+ * svc-p2p `trades.reportMismatch` and `trades.get` `mismatch`: the seller's report of what arrived, and the owner's band
+ * it was classified by (`reported` when the band is blank and a person decides).
+ */
+export const tradeMismatchSchema = z.object({
+  kind: z.enum(['under', 'over', 'partial']),
+  amountReceived: z.string(),
+  expected: z.string(),
+  classification: z.enum(['within_tolerance', 'outside_tolerance', 'reported']),
+  toleranceBps: z.number().int().nonnegative().nullable(),
+  reportedAt: z.string().datetime(),
+});
+export type TradeMismatch = z.infer<typeof tradeMismatchSchema>;
+/** svc-p2p `trades.validatePayment`: released on an exact match, or pending while the bank shows nothing. */
+export const validatePaymentSchema = z.object({ outcome: z.enum(['released', 'pending']), trade: tradeSchema });
 /** svc-p2p `trades.page`: one keyset page newest first, the server's tab and readable status per row, and exact per-tab counts. */
 export const orderTabs = ['in_progress', 'in_dispute', 'completed', 'cancelled'] as const;
 export const orderPageSchema = z.object({
@@ -196,12 +243,29 @@ export const instrumentSchema = z.object({
   updatedAt: z.string(),
   removedAt: z.string().nullable(),
 });
+/** `instruments.revealMasked`: the owner's own values as svc-p2p masks them, read only on request and logged like every read. */
+export const revealedInstrumentSchema = instrumentSchema.extend({ details: z.record(z.string(), z.string()) });
+/** One field a payment method asks for, as svc-p2p's registry publishes it. About the method, never about a person. */
+export const methodFieldSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  required: z.boolean(),
+  pattern: z.string().optional(),
+  minLength: z.number().int().optional(),
+  maxLength: z.number().int().optional(),
+  sensitive: z.boolean().optional(),
+  help: z.string().optional(),
+  /** P-ads-merchant-18: the account holder, who must be the person themself. */
+  holderName: z.boolean().optional(),
+});
+export type MethodField = z.infer<typeof methodFieldSchema>;
 export const methodSchema = z.object({
   methodId: z.string(),
   country: z.string(),
   label: z.string(),
-  fields: z.array(z.unknown()),
+  fields: z.array(methodFieldSchema),
   enabled: z.boolean(),
+  settlement: methodSettlementSchema.optional(),
 });
 export const fiatSchema = z.object({ code: z.string(), name: z.string(), symbol: z.string(), minorUnits: z.number().int() });
 export const tradeDestinationSchema = z.object({
@@ -229,6 +293,8 @@ export const p2pHealthSchema = z.object({
   offerLimitsConfigured: z.boolean(),
   offerLimitsPosture: z.enum(['unset', 'unlimited', 'configured']),
   instrumentKmsConfigured: z.literal(false),
+  /** `local-test` is the test stack's seal; anything else refuses new ads until the owner's key service is wired. */
+  instrumentKeyProvider: z.enum(['none', 'local-test']).optional(),
 });
 export const disputeSchema = z.object({
   id,
@@ -325,6 +391,47 @@ export type P2PEligibility = z.infer<typeof p2pEligibilitySchema>;
 /** `risk.notice` / `risk.accept`: the owner-published notice version and when this person accepted it. */
 export const p2pRiskNoticeSchema = z.object({ version: z.string(), acceptedAt: z.string().nullable() });
 export type P2PRiskNotice = z.infer<typeof p2pRiskNoticeSchema>;
+/** P-ads-merchant-01: the caller's free balance of one coin, as svc-p2p reads it from the ledger. */
+export const p2pSellBalanceSchema = z.object({ asset: z.string(), available: amount });
+/** P-ads-merchant-02 (`limits.verification`): the per-order band the caller's verification level allows, in one fiat. */
+export const p2pLevelLimitsSchema = z.object({
+  tier: z.enum(['none', 'basic', 'full', 'institutional']),
+  currency: z.string(),
+  orderMin: amount,
+  orderMax: amount,
+});
+export type P2PLevelLimits = z.infer<typeof p2pLevelLimitsSchema>;
+/** P-ads-merchant-12: the posting checklist for one fiat, every check with the person's value and the target. */
+export const p2pPostingEligibilitySchema = z.object({
+  fiatCurrency: z.string(),
+  policy: z.enum(['thresholds', 'none', 'unset', 'invalid']),
+  checks: z.array(
+    z.object({
+      id: z.enum(['kyc_tier', 'completed_orders', 'completion_rate']),
+      state: z.enum(['met', 'not_met', 'unknown']),
+      current: z.string().nullable(),
+      required: z.string().nullable(),
+      reason: z.string(),
+    }),
+  ),
+});
+export type P2PPostingEligibility = z.infer<typeof p2pPostingEligibilitySchema>;
+/** P-ads-merchant-01: what the post-an-ad form sends to `offers.create`, besides its key and the terms version. */
+export type PostOfferInput = {
+  side: 'buy' | 'sell';
+  asset: string;
+  fiatCurrency: string;
+  priceType: 'fixed' | 'float';
+  price: string;
+  minAmount: string;
+  maxAmount: string;
+  totalAmount?: string;
+  methods: string[];
+  terms?: string;
+  acceptsNonInstant?: boolean;
+  /** The ad's own id, chosen once per form; the post's key names it too. */
+  offerId?: string;
+};
 export const p2pApiAccessSchema = z.object({
   eligible: z.boolean(),
   credential: z.enum(['session', 'api_key']),
@@ -480,6 +587,8 @@ export const subscriptionSchema = z.object({
   resumedAt: z.string().nullable(),
   stalledAt: z.string().nullable(),
   stallReason: z.enum(['operator_pause', 'runner_outage', 'arrears', 'fee_unpublished', 'window_exhausted', 'due_pass_fault']).nullable(),
+  /** The catalogue price it was started on; absent or null when it was started from a mandate alone. */
+  priceId: id.nullish(),
 });
 export const executionSchema = z.object({
   id,
@@ -583,6 +692,27 @@ export type TradeDestination = z.infer<typeof tradeDestinationSchema>;
 export type OrderPage = z.infer<typeof orderPageSchema>;
 export type OrderTab = (typeof orderTabs)[number];
 export type OrderExport = z.infer<typeof orderExportSchema>;
+/** svc-p2p `reviews.*`: one good/bad review per party of a released order. */
+export const orderReviewSchema = z.object({
+  id,
+  /** Null for a viewer who is neither the author nor the subject (`reviews.list`). */
+  tradeId: id.nullable(),
+  authorId: z.string().nullable(),
+  subjectId: z.string(),
+  rating: z.enum(['good', 'bad']),
+  comment: z.string(),
+  explanation: z.string().nullable(),
+  reply: z.string().nullable(),
+  repliedAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  hidden: z.boolean(),
+  hiddenReason: z.string().nullable(),
+});
+/** `reviews.forTrade`: the viewer's own review of the order and the visible one about them. */
+export const tradeReviewsSchema = z.object({ mine: orderReviewSchema.nullable(), theirs: orderReviewSchema.nullable() });
+export type OrderReview = z.infer<typeof orderReviewSchema>;
+export type TradeReviews = z.infer<typeof tradeReviewsSchema>;
 export type OrderReceipt = z.infer<typeof orderReceiptSchema>;
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 export type ChatPage = z.infer<typeof chatPageSchema>;

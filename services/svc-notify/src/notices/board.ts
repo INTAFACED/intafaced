@@ -18,9 +18,21 @@ import {
   type ChangelogInput,
   type RetiredEndpoint,
 } from './changelog.js';
+import {
+  AudienceUnavailableError,
+  NOTICE_AUDIENCES,
+  isNoticeAudience,
+  type AudienceMembership,
+  type MemberAudience,
+  type NoticeAudience,
+} from './audiences.js';
 import { buildStatusFeed, clampStatusDays, openIncidentRoots, STATUS_FEED_ROWS_MAX, type StatusFeed } from './status-feed.js';
 
-export const NOTICE_KINDS = ['announcement', 'maintenance', 'incident', 'changelog'] as const;
+/**
+ * `fee_change` announces a new trading fee schedule version: `startsAt` is the time it takes effect, and it has no end.
+ * It is read before that time and changes no rate itself; the rate changes only with svc-trade's stored version.
+ */
+export const NOTICE_KINDS = ['announcement', 'maintenance', 'incident', 'changelog', 'fee_change'] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 export type NoticeStatus = 'draft' | 'published';
 
@@ -65,6 +77,10 @@ export type NoticeCode =
   | 'notify.notice_phase_invalid'
   | 'notify.notice_incident_resolved'
   | 'notify.notice_reminders_invalid'
+  | 'notify.notice_audience_invalid'
+  | 'notify.notice_audience_unavailable'
+  | 'notify.notice_effective_invalid'
+  | 'notify.notice_effective_passed'
   | 'status.category_unknown'
   | ChangelogCode;
 
@@ -95,6 +111,8 @@ export type NoticeWire = {
   readonly changelog: Changelog | null;
   /** The category it was filed under, as the founders' list named it then; null for none. */
   readonly category: NoticeCategory | null;
+  /** Who it is for. Every public read carries `everyone` alone; another audience is read signed in by its members. */
+  readonly audience: NoticeAudience;
 };
 
 export type NoticeRow = {
@@ -129,6 +147,8 @@ export type NoticeRow = {
    * absent on rows written before this field) means none.
    */
   reminderOffsets?: readonly number[];
+  /** Who it is for; absent on rows written before this field, which are for everyone. Only an announcement names another. */
+  audience?: NoticeAudience;
   authorId: string;
   clientRequestId: string;
   publishClientRequestId: string | null;
@@ -199,10 +219,12 @@ export interface NoticeStore {
   findByDraftRequest(authorId: string, clientRequestId: string): Promise<NoticeRow | null>;
   findById(id: string): Promise<NoticeRow | null>;
   /**
-   * Published rows, newest first (ties by id). With `after`, only the rows that come after that position in the same
+   * Published rows for everyone, newest first (ties by id). With `after`, only the rows that come after that position in the same
    * order: the next page of a paged read.
    */
   listPublished(kind: NoticeKind | null, limit: number, after?: NoticeCursor): Promise<readonly NoticeRow[]>;
+  /** Published announcements for any of these member audiences that are open at `at`, newest first: never a public read. */
+  listOpenForAudiences(audiences: readonly MemberAudience[], at: Date, limit: number): Promise<readonly NoticeRow[]>;
   /** Published incident and maintenance rows, newest first, for the status feed. */
   listPublishedForStatus(limit: number): Promise<readonly NoticeRow[]>;
   /** Published maintenance with reminder offsets that starts after `at`, soonest first: the reminder sweep's work list. */
@@ -259,8 +281,12 @@ export function toNoticeWire(row: NoticeRow): NoticeWire {
     phase: row.phase,
     changelog: row.changelog,
     category: row.category ?? null,
+    audience: row.audience ?? 'everyone',
   };
 }
+
+/** For the public board: signed-out reads, the announcement slot and status subscribers. */
+const forEveryone = (row: NoticeRow): boolean => (row.audience ?? 'everyone') === 'everyone';
 
 export function toOperatorNotice(row: NoticeRow): OperatorNotice {
   return {
@@ -299,6 +325,9 @@ function payloadHash(row: NoticeRow): string {
     ...(row.changelog ? { changelog: row.changelog } : {}),
     ...(row.reminderOffsets?.length ? { reminders: row.reminderOffsets } : {}),
     ...(row.category ? { category: row.category } : {}),
+    ...(row.audience && row.audience !== 'everyone' ? { audience: row.audience } : {}),
+    // A fee change is approved with the time it takes effect.
+    ...(row.kind === 'fee_change' ? { effectiveAt: row.startsAt?.toISOString() ?? null } : {}),
   });
   return `sha256:${createHash('sha256').update(payload).digest('hex')}`;
 }
@@ -325,6 +354,16 @@ function reminderFields(kind: NoticeKind, input: readonly number[] | null | unde
 }
 
 const CHANGELOG_ROWS_MAX = 500;
+
+/**
+ * Everyone unless the draft names another audience. Only an announcement may: incidents, maintenance and changelog
+ * entries are the public status record.
+ */
+function audienceField(kind: NoticeKind, input: string | null | undefined): NoticeAudience {
+  if (input == null || input === '' || input === 'everyone') return 'everyone';
+  if (!isNoticeAudience(input) || kind !== 'announcement') throw new NoticeError('notify.notice_audience_invalid');
+  return input;
+}
 
 /** Changelog fields belong to changelog notices alone, and a changelog notice names its area. */
 function changelogFields(kind: NoticeKind, input: ChangelogInput | null | undefined): Changelog | null {
@@ -373,15 +412,22 @@ export class MemoryNoticeStore implements NoticeStore {
     const order = (a: { publishedAt: Date | null; id: string }, b: { publishedAt: Date | null; id: string }) =>
       (b.publishedAt?.getTime() ?? 0) - (a.publishedAt?.getTime() ?? 0) || a.id.localeCompare(b.id);
     return [...this.rows.values()]
-      .filter((row) => row.status === 'published' && (kind == null || row.kind === kind))
+      .filter((row) => row.status === 'published' && forEveryone(row) && (kind == null || row.kind === kind))
       .filter((row) => !after || order(row, after) > 0)
       .sort(order)
       .slice(0, limit);
   }
 
+  async listOpenForAudiences(audiences: readonly MemberAudience[], at: Date, limit: number): Promise<readonly NoticeRow[]> {
+    return [...this.rows.values()]
+      .filter((row) => noticeIsOpen(row, at) && (audiences as readonly string[]).includes(row.audience ?? 'everyone'))
+      .sort((a, b) => (b.publishedAt?.getTime() ?? 0) - (a.publishedAt?.getTime() ?? 0) || a.id.localeCompare(b.id))
+      .slice(0, limit);
+  }
+
   async listPublishedForStatus(limit: number): Promise<readonly NoticeRow[]> {
     return [...this.rows.values()]
-      .filter((row) => row.status === 'published' && (row.kind === 'incident' || row.kind === 'maintenance'))
+      .filter((row) => row.status === 'published' && forEveryone(row) && (row.kind === 'incident' || row.kind === 'maintenance'))
       .sort((a, b) => (b.publishedAt?.getTime() ?? 0) - (a.publishedAt?.getTime() ?? 0) || a.id.localeCompare(b.id))
       .slice(0, limit);
   }
@@ -463,6 +509,8 @@ export class NoticeBoard {
     private readonly closedMaintenance: (ids: readonly string[]) => Promise<ReadonlySet<string>> = async () => new Set(),
     /** The founders' notice categories; null when none is set, so a notice names none. */
     private readonly noticeCategories: () => Promise<readonly NoticeCategory[] | null> = async () => null,
+    /** Who is in each member audience, asked of the service that owns it. Null when unwired: member reads refuse. */
+    private readonly membership: AudienceMembership | null = null,
   ) {}
 
   /** Published rows for the status reads, without maintenance an operator has closed. */
@@ -508,6 +556,7 @@ export class NoticeBoard {
       changelog?: ChangelogInput | null;
       reminderOffsets?: readonly number[] | null;
       category?: string | null;
+      audience?: string | null;
       clientRequestId: string;
     },
   ): Promise<NoticeWire> {
@@ -520,8 +569,17 @@ export class NoticeBoard {
     const status = await this.statusFields({ ...input, kind: input.kind });
     const changelog = changelogFields(input.kind, input.changelog);
     const startsAt = parseOptionalInstant(input.startsAt, 'notify.notice_copy_unset');
+    const endsAt = parseOptionalInstant(input.endsAt, 'notify.notice_copy_unset');
+    // A fee change names the one time it takes effect, and never ends.
+    if (input.kind === 'fee_change' && (startsAt === null || endsAt !== null)) throw new NoticeError('notify.notice_effective_invalid');
+    // A fee change is told before it takes effect, never after.
+    if (input.kind === 'fee_change' && startsAt !== null && startsAt.getTime() <= this.now().getTime())
+      throw new NoticeError('notify.notice_effective_passed');
     const reminderOffsets = reminderFields(input.kind, input.reminderOffsets, startsAt);
     const category = await this.categoryField(input.kind, input.category);
+    const audience = audienceField(input.kind, input.audience);
+    // A notice for an audience whose members cannot be told apart here would be published to no one.
+    if (audience !== 'everyone' && !this.membership) throw new NoticeError('notify.notice_audience_unavailable');
     const row: NoticeRow = {
       id: randomUUID(),
       kind: input.kind,
@@ -530,12 +588,13 @@ export class NoticeBoard {
       status: 'draft',
       publishedAt: null,
       startsAt,
-      endsAt: parseOptionalInstant(input.endsAt, 'notify.notice_copy_unset'),
+      endsAt,
       version: 1,
       ...status,
       changelog,
       reminderOffsets,
       category,
+      audience,
       authorId,
       clientRequestId: input.clientRequestId,
       publishClientRequestId: null,
@@ -692,7 +751,7 @@ export class NoticeBoard {
     let cursor: NoticeCursor | undefined;
     if (input.after != null) {
       const row = await this.store.findById(input.after.toLowerCase());
-      if (!row || row.status !== 'published' || row.publishedAt === null || (kind !== null && row.kind !== kind)) {
+      if (!row || row.status !== 'published' || !forEveryone(row) || row.publishedAt === null || (kind !== null && row.kind !== kind)) {
         throw new NoticeError('notify.notices_cursor_unknown');
       }
       cursor = { publishedAt: row.publishedAt, id: row.id };
@@ -703,10 +762,10 @@ export class NoticeBoard {
     return { notices: page, next: rows.length > limit ? (page.at(-1)?.id ?? null) : null };
   }
 
-  /** A published notice as its subscriber fan-out takes it, or null when there is none by that id. */
+  /** A published notice as its subscriber fan-out takes it, or null when there is none by that id or it is for members. */
   async publishedForFanOut(id: string): Promise<NoticeRow | null> {
     const row = await this.store.findById(id);
-    return row && row.status === 'published' ? row : null;
+    return row && row.status === 'published' && forEveryone(row) ? row : null;
   }
 
   /** An incident as a postmortem needs it: unknown unless it is a published first entry, then open or resolved. */
@@ -718,8 +777,32 @@ export class NoticeBoard {
 
   async notice(id: string): Promise<NoticeWire> {
     const row = await this.store.findById(id);
-    if (!row || row.status !== 'published') throw new NoticeError('notify.notice_not_found');
+    // A members' notice reads as no notice at all on the public door.
+    if (!row || row.status !== 'published' || !forEveryone(row)) throw new NoticeError('notify.notice_not_found');
     return toNoticeWire(row);
+  }
+
+  /** The audiences a notice can be for, and whether each one's membership can be read here. */
+  audiences(): readonly { id: NoticeAudience; available: boolean }[] {
+    return NOTICE_AUDIENCES.map((id) => ({ id, available: id === 'everyone' || this.membership !== null }));
+  }
+
+  /**
+   * Open announcements for the member audiences this account is in, newest first. None of them is for this account: an
+   * empty list. Membership that cannot be read refuses `notify.notice_audience_unavailable`, never a guessed list.
+   */
+  async memberNotices(userId: string, input: { limit: number }, at: Date = this.now()): Promise<readonly NoticeWire[]> {
+    const limit = clampNoticeLimit(input.limit);
+    if (!this.membership) throw new NoticeError('notify.notice_audience_unavailable');
+    let audiences: ReadonlySet<MemberAudience>;
+    try {
+      audiences = await this.membership.audiencesOf(userId);
+    } catch (err) {
+      if (err instanceof AudienceUnavailableError) throw new NoticeError('notify.notice_audience_unavailable');
+      throw err;
+    }
+    if (audiences.size === 0) return [];
+    return (await this.store.listOpenForAudiences([...audiences], at, limit)).map(toNoticeWire);
   }
 
   /** Published changelog entries, newest first, optionally narrowed to one area or to breaking entries. */
@@ -812,6 +895,9 @@ export class NoticeBoard {
     const row = await this.store.findById(input.id);
     if (!row) return fail('notify.notice_not_found');
     if (row.status === 'published') return fail('notify.notice_published_immutable');
+    // A fee change whose time came while it waited for its approval would be told after the fact: draft it again.
+    if (row.kind === 'fee_change' && (!row.startsAt || row.startsAt.getTime() <= this.now().getTime()))
+      return fail('notify.notice_effective_passed');
     if (row.parentId) {
       const parent = await this.store.findById(row.parentId);
       if (!parent || parent.status !== 'published') return fail('notify.notice_parent_invalid');
@@ -854,6 +940,8 @@ export class NoticeBoard {
     if (!published) return fail('notify.notice_not_found');
     const wire = toNoticeWire(published);
     await this.commands.put(publisherId, 'publishNotice', input.clientRequestId, { ok: true, notice: wire } satisfies PublishReplay);
+    // A members' notice never reaches the public status subscribers.
+    if (!forEveryone(published)) return wire;
     // Fan-out runs after the answer, so a slow subscriber endpoint never holds the publish.
     void this.onPublished(published).catch(() => console.error('notify.notice_fanout_failed', published.id));
     return wire;

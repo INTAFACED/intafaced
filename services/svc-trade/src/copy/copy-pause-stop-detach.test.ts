@@ -15,6 +15,7 @@ import type { TradeService } from '../spot/trade-service.js';
 import type { PlaceFollowerOrderPort } from './auto-mirror-place.js';
 
 import { MemoryCopyFollowStore } from './follow-store.js';
+import { GateOpenLedger, GateOpenStore, OPEN_FOLLOW_GATE } from './test/follow-gate.fixture.js';
 
 const SECRET = 'copy-pause-stop-detach-edge-secret-32b';
 const FOLLOWER = '11111111-1111-4111-8111-111111111111';
@@ -69,8 +70,9 @@ function anyLeaderFill(): LookupLeaderFillPort {
   });
 }
 
-function wiredCopy(placeFollowerOrder: PlaceFollowerOrderPort, store = new MemoryCopyFollowStore()) {
-  return new CopyService(new MemoryLedger(), {
+function wiredCopy(placeFollowerOrder: PlaceFollowerOrderPort, store: MemoryCopyFollowStore = new GateOpenStore()) {
+  return new CopyService(new GateOpenLedger(), {
+    ...OPEN_FOLLOW_GATE,
     feeShareLaw: publishedFee,
     jurisdictionLaw: publishedJur,
     placeMirrorEnabled: true,
@@ -236,6 +238,7 @@ describe('trade.copy pause/stop/detach (PTX-M26-R05)', () => {
     const copy = wiredCopy(async () => ({ orderId: 'unused' }));
     const follower = createTradeRouter({} as TradeService, undefined, copy).createCaller(signed());
     const follow = await follower.copy.follow({
+      clientRequestId: 'test-request-1',
       leaderId: LEADER,
       region: 'SG',
       permittedMarkets: ['BTC-USDT'],

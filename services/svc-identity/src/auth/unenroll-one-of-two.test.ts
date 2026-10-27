@@ -10,6 +10,9 @@ import { unenrollOneOfTwo } from './unenroll-one-of-two.js';
 import { beginVerifyPasskey, type VerifyPasskeyCeremony } from './verify-passkey.js';
 import type { ChallengeStorePort } from './webauthn.js';
 
+/** The factor-changed outbox rows each removal queued. */
+const factorNotices: unknown[][] = [];
+
 type StoredCred = { credentialId?: unknown; lastVerifiedAt?: unknown };
 type UserRow = { id: string; webauthn_creds: StoredCred[] };
 type SessionRow = { id: string; user_id: string; revoked: boolean };
@@ -21,6 +24,22 @@ function combinedStore(users: UserRow[], sessions: SessionRow[], keys: KeyRow[])
   const written: unknown[] = [];
   const fn = async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?').toLowerCase();
+    // The last-way-in check (I-account-lifecycle-07) reads the account's methods: these accounts also hold a password.
+    if (text.includes('password_set')) {
+      const userId = values[0];
+      return users
+        .filter((u) => u.id === userId)
+        .map((u) => ({
+          status: 'active',
+          password_set: true,
+          email: null,
+          email_verified_at: null,
+          email_code_signin: false,
+          handle: 'h',
+          passkeys: u.webauthn_creds.length,
+        }));
+    }
+    if (text.includes('from wallet_identities') || text.includes('from social_identities')) return [];
     if (text.includes('select') && text.includes('webauthn_creds')) {
       const userId = values[0];
       return users.filter((u) => u.id === userId).map((u) => ({ webauthn_creds: u.webauthn_creds }));
@@ -106,6 +125,13 @@ function combinedStore(users: UserRow[], sessions: SessionRow[], keys: KeyRow[])
           account_id: null,
           product_scopes: [],
         }));
+    }
+    // The factor-changed notice (I-signin-sessions-08): the account's address, the change count, and its two outbox rows.
+    if (text.includes('email_verified_at') && text.includes('from users')) return [];
+    if (text.includes('from security_factor_events')) return [{ n: 0 }];
+    if (text.includes('into security_factor_events') || text.includes('into mail_outbox')) {
+      factorNotices.push(values);
+      return [];
     }
     throw new Error(`unexpected sql: ${text}`);
   };
@@ -203,8 +229,11 @@ describe('unenrollOneOfTwo', () => {
 
   it('unenrolls the first of two without dropping the second or revoking its seats and keys', async () => {
     const sql = combinedStore([{ id: A, webauthn_creds: [enrolled, other] }], liveSeats(), liveSeats());
+    const before = factorNotices.length;
     const out = await unenrollOneOfTwo(sql, A, 'cred-1');
     expect(out).toEqual({ credentialId: 'cred-1', remaining: 1, sessionsRevoked: 0, keysRevoked: 0 });
+    // The removal queued its factor-changed notice (I-signin-sessions-08).
+    expect(factorNotices.slice(before).some((values) => values.includes('passkey_removed'))).toBe(true);
     expect(sql.users[0]?.webauthn_creds.map((c) => c.credentialId)).toEqual(['cred-2']);
     expect(sql.sessionWrites).toBe(0);
     expect(sql.keyWrites).toBe(0);

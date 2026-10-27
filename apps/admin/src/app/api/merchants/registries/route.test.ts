@@ -195,7 +195,7 @@ describe('POST as a signed-in founder', () => {
       expect(res.status, JSON.stringify(body)).toBe(400);
       expect(res.headers.get('cache-control')).toBe('no-store');
     }
-    expect(calls.filter((c) => !c.url.includes('operatorStatus'))).toHaveLength(0);
+    expect(calls.filter((c) => !c.url.includes('operatorStatus') && !c.url.includes('consoleMode.get'))).toHaveLength(0);
   });
 
   it('preview asks svc-pay as the founder and returns what the change needs', async () => {

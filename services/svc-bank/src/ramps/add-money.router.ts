@@ -69,7 +69,15 @@ export function createAddMoneyRouter(bank: Pick<BankServices, 'addMoney'>, guard
       .input(z.object({ assetId, amount, country }).strict())
       .output(
         z.object({
-          methods: z.array(z.object({ method: z.enum(ONRAMP_METHODS), rail, quote: quote.nullable(), blocker: z.string().nullable() })),
+          methods: z.array(
+            z.object({
+              method: z.enum(ONRAMP_METHODS),
+              rail,
+              quote: quote.nullable(),
+              blocker: z.string().nullable(),
+              standIn: z.string().nullable(),
+            }),
+          ),
         }),
       )
       .query(({ ctx, input }) => guard(async () => ({ methods: await bank.addMoney.methods(ctx.principal.userId, input) }))),

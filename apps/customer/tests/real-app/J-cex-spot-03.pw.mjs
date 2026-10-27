@@ -17,8 +17,8 @@ function account() {
   return who;
 }
 
-const buyForm = (page) => page.locator('form.dk-form[data-side="buy"]');
-const sellForm = (page) => page.locator('form.dk-form[data-side="sell"]');
+const buyForm = (page) => page.locator('form[data-testid="dk-form"][data-side="buy"]');
+const sellForm = (page) => page.locator('form[data-testid="dk-form"][data-side="sell"]');
 const tab = (page, name) => page.locator('[role=tab]', { hasText: new RegExp(`^${name}$`) });
 
 async function pickTif(page, label) {
@@ -179,7 +179,7 @@ test(`${J} #6 sends a post-only buy that would cross, then one that rests`, asyn
   expect(orders).toHaveLength(1);
   expect(held(await (await api(who)).balances(), 'USDT')).toBe((toUnits(price) * toUnits('0.001')) / toUnits('1'));
   await tab(page, 'Open orders').click();
-  await expect(page.locator('.dk-bottom-body table tbody tr').first()).toContainText('Post only');
+  await expect(page.getByTestId('dk-bottom-body').locator('table tbody tr').first()).toContainText('Post only');
   // Leave the book as it was: cancel the resting post-only order.
   expect((await (await api(who)).delete(`/api/v1/orders/${orders[0].id}?symbol=BTC%2FUSDT`)).status).toBeLessThan(300);
   await expect.poll(async () => held(await (await api(who)).balances(), 'USDT')).toBe(0n);
@@ -225,7 +225,7 @@ test(`${J} #7 picks good-till-date: a past time sends nothing; at the expiry the
   expect(body.status).toBe('expired');
   await page.reload();
   await tab(page, 'Order history').click();
-  await expect(page.locator('.dk-bottom-body table tbody tr').first()).toContainText(/Expired/i);
+  await expect(page.getByTestId('dk-bottom-body').locator('table tbody tr').first()).toContainText(/Expired/i);
 });
 
 test(`${J} #8 chooses the self-trade mode and crosses their own resting order: the resting one is cancelled, as chosen`, async ({
@@ -265,7 +265,9 @@ test(`${J} #8 chooses the self-trade mode and crosses their own resting order: t
   expect(held(balances, 'USDT')).toBe(0n);
   expect(held(balances, 'BTC')).toBe(toUnits(amount));
   await tab(page, 'Order history').click();
-  await expect(page.locator('.dk-bottom-body table tbody tr', { hasText: 'Cancelled: met your own order' }).first()).toBeVisible();
+  await expect(
+    page.getByTestId('dk-bottom-body').locator('table tbody tr', { hasText: 'Cancelled: met your own order' }).first(),
+  ).toBeVisible();
 
   // A mode the engine cannot do is refused by the service with its own code, and nothing is placed.
   const refused = await a.post('/api/v1/orders', {
@@ -309,7 +311,7 @@ test(`${J} #9 adds a tag and types the order in value: the tag shows on the orde
   expect(order.tag).toBe('j3-grid');
   expect(held(await (await api(who)).balances(), 'USDT')).toBe(toUnits(check.holdAmount));
   await tab(page, 'Open orders').click();
-  await expect(page.locator('.dk-bottom-body table tbody tr').first()).toContainText('j3-grid');
+  await expect(page.getByTestId('dk-bottom-body').locator('table tbody tr').first()).toContainText('j3-grid');
   // In coins: typing the amount leaves the total to follow.
   await buyForm(page).getByRole('textbox', { name: 'Amount' }).fill('0.001');
   await expect(buyForm(page).getByRole('textbox', { name: 'Total' })).not.toHaveValue('50');
@@ -317,5 +319,5 @@ test(`${J} #9 adds a tag and types the order in value: the tag shows on the orde
   expect((await (await api(who)).delete(`/api/v1/orders/${order.id}?symbol=BTC%2FUSDT`)).status).toBeLessThan(300);
   await page.reload();
   await tab(page, 'Order history').click();
-  await expect(page.locator('.dk-bottom-body table tbody tr', { hasText: 'j3-grid' }).first()).toContainText('Cancelled');
+  await expect(page.getByTestId('dk-bottom-body').locator('table tbody tr', { hasText: 'j3-grid' }).first()).toContainText('Cancelled');
 });

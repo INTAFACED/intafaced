@@ -8,6 +8,7 @@ import { parseDisplayCurrencyList } from './preferences/account-display.js';
 import { parseMembershipTiers } from './membership/membership-offer.js';
 import { parseSelfFreezeLiftWait } from './auth/self-freeze-lift.js';
 import { parseSecurityLockUnlockWait } from './auth/security-lock.js';
+import { parseMfaResetWait } from './auth/mfa-reset.js';
 
 // Self-mounts /trpc — must authenticate the edge principal (see packages/contracts/src/edge.ts).
 // INTERNAL_SERVICE_SECRET is required because rank.awardXp is a serviceProcedure
@@ -227,6 +228,34 @@ const schema = serviceEnvSchema
        */
       IDENTITY_ACCOUNT_TIERS: z.string().optional(),
       /**
+       * Owner setting: whole days a closed, unarchived customer record stays without a change or a new session before identity
+       * proposes it for archive (J-ops-console-04 #10). NO DEFAULT. Blank: no proposal is made and the console says the
+       * period is not set. A proposal is only that: a person archives each one with a second approver. Parsed at start by
+       * `parseDormancyDays`; malformed stops the service.
+       */
+      IDENTITY_DORMANCY_DAYS: z.string().optional(),
+      /**
+       * Owner setting (I-kyc-compliance-05): what each verification level asks for, a JSON object of level -> requirement
+       * keys from `KYC_REQUIREMENT_KEYS` (`@intafaced/contracts/identity-kyc-levels`), for example
+       * `{"basic":["legal_name","date_of_birth","id_document"]}`. NO DEFAULT. A level left out is unpublished and
+       * /verification says none are published for it, never an empty list. Parsed at start by
+       * `parseKycRequirementsByLevel`; an empty list, an unknown key or malformed JSON stops the service.
+       */
+      IDENTITY_KYC_REQUIREMENTS_BY_LEVEL: z.string().optional(),
+      /**
+       * Owner setting (I-kyc-compliance-05): the review time the owner states per verification level, `level=hours`
+       * pairs, for example `basic=24,full=72` (whole hours, 1 to 8760). NO DEFAULT. A level left out has no stated review
+       * time and /verification says so. Parsed at start by `parseKycReviewHoursByLevel`; malformed stops the service.
+       */
+      IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL: z.string().optional(),
+      /**
+       * Owner setting for account limit overrides (J-ops-console-04 #12): a JSON object
+       * `{ "maxLifetimeHours": "<whole hours>", "ceilings": { "<rail>": { "<asset>": "<decimal>" } } }`. NO DEFAULT. Blank,
+       * not JSON or invalid means unset: every override refuses `identity.limit_ceiling_unset` and the console says "not
+       * set". An override above the ceiling for its rail and asset needs the other founder. Parsed by `parseLimitPolicy`.
+       */
+      IDENTITY_LIMIT_OVERRIDE_POLICY: z.string().optional(),
+      /**
        * Owner setting: how long after sign-up a person may still attach a referrer through a link, in whole seconds
        * (CM-referral-01, J-campaigns-05 #4-#5). NO DEFAULT. Blank refuses every link attach (`referral.attach_window_unset`);
        * past it, `referral.attach_window_closed`. Parsed at start by `parseAttachWindowSeconds`; malformed stops the service.
@@ -341,6 +370,43 @@ const schema = serviceEnvSchema
             ctx.addIssue({ code: z.ZodIssueCode.custom, message: (error as Error).message });
             return z.NEVER;
           }
+        }),
+      /**
+       * I-signin-sessions-12. Owner-set wait, in seconds, from a confirmed locked-out second-factor reset to when the next
+       * password sign-in may remove the authenticator app. NO DEFAULT: blank / unset → the reset refuses
+       * (`identity.mfa_reset_unconfigured`) and the sign-in page points to Support. Zero is a published "no wait". A
+       * change applies to later resets, never to one already waiting.
+       */
+      IDENTITY_MFA_RESET_WAIT_SECONDS: z
+        .string()
+        .optional()
+        .transform((v, ctx) => {
+          try {
+            return parseMfaResetWait(v);
+          } catch (error) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: (error as Error).message });
+            return z.NEVER;
+          }
+        }),
+      /**
+       * I-signin-sessions-24. Owner-set lifetime, in seconds, of the one-time recovery link a Support case mails (1 to
+       * 86400). NO DEFAULT: blank / unset → sending the link refuses (`identity.support_recovery_unconfigured`) before the
+       * case's approval is spent. A change applies to links sent later, never to one already sent.
+       */
+      IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS: z
+        .string()
+        .optional()
+        .transform((v, ctx) => {
+          if (v === undefined || v.trim() === '') return undefined;
+          const n = /^\d+$/.test(v.trim()) ? Number(v.trim()) : NaN;
+          if (!Number.isInteger(n) || n < 1 || n > 86_400) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: 'IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS must be whole seconds from 1 to 86400',
+            });
+            return z.NEVER;
+          }
+          return n;
         }),
       /**
        * W-withdraw-09. Owner-set wait, in seconds, from an unlock request to when the customer security lock ends. NO
@@ -545,6 +611,96 @@ const schema = serviceEnvSchema
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
       }, z.coerce.number().int().min(1).max(86400).optional()),
+      /**
+       * Owner-published lifetime of a sign-in code, in seconds (I-signin-sessions-19). NO DEFAULT: blank / unset refuses
+       * every code sign-in (`auth.codes_unwired`), as do the four sign-in code numbers below. One day is the ceiling.
+       */
+      IDENTITY_LOGIN_CODE_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86400).optional()),
+      /**
+       * Owner-published wrong codes allowed per sign-in code before it locks. NO DEFAULT (`auth.codes_unwired`).
+       * The ceiling is 5.
+       */
+      IDENTITY_LOGIN_CODE_MAX_ATTEMPTS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(5).optional()),
+      /**
+       * Owner-published seconds before another sign-in code may be sent. NO DEFAULT (`auth.codes_unwired`).
+       */
+      IDENTITY_LOGIN_CODE_RESEND_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86400).optional()),
+      /**
+       * Owner-published sign-in codes per email or handle per window, resends included. NO DEFAULT
+       * (`auth.codes_unwired`). The ceiling is technical, not a default budget.
+       */
+      IDENTITY_LOGIN_CODE_REQUEST_MAX: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(1000).optional()),
+      /**
+       * The window for IDENTITY_LOGIN_CODE_REQUEST_MAX, in seconds. NO DEFAULT (`auth.codes_unwired`).
+       */
+      IDENTITY_LOGIN_CODE_REQUEST_WINDOW_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86400).optional()),
+      /**
+       * The owner's breached-password list (I-signin-sessions-04): a file of SHA-1 digests, one per line (`HASH` or
+       * `HASH:count`), read once at boot. A new password on it is refused (`auth.password_breached`). Blank: nothing is
+       * screened. A relative path is read from the svc-identity folder. A path that cannot be read stops the boot.
+       */
+      IDENTITY_BREACHED_PASSWORDS_FILE: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.string().min(1).optional()),
+      /**
+       * New-device check (I-signin-sessions-07): `on` or `off`. Blank leaves it off, and the Security page says the owner
+       * has not turned it on. With it on, a sign-in from a browser with no trusted device for the account waits for
+       * approval by a mailed code or from a trusted session.
+       */
+      IDENTITY_NEW_DEVICE_CHECK: z.preprocess(
+        (v) => {
+          if (v === undefined || v === null) return undefined;
+          if (typeof v === 'string' && v.trim() === '') return undefined;
+          return v;
+        },
+        z.enum(['on', 'off']).optional(),
+      ),
+      /**
+       * Owner-published lifetime of a waiting new-device sign-in, in seconds. NO DEFAULT: with the check on and this
+       * blank, a new-device sign-in is refused (`auth.device_check_unwired`). One day is the ceiling.
+       */
+      IDENTITY_NEW_DEVICE_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86400).optional()),
+      /**
+       * Owner-published wrong mailed codes allowed per new-device sign-in (ceiling 5). Blank: no code is mailed and only
+       * a trusted session can approve.
+       */
+      IDENTITY_NEW_DEVICE_MAX_ATTEMPTS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(5).optional()),
+      /** Owner-published seconds a device stays trusted. Blank: until the person removes it (the Security page says so). */
+      IDENTITY_TRUSTED_DEVICE_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(315360000).optional()),
       /**
        * The owner's per-country off switch for sign-up: comma-separated ISO country codes. Blank closes none,
        * because sign-up is open everywhere the sanctions screening allows (owner decision 2026-10-22). A code

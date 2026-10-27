@@ -70,6 +70,9 @@ export const SAME_PERSON_ACTION_TYPES = [
   'identity.step_up.passkey_add',
   'identity.step_up.passkey_remove',
   'identity.step_up.passkey_rename',
+  // Bind one passkey to the actions it answers for, and ask for a passkey after the password (I-signin-sessions-10).
+  'identity.step_up.passkey_purposes',
+  'identity.step_up.passkey_second_step',
   'identity.step_up.totp_replace',
   'identity.step_up.totp_disable',
   'identity.step_up.recovery_codes_regenerate',
@@ -78,8 +81,12 @@ export const SAME_PERSON_ACTION_TYPES = [
   'identity.step_up.limits_loosen',
   'identity.step_up.self_freeze_lift',
   'identity.step_up.trusted_device_remove',
+  // Approve a waiting new-device sign-in of the caller's own account from a trusted session (I-signin-sessions-07).
+  'identity.step_up.trusted_device_approve',
   'identity.step_up.link_method',
   'identity.step_up.unlink_method',
+  // Add or revoke one of the caller's own recovery keys, or name their heir and threshold (RC-identity-07). Identity mints and consumes it.
+  'identity.step_up.recovery_key_change',
   // Delete one of the caller's own sub-accounts (revoke only; it moves no money). Identity mints and consumes it.
   'identity.step_up.sub_account_delete',
   // Edit the label and purpose of one of the caller's own sub-accounts (RC-identity-14). Identity mints and consumes it.
@@ -90,6 +97,10 @@ export const SAME_PERSON_ACTION_TYPES = [
   'identity.step_up.security_lock_unlock',
   // Place a P2P order from an ad (P-trade-orders-07). Identity mints it; svc-p2p consumes it before the take reserves.
   'p2p.step_up.trades.take',
+  // Release a P2P order's escrow to the buyer (P-trade-orders-07, -16). Identity mints it; svc-p2p consumes it before the release.
+  'p2p.step_up.trades.confirmReceived',
+  // Add, change or remove a P2P payment method (P-ads-merchant-18). Identity mints it; svc-p2p consumes it before the change.
+  'p2p.step_up.instruments.change',
 ] as const;
 
 /**

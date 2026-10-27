@@ -10,6 +10,8 @@ import {
   publicProcedure,
   retryAfterSecondsOf,
   accountStateOf,
+  deviceAuthorisationOf,
+  secondStepOf,
   conflictProfile,
   router,
   type Context,
@@ -281,6 +283,34 @@ describe('errorFormatter p2p take limits', () => {
     expect(p2pLimitOf(refused('p2p.buying_restricted', { until: '2026-10-24T09:00:00.000Z', cap: '3', windowHours: 24 }))).toBeUndefined();
   });
 
+  it('keeps a short balance with the seller’s free amount and the shortfall, and drops a malformed one', () => {
+    expect(p2pLimitOf(refused('p2p.insufficient_balance', { until: null, available: '30', shortBy: '70' }))).toEqual({
+      until: null,
+      available: '30',
+      shortBy: '70',
+    });
+    expect(p2pLimitOf(refused('p2p.insufficient_balance', { until: null, available: '30', shortBy: 'seventy' }))).toBeUndefined();
+  });
+
+  it('keeps the content rule class an ad broke, only on that refusal and only as a slug', () => {
+    expect(p2pLimitOf(refused('p2p.content_rule_violation', { until: null, ruleClass: 'messenger' }))).toEqual({
+      until: null,
+      ruleClass: 'messenger',
+    });
+    expect(p2pLimitOf(refused('p2p.content_rule_violation', { until: null, ruleClass: 'message me on telegram' }))).toBeUndefined();
+    expect(p2pLimitOf(refused('p2p.insufficient_balance', { until: null, ruleClass: 'messenger' }))).toBeUndefined();
+  });
+
+  it('keeps the field key of a payment destination refusal, only on those refusals and only as a key', () => {
+    expect(p2pLimitOf(refused('p2p.account_format_invalid', { until: null, field: 'iban' }))).toEqual({ until: null, field: 'iban' });
+    expect(p2pLimitOf(refused('p2p.instrument_field_missing', { until: null, field: 'account_holder' }))).toEqual({
+      until: null,
+      field: 'account_holder',
+    });
+    expect(p2pLimitOf(refused('p2p.account_format_invalid', { until: null, field: 'DE89 3704 0044' }))).toBeUndefined();
+    expect(p2pLimitOf(refused('p2p.insufficient_balance', { until: null, field: 'iban' }))).toBeUndefined();
+  });
+
   it('keeps a limit with no end time and its bounds', () => {
     expect(p2pLimitOf(refused('p2p.pair_limit_exceeded', { until: null, min: '10', max: '500', currency: 'EUR' }))).toEqual({
       until: null,
@@ -312,5 +342,81 @@ describe('errorFormatter p2p take limits', () => {
     expect(p2pLimitOf(refused('p2p.method_delisted', { until: null, reason: 'the bank said so' }))).toBeUndefined();
     expect(p2pLimitOf(refused('p2p.pair_limit_exceeded', { until: null, reason: 'regulation' }))).toBeUndefined();
     expect(p2pLimitOf(undefined)).toBeUndefined();
+  });
+});
+
+describe('errorFormatter secondStep (I-signin-sessions-10)', () => {
+  const passkey = {
+    challenge: 'Y2hhbGxlbmdl',
+    timeout: 60000,
+    rpId: 'localhost',
+    allowCredentials: [{ type: 'public-key', id: 'Y3JlZA', transports: ['internal'] }],
+    userVerification: 'required',
+  };
+  const mfa = (secondStep: unknown) => new FakeAuthError('auth.mfa_required', { secondStep } as never);
+
+  it('reaches the client on auth.mfa_required with the passkey challenge', async () => {
+    const steps = router({
+      both: publicProcedure.query(() => {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'x', cause: mfa({ totp: true, passkey }) });
+      }),
+    });
+    const res = await fetchRequestHandler({
+      endpoint: '/trpc',
+      req: new Request('http://localhost/trpc/both'),
+      router: steps,
+      createContext: () => ({}) as Context,
+    });
+    const data = ((await res.json()) as { error: { data: Record<string, unknown> } }).error.data;
+    expect(data.secondStep).toEqual({ totp: true, passkey });
+  });
+
+  it('drops any other code and any malformed passkey', () => {
+    expect(secondStepOf(new FakeAuthError('auth.invalid_credentials', { secondStep: { totp: true, passkey } } as never))).toBeUndefined();
+    expect(secondStepOf(mfa({ totp: true, passkey: null }))).toEqual({ totp: true, passkey: null });
+    expect(secondStepOf(mfa({ totp: 'yes', passkey: null }))).toBeUndefined();
+    expect(secondStepOf(mfa({ totp: false, passkey: { ...passkey, allowCredentials: [] } }))).toBeUndefined();
+    expect(secondStepOf(mfa({ totp: false, passkey: { ...passkey, challenge: 'not base64url!' } }))).toBeUndefined();
+    expect(
+      secondStepOf(mfa({ totp: false, passkey: { ...passkey, allowCredentials: [{ type: 'other', id: 'Y3JlZA' }] } })),
+    ).toBeUndefined();
+    expect(secondStepOf(mfa({ totp: false, passkey: { ...passkey, userVerification: 'sometimes' } }))?.passkey).not.toHaveProperty(
+      'userVerification',
+    );
+  });
+});
+
+describe('errorFormatter deviceAuthorisation recovery count (I-signin-sessions-12)', () => {
+  const waiting = {
+    flowId: '0b0e6f3c-8f6a-4c1d-9a7e-2f1b3c4d5e6f',
+    secret: 's'.repeat(43),
+    expiresAt: '2026-10-24T18:00:00.000Z',
+    mailed: true,
+  };
+  const refusal = (deviceAuthorisation: unknown) =>
+    new FakeAuthError('auth.device_authorisation_required', { deviceAuthorisation } as never);
+
+  it('reaches the client with the waiting sign-in when its second step spent a recovery code', async () => {
+    const app = router({
+      spent: publicProcedure.query(() => {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'x', cause: refusal({ ...waiting, recoveryCodesLeft: 0 }) });
+      }),
+    });
+    const res = await fetchRequestHandler({
+      endpoint: '/trpc',
+      req: new Request('http://localhost/trpc/spent'),
+      router: app,
+      createContext: () => ({}) as Context,
+    });
+    const data = ((await res.json()) as { error: { data: Record<string, unknown> } }).error.data;
+    expect(data.deviceAuthorisation).toEqual({ ...waiting, recoveryCodesLeft: 0 });
+  });
+
+  it('carries no count when none was given, and drops one that is not a whole number of codes', () => {
+    expect(deviceAuthorisationOf(refusal(waiting))).toEqual(waiting);
+    expect(deviceAuthorisationOf(refusal({ ...waiting, recoveryCodesLeft: 4 }))).toEqual({ ...waiting, recoveryCodesLeft: 4 });
+    for (const bad of [-1, 1.5, '3', null, Number.NaN]) {
+      expect(deviceAuthorisationOf(refusal({ ...waiting, recoveryCodesLeft: bad }))).toEqual(waiting);
+    }
   });
 });

@@ -18,7 +18,20 @@ import { DualControlError } from './ledger/dual-control.js';
 import { ActionApprovalConsumeError, consumeLedgerApproval, type ActionApprovalConsumer } from './ledger/action-approval-consume.js';
 import { LOOKUP_UNRECORDED, LookupUnrecordedError, requireLookupAuthority, type LookupActor } from './ledger/operator-lookup.js';
 import { TraceInconsistentError, operatorTraceInputSchema, operatorTraceOutputSchema, traceBusinessKey } from './ledger/operator-trace.js';
-import { LEDGER_TX_NOT_FOUND, operatorTxGet, operatorTxGetInputSchema, operatorTxGetOutputSchema } from './ledger/operator-tx-get.js';
+import {
+  BookingRecordMissingError,
+  LEDGER_TX_NOT_FOUND,
+  operatorTxGet,
+  operatorTxGetInputSchema,
+  operatorTxGetOutputSchema,
+} from './ledger/operator-tx-get.js';
+import {
+  operatorAccountSearchInputSchema,
+  operatorAccountSearchOutputSchema,
+  operatorStatsOutputSchema,
+  operatorTxListInputSchema,
+  operatorTxListOutputSchema,
+} from './ledger/operator-desk.js';
 import { SKEW_BOUND_UNSET, WRITES_BLOCKED_CLOCK_SKEW } from './ledger/clock-skew.js';
 import { ReconciliationControlError } from './ledger/reconciliation-control-error.js';
 import {
@@ -27,6 +40,17 @@ import {
   runReconciliationControl,
   updateReconciliationControl,
 } from './ledger/reconciliation-controls.js';
+import {
+  ACCOUNT_METADATA_APPROVAL_SPENT,
+  ACCOUNT_METADATA_INVALID,
+  ACCOUNT_METADATA_KEY_ABSENT,
+  ACCOUNT_METADATA_STALE,
+  ACCOUNT_NOT_FOUND,
+  LEDGER_FROZEN,
+  accountMetadataChangeOutputSchema,
+  accountMetadataOutputSchema,
+  accountMetadataReadInputSchema,
+} from './ledger/operator-account-metadata.js';
 import type { LedgerService } from './service.js';
 
 /**
@@ -181,6 +205,16 @@ export { LOOKUP_UNRECORDED };
 export const LOOKUP_INPUT_INVALID = 'ledger.lookup_input_invalid' as const;
 /** A recorded lookup the ledger could not answer (the database did not respond, or the answer failed its schema). */
 export const LOOKUP_UNAVAILABLE = 'ledger.lookup_unavailable' as const;
+
+/** HTTP status of each account-metadata refusal. Nothing changed in any of them. */
+const METADATA_STATUS: Readonly<Record<string, number>> = {
+  [ACCOUNT_METADATA_INVALID]: 400,
+  [ACCOUNT_NOT_FOUND]: 404,
+  [ACCOUNT_METADATA_KEY_ABSENT]: 404,
+  [ACCOUNT_METADATA_STALE]: 409,
+  [ACCOUNT_METADATA_APPROVAL_SPENT]: 409,
+  [LEDGER_FROZEN]: 412,
+};
 
 export function registerOperatorHttp(
   app: FastifyInstance,
@@ -405,10 +439,17 @@ export function registerOperatorHttp(
         if (err instanceof LedgerError && err.code === LEDGER_TX_NOT_FOUND) {
           return reply.code(404).send({ message: 'No transaction has that id.', code: LEDGER_TX_NOT_FOUND });
         }
-        if (err instanceof TraceInconsistentError) {
+        if (err instanceof LedgerError && err.code === ACCOUNT_NOT_FOUND) {
+          return reply.code(404).send({ message: 'No ledger account has that id.', code: ACCOUNT_NOT_FOUND });
+        }
+        if (err instanceof TraceInconsistentError || err instanceof BookingRecordMissingError) {
           // The book's own integrity, not the operator's request: a server fault, as the tRPC procedure reports it.
-          app.log.error({ err, actor: operator.userId }, 'operator trace: the book answered a transaction booked under another key');
-          return reply.code(500).send({ message: 'The book answered a transaction booked under another key.', code: err.code });
+          app.log.error({ err, actor: operator.userId }, 'operator lookup: the book answered a transaction it cannot account for');
+          const message =
+            err instanceof TraceInconsistentError
+              ? 'The book answered a transaction booked under another key.'
+              : 'The book answered a transaction with no row in its log.';
+          return reply.code(500).send({ message, code: err.code });
         }
         app.log.error({ err, actor: operator.userId }, 'operator lookup failed after it was recorded');
         return reply.code(503).send({ message: 'The ledger could not answer this lookup. Try again.', code: LOOKUP_UNAVAILABLE });
@@ -435,6 +476,112 @@ export function registerOperatorHttp(
       read: (actor, input) => traceBusinessKey(ledger, actor, input),
       output: operatorTraceOutputSchema,
     }),
+  );
+
+  /**
+   * The ledger desk's browsing reads (OPS-ledger-desk-01): the transaction list by asset and time with a cursor and the
+   * ledger's own total, the account address search with volumes, and the book's counts. Same authority as the lookups;
+   * the list and the search write their access row first, inside `LedgerService` (`operator-desk.ts`); the counts name
+   * no one.
+   */
+  const queryOf = (req: OperatorRequest, keys: readonly string[]): Record<string, unknown> => {
+    const query = (req.query ?? {}) as Record<string, unknown>;
+    return Object.fromEntries(keys.filter((k) => query[k] !== undefined && query[k] !== '').map((k) => [k, query[k]]));
+  };
+
+  app.get(
+    '/operator/transactions',
+    lookup({
+      input: (req) => queryOf(req, ['assetId', 'from', 'to', 'before']),
+      inputSchema: operatorTxListInputSchema,
+      invalid: 'An asset is 1 to 32 characters, times are ISO 8601 with from before to, and the cursor is the one a page answered.',
+      read: (actor, input) => ledger.deskTransactions(actor, input),
+      output: operatorTxListOutputSchema,
+    }),
+  );
+
+  app.get(
+    '/operator/accounts',
+    lookup({
+      input: (req) => queryOf(req, ['prefix', 'after']),
+      inputSchema: operatorAccountSearchInputSchema,
+      invalid: 'An address prefix is an owner type, a colon, and the first 1 to 128 characters of the owner id.',
+      read: (actor, input) => ledger.deskAccounts(actor, input),
+      output: operatorAccountSearchOutputSchema,
+    }),
+  );
+
+  app.get(
+    '/operator/stats',
+    lookup({
+      input: () => ({}),
+      inputSchema: z.object({}).strict(),
+      invalid: 'The counts take no input.',
+      read: () => ledger.readOperatorStats(),
+      output: operatorStatsOutputSchema,
+    }),
+  );
+
+  /**
+   * An account's operator metadata (J-ops-console-03 #6, #7; `operator-account-metadata.ts`). The read takes the lookups'
+   * authority and is recorded first; it answers while the posting freeze is on. The set and the delete are treasury
+   * writes like the asset edit: a set is one founder's, a delete spends a second founder's approval
+   * (`ledger.account_metadata.delete`). Both refuse 412 `ledger.frozen` under the freeze, with nothing changed.
+   */
+  const accountOf = (req: OperatorRequest) => (req.params as { accountId?: unknown } | undefined)?.accountId;
+
+  app.get(
+    '/operator/accounts/:accountId/metadata',
+    lookup({
+      input: (req) => ({ accountId: accountOf(req) }),
+      inputSchema: accountMetadataReadInputSchema,
+      invalid: 'An account id is a UUID.',
+      read: (actor, input) => ledger.deskAccountMetadata(actor, input),
+      output: accountMetadataOutputSchema,
+    }),
+  );
+
+  /** A metadata refusal answers its own status; anything else (an approval refusal, say) goes to `guarded`. */
+  const metadataWrite = async (reply: FastifyReply, write: () => Promise<unknown>): Promise<unknown> => {
+    try {
+      return await write();
+    } catch (err) {
+      const status = err instanceof LedgerError ? METADATA_STATUS[err.code] : undefined;
+      if (status === undefined) throw err;
+      return reply.code(status).send({ message: (err as LedgerError).message, code: (err as LedgerError).code });
+    }
+  };
+
+  const bodyFor = (req: OperatorRequest, body: unknown) => ({
+    ...(body !== null && typeof body === 'object' ? (body as Record<string, unknown>) : {}),
+    accountId: accountOf(req),
+  });
+
+  app.post(
+    '/operator/accounts/:accountId/metadata/set',
+    guarded((operator, body, req, reply) =>
+      metadataWrite(reply, async () => {
+        const answer = accountMetadataChangeOutputSchema.parse(await ledger.setAccountMetadata(operator.userId, bodyFor(req, body)));
+        app.log.warn({ actor: operator.userId, accountId: answer.accountId, key: answer.change.key }, 'LEDGER ACCOUNT METADATA set');
+        return answer;
+      }),
+    ),
+  );
+
+  app.post(
+    '/operator/accounts/:accountId/metadata/delete',
+    guarded((operator, body, req, reply) =>
+      metadataWrite(reply, async () => {
+        const answer = accountMetadataChangeOutputSchema.parse(
+          await ledger.deleteAccountMetadata(approvals, operator.userId, bodyFor(req, body)),
+        );
+        app.log.warn(
+          { actor: operator.userId, accountId: answer.accountId, key: answer.change.key, approver: answer.change.approverId },
+          'LEDGER ACCOUNT METADATA deleted',
+        );
+        return answer;
+      }),
+    ),
   );
 
   /**

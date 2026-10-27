@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { academyCertIssueSchema } from '@intafaced/contracts/academy-certificates';
 
 /**
  * Academy learning-management logic. Pure functions only: everything here is derived from what
@@ -30,8 +31,36 @@ export const lessonSummary = z.object({
 export type LessonSummary = z.infer<typeof lessonSummary>;
 export const lessonCatalogue = z.array(lessonSummary).max(200);
 
-export const certDefinition = z.object({ id: ref, title: ref, requiredItemSlugs: z.array(ref) });
+/** The XP Academy publishes to the rank ladder per certificate (`certXpPlane`). Only the fields the sheet reads. */
+export const certXpPlaneRow = z.object({
+  emitEnabled: z.boolean(),
+  policies: z.array(z.object({ certId: ref, xpDelta: z.number().int().safe() })),
+});
+export type CertXpPlaneRow = z.infer<typeof certXpPlaneRow>;
+
+/**
+ * What a certificate is worth on the holder's rank: the XP Academy publishes for it, the same XP while publishing is
+ * switched off (so the rank has not moved), or none when no XP value is published for it.
+ */
+export function certificateXp(plane: CertXpPlaneRow, certId: string): { kind: 'worth' | 'off'; xp: number } | { kind: 'none' } {
+  const policy = plane.policies.find((row) => row.certId === certId);
+  if (!policy || policy.xpDelta <= 0) return { kind: 'none' };
+  return { kind: plane.emitEnabled ? 'worth' : 'off', xp: policy.xpDelta };
+}
+
+export const certDefinition = z.object({
+  id: ref,
+  title: ref,
+  requiredItemSlugs: z.array(ref),
+});
 export type CertDefinition = z.infer<typeof certDefinition>;
+/** One learning path with its published certificate, or Academy's refusal for a path with no published design. */
+export const certPathRow = z.object({
+  path: z.enum(academyPaths),
+  certId: ref.nullable(),
+  refusal: z.literal('academy.certificate_unpublished').nullable(),
+});
+export type CertPathRow = z.infer<typeof certPathRow>;
 export const certProgressRow = z.object({
   userId: z.string().guid(),
   certId: ref,
@@ -43,6 +72,8 @@ export const certProgressRow = z.object({
   complete: z.boolean(),
   granted: z.boolean(),
   grantIdempotencyKey: ref.nullable(),
+  /** How the certificate is issued (AC-certificates-02); absent from an older service, read as the learner claiming it. */
+  issue: academyCertIssueSchema.optional(),
 });
 export type CertProgressRow = z.infer<typeof certProgressRow>;
 /** The code anyone can paste into the public check: 32 lowercase hex characters, the same rule the service applies. */
@@ -54,6 +85,8 @@ export const certGrant = z.object({
   idempotencyKey: ref,
   /** Absent when the service did not send one; the certificate is then shown without a verification code. */
   publicId: publicCertCode.optional(),
+  /** `revoked` once Academy revoked it: no sheet, no XP line, and the public check says revoked. */
+  status: z.enum(['valid', 'revoked']).optional(),
 });
 export type CertGrant = z.infer<typeof certGrant>;
 
@@ -230,11 +263,13 @@ export function rememberLastLesson(owner: string | null | undefined, slug: strin
   }
 }
 
-export type CertificateState = 'earned' | 'ready' | 'in-progress' | 'not-started';
+export type CertificateState = 'earned' | 'revoked' | 'ready' | 'issuing' | 'in-progress' | 'not-started';
 
 export function certificateState(progress: CertProgressRow | undefined, grant: CertGrant | undefined): CertificateState {
+  if (grant?.status === 'revoked') return 'revoked';
   if (grant || progress?.granted) return 'earned';
   if (!progress) return 'not-started';
+  if (progress.complete && progress.issue?.issuesAt) return 'issuing';
   if (progress.complete) return 'ready';
   return progress.completedCount > 0 ? 'in-progress' : 'not-started';
 }
@@ -307,6 +342,13 @@ export function parseVerifyReference(raw: string): { ok: true; certId: string } 
   return match ? { ok: true, certId: match[2]! } : { ok: false };
 }
 
+/** The wait of a delayed issue rule in its largest whole unit: days, hours, or minutes. */
+export function issueWait(delayMinutes: number): { unit: 'waitDays' | 'waitHours' | 'waitMinutes'; n: number } {
+  if (delayMinutes % 1440 === 0) return { unit: 'waitDays', n: delayMinutes / 1440 };
+  if (delayMinutes % 60 === 0) return { unit: 'waitHours', n: delayMinutes / 60 };
+  return { unit: 'waitMinutes', n: delayMinutes };
+}
+
 export function formatDay(iso: string, locale: string): string {
   const date = new Date(iso);
   if (!Number.isFinite(date.getTime())) return iso;
@@ -358,9 +400,27 @@ export type AcademyRoute =
   | { kind: 'tab'; tab: AcademyTab; hub?: true }
   | { kind: 'progress' }
   | { kind: 'reader'; slug: string | undefined }
-  | { kind: 'course'; slug: string | undefined };
+  | { kind: 'course'; slug: string | undefined }
+  | { kind: 'assignment'; slug: string | undefined; itemId: string | undefined }
+  | { kind: 'verify'; code: string | undefined }
+  | { kind: 'programme'; slug: string }
+  | { kind: 'discussion'; courseSlug: string; postId: string | undefined }
+  | { kind: 'messages'; conversationId: string | undefined };
 /** The public course page (AC-catalogue-03). Until courses are rows a course is one curriculum path. */
 export const academyCourseHref = (slug: string) => `/academy/learning/course/${encodeURIComponent(slug)}`;
+/** An assignment's page in a course staff made (AC-assignments-01). */
+export const academyAssignmentHref = (slug: string, itemId: string) =>
+  `${academyCourseHref(slug)}/assignment/${encodeURIComponent(itemId)}`;
+/** A course programme's page (AC-programmes-01). */
+export const academyProgrammeHref = (slug: string) => `/academy/programmes/${encodeURIComponent(slug)}`;
+/** A course's discussion, and one post in it (AC-rooms-01). */
+export const academyDiscussionHref = (courseSlug: string, postId?: string) =>
+  `/academy/rooms/discussion/${encodeURIComponent(courseSlug)}${postId ? `/${encodeURIComponent(postId)}` : ''}`;
+/** The reader's conversations with course teams, and one of them (AC-rooms-04). */
+export const academyMessagesHref = (conversationId?: string) =>
+  `/academy/rooms/messages${conversationId ? `/${encodeURIComponent(conversationId)}` : ''}`;
+/** The public check of one certificate (AC-certificates-01): the link a learner shares. Open to anyone, signed in or not. */
+export const academyVerifyHref = (code: string) => `/academy/certificates/verify/${encodeURIComponent(code)}`;
 /** Sign in from a course page and come back to its plain address: a private link's `#key=` never rides in a URL. */
 export const academyCourseSignInHref = (slug: string) => `/login?redirect=${encodeURIComponent(academyCourseHref(slug))}`;
 const decoded = (segment: string) => {
@@ -372,9 +432,16 @@ const decoded = (segment: string) => {
 };
 /** What an `/academy` address opens: a tab, the progress page, or the reader. A tab segment always wins over a lesson. */
 export function academyRoute(pathname: string): AcademyRoute {
-  const [, , segment, part, course] = pathname.split('/');
+  const [, , segment, part, course, child, itemId] = pathname.split('/');
   if (!segment) return { kind: 'tab', tab: 'Learning', hub: true };
+  if (segment === 'learning' && part === 'course' && child === 'assignment')
+    return { kind: 'assignment', slug: course ? decoded(course) : undefined, itemId: itemId ? decoded(itemId) : undefined };
   if (segment === 'learning' && part === 'course') return { kind: 'course', slug: course ? decoded(course) : undefined };
+  if (segment === 'certificates' && part === 'verify') return { kind: 'verify', code: course ? decoded(course) : undefined };
+  if (segment === 'rooms' && part === 'discussion' && course)
+    return { kind: 'discussion', courseSlug: decoded(course) ?? course, postId: child ? decoded(child) : undefined };
+  if (segment === 'rooms' && part === 'messages') return { kind: 'messages', conversationId: course ? decoded(course) : undefined };
+  if (segment === 'programmes' && part) return { kind: 'programme', slug: decoded(part) ?? part };
   const tab = academyTabs.find(([, slug]) => slug === segment);
   if (tab) return { kind: 'tab', tab: tab[0] };
   if (segment === 'progress') return { kind: 'progress' };

@@ -30,7 +30,7 @@ const isZero = (value: string): boolean => /^0*(\.0*)?$/.test(value);
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="orders-row">
+    <div data-testid="orders-row" className="orders-row">
       <dt>{label}</dt>
       <dd>{children}</dd>
     </div>
@@ -123,12 +123,12 @@ function Fill({ fill, order, precision, t }: { fill: Trade; order: Order; precis
   const rate = fillFeeRate(fill);
   return (
     <li>
-      <details className="orders-fill">
+      <details data-testid="orders-fill" className="orders-fill">
         <summary>
           <span className="if-num">{dayTime(fill.timestamp, timeZone)}</span>{' '}
           <span className="if-num">{t('fillSummary', { amount: `${amount} ${baseOf(fill.symbol)}`, price: `${price} ${quote}` })}</span>
         </summary>
-        <dl className="orders-list">
+        <dl data-testid="orders-list" className="orders-list">
           <Row label={t('fillTime')}>
             <span className="if-num">{dayTime(fill.timestamp, timeZone)}</span>
           </Row>
@@ -173,7 +173,7 @@ function Changes({ read, tick, t }: { read: Read<OrderChange[]>; tick: string | 
   });
   return (
     <>
-      <ol className="orders-changes">
+      <ol data-testid="orders-changes" className="orders-changes">
         {rows.map(({ change, line }, index) => (
           <li key={`${line.at}:${index}`}>
             <span className="if-num">{Number.isNaN(Date.parse(line.at)) ? '—' : dayTime(Date.parse(line.at), timeZone)}</span>{' '}
@@ -326,20 +326,26 @@ export function OrderDetailRoom({ orderId }: { orderId: string }) {
             {cancelled.text}
           </p>
         ) : null}
-        <dl className="orders-list" aria-label={t('detailTitle')}>
+        <dl data-testid="orders-list" className="orders-list" aria-label={t('detailTitle')}>
           <Row label={t('placed')}>
             <span className="if-num">{dayTime(o.timestamp, timeZone)}</span>
           </Row>
           <Row label={t('type')}>
             {o.type === 'market'
               ? t('typeMarket')
-              : o.type === 'stop_limit'
-                ? `${t('typeStopLimit')}${o.stopPrice ? ` @ ${fmtPrice(o.stopPrice, tick)}` : ''}`
+              : o.type === 'stop_limit' || o.type === 'stop'
+                ? `${t(o.type === 'stop' ? 'typeStopMarket' : 'typeStopLimit')}${o.stopPrice ? ` @ ${fmtPrice(o.stopPrice, tick)}` : ''}`
                 : t('typeLimit')}
           </Row>
           <Trigger order={o} average={average} tick={tick} quote={quote} t={t} />
           <Row label={t('price')}>
-            <span className="if-num">{o.price === null ? t('marketPrice') : `${fmtPrice(o.price, tick)} ${quote}`}</span>
+            <span className="if-num">
+              {o.price === null
+                ? t('marketPrice')
+                : o.type === 'stop'
+                  ? t('protectionPrice', { price: fmtPrice(o.price, tick), quote })
+                  : `${fmtPrice(o.price, tick)} ${quote}`}
+            </span>
           </Row>
           <Row label={t('amount')}>
             <span className="if-num">

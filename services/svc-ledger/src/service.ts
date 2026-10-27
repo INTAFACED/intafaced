@@ -1,5 +1,21 @@
 import type { Sql } from 'postgres';
 import { recordOperatorAccess, type OperatorAccessEntry } from './ledger/operator-owner-balances.js';
+import type { LookupActor } from './ledger/operator-lookup.js';
+import {
+  listOperatorTransactions,
+  operatorAccountSearch,
+  operatorTxList,
+  readBookingRecord,
+  readOperatorStats,
+  searchOperatorAccounts,
+  type BookingRecord,
+  type DeskReader,
+  type OperatorAccountSearchInput,
+  type OperatorAccountSearchOutput,
+  type OperatorStatsOutput,
+  type OperatorTxListInput,
+  type OperatorTxListOutput,
+} from './ledger/operator-desk.js';
 import { toWriteBlockError } from './ledger/write-block.js';
 import { assessClockSkew, readDatabaseNow, sampleClocks, type ClockSkewView } from './ledger/clock-skew.js';
 import {
@@ -24,6 +40,7 @@ import {
 import type { RestoreWatermarkRead } from '@intafaced/contracts';
 import type { FeeRevenueRow } from './ledger/fee-revenue.js';
 import type { HistoryEntry, HistoryPage, HistoryPageInput, HistoryRange } from './ledger/history.js';
+import type { HoldingsHistory, HoldingsHistoryInput } from './ledger/holdings-history.js';
 import {
   readLastVerified,
   countConsecutiveIncompleteRuns,
@@ -37,6 +54,15 @@ import type { ReconcileIncompleteAlert } from './ledger/scheduled-reconcile-tick
 import { withMoneySpan, withSpan } from './tracing.js';
 import type { RegistryAsset } from '@intafaced/contracts';
 import type { ActionApprovalConsumer } from './ledger/action-approval-consume.js';
+import {
+  deleteAccountMetadata,
+  operatorAccountMetadataRead,
+  readAccountMetadata,
+  setAccountMetadata,
+  type AccountMetadataChangeOutput,
+  type AccountMetadataOutput,
+  type AccountMetadataReadInput,
+} from './ledger/operator-account-metadata.js';
 import { applyAssetEdit, getAsset, listAssets, listOperatorAssets, type OperatorAssetRow } from './ledger/supported-assets.js';
 import { runDueReconciliationControls as runDueOperatorControls } from './ledger/reconciliation-controls.js';
 
@@ -196,6 +222,11 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
     return applyAssetEdit(this.sql, approvals, operatorId, input);
   }
 
+  /** What one owner holds now and how it moved since a point in time (J-portfolio-05). A read; same no-span reasoning. */
+  holdingsHistory(input: HoldingsHistoryInput): Promise<HoldingsHistory> {
+    return this.engine.holdingsHistory(input);
+  }
+
   /** Paged sibling of `history`. A read; same no-span reasoning. */
   historyPage(input: HistoryPageInput): Promise<HistoryPage> {
     return this.engine.historyPage(input);
@@ -207,6 +238,56 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
 
   getTxByKey(idempotencyKey: string): Promise<LedgerTx | null> {
     return this.engine.getTxByKey(idempotencyKey);
+  }
+
+  /** The booking record beside one transaction (OPS-ledger-desk-01). A read; callers record the lookup first. */
+  readBookingRecord(txId: string): Promise<BookingRecord | null> {
+    return readBookingRecord(this.sql, txId);
+  }
+
+  /**
+   * The ledger desk's list and address search (OPS-ledger-desk-01). Each writes its access row before it reads and
+   * refuses when it cannot, here, so every door that serves them inherits the record. Reads; same no-span reasoning.
+   */
+  deskTransactions(actor: LookupActor, input: OperatorTxListInput): Promise<OperatorTxListOutput> {
+    return operatorTxList(this.deskReader(), actor, input);
+  }
+
+  deskAccounts(actor: LookupActor, input: OperatorAccountSearchInput): Promise<OperatorAccountSearchOutput> {
+    return operatorAccountSearch(this.deskReader(), actor, input);
+  }
+
+  private deskReader(): DeskReader {
+    return {
+      recordOperatorAccess: (entry) => this.recordOperatorAccess(entry),
+      readTransactionPage: (input) => listOperatorTransactions(this.sql, input),
+      readAccountPage: (input) => searchOperatorAccounts(this.sql, input),
+    };
+  }
+
+  /**
+   * An account's operator metadata (J-ops-console-03 #6, #7). The read is recorded first, like the desk's other reads.
+   * A set is one founder's; a delete spends a second founder's approval. Both refuse `ledger.frozen` under the freeze.
+   */
+  deskAccountMetadata(actor: LookupActor, input: AccountMetadataReadInput): Promise<AccountMetadataOutput> {
+    return operatorAccountMetadataRead(
+      { recordOperatorAccess: (entry) => this.recordOperatorAccess(entry), readAccountMetadata: (i) => readAccountMetadata(this.sql, i) },
+      actor,
+      input,
+    );
+  }
+
+  setAccountMetadata(actorId: string, input: unknown): Promise<AccountMetadataChangeOutput> {
+    return setAccountMetadata(this.sql, actorId, input);
+  }
+
+  deleteAccountMetadata(approvals: ActionApprovalConsumer, operatorId: string, input: unknown): Promise<AccountMetadataChangeOutput> {
+    return deleteAccountMetadata(this.sql, approvals, operatorId, input);
+  }
+
+  /** The book's counts. Names no one, so no access row. */
+  readOperatorStats(): Promise<OperatorStatsOutput> {
+    return readOperatorStats(this.sql);
   }
 
   journal(limit?: number, afterSeq?: bigint): Promise<LedgerTx[]> {

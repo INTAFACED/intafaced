@@ -9,6 +9,8 @@ import { registerS2sHttp } from './s2s-http.js';
 import type { LedgerService } from './service.js';
 
 const SHARED = 'ledger-shared-internal-secret-32chars!';
+/** svc-ops' doors: its two reads, and its staff hold posts with the read of their own keys (ADR 2026-10-22 3.7). */
+const OPS_DOORS = ['feeRevenue', 'restoreWatermark', 'post', 'txByKey'];
 const WINDOW = { from: '2026-10-01T00:00:00.000Z', to: '2026-11-01T00:00:00.000Z' };
 
 function pair() {
@@ -66,10 +68,10 @@ async function mount(asked: { feeRevenue: unknown[]; other: number }) {
 }
 
 describe('feeRevenue door', () => {
-  it('names svc-ops alone, and svc-ops is named on no other door', () => {
+  it('names svc-ops alone, and svc-ops is named on no read door but its own (its staff hold posts and their keys aside)', () => {
     expect(LEDGER_DOOR_CALLERS.feeRevenue).toEqual(['svc-ops']);
     for (const [door, services] of Object.entries(LEDGER_DOOR_CALLERS)) {
-      if (door === 'feeRevenue' || door === 'restoreWatermark') continue;
+      if (OPS_DOORS.includes(door)) continue;
       expect((services as readonly string[]).includes('svc-ops'), door).toBe(false);
     }
   });
@@ -108,10 +110,10 @@ describe('feeRevenue door', () => {
     await m.app.close();
   });
 
-  it('gives svc-ops no other door: every other served door refuses it', async () => {
+  it('gives svc-ops no other read door: every other served door refuses it', async () => {
     const asked = { feeRevenue: [] as unknown[], other: 0 };
     const m = await mount(asked);
-    for (const door of Object.keys(LEDGER_DOOR_CALLERS).filter((d) => d !== 'feeRevenue' && d !== 'restoreWatermark')) {
+    for (const door of Object.keys(LEDGER_DOOR_CALLERS).filter((d) => !OPS_DOORS.includes(d))) {
       const res = await m.send('svc-ops', `/trpc/${door}`, { ownerType: 'treasury', ownerId: 'fees:trade' });
       expect(res.statusCode, door).toBe(403);
     }

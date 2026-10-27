@@ -4,10 +4,11 @@ import { useDataEnv } from '../../../data/hooks';
 import { useSession } from '../../../features/session/session';
 import { usePreferences } from '../../../shared/preferences';
 import { fitsPlaces } from '../../../features/account/trading-settings';
-import { draftSchema, type Draft, type Preview, type TradeApi } from '../../../features/trade/trade-api';
+import { draftSchema, isStopType, type Draft, type Preview, type TradeApi } from '../../../features/trade/trade-api';
 import type { BookPick } from './OrderBook';
 import { deskCopy } from './copy';
-import { useDeskApi, useListedFees, useOpenOrders, useRefreshPrivate } from './data';
+import { useDeskApi, useFeeToken, useMyFees, useOpenOrders, useRefreshPrivate } from './data';
+import { feeTokenChoice, type FeeTokenChoice } from './fee-token';
 import {
   Amount,
   AlertDialog,
@@ -49,6 +50,7 @@ import {
   hasExits,
   isBuyOco,
   isPriced,
+  isStopTab,
   serviceType,
   type OrderType,
   type Reference,
@@ -65,7 +67,7 @@ import {
   usePendingOrder,
   type Pending,
 } from './pending';
-import { bpsToRatio, exitFeeLines, feeRate, gateSubmit, holdShort, sizeFor } from './form-logic';
+import { bpsToRatio, exitFeeLines, feeRate, gateSubmit, holdShort, rebateRate, sizeFor } from './form-logic';
 import { CONFLICT_CODE, resendOrder, resendOutcome } from './resend';
 import { clearOrdersPaused, markOrdersPaused } from './orders-paused';
 import { scaleLockStays } from './ticket/scale-flow';
@@ -109,7 +111,7 @@ function RefusalNote({ failure, onRetry, onDismiss }: { failure: Failure; onRetr
   const { t } = deskCopy.useCopy();
   if (failure.kind === 'network')
     return (
-      <div className="dk-note dk-note--bad" role="alert">
+      <div data-testid="dk-note--bad" className="dk-note dk-note--bad" role="alert">
         <p>{t('Couldn’t check the order')}</p>
         {onRetry ? (
           <button type="button" className="dk-link" onClick={onRetry}>
@@ -120,7 +122,7 @@ function RefusalNote({ failure, onRetry, onDismiss }: { failure: Failure; onRetr
     );
   const { title, body, action, reference } = failure.copy;
   return (
-    <div className="dk-note dk-note--bad" role="alert">
+    <div data-testid="dk-note--bad" className="dk-note dk-note--bad" role="alert">
       {onDismiss ? (
         <button type="button" className="dk-dismiss" aria-label={t('Dismiss')} onClick={onDismiss}>
           ×
@@ -196,7 +198,10 @@ function SideForm({
   const [restingId, setRestingId] = useState<string | null>(null);
   const restingSeen = useRef(false);
   const openOrders = useOpenOrders();
-  const listedFees = useListedFees();
+  const myFees = useMyFees();
+  const feeToken = useFeeToken();
+  // The person's choice to pay fees in the platform token. Sent only while the choice is offered for this order.
+  const [payInToken, setPayInToken] = useState(false);
   const [review, setReview] = useState<{ draft: Draft; preview: Preview; changed: boolean } | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [busy, setBusy] = useState(false);
@@ -304,6 +309,7 @@ function SideForm({
     checked.ok ? (checked.exit?.takeProfit ?? '') : '',
     checked.ok ? (checked.exit?.stopLoss ?? '') : '',
     checked.ok ? (checked.exit?.stopLossLimit ?? '') : '',
+    checked.ok ? (checked.close ?? '') : '',
     market.symbol,
     side,
     type,
@@ -321,6 +327,10 @@ function SideForm({
     () => env.poller.recordExternalRequest(),
     market.tickSize,
   );
+  // The asset the fee comes out of: the order check's own answer once it has one, else the asset the order receives.
+  const receiveAsset = (live.state === 'ok' ? live.preview.feeAsset : null) ?? (side === 'buy' ? market.base : market.quote);
+  const tokenChoice = feeTokenChoice(feeToken, receiveAsset, type, signedIn);
+  const feeCurrency = payInToken && tokenChoice.kind === 'offered' ? tokenChoice.token : null;
 
   // A market buy is held at the service's price protection (best ask plus the slippage cap), so Max is sized from it.
   // It is learnt from the order check, or from one small probe check on the Market tab; never guessed.
@@ -395,7 +405,17 @@ function SideForm({
     setFailure(null);
     setStatus(null);
     // The number is given once per draft: a repeat review of the same order keeps it, so a send that was lost cannot become a second order.
-    const { clientOrderId: _unnumbered, ...body } = draftOf({ market, side, type, tif, expireAt, tag, checked, clientOrderId: '' });
+    const { clientOrderId: _unnumbered, ...body } = draftOf({
+      market,
+      side,
+      type,
+      tif,
+      expireAt,
+      tag,
+      feeCurrency,
+      checked,
+      clientOrderId: '',
+    });
     const fresh = { ...body, clientOrderId: reviewIdFor(userId ?? '', body) };
     const parsed = draftSchema.safeParse(fresh);
     if (!parsed.success) setFailure({ kind: 'network' });
@@ -578,7 +598,7 @@ function SideForm({
   const verb = side === 'buy' ? t('Buy asset', { asset: market.base }) : t('Sell asset', { asset: market.base });
   const loginHref = `/login?redirect=${encodeURIComponent(`${location.pathname}${location.search}`)}`;
   const bbo = bboPrice(side, reference);
-  const listed = listedFees.status === 'ready' ? (listedFees.data[market.symbol] ?? null) : null;
+  const mine = myFees.status === 'ready' ? (myFees.data[market.symbol] ?? null) : null;
 
   const stopInput = (label: string) => (
     <AmountInput
@@ -597,6 +617,7 @@ function SideForm({
 
   return (
     <form
+      data-testid="dk-form"
       className="dk-form"
       data-side={side}
       aria-label={side === 'buy' ? t('Buy form', { asset: market.base }) : t('Sell form', { asset: market.base })}
@@ -611,7 +632,7 @@ function SideForm({
         }
       }}
     >
-      {type === 'stop_limit' ? stopInput(t('Stop price')) : null}
+      {isStopTab(type) ? stopInput(t('Stop price')) : null}
       {type === 'bracket' ? (
         <AmountInput
           label={t('Entry price')}
@@ -629,7 +650,7 @@ function SideForm({
         />
       ) : priced ? (
         <AmountInput
-          label={type === 'oco' ? t('Take profit') : t('Price')}
+          label={type === 'oco' ? t('Take profit') : type === 'oto' ? t('Entry price') : t('Price')}
           value={price}
           onValueChange={(next) => edit(() => (setPrice(next), setTotalEdit(null)))}
           precision={pricePlaces}
@@ -640,7 +661,7 @@ function SideForm({
           stepLabels={{ up: t('Price up one step'), down: t('Price down one step') }}
           onBbo={bbo && referenceFresh ? () => edit(() => (setPrice(padDecimals(bbo, pricePlaces)), setTotalEdit(null))) : undefined}
           bboLabel={t('BBO')}
-          aria-label={type === 'oco' ? t('Take profit') : t('Price')}
+          aria-label={type === 'oco' ? t('Take profit') : type === 'oto' ? t('Entry price') : t('Price')}
         />
       ) : (
         <AmountInput
@@ -655,9 +676,9 @@ function SideForm({
           aria-label={t('Price')}
         />
       )}
-      {type === 'bracket' ? (
+      {type === 'bracket' || type === 'oto' ? (
         <AmountInput
-          label={t('Take profit')}
+          label={type === 'oto' ? t('Close price') : t('Take profit')}
           value={takeProfit}
           onValueChange={(next) => edit(() => setTakeProfit(next))}
           precision={pricePlaces}
@@ -666,7 +687,7 @@ function SideForm({
           min={market.tickSize}
           unit={market.quote}
           stepLabels={{ up: t('Price up one step'), down: t('Price down one step') }}
-          aria-label={t('Take profit')}
+          aria-label={type === 'oto' ? t('Close price') : t('Take profit')}
         />
       ) : null}
       {hasExits(type) ? stopInput(t('Stop loss')) : null}
@@ -747,7 +768,7 @@ function SideForm({
         placeholder="0"
         aria-label={marketBuy ? t('Spend') : t('Total')}
       />
-      <dl className="dk-avail">
+      <dl data-testid="dk-avail" className="dk-avail">
         <div>
           <dt>{t('Available')}</dt>
           <dd className="if-num">
@@ -759,22 +780,30 @@ function SideForm({
           <dd className="if-num">{signedIn && max !== null ? `${fmtAmount(max, { places: amountPlaces })} ${market.base}` : '—'}</dd>
         </div>
       </dl>
-      <p className="dk-fees if-num">
+      <p data-testid="dk-fees" className="dk-fees if-num">
         <span>
           {live.state === 'ok' && feeRate(live.preview) !== null
             ? live.preview.feeRole === 'maker'
-              ? t('Fee maker', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
+              ? rebateRate(live.preview) !== null
+                ? t('Rebate maker', { rate: fmtPct(rebateRate(live.preview)!, { signed: false }) })
+                : t('Fee maker', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
               : priced && tif === 'GTC'
-                ? t('Fee up to', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
+                ? rebateRate(live.preview, true) !== null
+                  ? t('Fee up to rebate', {
+                      rate: fmtPct(feeRate(live.preview)!, { signed: false }),
+                      rebate: fmtPct(rebateRate(live.preview, true)!, { signed: false }),
+                    })
+                  : t('Fee up to', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
                 : t('Fee taker', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
             : t('Fee unknown')}
         </span>
-        {listed ? (
-          <span className="dk-fees-listed" title={t('Fee listed title')}>
-            {t('Fee listed', { maker: fmtPct(listed.maker, { signed: false }), taker: fmtPct(listed.taker, { signed: false }) })}
+        {mine ? (
+          <span data-testid="dk-fees-mine" className="dk-fees-mine" title={t('Fee yours title')}>
+            {t('Fee yours', { maker: fmtPct(mine.maker, { signed: false }), taker: fmtPct(mine.taker, { signed: false }) })}
           </span>
         ) : null}
       </p>
+      <FeeCurrencyRow side={side} receiveAsset={receiveAsset} choice={tokenChoice} chosen={feeCurrency !== null} onChoose={setPayInToken} />
       {signedIn ? (
         <Button
           type="submit"
@@ -796,7 +825,15 @@ function SideForm({
       <div className="dk-reason" id={`dk-reason-${side}`} aria-live="polite">
         {hint ? <p className="dk-note">{hint}</p> : null}
         {signedIn && !market.open ? <p className="dk-note">{t('Market is closed')}</p> : null}
-        {signedIn && market.open && exitOff ? <p className="dk-note">{t('Bracket sell off', { asset: market.base })}</p> : null}
+        {signedIn && market.open && exitOff ? (
+          <p className="dk-note">{t(type === 'oto' ? 'Oto sell off' : 'Bracket sell off', { asset: market.base })}</p>
+        ) : null}
+        {market.open && type === 'oto' && !exitOff ? <p className="dk-note-small">{t('Exit note oto', { asset: market.base })}</p> : null}
+        {market.open && type === 'stop_market' ? (
+          <p className="dk-note-small">
+            {side === 'buy' ? t('Stop market note buy', { asset: market.base }) : t('Stop market note sell', { asset: market.base })}
+          </p>
+        ) : null}
         {market.open && hasExits(type) && !exitOff ? (
           <p className="dk-note-small">
             {type === 'oco'
@@ -809,7 +846,7 @@ function SideForm({
           </p>
         ) : null}
         {exitRetry ? (
-          <div className="dk-note dk-note--bad" role="alert">
+          <div data-testid="dk-note--bad" className="dk-note dk-note--bad" role="alert">
             <RefusalNote failure={refusalFailure('trade.bracket_exit_failed', context)} />
             <button type="button" className="dk-link" disabled={busy} onClick={() => void placeExits()}>
               {t('Place the exits')}
@@ -843,7 +880,7 @@ function SideForm({
               <AlertDialogTitle>{side === 'buy' ? t('Review buy') : t('Review sell')}</AlertDialogTitle>
               <AlertDialogDescription>{review.changed ? t('Review changed') : t('Review intro')}</AlertDialogDescription>
             </AlertDialogHeader>
-            <ReviewRows market={market} review={review} side={side} />
+            <ReviewRows market={market} review={review} side={side} tokenChoice={tokenChoice} />
             <AlertDialogFooter>
               <Button variant="secondary" size={40} disabled={busy} onClick={() => setReview(null)}>
                 {t('Cancel')}
@@ -859,11 +896,111 @@ function SideForm({
   );
 }
 
-function ReviewRows({ market, review, side }: { market: DeskMarket; review: { draft: Draft; preview: Preview }; side: Side }) {
+/**
+ * The asset the fee comes out of, and the platform token when the owner publishes its terms (fee-token.ts). Offered: a
+ * toggle that says the stake discount and the published ladder. Not offered: the same control, aria-disabled, with its
+ * reason, and nothing is sent (the service refuses the token on that order too).
+ */
+function FeeCurrencyRow({
+  side,
+  receiveAsset,
+  choice,
+  chosen,
+  onChoose,
+}: {
+  side: Side;
+  receiveAsset: string;
+  choice: FeeTokenChoice;
+  chosen: boolean;
+  onChoose: (on: boolean) => void;
+}) {
+  const { t } = deskCopy.useCopy();
+  const why = `dk-fee-asset-why-${side}`;
+  if (choice.kind === 'offered') {
+    const discount = fmtPct(bpsToRatio(choice.discountBps), { signed: false });
+    return (
+      <div className="dk-fee-asset" data-fee-currency={chosen ? choice.token : receiveAsset} data-fee-token="offered">
+        <span>{t('Fees in', { asset: chosen ? choice.token : receiveAsset })}</span>
+        <button
+          type="button"
+          className="dk-fee-asset-choice"
+          aria-pressed={chosen}
+          aria-describedby={why}
+          onClick={() => onChoose(!chosen)}
+        >
+          {t('Pay fees in token', { token: choice.token })}
+        </button>
+        <span id={why} className="dk-fee-asset-why">
+          {chosen
+            ? t('Fee token on', { token: choice.token, discount, staked: fmtAmount(choice.staked, { places: 8 }), asset: receiveAsset })
+            : t('Fee token offer', { token: choice.token, discount })}
+          {choice.ladder && choice.ladder.length > 0 ? (
+            <span className="dk-fee-ladder" data-fee-ladder>
+              {' '}
+              {t('Fee token ladder', {
+                steps: choice.ladder
+                  .map((step) =>
+                    t('Fee token step', {
+                      stake: fmtAmount(step.minStake, { places: 8 }),
+                      token: choice.token,
+                      discount: fmtPct(bpsToRatio(step.discountBps), { signed: false }),
+                    }),
+                  )
+                  .join(', '),
+              })}
+            </span>
+          ) : null}
+        </span>
+      </div>
+    );
+  }
+  const reason =
+    choice.reason === 'no_terms'
+      ? t('Fee currency reason', { asset: receiveAsset })
+      : choice.reason === 'received'
+        ? t('Fee token received', { token: choice.token ?? receiveAsset })
+        : choice.reason === 'no_price'
+          ? t('Fee token no price', { token: choice.token ?? '', asset: receiveAsset })
+          : choice.reason === 'signed_out'
+            ? t('Fee token signed out', { token: choice.token ?? '', asset: receiveAsset })
+            : choice.reason === 'order_type'
+              ? t('Fee token order type', { token: choice.token ?? '', asset: receiveAsset })
+              : t('Fee token no discount', { token: choice.token ?? '', asset: receiveAsset });
+  return (
+    <div className="dk-fee-asset" data-fee-currency={receiveAsset} data-fee-token={choice.reason}>
+      <span>{t('Fees in', { asset: receiveAsset })}</span>
+      {/* aria-disabled, not disabled: it stays in the tab order, so a keyboard or screen-reader user reaches the reason. */}
+      <button
+        type="button"
+        className="dk-fee-asset-choice"
+        aria-disabled="true"
+        aria-describedby={why}
+        onClick={(event) => event.preventDefault()}
+      >
+        {choice.token ? t('Pay fees in token', { token: choice.token }) : t('Pay fees in another asset')}
+      </button>
+      <span id={why} className="dk-fee-asset-why">
+        {reason}
+      </span>
+    </div>
+  );
+}
+
+function ReviewRows({
+  market,
+  review,
+  side,
+  tokenChoice,
+}: {
+  market: DeskMarket;
+  review: { draft: Draft; preview: Preview };
+  side: Side;
+  tokenChoice: FeeTokenChoice;
+}) {
   const { t } = deskCopy.useCopy();
   const { draft, preview } = review;
   const limit = draft.type !== 'market';
-  const stop = draft.type === 'stop_limit';
+  const stop = isStopType(draft.type);
   const exit = draft.exit ?? null;
   const value = limit && draft.price ? orderValue({ side, type: 'limit', price: draft.price, amount: draft.amount }, null) : null;
   const rate = preview.feeBps === null ? null : fmtPct(bpsToRatio(preview.feeBps), { signed: false });
@@ -880,16 +1017,18 @@ function ReviewRows({ market, review, side }: { market: DeskMarket; review: { dr
             ? exit.kind === 'oco'
               ? t('Order type oco')
               : t('Order type bracket')
-            : stop
-              ? t('Order type stopLimit')
-              : limit
-                ? t('Order type limit')
-                : t('Order type market')}
+            : draft.close
+              ? t('Order type oto')
+              : stop
+                ? t(draft.type === 'stop' ? 'Order type stopMarket' : 'Order type stopLimit')
+                : limit
+                  ? t('Order type limit')
+                  : t('Order type market')}
         </dd>
       </div>
       <div>
         <dt>{t('Review time in force')}</dt>
-        <dd>{t(tifLabelKey(draft.type, tifOfDraft(draft)))}</dd>
+        <dd>{t(tifLabelKey(draft.type === 'stop' ? 'stop_market' : draft.type, tifOfDraft(draft)))}</dd>
       </div>
       {draft.expireAt ? (
         <div>
@@ -905,14 +1044,36 @@ function ReviewRows({ market, review, side }: { market: DeskMarket; review: { dr
           </dd>
         </div>
       ) : null}
-      {exit?.kind === 'oco' ? null : (
+      {draft.type === 'stop' && preview.price ? (
         <div>
-          <dt>{exit ? t('Entry price') : t('Review price')}</dt>
+          <dt>{t('Review protection price')}</dt>
+          <dd className="if-num">
+            {fmtPrice(preview.price, market.tickSize)} {market.quote}
+          </dd>
+        </div>
+      ) : null}
+      {exit?.kind === 'oco' || draft.type === 'stop' ? null : (
+        <div>
+          <dt>{exit || draft.close ? t('Entry price') : t('Review price')}</dt>
           <dd className="if-num">
             {limit && draft.price ? `${fmtPrice(draft.price, market.tickSize)} ${market.quote}` : t('Review market price')}
           </dd>
         </div>
       )}
+      {draft.close ? (
+        <>
+          <div>
+            <dt>{t('Review close price')}</dt>
+            <dd className="if-num">
+              {fmtPrice(draft.close, market.tickSize)} {market.quote}
+            </dd>
+          </div>
+          <div>
+            <dt>{t('Review exit note label')}</dt>
+            <dd>{t('Review exit note oto', { asset: market.base })}</dd>
+          </div>
+        </>
+      ) : null}
       {exit ? (
         <>
           <div>
@@ -976,6 +1137,18 @@ function ReviewRows({ market, review, side }: { market: DeskMarket; review: { dr
           {rate ? ` (${t('Review fee rate', { rate })})` : ''}
         </dd>
       </div>
+      {draft.feeCurrency ? (
+        <div data-review-fee-currency={draft.feeCurrency}>
+          <dt>{t('Review fee currency')}</dt>
+          <dd>
+            {t('Review fee token', {
+              token: draft.feeCurrency,
+              discount: tokenChoice.kind === 'offered' ? fmtPct(bpsToRatio(tokenChoice.discountBps), { signed: false }) : '—',
+              asset: preview.feeAsset ?? '',
+            })}
+          </dd>
+        </div>
+      ) : null}
       {preview.feeRole ? (
         <div>
           <dt>{t('Review fee role')}</dt>
@@ -1006,7 +1179,9 @@ function ReviewRows({ market, review, side }: { market: DeskMarket; review: { dr
         <dt>{t('Review client id')}</dt>
         <dd>
           {/* The end of the client order id (draft hash and mint); the rest is the account, which the person knows. */}
-          <span className="if-num">{draft.clientOrderId.split(':').at(-1)}</span>
+          <span data-testid="client-order-id" className="if-num">
+            {draft.clientOrderId.split(':').at(-1)}
+          </span>
           <br />
           {t('Review client id note')}
         </dd>
@@ -1211,15 +1386,20 @@ export const OrderPanel = memo(function OrderPanel({
         setType(value as OrderType);
         // A bracket entry resolves at once unless the trader picks "Rest on the book": resting is never the default.
         if (value === 'bracket') setTif('IOC');
+        // An OTO buy waits on the book for its price by default; its close is placed when it fills.
+        if (value === 'oto') setTif('GTC');
       }}
+      data-testid="dk-order"
       className="dk-panel dk-order"
     >
       <div className="dk-order-head">
         <TabsList className="dk-tabs" aria-label={t('Order type')}>
           <TabsTab value="limit">{t('Limit')}</TabsTab>
           <TabsTab value="stop_limit">{t('Order type stopLimit')}</TabsTab>
+          <TabsTab value="stop_market">{t('Order type stopMarket')}</TabsTab>
           <TabsTab value="oco">{t('Order type oco')}</TabsTab>
           <TabsTab value="bracket">{t('Order type bracket')}</TabsTab>
+          <TabsTab value="oto">{t('Order type oto')}</TabsTab>
           <TabsTab value="market">{t('Market')}</TabsTab>
         </TabsList>
         <MoreOrderTypes />
@@ -1257,7 +1437,7 @@ export const OrderPanel = memo(function OrderPanel({
       ) : (
         <TabsPanel value={type} className="dk-order-body">
           {pending.state === 'pending' && !isInFlight(pending.value.id) ? (
-            <div className="dk-note dk-note--warn" role="status">
+            <div data-testid="dk-note--warn" className="dk-note dk-note--warn" role="status">
               <p className="dk-note-title">{t('Checking your order')}</p>
               <p>{t('Checking your order body')}</p>
               {pending.value.kind === 'place' ? (
@@ -1279,7 +1459,7 @@ export const OrderPanel = memo(function OrderPanel({
               {stillChecking ? <p>{t('Still checking')}</p> : null}
             </div>
           ) : pending.state === 'unreadable' ? (
-            <div className="dk-note dk-note--warn" role="status">
+            <div data-testid="dk-note--warn" className="dk-note dk-note--warn" role="status">
               <p>{t('Unreadable marker')}</p>
             </div>
           ) : settled ? (

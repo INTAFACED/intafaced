@@ -1,3 +1,4 @@
+import type { z } from 'zod';
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
@@ -22,14 +23,33 @@ import { bankHttpReady } from './ready.js';
 import { createPayCustodyDepositPort } from './deposits/pay-custody-port.js';
 import { cardIssuerFor } from './cards/issuer.js';
 import { globalPortsFor } from './personal-pay/global-sim.js';
+import { onrampStandInFor } from './ramps/onramp-sim.js';
+import { cashOutPartnerFor } from './cash-out/payout-sim.js';
+import { payoutFailedBody, payoutPaidBody, payoutReturnedBody, payoutVerifyBody, redriveBody } from './cash-out/job-bodies.js';
+import { directDebitSchemeFor } from './direct-debits/scheme.js';
+import { ddRunBody, ddSimCollectionBody, ddSimMandateBody } from './direct-debits/job-bodies.js';
+import { scheduledNoticesBody } from './rules/job-bodies.js';
+import { incomeSorterBody } from './sorter/income-sorter.js';
 import { rampProgrammeFor } from './ramps/rails.js';
 import { eventMarginCallSink } from './loans/margin-call-publisher.js';
 import { createIdentityPartyHandles } from './transfers/party-handles.js';
+import { createIdentitySecurityLock, unconfiguredSecurityLock } from './security-lock.js';
+import { createIdentityApprovalMail, unconfiguredApprovalMail } from './ramps/address-approval.js';
+import { createIdentityTrustedDevices, unconfiguredTrustedDevices } from './ramps/trusted-devices.js';
+import { createIdentityRecovery, unconfiguredIdentityRecovery } from './recovery/identity-recovery.js';
 import { eventPersonalRequestNotices } from './transfers/request-notices.js';
 import { eventPersonalTransferNotices } from './transfers/transfer-notices.js';
+import { eventScheduledNotices } from './rules/scheduled-notices.js';
 import { tickerPriceSource } from './loans/prices.js';
 import { httpTickerSource } from './portfolio/portfolio-service.js';
-import { createLedgerAssetRegistry, createLedgerClient, createLedgerHistory, createLedgerHistoryPages } from './ledger-client.js';
+import { httpCloseSeries } from './portfolio/candles.js';
+import {
+  createLedgerAssetRegistry,
+  createLedgerClient,
+  createLedgerHistory,
+  createLedgerHistoryPages,
+  createLedgerHoldingsHistory,
+} from './ledger-client.js';
 import { createAffiliateAccrueClient } from './affiliate-accrue.js';
 import { createAffiliatePayoutClient } from './affiliate-payout.js';
 import { createBankRouter, type BankRouter } from './router.js';
@@ -45,7 +65,7 @@ import {
 } from './job-batch-limit.js';
 import { requireInternalJobHmac } from './internal-job-hmac.js';
 import { registerClosureCheck } from './closure/closure-check.js';
-import { startBankRecoveryJobs } from './recovery-jobs.js';
+import { recoveryCounts, startBankRecoveryJobs } from './recovery-jobs.js';
 import { withSpan } from './tracing.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
@@ -109,8 +129,14 @@ const bus = await JetStreamEventBus.connect({
   ownedStreams: ['bank'],
 });
 
+const assetRegistry = createLedgerAssetRegistry(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s);
 const bank = createBankServices(sql, ledger, history, {
   nativeAssetId: env.TOKEN_ASSET_ID,
+  // Recovery claims (RC-identity-08): identity says which accounts a heir may claim and whether a claim's signatures
+  // count. No IDENTITY_URL refuses every claim with `bank.recovery_unavailable`, never "claimable".
+  identityRecovery: env.IDENTITY_URL
+    ? createIdentityRecovery(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, undefined, ledgerS2s)
+    : unconfiguredIdentityRecovery(),
   payeeCoolingHours: env.BANK_PAYEE_COOLING_HOURS,
   scheduleEditCutoffMinutes: env.BANK_SCHEDULE_EDIT_CUTOFF_MINUTES,
   holdCancelHours: env.BANK_GLOBAL_HOLD_CANCEL_HOURS,
@@ -120,7 +146,12 @@ const bank = createBankServices(sql, ledger, history, {
   // and the doors refuse `bank.deposit_custody_unset`; svc-bank derives no key.
   deposits: {
     custody: createPayCustodyDepositPort(createPayCustodyDepositClient({ payUrl: env.PAY_URL, secret: env.INTERNAL_SERVICE_SECRET })),
+    addressCap: () => env.BANK_DEPOSIT_ADDRESS_CAP,
+    addressExpiryDays: () => env.BANK_DEPOSIT_ADDRESS_EXPIRY_DAYS,
   },
+  // svc-ledger's asset and network registry (W-balances-05), the one list: the customer's supported-asset list, the deposit
+  // catalogue narrowed to it, and the address book's assets and networks.
+  assetRegistry,
   // Frozen/closed recipients are refused before any posting. Identity owns that
   // state; with no IDENTITY_URL every credit to ANOTHER user refuses
   // `bank.recipient_check_unset` (see the boot warning below). No default of
@@ -131,6 +162,7 @@ const bank = createBankServices(sql, ledger, history, {
   handles: env.IDENTITY_URL ? createIdentityPartyHandles(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, undefined, ledgerS2s) : undefined,
   requestNotices: eventPersonalRequestNotices(bus),
   transferNotices: eventPersonalTransferNotices(bus),
+  scheduledNotices: eventScheduledNotices(bus),
   // Handles and exact recipient lookup. No IDENTITY_URL refuses those reads
   // with bank.business_directory_unset. A 404 from identity is the same refusal:
   // the directory route is not published. No invented handle.
@@ -216,6 +248,9 @@ const bank = createBankServices(sql, ledger, history, {
     tickers: httpTickerSource({ baseUrl: env.TRADE_URL }),
     // The entries behind a balance: svc-ledger `historyPage`, read only.
     pages: createLedgerHistoryPages(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s),
+    // Value over time: svc-ledger `holdingsHistory` and svc-trade's public candles, both read only.
+    history: createLedgerHoldingsHistory(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s),
+    closes: httpCloseSeries({ baseUrl: env.TRADE_URL }),
   },
   autoInvest: {
     enabled: env.AUTO_INVEST_ENABLED,
@@ -235,6 +270,16 @@ const bank = createBankServices(sql, ledger, history, {
     APP_ENV: process.env.APP_ENV,
     NODE_ENV: process.env.NODE_ENV,
   }),
+  /** Who pays cash-outs out: unset unless the TEST stand-in was chosen, which refuses to boot outside dev/test. */
+  cashOutPartner: cashOutPartnerFor(env.BANK_PAYOUT_PARTNER, env.BANK_PAYOUT_SIM_JSON, {
+    APP_ENV: process.env.APP_ENV,
+    NODE_ENV: process.env.NODE_ENV,
+  }),
+  /** Who speaks for the direct debit scheme: unset unless the TEST stand-in was chosen, which refuses to boot outside dev/test. */
+  directDebitScheme: directDebitSchemeFor(env.BANK_DD_SCHEME, env.BANK_DD_SIM_JSON, {
+    APP_ENV: process.env.APP_ENV,
+    NODE_ENV: process.env.NODE_ENV,
+  }),
   /** Purpose, source-of-funds and reference rules of a global send: the owner's table, blank refuses. */
   sendFieldRules: env.BANK_SEND_FIELD_RULES_JSON,
   /** Payee block list of a global send, and the file types and size a proof upload may have: the owner's, blank refuses. */
@@ -245,6 +290,10 @@ const bank = createBankServices(sql, ledger, history, {
   accountTerms: env.BANK_ACCOUNT_TERMS_JSON,
   accountCurrencies: env.BANK_ACCOUNT_CURRENCIES,
   spaceLimit: env.BANK_SPACE_LIMIT,
+  spaceUnlockWaitHours: env.BANK_SPACE_UNLOCK_WAIT_HOURS,
+  incomeSorterMinCredit: env.BANK_INCOME_SORTER_MIN_CREDIT,
+  sharedPotInviteMinutes: env.BANK_SHARED_POT_INVITE_MINUTES,
+  sharedPotPeopleCap: env.BANK_SHARED_POT_PEOPLE_CAP,
   /** Account details and the eligibility statement: owner-published lists, no banking partner wired (`rail.bank`). */
   accountDetails: {
     currencies: env.BANK_ACCOUNT_DETAILS_CURRENCIES,
@@ -262,9 +311,26 @@ const bank = createBankServices(sql, ledger, history, {
     offrampCoolingHours: env.BANK_OFFRAMP_COOLING_HOURS,
     addressBookCap: env.BANK_ADDRESS_BOOK_CAP,
     walletProofWindowMinutes: env.BANK_WALLET_PROOF_WINDOW_MINUTES,
+    addressApprovalLinkMinutes: env.BANK_ADDRESS_APPROVAL_LINK_MINUTES,
     walletProofValidDays: env.BANK_WALLET_PROOF_VALID_DAYS,
-    /** Which asset may be withdrawn on which network: svc-ledger's registry, the one list deposit and trade read too. */
-    withdrawNetworks: createLedgerAssetRegistry(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s),
+    // The owner's security lock (W-withdraw-09): identity owns it, bank asks per request. No IDENTITY_URL refuses every
+    // address change and send with `bank.security_lock_unset` rather than acting as if no lock were set.
+    securityLock: env.IDENTITY_URL
+      ? createIdentitySecurityLock(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, undefined, undefined, ledgerS2s)
+      : unconfiguredSecurityLock(),
+    // New-address approval links are mailed by identity, which holds the customer's address, and identity says whether a
+    // device may approve one from another device (W-withdraw-09). No IDENTITY_URL refuses both.
+    approvalMail: env.IDENTITY_URL
+      ? createIdentityApprovalMail(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, undefined, ledgerS2s)
+      : unconfiguredApprovalMail(),
+    trustedDevices: env.IDENTITY_URL
+      ? createIdentityTrustedDevices(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, undefined, ledgerS2s)
+      : unconfiguredTrustedDevices(),
+    /** The TEST add-money rate stand-in: none unless chosen, and it refuses to boot outside dev/test. It opens no payment. */
+    onrampStandIn: onrampStandInFor(env.BANK_ONRAMP_RATES, env.BANK_ONRAMP_SIM_JSON, {
+      APP_ENV: process.env.APP_ENV,
+      NODE_ENV: process.env.NODE_ENV,
+    }),
   },
 });
 
@@ -597,6 +663,66 @@ app.post('/internal/jobs/run-auto-invest', async (req, reply) => {
   }
 });
 
+/**
+ * The banking partner's side of a cash-out (BK-xfer-08, BK-xfer-09, J-bank-03 #4/#5): it verifies a linked account, and
+ * says a payout was paid, failed or came back. Signed job doors, never a customer or a staff session: with no partner
+ * wired, every one refuses `rail.bank` and no cash-out is ever processing. The re-drive door (also a recovery-timer job)
+ * picks up a cash-out left before its hold or the partner's acceptance.
+ */
+function jobDoor<T>(path: string, body: z.ZodType<T>, run: (input: T) => Promise<unknown>) {
+  app.post(path, async (req, reply) => {
+    if (!requireService(req)) return reply.code(401).send({ error: 'service credentials required', code: 'bank.unauthenticated' });
+    const parsed = body.safeParse(req.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: 'body not in shape', code: 'bank.validation_failed' });
+    try {
+      return await withSpan(`bank.job.${path.split('/').pop()}`, async () => run(parsed.data));
+    } catch (err) {
+      return sendBankJobRefuse(reply, err);
+    }
+  });
+}
+jobDoor('/internal/jobs/payout-sim/verify', payoutVerifyBody, (b) => bank.cashOut.verifyAccount(b.accountId));
+jobDoor('/internal/jobs/payout-sim/paid', payoutPaidBody, (b) => bank.cashOut.complete(b.cashOutId));
+jobDoor('/internal/jobs/payout-sim/failed', payoutFailedBody, (b) => bank.cashOut.fail(b.cashOutId, b.reason));
+jobDoor('/internal/jobs/payout-sim/returned', payoutReturnedBody, (b) =>
+  bank.cashOut.returned(b.cashOutId, { amount: b.amount, assetId: b.assetId, reason: b.reason }),
+);
+jobDoor('/internal/jobs/redrive-cash-outs', redriveBody, async (b) => recoveryCounts(await bank.cashOut.redrive(b.limit)));
+
+/**
+ * The direct debit scheme's side (BK-xfer-11): a creditor sets up a mandate and presents a collection. Signed job doors,
+ * never a customer or a staff session: with no scheme wired they refuse `rail.bank`, and on the stack only the TEST
+ * stand-in (`dd-sim`) answers. The collection run is the third door: it collects, fails or rejects every due collection.
+ */
+jobDoor('/internal/jobs/dd-sim/mandate', ddSimMandateBody, (b) => bank.directDebits.setUpMandate(b));
+jobDoor('/internal/jobs/dd-sim/collection', ddSimCollectionBody, (b) => bank.directDebits.present(b));
+
+/**
+ * Standing-order notices (BK-acct-10): owe a reminder for each order inside its owner's lead time and a failure notice
+ * for each refused run, then publish what is owed. A signed job door like the runner, called by the same scheduler;
+ * a pass that runs twice tells nobody twice.
+ */
+jobDoor('/internal/jobs/run-scheduled-notices', scheduledNoticesBody, (b) => bank.scheduledNotices.run({ limit: b.limit }));
+/**
+ * Income sorter sweep (BK-pots-03): sort posted payments that reached an account with a live sorter but were never
+ * sorted (the send crashed after its post), then drive every split whose outcome was unknown. Same keys as the send's
+ * own sort, so a pass that runs twice moves nothing twice.
+ */
+jobDoor('/internal/jobs/run-income-sorter', incomeSorterBody, (b) => bank.sorter.sweep(b.limit));
+app.post('/internal/jobs/run-due-direct-debits', async (req, reply) => {
+  if (!requireService(req)) return reply.code(401).send({ error: 'service credentials required', code: 'bank.unauthenticated' });
+  if (!env.BANK_DD_COLLECTIONS_ENABLED) {
+    return reply.code(503).send({ error: 'the direct debit collection run is stopped', code: 'bank.dd_collections_disabled' });
+  }
+  const body = ddRunBody.safeParse(req.body ?? {});
+  if (!body.success) return reply.code(400).send({ error: 'body not in shape', code: 'bank.validation_failed' });
+  try {
+    return await withSpan('bank.job.runDueDirectDebits', async () => bank.directDebits.runDue({ limit: body.data.limit }));
+  } catch (err) {
+    return sendBankJobRefuse(reply, err);
+  }
+});
+
 await app.register(fastifyTRPCPlugin, {
   prefix: '/trpc',
   trpcOptions: {
@@ -639,6 +765,7 @@ const recoveryJobs = startBankRecoveryJobs({
   loans: bank.loans,
   earn: bank.earn,
   transferNotices: { announceUnannounced: (limit) => bank.personalPay.announceUnannounced(limit) },
+  cashOuts: bank.cashOut,
   onWarn: (message) => app.log.warn(message),
   onError: (name, err) => app.log.error({ err, job: name }, 'bank recovery job tick failed'),
   onResult: (name, counts) =>

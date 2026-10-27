@@ -31,6 +31,26 @@
       "value": "5",
       "note": "TEST number of live named spaces per account, small so a journey can reach the limit."
     },
+    "BANK_SPACE_UNLOCK_WAIT_HOURS": {
+      "service": "bank",
+      "value": "24",
+      "note": "TEST hours an early unlock of a locked space waits before it opens (J-bank-07 #2); not an owner decision."
+    },
+    "BANK_SHARED_POT_INVITE_MINUTES": {
+      "service": "bank",
+      "value": "2",
+      "note": "TEST minutes a shared pot invite stays open, short so a journey can see one expire (J-bank-07 #6); not an owner decision."
+    },
+    "BANK_SHARED_POT_PEOPLE_CAP": {
+      "service": "bank",
+      "value": "2",
+      "note": "TEST people one pot may be shared with, open invites included, small so a journey can reach it (J-bank-07 #6); not an owner decision."
+    },
+    "BANK_INCOME_SORTER_MIN_CREDIT": {
+      "service": "bank",
+      "value": "1",
+      "note": "TEST smallest payment from another person that the income sorter splits (J-bank-07 #4); not an owner decision."
+    },
     "BANK_ACCOUNT_DETAILS_CURRENCIES": {
       "service": "bank",
       "value": "EUR,GBP,USD",
@@ -56,6 +76,16 @@
       "value": "60",
       "note": "How close to its next run a standing order may still be edited (J-bank-06 #2)."
     },
+    "BANK_LOAN_PAYOFF_FEE": {
+      "service": "bank",
+      "value": "0",
+      "note": "TEST payoff fee on clearing a loan early: none, so a payoff quote can be given (J-bank-11 #1). The owner's own fee table is not published."
+    },
+    "BANK_LOAN_PAYOFF_WINDOW_MINUTES": {
+      "service": "bank",
+      "value": "15",
+      "note": "How long a TEST payoff quote holds before it is re-priced (J-bank-11 #1)."
+    },
     "BANK_GLOBAL_HOLD_CANCEL_HOURS": {
       "service": "bank",
       "value": "72",
@@ -76,6 +106,21 @@
       "value": "180",
       "note": "How many days a verified wallet ownership proof holds (J-wallet-04)."
     },
+    "BANK_ADDRESS_APPROVAL_LINK_MINUTES": {
+      "service": "bank",
+      "value": "30",
+      "note": "How many minutes an emailed link that approves a new withdrawal address works (J-wallet-04 #5)."
+    },
+    "BANK_DEPOSIT_ADDRESS_CAP": {
+      "service": "bank",
+      "value": "3",
+      "note": "TEST number of deposit addresses one person may hold open for one asset on one network, the first included; small so a journey can reach it (J-wallet-02 #4)."
+    },
+    "BANK_DEPOSIT_ADDRESS_EXPIRY_DAYS": {
+      "service": "bank",
+      "value": "30",
+      "note": "TEST days an extra deposit address stays open before it expires (J-wallet-02 #4)."
+    },
     "BANK_PAYEE_CONTROLS_JSON": {
       "service": "bank",
       "value": "{\"blockedAccounts\": [\"999000000001\"]}",
@@ -95,6 +140,21 @@
       "service": "bank",
       "value": "{\"label\": \"TEST stand-in catalogue for the local stack: not a partner, not a corridor anyone offers, not a rate\", \"corridors\": [{\"country\": \"DE\", \"currency\": \"EUR\", \"deliveryMethods\": [\"sepa\"], \"minAmount\": \"1\", \"maxAmount\": \"1000\", \"cutOffTime\": null}, {\"country\": \"GB\", \"currency\": \"GBP\", \"deliveryMethods\": [\"bank_account\"], \"minAmount\": \"1\", \"maxAmount\": \"1000\", \"cutOffTime\": null}, {\"country\": \"NL\", \"currency\": \"EUR\", \"deliveryMethods\": [\"sepa\"], \"minAmount\": \"1\", \"maxAmount\": \"1000\", \"cutOffTime\": null, \"payout\": false}], \"rates\": [{\"asset\": \"USDT\", \"toCurrency\": \"EUR\", \"rate\": \"2\"}, {\"asset\": \"USDT\", \"toCurrency\": \"GBP\", \"rate\": \"3\"}], \"reviewFrom\": [{\"asset\": \"USDT\", \"amount\": \"500\"}], \"quoteValidSeconds\": 300, \"etaHours\": 24, \"banks\": [{\"bic\": \"TESTDEFF\", \"bankName\": \"TEST Bank\"}], \"travelRule\": {\"decidedBy\": \"TEST local stack\", \"requiredFields\": []}}",
       "note": "The global-send stand-in's catalogue: three made-up corridors (NL is listed and quoted but has no payout, as a corridor with no partner behaves), rates of 2 and 3 so no one reads them as real, no fee, and a USDT send of 500 or more is put on hold for a compliance look. Loaded only with BANK_GLOBAL_PARTNER=global-sim."
+    },
+    "BANK_ONRAMP_SIM_JSON": {
+      "service": "bank",
+      "value": "{\"label\": \"TEST add-money stand-in for the local stack: not a partner, not a rate anyone offers\", \"quoteValidSeconds\": 20, \"quotes\": [{\"country\": \"NL\", \"method\": \"bank_transfer\", \"asset\": \"USDT\", \"payCurrency\": \"EUR\", \"rate\": \"2\", \"fee\": \"1\", \"deliveryEstimate\": \"TEST 1 business day\"}]}",
+      "note": "The add-money rate stand-in's catalogue: one made-up price (bank transfer from NL, USDT at a TEST rate of 2 EUR plus a TEST fee of 1 EUR) that holds for 20 seconds, so a journey can see a price, wait it out and be refused. It opens no payment and credits nothing. Every other country and way to pay stays refused. Loaded only with BANK_ONRAMP_RATES=ramp-sim."
+    },
+    "BANK_PAYOUT_SIM_JSON": {
+      "service": "bank",
+      "value": "{\"label\": \"TEST payout stand-in for the local stack: not a partner, pays nobody\", \"payouts\": [{\"asset\": \"USDT\", \"currency\": \"EUR\", \"rate\": \"0.9\", \"fee\": \"1.5\"}, {\"asset\": \"BTC\", \"currency\": \"EUR\", \"rate\": \"50000\", \"fee\": \"1.5\"}]}",
+      "note": "The cash-out payout stand-in's catalogue: two made-up prices (USDT paid out in EUR at a TEST rate of 0.9, and BTC at a TEST rate of 50000, each less a TEST fee of 1.5 EUR; BTC lets J-portfolio-05 make a withdrawal that moves a coin with a price). It pays nobody: the amount moves to its own TEST rail boundary, and verifying an account or saying paid, failed or returned are signed calls only a test makes. Loaded only with BANK_PAYOUT_PARTNER=payout-sim."
+    },
+    "BANK_DD_SIM_JSON": {
+      "service": "bank",
+      "value": "{\"label\": \"TEST direct debit stand-in for the local stack: not a scheme, not a creditor anyone knows\", \"guaranteeDays\": 30, \"creditors\": [{\"id\": \"TEST-GYM\", \"name\": \"TEST Gym membership\"}, {\"id\": \"TEST-POWER\", \"name\": \"TEST Power company\"}]}",
+      "note": "The direct debit stand-in's catalogue: two made-up creditors that may set up a mandate and present a collection through the signed job doors, and a TEST guarantee period of 30 days so a refund request can be made. No failure fee: the fee table is the owner's and shows as not set. Loaded only with BANK_DD_SCHEME=dd-sim."
     },
     "BANK_SEND_FIELD_RULES_JSON": {
       "service": "bank",

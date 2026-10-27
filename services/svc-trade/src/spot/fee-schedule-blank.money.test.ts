@@ -76,7 +76,7 @@ describe('fee-schedule blank hitch (source)', () => {
     const src = tradeServiceSource();
     // Placement and settleFill live in spot/trade-service/order-place.ts and fills.ts since the split by area.
     const place = tradeServiceArea('order-place');
-    const placeHitch = place.indexOf('svc.assertOwnerFeeSchedulePublished();');
+    const placeHitch = place.indexOf('svc.assertOwnerFeeSchedulePublished(market, undefined, feeTier);');
     const orderHold = place.indexOf('recipes.orderHold({');
     expect(placeHitch).toBeGreaterThan(-1);
     expect(orderHold).toBeGreaterThan(-1);
@@ -87,7 +87,7 @@ describe('fee-schedule blank hitch (source)', () => {
     expect(settleStart).toBeGreaterThan(-1);
     const settle = fills.slice(settleStart);
     const rates = settle.indexOf('svc.ratesForFill(');
-    const tradeFill = settle.indexOf('recipes.tradeFill({');
+    const tradeFill = settle.indexOf('recipes.tradeFill(fillInput)');
     const mmFill = settle.indexOf('recipes.marketMakerMakerFill({');
     expect(rates).toBeGreaterThan(-1);
     expect(tradeFill).toBeGreaterThan(-1);
@@ -254,6 +254,83 @@ describe('svc-trade fee-schedule B1 money', () => {
       expect(await sql`SELECT id FROM trade.fills`).toHaveLength(0);
       expect(postsWithReason('trade.fill')).toHaveLength(0);
       expect(postsWithReason('order.hold')).toHaveLength(holdsBefore);
+    });
+
+    it('a market whose pair group has no row refuses trade.fee_schedule_blank before orderHold', async () => {
+      // BTC/USDT sits in a pair group the owner listed but gave no row: the regular row of the default group is no
+      // substitute, and the order is refused before anything is held (J-cex-spot-10 #3).
+      const rows = parseFeeScheduleJson(
+        JSON.stringify({
+          published: true,
+          version: 'rows-b1',
+          defaultPairGroup: 'all-others',
+          pairGroups: { 'BTC/USDT': 'unpriced' },
+          rows: [{ pairGroup: 'all-others', tierId: 'regular', zeroFee: false, makerBps: '3', takerBps: '7', minFee: null }],
+        }),
+      );
+      await fund(ALICE, 'USDT', '1000');
+      const blankRow = new TradeService(sql, ledger, matching, perks, bus, {
+        marketLifecycle: READY_MARKET_LIFECYCLE,
+        spotEnabled: true,
+        feeSchedule: rows,
+      });
+
+      await expect(
+        blankRow.placeOrder(principalFor(ALICE), {
+          marketId: btcusdt.id,
+          side: 'buy',
+          type: 'limit',
+          qty: amt('2'),
+          price: amt('100'),
+          clientOrderId: 'alice-blank-row-b1',
+        }),
+      ).rejects.toMatchObject({ code: 'trade.fee_schedule_blank' });
+
+      expect(await sql`SELECT id FROM trade.orders`).toHaveLength(0);
+      expect(matching.submitted).toHaveLength(0);
+      expect(postsWithReason('order.hold')).toHaveLength(0);
+      expect(await held(ALICE, 'USDT')).toBe('0');
+      expect(await avail(ALICE, 'USDT')).toBe('1000');
+    });
+
+    it('a version that blanks the market between the check and the order row refuses before orderHold, and leaves no row', async () => {
+      // The service's clock reads a moment before the stored version takes effect; the order row's created_at (the
+      // database clock) is after it. Fills are charged at created_at, so that is the version placement must pass.
+      await sql`TRUNCATE trade.fee_schedule_versions`;
+      const effectiveAt = new Date(Date.now() - 60_000);
+      await sql`INSERT INTO trade.fee_schedule_versions (id, version, schedule, effective_at, operator_id, approver_id, reason, approval_id)
+        VALUES (gen_random_uuid(), 1, ${sql.json({
+          defaultPairGroup: 'all-others',
+          pairGroups: { 'BTC/USDT': 'unpriced' },
+          rows: [{ pairGroup: 'all-others', tierId: 'regular', zeroFee: false, makerBps: '3', takerBps: '7', minFee: null }],
+        } as never)}, ${effectiveAt.toISOString()}, 'op-a', 'op-b', 'blank BTC/USDT', 'appr-race')`;
+      await fund(ALICE, 'USDT', '1000');
+      const early = new TradeService(sql, ledger, matching, perks, bus, {
+        marketLifecycle: READY_MARKET_LIFECYCLE,
+        spotEnabled: true,
+        feeSchedule: OWNER_PUBLISHED_B1,
+        now: () => new Date(effectiveAt.getTime() - 1_000),
+      });
+      try {
+        await expect(
+          early.placeOrder(principalFor(ALICE), {
+            marketId: btcusdt.id,
+            side: 'buy',
+            type: 'limit',
+            qty: amt('2'),
+            price: amt('100'),
+            clientOrderId: 'alice-race-b1',
+          }),
+        ).rejects.toMatchObject({ code: 'trade.fee_schedule_blank' });
+      } finally {
+        await sql`TRUNCATE trade.fee_schedule_versions`;
+      }
+
+      expect(await sql`SELECT id FROM trade.orders`).toHaveLength(0);
+      expect(matching.submitted).toHaveLength(0);
+      expect(postsWithReason('order.hold')).toHaveLength(0);
+      expect(await held(ALICE, 'USDT')).toBe('0');
+      expect(await avail(ALICE, 'USDT')).toBe('1000');
     });
 
     it('published owner 3/7 drives fill fee_bps — listing 10/20 is not a rate', async () => {

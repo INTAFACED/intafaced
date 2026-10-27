@@ -35,6 +35,9 @@ async function setup(page) {
     listFail: false,
     healthFail: false,
     uncertain: false,
+    // How many repay replies to drop on the way back, after the service answered.
+    dropReplies: 0,
+    releasable: '0.15',
     writes: [],
     health: {
       debtValue: '10000',
@@ -61,12 +64,31 @@ async function setup(page) {
   await page.route('**/api/bank/trpc/loans.products?*', (r) => response(r, []));
   await page.route('**/api/bank/trpc/loans.list?*', (r) => (state.listFail ? readFailed(r) : response(r, state.rows)));
   await page.route('**/api/bank/trpc/loans.health', (r) => (state.healthFail ? readFailed(r) : response(r, state.health)));
+  await page.route('**/api/bank/trpc/loans.releasable?*', (r) => {
+    const loanId = JSON.parse(new URL(r.request().url()).searchParams.get('input')).loanId;
+    if (state.releasable === null)
+      return r.fulfill({
+        status: 409,
+        json: {
+          error: {
+            message: 'No usable mark',
+            code: -32603,
+            data: { code: 'CONFLICT', httpStatus: 409, cause: { code: 'bank.mark_missing' } },
+          },
+        },
+      });
+    return response(r, { loanId, held: '0.2', releasable: state.releasable, maxLtvBps: 5000, ltvBps: 5013 });
+  });
   await page.route('**/api/bank/trpc/loans.*', (r) => {
     if (r.request().method() !== 'POST') return r.fallback();
     const procedure = new URL(r.request().url()).pathname.split('/').pop();
     const body = r.request().postDataJSON();
     state.writes.push({ procedure, body });
     if (state.uncertain) return r.fulfill({ status: 503, json: { error: 'Unavailable', message: 'Original outcome unavailable.' } });
+    if (procedure === 'loans.repay' && state.dropReplies > 0) {
+      state.dropReplies -= 1;
+      return r.abort('connectionreset');
+    }
     if (procedure === 'loans.repay')
       return response(r, {
         ledgerTxId: 'confirmed-repayment',
@@ -241,14 +263,118 @@ test('excess release rejects known collateral overflow before review and accepts
   await card(page, 3).getByRole('button', { name: 'Release excess', exact: true }).click();
   await page.getByLabel('Amount (BTC)', { exact: true }).fill('0.3');
   await page.getByRole('button', { name: 'Review', exact: true }).click();
-  await expect(page.getByRole('dialog')).toContainText('must not exceed the collateral');
+  await expect(page.getByRole('dialog')).toContainText('can’t be more than the collateral held for this loan');
   expect(state.writes).toEqual([]);
   expect(await journal(page)).toEqual([]);
   await page.getByLabel('Amount (BTC)', { exact: true }).fill('0.1');
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('Confirmed by the service');
-  expect(state.writes).toEqual([{ procedure: 'loans.releaseExcess', body: { loanId: ids[3], amount: '0.1' } }]);
+  expect(state.writes).toEqual([
+    { procedure: 'loans.releaseExcess', body: { loanId: ids[3], eventId: expect.stringMatching(/^[0-9a-f-]{36}$/), amount: '0.1' } },
+  ]);
+});
+
+test('excess release review shows what the service would release now and holds Confirm above it', async ({ page }) => {
+  const state = await setup(page);
+  state.releasable = '0.05';
+  await signIn(page);
+  await review(page, 'Release excess', 0, '0.1');
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByTestId('review-terms-row')).toContainText('Most you can release now0.05 BTC');
+  await expect(dialog.getByTestId('review-terms-blocked')).toContainText('Release 0.05 BTC or less.');
+  await expect(dialog.getByRole('button', { name: 'Confirm', exact: true })).toBeDisabled();
+  state.releasable = '0';
+  await dialog.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByLabel('Amount (BTC)', { exact: true }).fill('0.05');
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await expect(dialog.getByTestId('review-terms-blocked')).toContainText('would release no collateral');
+  expect(state.writes).toEqual([]);
+  expect(await journal(page)).toEqual([]);
+});
+
+test('a repayment whose reply was lost is sent again under the same reference, and the guard clears on its answer', async ({ page }) => {
+  const state = await setup(page);
+  state.dropReplies = 1;
+  await signIn(page);
+  await review(page);
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(dialog).toContainText('This request may have completed');
+  expect(await journal(page)).toHaveLength(1);
+  await expect(page.locator('#bank-unconfirmed')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Send the same request again', exact: true }).click();
+  await expect(dialog).toContainText('Confirmed by the service');
+  expect(state.writes).toHaveLength(2);
+  expect(state.writes[1]).toEqual(state.writes[0]);
+  expect(await journal(page)).toEqual([]);
+  await expect(page.locator('#bank-unconfirmed')).toHaveCount(0);
+});
+
+test('a second send whose reply is lost again, or that the service refuses, leaves the original guarded and sendable', async ({ page }) => {
+  const state = await setup(page);
+  state.dropReplies = 2;
+  await signIn(page);
+  await review(page);
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(dialog).toContainText('This request may have completed');
+  const again = dialog.getByRole('button', { name: 'Send the same request again', exact: true });
+  await again.click();
+  await expect(dialog).toContainText('This request may have completed');
+  await expect(again).toBeVisible();
+  expect(state.writes).toHaveLength(2);
+  expect(await journal(page)).toHaveLength(1);
+  // A refusal on a second send cannot prove the first did nothing: still unknown, still journaled, still sendable.
+  state.uncertain = true;
+  await again.click();
+  await expect(dialog).toContainText('This request may have completed');
+  await expect(again).toBeVisible();
+  expect(state.writes).toHaveLength(3);
+  expect(new Set(state.writes.map((w) => JSON.stringify(w))).size).toBe(1);
+  expect(await journal(page)).toHaveLength(1);
+  await expect(page.locator('#bank-unconfirmed')).toBeVisible();
+});
+
+test('a second send while another tab holds the bank write lock sends nothing and stays unknown', async ({ page }) => {
+  const state = await setup(page);
+  state.dropReplies = 1;
+  await signIn(page);
+  await review(page);
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(dialog).toContainText('This request may have completed');
+  await page.evaluate((id) => {
+    void navigator.locks.request('bank-write:' + id, () => new Promise(() => {}));
+  }, userId);
+  await dialog.getByRole('button', { name: 'Send the same request again', exact: true }).click();
+  await expect(dialog).toContainText('Another tab has a Bank request running');
+  await expect(dialog).toContainText('This request may have completed');
+  await expect(dialog.getByRole('button', { name: 'Send the same request again', exact: true })).toBeVisible();
+  expect(state.writes).toHaveLength(1);
+  expect(await journal(page)).toHaveLength(1);
+});
+
+test('the release review names the service refusal when it gives no figure', async ({ page }) => {
+  const state = await setup(page);
+  state.releasable = null;
+  await signIn(page);
+  await review(page, 'Release excess', 0, '0.1');
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByTestId('review-terms-blocked')).toContainText('Reference: bank.mark_missing');
+  await expect(dialog.getByRole('button', { name: 'Confirm', exact: true })).toBeDisabled();
+  expect(state.writes).toEqual([]);
+});
+
+test('an unknown release offers no second send: only a request the service answers by its reference may go again', async ({ page }) => {
+  const state = await setup(page);
+  state.uncertain = true;
+  await signIn(page);
+  await review(page, 'Release excess', 0, '0.1');
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('This request may have completed');
+  await expect(page.getByRole('button', { name: 'Send the same request again', exact: true })).toHaveCount(0);
+  expect(state.writes).toHaveLength(1);
 });
 
 test('settled collateral close uses zero-debt admission and blocks changed current debt', async ({ page }) => {

@@ -1,17 +1,17 @@
 /* Styles only the money pages use. Shared portal styles stay in ../portal.css. */
 .mn-balance {
   display: grid;
-  gap: 16px;
-  padding: 20px 4px 8px;
+  gap: var(--if-space-4);
+  padding: var(--if-space-5) var(--if-space-1) var(--if-space-2);
 }
 .mn-hero {
   display: grid;
-  gap: 6px;
+  gap: var(--if-space-1-5);
   justify-items: start;
 }
 .mn-hero-label {
   color: var(--if-fg-2);
-  font-size: 14px;
+  font-size: var(--if-text-base);
 }
 .mn-hero .pp-money {
   overflow-wrap: normal;
@@ -28,7 +28,7 @@
 }
 @media (max-width: 480px) {
   .if-business .mn-page .pay-section {
-    padding: 16px;
+    padding: var(--if-space-4);
   }
   .if-business .mn-page .pe-card-link {
     flex-wrap: wrap;

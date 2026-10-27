@@ -135,21 +135,75 @@ if (!available) {
       expect((await row(id)).totp_secret).toBe(before);
       expect(await attempts(id)).toBe(1);
       const done = await l.replaceConfirm(id, { secret: started.secret, newCode, currentCode: totp(secret) });
-      expect(done).toEqual({ replaced: true, recoveryCodeSpent: false });
+      expect(done).toMatchObject({ replaced: true, recoveryCodeSpent: false, sessionsEnded: 0 });
       expect((await row(id)).totp_secret).not.toBe(before);
       expect(await attempts(id)).toBe(0);
     });
 
-    it('replace keeps the label and the remaining recovery codes, and a recovery code can prove the old one', async () => {
+    it('replace keeps the label, a recovery code can prove the old one, and new codes replace every old one', async () => {
       const { id } = await seed({ recovery: ['KEEP-1', 'USE-2'] });
       await lifecycle().rename(id, 'Old phone');
       const l = lifecycle();
       const started = await l.replaceStart(id);
       const done = await l.replaceConfirm(id, { secret: started.secret, newCode: totp(started.secret), currentCode: 'USE-2' });
       expect(done.recoveryCodeSpent).toBe(true);
+      expect(done.recoveryCodes).toHaveLength(10);
+      expect(new Set(done.recoveryCodes).size).toBe(10);
       const after = await row(id);
       expect(after.totp_label).toBe('Old phone');
-      expect(after.recovery_code_hashes).toEqual([hashToken('KEEP-1')]);
+      // Only hashes are stored, and the code left over from the old set no longer works.
+      expect(after.recovery_code_hashes).toEqual(done.recoveryCodes.map((c) => hashToken(c)));
+      expect(after.recovery_code_hashes).not.toContain(hashToken('KEEP-1'));
+    });
+
+    it('replace ends every other session and every other device trust in the same step, and keeps the one replacing', async () => {
+      const { id, secret } = await seed();
+      const [keep, phone, laptop] = [randomUUID(), randomUUID(), randomUUID()];
+      const [newPhone, lostPhone] = [randomUUID(), randomUUID()];
+      for (const device of [newPhone, lostPhone]) {
+        await db.sql`INSERT INTO trusted_devices (id, user_id, device_key_hash, label, trusted_by)
+          VALUES (${device}, ${id}, ${hashToken(device)}, 'TEST device', 'sign-in')`;
+      }
+      for (const [sid, device] of [
+        [keep, newPhone],
+        [phone, lostPhone],
+        [laptop, null],
+      ] as const) {
+        await db.sql`INSERT INTO sessions (id, user_id, refresh_hash, expires_at, trusted_device_id)
+          VALUES (${sid}, ${id}, ${hashToken(sid)}, now() + interval '1 day', ${device})`;
+      }
+      const l = lifecycle();
+      const started = await l.replaceStart(id);
+      const done = await l.replaceConfirm(id, { secret: started.secret, newCode: totp(started.secret), currentCode: totp(secret) }, keep);
+      expect(done.sessionsEnded).toBe(2);
+      const live = await db.sql<Array<{ id: string }>>`SELECT id FROM sessions WHERE user_id = ${id} AND revoked = false`;
+      expect(live.map((r) => r.id)).toEqual([keep]);
+      // The lost phone asks for approval again at its next sign-in; the new phone stays trusted.
+      const trusted = await db.sql<Array<{ id: string }>>`SELECT id FROM trusted_devices WHERE user_id = ${id} AND removed_at IS NULL`;
+      expect(trusted.map((r) => r.id)).toEqual([newPhone]);
+    });
+
+    it('a refused replace ends no session, forgets no device and keeps the old recovery codes', async () => {
+      const { id } = await seed({ recovery: ['KEEP-1'] });
+      const [sid, device] = [randomUUID(), randomUUID()];
+      await db.sql`INSERT INTO trusted_devices (id, user_id, device_key_hash, label, trusted_by)
+        VALUES (${device}, ${id}, ${hashToken(device)}, 'TEST device', 'sign-in')`;
+      await db.sql`INSERT INTO sessions (id, user_id, refresh_hash, expires_at, trusted_device_id)
+        VALUES (${sid}, ${id}, ${hashToken(sid)}, now() + interval '1 day', ${device})`;
+      const l = lifecycle();
+      const started = await l.replaceStart(id);
+      await expect(
+        l.replaceConfirm(id, { secret: started.secret, newCode: totp(started.secret), currentCode: '000000' }),
+      ).rejects.toMatchObject({
+        code: 'auth.mfa_invalid',
+      });
+      expect((await row(id)).recovery_code_hashes).toEqual([hashToken('KEEP-1')]);
+      const [live] = await db.sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM sessions WHERE user_id = ${id} AND revoked = false`;
+      expect(live!.n).toBe(1);
+      const [trusted] = await db.sql<
+        Array<{ n: number }>
+      >`SELECT count(*)::int AS n FROM trusted_devices WHERE user_id = ${id} AND removed_at IS NULL`;
+      expect(trusted!.n).toBe(1);
     });
 
     it('replace start needs an enrolled authenticator, and a confirm with a made-up secret is refused', async () => {

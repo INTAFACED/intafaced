@@ -1,4 +1,6 @@
 import { SecurityLockError } from './auth/security-lock.js';
+import { createKycLevelsRouter } from './kyc/levels-router.js';
+import { EMPTY_KYC_LADDER_SETTINGS, type KycLadderSettings } from './kyc/levels.js';
 import { z } from 'zod';
 import { router, publicProcedure, protectedProcedure, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts';
 import { rankPerksSchema, rankStateSchema, accountControlResultSchema } from '@intafaced/contracts';
@@ -11,6 +13,9 @@ import {
 import { AuthError as GuardError, requireMfa } from '@intafaced/auth';
 import { requestIpAls } from './auth/auth-service-ip.js';
 import { ACCOUNT_TYPES, SignUpError } from './auth/sign-up.js';
+import { LoginCodeError } from './auth/login-code.js';
+import { TrustedDeviceError } from './auth/trusted-devices.js';
+import { trustedDeviceTrpcError } from './trusted-devices-router.js';
 import type { RefreshCookieBag } from './auth/refresh-cookie.js';
 
 declare module '@intafaced/contracts' {
@@ -75,14 +80,20 @@ import { accrueTreeUnderRateAuthority, accrualTreeAuthorityStatusLine } from './
 import { AccrualsLimitUnsetError, type AccrualStore } from './affiliates/accrual-store.js';
 import { KYC_VAULT_UNWIRED } from './kyc/boot-vault.js';
 import { KycDocumentError, KycDocumentsListLimitUnsetError, type KycDocumentVault, type StoredDocumentMeta } from './kyc/document-store.js';
-import { ProviderRefBindError, type BindProviderRefInput, type BindProviderRefResult } from './kyc/provider-ref-bind.js';
+import {
+  ProviderRefBindError,
+  type BindProviderRefInput,
+  type BindProviderRefResult,
+  type DocumentReview,
+} from './kyc/provider-ref-bind.js';
 import { FlagDisabledError } from '@intafaced/config';
-import { WaitlistError, type WaitlistService } from './waitlist/waitlist-service.js';
+import { WaitlistError, type WaitlistPosition, type WaitlistService } from './waitlist/waitlist-service.js';
 import type { WaitlistWave } from './waitlist/waitlist-store.js';
 import { ACTION_APPROVAL_MISSING, PrivilegedDualControlError, requirePrivilegedDualControl } from './auth/privileged-dual-control.js';
 import { ActionApprovalError } from './auth/action-approval-service.js';
 import { optionalFactorProof, guardedApiKeyAction } from './auth/api-key-fresh-factor.js';
 import { SocialError, SocialSignin } from './social/social-signin.js';
+import { signinMethodTrpc, walletAnswerFields, walletChallengeInput, walletChallengeOutput } from './signin-methods-router.js';
 import { userCopy } from './user-copy.js';
 import { TradeIdentityAuthError } from './auth/trade-identity-auth.js';
 import type { FounderEnrolmentConfig } from './auth/founder-enrolment.js';
@@ -107,9 +118,16 @@ import { createSubAccountEditProcedures } from './sub-accounts/sub-account-edit-
  * before any consumer is touched (§15.2).
  */
 
-function toTrpcError(err: unknown): TRPCError {
+export function toTrpcError(err: unknown): TRPCError {
   // Already shaped for the wire — do not re-wrap.
   if (err instanceof TRPCError) return err;
+
+  // New-device check (I-signin-sessions-07): every sign-in door can answer it once all factors passed.
+  if (err instanceof TrustedDeviceError) return trustedDeviceTrpcError(err);
+
+  // A removal that would leave no way in, or a refused wallet answer (I-account-lifecycle-07).
+  const signinMethod = signinMethodTrpc(err);
+  if (signinMethod) return signinMethod;
 
   // A guard rejection (`requireMfa`) is not a server fault. It arrives as the
   // shared package's AuthError, which is a different class from this service's.
@@ -290,6 +308,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'waitlist.referral_locked':
       case 'waitlist.wave_unknown':
         return new TRPCError({ code: 'CONFLICT', message: `${err.message} [${err.code}]`, cause: err });
+      case 'waitlist.email_unverified':
+        return new TRPCError({ code: 'FORBIDDEN', message: `${err.message} [${err.code}]`, cause: err });
       case 'waitlist.invalid':
         return new TRPCError({ code: 'BAD_REQUEST', message: `${err.message} [${err.code}]`, cause: err });
       case 'drop.wave_unset':
@@ -317,6 +337,7 @@ function toTrpcError(err: unknown): TRPCError {
       // half of the credential was right (including "key ok, origin wrong").
       return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
     case 'auth.mfa_required':
+    case 'auth.second_step_expired':
       return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
     case 'auth.too_many_attempts':
       // Per-account lockout (attempt-lockout.ts): retrying now cannot help, retrying later can.
@@ -370,6 +391,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'auth.sub_account_same':
     case 'auth.password_unchanged':
     case 'auth.password_policy':
+    case 'auth.password_breached':
       return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
     case 'auth.sub_account_nickname_invalid':
       return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
@@ -452,6 +474,29 @@ function signUpTrpcError(err: unknown): TRPCError {
   }
 }
 
+const loginCodeAccepted = z.object({
+  accepted: z.literal(true),
+  flowId: z.string().guid(),
+  resendAfterSeconds: z.number().int().positive(),
+});
+
+/** Code sign-in refusals: a lockout or an early resend is 429 with its seconds, a blank setting or switched-off mail 412. */
+function loginCodeTrpcError(err: unknown): TRPCError {
+  if (!(err instanceof LoginCodeError)) return toTrpcError(err);
+  switch (err.code) {
+    case 'auth.too_many_attempts':
+    case 'identity.resend_too_soon':
+      return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
+    case 'auth.codes_unwired':
+    case 'vendor.email':
+    case 'vendor.sms':
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+    case 'auth.code_invalid':
+    case 'auth.code_expired':
+      return new TRPCError({ code: 'UNAUTHORIZED', message: err.message, cause: err });
+  }
+}
+
 const sessionOutput = z.object({
   accessToken: z.string(),
   /**
@@ -462,6 +507,10 @@ const sessionOutput = z.object({
   refreshToken: z.string().optional(),
   expiresAt: z.string(),
   userId: z.string().guid(),
+  /** A device key just trusted, for a native or API client only (a browser gets the `ifc_dk` cookie instead). */
+  deviceKey: z.string().optional(),
+  /** Present only when this sign-in's second step spent a recovery code: how many codes the account has left. */
+  recoveryCodesLeft: z.number().int().min(0).optional(),
 });
 
 /** The tiers a user can ask for. `none` is the absence of a record, not a request. */
@@ -520,6 +569,21 @@ const kycDocMetaOutput = z.object({
   createdAt: z.string(),
 });
 
+/**
+ * One row of a subject's document list: the meta, and the review of the KYC record attached to it. Identity keeps no
+ * decision per document yet (OPS-cases-07), so the status is the record's: `not_attached` when no record points at it.
+ */
+/** The vault is wired but the lookup of each document's review is not: a boot mis-wire, refused rather than listed as unattached. */
+const KYC_DOC_REVIEWS_UNWIRED = 'kyc_doc.reviews_unwired';
+/** A document read run by anyone but the operator who asked for it. */
+const KYC_DOC_READER_NOT_REQUESTER = 'kyc_doc.reader_not_requester';
+
+const kycDocListOutput = kycDocMetaOutput.extend({
+  reviewStatus: z.enum(['not_attached', 'pending', 'approved', 'rejected', 'expired']),
+  reviewRecordId: z.string().guid().nullable(),
+  reviewTier: z.enum(['none', 'basic', 'full', 'institutional']).nullable(),
+});
+
 const socialProviderName = z.string().regex(/^[a-z0-9-]{1,32}$/);
 
 /** No registry configured is the same as no provider registered. */
@@ -549,6 +613,25 @@ function toSocialTrpcError(err: unknown): TRPCError {
 }
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
+
+const waitlistPlaceOutput = z.object({
+  position: z.number().int().positive(),
+  referralCode: z.string(),
+  referredCount: z.number().int().min(0),
+  queueLength: z.number().int().min(0),
+  /** Place among those still waiting (more referrals first, ties by join order); null once released. */
+  rank: z.number().int().positive().nullable(),
+  waiting: z.number().int().min(0),
+  release: z.object({ waveNumber: z.number().int().positive(), releasedAt: z.string() }).nullable(),
+});
+
+function waitlistPlaceView(out: WaitlistPosition): z.infer<typeof waitlistPlaceOutput> {
+  return {
+    ...out,
+    release: out.release ? { waveNumber: out.release.waveNumber, releasedAt: out.release.releasedAt.toISOString() } : null,
+  };
+}
+
 const waveOutput = z.object({
   waveNumber: z.number().int().positive(),
   size: z.number().int().positive(),
@@ -644,6 +727,8 @@ export function createIdentityRouter(
      */
     founderEnrolment?: { invites?: FounderEnrolmentConfig | undefined; now?: () => Date };
     webauthnEnabled?: boolean;
+    /** The owner's published verification requirements and review times (I-kyc-compliance-05). Absent = none published. */
+    kycLadder?: KycLadderSettings;
     /** Social sign-in. Absent means no provider is registered: every start answers `idp.social`. */
     social?: SocialSignin;
     /**
@@ -695,6 +780,11 @@ export function createIdentityRouter(
      */
     bindKycProviderRef?: (input: BindProviderRefInput) => Promise<BindProviderRefResult>;
     /**
+     * The KYC record each listed document is attached to (`kyc_records.provider_ref`). Booted with the vault; a vault
+     * without it lists nothing, since a document list without its review status would read as "not attached".
+     */
+    kycDocumentReviews?: (userId: string, documentIds: readonly string[]) => Promise<Map<string, DocumentReview>>;
+    /**
      * Action-bound approval issuer. Privileged mutates consume it.
      * Absent → those doors refuse (typed-in second name is not enough).
      */
@@ -735,18 +825,25 @@ export function createIdentityRouter(
 
   const sessionWire = (
     ctx: { refreshCookie?: RefreshCookieBag | null },
-    session: { accessToken: string; refreshToken: string; expiresAt: Date; userId: string },
+    session: { accessToken: string; refreshToken: string; expiresAt: Date; userId: string; deviceKey?: string; recoveryCodesLeft?: number },
   ) => {
     const bag = ctx.refreshCookie;
     bag?.issue(session.refreshToken, auth.refreshLifetimeSeconds());
+    if (session.deviceKey) bag?.issueDevice(session.deviceKey);
     const wire = {
       accessToken: session.accessToken,
       expiresAt: session.expiresAt.toISOString(),
       userId: session.userId,
+      ...(session.recoveryCodesLeft !== undefined ? { recoveryCodesLeft: session.recoveryCodesLeft } : {}),
     };
     if (bag?.browser) return wire;
-    return { ...wire, refreshToken: session.refreshToken };
+    // A native or API client keeps its device key itself and presents it as `deviceKey` on sign-in.
+    return { ...wire, refreshToken: session.refreshToken, ...(session.deviceKey ? { deviceKey: session.deviceKey } : {}) };
   };
+
+  /** The trusted-device key this sign-in presents: the body's (native and API clients), else the browser's cookie. */
+  const presentedDeviceKey = (ctx: { refreshCookie?: RefreshCookieBag | null }, body: string | undefined): string | null =>
+    body ?? ctx.refreshCookie?.presentedDevice ?? null;
 
   const presentedRefreshToken = (ctx: { refreshCookie?: RefreshCookieBag | null }, body: string | undefined): string => {
     const token = body ?? ctx.refreshCookie?.presented ?? '';
@@ -765,6 +862,7 @@ export function createIdentityRouter(
   const ledger = options.ledger;
   const kycDocs = options.kycDocs;
   const bindKycProviderRef = options.bindKycProviderRef;
+  const kycDocumentReviews = options.kycDocumentReviews;
   const waitlist = options.waitlist;
   const handleLookupLimiter = options.handleLookupLimiter ?? new HandleLookupLimiter();
 
@@ -841,6 +939,13 @@ export function createIdentityRouter(
       });
     }
     return kycDocs;
+  }
+
+  function readerNotRequester(): TRPCError {
+    return new TRPCError({
+      code: 'FORBIDDEN',
+      message: `Only the operator who asked to open this document can open it [${KYC_DOC_READER_NOT_REQUESTER}]`,
+    });
   }
 
   function requireBindKyc(): (input: BindProviderRefInput) => Promise<BindProviderRefResult> {
@@ -1055,6 +1160,8 @@ export function createIdentityRouter(
             email: z.string().email(),
             password: z.string().min(12).max(200),
             region: z.string().length(2).optional(),
+            /** A native or API client's own device key, trusted with the new account (a browser's comes in `ifc_dk`). */
+            deviceKey: z.string().min(16).max(128).optional(),
             /**
              * Optional referrer at signup. Same law as `affiliates.attribute`
              * (self/cycle/depth/unknown refuse loud). Blank = no edge.
@@ -1076,7 +1183,11 @@ export function createIdentityRouter(
           }
           try {
             const { referrerId, ...registerInput } = input;
-            const session = await auth.register({ ...registerInput, ip: requestIpAls.getStore() });
+            const session = await auth.register({
+              ...registerInput,
+              ip: requestIpAls.getStore(),
+              deviceKey: presentedDeviceKey(ctx, registerInput.deviceKey),
+            });
             if (referrerId) {
               await requireReferral().attribute({ userId: session.userId, referrerId });
             }
@@ -1156,7 +1267,7 @@ export function createIdentityRouter(
         .mutation(async ({ input, ctx }) => {
           assertRegistrationOpen();
           try {
-            const done = await auth.signUpConfirm({ ...input, ip: requestIpAls.getStore() });
+            const done = await auth.signUpConfirm({ ...input, ip: requestIpAls.getStore(), deviceKey: presentedDeviceKey(ctx, undefined) });
             if (done.referrerId) {
               // Attribution never blocks the account (it is already made); a refusal, or no referral tree, is logged.
               try {
@@ -1201,12 +1312,17 @@ export function createIdentityRouter(
             handle: z.string().regex(/^[a-zA-Z0-9_]{3,32}$/, 'handle must be 3-32 letters, numbers or underscores'),
             email: z.string().email(),
             password: z.string().min(12).max(200),
+            deviceKey: z.string().min(16).max(128).optional(),
           }),
         )
         .output(sessionOutput)
         .mutation(async ({ input, ctx }) => {
           try {
-            const session = await auth.registerFounder({ ...input, ip: requestIpAls.getStore() }, founderInvites, founderNow());
+            const session = await auth.registerFounder(
+              { ...input, ip: requestIpAls.getStore(), deviceKey: presentedDeviceKey(ctx, input.deviceKey) },
+              founderInvites,
+              founderNow(),
+            );
             return sessionWire(ctx, session);
           } catch (err) {
             throw toTrpcError(err);
@@ -1214,14 +1330,112 @@ export function createIdentityRouter(
         }),
 
       login: publicProcedure
-        .input(z.object({ identifier: z.string().min(1), password: z.string().min(1), totpCode: z.string().optional() }))
+        .input(
+          z.object({
+            identifier: z.string().min(1),
+            password: z.string().min(1),
+            totpCode: z.string().optional(),
+            deviceKey: z.string().min(16).max(128).optional(),
+          }),
+        )
         .output(sessionOutput)
         .mutation(async ({ input, ctx }) => {
           try {
-            const session = await auth.login(input);
+            const session = await auth.login({ ...input, deviceKey: presentedDeviceKey(ctx, input.deviceKey) });
             return sessionWire(ctx, session);
           } catch (err) {
             throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * The second step by passkey (I-signin-sessions-10). `login` answered `auth.mfa_required` with a passkey challenge
+       * (`secondStep.passkey`) once the password verified; the assertion over it opens a two-factor session. A passkey of
+       * another account, or one bound to other actions, answers `auth.webauthn_invalid` and counts on the MFA lockout.
+       */
+      loginSecondStepPasskey: publicProcedure
+        .input(
+          z.object({
+            credential: z.object({
+              id: z.string().min(1),
+              rawId: z.string().min(1),
+              type: z.literal('public-key'),
+              response: z.object({
+                clientDataJSON: z.string().min(1),
+                authenticatorData: z.string().min(1),
+                signature: z.string().min(1),
+                userHandle: z.string().nullish(),
+              }),
+              clientExtensionResults: z.record(z.string(), z.unknown()).optional(),
+            }),
+            deviceKey: z.string().min(16).max(128).optional(),
+          }),
+        )
+        .output(sessionOutput)
+        .mutation(async ({ input, ctx }) => {
+          if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
+          try {
+            const session = await auth.loginSecondStepPasskey({
+              credential: input.credential,
+              ip: requestIpAls.getStore(),
+              deviceKey: presentedDeviceKey(ctx, input.deviceKey),
+            });
+            return sessionWire(ctx, session);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * Sign-in by a mailed code, step 1 (I-signin-sessions-19, -20). Takes an email or handle and answers the same
+       * for every name, with no session: only an active account is mailed a six-digit code.
+       */
+      loginCodeRequest: publicProcedure
+        .input(z.object({ identifier: z.string().trim().min(1).max(320) }))
+        .output(loginCodeAccepted)
+        .mutation(async ({ input }) => {
+          try {
+            return await auth.loginCodeRequest(input);
+          } catch (err) {
+            throw loginCodeTrpcError(err);
+          }
+        }),
+
+      /** Sign-in by a mailed code, step 1b: a new code once the resend interval has passed; the old one stops working. */
+      loginCodeResend: publicProcedure
+        .input(z.object({ flowId: z.string().guid() }))
+        .output(loginCodeAccepted)
+        .mutation(async ({ input }) => {
+          try {
+            return await auth.loginCodeResend(input);
+          } catch (err) {
+            throw loginCodeTrpcError(err);
+          }
+        }),
+
+      /**
+       * Sign-in by a mailed code, step 2: the right code opens one session. A wrong code counts toward the owner's
+       * lockout, a used one is refused, and an account with an authenticator still answers `auth.mfa_required` until
+       * its code comes too (the mailed code stays unspent meanwhile).
+       */
+      loginWithCode: publicProcedure
+        .input(
+          z.object({
+            flowId: z.string().guid(),
+            code: z.string().trim().min(1).max(12),
+            totpCode: z.string().trim().min(1).max(64).optional(),
+            deviceKey: z.string().min(16).max(128).optional(),
+          }),
+        )
+        .output(sessionOutput)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            return sessionWire(
+              ctx,
+              await auth.loginWithCode({ ...input, ip: requestIpAls.getStore(), deviceKey: presentedDeviceKey(ctx, input.deviceKey) }),
+            );
+          } catch (err) {
+            throw loginCodeTrpcError(err);
           }
         }),
 
@@ -1265,10 +1479,108 @@ export function createIdentityRouter(
             if (!userId) throw new SocialError('That provider account is not linked to an account', 'identity.social_not_linked');
             return sessionWire(
               ctx,
-              await auth.signInVerifiedIdentity(userId, input.totpCode === undefined ? {} : { totpCode: input.totpCode }),
+              await auth.signInVerifiedIdentity(userId, {
+                ...(input.totpCode === undefined ? {} : { totpCode: input.totpCode }),
+                deviceKey: presentedDeviceKey(ctx, undefined),
+              }),
             );
           } catch (err) {
             throw toSocialTrpcError(err);
+          }
+        }),
+
+      /**
+       * Wallet sign-in, step 1 (I-account-lifecycle-07): the EIP-4361 message a wallet signs, single use. The same answer
+       * for every wallet, linked or not.
+       */
+      walletChallenge: publicProcedure
+        .input(walletChallengeInput)
+        .output(walletChallengeOutput)
+        .mutation(async ({ input }) => {
+          try {
+            return await auth.walletSigninChallenge({
+              address: input.address,
+              chainId: input.chainId,
+              ...(input.origin ? { origin: input.origin } : {}),
+            });
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * Wallet sign-in, step 2: the signature from a wallet an account linked signs that account in, and its second step
+       * still follows. An unlinked wallet answers `auth.invalid_credentials`; the challenge is spent either way.
+       */
+      walletSignIn: publicProcedure
+        .input(
+          z
+            .object({
+              ...walletAnswerFields,
+              totpCode: z.string().trim().min(1).max(64).optional(),
+              deviceKey: z.string().min(16).max(128).optional(),
+            })
+            .strict(),
+        )
+        .output(sessionOutput)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            return sessionWire(
+              ctx,
+              await auth.loginWithWallet({ ...input, ip: requestIpAls.getStore(), deviceKey: presentedDeviceKey(ctx, input.deviceKey) }),
+            );
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * New-device sign-in (I-signin-sessions-07), from the waiting browser: the code mailed to the account approves this
+       * device and signs in at once. The flow's secret, which only that browser holds, proves it is the one asking. A
+       * wrong code counts toward the owner's lockout.
+       */
+      deviceApprove: publicProcedure
+        .input(
+          z
+            .object({
+              flowId: z.string().guid(),
+              secret: z.string().min(16).max(128),
+              code: z.string().trim().min(1).max(12),
+              deviceKey: z.string().min(16).max(128).optional(),
+            })
+            .strict(),
+        )
+        .output(sessionOutput)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            return sessionWire(
+              ctx,
+              await auth.deviceApprove({ ...input, ip: requestIpAls.getStore(), deviceKey: presentedDeviceKey(ctx, input.deviceKey) }),
+            );
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * New-device sign-in, after a trusted session approved it: the waiting browser completes once with its secret.
+       * Not approved yet answers `auth.device_authorisation_pending`; a second completion `auth.device_authorisation_used`.
+       */
+      deviceComplete: publicProcedure
+        .input(
+          z
+            .object({ flowId: z.string().guid(), secret: z.string().min(16).max(128), deviceKey: z.string().min(16).max(128).optional() })
+            .strict(),
+        )
+        .output(sessionOutput)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            return sessionWire(
+              ctx,
+              await auth.deviceComplete({ ...input, ip: requestIpAls.getStore(), deviceKey: presentedDeviceKey(ctx, input.deviceKey) }),
+            );
+          } catch (err) {
+            throw toTrpcError(err);
           }
         }),
 
@@ -1763,6 +2075,11 @@ export function createIdentityRouter(
      * record from `pending`, without changing what approval means.
      */
     kyc: router({
+      /** The verification ladder: what each level unlocks, asks for and how long review takes (I-kyc-compliance-04/05). */
+      levels: createKycLevelsRouter({
+        kycTier: (userId) => auth.kycTier(userId),
+        settings: options.kycLadder ?? EMPTY_KYC_LADDER_SETTINGS,
+      }),
       /**
        * A user asks to be verified. Grants nothing.
        *
@@ -2002,8 +2319,16 @@ export function createIdentityRouter(
         .mutation(async ({ ctx, input }) => {
           try {
             requireMfa(ctx.principal);
-            await consumePrivileged(ctx.principal.userId, input, 'kyc.doc.get', { documentId: input.documentId });
+            // A switched-off vault refuses before the approval is spent.
             const vault = requireKycDocs();
+            // Only the operator who asked may spend the approval on the read: the approver, or anyone else holding the ids,
+            // is refused before it is spent, and again after, so the approval is never a bearer pass to the contents.
+            const reader = ctx.principal.userId;
+            const approvalId = input.approvalId?.trim();
+            const parties = approvalId ? await options.actionApprovals?.partiesOf?.(approvalId) : null;
+            if (parties && parties.requesterId !== reader) throw readerNotRequester();
+            const consumed = await consumePrivileged(reader, input, 'kyc.doc.get', { documentId: input.documentId });
+            if (consumed.requesterId !== reader) throw readerNotRequester();
             const opened = await vault.getFor(input.documentId, {
               kind: 'compliance',
               operatorId: ctx.principal.userId,
@@ -2021,11 +2346,31 @@ export function createIdentityRouter(
        */
       listDocuments: scopedProcedure('admin:compliance')
         .input(z.object({ userId: z.string().guid(), limit: z.number().int().min(1).max(200) }))
-        .output(z.array(kycDocMetaOutput))
+        .output(z.array(kycDocListOutput))
         .query(async ({ input }) => {
           try {
             const vault = requireKycDocs();
-            return (await vault.listMetaForUser(input.userId, input.limit)).map(presentDocMeta);
+            if (!kycDocumentReviews) {
+              throw new TRPCError({
+                code: 'PRECONDITION_FAILED',
+                message: `KYC document review lookup is not configured [${KYC_DOC_REVIEWS_UNWIRED}]`,
+              });
+            }
+            const docs = await vault.listMetaForUser(input.userId, input.limit);
+            // Each document's status is the review of the newest KYC record attached to it, or `not_attached` when none is.
+            const reviews = await kycDocumentReviews(
+              input.userId,
+              docs.map((d) => d.id),
+            );
+            return docs.map((meta) => {
+              const review = reviews.get(meta.id);
+              return {
+                ...presentDocMeta(meta),
+                reviewStatus: review?.status ?? 'not_attached',
+                reviewRecordId: review?.recordId ?? null,
+                reviewTier: review?.tier ?? null,
+              };
+            });
           } catch (err) {
             throw toTrpcError(err);
           }
@@ -3434,29 +3779,27 @@ export function createIdentityRouter(
 
       position: publicProcedure
         .input(z.object({ referralCode: z.string().regex(/^[a-fA-F0-9]{12}$/) }))
-        .output(
-          z.object({
-            position: z.number().int().positive(),
-            referralCode: z.string(),
-            referredCount: z.number().int().min(0),
-            queueLength: z.number().int().min(0),
-            /** Place among those still waiting (more referrals first, ties by join order); null once released. */
-            rank: z.number().int().positive().nullable(),
-            waiting: z.number().int().min(0),
-            release: z.object({ waveNumber: z.number().int().positive(), releasedAt: z.string() }).nullable(),
-          }),
-        )
+        .output(waitlistPlaceOutput)
         .query(async ({ input }) => {
           try {
-            const out = await requireWaitlist().position(input.referralCode);
-            return {
-              ...out,
-              release: out.release ? { waveNumber: out.release.waveNumber, releasedAt: out.release.releasedAt.toISOString() } : null,
-            };
+            return waitlistPlaceView(await requireWaitlist().position(input.referralCode));
           } catch (err) {
             throw toTrpcError(err);
           }
         }),
+
+      /**
+       * The signed-in caller's own place (RC-campaigns-05's drop room, J-campaigns-20 #4): the entry whose email is this
+       * account's confirmed email, or null when it never joined. An unconfirmed email refuses `waitlist.email_unverified`.
+       */
+      mine: protectedProcedure.output(waitlistPlaceOutput.nullable()).query(async ({ ctx }) => {
+        try {
+          const out = await requireWaitlist().mine(() => auth.selfEmail(ctx.principal.userId));
+          return out ? waitlistPlaceView(out) : null;
+        } catch (err) {
+          throw toTrpcError(err);
+        }
+      }),
 
       /**
        * Referral-ranked waves (RC-campaigns-03, J-campaigns-20 #3). `list` shows the owner's wave size (null while blank),

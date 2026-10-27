@@ -13,6 +13,7 @@ import type { Sql, TransactionSql } from 'postgres';
 import {
   bankTransferKey,
   formatAmount,
+  POST_IN_FLIGHT_BOUND_SECONDS,
   provesPostNotCommitted,
   parseAmount,
   type Amount,
@@ -26,6 +27,8 @@ import { BookedTransferConflict } from './booked-transfer.js';
 import { PartyHandleUnavailableError, type PartyHandlePort } from './party-handles.js';
 import type { PersonalRequestNotices } from './request-notices.js';
 import type { PersonalTransferNotices } from './transfer-notices.js';
+import type { IncomingCredit } from '../sorter/income-sorter.js';
+import { assertSecurityLockOpen, unconfiguredSecurityLock, type SecurityLockPort } from '../security-lock.js';
 
 const NOTE_MAX = 140;
 const REFERENCE_MAX = 64;
@@ -35,6 +38,8 @@ const STALE_RESERVATION_MS = 15 * 60 * 1000;
 const NOTICE_PUBLISH_TIMEOUT_MS = 5_000;
 /** The recovery timer leaves a send this young to the request that posted it, which announces it itself. */
 const NOTICE_RETRY_AFTER_MS = 30_000;
+/** How long a send waits for the recipient's income sorter before it answers; the sorter's sweep finishes anything slower. */
+const SORT_HANDOFF_TIMEOUT_MS = 5_000;
 
 function termsUnset(assetId: string): BankError {
   return new BankError(
@@ -222,7 +227,7 @@ export class PersonalPayService {
     private readonly sql: Sql,
     private readonly ledger: Pick<LedgerClient, 'getTx' | 'getTxByKey' | 'balance'>,
     private readonly transfers: Pick<TransferService, 'transferToUser'>,
-    private readonly spaces: Pick<SpaceService, 'get' | 'findPrimary'>,
+    private readonly spaces: Pick<SpaceService, 'get' | 'findPrimary' | 'ensurePrimary' | 'assertCanReceive'>,
     private readonly options: {
       handles?: PartyHandlePort;
       notices?: PersonalRequestNotices;
@@ -230,6 +235,18 @@ export class PersonalPayService {
       transferNotices?: PersonalTransferNotices;
       /** How long a send waits for the bus to take its notice. Tests shorten it. */
       noticeTimeoutMs?: number;
+      /**
+       * A posted send reached the recipient (BK-pots-03: the income sorter). Called after every post and on a retried
+       * send, so it must be safe to repeat. Its failure is logged, never thrown: the money has moved by then.
+       */
+      onCreditPosted?: (credit: IncomingCredit) => Promise<unknown>;
+      /** How long a send waits for `onCreditPosted`. Tests shorten it. */
+      sortTimeoutMs?: number;
+      /**
+       * The owner's security lock (W-withdraw-09), asked by `settleWithdrawal` only: a withdrawal to an address is refused
+       * while it holds. Unset refuses every such withdrawal (`bank.security_lock_unset`), never "no lock".
+       */
+      securityLock?: SecurityLockPort;
       now?: () => Date;
     } = {},
   ) {}
@@ -313,6 +330,7 @@ export class PersonalPayService {
     if (reserved.status === 'posted' && reserved.ledger_tx_id) {
       if (reserved.request_id) await this.finishRequest(reserved.request_id, input.transferId, reserved.ledger_tx_id, now);
       if (!reserved.announced_at) await this.announcePosted(reserved, reserved.ledger_tx_id, now);
+      await this.creditPosted(reserved, reserved.ledger_tx_id);
       return this.toTransferView(reserved);
     }
 
@@ -355,7 +373,74 @@ export class PersonalPayService {
     const row = posted[0] ?? (await this.mustTransfer(input.transferId));
     if (requestId) await this.finishRequest(requestId, input.transferId, ledgerTxId, now);
     if (row.status === 'posted' && !row.announced_at) await this.announcePosted(row, ledgerTxId, now);
+    if (row.status === 'posted') await this.creditPosted(row, ledgerTxId);
     return this.toTransferView(row);
+  }
+
+  /**
+   * svc-pay's withdrawal to another person's platform address, settled inside the book (W-withdraw-14). It is one
+   * person-to-person send from the sender's main account, under svc-pay's key `withdraw:<withdrawal id>`, so the same terms,
+   * limits, freezes and history apply as to a send the person makes here, and the receiver sees who sent it. A retry with the
+   * same key resumes the same send and posts once.
+   *
+   * `refused` only when this send provably posted nothing: a typed refusal (an unknown, frozen or closed receiver, the limits,
+   * too little money) or a ledger refusal that proves no commit. Every other failure throws, so the caller hears "unknown"
+   * and asks again with the same key.
+   */
+  async settleWithdrawal(input: {
+    transferId: string;
+    fromUserId: string;
+    toUserId: string;
+    assetId: string;
+    amount: Amount;
+    now?: Date;
+  }): Promise<{ state: 'posted'; transferId: string; ledgerTxId: string } | { state: 'refused'; code: string }> {
+    const now = this.now(input.now);
+    // An earlier ask under this key that is still inside the ledger's in-flight bound may yet post, so no refusal from this
+    // ask can prove the key empty: such a refusal throws ("unknown") and svc-pay asks again later.
+    const [earlier] = await this.sql<Array<{ created_at: Date }>>`
+      SELECT created_at FROM bank.personal_transfers WHERE transfer_id = ${input.transferId} AND status = 'reserved'
+    `;
+    const earlierInFlight = earlier !== undefined && now.getTime() - earlier.created_at.getTime() < POST_IN_FLIGHT_BOUND_SECONDS * 1000;
+    try {
+      // A withdrawal to an address while the owner's security lock holds is refused before anything is written, unless this
+      // key already holds the send (a replay of one that posted before the lock was set answers as it did).
+      if (!(await this.ledger.getTxByKey(bankTransferKey('p2p', input.transferId, 0))))
+        await assertSecurityLockOpen(this.options.securityLock ?? unconfiguredSecurityLock(), input.fromUserId, 'a withdrawal');
+      // No edge stands in front of this door, so the sender's own account state is asked here, as it is for a receiver.
+      await this.spaces.assertCanReceive(input.fromUserId).catch((err: unknown) => {
+        if (err instanceof BankError && err.code === 'bank.recipient_cannot_receive')
+          throw new BankError('The sending account cannot send money right now; nothing was sent.', 'bank.sender_cannot_send');
+        throw err;
+      });
+      const from =
+        (await this.spaces.findPrimary(input.fromUserId, input.assetId)) ??
+        (await this.spaces.ensurePrimary(input.fromUserId, input.assetId));
+      const sent = await this.send({
+        actorUserId: input.fromUserId,
+        transferId: input.transferId,
+        fromSpaceId: from.id,
+        toUserId: input.toUserId,
+        amount: input.amount,
+        now,
+      });
+      return { state: 'posted', transferId: sent.transferId, ledgerTxId: sent.ledgerTxId };
+    } catch (err) {
+      if (!isDefinitePersonalRefusal(err)) throw err;
+      // A refusal is the caller's licence to close its withdrawal, so it is checked against the book first: if this key
+      // already holds this very send (an earlier attempt that landed after a race), the answer is that send.
+      const booked = await this.ledger.getTxByKey(bankTransferKey('p2p', input.transferId, 0));
+      if (booked) {
+        const from = await this.spaces.findPrimary(input.fromUserId, input.assetId);
+        if (from && (await this.bookedSendMatches(booked, from.id, input.toUserId, input.assetId, input.amount)))
+          return { state: 'posted', transferId: input.transferId, ledgerTxId: booked.id };
+        throw err;
+      }
+      // A conflict means something is already filed under this key: never a licence to close.
+      if (earlierInFlight || (err instanceof BankError && err.code === 'bank.personal_transfer_conflict')) throw err;
+      const code = (err as { code?: unknown }).code;
+      return { state: 'refused', code: typeof code === 'string' && code ? code : 'bank.internal_withdrawal_refused' };
+    }
   }
 
   /**
@@ -402,6 +487,40 @@ export class PersonalPayService {
         }),
       );
       return false;
+    }
+  }
+
+  /**
+   * Hand a posted send to the recipient's income sorter, waiting a bounded time so the payer never waits on the
+   * recipient's sorting. The sorter's own sweep picks up anything this misses, so a failure or a timeout here is logged
+   * and the send's answer stands.
+   */
+  private async creditPosted(row: TransferRow, ledgerTxId: string): Promise<void> {
+    const hook = this.options.onCreditPosted;
+    if (!hook) return;
+    try {
+      await withTimeout(
+        hook({
+          transferId: row.transfer_id,
+          fromUserId: row.from_user_id,
+          toUserId: row.to_user_id,
+          assetId: row.asset_id,
+          amount: parseAmount(row.amount),
+          ledgerTxId,
+          postedAt: row.posted_at ?? row.created_at,
+        }),
+        this.options.sortTimeoutMs ?? SORT_HANDOFF_TIMEOUT_MS,
+      );
+    } catch (err) {
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          service: 'svc-bank',
+          event: 'bank.sorter_after_send_failed',
+          transferId: row.transfer_id,
+          detail: err instanceof Error ? err.message : String(err),
+        }),
+      );
     }
   }
 

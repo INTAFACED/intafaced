@@ -5,6 +5,9 @@ import { describe, expect, it } from 'vitest';
 import { PlaceDoor } from './place-door.js';
 import { unenrollPasskeyAndRevokeKeys } from './unenroll-passkey-keys.js';
 
+/** The factor-changed outbox rows each removal queued. */
+const factorNotices: unknown[][] = [];
+
 type StoredCred = { credentialId?: unknown };
 type UserRow = { id: string; webauthn_creds: StoredCred[] };
 type SessionRow = { id: string; user_id: string; revoked: boolean };
@@ -16,6 +19,22 @@ function combinedStore(users: UserRow[], sessions: SessionRow[], keys: KeyRow[])
   const written: unknown[] = [];
   const fn = async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?').toLowerCase();
+    // The last-way-in check (I-account-lifecycle-07) reads the account's methods: these accounts also hold a password.
+    if (text.includes('password_set')) {
+      const userId = values[0];
+      return users
+        .filter((u) => u.id === userId)
+        .map((u) => ({
+          status: 'active',
+          password_set: true,
+          email: null,
+          email_verified_at: null,
+          email_code_signin: false,
+          handle: 'h',
+          passkeys: u.webauthn_creds.length,
+        }));
+    }
+    if (text.includes('from wallet_identities') || text.includes('from social_identities')) return [];
     if (text.includes('select') && text.includes('webauthn_creds')) {
       const userId = values[0];
       return users.filter((u) => u.id === userId).map((u) => ({ webauthn_creds: u.webauthn_creds }));
@@ -71,6 +90,13 @@ function combinedStore(users: UserRow[], sessions: SessionRow[], keys: KeyRow[])
       }
       return out;
     }
+    // The factor-changed notice (I-signin-sessions-08): the account's address, the change count, and its two outbox rows.
+    if (text.includes('email_verified_at') && text.includes('from users')) return [];
+    if (text.includes('from security_factor_events')) return [{ n: 0 }];
+    if (text.includes('into security_factor_events') || text.includes('into mail_outbox')) {
+      factorNotices.push(values);
+      return [];
+    }
     throw new Error(`unexpected sql: ${text}`);
   };
   return Object.assign(fn, {
@@ -124,8 +150,11 @@ describe('unenrollPasskeyAndRevokeKeys', () => {
         { id: 'dead', user_id: A, revoked: true },
       ],
     );
+    const before = factorNotices.length;
     const out = await unenrollPasskeyAndRevokeKeys(sql, A, 'cred-1');
     expect(out).toEqual({ credentialId: 'cred-1', remaining: 1, sessionsRevoked: 2, keysRevoked: 2 });
+    // The removal queued its factor-changed notice (I-signin-sessions-08).
+    expect(factorNotices.slice(before).some((values) => values.includes('passkey_removed'))).toBe(true);
     expect(sql.keys.map((k) => k.revoked)).toEqual([true, true, true]);
 
     const liveDoor = new PlaceDoor((async () => [{ id: 'live-1', user_id: A, revoked: true }]) as never);

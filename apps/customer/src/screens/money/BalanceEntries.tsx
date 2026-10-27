@@ -107,17 +107,21 @@ export default function BalanceEntries({ rawAsset, search }: { rawAsset: string;
     body = (
       <>
         <p className="money-detail__status" role="status">
-          <span className="money-act__done">
+          <span data-testid="money-act__done" className="money-act__done">
             <Check size={14} aria-hidden="true" />
             {t('Entries check label')}
           </span>
           <span aria-hidden="true"> · </span>
           {hideBalances
             ? t('Entries add up', { count: String(state.check.entryCount), balance: '••••', asset })
-            : t('Entries add up', { count: String(state.check.entryCount), balance: fmtAmount(state.check.balance), asset })}
+            : t('Entries add up', {
+                count: String(state.check.entryCount),
+                balance: fmtAmount(state.check.balance, { round: 'down' }),
+                asset,
+              })}
         </p>
-        <section className="money-card money-detail__card" aria-label={t('Balance entries title', { asset })}>
-          <table className="money-table money-table--activity">
+        <section data-testid="money-card" className="money-card money-detail__card" aria-label={t('Balance entries title', { asset })}>
+          <table data-testid="money-table" className="money-table money-table--activity">
             <thead>
               <tr>
                 <th scope="col">{t('Entries column when')}</th>
@@ -153,7 +157,7 @@ export default function BalanceEntries({ rawAsset, search }: { rawAsset: string;
   }
 
   return (
-    <div className="if-money if-money--activity money-detail">
+    <div data-testid="if-money" className="if-money if-money--activity money-detail">
       <a
         className="money-back"
         href="/money"

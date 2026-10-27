@@ -3,10 +3,24 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { LOCAL_TEST_DEVICE_KEY, localTestDeviceState } from '../../../../tooling/scripts/local-test-device.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
 
 // The parts of a real-app journey that are not the customer's browser: the stack's own tools (the TEST operators,
 // TEST funding, the other TEST trader) and the customer's own API through Edge, to read what the ledger holds.
+/** The stack's one TEST browser key (local-test-device.mjs): scripted sign-ins present it as the journey's browser does. */
+export const DEVICE_KEY = LOCAL_TEST_DEVICE_KEY;
+
+/**
+ * Signs this browser out the way clearing its cookies does, and keeps it the same TEST browser: its device key goes back,
+ * so the next sign-in is not a new device. A journey that means a new device clears the cookies itself (J-identity-02 #5).
+ */
+const DEVICE_COOKIES = localTestDeviceState().cookies;
+export async function signOutBrowser(context) {
+  await context.clearCookies();
+  await context.addCookies(DEVICE_COOKIES);
+}
+
 export const ROOT = fileURLToPath(new URL('../../../..', import.meta.url));
 export const EDGE = 'http://127.0.0.1:14500';
 export const ORIGIN = 'http://127.0.0.1:3210';
@@ -42,13 +56,13 @@ export function tool(script, ...args) {
 }
 
 /** Every LOCAL-TEST sign-up code the stack's identity service mailed to `email`, oldest first (its outbox file). */
-export function mailedCodes(email) {
+export function mailedCodes(email, purpose = 'signup-code') {
   const file = path.join(STATE, 'email-outbox.log');
   if (!existsSync(file)) return [];
   const wanted = email.replace(/\s+/g, '');
   return readFileSync(file, 'utf8')
     .split('\n')
-    .filter((line) => line.includes('purpose=signup-code') && line.includes(` email=${wanted} `))
+    .filter((line) => line.includes(`purpose=${purpose} `) && line.includes(` email=${wanted} `))
     .map((line) => /\bcode=(\d{6})\b/.exec(line)?.[1])
     .filter(Boolean);
 }
@@ -88,12 +102,12 @@ export function statusMail(email) {
 }
 
 /** The next code mailed to `email` once more than `seen` have arrived. The relay sends right after the request commits. */
-export async function nextMailedCode(email, seen = 0, waitMs = 20_000) {
+export async function nextMailedCode(email, seen = 0, waitMs = 20_000, purpose = 'signup-code') {
   const until = Date.now() + waitMs;
   for (;;) {
-    const codes = mailedCodes(email);
+    const codes = mailedCodes(email, purpose);
     if (codes.length > seen) return codes.at(-1);
-    if (Date.now() >= until) throw new Error(`no sign-up code reached ${email} within ${waitMs} ms`);
+    if (Date.now() >= until) throw new Error(`no ${purpose} reached ${email} within ${waitMs} ms`);
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
 }
@@ -105,7 +119,7 @@ export async function nextMailedCode(email, seen = 0, waitMs = 20_000) {
 export async function signUpInBrowser(page, who, { country = 'DE', dateOfBirth = '1990-05-01', accountType = 'individual' } = {}) {
   const seen = mailedCodes(who.email).length;
   await page.goto('/register');
-  if (accountType === 'business') await page.getByLabel(/^Business/).check();
+  if (accountType === 'business') await page.getByRole('radio', { name: /Business/ }).check();
   await page.getByLabel('Email address').fill(who.email);
   await page.getByLabel('Handle').fill(who.handle);
   await page.getByLabel('Password').fill(who.password);
@@ -138,7 +152,7 @@ export async function api(who) {
   const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
     method: 'POST',
     headers: { origin: ORIGIN, 'content-type': 'application/json' },
-    body: JSON.stringify({ identifier: who.email, password: who.password }),
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
   }).then(json);
   const token = login.body?.result?.data?.accessToken;
   if (!token) throw new Error(`sign-in for ${who.email} refused: ${login.status} ${JSON.stringify(login.body).slice(0, 300)}`);
@@ -149,6 +163,8 @@ export async function api(who) {
       body: body ? JSON.stringify(body) : undefined,
     }).then(json);
   return {
+    /** The account's user id, as identity answered the sign-in. */
+    userId: login.body.result.data.userId,
     get: (route) => call('GET', route),
     post: (route, body) => call('POST', route, body),
     patch: (route, body) => call('PATCH', route, body),
@@ -170,7 +186,7 @@ export async function staffFreeze(who, reason = 'LOCAL TEST journey freeze') {
   const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
     method: 'POST',
     headers: { origin: ORIGIN, 'content-type': 'application/json' },
-    body: JSON.stringify({ identifier: who.email, password: who.password }),
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
   }).then(json);
   const userId = login.body?.result?.data?.userId;
   if (!userId) throw new Error(`sign-in for ${who.email} refused: ${login.status} ${JSON.stringify(login.body).slice(0, 300)}`);

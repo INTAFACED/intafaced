@@ -1,4 +1,5 @@
 import { P2P_DELIST_REASONS } from '@intafaced/contracts/p2p-delist';
+import { P2P_FIELD_KEY, P2P_RULE_CLASS } from '@intafaced/contracts/p2p-rule-class';
 import { z, type ZodType } from 'zod';
 import { uiMessage, type UiMessage } from './ui-copy';
 
@@ -20,7 +21,39 @@ export type ApiResult<T> =
       accountState?: 'frozen' | 'closed';
       /** Only on a P2P take limit: when it ends, the published bounds, what is left, and the open orders on the cap. */
       p2pLimit?: P2pLimit;
+      /** Only on sign-in's `auth.device_authorisation_required`: the waiting new-device sign-in this browser holds. */
+      deviceAuthorisation?: DeviceAuthorisation;
+      /** Only on sign-in's `auth.mfa_required`, sent after the password verified: which second steps answer it. */
+      secondStep?: SecondStep;
     };
+
+/** A new-device sign-in waiting for approval (svc-identity I-signin-sessions-07, contracts `deviceAuthorisationOf`). */
+export const deviceAuthorisationSchema = z.object({
+  flowId: z.string().guid(),
+  secret: z.string().min(16).max(128),
+  expiresAt: z.string().datetime({ offset: true }),
+  mailed: z.boolean(),
+  /** Only when this sign-in's second step spent a recovery code: how many are left (I-signin-sessions-12). */
+  recoveryCodesLeft: z.number().int().min(0).optional(),
+});
+export type DeviceAuthorisation = z.infer<typeof deviceAuthorisationSchema>;
+
+/** The second steps a sign-in may answer with, and the passkey challenge when one does (contracts `secondStepOf`). */
+export const secondStepSchema = z.object({
+  totp: z.boolean(),
+  passkey: z
+    .object({
+      challenge: z.string().min(1),
+      timeout: z.number().optional(),
+      rpId: z.string().optional(),
+      allowCredentials: z
+        .array(z.object({ id: z.string().min(1), type: z.literal('public-key'), transports: z.array(z.string()).optional() }))
+        .min(1),
+      userVerification: z.enum(['required', 'preferred', 'discouraged']).optional(),
+    })
+    .nullable(),
+});
+export type SecondStep = z.infer<typeof secondStepSchema>;
 
 const limitDecimal = z.string().regex(/^(0|[1-9]\d*)(\.\d+)?$/);
 /** The figures behind a P2P take limit, as svc-p2p sends them (contracts `p2pLimitOf`). Anything malformed is dropped. */
@@ -31,12 +64,17 @@ export const p2pLimitSchema = z.object({
   max: limitDecimal.optional(),
   remaining: limitDecimal.optional(),
   windowHours: limitDecimal.optional(),
+  available: limitDecimal.optional(),
+  shortBy: limitDecimal.optional(),
   currency: z
     .string()
     .regex(/^[A-Z]{3}$/)
     .optional(),
   openTradeIds: z.array(z.string().guid()).max(50).optional(),
   reason: z.enum(P2P_DELIST_REASONS).optional(),
+  ruleClass: z.string().regex(P2P_RULE_CLASS).optional(),
+  /** The field a refused payment-method detail is about (`p2p.account_format_invalid`, field missing or invalid). */
+  field: z.string().regex(P2P_FIELD_KEY).optional(),
 });
 export type P2pLimit = z.infer<typeof p2pLimitSchema>;
 export type RequestOptions = {
@@ -89,6 +127,8 @@ const errorEnvelope = z
                 retryAfterSeconds: z.number().int().positive().optional(),
                 accountState: z.enum(['frozen', 'closed']).optional().catch(undefined),
                 p2pLimit: p2pLimitSchema.optional().catch(undefined),
+                deviceAuthorisation: deviceAuthorisationSchema.optional().catch(undefined),
+                secondStep: secondStepSchema.optional().catch(undefined),
                 cause: z.object({ code: z.string().optional() }).passthrough().optional(),
               })
               .passthrough()
@@ -238,6 +278,10 @@ export function createApiClient(
           ...(error?.data?.retryAfterSeconds ? { retryAfterSeconds: error.data.retryAfterSeconds } : {}),
           ...(code === 'auth.account_frozen' && error?.data?.accountState ? { accountState: error.data.accountState } : {}),
           ...(error?.data?.p2pLimit ? { p2pLimit: error.data.p2pLimit } : {}),
+          ...(code === 'auth.device_authorisation_required' && error?.data?.deviceAuthorisation
+            ? { deviceAuthorisation: error.data.deviceAuthorisation }
+            : {}),
+          ...(code === 'auth.mfa_required' && error?.data?.secondStep ? { secondStep: error.data.secondStep } : {}),
         };
       }
       const envelope = z.object({ result: z.object({ data: z.unknown() }) }).safeParse(body);

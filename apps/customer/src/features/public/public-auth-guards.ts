@@ -3,7 +3,7 @@ import type { ApiResult } from '../../shared/api';
 import { isSignInDestination, rooms } from '../../app/navigation';
 import { sessionSchema, type Session } from '../session/session';
 
-export const authKinds = ['register', 'password', 'options', 'passkey'] as const;
+export const authKinds = ['register', 'password', 'options', 'passkey', 'secondStep', 'wallet'] as const;
 export type AuthKind = (typeof authKinds)[number];
 const roomPatterns = new Set(rooms.filter(isSignInDestination).map((room) => room.path));
 const recordSchema = z
@@ -82,8 +82,30 @@ export function knownAuthRefusal(kind: AuthKind, answer: ApiResult<unknown>): bo
       'auth.not_found': 404,
       // The per-account pause after too many wrong passwords (svc-identity attempt-lockout): nothing was signed in.
       'auth.too_many_attempts': 429,
+      // Every factor passed on a browser the account has not trusted yet: nothing was signed in; approval comes next.
+      'auth.device_authorisation_required': 403,
     },
     passkey: { 'auth.invalid_credentials': 401, 'auth.account_frozen': 403, 'auth.webauthn_not_enrolled': 403 },
+    // A wallet's signature (I-account-lifecycle-07): an unlinked wallet, a spent challenge or a refused signature signs nothing in.
+    wallet: {
+      'auth.invalid_credentials': 401,
+      'auth.account_frozen': 403,
+      'auth.mfa_required': 401,
+      'auth.mfa_invalid': 401,
+      'auth.too_many_attempts': 429,
+      'auth.device_authorisation_required': 403,
+      'identity.wallet_challenge_invalid': 400,
+      'identity.wallet_signature_invalid': 400,
+      'identity.wallet_kind_unsupported': 400,
+    },
+    // The passkey after the password (I-signin-sessions-10): a refused or timed-out step signs nothing in.
+    secondStep: {
+      'auth.webauthn_invalid': 401,
+      'auth.second_step_expired': 401,
+      'auth.account_frozen': 403,
+      'auth.too_many_attempts': 429,
+      'auth.device_authorisation_required': 403,
+    },
   };
   const status = permitted[kind]?.[answer.code];
   const reason = status === 401 ? 'unauthorized' : status === 403 ? 'forbidden' : status === 404 ? 'not_mounted' : 'error';

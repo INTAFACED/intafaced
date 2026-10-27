@@ -119,6 +119,8 @@ const customerOfferSchema = z.object({
   maxAmount: customerAmount,
   remainingAmount: customerAmount,
   methods: z.array(z.unknown()),
+  nonInstantMethods: z.array(z.object({ methodId: z.string(), windowSeconds: z.number().int().positive().nullable() })).optional(),
+  acceptsNonInstant: z.boolean().optional(),
   terms: z.string(),
   status: z.enum(['active', 'paused', 'closed']),
   createdAt: z.string(),
@@ -182,6 +184,11 @@ function stubP2p(overrides: Partial<Record<string, unknown>> = {}) {
     }),
     assertNotBlocked: async () => undefined,
     payTimingOf: async () => ({ avgPaySecs: null, paySamples: 0 }),
+    // P-trade-orders-15: no reminders on a stubbed order, and the owner's figures unset.
+    reminderState: async () => ({ count: 0, lastAt: null, nextAt: null, max: null }),
+    mismatchReport: async () => null,
+    paymentValidationBlocker: () => 'rail.bank',
+    reviewRating: async () => null,
     ...overrides,
   } as unknown as P2pService;
 }
@@ -205,6 +212,8 @@ function stubInstruments(overrides: Partial<Record<string, unknown>> = {}) {
     revealOwn: refuse,
     revealForTrade: refuse,
     accessLogFor: refuse,
+    // The board's settlement profiles are about methods, not anyone's instrument: every method reads instant here.
+    boardSettlements: async () => new Map(),
     ...overrides,
   } as unknown as InstrumentService;
 }
@@ -286,6 +295,7 @@ describe('svc-p2p mount — authorisation', () => {
             remainingAmt: parseAmount('500'),
             methods: ['sepa'],
             terms: 'pay within 15 minutes',
+            acceptsNonInstant: false,
             status: 'active' as const,
             createdAt: new Date('2026-10-17T00:00:00.000Z'),
           },
@@ -308,6 +318,8 @@ describe('svc-p2p mount — authorisation', () => {
         maxAmount: '100',
         remainingAmount: '500',
         methods: ['sepa'],
+        nonInstantMethods: [],
+        acceptsNonInstant: false,
         terms: 'pay within 15 minutes',
         status: 'active',
         createdAt: '2026-10-17T00:00:00.000Z',
@@ -468,6 +480,7 @@ describe('svc-p2p mount — instruments.methods schema dual-control', () => {
             label: 'SEPA',
             fields: [...FIELDS],
             enabled: true,
+            settlement: { instant: true },
           };
         },
         setMethodSchemaEnabled: async (methodId: string, country: string, enabled: boolean, reason?: string) => {
@@ -478,6 +491,7 @@ describe('svc-p2p mount — instruments.methods schema dual-control', () => {
             label: 'SEPA',
             fields: [...FIELDS],
             enabled,
+            settlement: { instant: true },
           };
         },
       }),
@@ -825,7 +839,7 @@ describe('svc-p2p mount — instruments.methods schema dual-control', () => {
         const fields = parseFieldSpecs(input.fields);
         const enabled = input.enabled ?? true;
         stored.push({ methodId: input.methodId, country: input.country, label: input.label, fields, enabled });
-        return { methodId: input.methodId, country: input.country, label: input.label, fields, enabled };
+        return { methodId: input.methodId, country: input.country, label: input.label, fields, enabled, settlement: { instant: true } };
       },
     });
     const callerFor = (payloadHash: string) =>
@@ -1372,6 +1386,7 @@ describe('svc-p2p mount — trade/dispute read IDOR', () => {
     settledAt: null,
     escalatedAt: null,
     escalations: 0,
+    settlement: { instant: true } as const,
   };
 
   it("hides another pair's trade as the same NOT_FOUND as a missing trade", async () => {

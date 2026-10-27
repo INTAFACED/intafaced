@@ -23,7 +23,7 @@ describe('ui.view value', () => {
     for (const bad of [
       { layoutMode: 'expert' },
       { theme: 'sepia' },
-      { displayCurrency: 'EUR' },
+      { displayCurrency: 'JPY' },
       { hideBalances: 'yes' },
       { activeProfile: 'business:' },
       { activeProfile: 'admin' },

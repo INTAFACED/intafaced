@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ARCHIVE_REASON_CODES,
   CLOSE_REASON_CODES,
   PACKET_PREFIX,
   confirmPhrase,
@@ -13,7 +14,7 @@ import {
   type ApprovalPacket,
   type DeskRequest,
 } from './approval-packet';
-import { accountCloseReasonCodes } from '@intafaced/contracts';
+import { accountArchiveReasonCodes, accountCloseReasonCodes } from '@intafaced/contracts';
 
 const kill: DeskRequest = { kind: 'edge.kill', module: 'trade', disabled: true, reason: 'market integrity incident — halt new risk' };
 const packet: ApprovalPacket = {
@@ -39,6 +40,14 @@ describe('request packets', () => {
       { kind: 'edge.kill', module: 'pay', disabled: false, reason: 'cause resolved, reconciled' },
       { kind: 'ledger.freeze', reason: 'reconciliation mismatch on USD', version: '2026-10-17 03:00:00.123456+00' },
       { kind: 'ledger.unfreeze', version: '2026-10-17 03:00:00.123456+00' },
+      {
+        kind: 'ledger.reconciliation_control.run',
+        controlId: '0b4f6c2e-1111-4222-8333-444455556666',
+        version: '3',
+        asOf: '2026-10-23T06:30:00.000Z',
+        margin: '0',
+        reason: 'LOCAL TEST run the USDT floor control',
+      },
       { kind: 'academy.ambassador.appoint', userId: '9f8e7d6c-1111-4222-8333-444455556666' },
       { kind: 'academy.residency.decide', id: '5a3b9c10-1111-4222-8333-444455556666', decision: 'accepted' },
     ] as const) {
@@ -96,6 +105,20 @@ describe('request reading is strict', () => {
     expect(readDeskRequest({ kind: 'edge.kill', module: 'trade', disabled: 'true', reason: 'twelve chars' })).toBeNull();
     expect(readDeskRequest({ kind: 'ledger.freeze', reason: 'twelve chars' })).toBeNull();
     expect(readDeskRequest({ kind: 'ledger.unfreeze', version: '' })).toBeNull();
+    const run = {
+      kind: 'ledger.reconciliation_control.run',
+      controlId: '0b4f6c2e-1111-4222-8333-444455556666',
+      version: '3',
+      asOf: 'now',
+      margin: 'unset',
+      reason: 'LOCAL TEST run the USDT floor control',
+    };
+    expect(readDeskRequest(run)).toEqual(run);
+    // A run now carries no margin; a past run names one; an instant is only the exact ISO text svc-ledger hashes.
+    expect(readDeskRequest({ ...run, margin: '30' })).toBeNull();
+    expect(readDeskRequest({ ...run, asOf: '2026-10-23T06:30:00.000Z' })).toBeNull();
+    expect(readDeskRequest({ ...run, asOf: '2026-10-23T06:30:00Z', margin: '0' })).toBeNull();
+    expect(readDeskRequest({ ...run, version: '0' })).toBeNull();
     expect(readDeskRequest(null)).toBeNull();
     expect(readDeskRequest([])).toBeNull();
   });
@@ -107,6 +130,16 @@ describe('what the founder is asked to type and read', () => {
     expect(confirmPhrase({ ...kill, disabled: false })).toBe('RE-ENABLE trade');
     expect(confirmPhrase({ kind: 'ledger.freeze', reason: 'twelve chars', version: 'v' })).toBe('FREEZE LEDGER');
     expect(confirmPhrase({ kind: 'ledger.unfreeze', version: 'v' })).toBe('UNFREEZE LEDGER');
+    expect(
+      confirmPhrase({
+        kind: 'ledger.reconciliation_control.run',
+        controlId: '0b4f6c2e-1111-4222-8333-444455556666',
+        version: '3',
+        asOf: 'now',
+        margin: 'unset',
+        reason: 'LOCAL TEST run the USDT floor control',
+      }),
+    ).toBe('RUN CONTROL 0b4f6c2e');
   });
   it('the description says what will happen in plain words', () => {
     expect(describeRequest(kill)).toContain('Kill module "trade"');
@@ -289,6 +322,32 @@ describe('identity staff close and reopen requests', () => {
   });
 });
 
+describe('identity customer archive requests', () => {
+  const archive = {
+    kind: 'identity.account.archive',
+    userId: '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b',
+    reasonCode: 'dormant',
+    reason: 'Closed two years ago, no contact since',
+    version: '4',
+  } as const;
+  it('reads exactly the account, reason code, reason and version', () => {
+    expect(readDeskRequest(archive)).toEqual(archive);
+    expect(readDeskRequest({ ...archive, reasonCode: 'fraud' })).toBeNull();
+    expect(readDeskRequest({ ...archive, reason: 'x'.repeat(256) })).toBeNull();
+    expect(readDeskRequest({ ...archive, version: '04' })).toBeNull();
+    expect(readDeskRequest({ ...archive, extra: '1' })).toBeNull();
+  });
+  it('names the customer in the phrase and says it cannot be undone', () => {
+    expect(confirmPhrase(archive)).toBe('ARCHIVE CUSTOMER 0b6f7a3e');
+    expect(describeRequest(archive)).toContain('read-only');
+    expect(describeRequest(archive)).toContain('Only a founder can approve it');
+    expect(requestReason(archive)).toBe(archive.reason);
+  });
+  it('keeps the same reason codes as identity', () => {
+    expect([...ARCHIVE_REASON_CODES]).toEqual([...accountArchiveReasonCodes]);
+  });
+});
+
 describe('identity account tier move requests', () => {
   const move = {
     kind: 'identity.account.tier_move',
@@ -308,5 +367,37 @@ describe('identity account tier move requests', () => {
     expect(confirmPhrase(move)).toBe('MOVE TIER 0b6f7a3e');
     expect(describeRequest(move)).toContain('onto tier "plus"');
     expect(requestReason(move)).toBe(move.reason);
+  });
+});
+
+describe('identity account limit override requests', () => {
+  const raise = {
+    kind: 'identity.account.limit_override',
+    userId: '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b',
+    rail: 'withdrawal',
+    assetId: 'USDT',
+    perTx: '2000',
+    rolling24h: null,
+    expiresAt: '2026-10-25T12:00:00.000Z',
+    reason: 'Customer is moving house this week',
+    version: '0',
+  } as const;
+  it('reads exactly the account, rail, asset, figures, end time, reason and version', () => {
+    expect(readDeskRequest(raise)).toEqual(raise);
+    expect(readDeskRequest({ ...raise, rail: 'deposit' })).toBeNull();
+    expect(readDeskRequest({ ...raise, assetId: 'usdt' })).toBeNull();
+    expect(readDeskRequest({ ...raise, perTx: '0' })).toBeNull();
+    expect(readDeskRequest({ ...raise, perTx: 2000 })).toBeNull();
+    expect(readDeskRequest({ ...raise, perTx: null })).toBeNull();
+    // Only the canonical instant: another spelling of the same time would hash differently.
+    expect(readDeskRequest({ ...raise, expiresAt: '2026-10-25T14:00:00+02:00' })).toBeNull();
+    expect(readDeskRequest({ ...raise, reason: 'too short' })).toBeNull();
+    expect(readDeskRequest({ ...raise, extra: '1' })).toBeNull();
+  });
+  it('names the account in the phrase and the figures and end time in the description', () => {
+    expect(confirmPhrase(raise)).toBe('RAISE LIMIT 0b6f7a3e');
+    expect(describeRequest(raise)).toContain('per transaction 2000, over 24 hours the base figure');
+    expect(describeRequest(raise)).toContain('until 2026-10-25T12:00:00.000Z');
+    expect(requestReason(raise)).toBe(raise.reason);
   });
 });

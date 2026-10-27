@@ -24,7 +24,19 @@ const row = (over: Partial<Destination> = {}): Destination => ({
 describe('address book rows', () => {
   it('shows the asset, network, tag and status the bank returned', () => {
     const html = renderToStaticMarkup(
-      <AddressTable rows={[row({ assetId: 'USDT', network: 'TRC20', tag: null, state: 'cooling' })]} now={NOW} />,
+      <AddressTable
+        rows={[
+          row({
+            assetId: 'USDT',
+            network: 'TRC20',
+            tag: null,
+            state: 'cooling',
+            coolingOffEndsAt: '2026-10-19T00:00:00Z',
+            coolingBlocker: null,
+          }),
+        ]}
+        now={NOW}
+      />,
     );
     expect(html).toContain('USDT · TRC20');
     expect(html).toContain('Cooling off');

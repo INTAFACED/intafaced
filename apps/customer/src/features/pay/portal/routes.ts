@@ -56,6 +56,11 @@ export const PORTAL_ROOMS = [
   'settings-security',
   'activity',
   'invoice-new',
+  'products',
+  'product-new',
+  'product-import',
+  'product',
+  'settings-stores',
 ] as const;
 export type PortalRoom = (typeof PORTAL_ROOMS)[number];
 export type OnboardingStep = 'business' | 'verification' | 'go-live';
@@ -117,6 +122,7 @@ export function parsePortalRoute(path: string): PortalRoute | null {
     if (b === undefined || b === 'profile') return { room: 'settings' };
     if (b === 'notifications') return { room: 'settings-notifications' };
     if (b === 'security') return { room: 'settings-security' };
+    if (b === 'stores') return { room: 'settings-stores' };
     return null;
   }
   if (a === 'developer') {
@@ -128,6 +134,14 @@ export function parsePortalRoute(path: string): PortalRoute | null {
     return b === undefined ? { room: 'invoices' } : b === 'new' ? { room: 'invoice-new' } : { room: 'invoice', param: decode(b) };
   if (a === 'money') return b === undefined ? { room: 'money' } : b === 'activity' ? { room: 'money-activity' } : null;
   if (a === 'reports') return b === undefined ? { room: 'reports' } : b === 'exports' ? { room: 'report-exports' } : null;
+  if (a === 'products')
+    return b === undefined
+      ? { room: 'products' }
+      : b === 'new'
+        ? { room: 'product-new' }
+        : b === 'import'
+          ? { room: 'product-import' }
+          : { room: 'product', param: decode(b) };
   if (a === 'links') return b === undefined ? { room: 'links' } : b === 'new' ? { room: 'link-new' } : { room: 'link', param: decode(b) };
   if (a === 'refunds')
     return b === undefined ? { room: 'refunds' } : b === 'new' ? { room: 'refund-new' } : { room: 'refund', param: decode(b) };

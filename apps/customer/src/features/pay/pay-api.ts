@@ -41,7 +41,7 @@ export type PayBusinessAuthority = {
   confirmable?: readonly ('pay:refund' | 'pay:payout')[];
 };
 
-type PayOriginal = { status: 'uncertain'; reference?: string; path?: string };
+type PayOriginal = { status: 'uncertain'; reference?: string; path?: string; priceId?: string };
 function decodePayOriginal(raw: string): PayOriginal {
   if (raw === 'pending' || raw === 'uncertain') return { status: 'uncertain' };
   const parsed: unknown = JSON.parse(raw);
@@ -49,8 +49,9 @@ function decodePayOriginal(raw: string): PayOriginal {
   const value = parsed as Record<string, unknown>;
   if (
     value.status !== 'uncertain' ||
-    Object.keys(value).some((key) => !['status', 'reference', 'path'].includes(key)) ||
+    Object.keys(value).some((key) => !['status', 'reference', 'path', 'priceId'].includes(key)) ||
     ('path' in value && !['crypto_invoice', 'card', 'card_mandate'].includes(value.path as string)) ||
+    ('priceId' in value && !s.id.safeParse(value.priceId).success) ||
     ('reference' in value && (typeof value.reference !== 'string' || !value.reference || value.reference.length > 200))
   )
     throw new Error('Invalid Pay original');
@@ -185,7 +186,7 @@ export function createPayMutationGuard(storage?: JournalStorage, requirePersiste
     reference?: string,
     isCurrent?: () => boolean,
     recoveryCurrent = isCurrent ?? (() => true),
-    recovery?: { path?: string },
+    recovery?: { path?: string; priceId?: string },
   ): Promise<ApiResult<T>> {
     if (isCurrent && !isCurrent()) return sendContextChanged();
     const coordinated = await journal(key).coordinate(async (lease): Promise<ApiResult<T>> => {
@@ -200,6 +201,7 @@ export function createPayMutationGuard(storage?: JournalStorage, requirePersiste
         status: 'uncertain',
         ...(reference ? { reference } : {}),
         ...(recovery?.path ? { path: recovery.path } : {}),
+        ...(recovery?.priceId ? { priceId: recovery.priceId } : {}),
       });
       const saved = lease.writeExact(null, record);
       if (!saved.ok) return unavailable(key, saved.reason);
@@ -490,6 +492,18 @@ export function createPersonalPayApi(
     /** A receipt for one released order. Each call spends one download of the owner quotas, so it is a write. */
     receipt: (tradeId: string) =>
       signedIn() ? Promise.resolve(signedIn()!) : api.mutate('p2p', 'trades.receipt', { tradeId }, s.orderReceiptSchema),
+    /** This order's review by the caller and the visible one about them (svc-p2p `reviews.forTrade`, parties only). */
+    orderReviews: (tradeId: string, signal?: AbortSignal) =>
+      signedIn() ? Promise.resolve(signedIn()!) : api.query('p2p', 'reviews.forTrade', { tradeId }, s.tradeReviewsSchema, { signal }),
+    /** One review per party of a released order; a second leave returns the first, unchanged. A bad one needs an explanation. */
+    leaveReview: (input: { tradeId: string; rating: 'good' | 'bad'; comment?: string; explanation?: string }) =>
+      signedIn() ? Promise.resolve(signedIn()!) : api.mutate('p2p', 'reviews.leave', input, s.orderReviewSchema),
+    /** Rewrite one's own review inside the owner's edit window; a blank window, or one with a reply or a hide, refuses. */
+    editReview: (input: { tradeId: string; rating: 'good' | 'bad'; comment?: string; explanation?: string }) =>
+      signedIn() ? Promise.resolve(signedIn()!) : api.mutate('p2p', 'reviews.edit', input, s.orderReviewSchema),
+    /** One reply from the person a review is about. */
+    replyReview: (input: { tradeId: string; text: string }) =>
+      signedIn() ? Promise.resolve(signedIn()!) : api.mutate('p2p', 'reviews.reply', input, s.orderReviewSchema),
     health: (signal?: AbortSignal) => api.query('p2p', 'health', undefined, s.p2pHealthSchema, { signal }),
     fiat: (signal?: AbortSignal) => api.query('p2p', 'fiat.list', undefined, z.array(s.fiatSchema), { signal }),
     methods: (signal?: AbortSignal) => api.query('p2p', 'instruments.methods.list', { limit: 200 }, z.array(s.methodSchema), { signal }),
@@ -597,6 +611,51 @@ export function createPersonalPayApi(
       if (denied) return Promise.resolve(denied);
       return api.mutate('p2p', 'risk.accept', { version }, s.p2pRiskNoticeSchema.extend({ acceptedAt: z.string() }));
     },
+    /** P-ads-merchant-01: the advertiser terms version to accept before posting an ad, and when this person accepted it. */
+    advertiserTerms(signal?: AbortSignal) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      return api.query('p2p', 'merchants.advertiserTerms', undefined, s.p2pRiskNoticeSchema, { signal });
+    },
+    /** Accept exactly the advertiser terms version shown. Accepting again returns the first acceptance. */
+    acceptAdvertiserTerms(version: string) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      return api.mutate('p2p', 'merchants.acceptAdvertiserTerms', { version }, s.p2pRiskNoticeSchema.extend({ acceptedAt: z.string() }));
+    },
+    /** P-ads-merchant-01: this person's free balance of a coin, which a new sell ad's total may not exceed. */
+    sellBalance(asset: string, signal?: AbortSignal) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      return api.query('p2p', 'offers.sellBalance', { asset }, s.p2pSellBalanceSchema, { signal });
+    },
+    /** P-ads-merchant-02: the per-order band this person's verification level allows, which a buy ad's orders must fit. */
+    levelLimits(signal?: AbortSignal) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      return api.query('p2p', 'limits.verification', undefined, s.p2pLevelLimitsSchema, { signal });
+    },
+    /** P-ads-merchant-12: what posting an ad in this fiat needs, each check with this person's value and the target. */
+    postingEligibility(fiatCurrency: string, signal?: AbortSignal) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      return api.query('p2p', 'merchants.postingEligibility', { fiatCurrency }, s.p2pPostingEligibilitySchema, { signal });
+    },
+    /**
+     * P-ads-merchant-01: post the reviewed ad. `idempotencyKey` is the form's business key, made once per form, so a
+     * second press or a retry after a lost reply answers the same ad. `termsVersion` is the version the form showed.
+     */
+    postOffer(input: s.PostOfferInput, idempotencyKey: string, termsVersion: string) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
+      return api.mutate(
+        'p2p',
+        'offers.create',
+        { ...input, idempotencyKey, advertiserTermsVersion: termsVersion },
+        s.offerSchema.refine((offer) => offer.makerId === userId, 'The posted ad is not this account’s'),
+      );
+    },
     standing: (signal?: AbortSignal) => api.query('p2p', 'merchants.me', undefined, s.p2pStandingSchema.nullable(), { signal }),
     apiAccess: (signal?: AbortSignal) => api.query('p2p', 'merchants.apiAccess', undefined, s.p2pApiAccessSchema, { signal }),
     applyProgramme: () =>
@@ -659,6 +718,8 @@ export function createPersonalPayApi(
       action: 'markFiatSent' | 'confirmReceived' | 'cancel',
       reason?: string,
       review?: { expected: s.Trade; current: () => boolean },
+      /** `confirmReceived` only: identity's single-use confirmation of this release (P-trade-orders-07). */
+      stepUpApprovalId?: string,
     ) {
       const denied = signedIn();
       if (denied) return denied;
@@ -682,7 +743,11 @@ export function createPersonalPayApi(
           api.mutate(
             'p2p',
             `trades.${action}`,
-            { tradeId, ...(action === 'cancel' && reason ? { reason } : {}) },
+            {
+              tradeId,
+              ...(action === 'cancel' && reason ? { reason } : {}),
+              ...(action === 'confirmReceived' && stepUpApprovalId ? { stepUpApprovalId } : {}),
+            },
             s.tradeSchema.refine(
               (result) =>
                 sameImmutableTerms(result, trade) &&
@@ -945,6 +1010,9 @@ export function createPersonalPayApi(
     },
     /** Until when this session's orders need no new confirmation, or null when the next one does. */
     takeStepUpWindow: (signal?: AbortSignal) => api.query('p2p', 'trades.stepUpWindow', undefined, s.takeStepUpWindowSchema, { signal }),
+    /** Until when this session's releases need no new confirmation (svc-p2p `trades.releaseStepUpWindow`), or null. */
+    releaseStepUpWindow: (signal?: AbortSignal) =>
+      api.query('p2p', 'trades.releaseStepUpWindow', undefined, s.takeStepUpWindowSchema, { signal }),
     /** Look up an unconfirmed take by the order id stored before it was sent. Clears the stored id only when found. */
     async reconcileTake(offer: s.Offer, frameCurrent: () => boolean = () => true) {
       const denied = signedIn();
@@ -972,6 +1040,36 @@ export function createPersonalPayApi(
         undefined,
         p2pCurrent,
       ),
+    /** P-trade-orders-15: the buyer of a paid order reminds the seller to release. Moves nothing; svc-p2p decides when. */
+    remindSeller: (tradeId: string) =>
+      guard.run(
+        `${userId}:remind:${tradeId}`,
+        () => api.mutate('p2p', 'trades.remind', { tradeId }, s.tradeRemindersSchema),
+        undefined,
+        p2pCurrent,
+      ),
+    /** P-trade-orders-20: the seller reports what arrived in their bank. Moves nothing; svc-p2p classifies it. */
+    reportMismatch: (tradeId: string, kind: s.TradeMismatch['kind'], amountReceived: string) =>
+      guard.run(
+        `${userId}:mismatch:${tradeId}`,
+        () => api.mutate('p2p', 'trades.reportMismatch', { tradeId, kind, amountReceived }, s.tradeMismatchSchema),
+        undefined,
+        p2pCurrent,
+      ),
+    /** P-trade-orders-11: the seller has the bank rail check the payment; svc-p2p releases only on an exact match. */
+    validatePayment: (tradeId: string, stepUpApprovalId?: string) =>
+      guard.run(
+        `${userId}:validate:${tradeId}`,
+        () =>
+          api.mutate(
+            'p2p',
+            'trades.validatePayment',
+            { tradeId, ...(stepUpApprovalId ? { stepUpApprovalId } : {}) },
+            s.validatePaymentSchema,
+          ),
+        undefined,
+        p2pCurrent,
+      ),
     appendEvidence: (tradeId: string, evidence: string) =>
       guard.run(
         `${userId}:evidence:${tradeId}`,
@@ -985,13 +1083,49 @@ export function createPersonalPayApi(
         undefined,
         p2pCurrent,
       ),
-    removeInstrument: (instrumentId: string) =>
+    /**
+     * P-ads-merchant-18: save a payment method in the person's own name. No money moves, so there is no recovery
+     * journal: the form keeps one id until the save is answered, and a lost answer is settled by reading the person's
+     * own list for that id. Found, it was saved; not found, nothing was stored and the same id may be sent again.
+     */
+    async addInstrument(input: {
+      instrumentId: string;
+      methodId: string;
+      country: string;
+      fiatCurrency: string;
+      label: string;
+      details: Record<string, string>;
+      /** The person's confirmation of exactly this change and these details (svc-p2p refuses a change without one). */
+      stepUpApprovalId?: string;
+    }): Promise<ApiResult<z.infer<typeof s.instrumentSchema>>> {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      const result = await api.mutate('p2p', 'instruments.create', input, s.instrumentSchema);
+      if (result.ok || result.reason !== 'uncertain') return result;
+      const listed = await api.query('p2p', 'instruments.list', { limit: 200 }, z.array(s.instrumentSchema));
+      const stored = listed.ok ? listed.data.find((row) => row.id.toLowerCase() === input.instrumentId.toLowerCase()) : undefined;
+      return stored ? { ok: true, data: stored } : result;
+    },
+    removeInstrument: (instrumentId: string, stepUpApprovalId?: string) =>
       guard.run(
         `${userId}:instrument:${instrumentId}`,
-        () => api.mutate('p2p', 'instruments.remove', { instrumentId }, s.instrumentSchema),
+        () =>
+          api.mutate('p2p', 'instruments.remove', { instrumentId, ...(stepUpApprovalId ? { stepUpApprovalId } : {}) }, s.instrumentSchema),
         undefined,
         p2pCurrent,
       ),
+    /**
+     * The person's own saved details for one method, masked by svc-p2p (the account holder whole, every other value as its
+     * last four). svc-p2p logs every read in the same statement, the owner's included, so this runs only when the person
+     * asks to see them.
+     */
+    async maskedInstrument(instrumentId: string): Promise<ApiResult<z.infer<typeof s.revealedInstrumentSchema>>> {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      return api.mutate('p2p', 'instruments.revealMasked', { instrumentId }, s.revealedInstrumentSchema);
+    },
     guard,
   };
 }
@@ -1068,11 +1202,12 @@ export function createBusinessPayApi(
     if (procedure !== 'subscription.create' && procedure !== 'merchant.createLink')
       return guard.run(lockId, () => api.mutate('pay', procedure, input, outcome), reference);
     const fields = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
-    const sendAttempt = async (attemptId: string, path?: string): Promise<ApiResult<T>> => {
+    // A replay sends the body the first attempt sent: its charge path and, for a subscription, its catalogue price.
+    const sendAttempt = async (attemptId: string, path?: string, priceId?: string): Promise<ApiResult<T>> => {
       const result = await api.mutate(
         'pay',
         procedure,
-        { ...fields, ...(path ? { path } : {}), idempotencyKey: `${lockId}:${attemptId}` },
+        { ...fields, ...(path ? { path } : {}), ...(priceId ? { priceId } : {}), idempotencyKey: `${lockId}:${attemptId}` },
         outcome,
       );
       if (!result.ok && ['pay.idempotency_conflict', 'pay.subscription_mandate_open'].includes(result.code ?? ''))
@@ -1095,7 +1230,7 @@ export function createBusinessPayApi(
         if (!attemptId) {
           return payRefusal('theOriginalActionHasNotBeenConfirmed', { code: 'pay.operation_unresolved', reason: 'uncertain' });
         }
-        const replayed = await sendAttempt(attemptId, held.value.path);
+        const replayed = await sendAttempt(attemptId, held.value.path, held.value.priceId);
         // Match the first attempt: a known outcome, including a definite
         // refusal, drops the journal. Uncertain and aborted replies stay held
         // so the same attempt can be retried.
@@ -1122,7 +1257,8 @@ export function createBusinessPayApi(
       });
     }
     const path = 'path' in fields && typeof fields.path === 'string' ? fields.path : undefined;
-    return guard.run(lockId, () => sendAttempt(attemptId), attemptId, undefined, undefined, { path });
+    const priceId = 'priceId' in fields && typeof fields.priceId === 'string' ? fields.priceId : undefined;
+    return guard.run(lockId, () => sendAttempt(attemptId), attemptId, undefined, undefined, { path, priceId });
   }
   return {
     merchant,

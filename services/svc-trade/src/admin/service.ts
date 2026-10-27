@@ -51,9 +51,16 @@ import {
   type RiskLimitsInput,
   type RiskVersion,
 } from './risk.js';
-import { parseFeeScheduleJson, FeeScheduleError } from '../spot/fee-schedule.js';
+import {
+  assertMakerRebatesPayable,
+  parseFeeScheduleJson,
+  FeeScheduleError,
+  UNPUBLISHED_FEE_SCHEDULE,
+  type OwnerFeeSchedule,
+} from '../spot/fee-schedule.js';
 import { priceBandView, sqlPriceBandStore, type PriceBandView } from '../futures/dynamic-price-band.js';
-import { feeScheduleHistory, latestFeeScheduleVersion, type FeeScheduleVersionRow } from '../spot/fee-schedule-store.js';
+import { feeScheduleAt, feeScheduleHistory, latestFeeScheduleVersion, type FeeScheduleVersionRow } from '../spot/fee-schedule-store.js';
+import { VipReviewAdmin } from './vip-review.js';
 import { readMarketStatusHistory } from './status-history.js';
 import { FundingDesk } from './funding-desk.js';
 
@@ -67,6 +74,10 @@ export interface TradeOpsDeps {
   readonly ledger: { balance(ref: AccountRef): Promise<{ accountId: string; amount: bigint }> } | null;
   /** Existing `TradeService.listMarket`, for `admin.futuresListing.create`. Absent: that door refuses unconfigured. */
   readonly listMarket?: (input: ListMarketInput) => Promise<Market>;
+  /** The boot fee schedule (TRADE_FEE_SCHEDULE), for the VIP trial the owner publishes. Absent: none is published. */
+  readonly feeSchedule?: OwnerFeeSchedule;
+  /** The VIP proof key (TRADE_VIP_PROOF_KEY). Absent or null: proofs cannot be opened. */
+  readonly vipProofKey?: Buffer | null;
   readonly now?: () => Date;
 }
 
@@ -107,8 +118,17 @@ export class TradeOpsAdmin {
   readonly agreements: AgreementsAdmin;
   /** Charts module owner values and the per-market data class (C-ops-04, LD-14). */
   readonly chartOwnerValues: ChartOwnerValuesAdmin;
+  /** VIP application review and trial grants (SP-fees-vip-04, J-cex-spot-10 #7). */
+  readonly vipApplications: VipReviewAdmin;
 
   constructor(private readonly deps: TradeOpsDeps) {
+    this.vipApplications = new VipReviewAdmin({
+      sql: deps.sql,
+      approvals: deps.approvals,
+      proofKey: deps.vipProofKey ?? null,
+      scheduleAt: (at) => feeScheduleAt(deps.sql, deps.feeSchedule ?? UNPUBLISHED_FEE_SCHEDULE, at),
+      now: () => nowOf(deps),
+    });
     this.agreements = new AgreementsAdmin({ sql: deps.sql, approvals: deps.approvals, now: () => nowOf(deps) });
     this.chartOwnerValues = new ChartOwnerValuesAdmin({ sql: deps.sql, approvals: deps.approvals, now: () => nowOf(deps) });
     this.futuresContracts = new FuturesContractsAdmin({
@@ -373,7 +393,14 @@ export class TradeOpsAdmin {
    */
   async feeScheduleSet(
     principal: Principal,
-    input: { schedule: Record<string, unknown>; effectiveAt: string; expectedVersion: string; reason: string; approvalId: string },
+    input: {
+      schedule: Record<string, unknown>;
+      effectiveAt: string;
+      expectedVersion: string;
+      reason: string;
+      approvalId: string;
+      operationId: string;
+    },
   ): Promise<FeeScheduleVersionRow> {
     requireOperatorWrite(principal);
     const reason = requireReason(input.reason);
@@ -392,6 +419,7 @@ export class TradeOpsAdmin {
     try {
       const parsed = parseFeeScheduleJson(JSON.stringify({ ...input.schedule, published: true, version: 'proposal' }));
       if (parsed.published !== true) throw new TradeOpsError('trade.fee_schedule_blank', 'the proposed schedule is not published');
+      assertMakerRebatesPayable(parsed);
     } catch (err) {
       if (err instanceof FeeScheduleError) throw new TradeOpsError(err.code, err.message);
       throw err;
@@ -418,7 +446,8 @@ export class TradeOpsAdmin {
       targetId: 'spot-fee-schedule',
       expectedVersion: input.expectedVersion,
       payloadHash: payloadHash(body),
-      operationId: input.approvalId,
+      // The id identity gave the approval's operation when it was proposed: consume refuses any other.
+      operationId: input.operationId,
     });
     const next = (BigInt(version) + 1n).toString();
     try {

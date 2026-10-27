@@ -607,6 +607,19 @@ const schema = serviceEnvSchema
       TRADE_TRAILING_MARK_JOBS_MARKET_IDS: z.string().default(''),
 
       /**
+       * Fee tier snapshot check interval in ms (fee-tier-jobs.ts). NO DEFAULT: blank → the job is not scheduled, no
+       * snapshot runs and every tier stays where the last one left it. The snapshot time itself is the owner's, in
+       * the fee schedule's `tierProgram`.
+       */
+      TRADE_FEE_TIER_JOBS_INTERVAL_MS: z.string().default('').transform(parseOwnerIntegerEnv),
+
+      /**
+       * The key VIP application proof files are encrypted with (spot/vip-applications.ts): 32 bytes as base64 or 64 hex
+       * characters. NO DEFAULT: blank or malformed → every application refuses `vip.proof_key_unset`; no key is improvised.
+       */
+      TRADE_VIP_PROOF_KEY: z.string().default(''),
+
+      /**
        * Engine ↔ ledger reconcile sweep (A10 / ENGINE-LEDGER-RECONCILE-HANDOFF).
        * Default OFF — builds counterpart view from trade.orders + hold balances,
        * POSTs matching `/reconcile`, alerts on refuse, auto-deletes only
@@ -714,9 +727,23 @@ const schema = serviceEnvSchema
        * Empty (default) = unpublished → accept and mirror refuse
        * `trade.copy_disclosure_unpublished`. Never invent version or text.
        * Published shape: {"published":true,"version":"…","text":"…"}
-       * The text is owner content. Follow itself is not gated.
+       * The text is owner content. Starting a follow needs the current version accepted.
        */
       TRADE_COPY_DISCLOSURE_LAW: z.string().default(''),
+
+      /**
+       * Verification level a follower needs to copy (CB-copy-03): basic, full or institutional.
+       *
+       * Empty (default) = unset → every Start copying refuses `trade.copy_tier_unset`.
+       * Owner and compliance content. Never invent a level.
+       */
+      TRADE_COPY_MIN_TIER: z.string().default(''),
+
+      /**
+       * How often the copy driver (CB-copy-10) looks for new leader fills to copy. It runs only while
+       * TRADE_COPY_PLACE_MIRROR is on; off, nothing is copied and copy.placeMirror refuses by name.
+       */
+      TRADE_COPY_MIRROR_SWEEP_INTERVAL_MS: z.coerce.number().int().min(250).max(60_000).default(2_000),
 
       /**
        * Copy lead-page metric definitions (CB-copy-02). JSON or empty.

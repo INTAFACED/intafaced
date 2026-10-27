@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
 import {
+  displayAmount,
   escapeHtml,
   extractCheckoutToken,
   parsePayerAmount,
@@ -131,6 +132,39 @@ describe('checkout page rendering', () => {
     expect(html).toContain('19.99');
     // Open sessions poll without script.
     expect(html).toContain('http-equiv="refresh"');
+  });
+
+  it('says what part has arrived and what is missing, and keeps polling (J-merchant-04 step 5)', () => {
+    const { html } = renderCheckoutPage({
+      kind: 'session',
+      session: { ...stubSession, amount: '100', progress: { received: '60', missing: '40' } },
+    });
+    expect(html).toContain('60.00 USDT of 100.00 USDT received, 40.00 USDT missing');
+    expect(html).toContain('Send the missing 40.00 USDT to the same reference');
+    expect(html).toContain('0xacceptance000000000001');
+    expect(html).not.toContain('Payment received');
+    expect(html).toContain('http-equiv="refresh"');
+  });
+
+  it('never asks again for an amount already on its way, and keeps the reference on a closed window', () => {
+    const inFlight = renderCheckoutPage({
+      kind: 'session',
+      session: { ...stubSession, amount: '100', progress: { received: '60', missing: '40', confirming: '40' } },
+    });
+    expect(inFlight.html).toContain('60.00 USDT of 100.00 USDT received, 40.00 USDT missing');
+    expect(inFlight.html).toContain('40.00 USDT is on its way and waiting for confirmations.');
+    expect(inFlight.html).toContain('Nothing more to send');
+    expect(inFlight.html).not.toContain('Send the missing');
+
+    const closed = renderCheckoutPage({
+      kind: 'session',
+      session: { ...stubSession, status: 'expired', amount: '100', progress: { received: '60', missing: '40', confirming: '0' } },
+    });
+    // Not "Nothing has been charged": 60 arrived, and the rest still reaches the merchant.
+    expect(closed.html).not.toContain('Nothing has been charged');
+    expect(closed.html).toContain('Send the missing 40.00 USDT to the same reference');
+    expect(closed.html).toContain('0xacceptance000000000001');
+    expect(closed.html).toContain('the payment has not');
   });
 
   it('says paid only when the session says completed', () => {
@@ -266,6 +300,18 @@ describe('parsePayerAmount', () => {
   });
 });
 
+describe('displayAmount', () => {
+  it('drops only trailing zeros and keeps two places, so the figure stays exact', () => {
+    expect(displayAmount('25.000000000000000000')).toBe('25.00');
+    expect(displayAmount('0.123400000000000000')).toBe('0.1234');
+    expect(displayAmount('100')).toBe('100.00');
+    expect(displayAmount('10.5')).toBe('10.50');
+    expect(displayAmount('1234567.5')).toBe('1,234,567.50');
+    expect(displayAmount('0.000000000000000001')).toBe('0.000000000000000001');
+    expect(displayAmount('n/a')).toBe('n/a');
+  });
+});
+
 describe('stateForError', () => {
   it('maps only codes it has a page for, and falls to error otherwise', () => {
     expect(stateForError(payErr('pay.link_not_found', '')).kind).toBe('not_found');
@@ -286,6 +332,7 @@ describe('stateForError', () => {
     expect(stateForError(payErr('pay.checkout_rails_unset', '')).kind).toBe('unavailable');
     expect(stateForError(payErr('pay.psp_unset', '')).kind).toBe('unavailable');
     expect(stateForError(payErr('pay.routing_no_rail', '')).kind).toBe('unavailable');
+    expect(stateForError(payErr('pay.routing_approval_rate_unset', '')).kind).toBe('unavailable');
     expect(stateForError(payErr('pay.merchant_inactive', '')).kind).toBe('unavailable');
     // Layer B money-door refuse — hosted HTML must not 500 a live KYB gap.
     expect(stateForError(payErr('pay.kyb_required', '')).kind).toBe('unavailable');
@@ -490,6 +537,152 @@ describe('checkout routes', () => {
     expect(res.body).toContain('Nothing has been charged');
     expect(res.body).not.toContain('Payment received');
     await app.close();
+  });
+
+  it('asks the payer for the country only when the country is what routing misses; an operator gap is unavailable', async () => {
+    const refusing = (missing: string[]) =>
+      build({
+        openCheckoutSession: async () => {
+          throw Object.assign(payErr('pay.routing_input_missing', 'missing'), { detail: { missing } });
+        },
+      });
+    const post = (app: Awaited<ReturnType<typeof build>>) =>
+      app.inject({
+        method: 'POST',
+        url: '/checkout/session',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        payload: 'token=pl_stubbed_token_value',
+      });
+
+    const geo = await refusing(['geo']);
+    const asked = await post(geo);
+    expect(asked.statusCode).toBe(400);
+    expect(asked.body).toContain(resolvePayerCopy(PAYER_COPY_KEYS.required));
+    expect(asked.body).toContain('name="geoCountry"');
+    await geo.close();
+
+    for (const missing of [['risk'], ['method'], ['geo', 'risk'], []]) {
+      const app = await refusing(missing);
+      const res = await post(app);
+      expect(res.statusCode).toBe(503);
+      expect(res.body).toContain('Nothing has been charged');
+      expect(res.body).not.toContain(resolvePayerCopy(PAYER_COPY_KEYS.required));
+      await app.close();
+    }
+  });
+
+  it('asks how to pay when the business offers more than one method, in its order, with a method that has no rail named and not pickable', async () => {
+    const offer = {
+      offered: [
+        { method: 'bank_debit', connection: { state: 'not_connected', notice: 'rail.bank' } },
+        { method: 'card', connection: { state: 'connected' } },
+        { method: 'pay_later', connection: { state: 'connected' } },
+      ],
+      leftOut: [{ method: 'crypto', reason: 'currency' }],
+    };
+    const received: unknown[] = [];
+    const app = await build({
+      resolvePaymentLink: async () => ({ ...stubLink, amount: null, currency: null }),
+      openCheckoutSession: async (input) => {
+        received.push(input);
+        if (input.method === 'pay_later') return { sessionToken: 'cs_session_token_here', session: stubSession };
+        const code = input.method ? 'pay.checkout_method_not_offered' : 'pay.checkout_method_required';
+        throw Object.assign(payErr(code, 'choose'), { detail: { offer } });
+      },
+    });
+    const post = (extra: string) =>
+      app.inject({
+        method: 'POST',
+        url: '/checkout/session',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        payload: `token=pl_stubbed_token_value&amount=12.5&assetId=EUR&geoCountry=DE${extra}`,
+      });
+
+    const asked = await post('');
+    expect(asked.statusCode).toBe(200);
+    // The payer's answers come back, and the methods are in the business's order: bank debit, card, pay later.
+    expect(asked.body).toContain('value="12.5"');
+    expect(asked.body).toContain('value="EUR"');
+    expect(asked.body).toContain('value="DE"');
+    const order = ['value="bank_debit"', 'value="card"', 'value="pay_later"'].map((v) => asked.body.indexOf(v));
+    expect(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1]!))).toBe(true);
+    expect(asked.body).toMatch(/value="bank_debit" disabled/);
+    expect(asked.body).toMatch(/value="card" required checked/);
+    expect(asked.body).toContain('data-not-connected="rail.bank"');
+    expect(asked.body).toContain('Bank debit needs a banking partner.');
+    expect(asked.body).not.toContain('value="crypto"');
+
+    // Anything but a catalogue method is as if none was picked.
+    await post('&method=wire');
+    expect(received.at(-1)).not.toHaveProperty('method');
+    const wrong = await post('&method=card');
+    expect(wrong.statusCode).toBe(400);
+    expect(wrong.body).toContain('Choose one of the ways to pay listed here.');
+    const paid = await post('&method=pay_later');
+    expect(paid.statusCode).toBe(303);
+    expect(received.at(-1)).toMatchObject({ method: 'pay_later', geoCountry: 'DE', assetId: 'EUR' });
+    await app.close();
+  });
+
+  it('names what each offered method needs when none can take the payment, and never a receipt', async () => {
+    const app = await build({
+      openCheckoutSession: async () => {
+        throw Object.assign(payErr('pay.checkout_no_method', 'none'), {
+          detail: {
+            offer: { offered: [{ method: 'bank_debit', connection: { state: 'not_connected', notice: 'rail.bank' } }], leftOut: [] },
+          },
+        });
+      },
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/checkout/session',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: 'token=pl_stubbed_token_value&geoCountry=DE',
+    });
+    expect(res.statusCode).toBe(503);
+    expect(res.body).toContain('Nothing has been charged');
+    expect(res.body).toContain('Bank debit needs a banking partner. It is switched off here.');
+    expect(res.body).toContain('<span class="code">rail.bank</span>');
+    expect(res.body).not.toContain('Payment received');
+    await app.close();
+
+    // Nothing offered at all (every method left out by its rule): the payer gets the form back with their answers.
+    const outside = await build({
+      resolvePaymentLink: async () => ({ ...stubLink, amount: null }),
+      openCheckoutSession: async () => {
+        throw Object.assign(payErr('pay.checkout_no_method', 'none'), {
+          detail: { offer: { offered: [], leftOut: [{ method: 'crypto', reason: 'below_min' }] } },
+        });
+      },
+    });
+    const small = await outside.inject({
+      method: 'POST',
+      url: '/checkout/session',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: 'token=pl_stubbed_token_value&amount=2&geoCountry=DE',
+    });
+    expect(small.statusCode).toBe(400);
+    expect(small.body).toContain('This business takes no payment like this one. Check the amount.');
+    expect(small.body).toContain('value="2"');
+    expect(small.body).not.toContain('How to pay');
+    await outside.close();
+
+    // An offer that does not read is not shown: the page falls to its error state.
+    const garbled = await build({
+      openCheckoutSession: async () => {
+        throw Object.assign(payErr('pay.checkout_no_method', 'none'), { detail: { offer: { offered: [{ method: '<b>x</b>' }] } } });
+      },
+    });
+    const bad = await garbled.inject({
+      method: 'POST',
+      url: '/checkout/session',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: 'token=pl_stubbed_token_value&geoCountry=DE',
+    });
+    expect(bad.statusCode).toBe(500);
+    expect(bad.body).not.toContain('<b>x</b>');
+    await garbled.close();
   });
 
   it('shows the unavailable page when rails are unset, never a receipt', async () => {

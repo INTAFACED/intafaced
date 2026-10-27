@@ -10,6 +10,7 @@ import {
   houseFees,
   tokenStakeAccount,
   InsufficientFundsError,
+  MoneyError,
   type Amount,
   type LedgerClient,
 } from '@intafaced/ledger-client';
@@ -18,10 +19,14 @@ import {
   accessTierFor,
   feeDiscountBps,
   isUnlocked,
+  feeDiscountScheduleBlank,
+  feeDiscountScheduleVersion,
   parseFeeDiscountSchedule,
+  publishableFeeDiscountSchedule,
   stakeWeight,
   unlockDate,
   type FeeDiscountSchedule,
+  type PublishedFeeDiscountSchedule,
   type StakeTier,
 } from './economics/staking.js';
 import { distributeYield, splitBuyback, type BuybackParams } from './economics/buyback.js';
@@ -142,6 +147,13 @@ export class TokenError extends Error {
        * that column is `config`. Never filled in from a compiled default.
        */
       | 'token.params_unset'
+      /**
+       * The owner's fee-decay publish named a version that is no longer the stored one: someone published in between.
+       * Nothing is written; read the schedule again and approve the new change.
+       */
+      | 'token.fee_discount_stale'
+      /** The ladder the owner proposed is not one the publish door accepts (shape, order, ceiling). Nothing is written. */
+      | 'token.fee_discount_invalid'
       | 'token.proposal_not_found'
       | 'token.proposal_not_open'
       | 'token.proposal_window'
@@ -577,11 +589,27 @@ function proposalTitle(body: unknown): { title: string | null; reason: 'proposal
 }
 
 /** NULL, whitespace, or `{}` — an undecided ladder, not a zero discount. */
-function feeScheduleBlank(raw: unknown): boolean {
-  if (raw == null) return true;
-  if (typeof raw === 'string') return raw.trim() === '';
-  if (typeof raw === 'object' && !Array.isArray(raw)) return Object.keys(raw).length === 0;
-  return false;
+/** The stored fee-decay column as it is; a missing singleton row refuses. */
+async function readFeeDiscountRow(sql: Sql, opts: { forUpdate?: boolean } = {}): Promise<unknown> {
+  const rows = opts.forUpdate
+    ? await sql<Array<{ fee_discount_schedule: unknown }>>`SELECT fee_discount_schedule FROM token.token_params WHERE id = true FOR UPDATE`
+    : await sql<Array<{ fee_discount_schedule: unknown }>>`SELECT fee_discount_schedule FROM token.token_params WHERE id = true`;
+  if (rows.length === 0) throw new TokenError('token_params singleton row is missing — run migrations', 'token.params_missing');
+  return rows[0]!.fee_discount_schedule;
+}
+
+/**
+ * The ladder the owner proposed, as the publish door would store it, or `token.fee_discount_invalid` naming the step
+ * that is wrong. The router calls this before it consumes the founders' approval, so a ladder the door refuses does not
+ * spend one.
+ */
+export function feeDiscountLadderToPublish(raw: unknown): PublishedFeeDiscountSchedule {
+  try {
+    return publishableFeeDiscountSchedule(raw);
+  } catch (err) {
+    if (err instanceof RangeError || err instanceof MoneyError) throw new TokenError(err.message, 'token.fee_discount_invalid');
+    throw err;
+  }
 }
 
 /** Blank operator config. `config` is the column name; no value is invented. */
@@ -602,6 +630,8 @@ export class TokenService {
   private readonly feeScheduleTtlMs: number;
   private readonly loadParamsFromDb: boolean;
   private feeScheduleCache: { schedule: FeeDiscountSchedule; loadedAt: number } | null = null;
+  /** Bumped by every publish, so a read that began before it does not cache the ladder it replaced. */
+  private feeScheduleGeneration = 0;
   private buybackParamsCache: { params: BuybackParams; loadedAt: number } | null = null;
   private readonly emissionEpochMs: number;
   private emissionParamsCache: { params: EmissionParams; loadedAt: number } | null = null;
@@ -1329,14 +1359,9 @@ export class TokenService {
     const cached = this.feeScheduleCache;
     if (cached && this.feeScheduleTtlMs > 0 && now - cached.loadedAt < this.feeScheduleTtlMs) return cached.schedule;
 
-    const rows = await this.sql<Array<{ fee_discount_schedule: unknown }>>`
-      SELECT fee_discount_schedule FROM token.token_params WHERE id = true
-    `;
-    if (rows.length === 0) {
-      throw new TokenError('token_params singleton row is missing — run migrations', 'token.params_missing');
-    }
-    const raw = rows[0]!.fee_discount_schedule;
-    if (feeScheduleBlank(raw)) {
+    const generation = this.feeScheduleGeneration;
+    const raw = await readFeeDiscountRow(this.sql);
+    if (feeDiscountScheduleBlank(raw)) {
       throwParamsUnset('token_params.fee_discount_schedule');
     }
 
@@ -1347,8 +1372,47 @@ export class TokenService {
       if (err instanceof TokenError) throw err;
       throw new TokenError('token_params.fee_discount_schedule is not a valid schedule', 'token.params_invalid');
     }
-    this.feeScheduleCache = { schedule, loadedAt: now };
+    if (generation === this.feeScheduleGeneration) this.feeScheduleCache = { schedule, loadedAt: now };
     return schedule;
+  }
+
+  /**
+   * The stored fee-decay schedule as the owner's door sees it: the row, or null while blank, and its version. A row
+   * that does not parse is returned as stored, so the owner can see what to replace.
+   */
+  async feeDiscountScheduleRow(): Promise<{ schedule: unknown; version: string }> {
+    const raw = await readFeeDiscountRow(this.sql);
+    return { schedule: feeDiscountScheduleBlank(raw) ? null : raw, version: feeDiscountScheduleVersion(raw) };
+  }
+
+  /**
+   * Publish the fee-decay schedule (§4.3), after the router has consumed the two founders' approval of exactly this
+   * ladder over exactly `expectedVersion`. The row is locked, compared and written in one transaction, so a publish
+   * that lost a race refuses `token.fee_discount_stale` and writes nothing. This process's cached schedule is dropped,
+   * and a read that began before the write does not cache the old one, so its next discount read is the new row. Other
+   * svc-token processes read the new row when their cache expires (`feeScheduleTtlMs`, one minute by default).
+   */
+  async publishFeeDiscountSchedule(input: {
+    schedule: unknown;
+    expectedVersion: string;
+  }): Promise<{ schedule: PublishedFeeDiscountSchedule; version: string; previousVersion: string }> {
+    const schedule = feeDiscountLadderToPublish(input.schedule);
+    const written = await transaction(this.sql, async (tx) => {
+      const previousVersion = feeDiscountScheduleVersion(await readFeeDiscountRow(tx, { forUpdate: true }));
+      if (previousVersion !== input.expectedVersion) {
+        throw new TokenError(
+          `expectedVersion ${input.expectedVersion} is stale; the stored schedule is ${previousVersion}`,
+          'token.fee_discount_stale',
+        );
+      }
+      await tx`
+        UPDATE token.token_params SET fee_discount_schedule = ${tx.json(schedule as never)}, updated_at = now() WHERE id = true
+      `;
+      return { previousVersion };
+    });
+    this.feeScheduleGeneration += 1;
+    this.feeScheduleCache = null;
+    return { schedule, version: feeDiscountScheduleVersion(schedule), previousVersion: written.previousVersion };
   }
 
   /**
@@ -1407,7 +1471,7 @@ export class TokenService {
       throwParamsUnset('token_params.halving_interval');
     }
     const curve = row.emission_curve;
-    if (feeScheduleBlank(curve)) {
+    if (feeDiscountScheduleBlank(curve)) {
       throwParamsUnset('token_params.emission_curve');
     }
     if (typeof curve !== 'object' || Array.isArray(curve)) {

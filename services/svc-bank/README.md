@@ -56,6 +56,13 @@ Unconfigured product surfaces refuse without posting: `cards.rewards` names
 programme never claims live fiat settlement; kind `fiat` refuses
 `bank.fiat_ramp_socket` before any row or ledger post.
 
+**Supported assets and networks (W-balances-05).** svc-ledger's registry (`/trpc/assetsList`) is the one list. `assets.list`
+(`bank:read`) hands customers every published row, any state: a retired asset stays listed so history that names it still
+resolves. The address book offers only active rows that allow withdrawals (`ramps.destinations.networks`), and the deposit
+catalogue (`deposits.assets`, `deposits.address`) is narrowed to pairs the registry lists as active, allowing deposits, on that
+network: a retired, halted or deposit-less asset takes no new address, not even one issued before. No registry, or an
+unreadable one, refuses `bank.asset_registry_unavailable`; custody alone never decides.
+
 **Recipients who cannot receive.** Every credit to another user (`transfers.toUser`,
 `transfers.create` to someone else's space, `scheduleToUser` and each standing-order run, business
 payroll and proposals) first asks svc-identity (`GET /internal/account/:userId`, service-signed, a
@@ -72,25 +79,35 @@ archived spaces remain visible. `loans.releaseExcess` requires a caller-supplied
 
 ### `spaces`
 
-| Procedure        | Scope        | Purpose                                                                       |
-| ---------------- | ------------ | ----------------------------------------------------------------------------- |
-| `spaces.list`    | `bank:read`  | Spaces with their **ledger** balances, and the account ref they are a view of |
-| `spaces.unnamed` | `bank:read`  | Assets held with no space yet — sourced from the ledger, not this table       |
-| `spaces.create`  | `bank:write` | New named space (ensures the primary exists first)                            |
-| `spaces.archive` | `bank:write` | Archive a named space. **Moves no value**                                     |
+| Procedure              | Scope                  | Purpose                                                                                                                                                                                              |
+| ---------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `spaces.list`          | `bank:read`            | Spaces with their **ledger** balances, and the account ref they are a view of                                                                                                                        |
+| `spaces.unnamed`       | `bank:read`            | Assets held with no space yet — sourced from the ledger, not this table                                                                                                                              |
+| `spaces.create`        | `bank:write`           | New named space (ensures the primary exists first)                                                                                                                                                   |
+| `spaces.archive`       | `bank:write`           | Archive a named space. **Moves no value**                                                                                                                                                            |
+| `spaces.setGoal`       | `bank:write`           | Set, change or clear the goal of one of the caller’s pots. **Moves no value** (BK-pots-02)                                                                                                           |
+| `spaces.setLock`       | `bank:write`           | Lock a pot until a later date, or keep it locked longer; a shorter date refuses `bank.space_change_invalid` (BK-pots-02)                                                                             |
+| `spaces.requestUnlock` | `bank:write`           | Early unlock: the pot opens after `BANK_SPACE_UNLOCK_WAIT_HOURS` (blank refuses `bank.space_unlock_rule_unset`); debits refuse until then                                                            |
+| `spaces.cancelUnlock`  | `bank:write`           | Withdraw an early unlock still waiting; the pot stays locked to its date                                                                                                                             |
+| `spaces.setBillsPot`   | `bank:write`           | Make one of the caller's live pots their bills pot for its asset, with the top-up from the main account on or off (BK-pots-03). Another bills pot of the asset gives the role up. **Moves no value** |
+| `spaces.clearBillsPot` | `bank:write`           | The pot stops paying bills; its money stays. Archiving a pot ends the role too                                                                                                                       |
+| `spaces.ownedAccounts` | service (svc-tax only) | Every named space the customer ever owned (id, asset, name, archived), so svc-tax can follow own-account moves in the lot book (PF-cost-basis-02). No balance                                        |
+
+A standing order from the caller's bills pot that finds too little is refused `ledger.insufficient_funds` like any other, unless its top-up is on: then the shortfall moves first from the main account into the pot (an own-space `bankTransfer` keyed `bills-fallback:<order>:<pot>` with the occurrence), and the order pays once. When the main account is short too, nothing moves and the run is recorded as refused. An order that pays one of the caller's own spaces is never topped up, and archiving the pot ends its role in the same transaction.
 
 ### `transfers`
 
-| Procedure                  | Scope        | Purpose                                                                                      |
-| -------------------------- | ------------ | -------------------------------------------------------------------------------------------- |
-| `transfers.create`         | `bank:write` | One-off transfer; `transferId` is client-supplied, so a retried request is the same transfer |
-| `transfers.schedule`       | `bank:write` | Standing order — daily, weekly, or monthly — or a one-off (`once`) on a date                 |
-| `transfers.listSchedules`  | `bank:read`  | The user's standing orders                                                                   |
-| `transfers.updateSchedule` | `bank:write` | Change the amount or end date at the revision read; refused inside the edit cutoff           |
-| `transfers.executions`     | `bank:read`  | What ran, what did not, and **why** — the answer to "where is my rent"                       |
-| `transfers.cancel`         | `bank:write` | Stop future firings. Never reverses ones that happened                                       |
-| `transfers.pause`          | `bank:write` | Hold a standing order. The reversible half of `cancel`                                       |
-| `transfers.resume`         | `bank:write` | Start it again **from here** — returns the occurrences that will never be made up            |
+| Procedure                    | Scope                  | Purpose                                                                                                                                                                                                                                                                               |
+| ---------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `transfers.create`           | `bank:write`           | One-off transfer; `transferId` is client-supplied, so a retried request is the same transfer                                                                                                                                                                                          |
+| `transfers.schedule`         | `bank:write`           | Standing order — daily, weekly, or monthly — or a one-off (`once`) on a date                                                                                                                                                                                                          |
+| `transfers.listSchedules`    | `bank:read`            | The user's standing orders, with the space each pays from and, when it is their own, into (BK-pots-02)                                                                                                                                                                                |
+| `transfers.updateSchedule`   | `bank:write`           | Change the amount or end date at the revision read; refused inside the edit cutoff                                                                                                                                                                                                    |
+| `transfers.executions`       | `bank:read`            | What ran, what did not, and **why** — the answer to "where is my rent"                                                                                                                                                                                                                |
+| `transfers.settleWithdrawal` | service (svc-pay only) | A withdrawal to another person's platform address, settled here (W-withdraw-14): one person-to-person send from the sender's main account under `withdraw:<withdrawal id>`, same limits and freezes; `posted` or `refused` only when nothing posted, any other failure fails the call |
+| `transfers.cancel`           | `bank:write`           | Stop future firings. Never reverses ones that happened                                                                                                                                                                                                                                |
+| `transfers.pause`            | `bank:write`           | Hold a standing order. The reversible half of `cancel`                                                                                                                                                                                                                                |
+| `transfers.resume`           | `bank:write`           | Start it again **from here** — returns the occurrences that will never be made up                                                                                                                                                                                                     |
 
 **Resume does not settle up, and says so on the wire.** `planDue` fires every occurrence between `lastFired` and `now`, which is right after an outage and wrong after a pause: the user stopped the order precisely so those transfers would not happen, and catching up would move three months of rent in one pass on a day nobody chose. So `resume` records the elapsed occurrences as `skipped` — a **row**, not an absence, because `MAX(occurrence)` over `transfer_executions` _is_ `lastFired`, so writing the rows is what moves the schedule's floor forward. The same unique index that makes a double-fire impossible makes a double-skip impossible; there is no second watermark to keep in step. Resuming posts nothing to the ledger, ever.
 
@@ -100,12 +117,14 @@ The occurrences that were written off are in the **response**, not merely in the
 
 ### `earn`
 
-| Procedure        | Scope        | Purpose                                                                                |
-| ---------------- | ------------ | -------------------------------------------------------------------------------------- |
-| `earn.pools`     | `bank:read`  | Open flexible and fixed pools; refuses `bank.earn_rate_unset` when none are configured |
-| `earn.deposit`   | `bank:write` | Open a position                                                                        |
-| `earn.withdraw`  | `bank:write` | Close a position; fixed terms enforced                                                 |
-| `earn.positions` | `bank:read`  | The user's open positions                                                              |
+| Procedure              | Scope        | Purpose                                                                                                                                                                                                                         |
+| ---------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `earn.pools`           | `bank:read`  | Open flexible and fixed pools; refuses `bank.earn_rate_unset` when none are configured                                                                                                                                          |
+| `earn.deposit`         | `bank:write` | Open a position                                                                                                                                                                                                                 |
+| `earn.withdraw`        | `bank:write` | Close a position; fixed terms enforced                                                                                                                                                                                          |
+| `earn.setAutoRenew`    | `bank:write` | A fixed-term saving's auto-renew choice: the next term starts when this one ends                                                                                                                                                |
+| `earn.positions`       | `bank:read`  | The user's open positions                                                                                                                                                                                                       |
+| `earn.interestHistory` | `bank:read`  | The caller's interest from one pool, a row per paid day (date, that day's rate, their payout, ledger tx), and the sum of every paid day (J-bank-07 #5). Page size required; blank refuses `bank.earn_interest_list_limit_unset` |
 
 ### `loans` — **built.** Collateralised borrow over the ledger (§8.1)
 
@@ -118,8 +137,10 @@ The occurrences that were written off are in the **response**, not merely in the
 | `loans.addCollateral` | `bank:write` | Top up collateral (the cheap way out of a margin call)               |
 | `loans.repay`         | `bank:write` | Pay interest first, then principal; may close the loan               |
 | `loans.close`         | `bank:write` | Release collateral when the loan owes nothing                        |
+| `loans.interestRows`  | `bank:read`  | Each accrual day and each approved interest correction, with totals  |
+| `loans.ledgerCheck`   | `bank:read`  | This loan's settled rows against the ledger's transactions, per leg  |
 
-Interest **capitalises** (raises debt, posts nothing). Mark / margin call / liquidation are the risk sweep under `ops`, not user procedures — a user who can choose when collateral is priced can game the staleness window.
+Interest **capitalises** (raises debt, posts nothing). A correction is a new `loan_adjustments` row approved by two founders (`ops.adjustLoanInterest`); accrual days and corrections are append-only (LOAN-05). Mark / margin call / liquidation are the risk sweep under `ops`, not user procedures — a user who can choose when collateral is priced can game the staleness window.
 
 ### `cards` — **the ledger half. No live card programme: off by default, simulator only.**
 
@@ -147,16 +168,57 @@ The procedures exist and are mounted. With `BANK_CARD_ISSUER=none` (the default)
 
 ### `autoInvest` — **F-plane half. DCA refuses rates unset.**
 
-| Procedure                         | Scope        | What it does                                                                                                                |
-| --------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `autoInvest.list`                 | `bank:read`  | The user's rules. Rules hold **no balance** — instructions only                                                             |
-| `autoInvest.createThresholdSweep` | `bank:write` | Keep `threshold` in primary available; excess → earn pool (**same asset**, no rate)                                         |
-| `autoInvest.createRoundUp`        | `bank:write` | Spare change after card capture → same-asset earn pool. Cross-asset `buyAssetId` **refuses `bank.auto_invest_rate_unset`**  |
-| `autoInvest.createDca`            | `bank:write` | Scheduled cross-asset buy — **refuses `bank.auto_invest_rate_unset`** until a convert port is wired. Never invents §8 rates |
-| `autoInvest.pause` / `resume`     | `bank:write` | Hold a rule without cancelling; resume applies normal due rules (no multi-fire invent)                                      |
-| `autoInvest.cancel`               | `bank:write` | Stop future firings. Does not reverse past runs                                                                             |
+| Procedure                         | Scope        | What it does                                                                                                                                                                                                                                                |
+| --------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `autoInvest.list`                 | `bank:read`  | The user's rules. Rules hold **no balance** — instructions only                                                                                                                                                                                             |
+| `autoInvest.createThresholdSweep` | `bank:write` | Keep `threshold` in primary available; excess → earn pool (**same asset**, no rate)                                                                                                                                                                         |
+| `autoInvest.createRoundUp`        | `bank:write` | Spare change after card capture → same-asset earn pool, or one of the user's own named spaces (`targetSpaceId`, BK-pots-02; exactly one target, else `bank.auto_invest_target_invalid`). Cross-asset `buyAssetId` **refuses `bank.auto_invest_rate_unset`** |
+| `autoInvest.createDca`            | `bank:write` | Scheduled cross-asset buy — **refuses `bank.auto_invest_rate_unset`** until a convert port is wired. Never invents §8 rates                                                                                                                                 |
+| `autoInvest.pause` / `resume`     | `bank:write` | Hold a rule without cancelling; resume applies normal due rules (no multi-fire invent)                                                                                                                                                                      |
+| `autoInvest.cancel`               | `bank:write` | Stop future firings. Does not reverse past runs                                                                                                                                                                                                             |
 
 `ops.runAutoInvest` (`admin:treasury`) and `POST /internal/jobs/run-auto-invest` fire due **threshold / DCA** rules. Card round-ups fire on `ops.cardCapture`, not the runner. Kill switch: `AUTO_INVEST_ENABLED` — same code `bank.auto_invest_disabled` on HTTP, tRPC runner, **and the capture hook**. Sovereign allowance plane is not here — P-plane is `protocol.smart-accounts` (Shehzad). No APY is invented; the destination is an existing earn pool. DCA converts run as a standing instruction: bank calls svc-trade `standing.quote` / `standing.execute` as an authenticated svc-bank (body-bound service call, user and rule id in the signed body, no minted customer principal). The trade door is off until `TRADE_STANDING_INSTRUCTION_ENABLED`; while off, a DCA run refuses `bank.auto_invest_rate_unset`.
+
+### `sorter` — **income sorter (BK-pots-03). Instructions only; blank terms refuse.**
+
+| Procedure       | Scope        | What it does                                                                                                                                                                                                            |
+| --------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sorter.list`   | `bank:read`  | The bank's terms (`BANK_INCOME_SORTER_MIN_CREDIT`, or `not_set` with `bank.sorter_terms_unset`) and the caller's live sorters, one per asset at most, each space named and marked `archived` when it was archived since |
+| `sorter.runs`   | `bank:read`  | What each sorted payment came to under one of the caller's sorters: every split's amount and `pending`, `settled` or `rejected` with its code                                                                           |
+| `sorter.create` | `bank:write` | Shares in whole basis points into the caller's own live named spaces of one asset, at most 10000 in all (`bank.sorter_invalid`); the rest stays in the account. One live sorter per asset (`bank.sorter_exists`)        |
+| `sorter.cancel` | `bank:write` | Stop sorting. Payments already sorted stay where they went                                                                                                                                                              |
+
+A payment from another person (`transfers.toUser`, a paid request) is sorted right after it posts, and `POST /internal/jobs/run-income-sorter` sweeps any posted payment the send never sorted and any split whose outcome was unknown. Each split is an own-space `bankTransfer` keyed `sorter:<sorter>:<payment ledger tx>` with the split's position, so a payment is split once whichever path drives it. A refused split (an empty account, an archived space) moves nothing and stays refused. While an earlier post of a split is younger than the ledger's in-flight bound (`POST_IN_FLIGHT_BOUND_SECONDS`), an absent key proves nothing, so the split is neither posted again nor refused until a later sweep.
+
+### `sharedPots` — **shared pots (BK-acct-09). Membership only; blank owner values refuse.**
+
+| Procedure                 | Scope        | What it does                                                                                                                                                                                                      |
+| ------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sharedPots.list`         | `bank:read`  | The bank's two values (null when not set), the caller's pots they share with their people and open invites, pots shared with them with the ledger balance, and invites to them not answered                       |
+| `sharedPots.invite`       | `bank:write` | Invite an active person by handle or email to one of the caller's live named pots as `viewer` or `contributor`. The invite lasts `BANK_SHARED_POT_INVITE_MINUTES`; the same invite id returns that invite         |
+| `sharedPots.cancelInvite` | `bank:write` | The owner withdraws an invite not yet answered, open or expired, so it no longer holds a place                                                                                                                    |
+| `sharedPots.accept`       | `bank:write` | Join with the invite's role; past its lifetime refuses `bank.invite_expired`; a pot shared with `BANK_SHARED_POT_PEOPLE_CAP` people (open invites included) refuses `bank.shared_pot_full`                        |
+| `sharedPots.decline`      | `bank:write` | Say no to an invite                                                                                                                                                                                               |
+| `sharedPots.leave`        | `bank:write` | Stop sharing a pot; the pot and its money stay the owner's                                                                                                                                                        |
+| `sharedPots.remove`       | `bank:write` | The owner stops sharing a pot with one member                                                                                                                                                                     |
+| `sharedPots.linkCard`     | `bank:write` | The owner links one of their own cards, not closed, to one of their pots so its holders can freeze it. One card per pot and one pot per card                                                                      |
+| `sharedPots.unlinkCard`   | `bank:write` | The owner unlinks the pot's card; the card itself is untouched                                                                                                                                                    |
+| `sharedPots.freezeCard`   | `bank:write` | The owner or a contributor freezes the pot's linked card (no step-up: it protects); a viewer refuses `bank.space_forbidden`. Only the owner unfreezes, through `cards.setStatus`                                  |
+| `sharedPots.activity`     | `bank:read`  | The pot's log, newest first, naming who invited, cancelled an invite, joined, declined, left and was removed, and who linked, unlinked, froze or unfroze its card, by handle; for the owner and the pot's members |
+
+**Moves no value.** A contributor adds money with `transfers.create` into the pot, the same transfer as anyone paying into a space. A viewer doing so, and any member taking money out of a pot they do not own, refuses `bank.space_forbidden`. Either owner value blank refuses `bank.joint_unset` (the slice's decision note: nothing is shared until the owner decides). Handles come from svc-identity's directory (`IDENTITY_URL`).
+
+### `recovery` — **recovery claims (RC-identity-08, J-identity-05 #7). The heir's keys move a dead owner's balances; staff never do.**
+
+| Procedure                 | Scope        | What it does                                                                                                                                                                                                                               |
+| ------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `recovery.estates`        | `bank:read`  | The accounts the caller may claim as heir, as svc-identity lists them now, each with the free balances a sweep moves (main account per asset and named spaces), the held value that stays until released, and any debt that blocks a sweep |
+| `recovery.claims.open`    | `bank:write` | Open the claim on one listed account, or answer the open one again, with the text each recovery key signs (`recoveryClaimMessage`). Moves nothing                                                                                          |
+| `recovery.claims.execute` | `bank:write` | Ask identity whether these signatures claim the account for the caller now, then sweep the owner's free balances into the caller's main account in each asset                                                                              |
+
+**Who decides what.** Two staff confirm the death notice in svc-identity, and the owner chose the heir, the keys and how many must sign while alive. svc-bank asks identity (`GET /internal/recovery-claims/estates/:heirUserId`, `POST /internal/recovery-claims/verify`) with the signed-in caller's own id, never an id from input, and keeps only the claim and its sweep plan. An API key or a sub-account refuses `bank.recovery_delegated`; staff (`admin:*`, `support:ops`, `market:ops`) refuse `bank.recovery_staff_forbidden`. Identity refusing the signatures refuses `bank.recovery_claim_refused` with identity's code in the message, and no IDENTITY_URL, or identity not answering, refuses `bank.recovery_unavailable`. Nothing moves in any of these.
+
+**How a sweep posts.** One claim per account (`recovery_claims`, id derived from the account and the confirmed notice). Each round writes one `recovery_sweeps` row per funded account before anything posts, then posts each as `bankTransfer` in the `recovery` key space with the row's key, and marks it posted. A crash in between leaves the row pending, and the next call posts the same key again, which the ledger answers with the first transaction. A ledger refusal that proves nothing posted (funds gone, an entry the ledger will not take, the posting freeze) settles the row refused. Once no row of a round is pending, the claim moves to the next round (the claim reads `executed` only once a sweep has posted), so value that reaches the owner's accounts later is swept by asking again. Value held, staked or pledged (any non-`available` account, or a purposed one) stays where it is: the free value moves without it, and a later round moves it once it is released. A negative balance is a debt, and refuses the whole round with `bank.recovery_blocked` until it is settled. The ledger is read just before the round is planned, outside the claim's lock; value that arrives after the read goes to the next round. The owner's trading sub-accounts in svc-identity are not swept by this slice: their balances stay frozen with the account.
 
 ### `business` — **maker/checker with ledger holds. Not full bank-biz.**
 
@@ -183,6 +245,8 @@ Honest residual: KYB (Lane B), expense cards, invoicing (`pay.gateway`), multi-r
 | `ramps.offramps`  | `bank:read`  | The user's off-ramps. Every row carries `simulated`                                                                       |
 | `ramps.offramp`   | `bank:write` | Crypto: hold then settle to `bank-crypto-ledger`. Kind fiat refuses before any row or ledger post. Does **not** broadcast |
 
+The customer security lock (W-withdraw-09) belongs to svc-identity; svc-bank reads it per request from `GET /internal/security-lock/:userId` and keeps no copy. While it holds, adding a withdrawal address (`ramps.destinations.check/save`, `ramps.setWithdrawDestination`) and starting a `ramps.offramp` refuse `bank.security_locked` before any row or ledger post; a replay of a save or an off-ramp made before the lock answers as before, and removing an address is not stopped (it only takes a way out away). Identity unreachable refuses `bank.security_lock_unavailable`; no `IDENTITY_URL` refuses `bank.security_lock_unset`. `ramps.destinations.readiness` (`bank:read`) answers whether one saved address can be used now, first reason first: `locked`, `blocked`, `cooling_unset`, `cooling` (with its end) or `ready`.
+
 `ops.creditOnramp` (admin:treasury) is the inbound credit for the crypto ledger half — same reason deposit.credit lives under ops in svc-pay: a user who credits themselves does not need a ramp. Kind fiat refuses `bank.fiat_ramp_socket` before any row or ledger post. These tables do not store a fiat onramp or offramp, and kind fiat does not post.
 
 ```bash
@@ -192,6 +256,9 @@ BANK_OFFRAMP_COOLING_HOURS=    # owner-set hours; blank → bank.offramp_cooling
 BANK_ADDRESS_BOOK_CAP=         # owner-set saved addresses per customer; blank → bank.address_book_cap_unset
 BANK_WALLET_PROOF_WINDOW_MINUTES= # owner-set minutes a wallet ownership proof stays open; blank → bank.wallet_proof_window_unset
 BANK_WALLET_PROOF_VALID_DAYS=  # owner-set days a verified wallet proof holds; blank → bank.wallet_proof_validity_unset
+BANK_ADDRESS_APPROVAL_LINK_MINUTES= # owner-set minutes an emailed new-address approval link works (≤ 7 days); blank → bank.address_approval_link_unset
+BANK_DEPOSIT_ADDRESS_CAP=      # owner-set deposit addresses open at once per asset and network, the first included; blank → bank.deposit_address_cap_unset
+BANK_DEPOSIT_ADDRESS_EXPIRY_DAYS= # owner-set days an extra deposit address lasts; blank → bank.deposit_address_expiry_unset
 BANK_ACCOUNT_DETAILS_CURRENCIES= # owner-published ISO-4217 list ("GBP,EUR"); blank → bank.account_details_currencies_unset
 BANK_ELIGIBILITY_JSON=         # owner-published who can open an account; blank → bank.eligibility_unset
 BANK_SEND_FIELD_RULES_JSON=    # owner-published purpose / source-of-funds / reference rules of a global send; blank → bank.send_field_rules_unset
@@ -209,7 +276,9 @@ BANK_SEND_FIELD_RULES_JSON=    # owner-published purpose / source-of-funds / ref
 | `ops.runRiskSweep`         | `admin:treasury` | Mark open loans; margin-call and liquidate past grace                 |
 | `ops.resumePendingLoans`   | `admin:treasury` | Re-drive loans stuck between collateral lock and principal draw       |
 | `ops.resumePendingEarn`    | `admin:treasury` | Re-drive earn deposits stuck pending after ledger post                |
+| `ops.renewEarnTerms`       | `admin:treasury` | Start the next term of ended fixed-term savings with auto-renew on    |
 | `ops.abandonPendingLoan`   | `admin:treasury` | Give up on a pending loan and return collateral                       |
+| `ops.adjustLoanInterest`   | `admin:treasury` | Four-eyes interest correction: a new signed row with its reason       |
 | `ops.cardAuthorize`        | `admin:treasury` | The authorisation "webhook" — decide, and hold if the answer is yes   |
 | `ops.cardCapture`          | `admin:treasury` | The merchant took this much; the remainder of the hold goes back      |
 | `ops.cardReverse`          | `admin:treasury` | The authorisation expired or was voided; the whole hold goes back     |
@@ -232,8 +301,9 @@ HTTP, for the external scheduler (service credentials required; each money job h
 | `POST /internal/jobs/recover-loan-repayments` | re-drive unknown repayments/releases; also ticked in-process     |
 | `POST /internal/jobs/resume-pending-earn`     | crash recovery for pending earn deposits; also ticked in-process |
 | `POST /internal/jobs/run-auto-invest`         | auto-invest threshold sweeps / due DCA                           |
+| `POST /internal/jobs/run-income-sorter`       | income sorter: unsorted payments and splits left pending         |
 
-Plus `/health` and `/ready`. Card settlement resume is tRPC-only (`ops.cardResumeSettlement`) — no HTTP twin yet.
+Plus `/health` and `/ready`. Card settlement resume (`ops.cardResumeSettlement`) and fixed-term auto-renew (`ops.renewEarnTerms`) are tRPC-only: the scheduler calls them signed as svc-bank, with no HTTP twin yet.
 
 ---
 
@@ -272,6 +342,7 @@ Every recipe this service invokes, and what it touches. Transfer/earn recipes li
 | ----------------------- | -------------------------- | ------------------------------------------------------------- |
 | `bankTransfer`          | `bank.transfer.manual`     | space account → space account                                 |
 | `bankTransfer`          | `bank.transfer.scheduled`  | space account → space account                                 |
+| `bankTransfer`          | `bank.transfer.manual`     | dead owner's free account → heir available (`recovery` keys)  |
 | `earnDeposit`           | `bank.earn.deposited`      | user available → user stake                                   |
 | `earnWithdraw`          | `bank.earn.withdrawn`      | user stake → user available                                   |
 | `earnPoolFund`          | `bank.earn.pool.funded`    | `houseFees('bank')` → `earnPoolReserve(pool)`                 |
@@ -300,6 +371,7 @@ bank.transfer.sched:<scheduleId>:<occurrence>        one firing of one standing 
 bank.transfer.own:<transferId>:0                     a user moving value between their own spaces
 bank.transfer.p2p:<transferId>:0                     a payment to another user (personal pay, a paid request)
 bank.transfer.rail:<paymentId>:<0|1>                 a send to a rail boundary (0) and its reversal (1)
+bank.transfer.recovery:<claimId>:<account>:<round>   one recovery sweep of one owner account (never reversed by consent)
 bank.earn.deposit:<positionId>                       one position opening
 bank.earn.withdraw:<positionId>                      one position closing
 bank.earn.fund:<poolId>:<fundingId>                  one reserve top-up
@@ -601,4 +673,4 @@ The internal job doors, the closure check and `/trpc` name the caller from its o
 
 ## Service keys: outgoing calls
 
-The calls to svc-identity (affiliate accrue and payout, recipient status, handle lookup, business directory) and to svc-trade (auto-invest convert quote and execute) are signed with svc-bank's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`S2S_KEYRING` lets the doors verify callers); `dual` also sends the shared secret, `keypair` the key only. Unset, they are signed with the shared secret exactly as before. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+The calls to svc-identity (affiliate accrue and payout, recipient status, handle lookup, business directory, recovery estates and claim checks) and to svc-trade (auto-invest convert quote and execute) are signed with svc-bank's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`S2S_KEYRING` lets the doors verify callers); `dual` also sends the shared secret, `keypair` the key only. Unset, they are signed with the shared secret exactly as before. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.

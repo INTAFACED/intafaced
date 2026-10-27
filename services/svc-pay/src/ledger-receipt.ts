@@ -3,7 +3,11 @@ import { canonicalIdentityOperationIntent } from '@intafaced/contracts';
 
 /** Compact provider ACKs contain no entries. Rich receipts must prove every original leg. */
 export async function postPayLedger(ledger: LedgerClient, request: PostRequest): Promise<LedgerTx> {
-  const tx = await ledger.post(request);
+  return checkPayLedgerReceipt(ledger, request, await ledger.post(request));
+}
+
+/** The same proof for a transaction found under the request's key (`getTxByKey`) instead of returned by its post. */
+export async function checkPayLedgerReceipt(ledger: LedgerClient, request: PostRequest, tx: LedgerTx): Promise<LedgerTx> {
   const refuse = () => new LedgerError('Ledger acknowledgement does not match the original payment request', 'pay.ledger_receipt_mismatch');
   if (
     !tx ||

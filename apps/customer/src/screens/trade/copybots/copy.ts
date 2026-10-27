@@ -9,6 +9,8 @@ const messages = {
   '15 min': '15 min',
   '4 h': '4 h',
   '5 min': '5 min',
+  'A copy appears here when the leader trades and automatic copying is on.':
+    'A copy appears here when the leader trades and automatic copying is on.',
   'A country list is published': 'A country list is published',
   'A price range, grid count, and a grid service': 'A price range, grid count, and a grid service',
   'A run can last 24 hours at most': 'A run can last 24 hours at most',
@@ -30,7 +32,9 @@ const messages = {
   'Automatic copying of leader orders is switched off': 'Automatic copying of leader orders is switched off',
   'Average price': 'Average price',
   Back: 'Back',
+  'Balance unread': 'Balance unread',
   'Before this record': 'Before this record',
+  'Being checked': 'Being checked',
   Bot: 'Bot',
   'Bot catalogue': 'Bot catalogue',
   'Bot leaders': 'Bot leaders',
@@ -41,6 +45,7 @@ const messages = {
   Buy: 'Buy',
   'Buys a fixed amount on a schedule': 'Buys a fixed amount on a schedule',
   'Buys low and sells high inside a price range': 'Buys low and sells high inside a price range',
+  Cancelled: 'Cancelled',
   'Can’t load': 'Can’t load',
   Catalogue: 'Catalogue',
   'Change this follow': 'Change this follow',
@@ -55,13 +60,13 @@ const messages = {
   'Close copied positions and leave?': 'Close copied positions and leave?',
   'Close price': 'Close price',
   Closed: 'Closed',
-  'Confirm and follow': 'Confirm and follow',
   'Copied orders': 'Copied orders',
   Copiers: 'Copiers',
   'Copy desk closed': 'Copy desk closed',
   'Copy desk open': 'Copy desk open',
   'Copy desk unknown': 'Copy desk unknown',
   'Copy permission': 'Copy permission',
+  'Copy risk disclosure': 'Copy risk disclosure',
   'Copy trading': 'Copy trading',
   'Copy trading can lose money. A leader’s past return is not a promise. Only copy what you can afford to lose, and set a loss limit.':
     'Copy trading can lose money. A leader’s past return is not a promise. Only copy what you can afford to lose, and set a loss limit.',
@@ -78,6 +83,10 @@ const messages = {
   'Days trading': 'Days trading',
   Dismiss: 'Dismiss',
   'Drawdown limit': 'Drawdown limit',
+  'Each copied order uses this much, never more than the most per order.':
+    'Each copied order uses this much, never more than the most per order.',
+  'Each new trade the leader makes is copied for you, within your limits.':
+    'Each new trade the leader makes is copied for you, within your limits.',
   'Each slice': 'Each slice',
   'Each slice pays the normal fee for this market ({maker} maker, {taker} taker)':
     'Each slice pays the normal fee for this market ({maker} maker, {taker} taker)',
@@ -93,6 +102,7 @@ const messages = {
   'Estimated cost, before fees and price moves': 'Estimated cost, before fees and price moves',
   'Estimated proceeds, before fees and price moves': 'Estimated proceeds, before fees and price moves',
   'Expected to finish': 'Expected to finish',
+  Expired: 'Expired',
   'Extra charge on your profit': 'Extra charge on your profit',
   'Fee on each copied order': 'Fee on each copied order',
   'Fee share': 'Fee share',
@@ -103,11 +113,14 @@ const messages = {
   'Filled so far': 'Filled so far',
   'Find a leader': 'Find a leader',
   Finished: 'Finished',
+  'Fixed amount per copied order': 'Fixed amount per copied order',
+  'Fixed amount per copied order ({asset})': 'Fixed amount per copied order ({asset})',
   Follow: 'Follow',
   'Follow a leader': 'Follow a leader',
   'Follow by leader ID': 'Follow by leader ID',
   'Follow of {leader}': 'Follow of {leader}',
   'Follow {name}': 'Follow {name}',
+  'Free {asset} now': 'Free {asset} now',
   'From the trading fee, never from your profit': 'From the trading fee, never from your profit',
   'Funds are held': 'Funds are held',
   Futures: 'Futures',
@@ -118,8 +131,7 @@ const messages = {
   Grid: 'Grid',
   Halted: 'Halted',
   'How a leader is paid': 'How a leader is paid',
-  'I understand copying is not a guaranteed result and a leader’s order can lose money.':
-    'I understand copying is not a guaranteed result and a leader’s order can lose money.',
+  'I have read this disclosure and accept it.': 'I have read this disclosure and accept it.',
   'If you stop, new copies stop at once. Positions already open stay yours until you close them.':
     'If you stop, new copies stop at once. Positions already open stay yours until you close them.',
   'It halted so you can check it': 'It halted so you can check it',
@@ -147,6 +159,7 @@ const messages = {
   'Left out (below one lot)': 'Left out (below one lot)',
   'Left to use': 'Left to use',
   'Live account: real orders': 'Live account: real orders',
+  Loading: 'Loading',
   'Loss limit': 'Loss limit',
   'Lot size {lot}': 'Lot size {lot}',
   Manage: 'Manage',
@@ -183,6 +196,7 @@ const messages = {
   'No bot exists with that request, so it did not go through. You can set it up again.':
     'No bot exists with that request, so it did not go through. You can set it up again.',
   'No bots started on this device': 'No bots started on this device',
+  'No copied orders': 'No copied orders',
   'No follow exists for that leader, so the request did not go through.':
     'No follow exists for that leader, so the request did not go through.',
   'No grid service exists. Nothing is simulated.': 'No grid service exists. Nothing is simulated.',
@@ -191,7 +205,6 @@ const messages = {
   'No markets are open for copying right now.': 'No markets are open for copying right now.',
   'No new slices are placed while it is paused. Slices already placed stay as they are.':
     'No new slices are placed while it is paused. Slices already placed stay as they are.',
-  'No order history': 'No order history',
   'No paper strategies': 'No paper strategies',
   'No price available right now': 'No price available right now',
   'No recurring-order service exists. Use Convert for a single trade.':
@@ -209,6 +222,8 @@ const messages = {
   'Not granted': 'Not granted',
   'Not now': 'Not now',
   'Not published': 'Not published',
+  'Not published. Copying can’t start until the platform publishes its risk disclosure.':
+    'Not published. Copying can’t start until the platform publishes its risk disclosure.',
   'Not set': 'Not set',
   'Not set by the platform': 'Not set by the platform',
   'Not verified': 'Not verified',
@@ -246,8 +261,10 @@ const messages = {
   'Permission ends': 'Permission ends',
   'Pick a bot, set its size and limits, see what it will cost before it starts, and stop it any time.':
     'Pick a bot, set its size and limits, see what it will cost before it starts, and stop it any time.',
+  Placed: 'Placed',
   'Positions already open are never sold unless you choose Close copied positions.':
     'Positions already open are never sold unless you choose Close copied positions.',
+  Price: 'Price',
   'Price limit': 'Price limit',
   'Price limit ({asset})': 'Price limit ({asset})',
   'Profit or loss': 'Profit or loss',
@@ -261,6 +278,9 @@ const messages = {
   'Recurring buy (DCA)': 'Recurring buy (DCA)',
   'Reference {code}': 'Reference {code}',
   Refresh: 'Refresh',
+  Refused: 'Refused',
+  Released: 'Released',
+  'Reserved for this copy': 'Reserved for this copy',
   Result: 'Result',
   'Result so far': 'Result so far',
   Resume: 'Resume',
@@ -283,6 +303,7 @@ const messages = {
   'Search leaders': 'Search leaders',
   'See strategies': 'See strategies',
   Sell: 'Sell',
+  Sending: 'Sending',
   'Set up': 'Set up',
   'Set up a bot': 'Set up a bot',
   'Set up a {kind} bot': 'Set up a {kind} bot',
@@ -310,6 +331,8 @@ const messages = {
     'Spot trades: margin is what the leader paid, with no leverage. Buys and sells are paired oldest first.',
   'Start bot': 'Start bot',
   'Start copying': 'Start copying',
+  'Start copying also turns on automatic copying: each new trade the leader makes is placed for you, as you, within these limits, until you turn it off or the permission ends.':
+    'Start copying also turns on automatic copying: each new trade the leader makes is placed for you, as you, within these limits, until you turn it off or the permission ends.',
   Started: 'Started',
   State: 'State',
   Status: 'Status',
@@ -340,6 +363,7 @@ const messages = {
   'That follow is no longer in your list.': 'That follow is no longer in your list.',
   'That follow is now {state}.': 'That follow is now {state}.',
   'That is more than 500 slices. Make the gap longer.': 'That is more than 500 slices. Make the gap longer.',
+  'That is more than your free {asset}': 'That is more than your free {asset}',
   'That request belongs to the spot desk or another room. Check it there; it stays locked until then.':
     'That request belongs to the spot desk or another room. Check it there; it stays locked until then.',
   'The ID the leader shares with you': 'The ID the leader shares with you',
@@ -355,8 +379,7 @@ const messages = {
   'The leader can never raise these limits.': 'The leader can never raise these limits.',
   'The list of countries where copy trading is offered has not been approved':
     'The list of countries where copy trading is offered has not been approved',
-  'The list of orders copied for you is not available from the service. Check Order history on the spot desk.':
-    'The list of orders copied for you is not available from the service. Check Order history on the spot desk.',
+  'The most per order is {cap} {asset}': 'The most per order is {cap} {asset}',
   'The same as trading alone': 'The same as trading alone',
   'The same trading fee as trading alone': 'The same trading fee as trading alone',
   'The scheduler that places slices is switched off in this environment. The bot can be created and watched, but no slice is placed until it runs.':
@@ -383,17 +406,23 @@ const messages = {
   'Total to trade': 'Total to trade',
   Trades: 'Trades',
   'Trades a fixed share of the market’s live volume': 'Trades a fixed share of the market’s live volume',
+  'Trades are not copied for you until you turn on automatic copying.':
+    'Trades are not copied for you until you turn on automatic copying.',
   'Trading fee': 'Trading fee',
   Trending: 'Trending',
   'Try again': 'Try again',
   'Try another name, or clear the search.': 'Try another name, or clear the search.',
+  'Turn off automatic copying': 'Turn off automatic copying',
+  'Turn on automatic copying': 'Turn on automatic copying',
   'Two letters. Copy trading is only offered in some countries.': 'Two letters. Copy trading is only offered in some countries.',
   Unknown: 'Unknown',
   'Unknown state': 'Unknown state',
   'Up to 1440': 'Up to 1440',
+  'Use the same amount for every copied order': 'Use the same amount for every copied order',
   Used: 'Used',
   'Used now': 'Used now',
   'Verified live': 'Verified live',
+  'Version {version}': 'Version {version}',
   'Volume history is still short. A slice may be refused when it is due.':
     'Volume history is still short. A slice may be refused when it is due.',
   'Volume-weighted (VWAP)': 'Volume-weighted (VWAP)',
@@ -411,6 +440,7 @@ const messages = {
   'Win rate': 'Win rate',
   Withdrawn: 'Withdrawn',
   'Write and save a strategy in Quant Studio and it appears here.': 'Write and save a strategy in Quant Studio and it appears here.',
+  'You accepted this version.': 'You accepted this version.',
   'You are signed out': 'You are signed out',
   'You aren’t following anyone': 'You aren’t following anyone',
   'You can still set everything up and manage follows you already have. A new follow is refused until it opens.':

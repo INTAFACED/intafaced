@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { ACADEMY_RESERVED_TAB_SLUGS } from '@intafaced/contracts';
 import {
+  certificateXp,
+  academyVerifyHref,
+  issueWait,
   buildTracking,
   certificateCards,
   certificateDocument,
@@ -20,6 +23,7 @@ import {
   rememberLastLesson,
   resumeTarget,
   roomSummary,
+  academyAssignmentHref,
   academyCourseHref,
   academyRoute,
   academySectionRedirect,
@@ -306,10 +310,15 @@ describe('tab addresses (AC-order-01)', () => {
       expect(academyTabHref(name)).toBe(`/academy/${slug}`);
     }
     expect(academyRoute('/academy/progress')).toEqual({ kind: 'progress' });
+    // AC-programmes-01: a programme's page sits under the Programmes tab; the bare tab address stays the tab.
+    expect(academyRoute('/academy/programmes/trader-path')).toEqual({ kind: 'programme', slug: 'trader-path' });
+    expect(academyRoute('/academy/programmes/')).toEqual({ kind: 'tab', tab: 'Programmes' });
     expect(academyRoute('/academy/foundations-risk-first')).toEqual({ kind: 'reader', slug: 'foundations-risk-first' });
     expect(academyRoute('/academy/%E0%A4%A')).toEqual({ kind: 'reader', slug: undefined });
     expect(academyRoute('/academy/learning/course/markets')).toEqual({ kind: 'course', slug: 'markets' });
     expect(academyRoute('/academy/learning/course')).toEqual({ kind: 'course', slug: undefined });
+    expect(academyRoute('/academy/learning/course/markets/assignment/abc')).toEqual({ kind: 'assignment', slug: 'markets', itemId: 'abc' });
+    expect(academyAssignmentHref('a b', 'x')).toBe('/academy/learning/course/a%20b/assignment/x');
     expect(academyCourseHref('a b')).toBe('/academy/learning/course/a%20b');
   });
 
@@ -330,5 +339,65 @@ describe('tab addresses (AC-order-01)', () => {
 describe('copy', () => {
   it('carries every message in Spanish and French', () => {
     for (const locale of ['es', 'fr'] as const) expect(academyLmsCopy.coverage(locale).missing).toEqual([]);
+  });
+});
+
+describe('certificate issue and verify links (AC-certificates-01/02)', () => {
+  const row = {
+    userId: owner,
+    certId: 'foundations-v1',
+    title: 'Foundations',
+    requiredCount: 2,
+    completedCount: 2,
+    ratio: '1.0000',
+    missingItemSlugs: [],
+    complete: true,
+    granted: false,
+    grantIdempotencyKey: null,
+  };
+  it('a complete certificate waiting out its delay is issuing; with no wait it is ready to request', () => {
+    const issuesAt = new Date('2026-10-24T14:00:00.000Z');
+    expect(certificateState({ ...row, issue: { mode: 'delayed', delayMinutes: 60, issuesAt } }, undefined)).toBe('issuing');
+    expect(certificateState({ ...row, issue: { mode: 'manual', delayMinutes: null, issuesAt: null } }, undefined)).toBe('ready');
+    expect(certificateState(row, undefined)).toBe('ready');
+  });
+  it('words a wait in its largest whole unit', () => {
+    expect(issueWait(1)).toEqual({ unit: 'waitMinutes', n: 1 });
+    expect(issueWait(120)).toEqual({ unit: 'waitHours', n: 2 });
+    expect(issueWait(2880)).toEqual({ unit: 'waitDays', n: 2 });
+    expect(issueWait(90)).toEqual({ unit: 'waitMinutes', n: 90 });
+  });
+  it('the shared link opens the public check under the certificates tab', () => {
+    const code = 'a'.repeat(32);
+    expect(academyVerifyHref(code)).toBe(`/academy/certificates/verify/${code}`);
+    expect(academyRoute(academyVerifyHref(code))).toEqual({ kind: 'verify', code });
+    expect(academyRoute('/academy/certificates/verify')).toEqual({ kind: 'verify', code: undefined });
+    expect(academyRoute('/academy/certificates')).toEqual({ kind: 'tab', tab: 'Certificates' });
+  });
+});
+
+describe('certificateXp', () => {
+  const plane = { emitEnabled: true, policies: [{ certId: 'foundations-v1', xpDelta: 100 }] };
+  it('says the published XP was added, or what it is worth while publishing is off, or none', () => {
+    expect(certificateXp(plane, 'foundations-v1')).toEqual({ kind: 'worth', xp: 100 });
+    expect(certificateXp({ ...plane, emitEnabled: false }, 'foundations-v1')).toEqual({ kind: 'off', xp: 100 });
+    expect(certificateXp(plane, 'markets-v1')).toEqual({ kind: 'none' });
+    expect(certificateXp({ emitEnabled: true, policies: [{ certId: 'foundations-v1', xpDelta: 0 }] }, 'foundations-v1')).toEqual({
+      kind: 'none',
+    });
+  });
+});
+
+describe('a revoked certificate', () => {
+  it('is revoked, not earned, and has no printable sheet', () => {
+    const grant = {
+      userId: '11111111-1111-4111-8111-111111111111',
+      certId: 'foundations-v1',
+      grantedAt: '2026-10-24T12:00:00.000Z',
+      idempotencyKey: 'cert:11111111-1111-4111-8111-111111111111:foundations-v1',
+      status: 'revoked' as const,
+    };
+    expect(certificateState(undefined, grant)).toBe('revoked');
+    expect(certificateState(undefined, { ...grant, status: 'valid' })).toBe('earned');
   });
 });

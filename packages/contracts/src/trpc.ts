@@ -4,6 +4,7 @@ import { requireScope, requireTier, AuthError, hasScope } from '@intafaced/auth'
 import type { AccessDecision, KycTier, ModuleId, Plane } from '@intafaced/config';
 import { checkAccess } from '@intafaced/config';
 import { P2P_DELIST_REASONS, type P2pDelistReason } from './p2p-delist.js';
+import { P2P_FIELD_KEY, P2P_RULE_CLASS } from './p2p-rule-class.js';
 import { isPreviewRefusal, type PreviewRefusal } from './preview-refusal.js';
 import { requireServiceCaller } from './service-auth.js';
 
@@ -127,6 +128,78 @@ export function accountStateOf(cause: unknown): 'frozen' | 'closed' | undefined 
   if (!details || typeof details !== 'object' || !('accountState' in details)) return undefined;
   const state = details.accountState;
   return state === 'frozen' || state === 'closed' ? state : undefined;
+}
+
+/**
+ * The waiting sign-in of an `auth.device_authorisation_required` refusal (I-signin-sessions-07): its flow id, the secret
+ * only the browser that signed in holds, when it expires, and whether a code was mailed. It goes only to the requester
+ * who just passed every factor, so it names nothing they did not already prove. When that sign-in's second step spent a
+ * recovery code, `recoveryCodesLeft` says how many the account has left (I-signin-sessions-12).
+ */
+export function deviceAuthorisationOf(
+  cause: unknown,
+): { flowId: string; secret: string; expiresAt: string; mailed: boolean; recoveryCodesLeft?: number } | undefined {
+  if (!cause || typeof cause !== 'object' || !('code' in cause) || cause.code !== 'auth.device_authorisation_required') return undefined;
+  const details = 'details' in cause ? cause.details : undefined;
+  if (!details || typeof details !== 'object' || !('deviceAuthorisation' in details)) return undefined;
+  const d = details.deviceAuthorisation as Record<string, unknown> | null;
+  if (
+    !d ||
+    typeof d.flowId !== 'string' ||
+    typeof d.secret !== 'string' ||
+    typeof d.expiresAt !== 'string' ||
+    typeof d.mailed !== 'boolean'
+  ) {
+    return undefined;
+  }
+  const left = d.recoveryCodesLeft;
+  const recovery = typeof left === 'number' && Number.isSafeInteger(left) && left >= 0 ? { recoveryCodesLeft: left } : {};
+  return { flowId: d.flowId, secret: d.secret, expiresAt: d.expiresAt, mailed: d.mailed, ...recovery };
+}
+
+export type SecondStepPasskeyOptions = {
+  challenge: string;
+  timeout?: number;
+  rpId?: string;
+  allowCredentials: Array<{ id: string; type: 'public-key'; transports?: string[] }>;
+  userVerification?: 'required' | 'preferred' | 'discouraged';
+};
+
+const B64URL = /^[A-Za-z0-9_-]{1,1400}$/;
+
+/**
+ * The second steps an `auth.mfa_required` sign-in may answer with (I-signin-sessions-10): `totp` when the account has an
+ * authenticator, and `passkey`, the options for a single-use challenge bound to the account whose password just
+ * verified, when it has a passkey for sign-in. Sent only after the password verified, so the credential ids go to
+ * someone who already proved the first factor. Any other shape, or any other code, is dropped.
+ */
+export function secondStepOf(cause: unknown): { totp: boolean; passkey: SecondStepPasskeyOptions | null } | undefined {
+  if (!cause || typeof cause !== 'object' || !('code' in cause) || cause.code !== 'auth.mfa_required') return undefined;
+  const details = 'details' in cause ? cause.details : undefined;
+  if (!details || typeof details !== 'object' || !('secondStep' in details)) return undefined;
+  const d = details.secondStep as Record<string, unknown> | null;
+  if (!d || typeof d.totp !== 'boolean') return undefined;
+  const raw = d.passkey as Record<string, unknown> | null | undefined;
+  if (raw === null || raw === undefined) return { totp: d.totp, passkey: null };
+  if (typeof raw.challenge !== 'string' || !B64URL.test(raw.challenge) || !Array.isArray(raw.allowCredentials)) return undefined;
+  const allowCredentials: SecondStepPasskeyOptions['allowCredentials'] = [];
+  for (const item of raw.allowCredentials as Array<Record<string, unknown>>) {
+    if (!item || typeof item.id !== 'string' || !B64URL.test(item.id) || item.type !== 'public-key') return undefined;
+    const transports = Array.isArray(item.transports) ? item.transports.filter((t): t is string => typeof t === 'string') : undefined;
+    allowCredentials.push({ id: item.id, type: 'public-key', ...(transports ? { transports } : {}) });
+  }
+  if (allowCredentials.length === 0) return undefined;
+  const uv = raw.userVerification;
+  return {
+    totp: d.totp,
+    passkey: {
+      challenge: raw.challenge,
+      allowCredentials,
+      ...(typeof raw.timeout === 'number' && Number.isFinite(raw.timeout) ? { timeout: raw.timeout } : {}),
+      ...(typeof raw.rpId === 'string' ? { rpId: raw.rpId } : {}),
+      ...(uv === 'required' || uv === 'preferred' || uv === 'discouraged' ? { userVerification: uv } : {}),
+    },
+  };
 }
 
 const BLOCKER_CODE = /^[a-z][a-z0-9_.]*$/;
@@ -253,7 +326,9 @@ export function spendFiguresOf(cause: unknown): { assetId: string; available: st
   return { assetId, available, onHold, inEarn };
 }
 
-const P2P_LIMIT_CODES = new Set([
+/** P2P refusals about one field of a payment destination: the answer names the field's key (never its value). */
+const P2P_FIELD_CODES = ['p2p.account_format_invalid', 'p2p.instrument_field_missing', 'p2p.instrument_field_invalid'] as const;
+const P2P_LIMIT_CODES = new Set<string>([
   'p2p.active_order_cap',
   'p2p.pair_limit_exceeded',
   'p2p.verification_order_min',
@@ -262,9 +337,14 @@ const P2P_LIMIT_CODES = new Set([
   'p2p.verification_lifetime_limit',
   'p2p.method_delisted',
   'p2p.buying_restricted',
+  'p2p.insufficient_balance',
+  'p2p.remind_too_early',
+  'p2p.remind_rate_limited',
+  'p2p.content_rule_violation',
+  ...P2P_FIELD_CODES,
 ]);
 const DELIST_REASONS: ReadonlySet<string> = new Set(P2P_DELIST_REASONS);
-const P2P_LIMIT_DECIMALS = ['cap', 'min', 'max', 'remaining', 'windowHours'] as const;
+const P2P_LIMIT_DECIMALS = ['cap', 'min', 'max', 'remaining', 'windowHours', 'available', 'shortBy'] as const;
 const P2P_LIMIT_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 const P2P_LIMIT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -277,10 +357,17 @@ export interface P2pLimitDetails {
   remaining?: string;
   /** On `p2p.buying_restricted`: the hours the cancelled orders (`cap` of them) are counted over. */
   windowHours?: string;
+  /** On `p2p.insufficient_balance`: the seller's free balance of the order's coin, and how much more the order needs. */
+  available?: string;
+  shortBy?: string;
   currency?: string;
   openTradeIds?: string[];
   /** On `p2p.method_delisted` only: why the method was retired. */
   reason?: P2pDelistReason;
+  /** On `p2p.content_rule_violation` only: the content rule class an ad's terms broke, never the phrase. */
+  ruleClass?: string;
+  /** On a payment destination's field refusal (format, missing, invalid) only: the method field's key, never its value. */
+  field?: string;
 }
 
 /**
@@ -311,6 +398,18 @@ export function p2pLimitOf(cause: unknown): P2pLimitDetails | undefined {
     if (cause.code !== 'p2p.method_delisted' || typeof row.reason !== 'string' || !DELIST_REASONS.has(row.reason)) return undefined;
     out.reason = row.reason as P2pDelistReason;
   }
+  if (row.ruleClass !== undefined) {
+    if (cause.code !== 'p2p.content_rule_violation' || typeof row.ruleClass !== 'string' || !P2P_RULE_CLASS.test(row.ruleClass)) {
+      return undefined;
+    }
+    out.ruleClass = row.ruleClass;
+  }
+  if (row.field !== undefined) {
+    if (!(P2P_FIELD_CODES as readonly string[]).includes(cause.code) || typeof row.field !== 'string' || !P2P_FIELD_KEY.test(row.field)) {
+      return undefined;
+    }
+    out.field = row.field;
+  }
   if (row.openTradeIds !== undefined) {
     const ids = row.openTradeIds;
     if (!Array.isArray(ids) || ids.length > 50) return undefined;
@@ -332,6 +431,8 @@ const t = initTRPC.context<Context>().create({
     const preview = previewRefusalOf(cause);
     const spend = spendFiguresOf(cause);
     const accountState = accountStateOf(cause);
+    const deviceAuthorisation = deviceAuthorisationOf(cause);
+    const secondStep = secondStepOf(cause);
     const p2pLimit = p2pLimitOf(cause);
     return {
       ...shape,
@@ -356,6 +457,10 @@ const t = initTRPC.context<Context>().create({
         ...(retryAfterSecondsOf(cause) !== undefined ? { retryAfterSeconds: retryAfterSecondsOf(cause) } : {}),
         // Only on sign-in's `auth.account_frozen`: `frozen` or `closed`.
         ...(accountState ? { accountState } : {}),
+        // Only on `auth.device_authorisation_required`: the waiting new-device sign-in.
+        ...(deviceAuthorisation ? { deviceAuthorisation } : {}),
+        // Only on sign-in's `auth.mfa_required`: which second steps answer it, with a passkey challenge when one does.
+        ...(secondStep ? { secondStep } : {}),
         ...(blockers ? { blockers } : {}),
         ...(algo ? { algo } : {}),
         // Only on `pay.guard_withdrawal_limit_exceeded`.

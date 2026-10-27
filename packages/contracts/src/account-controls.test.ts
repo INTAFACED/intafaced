@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  accountLimitAmountSchema,
+  accountLimitOverrideSetInputSchema,
+  accountLimitResultSchema,
+  accountArchiveInputSchema,
+  accountArchiveProposalsSchema,
+  accountArchiveResultSchema,
+  accountArchiveStateSchema,
   accountControlInputSchema,
   accountTierResultSchema,
   accountTierTermsSchema,
@@ -16,6 +23,9 @@ import {
   committedOperationAdmissionSchema,
   operationRecoveryInputSchema,
   recoveryMatchesAdmission,
+  customerDetailChangesSchema,
+  customerDetailReviewSchema,
+  customerDetailValueSchemas,
 } from './account-controls.js';
 
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -351,6 +361,81 @@ describe('service-only operator entitlement read', () => {
   });
 });
 
+describe('customer archive (J-ops-console-04 #10)', () => {
+  const open = { userId: USER, version: '3', status: 'closed', archivedAt: null, archiveReasonCode: null } as const;
+  const archived = { ...open, version: '4', archivedAt: NOW, archiveReasonCode: 'dormant' } as const;
+  const base = {
+    auditId: KEY,
+    requestId: KEY,
+    userId: USER,
+    reasonCode: 'dormant',
+    reason: 'No contact since closing',
+    occurredAt: NOW,
+  } as const;
+
+  it('takes a reason code from the list and a reason, and nothing else', () => {
+    const input = { requestId: KEY, userId: USER, reasonCode: 'dormant', reason: 'No contact since closing', expectedVersion: '3' };
+    expect(accountArchiveInputSchema.safeParse(input).success).toBe(true);
+    expect(accountArchiveInputSchema.safeParse({ ...input, approvalId: 'approval-1' }).success).toBe(true);
+    expect(accountArchiveInputSchema.safeParse({ ...input, reasonCode: 'fraud' }).success).toBe(false);
+    expect(accountArchiveInputSchema.safeParse({ ...input, reason: 'no' }).success).toBe(false);
+    expect(accountArchiveInputSchema.safeParse({ ...input, archivedAt: NOW }).success).toBe(false);
+  });
+
+  it('shows an archive only on a closed account, always with its reason code', () => {
+    expect(accountArchiveStateSchema.safeParse(archived).success).toBe(true);
+    expect(accountArchiveStateSchema.safeParse({ ...archived, status: 'active' }).success).toBe(false);
+    expect(accountArchiveStateSchema.safeParse({ ...archived, archiveReasonCode: null }).success).toBe(false);
+    expect(accountArchiveStateSchema.safeParse({ ...open, archiveReasonCode: 'dormant' }).success).toBe(false);
+  });
+
+  it('claims an archive only when the version moved by one, a different person approved and the reason code is the one asked', () => {
+    const changed = {
+      ...base,
+      outcome: 'changed',
+      changed: true,
+      actorUserId: USER.replace('1111-4', '1112-4'),
+      approverUserId: OTHER,
+      before: open,
+      after: archived,
+    };
+    expect(accountArchiveResultSchema.safeParse(changed).success).toBe(true);
+    expect(accountArchiveResultSchema.safeParse({ ...changed, approverUserId: changed.actorUserId }).success).toBe(false);
+    expect(accountArchiveResultSchema.safeParse({ ...changed, after: { ...archived, version: '5' } }).success).toBe(false);
+    expect(accountArchiveResultSchema.safeParse({ ...changed, reasonCode: 'duplicate' }).success).toBe(false);
+    expect(accountArchiveResultSchema.safeParse({ ...changed, before: archived }).success).toBe(false);
+  });
+
+  it('names an open account and an archived one as refusals, and never shows state to an unauthorised caller', () => {
+    const refused = {
+      ...base,
+      outcome: 'refused',
+      changed: false,
+      actorUserId: OTHER,
+      code: 'identity.archive_blocked_open_account',
+      current: { ...open, status: 'active' },
+    };
+    expect(accountArchiveResultSchema.safeParse(refused).success).toBe(true);
+    expect(accountArchiveResultSchema.safeParse({ ...refused, code: 'identity.account_archived', current: archived }).success).toBe(true);
+    expect(accountArchiveResultSchema.safeParse({ ...refused, code: 'operator.denied' }).success).toBe(false);
+    expect(accountArchiveResultSchema.safeParse({ ...refused, code: 'operator.denied', current: null, actorUserId: null }).success).toBe(
+      true,
+    );
+  });
+
+  it('makes no proposal without the owner dormancy period', () => {
+    expect(accountArchiveProposalsSchema.safeParse({ dormancyDays: null, proposals: [], asOf: NOW }).success).toBe(true);
+    expect(
+      accountArchiveProposalsSchema.safeParse({ dormancyDays: null, proposals: [{ userId: USER, lastActivityAt: NOW }], asOf: NOW })
+        .success,
+    ).toBe(false);
+    expect(
+      accountArchiveProposalsSchema.safeParse({ dormancyDays: 365, proposals: [{ userId: USER, lastActivityAt: NOW }], asOf: NOW }).success,
+    ).toBe(true);
+    expect(accountArchiveProposalsSchema.safeParse({ dormancyDays: 0, proposals: [], asOf: NOW }).success).toBe(false);
+  });
+});
+
 describe('account tier results (J-ops-console-04 #11)', () => {
   const user = '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b';
   const base = {
@@ -392,5 +477,119 @@ describe('account tier results (J-ops-console-04 #11)', () => {
     expect(accountTierTermsSchema.safeParse(terms).success).toBe(true);
     expect(accountTierTermsSchema.safeParse({ ...terms, monthlyFee: 4.99 }).success).toBe(false);
     expect(accountTierTermsSchema.safeParse({ ...terms, dailyLimit: '-1' }).success).toBe(false);
+  });
+});
+
+describe('customer details (J-ops-console-04 #9)', () => {
+  const USER = '11111111-1111-4111-8111-111111111111';
+  it('takes one or more details, null to take one off the record, and refuses an empty or unknown change', () => {
+    expect(customerDetailChangesSchema.safeParse({ city: 'Leeds', phone: null }).success).toBe(true);
+    expect(customerDetailChangesSchema.safeParse({}).success).toBe(false);
+    expect(customerDetailChangesSchema.safeParse({ nickname: 'x' }).success).toBe(false);
+  });
+  it('reads a date of birth as a real calendar date and a country as two capitals', () => {
+    expect(customerDetailValueSchemas.dateOfBirth.safeParse('1990-12-10').success).toBe(true);
+    expect(customerDetailValueSchemas.dateOfBirth.safeParse('1990-02-30').success).toBe(false);
+    expect(customerDetailValueSchemas.dateOfBirth.safeParse('1899-12-31').success).toBe(false);
+    expect(customerDetailValueSchemas.dateOfBirth.safeParse('2999-01-01').success).toBe(false);
+    expect(customerDetailValueSchemas.countryCode.safeParse('GB').success).toBe(true);
+    expect(customerDetailValueSchemas.countryCode.safeParse('gb').success).toBe(false);
+  });
+  it('keeps a review open only without a decision, and names only protected fields', () => {
+    const review = {
+      reviewId: USER,
+      userId: USER,
+      status: 'open',
+      fields: ['legalName'],
+      proposed: { legalName: 'Ada King' },
+      documentIds: [],
+      reason: 'Marriage certificate seen',
+      requestedBy: USER,
+      requestedAt: '2026-10-24T19:00:00.000Z',
+      decidedBy: null,
+      decidedAt: null,
+      decisionNote: null,
+    };
+    expect(customerDetailReviewSchema.safeParse(review).success).toBe(true);
+    expect(customerDetailReviewSchema.safeParse({ ...review, status: 'passed' }).success).toBe(false);
+    expect(customerDetailReviewSchema.safeParse({ ...review, fields: ['city'] }).success).toBe(false);
+  });
+});
+
+describe('account limit overrides', () => {
+  const userId = '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b';
+  const actor = '1c7a8b4f-2d3e-4f60-9b0c-1d2e3f4a5b6c';
+  const row = {
+    userId,
+    rail: 'withdrawal',
+    assetId: 'USDT',
+    version: '1',
+    perTx: null,
+    rolling24h: '3000',
+    expiresAt: '2026-10-25T12:00:00.000Z',
+    status: 'active',
+    setBy: actor,
+    approvedBy: null,
+    setAt: '2026-10-24T12:00:00.000Z',
+    reason: 'Customer is moving house this week',
+    clearedBy: null,
+    clearedAt: null,
+  } as const;
+  const common = {
+    auditId: actor,
+    requestId: actor,
+    userId,
+    action: 'set',
+    rail: 'withdrawal',
+    assetId: 'USDT',
+    reason: row.reason,
+    occurredAt: '2026-10-24T12:00:00.000Z',
+  } as const;
+
+  it('a figure is a positive decimal string within the ledger column, never zero or a number', () => {
+    for (const good of ['1', '0.000000000000000001', '99999999999999999999.5'])
+      expect(accountLimitAmountSchema.safeParse(good).success).toBe(true);
+    for (const bad of ['0', '0.00', '-1', '1e3', '01', '1.0000000000000000001', '100000000000000000000', 5])
+      expect(accountLimitAmountSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it('a set names at least one figure', () => {
+    const input = {
+      requestId: actor,
+      userId,
+      rail: 'withdrawal',
+      assetId: 'USDT',
+      perTx: null,
+      rolling24h: null,
+      expiresAt: row.expiresAt,
+      reason: row.reason,
+      expectedVersion: '0',
+    };
+    expect(accountLimitOverrideSetInputSchema.safeParse(input).success).toBe(false);
+    expect(accountLimitOverrideSetInputSchema.safeParse({ ...input, perTx: '10' }).success).toBe(true);
+  });
+
+  it('a changed result is coherent: one version up, the right status, and the approver is another person', () => {
+    const changed = { ...common, outcome: 'changed', changed: true, actorUserId: actor, approverUserId: null, before: null, after: row };
+    expect(accountLimitResultSchema.safeParse(changed).success).toBe(true);
+    expect(accountLimitResultSchema.safeParse({ ...changed, after: { ...row, version: '2' } }).success).toBe(false);
+    expect(accountLimitResultSchema.safeParse({ ...changed, approverUserId: actor }).success).toBe(false);
+    expect(accountLimitResultSchema.safeParse({ ...changed, after: { ...row, assetId: 'BTC' } }).success).toBe(false);
+    expect(accountLimitResultSchema.safeParse({ ...changed, action: 'clear' }).success).toBe(false);
+  });
+
+  it('a refusal carries the ceiling only with limit_requires_approver, and an unauthorised one shows no state', () => {
+    const refused = {
+      ...common,
+      outcome: 'refused',
+      changed: false,
+      actorUserId: actor,
+      code: 'identity.limit_requires_approver',
+      current: null,
+    };
+    expect(accountLimitResultSchema.safeParse({ ...refused, ceiling: '5000' }).success).toBe(true);
+    expect(accountLimitResultSchema.safeParse(refused).success).toBe(false);
+    expect(accountLimitResultSchema.safeParse({ ...refused, code: 'identity.limit_unchanged', ceiling: '5000' }).success).toBe(false);
+    expect(accountLimitResultSchema.safeParse({ ...refused, code: 'operator.denied', current: row }).success).toBe(false);
   });
 });

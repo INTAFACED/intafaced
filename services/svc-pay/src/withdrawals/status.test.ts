@@ -7,9 +7,12 @@ import {
   assertTransition,
   broadcastPossible,
   customerStatus,
+  isCancellable,
   isLegalTransition,
   isTerminal,
   mayReleaseHold,
+  shownStatus,
+  shownFilterFor,
   storedStatusesFor,
   type WithdrawalStatus,
 } from './status.js';
@@ -30,6 +33,7 @@ const LEGAL: ReadonlyArray<readonly [WithdrawalStatus, WithdrawalStatus]> = [
   ['held', 'dispatching'],
   ['held', 'settled'],
   ['held', 'failed'],
+  ['held', 'canceled'],
   ['dispatching', 'broadcast'],
   ['dispatching', 'failed'],
   ['dispatching', 'needs_review'],
@@ -112,6 +116,14 @@ describe('the stored values', () => {
     expect(customerStatus('pending', WITHDRAWAL_CANCELED_CODE)).toBe('requested');
   });
 
+  it('filters a held row the way shownStatus splits it: by its current attempt’s journal', () => {
+    expect(shownFilterFor('held')).toEqual({ stored: ['held'], journal: ['none', 'refused'] });
+    expect(shownFilterFor('dispatching')).toEqual({ stored: ['held'], journal: ['requested'] });
+    expect(shownFilterFor('broadcast')).toEqual({ stored: ['held'], journal: ['accepted'] });
+    expect(shownFilterFor('settled')).toEqual({ stored: ['sent'], journal: null });
+    expect(shownFilterFor('confirming')).toEqual({ stored: [], journal: null });
+  });
+
   it('allows exactly the four moves the code writes today', () => {
     expect(() => assertStoredTransition('pending', 'held')).not.toThrow();
     expect(() => assertStoredTransition('held', 'sent')).not.toThrow();
@@ -129,5 +141,35 @@ describe('the stored values', () => {
     ] as const) {
       expect(() => assertStoredTransition(a, b)).toThrow(WithdrawalStateError);
     }
+  });
+});
+
+describe('what the customer sees, and whether a cancel would run (W-withdraw-07)', () => {
+  it('splits a held row by its current attempt in the dispatch journal', () => {
+    expect(shownStatus('held', null, null)).toBe('held');
+    expect(shownStatus('held', null, 'requested')).toBe('dispatching');
+    expect(shownStatus('held', null, 'accepted')).toBe('broadcast');
+    expect(shownStatus('held', 'rail.refused', 'refused')).toBe('held');
+    expect(shownStatus('held', null)).toBe('held');
+    expect(shownStatus('pending', null, null)).toBe('requested');
+    expect(shownStatus('sent', null, 'accepted')).toBe('settled');
+    expect(shownStatus('failed', WITHDRAWAL_CANCELED_CODE, null)).toBe('canceled');
+  });
+
+  it('cancels a requested row with no send on record, and a held row only when the journal proves nothing was sent', () => {
+    expect(isCancellable('pending', null, null, null)).toBe(true);
+    expect(isCancellable('pending', WITHDRAWAL_CANCELED_CODE, null, null)).toBe(true);
+    expect(isCancellable('pending', null, 'requested', null)).toBe(false);
+    expect(isCancellable('held', null, null, true)).toBe(true);
+    expect(isCancellable('held', WITHDRAWAL_CANCELED_CODE, null, true)).toBe(true);
+    // Held before the journal marker existed: dispatch unknown.
+    expect(isCancellable('held', null, null, null)).toBe(false);
+    expect(isCancellable('held', null, 'requested', true)).toBe(false);
+    expect(isCancellable('held', null, 'accepted', true)).toBe(false);
+    expect(isCancellable('held', 'rail.refused', 'refused', true)).toBe(false);
+    // The journal was not read: unknown is no.
+    expect(isCancellable('held', null, undefined, true)).toBe(false);
+    expect(isCancellable('pending', null, undefined, null)).toBe(false);
+    for (const stored of ['sent', 'failed']) expect(isCancellable(stored, null, null, true)).toBe(false);
   });
 });

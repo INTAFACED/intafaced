@@ -2,6 +2,7 @@ import { parseAmount, rehydrateLedgerHttpError, type AccountRef, type Amount } f
 import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import { TAX_LEDGER_HISTORY_UNAVAILABLE, TAX_LEDGER_UNWIRED, TaxError } from './codes.js';
 import type { Fill } from './lot-book.js';
+import { WITHDRAWAL_HOLD_PREFIX } from './withdrawals.js';
 
 export interface HistoryRange {
   readonly from: Date;
@@ -39,6 +40,33 @@ export interface TradeFills {
   readonly outsideInflows: ReadonlySet<string>;
   /** Each of those arrivals, one per ledger line, so each can be a lot of its own. */
   readonly inflows?: readonly InflowLine[];
+  /** What left the available balance other than by a fill (a hold, a withdrawal, a move to a space), one per ledger line. */
+  readonly outflows?: readonly AccountLine[];
+  /** Each of the customer's withdrawal holds (`withdraw:<id>`) with every line on it: held, settled, put back. */
+  readonly withdrawalHolds?: readonly WithdrawalHold[];
+}
+
+/** One withdrawal's own hold account and its lines (`withdrawalHoldAccount`, purpose `withdraw:<id>`). */
+export interface WithdrawalHold {
+  readonly purpose: string;
+  readonly lines: readonly AccountLine[];
+}
+
+/** One line on one of the customer's accounts. */
+export interface AccountLine {
+  readonly txId: string;
+  readonly postedAt: Date;
+  readonly assetId: string;
+  readonly amount: Amount;
+  readonly reason: string;
+  readonly direction: 'debit' | 'credit';
+}
+
+/** Every line on the available balance of the customer's named spaces. */
+export interface SpaceHistory {
+  readonly lines: ReadonlyArray<AccountLine & { readonly spaceId: string }>;
+  /** True when a space's read stopped at the page ceiling before the start of its history. */
+  readonly truncated: boolean;
 }
 
 /** One arrival on the available balance that was not a fill and not the customer's own coins coming back. */
@@ -71,6 +99,8 @@ export interface TaxLedgerReads {
    */
   tradeFills?(userId: string): Promise<TradeFills>;
   subAccountActivity?(subAccountId: string, range: HistoryRange): Promise<readonly SubAccountActivityLine[]>;
+  /** The available-balance history of each named space (`subaccount` owner = space id). Absent = unwired. */
+  spaceHistory?(spaceIds: readonly string[]): Promise<SpaceHistory>;
 }
 
 export function unwiredLedgerReads(): TaxLedgerReads {
@@ -88,14 +118,33 @@ export function createTaxLedgerReads(
   const url = baseUrl.replace(/\/$/, '');
   const authHeaders = serviceCallSigner({ service: 'svc-tax', audience: 'svc-ledger', legacySecret: internalSecret, s2s });
 
+  const page = async (body: Record<string, unknown>) =>
+    call<{ entries: PageEntry[]; nextCursor: string | null }>(url, '/trpc/historyPage', body, authHeaders);
+
+  // Walk every page of one account scope, newest first, up to a fixed ceiling. A ceiling hit is reported, never silent.
+  const walkScope = async (scope: Record<string, unknown>): Promise<{ entries: PageEntry[]; truncated: boolean }> => {
+    const entries: PageEntry[] = [];
+    let cursor: string | undefined;
+    for (let pages = 0; ; pages++) {
+      if (pages >= TRADE_FILL_PAGE_CEILING) return { entries, truncated: true };
+      const got = await page({ ...scope, limit: PAGE_LIMIT, ...(cursor === undefined ? {} : { cursor }) });
+      entries.push(...got.entries);
+      if (got.nextCursor === null) return { entries, truncated: false };
+      cursor = got.nextCursor;
+    }
+  };
+
+  const accounts = (ownerType: AccountRef['ownerType'], ownerId: string) =>
+    call<Array<{ accountId: string; assetId: string; kind: string; purpose?: string; amount: string }>>(
+      url,
+      '/trpc/balances',
+      { ownerType, ownerId },
+      authHeaders,
+    );
+
   return {
     async balances(ownerType, ownerId) {
-      const result = await call<Array<{ accountId: string; assetId: string; kind: string; purpose?: string; amount: string }>>(
-        url,
-        '/trpc/balances',
-        { ownerType, ownerId },
-        authHeaders,
-      );
+      const result = await accounts(ownerType, ownerId);
       return result.map((b) => ({
         account: {
           ownerType,
@@ -110,35 +159,11 @@ export function createTaxLedgerReads(
     },
 
     async tradeFills(userId) {
-      const page = async (body: Record<string, unknown>) =>
-        call<{
-          entries: Array<{
-            txId: string;
-            reason: string;
-            direction: 'debit' | 'credit';
-            amount: string;
-            postedAt: string;
-            assetId: string;
-            orderId?: string | null;
-          }>;
-          nextCursor: string | null;
-        }>(url, '/trpc/historyPage', body, authHeaders);
-
       let truncated = false;
-      // Walk every page of one account scope, newest first, up to a fixed ceiling. A ceiling hit is reported, never silent.
       const walk = async (scope: Record<string, unknown>) => {
-        const out: Array<Awaited<ReturnType<typeof page>>['entries'][number]> = [];
-        let cursor: string | undefined;
-        for (let pages = 0; ; pages++) {
-          if (pages >= TRADE_FILL_PAGE_CEILING) {
-            truncated = true;
-            return out;
-          }
-          const got = await page({ ...scope, limit: PAGE_LIMIT, ...(cursor === undefined ? {} : { cursor }) });
-          out.push(...got.entries);
-          if (got.nextCursor === null) return out;
-          cursor = got.nextCursor;
-        }
+        const got = await walkScope(scope);
+        if (got.truncated) truncated = true;
+        return got.entries;
       };
 
       try {
@@ -148,13 +173,30 @@ export function createTaxLedgerReads(
           (e) => e.direction === 'debit' && !FILL_REASONS.has(e.reason) && !OWN_COIN_RETURNS.has(e.reason),
         );
         const outsideInflows = new Set(arrivals.map((e) => e.assetId));
-        const inflows: InflowLine[] = arrivals.map((e) => ({
-          txId: e.txId,
-          postedAt: new Date(e.postedAt),
-          assetId: e.assetId,
-          amount: parseAmount(e.amount),
-          reason: e.reason,
-        }));
+        const inflows: InflowLine[] = arrivals.map((e) => {
+          const { direction: _direction, ...line } = lineOf(e);
+          return line;
+        });
+        const outflows: AccountLine[] = availableEntries.filter((e) => e.direction === 'credit' && !FILL_REASONS.has(e.reason)).map(lineOf);
+        // Every withdrawal has its own hold account, so its lines pair by account, never by amount or time. The ledger
+        // lists every account the customer has, empty ones included.
+        const holdPurposes = [
+          ...new Set(
+            (await accounts('user', userId))
+              .filter((a) => a.kind === 'hold' && typeof a.purpose === 'string' && a.purpose.startsWith(WITHDRAWAL_HOLD_PREFIX))
+              .map((a) => a.purpose as string),
+          ),
+        ];
+        const withdrawalHolds: WithdrawalHold[] = [];
+        for (let i = 0; i < holdPurposes.length; i += HOLD_WALK_PARALLEL) {
+          const batch = await Promise.all(
+            holdPurposes.slice(i, i + HOLD_WALK_PARALLEL).map(async (purpose) => ({
+              purpose,
+              lines: (await walk({ ownerType: 'user', ownerId: userId, kind: 'hold', purpose })).map(lineOf),
+            })),
+          );
+          withdrawalHolds.push(...batch);
+        }
         const orderIds = [...new Set(received.map((e) => e.orderId).filter((id): id is string => typeof id === 'string' && id !== ''))];
         // Keyed by order AND transaction: a self-trade moves two of the same user's orders in one transaction.
         const paidByLeg = new Map<string, { assetId: string; amount: Amount }>();
@@ -175,8 +217,34 @@ export function createTaxLedgerReads(
           postedAt: new Date(e.postedAt),
           received: { assetId: e.assetId, amount: parseAmount(e.amount) },
           paid: (typeof e.orderId === 'string' && paidByLeg.get(`${e.orderId}|${e.txId}`)) || null,
+          // The ledger names the fee taken from this line (0 when none); a ledger that does not send it leaves it unknown.
+          fee: typeof e.fee === 'string' ? parseAmount(e.fee) : null,
         }));
-        return { fills, truncated, outsideInflows, inflows };
+        return { fills, truncated, outsideInflows, inflows, outflows, withdrawalHolds };
+      } catch (err) {
+        if (err instanceof TaxError) throw err;
+        throw new TaxError(TAX_LEDGER_HISTORY_UNAVAILABLE, err instanceof Error ? err.message : 'ledger history read failed');
+      }
+    },
+
+    async spaceHistory(spaceIds) {
+      try {
+        let truncated = false;
+        const lines: Array<AccountLine & { spaceId: string }> = [];
+        // A few spaces at a time, like the hold reads.
+        for (let i = 0; i < spaceIds.length; i += HOLD_WALK_PARALLEL) {
+          const pages = await Promise.all(
+            spaceIds.slice(i, i + HOLD_WALK_PARALLEL).map(async (spaceId) => ({
+              spaceId,
+              got: await walkScope({ ownerType: 'subaccount', ownerId: spaceId, kind: 'available' }),
+            })),
+          );
+          for (const { spaceId, got } of pages) {
+            if (got.truncated) truncated = true;
+            for (const e of got.entries) lines.push({ ...lineOf(e), spaceId });
+          }
+        }
+        return { lines, truncated };
       } catch (err) {
         if (err instanceof TaxError) throw err;
         throw new TaxError(TAX_LEDGER_HISTORY_UNAVAILABLE, err instanceof Error ? err.message : 'ledger history read failed');
@@ -204,6 +272,29 @@ export function createTaxLedgerReads(
   };
 }
 
+interface PageEntry {
+  txId: string;
+  reason: string;
+  direction: 'debit' | 'credit';
+  amount: string;
+  postedAt: string;
+  assetId: string;
+  orderId?: string | null;
+  /** On the customer's receiving line of a fill: the fee taken from it. */
+  fee?: string | null;
+}
+
+function lineOf(e: PageEntry): AccountLine {
+  return {
+    txId: e.txId,
+    postedAt: new Date(e.postedAt),
+    assetId: e.assetId,
+    amount: parseAmount(e.amount),
+    reason: e.reason,
+    direction: e.direction,
+  };
+}
+
 /** Entries per ledger page (the door's maximum). */
 const PAGE_LIMIT = 200;
 /** Ledger reasons for a customer's side of a spot, convert or OTC fill (the second is a fill against a house quote). */
@@ -220,7 +311,7 @@ const OWN_COIN_RETURNS: ReadonlySet<string> = new Set([
   // An overcharged trading fee given back: coins the customer already had.
   'trade.fill.fee.correction',
 ]);
-/** Order hold reads run this many at a time. */
+/** Hold reads (an order's, a withdrawal's) run this many at a time. */
 const HOLD_WALK_PARALLEL = 8;
 /** A technical read bound, not a business limit: 200 pages of 200 entries per scope. Past it the book says it is incomplete. */
 const TRADE_FILL_PAGE_CEILING = 200;

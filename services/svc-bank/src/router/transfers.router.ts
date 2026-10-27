@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import {
+  router,
+  scopedProcedure,
+  serviceProcedureFor,
+  BANK_INTERNAL_WITHDRAWAL_CALLERS,
+  bankInternalWithdrawalInputSchema,
+  bankInternalWithdrawalSchema,
+} from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { activityFailure } from '../activity/activity.router.js';
 import { assertSelf } from '../assert-self.js';
@@ -136,13 +143,19 @@ export function createTransfersRouter(c: BankRouterContext) {
            *
            * What the missing check DID cost was disclosure, not safety — see
            * `gateDestination`, which is the half that was actually missing.
+           *
+           * A shared pot (BK-acct-09) adds one rule to each side, refused by name with `bank.space_forbidden`: a member
+           * never takes money out of a pot they do not own (here), and a viewer never adds money to it (`gateDestination`).
            */
+          await bank.sharedPots.assertMayTakeOut(ctx.principal.userId, from);
           assertSelf(ctx.principal.userId, from.userId);
 
           // Money to somebody else's space needs a step-up. A move between the caller's OWN spaces never
           // does. An unknown destination is treated as foreign, so this cannot tell a stranger which ids exist.
           if (stepUpEnforced) {
             const to = await bank.spaces.find(input.toSpaceId);
+            // A viewer of this shared pot is refused before any second factor is asked for or spent (BK-acct-09).
+            if (to !== null && to.userId !== ctx.principal.userId) await bank.sharedPots.assertMayAddTo(ctx.principal.userId, to.id);
             if (to === null || to.userId !== ctx.principal.userId) {
               await requireStepUp(
                 ctx.principal,
@@ -209,6 +222,7 @@ export function createTransfersRouter(c: BankRouterContext) {
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           const from = await bank.spaces.get(input.fromSpaceId);
+          await bank.sharedPots.assertMayTakeOut(ctx.principal.userId, from);
           assertSelf(ctx.principal.userId, from.userId);
           const note = plainNote(input.note) ?? undefined;
           const reference = plainReference(input.reference) ?? undefined;
@@ -328,6 +342,7 @@ export function createTransfersRouter(c: BankRouterContext) {
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           const from = await bank.spaces.get(input.fromSpaceId);
+          await bank.sharedPots.assertMayTakeOut(ctx.principal.userId, from);
           assertSelf(ctx.principal.userId, from.userId);
           // Approval happens at creation, and again for an edit of the amount or end (updateSchedule). The payee
           // never changes, and the order runs without a session, so execution, pause and resume need none (cancel
@@ -383,11 +398,14 @@ export function createTransfersRouter(c: BankRouterContext) {
           // Same exemption, same reason as `transfers.create` above: the debit
           // side is the side that can lose value, and a standing order to
           // another user is the same product feature on a timer.
+          await bank.sharedPots.assertMayTakeOut(ctx.principal.userId, from);
           assertSelf(ctx.principal.userId, from.userId);
 
           // A standing order to another person is approved at creation; an unknown destination counts as foreign.
           if (stepUpEnforced) {
             const to = await bank.spaces.find(input.toSpaceId);
+            // A viewer of this shared pot is refused before any second factor is asked for or spent (BK-acct-09).
+            if (to !== null && to.userId !== ctx.principal.userId) await bank.sharedPots.assertMayAddTo(ctx.principal.userId, to.id);
             if (to === null || to.userId !== ctx.principal.userId) {
               await requireStepUp(
                 ctx.principal,
@@ -440,6 +458,8 @@ export function createTransfersRouter(c: BankRouterContext) {
              * instead of a Zod "Required". Blank is not 50; pass 50 explicitly.
              */
             limit: z.number().int().min(1).max(200).optional(),
+            /** Only the orders paying into this one of the caller's own spaces (BK-pots-02). */
+            toSpaceId: z.string().guid().optional(),
           })
           .optional(),
       )
@@ -456,12 +476,18 @@ export function createTransfersRouter(c: BankRouterContext) {
             status: z.string(),
             /** The revision an edit must name. */
             revision: z.number().int(),
+            /** The caller's own space the order pays from. */
+            fromSpaceId: z.string(),
+            /** The caller's own space it pays into, or null when it pays another person. */
+            toSpaceId: z.string().nullable(),
           }),
         ),
       )
       .query(async ({ ctx, input }) =>
         guard(async () => {
-          const schedules = await bank.transfers.listSchedules(ctx.principal.userId, input?.limit);
+          const schedules = await (input?.toSpaceId
+            ? bank.transfers.listSchedules(ctx.principal.userId, input.limit, { toSpaceId: input.toSpaceId })
+            : bank.transfers.listSchedules(ctx.principal.userId, input?.limit));
           return schedules.map((s) => ({
             id: s.id,
             assetId: s.assetId,
@@ -472,6 +498,8 @@ export function createTransfersRouter(c: BankRouterContext) {
             nextRunAt: s.nextRunAt.toISOString(),
             status: s.status,
             revision: s.revision,
+            fromSpaceId: s.fromSpaceId,
+            toSpaceId: s.ownToSpaceId,
           }));
         }),
       ),
@@ -644,6 +672,28 @@ export function createTransfersRouter(c: BankRouterContext) {
             skipped: [...report.skipped],
           };
         }),
+      ),
+
+    /**
+     * A withdrawal svc-pay settles inside the book because its address belongs to another account here (W-withdraw-14):
+     * one person-to-person send from the sender's main account under svc-pay's key `withdraw:<withdrawal id>`, with the
+     * same terms, limits and freezes as any send. Service-only: `serviceProcedureFor` proves the caller is svc-pay before
+     * the input is parsed. `refused` only when nothing was posted; anything that may have posted fails the call, so svc-pay
+     * asks again with the same key.
+     */
+    settleWithdrawal: serviceProcedureFor(BANK_INTERNAL_WITHDRAWAL_CALLERS)
+      .input(bankInternalWithdrawalInputSchema)
+      .output(bankInternalWithdrawalSchema)
+      .mutation(async ({ input }) =>
+        guard(async () =>
+          bank.personalPay.settleWithdrawal({
+            transferId: input.transferId,
+            fromUserId: input.fromUserId,
+            toUserId: input.toUserId,
+            assetId: input.assetId,
+            amount: parseAmount(input.amount),
+          }),
+        ),
       ),
   });
 }

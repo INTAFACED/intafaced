@@ -11,12 +11,16 @@ import {
   normaliseMethodId,
   parseFieldSpecs,
   pickSchema,
+  SETTLEMENT_WINDOW_MAX_SECONDS,
+  SETTLEMENT_WINDOW_MIN_SECONDS,
   takeRefused,
   validateDetails,
   type FieldSpec,
   type InstrumentDetails,
   type MethodSchema,
+  type MethodSettlement,
 } from './instruments.js';
+import { unwiredHolderNameRule, type HolderNameRule } from './holder-name.js';
 import { recordSwallowed, withSpan } from './tracing.js';
 import { P2P_COPY, resolveP2pCopy } from './user-copy.js';
 import {
@@ -99,6 +103,11 @@ export interface InstrumentServiceOptions {
    * `p2p.instrument_kms_required` instead of returning the blob as details.
    */
   keyProvider?: InstrumentKeyProvider | null;
+  /**
+   * P-ads-merchant-18, the own-name rule, for methods with an account-holder field. Absent: every such destination
+   * refuses `p2p.holder_name_unverifiable`, never "any name".
+   */
+  holderNames?: HolderNameRule;
 }
 
 /** Who was looking. Recorded on every access-log row, allowed or refused. */
@@ -231,6 +240,8 @@ interface SchemaRow {
   label: string;
   fields: unknown;
   enabled: boolean;
+  instant: boolean;
+  settlement_window_seconds: number | null;
 }
 
 /**
@@ -294,6 +305,7 @@ export function assertPurgeExpiredSnapshotsLimit(limit: number | undefined): num
 export class InstrumentService {
   private readonly retentionDays: number | null;
   private readonly keyProvider: InstrumentKeyProvider | null;
+  private readonly holderNames: HolderNameRule;
 
   constructor(
     private readonly sql: Sql,
@@ -301,6 +313,16 @@ export class InstrumentService {
   ) {
     this.retentionDays = options.retentionDays ?? null;
     this.keyProvider = options.keyProvider ?? null;
+    this.holderNames = options.holderNames ?? unwiredHolderNameRule();
+  }
+
+  /** The own-name rule, when the method names an account-holder field: before anything is stored. */
+  private async assertOwnName(schema: MethodSchema, ownerId: string, details: InstrumentDetails): Promise<void> {
+    const holder = schema.fields.find((field) => field.holderName === true);
+    if (!holder) return;
+    const name = details[holder.key];
+    if (name === undefined) throw new InstrumentError(`"${holder.label}" is required`, 'p2p.instrument_field_missing', holder.key);
+    await this.holderNames.assertOwnName(ownerId, name);
   }
 
   /** Fingerprint is already computed from plaintext. Seal only the stored copy. */
@@ -340,6 +362,8 @@ export class InstrumentService {
     label: string;
     fields: unknown;
     enabled?: boolean;
+    /** P-disputes-security-09. Omitted on a replace keeps the row's profile; a new row is instant. */
+    settlement?: MethodSettlement;
   }): Promise<MethodSchema> {
     const methodId = normaliseMethodId(input.methodId);
     const country = normaliseCountry(input.country);
@@ -348,17 +372,27 @@ export class InstrumentService {
       throw new InstrumentError('A method schema needs a display label', 'p2p.instrument_schema_invalid');
     }
     const fields = parseFieldSpecs(input.fields);
+    const settlement = input.settlement === undefined ? null : parseSettlement(input.settlement);
+    const instant = settlement?.instant ?? true;
+    const windowSeconds = settlement && !settlement.instant ? settlement.windowSeconds : null;
 
     // A new row still defaults to enabled. A replace that omits `enabled` must
     // not copy that default onto a row `setMethodSchemaEnabled` turned off:
     // EXCLUDED.enabled would be true, and schemaFor would accept the rail again.
     const writeEnabled = input.enabled !== undefined;
     const rows = await this.sql<SchemaRow[]>`
-      INSERT INTO p2p.payment_method_schemas (method_id, country, label, fields, enabled)
-      VALUES (${methodId}, ${country}, ${label}, ${this.sql.json(fields as never)}, ${input.enabled ?? true})
+      INSERT INTO p2p.payment_method_schemas (method_id, country, label, fields, enabled, instant, settlement_window_seconds)
+      VALUES (
+        ${methodId}, ${country}, ${label}, ${this.sql.json(fields as never)}, ${input.enabled ?? true}, ${instant}, ${windowSeconds}
+      )
       ON CONFLICT (method_id, country) DO UPDATE SET
         label = EXCLUDED.label,
         fields = EXCLUDED.fields,
+        instant = CASE WHEN ${settlement !== null}::boolean THEN EXCLUDED.instant ELSE payment_method_schemas.instant END,
+        settlement_window_seconds = CASE
+          WHEN ${settlement !== null}::boolean THEN EXCLUDED.settlement_window_seconds
+          ELSE payment_method_schemas.settlement_window_seconds
+        END,
         enabled = CASE
           WHEN ${writeEnabled}::boolean THEN EXCLUDED.enabled
           ELSE payment_method_schemas.enabled
@@ -489,6 +523,7 @@ export class InstrumentService {
 
     const schema = await this.schemaFor(methodId, country);
     const details = validateDetails(schema, input.details);
+    await this.assertOwnName(schema, input.ownerId, details);
     const fingerprint = fingerprintDetails(methodId, country, details);
     const stored = this.detailsForStore(instrumentId, input.ownerId, details);
 
@@ -530,6 +565,7 @@ export class InstrumentService {
     if (input.details !== undefined) {
       const schema = await this.schemaFor(current.method_id, current.country);
       details = validateDetails(schema, input.details);
+      await this.assertOwnName(schema, input.ownerId, details);
       fingerprint = fingerprintDetails(current.method_id, current.country, details);
     }
     const stored = details === null ? current.details : this.detailsForStore(input.instrumentId, input.ownerId, details);
@@ -667,6 +703,28 @@ export class InstrumentService {
   }
 
   /**
+   * P-disputes-security-09: what the board says about each method before anyone takes. A method is non-instant when any
+   * market's enabled row says so; its window is the longest of those (null when any of them is blank). The order itself
+   * carries the exact profile of the market it pays into. The ad's consent check reads this too, so its answer never
+   * depends on where the seller is paid.
+   */
+  async boardSettlements(methodIds: readonly string[], db: Sql = this.sql): Promise<ReadonlyMap<string, MethodSettlement>> {
+    const keys = [...new Set(methodIds.map((id) => methodIdKey(id)))];
+    const out = new Map<string, MethodSettlement>();
+    if (keys.length === 0) return out;
+    const rows = await db<Array<{ method_id: string; any_blank: boolean; longest: number | null }>>`
+      SELECT method_id, bool_or(settlement_window_seconds IS NULL) AS any_blank, max(settlement_window_seconds) AS longest
+        FROM p2p.payment_method_schemas
+       WHERE enabled = true AND NOT instant AND method_id = ANY(${keys})
+       GROUP BY method_id
+    `;
+    for (const row of rows) {
+      out.set(methodIdKey(row.method_id), { instant: false, windowSeconds: row.any_blank ? null : Number(row.longest) });
+    }
+    return out;
+  }
+
+  /**
    * The owner reads their own details. Logged like everyone else's read.
    *
    * The owner is not exempt, because an account takeover reads exactly like an
@@ -695,6 +753,21 @@ export class InstrumentService {
       }
       return { ...toHeader(row), details: this.detailsFromStore(row.id, row.owner_id, row.details), loggedAt: row.logged_at };
     });
+  }
+
+  /**
+   * The owner's own details, masked (J-p2p-04 #3): the account holder whole, since it is the person's own verified name,
+   * and every other value as its last four characters at most (`maskedValue`). Logged as a reveal in the same statement
+   * as any read, because a mask is still the data. The full values never leave the service on this path: a person who
+   * only wants to tell their methods apart never puts a whole account number in their browser.
+   */
+  async revealOwnMasked(input: { instrumentId: string; viewerId: string }): Promise<RevealedInstrument> {
+    const revealed = await this.revealOwn(input);
+    const schema = await this.lookupSchema(revealed.methodId, revealed.country);
+    const holders = new Set((schema?.fields ?? []).filter((field) => field.holderName === true).map((field) => field.key));
+    const details: Record<string, string> = {};
+    for (const [key, value] of Object.entries(revealed.details)) details[key] = holders.has(key) ? value : maskedValue(value);
+    return { ...revealed, details };
   }
 
   /** "Who has looked at my account details, and when." Owner-scoped. */
@@ -794,7 +867,7 @@ export class InstrumentService {
   async attachToTrade(
     tx: Sql,
     input: { tradeId: string; sellerId: string; takerId: string; methodId: string; fiatCurrency: string; sink: DenialSink },
-  ): Promise<{ instrumentId: string; fingerprint: string }> {
+  ): Promise<{ instrumentId: string; fingerprint: string; settlement: MethodSettlement }> {
     const methodId = methodIdKey(input.methodId);
     // Same payable rule as `liveMethodKeys`: an active row is not a rail once
     // the operator has emptied or disabled the schema. EXISTS, not JOIN, so a
@@ -848,7 +921,18 @@ export class InstrumentService {
       ON CONFLICT (trade_id) DO NOTHING
     `;
 
-    return { instrumentId: instrument.id, fingerprint: instrument.fingerprint };
+    // The profile of the market the buyer pays into: exact country beating the wildcard, as every schema read does.
+    const [profile] = await tx<Array<{ instant: boolean; settlement_window_seconds: number | null }>>`
+      SELECT instant, settlement_window_seconds FROM p2p.payment_method_schemas
+       WHERE method_id = ${instrument.method_id} AND enabled = true AND country IN (${instrument.country}, ${ANY_COUNTRY})
+       ORDER BY (country = ${ANY_COUNTRY}) ASC
+       LIMIT 1
+    `;
+    return {
+      instrumentId: instrument.id,
+      fingerprint: instrument.fingerprint,
+      settlement: profile ? settlementOf(profile) : { instant: true },
+    };
   }
 
   /**
@@ -1282,7 +1366,26 @@ function toSchema(row: SchemaRow): MethodSchema {
     label: row.label,
     fields,
     enabled: row.enabled,
+    settlement: settlementOf(row),
   };
+}
+
+/** A row's settlement profile. Rows written before the profile existed read as instant (the column default). */
+function settlementOf(row: { instant: boolean; settlement_window_seconds: number | null }): MethodSettlement {
+  return row.instant ? { instant: true } : { instant: false, windowSeconds: row.settlement_window_seconds ?? null };
+}
+
+/** An operator's settlement profile, checked before it is stored: an instant method has no window. */
+function parseSettlement(input: MethodSettlement): MethodSettlement {
+  if (input.instant) return { instant: true };
+  const window = input.windowSeconds;
+  if (window !== null && (!Number.isInteger(window) || window < SETTLEMENT_WINDOW_MIN_SECONDS || window > SETTLEMENT_WINDOW_MAX_SECONDS)) {
+    throw new InstrumentError(
+      `A settlement window is a whole number of seconds from ${SETTLEMENT_WINDOW_MIN_SECONDS} to ${SETTLEMENT_WINDOW_MAX_SECONDS}`,
+      'p2p.instrument_schema_invalid',
+    );
+  }
+  return { instant: false, windowSeconds: window };
 }
 
 /**
@@ -1306,3 +1409,12 @@ function isUniqueViolation(err: unknown): boolean {
 
 export { InstrumentError };
 export type { InstrumentDetails, MethodSchema, FieldSpec };
+
+/**
+ * A saved value as the owner's masked view shows it: `•••• ` and its last four characters, with spaces dropped. A value
+ * of six characters or fewer shows none of itself, so the mask never gives most of a short value away.
+ */
+export function maskedValue(value: string): string {
+  const compact = value.replace(/\s+/g, '');
+  return compact.length > 6 ? `•••• ${compact.slice(-4)}` : '••••';
+}

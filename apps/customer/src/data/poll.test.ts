@@ -255,10 +255,13 @@ describe('poller: failures', () => {
   it('surfaces a refusal as soon as it arrives', async () => {
     const poller = createPoller({ visibility: visibility() });
     const fetcher: Fetcher<number> = async () => ({ ok: false, reason: 'forbidden', status: 403, code: 'trade.no_book' });
-    const source = poller.source('k', fetcher, { intervalMs: 10_000 });
+    const fetch = vi.fn(fetcher);
+    const source = poller.source('k', fetch, { intervalMs: 300_000 });
     const stop = source.subscribe(() => undefined);
     await vi.advanceTimersByTimeAsync(1);
     expect(source.getSnapshot()).toEqual({ status: 'refused', code: 'trade.no_book' });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetch).toHaveBeenCalledTimes(1); // a refusal is the answer: never retried early
     stop();
     poller.dispose();
   });
@@ -278,6 +281,85 @@ describe('poller: failures', () => {
     if (snap.status === 'error') snap.retry();
     await vi.advanceTimersByTimeAsync(1);
     expect(source.getSnapshot()).toMatchObject({ status: 'ready', data: 7 });
+    stop();
+    poller.dispose();
+  });
+
+  it('retries a failed first read soon, not a whole slow interval later, and backs off from there', async () => {
+    const poller = createPoller({ visibility: visibility() });
+    let fails = 3;
+    const fetcher: Fetcher<number> = vi.fn(async (): Promise<Outcome<number>> =>
+      fails-- > 0 ? { ok: false, reason: 'unreachable', status: 502 } : ok(9),
+    );
+    const calls = () => vi.mocked(fetcher).mock.calls.length;
+    const source = poller.source('markets', fetcher, { intervalMs: 300_000 });
+    const stop = source.subscribe(() => undefined);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(source.getSnapshot().status).toBe('error');
+    expect(calls()).toBe(1);
+    await vi.advanceTimersByTimeAsync(1_998);
+    expect(calls()).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(calls()).toBe(2); // 2 s after the first read
+    await vi.advanceTimersByTimeAsync(3_999);
+    expect(calls()).toBe(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(calls()).toBe(3); // then 4 s
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(source.getSnapshot()).toMatchObject({ status: 'ready', data: 9 });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(calls()).toBe(4); // once answered, back to the source's own interval
+    stop();
+    poller.dispose();
+  });
+
+  it('a rate limit (429) is never retried early: it waits the whole backoff', async () => {
+    const poller = createPoller({ visibility: visibility() });
+    const fetcher: Fetcher<number> = vi.fn(async (): Promise<Outcome<number>> => ({
+      ok: false,
+      reason: 'error',
+      status: 429,
+      code: 'edge.rate_limited',
+    }));
+    const source = poller.source('markets', fetcher, { intervalMs: 300_000 });
+    const stop = source.subscribe(() => undefined);
+    await vi.advanceTimersByTimeAsync(599_999);
+    expect(source.getSnapshot().status).toBe('error');
+    expect(vi.mocked(fetcher).mock.calls.length).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(vi.mocked(fetcher).mock.calls.length).toBe(2);
+    stop();
+    poller.dispose();
+  });
+
+  it('stops retrying early after three tries, then backs off as before', async () => {
+    const poller = createPoller({ visibility: visibility() });
+    const fetcher: Fetcher<number> = vi.fn(async (): Promise<Outcome<number>> => ({ ok: false, reason: 'unreachable', status: 503 }));
+    const source = poller.source('parked', fetcher, { intervalMs: 60_000 });
+    const stop = source.subscribe(() => undefined);
+    await vi.advanceTimersByTimeAsync(14_000); // reads at 0, 2, 6 and 14 s
+    expect(vi.mocked(fetcher).mock.calls.length).toBe(4);
+    await vi.advanceTimersByTimeAsync(14 * 60_000);
+    expect(vi.mocked(fetcher).mock.calls.length).toBe(5); // the fourth failure waits 8 intervals
+    stop();
+    poller.dispose();
+  });
+
+  it('a screen that went from stale to an error is retried early too', async () => {
+    const poller = createPoller({ visibility: visibility(), minStaleMs: 30_000, staleIntervals: 3 });
+    let good = true;
+    const fetcher: Fetcher<number> = vi.fn(async (): Promise<Outcome<number>> =>
+      good ? ok(5) : { ok: false, reason: 'unreachable', status: 502 },
+    );
+    const source = poller.source('markets', fetcher, { intervalMs: 300_000 });
+    const stop = source.subscribe(() => undefined);
+    await vi.advanceTimersByTimeAsync(1);
+    good = false;
+    await vi.advanceTimersByTimeAsync(960_000); // fails at about 300 and 900 s: past the 900 s stale limit
+    expect(source.getSnapshot().status).toBe('error');
+    good = true;
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(source.getSnapshot()).toMatchObject({ status: 'ready', data: 5 });
     stop();
     poller.dispose();
   });
@@ -353,6 +435,34 @@ describe('sources: combine and switchMap', () => {
     await vi.advanceTimersByTimeAsync(5);
     expect(built).toEqual(['BTC,ETH', 'BTC,ETH,IFC']);
     expect(joined.getSnapshot()).toMatchObject({ status: 'ready', data: 3 });
+    stop();
+    poller.dispose();
+  });
+});
+
+describe('poller: refresh after a save', () => {
+  it('drops a read already in flight, so an answer from before the save never overwrites the newer one', async () => {
+    const poller = createPoller({ visibility: visibility() });
+    const pending: Array<(value: Outcome<string>) => void> = [];
+    const fetcher = vi.fn(
+      (signal: AbortSignal) =>
+        new Promise<Outcome<string>>((resolve, reject) => {
+          pending.push(resolve);
+          signal.addEventListener('abort', () => reject(new Error('aborted')));
+        }),
+    ) as unknown as Fetcher<string>;
+    const source = poller.source('book', fetcher, { intervalMs: 60_000 });
+    const stop = source.subscribe(() => undefined);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(pending).toHaveLength(1); // the read that started before the save
+    poller.refresh('book'); // the save finished
+    await vi.advanceTimersByTimeAsync(1);
+    expect(pending).toHaveLength(2);
+    pending[1]!(ok('after the save'));
+    await vi.advanceTimersByTimeAsync(1);
+    pending[0]!(ok('before the save'));
+    await vi.advanceTimersByTimeAsync(1);
+    expect(source.getSnapshot()).toMatchObject({ status: 'ready', data: 'after the save' });
     stop();
     poller.dispose();
   });

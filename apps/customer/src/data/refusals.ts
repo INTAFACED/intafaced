@@ -137,6 +137,10 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   notFound: { title: "We couldn't find that", body: 'It may have been removed. Go back and try again.' },
   duplicate: { title: 'That was already sent', body: 'We saw this request a moment ago, so we kept the first one.' },
   notSetUp: { title: 'Not switched on', body: "This part of INTAFACED isn't switched on. Nothing was changed." },
+  feeScheduleUnset: {
+    title: 'Fee schedule not set',
+    body: 'No trading fee is published for this market, so no order can be placed on it. Nothing was held.',
+  },
   chartRange: { title: 'That chart range is too long', body: 'Choose a shorter range and try again.' },
   algoSchedulerOff: {
     title: 'Scheduled orders are off',
@@ -165,6 +169,10 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   },
   addressLabelTaken: { title: 'That name is taken', body: 'You already have a saved address with this name. Choose another name.' },
   addressBookFull: { title: 'Your address book is full', body: 'Remove an address to save a new one.' },
+  securityLocked: {
+    title: 'Your security lock is on',
+    body: 'No withdrawal address can be added and nothing can be withdrawn to one until the lock ends. Nothing was changed.',
+  },
   entriesDoNotSum: {
     title: 'The entries do not add up to your balance',
     body: 'Nothing is shown rather than a list that does not match. Your balance is unchanged. Try again, and contact support with the reference if it stays.',

@@ -20,6 +20,7 @@
     "@intafaced/config": "workspace:*",
     "@intafaced/contracts": "workspace:*",
     "@intafaced/db": "workspace:*",
+    "@intafaced/events": "workspace:*",
     "@intafaced/i18n": "workspace:*",
     "@intafaced/ledger-client": "workspace:*",
     "@intafaced/telemetry": "workspace:*",

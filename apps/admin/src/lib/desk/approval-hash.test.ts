@@ -4,14 +4,22 @@ import { academyActionPayloadHash } from '../../../../../services/svc-academy/sr
 import { marketActionPayloadHash } from '../../../../../services/svc-market/src/action-approval-consume';
 import { bankActionPayloadHash } from '../../../../../services/svc-bank/src/action-approval-consume';
 import { ledgerActionPayloadHash } from '../../../../../services/svc-ledger/src/ledger/action-approval-consume';
+import {
+  ACCOUNT_METADATA_DELETE_ACTION,
+  ACCOUNT_METADATA_DELETE_TARGET,
+  accountMetadataDeleteFields,
+} from '../../../../../services/svc-ledger/src/ledger/operator-account-metadata';
 import { identityActionPayloadHash } from '../../../../../services/svc-identity/src/auth/privileged-dual-control';
 import { AUTH_KEY_REMOVE_OLD_TARGET, AUTH_KEY_ROTATE_TARGET } from '../../../../../services/svc-identity/src/auth/auth-key-ring';
 import {
+  IDENTITY_ARCHIVE_ACTION_TYPE,
   IDENTITY_CLOSE_ACTION_TYPE,
   IDENTITY_REOPEN_ACTION_TYPE,
   IDENTITY_TIER_MOVE_ACTION_TYPE,
+  IDENTITY_LIMIT_CHANGE_ACTION_TYPE,
   IDENTITY_UNFREEZE_ACTION_TYPE,
 } from '../../../../../services/svc-identity/src/auth/action-approval-audience';
+import { payActionPayloadHash } from '../../../../../services/svc-pay/src/action-approval-consume';
 import { payloadHashFor, proposeInputFor } from './approval-hash';
 
 /**
@@ -32,6 +40,42 @@ describe('payload hash equals the owning service’s own function', () => {
       ledgerActionPayloadHash('ledger.freeze', { reason: 'reconciliation mismatch on USD' }),
     );
     expect(payloadHashFor({ kind: 'ledger.unfreeze', version: 'v' })).toBe(ledgerActionPayloadHash('ledger.unfreeze', {}));
+  });
+  it('ledger.reconciliation_control.run binds the control, instant, margin and reason in svc-ledger’s order', () => {
+    const controlId = '0b4f6c2e-1111-4222-8333-444455556666';
+    const reason = 'LOCAL TEST run the USDT floor control';
+    for (const [asOf, margin] of [
+      ['now', 'unset'],
+      ['2026-10-23T06:30:00.000Z', '0'],
+    ] as const) {
+      expect(payloadHashFor({ kind: 'ledger.reconciliation_control.run', controlId, version: '3', asOf, margin, reason })).toBe(
+        ledgerActionPayloadHash('ledger.reconciliation_control.run', { controlId, asOf, margin, reason }),
+      );
+    }
+    expect(
+      proposeInputFor({ kind: 'ledger.reconciliation_control.run', controlId, version: '3', asOf: 'now', margin: 'unset', reason }),
+    ).toMatchObject({
+      actionType: 'ledger.reconciliation_control.run',
+      targetService: 'svc-ledger',
+      targetId: 'posting_reconciliation_control.run',
+      expectedVersion: '3',
+    });
+  });
+  it('ledger.account_metadata.delete binds the account, key and reason as svc-ledger does, at the key’s revision', () => {
+    const request = {
+      kind: 'ledger.account_metadata.delete',
+      accountId: '0b4f6c2e-1111-4222-8333-444455556666',
+      key: 'desk.label',
+      reason: 'LOCAL TEST remove the desk label',
+      version: '2',
+    } as const;
+    expect(payloadHashFor(request)).toBe(ledgerActionPayloadHash(ACCOUNT_METADATA_DELETE_ACTION, accountMetadataDeleteFields(request)));
+    expect(proposeInputFor(request)).toMatchObject({
+      actionType: ACCOUNT_METADATA_DELETE_ACTION,
+      targetService: 'svc-ledger',
+      targetId: ACCOUNT_METADATA_DELETE_TARGET,
+      expectedVersion: '2',
+    });
   });
   it('market.vendor.vet and the academy ambassador verbs', () => {
     const vendorId = '5a3b9c10-1111-4222-8333-444455556666';
@@ -190,6 +234,20 @@ describe('the identity approval is proposed against the target the service consu
   });
 });
 
+describe('waitlist wave release', () => {
+  it('hash equals identity’s own function over { wave, size } and is proposed against waitlist.wave.release', () => {
+    const request = { kind: 'campaigns.waitlist.wave_release', wave: '3', size: '2' } as const;
+    expect(payloadHashFor(request)).toBe(identityActionPayloadHash('waitlist.wave.release', { wave: '3', size: '2' }));
+    expect(proposeInputFor(request)).toMatchObject({
+      actionType: 'waitlist.wave.release',
+      targetService: 'svc-identity',
+      targetId: 'waitlist.wave.release',
+      expectedVersion: '1',
+    });
+    expect(payloadHashFor(request)).not.toBe(payloadHashFor({ ...request, size: '3' }));
+  });
+});
+
 describe('identity signing-key changes', () => {
   it('hash equals identity’s own function and is proposed against the target identity consumes', () => {
     expect(payloadHashFor({ kind: 'identity.auth_key.rotate', keyId: 'k2' })).toBe(
@@ -213,6 +271,41 @@ describe('identity signing-key changes', () => {
     expect(payloadHashFor({ kind: 'identity.auth_key.rotate', keyId: 'k2' })).not.toBe(
       payloadHashFor({ kind: 'identity.auth_key.rotate', keyId: 'k3' }),
     );
+  });
+});
+
+describe('pay deposit address unfreeze', () => {
+  const request = {
+    kind: 'pay.deposit_address.unfreeze' as const,
+    userId: '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b',
+    networkId: 'ethereum',
+    address: '0x00000000000000000000000000000000000000A1',
+    freezeId: '7d8c9b0a-1b2c-4d3e-8f4a-5b6c7d8e9f0a',
+    reason: 'Source cleared by compliance',
+  };
+  it('hash equals svc-pay’s own function over the freeze, the account, the address (lower case) and the reason', () => {
+    // svc-pay `unfreezeApprovalFields`, in its order.
+    expect(payloadHashFor(request)).toBe(
+      payActionPayloadHash('pay.deposit_address_unfreeze', {
+        freezeId: request.freezeId,
+        userId: request.userId,
+        networkId: 'ethereum',
+        address: request.address.toLowerCase(),
+        reason: request.reason,
+      }),
+    );
+    expect(payloadHashFor({ ...request, freezeId: '8d8c9b0a-1b2c-4d3e-8f4a-5b6c7d8e9f0a' })).not.toBe(payloadHashFor(request));
+    expect(payloadHashFor({ ...request, reason: 'Another reason entirely' })).not.toBe(payloadHashFor(request));
+  });
+  it('is proposed against svc-pay’s own verb at version 1', () => {
+    expect(proposeInputFor(request)).toEqual({
+      actionType: 'pay.deposit_address_unfreeze',
+      targetService: 'svc-pay',
+      targetId: 'pay.deposit_address_unfreeze',
+      expectedVersion: '1',
+      payloadHash: payloadHashFor(request),
+      policyVersion: 'v1',
+    });
   });
 });
 
@@ -269,6 +362,33 @@ describe('identity staff close and reopen', () => {
   });
 });
 
+describe('identity customer archive', () => {
+  const userId = '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b';
+  const archive = {
+    kind: 'identity.account.archive' as const,
+    userId,
+    reasonCode: 'dormant' as const,
+    reason: 'Closed two years ago, no contact since',
+    version: '7',
+  };
+  it('hash equals identity’s identityArchivePayloadHash: account, action, reason code, reason, in that order', () => {
+    expect(payloadHashFor(archive)).toBe(
+      identityActionPayloadHash(userId, { action: 'archive', reasonCode: 'dormant', reason: archive.reason }),
+    );
+    expect(payloadHashFor({ ...archive, reasonCode: 'duplicate' })).not.toBe(payloadHashFor(archive));
+  });
+  it('is proposed against the account at the control version the founder read, under its own action type', () => {
+    expect(proposeInputFor(archive)).toEqual({
+      actionType: IDENTITY_ARCHIVE_ACTION_TYPE,
+      targetService: 'svc-identity',
+      targetId: userId,
+      expectedVersion: '7',
+      payloadHash: payloadHashFor(archive),
+      policyVersion: 'v1',
+    });
+  });
+});
+
 describe('identity account tier move', () => {
   const userId = '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b';
   const move = { kind: 'identity.account.tier_move' as const, userId, tierId: 'plus', reason: 'Customer qualifies for plus', version: '2' };
@@ -283,6 +403,46 @@ describe('identity account tier move', () => {
       targetId: userId,
       expectedVersion: '2',
       payloadHash: payloadHashFor(move),
+      policyVersion: 'v1',
+    });
+  });
+});
+
+describe('identity account limit override', () => {
+  const userId = '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b';
+  const raise = {
+    kind: 'identity.account.limit_override' as const,
+    userId,
+    rail: 'withdrawal' as const,
+    assetId: 'USDT',
+    perTx: null,
+    rolling24h: '8000',
+    expiresAt: '2026-10-25T12:00:00.000Z',
+    reason: 'Customer is moving house this week',
+    version: '3',
+  };
+  it('hash equals identity’s identityLimitPayloadHash: account, action, rail, asset, figures (null as blank), end time, reason', () => {
+    expect(payloadHashFor(raise)).toBe(
+      identityActionPayloadHash(userId, {
+        action: 'limit_override',
+        rail: 'withdrawal',
+        assetId: 'USDT',
+        perTx: '',
+        rolling24h: '8000',
+        expiresAt: raise.expiresAt,
+        reason: raise.reason,
+      }),
+    );
+    for (const patch of [{ perTx: '8000' }, { rolling24h: '8001' }, { expiresAt: '2026-10-25T12:00:01.000Z' }, { assetId: 'BTC' }])
+      expect(payloadHashFor({ ...raise, ...patch })).not.toBe(payloadHashFor(raise));
+  });
+  it('is proposed against the account at the override version the founder read, under the founder-only limit type', () => {
+    expect(proposeInputFor(raise)).toEqual({
+      actionType: IDENTITY_LIMIT_CHANGE_ACTION_TYPE,
+      targetService: 'svc-identity',
+      targetId: userId,
+      expectedVersion: '3',
+      payloadHash: payloadHashFor(raise),
       policyVersion: 'v1',
     });
   });

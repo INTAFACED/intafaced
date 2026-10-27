@@ -5,6 +5,9 @@ import {
   personalRequestCreated,
   personalRequestSettled,
   personalTransferPosted,
+  payDepositCreditPosted,
+  bankScheduledReminder,
+  bankScheduledFailed,
   supportTicketResolved,
   fillSettled,
   kycApproved,
@@ -17,6 +20,7 @@ import {
   p2pTradeFiatSent,
   positionUpdated,
   rankUpdated,
+  securityFactorChanged,
   stakeCreated,
   wiringSocketReason,
   type EventBus,
@@ -25,7 +29,9 @@ import {
   type PayloadOf,
   type Subscription,
 } from '@intafaced/events';
+import type { MessageKey } from '@intafaced/i18n';
 import { noticeFreezeChange } from './freeze-notice.js';
+import { DEPOSIT_CREDITED_BODY_KEY, DEPOSIT_CREDITED_KIND, DEPOSIT_CREDITED_TITLE_KEY } from './deposit-credit-notice.js';
 import type { CreateResult, NotifyService } from './notify-service.js';
 import type { Severity } from './store.js';
 import {
@@ -199,6 +205,15 @@ export interface OrderTerminalNotifyPolicy {
 export const DEFAULT_ORDER_TERMINAL_NOTIFY_POLICY: OrderTerminalNotifyPolicy = {
   statuses: ['cancelled', 'rejected', 'expired'],
   severity: 'info',
+};
+
+/** The inbox title for each sign-in factor change (I-signin-sessions-08); a new change will not compile without one. */
+const FACTOR_CHANGED_TITLE_KEYS: Record<PayloadOf<'securityFactorChanged'>['change'], MessageKey> = {
+  totp_added: 'notify.identity.security.totp_added.title',
+  totp_removed: 'notify.identity.security.totp_removed.title',
+  totp_replaced: 'notify.identity.security.totp_replaced.title',
+  passkey_added: 'notify.identity.security.passkey_added.title',
+  passkey_removed: 'notify.identity.security.passkey_removed.title',
 };
 
 /** The action kinds `intafaced.agents.action.completed` can carry. */
@@ -548,6 +563,29 @@ export async function subscribeNotificationEvents(
   );
 
   attachments.push(
+    await attach(bus, 'securityFactorChanged', securityFactorChanged.subject, 'notify-security-factor-changed', async (payload) => {
+      // I-signin-sessions-08: a sign-in factor of the account changed. The security category cannot be turned off, and the
+      // notice points to Security, where the owner can sign out everywhere if it was not them. One row per change: the
+      // business key from svc-identity is the dedupe key. Inbox only: svc-identity already mails the proved address in the
+      // change's own transaction, and that mail is never muted or held for a digest.
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.userId,
+          kind: `identity.security.${payload.change}`,
+          titleKey: FACTOR_CHANGED_TITLE_KEYS[payload.change],
+          bodyKey: 'notify.identity.security.factor_changed.body',
+          params: {},
+          href: '/uc/safe',
+          severity: 'action',
+          sourceSubject: securityFactorChanged.subject,
+          sourceIdempotencyKey: payload.noticeKey,
+          outOfApp: false,
+        }),
+      );
+    }),
+  );
+
+  attachments.push(
     await attach(bus, 'rankUpdated', rankUpdated.subject, 'notify-rank-updated', async (payload) => {
       nakIfRetryable(
         await notify.create({
@@ -766,6 +804,82 @@ export async function subscribeNotificationEvents(
         bodyKey: 'notify.pay.transfer_sent.body',
       });
       nakIfRetryable(...(received ? [received, sent] : [sent]));
+    }),
+  );
+
+  attachments.push(
+    await attach(bus, 'payDepositCreditPosted', payDepositCreditPosted.subject, 'notify-pay-deposit-credit-posted', async (payload) => {
+      // svc-pay publishes after the ledger post that credited the deposit, so the notice says what already happened.
+      // Deduped on the deposit: svc-pay announces again after a crash, and a redelivery writes nothing new.
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.userId,
+          kind: DEPOSIT_CREDITED_KIND,
+          titleKey: DEPOSIT_CREDITED_TITLE_KEY,
+          bodyKey: DEPOSIT_CREDITED_BODY_KEY,
+          params: {
+            amount: payload.amount,
+            asset: payload.assetId,
+            networkId: payload.networkId,
+            depositId: payload.depositId,
+            txHash: payload.txHash,
+            ledgerTxId: payload.ledgerTxId,
+          },
+          // The deposit room on the asset and network that were credited, where its record is.
+          href: `/uc/recharge?asset=${encodeURIComponent(payload.assetId)}&network=${encodeURIComponent(payload.networkId)}`,
+          severity: 'info',
+          sourceSubject: payDepositCreditPosted.subject,
+          sourceIdempotencyKey: payload.depositId,
+          // Inbox only, as the deposit notice has always been: a credit is not worth an email, SMS or push each time.
+          outOfApp: false,
+        }),
+      );
+    }),
+  );
+
+  // One notice per standing-order run and kind, deduped on schedule and run, so a redelivered event writes nothing new.
+  const standingOrder = (payload: { userId: string; scheduleId: string; occurrence: number; amount: string; assetId: string }) => ({
+    userId: payload.userId,
+    href: '/bank/transfers',
+    sourceIdempotencyKey: `${payload.scheduleId}:${payload.occurrence}`,
+    params: { scheduleId: payload.scheduleId, occurrence: String(payload.occurrence), amount: payload.amount, assetId: payload.assetId },
+  });
+
+  attachments.push(
+    await attach(bus, 'bankScheduledReminder', bankScheduledReminder.subject, 'notify-bank-scheduled-reminder', async (payload) => {
+      // svc-bank drops a reminder whose run is due before it publishes; a reminder read late (this service was down or
+      // behind) is dropped here too, so nobody is told to top up for a run that has already happened.
+      if (Date.parse(payload.dueAt) <= Date.now()) return;
+      const base = standingOrder(payload);
+      nakIfRetryable(
+        await notify.create({
+          ...base,
+          kind: 'bank.scheduled_reminder',
+          titleKey: 'notify.bank.scheduled_reminder.title',
+          bodyKey: 'notify.bank.scheduled_reminder.body',
+          params: { ...base.params, dueAt: payload.dueAt, dueDate: payload.dueAt.slice(0, 10), leadHours: String(payload.leadHours) },
+          severity: 'info',
+          sourceSubject: bankScheduledReminder.subject,
+        }),
+      );
+    }),
+  );
+
+  attachments.push(
+    await attach(bus, 'bankScheduledFailed', bankScheduledFailed.subject, 'notify-bank-scheduled-failed', async (payload) => {
+      // A run the bank refused took nothing; the person hears once, with the bank's reason as a reference.
+      const base = standingOrder(payload);
+      nakIfRetryable(
+        await notify.create({
+          ...base,
+          kind: 'bank.scheduled_failed',
+          titleKey: 'notify.bank.scheduled_failed.title',
+          bodyKey: 'notify.bank.scheduled_failed.body',
+          params: { ...base.params, reasonCode: payload.reasonCode, failedAt: payload.failedAt },
+          severity: 'action',
+          sourceSubject: bankScheduledFailed.subject,
+        }),
+      );
     }),
   );
 

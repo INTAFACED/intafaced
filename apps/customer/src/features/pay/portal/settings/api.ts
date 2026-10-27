@@ -3,6 +3,9 @@ import * as p from '../schemas';
 import { type PortalTools } from '../api-tools';
 import type { DestinationProof } from '../access/destination-step-up';
 import { accountApi } from './account/account-api';
+import { applicationApi } from './onboarding/application-api';
+import { categoryApi } from './onboarding/category-api';
+import { requestsApi } from './onboarding/requests-api';
 
 const baseSettingsApi = ({ query, mutate, list, confirmDestinationStepUp }: PortalTools) => ({
   /** The names are the merchant's own, stored on the account the service derives from the session (never from this call). */
@@ -68,5 +71,11 @@ const baseSettingsApi = ({ query, mutate, list, confirmDestinationStepUp }: Port
     mutate('merchantOps.notifications.preferences.set', input, p.preferenceSchema),
 });
 
-/** The settings client: the shared calls, then the account pages' own (`account/api.ts`). A method name used twice fails `api-registry.test.ts`. */
-export const settingsApi = (tools: PortalTools) => ({ ...baseSettingsApi(tools), ...accountApi(tools) });
+/** The settings client: the shared calls, then the account pages' own (`account/api.ts`) and the business application's. A method name used twice fails `api-registry.test.ts`. */
+export const settingsApi = (tools: PortalTools) => ({
+  ...baseSettingsApi(tools),
+  ...accountApi(tools),
+  ...applicationApi(tools),
+  ...requestsApi(tools),
+  ...categoryApi(tools),
+});

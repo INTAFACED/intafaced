@@ -5,6 +5,9 @@ import { describe, expect, it } from 'vitest';
 import { PlaceDoor } from './place-door.js';
 import { unenrollLastRemainingPasskey } from './last-passkey-unenroll.js';
 
+/** The factor-changed outbox rows each removal queued. */
+const factorNotices: unknown[][] = [];
+
 type StoredCred = { credentialId?: unknown; lastVerifiedAt?: unknown };
 type UserRow = { id: string; webauthn_creds: StoredCred[] };
 type SessionRow = { id: string; user_id: string; revoked: boolean };
@@ -15,6 +18,22 @@ function combinedStore(users: UserRow[], sessions: SessionRow[], keys: KeyRow[])
   let keyWrites = 0;
   const fn = async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?').toLowerCase();
+    // The last-way-in check (I-account-lifecycle-07) reads the account's methods: these accounts also hold a password.
+    if (text.includes('password_set')) {
+      const userId = values[0];
+      return users
+        .filter((u) => u.id === userId)
+        .map((u) => ({
+          status: 'active',
+          password_set: true,
+          email: null,
+          email_verified_at: null,
+          email_code_signin: false,
+          handle: 'h',
+          passkeys: u.webauthn_creds.length,
+        }));
+    }
+    if (text.includes('from wallet_identities') || text.includes('from social_identities')) return [];
     if (text.includes('select') && text.includes('webauthn_creds')) {
       const userId = values[0];
       return users.filter((u) => u.id === userId).map((u) => ({ webauthn_creds: u.webauthn_creds }));
@@ -84,6 +103,13 @@ function combinedStore(users: UserRow[], sessions: SessionRow[], keys: KeyRow[])
           product_scopes: [],
         }));
     }
+    // The factor-changed notice (I-signin-sessions-08): the account's address, the change count, and its two outbox rows.
+    if (text.includes('email_verified_at') && text.includes('from users')) return [];
+    if (text.includes('from security_factor_events')) return [{ n: 0 }];
+    if (text.includes('into security_factor_events') || text.includes('into mail_outbox')) {
+      factorNotices.push(values);
+      return [];
+    }
     throw new Error(`unexpected sql: ${text}`);
   };
   return Object.assign(fn, {
@@ -130,8 +156,11 @@ describe('unenrollLastRemainingPasskey — last remaining passkey unenrolled', (
 
   it('last remaining cred revokes sessions and keys so PlaceDoor refuses', async () => {
     const sql = combinedStore([{ id: A, webauthn_creds: [enrolled] }], liveSeats(), liveSeats());
+    const before = factorNotices.length;
     const out = await unenrollLastRemainingPasskey(sql, A, 'cred-1');
     expect(out).toEqual({ credentialId: 'cred-1', remaining: 0, sessionsRevoked: 2, keysRevoked: 2 });
+    // The removal queued its factor-changed notice (I-signin-sessions-08).
+    expect(factorNotices.slice(before).some((values) => values.includes('passkey_removed'))).toBe(true);
     expect(sql.users[0]?.webauthn_creds).toEqual([]);
     expect(sql.sessions.map((s) => s.revoked)).toEqual([true, true, true]);
     expect(sql.keys.map((k) => k.revoked)).toEqual([true, true, true]);
@@ -147,7 +176,9 @@ describe('unenrollLastRemainingPasskey — last remaining passkey unenrolled', (
       [{ id: 'live-1', user_id: A, revoked: false }],
       [{ id: 'live-1', user_id: A, revoked: false }],
     );
+    const before = factorNotices.length;
     await expect(unenrollLastRemainingPasskey(sql, A, 'cred-unknown')).rejects.toMatchObject({ code: 'auth.passkey_missing' });
+    expect(factorNotices.length).toBe(before);
     expect(sql.sessionWrites).toBe(0);
     expect(sql.keyWrites).toBe(0);
     expect(sql.sessions[0]?.revoked).toBe(false);

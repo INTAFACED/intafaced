@@ -1,23 +1,23 @@
 .language-menu {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--if-space-1-5);
 }
 .language-menu label {
   color: var(--color-muted);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--if-text-sm);
+  line-height: var(--if-leading-base);
 }
 .language-menu select {
   min-height: 40px;
   max-width: 100%;
-  border-radius: 8px;
-  padding: 8px 10px;
-  font-size: 13px;
-  line-height: 20px;
+  border-radius: var(--if-r-sm);
+  padding: var(--if-space-2) var(--if-space-2-5);
+  font-size: var(--if-text-sm);
+  line-height: var(--if-leading-base);
 }
 .language-menu small {
   color: var(--color-muted);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: var(--if-text-xs);
+  line-height: var(--if-leading-sm);
 }

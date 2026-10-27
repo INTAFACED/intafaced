@@ -4,6 +4,7 @@ import type { ApiClient } from '../../shared/api';
 import { Button, Dialog, EmptyState, Page } from '../../shared/ui';
 import { ReferralCode } from './ReferralCode';
 import { ReferralRecords } from './ReferralRecords';
+import { RewardsHub } from './RewardsHub';
 import { promotionsCopy as copy } from './promotions-copy';
 import {
   currentLinkReply,
@@ -505,6 +506,7 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
           </p>
         )}
         <PromotionTabs view={view} />
+        {view === 'overview' && <RewardsHub />}
         <div className={view === 'overview' ? 'promotions__columns' : 'promotions__columns promotions__columns--single'}>
           {view !== 'records' && (
             <section className="promotions__link" aria-label={t('linkTitle')}>

@@ -26,7 +26,7 @@ This is the operator path to **halt a module without a deploy**, and the ledger 
 **Not live (honest residual):**
 
 - Per-flag env / flag-store overrides staged on the console remain **browser-session preview** until a durable flag store lands (§13).
-- Ledger **reconcile** from the console is still a stub (`operator-commands.ts`).
+- Ledger **reconciliation controls** on `/ledger` (list, define, change, two-founder run) need `ADMIN_TREASURY_TOKEN` for everything but the list; without it they show as parked with that setting named.
 - Console has **no operator SSO** of its own — tokens are deployment credentials; audit names the console principal until SSO.
   - **P0 residual:** anyone who can reach `apps/admin` BFF routes can use the shared operator token. **Do not expose admin without network ACL / SSO.** Ship gate for real money.
   - Optional **BFF gate:** set `ADMIN_BFF_SHARED_SECRET` and inject header `x-intafaced-admin-bff` from reverse proxy after SSO. When unset, network ACL only.
@@ -134,7 +134,7 @@ Use freeze after an **unverifiable book** (§4.2), not as a substitute for killi
 1. **Durable multi-replica kill-switch store** — edge process memory today; restart clears kills.
 2. **Operator SSO** — console token is per-deployment; audit names console principal until human SSO.
 3. **Flag store** — per-flag overrides on the board are still session staging.
-4. **Ledger reconcile live from console** — stub until tRPC/admin path is swapped in `operator-commands.ts`.
+4. **Ledger reconciliation from the console** — controls are wired through svc-edge (`/admin/ledger/reconciliation/controls`); define, change and run travel on the treasury transport.
 5. **In-service `set…Enabled` hooks** — still boot-env only for some services; edge perimeter is the reachable switch.
 
 ---

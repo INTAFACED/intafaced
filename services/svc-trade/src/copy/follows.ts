@@ -6,6 +6,7 @@
  * screening runs before any follow is accepted — blank §8 list → refuse.
  */
 
+import type { AlgoPlaceGrant } from '../algo/durable-principal.js';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { copyNewIntentFenced, followRelationshipState, type CopyRelationshipState } from './copy-lifecycle.js';
 import { customerStatus, type CopyLeaderCustomerStatus, type CopyLeaderListingState } from './leader-listing.js';
@@ -30,6 +31,24 @@ export interface CopyEnvelope {
   readonly maxDrawdown?: Amount;
   /** Envelope expiry — unilateral revoke is always allowed before this. */
   readonly expiresAt: Date;
+  /** Quote amount each copied order uses. Unset means no fixed size; never defaulted. At most maxNotionalPerOrder. */
+  readonly fixedOrderSize?: Amount;
+}
+
+/**
+ * How much of the follower's own spot balance this follow may use (CB-copy-03). A svc-trade limit row, not a balance
+ * and not a ledger hold: nothing posts when it is held or released, and each copied order takes its own order hold.
+ */
+export interface CopyFollowReserve {
+  readonly asset: string;
+  readonly amount: Amount;
+  readonly heldAt: Date;
+  readonly releasedAt: Date | null;
+}
+
+/** The reserve's business key. One per follow. */
+export function copyReserveKey(followId: string): string {
+  return `copy.reserve:${followId}`;
 }
 
 export interface CopyFollow {
@@ -50,7 +69,23 @@ export interface CopyFollow {
   readonly relationshipState?: CopyRelationshipState;
   /** High-water mark of the result figure. Written when a mirror is planned. */
   readonly peakResult?: Amount;
+  /** Held with the follow; missing on follows made before the reserve existed. */
+  readonly reserve?: CopyFollowReserve;
+  /**
+   * The follower's claims when they granted automatic copying, so the copy driver can place each copy as them until
+   * the envelope expires (the same durable grant the algo engine keeps). Every copy still takes its own live
+   * admission, and a revoked session key stops the driver. Missing until copying is granted.
+   */
+  readonly placeGrant?: AlgoPlaceGrant;
+  /**
+   * The last leader fill the copy driver dealt with (copied or refused), or the moment copying was turned on. The
+   * driver reads only fills after it, so a fill is tried once and nothing from before copying was on is copied.
+   */
+  readonly copyCursor?: CopyCursor;
 }
+
+/** A point in a leader's fills: their time, then id. A null fill id is the moment itself. */
+export type CopyCursor = { readonly at: Date; readonly fillId: string | null };
 
 export interface PresentCopyFollow {
   readonly followId: string;
@@ -62,6 +97,10 @@ export interface PresentCopyFollow {
   readonly permittedMarkets: readonly string[];
   readonly maxNotionalPerOrder: string;
   readonly maxAggregateExposure: string;
+  /** Quote amount each copied order uses; null when the follower chose no fixed size. */
+  readonly fixedOrderSize: string | null;
+  /** The reserve held for this follow; null on follows made before it existed. Not a balance and not a hold. */
+  readonly reserve: { readonly asset: string; readonly amount: string; readonly released: boolean } | null;
   readonly maxLoss: string | null;
   readonly maxSlippageBps: number | null;
   readonly maxConcurrent: number | null;
@@ -92,6 +131,8 @@ export function parseCopyEnvelope(input: {
   maxNotionalPerOrder: string;
   maxAggregateExposure: string;
   maxLoss?: string;
+  /** Blank means no fixed size. Zero, or above maxNotionalPerOrder, refuses. */
+  fixedOrderSize?: string | null;
   expiresAt: Date | string;
   now: Date;
 }): CopyEnvelope {
@@ -128,6 +169,25 @@ export function parseCopyEnvelope(input: {
     }
   }
 
+  let fixedOrderSize: Amount | undefined;
+  const fixedRaw = input.fixedOrderSize?.trim();
+  if (fixedRaw) {
+    try {
+      fixedOrderSize = parseAmount(fixedRaw);
+    } catch {
+      throw new CopyError('The fixed amount must be a valid decimal amount', 'trade.copy_envelope_invalid');
+    }
+    if (fixedOrderSize <= 0n) {
+      throw new CopyError('The fixed amount must be above zero', 'trade.copy_envelope_invalid');
+    }
+    if (fixedOrderSize > maxNotionalPerOrder) {
+      throw new CopyError(
+        `The fixed amount cannot be above the most per order, ${formatAmount(maxNotionalPerOrder)}`,
+        'trade.copy_fixed_size_above_cap',
+      );
+    }
+  }
+
   const expiresAt = input.expiresAt instanceof Date ? input.expiresAt : new Date(input.expiresAt);
   if (Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() <= input.now.getTime()) {
     throw new CopyError('Copy envelope expiry must be in the future', 'trade.copy_envelope_invalid');
@@ -139,6 +199,7 @@ export function parseCopyEnvelope(input: {
     maxAggregateExposure,
     expiresAt,
     ...(maxLoss !== undefined ? { maxLoss } : {}),
+    ...(fixedOrderSize !== undefined ? { fixedOrderSize } : {}),
   };
 }
 
@@ -182,6 +243,10 @@ export function presentCopyFollow(
     permittedMarkets: follow.envelope.permittedMarkets,
     maxNotionalPerOrder: formatAmount(follow.envelope.maxNotionalPerOrder),
     maxAggregateExposure: formatAmount(follow.envelope.maxAggregateExposure),
+    fixedOrderSize: follow.envelope.fixedOrderSize !== undefined ? formatAmount(follow.envelope.fixedOrderSize) : null,
+    reserve: follow.reserve
+      ? { asset: follow.reserve.asset, amount: formatAmount(follow.reserve.amount), released: follow.reserve.releasedAt !== null }
+      : null,
     maxLoss: follow.envelope.maxLoss !== undefined ? formatAmount(follow.envelope.maxLoss) : null,
     maxSlippageBps: follow.envelope.maxSlippageBps ?? null,
     maxConcurrent: follow.envelope.maxConcurrent ?? null,

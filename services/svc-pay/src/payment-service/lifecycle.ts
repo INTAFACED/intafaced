@@ -4,6 +4,7 @@
  * Moved out of `payment-service.ts` as it was (owner decision 2026-10-23): `PayService` keeps one method per
  * function here, which passes itself as `svc`.
  */
+import { assertCategoryAllows, merchantCategoryRule } from '../onboarding-policy/category.js';
 import { postPayLedger } from '../ledger-receipt.js';
 import {
   CaptureReconcileError,
@@ -19,8 +20,9 @@ import { FRESH, type GuardReplay } from '../seams/guards.js';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, recipes, type Amount } from '@intafaced/ledger-client';
 import { isSandboxRailId } from '../sandbox-key-routing.js';
-import { isRailHealthBlockingCode, railReasonCode, type PaymentIntent } from '../rails/rail-adapter.js';
+import { isRailHealthBlockingCode, railReasonCode, type PaymentIntent, type RailResult } from '../rails/rail-adapter.js';
 import { PayoutAdmissionError, stable } from '../payout-admission.js';
+import { assertNoPayerNameHold, holdOnPayerNames } from '../payer-name/holds.js';
 import { withMoneySpan, withRailSpan } from '../tracing.js';
 import type { PayService, PayServiceInternal, PaymentRow, PaymentStatus, PaymentView } from '../payment-service.js';
 import {
@@ -97,7 +99,15 @@ export async function createPayment(
   }
 
   const paymentId = input.requestId?.toLowerCase() ?? randomUUID();
-  if (input.requestId) await svc.existingPaymentCreation(svc.sql, input, paymentId);
+  const prior = input.requestId ? await svc.existingPaymentCreation(svc.sql, input, paymentId) : null;
+  // RC-merchant-08: new intake only. A prohibited category, a restricted one with blank reserve terms, and a rail the
+  // category does not allow are refused by name before any row. A retry of a payment that exists is not new intake.
+  // The guard slot re-checks inside the admission transaction.
+  if (!prior) {
+    assertCategoryAllows(await merchantCategoryRule(svc.sql, input.merchantId), input.railAdapter, {
+      sandboxKey: input.keyEnv === 'sandbox',
+    });
+  }
   return svc.admitPaymentOperation(
     {
       paymentId,
@@ -293,6 +303,8 @@ export async function authorize(
 
         const adapter = svc.rails.require(row.rail_adapter, 'authorize');
         refuseUnusableRail(adapter, svc.now());
+        // RC-merchant-09: a payment held for a payer-name review is not taken in by any door until the review decides.
+        if (adapter.checksPayerName) await assertNoPayerNameHold(tx, row.id);
 
         const intent: PaymentIntent = {
           paymentId: row.id,
@@ -317,6 +329,18 @@ export async function authorize(
           );
         }
         await appendEvent(tx, row.id, 'rail.authorize', railPayload(result));
+
+        // RC-merchant-09: on a rail the payer pushes money to, the name of every transfer the rail counted is checked here,
+        // in this transaction and under this lock, before any of it is authorized. One that fails holds the payment.
+        if (result.ok && adapter.checksPayerName) {
+          const received = result.status === 'pending' ? pendingReceived(result) : result.amount;
+          const names = await holdOnPayerNames(tx, svc.payerNameMatchRule, row, { payerNames: result.payerNames, received });
+          if (names === 'held') {
+            // The reference stays, so the payer's page still says where the money went. Nothing else moves.
+            await tx`UPDATE pay.payments SET rail_ref = ${result.railRef || null}, updated_at = now() WHERE id = ${row.id}`;
+            return { declined: false as const, view: await svc.view(tx, { ...row, rail_ref: result.railRef || null }) };
+          }
+        }
 
         if (!result.ok) {
           await appendEvent(tx, row.id, 'failed', {
@@ -439,6 +463,7 @@ export async function capture(
           const row = await lockPayment(tx, paymentId);
           if (row.status === 'captured' || row.status === 'settled') return svc.view(tx, row);
           assertTransition(row, 'captured');
+          if (svc.rails.has(row.rail_adapter) && svc.rails.get(row.rail_adapter).checksPayerName) await assertNoPayerNameHold(tx, row.id);
           if (
             admitted &&
             (parseAmount(row.amount) !== parseAmount(original.amount) ||
@@ -492,7 +517,8 @@ export async function capture(
           refuseUnusableRail(adapter, svc.now());
           const railRef = row.rail_ref;
 
-          const result = await withRailSpan(adapter.id, 'capture', async () => adapter.capture(railRef));
+          // The whole authorization, named: a chain address can receive more after authorize, and the rail books what it authorized.
+          const result = await withRailSpan(adapter.id, 'capture', async () => adapter.capture(railRef, { authorized }));
           await appendEvent(tx, row.id, 'rail.capture', railPayload(result));
 
           if (!result.ok) {
@@ -607,5 +633,16 @@ export async function reconcileAuthorizedCaptures(
   } catch (error) {
     if (error instanceof CaptureReconcileError) throw new PayError(error.message, error.code);
     throw error;
+  }
+}
+
+/** What a `pending` result says has arrived so far (`raw.received`, a decimal string); none when it says nothing readable. */
+function pendingReceived(result: RailResult): Amount {
+  const received = result.raw?.received;
+  if (typeof received !== 'string') return 0n;
+  try {
+    return parseAmount(received);
+  } catch {
+    return 0n;
   }
 }

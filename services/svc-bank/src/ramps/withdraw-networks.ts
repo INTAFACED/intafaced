@@ -1,5 +1,8 @@
 import { assetAllows, type RegistryAsset } from '@intafaced/contracts';
 import { BankError } from '../errors.js';
+import { ASSET_REGISTRY_UNAVAILABLE, askRegistry } from '../assets/supported-assets.js';
+
+export { ASSET_REGISTRY_UNAVAILABLE };
 
 /**
  * WHICH ASSET MAY BE SENT ON WHICH NETWORK (W-withdraw-08 on W-balances-05).
@@ -24,22 +27,10 @@ export interface WithdrawNetworkSource {
   withdrawable(): Promise<RegistryAsset[]>;
 }
 
-/** The ledger's registry could not be read, or this deployment has no route to it. Nothing was saved. */
-export const ASSET_REGISTRY_UNAVAILABLE = 'bank.asset_registry_unavailable' as const;
 /** The asset does not allow withdrawals, or the network is not one listed for it. Nothing was saved. */
 export const WITHDRAW_NETWORK_UNSUPPORTED = 'bank.withdraw_network_unsupported' as const;
 
-async function read(source: WithdrawNetworkSource | null): Promise<RegistryAsset[]> {
-  if (!source) {
-    throw new BankError('The list of supported assets and networks is not connected', ASSET_REGISTRY_UNAVAILABLE);
-  }
-  try {
-    return await source.withdrawable();
-  } catch {
-    // A fixed sentence: the ledger's own error wording is not the customer's to read.
-    throw new BankError('The list of supported assets and networks could not be read. Try again shortly', ASSET_REGISTRY_UNAVAILABLE);
-  }
-}
+const read = (source: WithdrawNetworkSource | null) => askRegistry(source, (registry) => registry.withdrawable());
 
 /** The assets a person may save a withdrawal address for, each with its networks, in the registry's order. */
 export async function listWithdrawNetworks(source: WithdrawNetworkSource | null): Promise<WithdrawAsset[]> {

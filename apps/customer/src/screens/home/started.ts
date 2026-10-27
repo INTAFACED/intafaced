@@ -111,6 +111,33 @@ export function writeDismissed(userId: string | null, storage: Pick<Storage, 'se
   }
 }
 
+/**
+ * Whether the list was still open the last time this person's steps were all read on this device. While the steps are
+ * being checked, Home draws the list's checking state only if it was open last time, so a finished list doesn't take
+ * room at the top and then vanish (a layout jump on phones), and an open one doesn't arrive late and push Home down.
+ * A view hint only: it never decides a step. With no hint (the first visit on this device, or blocked storage) the
+ * list is drawn while checking, as for a new person; a finished list is then out of the way from the next visit on.
+ */
+export const lastOpenKey = (userId: string): string => `intafaced.customer.home.started.open.v1:${userId}`;
+
+export function readLastOpen(userId: string | null, storage: Pick<Storage, 'getItem'> | null = safeStorage()): boolean {
+  if (!userId || !storage) return true;
+  try {
+    return storage.getItem(lastOpenKey(userId)) !== 'closed';
+  } catch {
+    return true;
+  }
+}
+
+export function writeLastOpen(userId: string | null, open: boolean, storage: Pick<Storage, 'setItem'> | null = safeStorage()): void {
+  if (!userId || !storage) return;
+  try {
+    storage.setItem(lastOpenKey(userId), open ? 'open' : 'closed');
+  } catch {
+    // The hint is only for the next visit's first paint.
+  }
+}
+
 function safeStorage(): Storage | null {
   try {
     return typeof localStorage === 'undefined' ? null : localStorage;

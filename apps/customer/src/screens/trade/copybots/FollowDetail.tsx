@@ -16,12 +16,15 @@ import {
   DialogTitle,
   EmptyState,
   KeyValue,
+  Table,
   type BadgeTone,
+  type TableColumn,
 } from '@intafaced/ui';
 import { displayAmount } from '../../../shared/money';
 import type { z } from 'zod';
 import type { copyFollowSchema } from '../../../features/trade/tool-api';
-import type { RoomApi } from './api';
+import { useResource } from '../../../shared/resource';
+import type { CopyPosition, RoomApi } from './api';
 import { roomCopy } from './copy';
 import type { WriteGuard } from './guard';
 import { InfoNote, RefusalNote } from './parts';
@@ -145,6 +148,84 @@ export function FollowActions({ follow, api, guard, onDone }: { follow: Follow; 
   );
 }
 
+/** Whether this follow can have automatic copying turned on or off, and the reason when it cannot. */
+export function copyingSwitch(follow: Follow): { on: boolean; blocked: string | null } {
+  const on = follow.sessionKeyGranted && !follow.sessionKeyRevoked;
+  const state = follow.relationshipState.toUpperCase();
+  if (on) return { on, blocked: null };
+  return { on, blocked: state === 'ACTIVE' || state === 'PAUSED' ? null : 'This follow has already stopped' };
+}
+
+function CopyingSwitch({ follow, api, guard, onDone }: { follow: Follow; api: RoomApi; guard: WriteGuard; onDone: () => void }) {
+  const { t } = roomCopy.useCopy();
+  const { on, blocked } = copyingSwitch(follow);
+  const send = () =>
+    void guard.run(
+      { kind: 'copy', id: follow.followId, symbol: follow.permittedMarkets.join(','), operation: on ? 'copying-off' : 'copying-on' },
+      () => (on ? api.stopCopying(follow.followId) : api.grantCopying(follow.followId)),
+      onDone,
+    );
+  return (
+    <div className="cb-actions">
+      <p>
+        {on
+          ? t('Each new trade the leader makes is copied for you, within your limits.')
+          : t('Trades are not copied for you until you turn on automatic copying.')}
+      </p>
+      <div className="cb-action-row">
+        <Button variant="secondary" size={32} disabled={blocked !== null || guard.busy || guard.locked} onClick={send}>
+          {on ? t('Turn off automatic copying') : t('Turn on automatic copying')}
+        </Button>
+      </div>
+      {blocked ? <p className="cb-why">{t(blocked as 'This follow has already stopped')}</p> : null}
+    </div>
+  );
+}
+
+const sideWord = (side: CopyPosition['side']) => (side === 'buy' ? 'Buy' : 'Sell');
+const ORDER_STATE: Record<string, string> = {
+  pending: 'Sending',
+  open: 'Open',
+  filled: 'Filled',
+  cancelled: 'Cancelled',
+  rejected: 'Refused',
+  expired: 'Expired',
+  recovery_required: 'Being checked',
+  hold_unknown: 'Being checked',
+};
+
+function CopiedOrders({ follow, api }: { follow: Follow; api: RoomApi }) {
+  const { t } = roomCopy.useCopy();
+  const { resource, reload } = useResource((signal) => api.followPositions(follow.followId, signal), `positions:${follow.followId}`);
+  const columns: TableColumn<CopyPosition>[] = [
+    { id: 'market', header: t('Market'), value: (r) => r.market, pin: 'start' },
+    { id: 'side', header: t('Side'), value: (r) => t(sideWord(r.side) as 'Buy') },
+    { id: 'qty', header: t('Amount'), value: (r) => r.qty, numeric: true, cell: (r) => displayAmount(r.qty) },
+    { id: 'filled', header: t('Filled'), value: (r) => r.filledQty, numeric: true, cell: (r) => displayAmount(r.filledQty) },
+    { id: 'price', header: t('Price'), value: (r) => r.price, numeric: true, cell: (r) => displayAmount(r.price) },
+    { id: 'status', header: t('State'), value: (r) => t((ORDER_STATE[r.status] ?? 'Unknown state') as 'Open') },
+    { id: 'placed', header: t('Placed'), value: (r) => new Date(r.placedAt).toLocaleString(), width: 200 },
+  ];
+  if (resource.status === 'failed') return <RefusalNote failure={resource.failure} retry={reload} />;
+  return (
+    <Table
+      label={t('Copied orders')}
+      columns={columns}
+      rows={resource.status === 'ready' ? resource.data.positions : []}
+      getRowId={(r) => r.orderId}
+      status={resource.status === 'loading' ? 'loading' : 'ready'}
+      minWidth={760}
+      emptyState={
+        <EmptyState
+          size="inline"
+          title={t('No copied orders')}
+          reason={t('A copy appears here when the leader trades and automatic copying is on.')}
+        />
+      }
+    />
+  );
+}
+
 export function FollowDetail({
   follow,
   onClose,
@@ -180,6 +261,18 @@ export function FollowDetail({
                 { label: t('Most per order'), value: withAsset(follow.maxNotionalPerOrder, quoteAsset(follow)) },
                 { label: t('Most in total'), value: withAsset(follow.maxAggregateExposure, quoteAsset(follow)) },
                 {
+                  label: t('Fixed amount per copied order'),
+                  value: follow.fixedOrderSize ? withAsset(follow.fixedOrderSize, quoteAsset(follow)) : t('Not set'),
+                },
+                {
+                  label: t('Reserved for this copy'),
+                  value: !follow.reserve
+                    ? t('Not set')
+                    : follow.reserve.released
+                      ? t('Released')
+                      : withAsset(follow.reserve.amount, follow.reserve.asset),
+                },
+                {
                   label: t('Stop at a loss of'),
                   value: follow.maxLoss === null ? t('Not set') : withAsset(follow.maxLoss, quoteAsset(follow)),
                 },
@@ -201,13 +294,9 @@ export function FollowDetail({
               ]}
             />
             <h3 className="cb-h3">{t('Copied orders')}</h3>
-            <EmptyState
-              size="inline"
-              variant="unavailable"
-              title={t('No order history')}
-              reason={t('The list of orders copied for you is not available from the service. Check Order history on the spot desk.')}
-              action={{ label: t('Open order history'), href: '/money/activity?tab=orders', variant: 'secondary' }}
-            />
+            <CopiedOrders follow={follow} api={api} />
+            <h3 className="cb-h3">{t('Automatic copying')}</h3>
+            <CopyingSwitch follow={follow} api={api} guard={guard} onDone={onChanged} />
             <h3 className="cb-h3">{t('Change this follow')}</h3>
             <FollowActions follow={follow} api={api} guard={guard} onDone={onChanged} />
             <InfoNote>{t('Positions already open are never sold unless you choose Close copied positions.')}</InfoNote>

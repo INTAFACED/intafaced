@@ -1,6 +1,18 @@
 import { randomBytes } from 'node:crypto';
 import { test, expect } from '@playwright/test';
-import { api, bestPrices, fromUnits, fund, journeyState, otherTrader, signUpInBrowser, times, toUnits, tool } from './stack.mjs';
+import {
+  api,
+  bestPrices,
+  fromUnits,
+  fund,
+  journeyState,
+  otherTrader,
+  signUpInBrowser,
+  times,
+  toUnits,
+  tool,
+  signOutBrowser,
+} from './stack.mjs';
 import { awayBid, confirm, free, held, openDesk, openOrders, previewed, reviewLimit, reviewSheet, signIn } from './desk.mjs';
 
 // J-cex-spot-01, in the running app (docs/roadmap/journeys.json). One test per step, titled "J-cex-spot-01 #<n>", run in
@@ -46,8 +58,9 @@ test(`${J} #1 signs up with an email and a password`, async ({ page }) => {
   await signUpInBrowser(page, who);
   await expect(page).not.toHaveURL(/\/register/);
   run.reset({ account: who });
-  // Signed in, and the way to Verify is shown (Home says it in Summary and again in Recent activity).
-  await expect(page.getByRole('region', { name: 'Summary' }).getByText('Verify your identity first')).toBeVisible();
+  // Signed in, and the way to Verify is shown: Home says it where the total would be (in Simple, where the app opens;
+  // Pro says it in its Summary).
+  await expect(page.getByRole('main').getByText('Verify your identity first').first()).toBeVisible();
   await expect(
     page
       .getByRole('link', { name: 'Verify now' })
@@ -84,7 +97,7 @@ test(`${J} #3 submits verification, two operators approve it, signs in again and
   const status = tool('local-test-gates.mjs', 'status');
   const accounts = JSON.parse(status.slice(status.indexOf('{'))).accounts;
   expect(accounts.find((a) => a.handle === who.handle)?.tiers).toContain('full');
-  await page.context().clearCookies();
+  await signOutBrowser(page.context());
   await desk(page);
   await page.getByRole('textbox', { name: 'Price' }).first().fill('60000.00');
   await page.getByRole('textbox', { name: 'Amount' }).first().fill('0.001');
@@ -110,7 +123,7 @@ test(`${J} #5 opens the spot desk: ticker, book, chart, tape, fees, trading mode
   // A fresh stack draws its first candle after the TEST market maker's first crossing trade (about a minute).
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 90_000 });
   await expect(page.locator('[role=tab]', { hasText: 'Last trades' })).toBeVisible();
-  await expect(page.getByText(/Listed: maker [\d.]+% · taker [\d.]+%/).first()).toBeVisible();
+  await expect(page.getByText(/Your rates: maker [\d.]+% · taker [\d.]+%/).first()).toBeVisible();
   await expect(page.getByText(/trading mode/i).first()).toBeVisible();
   await page.locator('[role=tab]', { hasText: /^Positions$/ }).click();
   await expect(page.getByText('Not applicable: cash spot holds balances, not positions')).toBeVisible();

@@ -22,6 +22,7 @@ const LOCK: Record<AcademyLearnerItemLock, string> = {
   enrol: 'Locked until you enrol',
   enrolment_closed: 'Locked: enrolment is closed while the course is not published',
   not_released: 'Not released to learners yet',
+  scheduled: 'Scheduled: opens later for this learner',
 };
 
 export function AcademyCoursePreview({ courseId, initial }: { courseId: string; initial: PreviewView }) {
@@ -65,6 +66,14 @@ export function AcademyCoursePreview({ courseId, initial }: { courseId: string; 
                 {view.data.sections.map((s, si) => (
                   <li key={si}>
                     <strong>{s.title}</strong>
+                    {s.release && (
+                      <span className="dk-muted">
+                        {' '}
+                        {s.release.at === null
+                          ? `opens ${s.release.afterEnrolmentDays} days after each learner enrols`
+                          : `opens ${formatWhen(s.release.at)}`}
+                      </span>
+                    )}
                     <ul className="dk-stack">
                       {s.items.map((item, ii) => (
                         <li key={ii} data-lock={item.lock ?? 'none'} style={{ marginLeft: `${item.indent * 1.5}rem` }}>

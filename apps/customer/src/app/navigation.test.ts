@@ -248,7 +248,7 @@ it('a coin link needs a session for the coin page, so a signed-out visitor gets 
 
 it('gives each searchable room the place it lives, as "Door > Room"; parked Web3 rooms sit under More', () => {
   const earn = findRoom('/bank/earn')!;
-  expect(roomPath(earn, 'en')).toBe(`Bank > ${roomTitle(earn, 'en')}`);
+  expect(roomPath(earn, 'en')).toBe(`Money > ${roomTitle(earn, 'en')}`);
   const chain = findRoom('/chain')!;
   expect(roomPath(chain, 'en')).toBe(`More > ${roomTitle(chain, 'en')}`);
   // Rooms outside every door (a person setting, a public page) have no path.
@@ -266,6 +266,10 @@ it('resolves each reserved Academy segment to its own row before the reader patt
     ['/academy/progress', '/academy/progress'],
     ['/academy/some-lesson', '/academy/:slug'],
     ['/academy/learning/course/markets', '/academy/learning/course/:slug'],
+    [
+      '/academy/learning/course/markets/assignment/0f8fad5b-d9cb-469f-a165-70867728950e',
+      '/academy/learning/course/:slug/assignment/:itemId',
+    ],
   ];
   for (const [path, row] of table) expect(findRoom(path)?.path, path).toBe(row);
   const exact = rooms.findIndex((room) => room.path === '/academy/rooms');

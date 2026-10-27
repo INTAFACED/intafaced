@@ -106,6 +106,8 @@ export function planMirror(input: {
   /** Current aggregate exposure already open for this follow. */
   currentExposure: Amount;
   now: Date;
+  /** The market's quantity step. A fixed-amount quantity is rounded down to it. */
+  lotSize?: Amount;
 }): MirrorPlan {
   const { follow, observation } = input;
 
@@ -125,14 +127,24 @@ export function planMirror(input: {
     throw new CopyError('Leader fill qty/notional must be strictly positive', 'trade.copy_envelope_invalid');
   }
 
-  if (observation.notional > follow.envelope.maxNotionalPerOrder) {
+  // A fixed amount sizes every copied order at that quote amount, the quantity scaled from the leader's fill price.
+  // Rounded down to the market's lot step, so the quote amount is what that quantity costs at the leader's price.
+  const fixed = follow.envelope.fixedOrderSize;
+  const scaled = fixed === undefined ? observation.qty : (observation.qty * fixed) / observation.notional;
+  const qty = fixed !== undefined && input.lotSize !== undefined && input.lotSize > 0n ? scaled - (scaled % input.lotSize) : scaled;
+  if (qty <= 0n) {
+    throw new CopyError('The fixed amount buys less than the smallest quantity at this price', 'trade.copy_cap_exceeded');
+  }
+  const notional = fixed === undefined ? observation.notional : (qty * observation.notional) / observation.qty;
+
+  if (notional > follow.envelope.maxNotionalPerOrder) {
     throw new CopyError(
-      `Mirror notional ${formatAmount(observation.notional)} exceeds per-order cap ${formatAmount(follow.envelope.maxNotionalPerOrder)}`,
+      `Mirror notional ${formatAmount(notional)} exceeds per-order cap ${formatAmount(follow.envelope.maxNotionalPerOrder)}`,
       'trade.copy_cap_exceeded',
     );
   }
 
-  const nextExposure = exposureAfterMirror(input.currentExposure, observation.side, observation.notional);
+  const nextExposure = exposureAfterMirror(input.currentExposure, observation.side, notional);
   if (nextExposure > follow.envelope.maxAggregateExposure) {
     throw new CopyError(
       `Mirror would exceed aggregate exposure cap ${formatAmount(follow.envelope.maxAggregateExposure)}`,
@@ -147,8 +159,8 @@ export function planMirror(input: {
     leaderId: follow.leaderId,
     marketId: observation.marketId,
     side: observation.side,
-    qty: observation.qty,
-    notional: observation.notional,
+    qty,
+    notional,
     nextExposure,
     reason: 'within_envelope',
   };

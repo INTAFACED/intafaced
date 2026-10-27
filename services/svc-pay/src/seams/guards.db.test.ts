@@ -16,6 +16,7 @@ import { BankPayoutAbsentAdapter } from '../rails/bank-payout.js';
 import { MemoryChain } from '../rails/chain-port.js';
 import { REFERENCE_RAIL_ROUTING_PROFILES } from '../routing/decide.js';
 import { composeGuards, PayGuardRefusal, type PartialPayGuards } from './guards.js';
+import { createCategoryGuards } from '../onboarding-policy/category.js';
 
 /**
  * The seams are wired into the real money paths (not just defined).
@@ -71,7 +72,7 @@ describe('guard seams are called on the real money paths', () => {
     await truncatePayForTest(
       sql,
       'pay',
-      `TRUNCATE pay.checkout_sessions, pay.payment_links, pay.settlements, pay.payment_events, pay.payments, pay.payment_profiles, pay.merchants RESTART IDENTITY CASCADE`,
+      `TRUNCATE pay.merchant_category_events, pay.merchant_categories, pay.business_category_events, pay.business_categories, pay.checkout_sessions, pay.payment_links, pay.settlements, pay.payment_events, pay.payments, pay.payment_profiles, pay.merchants RESTART IDENTITY CASCADE`,
     );
     ledger = new MemoryLedger();
     chain = new MemoryChain();
@@ -201,6 +202,73 @@ describe('guard seams are called on the real money paths', () => {
     const watching = checkout({ beforePaymentAdmit: async (ctx) => void seen.push(`${ctx.kind}:${ctx.merchantId}`) });
     await watching.openCheckoutSession({ linkToken: link.token, geoCountry: 'ID', method: 'crypto' });
     expect(seen[0]).toBe(`payment.create:${m.id}`);
+  });
+
+  it('RC-merchant-08: a prohibited category or a blank reserve opens no checkout session, and a restricted one routes to crypto-native only', async () => {
+    const checkout = () =>
+      new PayService(sql, ledger, rails, {
+        payoutDestinations: memoryPayoutDestinations(),
+        guards: composeGuards(createCategoryGuards({ sql })),
+        checkoutRails: [
+          { railId: 'crypto-native', method: 'crypto' },
+          { railId: 'card-sandbox', method: 'card' },
+        ],
+        publicCheckoutMovement: 'allow-sandbox',
+        checkoutRiskBand: 'low',
+        routingProfiles: REFERENCE_RAIL_ROUTING_PROFILES.map((p) =>
+          p.railId === 'crypto-native'
+            ? { ...p, successRate: '0.90' }
+            : p.railId === 'card-sandbox'
+              ? { ...p, successRate: '0.88' }
+              : { ...p },
+        ),
+        linkDefaultTtlDays: 30,
+        linkMaxTtlDays: 365,
+        checkoutSessionTtlSeconds: 900,
+        maxOpenSessionsPerLink: 25,
+      });
+    const pay = checkout();
+    const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
+    const link = await pay.createPaymentLink({ merchantId: m.id, label: 'TEST category checkout', amount: amt('8'), currency: 'USDT' });
+    // TEST DATA ONLY: two categories written straight to the table (the founder flow is proved in category.db.test.ts).
+    await sql`
+      INSERT INTO pay.business_categories (key, label, class, reserve_percent, reserve_hold_days, extra_documents, version, updated_by, approved_by)
+      VALUES ('test-weapons', 'TEST Weapons', 'prohibited', NULL, NULL, '{}', 1, 'founder-a', 'founder-b'),
+             ('test-travel', 'TEST Travel', 'restricted', 5, 90, '{}', 1, 'founder-a', 'founder-b')
+    `;
+    await sql`INSERT INTO pay.merchant_categories (merchant_id, category_key, table_version, chosen_by) VALUES (${m.id}, 'test-weapons', 2, ${USER})`;
+    await expect(pay.openCheckoutSession({ linkToken: link.token, geoCountry: 'ID', method: 'crypto' })).rejects.toMatchObject({
+      code: 'pay.category_prohibited',
+    });
+    await expect(
+      pay.createPayment({ merchantId: m.id, amount: amt('5'), assetId: 'USDT', method: 'crypto', railAdapter: 'crypto-native' }),
+    ).rejects.toMatchObject({ code: 'pay.category_prohibited' });
+    expect(await sql`SELECT id FROM pay.payments`).toHaveLength(0);
+    expect(await sql`SELECT id FROM pay.checkout_sessions`).toHaveLength(0);
+
+    await sql`UPDATE pay.merchant_categories SET category_key = 'test-travel' WHERE merchant_id = ${m.id}`;
+    await expect(pay.openCheckoutSession({ linkToken: link.token, geoCountry: 'US', method: 'card' })).rejects.toMatchObject({
+      code: 'pay.category_rail_refused',
+    });
+    await expect(
+      pay.createPayment({ merchantId: m.id, amount: amt('5'), assetId: 'USDT', method: 'card', railAdapter: 'card-sandbox' }),
+    ).rejects.toMatchObject({ code: 'pay.category_rail_refused' });
+    expect(await sql`SELECT id FROM pay.checkout_sessions`).toHaveLength(0);
+
+    // A restricted category with blank reserve terms opens no session either, refused by name before any row.
+    await sql`
+      INSERT INTO pay.business_categories (key, label, class, reserve_percent, reserve_hold_days, extra_documents, version, updated_by, approved_by)
+      VALUES ('test-games', 'TEST Games', 'restricted', NULL, NULL, '{}', 1, 'founder-a', 'founder-b')
+    `;
+    await sql`UPDATE pay.merchant_categories SET category_key = 'test-games' WHERE merchant_id = ${m.id}`;
+    await expect(pay.openCheckoutSession({ linkToken: link.token, geoCountry: 'ID', method: 'crypto' })).rejects.toMatchObject({
+      code: 'pay.reserve_terms_unset',
+    });
+    expect(await sql`SELECT id FROM pay.checkout_sessions`).toHaveLength(0);
+
+    await sql`UPDATE pay.merchant_categories SET category_key = 'test-travel' WHERE merchant_id = ${m.id}`;
+    await pay.openCheckoutSession({ linkToken: link.token, geoCountry: 'ID', method: 'crypto' });
+    expect(await sql`SELECT rail_adapter FROM pay.payments`).toEqual([{ rail_adapter: 'crypto-native' }]);
   });
 
   it('a refusing beforeSettlementRun freezes no settlement and moves no value', async () => {

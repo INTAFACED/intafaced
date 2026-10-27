@@ -1,5 +1,19 @@
 import { sql } from 'drizzle-orm';
-import { bigint, boolean, date, index, integer, jsonb, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import {
+  bigint,
+  bigserial,
+  boolean,
+  date,
+  index,
+  integer,
+  jsonb,
+  pgSchema,
+  primaryKey,
+  smallint,
+  text,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import { amount, bps, createdAt, tstz, updatedAt } from '@intafaced/db';
 
 /**
@@ -111,6 +125,12 @@ export const spaces = bank.table(
      * property of the book.
      */
     lockedUntil: tstz('locked_until'),
+    /**
+     * An early unlock the owner confirmed (BK-pots-02): when they asked, and when the lock ends instead of `lockedUntil`
+     * (never later). Set together or both null (`spaces_early_unlock_ck`); a new lock date clears them.
+     */
+    unlockRequestedAt: tstz('unlock_requested_at'),
+    unlocksAt: tstz('unlocks_at'),
     archivedAt: tstz('archived_at'),
     /**
      * The customer removed this currency from their account (BK-acct-01). Primary spaces only, set only while the
@@ -283,6 +303,8 @@ export const earnPositions = bank.table(
     /** Claim before the ledger post. An omitted status is not interest-eligible. */
     status: positionStatusEnum('status').notNull().default('pending'),
     closedAt: tstz('closed_at'),
+    /** The saver's choice to start a new term when a fixed-term saving ends (BK-earn-03). Fixed-term only. */
+    autoRenew: boolean('auto_renew').notNull().default(false),
     createdAt: createdAt(),
   },
   (t) => [
@@ -327,7 +349,59 @@ export const interestAccruals = bank.table(
     /** ONE ACCRUAL PER POOL PER DAY, forever. */
     uniqueIndex('interest_accruals_pool_date_idx').on(t.poolId, t.accrualDate),
     index('interest_accruals_date_idx').on(t.accrualDate),
+    /** One person's paid days by containment on the stored plan (earn.interestHistory). */
+    index('interest_accruals_planned_payouts_idx').using('gin', sql`${t.plannedPayouts} jsonb_path_ops`),
   ],
+);
+
+/**
+ * EVERY RATE A POOL HAS PUBLISHED (BK-earn-05), append-only (a trigger refuses UPDATE and DELETE).
+ *
+ * Opening a pool records its first rate; an approved change records the next, in the same transaction as the pool's
+ * `apr_bps`. A pool opened before this table has no record until its first change, and none is invented for it.
+ */
+export const earnRateChanges = bank.table(
+  'earn_rate_changes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    poolId: uuid('pool_id')
+      .notNull()
+      .references(() => earnPools.id),
+    rateBps: integer('rate_bps').notNull(),
+    effectiveAt: tstz('effective_at').notNull(),
+    reason: text('reason'),
+    /** The identity approval a change consumed; null for the opening record. */
+    approvalId: text('approval_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('earn_rate_changes_pool_effective_uq').on(t.poolId, t.effectiveAt),
+    uniqueIndex('earn_rate_changes_approval_uq')
+      .on(t.approvalId)
+      .where(sql`${t.approvalId} IS NOT NULL`),
+  ],
+);
+
+/**
+ * ONE RENEWED TERM OF A FIXED-TERM SAVING (BK-earn-03) — append-only, one row per (position, term).
+ *
+ * The key is the relock's business key: a renewal job that runs twice renews once. Nothing posts: the principal
+ * stays in the saving's stake pot and only the maturity moves.
+ */
+export const earnRenewals = bank.table(
+  'earn_renewals',
+  {
+    positionId: uuid('position_id')
+      .notNull()
+      .references(() => earnPositions.id),
+    /** 1 for the first renewal, counting up. */
+    term: integer('term').notNull(),
+    previousMaturesAt: tstz('previous_matures_at').notNull(),
+    maturesAt: tstz('matures_at').notNull(),
+    principal: amount('principal').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.positionId, t.term] })],
 );
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -568,6 +642,35 @@ export const loanInterestAccruals = bank.table(
     uniqueIndex('loan_interest_accruals_day_idx').on(t.loanId, t.accrualDate),
     index('loan_interest_accruals_date_idx').on(t.accrualDate),
   ],
+);
+
+/**
+ * ONE APPROVED INTEREST CORRECTION (LOAN-05) — a new row, never an edit of a past day.
+ *
+ * `amount` is signed: below zero takes interest off, above zero adds interest the
+ * bank failed to charge. Like a day of accrual it moves no value; `outstanding()`
+ * adds it to the interest leg. Two different people proposed and approved it, and
+ * the identity approval it consumed is unique, so one approval writes one row.
+ * This table and `loan_interest_accruals` refuse UPDATE and DELETE (append-only
+ * trigger, migration 20261024143716).
+ */
+export const loanAdjustments = bank.table(
+  'loan_adjustments',
+  {
+    id: uuid('id').primaryKey(),
+    loanId: uuid('loan_id')
+      .notNull()
+      .references(() => loans.id),
+    kind: text('kind').notNull(),
+    /** A RECORD of one approved correction, signed; written once. */
+    amount: amount('amount').notNull(),
+    reason: text('reason').notNull(),
+    proposedBy: text('proposed_by').notNull(),
+    approvedBy: text('approved_by').notNull(),
+    approvalId: text('approval_id').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('loan_adjustments_approval_idx').on(t.approvalId), index('loan_adjustments_loan_idx').on(t.loanId, t.createdAt)],
 );
 
 /** REPAYMENTS. Partial repayment is normal, so the key is (loan, sequence). */
@@ -1042,12 +1145,42 @@ export const userWithdrawDestinations = bank.table(
     // A look-alike saved after the customer confirmed it (migration 0054): the saved entry it was checked against, and when.
     lookalikeOf: uuid('lookalike_of'),
     lookalikeConfirmedAt: tstz('lookalike_confirmed_at'),
+    // A new entry waits for the customer's approval (W-withdraw-09, migration 20261024100000): when and how it was approved.
+    approvedAt: tstz('approved_at'),
+    approvedBy: text('approved_by'),
+    // The sign-in and trusted device that saved it, as the access token named them (migration 20261024130000).
+    savedFam: uuid('saved_fam'),
+    savedDev: uuid('saved_dev'),
   },
   (t) => [
     primaryKey({ name: 'user_withdraw_destinations_pkey', columns: [t.destinationId] }),
     uniqueIndex('user_withdraw_destinations_legacy_idx')
       .on(t.userId, t.kind)
       .where(sql`${t.origin} = 'legacy'`),
+  ],
+);
+
+/**
+ * Single-use links that approve a new withdrawal address (W-withdraw-09, migration 20261024100000). Only the token's
+ * sha256 is kept; only the newest mailed link of an entry works, until it expires or is used.
+ */
+export const destinationApprovalLinks = bank.table(
+  'destination_approval_links',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: text('user_id').notNull(),
+    destinationId: uuid('destination_id').notNull(),
+    seq: integer('seq').notNull(),
+    tokenHash: text('token_hash').notNull(),
+    expiresAt: tstz('expires_at').notNull(),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+    mailedAt: tstz('mailed_at'),
+    mailId: uuid('mail_id'),
+    usedAt: tstz('used_at'),
+  },
+  (t) => [
+    uniqueIndex('destination_approval_links_token_idx').on(t.tokenHash),
+    uniqueIndex('destination_approval_links_seq_idx').on(t.destinationId, t.seq),
   ],
 );
 
@@ -1178,7 +1311,10 @@ export const linkedBankAccounts = bank.table(
   ],
 );
 
-/** One cash-out request to a linked bank account (J-bank-03, migration 0056). Kept refused with its code; never held or posted. */
+/**
+ * One cash-out request to a linked bank account (J-bank-03, migrations 0056 and _cash_out_payouts). Kept refused with its
+ * code when the bank cannot send it; otherwise held at confirm and settled, given back or returned once by the partner.
+ */
 export const cashOutRequests = bank.table('cash_out_requests', {
   id: uuid('id').primaryKey(),
   userId: text('user_id').notNull(),
@@ -1188,6 +1324,20 @@ export const cashOutRequests = bank.table('cash_out_requests', {
   rail: text('rail').notNull().default('rail.bank'),
   status: text('status').notNull(),
   refusalCode: text('refusal_code'),
+  payoutRail: text('payout_rail'),
+  payoutRef: text('payout_ref'),
+  fee: amount('fee'),
+  receiveAmount: amount('receive_amount'),
+  receiveCurrency: text('receive_currency'),
+  holdLedgerTxId: text('hold_ledger_tx_id'),
+  settleLedgerTxId: text('settle_ledger_tx_id'),
+  reverseLedgerTxId: text('reverse_ledger_tx_id'),
+  failureCode: text('failure_code'),
+  returnedAmount: amount('returned_amount'),
+  returnLedgerTxId: text('return_ledger_tx_id'),
+  completedAt: tstz('completed_at'),
+  failedAt: tstz('failed_at'),
+  returnedAt: tstz('returned_at'),
   createdAt: createdAt(),
 });
 
@@ -1229,8 +1379,12 @@ export const depositAddresses = bank.table(
     memo: text('memo'),
     qrPayload: text('qr_payload'),
     createdAt: createdAt(),
+    /** 0 is the first address, which never expires; an extra one (W-deposit-02) carries the expiry custody stored. */
+    addressIndex: integer('address_index').notNull().default(0),
+    label: text('label'),
+    expiresAt: tstz('expires_at'),
   },
-  (t) => [primaryKey({ name: 'deposit_addresses_pkey', columns: [t.userId, t.assetId, t.networkId] })],
+  (t) => [primaryKey({ name: 'deposit_addresses_pkey', columns: [t.userId, t.assetId, t.networkId, t.addressIndex] })],
 );
 
 /**
@@ -1269,6 +1423,8 @@ export const autoInvestRules = bank.table(
     assetId: text('asset_id').notNull(),
     threshold: amount('threshold'),
     targetPoolId: uuid('target_pool_id'),
+    /** A card round-up into one of the person's own named spaces. Exactly one of this and `targetPoolId` on a round-up. */
+    targetSpaceId: uuid('target_space_id').references(() => spaces.id),
     buyAssetId: text('buy_asset_id'),
     amount: amount('amount'),
     cadence: transferCadenceEnum('cadence'),
@@ -1300,6 +1456,85 @@ export const autoInvestRuns = bank.table(
     uniqueIndex('auto_invest_runs_unique_claim').on(t.ruleId, t.clientRunId),
     index('auto_invest_runs_rule_idx').on(t.ruleId, t.createdAt),
   ],
+);
+
+// ── Income sorter (BK-pots-03) ───────────────────────────────────────────────
+// A payment from another person split across the person's own spaces by percentage, once. Instructions and what became
+// of each split; every split moves with the own-space bankTransfer recipe, so no balance lives here.
+
+export const incomeSorters = bank.table(
+  'income_sorters',
+  {
+    id: uuid('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    assetId: text('asset_id').notNull(),
+    status: text('status').notNull().default('active'),
+    createdAt: createdAt(),
+    cancelledAt: tstz('cancelled_at'),
+  },
+  (t) => [
+    uniqueIndex('income_sorters_one_active_uq')
+      .on(t.userId, t.assetId)
+      .where(sql`${t.status} = 'active'`),
+  ],
+);
+
+export const incomeSorterLegs = bank.table(
+  'income_sorter_legs',
+  {
+    sorterId: uuid('sorter_id')
+      .notNull()
+      .references(() => incomeSorters.id),
+    position: smallint('position').notNull(),
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    shareBp: integer('share_bp').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.sorterId, t.position] }), uniqueIndex('income_sorter_legs_space_uq').on(t.sorterId, t.spaceId)],
+);
+
+export const incomeSorterRuns = bank.table(
+  'income_sorter_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sorterId: uuid('sorter_id')
+      .notNull()
+      .references(() => incomeSorters.id),
+    /** The posted personal send this run sorts (bank.personal_transfers). */
+    creditTransferId: text('credit_transfer_id').notNull(),
+    creditTxId: text('credit_tx_id').notNull(),
+    creditAmount: amount('credit_amount').notNull(),
+    creditPostedAt: tstz('credit_posted_at').notNull(),
+    /** below_minimum or terms_unset: recorded and not split. */
+    skippedReason: text('skipped_reason'),
+    createdAt: createdAt(),
+    drivenAt: tstz('driven_at'),
+  },
+  (t) => [
+    uniqueIndex('income_sorter_runs_credit_uq').on(t.creditTransferId),
+    index('income_sorter_runs_sorter_idx').on(t.sorterId, t.createdAt.desc()),
+  ],
+);
+
+export const incomeSorterRunLegs = bank.table(
+  'income_sorter_run_legs',
+  {
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => incomeSorterRuns.id),
+    position: smallint('position').notNull(),
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    amount: amount('amount').notNull(),
+    status: text('status').notNull().default('pending'),
+    ledgerTxId: text('ledger_tx_id'),
+    rejectionCode: text('rejection_code'),
+    settledAt: tstz('settled_at'),
+    attemptedAt: tstz('attempted_at'),
+  },
+  (t) => [primaryKey({ columns: [t.runId, t.position] })],
 );
 
 // ── Business maker/checker (§31:811 partial) ─────────────────────────────────
@@ -1427,6 +1662,101 @@ export const businessPayrollLines = bank.table(
   (t) => [primaryKey({ columns: [t.payrollId, t.toSpaceId] })],
 );
 
+// Bills pot (BK-pots-03, J-bank-07 #4): one of the person's own named spaces per asset that pays their bills, with an
+// opt-in fallback that tops it up from the main account when a standing order from it finds too little. A role, never a
+// balance: the top-up is an own-space bankTransfer.
+
+export const billsPots = bank.table(
+  'bills_pots',
+  {
+    userId: text('user_id').notNull(),
+    assetId: text('asset_id').notNull(),
+    spaceId: uuid('space_id')
+      .notNull()
+      .unique('bills_pots_space_uq')
+      .references(() => spaces.id),
+    fallback: boolean('fallback').notNull().default(false),
+    setAt: tstz('set_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.assetId] })],
+);
+
+// Shared pots (BK-acct-09, J-bank-07 #6): who may see a named pot (viewer) or add money to it (contributor), the invites
+// that lead there with their owner-set lifetime, and the log of who did what. Membership decides who may call; it is
+// never a balance, and the pot's money stays the owner's ledger account.
+export const sharedPotInvites = bank.table(
+  'shared_pot_invites',
+  {
+    /** The caller's own request id: asking again with it returns the same invite. */
+    id: uuid('id').primaryKey(),
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    inviterUserId: text('inviter_user_id').notNull(),
+    inviteeUserId: text('invitee_user_id').notNull(),
+    role: text('role').notNull(),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+    /** created_at plus the owner's BANK_SHARED_POT_INVITE_MINUTES, on the database clock. */
+    expiresAt: tstz('expires_at').notNull(),
+    acceptedAt: tstz('accepted_at'),
+    declinedAt: tstz('declined_at'),
+    cancelledAt: tstz('cancelled_at'),
+  },
+  (t) => [
+    index('shared_pot_invites_invitee_idx').on(t.inviteeUserId, t.createdAt),
+    index('shared_pot_invites_space_idx').on(t.spaceId, t.createdAt),
+  ],
+);
+
+export const sharedPotMembers = bank.table(
+  'shared_pot_members',
+  {
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    userId: text('user_id').notNull(),
+    role: text('role').notNull(),
+    inviteId: uuid('invite_id')
+      .notNull()
+      .references(() => sharedPotInvites.id),
+    joinedAt: tstz('joined_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.spaceId, t.userId] }), index('shared_pot_members_user_idx').on(t.userId)],
+);
+
+export const sharedPotActivity = bank.table(
+  'shared_pot_activity',
+  {
+    id: bigserial('id', { mode: 'bigint' }).primaryKey(),
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    actorUserId: text('actor_user_id').notNull(),
+    subjectUserId: text('subject_user_id'),
+    kind: text('kind').notNull(),
+    role: text('role'),
+    /** The card a card_* entry is about; null on every people entry. */
+    cardId: uuid('card_id').references(() => cards.id),
+    at: tstz('at').notNull().defaultNow(),
+  },
+  (t) => [index('shared_pot_activity_space_idx').on(t.spaceId, t.id)],
+);
+
+/** The owner's card linked to a shared pot, so its holders can freeze it. One card per pot and one pot per card. */
+export const sharedPotCards = bank.table(
+  'shared_pot_cards',
+  {
+    spaceId: uuid('space_id')
+      .primaryKey()
+      .references(() => spaces.id),
+    cardId: uuid('card_id')
+      .notNull()
+      .references(() => cards.id),
+    linkedAt: tstz('linked_at').notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('shared_pot_cards_card_uq').on(t.cardId)],
+);
+
 export const schema = {
   spaces,
   scheduledTransfers,
@@ -1434,10 +1764,13 @@ export const schema = {
   earnPools,
   earnPositions,
   interestAccruals,
+  earnRateChanges,
+  earnRenewals,
   loanProducts,
   loans,
   loanCollateralEvents,
   loanInterestAccruals,
+  loanAdjustments,
   loanRepayments,
   loanMarginCalls,
   loanLiquidations,

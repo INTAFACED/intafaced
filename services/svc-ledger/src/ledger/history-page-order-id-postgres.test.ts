@@ -10,7 +10,8 @@ import { historyPageInputSchema, orderIdFromHoldPurpose, serializeHistoryPage, t
 
 /**
  * `historyPage` names the page owner's OWN trade order on each line the ledger links to one
- * (hold, amend, release, fill leg), from the order-hold account the same transaction moves for that owner.
+ * (hold, amend, release, fill leg), from the order-hold account the same transaction moves for that owner, and the fee
+ * taken from the owner's receiving line of a fill.
  * PG-hard like `history-page-postgres.test.ts`: TEST_DATABASE_URL in CI, Testcontainers locally.
  */
 
@@ -25,6 +26,8 @@ const migrations = readdirSync(drizzleDir)
 const TAKER = '81111111-1111-4111-8111-111111111111';
 const MAKER = '82222222-2222-4222-8222-222222222222';
 const SELF = '83333333-3333-4333-8333-333333333333';
+const FREE = '84444444-4444-4444-8444-444444444444';
+const FREE_MAKER = '85555555-5555-4555-8555-555555555555';
 
 const TAKER_ORDER = 'd1111111-1111-4111-8111-d11111111111';
 const MAKER_ORDER = 'd2222222-2222-4222-8222-d22222222222';
@@ -32,6 +35,8 @@ const MAKER_ORDER_2 = 'd3333333-3333-4333-8333-d33333333333';
 const MM_TAKER_ORDER = 'd4444444-4444-4444-8444-d44444444444';
 const SELF_BUY = 'd5555555-5555-4555-8555-d55555555555';
 const SELF_SELL = 'd6666666-6666-4666-8666-d66666666666';
+const FREE_ORDER = 'd7777777-7777-4777-8777-d77777777777';
+const MAKER_ORDER_3 = 'd8888888-8888-4888-8888-d88888888888';
 
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
@@ -114,8 +119,8 @@ describe('PostgresLedger.historyPage orderId', () => {
         qty: amt('1'),
         quoteAmount: amt('700'),
         takerSide: 'buy',
-        makerFeeBps: 0,
-        takerFeeBps: 0,
+        makerFeeBps: 10,
+        takerFeeBps: 20,
       }),
     );
 
@@ -133,6 +138,28 @@ describe('PostgresLedger.historyPage orderId', () => {
         quoteAsset: 'USDT',
         qty: amt('1'),
         quoteAmount: amt('900'),
+        takerSide: 'buy',
+        makerFeeBps: 10,
+        takerFeeBps: 20,
+      }),
+    );
+
+    // A fill on a zero-fee schedule: the recipe books no fee leg at all.
+    await fund(FREE, 'USDT', '500', 'oid-free-usdt');
+    await fund(FREE_MAKER, 'BTC', '1', 'oid-free-maker-btc');
+    await engine.post(recipes.orderHold({ orderId: FREE_ORDER, userId: FREE, assetId: 'USDT', amount: amt('400') }));
+    await engine.post(recipes.orderHold({ orderId: MAKER_ORDER_3, userId: FREE_MAKER, assetId: 'BTC', amount: amt('1') }));
+    await engine.post(
+      recipes.tradeFill({
+        fillId: 'oid-free-fill',
+        makerId: FREE_MAKER,
+        takerId: FREE,
+        makerOrderId: MAKER_ORDER_3,
+        takerOrderId: FREE_ORDER,
+        baseAsset: 'BTC',
+        quoteAsset: 'USDT',
+        qty: amt('0.5'),
+        quoteAmount: amt('300'),
         takerSide: 'buy',
         makerFeeBps: 0,
         takerFeeBps: 0,
@@ -202,6 +229,50 @@ describe('PostgresLedger.historyPage orderId', () => {
     expect(dep[0]!.orderId).toBeNull();
     expect(serializeHistoryPage(page).entries.find((e) => e.reason === 'deposit.credited')).toMatchObject({ orderId: null });
     expect(serializeHistoryPage(page).entries.find((e) => e.reason === 'order.hold.amend')).toMatchObject({ orderId: TAKER_ORDER });
+  });
+
+  it("a fill's receiving line names the fee taken from it: the trade-fee leg in that asset, never the other side's", async () => {
+    // Fill 1: taker fee 20 bps of 1 BTC = 0.002 BTC; maker fee 10 bps of 600 USDT = 0.6. Fill 2: 0.002 BTC and 0.62 USDT.
+    const taker = byReason(await lines(TAKER), 'trade.fill');
+    expect(taker.map((f) => f.fee)).toEqual([amt('0.002'), amt('0.002')]);
+    expect(taker.map((f) => f.amount)).toEqual([amt('0.998'), amt('0.998')]);
+    const maker = byReason(await lines(MAKER), 'trade.fill');
+    expect(maker.map((f) => f.fee).sort()).toEqual([amt('0.6'), amt('0.62')].sort());
+  });
+
+  it("against the market maker, the customer's fee is theirs alone: the maker's fee in the other asset is not added", async () => {
+    // Taker fee 20 bps of 1 BTC = 0.002 BTC; the house maker's 10 bps of 700 USDT = 0.7 USDT stays out of it.
+    expect(byReason(await lines(TAKER), 'trade.fill.mm_maker')).toMatchObject([
+      { assetId: 'BTC', amount: amt('0.998'), fee: amt('0.002') },
+    ]);
+  });
+
+  it('one user on both sides of a fill: each line names only the fee in the asset it received', async () => {
+    const own = byReason(await lines(SELF), 'trade.fill');
+    expect(own.find((e) => e.assetId === 'BTC')?.fee).toBe(amt('0.002')); // 20 bps of 1 BTC, as the taker
+    expect(own.find((e) => e.assetId === 'USDT')?.fee).toBe(amt('0.9')); // 10 bps of 900 USDT, as the maker
+  });
+
+  it('a fill that booked no fee says 0, not unknown', async () => {
+    expect(byReason(await lines(FREE), 'trade.fill')).toMatchObject([{ assetId: 'BTC', amount: amt('0.5'), fee: 0n }]);
+    expect(byReason(await lines(FREE_MAKER), 'trade.fill')).toMatchObject([{ assetId: 'USDT', amount: amt('300'), fee: 0n }]);
+  });
+
+  it('every other line has fee null: deposits, holds, releases, and the paying leg on an order-hold page', async () => {
+    for (const e of await lines(TAKER)) if (!e.reason.startsWith('trade.fill')) expect(e.fee).toBeNull();
+    const hold = (await engine.historyPage(scope(TAKER, { kind: 'hold', purpose: `order:${TAKER_ORDER}` }))).entries;
+    expect(hold.some((e) => e.reason === 'trade.fill')).toBe(true);
+    for (const e of hold) expect(e.fee).toBeNull();
+  });
+
+  it('the wire form carries the fee as a decimal string, and null as null', async () => {
+    const wire = serializeHistoryPage(await engine.historyPage(scope(TAKER))).entries;
+    expect(wire.filter((e) => e.reason === 'trade.fill').map((e) => e.fee)).toEqual(['0.002', '0.002']);
+    expect(wire.find((e) => e.reason === 'trade.fill.mm_maker')).toMatchObject({ fee: '0.002' });
+    expect(wire.find((e) => e.reason === 'deposit.credited')).toMatchObject({ fee: null });
+    expect(serializeHistoryPage(await engine.historyPage(scope(FREE))).entries.find((e) => e.reason === 'trade.fill')).toMatchObject({
+      fee: '0',
+    });
   });
 
   it('paging is unchanged: the same entries in the same order, with or without order ids', async () => {

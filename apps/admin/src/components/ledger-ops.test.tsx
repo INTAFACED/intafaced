@@ -96,12 +96,12 @@ describe('freeze and unfreeze take two founders', () => {
   });
 });
 
-describe('reconciliation is honestly unavailable', () => {
-  it('shows no figure, no button and no simulation, only the reason', () => {
+describe('reconciliation lives in its own section', () => {
+  it('the posting desk shows no reconcile figure, button or simulation', () => {
     const html = render();
-    expect(html).toContain('data-testid="reconcile-unavailable"');
-    expect(html).toContain('data-available="false"');
-    expect(html).toContain('svc-edge exposes no route for it');
+    expect(html).toContain('Reconciliation controls are below the transaction lookup.');
+    expect(html).not.toContain('reconcile-unavailable');
+    expect(html).not.toContain('svc-edge exposes no route for it');
     expect(html).not.toContain('reconcile-preview');
     expect(html).not.toContain('Simulated');
     expect(html).not.toContain('Not counted');

@@ -7,6 +7,14 @@ function testValue(name) {
   return entry.value;
 }
 
+/** svc-pay as the deposit custody port, or none at all when the stack is asked to show custody unset. */
+function depositCustody(urlOf) {
+  const asked = process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
+  if (asked === undefined || asked === '') return { PAY_URL: urlOf('pay') };
+  if (asked === 'off') return {};
+  throw new Error(`LOCAL_STACK_BANK_DEPOSIT_CUSTODY is "${asked}"; leave it unset for custody connected, or set it to off.`);
+}
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'bank',
   env: () => ({
@@ -15,6 +23,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     LEDGER_URL: urlOf('ledger'),
     IDENTITY_URL: urlOf('identity'),
     TRADE_URL: urlOf('trade'),
+    // Deposit catalogue and addresses come from svc-pay's custody paths; without it every deposit answer is "not published".
+    // `LOCAL_STACK_BANK_DEPOSIT_CUSTODY=off` on a start or restart leaves it blank, so the Deposit room's custody-unset
+    // refusal can be seen too (J-wallet-02 #1).
+    ...depositCustody(urlOf),
     // Required, no default (owner-unpublished). Inert LOCAL TEST placeholders so the service can
     // boot: the jobs they size are all switched off below, so no batch size is ever exercised.
     LOAN_QUOTE_ASSET_ID: 'USDT',
@@ -34,6 +46,16 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     }),
     BANK_ACCOUNT_CURRENCIES: 'USDT,USDC,BTC,ETH',
     BANK_SPACE_LIMIT: '5',
+    // LOCAL TEST value from the bank profile (BK-pots-02): how long an early unlock of a locked space waits. Unset, every
+    // early unlock refuses bank.space_unlock_rule_unset and the space stays locked to its date.
+    BANK_SPACE_UNLOCK_WAIT_HOURS: testValue('BANK_SPACE_UNLOCK_WAIT_HOURS'),
+    // LOCAL TEST value from the bank profile (BK-pots-03): the smallest payment from another person the income sorter
+    // splits. Unset, making a sorter refuses bank.sorter_terms_unset and no payment is sorted.
+    BANK_INCOME_SORTER_MIN_CREDIT: testValue('BANK_INCOME_SORTER_MIN_CREDIT'),
+    // LOCAL TEST values from the bank profile (BK-acct-09): how long a shared pot invite stays open and how many people one
+    // pot may be shared with. Unset, inviting and accepting refuse bank.joint_unset and no pot is shared.
+    BANK_SHARED_POT_INVITE_MINUTES: testValue('BANK_SHARED_POT_INVITE_MINUTES'),
+    BANK_SHARED_POT_PEOPLE_CAP: testValue('BANK_SHARED_POT_PEOPLE_CAP'),
     BANK_ACCOUNT_DETAILS_CURRENCIES: 'EUR,GBP,USD',
     // LOCAL TEST values, not owner decisions: how many withdrawal addresses one person may save, and how long a
     // new one waits before money may leave to it. Unset, the address book refuses saves and lists every row as
@@ -46,6 +68,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // LOCAL TEST values: how long a wallet ownership proof stays open to sign, and how long a verified one holds.
     BANK_WALLET_PROOF_WINDOW_MINUTES: '30',
     BANK_WALLET_PROOF_VALID_DAYS: '180',
+    // LOCAL TEST value: how long an emailed link that approves a new withdrawal address works (J-wallet-04 #5).
+    BANK_ADDRESS_APPROVAL_LINK_MINUTES: '30',
+    // LOCAL TEST values: how many deposit addresses one person may hold open per asset and network (small, so J-wallet-02 #4
+    // reaches it), and how long an extra one lasts. Unset, making another deposit address refuses by name.
+    BANK_DEPOSIT_ADDRESS_CAP: '3',
+    BANK_DEPOSIT_ADDRESS_EXPIRY_DAYS: '30',
     // LOCAL TEST values from the bank profile, not owner decisions (BK-xfer-07): one made-up blocked payee, one made-up
     // exchange account with a small allowance, and the proof files a held send may upload. Unset, every global send
     // refuses before its quote, so the sending journeys could not reach a hold or a refusal on this stack.
@@ -58,6 +86,19 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     BANK_GLOBAL_PARTNER: 'global-sim',
     BANK_GLOBAL_SIM_JSON: testValue('BANK_GLOBAL_SIM_JSON'),
     BANK_SEND_FIELD_RULES_JSON: testValue('BANK_SEND_FIELD_RULES_JSON'),
+    // LOCAL TEST rate stand-in for add money (J-bank-02 #4; prices nothing real, opens no payment, refused under live
+    // posture): it quotes only the asks its TEST catalogue lists, so a price can be shown, run out and be refused here.
+    BANK_ONRAMP_RATES: 'ramp-sim',
+    BANK_ONRAMP_SIM_JSON: testValue('BANK_ONRAMP_SIM_JSON'),
+    // LOCAL TEST payout stand-in for cash out (J-bank-03 #4/#5; pays nobody, refused under live posture): it prices the
+    // assets its TEST catalogue lists and takes a payout; verifying an account and saying paid, failed or returned are the
+    // partner's signed job calls, which only a test makes here. Value moves to and from its own TEST rail boundary.
+    BANK_PAYOUT_PARTNER: 'payout-sim',
+    BANK_PAYOUT_SIM_JSON: testValue('BANK_PAYOUT_SIM_JSON'),
+    // LOCAL TEST stand-in for a direct debit scheme (BK-xfer-11; no network, pays nobody, refused under live posture): its
+    // TEST creditors set up mandates and present collections only through the signed job doors, as J-bank-06 #4 does.
+    BANK_DD_SCHEME: 'dd-sim',
+    BANK_DD_SIM_JSON: testValue('BANK_DD_SIM_JSON'),
     // LOCAL TEST value from the bank profile, not an owner decision (BK-xfer-06): how long a new bank-rail recipient waits
     // before money may go to it. Unset, every send to a saved recipient refuses bank.payee_cooling_unset.
     BANK_PAYEE_COOLING_HOURS: testValue('BANK_PAYEE_COOLING_HOURS'),
@@ -67,13 +108,24 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     BANK_GLOBAL_REFUND_FEE: testValue('BANK_GLOBAL_REFUND_FEE'),
     // LOCAL TEST value from the bank profile (J-bank-06): how close to its next run a standing order may still be edited.
     BANK_SCHEDULE_EDIT_CUTOFF_MINUTES: testValue('BANK_SCHEDULE_EDIT_CUTOFF_MINUTES'),
+    // LOCAL TEST values from the bank profile (BK-loan-06, J-bank-11 #1): the fee on clearing a loan early and how long a
+    // payoff quote holds. Unset, every payoff quote refuses bank.loan_fee_unset, so the loan page could only show the refusal.
+    BANK_LOAN_PAYOFF_FEE: testValue('BANK_LOAN_PAYOFF_FEE'),
+    BANK_LOAN_PAYOFF_WINDOW_MINUTES: testValue('BANK_LOAN_PAYOFF_WINDOW_MINUTES'),
     // Nothing moves money in the background of a test stack.
     // The standing-order runner has no timer: it is a signed job door, and on this stack only a test's own signed call
     // (J-bank-06) runs it. Left off, a one-off or a standing order could never be shown running here.
     SCHEDULED_TRANSFERS_ENABLED: 'true',
-    AUTO_INVEST_ENABLED: 'false',
-    INTEREST_ACCRUAL_ENABLED: 'false',
-    LOAN_ACCRUAL_ENABLED: 'false',
+    // Auto-invest has no timer either: its runner is a signed job door no test calls. On, a card capture's round-up
+    // (J-bank-07 #3) moves the spare change into the person's space; off, every round-up would only say it is switched off.
+    AUTO_INVEST_ENABLED: 'true',
+    // Earn interest has no timer either: on this stack only a test's own staff call (`ops.accrueInterest` for one TEST pool
+    // and day, J-bank-07 #5) pays a day. Left off, savings here could never show a day of interest.
+    INTEREST_ACCRUAL_ENABLED: 'true',
+    // Loan interest moves no money (it writes the day's interest row) and has no timer either: on this stack only a
+    // test's own signed call to its job door runs it (J-bank-11 #2, after `local-test-seed.mjs age-loan`). Left off, a
+    // loan here could never owe interest, so a repayment could never be shown paying interest first.
+    LOAN_ACCRUAL_ENABLED: 'true',
     LOAN_RISK_SWEEP_ENABLED: 'false',
   }),
 });

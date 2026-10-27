@@ -121,4 +121,105 @@ export const CONTROL_COPY: Record<string, PlainRefusal> = {
     body: 'A payout halt can only name a rail this deployment sends on.',
     next: 'Pick a registered rail.',
   },
+  // ── business verification documents (J-merchant-02 step 3) ──
+  'pay.kyb_document_already_reviewed': {
+    title: 'This document already has a verdict',
+    body: 'A verdict is final for that file. While the application is under review, the merchant answers Invalid by sending a new file for that document.',
+    next: 'Reload the Verification tab to see the verdict in force.',
+  },
+  'pay.kyb_document_not_current': {
+    title: 'A newer file replaced this one',
+    body: 'The merchant sent another file for this document, or started the application again, so this file no longer counts.',
+    next: 'Reload the Verification tab and review the file shown there.',
+  },
+  'pay.kyb_document_not_found': {
+    title: 'That document is not on this application',
+    body: 'The service has no such upload for the merchant’s current application.',
+    next: 'Reload the Verification tab.',
+  },
+  'pay.kyb_review_reason_required': {
+    title: 'A rejection needs a reason',
+    body: 'The merchant reads the reason next to the document, so it has to say what to fix.',
+    next: 'Write the reason and reject again.',
+  },
+  'pay.kyb_doc_key_unset': {
+    title: 'Documents cannot be opened here',
+    body: 'The key that encrypts business documents is not set for this deployment, so no file can be read.',
+    next: 'Nothing was opened. The key is an owner setting.',
+  },
+  'pay.kyb_document_unreadable': {
+    title: 'This file does not open',
+    body: 'It does not open with the current document key, or it does not match the digest recorded when it was sent.',
+    next: 'Mark it Invalid with that reason so the merchant sends the file again, and tell engineering.',
+  },
+  'pay.kyb_application_not_found': {
+    title: 'That application does not exist',
+    body: 'The service has no business application with that id.',
+    next: 'Reload the Verification tab.',
+  },
+  'pay.kyb_request_key_conflict': {
+    title: 'That request was already sent with other words',
+    body: 'A request with the same key exists for this merchant with different words or a different due date.',
+    next: 'Reload the Verification tab and check the requests listed there.',
+  },
+  'pay.kyb_request_due_past': {
+    title: 'The due date has passed',
+    body: 'A request needs a due date in the future, so the merchant has time to answer.',
+    next: 'Pick a later due date and send it again. Nothing was sent.',
+  },
+  'pay.category_not_chosen': {
+    title: 'The business has not chosen its category',
+    body: 'Business categories are published, and this business has not picked one, so it cannot be approved yet.',
+    next: 'Ask the owner to choose a category on their Compliance page, then approve again. Nothing was changed.',
+  },
+  'pay.category_prohibited': {
+    title: 'INTAFACED does not take this kind of business',
+    body: 'The category this business chose is one INTAFACED does not take, so it cannot be approved.',
+    next: 'Reject the application, or ask the owner to check the category they chose. Nothing was changed.',
+  },
+  'pay.category_exists': {
+    title: 'That category already exists',
+    body: 'A category with the same key was saved first, so nothing was added.',
+    next: 'Open it from the table and edit it instead.',
+  },
+  'pay.category_not_found': {
+    title: 'That category does not exist',
+    body: 'You are editing a category that is not in the table.',
+    next: 'Reload the page and open it from the table.',
+  },
+  'pay.category_version_conflict': {
+    title: 'This category changed while you were editing',
+    body: 'Another change was saved after you opened it, so this one was not saved and its approval cannot be used.',
+    next: 'Reload, redo your edit and ask the other founder again.',
+  },
+  'pay.category_unchanged': {
+    title: 'Nothing would change',
+    body: 'The category already reads exactly what you sent.',
+    next: 'Change something, or leave it as it is.',
+  },
+  'pay.kyb_request_asked_before': {
+    title: 'This exact request was already sent',
+    body: 'A request with the same words and due date was sent to this merchant and is already answered or closed, so nothing new went out.',
+    next: 'To ask again, change the words or the due date.',
+  },
+  'pay.kyb_request_closed': {
+    title: 'This request is already closed',
+    body: 'It was closed with another note. A closed request stays as it is.',
+    next: 'Reload the Verification tab to see who closed it.',
+  },
+  'pay.kyb_request_not_found': {
+    title: 'That request does not exist',
+    body: 'The service has no information request with that id.',
+    next: 'Reload the Verification tab.',
+  },
+  'pay.kyb_request_file_not_found': {
+    title: 'This answer has no file',
+    body: 'The merchant answered with a note only.',
+    next: 'Read the note on the request.',
+  },
+  'pay.kyb_application_decided': {
+    title: 'This application is already decided',
+    body: 'INTAFACED approved or turned down this application, so its documents take no more verdicts.',
+    next: 'Reload the Verification tab. A turned-down merchant starts a new application.',
+  },
 };

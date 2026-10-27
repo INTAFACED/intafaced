@@ -27,6 +27,14 @@ export type BankErrorCode =
   | 'bank.schedule_edit_cutoff_unset'
   | 'bank.pool_not_found'
   | 'bank.pool_closed'
+  /** An ops pool create reused a pool id with different terms: a new pool needs a new id. */
+  | 'bank.pool_conflict'
+  /** An ops pool create whose term does not fit its kind: a fixed pool needs days, a flexible one has none. */
+  | 'bank.pool_terms_invalid'
+  /** A fixed-term pool's rate is the term's promise: it never changes; a new rate is a new pool. */
+  | 'bank.fixed_pool_rate_locked'
+  /** A rate change that names the rate already in force records nothing. */
+  | 'bank.pool_rate_unchanged'
   | 'bank.pool_underfunded'
   /**
    * No open pool carries an operator-configured APR for the requested earn
@@ -61,6 +69,14 @@ export type BankErrorCode =
    * claim first; do not close a half-open position under the operator's feet.
    */
   | 'bank.position_pending'
+  /** Auto-renew asked of a flexible saving, or a pool with no term to renew for: only a fixed-term saving renews. */
+  | 'bank.auto_renew_fixed_only'
+  /** Auto-renew turned on after the saving's term ended: a term that is over does not renew; take it back or save again. */
+  | 'bank.position_matured'
+  /** Identity answers the saver's account is frozen, closed or unknown, so the renewal job starts no new term. */
+  | 'bank.account_not_active'
+  /** One saving's renewal failed for a reason with no code of its own; the job reports it and carries on. */
+  | 'bank.earn_renew_failed'
   /**
    * earn_positions.principal disagrees with the ledger earn stake pot.
    * The table is eligibility (who, which pool, `active`); the money is
@@ -154,6 +170,14 @@ export type BankErrorCode =
    * sum that quietly omitted the coins it could not price would be a wrong number.
    */
   | 'bank.prices_unavailable'
+  /** `portfolio.valueOverTime`: the range must start before it ends, and before now (or is shorter than one chart step). */
+  | 'bank.value_range_invalid'
+  /** `portfolio.valueOverTime`: the range starts too long ago for one candle read to price it. */
+  | 'bank.value_range_too_long'
+  /** `portfolio.valueOverTime`: more ledger movements in the range than one answer carries. */
+  | 'bank.value_history_too_large'
+  /** `portfolio.valueOverTime`: svc-ledger's holdings history could not be read (or is not wired). Nothing is guessed. */
+  | 'bank.value_history_unavailable'
   /**
    * `portfolio.summary` was asked to show values in a currency other than USD or BTC. The platform has no FX rate source
    * (the rate source is an owner value and stays blank), so the call refuses by name and keeps no guess.
@@ -345,8 +369,22 @@ export type BankErrorCode =
   | 'bank.deposit_catalogue_invalid'
   /** The asset or network is not in the published catalogue. */
   | 'bank.deposit_asset_unpublished'
+  /** The owner switched deposits of this asset on this network off: no address is issued. */
+  | 'bank.deposit_network_halted'
   /** Custody returned more incoming deposits than this door will publish. None are dropped. */
   | 'bank.deposit_pending_unbounded'
+  /** BANK_DEPOSIT_ADDRESS_CAP is not published, so no extra deposit address is made (W-deposit-02). */
+  | 'bank.deposit_address_cap_unset'
+  /** The person already holds the owner's cap of open deposit addresses for this asset on this network. */
+  | 'bank.deposit_address_cap_reached'
+  /** BANK_DEPOSIT_ADDRESS_EXPIRY_DAYS is not published, so an extra address would have no expiry: none is made. */
+  | 'bank.deposit_address_expiry_unset'
+  /** Every address number (up to 9999) for this person, asset and network has been used; numbers are never reused. */
+  | 'bank.deposit_address_numbers_used'
+  /** No deposit address of this person has that asset, network and number. */
+  | 'bank.deposit_address_not_found'
+  /** A deposit address label must be 1 to 40 characters with no space at either end, or empty to clear it. */
+  | 'bank.deposit_address_label_invalid'
   | 'bank.ramp_invalid_amount'
   /**
    * Asset id is blank or not a usable crypto ledger symbol. The crypto half
@@ -416,6 +454,12 @@ export type BankErrorCode =
   | 'bank.cash_out_over_available'
   /** No linked bank account of this customer has this id. */
   | 'bank.linked_account_not_found'
+  /** No cash-out of this customer has this id. */
+  | 'bank.cash_out_not_found'
+  /** The cash-out was not paid out (refused, still processing or failed), so it has no receipt. */
+  | 'bank.cash_out_receipt_not_ready'
+  /** No receipt signing key is set, so no cash-out receipt is made. */
+  | 'bank.cash_out_receipt_signing_unset'
   /** The owner has not set how many addresses a book may hold. Saving refuses; no number is invented. */
   | 'bank.address_book_cap_unset'
   /** Dest user has no primary space — refuse before ledger-client posts. */
@@ -426,10 +470,39 @@ export type BankErrorCode =
    * it matches identity's uniform `{ found: false }`. Refused before any posting.
    */
   | 'bank.recipient_cannot_receive'
+  | 'bank.sender_cannot_send'
   /** Identity could not answer the recipient check (outage, timeout, bad reply). Nothing posted; retry with the same id. */
   | 'bank.recipient_check_unavailable'
   /** No IDENTITY_URL: this deployment cannot check recipients, so it refuses to credit another user. A deployment gap, not an outage. */
   | 'bank.recipient_check_unset'
+  /** The owner's security lock holds (W-withdraw-09): no withdrawal address is added or removed and nothing is sent to one until it ends. */
+  | 'bank.security_locked'
+  /** Identity could not answer the security lock check (outage, timeout, bad reply). Nothing changed; retry. */
+  | 'bank.security_lock_unavailable'
+  /** No IDENTITY_URL: this deployment cannot check the security lock, so address changes and sends refuse. A deployment gap. */
+  | 'bank.security_lock_unset'
+  /** The address was approved already, so there is nothing to approve or mail. */
+  | 'bank.address_approval_not_pending'
+  /** Approving from the device (or the sign-in, where no device is named) that saved the address: another one, or the link, must. */
+  | 'bank.address_approval_same_device'
+  /** The saving or the approving sign-in is not named on its access token, so a different device cannot be told; use the link. */
+  | 'bank.address_approval_device_unknown'
+  /** Identity says the approving device is removed, expired, trusted only by signing in, or the new-device check is off. */
+  | 'bank.address_approval_device_untrusted'
+  /** Identity could not say whether the approving device may approve (outage, no IDENTITY_URL). Nothing was approved. */
+  | 'bank.address_approval_device_unavailable'
+  /** No owner-set `BANK_ADDRESS_APPROVAL_LINK_MINUTES`, so no approval link is mailed. */
+  | 'bank.address_approval_link_unset'
+  /** Not a link sent to this account (unknown, malformed, or spent on an address still waiting). */
+  | 'bank.address_approval_link_invalid'
+  /** A newer link was sent for the address; only the newest works. */
+  | 'bank.address_approval_link_replaced'
+  /** The link's time ran out; the customer asks for a new one. */
+  | 'bank.address_approval_link_expired'
+  /** Identity could not take the mail (no mail service, outage, bad reply). Nothing was sent. */
+  | 'bank.address_approval_mail_unavailable'
+  /** The account has no confirmed email address, so no link can be mailed. */
+  | 'bank.address_approval_email_unproved'
   /** Same (rail, railRef), (user, clientRef), or offramp id already booked with different facts. */
   | 'bank.ramp_conflict'
   /** A send over a bank rail with a recipient field that rail's form refuses (the message names the field). Nothing kept. */
@@ -490,6 +563,7 @@ export type BankErrorCode =
   | 'bank.auto_invest_invalid_threshold'
   /** Second live card_roundup on the same (user, asset). Pause/cancel first. */
   | 'bank.auto_invest_roundup_exists'
+  | 'bank.auto_invest_target_invalid'
   | 'bank.auto_invest_run_failed'
   | 'bank.auto_invest_below_threshold'
   | 'bank.auto_invest_disabled'
@@ -523,6 +597,7 @@ export type BankErrorCode =
    * Blank / non-finite refuses. Owner may pass those magnitudes explicitly.
    */
   | 'bank.earn_resume_pending_limit_unset'
+  | 'bank.earn_renew_batch_limit_unset'
   | 'bank.loan_resume_pending_limit_unset'
   | 'bank.loan_accrue_batch_limit_unset'
   | 'bank.transfer_due_limit_unset'
@@ -536,6 +611,26 @@ export type BankErrorCode =
   | 'bank.spaces_list_limit_unset'
   /** earn.positions page size unpublished. Blank is not 50 — never dump every active position. */
   | 'bank.earn_positions_list_limit_unset'
+  /** earn.interestHistory page size unpublished. Blank is not 50 — never dump every paid day. */
+  | 'bank.earn_interest_list_limit_unset'
+  /** earn.rateHistory page size unpublished. Blank is not 50 — never dump every recorded rate. */
+  | 'bank.earn_rate_history_limit_unset'
+  /** sharedPots.list or sharedPots.activity page size unpublished. Blank is not 50. */
+  | 'bank.shared_pots_list_limit_unset'
+  /** BANK_SHARED_POT_INVITE_MINUTES or BANK_SHARED_POT_PEOPLE_CAP is blank: no pot is shared (BK-acct-09 decision note). */
+  | 'bank.joint_unset'
+  /** An invite accepted after its owner-set lifetime. */
+  | 'bank.invite_expired'
+  /** No unanswered invite of the caller's has this id, or they declined it. */
+  | 'bank.invite_not_found'
+  /** No active account has the handle or email asked for: unknown, frozen and closed are one answer. */
+  | 'bank.invitee_not_found'
+  /** A pot is shared with the owner-set number of people, open invites included. */
+  | 'bank.shared_pot_full'
+  /** An invite to oneself, to a member or someone already invited, an invite id reused, or an answer to an answered invite. */
+  | 'bank.shared_pot_invalid'
+  /** A shared pot's viewer moving money into it, or a member taking money out of a pot they do not own. */
+  | 'bank.space_forbidden'
   /** loans.list page size unpublished. Blank is not 50 — never dump every loan. */
   | 'bank.loans_list_limit_unset'
   /** cards.list page size unpublished. Blank is not 50 — never dump every card. */
@@ -746,6 +841,26 @@ export type BankErrorCode =
   | 'bank.space_limit_unset'
   /** The account already holds the owner's number of live named spaces. */
   | 'bank.space_limit_reached'
+  /** The customer already has a space with this name in this currency (`spaces_user_asset_name_idx`); rename and retry. */
+  | 'bank.space_name_taken'
+  /** A pot change that cannot be: a goal of zero or less, a lock date not in the future or earlier than the lock, or the primary space (BK-pots-02). */
+  | 'bank.space_change_invalid'
+  /** The owner has not set how long an early unlock waits (`BANK_SPACE_UNLOCK_WAIT_HOURS`), so the pot stays locked to its date (BK-pots-02). */
+  | 'bank.space_unlock_rule_unset'
+  /** An early unlock was asked for, or withdrawn, on a pot that is not locked now (BK-pots-02). */
+  | 'bank.space_not_locked'
+  /** The owner has not published when incoming payments are sorted (`BANK_INCOME_SORTER_MIN_CREDIT`), so no sorter is made (BK-pots-03). */
+  | 'bank.sorter_terms_unset'
+  /** A sorter that cannot be: no spaces or too many, a space twice, a share outside 1 to 10000 basis points, shares over 100%, or the account itself (BK-pots-03). */
+  | 'bank.sorter_invalid'
+  /** The account already sorts this asset; cancel that sorter first (BK-pots-03). */
+  | 'bank.sorter_exists'
+  /** The sorter id is already taken by a sorter on different terms (BK-pots-03). */
+  | 'bank.sorter_conflict'
+  /** No such sorter of the caller's; another person's reads the same (BK-pots-03). */
+  | 'bank.sorter_not_found'
+  /** One split of a sorted credit failed without a typed code (BK-pots-03). */
+  | 'bank.sorter_split_failed'
   /** The profile a bank call names is not one the caller holds: an unknown or closed business, or one they are not a member of. */
   | 'bank.profile_not_held'
   /** A business profile has no company account of its own in this build, so there is no company terms, currency or detail to show. */
@@ -757,7 +872,61 @@ export type BankErrorCode =
   /** The owner has not published how long a loan payoff quote stays valid (`BANK_LOAN_PAYOFF_WINDOW_MINUTES`) (BK-loan-06). */
   | 'bank.loan_payoff_window_unset'
   /** The loan's snapshotted rate cannot be used, so a projection is refused rather than invented (BK-loan-06). */
-  | 'bank.loan_terms_missing';
+  | 'bank.loan_terms_missing'
+  /** An interest correction is not in shape: a zero or malformed amount, or a reason under 3 or over 500 characters (LOAN-05). */
+  | 'bank.correction_invalid'
+  /** A correction that takes off more interest than the loan owes now; paid interest is never given back by a correction (LOAN-05). */
+  | 'bank.correction_exceeds_interest'
+  /** A correction id already used with other terms (loan, amount or reason). The first row stands (LOAN-05). */
+  | 'bank.correction_conflict'
+  // ── Direct debits (BK-xfer-11) ─────────────────────────────────────────
+  /** A direct debit presentment or refund request is not in shape (amount, date, reason). */
+  | 'bank.dd_invalid'
+  /** No mandate by that id for this person. Another person's reads the same. */
+  | 'bank.dd_mandate_not_found'
+  /** No collection by that id for this person. */
+  | 'bank.dd_collection_not_found'
+  /** The scheme knows no creditor by that id, so no mandate is set up. */
+  | 'bank.dd_creditor_unknown'
+  /** A mandate id was set up again with other terms. */
+  | 'bank.dd_mandate_conflict'
+  /** A collection id was presented again with another amount or date. */
+  | 'bank.dd_collection_conflict'
+  /** The ledger refused a collection's entry itself (an asset it does not hold, say): it failed and nothing was posted. */
+  | 'bank.dd_collection_invalid'
+  /** A refund was asked for a collection that took nothing (failed, rejected or not yet due). */
+  | 'bank.dd_refund_not_collected'
+  /** The guarantee period for this debit has ended. */
+  | 'bank.dd_refund_window_closed'
+  /** No direct debit guarantee period is set, so a refund request is refused rather than assumed. */
+  | 'bank.dd_guarantee_unset'
+  /** A money calendar read is 1 to 62 days from a valid date. */
+  | 'bank.calendar_window_invalid'
+  /** Rules that move money by themselves wait for the owner's published terms, so none can be created. */
+  | 'bank.rule_terms_unset'
+  /** A reminder lead time is one of the offered choices, or off. */
+  | 'bank.reminder_lead_invalid'
+  /** The reminder rule changed since the revision the write read. */
+  | 'bank.reminder_revision_conflict'
+  /** No bus is wired for standing-order notices, so owed ones stay owed. */
+  | 'bank.scheduled_notify_unwired'
+  // ── Recovery claims (RC-identity-08, J-identity-05 #7) ─────────────────
+  /** Identity could not answer which accounts a person may claim, or whether a claim's signatures count; nothing moved. */
+  | 'bank.recovery_unavailable'
+  /** An API key or a sub-account asked: only the heir at their own keyboard opens or executes a claim. */
+  | 'bank.recovery_delegated'
+  /** Staff asked: staff never claim or sweep a customer's balances, whatever their scopes. */
+  | 'bank.recovery_staff_forbidden'
+  /** The account is not one identity lists for this heir now. */
+  | 'bank.recovery_estate_not_found'
+  /** No claim by that id belongs to the caller. */
+  | 'bank.recovery_claim_not_found'
+  /** The account already has a claim under another notice or heir. The first claim stands. */
+  | 'bank.recovery_claim_conflict'
+  /** Identity refused the claim; the message names identity's code. Nothing moved. */
+  | 'bank.recovery_claim_refused'
+  /** Some of the owner's value is held, staked or pledged, so nothing is swept until it is free. */
+  | 'bank.recovery_blocked';
 
 export class BankError extends Error {
   constructor(

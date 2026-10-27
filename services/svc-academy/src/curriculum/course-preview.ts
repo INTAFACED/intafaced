@@ -22,6 +22,7 @@ import type {
 import { academyPrivateLinkKeySchema } from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
 import { canonicalPrice } from './courses.js';
+import { opensAt, ruleOf } from './course-release.js';
 
 type LinkRow = {
   id: string;
@@ -124,12 +125,20 @@ export class CoursePreview {
     return linkOf(stored);
   }
 
-  /** The course row and its outline from one snapshot, so a save in between never mixes two versions. */
-  private view(courseId: string): Promise<AcademyCourseLearnerView | null> {
-    return this.sql.begin('isolation level repeatable read read only', (tx) => this.viewIn(tx, courseId));
+  /**
+   * The course row and its outline from one snapshot, so a save in between never mixes two versions. With a reader who
+   * holds an open enrolment in the course, what is released carries no lock.
+   */
+  view(courseId: string, readerId: string | null = null, now: Date = new Date()): Promise<AcademyCourseLearnerView | null> {
+    return this.sql.begin('isolation level repeatable read read only', (tx) => this.viewIn(tx, courseId, readerId, now));
   }
 
-  private async viewIn(tx: TransactionSql, courseId: string): Promise<AcademyCourseLearnerView | null> {
+  private async viewIn(
+    tx: TransactionSql,
+    courseId: string,
+    readerId: string | null,
+    now: Date = new Date(),
+  ): Promise<AcademyCourseLearnerView | null> {
     const [course] = await tx<
       Array<{
         slug: string;
@@ -140,49 +149,80 @@ export class CoursePreview {
         price: string | null;
         price_asset: string | null;
         state: AcademyCourseState;
+        pacing: 'self_paced' | 'instructor_paced' | null;
       }>
     >`
-      SELECT slug, title, summary, thumbnail_url, pricing, price, price_asset, state
-      FROM academy.courses WHERE id = ${courseId}
+      SELECT c.slug, c.title, c.summary, c.thumbnail_url, c.pricing, c.price, c.price_asset, c.state, p.pacing
+      FROM academy.courses c LEFT JOIN academy.course_pacing p ON p.course_id = c.id WHERE c.id = ${courseId}
     `;
     if (!course) return null;
+    const [enrolment] =
+      readerId === null
+        ? []
+        : await tx<Array<{ enrolled_at: Date }>>`
+        SELECT enrolled_at FROM academy.course_enrolments WHERE course_id = ${courseId} AND user_id = ${readerId} AND left_at IS NULL
+      `;
+    const enrolled = enrolment !== undefined;
     const rows = await tx<
       Array<{
         section_id: string;
         section_title: string;
+        release_at: Date | null;
+        after_days: number | null;
+        id: string | null;
         kind: AcademyOutlineItemKind | null;
         title: string | null;
         indent: number | null;
         live_revision: number | null;
+        assignment_open: boolean;
       }>
     >`
-      SELECT s.id AS section_id, s.title AS section_title, i.kind, i.title, i.indent, i.live_revision
+      SELECT s.id AS section_id, s.title AS section_title, r.release_at, r.after_days, i.id, i.kind, i.title, i.indent, i.live_revision,
+        (a.item_id IS NOT NULL) AS assignment_open
       FROM academy.course_sections s
+      LEFT JOIN academy.course_section_releases r ON r.section_id = s.id
       LEFT JOIN academy.course_items i ON i.section_id = s.id
+      LEFT JOIN academy.course_assignments a ON a.item_id = i.id
       WHERE s.course_id = ${courseId}
       ORDER BY s.position, i.position
     `;
     const sections: AcademyCourseLearnerView['sections'] = [];
-    let current = null as { id: string; section: AcademyCourseLearnerView['sections'][number] } | null;
+    let current = null as { id: string; open: boolean; section: AcademyCourseLearnerView['sections'][number] } | null;
     for (const r of rows) {
       if (current?.id !== r.section_id) {
-        current = { id: r.section_id, section: { title: r.section_title, items: [] } };
+        // A section scheduled for later (AC-release-access-01): its instant for this reader, or the days after enrolling.
+        const rule = ruleOf(r);
+        const at = rule === null ? null : opensAt(rule, enrolment?.enrolled_at ?? null);
+        const open = rule === null || (at !== null && at.getTime() <= now.getTime());
+        const release =
+          rule === null
+            ? null
+            : { at: at?.toISOString() ?? null, afterEnrolmentDays: rule.kind === 'after_enrolment' ? rule.days : null, open };
+        current = { id: r.section_id, open, section: { title: r.section_title, release, items: [] } };
         sections.push(current.section);
       }
-      if (r.kind === null || r.title === null) continue;
+      if (r.id === null || r.kind === null || r.title === null) continue;
+      // A subheader is a label; a link has no lesson, so only enrolment stands between it and the reader. An assignment
+      // is released by its saved brief (AC-assignments-01), and stays open once withdrawn so its hand-ins stay readable;
+      // anything else by its live lesson.
+      const released = r.kind === 'link' || (r.kind === 'assignment' ? r.assignment_open : r.live_revision !== null);
       current.section.items.push({
+        id: r.id,
         kind: r.kind,
         title: r.title,
         indent: r.indent ?? 0,
-        // A subheader is a label; a link has no lesson, so only enrolment stands between it and the reader.
         lock:
           r.kind === 'subheader'
             ? null
-            : r.kind !== 'link' && r.live_revision === null
+            : !released
               ? 'not_released'
-              : course.state === 'published'
-                ? 'enrol'
-                : 'enrolment_closed',
+              : enrolled
+                ? current.open
+                  ? null
+                  : 'scheduled'
+                : course.state === 'published'
+                  ? 'enrol'
+                  : 'enrolment_closed',
       });
     }
     return {
@@ -194,6 +234,7 @@ export class CoursePreview {
       price: canonicalPrice(course.price),
       priceAsset: course.price_asset,
       state: course.state,
+      pacing: course.pacing,
       sections,
     };
   }

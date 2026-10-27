@@ -16,10 +16,30 @@ export interface LedgerPosting {
   readonly accountId: string;
   readonly assetId: string;
   readonly direction: 'debit' | 'credit';
+  /** Where the value came from (`source`, a credit in this book) or went (`destination`, a debit), as svc-ledger says. */
+  readonly side: 'source' | 'destination';
   /** Decimal string, as svc-ledger booked it. */
   readonly amount: string;
-  /** The account's balance after this posting, decimal string. */
+  /** The account's balance before and after this posting, decimal strings. */
+  readonly balanceBefore: string;
   readonly balanceAfter: string;
+}
+
+/**
+ * Where a transaction sits in the ledger's log and what the ledger recorded when it booked it: the log sequence, the
+ * database time of the booking (when its database transaction began), the reference the request carried, and the
+ * `tx.posted` event record.
+ */
+export interface LedgerBooking {
+  readonly seq: string;
+  readonly bookedAt: string | null;
+  readonly reference: string | null;
+  readonly event: {
+    readonly id: string;
+    readonly subject: string;
+    readonly recordedAt: string;
+    readonly publishedAt: string | null;
+  } | null;
 }
 
 export interface LedgerTransaction {
@@ -30,6 +50,7 @@ export interface LedgerTransaction {
   readonly postedAt: string;
   readonly hash: string;
   readonly previousHash: string | null;
+  readonly booking: LedgerBooking;
   readonly postings: readonly LedgerPosting[];
 }
 
@@ -39,20 +60,42 @@ export type LedgerLookupAnswer =
 export type LedgerLookupQuery = { readonly txId: string } | { readonly businessKey: string };
 
 const str = (value: unknown): value is string => typeof value === 'string';
+const time = (value: unknown): value is string => str(value) && !Number.isNaN(Date.parse(value));
+const SEQ = /^\d+$/;
+
+function parseBooking(raw: unknown): LedgerBooking | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const b = raw as Record<string, unknown>;
+  if (!str(b.seq) || !SEQ.test(b.seq)) return null;
+  if (b.bookedAt !== null && !time(b.bookedAt)) return null;
+  if (b.reference !== null && !str(b.reference)) return null;
+  let event: LedgerBooking['event'] = null;
+  if (b.event !== null) {
+    if (!b.event || typeof b.event !== 'object') return null;
+    const e = b.event as Record<string, unknown>;
+    if (!str(e.id) || !str(e.subject) || !time(e.recordedAt) || (e.publishedAt !== null && !time(e.publishedAt))) return null;
+    event = { id: e.id, subject: e.subject, recordedAt: e.recordedAt, publishedAt: e.publishedAt };
+  }
+  return { seq: b.seq, bookedAt: b.bookedAt, reference: b.reference, event };
+}
 
 function parsePosting(raw: unknown): LedgerPosting | null {
   if (!raw || typeof raw !== 'object') return null;
   const p = raw as Record<string, unknown>;
   if (!str(p.entryId) || !str(p.accountId) || !str(p.assetId)) return null;
   if (p.direction !== 'debit' && p.direction !== 'credit') return null;
-  if (!str(p.amount) || !DECIMAL.test(p.amount) || !str(p.balanceAfter) || !DECIMAL.test(p.balanceAfter)) return null;
+  // A credit is where value came from and a debit where it went; a side that disagrees with its direction is not shown.
+  if (p.side !== (p.direction === 'credit' ? 'source' : 'destination')) return null;
+  for (const amount of [p.amount, p.balanceBefore, p.balanceAfter]) if (!str(amount) || !DECIMAL.test(amount)) return null;
   return {
     entryId: p.entryId,
     accountId: p.accountId,
     assetId: p.assetId,
     direction: p.direction,
-    amount: p.amount,
-    balanceAfter: p.balanceAfter,
+    side: p.direction === 'credit' ? 'source' : 'destination',
+    amount: p.amount as string,
+    balanceBefore: p.balanceBefore as string,
+    balanceAfter: p.balanceAfter as string,
   };
 }
 
@@ -63,6 +106,8 @@ export function parseLedgerTransaction(raw: unknown): LedgerTransaction | null {
   if (!str(t.txId) || !str(t.businessKey) || !str(t.module) || !str(t.reason) || !str(t.hash)) return null;
   if (!str(t.postedAt) || Number.isNaN(Date.parse(t.postedAt))) return null;
   if (t.previousHash !== null && !str(t.previousHash)) return null;
+  const booking = parseBooking(t.booking);
+  if (!booking) return null;
   if (!Array.isArray(t.postings) || t.postings.length === 0) return null;
   const postings = t.postings.map(parsePosting);
   if (postings.some((p) => p === null)) return null;
@@ -74,6 +119,7 @@ export function parseLedgerTransaction(raw: unknown): LedgerTransaction | null {
     postedAt: t.postedAt,
     hash: t.hash,
     previousHash: t.previousHash,
+    booking,
     postings: postings as LedgerPosting[],
   };
 }

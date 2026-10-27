@@ -391,11 +391,14 @@ export function AcademyLessonEditor({
   courseId,
   itemId,
   initial,
+  brief,
   files,
 }: {
   courseId: string;
   itemId: string;
   initial: LessonView | null;
+  /** An assignment item's brief (AC-assignments-01), shown before the lesson. */
+  brief?: ReactNode;
   /** The item's video, captions and handouts (AC-videos-02), shown after the import. */
   files?: ReactNode;
 }) {
@@ -451,6 +454,7 @@ export function AcademyLessonEditor({
       <Outcome reply={reply} />
       {!part && <p className="dk-why">The console could not reach its own server for this editor. Nothing is shown rather than a guess.</p>}
       {part?.kind === 'failed' && <Failed title="Could not read this lesson" message={part.message} code={part.code} />}
+      {brief}
       {lesson && (
         <>
           <dl className="dk-kv" data-testid="lesson-facts">

@@ -13,6 +13,11 @@ import {
   type ProtocolDeploymentsOutput,
   type ProtocolNetworksListOutput,
 } from '@intafaced/contracts/protocol-networks';
+import {
+  protocolRepresentationAcceptOutputSchema,
+  protocolRepresentationStatusOutputSchema,
+  type ProtocolRepresentationStatus,
+} from '@intafaced/contracts/protocol-representation';
 import type { ApiClient } from '../../shared/api';
 
 /**
@@ -53,6 +58,7 @@ export type DexHealth = z.infer<typeof dexHealthSchema>;
 export type DexQuote = z.infer<typeof dexQuoteSchema>;
 export type NetworksList = ProtocolNetworksListOutput;
 export type Deployments = ProtocolDeploymentsOutput;
+export type RepresentationStatus = ProtocolRepresentationStatus;
 
 export function createProtocolApi(api: ApiClient) {
   return {
@@ -69,6 +75,12 @@ export function createProtocolApi(api: ApiClient) {
     /** What the node can do, measured by the service. Only the configured chain is probed; any other chain reports nothing probed. */
     capabilities: (chainId: number, signal?: AbortSignal) =>
       api.query('protocol', 'capabilities', { chainId }, protocolCapabilitiesOutputSchema, { signal }),
+    /** The representation a wallet accepts once per version before its first signing action, and whether it has. */
+    representationStatus: (address: string, signal?: AbortSignal) =>
+      api.query('protocol', 'representation.status', { address }, protocolRepresentationStatusOutputSchema, { signal }),
+    /** Records the wallet's signature over `representationStatus().message`. The service checks that the address signed it. */
+    representationAccept: (input: { address: string; version: string; signature: string }) =>
+      api.mutate('protocol', 'representation.accept', input, protocolRepresentationAcceptOutputSchema),
     /** A read-only quote. It moves nothing; the service refuses with a `dex.quote.*` code when no venue can be read fresh. */
     dexQuote: (input: { symbol: string; side: 'buy' | 'sell'; qty: string }, signal?: AbortSignal) =>
       api.query('dex', 'quote', input, dexQuoteSchema, { signal }),

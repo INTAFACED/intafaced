@@ -142,6 +142,8 @@ describe('same-person approvals', () => {
       'passkey_add',
       'passkey_remove',
       'passkey_rename',
+      'passkey_purposes',
+      'passkey_second_step',
       'totp_replace',
       'totp_disable',
       'recovery_codes_regenerate',
@@ -150,6 +152,7 @@ describe('same-person approvals', () => {
       'limits_loosen',
       'self_freeze_lift',
       'trusted_device_remove',
+      'trusted_device_approve',
       'link_method',
       'unlink_method',
       'sub_account_delete',
@@ -162,6 +165,8 @@ describe('same-person approvals', () => {
     }
     expect(samePersonTargetService('pay.step_up.payoutDestination.set')).toBe('svc-pay');
     expect(samePersonTargetService('p2p.step_up.trades.take')).toBe('svc-p2p');
+    expect(samePersonTargetService('p2p.step_up.trades.confirmReceived')).toBe('svc-p2p');
+    expect(samePersonTargetService('p2p.step_up.instruments.change')).toBe('svc-p2p');
     expect(samePersonTargetService('bank.step_up.transfers.toUser')).toBe('svc-bank');
     expect(
       SAME_PERSON_ACTION_TYPES.every(

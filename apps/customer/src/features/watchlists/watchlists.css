@@ -2,12 +2,12 @@
 .wl {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--if-space-2-5);
   min-width: 0;
-  padding: 12px;
+  padding: var(--if-space-3);
   background: var(--if-bg);
   border: 1px solid var(--if-line);
-  border-radius: 12px;
+  border-radius: var(--if-r-md);
   font-family: var(--if-font-ui);
   color: var(--if-fg);
 }
@@ -16,11 +16,11 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--if-space-2);
 }
 .wl-head h2 {
   margin: 0;
-  font-size: var(--if-text-lg, 16px);
+  font-size: var(--if-text-lg, var(--if-text-md));
 }
 .wl-head-actions,
 .wl-add,
@@ -28,21 +28,21 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: var(--if-space-1-5);
 }
 .wl-field {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--if-space-1);
   color: var(--if-fg-2);
-  font-size: 12px;
+  font-size: var(--if-text-xs);
 }
 .wl-field select,
 .wl-field input,
 .wl-add input,
 .wl-inline input {
   min-width: 0;
-  padding: 5px 8px;
+  padding: 5px var(--if-space-2);
   background: var(--if-field);
   color: var(--if-fg);
   border: 1px solid var(--if-line);
@@ -56,13 +56,13 @@
   position: relative;
   display: inline-flex;
   align-items: center;
-  padding: 5px 10px;
+  padding: 5px var(--if-space-2-5);
   background: transparent;
   color: var(--if-fg);
   border: 1px solid var(--if-line);
   border-radius: var(--if-r-sm, 6px);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--if-text-xs);
   cursor: pointer;
 }
 .wl-btn:hover:not(:disabled) {
@@ -85,7 +85,7 @@
 .wl-results {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--if-space-1-5);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -94,14 +94,14 @@
 .wl-note {
   margin: 0;
   color: var(--if-fg-2);
-  font-size: 12px;
+  font-size: var(--if-text-xs);
 }
 .wl-notice {
   margin: 0;
-  padding: 6px 8px;
+  padding: var(--if-space-1-5) var(--if-space-2);
   border-radius: var(--if-r-sm, 6px);
   border: 1px solid var(--if-line);
-  font-size: 12px;
+  font-size: var(--if-text-xs);
 }
 .wl-notice[data-tone='warn'] {
   color: var(--if-down);
@@ -113,12 +113,12 @@
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
-  font-size: 12px;
+  font-size: var(--if-text-xs);
   font-variant-numeric: tabular-nums;
 }
 .wl-table th,
 .wl-table td {
-  padding: 5px 6px;
+  padding: 5px var(--if-space-1-5);
   border-bottom: 1px solid var(--if-line);
   text-align: right;
   white-space: nowrap;
@@ -169,7 +169,7 @@
   cursor: pointer;
 }
 .wl-count {
-  margin-left: 8px;
+  margin-left: var(--if-space-2);
   color: var(--if-fg-2);
   font-weight: 400;
 }
@@ -200,8 +200,8 @@
   white-space: nowrap;
 }
 .wl-actions .wl-btn {
-  margin-left: 4px;
-  padding: 2px 6px;
+  margin-left: var(--if-space-1);
+  padding: var(--if-space-0-5) var(--if-space-1-5);
 }
 .wl-empty td {
   text-align: left;
@@ -217,14 +217,14 @@
 .wl-stats {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 4px 16px;
-  margin: 0 0 12px;
+  gap: var(--if-space-1) var(--if-space-4);
+  margin: 0 0 var(--if-space-3);
 }
 .wl-stat {
   display: flex;
   justify-content: space-between;
-  gap: 8px;
-  font-size: 13px;
+  gap: var(--if-space-2);
+  font-size: var(--if-text-sm);
 }
 .wl-stat dt {
   color: var(--if-fg-2);
@@ -234,6 +234,6 @@
   font-variant-numeric: tabular-nums;
 }
 .wl-sub {
-  margin: 8px 0 4px;
-  font-size: 13px;
+  margin: var(--if-space-2) 0 var(--if-space-1);
+  font-size: var(--if-text-sm);
 }

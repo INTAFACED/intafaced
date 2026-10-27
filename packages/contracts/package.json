@@ -14,6 +14,10 @@
       "types": "./dist/identity.d.ts",
       "default": "./dist/identity.js"
     },
+    "./pay-custody-deposit": {
+      "types": "./dist/pay-custody-deposit.d.ts",
+      "default": "./dist/pay-custody-deposit.js"
+    },
     "./account-controls": {
       "types": "./dist/account-controls.d.ts",
       "default": "./dist/account-controls.js"
@@ -37,6 +41,38 @@
     "./protocol-ops": {
       "types": "./dist/protocol-ops.d.ts",
       "default": "./dist/protocol-ops.js"
+    },
+    "./protocol-representation": {
+      "types": "./dist/protocol-representation.d.ts",
+      "default": "./dist/protocol-representation.js"
+    },
+    "./ops-console-mode": {
+      "types": "./dist/ops-console-mode.d.ts",
+      "default": "./dist/ops-console-mode.js"
+    },
+    "./identity-recovery": {
+      "types": "./dist/identity-recovery.d.ts",
+      "default": "./dist/identity-recovery.js"
+    },
+    "./identity-kyc-levels": {
+      "types": "./dist/identity-kyc-levels.d.ts",
+      "default": "./dist/identity-kyc-levels.js"
+    },
+    "./ops-staff-holds": {
+      "types": "./dist/ops-staff-holds.d.ts",
+      "default": "./dist/ops-staff-holds.js"
+    },
+    "./ops-console-announcements": {
+      "types": "./dist/ops-console-announcements.d.ts",
+      "default": "./dist/ops-console-announcements.js"
+    },
+    "./ops-console-preferences": {
+      "types": "./dist/ops-console-preferences.d.ts",
+      "default": "./dist/ops-console-preferences.js"
+    },
+    "./ops-console-services": {
+      "types": "./dist/ops-console-services.d.ts",
+      "default": "./dist/ops-console-services.js"
     },
     "./instruments": {
       "types": "./dist/instruments.d.ts",
@@ -118,9 +154,17 @@
       "types": "./dist/tax-lot-book.d.ts",
       "default": "./dist/tax-lot-book.js"
     },
+    "./bank-value-history": {
+      "types": "./dist/bank-value-history.d.ts",
+      "default": "./dist/bank-value-history.js"
+    },
     "./p2p-delist": {
       "types": "./dist/p2p-delist.d.ts",
       "default": "./dist/p2p-delist.js"
+    },
+    "./p2p-rule-class": {
+      "types": "./dist/p2p-rule-class.d.ts",
+      "default": "./dist/p2p-rule-class.js"
     },
     "./home-tiles-preferences": {
       "types": "./dist/home-tiles-preferences.d.ts",
@@ -142,9 +186,85 @@
       "types": "./dist/academy-catalogue.d.ts",
       "default": "./dist/academy-catalogue.js"
     },
+    "./academy-certificates": {
+      "types": "./dist/academy-certificates.d.ts",
+      "default": "./dist/academy-certificates.js"
+    },
     "./academy-courses": {
       "types": "./dist/academy-courses.d.ts",
       "default": "./dist/academy-courses.js"
+    },
+    "./academy-course-quizzes": {
+      "types": "./dist/academy-course-quizzes.d.ts",
+      "default": "./dist/academy-course-quizzes.js"
+    },
+    "./academy-course-release": {
+      "types": "./dist/academy-course-release.d.ts",
+      "default": "./dist/academy-course-release.js"
+    },
+    "./academy-course-item-rules": {
+      "types": "./dist/academy-course-item-rules.d.ts",
+      "default": "./dist/academy-course-item-rules.js"
+    },
+    "./academy-course-gradebook": {
+      "types": "./dist/academy-course-gradebook.d.ts",
+      "default": "./dist/academy-course-gradebook.js"
+    },
+    "./academy-course-messages": {
+      "types": "./dist/academy-course-messages.d.ts",
+      "default": "./dist/academy-course-messages.js"
+    },
+    "./academy-discussion": {
+      "types": "./dist/academy-discussion.d.ts",
+      "default": "./dist/academy-discussion.js"
+    },
+    "./academy-programmes": {
+      "types": "./dist/academy-programmes.d.ts",
+      "default": "./dist/academy-programmes.js"
+    },
+    "./kyb-entity-types": {
+      "types": "./dist/kyb-entity-types.d.ts",
+      "default": "./dist/kyb-entity-types.js"
+    },
+    "./kyb-application": {
+      "types": "./dist/kyb-application.d.ts",
+      "default": "./dist/kyb-application.js"
+    },
+    "./kyb-documents": {
+      "types": "./dist/kyb-documents.d.ts",
+      "default": "./dist/kyb-documents.js"
+    },
+    "./kyb-information-requests": {
+      "types": "./dist/kyb-information-requests.d.ts",
+      "default": "./dist/kyb-information-requests.js"
+    },
+    "./business-category": {
+      "types": "./dist/business-category.d.ts",
+      "default": "./dist/business-category.js"
+    },
+    "./merchant-catalog": {
+      "types": "./dist/merchant-catalog.d.ts",
+      "default": "./dist/merchant-catalog.js"
+    },
+    "./merchant-stores": {
+      "types": "./dist/merchant-stores.d.ts",
+      "default": "./dist/merchant-stores.js"
+    },
+    "./merchant-checkout-branding": {
+      "types": "./dist/merchant-checkout-branding.d.ts",
+      "default": "./dist/merchant-checkout-branding.js"
+    },
+    "./merchant-checkout-methods": {
+      "types": "./dist/merchant-checkout-methods.d.ts",
+      "default": "./dist/merchant-checkout-methods.js"
+    },
+    "./campaigns-drops": {
+      "types": "./dist/campaigns-drops.d.ts",
+      "default": "./dist/campaigns-drops.js"
+    },
+    "./campaigns-catalogue": {
+      "types": "./dist/campaigns-catalogue.d.ts",
+      "default": "./dist/campaigns-catalogue.js"
     }
   },
   "scripts": {

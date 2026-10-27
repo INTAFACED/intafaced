@@ -29,6 +29,7 @@ const messages = {
   typeMarket: 'Market',
   typeLimit: 'Limit',
   typeStopLimit: 'Stop-limit',
+  typeStopMarket: 'Stop-market',
   filterUnknown: 'Not a choice: {value}',
 
   refusedTitle: 'These filters can’t be used',
@@ -70,6 +71,7 @@ const messages = {
   tag: 'Your label',
   orderId: 'Order ID',
   marketPrice: 'Market',
+  protectionPrice: 'Market, no worse than {price} {quote}',
   stopPrice: 'Stop price',
   trigger: 'Trigger',
   triggerWaiting: 'Waiting for the last trade price to reach {price} {quote}',

@@ -83,6 +83,25 @@ const schema = serviceEnvSchema
       P2P_BUYER_CANCEL_WINDOW_HOURS: ownerInt,
 
       /**
+       * P-trade-orders-15. Seconds the buyer of a paid order waits before reminding the seller to release, counted from
+       * the mark-paid and again from each reminder. Empty is unset: every reminder then refuses `p2p.config_unset`.
+       */
+      P2P_REMIND_WAIT_SECONDS: ownerInt,
+
+      /**
+       * P-trade-orders-15. Most reminders one order may send the seller. Empty is unset: every reminder then refuses
+       * `p2p.config_unset`.
+       */
+      P2P_REMIND_MAX: ownerInt,
+
+      /**
+       * P-trade-orders-20. Basis points of an order's fiat amount within which a reported under-, over- or part payment
+       * lets the order go on (0 is the exact amount only, at most 10000). Empty is unset: no report is classified and
+       * every one goes to a person through a dispute.
+       */
+      P2P_MISMATCH_TOLERANCE_BPS: ownerInt,
+
+      /**
        * P-trade-orders-03. Per-order fiat bounds by pair, as JSON decimal strings: `{"USDT/EUR":{"min":"10","max":"5000"}}`.
        * Empty is unset and a pair missing from the table is unset for that pair: those takes refuse `p2p.config_unset`.
        */
@@ -97,6 +116,32 @@ const schema = serviceEnvSchema
         (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
         z.string().trim().min(1).max(64).optional(),
       ),
+
+      /**
+       * P-ads-merchant-01. The advertiser terms version a person accepts before
+       * posting an ad. Empty is unset: every post then refuses `p2p.config_unset`
+       * naming this setting. Changing it asks every advertiser to accept again.
+       */
+      P2P_ADVERTISER_TERMS_VERSION: z.preprocess(
+        (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+        z.string().trim().min(1).max(64).optional(),
+      ),
+
+      /**
+       * P-ads-merchant-05. Compliance's content rules for an ad's terms: a JSON
+       * object of rule class to the phrases an ad may not carry, for example
+       * `{"messenger":["telegram"],"link":["https://"]}`. Empty means no list is
+       * published and the filter is off; anything else that is not a whole list
+       * refuses every post `p2p.content_rules_invalid` (`ad-content-rules.ts`).
+       */
+      P2P_AD_CONTENT_RULES: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().optional()),
+
+      /**
+       * P-ads-merchant-12. Compliance's posting thresholds per fiat, JSON (`posting-eligibility.ts`): a fiat maps to
+       * { minKycTier?, minCompletedOrders?, minCompletionRatePct? } as strings, or "none". Blank or a fiat not listed
+       * refuses posting in it `p2p.config_unset`; a value that is not a whole list refuses every post.
+       */
+      P2P_POSTING_THRESHOLDS: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().optional()),
 
       /**
        * Largest `maxAmt` an offer may advertise — the merchant badge's first
@@ -120,6 +165,15 @@ const schema = serviceEnvSchema
           .string()
           .regex(/^(unlimited|\d+(\.\d+)?)$/i, 'P2P_OFFER_MAX_STANDARD must be a non-negative decimal string or the literal unlimited')
           .optional(),
+      ),
+      /**
+       * P-ads-merchant-21: seconds the author may edit a review after leaving it.
+       * Empty is unset. Never invent a window. reviews.edit refuses p2p.config_unset.
+       */
+      P2P_REVIEW_EDIT_WINDOW_SECONDS: z.preprocess(
+        (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+        // At most a year: the edit check casts it to a Postgres int, and no window is longer than the order it reviews.
+        z.coerce.number().int().min(1).max(31_536_000).optional(),
       ),
       /** P-trade-orders-21: hours support has to review a completion appeal. Empty is unset → appeal refuses p2p.config_unset. */
       P2P_APPEAL_REVIEW_HOURS: z.preprocess(

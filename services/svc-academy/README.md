@@ -122,6 +122,10 @@ tRPC, mounted at `/trpc`, reached through svc-edge at `/api/academy` (port 4016)
 | `admin.privateLinks`             | `admin:read`    | A course's private links, newest first, without their keys                                                                                                                                                                                                                                           |
 | `admin.createPrivateLink`        | `admin:write`   | A link to the unlisted course page with a reason; the 32-byte key comes back once and only its SHA-256 is stored; an archived or deleted course refuses `private_link_course_closed`                                                                                                                 |
 | `admin.revokePrivateLink`        | `admin:write`   | The link stops opening the page, with who and why; a repeat answers with the revoked link; refuses `private_link_not_found`                                                                                                                                                                          |
+| `authoredCourse`                 | `academy:read`  | A published course staff made, as the caller sees it: their open enrolment takes the `enrol` lock off what is released                                                                                                                                                                               |
+| `authoredCourseEnrolment`        | `academy:read`  | The terms of enrolling (free audit track; a paid track closed `payments_off`) and the caller's own enrolment                                                                                                                                                                                         |
+| `enrolAuthoredCourse`            | `academy:write` | Enrol on an open track, keyed `enrol:<user>:<course>` by the one open enrolment; a closed track refuses `enrolment_closed`                                                                                                                                                                           |
+| `leaveAuthoredCourse`            | `academy:write` | Ends the enrolment that began at `enrolledAt` (its business key); a late repeat never ends a later enrolment                                                                                                                                                                                         |
 
 ### Curriculum
 
@@ -153,16 +157,23 @@ is never invented.
 
 ### Certifications → XP (`academy.certs`)
 
-| Procedure                  | Scope           | Purpose                                                                                       |
-| -------------------------- | --------------- | --------------------------------------------------------------------------------------------- |
-| `certDefinitions`          | `academy:read`  | Code-seeded certs and the curriculum slugs each requires                                      |
-| `enrollCertPath`           | `academy:write` | Enrol the caller on a path                                                                    |
-| `markCurriculumComplete`   | `academy:write` | Mark one curriculum item complete (idempotent)                                                |
-| `grantCert`                | `academy:write` | Grant the caller's cert when complete, **publish XP**, then **real identity perks or refuse** |
-| `myCerts` / `certProgress` | `academy:read`  | What the caller has earned, and what is missing                                               |
-| `certXpPlane`              | `academy:read`  | Is this process publishing awards, under which module/action, at what value                   |
-| `certPerkPlane`            | `academy:read`  | Perks via identity rank only; invent perk money refuse-closed (D26-P1-C1)                     |
-| `certPerkIntent`           | `admin:write`   | Attempt invent cert→perk money — always refuse, never amounts                                 |
+| Procedure                  | Scope           | Purpose                                                                                             |
+| -------------------------- | --------------- | --------------------------------------------------------------------------------------------------- |
+| `certDefinitions`          | `academy:read`  | Code-seeded certs and the curriculum slugs each requires                                            |
+| `enrollCertPath`           | `academy:write` | Enrol the caller on a path                                                                          |
+| `markCurriculumComplete`   | `academy:write` | Mark one curriculum item complete (idempotent)                                                      |
+| `grantCert`                | `academy:write` | Grant the caller's cert when complete, **publish XP**, then **real identity perks or refuse**       |
+| `myCerts` / `certProgress` | `academy:read`  | What the caller has earned, and what is missing                                                     |
+| `certXpPlane`              | `academy:read`  | Is this process publishing awards, under which module/action, at what value                         |
+| `certPerkPlane`            | `academy:read`  | Perks via identity rank only; invent perk money refuse-closed (D26-P1-C1)                           |
+| `certPerkIntent`           | `admin:write`   | Attempt invent cert→perk money — always refuse, never amounts                                       |
+| `admin.setCertIssueRule`   | `admin:write`   | How one certificate is issued: `manual`, `automatic` or `delayed` (with the delay), reason required |
+| `admin.certIssueRule`      | `admin:read`    | One certificate's stored issue rule, or null when staff have set none                               |
+| `admin.revokeCert`         | `admin:write`   | Revoke one issued certificate by its public code, under two-person approval (`academy.cert.revoke`) |
+
+**Issue rules (AC-certificates-02, J-academy-05 #1).** A certificate with no rule, or a `manual` one, is claimed by the learner with `grantCert` once complete, as before. `automatic` issues it when the last required item is recorded (the completion stays recorded whatever the issue does). `delayed` writes one pending row (`cert_issue_pending`) when the learner first stands complete, due the delay after the later of their last completion and the rule's revision (a requirement that is an assessment pass counts from when it is settled); the issue sweep (`ACADEMY_CERT_ISSUE_SWEEP_SECONDS`, blank = no sweep, and a delayed rule then refuses `academy.cert_sweep_unset`) issues it once due, and so does the learner's own `certProgress` read, which is also the recovery path when a process stopped between a completion and its issue. A claim before the wait ends refuses `academy.cert_not_due`; an Undo drops the wait at once and a rule switched back to `manual` drops every wait. A delayed rule with no delay refuses `academy.cert_delay_unset`. `certProgress` answers `issue: { mode, delayMinutes, issuesAt }`. Each rule change is a revision with a history row (`cert_issue_rule_events`: actor, reason). Issuing publishes the same XP award as a claim and never posts to the ledger.
+
+**Revocation (AC-certificates-03, J-academy-05 #4).** `admin.revokeCert {publicId, reason}` consumes an identity two-person approval for action `academy.cert.revoke` with payload `{publicId, reason}`, then turns the grant `revoked` and writes one `cert_revocations` row naming who proposed and who approved it (from identity's approval), the operator who carried it out, the reason and the time. The public `certVerify` and the holder's `myCerts` then say `revoked`, and a claim refuses `academy.cert_revoked` (the grant row stays). A repeat, or an unknown code (`academy.cert_not_found`), is answered before the approval is consumed, so neither spends the two people's approval. Revoking does not take back the XP already published to identity for the grant, nor any rank perks that XP brought, and never posts to the ledger.
 
 `grantCert` is safe to call twice. The grant is idempotent on `(user, cert)` and the award carries the same business key, so a repeat is dropped by identity rather than paid twice — that is also how an award missed during a bus outage is recovered. XP amounts are a v0 policy in `src/certs/xp-policy.ts` with a conservative default; product may retune them, and a cert with no policy publishes **nothing** (no XP, no perk-grant shape) rather than an invented amount. After XP, `perks` is either a **real** `rank_thresholds.perks` readout from svc-identity or a **refuse** (unpriced / identity unreadable / invent path) — academy never invents perk money or a cert→perk map (`src/certs/perk-plane.ts`, D26-P1-C1).
 
@@ -261,6 +272,19 @@ The local stack runs a TEST video store (`tooling/scripts/local-video-store.mjs`
 A seat belongs to `ctx.principal.userId`. **No procedure takes a userId from the input except `invite` and `admin.grantItemExtension`**, where naming somebody else _is_ the operation — invite is host-only, and the extension is `admin:write`. The scene is written **whole** by the host, not merged per attendee: merging would need a conflict model this does not have, and half a merge is a room that renders differently for different people.
 
 ---
+
+### Assignments, peer review and grading (AC-assignments-01/02/03)
+
+Journey J-academy-04. A learner hands in text and a file (`submitAssignment`, versioned), reviews classmates and themself against the rubric staff set (`peerReview`, `submitPeerReview`, `admin.saveReviewSteps`), and reads the grade on the assignment page.
+
+| Procedure               | Scope           | Purpose                                                                                                                                                                                             |
+| ----------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `admin.gradingQueue`    | `admin:read`    | Each learner's newest hand-in under an alias ("Learner 3", by first hand-in), never a name or account, with its peer reviews, current grade, next event number and the grader lease                 |
+| `admin.openGrading`     | `admin:write`   | Takes or renews the caller's lease on one hand-in for `ACADEMY_GRADER_LEASE_SECONDS` (blank: `grader_lease_unset`); another grader's live lease refuses `grader_locked`                             |
+| `admin.gradeSubmission` | `admin:write`   | Grade event `n` (score, comment): the same `n` again answers as stored, an older one refuses `revision_stale`; a score above the points refuses `grade_invalid`; a change of grade needs a `reason` |
+| `markFeedbackRead`      | `academy:write` | The learner read the newest grade on a hand-in version; recorded once, the grade unchanged; a version with no grade refuses `submission_not_found`                                                  |
+
+The learner's `assignment` view carries `grade` (score, points, comment, when, read) with no grader. Grades show as soon as they are saved; a release date, bulk grading and the `grade.posted` event are later slices.
 
 ## Events
 

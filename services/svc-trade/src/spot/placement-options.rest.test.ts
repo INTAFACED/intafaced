@@ -105,16 +105,15 @@ describe('the create door and the options spot does not act on', () => {
     await app.close();
   });
 
-  it('refuses a fee currency other than the asset the order receives, and accepts that asset', async () => {
+  it('carries another fee currency on a plain order to the service, and drops the asset the order receives', async () => {
     const { app, placed } = await build();
-    const other = await app.inject({
+    const token = await app.inject({
       method: 'POST',
       url: '/api/v1/orders',
       headers: signed(),
-      payload: { ...BASE, clientOrderId: 'f-1', feeCurrency: 'USDT' },
+      payload: { ...BASE, clientOrderId: 'f-1', feeCurrency: 'IFC' },
     });
-    expect(other.statusCode, other.body).toBe(400);
-    expect(other.json().intafacedCode).toBe('trade.fee_currency_unsupported');
+    expect(token.statusCode, token.body).toBe(201);
     const same = await app.inject({
       method: 'POST',
       url: '/api/v1/orders',
@@ -122,7 +121,31 @@ describe('the create door and the options spot does not act on', () => {
       payload: { ...BASE, clientOrderId: 'f-2', feeCurrency: 'btc' },
     });
     expect(same.statusCode, same.body).toBe(201);
-    expect(placed.map((p) => p.clientOrderId)).toEqual(['f-2']);
+    // The service decides the token (its terms, the stake); the asset received is the default and is not carried.
+    expect(placed.map((p) => [p.clientOrderId, p.feeCurrency])).toEqual([
+      ['f-1', 'IFC'],
+      ['f-2', undefined],
+    ]);
+    await app.close();
+  });
+
+  it.each([
+    ['a stop', { type: 'stop_limit', stopPrice: '90' }, 'stop_limit'],
+    ['a reduce-only flag', { reduceOnly: true }, 'reduceOnly'],
+    ['an iceberg', { displayQty: '0.1' }, 'displayQty'],
+    ['a bracket', { takeProfit: { price: '120' } }, 'takeProfit'],
+  ])('refuses another fee currency on %s before any order, as nothing there would carry it', async (_name, extra, named) => {
+    const { app, placed } = await build();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/orders',
+      headers: signed(),
+      payload: { ...BASE, clientOrderId: 'f-x', feeCurrency: 'IFC', ...extra },
+    });
+    expect(res.statusCode, res.body).toBe(400);
+    expect(res.json().intafacedCode).toBe('trade.fee_currency_unsupported');
+    expect(res.body).toContain(named);
+    expect(placed).toHaveLength(0);
     await app.close();
   });
 

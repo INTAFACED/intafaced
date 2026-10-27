@@ -39,7 +39,7 @@ const en = {
   step2Title: 'Verification',
   step2Short: 'Prove who you are',
   step2Body:
-    'Send INTAFACED the reference of your business verification file. INTAFACED reviews it and decides; it is never approved automatically.',
+    'Fill in the business application below and send it for review, or send the reference of a verification file you already filed with INTAFACED. INTAFACED reviews it and decides; it is never approved automatically.',
   step3Title: 'Payout destination',
   step3Short: 'Where you get paid',
   step3Body:
@@ -203,6 +203,8 @@ const en = {
   perm_payouts_read: 'See payouts',
   perm_webhooks_read: 'See webhooks',
   perm_webhooks_manage: 'Manage webhooks',
+  perm_products_read: 'See products',
+  perm_products_manage: 'Add and change products',
   permUnknown: 'A permission this page has no name for yet ({key})',
   roleCan_owner: 'Everything, including managing the team and admins.',
   teamHistoryTitle: 'Team history',

@@ -47,11 +47,13 @@ import { cancelScaleGroup, createScaleGroup, getScaleGroup, type ScaleCreateInpu
 import { appendOrderEvent, listAlgoReports, parentIdFromClientOrder, type OrderEventKind } from '../orders/order-events.js';
 import { UNPUBLISHED_FEE_SCHEDULE, type OwnerFeeSchedule } from './fee-schedule.js';
 import { feeScheduleAt as feeScheduleAtStore } from './fee-schedule-store.js';
+import { feeTierAt as feeTierAtStore } from './fee-tier-store.js';
 import { operatorSlippageCapBps, type Touch } from '../admin/risk.js';
 import { type HoldRead, type HoldUnknownAlert, type HoldUnknownSweepResult } from './hold-outcome.js';
 import { toMarket, toOrder, type OrderRow } from './rows.js';
 import { loadListedMarketRows, loadMarketBySymbol } from '../futures/futures-reads.js';
 import type { RankPerksSource } from './rank-perks.js';
+import { UNWIRED_IFC_DISCOUNT, type IfcDiscountSource } from './fee-ifc.js';
 import { NoopAffiliateAccrue, type AffiliateAccruePort } from './affiliate-accrue.js';
 import { NoopAffiliatePayout, type AffiliatePayoutPort } from './affiliate-payout.js';
 import { NoopDropCopyIngest, type DropCopyFillWire, type DropCopyHitchSource, type DropCopyIngestPort } from './drop-copy-ingest.js';
@@ -138,6 +140,7 @@ export {
   ADMIN_OPEN_ORDERS_LIMIT_MAX,
   AdminOpenOrdersLimitUnsetError,
   TRADE_ADMIN_OPEN_ORDERS_LIMIT_UNSET,
+  replacementClientOrderId,
 } from './trade-service/internal.js';
 
 export interface TradeServiceOptions {
@@ -327,6 +330,11 @@ export interface TradeServiceOptions {
    * Mirrors `TRADE_HOLD_UNKNOWN_TAKER_MAX_AGE_MS`.
    */
   holdUnknownTakerMaxAgeMs?: number;
+  /**
+   * svc-token's stake discount for an order that pays its fees in the platform token (fee-ifc.ts). Default unwired:
+   * every such order refuses `trade.fee_ifc_discount_unavailable`.
+   */
+  ifcDiscount?: IfcDiscountSource;
 }
 
 export interface ConvertQuoteRequest {
@@ -399,6 +407,11 @@ export interface PlaceOrderInput {
    * Flagged orders are excluded from public volume / tape (SD-3).
    */
   seeded?: boolean;
+  /**
+   * The asset to pay this order's fees in. Absent, or the asset it receives: fees come out of each fill as always. The
+   * platform token, on a person's own spot order, when the owner's schedule publishes its terms (fee-ifc.ts).
+   */
+  feeCurrency?: string;
   /** Internal binding for the cancel/replace saga; never accepted from REST. */
   replacementOf?: string;
   replacementRequestHash?: string;
@@ -555,6 +568,7 @@ export type TradeServiceInternal = { [K in keyof TradeService]: TradeService[K] 
   onCopyMirrorFill: TradeService['onCopyMirrorFill'];
   onHoldUnknownAlert: TradeService['onHoldUnknownAlert'];
   holdUnknownTakerMaxAgeMs: TradeService['holdUnknownTakerMaxAgeMs'];
+  ifcDiscount: TradeService['ifcDiscount'];
   sql: TradeService['sql'];
   ledger: TradeService['ledger'];
   matching: TradeService['matching'];
@@ -682,6 +696,7 @@ export class TradeService {
   }) => Promise<void>;
   private readonly onHoldUnknownAlert?: (alert: HoldUnknownAlert) => void;
   private readonly holdUnknownTakerMaxAgeMs: number;
+  private readonly ifcDiscount: IfcDiscountSource;
 
   constructor(
     private readonly sql: Sql,
@@ -728,6 +743,7 @@ export class TradeService {
     this.dropCopyIngest = options.dropCopyIngest ?? new NoopDropCopyIngest();
     this.onCopyMirrorFill = options.onCopyMirrorFill;
     this.onHoldUnknownAlert = options.onHoldUnknownAlert;
+    this.ifcDiscount = options.ifcDiscount ?? UNWIRED_IFC_DISCOUNT;
     const takerMaxAge = options.holdUnknownTakerMaxAgeMs ?? 30_000;
     this.holdUnknownTakerMaxAgeMs = Number.isInteger(takerMaxAge) && takerMaxAge >= 1_000 && takerMaxAge <= 600_000 ? takerMaxAge : 30_000;
     this.algo = new TwapEngine(
@@ -1276,6 +1292,7 @@ export class TradeService {
     feeAsset: string;
     feeAmount: bigint;
     feeBps: number;
+    rebate?: { readonly bps: number; readonly amount: bigint; readonly asset: string } | null;
     sequence: number;
     attribution: AuthAttribution;
   }): Promise<void> {
@@ -1336,13 +1353,18 @@ export class TradeService {
 
   // ── Holds: the only two things that can happen to one ─────────────────────
 
-  private async assertOwnerFeeSchedulePublished(): Promise<void> {
-    return holds.assertOwnerFeeSchedulePublished(this.internal);
+  private async assertOwnerFeeSchedulePublished(market: Pick<Market, 'kind' | 'symbol'>, at?: Date, tierId?: string): Promise<void> {
+    return holds.assertOwnerFeeSchedulePublished(this.internal, market, at, tierId);
   }
 
   /** The owner schedule in force at `at` (a later approved version, else the boot value). */
   private feeScheduleAt(at: Date): Promise<OwnerFeeSchedule> {
     return feeScheduleAtStore(this.sql, this.feeSchedule, at);
+  }
+
+  /** The fee tier an order `userId` places at `at` is charged at (fee-tier-store.ts). */
+  async feeTierAt(userId: string, at: Date = this.now()): Promise<string> {
+    return feeTierAtStore(this.sql, await this.feeScheduleAt(at), userId, at);
   }
 
   private async ratesForFill(
@@ -1351,8 +1373,9 @@ export class TradeService {
     kind: 'spot' | 'futures' | 'options' = 'spot',
     symbol?: string,
     placedAt: { readonly maker: Date; readonly taker: Date } = { maker: this.now(), taker: this.now() },
-  ): Promise<{ makerFeeBps: number; takerFeeBps: number }> {
-    return holds.ratesForFill(this.internal, makerDiscountBps, takerDiscountBps, kind, symbol, placedAt);
+    tiers?: { readonly maker: string; readonly taker: string },
+  ): Promise<{ makerFeeBps: number; takerFeeBps: number; makerRebateBps: number }> {
+    return holds.ratesForFill(this.internal, makerDiscountBps, takerDiscountBps, kind, symbol, placedAt, tiers);
   }
 
   private ratesForSchedule(
@@ -1361,8 +1384,9 @@ export class TradeService {
     takerDiscountBps: number,
     kind: 'spot' | 'futures' | 'options',
     symbol?: string,
+    tierId?: string,
   ) {
-    return holds.ratesForSchedule(this.internal, schedule, makerDiscountBps, takerDiscountBps, kind, symbol);
+    return holds.ratesForSchedule(this.internal, schedule, makerDiscountBps, takerDiscountBps, kind, symbol, tierId);
   }
 
   private assertFillFeesPostable(
@@ -1590,7 +1614,7 @@ export class TradeService {
       untilMs?: number;
       side?: 'buy' | 'sell';
       status?: 'filled' | 'cancelled' | 'rejected' | 'expired';
-      type?: 'market' | 'limit' | 'stop_limit';
+      type?: 'market' | 'limit' | 'stop_limit' | 'stop';
       before?: string;
     },
   ): Promise<OrderRecord[]> {
@@ -1831,26 +1855,29 @@ export class TradeService {
   }
 
   /**
-   * The exit of a bracket whose entry already filled: no cap or band may refuse it, since that leaves a position with
-   * no stop. The name alone is not trusted (a caller can pick any clientOrderId), so it must match this user's own
-   * stored bracket intent that has no exit yet.
+   * The exit of a bracket (or the close of an OTO) whose entry already filled: no cap or band may refuse it, since that
+   * leaves a position with no exit. The name alone is not trusted (a caller can pick any clientOrderId), so it must
+   * match this user's own stored intent of that kind that has no exit yet.
    */
   private async isPendingBracketExit(
     userId: string,
     clientOrderId: string,
     opts: { entryDone?: boolean; marketId?: string } = {},
   ): Promise<boolean> {
-    const exitOf = /^bracket:([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}):exit$/.exec(clientOrderId)?.[1];
-    if (!exitOf) return false;
+    const named = /^(bracket|oto):([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}):(exit|close)$/.exec(clientOrderId);
+    if (!named || (named[1] === 'bracket') !== (named[3] === 'exit')) return false;
+    const kind = named[1]!;
+    const exitOf = named[2]!;
     const pending = opts.entryDone
       ? await this.sql`
           SELECT 1 FROM trade.order_bracket_intent i JOIN trade.orders o ON o.id = i.order_id
-           WHERE i.order_id = ${exitOf} AND i.user_id = ${userId} AND i.exit_order_id IS NULL
+           WHERE i.order_id = ${exitOf} AND i.user_id = ${userId} AND i.kind = ${kind} AND i.exit_order_id IS NULL
              AND o.status NOT IN ('open', 'pending', 'recovery_required', 'hold_unknown')
              AND o.market_id = ${opts.marketId ?? null}
         `
       : await this.sql`
-          SELECT 1 FROM trade.order_bracket_intent WHERE order_id = ${exitOf} AND user_id = ${userId} AND exit_order_id IS NULL
+          SELECT 1 FROM trade.order_bracket_intent
+           WHERE order_id = ${exitOf} AND user_id = ${userId} AND kind = ${kind} AND exit_order_id IS NULL
         `;
     return pending.length > 0;
   }

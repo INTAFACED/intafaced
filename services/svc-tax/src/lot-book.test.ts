@@ -26,6 +26,14 @@ describe('buildLotBook', () => {
     const book = buildLotBook({ fills, held: held({ BTC: '1', USDT: '300' }), method: 'FIFO', truncated: false });
     expect(book.sales).toEqual([
       {
+        kind: 'sale',
+        counted: 'all',
+        fee: { status: 'unknown' },
+        // Where it was sold: the coin sold over the coin received.
+        market: 'BTC/USDT',
+        method: 'FIFO',
+        methodSource: 'default',
+        pickedLotId: null,
         assetId: 'BTC',
         txId: 't3',
         disposedAt: at(3).toISOString(),
@@ -34,11 +42,17 @@ describe('buildLotBook', () => {
         proceedsUsd: '300',
         costUsd: '100',
         realizedUsd: '200',
-        matches: [{ lotId: 'lot:t1:BTC', qty: '1', costUsd: '100', proceedsUsd: '300', realizedUsd: '200' }],
+        matches: [{ lotId: 'lot:t1:BTC', qty: '1', costUsd: '100', proceedsUsd: '300', realizedUsd: '200', counted: true }],
       },
     ]);
     expect(book.realizedUsd).toBe('200');
-    expect(book.assets.find((a) => a.assetId === 'BTC')).toEqual({ assetId: 'BTC', openQty: '1', openCostUsd: '200', held: '1' });
+    expect(book.assets.find((a) => a.assetId === 'BTC')).toEqual({
+      assetId: 'BTC',
+      openQty: '1',
+      openCostUsd: '200',
+      held: '1',
+      uncountedQty: '0',
+    });
     expect(book.indicator).toBe('indicator_not_tax_advice');
     expect(book.residuals).toEqual([]);
   });
@@ -100,6 +114,8 @@ describe('buildLotBook', () => {
     const book = buildLotBook({ fills: [buy('b1', 1, 'BTC', '1', '100')], held: held({ BTC: '0.4' }), method: 'FIFO', truncated: false });
     expect(book.assets[0]).toMatchObject({ assetId: 'BTC', openQty: '1', openCostUsd: null, held: '0.4' });
     expect(book.residuals).toContain(TAX_LOT_BOOK_UNRECONCILED);
+    // The coin is named, so a figure over time leaves it unknown and nothing else.
+    expect(book.outsideAssets).toEqual(['BTC']);
   });
 
   it('no sale is a null result, not a zero', () => {

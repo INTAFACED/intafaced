@@ -40,3 +40,15 @@ export function decodeBase64(text: string): Uint8Array | null {
 export function shortFingerprint(sha256: string): string {
   return (sha256.match(/.{1,4}/g) ?? []).slice(0, 3).join(' ');
 }
+
+/** Hands the browser a file to save under `filename`, then lets its address go. */
+export function saveFile(bytes: Uint8Array, contentType: string, filename: string): void {
+  const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: contentType }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}

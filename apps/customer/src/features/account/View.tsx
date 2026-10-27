@@ -1,6 +1,7 @@
 import { copy, t as copyText, Text } from './copy';
 import { useLayoutEffect, useMemo, useState } from 'react';
 import { SegmentedControl } from '@intafaced/ui';
+import { UI_DISPLAY_CURRENCIES, type UiDisplayCurrency } from '@intafaced/contracts/ui-view-preferences';
 import { Page, Button } from '../../shared/ui';
 import {
   usePreferences,
@@ -169,11 +170,14 @@ export function View() {
                 aria-label={copyText('view.display.currency')}
                 value={preferences.displayCurrency}
                 onChange={(event) => {
-                  save({ displayCurrency: event.target.value as 'USD' | 'BTC' });
+                  save({ displayCurrency: event.target.value as UiDisplayCurrency });
                 }}
               >
-                <option value="USD">USD</option>
-                <option value="BTC">BTC</option>
+                {UI_DISPLAY_CURRENCIES.map((code) => (
+                  <option key={code} value={code}>
+                    {code}
+                  </option>
+                ))}
               </select>
               <small>
                 <Text k="view.display.currency.hint" />
@@ -209,7 +213,7 @@ export function View() {
             onClick={() => {
               save({
                 theme: 'dark',
-                layoutMode: 'pro',
+                layoutMode: 'simple',
                 language: 'en',
                 hideBalances: false,
                 displayCurrency: 'USD',

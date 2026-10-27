@@ -140,6 +140,7 @@ const SERVICE_ROLE_NAMES = [
   'support',
   'quant',
   'tax',
+  'campaigns',
   'chain',
   'indexer',
   'bridge',

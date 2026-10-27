@@ -11,11 +11,12 @@ import { mergeRooms, type RoomDef } from './rooms-model';
 import { moneyRooms } from './money/rooms';
 import { paymentsRooms } from './payments/rooms';
 import { settingsRooms } from './settings/rooms';
+import { catalogRooms } from './catalog/rooms';
 import { PORTAL_ROOMS } from './routes';
 
 describe('portal room registry', () => {
   it('has exactly one owner for every room', () => {
-    const owners = [moneyRooms, paymentsRooms, settingsRooms].flatMap((table) => Object.keys(table));
+    const owners = [moneyRooms, paymentsRooms, settingsRooms, catalogRooms].flatMap((table) => Object.keys(table));
     expect([...new Set(owners)].sort()).toEqual([...PORTAL_ROOMS].sort());
     expect(owners).toHaveLength(PORTAL_ROOMS.length);
     expect(Object.keys(rooms).sort()).toEqual([...PORTAL_ROOMS].sort());

@@ -9,6 +9,7 @@ const answer = (over: Partial<ServerAllocation> = {}): ServerAllocation => ({
     { class: 'stablecoin', valueUsd: '1500', share: '0.028436018957345972', assets: [] },
     { class: 'crypto', valueUsd: '51000', share: '0.966824644549763033', assets: [] },
   ],
+  classesRefused: null,
   types: [
     { type: 'available', valueUsd: '31750', share: '0.601895734597156398' },
     { type: 'locked', valueUsd: '21000', share: '0.398104265402843602' },
@@ -19,18 +20,36 @@ const answer = (over: Partial<ServerAllocation> = {}): ServerAllocation => ({
 });
 
 describe('groupSlices', () => {
+  it('names earn, commodities and unclassified, and carries each class its coins', () => {
+    const slices = groupSlices(
+      answer({
+        classes: [
+          { class: 'commodity', valueUsd: '10', share: '0.1', assets: [{ asset: 'XAU', valueUsd: '10', share: '0.1' }] },
+          { class: 'earn', valueUsd: '30', share: '0.3', assets: [{ asset: 'USDT', valueUsd: '30', share: '0.3' }] },
+          { class: 'unclassified', valueUsd: '60', share: '0.6', assets: [{ asset: 'BTC', valueUsd: '60', share: '0.6' }] },
+        ],
+      }),
+      'class',
+    );
+    expect(slices?.map((s) => [s.key, s.labelKey, s.assets])).toEqual([
+      ['unclassified', 'Unclassified', ['BTC']],
+      ['earn', 'Earn', ['USDT']],
+      ['commodity', 'Commodities', ['XAU']],
+    ]);
+  });
+
   it('orders the classes biggest first and names them by key', () => {
     expect(groupSlices(answer(), 'class')?.map((s) => [s.key, s.labelKey])).toEqual([
       ['crypto', 'Other crypto'],
       ['stablecoin', 'Dollar coins'],
-      ['fiat', 'Dollars'],
+      ['fiat', 'Cash'],
     ]);
   });
 
   it('gives the type split as it came, keeping the shares as strings', () => {
     expect(groupSlices(answer(), 'type')).toEqual([
-      { key: 'available', labelKey: 'Spendable', share: '0.601895734597156398' },
-      { key: 'locked', labelKey: 'Locked', share: '0.398104265402843602' },
+      { key: 'available', labelKey: 'Spendable', share: '0.601895734597156398', assets: [] },
+      { key: 'locked', labelKey: 'Locked', share: '0.398104265402843602', assets: [] },
     ]);
   });
 

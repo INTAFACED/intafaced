@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  kybApplicationChangeTypeInputSchema,
   kybApplicationRestartInputSchema,
   kybApplicationSaveSectionInputSchema,
   kybApplicationSectionDataSchema,
@@ -32,5 +33,11 @@ describe('kyb application contracts', () => {
     expect(kybApplicationRestartInputSchema.safeParse({ applicationId: id }).success).toBe(false);
     expect(kybApplicationRestartInputSchema.safeParse({ applicationId: id, confirm: true }).success).toBe(true);
     expect(kybApplicationStartInputSchema.parse({ merchantId: id, entityType: 'fund', country: 'de' }).country).toBe('DE');
+  });
+
+  it('a type change names a known type and a two-letter country', () => {
+    expect(kybApplicationChangeTypeInputSchema.parse({ applicationId: id, entityType: 'trust', country: 'fr' }).country).toBe('FR');
+    expect(kybApplicationChangeTypeInputSchema.safeParse({ applicationId: id, entityType: 'llc', country: 'FR' }).success).toBe(false);
+    expect(kybApplicationChangeTypeInputSchema.safeParse({ applicationId: id, entityType: 'trust', country: 'FRA' }).success).toBe(false);
   });
 });

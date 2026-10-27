@@ -116,9 +116,9 @@ export function PriceCard({
   const updated = ticker.status === 'ready' ? ticker.asOf : null;
 
   return (
-    <section className="coin-card coin-price-card" aria-label={t('{name} price', { name: asset })}>
+    <section data-testid="coin-price-card" className="coin-card coin-price-card" aria-label={t('{name} price', { name: asset })}>
       <div className="coin-price-card__head">
-        <div className="coin-price-card__figure">
+        <div data-testid="coin-price-card__figure" className="coin-price-card__figure">
           {ticker.status === 'loading' ? (
             <>
               <Skeleton height={56} width={260} className="bg-field" />
@@ -157,6 +157,7 @@ export function PriceCard({
 
       <ToggleGroup
         variant="pill"
+        data-testid="coin-ranges"
         className="coin-ranges"
         aria-label={t('Chart range')}
         value={rangeId}

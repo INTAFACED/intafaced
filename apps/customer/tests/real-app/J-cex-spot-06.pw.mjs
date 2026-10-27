@@ -48,13 +48,17 @@ async function fillsOf(who, id) {
 
 /** The order ids a history or desk table links to, in the order shown. */
 async function linkedIds(table) {
-  const hrefs = await table.locator('a.dk-order-link').evaluateAll((links) => links.map((a) => a.getAttribute('href')));
+  const hrefs = await table.locator('a[data-testid="dk-order-link"]').evaluateAll((links) => links.map((a) => a.getAttribute('href')));
   return hrefs.map((href) => decodeURIComponent(href.split('/').pop()));
 }
 
-const historyTable = (page) => page.locator('.orders-table table');
-const detail = (page) => page.locator('dl.orders-list').first();
-const rowValue = (scope, label) => scope.locator('.orders-row', { has: scope.page().locator('dt', { hasText: label }) }).locator('dd');
+const historyTable = (page) => page.getByTestId('orders-table').locator('table');
+const detail = (page) => page.locator('dl[data-testid="orders-list"]').first();
+const rowValue = (scope, label) =>
+  scope
+    .getByTestId('orders-row')
+    .filter({ has: scope.page().locator('dt', { hasText: label }) })
+    .locator('dd');
 
 test(`${J} #1 opens order history and filters by side, state and date: matching rows only, paged without repeats`, async ({ page }) => {
   // Signing up, verifying and placing the starting orders takes most of a minute before the history is opened.
@@ -129,17 +133,17 @@ test(`${J} #2 opens one order at /trade/orders/:id: state, fills and the reason,
   await historyTable(page).locator(`a[href="/trade/orders/${ids.bought}"]`).click();
   await expect(page).toHaveURL(new RegExp(`/trade/orders/${ids.bought}$`));
   await expect(page.getByRole('heading', { name: 'Buy BTC/USDT', level: 1 })).toBeVisible();
-  await expect(page.locator('.page-heading')).toContainText('Filled');
+  await expect(page.getByTestId('page-heading')).toContainText('Filled');
   await expect(rowValue(detail(page), 'Filled')).toHaveText('0.002 BTC');
   const fills = await fillsOf(who, ids.bought);
   expect(fills.length).toBeGreaterThan(0);
-  await expect(page.locator('.orders-fill')).toHaveCount(fills.length);
+  await expect(page.getByTestId('orders-fill')).toHaveCount(fills.length);
   await expect(rowValue(detail(page), 'Why it ended')).toHaveCount(0);
 
   // A cancelled order says why it ended, or that no reason was recorded; never a raw code.
   const cancelled = await orderById(who, ids.cancelled);
   await page.goto(`/trade/orders/${ids.cancelled}`);
-  await expect(page.locator('.page-heading')).toContainText('Cancelled');
+  await expect(page.getByTestId('page-heading')).toContainText('Cancelled');
   await expect(rowValue(detail(page), 'Why it ended')).toHaveText(cancelled.rejectCode ? /.+/ : 'Not recorded');
   await expect(page.getByText('Nothing has filled.')).toBeVisible();
   // An immediate-or-cancel order that could not fill names its reason.
@@ -153,7 +157,7 @@ test(`${J} #2 opens one order at /trade/orders/:id: state, fills and the reason,
   const changed = await orderById(who, ids.changed);
   expect(changed.amount).toBe('0.001');
   await page.goto(`/trade/orders/${ids.changed}`);
-  await expect(page.locator('.page-heading')).toContainText('Open');
+  await expect(page.getByTestId('page-heading')).toContainText('Open');
   await expect(rowValue(detail(page), 'Amount')).toHaveText('0.001 BTC');
 });
 
@@ -236,11 +240,11 @@ test(`${J} #4 reads the fills of a partly filled order, then cancel gives back e
 
   await signIn(page, who);
   await page.goto(`/trade/orders/${order.id}`);
-  await expect(page.locator('.page-heading')).toContainText('Partly filled');
+  await expect(page.getByTestId('page-heading')).toContainText('Partly filled');
   await expect(rowValue(detail(page), 'Filled')).toHaveText(`${part.filled} BTC`);
   await expect(rowValue(detail(page), 'Left to fill')).toHaveText(`${part.remaining} BTC`);
   const fills = await fillsOf(who, order.id);
-  await expect(page.locator('.orders-fill')).toHaveCount(fills.length);
+  await expect(page.getByTestId('orders-fill')).toHaveCount(fills.length);
   // The hold left is what the remainder needs, and it is what the ledger holds for this person.
   expect(toUnits(part.hold.amount)).toBeGreaterThan(0n);
   const balances = await (await api(who)).balances();
@@ -252,7 +256,7 @@ test(`${J} #4 reads the fills of a partly filled order, then cancel gives back e
   await expect(page.getByRole('status').filter({ hasText: 'Cancelled.' })).toContainText(
     `${part.hold.amount.replace(/0+$/, '').replace(/\.$/, '')}`,
   );
-  await expect(page.locator('.page-heading')).toContainText('Cancelled');
+  await expect(page.getByTestId('page-heading')).toContainText('Cancelled');
   const after = await (await api(who)).balances();
   expect(toUnits(after.USDT.free) - freeBefore).toBe(toUnits(part.hold.amount));
   expect(held(after, 'USDT')).toBe(openHolds - toUnits(part.hold.amount));
@@ -269,7 +273,7 @@ test(`${J} #5 opens a fill's detail: price, amount, maker or taker, fee rate, fe
     const order = await orderById(who, id);
     expect(fill.takerOrMaker).toBe(role.toLowerCase());
     await page.goto(`/trade/orders/${id}`);
-    const opened = page.locator('.orders-fill').first();
+    const opened = page.getByTestId('orders-fill').first();
     await opened.locator('summary').click();
     const rows = opened.locator('dl');
     await expect(rowValue(rows, 'Role')).toContainText(role);
@@ -343,23 +347,23 @@ test(`${J} #7 reads the order states and the amend trail: the same words everywh
   const { ids } = run.read();
   await openDesk(page, who);
   await page.locator('[role=tab]', { hasText: 'Order history' }).click();
-  const deskRow = page.locator('.dk-bottom-body tr', { has: page.locator(`a[href="/trade/orders/${ids.cancelled}"]`) });
+  const deskRow = page.getByTestId('dk-bottom-body').locator('tr', { has: page.locator(`a[href="/trade/orders/${ids.cancelled}"]`) });
   await expect(deskRow).toContainText('Cancelled');
   await page.goto('/trade/orders?status=canceled&size=50');
   const historyRow = historyTable(page).locator('tr', { has: page.locator(`a[href="/trade/orders/${ids.cancelled}"]`) });
   await expect(historyRow).toContainText('Cancelled');
   await page.goto(`/trade/orders/${ids.cancelled}`);
-  await expect(page.locator('.page-heading')).toContainText('Cancelled');
+  await expect(page.getByTestId('page-heading')).toContainText('Cancelled');
 
   const { body } = await (await api(who)).get(`/api/v1/orders/${ids.changed}/amendments`);
   expect(body.amendments.length).toBeGreaterThan(0);
   await page.goto(`/trade/orders/${ids.changed}`);
-  const trail = page.locator('.orders-changes li');
+  const trail = page.getByTestId('orders-changes').locator('li');
   await expect(trail).toHaveCount(body.amendments.length);
   await expect(trail.first()).toContainText(/Changed to 0\.001 at/);
   await expect(trail.first()).toContainText(/\d{1,2}:\d{2}/);
   // Open, on the desk and here, reads the same.
-  await expect(page.locator('.page-heading')).toContainText('Open');
+  await expect(page.getByTestId('page-heading')).toContainText('Open');
   await (await api(who)).delete(`/api/v1/orders/${ids.changed}`);
 });
 
@@ -369,7 +373,7 @@ test(`${J} #8 opens Activity, Trades: one row per trade from the fills, with pri
   expect(fills.length).toBeGreaterThan(0);
   await signIn(page, who);
   await page.goto('/money/activity?tab=trades');
-  const rows = page.locator('.money-trade-tab table tbody tr');
+  const rows = page.getByTestId('money-trade-tab').locator('table tbody tr');
   await expect(rows).toHaveCount(fills.length);
   const newest = fills.reduce((a, b) => (b.timestamp > a.timestamp ? b : a));
   const row = rows.first();

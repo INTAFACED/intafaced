@@ -6,23 +6,36 @@
  *   pnpm local:stack:stop                 stop only the processes this script started
  *   pnpm local:fund <email|userId> <ASSET> <amount>
  *                                         credit labelled TEST funds through the real ledger
+ *   node tooling/scripts/local-test-stack.mjs chain-deposit <address> <ASSET> <amount> <confirmations> --tx <label>
+ *                                         deliver a signed TEST chain transfer to a deposit address svc-pay issued
+ *   node tooling/scripts/local-test-stack.mjs chain-reorg <address> --tx <label>
+ *                                         the TEST chain takes that transfer back (a reorg), as the watcher would report it
+ *   node tooling/scripts/local-test-stack.mjs bank-transfer <reference> <CCY> <amount> --tx <label> [--payer <name>]
+ *                                         the TEST bank reports a pushed transfer quoting a hosted checkout's reference
  *   node tooling/scripts/local-test-stack.mjs status
  *
  * What it starts, all bound to 127.0.0.1, state in ~/.intafaced/local-test-stack/:
  *   Postgres 16 (own data dir) · NATS JetStream · svc-ledger · svc-identity ·
  *   svc-matching · svc-trade · svc-pay · svc-bank · the services behind the Customer's
  *   More door, Notifications and P2P (svc-token, -p2p, -academy, -support, -market,
- *   -notify, -agents, -blueprint, -quant, -execution, -tax) · svc-ops (the outreach intake and CRM) ·
+ *   -notify, -agents, -blueprint, -quant, -execution, -tax, -campaigns) · svc-ops (the outreach intake and CRM) ·
  *   svc-protocol (the Web3 rooms' read side; no chain node) ·
  *   svc-edge · a small Customer static server + reverse proxy on http://127.0.0.1:3210 · the same
  *   for the public invitation site (apps/invitation) on http://127.0.0.1:3220 · the founder console
  *   (apps/admin, a production Next build) on http://127.0.0.1:3100
  *
  *   pnpm local:stack plan                 print services, ports and Edge wiring; changes nothing
+ *   node tooling/scripts/local-test-stack.mjs csp-report [--fail|--clear]   Content-Security-Policy violations the Customer app reported
  *   pnpm local:stack --only a,b           start only the named services (plus Postgres/NATS)
  *   pnpm local:stack restart edge         stop the named services, then start (idempotent)
  *   pnpm local:stack customer-dist <abs>  serve a Customer build from another folder (never rebuilt or overwritten)
  *   pnpm local:stack customer-dist --clear   go back to this checkout's own build
+ *   node tooling/scripts/local-test-stack.mjs age-linked-accounts <email> <hours>   TEST fixture: past a cooling-off
+ *   node tooling/scripts/local-test-stack.mjs expire-address-approvals <email>   TEST fixture: open approval links run out
+ *   node tooling/scripts/local-test-stack.mjs expire-deposit-addresses <email>   TEST fixture: open extra deposit addresses expire
+ *   node tooling/scripts/local-test-stack.mjs expire-staff-holds <email>   TEST fixture: open staff holds with an expiry reach it
+ *   node tooling/scripts/local-test-stack.mjs age-task-progress <email> <campaignId> <days>   TEST fixture: a task campaign's counted events happened days earlier
+ *   node tooling/scripts/local-test-stack.mjs seed-withdrawal <email> <ASSET> <amount> --state <s> --ref <label> [--count <n>]   TEST fixture: a withdrawal in that state (or n requested ones)
  *
  * Rules this file keeps (AGENTS.md "Money"):
  *   - Value moves ONLY through the ledger (packages/ledger-client recipes -> svc-ledger).
@@ -43,6 +56,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { apiSecurityHeaders, securityHeaders } from '../../apps/customer/deployment/render-security-headers.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveVideoStore } from './local-video-store.mjs';
 import academy from './local-stack-services/academy.mjs';
@@ -64,6 +78,7 @@ import protocol from './local-stack-services/protocol.mjs';
 import quant from './local-stack-services/quant.mjs';
 import support from './local-stack-services/support.mjs';
 import tax from './local-stack-services/tax.mjs';
+import campaigns from './local-stack-services/campaigns.mjs';
 import token from './local-stack-services/token.mjs';
 import trade from './local-stack-services/trade.mjs';
 import {
@@ -77,6 +92,7 @@ import {
   readFounderPinStamp,
   writeFounderPinStamp,
 } from './local-test-founders.mjs';
+import { consoleTreasuryToken, makeContext } from './local-test-gates.mjs';
 import {
   localStackState,
   localPgBin,
@@ -109,6 +125,7 @@ const P = {
   customerDist: path.join(REPO, 'apps', 'customer', 'dist'),
   invitationDist: path.join(REPO, 'apps', 'invitation', 'dist'),
   customerDistFile: path.join(STATE, 'customer-dist.json'),
+  cspViolations: path.join(STATE, 'csp-violations.jsonl'),
   admin: path.join(REPO, 'apps', 'admin'),
   adminBuildId: path.join(REPO, 'apps', 'admin', '.next', 'BUILD_ID'),
 };
@@ -143,6 +160,8 @@ const PORTS = {
   protocol: 14520,
   // LOCAL TEST stand-in for the object store Academy signs video URLs for (local-video-store.mjs).
   'video-store': 14521,
+  // Seasons, limited drops and the TGE claim (the drop room).
+  campaigns: 14522,
   customer: 3210,
   invitation: 3220,
   admin: 3100,
@@ -177,6 +196,7 @@ const SCHEMAS = [
   'mining_pool',
   'ops',
   'protocol',
+  'campaigns',
 ];
 // A schema whose service is named differently (svc-mining-pool owns schema mining_pool).
 const SCHEMA_SERVICE = { mining_pool: 'mining-pool' };
@@ -267,10 +287,15 @@ const SECRET_NAMES = [
   'edgeAuthority',
   'payCryptoWebhook',
   'payCardWebhook',
+  'payBankTransferWebhook', // pay's TEST bank webhook key (J-merchant-04 step 6); the `bank-transfer` command signs with it
   'identityTotp', // identity's TOTP sealing key; lets the labelled local test operators enrol a second factor
   'identityFlowSubject', // identity's key for sign-up and recovery flows (address identifier and code hash)
   'notifyStatusLink', // notify's key for the signed links in status subscription mail
   'academyVideoStore', // the TEST video store's signing key, shared with academy (local-video-store.mjs)
+  'payKybDocKey', // pay's key for business verification documents (PAY_KYB_DOC_KEY, 32 bytes as hex)
+  'payTravelRuleKey', // pay's travel-rule sealing key (PAY_TRAVEL_RULE_MESSAGE_KEY is its SHA-256 as base64); this stack's own, valid nowhere else
+  'identityKycDoc', // identity's key for the KYC document vault (IDENTITY_KYC_DOC_KEY, 32 bytes as hex); this stack's own, valid nowhere else
+  'tradeVipProofKey', // trade's key for VIP application proof files (TRADE_VIP_PROOF_KEY, 32 bytes as hex); this stack's own, valid nowhere else
 ];
 
 function loadOrCreateSecrets() {
@@ -353,14 +378,14 @@ function ownedAlive(rec) {
   return processRecordMatches(rec, readProcessIdentity(rec?.pid));
 }
 
-function startProc(name, argv, env, cwd) {
+function startProc(name, argv, env, cwd, extra = {}) {
   const logPath = path.join(P.logs, `${name}.log`);
   const fd = fs.openSync(logPath, 'a', 0o600);
   const child = spawn(argv[0], argv.slice(1), { cwd, env, detached: true, stdio: ['ignore', fd, fd] });
   child.unref();
   fs.closeSync(fd);
   const procs = readProcs();
-  procs[name] = { pid: child.pid, argv, startedAt: new Date().toISOString() };
+  procs[name] = { pid: child.pid, argv, startedAt: new Date().toISOString(), ...extra };
   writeProcs(procs);
   return child.pid;
 }
@@ -569,6 +594,7 @@ const BACKEND_PKGS = [
   'svc-mining-pool',
   'svc-ops',
   'svc-protocol',
+  'svc-campaigns',
 ];
 
 function gitHead() {
@@ -853,6 +879,7 @@ const EDGE_UPSTREAMS = {
   MINING_POOL_URL: 'mining-pool',
   OPS_URL: 'ops',
   PROTOCOL_URL: 'protocol',
+  CAMPAIGNS_URL: 'campaigns',
 };
 
 /** Edge upstreams that are intentionally not started, each with the reason. The Customer app calls none of them except where noted. */
@@ -892,6 +919,7 @@ const SERVICES = [
   tax,
   miningPool,
   protocol,
+  campaigns,
   edge,
 ];
 
@@ -1140,14 +1168,52 @@ function adminEnv(secrets) {
   };
 }
 
+/** How long the console's LOCAL TEST treasury token lives. A start with less than an hour left restarts the console. */
+const TREASURY_TTL_SECONDS = 24 * 60 * 60;
+const TREASURY_RENEW_MS = 60 * 60 * 1000;
+
+/**
+ * The console's treasury transport (ADMIN_TREASURY_TOKEN), minted on founder a's own second-factor session by
+ * local-test-gates.mjs and held only in the console's environment. Without it the console shows define, change and run
+ * parked, so a mint that fails is said out loud and leaves them parked rather than stopping the stack.
+ */
+async function consoleTreasuryEnv() {
+  try {
+    const minted = await consoleTreasuryToken(await makeContext({ log: () => {} }), { ttlSeconds: TREASURY_TTL_SECONDS });
+    if (minted) return { env: { ADMIN_TREASURY_TOKEN: minted.token }, expiresAt: minted.expiresAt.toISOString() };
+    say('  admin: the founder pair is not enrolled, so the console keeps its treasury doors parked');
+  } catch (err) {
+    say(`  admin: no LOCAL TEST treasury token (${err instanceof Error ? err.message : String(err)}); treasury doors stay parked`);
+  }
+  return { env: {}, expiresAt: null };
+}
+
+/** Until when this console's treasury token holds, or null when it holds none (or has run out). */
+function treasuryHeldUntil(rec) {
+  const until = typeof rec?.treasuryExpiresAt === 'string' ? Date.parse(rec.treasuryExpiresAt) : NaN;
+  return Number.isFinite(until) && until > Date.now() ? until : null;
+}
+
 async function startAdmin(secrets) {
   const procs = readProcs();
   const url = `${ADMIN_ORIGIN}/login`;
-  // Ours but not answering yet (a first request compiles nothing, but prepare() takes a few seconds): wait for it.
-  if (ownedAlive(procs.admin)) return waitHealthy('admin', url, procs.admin.pid, 60_000);
+  let treasury = null;
+  if (ownedAlive(procs.admin)) {
+    const until = treasuryHeldUntil(procs.admin);
+    // Ours but not answering yet (a first request compiles nothing, but prepare() takes a few seconds): wait for it.
+    if (until !== null && until - Date.now() >= TREASURY_RENEW_MS) return waitHealthy('admin', url, procs.admin.pid, 60_000);
+    // No token, or under an hour left: mint first, and keep the running console when the mint fails.
+    treasury = await consoleTreasuryEnv();
+    if (!treasury.expiresAt) return waitHealthy('admin', url, procs.admin.pid, 60_000);
+    say('  admin: restarting so the console holds a fresh LOCAL TEST treasury token');
+    await stopProc('admin', procs.admin);
+  }
   if (await portOpen(PORTS.admin)) fail(`port ${PORTS.admin} (admin) is in use by a process this script did not start`);
   if (!fs.existsSync(P.adminBuildId)) fail('founder console build missing; run with --rebuild');
-  const pid = startProc('admin', [process.execPath, SCRIPT, '__serve-admin'], adminEnv(secrets), P.admin);
+  treasury ??= await consoleTreasuryEnv();
+  const pid = startProc('admin', [process.execPath, SCRIPT, '__serve-admin'], { ...adminEnv(secrets), ...treasury.env }, P.admin, {
+    treasuryExpiresAt: treasury.expiresAt,
+  });
   await waitHealthy('admin', url, pid, 60_000);
 }
 
@@ -1254,6 +1320,8 @@ async function cmdStart(flags) {
   for (const b of [`${PG_BIN}/pg_ctl`, `${PG_BIN}/initdb`, `${PG_BIN}/psql`])
     if (!fs.existsSync(b)) fail(`missing ${b} (install PostgreSQL 16 via Homebrew)`);
   const secrets = loadOrCreateSecrets();
+  // Each stack starts with no recorded CSP violations, so `csp-report --fail` speaks only of this run.
+  fs.rmSync(P.cspViolations, { force: true });
   writePrivate(
     P.marker,
     JSON.stringify(
@@ -1337,6 +1405,13 @@ async function cmdStart(flags) {
   say(`  Open: ${CUSTOMER_ORIGIN}   (register, sign in, then: pnpm local:fund <email> USDT 1000)`);
   say(`  Invitation site: ${INVITATION_ORIGIN}   (the public join and partner enquiry forms)`);
   say(`  Founder console: ${ADMIN_ORIGIN}   (local_test_founder_a / _b; credentials in ${FOUNDER_VAULT_NAME})`);
+  const consoleRec = readProcs().admin;
+  const treasuryUntil = ownedAlive(consoleRec) ? treasuryHeldUntil(consoleRec) : null;
+  say(
+    treasuryUntil !== null
+      ? `  Console treasury doors: LOCAL TEST token on local_test_founder_a's session until ${new Date(treasuryUntil).toISOString()}`
+      : '  Console treasury doors: parked (the console holds no LOCAL TEST treasury token)',
+  );
   say(`  Stop: pnpm local:stack:stop`);
   if (!allOk) process.exit(1);
 }
@@ -1481,16 +1556,64 @@ function indexWithBanner(dist) {
   return html.replace(/<body([^>]*)>/i, (m) => `${m}${BANNER_HTML}`);
 }
 
+/** What nginx's /api/ location adds to Edge's answers (security-headers-api.conf). */
+const API_SECURITY = apiSecurityHeaders();
+/** Where the Customer app's browser sends Content-Security-Policy violation reports on this stack. */
+const CSP_REPORT_PATH = '/__csp-report';
+
+/**
+ * The Customer site's production security headers (apps/customer/security-headers.conf.template), with this stack's
+ * TEST video store standing in for CUSTOMER_STORAGE_ORIGIN and a report-uri so every violation is recorded. Journeys
+ * therefore run under the policy the deployed app has, and `csp-report --fail` turns any violation red.
+ */
+export function customerSecurityHeaders() {
+  return securityHeaders({ mediaSrc: `'self' blob: ${urlOf('video-store')}`, reportUri: CSP_REPORT_PATH });
+}
+
 /** The two static sites this stack serves, each with `/api/*` passed to Edge. The invitation site has no folder override. */
 const SITES = {
-  customer: { label: 'Customer', origin: CUSTOMER_ORIGIN, dist: () => activeCustomerDist() },
-  invitation: { label: 'invitation', origin: INVITATION_ORIGIN, dist: () => ({ dir: P.invitationDist, error: null }) },
+  customer: { label: 'Customer', origin: CUSTOMER_ORIGIN, dist: () => activeCustomerDist(), headers: () => customerSecurityHeaders() },
+  invitation: { label: 'invitation', origin: INVITATION_ORIGIN, dist: () => ({ dir: P.invitationDist, error: null }), headers: () => ({}) },
 };
+
+/** One CSP report body (application/csp-report or reports+json) as the rows csp-violations.jsonl keeps. */
+export function cspReportRows(body, at = new Date().toISOString()) {
+  let parsed;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return [];
+  }
+  const list = Array.isArray(parsed) ? parsed.map((r) => r?.body ?? r) : [parsed?.['csp-report'] ?? parsed];
+  return list
+    .filter((r) => r && typeof r === 'object')
+    .map((r) => ({
+      at,
+      directive: String(r['effective-directive'] ?? r.effectiveDirective ?? r['violated-directive'] ?? '').slice(0, 80),
+      blocked: String(r['blocked-uri'] ?? r.blockedURL ?? '').slice(0, 300),
+      page: String(r['document-uri'] ?? r.documentURL ?? '')
+        .replace(/[?#].*$/, '')
+        .slice(0, 300),
+      source: String(r['source-file'] ?? r.sourceFile ?? '')
+        .replace(/[?#].*$/, '')
+        .slice(0, 300),
+      line: Number(r['line-number'] ?? r.lineNumber ?? 0) || 0,
+      sample: String(r['script-sample'] ?? r.sample ?? '').slice(0, 80),
+    }));
+}
 
 function serveCustomer(port = PORTS.customer, site = SITES.customer) {
   const edge = { host: HOST, port: PORTS.edge };
+  // nginx sets these on every response (`always`), errors included.
+  const security = site.headers();
   const send = (res, status, type, body, extra = {}) => {
-    res.writeHead(status, { 'content-type': type, 'content-length': Buffer.byteLength(body), 'cache-control': 'no-store', ...extra });
+    res.writeHead(status, {
+      ...security,
+      'content-type': type,
+      'content-length': Buffer.byteLength(body),
+      'cache-control': 'no-store',
+      ...extra,
+    });
     res.end(body);
   };
   const server = http.createServer((req, res) => {
@@ -1503,6 +1626,30 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
     const url = new URL(req.url, site.origin);
     const p = url.pathname;
 
+    if (p === CSP_REPORT_PATH && site === SITES.customer) {
+      if (req.method !== 'POST') return send(res, 405, 'text/plain; charset=utf-8', 'method not allowed');
+      let body = '';
+      req.setEncoding('utf8');
+      req.on('data', (chunk) => {
+        body += chunk;
+        if (body.length > 64 * 1024) req.destroy();
+      });
+      req.on('end', () => {
+        const rows = cspReportRows(body);
+        try {
+          if (rows.length) {
+            fs.mkdirSync(path.dirname(P.cspViolations), { recursive: true });
+            fs.appendFileSync(P.cspViolations, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+          }
+        } catch (error) {
+          // The record cannot be written: say so on every report rather than take the Customer site down.
+          console.error(`CSP report not recorded (${error.message}); csp-report cannot see it`);
+        }
+        for (const r of rows) console.error(`CSP violation: ${r.directive} blocked ${r.blocked || '(inline)'} on ${r.page}`);
+        send(res, 204, 'text/plain; charset=utf-8', '');
+      });
+      return;
+    }
     if (p === '/api' || p === '/ws') return send(res, 404, 'text/plain; charset=utf-8', 'not found');
     if (p.startsWith('/ws/')) {
       return send(res, 503, 'application/json', JSON.stringify(WS_UPSTREAM_REFUSAL));
@@ -1518,7 +1665,7 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
       headers['x-forwarded-for'] = req.socket.remoteAddress ?? HOST;
       headers['x-forwarded-proto'] = 'http';
       const up = http.request({ ...edge, method: req.method, path: req.url, headers }, (ur) => {
-        res.writeHead(ur.statusCode ?? 502, { ...ur.headers, 'cache-control': 'no-store' });
+        res.writeHead(ur.statusCode ?? 502, { ...ur.headers, ...API_SECURITY, 'cache-control': 'no-store' });
         ur.pipe(res);
       });
       up.on('error', () =>
@@ -1566,6 +1713,7 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
       const body = fs.readFileSync(target);
       const immutable = p.startsWith('/assets/');
       res.writeHead(200, {
+        ...security,
         'content-type': MIME[path.extname(target)] ?? 'application/octet-stream',
         'content-length': body.length,
         'cache-control': immutable ? 'public, max-age=31536000, immutable' : 'no-store',
@@ -1579,7 +1727,12 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
     } catch {
       return send(res, 503, 'text/plain; charset=utf-8', `No ${site.label} build found in ${dist}. Run: pnpm local:stack --rebuild`);
     }
-    res.writeHead(200, { 'content-type': MIME['.html'], 'content-length': Buffer.byteLength(html), 'cache-control': 'no-store' });
+    res.writeHead(200, {
+      ...security,
+      'content-type': MIME['.html'],
+      'content-length': Buffer.byteLength(html),
+      'cache-control': 'no-store',
+    });
     res.end(req.method === 'HEAD' ? undefined : html);
   });
   // No WebSocket upstream is published. The refusal names CUSTOMER_WS_URL and
@@ -1593,9 +1746,223 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
   server.listen(port, HOST);
 }
 
+/**
+ * `csp-report [--fail] [--clear]`: the Content-Security-Policy violations the Customer app's browser reported to this
+ * stack (csp-violations.jsonl), grouped by directive and blocked source. `--fail` exits 1 when there is any, so a journey
+ * run that broke the production policy is red; `--clear` empties the record (`start` does too, so each stack starts clean).
+ */
+function cmdCspReport(args) {
+  if (args.includes('--clear')) {
+    fs.rmSync(P.cspViolations, { force: true });
+    say('  csp-report: cleared');
+    return;
+  }
+  const rows = fs.existsSync(P.cspViolations)
+    ? fs
+        .readFileSync(P.cspViolations, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((l) => {
+          try {
+            return JSON.parse(l);
+          } catch {
+            // A line cut short (the server stopped mid-write) still means a violation was seen.
+            return { directive: 'unreadable record line', blocked: l.slice(0, 80), page: '?' };
+          }
+        })
+    : [];
+  if (rows.length === 0) {
+    say('  csp-report: no Content-Security-Policy violations recorded');
+    return;
+  }
+  const groups = new Map();
+  for (const r of rows) {
+    const key = `${r.directive} blocked ${r.blocked || '(inline)'}`;
+    const g = groups.get(key) ?? { n: 0, pages: new Set(), source: r.source, line: r.line, sample: r.sample };
+    g.n++;
+    g.pages.add(r.page);
+    groups.set(key, g);
+  }
+  say(`  csp-report: ${rows.length} Content-Security-Policy violation(s), ${groups.size} kind(s)`);
+  for (const [key, g] of groups) {
+    say(
+      `    ${key}  ×${g.n}  on ${[...g.pages].slice(0, 3).join(', ')}${g.source ? `  from ${g.source}:${g.line}` : ''}${g.sample ? `  "${g.sample}"` : ''}`,
+    );
+    if (process.env.GITHUB_ACTIONS) console.log(`::error title=CSP violation::${key} (×${g.n}) on ${[...g.pages][0]}`);
+  }
+  if (args.includes('--fail')) process.exit(1);
+}
+
 // ── local:fund ──────────────────────────────────────────────────────────────
 
 const AMOUNT_RE = /^\d+(\.\d+)?$/;
+
+/**
+ * `age-linked-accounts <email-or-userId> <hours>`: move this TEST person's linked bank accounts `hours` back in time, so
+ * a journey can start, as J-bank-03 #4 does, from "a saved bank destination past its cooling-off" without waiting the
+ * TEST window out. A local test fixture like `fund`: it refuses anything but this stack's own database, changes only when
+ * the accounts were linked (never their verification, which only the partner's signed call sets) and moves no value.
+ */
+/**
+ * The running local stack's own database and one TEST person on it, for the fixtures below. Refuses anything but this
+ * stack's database.
+ */
+function localFixturePerson(who) {
+  if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
+  const marker = readJson(P.marker);
+  if (marker.kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
+  const secrets = readJson(P.secrets);
+  if (String(marker.ports?.postgres) !== String(PORTS.postgres)) fail('refusing: database is not on the local test stack port');
+  if (!pgRunning()) fail('refusing: the local stack Postgres is not running. Run: pnpm local:stack');
+  assertActiveLocalStack({ stateDir: STATE });
+  const found = psql(secrets, `SELECT id::text FROM identity.users WHERE email = :'who' OR id::text = :'who'`, {
+    db: DB_NAME,
+    user: 'svc_identity',
+    password: secrets.pgService,
+    vars: { who },
+    tuples: true,
+  })
+    .trim()
+    .split('\n')
+    .filter(Boolean);
+  if (found.length !== 1) fail(`no single user "${who}" in the local identity database`);
+  return { secrets, userId: found[0] };
+}
+
+function cmdAgeLinkedAccounts(args) {
+  const [who, hoursRaw] = args;
+  if (!who || !hoursRaw) fail('usage: node tooling/scripts/local-test-stack.mjs age-linked-accounts <email-or-userId> <hours>', 2);
+  if (!/^[1-9][0-9]{0,3}$/.test(hoursRaw)) fail(`hours must be a whole number from 1 to 9999 (got "${hoursRaw}")`, 2);
+  const { secrets, userId } = localFixturePerson(who);
+  const moved = psql(
+    secrets,
+    `UPDATE bank.linked_bank_accounts SET created_at = created_at - make_interval(hours => :'hours'::int)
+      WHERE user_id = :'uid' AND removed_at IS NULL RETURNING id`,
+    { db: DB_NAME, user: 'svc_bank', password: secrets.pgService, vars: { uid: userId, hours: hoursRaw }, tuples: true },
+  )
+    .trim()
+    .split('\n')
+    // psql prints the UPDATE tag after the ids; count the ids alone.
+    .filter((line) => /^[0-9a-f-]{36}$/.test(line));
+  say(`  ${moved.length} linked account(s) of ${who} now linked ${hoursRaw} hours earlier (LOCAL TEST fixture)`);
+}
+
+/**
+ * `expire-deposit-addresses <email-or-userId>`: the TEST person's open extra deposit addresses (W-deposit-02) expire now, in
+ * custody (svc-pay, whose stored expiry decides a late deposit) and in the bank's list alike, so a journey can show, as
+ * J-wallet-02 #4 does, that a deposit to an expired address is held for release, without waiting the TEST window out. The
+ * first address never expires and is left alone. It credits nothing, releases nothing and moves no value.
+ */
+function cmdExpireDepositAddresses(args) {
+  const [who] = args;
+  if (!who) fail('usage: node tooling/scripts/local-test-stack.mjs expire-deposit-addresses <email-or-userId>', 2);
+  const { secrets, userId } = localFixturePerson(who);
+  const expire = (schema, role) =>
+    psql(
+      secrets,
+      `UPDATE ${schema}.${schema === 'pay' ? 'custody_deposit_addresses' : 'deposit_addresses'}
+          SET expires_at = now() - interval '1 minute'
+        WHERE user_id = :'uid' AND address_index > 0 AND expires_at > now() RETURNING address`,
+      { db: DB_NAME, user: role, password: secrets.pgService, vars: { uid: userId }, tuples: true },
+    )
+      .trim()
+      .split('\n')
+      // psql prints the UPDATE tag after the addresses; count the addresses alone.
+      .filter((line) => line && !/^UPDATE \d+$/.test(line));
+  const custody = expire('pay', 'svc_pay');
+  const listed = expire('bank', 'svc_bank');
+  say(
+    `  ${custody.length} extra deposit address(es) of ${who} now expired in custody, ${listed.length} in the bank list (LOCAL TEST fixture)`,
+  );
+}
+
+/**
+ * `expire-staff-holds <email-or-userId>`: the TEST person's staff holds that have an expiry (J-ops-console-04, OPS-accounts-desk-01)
+ * reach it now, so a journey can show svc-ops' own expiry worker releasing what is left, without waiting the TEST hours out. It
+ * only moves the stored expiry; svc-ops checks it against its clock under the hold's lock and posts the release through the
+ * ledger itself. A hold without an expiry is left alone, and this releases nothing and moves no value.
+ */
+function cmdExpireStaffHolds(args) {
+  const [who] = args;
+  if (!who) fail('usage: node tooling/scripts/local-test-stack.mjs expire-staff-holds <email-or-userId>', 2);
+  const { secrets, userId } = localFixturePerson(who);
+  const moved = psql(
+    secrets,
+    `UPDATE ops.staff_holds SET expires_at = now() - interval '1 minute'
+      WHERE user_id = :'uid' AND expires_at > now() AND state IN ('active', 'partially_released') RETURNING hold_no`,
+    { db: DB_NAME, user: 'svc_ops', password: secrets.pgService, vars: { uid: userId }, tuples: true },
+  )
+    .trim()
+    .split('\n')
+    // psql prints the UPDATE tag after the hold numbers; count the numbers alone.
+    .filter((line) => /^[0-9]+$/.test(line));
+  say(`  ${moved.length} staff hold(s) of ${who} now past their expiry; svc-ops releases them on its next tick (LOCAL TEST fixture)`);
+}
+
+/**
+ * `age-task-progress <email-or-userId> <campaignId> <days>`: the TEST person's join of one task campaign and the events
+ * counted for its steps move `days` back in time (J-campaigns-02 #8), so a journey can show a streak step reset after a
+ * missed day without waiting a day out. svc-campaigns reads the streak from these stored times on every read. It writes
+ * no event, no reward and moves no value.
+ */
+function cmdAgeTaskProgress(args) {
+  const [who, campaignId, daysRaw] = args;
+  if (!who || !campaignId || !daysRaw) {
+    fail('usage: node tooling/scripts/local-test-stack.mjs age-task-progress <email-or-userId> <campaignId> <days>', 2);
+  }
+  const days = Number(daysRaw);
+  if (!Number.isInteger(days) || days < 1 || days > 30) fail('days must be a whole number from 1 to 30', 2);
+  if (!/^cmp_[0-9a-f-]{36}$/.test(campaignId)) fail('campaignId must be a cmp_<uuid> id', 2);
+  const { secrets, userId } = localFixturePerson(who);
+  const out = psql(
+    secrets,
+    `WITH joined AS (
+       UPDATE campaigns.participations SET created_at = created_at - make_interval(days => :'days'::int)
+        WHERE campaign_id = :'cid' AND lower(account_id) = lower(:'uid') RETURNING 1
+     ), moved AS (
+       UPDATE campaigns.task_progress SET occurred_at = occurred_at - make_interval(days => :'days'::int)
+        WHERE campaign_id = :'cid' AND lower(account_id) = lower(:'uid') RETURNING 1
+     )
+     SELECT (SELECT count(*) FROM joined) || ' ' || (SELECT count(*) FROM moved)`,
+    {
+      db: DB_NAME,
+      user: 'svc_campaigns',
+      password: secrets.pgService,
+      vars: { uid: userId, cid: campaignId, days: String(days) },
+      tuples: true,
+    },
+  )
+    .trim()
+    .split('\n')
+    .find((line) => /^[0-9]+ [0-9]+$/.test(line.trim()));
+  const [joined, moved] = (out ?? '0 0').trim().split(' ');
+  say(`  ${joined} join(s) and ${moved} counted event(s) of ${who} on ${campaignId} moved ${days} day(s) back (LOCAL TEST fixture)`);
+}
+
+/**
+ * `expire-address-approvals <email-or-userId>`: the TEST person's open withdrawal-address approval links (W-withdraw-09)
+ * run out now, so a journey can show, as J-wallet-04 #5 does, that an expired link is refused and a new one is needed,
+ * without waiting the TEST lifetime out. Both times move back by the same amount, so a link stays as long as it was
+ * issued for. It never marks a link used, never approves an address and moves no value.
+ */
+function cmdExpireAddressApprovals(args) {
+  const [who] = args;
+  if (!who) fail('usage: node tooling/scripts/local-test-stack.mjs expire-address-approvals <email-or-userId>', 2);
+  const { secrets, userId } = localFixturePerson(who);
+  const moved = psql(
+    secrets,
+    `UPDATE bank.destination_approval_links
+        SET created_at = created_at - (expires_at - now()) - interval '1 minute',
+            mailed_at = mailed_at - (expires_at - now()) - interval '1 minute',
+            expires_at = now() - interval '1 minute'
+      WHERE user_id = :'uid' AND used_at IS NULL AND expires_at > now() RETURNING id`,
+    { db: DB_NAME, user: 'svc_bank', password: secrets.pgService, vars: { uid: userId }, tuples: true },
+  )
+    .trim()
+    .split('\n')
+    .filter((line) => /^[0-9a-f-]{36}$/.test(line));
+  say(`  ${moved.length} open address approval link(s) of ${who} now expired (LOCAL TEST fixture)`);
+}
 
 async function cmdFund(rawArgs) {
   // Optional --ref <id>: reuse it when retrying after a lost reply, so the ledger's
@@ -1716,6 +2083,343 @@ async function cmdFund(rawArgs) {
   say(`  available ${bal.amount} ${asset}   (read back from svc-ledger)`);
 }
 
+/**
+ * `seed-withdrawal <email-or-userId> <ASSET> <amount> --state requested|held|dispatching|broadcast --ref <label>`: one TEST
+ * withdrawal of the person's own funds, in the state a journey starts from (J-wallet-06). Sending out is switched off in
+ * svc-pay (its withdraw feature is published `blocked`), so no withdrawal can reach these states through the Withdraw form on
+ * this stack. This writes the row the way svc-pay's `withdraw` leaves it at that point and books the hold through the ledger's
+ * own recipe (`withdrawHold`, keyed on the attempt), exactly as `withdraw` does, hold first. `requested`: a row and nothing
+ * posted. `held`: the hold booked and the row held, nothing asked of a rail. `dispatching`: a send journalled `requested` with no
+ * answer (a lost reply). `broadcast`: the send journalled `accepted` with a TEST transaction reference. What the person can do
+ * next (cancel, and what that gives back) is svc-pay's own code. The same --ref is the same withdrawal. `--count <n>` (requested
+ * only) writes n requested withdrawals one second apart, for a history longer than one page (J-wallet-06 #5).
+ */
+async function cmdSeedWithdrawal(rawArgs) {
+  const args = [...rawArgs];
+  const option = (name) => {
+    const at = args.indexOf(name);
+    if (at === -1) return undefined;
+    const value = args[at + 1];
+    args.splice(at, 2);
+    return value;
+  };
+  const state = option('--state');
+  const ref = option('--ref');
+  const countRaw = option('--count');
+  const [who, assetRaw, amountStr] = args;
+  const usage =
+    'usage: node tooling/scripts/local-test-stack.mjs seed-withdrawal <email-or-userId> <ASSET> <amount> --state requested|held|dispatching|broadcast --ref <label> [--count <n>, requested only]';
+  if (!who || !assetRaw || !amountStr || !state || !ref) fail(usage, 2);
+  if (!['requested', 'held', 'dispatching', 'broadcast'].includes(state))
+    fail(`--state must be requested, held, dispatching or broadcast (got "${state}")`, 2);
+  if (!/^[A-Za-z0-9-]{4,48}$/.test(ref)) fail('--ref must be 4-48 letters, digits or dashes', 2);
+  const asset = assetRaw.toUpperCase();
+  if (!/^[A-Z0-9]{2,12}$/.test(asset)) fail(`bad asset id: ${assetRaw}`, 2);
+  if (!AMOUNT_RE.test(amountStr)) fail(`amount must be a plain decimal string like 40 or 12.5 (got "${amountStr}")`, 2);
+  if (countRaw !== undefined && (!/^\d{1,3}$/.test(countRaw) || Number(countRaw) < 1 || Number(countRaw) > 500))
+    fail(`--count must be a whole number from 1 to 500 (got "${countRaw}")`, 2);
+  if (countRaw !== undefined && state !== 'requested') fail('--count writes requested withdrawals only (nothing is held for them)', 2);
+  const { secrets, userId } = localFixturePerson(who);
+  if (!ownedAlive(readProcs().ledger)) fail('refusing: the local stack ledger is not running. Run: pnpm local:stack');
+  const asPay = (sql, vars) =>
+    psql(secrets, sql, { db: DB_NAME, user: 'svc_pay', password: secrets.pgService, vars, tuples: true })
+      .trim()
+      .split('\n')
+      .filter((line) => line && !/^(INSERT|UPDATE) \d+( \d+)?$/.test(line));
+
+  if (countRaw !== undefined) {
+    // A long history (J-wallet-06 #5): <count> requested withdrawals, one second apart, the newest now. Nothing is posted for
+    // a requested withdrawal, so no ledger call is made. References are `<ref>-<n>`; the same --ref is the same rows.
+    const count = Number(countRaw);
+    asPay(
+      `INSERT INTO pay.withdrawals (user_id, asset_id, amount, rail, destination, client_ref, status, attempts, created_at, updated_at)
+       SELECT :'uid', :'asset', :'amount'::numeric, 'crypto-native',
+              jsonb_build_object('kind', 'crypto', 'ref', '0x' || substr(md5(:'ref' || '-to-' || n), 1, 40)),
+              :'ref' || '-' || n, 'pending', 0, now() - (n || ' seconds')::interval, now()
+         FROM generate_series(1, :'count'::int) AS n
+       ON CONFLICT (user_id, client_ref) DO NOTHING`,
+      { uid: userId, asset, amount: amountStr, ref: `local-test-${ref}`, count: String(count) },
+    );
+    const [found] = asPay(
+      `SELECT count(*)::text FROM pay.withdrawals
+        WHERE user_id = :'uid' AND status = 'pending' AND asset_id = :'asset' AND amount = :'amount'::numeric
+          AND client_ref IN (SELECT :'ref' || '-' || n FROM generate_series(1, :'count'::int) AS n)`,
+      { uid: userId, ref: `local-test-${ref}`, asset, amount: amountStr, count: String(count) },
+    );
+    if (Number(found) !== count) fail(`--ref ${ref} already names other withdrawals (${found} of ${count} match); use a new --ref`, 2);
+    say(`TEST withdrawals (LOCAL TEST, not real money)`);
+    say(`  withdrawals ${count}`);
+    say(`  state       requested   ${asset} ${amountStr} each   references local-test-${ref}-1..${count}`);
+    return;
+  }
+
+  const clientRef = `local-test-${ref}`;
+  const txRef = `0x${crypto.createHash('sha256').update(`seed-withdrawal:${ref}`).digest('hex')}`;
+  const destination = JSON.stringify({
+    kind: 'crypto',
+    ref: `0x${crypto.createHash('sha256').update(`seed-withdrawal-to:${ref}`).digest('hex').slice(0, 40)}`,
+  });
+  asPay(
+    `INSERT INTO pay.withdrawals (user_id, asset_id, amount, rail, destination, client_ref, status, attempts)
+     VALUES (:'uid', :'asset', :'amount'::numeric, 'crypto-native', :'dest'::jsonb, :'ref', 'pending', 0)
+     ON CONFLICT (user_id, client_ref) DO NOTHING`,
+    { uid: userId, asset, amount: amountStr, dest: destination, ref: clientRef },
+  );
+  const [found] = asPay(
+    `SELECT id::text || E'\\t' || status::text || E'\\t' || amount::text || E'\\t' || asset_id FROM pay.withdrawals
+      WHERE user_id = :'uid' AND client_ref = :'ref'`,
+    { uid: userId, ref: clientRef },
+  );
+  if (!found) fail('svc-pay has no row for that reference after the insert');
+  const [id, stored, storedAmount, storedAsset] = found.split('\t');
+  const load = (pkg) => import(pathToFileURL(path.join(REPO, 'packages', pkg, 'dist', 'index.js')).href);
+  let ledgerClient, contracts;
+  try {
+    [ledgerClient, contracts] = await Promise.all([load('ledger-client'), load('contracts')]);
+  } catch (err) {
+    fail(`packages are not built (${err.message}). Run: pnpm local:stack --rebuild`);
+  }
+  if (ledgerClient.parseAmount(storedAmount) !== ledgerClient.parseAmount(amountStr) || storedAsset !== asset)
+    fail(`--ref ${ref} already names a withdrawal of ${storedAmount} ${storedAsset}`, 2);
+
+  if (state !== 'requested' && stored === 'pending') {
+    // The hold first, as `withdraw` posts it: funds leave available for a hold that names this withdrawal and attempt 0.
+    const request = ledgerClient.recipes.withdrawHold({
+      userId,
+      assetId: asset,
+      amount: ledgerClient.parseAmount(amountStr),
+      rail: 'crypto-native',
+      withdrawalId: `${id}:0`,
+    });
+    const raw = JSON.stringify({
+      idempotencyKey: request.idempotencyKey,
+      module: request.module,
+      reason: request.reason,
+      meta: { ...request.meta, label: 'LOCAL TEST withdrawal hold, not real money' },
+      entries: request.entries.map((e) => ({ account: e.account, direction: e.direction, amount: ledgerClient.formatAmount(e.amount) })),
+    });
+    const res = await fetch(`${urlOf('ledger')}/trpc/post`, {
+      redirect: 'error',
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...contracts.serviceAuthHeadersForBody('local-test-fund', secrets.internal, raw) },
+      body: raw,
+    });
+    if (!res.ok) fail(`ledger refused the TEST hold (${res.status}): ${(await res.text()).slice(0, 400)}`);
+    asPay(
+      `UPDATE pay.withdrawals SET status = 'held', dispatch_journaled = true, updated_at = now() WHERE id = :'id' AND status = 'pending'`,
+      {
+        id,
+      },
+    );
+  }
+  if (state === 'dispatching' || state === 'broadcast') {
+    asPay(
+      `INSERT INTO pay.withdrawal_rail_attempts (withdrawal_id, attempt, outcome, rail_ref)
+       VALUES (:'id', 0, :'outcome', NULLIF(:'tx', '')) ON CONFLICT DO NOTHING`,
+      { id, outcome: state === 'broadcast' ? 'accepted' : 'requested', tx: state === 'broadcast' ? txRef : '' },
+    );
+  }
+  // Read back what svc-pay holds: a reference reused for another state is refused, never reported as the state asked for.
+  const [after] = asPay(
+    `SELECT w.status::text || E'\\t' || coalesce(a.outcome, 'none') FROM pay.withdrawals w
+       LEFT JOIN pay.withdrawal_rail_attempts a ON a.withdrawal_id = w.id AND a.attempt = w.attempts
+      WHERE w.id = :'id'`,
+    { id },
+  );
+  const [nowStored, journal] = (after ?? '').split('\t');
+  const reached = { pending: 'requested', held: { none: 'held', requested: 'dispatching', accepted: 'broadcast' }[journal] }[nowStored];
+  if (reached !== state) fail(`--ref ${ref} already names a withdrawal that is ${reached ?? nowStored}, not ${state}; use a new --ref`, 2);
+  say(`TEST withdrawal (LOCAL TEST, not real money)`);
+  say(`  withdrawal ${id}`);
+  say(`  state      ${state}   ${asset} ${amountStr}   reference ${clientRef}`);
+}
+
+/**
+ * `chain-deposit <address> <ASSET> <amount> <confirmations> --tx <label> [--index <n>]`: a TEST chain transfer to a deposit
+ * address the stack issued, delivered to svc-pay's own `/webhooks/crypto-native` exactly as its chain watcher would (the
+ * stack's chain is in memory and has no watcher). Signed with this stack's crypto webhook secret. The transaction hash comes
+ * from the address and the label, so the same label to the same address is the same transfer: sending it again (with a higher confirmation count, or the same)
+ * is a repeat of one chain event, never a second deposit. svc-pay decides what it is worth; nothing here touches the ledger.
+ */
+async function cmdChainDeposit(rawArgs) {
+  const { args, label, index } = chainArgs(rawArgs);
+  const [address, assetRaw, amountStr, confirmationsStr, ...extra] = args;
+  if (!address || !assetRaw || !amountStr || !confirmationsStr || !label || extra.length > 0)
+    fail(
+      'usage: node tooling/scripts/local-test-stack.mjs chain-deposit <address> <ASSET> <decimal-amount> <confirmations> --tx <label> [--index <n>]',
+      2,
+    );
+  const asset = assetRaw.toUpperCase();
+  if (!/^[A-Z0-9]{2,12}$/.test(asset)) fail(`bad asset id: ${assetRaw}`, 2);
+  if (!AMOUNT_RE.test(amountStr)) fail(`amount must be a plain decimal string like 100 or 12.5 (got "${amountStr}")`, 2);
+  if (!/^\d{1,4}$/.test(confirmationsStr)) fail(`confirmations must be a whole number (got "${confirmationsStr}")`, 2);
+  if (address.length > 200 || /\s/.test(address)) fail('bad deposit address', 2);
+
+  const txHash = chainTxHash(address, label);
+  const logIndex = Number(index ?? '0');
+  const text = await deliverChainEvent({
+    id: `chain:${txHash}:${address}:${logIndex}`,
+    type: 'captured',
+    ref: address,
+    amount: amountStr,
+    assetId: asset,
+    occurredAt: new Date().toISOString(),
+    txHash,
+    logIndex,
+    from: '0xTEST-sender',
+    confirmations: Number(confirmationsStr),
+  });
+  say('TEST chain delivery to svc-pay (in-memory TEST chain, not real money)');
+  say(`  to        ${address}`);
+  say(`  amount    ${amountStr} ${asset}, ${confirmationsStr} confirmations`);
+  say(`  tx        ${txHash}:${logIndex}   (label ${label})`);
+  say(`  answer    ${text}`);
+}
+
+/**
+ * The `--tx <label>` and `--index <n>` options `chain-deposit` and `chain-reorg` share, so one label always names the same
+ * transfer in both. Returns the positional arguments left.
+ */
+function chainArgs(rawArgs) {
+  const args = [...rawArgs];
+  const option = (name, re, what) => {
+    const at = args.indexOf(name);
+    if (at === -1) return undefined;
+    const value = args[at + 1];
+    args.splice(at, 2);
+    if (!value || !re.test(value)) fail(`${name} must be ${what}`, 2);
+    return value;
+  };
+  const label = option('--tx', /^[A-Za-z0-9-]{4,64}$/, '4-64 letters, digits or dashes');
+  const index = option('--index', /^\d{1,4}$/, 'a whole number');
+  if (args.some((arg) => arg.startsWith('--'))) fail(`unknown option: ${args.find((arg) => arg.startsWith('--'))}`, 2);
+  return { args, label, index };
+}
+
+/** The TEST transaction hash of `label` to `address`: the same label to the same address is the same transfer, another address another one. */
+function chainTxHash(address, label) {
+  return `0x${crypto.createHash('sha256').update(`local-test-chain-deposit:${address}:${label}`).digest('hex')}`;
+}
+
+/** Signs one chain watcher event with this stack's crypto webhook secret and delivers it to the stack's own svc-pay. Returns its answer. */
+async function deliverChainEvent(event) {
+  // Guards: this only ever talks to the local stack's own svc-pay.
+  if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
+  if (readJson(P.marker).kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
+  if (!ownedAlive(readProcs().pay)) fail('refusing: the local stack svc-pay is not running. Run: pnpm local:stack');
+  assertActiveLocalStack({ stateDir: STATE, services: ['pay'] });
+  const secret = readJson(P.secrets).payCryptoWebhook;
+  if (!secret) fail('refusing: this stack has no crypto webhook secret. Run: pnpm local:stack --rebuild');
+  const body = JSON.stringify(event);
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const signature = crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
+  const res = await fetch(`${urlOf('pay')}/webhooks/crypto-native`, {
+    method: 'POST',
+    redirect: 'error',
+    headers: { 'content-type': 'application/json', 'x-chain-signature': signature, 'x-chain-timestamp': timestamp },
+    body,
+  });
+  const text = await res.text();
+  if (res.status !== 200) fail(`svc-pay refused the TEST chain delivery (${res.status}): ${text.slice(0, 400)}`);
+  return text;
+}
+
+/**
+ * `chain-reorg <address> --tx <label> [--index <n>]`: the TEST chain takes back the transfer `chain-deposit` delivered with
+ * that label to that address, as a chain watcher reports a reorg (W-deposit-06): a `chain.reorged` event to svc-pay's own
+ * `/webhooks/crypto-native`, signed with the stack's secret. svc-pay decides what that means (closed, reversed through the
+ * ledger, or needs review when the funds were spent); nothing here touches the ledger. A repeat is the same report.
+ */
+async function cmdChainReorg(rawArgs) {
+  const { args, label, index } = chainArgs(rawArgs);
+  const [address, ...extra] = args;
+  if (!address || !label || extra.length > 0)
+    fail('usage: node tooling/scripts/local-test-stack.mjs chain-reorg <address> --tx <label> [--index <n>]', 2);
+  if (address.length > 200 || /\s/.test(address)) fail('bad deposit address', 2);
+  const txHash = chainTxHash(address, label);
+  const logIndex = Number(index ?? '0');
+  const text = await deliverChainEvent({
+    id: `reorg:${txHash}:${address}:${logIndex}`,
+    type: 'chain.reorged',
+    ref: address,
+    occurredAt: new Date().toISOString(),
+    txHash,
+    logIndex,
+    confirmations: 0,
+  });
+  say('TEST chain reorg delivered to svc-pay (in-memory TEST chain, not real money)');
+  say(`  at        ${address}`);
+  say(`  tx        ${txHash}:${logIndex}   (label ${label})`);
+  say(`  answer    ${text}`);
+}
+
+/**
+ * `bank-transfer <reference> <CCY> <amount> --tx <label> [--payer <name>]`: the TEST bank reports a pushed transfer quoting
+ * the reference a hosted checkout showed (J-merchant-04 step 6), to svc-pay's own `/webhooks/bank-transfer-sandbox`, signed
+ * with this stack's TEST bank secret. `--payer` is the name on the sending account as the bank reports it; leave it out
+ * for a bank that reports none. The transfer id comes from the reference and the label, so the same label is the same
+ * transfer, never a second one. svc-pay checks the name and decides; nothing here touches the ledger.
+ */
+async function cmdBankTransfer(rawArgs) {
+  const args = [...rawArgs];
+  const option = (name) => {
+    const at = args.indexOf(name);
+    if (at === -1) return undefined;
+    const value = args[at + 1];
+    args.splice(at, 2);
+    if (value === undefined) fail(`${name} needs a value`, 2);
+    return value;
+  };
+  const label = option('--tx');
+  const payer = option('--payer');
+  const usage =
+    'usage: node tooling/scripts/local-test-stack.mjs bank-transfer <reference> <CCY> <decimal-amount> --tx <label> [--payer <name>]';
+  if (args.some((arg) => arg.startsWith('--'))) fail(`unknown option: ${args.find((arg) => arg.startsWith('--'))}`, 2);
+  const [reference, currencyRaw, amountStr, ...extra] = args;
+  if (!reference || !currencyRaw || !amountStr || !label || extra.length > 0) fail(usage, 2);
+  if (!/^BT[0-9A-F]{12}$/.test(reference)) fail(`bad reference: ${reference} (the hosted checkout shows one like BT1A2B3C4D5E6F)`, 2);
+  const currency = currencyRaw.toUpperCase();
+  if (!/^[A-Z0-9]{2,12}$/.test(currency)) fail(`bad currency: ${currencyRaw}`, 2);
+  if (!AMOUNT_RE.test(amountStr)) fail(`amount must be a plain decimal string like 100 or 12.5 (got "${amountStr}")`, 2);
+  if (!/^[A-Za-z0-9-]{4,64}$/.test(label)) fail('--tx must be 4-64 letters, digits or dashes', 2);
+  if (payer !== undefined && (!payer.trim() || payer.length > 140)) fail('--payer must be 1-140 characters', 2);
+
+  // Guards: this only ever talks to the local stack's own svc-pay.
+  if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
+  if (readJson(P.marker).kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
+  if (!ownedAlive(readProcs().pay)) fail('refusing: the local stack svc-pay is not running. Run: pnpm local:stack');
+  assertActiveLocalStack({ stateDir: STATE, services: ['pay'] });
+  const secret = readJson(P.secrets).payBankTransferWebhook;
+  if (!secret) fail('refusing: this stack has no TEST bank webhook secret. Run: pnpm local:stack --rebuild');
+
+  const transferId = `bt:${crypto.createHash('sha256').update(`local-test-bank-transfer:${reference}:${label}`).digest('hex').slice(0, 32)}`;
+  const body = JSON.stringify({
+    id: transferId,
+    type: 'captured',
+    ref: reference,
+    amount: amountStr,
+    assetId: currency,
+    occurredAt: new Date().toISOString(),
+    ...(payer === undefined ? {} : { payerName: payer }),
+  });
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const signature = crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
+  const res = await fetch(`${urlOf('pay')}/webhooks/bank-transfer-sandbox`, {
+    method: 'POST',
+    redirect: 'error',
+    headers: { 'content-type': 'application/json', 'x-bank-signature': signature, 'x-bank-timestamp': timestamp },
+    body,
+  });
+  const text = await res.text();
+  if (res.status !== 200) fail(`svc-pay refused the TEST bank delivery (${res.status}): ${text.slice(0, 400)}`);
+  say('TEST bank transfer delivered to svc-pay (TEST bank, not real money)');
+  say(`  reference ${reference}`);
+  say(`  amount    ${amountStr} ${currency}`);
+  say(`  from      ${payer ?? '(no name reported)'}`);
+  say(`  transfer  ${transferId}   (label ${label})`);
+  say(`  answer    ${text}`);
+}
+
 /** Env each local service would get. Starts nothing. Placeholder secrets only. */
 export function localTestServiceEnvs(secrets = PLAN_SECRETS) {
   return serviceDefs(secrets).map((service) => ({ name: service.name, env: service.env() }));
@@ -1753,13 +2457,27 @@ async function runCli() {
   else if (cmd === 'start') await cmdStart(rest);
   else if (cmd === 'stop') await cmdStop(rest);
   else if (cmd === 'plan') cmdPlan(rest);
+  else if (cmd === 'csp-report') cmdCspReport(rest);
   else if (cmd === 'restart') await cmdRestart(rest);
   else if (cmd === 'fund') await cmdFund(rest);
+  else if (cmd === 'seed-withdrawal') await cmdSeedWithdrawal(rest);
+  else if (cmd === 'chain-deposit') await cmdChainDeposit(rest);
+  else if (cmd === 'chain-reorg') await cmdChainReorg(rest);
+  else if (cmd === 'bank-transfer') await cmdBankTransfer(rest);
+  else if (cmd === 'age-linked-accounts') cmdAgeLinkedAccounts(rest);
+  else if (cmd === 'expire-address-approvals') cmdExpireAddressApprovals(rest);
+  else if (cmd === 'expire-deposit-addresses') cmdExpireDepositAddresses(rest);
+  else if (cmd === 'expire-staff-holds') cmdExpireStaffHolds(rest);
+  else if (cmd === 'age-task-progress') cmdAgeTaskProgress(rest);
   else if (cmd === 'customer-dist') cmdCustomerDist(rest);
   else if (cmd === 'status') {
     const ok = await healthTable({ gateMarket: true });
     say('');
     say(`  ${describeCustomerDist()}`);
     process.exit(ok ? 0 : 1);
-  } else fail(`unknown command "${cmd}". Use: start | stop | status | fund | plan | restart | customer-dist`, 2);
+  } else
+    fail(
+      `unknown command "${cmd}". Use: start | stop | status | fund | seed-withdrawal | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | expire-staff-holds | age-task-progress | plan | restart | customer-dist`,
+      2,
+    );
 }

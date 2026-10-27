@@ -24,7 +24,8 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 import { WithdrawForm } from './WithdrawForm';
-import { AddressBook, AddressTable, WithdrawalAddresses } from './WithdrawalAddresses';
+import { AddressBook, AddressTable, WithdrawalAddresses, readinessWords } from './WithdrawalAddresses';
+import { withdrawalCopy } from './withdrawal-copy';
 
 const ready = (...assets: Held['assets']): Resource<Held> => ({ status: 'ready', data: { assets, spaces: [], holdings: [] } });
 const off = (html: string, label: string) => expect(html).toMatch(new RegExp(`<button[^>]*disabled[^>]*>${label}</button>`));
@@ -143,6 +144,35 @@ describe('Withdrawal addresses: the bank address book, and saving to it with a c
     expect(unset).toContain('No cooling-off period is published');
     expect(unset).toContain('Blocked');
     expect(unset).not.toContain('Ready to use');
+  });
+  it('shows a new address as waiting for approval, its cooling-off not started; once approved it reads like any entry', () => {
+    const html = renderToStaticMarkup(
+      <AddressTable rows={[row({ state: 'pending', origin: 'customer', coolingOffEndsAt: null })]} now={NOW} />,
+    );
+    expect(html).toContain('Waiting for approval');
+    expect(html).toContain('Starts once approved');
+    expect(html).not.toContain('No cooling-off period is published');
+    // Approved, the entry is `cooling` for good: ready once the cooling-off ended, blocked while none is published.
+    expect(renderToStaticMarkup(<AddressTable rows={[row({ state: 'cooling' })]} now={NOW} />)).toContain('Cooling off');
+    expect(
+      renderToStaticMarkup(<AddressTable rows={[row({ state: 'cooling', coolingOffEndsAt: '2026-10-17T12:00:00Z' })]} now={NOW} />),
+    ).toContain('Ready to use');
+    expect(
+      renderToStaticMarkup(
+        <AddressTable rows={[row({ state: 'cooling', coolingOffEndsAt: null, coolingBlocker: 'bank.offramp_cooling_unset' })]} now={NOW} />,
+      ),
+    ).toContain('Blocked');
+  });
+  it('says a new address waits for approval before anything can be sent, and where to approve it', () => {
+    const { t } = withdrawalCopy.forLocale('en');
+    const words = readinessWords(
+      { destinationId: 'd', state: 'approval_pending', coolingOffEndsAt: null, lockUnlocksAt: null, approvalLinkExpiresAt: null },
+      'Test wallet',
+      t,
+    );
+    expect(words.locked).toBe(false);
+    expect(words.text).toContain('Test wallet is waiting for your approval, so nothing can be sent to it.');
+    expect(words.text).toContain('Approve it on another device where you are signed in, or ask for an approval link by email and open it');
   });
   it('shortens an address in its row (first six, last four) and keeps the full one under Details', () => {
     const html = renderToStaticMarkup(<AddressTable rows={[row()]} now={NOW} />);

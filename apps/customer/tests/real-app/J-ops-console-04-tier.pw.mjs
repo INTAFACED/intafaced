@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { EDGE, ORIGIN, signUpInBrowser } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, signUpInBrowser } from './stack.mjs';
 
 // J-ops-console-04 step #11: move an account to another product tier. The stack's TEST tiers (labelled TEST, never an
 // owner decision) include one whose monthly fee is blank: the console will not offer it and identity refuses it
@@ -41,7 +41,7 @@ test('J-ops-console-04 #11 a tier move needs the other founder, and a tier with 
   const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
     method: 'POST',
     headers: { origin: ORIGIN, 'content-type': 'application/json' },
-    body: JSON.stringify({ identifier: who.email, password: who.password }),
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
   });
   const userId = (await login.json()).result.data.userId;
 

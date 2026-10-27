@@ -48,6 +48,8 @@ export const TOKEN_REFUSAL_COPY = {
   'token.params_missing': 'Token settings are not installed.',
   'token.params_invalid': 'Those token settings are not valid.',
   'token.params_unset': 'Token settings are not set.',
+  'token.fee_discount_stale': 'The fee discount schedule changed since this was approved. Read it again and approve the new change.',
+  'token.fee_discount_invalid': 'That fee discount schedule is not valid.',
   'token.proposal_not_found': 'We could not find that proposal.',
   'token.proposal_not_open': 'That proposal is not open.',
   'token.proposal_window': 'That proposal is outside its voting window.',

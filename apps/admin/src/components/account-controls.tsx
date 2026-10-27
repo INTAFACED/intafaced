@@ -1,12 +1,26 @@
 'use client';
 import { useCallback, useRef, useState } from 'react';
 import Link from 'next/link';
-import type { AccountClosureState, AccountControlResult, AccountControlState, AccountControlTarget } from '@intafaced/contracts';
+import type {
+  AccountArchiveState,
+  AccountClosureState,
+  AccountControlResult,
+  AccountControlState,
+  AccountControlTarget,
+} from '@intafaced/contracts';
 import { ACCOUNT_GAPS, ACCOUNT_LINKS } from '@/lib/ops-desk/accounts-gaps';
 import { formatAsOf } from '@/lib/as-of';
 import { ControlDesk } from '@/components/control-desk';
 import { AccountClosure } from '@/components/account-closure';
 import { AccountTierPanel } from '@/components/account-tier';
+import { AccountLimits } from '@/components/account-limits';
+import { AccountHolds } from '@/components/account-holds';
+import { AccountArchive } from '@/components/account-archive';
+import { AccountDetails } from '@/components/account-details';
+import { archivedNote } from '@/lib/accounts/archive-copy';
+
+const ARCHIVE_UNREAD =
+  'Identity has not said yet whether this record is archived, so changes wait until it does (see Archive the customer below).';
 
 function controlExplanation(area: 'identity' | 'trading' | 'merchant'): string {
   if (area === 'identity')
@@ -40,6 +54,15 @@ export function AccountControls({ csrf, founderId }: { csrf: string; founderId: 
     (current: AccountClosureState | null | undefined) => setClosed(current === undefined ? null : current?.status === 'closed'),
     [],
   );
+  // Why every edit control is off (an archived record, J-ops-console-04 #10), or null once identity said it is not
+  // archived. Until identity answers, or when it cannot, the controls stay off too: an archived record never looks editable.
+  const [readOnly, setReadOnly] = useState<string | null>(ARCHIVE_UNREAD);
+  const onArchiveState = useCallback(
+    (current: AccountArchiveState | null | undefined) => setReadOnly(current === undefined ? ARCHIVE_UNREAD : archivedNote(current)),
+    [],
+  );
+  // Bumped after a close or reopen, so the archive panel reads the new status and version again.
+  const [closureRevision, setClosureRevision] = useState(0);
   const pending = useRef<{ key: string; requestId: string } | null>(null);
   const target: AccountControlTarget = area === 'merchant' ? { area, merchantId: id } : { area, userId: id };
   const controlAction = state?.restricted ? 'Restore access' : 'Restrict access';
@@ -76,6 +99,7 @@ export function AccountControls({ csrf, founderId }: { csrf: string; founderId: 
           setError('');
           setState(null);
           setClosed(null);
+          setReadOnly(ARCHIVE_UNREAD);
           setResult(null);
           setHistory([]);
           setConfirmed(false);
@@ -138,6 +162,11 @@ export function AccountControls({ csrf, founderId }: { csrf: string; founderId: 
             </p>
           )}
           <p className="adm-subtle">{controlExplanation(area)}</p>
+          {area === 'identity' && readOnly ? (
+            <p className="adm-subtle" data-testid="account-readonly-note">
+              {readOnly}
+            </p>
+          ) : null}
           {area === 'identity' && state.restricted && closed !== false ? (
             <p className="adm-subtle" data-testid="account-closed-note">
               {closed
@@ -150,7 +179,7 @@ export function AccountControls({ csrf, founderId }: { csrf: string; founderId: 
                 key={`${id}:${state.version}`}
                 endpoint="/api/accounts/restore"
                 userId={founderId}
-                blockedReason={null}
+                blockedReason={readOnly}
                 action={{
                   heading: 'Lift this account’s freeze',
                   submitLabel: 'Ask a second founder to approve lifting the freeze',
@@ -217,6 +246,7 @@ export function AccountControls({ csrf, founderId }: { csrf: string; founderId: 
                 Reason
                 <textarea
                   required
+                  disabled={area === 'identity' && readOnly !== null}
                   minLength={3}
                   maxLength={500}
                   value={reason}
@@ -227,10 +257,18 @@ export function AccountControls({ csrf, founderId }: { csrf: string; founderId: 
                 />
               </label>
               <label className="adm-check">
-                <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />I reviewed this
-                account and intend to {state.restricted ? 'restore' : 'restrict'} this area.
+                <input
+                  type="checkbox"
+                  checked={confirmed}
+                  disabled={area === 'identity' && readOnly !== null}
+                  onChange={(event) => setConfirmed(event.target.checked)}
+                />
+                I reviewed this account and intend to {state.restricted ? 'restore' : 'restrict'} this area.
               </label>
-              <button className={state.restricted ? '' : 'adm-danger-button'} disabled={busy || !confirmed || reason.trim().length < 3}>
+              <button
+                className={state.restricted ? '' : 'adm-danger-button'}
+                disabled={busy || !confirmed || reason.trim().length < 3 || (area === 'identity' && readOnly !== null)}
+              >
                 {busy ? 'Waiting for confirmation…' : controlAction}
               </button>
             </form>
@@ -238,25 +276,48 @@ export function AccountControls({ csrf, founderId }: { csrf: string; founderId: 
         </div>
       )}
       {state && area === 'identity' && (
+        <AccountDetails key={`details:${id.toLowerCase()}`} userId={id} founderId={founderId} readOnly={readOnly} />
+      )}
+      {state && area === 'identity' && (
         <AccountClosure
           key={id.toLowerCase()}
           userId={id}
           founderId={founderId}
           onState={onClosureState}
+          readOnly={readOnly}
+          onChanged={() => {
+            setClosureRevision((n) => n + 1);
+            void inspect().catch(() => setError('The account could not be read again. Inspect the account again.'));
+          }}
+        />
+      )}
+      {state && area === 'identity' && (
+        <AccountArchive
+          key={`archive:${id.toLowerCase()}:${closureRevision}`}
+          userId={id}
+          founderId={founderId}
+          onState={onArchiveState}
           onChanged={() => {
             void inspect().catch(() => setError('The account could not be read again. Inspect the account again.'));
           }}
         />
       )}
       {state && area === 'identity' && (
+        <AccountHolds key={`holds:${id.toLowerCase()}`} userId={id} founderId={founderId} readOnly={readOnly} />
+      )}
+      {state && area === 'identity' && (
         <AccountTierPanel
           key={`tier:${id.toLowerCase()}`}
           userId={id}
           founderId={founderId}
+          readOnly={readOnly}
           onChanged={() => {
             void inspect().catch(() => setError('The account could not be read again. Inspect the account again.'));
           }}
         />
+      )}
+      {state && area === 'identity' && (
+        <AccountLimits key={`limits:${id.toLowerCase()}`} userId={id} founderId={founderId} readOnly={readOnly} />
       )}
       {result && (
         <p role={result.outcome === 'refused' || result.outcome === 'conflict' ? 'alert' : 'status'}>

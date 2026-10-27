@@ -120,10 +120,65 @@ describe('reading a refusal that has come back', () => {
       'cards.setLimits',
       'cards.setStatus',
       'ramps.destinations.rename',
+      'sharedPots.accept',
+      'sharedPots.cancelInvite',
+      'sharedPots.decline',
+      'sharedPots.freezeCard',
+      'sharedPots.invite',
+      'sharedPots.leave',
+      'sharedPots.linkCard',
+      'sharedPots.remove',
+      'sharedPots.unlinkCard',
+      'spaces.create',
       'transfers.create',
       'transfers.toUser',
       'transfers.updateSchedule',
     ]);
+  });
+  it('reads a duplicate space name as changing nothing, with a way out', () => {
+    const settled = settleRefusal(
+      { ok: false, reason: 'error', status: 409, code: 'bank.space_name_taken', message: 'bank.space_name_taken' },
+      'spaces.create',
+    );
+    expect(settled.refusedFirst).toBe(true);
+    expect(settled.outcome).toMatchObject({
+      reason: 'error',
+      message: expect.stringMatching(/Pick another name\. Nothing was changed\.$/),
+    });
+  });
+  it('reads a shared pot refusal as changing nothing, and a viewer’s refused transfer as sending nothing', () => {
+    for (const code of [
+      'bank.joint_unset',
+      'bank.invite_expired',
+      'bank.invite_not_found',
+      'bank.invitee_not_found',
+      'bank.shared_pot_full',
+      'bank.shared_pot_invalid',
+    ]) {
+      const settled = settleRefusal({ ok: false, reason: 'error', status: 409, code, message: code }, 'sharedPots.accept');
+      expect(settled.refusedFirst, code).toBe(true);
+      expect(settled.outcome).toMatchObject({ reason: 'error', message: expect.stringMatching(/Nothing was (changed|sent)\.$/) });
+    }
+    const viewer = settleRefusal(
+      { ok: false, reason: 'error', status: 403, code: 'bank.space_forbidden', message: 'bank.space_forbidden' },
+      'transfers.create',
+    );
+    expect(viewer.refusedFirst).toBe(true);
+    expect(viewer.outcome).toMatchObject({ reason: 'error', message: expect.stringContaining('Nothing was sent.') });
+  });
+  it('a refused freeze of a pot’s card says why in the pot’s words, and that nothing changed', () => {
+    const viewer = settleRefusal(
+      { ok: false, reason: 'error', status: 403, code: 'bank.space_forbidden', message: 'bank.space_forbidden' },
+      'sharedPots.freezeCard',
+    );
+    expect(viewer.refusedFirst).toBe(true);
+    expect(viewer.outcome).toMatchObject({
+      message: 'You can see this shared pot, but only its owner and contributors can freeze its card. Nothing was changed.',
+    });
+    expect(moneyRefusalWords('bank.card_not_found', 'en', 'sharedPots.freezeCard')).toBe(
+      'No card is linked to this pot any more. Nothing was changed.',
+    );
+    expect(moneyRefusalWords('bank.shared_pot_invalid', 'en', 'sharedPots.linkCard')).toMatch(/^This pot already has a linked card/);
   });
   it('reads a standing-order edit refusal as changing nothing, a stale revision included', () => {
     for (const code of [

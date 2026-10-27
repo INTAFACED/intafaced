@@ -21,16 +21,21 @@ import {
   positiveMoney,
   ResourceView,
   Section,
+  scheduleWindowIssue,
   startsField,
   useBankRead,
   usePageLimit,
   type ActionSpec,
 } from './components';
 import { AutoInvestRules } from './repeat-buy';
+import { EarlyUnlock, SpaceLockActions } from './SpaceLock';
 import { bankReads, bankWrites, type poolSchema, type positionSchema } from './contracts';
 import type { ApiResult } from '../../shared/api';
 import { earnCopy } from './earn-copy';
-import { LoanHealth, currentLoanPreflight, loanActionAllowed, loanStatusNote } from './LoanHealth';
+import { earnPoolCopy } from './earn-pool-copy';
+import { EarnCompare, poolHref } from './EarnCompare';
+import { EarnPool } from './EarnPool';
+import { LoanHealth, currentLoanPreflight, loanActionAllowed, loanStatusNote, readReleasable } from './LoanHealth';
 import { loanCopy, loanStatusLabel } from './loan-copy';
 import { MoneyActivity } from './activity';
 import { ExecutionHistory, StandingFacts, currentInstruction, type StandingInstruction } from './ScheduleHistory';
@@ -40,10 +45,25 @@ import { OwnerCards } from './Cards';
 import { OwnerRailRecords } from './RailRecords';
 import { railCopy } from './rail-copy';
 import { SelectedSpace } from './SelectedSpace';
+import { SpaceInflows } from './SpaceInflows';
+import { IncomeSorter } from './IncomeSorter';
+import { InstantSavings } from './InstantSavings';
+import { SharedPots } from './SharedPots';
+import { BillsPotActions } from './BillsPot';
 import { AccountHome } from './AccountHome';
 import { AddMoney } from './AddMoney';
 import { addMoneyCopy } from './add-money-copy';
 import { LinkedAccounts } from './LinkedAccounts';
+import { DirectDebits } from './DirectDebits';
+import { directDebitsCopy } from './direct-debits-copy';
+import { RecoveryClaim } from './RecoveryClaim';
+import { recoveryClaimCopy } from './recovery-claim-copy';
+import { MoneyCalendar } from './Calendar';
+import { calendarCopy } from './calendar-copy';
+import { Rules } from './Rules';
+import { rulesCopy } from './rules-copy';
+import { LoanDetail } from './LoanDetail';
+import { loanDetailCopy } from './loan-detail-copy';
 import { linkedAccountsCopy } from './linked-accounts-copy';
 import { cashOutCopy } from './cash-out-copy';
 import { CashOut } from './CashOut';
@@ -81,7 +101,7 @@ const bankLabels = {
 } as const;
 export function BankNavigation({ current }: { current: string }) {
   return (
-    <nav className="money-bank-nav" aria-label={copyText('rooms.bank.rooms')}>
+    <nav data-testid="money-bank-nav" className="money-bank-nav" aria-label={copyText('rooms.bank.rooms')}>
       {bankRooms.map((room) => (
         <a
           key={room}
@@ -139,6 +159,8 @@ function SpaceActions({ space, open }: { space: Space; open: (spec: ActionSpec) 
       <a className="button button--secondary" href={`/bank/transfers?from=${encodeURIComponent(space.id)}`}>
         <Text k="rooms.transfer" />
       </a>
+      <SpaceLockActions space={space} open={open} />
+      <BillsPotActions space={space} open={open} />
       {space.kind === 'named' && (
         <Button
           variant="ghost"
@@ -210,6 +232,7 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
         owner={userId ?? ''}
         reload={spaces.reload}
         actions={(space) => <SpaceActions space={space} open={open} />}
+        below={(space, all) => space.kind === 'named' && <SpaceInflows key={space.id} space={space} spaces={all} open={open} />}
       />
       <Section
         title={context.status === 'none' ? copyText('rooms.your.spaces') : <spaceCopy.Copy k="other" />}
@@ -267,6 +290,7 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
                             </dt>
                             <dd>{date(space.lockedUntil)}</dd>
                           </div>
+                          <EarlyUnlock space={space} />
                           <div>
                             <dt>
                               <Text k="rooms.space.reference" />
@@ -299,6 +323,9 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
           </ResourceView>
         )}
       </Section>
+      {spaces.resource.status === 'ready' && <IncomeSorter spaces={spaces.resource.data} open={open} />}
+      <InstantSavings open={open} />
+      {spaces.resource.status === 'ready' && <SharedPots spaces={spaces.resource.data} open={open} />}
       <Section
         title={copyText('rooms.assets.without.a.space')}
         description={copyText('rooms.positive.user.available.accounts.only.these.quantities')}
@@ -307,7 +334,7 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
           {(rows) =>
             rows.length ? (
               rows.map((row) => (
-                <div className="money-space-row" key={row.assetId}>
+                <div data-testid="money-space-row" className="money-space-row" key={row.assetId}>
                   <strong>{row.assetId}</strong>
                   <span className="numeric">{funds(row.balance, row.assetId)}</span>
                 </div>
@@ -322,14 +349,6 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
       </Section>
     </BankPage>
   );
-}
-/** A one-off has no end date, and an end at or before the first run would never fire. */
-function scheduleWindowIssue(input: Record<string, unknown>): string | null {
-  if (typeof input.endsAt !== 'string') return null;
-  if (input.cadence === 'once') return copyText('components.last.run.hint');
-  return typeof input.startsAt === 'string' && Date.parse(input.endsAt) <= Date.parse(input.startsAt)
-    ? copyText('components.choose.an.end.after.first.run')
-    : null;
 }
 /** An ISO instant as the local `datetime-local` value the form shows. */
 function localInput(at: string): string {
@@ -461,7 +480,11 @@ function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
   return (
     <div className="money-standing-orders" lang={languageFor('instructions')} dir={directionFor('instructions')}>
       {selected && (
-        <section className="money-selected-instruction" aria-labelledby="money-selected-instruction-heading">
+        <section
+          data-testid="money-selected-instruction"
+          className="money-selected-instruction"
+          aria-labelledby="money-selected-instruction-heading"
+        >
           <header>
             <h2 id="money-selected-instruction-heading" ref={heading} tabIndex={-1}>
               <Copy k="outcomes" />
@@ -520,7 +543,7 @@ function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
             <>
               {other.length ? (
                 other.map((row, index) => (
-                  <article className="money-record money-standing-record" key={`${row.id}:${index}`}>
+                  <article data-testid="money-standing-record" className="money-record money-standing-record" key={`${row.id}:${index}`}>
                     <header>
                       <div>
                         <h3 lang="und" dir="auto">
@@ -614,6 +637,9 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
   const referenceWords = referenceIssue ? depth.t(referenceIssue === 'tooLong' ? 'referenceTooLong' : 'referenceCharacters') : null;
   return (
     <BankPage room="Transfers" description={copyText('rooms.move.available.quantities.between.spaces.or.to')}>
+      <DirectDebitsLink />
+      <CalendarLink />
+      <RulesLink />
       <Section title={copyText('rooms.new.transfer')}>
         <ResourceView resource={query.resource} reload={query.reload}>
           {(spaces) => {
@@ -857,6 +883,7 @@ function Earn({ open }: { open: (spec: ActionSpec) => void }) {
   const automation = useBankRead('autoInvest.policy', undefined);
   return (
     <BankPage room="Earn" description={earnCopy.t('description')}>
+      {pools.resource.status === 'ready' && <EarnCompare pools={pools.resource.data} />}
       <div className="money-earn-lanes">
         <Section
           title={copyText('rooms.your.positions')}
@@ -980,6 +1007,11 @@ function Earn({ open }: { open: (spec: ActionSpec) => void }) {
                         <Text k="rooms.minimum.deposit" />
                         {funds(pool.minDeposit, pool.assetId)}
                         <Text k="rooms.apr.is.the.configured.simple.annual.rate" />
+                      </p>
+                      <p className="money-caption">
+                        <a className="text-link" href={poolHref(pool.id)} data-testid="earn-pool-link" data-pool={pool.id}>
+                          {earnPoolCopy.t('details')}
+                        </a>
                       </p>
                       <div className="actions">
                         <Button
@@ -1299,6 +1331,7 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
                       </div>
                     </dl>
                     <LoanHealth loan={loan} resource={health.resource} reload={health.reload} />
+                    <LoanDetailLink loanId={loan.id} />
                     {loanStatusNote(loan.status) && <p className="muted money-loan-status">{loanStatusNote(loan.status)}</p>}
                     <div className="actions">
                       <Button
@@ -1319,6 +1352,8 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
                             ],
                             notes: [loanCopy.t('repaymentOffer'), copyText('rooms.your.request.reference.remains.stable.an.uncertain')],
                             input: (values, requestId) => ({ loanId: loan.id, eventId: requestId, amount: values.amount }),
+                            // svc-bank `loans.repay` answers a repeated eventId with the first repayment, never a second one.
+                            resendSame: true,
                           })
                         }
                       >
@@ -1370,7 +1405,12 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
                               copyText('rooms.the.service.obtains.current.marks.before.releasing'),
                               copyText('rooms.no.available.amount.is.optimistically.increased.refresh'),
                             ],
-                            input: (values) => ({ loanId: loan.id, amount: values.amount }),
+                            reviewTerms: {
+                              checking: loanCopy.t('releasableChecking'),
+                              read: (input, signal) => readReleasable(api, loan.id, loan.collateralAssetId, input.amount, signal),
+                            },
+                            // svc-bank `loans.releaseExcess` keys the release by this eventId, so a retry never releases twice.
+                            input: (values, requestId) => ({ loanId: loan.id, eventId: requestId, amount: values.amount }),
                           })
                         }
                       >
@@ -1442,6 +1482,122 @@ function AddMoneyRoom() {
   return (
     <BankPage room="Ramps" title={t('title')} description={t('description')}>
       <AddMoney />
+    </BankPage>
+  );
+}
+/** The way into the direct debits room from Transfers. */
+function DirectDebitsLink() {
+  const { t } = directDebitsCopy.useCopy();
+  return (
+    <p className="money-caption">
+      <a className="text-link" href="/bank/direct-debits">
+        {t('open')}
+      </a>{' '}
+      {t('openHint')}
+    </p>
+  );
+}
+/** `/bank/direct-debits`: Direct Debit mandates and collections, inside the Transfers room (J-bank-06 #4). */
+function DirectDebitsRoom() {
+  const { t } = directDebitsCopy.useCopy();
+  return (
+    <BankPage room="Transfers" title={t('title')} description={t('description')}>
+      <DirectDebits />
+    </BankPage>
+  );
+}
+/** `/bank/recovery` (RC-identity-08): where a person named to receive someone's account claims it with their keys. */
+function RecoveryClaimRoom() {
+  const { t } = recoveryClaimCopy.useCopy();
+  return (
+    <BankPage room="Recovery" title={t('title')} description={t('description')}>
+      <RecoveryClaim />
+    </BankPage>
+  );
+}
+/** The way into the recovery claim room from the bank's services. */
+function RecoveryClaimLink() {
+  const { t } = recoveryClaimCopy.useCopy();
+  return (
+    <a className="link-row" href="/bank/recovery">
+      <span>
+        <strong>{t('open')}</strong>
+        <small>{t('openHint')}</small>
+      </span>
+      <span aria-hidden="true">↗</span>
+    </a>
+  );
+}
+/** The way into the money calendar from Transfers. */
+function CalendarLink() {
+  const { t } = calendarCopy.useCopy();
+  return (
+    <p className="money-caption">
+      <a className="text-link" href="/bank/calendar">
+        {t('open')}
+      </a>{' '}
+      {t('openHint')}
+    </p>
+  );
+}
+/** The way into reminders, failure notices and notification choices from Transfers. */
+function RulesLink() {
+  const { t } = rulesCopy.useCopy();
+  return (
+    <p className="money-caption">
+      <a className="text-link" href="/bank/rules">
+        {t('open')}
+      </a>{' '}
+      {t('openHint')}
+    </p>
+  );
+}
+/** `/bank/rules`: payment reminders, failure notices, notification choices and money rules, inside Transfers (J-bank-06 #6). */
+function RulesRoom() {
+  const { t } = rulesCopy.useCopy();
+  return (
+    <BankPage room="Transfers" title={t('title')} description={t('description')}>
+      <Rules />
+    </BankPage>
+  );
+}
+/** Each loan's way to its details page: the payoff quote, the projection and the statement (J-bank-11 #1). */
+function LoanDetailLink({ loanId }: { loanId: string }) {
+  const { t } = loanDetailCopy.useCopy();
+  return (
+    <p className="money-caption">
+      <a className="text-link" href={`/bank/loans/detail?loan=${encodeURIComponent(loanId)}`}>
+        {t('open')}
+      </a>
+    </p>
+  );
+}
+/** `/bank/loans/detail?loan=<id>`: one loan's payoff quote, projection and statement, inside the Loans room (J-bank-11 #1). */
+function LoanDetailRoom({ search }: { search: string }) {
+  const { t } = loanDetailCopy.useCopy();
+  const loanId = new URLSearchParams(search).get('loan');
+  return (
+    <BankPage room="Loans" title={t('title')} description={t('description')}>
+      <LoanDetail loanId={loanId && loanId.trim() !== '' ? loanId : null} />
+    </BankPage>
+  );
+}
+/** `/bank/earn/pool?id=<pool>`: one pool's terms, rate history and the person's savings in it, inside the Earn room (J-bank-08 #1, #2). */
+function EarnPoolRoom({ search, open }: { search: string; open: (spec: ActionSpec) => void }) {
+  const { t } = earnPoolCopy.useCopy();
+  const poolId = new URLSearchParams(search).get('id');
+  return (
+    <BankPage room="Earn" title={t('poolTitle')} description={t('poolDescription')}>
+      <EarnPool poolId={poolId && poolId.trim() !== '' ? poolId : null} open={open} />
+    </BankPage>
+  );
+}
+/** `/bank/calendar`: everything dated, inside the Transfers room (J-bank-06 #5). */
+function CalendarRoom() {
+  const { t } = calendarCopy.useCopy();
+  return (
+    <BankPage room="Transfers" title={t('title')} description={t('description')}>
+      <MoneyCalendar />
     </BankPage>
   );
 }
@@ -1550,7 +1706,7 @@ function Analytics() {
                 title={copyText('rooms.movement', { value1: summary.assetId })}
                 description={copyText('rooms.to.2', { value1: date(summary.from), value2: date(summary.to) })}
               >
-                <div className="money-movement-stats">
+                <div data-testid="money-movement-stats" className="money-movement-stats">
                   <div>
                     <span>
                       <Text k="rooms.inflow" />
@@ -1583,7 +1739,7 @@ function Analytics() {
                     <Section title={copyText('rooms.outflow.categories')}>
                       {split.outflow.length ? (
                         split.outflow.map((row) => (
-                          <div className="money-space-row" key={row.category}>
+                          <div data-testid="money-space-row" className="money-space-row" key={row.category}>
                             <span>{row.category === 'deposits' ? copyText('rooms.deposit.outflow') : categoryLabel(row.category)}</span>
                             <strong className="numeric">{funds(row.amount, summary.assetId)}</strong>
                           </div>
@@ -1596,7 +1752,7 @@ function Analytics() {
                     </Section>
                     {split.moneyInDeposits !== null && (
                       <Section title={copyText('rooms.money.in.deposits')}>
-                        <div className="money-space-row">
+                        <div data-testid="money-space-row" className="money-space-row">
                           <span>{categoryLabel('deposits')}</span>
                           <strong className="numeric">{funds(split.moneyInDeposits, summary.assetId)}</strong>
                         </div>
@@ -1708,7 +1864,12 @@ function BankOverview() {
                 )}
                 {overview.holdings.length ? (
                   overview.holdings.map((holding) => (
-                    <a className="money-holding" href={`/portfolio/${encodeURIComponent(holding.assetId)}`} key={holding.assetId}>
+                    <a
+                      data-testid="money-holding"
+                      className="money-holding"
+                      href={`/portfolio/${encodeURIComponent(holding.assetId)}`}
+                      key={holding.assetId}
+                    >
                       <span className="money-asset-mark" aria-hidden="true">
                         {holding.assetId.slice(0, 1)}
                       </span>
@@ -1818,7 +1979,12 @@ function BankOverview() {
                 <>
                   {overview.spaces.data.length ? (
                     overview.spaces.data.map((space) => (
-                      <a className="money-space-row" href={`/bank/spaces?space=${encodeURIComponent(space.id)}`} key={space.id}>
+                      <a
+                        data-testid="money-space-row"
+                        className="money-space-row"
+                        href={`/bank/spaces?space=${encodeURIComponent(space.id)}`}
+                        key={space.id}
+                      >
                         <div>
                           <strong lang="und">{space.name}</strong>
                           <small>
@@ -1864,6 +2030,7 @@ function BankOverview() {
               <span aria-hidden="true">↗</span>
             </a>
           ))}
+          <RecoveryClaimLink />
         </nav>
       </Section>
     </Page>
@@ -1877,10 +2044,22 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
       return <Spaces open={open} search={search} />;
     case '/bank/transfers':
       return <Transfers open={open} search={search} />;
+    case '/bank/direct-debits':
+      return <DirectDebitsRoom />;
+    case '/bank/calendar':
+      return <CalendarRoom />;
+    case '/bank/recovery':
+      return <RecoveryClaimRoom />;
+    case '/bank/rules':
+      return <RulesRoom />;
     case '/bank/earn':
       return <Earn open={open} />;
+    case '/bank/earn/pool':
+      return <EarnPoolRoom search={search} open={open} />;
     case '/bank/loans':
       return <Loans open={open} />;
+    case '/bank/loans/detail':
+      return <LoanDetailRoom search={search} />;
     case '/bank/cards':
       return <Cards open={open} />;
     case '/bank/ramps':

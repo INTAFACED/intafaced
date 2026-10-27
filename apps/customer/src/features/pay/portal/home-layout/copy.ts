@@ -15,6 +15,7 @@ const en = {
   portal: 'Business',
   paymentList: 'Payments',
   links: 'Payment links',
+  products: 'Products',
   checkout: 'Checkout',
   refunds: 'Refunds',
   disputes: 'Disputes',

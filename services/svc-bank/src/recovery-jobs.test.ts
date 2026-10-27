@@ -181,6 +181,30 @@ describe('startBankRecoveryJobs', () => {
     handle.stop();
   });
 
+  it('drives on cash-outs left before their hold or the partner as a fifth job when that port is given', async () => {
+    vi.useFakeTimers();
+    const redrive = vi.fn(async (limit: number): Promise<readonly RecoveryJobResult[]> => {
+      expect(limit).toBe(50);
+      return [{ outcome: 'completed' }, { outcome: 'failed', reason: 'bank.cash_out_partner_gone' }];
+    });
+    const onResult = vi.fn();
+    const handle = startBankRecoveryJobs({
+      config: { intervalMs: 1_000, batchLimit: 50 },
+      ...jobs(),
+      cashOuts: { redrive },
+      tryLock: async (_namespace, _key, body) => {
+        await body();
+        return { acquired: true };
+      },
+      onResult,
+    });
+    expect(handle.list()).toContain('bank.recovery.redrive_cash_outs');
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(redrive).toHaveBeenCalledTimes(1);
+    expect(onResult).toHaveBeenCalledWith('bank.recovery.redrive_cash_outs', { scanned: 2, resolved: 1, stillUnknown: 1 });
+    handle.stop();
+  });
+
   it('a job error does not stop the next tick', async () => {
     vi.useFakeTimers();
     let calls = 0;

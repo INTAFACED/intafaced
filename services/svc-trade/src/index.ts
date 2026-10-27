@@ -12,6 +12,7 @@ import { MARKETS_LIMIT_MAX, TradeService } from './spot/trade-service.js';
 import { createMatchingClient } from './spot/matching-client.js';
 import { bindMatchingCloseS2s } from './spot/matching-close.js';
 import { readOcoIntents } from './spot/oco-intent.js';
+import { readOrderLinks } from './spot/order-links.js';
 import { readOrderHolds } from './spot/order-holds.js';
 import { createTickerStatsReader } from './spot/ticker-stats.js';
 import { createRankPerksClient } from './spot/rank-perks.js';
@@ -83,8 +84,12 @@ import { registerDeltaHedgeRest } from './greeks/delta-hedge-rest.js';
 import { registerQuantLiveDeployRest } from './quant/live-deploy-rest.js';
 import { registerPromoRest } from './spot/promo-rest.js';
 import { registerSpotOrderPreviewRest } from './spot/order-preview-rest.js';
-import { parseFeeScheduleJson } from './spot/fee-schedule.js';
+import { registerFeeTierRest } from './spot/fee-tier-rest.js';
+import { registerVipRest } from './spot/vip-rest.js';
+import { VipApplicationStore, parseVipProofKey } from './spot/vip-applications.js';
+import { assertMakerRebatesPayable, parseFeeScheduleJson } from './spot/fee-schedule.js';
 import { feeScheduleAt } from './spot/fee-schedule-store.js';
+import { feeTierAt } from './spot/fee-tier-store.js';
 import { PositionService, FuturesError } from './futures/position-service.js';
 import { readOpenInterestLimits } from './futures/open-interest-limits.js';
 import {
@@ -147,6 +152,7 @@ import { HOUSE_MM_USER_UUID } from './spot/ids.js';
 import { parseCandleMarketIds, parseCandleTimeframes } from './spot/candles.js';
 import { startCandleJobs } from './spot/candle-jobs.js';
 import { startTrailingMarkJobs } from './spot/trailing-mark-jobs.js';
+import { startFeeTierJobs } from './spot/fee-tier-jobs.js';
 import { markSourceFromDepth } from './futures/mark-from-depth.js';
 import { markBookResolver, parseIndexSpotMarkets } from './futures/mark-from-spot-index.js';
 import { liquidationPriceFor } from './futures/liquidation-price.js';
@@ -172,16 +178,19 @@ import { loadOtcMakerDirectory } from './otc/maker-directory.js';
 import { parseOtcConvertBoundsJson } from './otc/otc-convert-bounds.js';
 import { SqlOtcQuoteStore } from './otc/quote-store.js';
 import { createOtcStakeSource } from './otc/stake-source.js';
+import { createIfcDiscountSource } from './spot/fee-ifc.js';
 import { canonicalizeCopyFillId } from './copy/fee-share.js';
 import { parseCopyFeeShareLawJson, parseCopyJurisdictionLawJson } from './copy/fee-share-law.js';
 import { parseCopyDisclosureLawJson } from './copy/disclosure.js';
 import { parseCopyMetricDefinitionsJson } from './copy/leader-profile.js';
+import { parseCopyMinTier } from './copy/follow-gate.js';
 import { CopyService } from './copy/copy-service.js';
 import { SqlCopyFollowStore } from './copy/follow-store.js';
 import { SqlMirrorEventLog } from './copy/mirror-events.js';
 import { sqlLeaderDirectory } from './copy/leader-directory.js';
 import { createFollowerFlattenPort } from './copy/follower-flatten-port.js';
-import type { PlaceFollowerOrderPort } from './copy/auto-mirror-place.js';
+import { parseCopyPlaceMirrorFlag, type PlaceFollowerOrderPort } from './copy/auto-mirror-place.js';
+import { createJobHost } from './futures/job-host.js';
 import { SqlMarketLifecycleAuthority, SqlMarketLifecycleEvidenceStore, assertNoLocalTestLifecycleRows } from './market-lifecycle.js';
 import { registerMarketLifecycleRoutes } from './market-lifecycle-routes.js';
 import { localTestTapeRetimeEnabled } from './spot/local-test-tape.js';
@@ -255,6 +264,7 @@ const bus = await JetStreamEventBus.connect({
   ownedStreams: ['trade'],
 });
 const feeSchedule = parseFeeScheduleJson(env.TRADE_FEE_SCHEDULE);
+assertMakerRebatesPayable(feeSchedule);
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 retainRawBody(app);
 registerClosureCheck(app, { sql, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
@@ -306,6 +316,8 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
   affiliatePayout,
   dropCopyIngest,
   holdUnknownTakerMaxAgeMs: env.TRADE_HOLD_UNKNOWN_TAKER_MAX_AGE_MS,
+  // A spot fee paid in the platform token is discounted by the owner's stake, read from svc-token at placement.
+  ifcDiscount: createIfcDiscountSource(env.TOKEN_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
   onHoldUnknownAlert: (a) => app.log.error({ alert: a }, 'order.hold reply lost'),
 });
 const venuePublicAdapter = createVenueMarketDataAdapter(env.TRADE_VENUE_MARK_VENUE);
@@ -367,14 +379,15 @@ const copyFeeShareLaw = parseCopyFeeShareLawJson(env.TRADE_COPY_FEE_SHARE_LAW);
 const copyJurisdictionLaw = parseCopyJurisdictionLawJson(env.TRADE_COPY_JURISDICTION_LAW);
 const copyDisclosureLaw = parseCopyDisclosureLawJson(env.TRADE_COPY_DISCLOSURE_LAW);
 const copyMetricDefinitions = parseCopyMetricDefinitionsJson(env.TRADE_COPY_METRIC_DEFINITIONS);
+const copyMinTier = parseCopyMinTier(env.TRADE_COPY_MIN_TIER);
 const copyStore = new SqlCopyFollowStore(sql);
 const placeFollowerOrder: PlaceFollowerOrderPort = async (principal, input) => {
   if (!input.followId) throw new TradingControlError('auth.credential_denied');
   const order = await trade.placeCopyMirror(
     principal,
     {
+      // A copy names its market by symbol (the leader fill's market), so the order resolves it by symbol too.
       symbol: input.symbol,
-      marketId: input.marketId,
       side: input.side,
       type: 'limit',
       qty: input.qty,
@@ -392,6 +405,7 @@ const copy = new CopyService(ledger, {
   jurisdictionLaw: copyJurisdictionLaw,
   disclosureLaw: copyDisclosureLaw,
   metricDefinitions: copyMetricDefinitions,
+  minTier: copyMinTier,
   store: copyStore,
   directory: sqlLeaderDirectory(sql, { now: () => new Date(), feeShareLaw: copyFeeShareLaw }),
   placeFollowerOrder,
@@ -410,7 +424,21 @@ const copy = new CopyService(ledger, {
   }),
   inspectMarket: async (symbol) => {
     const market = await trade.marketBySymbol(symbol);
-    return market ? { paper: market.paper } : null;
+    return market ? { paper: market.paper, lotSize: market.lotSize } : null;
+  },
+  // The copy driver's read: the leader's own live spot fills after the follow began, oldest first.
+  // Fill times are compared at millisecond precision, the precision the cursor keeps, so a fill is never read twice.
+  listLeaderFillsSince: async (leaderId, after, limit) => {
+    const rows = await sql<Array<{ id: string; symbol: string; created_at: Date }>>`
+      SELECT f.id, m.symbol, f.created_at
+        FROM trade.fills f
+        INNER JOIN trade.markets m ON m.id = f.market_id
+       WHERE f.user_id = ${leaderId} AND m.kind = 'spot' AND m.paper = false
+         AND (date_trunc('milliseconds', f.created_at), f.id::text) > (${after.at}::timestamptz, ${after.fillId ?? ''}::text)
+       ORDER BY date_trunc('milliseconds', f.created_at) ASC, f.id ASC
+       LIMIT ${limit}
+    `;
+    return rows.map((row) => ({ fillId: row.id, marketId: row.symbol, at: new Date(row.created_at) }));
   },
   lookupFollowerFillFee: async (fillId) => {
     const id = canonicalizeCopyFillId(fillId);
@@ -472,6 +500,8 @@ export const appRouter = createTradeRouter(
     trade,
     ledger,
     approvals: tradeOpsApprovals,
+    feeSchedule,
+    vipProofKey: parseVipProofKey(env.TRADE_VIP_PROOF_KEY),
   }),
   new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),
   new SupportTradeSummaryReader({ sql }),
@@ -754,6 +784,16 @@ const trailingMarkJobs = startTrailingMarkJobs({
     if (r.applied) app.log.info({ marketId: r.marketId }, 'trailing stops walked with the mark');
   },
 });
+const feeTierJobs = startFeeTierJobs({
+  sql,
+  scheduleAt: (at) => feeScheduleAt(sql, feeSchedule, at),
+  bootSchedule: feeSchedule,
+  intervalMs: env.TRADE_FEE_TIER_JOBS_INTERVAL_MS,
+  onError: (name, err) => app.log.error({ err, job: name }, 'fee tier snapshot tick failed'),
+  onResult: (r) => {
+    if (r.outcome === 'written') app.log.info({ instant: r.instant, accounts: r.accounts }, 'fee tier snapshot written');
+  },
+});
 const mmMidSource = createMmMidSourceFromConfig({
   midsEnv: env.TRADE_MM_SEED_MIDS,
   midFromVenue: env.TRADE_MM_SEED_MID_FROM_VENUE,
@@ -799,6 +839,16 @@ const mmSeedJobs = startMmSeedJobs({
     }
   },
 });
+// The copy driver: copies each new leader fill for every active follow with a place grant (CB-copy-10).
+const copyMirrorJobs = createJobHost({ onError: (name, err) => app.log.error({ err, job: name }, 'copy mirror sweep tick failed') });
+if (parseCopyPlaceMirrorFlag(process.env.TRADE_COPY_PLACE_MIRROR)) {
+  copyMirrorJobs.every('trade.copy_mirror_sweep', env.TRADE_COPY_MIRROR_SWEEP_INTERVAL_MS, async () => {
+    const result = await copy.runMirrorSweep({
+      onFollowFailed: (followId, err) => app.log.error({ err, followId }, 'copy mirror sweep — this follow is tried again next sweep'),
+    });
+    if (result.refused > 0) app.log.warn(result, 'copy mirror sweep — some leader fills were not copied (reasons on the mirror trail)');
+  });
+}
 const algoJobs = startAlgoJobs({
   trade,
   config: { enabled: env.TRADE_ALGO_JOBS_ENABLED, intervalMs: env.TRADE_ALGO_JOBS_INTERVAL_MS },
@@ -1084,9 +1134,27 @@ registerSpotOrderPreviewRest(app, {
   futuresEnabled: env.TRADE_FUTURES_ENABLED,
   optionsSettlementLawStamped: env.TRADE_OPTIONS_SETTLEMENT_ASSET_LAW.trim().length > 0,
   slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+  stopMarketCapBps: futuresSlippageCapBps,
   feeSchedule,
   feeScheduleNow: () => feeScheduleAt(sql, feeSchedule, new Date()),
   feeDiscountBps: async (userId) => (await perks.perksOf(userId)).feeDiscountBps,
+  feeTier: (userId) => trade.feeTierAt(userId),
+});
+registerFeeTierRest(app, {
+  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  edgeTrust: edgeTrustFromEnv(env),
+  serviceName: env.SERVICE_NAME,
+  sql,
+  scheduleAt: (at) => feeScheduleAt(sql, feeSchedule, at),
+  bootSchedule: feeSchedule,
+  snapshotsRunning: env.TRADE_FEE_TIER_JOBS_INTERVAL_MS !== null && env.TRADE_FEE_TIER_JOBS_INTERVAL_MS > 0,
+});
+registerVipRest(app, {
+  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  edgeTrust: edgeTrustFromEnv(env),
+  serviceName: env.SERVICE_NAME,
+  store: new VipApplicationStore(sql, parseVipProofKey(env.TRADE_VIP_PROOF_KEY)),
+  scheduleAt: (at) => feeScheduleAt(sql, feeSchedule, at),
 });
 const fundingHistory = memoryFundingHistory();
 registerInternalFundingRate(app, {
@@ -1204,6 +1272,8 @@ registerPrivateRest(app, {
   markets: (limit) => trade.markets(limit),
   feeSchedule,
   feeScheduleNow: () => feeScheduleAt(sql, feeSchedule, new Date()),
+  feeTier: (userId, schedule) => feeTierAt(sql, schedule, userId, new Date()),
+  feeDiscountBps: async (userId) => (await perks.perksOf(userId)).feeDiscountBps,
   now: () => new Date(),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
   userBalances: (userId) => ledger.balances('user', userId),
@@ -1330,7 +1400,10 @@ registerPrivateRest(app, {
   statements: { ledger: ledgerPages, exports: new StatementExports(sql, ledgerPages) },
   icebergDisplay: sqlIcebergDisplay(sql),
   stopTriggers,
+  // A stop-market is bounded by the same per-market cap as a market order on its pair.
+  stopMarketCapBps: futuresSlippageCapBps,
   ocoExits: (ids) => readOcoIntents(sql, ids),
+  orderLinks: (ids) => readOrderLinks(sql, ids),
   orderHolds: (orders) => readOrderHolds(sql, orders),
   findClientOrder: (principal, input) => trade.findClientOrder(principal, input),
   listFundingPayments: (principal, positionId, cursor) => listFundingPayments(sql, principal.userId, positionId, cursor),
@@ -1364,6 +1437,7 @@ app.log.info(
     mmSeedJobs: mmSeedJobs.host.list(),
     algoJobsEnabled: env.TRADE_ALGO_JOBS_ENABLED,
     algoJobs: algoJobs.host.list(),
+    copyMirrorJobs: copyMirrorJobs.list(),
     optionsJobsEnabled: env.TRADE_OPTIONS_JOBS_ENABLED,
     optionsJobs: optionsExerciseJobs.host.list(),
     reconcileJobsEnabled: env.TRADE_RECONCILE_JOBS_ENABLED,
@@ -1381,8 +1455,10 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       conditionalJobs.stop();
       candleJobs.stop();
       trailingMarkJobs.stop();
+      feeTierJobs.stop();
       mmSeedJobs.stop();
       algoJobs.stop();
+      copyMirrorJobs.stopAll();
       optionsExerciseJobs.stop();
       reconcileJobs.stop();
       holdUnknownSweep.stop();

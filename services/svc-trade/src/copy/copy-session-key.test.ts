@@ -17,6 +17,7 @@ import { CopyService } from '../controls/test-admission.js';
 import { copyLimitPriceFromPlan } from './index.js';
 import { MemoryCopyFollowStore } from './follow-store.js';
 import { hashCopySessionKey } from './session-key.js';
+import { GateOpenLedger, GateOpenStore, OPEN_FOLLOW_GATE } from './test/follow-gate.fixture.js';
 
 const SECRET = 'copy-session-key-done-bar-secret-32bytes';
 const FOLLOWER = '11111111-1111-4111-8111-111111111111';
@@ -71,8 +72,9 @@ function anyLeaderFill(): LookupLeaderFillPort {
   });
 }
 
-function wiredCopy(placeFollowerOrder: PlaceFollowerOrderPort, store = new MemoryCopyFollowStore()) {
-  return new CopyService(new MemoryLedger(), {
+function wiredCopy(placeFollowerOrder: PlaceFollowerOrderPort, store: MemoryCopyFollowStore = new GateOpenStore()) {
+  return new CopyService(new GateOpenLedger(), {
+    ...OPEN_FOLLOW_GATE,
     feeShareLaw: publishedFee,
     jurisdictionLaw: publishedJur,
     placeMirrorEnabled: true,
@@ -85,11 +87,12 @@ function wiredCopy(placeFollowerOrder: PlaceFollowerOrderPort, store = new Memor
 
 describe('trade.copy durable auto-mirror session-key', () => {
   it('grantSessionKey returns key id; store keeps only the hash; list never returns raw', async () => {
-    const store = new MemoryCopyFollowStore();
+    const store: MemoryCopyFollowStore = new GateOpenStore();
     const copy = wiredCopy(async () => ({ orderId: 'unused' }), store);
     const caller = createTradeRouter({} as TradeService, undefined, copy).createCaller(signed());
 
     const follow = await caller.copy.follow({
+      clientRequestId: 'test-request-1',
       leaderId: LEADER,
       region: 'SG',
       permittedMarkets: ['BTC-USDT'],
@@ -131,6 +134,7 @@ describe('trade.copy durable auto-mirror session-key', () => {
     const caller = createTradeRouter({} as TradeService, undefined, copy).createCaller(signed());
 
     const follow = await caller.copy.follow({
+      clientRequestId: 'test-request-2',
       leaderId: LEADER,
       region: 'SG',
       permittedMarkets: ['BTC-USDT'],
@@ -200,6 +204,7 @@ describe('trade.copy durable auto-mirror session-key', () => {
     const copy = wiredCopy(async () => ({ orderId: 'should-not-run' }));
     const caller = createTradeRouter({} as TradeService, undefined, copy).createCaller(signed());
     const follow = await caller.copy.follow({
+      clientRequestId: 'test-request-3',
       leaderId: LEADER,
       region: 'SG',
       permittedMarkets: ['BTC-USDT'],

@@ -1,7 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
-import type { AccountState, EmailProof } from '@intafaced/contracts';
+import type {
+  AccountState,
+  CampaignParticipant,
+  EmailProof,
+  ServiceMailAccepted,
+  ServiceMailRequest,
+  TrustedDeviceState,
+} from '@intafaced/contracts';
 import {
   assertDelegatableScopes,
   FOUNDER_SESSION_SCOPE_ALLOWLIST,
@@ -17,6 +24,7 @@ import {
 } from '@intafaced/auth';
 import type { EventBus } from '@intafaced/events';
 import {
+  assertPasswordNotBreached,
   assertPasswordShape,
   assertPasswordNotIdentity,
   dummyPasswordHash,
@@ -29,6 +37,7 @@ import {
   WeakPasswordError,
 } from './passwords.js';
 import { assertNotSecurityLocked } from './security-lock.js';
+import { assertLeavesAWayIn, lockedSigninMethods, startWalletChallenge, walletSigninAccount, type WalletConfig } from './signin-methods.js';
 import { accountHasSecondFactor, assertMayAddFactor, assertMayRemoveFactor, checkMayAddFactor, type FactorActor } from './factor-gate.js';
 import { confirmEmail, isEmailConfirmed, requestEmailConfirmation } from './email-confirmation.js';
 import {
@@ -41,6 +50,47 @@ import {
   type SignUpPolicy,
   type SignUpStart,
 } from './sign-up.js';
+import {
+  checkLoginCode,
+  consumeLoginCode,
+  requestLoginCode,
+  resendLoginCode,
+  type LoginCodeAccepted,
+  type LoginCodeDeps,
+  type LoginCodePolicy,
+} from './login-code.js';
+import { queueServiceMail } from './service-mail.js';
+import { queuePasswordChangedNotice } from './password-changed-notice.js';
+import { queueFactorChangedNotice } from './factor-changed-notice.js';
+import {
+  cancelMfaReset,
+  completeDueMfaReset,
+  confirmMfaReset,
+  MfaResetError,
+  mfaResetConfigured,
+  mfaResetStatus,
+  startMfaReset,
+  stopMfaResetByProof,
+  type MfaResetDeps,
+  type MfaResetView,
+} from './mfa-reset.js';
+import type { SupportRecoveryDeps } from './support-recovery.js';
+import {
+  approveFromSession,
+  approveWithCode,
+  completeAuthorisation,
+  deviceLabel,
+  gateDevice,
+  listDevices,
+  pendingAuthorisations,
+  removeDevice,
+  trustDevice,
+  trustedDeviceState,
+  TrustedDeviceError,
+  type NewDevicePolicy,
+  type TrustedDeviceDeps,
+  type TrustedDeviceRow,
+} from './trusted-devices.js';
 import {
   completePasswordReset,
   publishedPasswordResetTtlSeconds,
@@ -87,6 +137,7 @@ import {
 } from '../agents/navigator-session-projection-sync.js';
 import { DEFAULT_REFRESH_REUSE_GRACE_SECONDS, REFRESH_RECOVERY_SECONDS_CEILING } from './refresh-cookie.js';
 import { openRefreshToken, sealRefreshToken } from './refresh-grace.js';
+import { credentialsFor, type PasskeyPurpose } from './passkey-purposes.js';
 import type { RankService } from '../rank/rank-service.js';
 
 /**
@@ -110,6 +161,7 @@ export class AuthError extends Error {
       | 'auth.handle_taken'
       | 'auth.email_taken'
       | 'auth.mfa_required'
+      | 'auth.second_step_expired'
       | 'auth.privileged_enrolment_requires_invite'
       | 'auth.mfa_invalid'
       | 'auth.mfa_already_enrolled'
@@ -144,6 +196,7 @@ export class AuthError extends Error {
       | 'auth.sandbox_scope_not_pay'
       | 'auth.password_unchanged'
       | 'auth.password_policy'
+      | 'auth.password_breached'
       | 'auth.reset_proof_invalid'
       | 'auth.reset_unwired'
       | 'auth.email_confirm_invalid'
@@ -169,7 +222,12 @@ export class AuthError extends Error {
      * Optional machine-readable extras. `retryAfterSeconds`: set by `auth.too_many_attempts` and `auth.email_confirm_rate_limited`.
      * `accountState`: set by sign-in's `auth.account_frozen`, only after the password (or a provider) verified who it is.
      */
-    readonly details?: { readonly retryAfterSeconds?: number; readonly accountState?: 'frozen' | 'closed' },
+    readonly details?: {
+      readonly retryAfterSeconds?: number;
+      readonly accountState?: 'frozen' | 'closed';
+      /** Set by sign-in's `auth.mfa_required` (I-signin-sessions-10): the second steps that answer it. */
+      readonly secondStep?: { readonly totp: boolean; readonly passkey: AuthenticationOptionsJSON | null };
+    },
   ) {
     super(message);
     this.name = 'AuthError';
@@ -372,6 +430,8 @@ function toKycRecord(row: KycRow): KycRecordView {
 
 const TIER_ORDER: Readonly<Record<KycTier, number>> = { none: 0, basic: 1, full: 2, institutional: 3 };
 const STEP_UP_TTL_SECONDS = 300;
+/** The passkey challenge of a sign-in second step: 120 seconds after the password verified, single use (I-signin-sessions-10). */
+const SECOND_STEP_CHALLENGE_TTL_MS = 120_000;
 const STEP_UP_SCOPES: readonly Scope[] = ['trade:withdraw'];
 
 /** What svc-pay says this person may do on one merchant. Both false refuses the mint. */
@@ -397,6 +457,8 @@ export interface RegisterInput {
   region?: string;
   device?: string;
   ip?: string;
+  /** The device key this browser already holds (`ifc_dk`), kept as the new account's first trusted device. */
+  deviceKey?: string | null;
 }
 
 export interface SessionTokens {
@@ -406,6 +468,10 @@ export interface SessionTokens {
   sessionId: string;
   userId: string;
   mfaRequired: boolean;
+  /** A device key just trusted for this browser (`ifc_dk`): set on sign-up and on a completed new-device approval. */
+  deviceKey?: string;
+  /** Set only when this sign-in's second step spent a recovery code: how many of the account's codes are left. */
+  recoveryCodesLeft?: number;
 }
 
 const DEFAULT_WEBAUTHN: WebAuthnConfig = {
@@ -421,6 +487,15 @@ function isUniqueViolation(err: unknown): boolean {
 function uniqueConstraintName(err: unknown): string {
   const name = (err as { constraint_name?: unknown }).constraint_name;
   return typeof name === 'string' ? name : '';
+}
+
+/** A session as a sign-in answers it: plus a device key just trusted, and the recovery codes left when one was spent. */
+function withSecondStep(session: SessionTokens, deviceKey: string | undefined, recoveryCodesLeft: number | undefined): SessionTokens {
+  return {
+    ...session,
+    ...(deviceKey ? { deviceKey } : {}),
+    ...(recoveryCodesLeft !== undefined ? { recoveryCodesLeft } : {}),
+  };
 }
 
 /**
@@ -452,14 +527,14 @@ export async function clearPredecessorSeal(tx: Sql, userId: string, sessionId: s
 }
 
 /**
- * A password-policy refusal at registration or founder enrolment (shape or identity) answers the typed
- * `auth.password_policy`, as change and reset do, before any hashing.
+ * A password refusal at registration or founder enrolment answers the typed code, as change and reset do, before any
+ * hashing: `auth.password_policy` for the shape or the account's own name, `auth.password_breached` for the owner's list.
  */
 function policyRefusal(check: () => void): void {
   try {
     check();
   } catch (err) {
-    if (err instanceof WeakPasswordError) throw new AuthError(err.message, 'auth.password_policy');
+    if (err instanceof WeakPasswordError) throw new AuthError(err.message, err.code);
     throw err;
   }
 }
@@ -609,6 +684,14 @@ export class AuthService {
     this.mailRelayTrigger = trigger;
   }
 
+  /** A mail another service asked for (`POST /internal/mail`, service-mail.ts), on the recovery flows' clock and relay. */
+  async queueServiceMail(input: ServiceMailRequest): Promise<ServiceMailAccepted> {
+    return queueServiceMail(
+      { sql: this.sql, now: this.passwordResetNow, mailWired: this.passwordResetMail !== undefined, afterCommit: this.mailRelayTrigger },
+      input,
+    );
+  }
+
   /** Send the pending recovery mail, once each. Safe to call from a timer and from a trigger at the same time. */
   async drainMailOutbox(): Promise<{ sent: number; undeliverable: number; unknown: number }> {
     return relayMailOutbox(this.resetDeps());
@@ -680,6 +763,7 @@ export class AuthService {
     code: string;
     device?: string;
     ip?: string;
+    deviceKey?: string | null;
   }): Promise<{ session: SessionTokens; accountType: AccountType; referrerId: string | null }> {
     const { userId, draft } = await confirmSignUp(this.signUpDeps(), input, (tx, d) =>
       this.insertNewUser(tx, { handle: d.handle, email: d.email, password: '', region: d.country }, d.passwordHash),
@@ -691,8 +775,233 @@ export class AuthService {
       region: draft.country,
       ...(input.device ? { device: input.device } : {}),
       ...(input.ip ? { ip: input.ip } : {}),
+      deviceKey: input.deviceKey ?? null,
     });
     return { session, accountType: draft.accountType, referrerId: draft.referrerId };
+  }
+
+  /** Owner numbers for sign-in by a mailed code (login-code.ts). The mail port, the flow key and the clock are the recovery flows' own. */
+  useLoginCodePolicy(policy: LoginCodePolicy): void {
+    this.loginCodePolicy = policy;
+  }
+
+  private loginCodePolicy: LoginCodePolicy = {};
+
+  /** The owner's wait for a locked-out second-factor reset (mfa-reset.ts). Unset refuses every reset. */
+  useMfaResetWait(seconds: number | undefined): void {
+    this.mfaResetWaitSeconds = seconds;
+  }
+
+  private mfaResetWaitSeconds: number | undefined;
+
+  /** The reset's code uses the owner's numbers for mailed sign-in codes, the flow key and the recovery mail relay. */
+  private mfaResetDeps(): MfaResetDeps {
+    return {
+      sql: this.sql,
+      mail: this.passwordResetMail,
+      waitSeconds: this.mfaResetWaitSeconds,
+      codeTtlSeconds: this.loginCodePolicy.codeTtlSeconds,
+      maxAttempts: this.loginCodePolicy.maxAttempts,
+      subjectKey: this.flowSubjectKey,
+      now: this.passwordResetNow,
+      log: this.log,
+      afterCommit: this.mailRelayTrigger,
+    };
+  }
+
+  /** The owner's lifetime of a Support recovery link (support-recovery.ts). Unset refuses every send. */
+  useSupportRecoveryLinkTtl(seconds: number | undefined): void {
+    this.supportRecoveryLinkTtlSeconds = seconds;
+  }
+
+  private supportRecoveryLinkTtlSeconds: number | undefined;
+
+  /** Support-assisted recovery (support-recovery.ts): the link uses the flow key and rides the recovery mail relay. */
+  supportRecoveryDeps(): SupportRecoveryDeps {
+    return {
+      sql: this.sql,
+      mail: this.passwordResetMail,
+      linkTtlSeconds: this.supportRecoveryLinkTtlSeconds,
+      subjectKey: this.flowSubjectKey,
+      now: this.passwordResetNow,
+      afterCommit: this.mailRelayTrigger,
+    };
+  }
+
+  /**
+   * Locked-out reset, step 1 (I-signin-sessions-12): the password again, checked and counted exactly as sign-in checks
+   * it, then a code to the proved address. The wait is checked first, so a blank one refuses before any guess counts.
+   */
+  async mfaResetStart(input: { identifier: string; password: string }): Promise<MfaResetView> {
+    const deps = this.mfaResetDeps();
+    if (!mfaResetConfigured(deps)) throw new MfaResetError('identity.mfa_reset_unconfigured');
+    const user = await this.passFirstFactor(input);
+    return startMfaReset(deps, user.id);
+  }
+
+  /** Locked-out reset, step 2: the mailed code starts the wait and tells every contact. */
+  async mfaResetConfirm(input: { resetId: string; code: string }): Promise<MfaResetView> {
+    return confirmMfaReset(this.mfaResetDeps(), input);
+  }
+
+  /** The account's waiting reset, for its own sessions. */
+  async mfaResetStatus(userId: string): Promise<{ resetId: string; waitingSince: string; completesAt: string } | null> {
+    return mfaResetStatus(this.sql, userId);
+  }
+
+  /** Stop the account's open reset from one of its own sessions. */
+  async mfaResetCancel(input: { userId: string; sessionId: string }): Promise<{ cancelled: boolean }> {
+    return cancelMfaReset(this.mfaResetDeps(), input);
+  }
+
+  /** Owner settings for the new-device check (trusted-devices.ts). Unset: the check is off. */
+  useNewDevicePolicy(policy: NewDevicePolicy): void {
+    this.newDevicePolicy = policy;
+  }
+
+  private newDevicePolicy: NewDevicePolicy = { check: false };
+
+  /** Whether the owner turned the new-device check on. */
+  newDeviceCheckOn(): boolean {
+    return this.newDevicePolicy.check;
+  }
+
+  /** What another service may rely on about one trusted device now (`GET /internal/trusted-devices/:userId/:deviceId`). */
+  trustedDeviceState(userId: string, deviceId: string): Promise<TrustedDeviceState> {
+    return trustedDeviceState(this.sql, this.newDevicePolicy, { userId, deviceId, now: this.passwordResetNow() });
+  }
+
+  private deviceDeps(): TrustedDeviceDeps {
+    return {
+      sql: this.sql,
+      policy: this.newDevicePolicy,
+      mail: this.passwordResetMail,
+      subjectKey: this.flowSubjectKey,
+      now: this.passwordResetNow,
+      afterCommit: this.mailRelayTrigger,
+    };
+  }
+
+  /** After every factor passed: the live trusted device, or (check on) a new-device authorisation refusal. */
+  /**
+   * The device gate after a sign-in's second step. When that step spent a recovery code and this browser still needs
+   * approval, the refusal carries the count too: the code is already gone, so the person is told once the device is in.
+   */
+  private async gateDeviceAfterSecondStep(
+    userId: string,
+    step: { mfa: boolean; recoveryCodesLeft?: number },
+    deviceKey: string | null | undefined,
+  ): Promise<{ trustedDeviceId: string; deviceKey?: string }> {
+    try {
+      return await this.gateDevice(userId, step.mfa, deviceKey);
+    } catch (err) {
+      const waiting = err instanceof TrustedDeviceError ? err.details?.deviceAuthorisation : undefined;
+      if (!(err instanceof TrustedDeviceError) || !waiting || step.recoveryCodesLeft === undefined) throw err;
+      throw new TrustedDeviceError(err.message, err.code, {
+        ...err.details,
+        deviceAuthorisation: { ...waiting, recoveryCodesLeft: step.recoveryCodesLeft },
+      });
+    }
+  }
+
+  private gateDevice(
+    userId: string,
+    mfa: boolean,
+    deviceKey: string | null | undefined,
+  ): Promise<{ trustedDeviceId: string; deviceKey?: string }> {
+    return gateDevice(this.deviceDeps(), { userId, mfa, deviceKey, label: deviceLabel(currentUserAgent()) });
+  }
+
+  /** New device, approved with the mailed code by the waiting browser, which then signs in at once. */
+  async deviceApprove(input: {
+    flowId: string;
+    secret: string;
+    code: string;
+    ip?: string;
+    deviceKey?: string | null;
+  }): Promise<SessionTokens> {
+    await approveWithCode(this.deviceDeps(), input);
+    return this.deviceComplete(input);
+  }
+
+  /** The waiting browser finishes an approved new-device sign-in, once. */
+  async deviceComplete(input: { flowId: string; secret: string; ip?: string; deviceKey?: string | null }): Promise<SessionTokens> {
+    const done = await completeAuthorisation(this.deviceDeps(), {
+      flowId: input.flowId,
+      secret: input.secret,
+      presentedKey: input.deviceKey,
+    });
+    const session = await this.issueSession(done.userId, { ip: input.ip, mfa: done.mfa, trustedDeviceId: done.trustedDeviceId });
+    return { ...session, deviceKey: done.deviceKey };
+  }
+
+  /** A session on a trusted device approves a waiting sign-in of the same account (after its step-up). */
+  async deviceApproveFromSession(input: { flowId: string; userId: string; sessionId: string }): Promise<void> {
+    await approveFromSession(this.deviceDeps(), input);
+  }
+
+  async pendingDeviceAuthorisations(userId: string) {
+    return pendingAuthorisations(this.deviceDeps(), userId);
+  }
+
+  async trustedDevices(userId: string, sessionId: string | null): Promise<TrustedDeviceRow[]> {
+    return listDevices(this.deviceDeps(), { userId, sessionId });
+  }
+
+  async removeTrustedDevice(userId: string, deviceId: string): Promise<{ removed: boolean; sessionsEnded: number }> {
+    return removeDevice(this.deviceDeps(), { userId, deviceId });
+  }
+
+  private loginCodeDeps(): LoginCodeDeps {
+    return {
+      ...this.loginCodePolicy,
+      sql: this.sql,
+      mail: this.passwordResetMail,
+      subjectKey: this.flowSubjectKey,
+      notifyUnknown: this.resetNotifyUnknown,
+      now: this.passwordResetNow,
+      log: this.log,
+      afterCommit: this.mailRelayTrigger,
+    };
+  }
+
+  /** Code sign-in step 1: the same answer for every name; an active account is mailed a code. */
+  async loginCodeRequest(input: { identifier: string }): Promise<LoginCodeAccepted> {
+    return requestLoginCode(this.loginCodeDeps(), input);
+  }
+
+  /** Code sign-in step 1b: a new code once the resend interval has passed; the old one stops working. */
+  async loginCodeResend(input: { flowId: string }): Promise<LoginCodeAccepted> {
+    return resendLoginCode(this.loginCodeDeps(), input);
+  }
+
+  /**
+   * Code sign-in step 2. The right code proves the mailbox; an account with an authenticator still needs its code,
+   * counted and checked as on password sign-in, and the mailed code stays unspent until that passes. The code is then
+   * spent with a compare-and-swap, so it opens one session at most.
+   */
+  async loginWithCode(input: {
+    flowId: string;
+    code: string;
+    totpCode?: string;
+    device?: string;
+    ip?: string;
+    deviceKey?: string | null;
+  }): Promise<SessionTokens> {
+    const deps = this.loginCodeDeps();
+    const { userId, codeHash } = await checkLoginCode(deps, input);
+    const [user] = await this.sql<
+      Array<{ id: string; status: string; totp_secret: string | null; passkey_second_step: boolean; webauthn_creds: unknown }>
+    >`SELECT id, status, totp_secret, passkey_second_step, webauthn_creds FROM users WHERE id = ${userId}`;
+    if (!user) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    // The code proved the mailbox, so the state is named as on password sign-in.
+    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen', accountStateOf(user.status));
+    // A passkey asked for after the password is asked for after a mailed code too; the code then stays unspent until it expires.
+    const { mfa, recoveryCodesLeft } = await this.passSecondStep(user, input.totpCode);
+    await consumeLoginCode(deps, { flowId: input.flowId, codeHash });
+    const device = await this.gateDeviceAfterSecondStep(user.id, { mfa, recoveryCodesLeft }, input.deviceKey);
+    const session = await this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId: device.trustedDeviceId });
+    return withSecondStep(session, device.deviceKey, recoveryCodesLeft);
   }
 
   private emailConfirmDeps() {
@@ -831,21 +1140,26 @@ export class AuthService {
 
   /**
    * Check a TOTP or recovery code for a user whose `mfa` attempt is already
-   * reserved. Throws `auth.mfa_invalid` when neither matches.
+   * reserved. Throws `auth.mfa_invalid` when neither matches. Answers null for
+   * an authenticator code, and the count of codes left when a recovery code was
+   * spent, so the person can be told (I-signin-sessions-12).
    */
-  private async verifyMfaCode(userId: string, storedSecret: string, code: string): Promise<void> {
+  private async verifyMfaCode(userId: string, storedSecret: string, code: string): Promise<{ recoveryCodesLeft: number } | null> {
     const secret = this.tryOpenTotpSecret(userId, storedSecret);
     if (secret !== null && matchTotpStep(secret, code) !== null) {
       await this.consumeTotpCode(userId, secret, code);
-      return;
+      return null;
     }
-    if (!(await this.tryRedeemRecoveryCode(userId, code))) throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
+    const left = await this.tryRedeemRecoveryCode(userId, code);
+    if (left === null) throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
+    return { recoveryCodesLeft: left };
   }
 
   async register(input: RegisterInput): Promise<SessionTokens> {
     policyRefusal(() => {
       assertPasswordShape(input.password);
       assertPasswordNotIdentity(input.password, input);
+      assertPasswordNotBreached(input.password);
     });
     const passwordHash = await hashPassword(input.password);
     const userId = await transaction(this.sql, (tx) => this.insertNewUser(tx, input, passwordHash));
@@ -886,7 +1200,16 @@ export class AuthService {
       xpDelta: 50,
       idempotencyKey: `identity.registered:${userId}`,
     });
-    return this.issueSession(userId, { device: input.device, ip: input.ip, mfa: false });
+    // Sign-up trusts the device it happened on, so the first sign-in is never asked to approve itself.
+    const device = await trustDevice(this.sql, this.newDevicePolicy, {
+      userId,
+      label: deviceLabel(currentUserAgent()),
+      now: this.passwordResetNow(),
+      trustedBy: 'sign-up',
+      presentedKey: input.deviceKey,
+    });
+    const session = await this.issueSession(userId, { device: input.device, ip: input.ip, mfa: false, trustedDeviceId: device.id });
+    return { ...session, deviceKey: device.key };
   }
 
   /**
@@ -927,6 +1250,7 @@ export class AuthService {
     policyRefusal(() => {
       assertPasswordShape(input.password);
       assertPasswordNotIdentity(input.password, input);
+      assertPasswordNotBreached(input.password);
     });
     const passwordHash = await hashPassword(input.password);
     let userId: string;
@@ -990,10 +1314,48 @@ export class AuthService {
     return rows.length > 0;
   }
 
-  async login(input: { identifier: string; password: string; totpCode?: string; device?: string; ip?: string }): Promise<SessionTokens> {
+  async login(input: {
+    identifier: string;
+    password: string;
+    totpCode?: string;
+    device?: string;
+    ip?: string;
+    deviceKey?: string | null;
+  }): Promise<SessionTokens> {
+    const user = await this.passFirstFactor(input);
+    // A locked-out reset whose wait has passed completes at a sign-in by password alone: the authenticator app goes, with
+    // every session. A sign-in that brings a code is the person who still has the app or a recovery code.
+    const reset = user.totp_secret !== null && !input.totpCode && (await completeDueMfaReset(this.mfaResetDeps(), user.id));
+    if (reset) await syncNavigatorSessionsClosedForUser(this.sql, user.id);
+    const { mfa, recoveryCodesLeft } = await this.passSecondStep(reset ? { ...user, totp_secret: null } : user, input.totpCode);
+    const device = await this.gateDeviceAfterSecondStep(user.id, { mfa, recoveryCodesLeft }, input.deviceKey);
+    const session = await this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId: device.trustedDeviceId });
+    return withSecondStep(session, device.deviceKey, recoveryCodesLeft);
+  }
+
+  /**
+   * The password as the first factor, for sign-in and for the locked-out reset: counted on the password lockout before it
+   * is checked, the same answer for an unknown name and a wrong password, the account state named only after it verified.
+   */
+  private async passFirstFactor(input: { identifier: string; password: string }): Promise<{
+    id: string;
+    password_hash: string;
+    status: string;
+    totp_secret: string | null;
+    passkey_second_step: boolean;
+    webauthn_creds: unknown;
+  }> {
     const rows = await this.sql<
-      Array<{ id: string; password_hash: string; status: string; totp_secret: string | null }>
-    >`SELECT id, password_hash, status, totp_secret FROM users WHERE handle = ${input.identifier} OR email = ${input.identifier}`;
+      Array<{
+        id: string;
+        password_hash: string;
+        status: string;
+        totp_secret: string | null;
+        passkey_second_step: boolean;
+        webauthn_creds: unknown;
+      }>
+    >`SELECT id, password_hash, status, totp_secret, passkey_second_step, webauthn_creds FROM users
+      WHERE handle = ${input.identifier} OR email = ${input.identifier}`;
     const user = rows[0];
     // Reserve the password guess BEFORE verifying it (see attempt-lockout.ts). Unknown
     // identifiers have no row and keep answering `invalid_credentials`. A locked
@@ -1020,20 +1382,94 @@ export class AuthService {
     // account cannot be restored (founder-controls.ts `restore.not_permitted`); a frozen one can.
     // After recordSuccess, so the owner of a frozen account is never locked out of reading why.
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen', accountStateOf(user.status));
-    let mfa = false;
-    if (user.totp_secret) {
-      if (!input.totpCode) throw new AuthError('Two-factor code required', 'auth.mfa_required');
-      // Counted before the code is looked at; a locked account is refused here without consuming a step or a recovery code.
-      await this.reserve(user.id, 'mfa');
-      await this.verifyMfaCode(user.id, user.totp_secret, input.totpCode);
-      mfa = true;
-      await recordSuccess(this.sql, user.id, 'mfa');
-    }
+    // The password verified, so its hash is upgraded now, whichever second step follows (a passkey one never comes back here).
     if (await needsRehash(user.password_hash)) {
       const upgraded = await hashPassword(input.password);
       await this.sql`UPDATE users SET password_hash = ${upgraded}, updated_at = now() WHERE id = ${user.id}`;
     }
-    return this.issueSession(user.id, { device: input.device, ip: input.ip, mfa });
+    return user;
+  }
+
+  /**
+   * The second step after a first factor (the password, a mailed code or a linked provider). An account with an
+   * authenticator needs its code; a passkey that answers for sign-in is offered beside it, and is the second step on its
+   * own when the account asked for a passkey after its password (I-signin-sessions-10). With no code sent, the refusal
+   * names the steps that answer and carries a passkey challenge for `loginSecondStepPasskey`. Returns whether a second
+   * factor passed here, and how many recovery codes are left when the code given was one of them.
+   */
+  private async passSecondStep(
+    user: { id: string; totp_secret: string | null; passkey_second_step: boolean; webauthn_creds: unknown },
+    totpCode: string | undefined,
+  ): Promise<{ mfa: boolean; recoveryCodesLeft?: number }> {
+    const signinPasskeys = credentialsFor(asCredentialList(user.webauthn_creds), 'signin');
+    const passkeyStep = signinPasskeys.length > 0 && (user.totp_secret !== null || user.passkey_second_step);
+    if (!totpCode && (user.totp_secret !== null || passkeyStep)) {
+      throw new AuthError('Second step required', 'auth.mfa_required', {
+        secondStep: {
+          totp: user.totp_secret !== null,
+          passkey: passkeyStep ? await this.secondStepChallenge(user.id, signinPasskeys) : null,
+        },
+      });
+    }
+    if (user.totp_secret) {
+      // Counted before the code is looked at; a locked account is refused here without consuming a step or a recovery code.
+      await this.reserve(user.id, 'mfa');
+      const recovery = await this.verifyMfaCode(user.id, user.totp_secret, totpCode!);
+      await recordSuccess(this.sql, user.id, 'mfa');
+      // The app or a recovery code still works for this person: a locked-out reset of it stops, with its notice.
+      await stopMfaResetByProof(this.mfaResetDeps(), user.id);
+      return { mfa: true, ...recovery };
+    }
+    if (passkeyStep) {
+      // A code sent to an account that asked for a passkey and has no authenticator is a wrong second step.
+      await this.reserve(user.id, 'mfa');
+      throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
+    }
+    return { mfa: false };
+  }
+
+  /** A single-use passkey challenge for the second step, bound to the account whose password just verified. */
+  private async secondStepChallenge(userId: string, credentials: readonly StoredWebAuthnCredential[]): Promise<AuthenticationOptionsJSON> {
+    const challenge = generateChallenge();
+    await this.challenges.put('second-step', challenge, userId, SECOND_STEP_CHALLENGE_TTL_MS);
+    return createAuthenticationOptions(this.webauthn, credentials, challenge);
+  }
+
+  /**
+   * The second step by passkey (I-signin-sessions-10), after `login` answered `auth.mfa_required` with a passkey
+   * challenge. The challenge names the account; only a passkey of that account that answers for sign-in is accepted, so
+   * another person's passkey, or this person's passkey bound to other actions, is refused. Each try counts on the same
+   * MFA lockout as a code. The session it opens has passed two factors.
+   */
+  async loginSecondStepPasskey(input: {
+    credential: AuthenticationResponseJSON;
+    device?: string;
+    ip?: string;
+    deviceKey?: string | null;
+  }): Promise<SessionTokens> {
+    const refuse = (): never => {
+      throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+    };
+    const clientChallenge = readClientChallenge(input.credential.response.clientDataJSON);
+    if (!clientChallenge) return refuse();
+    const held = await this.challenges.take(clientChallenge, 'second-step');
+    // An expired or spent challenge (or one this service never issued) asks for the password again.
+    if (!held?.userId) throw new AuthError('This sign-in step timed out', 'auth.second_step_expired');
+    const userId = held.userId;
+    const [user] = await this.sql<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${userId}`;
+    if (!user) return refuse();
+    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen', accountStateOf(user.status));
+    await this.reserve(userId, 'mfa');
+    await this.verifyAssertionAndAdvanceCounter(userId, held.challenge, input.credential, refuse, 'signin');
+    await recordSuccess(this.sql, userId, 'mfa');
+    const device = await this.gateDevice(userId, true, input.deviceKey);
+    const session = await this.issueSession(userId, {
+      device: input.device,
+      ip: input.ip,
+      mfa: true,
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    return device.deviceKey ? { ...session, deviceKey: device.deviceKey } : session;
   }
 
   /**
@@ -1041,27 +1477,75 @@ export class AuthService {
    * provider identity). The second factor is still required: an account with TOTP needs its code,
    * counted and checked the same way as `login`, and a session without one is not marked `mfa`.
    */
-  async signInVerifiedIdentity(userId: string, input: { totpCode?: string; device?: string; ip?: string }): Promise<SessionTokens> {
+  async signInVerifiedIdentity(
+    userId: string,
+    input: { totpCode?: string; device?: string; ip?: string; deviceKey?: string | null },
+  ): Promise<SessionTokens> {
     const [user] = await this.sql<
-      Array<{ id: string; status: string; totp_secret: string | null }>
-    >`SELECT id, status, totp_secret FROM users WHERE id = ${userId}`;
+      Array<{ id: string; status: string; totp_secret: string | null; passkey_second_step: boolean; webauthn_creds: unknown }>
+    >`SELECT id, status, totp_secret, passkey_second_step, webauthn_creds FROM users WHERE id = ${userId}`;
     if (!user) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
     // The provider proved the identity, so the state is named as on password sign-in.
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen', accountStateOf(user.status));
-    let mfa = false;
-    if (user.totp_secret) {
-      if (!input.totpCode) throw new AuthError('Two-factor code required', 'auth.mfa_required');
-      await this.reserve(user.id, 'mfa');
-      await this.verifyMfaCode(user.id, user.totp_secret, input.totpCode);
-      mfa = true;
-      await recordSuccess(this.sql, user.id, 'mfa');
-    }
-    return this.issueSession(user.id, { device: input.device, ip: input.ip, mfa });
+    const { mfa, recoveryCodesLeft } = await this.passSecondStep(user, input.totpCode);
+    const device = await this.gateDeviceAfterSecondStep(user.id, { mfa, recoveryCodesLeft }, input.deviceKey);
+    const session = await this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId: device.trustedDeviceId });
+    return withSecondStep(session, device.deviceKey, recoveryCodesLeft);
+  }
+
+  /** Wallet messages are written for the same origins passkeys answer on (WEBAUTHN_ORIGIN). */
+  walletConfig(): WalletConfig {
+    return { origins: [this.webauthn.origin].flat() };
+  }
+
+  /**
+   * Wallet sign-in, step 1 (I-account-lifecycle-07): the message the wallet signs. The same answer for a wallet that is
+   * linked and one that is not, so it tells a caller nothing.
+   */
+  async walletSigninChallenge(input: { address: string; chainId: number; origin?: string }) {
+    return startWalletChallenge(this.sql, this.walletConfig(), { purpose: 'signin', ...input });
+  }
+
+  /**
+   * Wallet sign-in, step 2: a signature from a wallet the account linked proves the person, as a linked provider does,
+   * and the second step still follows. An unlinked wallet is refused as a wrong password is.
+   */
+  async loginWithWallet(input: {
+    flowId: string;
+    message: string;
+    signature: string;
+    totpCode?: string;
+    device?: string;
+    ip?: string;
+    deviceKey?: string | null;
+  }): Promise<SessionTokens> {
+    const userId = await walletSigninAccount(this.sql, this.walletConfig(), input);
+    if (!userId) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    return this.signInVerifiedIdentity(userId, {
+      ...(input.totpCode === undefined ? {} : { totpCode: input.totpCode }),
+      ...(input.device === undefined ? {} : { device: input.device }),
+      ...(input.ip === undefined ? {} : { ip: input.ip }),
+      deviceKey: input.deviceKey ?? null,
+    });
+  }
+
+  /**
+   * The sign-in (`fam`) and trusted device (`dev`) of the user's own live session, for a token minted from it outside
+   * sign-in and refresh (step-up). A session that is not the user's, was revoked or has expired mints nothing.
+   */
+  private async sessionClaimsOf(userId: string, sessionId: string): Promise<{ familyId: string; trustedDeviceId: string | null }> {
+    const rows = await this.sql<Array<{ family_id: string; trusted_device_id: string | null }>>`
+      SELECT family_id, trusted_device_id FROM sessions
+      WHERE id = ${sessionId} AND user_id = ${userId} AND revoked = false AND expires_at > now()
+    `;
+    const row = rows[0];
+    if (!row) throw new AuthError('Session not found', 'auth.session_invalid');
+    return { familyId: row.family_id, trustedDeviceId: row.trusted_device_id };
   }
 
   private async issueSession(
     userId: string,
-    options: { device?: string | undefined; ip?: string | undefined; mfa: boolean },
+    options: { device?: string | undefined; ip?: string | undefined; mfa: boolean; trustedDeviceId?: string | null },
   ): Promise<SessionTokens> {
     const refreshToken = generateToken(48);
     const expiresAt = new Date(Date.now() + this.tokens.refreshTtlSeconds * 1000);
@@ -1071,12 +1555,13 @@ export class AuthService {
         const [user] = await tx<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${userId} FOR UPDATE`;
         if (!user || user.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
         return tx<
-          Array<{ id: string }>
-        >`INSERT INTO sessions (user_id, refresh_hash, device, ip, user_agent, mfa, expires_at) VALUES (${userId}, ${hashToken(refreshToken)}, ${options.device ?? null}, ${options.ip ?? currentRequestIp()}, ${currentUserAgent()}, ${options.mfa}, ${expiresAt}) RETURNING id`;
+          Array<{ id: string; family_id: string }>
+        >`INSERT INTO sessions (user_id, refresh_hash, device, ip, user_agent, mfa, expires_at, trusted_device_id) VALUES (${userId}, ${hashToken(refreshToken)}, ${options.device ?? null}, ${options.ip ?? currentRequestIp()}, ${currentUserAgent()}, ${options.mfa}, ${expiresAt}, ${options.trustedDeviceId ?? null}) RETURNING id, family_id`;
       },
       { isolation: 'read committed' },
     );
     const sessionId = inserted[0]!.id;
+    const familyId = inserted[0]!.family_id;
     void syncNavigatorSessionOpen(this.sql, sessionId, userId);
     // Pay is not on the sign-in path. A slow or refused claim must not delay or fail the session.
     void this.claimConfirmedEmailInvites(userId).catch((err: unknown) => {
@@ -1085,7 +1570,7 @@ export class AuthService {
     const tier = await this.kycTier(userId);
     const scopes = await this.scopesFor(userId, options.mfa, sessionId);
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
-      { userId, sessionId, scopes, tier, mfa: options.mfa },
+      { userId, sessionId, scopes, tier, mfa: options.mfa, familyId, trustedDeviceId: options.trustedDeviceId ?? null },
       this.tokens,
     );
     return { accessToken, refreshToken, expiresAt: accessExpiresAt, sessionId, userId, mfaRequired: false };
@@ -1114,6 +1599,7 @@ export class AuthService {
       family_id: string;
       ip: string | null;
       user_agent: string | null;
+      trusted_device_id: string | null;
     };
     type RefreshOutcome =
       | { kind: 'reuse'; userId: string; sessionId: string }
@@ -1132,7 +1618,7 @@ export class AuthService {
     const result = await transaction<RefreshOutcome>(this.sql, async (tx) => {
       const rows = await tx<
         RefreshRow[]
-      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, u.status AS user_status, s.rotated_at, s.successor_id, s.successor_refresh, s.device, s.family_id, s.ip, s.user_agent FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
+      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, u.status AS user_status, s.rotated_at, s.successor_id, s.successor_refresh, s.device, s.family_id, s.ip, s.user_agent, s.trusted_device_id FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
       const session = rows[0];
       if (!session) throw new AuthError('Session not found', 'auth.session_invalid');
       if (session.revoked) {
@@ -1187,9 +1673,10 @@ export class AuthService {
       // family's first login was given, so refreshing cannot keep a family alive forever. The owner's own absolute
       // lifetime setting is not published, so the refresh TTL measured from the first login is the bound.
       const expiresAt = new Date(Math.min(Date.now() + this.tokens.refreshTtlSeconds * 1000, session.expires_at.getTime()));
+      // The successor stays on the predecessor's trusted device (I-signin-sessions-07).
       const nextSession = await tx<
         Array<{ id: string }>
-      >`INSERT INTO sessions (user_id, family_id, refresh_hash, device, ip, user_agent, mfa, expires_at) VALUES (${session.user_id}, ${session.family_id}, ${hashToken(nextToken)}, ${options.device ?? session.device}, ${options.ip ?? currentRequestIp() ?? session.ip}, ${currentUserAgent() ?? session.user_agent}, ${session.mfa}, ${expiresAt}) RETURNING id`;
+      >`INSERT INTO sessions (user_id, family_id, refresh_hash, device, ip, user_agent, mfa, expires_at, trusted_device_id) VALUES (${session.user_id}, ${session.family_id}, ${hashToken(nextToken)}, ${options.device ?? session.device}, ${options.ip ?? currentRequestIp() ?? session.ip}, ${currentUserAgent() ?? session.user_agent}, ${session.mfa}, ${expiresAt}, ${session.trusted_device_id}) RETURNING id`;
       const sessionId = nextSession[0]!.id;
       await tx`UPDATE sessions SET successor_id = ${sessionId}, successor_refresh = ${sealRefreshToken(this.tokens.secret, nextToken)} WHERE id = ${session.id}`;
       const tier = await this.kycTier(session.user_id, tx);
@@ -1199,7 +1686,15 @@ export class AuthService {
       await this.recordFounderScopeGrant(tx, session.user_id, sessionId, decided.founder, decided.granted);
       const scopes = decided.scopes;
       const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
-        { userId: session.user_id, sessionId, scopes, tier, mfa: session.mfa },
+        {
+          userId: session.user_id,
+          sessionId,
+          scopes,
+          tier,
+          mfa: session.mfa,
+          familyId: session.family_id,
+          trustedDeviceId: session.trusted_device_id,
+        },
         this.tokens,
       );
       return {
@@ -1269,15 +1764,33 @@ export class AuthService {
     if (Date.now() - session.rotated_at.getTime() > this.reuseGraceMs) return null;
     const nextToken = this.openSealedSuccessor(session.rotated_at, session.successor_refresh);
     if (!nextToken) return null;
-    const rows = await tx<Array<{ id: string; user_id: string; revoked: boolean; mfa: boolean; expires_at: Date }>>`
-      SELECT id, user_id, revoked, mfa, expires_at FROM sessions WHERE id = ${session.successor_id} FOR UPDATE
+    const rows = await tx<
+      Array<{
+        id: string;
+        user_id: string;
+        revoked: boolean;
+        mfa: boolean;
+        expires_at: Date;
+        family_id: string;
+        trusted_device_id: string | null;
+      }>
+    >`
+      SELECT id, user_id, revoked, mfa, expires_at, family_id, trusted_device_id FROM sessions WHERE id = ${session.successor_id} FOR UPDATE
     `;
     const successor = rows[0];
     if (!successor || successor.revoked || successor.expires_at.getTime() < Date.now()) return null;
     const tier = await this.kycTier(successor.user_id, tx);
     const scopes = successor.user_id === session.user_id && peekedScopes ? peekedScopes : this.defaultScopes();
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
-      { userId: successor.user_id, sessionId: successor.id, scopes, tier, mfa: successor.mfa },
+      {
+        userId: successor.user_id,
+        sessionId: successor.id,
+        scopes,
+        tier,
+        mfa: successor.mfa,
+        familyId: successor.family_id,
+        trustedDeviceId: successor.trusted_device_id,
+      },
       this.tokens,
     );
     return {
@@ -1328,9 +1841,11 @@ export class AuthService {
         expires_at: Date;
         rotated_at: Date | null;
         successor_id: string | null;
+        family_id: string;
+        trusted_device_id: string | null;
       }>
     >`
-      SELECT id, user_id, revoked, mfa, expires_at, rotated_at, successor_id
+      SELECT id, user_id, revoked, mfa, expires_at, rotated_at, successor_id, family_id, trusted_device_id
       FROM sessions WHERE id = ${session.successor_id} FOR UPDATE
     `;
     const successor = rows[0];
@@ -1342,7 +1857,15 @@ export class AuthService {
     const tier = await this.kycTier(successor.user_id, tx);
     const scopes = successor.user_id === session.user_id && peekedScopes ? peekedScopes : this.defaultScopes();
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
-      { userId: successor.user_id, sessionId: successor.id, scopes, tier, mfa: successor.mfa },
+      {
+        userId: successor.user_id,
+        sessionId: successor.id,
+        scopes,
+        tier,
+        mfa: successor.mfa,
+        familyId: successor.family_id,
+        trustedDeviceId: successor.trusted_device_id,
+      },
       this.tokens,
     );
     return {
@@ -1476,15 +1999,16 @@ export class AuthService {
     try {
       assertPasswordShape(input.newPassword);
       assertPasswordNotIdentity(input.newPassword, user);
+      assertPasswordNotBreached(input.newPassword);
     } catch (err) {
-      if (err instanceof WeakPasswordError) throw new AuthError(err.message, 'auth.password_policy');
+      if (err instanceof WeakPasswordError) throw new AuthError(err.message, err.code);
       throw err;
     }
     if (input.newPassword === input.currentPassword) {
       throw new AuthError('The new password must differ from the current one', 'auth.password_unchanged');
     }
     const nextHash = await hashPassword(input.newPassword);
-    const revokedIds = await transaction(this.sql, async (tx) => {
+    const { revokedIds, noticed } = await transaction(this.sql, async (tx) => {
       const locked = await tx<
         Array<{ password_hash: string; status: string }>
       >`SELECT password_hash, status FROM users WHERE id = ${userId} FOR UPDATE`;
@@ -1503,8 +2027,11 @@ export class AuthService {
         Array<{ id: string }>
       >`UPDATE sessions SET revoked = true WHERE user_id = ${userId} AND revoked = false AND id <> ${sessionId} RETURNING id`;
       await recordSuccess(tx, userId, 'password');
-      return revoked.map((r) => r.id);
+      const noticed = await queuePasswordChangedNotice(tx, { userId, now: this.passwordResetNow() });
+      return { revokedIds: revoked.map((r) => r.id), noticed };
     });
+    // The change has committed: a relay that fails to start now must not make it look refused. The timer relay sends it.
+    if (noticed) await Promise.resolve(this.mailRelayTrigger?.()).catch(() => undefined);
     for (const id of revokedIds) await syncNavigatorSessionClosed(this.sql, id);
     this.log.warn({ userId, sessionId, otherSessionsRevoked: revokedIds.length }, 'auth.password_changed');
   }
@@ -1618,7 +2145,8 @@ export class AuthService {
     return { id: row.id, userId: row.user_id };
   }
 
-  private async tryRedeemRecoveryCode(userId: string, code: string): Promise<boolean> {
+  /** Spend one recovery code under the row lock. Answers how many are left after it, or null when the code is not one. */
+  private async tryRedeemRecoveryCode(userId: string, code: string): Promise<number | null> {
     const hash = hashToken(code.trim());
     return transaction(this.sql, async (tx) => {
       const rows = await tx<
@@ -1626,10 +2154,10 @@ export class AuthService {
       >`SELECT recovery_code_hashes FROM users WHERE id = ${userId} FOR UPDATE`;
       const hashes = asStringList(rows[0]?.recovery_code_hashes);
       const idx = hashes.indexOf(hash);
-      if (idx < 0) return false;
+      if (idx < 0) return null;
       const next = hashes.slice(0, idx).concat(hashes.slice(idx + 1));
       await tx`UPDATE users SET recovery_code_hashes = ${tx.json(next as never)}, updated_at = now() WHERE id = ${userId}`;
-      return true;
+      return next.length;
     });
   }
 
@@ -1696,7 +2224,9 @@ export class AuthService {
       if (!pending) {
         throw new AuthError('TOTP enrolment session expired or secret mismatch — start enrolment again', 'auth.mfa_invalid');
       }
-      await tx`UPDATE users SET totp_secret = ${sealed}, totp_enrolled_at = now(), totp_last_step = ${matched.toString()}, recovery_code_hashes = ${tx.json(pending.recoveryHashes as never)}, updated_at = now() WHERE id = ${userId} AND totp_secret IS NULL`;
+      const turnedOn =
+        await tx`UPDATE users SET totp_secret = ${sealed}, totp_enrolled_at = now(), totp_last_step = ${matched.toString()}, recovery_code_hashes = ${tx.json(pending.recoveryHashes as never)}, updated_at = now() WHERE id = ${userId} AND totp_secret IS NULL RETURNING id`;
+      if (turnedOn.length > 0) await queueFactorChangedNotice(tx, { userId, change: 'totp_added', now: this.passwordResetNow() });
       // Sessions opened before the second factor existed carry `mfa: false` and
       // refresh copies that onto every rotation, so one stolen before enrolment
       // would outlive it. The enrolling door names its own session; every other
@@ -1768,6 +2298,7 @@ export class AuthService {
       }
       const next = [...existing, stored];
       await tx`UPDATE users SET webauthn_creds = ${tx.json(next as never)}, updated_at = now() WHERE id = ${userId}`;
+      await queueFactorChangedNotice(tx, { userId, change: 'passkey_added', now: this.passwordResetNow() });
       return existing.length;
     });
     if (existingCount === 0) {
@@ -1790,7 +2321,8 @@ export class AuthService {
     >`SELECT id, status, webauthn_creds FROM users WHERE handle = ${identifier} OR email = ${identifier}`;
     const user = rows[0];
     const challenge = generateChallenge();
-    const creds = user && user.status === 'active' ? asCredentialList(user.webauthn_creds) : [];
+    // Passkeys bound to sign-in are the only ones offered when any is (passkey-purposes.ts).
+    const creds = user && user.status === 'active' ? credentialsFor(asCredentialList(user.webauthn_creds), 'signin') : [];
     // Only an active account with a passkey can sign in; every other identifier gets decoys and a challenge with no user.
     const real = user !== undefined && creds.length > 0;
     await this.challenges.put('authentication', challenge, real ? user.id : null);
@@ -1819,7 +2351,7 @@ export class AuthService {
     if (!clientChallenge) return refuse();
     const held = await this.challenges.take(clientChallenge, 'authentication');
     if (!held || held.userId !== user.id) return refuse();
-    await this.verifyAssertionAndAdvanceCounter(user.id, held.challenge, response, refuse);
+    await this.verifyAssertionAndAdvanceCounter(user.id, held.challenge, response, refuse, 'signin');
     return this.issueSession(user.id, { device: options.device, ip: options.ip, mfa: true });
   }
 
@@ -1830,20 +2362,24 @@ export class AuthService {
    * concurrent assertions (or a locked enrolment racing a login) cannot read the
    * same counter and both succeed, and cannot overwrite each other's credential
    * list. The writers in enroll-passkey.ts, verify-passkey.ts and
-   * unenroll-passkey.ts take the same lock. `refuse` throws the caller's own AuthError for any refusal.
+   * unenroll-passkey.ts take the same lock. `refuse` throws the caller's own AuthError for any refusal. With a
+   * `purpose`, only the passkeys that answer for it (bound to it, or all when none is) are accepted, read under the
+   * same lock as the counter.
    */
   private async verifyAssertionAndAdvanceCounter(
     userId: string,
     challenge: string,
     response: AuthenticationResponseJSON,
     refuse: () => never,
+    purpose?: PasskeyPurpose,
   ): Promise<void> {
     await transaction(this.sql, async (tx) => {
       const rows = await tx<Array<{ webauthn_creds: unknown }>>`SELECT webauthn_creds FROM users WHERE id = ${userId} FOR UPDATE`;
       if (!rows[0]) return refuse();
       const creds = asCredentialList(rows[0].webauthn_creds);
       const responseId = normalizeCredId(response.id);
-      const credential = creds.find((c) => c.credentialId === responseId);
+      const allowed = purpose ? credentialsFor(creds, purpose) : creds;
+      const credential = allowed.find((c) => c.credentialId === responseId);
       if (!credential) return refuse();
       let newCounter: number;
       try {
@@ -1887,7 +2423,10 @@ export class AuthService {
       const creds = asCredentialList(rows[0].webauthn_creds);
       const next = creds.filter((c) => c.credentialId !== target);
       if (next.length === creds.length) return false;
+      // The last way in stays (I-account-lifecycle-07): a passkey is removed only while another method remains.
+      assertLeavesAWayIn(await lockedSigninMethods(tx, userId));
       await tx`UPDATE users SET webauthn_creds = ${tx.json(next as never)}, updated_at = now() WHERE id = ${userId}`;
+      await queueFactorChangedNotice(tx, { userId, change: 'passkey_removed', now: this.passwordResetNow() });
       return true;
     });
   }
@@ -1905,7 +2444,8 @@ export class AuthService {
     }
     const challenge = generateChallenge();
     await this.challenges.put('step-up', challenge, userId);
-    return createAuthenticationOptions(this.webauthn, creds, challenge);
+    // This door confirms money out (withdrawals, pay refunds and payouts, and API keys, which can carry them).
+    return createAuthenticationOptions(this.webauthn, credentialsFor(creds, 'money_out'), challenge);
   }
 
   async createApiKey(input: {
@@ -2098,6 +2638,32 @@ export class AuthService {
   }
 
   /**
+   * Who the account is for a campaign's participation rules (CM-eligibility-rules-01): account type, region, status and
+   * KYC tier. Null for an unknown or malformed user, which the caller must refuse on, never read as eligible.
+   */
+  async campaignParticipant(userId: string): Promise<CampaignParticipant | null> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) return null;
+    const rows = await this.sql<
+      Array<{ id: string; status: 'active' | 'frozen' | 'closed'; account_type: string | null; region: string | null }>
+    >`
+      SELECT u.id, u.status, p.account_type, p.region
+      FROM users u LEFT JOIN profiles p ON p.user_id = u.id
+      WHERE u.id = ${userId} LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row) return null;
+    const region = row.region?.trim().toUpperCase() ?? '';
+    return {
+      userId: row.id,
+      // Accounts made before the sign-up choice existed are personal (migration 0066).
+      accountType: row.account_type === 'business' ? 'business' : 'individual',
+      region: /^[A-Z]{2}$/.test(region) ? region : null,
+      status: row.status,
+      kycTier: await this.kycTier(row.id),
+    };
+  }
+
+  /**
    * Whether the account's current email is proved (RC-identity-01), for svc-trade's order gate. Null for an unknown
    * user, which the caller must refuse on, never read as proved.
    */
@@ -2131,6 +2697,19 @@ export class AuthService {
     const row = rows[0];
     if (!row) return null;
     return { handle: row.handle, emailVerified: isEmailConfirmed(row) };
+  }
+
+  /**
+   * The caller's own email, and whether it is confirmed (the drop room's waitlist read, `waitlist.mine`). Self-only: the
+   * user id comes from the session. Null when the account is gone.
+   */
+  async selfEmail(userId: string): Promise<{ email: string; emailVerified: boolean } | null> {
+    const rows = await this.sql<Array<{ email: string | null; email_verified_at: Date | string | null }>>`
+      SELECT email, email_verified_at FROM users WHERE id = ${userId} LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row?.email) return null;
+    return { email: row.email, emailVerified: isEmailConfirmed(row) };
   }
 
   /**
@@ -2375,7 +2954,10 @@ export class AuthService {
    * is not stored as kind `step-up`, so it cannot be spent on `auth.stepUp`
    * (that door mints a trade:withdraw bearer). Neither factor enrolled refuses.
    */
-  async customerStepUpMaterial(userId: string): Promise<{ totp: boolean; credentials: StoredWebAuthnCredential[] }> {
+  async customerStepUpMaterial(
+    userId: string,
+    purpose: PasskeyPurpose,
+  ): Promise<{ totp: boolean; credentials: StoredWebAuthnCredential[] }> {
     const rows = await this.sql<
       Array<{ status: string; totp_secret: string | null; webauthn_creds: unknown }>
     >`SELECT status, totp_secret, webauthn_creds FROM users WHERE id = ${userId}`;
@@ -2387,7 +2969,7 @@ export class AuthService {
     if (!totpEnrolled && credentials.length === 0) {
       throw new AuthError('Enrol two-factor authentication before confirming this payment', 'auth.mfa_not_enrolled');
     }
-    return { totp: totpEnrolled, credentials };
+    return { totp: totpEnrolled, credentials: credentialsFor(credentials, purpose) };
   }
 
   passkeyOptions(credentials: readonly StoredWebAuthnCredential[], challenge: string): AuthenticationOptionsJSON {
@@ -2396,20 +2978,27 @@ export class AuthService {
 
   /**
    * Prove a fresh factor for a customer step-up. Does not mint a token.
-   * A recovery code is refused and is not spent. The passkey challenge must be
-   * the one `stepUp.begin` stored; a login or bearer step-up challenge is not accepted.
+   * A recovery code is spent when given; only customer-step-up.ts decides the
+   * scopes it may confirm (replacing or turning off the authenticator app), and
+   * every other caller passes none. The passkey challenge must be the one
+   * `stepUp.begin` stored; a login or bearer step-up challenge is not accepted.
    */
   async proveFreshFactor(input: {
     userId: string;
     sessionId: string;
     totpCode?: string;
+    /** A recovery code, spent once. The caller decides where one may stand in for the app (customer-step-up.ts). */
+    recoveryCode?: string;
     webauthn?: AuthenticationResponseJSON;
     webauthnChallenge?: string;
+    /** The action the passkey confirms; only the passkeys that answer for it are accepted. */
+    purpose: PasskeyPurpose;
   }): Promise<void> {
     const hasTotp = typeof input.totpCode === 'string' && input.totpCode.length > 0;
+    const hasRecovery = typeof input.recoveryCode === 'string' && input.recoveryCode.trim().length > 0;
     const hasWebauthn = input.webauthn !== undefined && input.webauthn !== null;
-    if (hasTotp === hasWebauthn) {
-      throw new AuthError('Provide either a TOTP code or a WebAuthn assertion', 'auth.mfa_invalid');
+    if (Number(hasTotp) + Number(hasRecovery) + Number(hasWebauthn) !== 1) {
+      throw new AuthError('Provide exactly one of a TOTP code, a recovery code or a WebAuthn assertion', 'auth.mfa_invalid');
     }
     const users = await this.sql<
       Array<{ totp_secret: string | null; status: string; webauthn_creds: unknown }>
@@ -2421,6 +3010,16 @@ export class AuthService {
       Array<{ id: string }>
     >`SELECT id FROM sessions WHERE id = ${input.sessionId} AND user_id = ${input.userId} AND revoked = false AND expires_at > now()`;
     if (!sessions[0]) throw new AuthError('Session is no longer valid', 'auth.session_invalid');
+    if (hasRecovery) {
+      // Recovery codes belong to the authenticator app: none without it. Counted before the code is looked at.
+      if (!user.totp_secret) throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
+      await this.reserve(input.userId, 'mfa');
+      if ((await this.tryRedeemRecoveryCode(input.userId, input.recoveryCode!)) === null) {
+        throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
+      }
+      await recordSuccess(this.sql, input.userId, 'mfa');
+      return;
+    }
     if (hasTotp) {
       if (!/^\d{6}$/.test(input.totpCode!)) {
         throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
@@ -2444,9 +3043,15 @@ export class AuthService {
     if (!clientChallenge || clientChallenge !== expected) {
       throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
     }
-    await this.verifyAssertionAndAdvanceCounter(input.userId, expected, input.webauthn!, () => {
-      throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
-    });
+    await this.verifyAssertionAndAdvanceCounter(
+      input.userId,
+      expected,
+      input.webauthn!,
+      () => {
+        throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+      },
+      input.purpose,
+    );
   }
 
   async stepUp(input: {
@@ -2489,9 +3094,15 @@ export class AuthService {
       if (!held || held.userId !== input.userId) {
         throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
       }
-      await this.verifyAssertionAndAdvanceCounter(input.userId, held.challenge, response, () => {
-        throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
-      });
+      await this.verifyAssertionAndAdvanceCounter(
+        input.userId,
+        held.challenge,
+        response,
+        () => {
+          throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+        },
+        'money_out',
+      );
     }
     // A step-up token carries the withdraw scope only. Founder desk scopes stay
     // on the interactive session and are re-read at the next refresh.
@@ -2499,8 +3110,9 @@ export class AuthService {
     const scopes = [...pay];
     for (const scope of STEP_UP_SCOPES) if (!scopes.includes(scope)) scopes.push(scope);
     const tier = await this.kycTier(input.userId);
+    const claims = await this.sessionClaimsOf(input.userId, input.sessionId);
     const { token, expiresAt } = await issueAccessToken(
-      { userId: input.userId, sessionId: input.sessionId, scopes, tier, mfa: true },
+      { userId: input.userId, sessionId: input.sessionId, scopes, tier, mfa: true, ...claims },
       { ...this.tokens, accessTtlSeconds: Math.min(this.tokens.accessTtlSeconds, STEP_UP_TTL_SECONDS) },
     );
     return { accessToken: token, expiresAt, scopes };
@@ -2527,6 +3139,8 @@ export class AuthService {
     const base = await this.scopesForNewAccessToken(input.userId);
     const scopes = [...base];
     for (const scope of requested) if (!scopes.includes(scope)) scopes.push(scope);
+    // Read before the audit row, so a session that cannot mint leaves no record of a mint.
+    const claims = await this.sessionClaimsOf(input.userId, input.sessionId);
     await this.sql`
       INSERT INTO pay_step_up_mints (audit_id, user_id, session_id, merchant_id, scopes, factor)
       VALUES (${randomUUID()}, ${input.userId}, ${input.sessionId}, ${input.merchantId}, ${[...requested]}, ${factor})
@@ -2539,6 +3153,7 @@ export class AuthService {
         scopes,
         tier,
         mfa: true,
+        ...claims,
         stepUpScopes: requested,
       },
       { ...this.tokens, accessTtlSeconds: Math.min(this.tokens.accessTtlSeconds, PAY_STEP_UP_ACCESS_TTL_SECONDS) },
@@ -2582,7 +3197,7 @@ export class AuthService {
     proof: { readonly totpCode: string } | { readonly webauthn: AuthenticationResponseJSON },
   ): Promise<'totp' | 'passkey'> {
     if ('totpCode' in proof) {
-      await this.proveFreshFactor({ userId, sessionId, totpCode: proof.totpCode });
+      await this.proveFreshFactor({ userId, sessionId, totpCode: proof.totpCode, purpose: 'money_out' });
       return 'totp';
     }
     // The challenge is the one `startWebauthnStepUp` (`auth.stepUpOptions`) stored.
@@ -2598,6 +3213,7 @@ export class AuthService {
       sessionId,
       webauthn: proof.webauthn,
       webauthnChallenge: held.challenge,
+      purpose: 'money_out',
     });
     return 'passkey';
   }

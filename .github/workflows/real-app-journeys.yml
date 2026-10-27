@@ -8,7 +8,7 @@
 # (Failure it prevents: one job running every journey hit its 45-minute limit from 23 Oct 02:26 UTC, runs 122, 140 and
 # 155, so no run finished and the scoreboard froze. Setup takes about 14 minutes and the journeys run one at a time, so
 # the suite outgrew one job and keeps growing.) Journey files are independent: each makes its own accounts and keeps its
-# own run file, so Playwright can split them by file.
+# own run file, so the plan job can split them by file.
 name: Real-app journeys
 
 on:
@@ -26,6 +26,7 @@ on:
       - 'tsconfig*.json'
       - 'tooling/scripts/local-test-*.mjs'
       - 'tooling/scripts/roadmap.mjs'
+      - 'tooling/scripts/journey-shards*.mjs'
       - '.github/workflows/real-app-journeys.yml'
 
 # A run that started finishes; newer pushes wait as one queued run, and each newer push replaces the one waiting, so the
@@ -42,8 +43,55 @@ env:
   TURBO_TELEMETRY_DISABLED: 1
 
 jobs:
+  # Splits the journey files across the shards by their times in the last finished runs on main, so the shards end
+  # together (tooling/scripts/journey-shards.mjs; Playwright's own --shard split by count left one shard 33 minutes
+  # behind the shortest in run 338). If planning fails for any reason the shards fall back to Playwright's split, so a
+  # broken planner slows a run down and never stops one.
+  plan:
+    name: Plan the shards
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read # to download the last finished runs' reports
+    outputs:
+      shards: ${{ steps.plan.outputs.shards }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+      # Up to three, so a run that lost a shard or failed a journey early does not make those files look fast. Most runs
+      # are queued runs a newer push replaced (cancelled), so the list reaches back 100 runs to find three that finished.
+      - name: Last finished runs' reports
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          got=0
+          for id in $(gh run list --repo "$GITHUB_REPOSITORY" --workflow real-app-journeys.yml --branch main --status completed --limit 100 --json databaseId,conclusion --jq '.[] | select(.conclusion != "cancelled") | .databaseId'); do
+            gh run download "$id" --repo "$GITHUB_REPOSITORY" --name real-app-journeys --dir "$RUNNER_TEMP/last/$id" 2>/dev/null || continue
+            echo "timings from run $id"
+            got=$((got + 1))
+            [ "$got" -ge 3 ] && break
+          done
+      - name: Plan
+        id: plan
+        continue-on-error: true
+        run: |
+          node --test tooling/scripts/journey-shards.test.mjs
+          reports=()
+          for f in "$RUNNER_TEMP"/last/*/report.json; do [ -f "$f" ] && reports+=(--report "$f"); done
+          shards=$(node tooling/scripts/journey-shards.mjs --shards 8 "${reports[@]}")
+          echo "shards=$shards" >> "$GITHUB_OUTPUT"
+
   journeys:
     name: Journeys (shard ${{ matrix.shard }} of 8)
+    needs: plan
+    # The shards run even when planning failed (they fall back to Playwright's split).
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     # About 14 minutes of setup plus one shard of the journeys.
     timeout-minutes: 60
@@ -135,6 +183,11 @@ jobs:
           node tooling/scripts/local-test-market.mjs history
           node tooling/scripts/local-test-market.mjs
 
+      # Labelled TEST rows (earn pools, loan products, a TEST P2P method) so those rooms show working, after the gates
+      # published the limits they need (docs/LOCAL-TEST-STACK.md, "Local test content"). Production stays blank.
+      - name: Load the TEST content
+        run: LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs apply --state "$LOCAL_STACK_STATE"
+
       - name: Wait for the first BTC/USDT trade
         run: |
           for _ in $(seq 1 60); do
@@ -146,8 +199,34 @@ jobs:
           exit 1
 
       # No traces: they would carry the run's TEST session and password into a public artifact. Screenshots stay.
+      # The plan's files for this shard, or Playwright's own split when the plan is missing.
       - name: Journeys in the running app (this shard)
-        run: pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off --shard ${{ matrix.shard }}/8
+        env:
+          SHARDS: ${{ needs.plan.outputs.shards }}
+          SHARD: ${{ matrix.shard }}
+          TOTAL: ${{ strategy.job-total }}
+        run: |
+          config=apps/customer/tests/real-app/real-app.playwright.config.mjs
+          if [ -z "$SHARDS" ]; then
+            echo "::warning::no shard plan (see the Plan the shards job), so Playwright splits the journeys by count"
+            pnpm exec playwright test --config "$config" --trace off --shard "$SHARD/$TOTAL"
+            exit
+          fi
+          if [ "$(jq length <<<"$SHARDS")" != "$TOTAL" ]; then
+            echo "::error::the plan has $(jq length <<<"$SHARDS") shards and the matrix $TOTAL; change both together"
+            exit 1
+          fi
+          JOURNEY_FILES=$(jq -r --argjson n "$SHARD" '.[$n - 1]' <<<"$SHARDS")
+          echo "$JOURNEY_FILES" | tr ' ' '\n'
+          export JOURNEY_FILES
+          pnpm exec playwright test --config "$config" --trace off
+
+      # The stack serves the Customer app under its production security headers with a report-uri (local-test-stack.mjs,
+      # customerSecurityHeaders), so anything a journey's browser was refused (an inline script, a font or a connect to an
+      # origin the policy does not list) is recorded. Any violation fails the shard: it would fail in production too.
+      - name: No Content-Security-Policy violation (the production policy)
+        if: success() || failure()
+        run: node tooling/scripts/local-test-stack.mjs csp-report --fail
 
       # The shard's blob (merged by the scoreboard job) and its failure screenshots; the run's TEST account files stay
       # on the runner.

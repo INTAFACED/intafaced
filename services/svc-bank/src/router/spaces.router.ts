@@ -1,11 +1,35 @@
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import {
+  router,
+  scopedProcedure,
+  serviceProcedureFor,
+  BANK_OWN_SPACES_CALLERS,
+  bankOwnSpacesInputSchema,
+  bankOwnSpacesSchema,
+} from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
-import { accountForSpace } from '../spaces/space-service.js';
+import { accountForSpace, lockEnd, type SpaceRecord } from '../spaces/space-service.js';
 import { assertSelf } from '../assert-self.js';
 import { amountString, spaceOutput } from './shared.js';
 import { guard } from './errors.js';
 import type { BankRouterContext } from './context.js';
+
+/**
+ * A pot's goal and lock as the customer sees them now (BK-pots-02). An early unlock that has taken effect shows no lock;
+ * one still waiting shows the lock date and when it opens.
+ */
+function potState(space: SpaceRecord, now: Date) {
+  const end = lockEnd(space, now);
+  const waiting = end !== null && space.unlocksAt !== null;
+  return {
+    goalTarget: space.goalTarget === null ? null : formatAmount(space.goalTarget),
+    lockedUntil: space.unlocksAt && !waiting ? null : (space.lockedUntil?.toISOString() ?? null),
+    unlocksAt: waiting ? space.unlocksAt!.toISOString() : null,
+    unlockRequestedAt: waiting ? space.unlockRequestedAt!.toISOString() : null,
+  };
+}
+
+const potStateOutput = spaceOutput.pick({ id: true, goalTarget: true, lockedUntil: true, unlocksAt: true, unlockRequestedAt: true });
 
 export function createSpacesRouter(c: BankRouterContext) {
   const { bank } = c;
@@ -25,14 +49,17 @@ export function createSpacesRouter(c: BankRouterContext) {
       .query(async ({ ctx, input }) =>
         guard(async () => {
           const userId = ctx.principal.userId;
+          // In turn, not together: a blank limit refuses before any query.
           const views = await bank.spaces.overview(userId, input.assetId, input.limit);
+          const bills = new Map((await bank.billsPots.list(userId)).map((pot) => [pot.spaceId, pot.fallback]));
+          const now = new Date();
           return views.map((v) => ({
             id: v.id,
             assetId: v.assetId,
             kind: v.kind,
             name: v.name,
-            goalTarget: v.goalTarget === null ? null : formatAmount(v.goalTarget),
-            lockedUntil: v.lockedUntil?.toISOString() ?? null,
+            ...potState(v, now),
+            billsPot: bills.has(v.id) ? { fallback: bills.get(v.id)! } : null,
             balance: v.balance,
             ledgerAccount: accountForSpace(v),
           }));
@@ -91,6 +118,110 @@ export function createSpacesRouter(c: BankRouterContext) {
           await bank.spaces.unarchiveWithinLimit(input.spaceId);
           return { archived: false as const };
         }),
+      ),
+
+    /** Set, change or clear the goal of one of the caller's pots (BK-pots-02). A target, never a holding: nothing moves. */
+    setGoal: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ spaceId: z.string().guid(), goalTarget: amountString.nullable() }))
+      .output(potStateOutput)
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const pot = await bank.spaces.setGoal(
+            input.spaceId,
+            ctx.principal.userId,
+            input.goalTarget === null ? null : parseAmount(input.goalTarget),
+          );
+          return { id: pot.id, ...potState(pot, new Date()) };
+        }),
+      ),
+
+    /**
+     * Lock one of the caller's pots until a later date, or keep it locked for longer (BK-pots-02). Debits from a locked
+     * pot refuse `bank.space_locked`. An earlier date refuses `bank.space_change_invalid`: that is an early unlock.
+     */
+    setLock: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ spaceId: z.string().guid(), lockedUntil: z.string().datetime({ offset: true }) }))
+      .output(potStateOutput)
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const now = new Date();
+          const pot = await bank.spaces.setLock(input.spaceId, ctx.principal.userId, new Date(input.lockedUntil), now);
+          return { id: pot.id, ...potState(pot, now) };
+        }),
+      ),
+
+    /**
+     * The owner confirms they want a locked pot opened before its date (BK-pots-02). It opens after the owner-set wait
+     * (`BANK_SPACE_UNLOCK_WAIT_HOURS`, blank refuses `bank.space_unlock_rule_unset`); until then debits still refuse.
+     * Asking again while one waits returns the same opening time.
+     */
+    requestUnlock: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ spaceId: z.string().guid() }))
+      .output(potStateOutput)
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const now = new Date();
+          const pot = await bank.spaces.requestUnlock(input.spaceId, ctx.principal.userId, now);
+          return { id: pot.id, ...potState(pot, now) };
+        }),
+      ),
+
+    /** Withdraw an early unlock still waiting; the pot stays locked to its date. None waiting changes nothing (BK-pots-02). */
+    cancelUnlock: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ spaceId: z.string().guid() }))
+      .output(potStateOutput)
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const now = new Date();
+          const pot = await bank.spaces.cancelUnlock(input.spaceId, ctx.principal.userId, now);
+          return { id: pot.id, ...potState(pot, now) };
+        }),
+      ),
+
+    /**
+     * Make one of the caller's live pots their bills pot for its asset (BK-pots-03), or change its fallback. With the
+     * fallback on, a standing order from the pot that finds too little first moves the shortfall from the main account;
+     * off (the default), it is refused `ledger.insufficient_funds` like any other. Another bills pot of the asset gives
+     * the role up.
+     */
+    setBillsPot: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ spaceId: z.string().guid(), fallback: z.boolean() }))
+      .output(z.object({ spaceId: z.string(), assetId: z.string(), fallback: z.boolean() }))
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const pot = await bank.billsPots.set(ctx.principal.userId, input.spaceId, input.fallback);
+          return { spaceId: pot.spaceId, assetId: pot.assetId, fallback: pot.fallback };
+        }),
+      ),
+
+    /** The pot stops paying the caller's bills; its money stays where it is (BK-pots-03). */
+    clearBillsPot: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ spaceId: z.string().guid() }))
+      .output(z.object({ spaceId: z.string(), billsPot: z.null() }))
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          await bank.billsPots.clear(ctx.principal.userId, input.spaceId);
+          return { spaceId: input.spaceId, billsPot: null };
+        }),
+      ),
+
+    /**
+     * Every named space this customer ever owned, archived ones too, so svc-tax can follow the customer's own coins between
+     * their main account and their spaces (PF-cost-basis-02, LB-6). Service-only: `serviceProcedureFor` proves the caller is
+     * svc-tax before the input is parsed. Names and ids, never a balance. A read; a POST only because the caller signs the body.
+     */
+    ownedAccounts: serviceProcedureFor(BANK_OWN_SPACES_CALLERS)
+      .input(bankOwnSpacesInputSchema)
+      .output(bankOwnSpacesSchema)
+      .mutation(async ({ input }) =>
+        guard(async () => ({
+          spaces: (await bank.spaces.allNamedSpaces(input.userId)).map((s) => ({
+            spaceId: s.id,
+            assetId: s.assetId,
+            name: s.name,
+            archived: s.archivedAt !== null,
+          })),
+        })),
       ),
   });
 }

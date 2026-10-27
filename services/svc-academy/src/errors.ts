@@ -230,6 +230,45 @@ export type AcademyErrorCode =
   | 'academy.draft_not_found'
   /** Lesson blocks built by the service do not fit the lesson format (a block over its limit); nothing was written. */
   | 'academy.lesson_blocks_invalid'
+  /** AC-assignments-01: only a learner enrolled in the course hands in its work. */
+  | 'academy.enrolment_required'
+  /** The hand-in lacks a text answer or a file the assignment requires; nothing was recorded. */
+  | 'academy.submission_incomplete'
+  /** No assignment with a saved brief at that item in a published course. */
+  | 'academy.assignment_not_found'
+  /** Staff withdrew the assignment, so nothing more is handed in. */
+  | 'academy.assignment_closed'
+  /** The hand-in was made against an older read; read the assignment again. */
+  | 'academy.submission_version_stale'
+  /** An assignment learners handed in to cannot leave the outline; withdraw it instead. */
+  | 'academy.assignment_has_submissions'
+  /** AC-assignments-03: peer review is on with no count of reviews each learner gives. */
+  | 'academy.peer_count_unset'
+  /** A rubric with no criteria, or two criteria of one name. */
+  | 'academy.rubric_invalid'
+  /** A review that does not give one of its levels for every criterion. */
+  | 'academy.review_marks_invalid'
+  /** No review of the caller's with that id on that assignment. */
+  | 'academy.review_task_not_found'
+  /** The review was already sent with other marks; it is not changed. */
+  | 'academy.review_already_sent'
+  /** A reviewed file could not be read back whole from our own store; nothing changed. */
+  | 'academy.file_unavailable'
+  /** AC-assignments-02: another grader holds this hand-in's lease. */
+  | 'academy.grader_locked'
+  /** The owner has not set how long a grader holds a hand-in (`ACADEMY_GRADER_LEASE_SECONDS`). */
+  | 'academy.grader_lease_unset'
+  /** A score that is above the assignment's points. */
+  | 'academy.grade_invalid'
+  /** AC-certificates-02: a delayed issue rule with no delay. */
+  | 'academy.cert_delay_unset'
+  /** AC-certificates-02: a delayed issue rule while no issue sweep runs (`ACADEMY_CERT_ISSUE_SWEEP_SECONDS` blank). */
+  | 'academy.cert_sweep_unset'
+  /** AC-certificates-02: the certificate is issued when its delay ends; the message carries `issuesAt=<time>`. */
+  | 'academy.cert_not_due'
+  | 'academy.cert_revoked'
+  /** No newest hand-in with that id on the assignment, or no grade on it to read. */
+  | 'academy.submission_not_found'
   /** AC-videos-02: the owner has not set the upload size limit or the accepted video or handout types. */
   | 'academy.upload_limits_unset'
   /** The file is over the owner's upload size limit; no upload address was issued. */
@@ -257,7 +296,63 @@ export type AcademyErrorCode =
   /** AC-catalogue-03: no private link with that id. */
   | 'academy.private_link_not_found'
   /** AC-catalogue-03: an archived or deleted course takes no new private link. */
-  | 'academy.private_link_course_closed';
+  | 'academy.private_link_course_closed'
+  /** AC-programmes-01: the owner has not set how many courses a programme may hold. */
+  | 'academy.programme_limit_unset'
+  /** AC-programmes-01: more courses than the owner's limit. */
+  | 'academy.programme_too_large'
+  /** AC-programmes-01: no programme at that address. */
+  | 'academy.programme_not_found'
+  /** AC-programmes-01: a new programme at an address another programme has. */
+  | 'academy.programme_slug_taken'
+  /** AC-rooms-01: the owner has not set how long a discussion post may be. */
+  | 'academy.post_limit_unset'
+  /** AC-rooms-01: a post or reply longer than the owner's limit. */
+  | 'academy.post_too_long'
+  /** AC-rooms-01: the owner has not set how large a post's image may be. */
+  | 'academy.attachment_limit_unset'
+  /** AC-rooms-01: a post's image over the owner's size limit. */
+  | 'academy.attachment_too_large'
+  /** AC-rooms-01: a file attached to a post that is not one of the image types, by its declared type or its content. */
+  | 'academy.attachment_type_refused'
+  /** AC-rooms-01: no discussion post or reply with that id the reader may open. */
+  | 'academy.post_not_found'
+  /** AC-rooms-01: the action belongs to someone else (only the asker marks the accepted answer). */
+  | 'academy.permission_denied'
+  /** AC-rooms-04: the owner has not set how long a message to the course team may be. */
+  | 'academy.message_limit_unset'
+  /** AC-rooms-04: a message longer than the owner's limit. */
+  | 'academy.message_too_long'
+  /** AC-rooms-04: no conversation with that id the reader is in. */
+  | 'academy.conversation_not_found'
+  /** AC-quizzes-01: the outline item is not a quiz. */
+  | 'academy.quiz_not_found'
+  /** AC-quizzes-01: a quiz with no questions is not published. */
+  | 'academy.quiz_no_questions'
+  /** AC-quizzes-01: more than one attempt is allowed and no scoring policy says which counts. */
+  | 'academy.scoring_policy_unset'
+  /** AC-quizzes-01: learners have attempts, so the questions stay and the quiz stays published (and in the outline). */
+  | 'academy.item_has_attempts'
+  /** AC-quizzes-01: the quiz needs an access code and the one given is missing or wrong. */
+  | 'academy.access_code_invalid'
+  /** AC-quizzes-01: the quiz has an IP filter and the caller's address could not be read. */
+  | 'academy.ip_unreadable'
+  /** AC-quizzes-01: the caller's address is outside the quiz's IP filter. */
+  | 'academy.ip_not_allowed'
+  /** AC-quizzes-01: an IP filter entry that is not an address or a CIDR range. */
+  | 'academy.ip_rule_invalid'
+  /** AC-quizzes-02: this survey already has the caller's answers (or this device's, when anonymous). */
+  | 'academy.survey_duplicate'
+  /** AC-release-access-01: learners have enrolled, so the course's pacing stays as it is. */
+  | 'academy.pacing_locked'
+  /** AC-release-access-01: the item's section has not opened for this learner yet. */
+  | 'academy.not_released_yet'
+  /** AC-release-access-02: a lesson, video, file or link records no completion on a course staff made, so it cannot be required. */
+  | 'academy.prerequisite_unmeasured'
+  /** AC-assignments-04: the gradebook weights do not add up to exactly 1. */
+  | 'academy.weights_invalid'
+  /** AC-assignments-04: a type names an item that is not one of the course's assignments or quizzes, twice, or drops them all. */
+  | 'academy.grading_policy_invalid';
 
 export class AcademyError extends Error {
   constructor(
@@ -391,6 +486,26 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.import_too_large',
   'academy.draft_not_found',
   'academy.lesson_blocks_invalid',
+  'academy.enrolment_required',
+  'academy.submission_incomplete',
+  'academy.assignment_not_found',
+  'academy.assignment_closed',
+  'academy.submission_version_stale',
+  'academy.assignment_has_submissions',
+  'academy.peer_count_unset',
+  'academy.rubric_invalid',
+  'academy.review_marks_invalid',
+  'academy.review_task_not_found',
+  'academy.review_already_sent',
+  'academy.file_unavailable',
+  'academy.grader_locked',
+  'academy.grader_lease_unset',
+  'academy.grade_invalid',
+  'academy.cert_delay_unset',
+  'academy.cert_sweep_unset',
+  'academy.cert_not_due',
+  'academy.cert_revoked',
+  'academy.submission_not_found',
   'academy.upload_limits_unset',
   'academy.upload_too_large',
   'academy.upload_type_refused',
@@ -405,6 +520,34 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.topics_list_limit_unset',
   'academy.private_link_not_found',
   'academy.private_link_course_closed',
+  'academy.programme_limit_unset',
+  'academy.programme_too_large',
+  'academy.programme_not_found',
+  'academy.programme_slug_taken',
+  'academy.post_limit_unset',
+  'academy.post_too_long',
+  'academy.attachment_limit_unset',
+  'academy.attachment_too_large',
+  'academy.attachment_type_refused',
+  'academy.post_not_found',
+  'academy.permission_denied',
+  'academy.message_limit_unset',
+  'academy.message_too_long',
+  'academy.conversation_not_found',
+  'academy.quiz_not_found',
+  'academy.quiz_no_questions',
+  'academy.scoring_policy_unset',
+  'academy.item_has_attempts',
+  'academy.access_code_invalid',
+  'academy.ip_unreadable',
+  'academy.ip_not_allowed',
+  'academy.survey_duplicate',
+  'academy.pacing_locked',
+  'academy.not_released_yet',
+  'academy.prerequisite_unmeasured',
+  'academy.weights_invalid',
+  'academy.grading_policy_invalid',
+  'academy.ip_rule_invalid',
 ] as const;
 
 /** L3 — catalog size. */

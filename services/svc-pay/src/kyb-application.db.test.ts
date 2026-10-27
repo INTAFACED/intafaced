@@ -7,7 +7,7 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import { beforeEach, afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { KybApplicationService, requiredSectionsFor } from './kyb-application.js';
+import { KybApplicationService, readKybApplicationDueDays, requiredSectionsFor } from './kyb-application.js';
 import { KybEntityTypeService } from './kyb-entity-types.js';
 import { createKybPspRouter } from './kyb-router.js';
 import { stubApprovalConsumer } from './action-approval-consume.js';
@@ -85,6 +85,16 @@ describe('requiredSectionsFor', () => {
   });
 });
 
+describe('readKybApplicationDueDays', () => {
+  it('is null while unpublished, a whole number of days when set, and refuses to boot on anything else', () => {
+    expect(readKybApplicationDueDays({})).toBeNull();
+    expect(readKybApplicationDueDays({ PAY_KYB_APPLICATION_DUE_DAYS: '  ' })).toBeNull();
+    expect(readKybApplicationDueDays({ PAY_KYB_APPLICATION_DUE_DAYS: ' 30 ' })).toBe(30);
+    for (const bad of ['0', '-1', '1.5', '366', '30d', '030'])
+      expect(() => readKybApplicationDueDays({ PAY_KYB_APPLICATION_DUE_DAYS: bad }), bad).toThrow(/1 to 365/);
+  });
+});
+
 describe('kyb application', () => {
   let adminStop: () => Promise<void> = async () => undefined;
   let db: TestDatabase | undefined;
@@ -121,7 +131,7 @@ describe('kyb application', () => {
     await adminStop();
   }, 30_000);
 
-  const api = async (userId = OWNER, scopes?: string[]) => {
+  const api = async (userId = OWNER, scopes?: string[], dueDays: number | null = null) => {
     const kyb = new KybService(sql);
     const types = new KybEntityTypeService(sql);
     return createKybPspRouter(
@@ -135,9 +145,147 @@ describe('kyb application', () => {
           }))[0] ?? Promise.reject(new Error('missing')),
       },
       types,
-      new KybApplicationService(sql, kyb, types),
+      new KybApplicationService(sql, kyb, types, dueDays),
     ).createCaller(await ctx(userId, scopes));
   };
+
+  /** An upload row as kyb-documents.ts writes it (the bytes do not matter here, only which key has a current upload). */
+  const upload = async (applicationId: string, key: string, state: 'provided' | 'accepted' | 'rejected' = 'provided') => {
+    await sql`
+      INSERT INTO pay.kyb_documents (application_id, document_key, content_type, byte_length, sha256, ciphertext, nonce, state, rejection_reason, uploaded_by)
+      VALUES (${applicationId}, ${key}, 'application/pdf', 4, ${'a'.repeat(64)}, ${Buffer.from('test')}, ${Buffer.alloc(12)}, ${state},
+              ${state === 'rejected' ? 'TEST unreadable scan' : null}, ${OWNER})
+    `;
+  };
+  const complete = (applicationId: string, section: 'company_details' | 'people' | 'documents', expectedVersion = 0) => ({
+    applicationId,
+    section,
+    expectedVersion,
+    complete: true,
+    data: (section === 'people' ? { person_1_role: 'trustee', person_1_name: 'TEST Trustee' } : { legal_name: 'TEST Trust' }) as Record<
+      string,
+      string
+    >,
+  });
+
+  it('changing the type clears the sections, asks what the new type needs, and records the change; the same type again changes nothing', async () => {
+    const caller = await api();
+    const trust = await caller.kyb.application.start({ merchantId, entityType: 'trust', country: 'DE' });
+    await caller.kyb.application.saveSection(complete(trust.applicationId, 'company_details'));
+    const fund = await caller.kyb.application.changeType({ applicationId: trust.applicationId, entityType: 'fund', country: 'de' });
+    expect(fund).toMatchObject({ applicationId: trust.applicationId, entityType: 'fund', country: 'DE', state: 'draft' });
+    expect(fund.missing).toEqual(['company_details', 'questionnaires']);
+    expect(fund.sections.every((section) => section.state === 'empty' && section.version === 0)).toBe(true);
+    expect(fund.sections.filter((section) => section.required).map((section) => section.section)).toEqual([
+      'company_details',
+      'questionnaires',
+    ]);
+
+    const same = await caller.kyb.application.changeType({ applicationId: trust.applicationId, entityType: 'fund', country: 'DE' });
+    expect(same).toEqual(fund);
+    const events = await sql<Array<{ kind: string; entity_type: string | null; country: string | null }>>`
+      SELECT kind, entity_type, country FROM pay.kyb_application_events WHERE application_id = ${trust.applicationId} ORDER BY seq`;
+    expect(events).toEqual([
+      { kind: 'started', entity_type: null, country: null },
+      { kind: 'section_saved', entity_type: null, country: null },
+      { kind: 'type_changed', entity_type: 'fund', country: 'DE' },
+    ]);
+    await expect(
+      sql`INSERT INTO pay.kyb_application_events (application_id, kind, actor_id) VALUES (${trust.applicationId}, 'type_changed', ${OWNER})`,
+    ).rejects.toThrow(/type_change_named/);
+  });
+
+  it('a type change refuses an unpublished type, an unserved country, a submitted application and a stranger', async () => {
+    const caller = await api();
+    const { applicationId } = await caller.kyb.application.start({ merchantId, entityType: 'fund', country: 'DE' });
+    expect(await rejection(caller.kyb.application.changeType({ applicationId, entityType: 'partnership', country: 'DE' }))).toMatchObject({
+      code: 'PRECONDITION_FAILED',
+    });
+    expect(await rejection(caller.kyb.application.changeType({ applicationId, entityType: 'trust', country: 'FR' }))).toMatchObject({
+      code: 'BAD_REQUEST',
+    });
+    expect(
+      await rejection((await api(STRANGER)).kyb.application.changeType({ applicationId, entityType: 'trust', country: 'DE' })),
+    ).toMatchObject({ code: 'NOT_FOUND' });
+    expect((await caller.kyb.application.current({ merchantId }))?.entityType).toBe('fund');
+
+    await caller.kyb.application.saveSection(complete(applicationId, 'company_details'));
+    await caller.kyb.application.saveSection({
+      applicationId,
+      section: 'questionnaires',
+      expectedVersion: 0,
+      complete: true,
+      data: { a: 'b' },
+    });
+    await caller.kyb.application.submit({ applicationId });
+    expect(await rejection(caller.kyb.application.changeType({ applicationId, entityType: 'trust', country: 'DE' }))).toMatchObject({
+      code: 'PRECONDITION_FAILED',
+    });
+  });
+
+  it('documents count only once uploaded and not rejected, and a restart or type change asks for them again', async () => {
+    const caller = await api();
+    const { applicationId } = await caller.kyb.application.start({ merchantId, entityType: 'trust', country: 'DE' });
+    await caller.kyb.application.saveSection(complete(applicationId, 'company_details'));
+    await caller.kyb.application.saveSection(complete(applicationId, 'people'));
+
+    const none = await rejection(caller.kyb.application.saveSection(complete(applicationId, 'documents')));
+    expect(none).toMatchObject({ code: 'PRECONDITION_FAILED', cause: expect.objectContaining({ code: 'pay.kyb_documents_missing' }) });
+    await upload(applicationId, 'trust_deed', 'rejected');
+    expect(await rejection(caller.kyb.application.saveSection(complete(applicationId, 'documents')))).toMatchObject({
+      cause: expect.objectContaining({ code: 'pay.kyb_documents_missing', detail: { missing: ['trust_deed'] } }),
+    });
+    await upload(applicationId, 'trust_deed');
+    const saved = await caller.kyb.application.saveSection(complete(applicationId, 'documents'));
+    expect(saved.missing).toEqual([]);
+
+    // A rejection after the section was marked complete still stops the submit.
+    await upload(applicationId, 'trust_deed', 'rejected');
+    expect(await rejection(caller.kyb.application.submit({ applicationId }))).toMatchObject({
+      cause: expect.objectContaining({ code: 'pay.kyb_documents_missing' }),
+    });
+    const [still] = await sql<Array<{ kyb_status: string }>>`SELECT kyb_status FROM pay.merchants WHERE id = ${merchantId}`;
+    expect(still?.kyb_status).toBe('none');
+    // The view lists documents as still needed even though the section was marked complete.
+    expect((await caller.kyb.application.current({ merchantId }))?.missing).toEqual(['documents']);
+    await upload(applicationId, 'trust_deed');
+    expect((await caller.kyb.application.current({ merchantId }))?.missing).toEqual([]);
+    // A country INTAFACED stops serving makes the documents unusable too, and the submit refuses.
+    await sql`UPDATE pay.kyb_entity_types SET countries = ${['FR']} WHERE entity_type = 'trust'`;
+    expect((await caller.kyb.application.current({ merchantId }))?.missing).toEqual(['documents']);
+    expect(await rejection(caller.kyb.application.submit({ applicationId }))).toMatchObject({
+      cause: expect.objectContaining({ code: 'pay.kyb_country_not_served' }),
+    });
+    await sql`UPDATE pay.kyb_entity_types SET countries = ${['DE']} WHERE entity_type = 'trust'`;
+
+    await caller.kyb.application.restart({ applicationId, confirm: true });
+    await caller.kyb.application.saveSection(complete(applicationId, 'company_details'));
+    await caller.kyb.application.saveSection(complete(applicationId, 'people'));
+    expect(await rejection(caller.kyb.application.saveSection(complete(applicationId, 'documents')))).toMatchObject({
+      cause: expect.objectContaining({ code: 'pay.kyb_documents_missing' }),
+    });
+    await upload(applicationId, 'trust_deed');
+    await caller.kyb.application.saveSection(complete(applicationId, 'documents'));
+    const submitted = await caller.kyb.application.submit({ applicationId });
+    expect(submitted.state).toBe('submitted');
+  });
+
+  it('shows the due date the owner publishes from the start of the application, and none while unpublished', async () => {
+    const started = await (await api()).kyb.application.start({ merchantId, entityType: 'fund', country: 'DE' });
+    expect(started.dueAt).toBeNull();
+    const withDue = await (await api(OWNER, undefined, 30)).kyb.application.current({ merchantId });
+    expect(withDue?.startedAt).toBe(started.startedAt);
+    expect(Date.parse(withDue!.dueAt!) - Date.parse(started.startedAt)).toBe(30 * 86_400_000);
+    // A type change does not move the due date.
+    const changed = await (
+      await api(OWNER, undefined, 30)
+    ).kyb.application.changeType({
+      applicationId: started.applicationId,
+      entityType: 'trust',
+      country: 'DE',
+    });
+    expect(changed.dueAt).toBe(withDue?.dueAt);
+  });
 
   it('a trust application needs company details, people and documents; progress persists across a leave and return', async () => {
     const caller = await api();

@@ -262,9 +262,48 @@ export function createRampsRouter(c: BankRouterContext) {
               ...(input.tag !== undefined ? { tag: input.tag } : {}),
               label: input.label,
               ...(input.confirmLookalike !== undefined ? { confirmLookalike: input.confirmLookalike } : {}),
+              // The saving sign-in and device, so another device can approve it (W-withdraw-09); never from the request body.
+              savedOn: { fam: ctx.principal.fam ?? null, dev: ctx.principal.dev ?? null },
             }),
           ),
         ),
+
+      /**
+       * New-address approval (W-withdraw-09, J-wallet-04 #5). A saved entry waits, `pending`, until the customer approves it;
+       * its cooling-off starts then. `requestMail` asks identity to mail a single-use link to the address on the account
+       * (`bank:write`: it only sends the customer's own mail; the answer says until when the link works, never that it
+       * arrived). `confirmLink` approves the entry the link names, for the customer it was sent to, after a fresh
+       * confirmation (`trade:withdraw`, the step-up scope), so approving takes the mailbox as well as the second factor.
+       * `onDevice` approves from a signed-in device that did not save the entry, also after a fresh confirmation; the
+       * sign-in and device are read from the verified access token (`fam`, `dev`), never from the request. All refuse
+       * while the security lock holds.
+       */
+      approval: router({
+        requestMail: scopedProcedure('bank:write', { module: 'bank' })
+          .input(z.object({ destinationId: z.string().guid() }).strict())
+          .output(z.object({ destinationId: z.string(), expiresAt: z.string() }).strict())
+          .mutation(async ({ ctx, input }) =>
+            guard(async () => bank.ramps.requestAddressApproval({ userId: ctx.principal.userId, destinationId: input.destinationId })),
+          ),
+        confirmLink: scopedProcedure('trade:withdraw', { module: 'bank' })
+          .input(z.object({ token: z.string().min(1).max(256) }).strict())
+          .output(destinationViewOutput)
+          .mutation(async ({ ctx, input }) =>
+            guard(async () => bank.ramps.approveAddressByLink({ userId: ctx.principal.userId, token: input.token })),
+          ),
+        onDevice: scopedProcedure('trade:withdraw', { module: 'bank' })
+          .input(z.object({ destinationId: z.string().guid() }).strict())
+          .output(destinationViewOutput)
+          .mutation(async ({ ctx, input }) =>
+            guard(async () =>
+              bank.ramps.approveAddressOnDevice({
+                userId: ctx.principal.userId,
+                destinationId: input.destinationId,
+                approving: { fam: ctx.principal.fam ?? null, dev: ctx.principal.dev ?? null },
+              }),
+            ),
+          ),
+      }),
 
       /**
        * Rename. Changes only the label, so `bank:write` is enough and the cooling window does not restart. It cannot
@@ -315,6 +354,30 @@ export function createRampsRouter(c: BankRouterContext) {
             ),
           ),
       }),
+
+      /**
+       * Whether money may be sent to one saved address now (W-withdraw-09), or what stands in the way first: the owner's
+       * security lock (`locked`, with `lockUnlocksAt` once an unlock is asked for), an entry not held as active
+       * (`blocked`), a new address not approved yet (`approval_pending`, with `approvalLinkExpiresAt` while an emailed link
+       * works), no published cooling-off (`cooling_unset`) or a cooling-off still running (`cooling`, with
+       * `coolingOffEndsAt`). Read-only (`bank:read`); the send path applies the same rules and refuses on its own.
+       */
+      readiness: scopedProcedure('bank:read', { module: 'bank' })
+        .input(z.object({ destinationId: z.string().guid() }).strict())
+        .output(
+          z
+            .object({
+              destinationId: z.string().guid(),
+              state: z.enum(['ready', 'locked', 'blocked', 'approval_pending', 'cooling_unset', 'cooling']),
+              coolingOffEndsAt: z.string().nullable(),
+              lockUnlocksAt: z.string().nullable(),
+              approvalLinkExpiresAt: z.string().nullable(),
+            })
+            .strict(),
+        )
+        .query(async ({ ctx, input }) =>
+          guard(async () => bank.ramps.destinationReadiness({ userId: ctx.principal.userId, destinationId: input.destinationId })),
+        ),
 
       /** Remove, with the same step-up scope as saving. A withdrawal that already copied the address is not touched. */
       remove: scopedProcedure('trade:withdraw', { module: 'bank' })

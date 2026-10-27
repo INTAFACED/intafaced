@@ -10,13 +10,14 @@ describe('edge.authority_unavailable', () => {
 });
 
 describe('fee refusals (SP-fees-vip-01)', () => {
-  it('a missing schedule, rebate recipe or minimum-fee recipe reads as not switched on', () => {
-    for (const code of [
-      'trade.fee_schedule_blank',
-      'trade.fee_product_unpublished',
-      'trade.rebate_recipe_unavailable',
-      'trade.min_fee_recipe_unavailable',
-    ]) {
+  it('a blank schedule for the market names the fee schedule, before any hold', () => {
+    expect(classifyRefusal('trade.fee_schedule_blank')).toBe('feeScheduleUnset');
+    expect(refusalCopy('trade.fee_schedule_blank').title).toBe('Fee schedule not set');
+    expect(refusalCopy('trade.fee_schedule_blank').body).toContain('Nothing was held');
+  });
+
+  it('a missing product schedule, rebate recipe or minimum-fee recipe reads as not switched on', () => {
+    for (const code of ['trade.fee_product_unpublished', 'trade.rebate_recipe_unavailable', 'trade.min_fee_recipe_unavailable']) {
       expect(classifyRefusal(code)).toBe('notSetUp');
     }
   });

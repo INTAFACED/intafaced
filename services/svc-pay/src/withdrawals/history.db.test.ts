@@ -76,6 +76,7 @@ describe('withdrawal history (real Postgres)', () => {
     const page = await history.search(USER, { limit: 10 });
     expect(page.items).toHaveLength(1);
     expect(page.items[0]!.status).toBe('requested');
+    expect(page.items[0]!.userId).toBe(USER);
   });
 
   it('shows the stored values in the customer vocabulary: an old sent row is settled', async () => {
@@ -119,7 +120,33 @@ describe('withdrawal history (real Postgres)', () => {
   it('returns an empty page for a status no stored value can mean yet', async () => {
     await put({ status: 'sent' });
     expect(await history.search(USER, { limit: 10, status: 'canceled' })).toEqual({ items: [], next: null });
-    expect(await history.search(USER, { limit: 10, status: 'broadcast' })).toEqual({ items: [], next: null });
+    expect(await history.search(USER, { limit: 10, status: 'confirming' })).toEqual({ items: [], next: null });
+  });
+
+  it('splits a held row by its current attempt’s dispatch journal, as the withdrawal page does, and filters on it', async () => {
+    const quiet = await put({ status: 'held', at: '2026-10-20T08:00:01Z' });
+    const asked = await put({ status: 'held', at: '2026-10-20T08:00:02Z' });
+    const left = await put({ status: 'held', at: '2026-10-20T08:00:03Z' });
+    const refused = await put({ status: 'held', at: '2026-10-20T08:00:04Z' });
+    // An earlier attempt's journal row is not this attempt's: the row is held again on attempt 1 with nothing journalled.
+    const retried = await put({ status: 'held', at: '2026-10-20T08:00:05Z' });
+    await db.sql`UPDATE pay.withdrawals SET attempts = 1 WHERE id = ${retried}`;
+    await db.sql`
+      INSERT INTO pay.withdrawal_rail_attempts (withdrawal_id, attempt, outcome, rail_ref) VALUES
+        (${asked}, 0, 'requested', NULL), (${left}, 0, 'accepted', '0xabc'), (${refused}, 0, 'refused', NULL), (${retried}, 0, 'accepted', '0xdef')`;
+    const page = await history.search(USER, { limit: 10 });
+    expect(page.items.map((i) => [i.id, i.status])).toEqual([
+      [retried, 'held'],
+      [refused, 'held'],
+      [left, 'broadcast'],
+      [asked, 'dispatching'],
+      [quiet, 'held'],
+    ]);
+    const only = async (status: 'held' | 'dispatching' | 'broadcast') =>
+      (await history.search(USER, { limit: 10, status })).items.map((i) => i.id);
+    expect(await only('held')).toEqual([retried, refused, quiet]);
+    expect(await only('dispatching')).toEqual([asked]);
+    expect(await only('broadcast')).toEqual([left]);
   });
 
   it('pages a history longer than 200 rows to the end with a cursor, with no row twice or missing', async () => {

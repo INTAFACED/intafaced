@@ -84,6 +84,12 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     effect: 'Inbox row when verification tier is granted',
   },
   {
+    event: 'securityFactorChanged',
+    durable: 'notify-security-factor-changed',
+    subject: 'intafaced.identity.security_factor.updated',
+    effect: 'Inbox row when a sign-in factor is turned on, off, replaced, added or removed',
+  },
+  {
     event: 'rankUpdated',
     durable: 'notify-rank-updated',
     subject: 'intafaced.identity.rank.updated',
@@ -118,6 +124,24 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     durable: 'notify-personal-transfer-posted',
     subject: 'intafaced.bank.personal_transfer.posted',
     effect: 'Inbox rows pay.transfer_received for the recipient and pay.transfer_sent for the sender of one posted personal send',
+  },
+  {
+    event: 'payDepositCreditPosted',
+    durable: 'notify-pay-deposit-credit-posted',
+    subject: 'intafaced.pay.deposit_credit.posted',
+    effect: 'Inbox row bank.deposit.credited for the customer whose crypto deposit the ledger credited, once per deposit',
+  },
+  {
+    event: 'bankScheduledReminder',
+    durable: 'notify-bank-scheduled-reminder',
+    subject: 'intafaced.bank.scheduled_reminder.triggered',
+    effect: 'Inbox row bank.scheduled_reminder for the owner of a standing order due within their reminder lead time',
+  },
+  {
+    event: 'bankScheduledFailed',
+    durable: 'notify-bank-scheduled-failed',
+    subject: 'intafaced.bank.scheduled_run.failed',
+    effect: 'Inbox row bank.scheduled_failed for the owner of a standing order run the bank refused, with its reason',
   },
   {
     event: 'supportTicketResolved',

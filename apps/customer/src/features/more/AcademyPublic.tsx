@@ -44,7 +44,14 @@ function SignIn() {
 }
 
 export function AcademyPublic({ route }: { route: AcademyRoute }) {
-  const tab = route.kind === 'tab' ? route.tab : route.kind === 'reader' || route.kind === 'course' ? 'Learning' : '';
+  const tab =
+    route.kind === 'tab'
+      ? route.tab
+      : route.kind === 'reader' || route.kind === 'course' || route.kind === 'assignment'
+        ? 'Learning'
+        : route.kind === 'programme'
+          ? 'Programmes'
+          : '';
   const { t } = copy.useCopy();
   return (
     <div className="more-grid" data-academy-visitor="true">
@@ -67,6 +74,10 @@ export function AcademyPublic({ route }: { route: AcademyRoute }) {
       {route.kind === 'tab' && route.hub && <AcademyHub />}
       {route.kind === 'course' ? (
         <AcademyCoursePage slug={route.slug} signedIn={false} />
+      ) : route.kind === 'assignment' ? (
+        <Panel title={copyText('academy.learning')}>
+          <EmptyState title={t('asgSignIn')} action={<SignIn />} />
+        </Panel>
       ) : route.kind === 'reader' && route.slug ? (
         <PublicReader slug={route.slug} />
       ) : route.kind === 'progress' || tab === 'Certificates' ? (

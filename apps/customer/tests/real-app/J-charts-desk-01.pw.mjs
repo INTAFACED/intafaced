@@ -18,6 +18,17 @@ async function openChart(page, path = CHART) {
   await expect.poll(async () => Number(await canvas(page).getAttribute('data-bars'))).toBeGreaterThan(0);
 }
 
+/**
+ * A price as whole cents of the 0.01 tick, rounded half up the way the chart writes it, or null when it is not a price.
+ * Edge writes the shortest decimal ("65000.5"); the legend pads and groups it ("65,000.50"). Both read as 6500050n.
+ */
+const cents = (text) => {
+  const m = /^(\d+)(?:\.(\d*))?$/.exec(String(text ?? '').replace(/[,\s]/g, ''));
+  if (!m) return null;
+  const frac = (m[2] ?? '').padEnd(3, '0');
+  return BigInt(m[1]) * 100n + BigInt(frac.slice(0, 2)) + (Number(frac[2]) >= 5 ? 1n : 0n);
+};
+
 /** The newest TEST candle Edge serves for BTC/USDT at an interval. */
 async function lastCandle(interval) {
   const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=${interval}&limit=1`);
@@ -49,7 +60,7 @@ test(`${J} #2 picks 1h, then another interval from More, and the pressed one is 
   await page.getByRole('button', { name: /More/ }).first().click();
   await page.getByRole('menuitem', { name: '30m', exact: true }).click();
   await expect(title(page)).toHaveText('BTC/USDT · 30m');
-  await expect(page.locator('.cw-more[data-active]').first()).toContainText('30m');
+  await expect(page.locator('[data-testid="cw-more"][data-active]').first()).toContainText('30m');
   await expect(pressedInterval(page)).toHaveCount(0);
   await expect.poll(async () => Number(await canvas(page).getAttribute('data-bars'))).toBeGreaterThan(0);
 });
@@ -138,14 +149,16 @@ test(`${J} #7 reads the numbers the chart plots: the service's bars, the axis fo
   await openChart(page, `${CHART}?interval=1m`);
   const legend = page.getByTestId('chart-legend').first();
   // The legend shows the newest bar; it equals the newest candle Edge serves (re-read while the market maker trades).
+  // Edge writes the shortest decimal (65000.5) and the legend pads to the tick (65,000.50): compare cents, not text.
   await expect
     .poll(
       async () => {
         const [, , , , close] = await lastCandle('1m');
-        const shown = (await legend.locator('b').nth(3).textContent())?.replace(/[,\s]/g, '');
-        return shown === close;
+        const shown = cents(await legend.locator('b').nth(3).textContent());
+        return shown !== null && shown === cents(close);
       },
-      { timeout: 30_000 },
+      // The stack's market maker crosses about every 30 s: one more trade's worth of time if the legend lags a frame.
+      { timeout: 60_000 },
     )
     .toBe(true);
   // BTC/USDT's tick size is 0.01: two decimals everywhere the chart writes a price.

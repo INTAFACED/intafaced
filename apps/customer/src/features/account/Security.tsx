@@ -10,12 +10,16 @@ import { ApiKeyRecords } from './ApiKeyRecords';
 import { ChangePassword } from './ChangePassword';
 import { Authenticator } from './Authenticator';
 import { PasskeyNames } from './PasskeyNames';
+import { SigninMethods } from './SigninMethods';
+import { RecoveryKeys } from './RecoveryKeys';
 import { AntiPhishing } from './AntiPhishing';
 import { SecurityChecklist } from './SecurityChecklist';
 import { Devices } from './Devices';
 import { CloseAccount } from './CloseAccount';
 import { FreezeAccount } from './FreezeAccount';
 import { SecurityLock } from './SecurityLock';
+import { MfaResetWaiting } from './MfaResetWaiting';
+import { TrustedDevices } from './TrustedDevices';
 import { securityCopy as copy } from './security-copy';
 import { refusalCopy } from '../../data/refusals';
 import {
@@ -575,6 +579,7 @@ export function Security() {
       <Page title={<Copy k="title" />} description={<Copy k="description" />}>
         <VerifyEmail />
         <SecurityChecklist revision={methodsRevision} />
+        <MfaResetWaiting />
         {uncertainty.map((record) => {
           const preparation = record.kind === 'options' || record.kind === 'setup';
           const retained = currentResponse?.guardRetained && currentResponse.record?.requestId === record.requestId;
@@ -811,10 +816,19 @@ export function Security() {
             </p>
           </section>
           <Devices onChanged={() => setSeatVersion((value) => value + 1)} />
+          <TrustedDevices onChanged={() => setSeatVersion((value) => value + 1)} />
           <PasskeyNames revision={passkeyRevision} />
+          <SigninMethods revision={passkeyRevision} onChanged={methodsChanged} />
           <AntiPhishing />
-          <Authenticator onChanged={methodsChanged} />
+          <Authenticator
+            onChanged={(change) => {
+              methodsChanged();
+              // A replace ended the other sessions: the sessions list below reads them again.
+              if (change?.sessionsEnded) setSeatVersion((value) => value + 1);
+            }}
+          />
           <ChangePassword onChanged={() => setSeatVersion((value) => value + 1)} />
+          <RecoveryKeys />
           <SecurityLock />
           <FreezeAccount />
           <CloseAccount />
@@ -862,7 +876,7 @@ export function Security() {
               isPreEffectRefusal(currentResponse.record.kind, currentResponse.answer) ? (
                 // The factor gate refused before any change: this session has not passed a second factor. Confirming it is
                 // them here sends the same change once more; signing in again with the code or a passkey also works.
-                <div className="failure" role="status">
+                <div data-testid="failure" className="failure" role="status">
                   <h3>{secondFactor.title}</h3>
                   {stepUpKind(currentResponse.record?.kind) ? (
                     <p lang={languageFor('stepUpBody')}>{t('stepUpBody')}</p>

@@ -397,13 +397,13 @@ describe('verify box placement and copy', () => {
     expect(page).toContain('Verification code');
   });
 
-  it('promises only what the product does: a code-only check for people signed in to INTAFACED', () => {
+  it('promises only what the product does: the verify box checks a code; the sheet’s link opens the public check (AC-certificates-01)', () => {
     for (const locale of ['en', 'es', 'fr'] as const) {
       const t = academyLmsCopy.forLocale(locale).t;
       expect(t('verifyIntro')).not.toMatch(/signed in or not|con o sin sesión|connecté ou non/i);
     }
     expect(academyLmsCopy.t('verifyIntro')).toContain('does not look at your account');
-    expect(academyLmsCopy.t('sheetVerifyHint')).toContain('Anyone signed in to INTAFACED');
+    expect(academyLmsCopy.t('sheetVerifyHint')).toContain('Anyone with its link or its serial number');
   });
 });
 

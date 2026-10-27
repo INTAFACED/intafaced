@@ -1,7 +1,7 @@
 .quant-workbench {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
-  gap: 48px;
+  gap: var(--if-space-12);
   align-items: start;
 }
 .quant-history,
@@ -18,13 +18,13 @@
   padding: 0;
 }
 .quant-workbench .if-panel__header {
-  padding: 0 0 16px;
+  padding: 0 0 var(--if-space-4);
   border: 0;
 }
 .quant-history-body {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--if-space-4);
 }
 .quant-history-body h3,
 .quant-history-body h4,
@@ -32,13 +32,13 @@
   margin: 0;
 }
 .quant-history-body h3 {
-  font-size: 20px;
-  line-height: 28px;
+  font-size: var(--if-text-lg);
+  line-height: var(--if-leading-lg);
   font-weight: 600;
 }
 .quant-history-body h4 {
-  font-size: 14px;
-  line-height: 20px;
+  font-size: var(--if-text-base);
+  line-height: var(--if-leading-base);
   font-weight: 400;
   color: var(--color-muted);
 }
@@ -47,37 +47,37 @@
 .quant-history-limits {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--if-space-2);
 }
 .quant-history-reference {
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--if-text-sm);
+  line-height: var(--if-leading-base);
   overflow-wrap: anywhere;
 }
 .quant-history-windows {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 24px;
+  gap: var(--if-space-6);
 }
 .quant-history-windows > section {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--if-space-1);
   border-top: 1px solid var(--color-divider);
-  padding-top: 12px;
+  padding-top: var(--if-space-3);
   min-width: 0;
 }
 .quant-history-activity {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--if-space-3);
   border-top: 1px solid var(--color-divider);
-  padding-top: 12px;
+  padding-top: var(--if-space-3);
 }
 .quant-history-activity > section {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--if-space-1);
   min-width: 0;
 }
 .quant-history-amount {
@@ -94,8 +94,8 @@
 .quant-original-context {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-bottom: 24px;
+  gap: var(--if-space-3);
+  margin-bottom: var(--if-space-6);
 }
 .quant-original-context p {
   margin: 0;
@@ -111,17 +111,17 @@
 }
 .quant-history-evidence summary {
   min-height: 44px;
-  padding: 12px 0;
-  color: var(--color-accent);
+  padding: var(--if-space-3) 0;
+  color: var(--if-accent-text);
   cursor: pointer;
 }
 .quant-history-evidence summary:focus-visible,
 .quant-catalogue summary:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--if-focus);
   outline-offset: 3px;
 }
 .quant-history-evidence > section {
-  padding-block: 12px;
+  padding-block: var(--if-space-3);
 }
 .quant-history-evidence p {
   overflow-wrap: anywhere;
@@ -129,19 +129,19 @@
 .quant-date-fields {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 16px;
+  gap: var(--if-space-4);
 }
 .quant-cost-fields {
   display: grid;
   grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.4fr);
-  gap: 16px;
+  gap: var(--if-space-4);
   border: 0;
   padding: 0;
   margin: 0;
   min-width: 0;
 }
 .quant-cost-fields legend {
-  margin-bottom: 8px;
+  margin-bottom: var(--if-space-2);
 }
 .quant-cost-fields > .field {
   min-width: 0;
@@ -152,24 +152,24 @@
 .quant-analysis-draft form {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--if-space-4);
 }
 .quant-catalogue {
   border-top: 1px solid var(--color-divider);
-  margin-bottom: 16px;
+  margin-bottom: var(--if-space-4);
 }
 .quant-catalogue summary {
   min-height: 44px;
-  padding: 12px 0;
-  color: var(--color-accent);
+  padding: var(--if-space-3) 0;
+  color: var(--if-accent-text);
   cursor: pointer;
 }
 .quant-latest-failure {
-  border-left: 2px solid var(--color-accent);
-  padding-left: 12px;
+  border-left: 2px solid var(--if-lime);
+  padding-left: var(--if-space-3);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--if-space-2);
 }
 .quant-latest-failure h3,
 .quant-latest-failure p {
@@ -179,7 +179,7 @@
 @media (max-width: 1100px) {
   .quant-workbench {
     grid-template-columns: minmax(0, 1fr);
-    gap: 32px;
+    gap: var(--if-space-8);
   }
 }
 @media (max-width: 620px) {
@@ -187,7 +187,7 @@
   .quant-date-fields,
   .quant-cost-fields {
     grid-template-columns: minmax(0, 1fr);
-    gap: 16px;
+    gap: var(--if-space-4);
   }
 }
 @media (max-width: 900px) {

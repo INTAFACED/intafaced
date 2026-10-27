@@ -7,6 +7,8 @@ import { stamp } from '../../screens/money/time';
 import { Text } from './copy';
 import { usePreferences } from '../../shared/preferences';
 import { GoalProgress } from './GoalAndMovement';
+import { EarlyUnlock } from './SpaceLock';
+import { BillsPotState } from './BillsPot';
 import { currentSpace, type SpaceContext } from './space-context';
 import { spaceCopy } from './space-copy';
 
@@ -16,12 +18,15 @@ export function SelectedSpace({
   owner,
   reload,
   actions,
+  below,
 }: {
   context: SpaceContext;
   resource: Resource<Space[]>;
   owner: string;
   reload: () => void;
   actions: (space: Space) => ReactNode;
+  /** The rest of the space's own page, under its goal: what flows into it and its statement. */
+  below?: (space: Space, all: Space[]) => ReactNode;
 }) {
   const { Copy, t, languageFor, directionFor } = spaceCopy.useCopy();
   const { timeZone } = usePreferences();
@@ -38,7 +43,13 @@ export function SelectedSpace({
         : null;
   const quantity = space ? funds(space.balance, space.assetId) : '';
   return (
-    <section className="money-selected-space" aria-label={t('selected')} lang={languageFor('selected')} dir={directionFor('selected')}>
+    <section
+      data-testid="money-selected-space"
+      className="money-selected-space"
+      aria-label={t('selected')}
+      lang={languageFor('selected')}
+      dir={directionFor('selected')}
+    >
       <header>
         <p className="money-selected-label">
           <Copy k="selected" />
@@ -111,6 +122,8 @@ export function SelectedSpace({
                 </dd>
               )}
             </div>
+            <EarlyUnlock space={space} />
+            <BillsPotState space={space} />
           </dl>
           <div className="money-selected-actions">
             {actions(space)}
@@ -138,6 +151,7 @@ export function SelectedSpace({
             </div>
           </dl>
           <GoalProgress balance={space.balance} target={space.goalTarget} assetId={space.assetId} />
+          {below && resource.status === 'ready' && below(space, resource.data)}
         </>
       ) : (
         <>

@@ -5,6 +5,8 @@
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs apply  [--state <dir>]
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs status [--state <dir>]
  *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs unseed [--state <dir>]
+ *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs age-loan <loanId> <days> [--state <dir>]
+ *   LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs fund-earn-pool <poolId> <amount> <ref> [--state <dir>]
  *
  * Default state dir: ~/.intafaced/local-test-stack
  * Nitro's preview stack: ~/.intafaced/s3-trade-20261015
@@ -44,6 +46,13 @@ export const P2P_METHOD_ID = 'local_test_bank';
 export const P2P_COUNTRY = '*';
 export const P2P_LABEL = 'TEST bank transfer (local test, not a real rail)';
 export const LIST_LIMIT = 200;
+/** `age-loan` moves a TEST loan back at most this many days: enough for a month of interest rows, far below the accrual backlog guard. */
+export const MAX_AGE_DAYS = 31;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** `fund-earn-pool` puts at most this much TEST reserve into one pool at a time: the seeded pools' own reserve. */
+export const MAX_POOL_FUNDING = '1000000';
+/** A pool the stack may fund by hand: one whose name says it is TEST (the seeded pools and the journeys' own). */
+const TEST_POOL_NAME = /^TEST[ ·]/;
 
 const DECIMAL = /^\d+(\.\d+)?$/;
 
@@ -505,6 +514,60 @@ export async function unseedAll(deps) {
   };
 }
 
+// ── Age a TEST loan (a stack has no past, and loan interest is charged by the day) ──
+
+/**
+ * Moves one TEST loan's start back `days` UTC days, so the bank's own accrual job has past days to charge (J-bank-11
+ * #2: a repayment pays interest first). Only the loan's dates move: when it was opened and drawn, and when its opening
+ * pledge settled. Nothing is posted and no figure is written; the interest is the bank's, charged later by its job door.
+ * Refused unless the loan is on a TEST product, active, drawn, and has nothing after its opening yet (no interest row,
+ * repayment, liquidation, margin call or later collateral move), so no recorded event is ever left before the loan's start.
+ */
+export async function ageLoan(deps, loanId, days) {
+  if (typeof loanId !== 'string' || !UUID.test(loanId)) throw new GuardError('refusing: age-loan needs a loan id (a UUID)');
+  if (!/^\d+$/.test(String(days)) || Number(days) < 1 || Number(days) > MAX_AGE_DAYS) {
+    throw new GuardError(`refusing: age-loan needs whole days from 1 to ${MAX_AGE_DAYS}`);
+  }
+  const testProducts = TEST_LOANS.map((row) => row.name);
+  const aged = await deps.ageLoanRows(loanId, Number(days), testProducts);
+  if (aged.refused) throw new GuardError(`refusing: loan ${loanId} ${aged.refused}`);
+  return {
+    ...aged,
+    lines: [`loan ${loanId}: opened ${aged.openedAt}, drawn ${aged.drawnAt} (moved back ${days} days)`, FUNDS_LABEL],
+  };
+}
+
+/**
+ * Funds one TEST earn pool's reserve, so the bank's own accrual job can pay the pool's interest on this stack (J-bank-08
+ * #3: a journey opens its own pool through the treasury door, and ops.fundPool only draws on bank revenue a fresh stack
+ * does not have). The same two moves `apply` makes for a seeded pool: a labelled TEST deposit to the TEST funder, then
+ * `earnPoolFund` from the funder's available balance. `ref` makes both business keys, so a retry funds once. Refused
+ * unless the pool exists, is named TEST and is open, and the amount is a decimal above zero and at most the cap.
+ */
+export async function fundEarnPool(deps, poolId, amount, ref) {
+  assertTestTables();
+  if (typeof poolId !== 'string' || !UUID.test(poolId)) throw new GuardError('refusing: fund-earn-pool needs a pool id (a UUID)');
+  if (typeof ref !== 'string' || !/^[A-Za-z0-9-]{4,64}$/.test(ref)) {
+    throw new GuardError('refusing: fund-earn-pool needs a ref of 4 to 64 letters, digits or dashes');
+  }
+  assertDecimal('pool funding', amount);
+  const units = deps.parseAmount(amount);
+  if (units <= 0n || units > deps.parseAmount(MAX_POOL_FUNDING)) {
+    throw new GuardError(`refusing: fund-earn-pool funds above 0 and at most ${MAX_POOL_FUNDING}`);
+  }
+  const pool = await deps.readPoolById(poolId);
+  if (!pool) throw new GuardError(`refusing: pool ${poolId} is not on this stack`);
+  if (!TEST_POOL_NAME.test(pool.name)) throw new GuardError(`refusing: pool ${poolId} is not a TEST pool`);
+  if (pool.status !== 'open') throw new GuardError(`refusing: pool ${poolId} is ${pool.status}`);
+  await fundFromLocalTestDeposit(deps, {
+    slug: `pool-${poolId}-${ref}`,
+    assetId: pool.assetId,
+    amount: units,
+    recipe: (from) => deps.recipes.earnPoolFund({ poolId, fundingId: `local-test-${ref}`, assetId: pool.assetId, amount: units, from }),
+  });
+  return { lines: [`pool ${poolId}: reserve funded ${amount} ${pool.assetId} (ref ${ref})`, FUNDS_LABEL] };
+}
+
 // ── Status (read-only) ──────────────────────────────────────────────────────
 
 export async function statusReport(deps, now = new Date()) {
@@ -658,6 +721,11 @@ export async function openLocal(plan) {
       `;
       return rows.map((row) => ({ id: row.id, name: row.name, status: row.status, assetId: row.asset_id }));
     },
+    async readPoolById(poolId) {
+      const rows = await bankSql`SELECT id, name, status, asset_id FROM bank.earn_pools WHERE id = ${poolId}`;
+      const row = rows[0];
+      return row ? { id: row.id, name: row.name, status: row.status, assetId: row.asset_id } : null;
+    },
     async readProducts(names) {
       if (names.length === 0) return [];
       const rows = await bankSql`
@@ -690,6 +758,45 @@ export async function openLocal(plan) {
       `;
       return rows.length;
     },
+    async ageLoanRows(loanId, days, testProducts) {
+      return bankSql.begin(async (tx) => {
+        const rows = await tx`
+          SELECT l.status, l.drawn_at, p.name AS product
+            FROM bank.loans l JOIN bank.loan_products p ON p.id = l.product_id
+           WHERE l.id = ${loanId}
+             FOR UPDATE OF l
+        `;
+        const loan = rows[0];
+        if (!loan) return { refused: 'is not on this stack' };
+        // Held to the end of this transaction: no event row can be written for any loan while the count and the move run.
+        await tx`
+          LOCK TABLE bank.loan_interest_accruals, bank.loan_repayments, bank.loan_liquidations,
+                     bank.loan_collateral_events, bank.loan_margin_calls IN SHARE MODE
+        `;
+        if (!testProducts.includes(loan.product)) return { refused: 'is not on a TEST loan product' };
+        if (loan.status !== 'active' || loan.drawn_at === null) return { refused: `is ${loan.status}, not an active drawn loan` };
+        const [later] = await tx`
+          SELECT (SELECT count(*) FROM bank.loan_interest_accruals WHERE loan_id = ${loanId})
+               + (SELECT count(*) FROM bank.loan_repayments WHERE loan_id = ${loanId})
+               + (SELECT count(*) FROM bank.loan_liquidations WHERE loan_id = ${loanId})
+               + (SELECT count(*) FROM bank.loan_margin_calls WHERE loan_id = ${loanId})
+               + (SELECT count(*) FROM bank.loan_collateral_events WHERE loan_id = ${loanId} AND sequence <> 0) AS n
+        `;
+        if (Number(later.n) > 0) return { refused: 'already has events after its opening' };
+        const shift = tx`make_interval(days => ${days})`;
+        const [moved] = await tx`
+          UPDATE bank.loans SET opened_at = opened_at - ${shift}, drawn_at = drawn_at - ${shift}
+           WHERE id = ${loanId}
+          RETURNING opened_at, drawn_at
+        `;
+        await tx`
+          UPDATE bank.loan_collateral_events
+             SET created_at = created_at - ${shift}, settled_at = settled_at - ${shift}
+           WHERE loan_id = ${loanId} AND sequence = 0
+        `;
+        return { openedAt: moved.opened_at.toISOString(), drawnAt: moved.drawn_at.toISOString() };
+      });
+    },
     async close() {
       await bankSql.end({ timeout: 5 });
       await p2pSql.end({ timeout: 5 });
@@ -709,12 +816,18 @@ export function parseArgs(argv) {
     args.splice(at, 2);
   }
   const [command, ...rest] = args;
-  if (rest.length > 0) throw new GuardError(`refusing: unknown argument "${rest[0]}"`);
-  if (!command) throw new GuardError('refusing: command required. Use: apply | status | unseed');
-  return { command, stateDir: path.resolve(stateDir ?? defaultStateDir()) };
+  if (!command) throw new GuardError('refusing: command required. Use: apply | status | unseed | age-loan | fund-earn-pool');
+  const operands = command === 'age-loan' ? 2 : command === 'fund-earn-pool' ? 3 : 0;
+  if (rest.length > operands) throw new GuardError(`refusing: unknown argument "${rest[operands]}"`);
+  if (rest.length < operands) {
+    throw new GuardError(
+      command === 'age-loan' ? 'refusing: age-loan needs <loanId> <days>' : 'refusing: fund-earn-pool needs <poolId> <amount> <ref>',
+    );
+  }
+  return { command, operands: rest, stateDir: path.resolve(stateDir ?? defaultStateDir()) };
 }
 
-async function dispatch(command, deps, hooks) {
+async function dispatch(command, deps, hooks, operands = []) {
   const out = hooks.out ?? ((line) => process.stdout.write(`${line}\n`));
   if (command === 'apply') {
     const report = await applyAll(deps);
@@ -731,7 +844,17 @@ async function dispatch(command, deps, hooks) {
     for (const line of lines) out(line);
     return 0;
   }
-  throw new GuardError(`refusing: unknown command "${command}". Use: apply | status | unseed`);
+  if (command === 'age-loan') {
+    const report = await ageLoan(deps, operands[0], operands[1]);
+    for (const line of report.lines) out(line);
+    return 0;
+  }
+  if (command === 'fund-earn-pool') {
+    const report = await fundEarnPool(deps, operands[0], operands[1], operands[2]);
+    for (const line of report.lines) out(line);
+    return 0;
+  }
+  throw new GuardError(`refusing: unknown command "${command}". Use: apply | status | unseed | age-loan | fund-earn-pool`);
 }
 
 /**
@@ -747,7 +870,7 @@ export async function main(argv, env = process.env, hooks = {}) {
     const load = hooks.load ?? openLocal;
     const deps = hooks.deps ?? (await load(plan));
     try {
-      return await dispatch(parsed.command, deps, hooks);
+      return await dispatch(parsed.command, deps, hooks, parsed.operands);
     } finally {
       if (!hooks.deps && deps?.close) await deps.close();
     }

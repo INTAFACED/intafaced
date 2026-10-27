@@ -319,6 +319,14 @@ describe('refusal wording', () => {
     );
   });
 
+  it('words an assignment or quiz that needs an earlier one first, and a section not open yet (AC-release-access-01, 02)', () => {
+    const item = failure('academy.prerequisite_unmet', 'academy.prerequisite_unmet items=0f8fad5b-d9cb-469f-a165-70867728950e');
+    expect(academyRefusalText(item, academyLmsCopy.t)).toContain('needs an earlier assignment or quiz of the course first');
+    expect(academyRefusalText(failure('academy.not_released_yet', 'academy.not_released_yet opens=x'), academyLmsCopy.t)).toContain(
+      'it opens on a set date',
+    );
+  });
+
   it('words every typed refusal in Spanish and French as well as English', () => {
     const codes = [
       'assessment_unpublished',

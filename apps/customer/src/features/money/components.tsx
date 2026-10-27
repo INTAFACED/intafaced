@@ -27,10 +27,10 @@ export const amount = (value: string | null | undefined, asset: string) =>
 export const funds = (value: string | null | undefined, asset: string) =>
   currentPreferences().hideBalances && value != null ? `•••• ${asset}` : amount(value, asset);
 /** One date and time look across the app: "18 Oct, 01:05" in the viewer's zone, with a picked zone named. */
-export function date(value: string | null) {
+export function date(value: string | null, seconds = false) {
   if (!value) return copyText('components.none');
   if (!Number.isFinite(Date.parse(value))) return copyText('components.date.unavailable');
-  return stamp(value, currentPreferences().timeZone);
+  return stamp(value, currentPreferences().timeZone, Date.now(), seconds);
 }
 export const bps = (value: number) => `${value / 100}%`;
 export function useBankRead<K extends BankRead>(procedure: K, input: unknown, enabled = true) {
@@ -153,6 +153,12 @@ export type ActionSpec = {
   };
   submit?: string;
   unit?: string;
+  /**
+   * The bank answers this exact request sent again under its reference with the first send's result (a loan repayment's
+   * `eventId`), so after an unknown outcome the person may send it again and nothing is collected twice. Never with
+   * `stepUp`: its approval is spent by the first send.
+   */
+  resendSame?: boolean;
 };
 /** The original opened action's owner, API, mount and observed full-URL lifetime. */
 export type BankActionContext = { current: () => boolean };
@@ -217,6 +223,14 @@ export const endsField: ActionField = {
     Number.isFinite(Date.parse(value)) && Date.parse(value) > Date.now() ? null : copyText('components.choose.an.end.after.first.run'),
 };
 export const iso = (value: string) => new Date(value).toISOString();
+/** A one-off has no end date, and an end at or before the first run would never fire. */
+export function scheduleWindowIssue(input: Record<string, unknown>): string | null {
+  if (typeof input.endsAt !== 'string') return null;
+  if (input.cadence === 'once') return copyText('components.last.run.hint');
+  return typeof input.startsAt === 'string' && Date.parse(input.endsAt) <= Date.parse(input.startsAt)
+    ? copyText('components.choose.an.end.after.first.run')
+    : null;
+}
 const outputNames: Record<string, string> = {
   get ledgerTxId() {
     return copyText('components.ledger.transaction');
@@ -340,6 +354,9 @@ export function MutationDialog({
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   // The request that was last sent to the bank. A different request after it never reuses its reference.
   const lastSent = useRef<Record<string, unknown> | null>(null);
+  // This dialog's own journaled request while its outcome is unknown: sending it again sends exactly this, under this
+  // entry's reference, and clears the entry once the bank answers.
+  const journaled = useRef<{ reservation: PendingReservation; input: Record<string, unknown> } | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [stage, setStage] = useState<'form' | 'review' | 'sending' | 'outcome'>((spec.fields?.length ?? 0) ? 'form' : 'review');
   const [result, setResult] = useState<ApiResult<unknown> | null>(null);
@@ -440,6 +457,69 @@ export function MutationDialog({
     setReviewInput(input);
     setStage('review');
   }
+  // The request on the wire and what its reply settles to. A thrown or unreadable reply cannot prove the bank did nothing.
+  async function post(input: Record<string, unknown>, sent: Record<string, unknown>) {
+    let outcome: ApiResult<unknown>;
+    try {
+      outcome = spec.transferSpaces
+        ? await createMoneyClient(api).transfer(spec.transferSpaces, sent as TransferDraft)
+        : await api.mutate(
+            'bank',
+            spec.procedure,
+            sent,
+            bankWriteForReview(spec.procedure, input).refine((data) => spec.verifyOutcome?.(data, input) ?? true),
+          );
+    } catch {
+      outcome = { ok: false, reason: 'uncertain', message: copyText('components.the.original.bank.outcome.could.not.be') };
+    }
+    // Local transfer validation precedes HTTP dispatch. Auth refusals occur
+    // before the Bank handler. Other failures cannot prove non-settlement.
+    // A typed refusal the bank makes before it posts or changes anything is definitive too, and says so in plain words.
+    const settled = settleRefusal(outcome, spec.procedure);
+    outcome = settled.outcome;
+    const definitive =
+      outcome.ok || outcome.code === 'money.invalid_transfer' || outcome.status === 401 || outcome.status === 403 || settled.refusedFirst;
+    return { outcome, definitive };
+  }
+  /** What a settled reply leaves journaled: a definitive one clears its original, anything else stays guarded and says so. */
+  async function settle(outcome: ApiResult<unknown>, definitive: boolean, original: PendingReservation, live: () => boolean) {
+    if (definitive) {
+      try {
+        await clearPendingOutcome(original, live);
+        if (journaled.current?.reservation === original) journaled.current = null;
+      } catch {
+        if (live()) setClearFailure(true);
+      }
+      return outcome;
+    }
+    if (!outcome.ok && outcome.reason !== 'uncertain')
+      return {
+        ...outcome,
+        reason: 'uncertain' as const,
+        message: outcome.message + copyText('components.the.original.request.remains.guarded.until.its'),
+      };
+    return outcome;
+  }
+  /**
+   * One bank write at a time across this person's tabs. When the lock is held elsewhere, or the browser has none, nothing
+   * is sent, and `unsent` says how that reads for the caller.
+   */
+  function underWriteLock(
+    body: () => Promise<ApiResult<unknown>>,
+    unsent: (reason: 'error' | 'not_supported', message: string) => ApiResult<unknown>,
+  ): Promise<ApiResult<unknown>> {
+    if (!navigator.locks)
+      return Promise.resolve(unsent('not_supported', copyText('components.this.browser.cannot.coordinate.bank.requests.across')));
+    return navigator.locks.request(`bank-write:${userId}`, { ifAvailable: true }, (lock) =>
+      lock ? body() : Promise.resolve(unsent('error', copyText('components.another.tab.has.a.bank.request.running'))),
+    );
+  }
+  function finish(outcome: ApiResult<unknown>) {
+    sending.current = null;
+    setResult(outcome);
+    setStage('outcome');
+    if (outcome.ok) onDone();
+  }
   // The confirmation answers after an async factor check; it must reach this render's submit, not the one it began with.
   const latestSubmit = useRef<(stepUpApprovalId?: string | null) => Promise<void>>(async () => {});
   latestSubmit.current = (approval) => submit(approval);
@@ -487,6 +567,7 @@ export function MutationDialog({
       } catch {
         return { ok: false, reason: 'error', message: copyText('components.recovery.storage.is.unavailable.no.bank.request') };
       }
+      journaled.current = { reservation, input };
       onPendingChange();
       if (!currentRun()) {
         // This original has not dispatched. Remove only its just-saved marker;
@@ -498,66 +579,59 @@ export function MutationDialog({
         }
         return authoredRefusal('aborted', { key: 'accountChanged' });
       }
-      let outcome: ApiResult<unknown>;
-      try {
-        outcome = spec.transferSpaces
-          ? await createMoneyClient(api).transfer(spec.transferSpaces, sent as TransferDraft)
-          : await api.mutate(
-              'bank',
-              spec.procedure,
-              sent,
-              bankWriteForReview(spec.procedure, input).refine((data) => spec.verifyOutcome?.(data, input) ?? true),
-            );
-      } catch {
-        outcome = { ok: false, reason: 'uncertain', message: copyText('components.the.original.bank.outcome.could.not.be') };
-      }
+      const { outcome, definitive } = await post(input, sent);
       // Even a valid late reply cannot certify a departed private review.
       // Retain its original minimal journal rather than publish or clear it.
       if (!currentRun()) return authoredRefusal('uncertain', { key: 'accountChanged' });
-      // Local transfer validation precedes HTTP dispatch. Auth refusals occur
-      // before the Bank handler. Other failures cannot prove non-settlement.
-      // A typed refusal the bank makes before it posts or changes anything is definitive too, and says so in plain words.
-      const settled = settleRefusal(outcome, spec.procedure);
-      outcome = settled.outcome;
-      const definitive =
-        outcome.ok || outcome.code === 'money.invalid_transfer' || outcome.status === 401 || outcome.status === 403 || settled.refusedFirst;
-      if (definitive) {
-        try {
-          await clearPendingOutcome(reservation, currentRun);
-        } catch {
-          if (currentRun()) setClearFailure(true);
-        }
-      } else if (!outcome.ok && outcome.reason !== 'uncertain') {
-        outcome = {
-          ...outcome,
-          reason: 'uncertain',
-          message: outcome.message + copyText('components.the.original.request.remains.guarded.until.its'),
-        };
-      }
+      const said = await settle(outcome, definitive, reservation, currentRun);
       if (currentRun()) onPendingChange();
-      return outcome;
+      return said;
     };
-    const outcome = navigator.locks
-      ? await navigator.locks.request(`bank-write:${userId}`, { ifAvailable: true }, (lock) =>
-          lock
-            ? dispatch()
-            : Promise.resolve({
-                ok: false as const,
-                reason: 'error' as const,
-                message: copyText('components.another.tab.has.a.bank.request.running'),
-              }),
-        )
-      : {
-          ok: false as const,
-          reason: 'not_supported' as const,
-          message: copyText('components.this.browser.cannot.coordinate.bank.requests.across'),
-        };
+    const outcome = await underWriteLock(dispatch, (reason, message) => ({ ok: false, reason, message }));
     if (!currentRun()) return;
-    sending.current = null;
-    setResult(outcome);
     lastSent.current = input;
-    setStage('outcome');
-    if (outcome.ok) onDone();
+    finish(outcome);
+  }
+  /** The journaled original this dialog may send again: its own, the last one it sent, under the reference it shows. */
+  function resendable() {
+    const original = journaled.current;
+    return spec.resendSame &&
+      !spec.stepUp &&
+      original &&
+      original.reservation.reference === requestId &&
+      original.input === lastSent.current
+      ? original
+      : null;
+  }
+  /**
+   * After an unknown outcome, the same request again: the same body and reference, without a new journal entry or a
+   * fresh preflight (what it read has changed if the first send landed). The bank answers with the first send's result.
+   * Anything that stops it before it is sent leaves the outcome unknown, as it was.
+   */
+  async function resend() {
+    const original = resendable();
+    if (!original || !admitted() || stage !== 'outcome' || sending.current || !userId) return;
+    if (!result || result.ok || result.reason !== 'uncertain' || reviewed.current !== original.input) return;
+    const { reservation, input } = original;
+    const run = {};
+    sending.current = run;
+    setStage('sending');
+    const currentRun = () => current() && sending.current === run && reviewed.current === input;
+    const unknown = (message: string): ApiResult<unknown> => ({ ok: false, reason: 'uncertain', message });
+    const again = async (): Promise<ApiResult<unknown>> => {
+      if (!currentRun()) return authoredRefusal('uncertain', { key: 'accountChanged' });
+      // Any other original with an unknown outcome still pauses every bank write.
+      if (pendingOutcomes(userId).some((record) => record.reference !== reservation.reference))
+        return unknown(copyText('components.an.original.bank.request.still.requires.recovery'));
+      const { outcome, definitive } = await post(input, input);
+      if (!currentRun()) return authoredRefusal('uncertain', { key: 'accountChanged' });
+      const said = await settle(outcome, definitive, reservation, currentRun);
+      if (currentRun()) onPendingChange();
+      return said;
+    };
+    const outcome = await underWriteLock(again, (_reason, message) => unknown(message));
+    if (!currentRun()) return;
+    finish(outcome);
   }
   const terminalUnknown = result && !result.ok && result.reason === 'uncertain';
   const described =
@@ -693,7 +767,7 @@ export function MutationDialog({
                 {termsFor.blocked}
               </p>
             )}
-            <p className="money-reference">
+            <p data-testid="money-reference" className="money-reference">
               <Text k="components.request.reference" />
               {requestId}
             </p>
@@ -758,10 +832,20 @@ export function MutationDialog({
                 <p className="notice">
                   <Text k="components.this.request.may.have.completed.keep.this" />
                 </p>
-                <p className="money-reference">
+                <p data-testid="money-reference" className="money-reference">
                   <Text k="components.request.reference" />
                   {requestId}
                 </p>
+                {resendable() && (
+                  <>
+                    <p className="muted">
+                      <Text k="components.the.bank.answers.this.reference.with.its.first.result" />
+                    </p>
+                    <Button onClick={() => void resend()}>
+                      <Text k="components.send.the.same.request.again" />
+                    </Button>
+                  </>
+                )}
                 <Button
                   variant="secondary"
                   onClick={() => {

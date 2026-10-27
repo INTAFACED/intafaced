@@ -22,10 +22,10 @@
     z-index: 2;
     display: flex;
     flex-wrap: wrap;
-    gap: 4px 12px;
+    gap: var(--if-space-1) var(--if-space-3);
     max-width: calc(100% - 80px);
     pointer-events: none;
-    font: 400 12px/16px var(--if-font-ui);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
     font-variant-numeric: tabular-nums;
   }
@@ -41,7 +41,7 @@
   }
   .pc-ma {
     display: inline-flex;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .pc-ma-1 {
     color: var(--if-ma-1);

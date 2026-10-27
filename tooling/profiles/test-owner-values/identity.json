@@ -6,6 +6,26 @@
       "value": "standard:spot+convert+algo+copy,managed:spot,spot:spot",
       "note": "Which trading features a main account may turn on for each sub-account kind. Futures is refused in code until derivatives eligibility is readable."
     },
+    "IDENTITY_KYC_REQUIREMENTS_BY_LEVEL": {
+      "service": "identity",
+      "value": "{\"basic\":[\"legal_name\",\"date_of_birth\",\"residential_address\",\"id_document\"]}",
+      "note": "TEST: basic asks for four things and the higher levels publish nothing, so the ladder shows a published list and the unpublished state (J-identity-08 #1)."
+    },
+    "IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL": {
+      "service": "identity",
+      "value": "basic=24",
+      "note": "TEST: basic states a 24 hour review time and the higher levels state none, so the ladder shows both (J-identity-08 #1)."
+    },
+    "IDENTITY_MFA_RESET_WAIT_SECONDS": {
+      "service": "identity",
+      "value": "20",
+      "note": "A locked-out second-step reset completes twenty seconds after its mailed code is confirmed, so the journey sees the waiting time, a stop from a signed-in session, and a reset that completes (J-identity-05 #2, #3)."
+    },
+    "IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS": {
+      "service": "identity",
+      "value": "1800",
+      "note": "A recovery link a Support case mails works for thirty minutes, so the journey can send it, use it once and see a second use refused (J-identity-05 #5)."
+    },
     "IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS": {
       "service": "identity",
       "value": "86400",
@@ -20,6 +40,11 @@
       "service": "identity",
       "value": "[{\"id\":\"test-standard\",\"name\":\"TEST Standard\",\"terms\":{\"ratePercent\":\"0\",\"monthlyFee\":\"0\",\"feeAssetId\":\"USD\",\"dailyLimit\":\"1000\",\"clearingDays\":\"2\"}},{\"id\":\"test-plus\",\"name\":\"TEST Plus\",\"terms\":{\"ratePercent\":\"1.5\",\"monthlyFee\":\"4.99\",\"feeAssetId\":\"USD\",\"dailyLimit\":\"5000\",\"clearingDays\":\"1\"}},{\"id\":\"test-premier\",\"name\":\"TEST Premier\",\"terms\":{\"ratePercent\":\"2\",\"monthlyFee\":null,\"feeAssetId\":\"USD\",\"dailyLimit\":\"25000\",\"clearingDays\":\"0\"}}]",
       "note": "Three TEST account tiers; TEST Premier leaves its monthly fee blank so a tier that cannot be assigned is shown."
+    },
+    "IDENTITY_LIMIT_OVERRIDE_POLICY": {
+      "service": "identity",
+      "value": "{\"maxLifetimeHours\":\"48\",\"ceilings\":{\"withdrawal\":{\"USDT\":\"5000\",\"USDC\":\"5000\"}}}",
+      "note": "A TEST limit override policy: an override lasts at most 48 hours, and one above 5000 USDT or USDC needs the other founder (J-ops-console-04 #12)."
     },
     "IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS": {
       "service": "identity",
@@ -60,6 +85,71 @@
       "service": "identity",
       "value": "10",
       "note": "TEST: saved screens per account. Not an owner limit."
+    },
+    "IDENTITY_LOGIN_CODE_TTL_SECONDS": {
+      "service": "identity",
+      "value": "600",
+      "note": "A sign-in code lives ten minutes (J-identity-02 #3)."
+    },
+    "IDENTITY_LOGIN_CODE_MAX_ATTEMPTS": {
+      "service": "identity",
+      "value": "5",
+      "note": "Five wrong sign-in codes lock that code, so the journey can show the lock (J-identity-02 #3)."
+    },
+    "IDENTITY_LOGIN_CODE_RESEND_SECONDS": {
+      "service": "identity",
+      "value": "30",
+      "note": "A new sign-in code after 30 seconds."
+    },
+    "IDENTITY_LOGIN_CODE_REQUEST_MAX": {
+      "service": "identity",
+      "value": "10",
+      "note": "Ten sign-in codes per email or handle an hour."
+    },
+    "IDENTITY_LOGIN_CODE_REQUEST_WINDOW_SECONDS": {
+      "service": "identity",
+      "value": "3600",
+      "note": "The hour that IDENTITY_LOGIN_CODE_REQUEST_MAX counts in."
+    },
+    "IDENTITY_PASSWORD_RESET_TTL_SECONDS": {
+      "service": "identity",
+      "value": "600",
+      "note": "A password reset code lives ten minutes (J-identity-03)."
+    },
+    "IDENTITY_PASSWORD_RESET_MAX_ATTEMPTS": {
+      "service": "identity",
+      "value": "3",
+      "note": "Three wrong reset codes lock the reset, as the journey step says (J-identity-03 #2)."
+    },
+    "IDENTITY_PASSWORD_RESET_REQUEST_MAX": {
+      "service": "identity",
+      "value": "10",
+      "note": "Ten reset mails and ten username-recovery mails per address an hour (each kind is counted on its own)."
+    },
+    "IDENTITY_PASSWORD_RESET_REQUEST_WINDOW_SECONDS": {
+      "service": "identity",
+      "value": "3600",
+      "note": "The hour that IDENTITY_PASSWORD_RESET_REQUEST_MAX counts in."
+    },
+    "IDENTITY_NEW_DEVICE_CHECK": {
+      "service": "identity",
+      "value": "on",
+      "note": "TEST: the new-device check is on for the stack (J-identity-02 #5). Journeys, stack scripts and Try it sign in as one TEST browser key (tooling/scripts/local-test-device.mjs), so only a journey that means to use a new browser is asked."
+    },
+    "IDENTITY_NEW_DEVICE_TTL_SECONDS": {
+      "service": "identity",
+      "value": "600",
+      "note": "A new-device sign-in can be approved for ten minutes."
+    },
+    "IDENTITY_NEW_DEVICE_MAX_ATTEMPTS": {
+      "service": "identity",
+      "value": "5",
+      "note": "Five wrong device codes lock a new-device sign-in (J-identity-02 #5)."
+    },
+    "IDENTITY_BREACHED_PASSWORDS_FILE": {
+      "service": "identity",
+      "value": "../../tooling/profiles/test-owner-values/identity-breached-passwords.sha1",
+      "note": "A one-entry TEST breached-password list (TEST-breached-password-0001), so J-identity-03 #3 sees a breached password refused by name. A relative path is read from the services/svc-identity folder."
     }
   }
 }

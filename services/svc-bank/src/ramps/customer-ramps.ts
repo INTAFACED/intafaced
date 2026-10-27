@@ -17,7 +17,10 @@ import {
 import { resolvePayFiatRailId, type PayFiatRampPort } from './pay-fiat-adapter.js';
 import { assertFiatSocketWhenNone, refuseFiatRamp, type RampProgramme } from './rails.js';
 import type { OfframpFeeSource, OnrampMethod, OnrampPaymentInstruction, OnrampPaymentPort, OnrampQuoteSource } from './customer-ports.js';
+import type { OnrampStandIn } from './onramp-sim.js';
 import { ownershipOf, type Ownership, type WalletProofStore } from './wallet-ownership.js';
+import { assertSecurityLockOpen, type SecurityLockPort } from '../security-lock.js';
+import { openApprovalLinks, type ApprovalLinkStore } from './address-approval.js';
 
 /**
  * Customer-callable quote and destination procedures.
@@ -34,6 +37,8 @@ export interface CustomerRampDeps {
   programme: RampProgramme;
   payFiat: PayFiatRampPort;
   quotes: OnrampQuoteSource | null;
+  /** The TEST rate stand-in of the local stack (`ramp-sim`), for the asks it lists. Null everywhere else. */
+  standIn?: OnrampStandIn | null;
   payments: OnrampPaymentPort | null;
   fees: OfframpFeeSource | null;
   destinations: UserWithdrawDestinations;
@@ -41,6 +46,10 @@ export interface CustomerRampDeps {
   coolingRaw: () => string | undefined;
   /** Signed-message proofs that the customer controls a saved wallet (W-withdraw-17). */
   proofs: WalletProofStore;
+  /** The owner's security lock, read from identity per request (W-withdraw-09). */
+  securityLock: SecurityLockPort;
+  /** Emailed approval links for new addresses (W-withdraw-09), so the book can say a link is out and until when. */
+  approvalLinks: ApprovalLinkStore;
 }
 
 interface QuoteRow {
@@ -138,14 +147,21 @@ export interface DestinationView {
   network: string | null;
   tag: string | null;
   origin: 'legacy' | 'customer';
+  /** `pending`: a new address waiting for the customer's approval; its cooling-off starts when it is approved. */
   state: 'pending' | 'cooling' | 'active' | 'blocked' | 'archived';
   addedAt: string;
+  /** Null while the entry waits for approval (its cooling-off has not started) or while no period is published. */
   coolingOffEndsAt: string | null;
   coolingBlocker: 'bank.offramp_cooling_unset' | null;
   /** When the customer confirmed this address is not the saved entry it looks like (W-withdraw-03); null otherwise. */
   lookalikeConfirmedAt: string | null;
   /** Whether the customer has proved they control this wallet by signing a message (W-withdraw-17), from the latest proof. */
   ownership: Ownership;
+  /** When and how the customer approved this new address (W-withdraw-09); null until then and on older entries. */
+  approvedAt: string | null;
+  approvedBy: 'link' | 'device' | null;
+  /** While it waits: until when the newest emailed approval link works, or null when none is out. */
+  approvalLinkExpiresAt: string | null;
 }
 
 export async function quoteOnramp(
@@ -158,15 +174,21 @@ export async function quoteOnramp(
   if (!/^[A-Z]{2}$/.test(country)) {
     throw new BankError('On-ramp country must be two letters', 'bank.validation_failed');
   }
-  assertFiatSocketWhenNone(deps.programme);
-  await resolvePayFiatRailId(deps.payFiat, 'onramp');
-  if (!deps.quotes) {
+  // The TEST stand-in prices only what it lists, and only on a dev or test stack; every other ask needs a programme and a
+  // live pay rail as before. It is a rate source and nothing more: opening the payment still needs a partner.
+  const standIn = deps.standIn?.covers({ assetId: input.assetId, method: input.method, country }) ? deps.standIn : null;
+  if (!standIn) {
+    assertFiatSocketWhenNone(deps.programme);
+    await resolvePayFiatRailId(deps.payFiat, 'onramp');
+  }
+  const source = standIn?.quotes ?? deps.quotes;
+  if (!source) {
     throw new BankError(
       'On-ramp quote has no rate or fee source. socket.psp-partners is not a price. No pay amount, fee, or rate is invented.',
       'bank.onramp_rate_unset',
     );
   }
-  const terms = await deps.quotes.quote({
+  const terms = await source.quote({
     assetId: input.assetId,
     amount: formatAmount(amount),
     method: input.method,
@@ -366,7 +388,8 @@ export function maskRef(ref: string): string {
   return compact.length <= 12 ? `${compact.slice(0, 2)}…` : `${compact.slice(0, 6)}…${compact.slice(-4)}`;
 }
 
-function viewOf(row: WithdrawDestination, hours: number | null, ownership: Ownership): DestinationView {
+function viewOf(row: WithdrawDestination, hours: number | null, ownership: Ownership, linkExpiresAt: string | null): DestinationView {
+  const pending = row.state === 'pending';
   return {
     destinationId: row.destinationId,
     label: row.label,
@@ -379,24 +402,42 @@ function viewOf(row: WithdrawDestination, hours: number | null, ownership: Owner
     origin: row.origin,
     state: row.state,
     addedAt: row.addedAt.toISOString(),
-    coolingOffEndsAt: hours === null ? null : coolingOffEndsAt(hours, row.updatedAt).toISOString(),
+    coolingOffEndsAt: hours === null || pending ? null : coolingOffEndsAt(hours, row.updatedAt).toISOString(),
     coolingBlocker: hours === null ? ('bank.offramp_cooling_unset' as const) : null,
     lookalikeConfirmedAt: row.lookalikeConfirmedAt ? row.lookalikeConfirmedAt.toISOString() : null,
     ownership,
+    approvedAt: row.approvedAt ? row.approvedAt.toISOString() : null,
+    approvedBy: row.approvedBy,
+    approvalLinkExpiresAt: pending ? linkExpiresAt : null,
   };
 }
 
 /** One entry's view with its ownership read from the latest proof. */
-async function viewWithOwnership(deps: CustomerRampDeps, userId: string, row: WithdrawDestination): Promise<DestinationView> {
-  const latest = await deps.proofs.latest(userId);
-  return viewOf(row, readOfframpCoolingHours(deps.coolingRaw()), ownershipOf(latest.get(row.destinationId), new Date(), row.ref));
+export async function viewWithOwnership(deps: CustomerRampDeps, userId: string, row: WithdrawDestination): Promise<DestinationView> {
+  // Only an entry still waiting has an open link to show.
+  const [latest, links] = await Promise.all([
+    deps.proofs.latest(userId),
+    row.state === 'pending' ? openApprovalLinks({ links: deps.approvalLinks }, userId) : new Map<string, string>(),
+  ]);
+  return viewOf(
+    row,
+    readOfframpCoolingHours(deps.coolingRaw()),
+    ownershipOf(latest.get(row.destinationId), new Date(), row.ref),
+    links.get(row.destinationId) ?? null,
+  );
 }
 
 export async function listDestinations(deps: CustomerRampDeps, userId: string): Promise<DestinationView[]> {
   const hours = readOfframpCoolingHours(deps.coolingRaw());
-  const [rows, latest] = await Promise.all([deps.destinations.list(userId), deps.proofs.latest(userId)]);
+  const [rows, latest, links] = await Promise.all([
+    deps.destinations.list(userId),
+    deps.proofs.latest(userId),
+    openApprovalLinks({ links: deps.approvalLinks }, userId),
+  ]);
   const now = new Date();
-  return rows.map((row) => viewOf(row, hours, ownershipOf(latest.get(row.destinationId), now, row.ref)));
+  return rows.map((row) =>
+    viewOf(row, hours, ownershipOf(latest.get(row.destinationId), now, row.ref), links.get(row.destinationId) ?? null),
+  );
 }
 
 /** What the add form learns before it asks for a confirmation code: whether the bank would take this address as typed. */
@@ -409,6 +450,8 @@ export type DestinationCheck = {
 
 /** Read-only: the same address rules `saveDestination` applies, answered as data so the form can warn before step-up. */
 export async function checkDestination(deps: CustomerRampDeps, input: { userId: string; ref: string }): Promise<DestinationCheck> {
+  // Asked first, so a locked account is told before the form asks for a confirmation code; `save` asks again.
+  await assertSecurityLockOpen(deps.securityLock, input.userId, 'adding a withdrawal address');
   const ref = input.ref.trim();
   if (!isEvmAddressRef(ref)) return { address: 'invalid', lookalike: null };
   const near = lookalikeOf(ref, await deps.destinations.list(input.userId));
@@ -422,14 +465,29 @@ export async function saveDestination(
   deps: CustomerRampDeps,
   input: SaveDestinationInput & { confirmLookalike?: boolean },
 ): Promise<DestinationView> {
+  // A new entry is saved `pending`, recording the saving session: it waits for the customer's approval (W-withdraw-09).
   // The network must be one the registry lists for the asset before the entry is stored; nothing is saved otherwise.
   // Checked on the entry as the store will keep it (asset upper-case, network lower-case), the form registry ids take.
   // The look-alike record is this function's alone: whatever a caller passed is dropped, and only `near` sets it.
   const { confirmLookalike, lookalikeOf: _caller, ...book } = input;
   const entry = assertBookEntry(book);
   await assertWithdrawNetwork(deps.networks, entry.assetId, entry.network);
+  const saved = await deps.destinations.list(book.userId);
+  // The same entry again is a replay of a save already made, answered as before. Anything new is not added while the
+  // owner's security lock holds (W-withdraw-09), read from identity before anything is stored.
+  const same = saved.find(
+    (row) =>
+      row.origin === 'customer' &&
+      row.kind === 'crypto' &&
+      row.assetId === entry.assetId &&
+      row.network === entry.network &&
+      row.ref.toLowerCase() === entry.ref.toLowerCase() &&
+      (row.tag ?? '') === (entry.tag ?? ''),
+  );
+  if (same) return viewWithOwnership(deps, book.userId, same);
+  await assertSecurityLockOpen(deps.securityLock, book.userId, 'adding a withdrawal address');
   // An address that shows like a saved one but is not is saved only when the customer has said they checked it.
-  const near = lookalikeOf(entry.ref, await deps.destinations.list(book.userId));
+  const near = lookalikeOf(entry.ref, saved);
   if (near && confirmLookalike !== true) {
     throw new BankError(
       `This address starts and ends like your saved address ${near.label ? `"${near.label}"` : maskRef(near.ref)} but is a different address. Check every character before you save it`,
@@ -451,7 +509,50 @@ export function removeDestination(
   deps: CustomerRampDeps,
   input: { userId: string; destinationId: string; idempotencyKey: string },
 ): Promise<{ destinationId: string; removed: true }> {
+  // Not stopped by the security lock: removing an address only takes a way out away, as locking itself does.
   return deps.destinations.remove(input);
+}
+
+/**
+ * Whether money may be sent to one saved address now, and if not, what stands in the way, first reason first: the
+ * owner's security lock (`locked`, with when it ends once an unlock is asked for), an entry the book holds as blocked or
+ * archived (`blocked`), a new address the customer has not approved yet (`approval_pending`, with until when the newest
+ * emailed link works, if one is out), no published cooling-off period (`cooling_unset`), or a cooling-off that has not
+ * ended (`cooling`, with its end; null when the published period runs past any date). The lock, approval and cooling-off
+ * rules the bank's send path applies (`offramp`); the answer is read-only and changes nothing.
+ */
+export type DestinationReadiness = {
+  destinationId: string;
+  state: 'ready' | 'locked' | 'blocked' | 'approval_pending' | 'cooling_unset' | 'cooling';
+  coolingOffEndsAt: string | null;
+  lockUnlocksAt: string | null;
+  approvalLinkExpiresAt: string | null;
+};
+
+export async function destinationReadiness(
+  deps: CustomerRampDeps,
+  input: { userId: string; destinationId: string },
+  now: Date = new Date(),
+): Promise<DestinationReadiness> {
+  const [rows, lock] = await Promise.all([deps.destinations.list(input.userId), deps.securityLock.read(input.userId)]);
+  const row = rows.find((entry) => entry.destinationId === input.destinationId);
+  if (!row) {
+    throw new BankError(`User ${input.userId} has no saved address ${input.destinationId}`, 'bank.withdraw_destination_missing');
+  }
+  const base = { destinationId: row.destinationId, coolingOffEndsAt: null, lockUnlocksAt: null, approvalLinkExpiresAt: null };
+  if (lock.locked) return { ...base, state: 'locked', lockUnlocksAt: lock.unlocksAt };
+  if (row.state === 'blocked' || row.state === 'archived') return { ...base, state: 'blocked' };
+  if (row.state === 'pending') {
+    const links = await openApprovalLinks({ links: deps.approvalLinks, now: () => now }, input.userId);
+    return { ...base, state: 'approval_pending', approvalLinkExpiresAt: links.get(row.destinationId) ?? null };
+  }
+  const hours = readOfframpCoolingHours(deps.coolingRaw());
+  if (hours === null) return { ...base, state: 'cooling_unset' };
+  const ends = coolingOffEndsAt(hours, row.updatedAt);
+  // A period too long for any date never ends; the send path refuses it as still cooling, and so does this.
+  if (!Number.isFinite(ends.getTime())) return { ...base, state: 'cooling' };
+  if (now.getTime() < ends.getTime()) return { ...base, state: 'cooling', coolingOffEndsAt: ends.toISOString() };
+  return { ...base, state: 'ready', coolingOffEndsAt: ends.toISOString() };
 }
 
 async function loadQuote(deps: CustomerRampDeps, userId: string, quoteId: string): Promise<QuoteRow> {

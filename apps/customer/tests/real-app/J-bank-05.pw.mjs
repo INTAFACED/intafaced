@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { EDGE, ORIGIN, ROOT, fund, journeyState, toUnits } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fund, journeyState, toUnits, signOutBrowser } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
@@ -43,7 +43,7 @@ async function sender(page) {
   const { secret, step } = await addAuthenticator(page, totp);
   run.reset({ sender: who, secret, step });
   await page.goto('about:blank');
-  await page.context().clearCookies();
+  await signOutBrowser(page.context());
   return who;
 }
 
@@ -64,7 +64,7 @@ async function usdt() {
   const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
     method: 'POST',
     headers: { origin: ORIGIN, 'content-type': 'application/json' },
-    body: JSON.stringify({ identifier: who.email, password: who.password, totpCode: await code() }),
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password, totpCode: await code() }),
   }).then((r) => r.json());
   const token = login?.result?.data?.accessToken;
   if (!token) throw new Error(`sign-in for ${who.email} refused`);

@@ -50,21 +50,45 @@ export function localMailLine(message: LocalMailMessage): string {
 function localMailBody(message: LocalMailMessage): string {
   const purpose = message.purpose ?? 'password-reset';
   const email = message.email.replace(/\s+/g, '');
+  if (purpose === 'password-changed') {
+    return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=password-changed\n`;
+  }
+  if (purpose === 'mfa-reset-started') {
+    // The notice every contact gets while a second-step reset waits; `until` is when it would complete.
+    return `LOCAL-TEST purpose=${purpose} email=${email} until=${message.expiresAt.toISOString()} notice=mfa-reset-started\n`;
+  }
+  if (purpose === 'factor-changed') {
+    // What changed rides in `detail` (totp_added, passkey_removed, ...); never a secret or a credential id.
+    const change = (message.detail ?? '').replace(/[^a-z_]/g, '');
+    return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=factor-changed change=${change}\n`;
+  }
+  if (purpose === 'support-recovery') {
+    // The one-time link Support's case sends (I-signin-sessions-24). Only the person's own mailbox ever holds it.
+    return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} link=recover-account?token=${encodeURIComponent(message.code)}\n`;
+  }
+  if (purpose === 'mfa-reset-cancelled' || purpose === 'mfa-reset-completed' || purpose === 'support-recovery-used') {
+    return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=${purpose}\n`;
+  }
   if (purpose === 'email-change-notice') {
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=address-changed\n`;
   }
-  if (purpose === 'reset-no-account' || purpose === 'handle-recovery-no-account') {
+  if (purpose === 'reset-no-account' || purpose === 'handle-recovery-no-account' || purpose === 'login-no-account') {
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=no-account\n`;
   }
   if (purpose === 'signup-existing') {
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=already-registered\n`;
   }
-  if (purpose === 'signup-code') {
+  if (purpose === 'signup-code' || purpose === 'login-code' || purpose === 'new-device-code' || purpose === 'mfa-reset-code') {
     // A six-digit code the person types, not a link.
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} code=${message.code.replace(/\D/g, '')}\n`;
   }
   if (purpose === 'handle-recovery') {
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} handle=${(message.handle ?? '').replace(/\s+/g, '')}\n`;
+  }
+  if (purpose === 'withdraw-address-approval') {
+    // The detail is a plain line; spaces become underscores so the line stays one field per word.
+    const detail = (message.detail ?? '').replace(/[^A-Za-z0-9.:,()_-]+/g, '_');
+    return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} detail=${detail} link=approveAddress?token=${encodeURIComponent(message.code)}\n`;
   }
   const link =
     purpose === 'email-confirm'

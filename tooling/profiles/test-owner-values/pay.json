@@ -45,6 +45,41 @@
       "service": "pay",
       "value": "https://terms.example/TEST-merchant-terms-1",
       "note": "Placeholder address for the TEST terms. Not a real document."
+    },
+    "PAY_KYB_APPLICATION_DUE_DAYS": {
+      "service": "pay",
+      "value": "30",
+      "note": "TEST days a business has to finish its verification application. Not an owner decision."
+    },
+    "PAY_PRODUCT_IMAGE_MAX_BYTES": {
+      "service": "pay",
+      "value": "500000",
+      "note": "TEST largest product image, in bytes (500 KB). Not an owner decision."
+    },
+    "PAY_CHECKOUT_LOGO_MAX_BYTES": {
+      "service": "pay",
+      "value": "100000",
+      "note": "TEST largest hosted checkout logo, in bytes (100 KB). Not an owner decision."
+    },
+    "PAY_CHECKOUT_RISK_BAND": {
+      "service": "pay",
+      "value": "low",
+      "note": "TEST operator risk band the hosted checkout routes with. Not an owner decision."
+    },
+    "PAY_CHECKOUT_SUCCESS_RATES": {
+      "service": "pay",
+      "value": "crypto-native:0.9,bank-transfer-sandbox:0.9",
+      "note": "TEST success fraction smart routing reads for the crypto rail and the TEST bank. Not an owner decision or a measured rate."
+    },
+    "PAY_CHECKOUT_RAILS": {
+      "service": "pay",
+      "value": "crypto-native:crypto,bank-transfer-sandbox:bank_transfer",
+      "note": "TEST: hosted checkout takes crypto and pushed transfers to the TEST bank, which exists only on the local stack."
+    },
+    "PAY_PAYER_NAME_MATCH_RULE": {
+      "service": "pay",
+      "value": "exact_normalised",
+      "note": "TEST rule a bank transfer's sending name is checked under (RC-merchant-09). Not an owner decision; blank holds every bank transfer."
     }
   }
 }

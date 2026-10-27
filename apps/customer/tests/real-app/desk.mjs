@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { expect } from '@playwright/test';
-import { api, bestPrices, fromUnits, fund, signUpInBrowser, toUnits, tool } from './stack.mjs';
+import { api, bestPrices, fromUnits, fund, signUpInBrowser, toUnits, tool, signOutBrowser } from './stack.mjs';
 
 // What a person does on the spot desk in the running app, shared by the cex-spot journeys. Each journey keeps its own
 // run file; these helpers take the account they act as.
@@ -11,6 +11,17 @@ export async function signIn(page, who) {
   await page.fill('input[name=password]', who.password);
   await page.getByRole('button', { name: /^sign in$/i }).click();
   await expect(page).not.toHaveURL(/\/login/);
+}
+
+/**
+ * This browser has chosen Pro, as a person who switched once would have. The app opens in Simple for everyone (owner
+ * decision 2026-10-26); a step whose text is about what Pro shows says so with this. A choice the page saves later stays.
+ */
+export async function chosePro(page) {
+  await page.addInitScript((key) => {
+    const saved = JSON.parse(localStorage.getItem(key) ?? '{}');
+    if (!('layoutMode' in saved)) localStorage.setItem(key, JSON.stringify({ ...saved, layoutMode: 'pro' }));
+  }, 'intafaced.customer.view.v1');
 }
 
 /** A fresh TEST account, signed up in the browser (details, then the code the stack mails to its outbox file), with a
@@ -36,7 +47,7 @@ export async function verify(page, who) {
   const status = tool('local-test-gates.mjs', 'status');
   const accounts = JSON.parse(status.slice(status.indexOf('{'))).accounts;
   expect(accounts.find((a) => a.handle === who.handle)?.tiers).toContain('full');
-  await page.context().clearCookies();
+  await signOutBrowser(page.context());
 }
 
 /** A journey's starting point: signed up, verified, and funded with TEST USDT through the real ledger. Signed out after. */
@@ -51,8 +62,25 @@ export const deskPath = (symbol = 'BTC/USDT') => `/trade/spot/${symbol.replace('
 
 export async function openDesk(page, who, symbol = 'BTC/USDT') {
   await signIn(page, who);
-  await page.goto(deskPath(symbol));
-  await expect(page.getByRole('button', { name: `Buy ${symbol.split('/')[0]}` })).toBeVisible();
+  // What the market list answered, named in the failure: a desk that never opens shows only "Couldn't load".
+  const reads = [];
+  const isList = (url) => new URL(url).pathname === '/api/v1/markets';
+  // Each read names the page it was made on: a read the sign-in's own page started and goto() cut off is not the desk's.
+  const on = () => new URL(page.url()).pathname;
+  const answered = (res) => isList(res.url()) && reads.push(`${on()} ${res.status()}`);
+  const failed = (req) => isList(req.url()) && reads.push(`${on()} failed (${req.failure()?.errorText ?? 'no answer'})`);
+  page.on('response', answered);
+  page.on('requestfailed', failed);
+  try {
+    await page.goto(deskPath(symbol));
+    await expect(page.getByRole('button', { name: `Buy ${symbol.split('/')[0]}` })).toBeVisible();
+  } catch (err) {
+    err.message += `\nmarket list reads: ${reads.join(', ') || 'none'}`;
+    throw err;
+  } finally {
+    page.off('response', answered);
+    page.off('requestfailed', failed);
+  }
 }
 
 /** The review sheet the desk shows before an order is sent ("Review your buy" / "Review your sell"). */

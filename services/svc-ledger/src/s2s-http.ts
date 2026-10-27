@@ -2,6 +2,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { isWriteBlockCode } from './ledger/write-block.js';
 import {
   LEDGER_FEE_REVENUE_WINDOW_INVALID,
+  LEDGER_HOLDINGS_HISTORY_TOO_LARGE,
+  LEDGER_HOLDINGS_HISTORY_WINDOW_INVALID,
   DEFAULT_SERVICE_BODY_BIND_MODE,
   retainRawBody,
   verifyServiceRequest,
@@ -27,6 +29,7 @@ import { composePortfolioView } from '@intafaced/portfolio-view';
 import { handleCustody } from './ledger/custody-adapters.js';
 import { handleFinanceClose } from './ledger/finance-close.js';
 import { parseFeeRevenueInput, serializeFeeRevenue } from './ledger/fee-revenue.js';
+import { parseHoldingsHistoryInput, serializeHoldingsHistory } from './ledger/holdings-history.js';
 import { parseHistoryDoorInput, parseHistoryPageInput, parseHistoryRange, serializeHistoryPage } from './ledger/history.js';
 import { handleReportExport } from './ledger/report-export.js';
 import { handleResilience } from './ledger/resilience-gate.js';
@@ -42,6 +45,8 @@ import {
 } from './caller-binding.js';
 import { LEDGER_DOOR_CALLERS, type LedgerDoor } from './door-callers.js';
 import { RECIPE_REQUIRED_CODE, assertKnownRecipePost } from './recipe-gate.js';
+import { MAKER_REBATE_UNBOUND_CODE, assertMakerRebateBound } from './maker-rebate-binding.js';
+import { CAMPAIGN_LOCK_UNBOUND_CODE, assertCampaignLockBound } from './campaign-lock-binding.js';
 import type { LedgerService } from './service.js';
 import { userCopy } from './user-copy.js';
 import { REGISTRY_REFUSALS } from './ledger/supported-assets.js';
@@ -116,8 +121,12 @@ export function httpError(err: unknown): { status: number; body: Record<string, 
       err.code === 'ledger.history_range_too_large' ||
       err.code === 'ledger.history_page_socket' ||
       err.code === LEDGER_FEE_REVENUE_WINDOW_INVALID ||
+      err.code === LEDGER_HOLDINGS_HISTORY_WINDOW_INVALID ||
+      err.code === LEDGER_HOLDINGS_HISTORY_TOO_LARGE ||
       err.code === 'ledger.history_cursor_invalid' ||
-      err.code === RECIPE_REQUIRED_CODE)
+      err.code === RECIPE_REQUIRED_CODE ||
+      err.code === MAKER_REBATE_UNBOUND_CODE ||
+      err.code === CAMPAIGN_LOCK_UNBOUND_CODE)
   ) {
     return { status: 400, body: { message: err.message, code: err.code } };
   }
@@ -154,6 +163,8 @@ export async function handleS2sPost(ledger: LedgerService, body: unknown, caller
   // that accept a network post pass the verified caller in.
   if (caller) applyCallerBinding(caller, input, binding);
   assertKnownRecipePost(input);
+  await assertMakerRebateBound(ledger, input);
+  await assertCampaignLockBound(ledger, input);
   const entries: EntryInput[] = input.entries.map((e) => ({
     account: e.account,
     direction: e.direction,
@@ -244,6 +255,16 @@ export async function handleS2sHistory(ledger: LedgerService, body: unknown) {
  */
 export async function handleS2sHistoryPage(ledger: LedgerService, body: unknown) {
   return serializeHistoryPage(await ledger.historyPage(parseHistoryPageInput(body)));
+}
+
+/**
+ * What one customer or Space holds now and how it moved since `from`, per asset, reason and bucket (J-portfolio-05).
+ * A read for svc-bank's value-over-time and change-in-value views. The owner comes from the body, which only an
+ * authenticated service can send.
+ */
+export async function handleS2sHoldingsHistory(ledger: LedgerService, body: unknown) {
+  const input = parseHoldingsHistoryInput(body);
+  return serializeHoldingsHistory(input, await ledger.holdingsHistory(input));
 }
 
 /**
@@ -538,6 +559,8 @@ export function registerS2sHttp(app: FastifyInstance, ledger: LedgerService, int
   app.post('/trpc/history', guarded('history', handleS2sHistory));
   // Paged sibling, same `guarded` door (U5a).
   app.post('/trpc/historyPage', guarded('historyPage', handleS2sHistoryPage));
+  // What one owner holds now and how it moved since a point in time (J-portfolio-05). Same `guarded` door.
+  app.post('/trpc/holdingsHistory', guarded('holdingsHistory', handleS2sHoldingsHistory));
   // The asset and network registry (W-balances-05). Reads, same `guarded` door.
   app.post(
     '/trpc/assetsList',

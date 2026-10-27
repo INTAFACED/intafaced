@@ -202,7 +202,10 @@ export async function runStep(ctx: FounderCallContext, body: StepBody, execute: 
 
   if (step === 'execute' && request && body.approvalId && body.operationId) {
     const result = await execute(request, { approvalId: body.approvalId, operationId: body.operationId });
-    return result.ok ? { ok: true, step, detail: result.detail } : { ok: false, step, refusal: result.refusal };
+    if (!result.ok) return { ok: false, step, refusal: result.refusal };
+    return result.document
+      ? { ok: true, step, detail: result.detail, document: result.document }
+      : { ok: true, step, detail: result.detail };
   }
 
   return { ok: false, step, refusal: explainRefusal('admin.request_invalid', 400) };

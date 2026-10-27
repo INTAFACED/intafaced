@@ -13,6 +13,7 @@ import type { Offer, TakeQuote, Trade } from '../schemas';
 import { p2pDepth } from './p2p-depth-copy';
 import { TraderName, useTraders } from './Trader';
 import { P2PEligibilityPanel } from './Eligibility';
+import { TakeSettlementNotice } from './Settlement';
 import { StepUpConfirm } from '../../money/StepUpConfirm';
 import type { StepUpBegin } from '../../account/security-step-up';
 import {
@@ -55,8 +56,12 @@ export function takeFailureText(t: CopyT, kind: TakeFailure, context: 'quote' | 
       return t('failLimitsUnset');
     case 'methodRetired':
       return t('failMethodRetired');
+    case 'nonInstantRefused':
+      return t('failNonInstant');
     case 'buyingPaused':
       return t('failBuyingPausedPlain');
+    case 'shortBalance':
+      return t('failShortBalancePlain');
     case 'ownOffer':
       return t('failOwnOffer');
     case 'unavailable':
@@ -121,7 +126,10 @@ function limitText(
   if (failure.code === 'p2p.verification_limit_currency') return t('failVerificationCurrency');
   const limit = failure.p2pLimit;
   if (!limit) return null;
-  const { cap, min, max, remaining, currency, until, reason, windowHours } = limit;
+  const { cap, min, max, remaining, currency, until, reason, windowHours, available, shortBy } = limit;
+  if (kind === 'shortBalance') {
+    return available && shortBy ? t('failShortBalance', { available: displayAmount(available), shortBy: displayAmount(shortBy) }) : null;
+  }
   if (kind === 'buyingPaused') {
     return cap && windowHours && until ? t('failBuyingPaused', { cap, hours: windowHours, time: limitTime(until) }) : null;
   }
@@ -613,7 +621,7 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
         data-testid="take-placed"
       >
         <h3>{t('takeTitle')}</h3>
-        <div className="failure" role="status" data-why={placed.why}>
+        <div data-testid="failure" className="failure" role="status" data-why={placed.why}>
           <p>
             {placed.why === 'earlier'
               ? t('takeFound')
@@ -723,6 +731,7 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
             ))}
           </select>
         </label>
+        <TakeSettlementNotice offer={offer} method={method} />
         <div className="p2p-quote" aria-live="polite" data-testid="take-quote-area">
           <h4>{t('takeQuoteTitle')}</h4>
           {shown === null ? (

@@ -53,6 +53,24 @@ export const TAX_BASIS_OVERRIDE_ABSENT = 'tax.basis_override_absent' as const;
 export const TAX_CUSTOMER_BASIS_EXPORT_UNSET = 'tax.customer_basis_export_unset' as const;
 /** A lot whose cost already comes from our fills or a market price is not overwritten. */
 export const PORTFOLIO_BASIS_OVERRIDE_NOT_ALLOWED = 'portfolio.basis_override_not_allowed' as const;
+/** A lot the customer picked for a sale was not open when the sale happened, so the sale's method decided instead. */
+export const TAX_LOT_PICK_UNUSABLE = 'tax.lot_pick_unusable' as const;
+/** A lot pick names a sale or a lot that is not in the caller's book, or a lot that was not open at the sale. */
+export const TAX_LOT_PICK_INVALID = 'tax.lot_pick_invalid' as const;
+/** The saved choices could not be read for this answer; the product default was used and the book says so. */
+export const TAX_CHOICES_UNAVAILABLE = 'tax.choices_unavailable' as const;
+/** svc-bank could not say which named spaces are the customer's: moves to and from spaces are not followed in this answer. */
+export const TAX_OWN_SPACES_UNAVAILABLE = 'tax.own_spaces_unavailable' as const;
+/** BANK_URL is unset: the lot book does not ask which spaces are the customer's and follows the main account only. */
+export const TAX_OWN_SPACES_UNWIRED = 'tax.own_spaces_unwired' as const;
+/** A profit and loss range that ends before it starts, or ends in the future. */
+export const TAX_PNL_RANGE_INVALID = 'tax.pnl_range_invalid' as const;
+/** A range that starts too long ago for one read of candles to price it. */
+export const TAX_PNL_RANGE_TOO_LONG = 'tax.pnl_range_too_long' as const;
+/** A breakdown whose parts do not add up to the period: refused rather than drawn. */
+export const TAX_PNL_BREAKDOWN_MISMATCH = 'tax.pnl_breakdown_mismatch' as const;
+/** The candles a chart needs could not be read: no chart is drawn from part of them. */
+export const TAX_PNL_PRICES_UNAVAILABLE = 'tax.pnl_prices_unavailable' as const;
 /** The realised effect of a missing basis. A sentence, never a made-up number. */
 export const UNKNOWN_SHARE = 'unknown share' as const;
 
@@ -78,6 +96,15 @@ export type TaxRefuseCode =
   | typeof TAX_PRICE_AT_TIME_UNAVAILABLE
   | typeof TAX_BASIS_STORE_UNWIRED
   | typeof TAX_DATABASE_POOL_MAX_UNSET
+  | typeof TAX_LOT_PICK_UNUSABLE
+  | typeof TAX_LOT_PICK_INVALID
+  | typeof TAX_CHOICES_UNAVAILABLE
+  | typeof TAX_OWN_SPACES_UNAVAILABLE
+  | typeof TAX_OWN_SPACES_UNWIRED
+  | typeof TAX_PNL_RANGE_INVALID
+  | typeof TAX_PNL_RANGE_TOO_LONG
+  | typeof TAX_PNL_BREAKDOWN_MISMATCH
+  | typeof TAX_PNL_PRICES_UNAVAILABLE
   | typeof TAX_BASIS_PRICE_UNSET
   | typeof TAX_BASIS_PRICE_INVALID
   | typeof TAX_BASIS_DATE_UNSET

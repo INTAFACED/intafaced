@@ -26,6 +26,24 @@ const messages = {
   invalidName: 'Use 1 to 64 characters, with no control characters.',
   invalidCode: 'Enter the 6-digit code, or confirm with a passkey.',
   refresh: 'Refresh',
+  usedFor: 'Kept for: {list}',
+  everyAction: 'nothing in particular',
+  signin: 'Signing in',
+  money_out: 'Moving money out',
+  security_change: 'Security changes',
+  choose: 'Choose what it is for',
+  chooseLabel: 'Choose what passkey {id} is for',
+  purposesLegend: 'Keep this passkey for',
+  purposesHint:
+    'For an action with a passkey kept for it, only that passkey is offered. Otherwise the passkeys kept for nothing in particular are, and when every passkey is kept for something else, any of them works. Tick none to keep it for nothing in particular.',
+  purposesSaved: 'Saved what this passkey is for.',
+  secondStepTitle: 'A passkey after your password',
+  secondStepOn: 'On: signing in with your password also asks for one of your passkeys.',
+  secondStepOff: 'Off: your password signs you in, with your authenticator code when one is set.',
+  secondStepNeedsPasskey: 'Add a passkey first, then you can ask for it after your password.',
+  turnOn: 'Ask for a passkey',
+  turnOff: 'Stop asking for a passkey',
+  secondStepSaved: 'Saved how you sign in.',
 } as const;
 
 export const passkeyNamesCopy = defineCopy('account.passkey-names', messages);

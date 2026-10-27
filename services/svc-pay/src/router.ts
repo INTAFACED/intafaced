@@ -1,4 +1,5 @@
-import { WITHDRAWAL_STATUSES } from './withdrawals/status.js';
+import { WITHDRAWAL_STATUSES, isCancellable, shownStatus } from './withdrawals/status.js';
+import { INTERNAL_RAIL } from './withdrawals/internal.js';
 import { ELIGIBILITY_REASONS } from './withdrawals/eligibility.js';
 import { WithdrawalQuoteError, withdrawalQuoteToTrpcError } from './withdrawals/quotes/errors.js';
 import { WithdrawalApprovalError, withdrawalApprovalToTrpcError } from './withdrawals/approvals/errors.js';
@@ -40,6 +41,7 @@ import {
   scopedProcedure,
   publicProcedure,
   TRPCError,
+  withdrawalAllowanceSchema,
 } from '@intafaced/contracts';
 import { merchantPortalExtensions } from './merchant-portal/router.js';
 import type { MerchantTermsConfig } from './merchant-portal/terms.js';
@@ -69,7 +71,7 @@ import type { UserMoneyService, WithdrawalRecord } from './user-money-service.js
 import type { RailRegistry } from './rails/registry.js';
 import { RAIL_CAPABILITIES, RAIL_MODES } from './rails/rail-adapter.js';
 import { PublicCheckoutUnavailable, SandboxRailRefusal } from './rails/posture.js';
-import { PayGuardRefusal } from './seams/guards.js';
+import { guardRefusalToTrpc, PayGuardRefusal } from './seams/guards.js';
 import { isInteractivePrincipal, seesFullPricing } from './merchant-ops/roles.js';
 import {
   loadDestinationHoldSeconds,
@@ -197,6 +199,8 @@ const checkoutSessionView = z.object({
   method: z.string(),
   expiresAt: z.string().datetime({ offset: true }),
   instruction: z.object({ reference: z.string(), amount: amountSchema, currency: assetIdSchema }).nullable(),
+  /** RC-merchant-09: the bank transfer arrived and is held for a payer-name review; nothing more should be sent. */
+  heldForReview: z.boolean().optional(),
 });
 
 const depositView = z.object({
@@ -223,6 +227,13 @@ const withdrawalView = z.object({
   failureCode: z.string().nullable(),
   status: z.enum(['pending', 'held', 'sent', 'failed']),
   createdAt: z.string().datetime({ offset: true }),
+  /**
+   * The row in the customer vocabulary (W-withdraw-07): a held row reads `held` while nothing was sent, `dispatching` while a
+   * send's outcome is unknown, and `broadcast` once it left. A read that did not join the dispatch journal says `held`.
+   */
+  customerStatus: z.enum(WITHDRAWAL_STATUSES),
+  /** Whether `withdrawal.cancel` would cancel it now. False whenever the answer is not proven. */
+  cancellable: z.boolean(),
 });
 
 type PaymentViewOut = z.infer<typeof paymentView>;
@@ -466,6 +477,8 @@ export function createPayRouter(
             geoCountry: z.string().max(8).optional(),
             /** Method (`crypto`/`card`), never a rail adapter id. */
             method: z.string().max(32).optional(),
+            /** RC-merchant-09: the name on the bank account a bank transfer comes from. Checked by the service. */
+            payerName: z.string().max(1000).optional(),
           }),
         )
         .output(z.object({ sessionToken: z.string(), session: checkoutSessionView }))
@@ -477,6 +490,7 @@ export function createPayRouter(
               assetId: input.assetId,
               geoCountry: input.geoCountry,
               method: input.method,
+              payerName: input.payerName,
             });
             return { sessionToken, session };
           }),
@@ -839,6 +853,7 @@ export function createPayRouter(
               profileId: input.profileId,
               amount: input.amount === undefined ? undefined : parseAmount(input.amount),
               currency: input.currency,
+              ...(input.priceId !== undefined ? { priceId: input.priceId } : {}),
               // `undefined`, NOT `null`. This line used to pass `null` when the
               // caller omitted an expiry, which the service reads as "never
               // expires" and now refuses outright — a payment link is a
@@ -2146,38 +2161,63 @@ export function createPayRouter(
               clientRef: input.clientRef,
               destination: input.destination,
             });
+            const request = {
+              // From the token. There is no `userId` input, so there is no way
+              // to withdraw from an account that is not the caller's — an
+              // input the caller cannot supply cannot be forged.
+              userId: ctx.principal.userId,
+              assetId: input.assetId,
+              amount: parseAmount(input.amount),
+              destination: input.destination,
+              clientRef: input.clientRef,
+              ...sandboxKeyEnv(ctx.principal),
+            };
+            // W-withdraw-14: an address that is an account on the platform (another person's, the caller's own, or one that
+            // cannot take a transfer now) takes the internal branch whatever rail was named, so it never goes out on a chain
+            // to come straight back. `railId: 'internal'` asks for that branch outright and refuses an outside address.
+            const internal =
+              input.railId === INTERNAL_RAIL ||
+              (await userMoney.platformDestination(ctx.principal.userId, input.destination)).kind !== 'external';
             return toWithdrawalOut(
-              await userMoney.withdraw({
-                // From the token. There is no `userId` input, so there is no way
-                // to withdraw from an account that is not the caller's — an
-                // input the caller cannot supply cannot be forged.
-                userId: ctx.principal.userId,
-                assetId: input.assetId,
-                amount: parseAmount(input.amount),
-                rail: input.railId,
-                destination: input.destination,
-                clientRef: input.clientRef,
-                ...sandboxKeyEnv(ctx.principal),
-              }),
+              internal ? await userMoney.withdrawInternal(request) : await userMoney.withdraw({ ...request, rail: input.railId }),
             );
           }),
         ),
 
       /**
+       * Where an address leads before anything is sent (W-withdraw-14): `internal` (another account on the platform: the
+       * send settles inside, at once, with no network fee), `self` (one of the caller's own deposit addresses: refused as a
+       * send to yourself), `unavailable` (a platform address that cannot take a transfer now: `expired`, or plain `unavailable`
+       * for a frozen address or one held by more than one account, so a freeze is never disclosed) or `external`. It never
+       * names the other account.
+       */
+      destination: scopedProcedure('trade:read')
+        .input(z.object({ destination: z.object({ kind: z.string().min(1).max(32), ref: z.string().min(1).max(256) }).strict() }).strict())
+        .output(
+          z.discriminatedUnion('kind', [
+            z.object({ kind: z.enum(['internal', 'self', 'external']) }),
+            z.object({ kind: z.literal('unavailable'), reason: z.enum(['expired', 'unavailable']) }),
+          ]),
+        )
+        .query(({ ctx, input }) => wrap(async () => userMoney.platformDestination(ctx.principal.userId, input.destination))),
+
+      /**
        * Cancel one of the caller's own withdrawals before anything is sent (W-withdraw-07). `trade:write`, not
-       * `trade:withdraw`: a cancel only puts the caller's own funds back and needs no step-up. Only a withdrawal with no
-       * send attempt on record can be cancelled; `sent`, `held` and `failed` answer `pay.withdrawal_not_cancellable`, and
-       * cancelling twice returns the same cancelled record. The id is checked against the caller, so another account's
-       * id reads as `pay.withdrawal_not_found`.
+       * `trade:withdraw`: a cancel only puts the caller's own funds back and needs no step-up. A requested withdrawal with
+       * no send on record, or a held one whose dispatch journal proves nothing was sent, is cancelled and its hold (if any)
+       * goes back once. A send whose outcome is unknown, a broadcast, a sent and a failed withdrawal answer
+       * `pay.withdrawal_not_cancellable`. Cancelling twice returns the same cancelled record. `holdReleased` says whether a
+       * hold went back (`null`: the ledger could not say on a repeat). The id is checked against the caller, so another
+       * account's id reads as `pay.withdrawal_not_found`.
        */
       cancel: scopedProcedure('trade:write', { module: 'ledger' })
         .input(z.object({ withdrawalId: z.string().guid() }).strict())
-        .output(withdrawalView.extend({ customerStatus: z.literal('canceled') }))
+        .output(withdrawalView.extend({ customerStatus: z.literal('canceled'), holdReleased: z.boolean().nullable() }))
         .mutation(({ ctx, input }) =>
-          wrap(async () => ({
-            ...toWithdrawalOut(await userMoney.cancelWithdrawal({ userId: ctx.principal.userId, withdrawalId: input.withdrawalId })),
-            customerStatus: 'canceled' as const,
-          })),
+          wrap(async () => {
+            const canceled = await userMoney.cancelWithdrawal({ userId: ctx.principal.userId, withdrawalId: input.withdrawalId });
+            return { ...toWithdrawalOut(canceled), customerStatus: 'canceled' as const, holdReleased: canceled.holdReleased };
+          }),
         ),
 
       /**
@@ -2253,28 +2293,19 @@ export function createPayRouter(
 
       /**
        * What the caller may still withdraw of one asset (D-148): the owner-set per-transaction and rolling 24 hour
-       * figures for their KYC tier, what the window has used, and what is left. `trade:read` like the other
+       * figures for their KYC tier (`base`), a founder's override in force with its end time (`override`), the figures in
+       * force, what the window has used, and what is left. `trade:read` like the other
        * withdrawal reads. Refuses with the guard's own codes (`pay.guard_withdrawal_limit_unset`, ...): a blank limit
        * is never shown as room. The guard still decides at submit, under its lock.
        */
       limits: scopedProcedure('trade:read')
         .input(z.object({ assetId: assetIdSchema }))
-        .output(
-          z.object({
-            tier: z.string(),
-            assetId: assetIdSchema,
-            perTx: amountSchema,
-            rolling24h: amountSchema,
-            used24h: amountSchema,
-            remaining: z.object({ perTx: amountSchema, rolling24h: amountSchema }),
-            maxNow: amountSchema,
-          }),
-        )
+        .output(withdrawalAllowanceSchema)
         .query(({ ctx, input }) => wrap(async () => userMoney.withdrawalAllowance(ctx.principal.userId, input.assetId))),
 
       /**
-       * The caller's own withdrawals in the customer status vocabulary (W-withdraw-06), filtered by asset, status, id
-       * and time and paged by a cursor. `limit` is required (blank refuses with `pay.withdrawal_list_limit_unset`):
+       * The caller's own withdrawals in the customer status vocabulary (W-withdraw-06; a held row split by its dispatch
+       * journal, as `withdrawal.get` shows it), filtered by asset, status, id and time and paged by a cursor. `limit` is required (blank refuses with `pay.withdrawal_list_limit_unset`):
        * there is no default page size. A status no stored value can mean yet returns an empty page, never a wrong row.
        */
       history: scopedProcedure('trade:read')
@@ -2296,6 +2327,7 @@ export function createPayRouter(
             items: z.array(
               z.object({
                 id: z.string().guid(),
+                userId: z.string().guid(),
                 assetId: assetIdSchema,
                 amount: amountSchema,
                 rail: z.string(),
@@ -2408,6 +2440,8 @@ function toWithdrawalOut(row: WithdrawalRecord): WithdrawalViewOut {
     failureCode: row.failureCode,
     status: row.status,
     createdAt: row.createdAt.toISOString(),
+    customerStatus: shownStatus(row.status, row.failureCode, row.journal),
+    cancellable: isCancellable(row.status, row.failureCode, row.journal, row.dispatchJournaled),
   };
 }
 
@@ -2475,9 +2509,7 @@ export function toTrpcError(err: unknown): unknown {
    * PayError default below (BAD_REQUEST reads as "fix your request"). The
    * message is the code only: composeGuards already stripped any internals.
    */
-  if (err instanceof PayGuardRefusal) {
-    return new TRPCError({ code: err.kind === 'unavailable' ? 'SERVICE_UNAVAILABLE' : 'FORBIDDEN', message: err.code, cause: err });
-  }
+  if (err instanceof PayGuardRefusal) return guardRefusalToTrpc(err);
   // Payout of a merchant who already has a rolling reserve. NOT_IMPLEMENTED, message is the code.
   if (err instanceof ControlError) return controlToTrpcError(err);
   if (err instanceof WithdrawalQuoteError) return withdrawalQuoteToTrpcError(err);
@@ -2538,6 +2570,7 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.settlement_not_found':
       case 'pay.refund_not_found':
       case 'pay.checkout_session_not_found':
+      case 'pay.price_not_found':
         return 'NOT_FOUND' as const;
       case 'pay.link_expired':
       case 'pay.checkout_session_expired':
@@ -2559,8 +2592,13 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.statement_busy':
         return 'TOO_MANY_REQUESTS' as const;
       case 'pay.routing_input_missing':
+      case 'pay.checkout_method_required':
+      case 'pay.checkout_method_not_offered':
         return 'BAD_REQUEST' as const;
+      case 'pay.checkout_no_method':
+        return 'SERVICE_UNAVAILABLE' as const;
       case 'pay.routing_no_rail':
+      case 'pay.routing_approval_rate_unset':
       case 'pay.rail_outcome_unknown':
       case 'pay.ledger_outcome_unknown':
       case 'pay.settlement_book_unrecognised':
@@ -2600,6 +2638,8 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.chargeback_shortfall_unfunded':
       case 'pay.chargeback_ledger_failed':
       case 'pay.chargeback_outcome_busy':
+      case 'pay.price_archived':
+      case 'pay.product_archived':
         return 'PRECONDITION_FAILED' as const;
       case 'pay.invalid_transition':
       case 'pay.payout_recovery_conflict':
@@ -2622,6 +2662,7 @@ export function toTrpcError(err: unknown): unknown {
         return 'CONFLICT' as const;
       case 'pay.withdrawal_history_unwired':
       case 'pay.withdrawal_eligibility_unwired':
+      case 'pay.internal_settlement_unwired':
         return 'PRECONDITION_FAILED' as const;
       case 'pay.withdrawal_not_found':
       case 'pay.wallet_not_found':
@@ -2651,6 +2692,10 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.kyb_operator_required':
       case 'pay.kyb_required':
       case 'pay.wallet_forbidden':
+      case 'pay.category_prohibited':
+      case 'pay.reserve_terms_unset':
+      case 'pay.category_rail_refused':
+      case 'pay.category_not_chosen':
         return 'FORBIDDEN' as const;
       case 'pay.kyb_invalid':
       case 'pay.kyb_identity_changed':

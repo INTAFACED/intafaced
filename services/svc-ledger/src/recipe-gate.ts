@@ -53,6 +53,7 @@ const S2 = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const S3 = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
 const AMT = parseAmount('10');
 const QUOTE = parseAmount('100');
+const CAMPAIGN_REWARD_KEY = `task:${S1}:${U}:once`;
 
 const VARIABLE_REASON_RECIPES: ReadonlySet<RecipeName> = new Set(['feeCharge', 'rewardPay']);
 
@@ -779,6 +780,43 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       name: 'payReceivedReturn',
       post: recipes.payReceivedReturn({ holdId: 'rh1', userId: U, payerUserId: U2, assetId: 'USDT', amount: AMT, heldAmount: AMT }),
     },
+    { name: 'staffHoldPlace', post: recipes.staffHoldPlace({ holdNo: 1, userId: U, assetId: 'USDT', amount: AMT }) },
+    {
+      name: 'staffHoldRelease',
+      post: recipes.staffHoldRelease({
+        holdNo: 1,
+        releaseNo: 1,
+        cause: { kind: 'expiry', expiresAt: '2026-10-24T15:00:00Z' },
+        userId: U,
+        assetId: 'USDT',
+        amount: AMT,
+      }),
+    },
+    {
+      name: 'staffHoldConfirm',
+      post: recipes.staffHoldConfirm({
+        holdNo: 1,
+        attempt: 1,
+        approvalId: 'ap1',
+        confirmAccount: 'held-funds',
+        heldRemaining: AMT,
+        userId: U,
+        assetId: 'USDT',
+        amount: AMT,
+      }),
+    },
+    {
+      name: 'campaignRewardLock',
+      post: recipes.campaignRewardLock({ rewardKey: CAMPAIGN_REWARD_KEY, userId: U, assetId: 'USDT', amount: AMT }),
+    },
+    {
+      name: 'campaignRewardUnlock',
+      post: recipes.campaignRewardUnlock({ rewardKey: CAMPAIGN_REWARD_KEY, userId: U, assetId: 'USDT', amount: AMT }),
+    },
+    {
+      name: 'campaignRewardForfeit',
+      post: recipes.campaignRewardForfeit({ rewardKey: CAMPAIGN_REWARD_KEY, userId: U, assetId: 'USDT', amount: AMT }),
+    },
     {
       name: 'bankTransferReversal',
       post: recipes.bankTransferReversal({
@@ -877,6 +915,10 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
         assetId: 'USDT',
         difference: AMT,
       }),
+    },
+    {
+      name: 'tradeFillMakerRebate',
+      post: recipes.tradeFillMakerRebate({ ...fill, fillId: 'f-rebate', makerFeeBps: 0, takerFeeBps: 10, makerRebateBps: 5 }),
     },
     {
       name: 'deposit',

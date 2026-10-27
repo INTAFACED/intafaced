@@ -58,6 +58,44 @@ describe('pay custody deposit contract', () => {
     expect(parse({ ...halted, extra: 1 })).toBe(false);
   });
 
+  it('an extra address carries its expiry and the first never does; a reply names both, and an older reply still parses', () => {
+    const parse = (over: object) => payCustodyDepositAddressInputSchema.safeParse({ ...input, ...over }).success;
+    expect(parse({})).toBe(true);
+    expect(parse({ addressIndex: 0 })).toBe(true);
+    expect(parse({ addressIndex: 2, expiresAt: '2026-11-01T00:00:00.000Z' })).toBe(true);
+    expect(parse({ addressIndex: 2 })).toBe(false);
+    expect(parse({ expiresAt: '2026-11-01T00:00:00.000Z' })).toBe(false);
+    expect(parse({ addressIndex: 0, expiresAt: '2026-11-01T00:00:00.000Z' })).toBe(false);
+    expect(parse({ addressIndex: 10000, expiresAt: '2026-11-01T00:00:00.000Z' })).toBe(false);
+    expect(parse({ addressIndex: 1.5, expiresAt: '2026-11-01T00:00:00.000Z' })).toBe(false);
+    expect(parse({ addressIndex: 1, expiresAt: 'next week' })).toBe(false);
+    const reply = (address: object) => payCustodyDepositAddressReplySchema.safeParse({ state: 'issued', address }).success;
+    expect(reply(issued.address)).toBe(true);
+    expect(reply({ ...issued.address, addressIndex: 3, expiresAt: '2026-11-01T00:00:00.000Z' })).toBe(true);
+    expect(reply({ ...issued.address, addressIndex: 0, expiresAt: null })).toBe(true);
+    expect(reply({ ...issued.address, addressIndex: -1, expiresAt: null })).toBe(false);
+  });
+
+  it('names a deposit held for release at an expired address', () => {
+    const record = {
+      id: 'r2',
+      assetId: 'USDT',
+      networkId: 'TEST-net',
+      address: '0xabc',
+      txHash: '0xdef',
+      outputIndex: 0,
+      amount: '5',
+      confirmations: 0,
+      confirmationsRequired: null,
+      status: 'held_for_release',
+      reason: 'address_expired',
+      minimumDeposit: null,
+      detectedAt: '2026-10-21T00:00:00.000Z',
+      creditedAt: null,
+    };
+    expect(payCustodyDepositRecordSchema.safeParse(record).success).toBe(true);
+  });
+
   it('names the reorg reasons so a reversed record parses', () => {
     const record = {
       id: 'r1',

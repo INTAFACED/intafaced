@@ -4,6 +4,7 @@ import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { founderChangeHash } from '@intafaced/contracts/founder-change-hash';
 import {
+  IDENTITY_ARCHIVE_ACTION_TYPE,
   IDENTITY_CLOSE_ACTION_TYPE,
   IDENTITY_REOPEN_ACTION_TYPE,
   IDENTITY_TIER_MOVE_ACTION_TYPE,
@@ -29,6 +30,16 @@ import {
   accountClosureLookupInputSchema,
   accountClosureHistoryInputSchema,
   accountClosureResultSchema,
+  accountArchiveInputSchema,
+  accountArchiveLookupInputSchema,
+  accountArchiveHistoryInputSchema,
+  accountArchiveResultSchema,
+  accountArchiveProposalsSchema,
+  type AccountArchiveInput,
+  type AccountArchiveProposals,
+  type AccountArchiveReasonCode,
+  type AccountArchiveResult,
+  type AccountArchiveState,
   accountTierMoveInputSchema,
   accountTierLookupInputSchema,
   accountTierHistoryInputSchema,
@@ -54,7 +65,13 @@ import {
 
 export class FounderControlError extends Error {
   constructor(
-    readonly code: 'identity.controls_unconfigured' | 'identity.controls_unavailable' | 'operator.denied' | 'mfa.required',
+    readonly code:
+      | 'identity.controls_unconfigured'
+      | 'identity.controls_unavailable'
+      | 'identity.details_unconfigured'
+      | 'identity.details_unreadable'
+      | 'operator.denied'
+      | 'mfa.required',
     message: string,
   ) {
     super(message);
@@ -70,10 +87,11 @@ export function parseFounderPair(first: unknown, second: unknown): readonly [str
   return [a.data.toLowerCase(), b.data.toLowerCase()].sort() as [string, string];
 }
 
-type UserRow = {
+export type UserRow = {
   id: string;
   status: 'active' | 'frozen' | 'closed';
   identity_control_version: string;
+  archived_at: Date | null;
   totp_enrolled_at: Date | null;
   totp_secret: string | null;
   webauthn_creds: unknown;
@@ -260,6 +278,22 @@ export function identityClosurePayloadHash(input: {
   });
 }
 
+/**
+ * Canonical payload hash for `identity.account_archive`: the account, the reason code and the reason the approver read.
+ * The version is bound on the approval row, not in the hash.
+ */
+export function identityArchivePayloadHash(input: {
+  readonly userId: string;
+  readonly reasonCode: AccountArchiveReasonCode;
+  readonly reason: string;
+}): string {
+  return identityActionPayloadHash(input.userId.toLowerCase(), {
+    action: 'archive',
+    reasonCode: input.reasonCode,
+    reason: input.reason.trim(),
+  });
+}
+
 /** The closure checks a close runs first (svc-bank, svc-trade, svc-p2p): open products and balances block it. */
 export type StaffClosureChecks = (input: {
   readonly userId: string;
@@ -271,6 +305,18 @@ type ClosureRefusal = Extract<AccountClosureResult, { outcome: 'refused' }>['cod
 type UnfreezeApproval =
   | { readonly approverId: string; readonly refusal: null }
   | { readonly approverId?: undefined; readonly refusal: 'restriction_approval_mismatch' | 'restriction_approval_consumed' };
+
+/** What a stored identity approval must be bound to before it is spent. */
+export interface IdentityApprovalWant {
+  readonly approvalId: string;
+  readonly actionType: string;
+  readonly payloadHash: string;
+  readonly targetId: string;
+  readonly expectedVersion: string;
+  readonly actorId: string;
+  readonly requestId: string;
+  readonly now: Date;
+}
 
 export class FounderControls {
   private configured = false;
@@ -298,6 +344,13 @@ export class FounderControls {
   }
 
   private accountTiers: readonly AccountTier[] | undefined;
+
+  private dormancyDays: number | null = null;
+
+  /** The `IDENTITY_DORMANCY_DAYS` owner setting, parsed. Unset, no customer is proposed for archive and the console says so. */
+  useDormancyDays(days: number | null): void {
+    this.dormancyDays = days;
+  }
 
   /** The `IDENTITY_ACCOUNT_TIERS` owner setting, parsed. Unset, the tier list says so and every tier move refuses. */
   useAccountTiers(tiers: readonly AccountTier[] | undefined): void {
@@ -339,6 +392,60 @@ export class FounderControls {
     }
   }
 
+  /**
+   * One step of a founder door kept in its own file (customer details): the founder controls' lock, then the live-founder
+   * check of `context`, with the target's row locked too, in one read-committed transaction. `fn` decides what a refusal
+   * means; storage errors come back as typed founder control errors.
+   */
+  async founderStep<T>(
+    context: Context,
+    targetId: string,
+    fn: (
+      tx: Sql,
+      founder: {
+        readonly refusal: 'operator.denied' | 'mfa.required' | null;
+        readonly actorId: string | null;
+        readonly target: UserRow | undefined;
+        readonly isFounderRecord: boolean;
+      },
+    ) => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await transaction(
+        this.sql,
+        async (tx) => {
+          await this.lock(tx);
+          const actor = await this.actor(tx, context, targetId);
+          return fn(tx, {
+            refusal: actor.refusal,
+            actorId: context.principal?.userId.toLowerCase() ?? null,
+            target: actor.users.find((row) => row.id === targetId),
+            isFounderRecord: this.pair?.includes(targetId) ?? false,
+          });
+        },
+        { isolation: 'read committed' },
+      );
+    } catch (error) {
+      if (error instanceof FounderControlError) throw error;
+      throw storageError(error);
+    }
+  }
+
+  /**
+   * Spends a founder-level identity approval for a desk outside this class (the limit overrides), on that desk's
+   * transaction: bound to the action, account, payload and version, given by a different founder who is still a live
+   * founder now, and consumed once.
+   */
+  async spendFounderApproval(
+    tx: Sql,
+    want: IdentityApprovalWant,
+  ): Promise<{ readonly approverId: string; readonly refusal: null } | { readonly refusal: 'mismatch' | 'consumed' }> {
+    const bound = await this.consumeIdentityApproval(tx, want, false);
+    if (bound.refusal) return bound;
+    if (!(await this.isLiveFounder(bound.approverId, tx))) return { refusal: 'mismatch' };
+    return this.consumeIdentityApproval(tx, want);
+  }
+
   private async actor(
     tx: Sql,
     context: Context,
@@ -363,7 +470,7 @@ export class FounderControls {
     >`SELECT id, user_id, revoked, mfa, expires_at FROM sessions WHERE user_id IN ${tx(ids)} ORDER BY id FOR UPDATE`;
     const users = await tx<
       UserRow[]
-    >`SELECT id, status, identity_control_version::text, totp_enrolled_at, totp_secret, webauthn_creds FROM users WHERE id IN ${tx(ids)} ORDER BY id FOR UPDATE`;
+    >`SELECT id, status, identity_control_version::text, archived_at, totp_enrolled_at, totp_secret, webauthn_creds FROM users WHERE id IN ${tx(ids)} ORDER BY id FOR UPDATE`;
     const [entitlement] = await tx<
       EntitlementRow[]
     >`SELECT user_id, enabled, version::text, changed_at FROM founder_operator_entitlements WHERE user_id = ${principal.userId} FOR UPDATE`;
@@ -383,7 +490,7 @@ export class FounderControls {
     tx: Sql,
     requestId: string,
     actorId: string | null,
-    kind: 'identity' | 'entitlement' | 'bootstrap' | 'closure' | 'tier',
+    kind: 'identity' | 'entitlement' | 'bootstrap' | 'closure' | 'tier' | 'archive',
     hash: string,
     result: unknown,
     auditId = randomUUID(),
@@ -440,7 +547,8 @@ export class FounderControls {
               | 'request.conflict'
               | 'restriction_no_four_eyes'
               | 'restriction_approval_mismatch'
-              | 'restriction_approval_consumed',
+              | 'restriction_approval_consumed'
+              | 'identity.account_archived',
             current: AccountControlState | null = null,
           ) => accountControlResultSchema.parse({ ...common, outcome: 'refused', changed: false, code, current });
           let approverId: string | null = null;
@@ -465,7 +573,9 @@ export class FounderControls {
                 version: user.identity_control_version,
                 restricted: user.status !== 'active',
               };
-              if (before.version !== input.expectedVersion)
+              // An archived record is read-only: no freeze, no unfreeze (J-ops-console-04 #10).
+              if (user.archived_at) result = refused('identity.account_archived', before);
+              else if (before.version !== input.expectedVersion)
                 result = accountControlResultSchema.parse({
                   ...common,
                   outcome: 'conflict',
@@ -709,16 +819,7 @@ export class FounderControls {
    */
   private async consumeIdentityApproval(
     tx: Sql,
-    want: {
-      readonly approvalId: string;
-      readonly actionType: string;
-      readonly payloadHash: string;
-      readonly targetId: string;
-      readonly expectedVersion: string;
-      readonly actorId: string;
-      readonly requestId: string;
-      readonly now: Date;
-    },
+    want: IdentityApprovalWant,
     spend = true,
   ): Promise<{ readonly approverId: string; readonly refusal: null } | { readonly refusal: 'mismatch' | 'consumed' }> {
     const approval = await sqlGetApprovalForUpdate(tx, want.approvalId);
@@ -1049,6 +1150,8 @@ export class FounderControls {
           const user = actor.users.find((row) => row.id === targetId);
           if (!user) return finish(refused('target.not_found'), true);
           const before = (await this.closureStateOf(tx, targetId))!;
+          // An archived record stays closed for good (J-ops-console-04 #10).
+          if (user.archived_at) return finish(refused('identity.account_archived', before), true);
           if (before.version !== input.expectedVersion)
             return finish(
               accountClosureResultSchema.parse({
@@ -1165,6 +1268,233 @@ export class FounderControls {
       if (error instanceof FounderControlError) throw error;
       throw storageError(error);
     }
+  }
+
+  /**
+   * Staff archive of one customer record (J-ops-console-04 #10). A live founder runs it with a four-eyes approval a second
+   * person gave, spent here. Only a closed account can be archived; founders and the actor's own record cannot. It sets
+   * `archived_at` and the reason code once and never clears them: afterwards freeze, unfreeze and reopen refuse
+   * `identity.account_archived`. Each attempt, refused ones included, is in the archive history; a retry of the same
+   * request id, or a new run of the same founder's spent approval, returns the stored answer.
+   */
+  async archive(context: Context, raw: AccountArchiveInput): Promise<AccountArchiveResult> {
+    const input = accountArchiveInputSchema.parse(raw);
+    input.requestId = input.requestId.toLowerCase();
+    input.userId = input.userId.toLowerCase();
+    const targetId = input.userId;
+    const actorId = context.principal?.userId.toLowerCase() ?? null;
+    const hash = fingerprint(actorId, { kind: 'archive', ...input });
+    try {
+      return await transaction(
+        this.sql,
+        async (tx) => {
+          await this.lock(tx);
+          const actor = await this.actor(tx, context, targetId);
+          const [clock] = await tx<Array<{ at: Date }>>`SELECT clock_timestamp() AS at`;
+          const auditId = randomUUID();
+          const common = {
+            auditId,
+            requestId: input.requestId,
+            userId: targetId,
+            reasonCode: input.reasonCode,
+            reason: input.reason,
+            occurredAt: clock!.at.toISOString(),
+          };
+          type ArchiveRefusal = Extract<AccountArchiveResult, { outcome: 'refused' }>['code'];
+          const refused = (code: ArchiveRefusal, current: AccountArchiveState | null = null) =>
+            accountArchiveResultSchema.parse({ ...common, outcome: 'refused', changed: false, actorUserId: actorId, code, current });
+          const finish = async (result: AccountArchiveResult, store: boolean) => {
+            await this.audit(tx, input.requestId, actorId, 'archive', hash, result, auditId, {
+              fourEyes: result.outcome === 'changed',
+              ...(input.approvalId ? { approvalId: input.approvalId } : {}),
+            });
+            if (store)
+              await tx`INSERT INTO founder_control_requests (request_id, actor_id, fingerprint, audit_id) VALUES (${input.requestId}, ${actorId!}, ${hash}, ${auditId})`;
+            return result;
+          };
+          if (actor.refusal) return finish(refused(actor.refusal), false);
+          const previous = await this.replay(tx, input.requestId, hash);
+          if (previous && !previous.conflict) return accountArchiveResultSchema.parse(previous.result);
+          if (previous) return finish(refused('request.conflict'), false);
+          const user = actor.users.find((row) => row.id === targetId);
+          if (!user) return finish(refused('target.not_found'), true);
+          const before = (await this.archiveStateOf(tx, targetId))!;
+          if (before.archivedAt !== null) {
+            // A run whose answer was lost: the same founder, approval and request archived it already, so answer as then.
+            const [done] = input.approvalId
+              ? await tx<Array<{ result: unknown }>>`
+                  SELECT result FROM founder_control_audit
+                   WHERE kind = 'archive' AND actor_id = ${actorId!} AND detail->>'approvalId' = ${input.approvalId}
+                     AND result->>'outcome' = 'changed' AND result->>'userId' = ${targetId}
+                   LIMIT 1`
+              : [];
+            const stored = done ? accountArchiveResultSchema.parse(done.result) : null;
+            if (stored && stored.reasonCode === input.reasonCode && stored.reason === input.reason) return stored;
+            return finish(refused('identity.account_archived', before), true);
+          }
+          // Refusals no later version can lift come before the version check, so a stale request is not sent round again.
+          if (this.pair?.includes(targetId)) return finish(refused('identity.archive_founder_forbidden', before), true);
+          if (targetId === actorId) return finish(refused('identity.archive_self_forbidden', before), true);
+          if (before.version !== input.expectedVersion)
+            return finish(
+              accountArchiveResultSchema.parse({
+                ...common,
+                outcome: 'conflict',
+                changed: false,
+                actorUserId: actorId,
+                code: 'restriction.version_conflict',
+                current: before,
+              }),
+              true,
+            );
+          if (before.status !== 'closed') return finish(refused('identity.archive_blocked_open_account', before), true);
+          if (!input.approvalId) return finish(refused('identity.archive_requires_approver', before), true);
+          const want = {
+            approvalId: input.approvalId,
+            actionType: IDENTITY_ARCHIVE_ACTION_TYPE,
+            payloadHash: identityArchivePayloadHash(input),
+            targetId,
+            expectedVersion: input.expectedVersion,
+            actorId: actorId!,
+            requestId: input.requestId,
+            now: clock!.at,
+          };
+          const approvalRefusal = (refusal: 'mismatch' | 'consumed') =>
+            refused(refusal === 'mismatch' ? 'identity.archive_approval_mismatch' : 'identity.archive_approval_consumed', before);
+          const bound = await this.consumeIdentityApproval(tx, want, false);
+          if (bound.refusal) return finish(approvalRefusal(bound.refusal), true);
+          // Founder-level: an archive cannot be undone, so the approver must be the other live founder, not any operator.
+          if (!(await this.isLiveFounder(bound.approverId, tx))) return finish(approvalRefusal('mismatch'), true);
+          const spent = await this.consumeIdentityApproval(tx, want);
+          if (spent.refusal) return finish(approvalRefusal(spent.refusal), true);
+          await tx`UPDATE users SET archived_at = ${clock!.at}, archive_reason = ${input.reasonCode}, identity_control_version = identity_control_version + 1, updated_at = now() WHERE id = ${targetId}`;
+          const after = (await this.archiveStateOf(tx, targetId))!;
+          return finish(
+            accountArchiveResultSchema.parse({
+              ...common,
+              outcome: 'changed',
+              changed: true,
+              actorUserId: actorId,
+              approverUserId: spent.approverId,
+              before,
+              after,
+            }),
+            true,
+          );
+        },
+        { isolation: 'read committed' },
+      );
+    } catch (error) {
+      if (error instanceof FounderControlError) throw error;
+      throw storageError(error);
+    }
+  }
+
+  async archiveState(context: Context, raw: z.infer<typeof accountArchiveLookupInputSchema>): Promise<AccountArchiveState | null> {
+    const input = accountArchiveLookupInputSchema.parse(raw);
+    const userId = input.userId.toLowerCase();
+    try {
+      return await transaction(
+        this.sql,
+        async (tx) => {
+          await this.lock(tx);
+          const actor = await this.actor(tx, context);
+          if (actor.refusal) throw new FounderControlError(actor.refusal, 'Live founder authority is required');
+          return this.archiveStateOf(tx, userId);
+        },
+        { isolation: 'read committed' },
+      );
+    } catch (error) {
+      if (error instanceof FounderControlError) throw error;
+      throw storageError(error);
+    }
+  }
+
+  async archiveHistory(context: Context, raw: z.infer<typeof accountArchiveHistoryInputSchema>): Promise<AccountArchiveResult[]> {
+    const input = accountArchiveHistoryInputSchema.parse(raw);
+    const userId = input.userId.toLowerCase();
+    try {
+      return await transaction(
+        this.sql,
+        async (tx) => {
+          await this.lock(tx);
+          const actor = await this.actor(tx, context);
+          if (actor.refusal) throw new FounderControlError(actor.refusal, 'Live founder authority is required');
+          const rows = await tx<
+            Array<{ result: unknown }>
+          >`SELECT result FROM founder_control_audit WHERE kind = 'archive' AND result->>'userId' = ${userId} ORDER BY created_at DESC, audit_id DESC LIMIT ${input.limit}`;
+          return rows.map((row) => accountArchiveResultSchema.parse(row.result));
+        },
+        { isolation: 'read committed' },
+      );
+    } catch (error) {
+      if (error instanceof FounderControlError) throw error;
+      throw storageError(error);
+    }
+  }
+
+  /**
+   * Customers to propose for archive: closed, not archived, no change to the record and no new session for the owner's
+   * dormancy period. Read when asked, never acted on: a person archives each with a second approver. With the period unset
+   * the answer is `dormancyDays: null` and no proposal.
+   */
+  async archiveProposals(context: Context): Promise<AccountArchiveProposals> {
+    try {
+      return await transaction(
+        this.sql,
+        async (tx) => {
+          await this.lock(tx);
+          const actor = await this.actor(tx, context);
+          if (actor.refusal) throw new FounderControlError(actor.refusal, 'Live founder authority is required');
+          const [clock] = await tx<Array<{ at: Date }>>`SELECT clock_timestamp() AS at`;
+          const days = this.dormancyDays;
+          if (days === null)
+            return accountArchiveProposalsSchema.parse({ dormancyDays: null, proposals: [], asOf: clock!.at.toISOString() });
+          // Activity is the latest change to the record, sign-in, or customer closure (which does not touch updated_at).
+          const rows = await tx<Array<{ id: string; last_activity_at: Date }>>`
+            SELECT id, last_activity_at FROM (
+              SELECT u.id, GREATEST(
+                       u.updated_at,
+                       (SELECT MAX(s.created_at) FROM sessions s WHERE s.user_id = u.id),
+                       (SELECT MAX(c.finalized_at) FROM account_closures c WHERE c.user_id = u.id)
+                     ) AS last_activity_at
+                FROM users u
+               WHERE u.status = 'closed' AND u.archived_at IS NULL AND u.id <> ALL(${tx.array([...(this.pair ?? [])])}::uuid[])
+            ) dormant
+             WHERE last_activity_at < ${clock!.at}::timestamptz - make_interval(days => ${days})
+             ORDER BY last_activity_at, id
+             LIMIT 200`;
+          return accountArchiveProposalsSchema.parse({
+            dormancyDays: days,
+            proposals: rows.map((row) => ({ userId: row.id, lastActivityAt: row.last_activity_at.toISOString() })),
+            asOf: clock!.at.toISOString(),
+          });
+        },
+        { isolation: 'read committed' },
+      );
+    } catch (error) {
+      if (error instanceof FounderControlError) throw error;
+      throw storageError(error);
+    }
+  }
+
+  private async archiveStateOf(tx: Sql, userId: string): Promise<AccountArchiveState | null> {
+    const [row] = await tx<
+      Array<{
+        status: 'active' | 'frozen' | 'closed';
+        version: string;
+        archived_at: Date | null;
+        archive_reason: AccountArchiveReasonCode | null;
+      }>
+    >`SELECT status, identity_control_version::text AS version, archived_at, archive_reason FROM users WHERE id = ${userId}`;
+    if (!row) return null;
+    return {
+      userId,
+      version: row.version,
+      status: row.status,
+      archivedAt: row.archived_at ? row.archived_at.toISOString() : null,
+      archiveReasonCode: row.archive_reason,
+    };
   }
 
   /** The tiers on offer, for a live founder. Unset is its own answer, never an empty list. */
@@ -1371,9 +1701,11 @@ export class FounderControls {
         version: string;
         closed_reason: AccountCloseReasonCode | null;
         customer_closed: boolean;
+        archived: boolean;
       }>
     >`SELECT status, identity_control_version::text AS version, closed_reason,
-         EXISTS (SELECT 1 FROM account_closures c WHERE c.user_id = users.id AND c.status = 'closed') AS customer_closed
+         EXISTS (SELECT 1 FROM account_closures c WHERE c.user_id = users.id AND c.status = 'closed') AS customer_closed,
+         archived_at IS NOT NULL AS archived
        FROM users WHERE id = ${userId}`;
     if (!row) return null;
     const closed = row.status === 'closed';
@@ -1384,7 +1716,8 @@ export class FounderControls {
       status: row.status,
       closedBy: closed ? (customerClosed ? 'customer' : 'staff') : null,
       closeReasonCode: closed ? row.closed_reason : null,
-      reopenable: customerClosed,
+      // An archived record is never reopened (identity.account_archived).
+      reopenable: customerClosed && !row.archived,
     };
   }
 

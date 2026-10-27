@@ -3,9 +3,13 @@ import type { NotifyService } from './notify-service.js';
 /**
  * Deposit credit inbox row. Distinct from `trade.fill`.
  *
- * Written only when the watcher is up, confirmations meet the published
- * minimum, and available balance is already credited. This function does not
- * book the credit: svc-notify holds no balances.
+ * The live writer of this row is the `payDepositCreditPosted` consumer in
+ * events.ts (svc-pay announces each credit after its ledger post), keyed on the
+ * deposit id. `notifyDepositCredit` below is the earlier seam, kept for its
+ * acceptance test and wired nowhere: wiring it as well would write a second row
+ * for the same deposit under another key. It writes only when the watcher is up,
+ * confirmations meet the published minimum, and available balance is already
+ * credited, and never books the credit: svc-notify holds no balances.
  */
 
 export const DEPOSIT_CREDITED_KIND = 'bank.deposit.credited';

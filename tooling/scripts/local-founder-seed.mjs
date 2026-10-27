@@ -36,6 +36,7 @@ import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
 
 export const ENV_FILE = '.env.founder.local';
 export const FOUNDER_VAULT_PATH = '.env.founder-secrets.local';
@@ -364,7 +365,13 @@ export async function enrolFounderAccounts({
       //    consumed can never be refused as a replay.
       //  - a session: TOTP is still pending (or never started), so confirm/enrol below.
       try {
-        session = await call(edge, 'auth.login', { identifier: f.handle, password: f.password }, null, fetchImpl);
+        session = await call(
+          edge,
+          'auth.login',
+          { identifier: f.handle, password: f.password, deviceKey: LOCAL_TEST_DEVICE_KEY },
+          null,
+          fetchImpl,
+        );
       } catch (err) {
         if (!(err instanceof TrpcError) || err.intafacedCode !== 'auth.mfa_required') throw err;
         if (!f.totpSecret) {
@@ -383,7 +390,7 @@ export async function enrolFounderAccounts({
       session = await call(
         edge,
         'auth.registerFounder',
-        { invite: f.invite, handle: f.handle, email: f.email, password: f.password },
+        { invite: f.invite, handle: f.handle, email: f.email, password: f.password, deviceKey: LOCAL_TEST_DEVICE_KEY },
         null,
         fetchImpl,
       );

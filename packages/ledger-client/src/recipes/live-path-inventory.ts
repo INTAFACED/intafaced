@@ -56,6 +56,7 @@ export const RECIPE_MATRIX = {
     reason:
       '§13 — TRD-0171 posts a fee correction as a new balanced entry under trade.fill.fee.correction. It leaves the original trade.fill row. No production writer posts this yet; the recipe-gate catalog samples it and does not ledger.post.',
   },
+  tradeFillMakerRebate: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service/fills.ts' },
   orderHold: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service/order-place.ts' },
   orderHoldRelease: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service/holds.ts' },
   orderHoldAmend: {
@@ -144,6 +145,12 @@ export const RECIPE_MATRIX = {
     reason:
       '§13 — consented reversal of a posted internal send (bank-transfers BK-xfer-09): recipient available back to the original sender, only with the recipient consent. svc-bank has no production writer until BK-xfer-09 lands and no grant is added yet; the recipe-gate catalog samples it and does not ledger.post.',
   },
+  staffHoldPlace: { kind: 'live', module: 'ops', proof: 'services/svc-ops/src/staff-holds/desk.ts' },
+  staffHoldRelease: { kind: 'live', module: 'ops', proof: 'services/svc-ops/src/staff-holds/desk.ts' },
+  staffHoldConfirm: { kind: 'live', module: 'ops', proof: 'services/svc-ops/src/staff-holds/desk.ts' },
+  campaignRewardLock: { kind: 'live', module: 'campaigns', proof: 'services/svc-campaigns/src/payouts.ts' },
+  campaignRewardUnlock: { kind: 'live', module: 'campaigns', proof: 'services/svc-campaigns/src/payouts.ts' },
+  campaignRewardForfeit: { kind: 'live', module: 'campaigns', proof: 'services/svc-campaigns/src/payouts.ts' },
   marketPurchase: { kind: 'live', module: 'market', proof: 'services/svc-market/src/commerce/commerce-service.ts' },
   marketListingFee: {
     kind: 'socket',

@@ -1,29 +1,113 @@
 import { useState } from 'react';
-import { Failure, Loading } from '../../shared/ui';
+import { myRewardsSchema } from '@intafaced/contracts/campaigns-catalogue';
+import { Button, Failure, Loading } from '../../shared/ui';
+import { useResource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';
+import { useSession } from '../session/session';
 import { DepthPanel, DisabledAction, Fact } from './DepthParts';
 import { useHoldings } from './holdings';
+import { INTERNAL_RAIL, useWithdrawDestination, type DestinationRead } from './withdraw-destination';
 import { checkAmount } from './withdraw-model';
+import { withdrawalSchema, type WithdrawalRecord } from './withdrawal-reads';
 import { withdrawalCopy } from './withdrawal-copy';
+import { WithdrawStepUp } from './WithdrawStepUp';
 import './bank-depth.css';
 
 const AMOUNT_ERROR = { invalid: 'fAmountInvalid', zero: 'fAmountZero', tooMuch: 'fAmountTooMuch', unknown: 'fBalanceUnknown' } as const;
 
+type Copy = ReturnType<typeof withdrawalCopy.useCopy>['t'];
+
+/** A send inside INTAFACED being confirmed: the terms asked under its client reference, and whether an ask went unanswered. */
+interface OpenSend {
+  assetId: string;
+  amount: string;
+  ref: string;
+  clientRef: string;
+  unanswered: boolean;
+}
+
+const openKey = (userId: string) => `intafaced:withdraw-inside:${userId}`;
+
+/** A send whose answer was lost, kept in this tab so a reload finishes it under the same reference instead of starting another. */
+function storedOpen(userId: string | null): OpenSend | null {
+  if (!userId) return null;
+  try {
+    const raw = sessionStorage.getItem(openKey(userId));
+    const kept = raw ? (JSON.parse(raw) as Partial<OpenSend>) : null;
+    if (!kept || [kept.assetId, kept.amount, kept.ref, kept.clientRef].some((v) => typeof v !== 'string' || v === '')) return null;
+    return { assetId: kept.assetId!, amount: kept.amount!, ref: kept.ref!, clientRef: kept.clientRef!, unanswered: true };
+  } catch {
+    return null;
+  }
+}
+
+function keepOpen(userId: string | null, open: OpenSend | null) {
+  if (!userId) return;
+  try {
+    if (open?.unanswered) sessionStorage.setItem(openKey(userId), JSON.stringify(open));
+    else sessionStorage.removeItem(openKey(userId));
+  } catch {
+    // Storage blocked: the reference still lives in this page until it closes.
+  }
+}
+
+/** What the form says about where the typed address leads, or nothing for an address outside INTAFACED. */
+function DestinationNote({ place, t }: { place: DestinationRead; t: Copy }) {
+  if (place.state === 'idle' || (place.state === 'known' && place.kind === 'external')) return null;
+  const kind = place.state === 'known' ? place.kind : place.state;
+  const words =
+    place.state === 'checking'
+      ? t('dChecking')
+      : place.state === 'failed'
+        ? t('dFailed')
+        : place.kind === 'internal'
+          ? t('dInternal')
+          : place.kind === 'self'
+            ? t('dSelf')
+            : place.kind === 'unavailable'
+              ? t(place.reason === 'expired' ? 'dExpired' : 'dUnavailable')
+              : null;
+  const refused = place.state === 'known' && (place.kind === 'self' || place.kind === 'unavailable');
+  return (
+    <div
+      className={refused ? 'failure' : 'bd-address'}
+      role={refused ? 'alert' : 'status'}
+      data-testid="withdraw-destination"
+      data-kind={kind}
+    >
+      {place.state === 'known' && place.kind === 'internal' && <strong>{t('dInternalTitle')}</strong>}
+      <p>{words}</p>
+    </div>
+  );
+}
+
 /**
  * The whole "send money out" form, shown first on `/uc/withdraw`: asset, network, where to, amount against the real
- * available balance, the fee line, and a review. Nothing here can be sent: sending out is not connected, so the review
- * button is off and says so beside it. The choices are real (the customer's own balances); no network, saved address or
- * fee is invented, because no read for them exists.
+ * available balance, the fee line, and a review. Sending to a wallet, card or bank outside INTAFACED is not connected, so
+ * for those the review button is off and says so beside it. An address that belongs to another INTAFACED account
+ * (W-withdraw-14) is the one send that works: the form says it settles inside at once with no fee, and after a fresh
+ * confirmation svc-pay settles it as one transfer. Its client reference and terms are kept while the answer is unknown, in this
+ * tab too, so a reload or confirming again finishes the same withdrawal and never sends twice; the fields stay locked until
+ * svc-pay answers. The choices are real (the customer's own balances); no network,
+ * saved address or fee is invented.
  */
 export function WithdrawForm() {
   const { t } = withdrawalCopy.useCopy();
   const { hideBalances } = usePreferences();
+  const { api, userId } = useSession();
   const held = useHoldings();
   const assets = held.resource.status === 'ready' ? held.resource.data.assets : [];
-  const [picked, setPicked] = useState('');
-  const [amount, setAmount] = useState('');
-  const [address, setAddress] = useState('');
+  // The withdrawal being sent: its terms and its client reference. Kept until svc-pay gives a final answer, so a send whose
+  // answer was lost is finished by confirming again with the same reference and the same terms.
+  const [open, setOpenState] = useState<OpenSend | null>(() => storedOpen(userId));
+  const setOpen = (next: OpenSend | null) => {
+    setOpenState(next);
+    keepOpen(userId, next);
+  };
+  const [picked, setPicked] = useState(() => open?.assetId ?? '');
+  const [amount, setAmount] = useState(() => open?.amount ?? '');
+  const [address, setAddress] = useState(() => open?.ref ?? '');
   const asset = assets.some((entry) => entry.assetId === picked) ? picked : (assets[0]?.assetId ?? '');
   const available = assets.find((entry) => entry.assetId === asset)?.available ?? null;
   const check = checkAmount(amount, available);
@@ -34,6 +118,73 @@ export function WithdrawForm() {
       : undefined;
   const shown = (value: string) => (hideBalances ? '••••' : displayAmount(value));
   const notChosen = t('rNotChosen');
+  const place = useWithdrawDestination(address);
+  const inside = place.state === 'known' && place.kind === 'internal';
+  const [confirming, setConfirming] = useState(false);
+  const [sent, setSent] = useState<WithdrawalRecord | null>(null);
+  const [refusal, setRefusal] = useState<string | null>(null);
+  // An unanswered send locks the form on its own terms: only finishing it is offered, whatever the address reads as now.
+  const resuming = open?.unanswered === true;
+  const canSend = resuming || (inside && check === 'ok' && Boolean(asset));
+
+  function startSend() {
+    if (!canSend) return;
+    setRefusal(null);
+    setSent(null);
+    if (!resuming)
+      setOpen({
+        assetId: asset,
+        amount: amount.trim(),
+        ref: address.trim(),
+        clientRef: `internal-${crypto.randomUUID()}`,
+        unanswered: false,
+      });
+    setConfirming(true);
+  }
+
+  async function sendInside(token: string, send: OpenSend) {
+    const answer = await api.mutate(
+      'pay',
+      'withdrawal.create',
+      {
+        assetId: send.assetId,
+        amount: send.amount,
+        railId: INTERNAL_RAIL,
+        destination: { kind: 'crypto', ref: send.ref },
+        clientRef: send.clientRef,
+      },
+      withdrawalSchema,
+      { bearer: token },
+    );
+    if (answer.ok) {
+      setSent(answer.data);
+      setOpen(null);
+      held.reload();
+      return answer;
+    }
+    // svc-pay's own code, from the error data or the front of its message (a guard refusal carries it there).
+    const payCode = [answer.code, answer.message].map((v) => /^pay\.[a-z0-9_.]+/.exec(v ?? '')?.[0]).find(Boolean);
+    const words =
+      payCode === 'pay.withdrawal_self_send'
+        ? t('dSelf')
+        : payCode === 'pay.guard_screening_unavailable'
+          ? `${t('sScreening')} ${t('sReference', { code: payCode })}`
+          : payCode
+            ? `${t('sRefused')} ${t('sReference', { code: payCode })}`
+            : null;
+    // A named refusal of a first ask is final: nothing was claimed, the dialog closes and the form says why. A new send is a
+    // new one. After an ask whose answer was lost, the earlier send may still have landed, so the reference is kept, unless
+    // svc-bank itself answered that the transfer was refused (it checks its book first, so nothing moved).
+    const final = words && payCode !== 'pay.rail_outcome_unknown' && (!send.unanswered || payCode === 'pay.internal_settlement_refused');
+    if (final) {
+      setRefusal(words);
+      setOpen(null);
+      return { ok: true as const, data: null };
+    }
+    // No answer, or svc-pay does not know yet: the send may have happened. Keep the reference so confirming again finishes it.
+    setOpen({ ...send, unanswered: true });
+    return { ...answer, message: words && payCode !== 'pay.rail_outcome_unknown' ? `${words} ${t('sUnknown')}` : t('sUnknown') };
+  }
   return (
     <div className="bd-stack" data-testid="withdraw-form">
       <DepthPanel title={t('formTitle')} lead={t('formLead')}>
@@ -49,7 +200,7 @@ export function WithdrawForm() {
           ) : (
             <label className="field">
               <span>{t('fAsset')}</span>
-              <select value={asset} onChange={(event) => setPicked(event.target.value)} disabled={assets.length === 0}>
+              <select value={asset} onChange={(event) => setPicked(event.target.value)} disabled={assets.length === 0 || resuming}>
                 {assets.length === 0 && <option value="">—</option>}
                 {assets.map((entry) => (
                   <option key={entry.assetId} value={entry.assetId}>
@@ -85,7 +236,11 @@ export function WithdrawForm() {
               <span>{t('fNew')}</span>
               <input
                 value={address}
-                onChange={(event) => setAddress(event.target.value)}
+                onChange={(event) => {
+                  setAddress(event.target.value);
+                  setRefusal(null);
+                }}
+                readOnly={resuming}
                 autoComplete="off"
                 autoCapitalize="off"
                 spellCheck={false}
@@ -93,6 +248,7 @@ export function WithdrawForm() {
               />
               <small id="withdraw-new-hint">{t('fNewHint')}</small>
             </label>
+            <DestinationNote place={place} t={t} />
           </fieldset>
           <label className="field">
             <span>{t('fAmount')}</span>
@@ -100,6 +256,7 @@ export function WithdrawForm() {
               inputMode="decimal"
               value={amount}
               onChange={(event) => setAmount(event.target.value)}
+              readOnly={resuming}
               autoComplete="off"
               aria-invalid={Boolean(problem)}
               aria-describedby="withdraw-amount-help"
@@ -108,7 +265,8 @@ export function WithdrawForm() {
               {problem ?? (available !== null && asset ? t('fAvailable', { amount: shown(available), asset }) : undefined)}
             </small>
           </label>
-          {available !== null && !hideBalances && (
+          {asset && <LockedRewards asset={asset} hidden={hideBalances} shown={shown} />}
+          {available !== null && !hideBalances && !resuming && (
             <div>
               <button type="button" className="bd-link" onClick={() => setAmount(available)}>
                 {t('fMax')}
@@ -116,7 +274,7 @@ export function WithdrawForm() {
             </div>
           )}
           <dl className="bd-facts">
-            <Fact label={t('fFee')}>{t('fFeeValue')}</Fact>
+            <Fact label={t('fFee')}>{inside || resuming ? t('rNoFee') : t('fFeeValue')}</Fact>
           </dl>
         </form>
       </DepthPanel>
@@ -131,7 +289,7 @@ export function WithdrawForm() {
               notChosen
             )}
           </Fact>
-          <Fact label={t('rNetwork')}>{notChosen}</Fact>
+          <Fact label={t('rNetwork')}>{inside || resuming ? t('rInside') : notChosen}</Fact>
           <Fact label={t('rTo')}>
             {address.trim() ? (
               <span lang="und" data-withdrawal-private>
@@ -141,10 +299,83 @@ export function WithdrawForm() {
               notChosen
             )}
           </Fact>
-          <Fact label={t('rFee')}>{t('fFeeValue')}</Fact>
+          <Fact label={t('rFee')}>{inside || resuming ? t('rNoFee') : t('fFeeValue')}</Fact>
         </dl>
-        <DisabledAction variant="primary" label={t('fReview')} reason={t('fReason')} />
+        {canSend ? (
+          <div className="bd-stack">
+            {resuming && (
+              <p className="money-caption" role="status">
+                {t('sUnknown')}
+              </p>
+            )}
+            <div className="actions">
+              <Button variant="primary" onClick={startSend}>
+                {resuming ? t('sFinish') : t('sSend')}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <DisabledAction variant="primary" label={inside ? t('sSend') : t('fReview')} reason={inside ? t('sNeedAmount') : t('fReason')} />
+        )}
+        {refusal && (
+          <p className="failure" role="alert" data-testid="withdraw-refusal">
+            {refusal}
+          </p>
+        )}
+        {sent && (
+          <div className="bd-address" role="status" data-testid="withdraw-outcome" data-status={sent.status}>
+            <strong>{t('sDoneTitle')}</strong>
+            <p>{t('sDone', { amount: shown(sent.amount), asset: sent.assetId })}</p>
+            <a className="text-link" href={`/uc/withdraw?withdrawalId=${sent.id}`}>
+              {t('sOpen')}
+            </a>
+          </div>
+        )}
       </DepthPanel>
+      {confirming && open && (
+        <WithdrawStepUp
+          why={t('sWhy', { amount: shown(open.amount), asset: open.assetId })}
+          run={(token) => sendInside(token, open)}
+          onDone={() => setConfirming(false)}
+          onCancel={() => setConfirming(false)}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * Campaign rewards locked or given as a bonus in this asset (CM-rewards-hub-02): never in the available balance, so they
+ * cannot be sent out. Read from the campaigns service each visit; a failed read says so and shows no number, and hidden
+ * balances hide this one too.
+ */
+function LockedRewards({ asset, hidden, shown }: { asset: string; hidden: boolean; shown: (value: string) => string }) {
+  const { t } = withdrawalCopy.useCopy();
+  const { api } = useSession();
+  const mine = useResource((signal) => api.query('campaigns', 'rewards.mine', {}, myRewardsSchema, { signal }), 'withdraw-locked-rewards');
+  const r = mine.resource;
+  if (r.status === 'loading') return null;
+  if (r.status === 'failed') {
+    return (
+      <p className="muted" data-testid="withdraw-locked-rewards" data-state="failed">
+        {t('fLockedUnread')}
+      </p>
+    );
+  }
+  const line = r.data.totals.find((l) => l.status === 'locked' && l.asset === asset);
+  if (!line) return null;
+  return (
+    <p
+      className="muted"
+      data-testid="withdraw-locked-rewards"
+      data-state="ready"
+      data-amount={hidden ? undefined : line.amount}
+      data-asset={asset}
+    >
+      {t('fLocked', { amount: shown(line.amount), asset })}{' '}
+      <a className="text-link" href="/uc/promotion">
+        {t('fLockedLink')}
+      </a>
+    </p>
   );
 }

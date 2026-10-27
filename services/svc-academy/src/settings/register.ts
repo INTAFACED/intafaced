@@ -42,6 +42,12 @@ export interface SettingsEnv {
   readonly ACADEMY_LESSON_IMPORT_MAX_BYTES?: number | undefined;
   readonly ACADEMY_UPLOAD_MAX_BYTES?: number | undefined;
   readonly ACADEMY_TOPICS_LIST_LIMIT?: number | undefined;
+  readonly ACADEMY_GRADER_LEASE_SECONDS?: number | undefined;
+  readonly ACADEMY_CERT_ISSUE_SWEEP_SECONDS?: number | undefined;
+  readonly ACADEMY_PROGRAMME_MAX_COURSES?: number | undefined;
+  readonly ACADEMY_POST_MAX_CHARS?: number | undefined;
+  readonly ACADEMY_POST_IMAGE_MAX_BYTES?: number | undefined;
+  readonly ACADEMY_MESSAGE_MAX_CHARS?: number | undefined;
   readonly ACADEMY_UPLOAD_VIDEO_TYPES?: readonly string[] | undefined;
   readonly ACADEMY_UPLOAD_HANDOUT_TYPES?: readonly string[] | undefined;
   readonly ACADEMY_PAPER_MARKETS_LIMIT?: number | undefined;
@@ -72,7 +78,6 @@ const state = (ok: boolean): SettingState => (ok ? 'set' : 'not_set');
  */
 export const PENDING_OWNER_SETTINGS: readonly string[] = [
   'undelete_window',
-  'lease_length',
   'dwell_seconds',
   'expiry_duration',
   'nudge_timings',
@@ -204,6 +209,53 @@ export function settingsRegister(env: SettingsEnv): readonly SettingRow[] {
       store: 'env',
       readOnly: false,
       refusalCode: 'academy.topics_list_limit_unset',
+    },
+    {
+      key: 'lease_length',
+      state: state(positiveInt(env.ACADEMY_GRADER_LEASE_SECONDS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.grader_lease_unset',
+    },
+    {
+      // Blank runs no sweep, so a delayed certificate would wait for its learner to come back: delayed rules refuse.
+      key: 'cert_issue_sweep',
+      state: state(positiveInt(env.ACADEMY_CERT_ISSUE_SWEEP_SECONDS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.cert_sweep_unset',
+    },
+    {
+      // Blank: a programme takes no course, so a save with courses refuses.
+      key: 'programme_max_courses',
+      state: state(positiveInt(env.ACADEMY_PROGRAMME_MAX_COURSES)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.programme_limit_unset',
+    },
+    {
+      // Blank: every discussion post and reply refuses.
+      key: 'post_max_chars',
+      state: state(positiveInt(env.ACADEMY_POST_MAX_CHARS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.post_limit_unset',
+    },
+    {
+      // Blank: a post with an image refuses; a post without one is not affected.
+      key: 'post_image_max_bytes',
+      state: state(positiveInt(env.ACADEMY_POST_IMAGE_MAX_BYTES)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.attachment_limit_unset',
+    },
+    {
+      // Blank: every message to or from a course team refuses.
+      key: 'message_max_chars',
+      state: state(positiveInt(env.ACADEMY_MESSAGE_MAX_CHARS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.message_limit_unset',
     },
     {
       key: 'upload_size_limit',

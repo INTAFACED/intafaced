@@ -45,7 +45,11 @@ export interface LookupRecorder {
 export async function recordLookup(
   recorder: LookupRecorder,
   actor: LookupActor,
-  target: { ownerType: 'transaction' | 'business_key'; ownerId: string; action: 'transaction.read' | 'trace.read' },
+  target:
+    | { ownerType: 'transaction' | 'business_key'; ownerId: string; action: 'transaction.read' | 'trace.read' }
+    | { ownerType: 'transactions'; ownerId: string; action: 'transactions.list' }
+    | { ownerType: 'address_prefix'; ownerId: string; action: 'accounts.search' }
+    | { ownerType: 'account'; ownerId: string; action: 'account_metadata.read' },
 ): Promise<void> {
   try {
     await recorder.recordOperatorAccess({ actorId: actor.actorId, requestId: actor.requestId, ...target });

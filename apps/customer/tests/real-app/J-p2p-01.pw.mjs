@@ -6,14 +6,19 @@ import { PASSKEY_ORIGIN } from './identity-factors.mjs';
 import {
   METHOD,
   RETIRING_METHOD,
+  SLOW_METHOD,
+  SLOW_WINDOW_SECONDS,
   TEST_IBAN,
   browserHoldsPasskey,
   confirmEmail,
   p2p,
   readyTaker,
   refusalCode,
+  restorePasskey,
   registerRetiringMethod,
+  registerSlowMethod,
   retireRetiringMethod,
+  holderOf,
   testInstrument,
   testPasskey,
   unconfirmedAccount,
@@ -55,7 +60,10 @@ test('J-p2p-01 #1 the P2P hub opens from More, lists every requirement, and a ta
   const seller = await signUp(page, 'p2p01s');
   await verify(page, seller);
   expect(fund(seller.email, 'USDT', '500').tx).toBeTruthy();
-  const s = p2p(await api(seller));
+  const sellerSession = await api(seller);
+  // The seller confirms releases with a TEST passkey, as the person does (P-trade-orders-07).
+  const sellerPasskey = await testPasskey(sellerSession);
+  const s = p2p(sellerSession, sellerPasskey);
   await testInstrument(s, seller);
   const offer = await s.mutate('offers.create', {
     side: 'sell',
@@ -81,7 +89,7 @@ test('J-p2p-01 #1 the P2P hub opens from More, lists every requirement, and a ta
   const buyer = await unconfirmedAccount('p2p01b');
   await signIn(page, buyer);
   await verify(page, buyer);
-  run.reset({ seller, buyer, offerId: offer.id });
+  run.reset({ seller, buyer, offerId: offer.id, sellerPasskey: sellerPasskey.saved() });
 
   await signIn(page, buyer);
   await page.goto('/more');
@@ -96,7 +104,7 @@ test('J-p2p-01 #1 the P2P hub opens from More, lists every requirement, and a ta
     ['Offers', '/p2p'],
     ['Your orders', '/uc/order'],
     ['Your offers', '/uc/ad'],
-    ['Payment methods', '/p2p?view=methods'],
+    ['Payment methods', '/p2p/methods'],
     ['Trading access', '/p2p/access'],
   ])
     await expect(rooms.getByRole('link', { name, exact: true })).toHaveAttribute('href', href);
@@ -135,29 +143,34 @@ test('J-p2p-01 #1 the P2P hub opens from More, lists every requirement, and a ta
   await expect(check(page, 'risk')).toHaveAttribute('data-state', 'not_met');
 });
 
-test('J-p2p-01 #2 the ad board searches by coin, fiat, method and amount, sorts by price, pages without a repeat, and names a floating ad that needs a market feed', async ({
+test('J-p2p-01 #2 the ad board searches by coin, fiat, method and amount, sorts by price, pages without a repeat, and never lists a floating ad it cannot price', async ({
   page,
 }) => {
   const state = journey();
   const s = p2p(await api(state.seller));
-  // Three more TEST ads from the same seller: dearer, cheaper with a higher minimum, and one floating on a reference.
-  const ad = (key, extra) =>
-    s.mutate('offers.create', {
-      side: 'sell',
-      asset: 'USDT',
-      fiatCurrency: 'EUR',
-      priceType: 'fixed',
-      minAmount: '10',
-      maxAmount: '50',
-      totalAmount: '60',
-      methods: [METHOD],
-      terms: 'TEST terms',
-      idempotencyKey: `${J}:${key}:${state.seller.handle}`,
-      ...extra,
-    });
+  // Two more TEST ads from the same seller, dearer and cheaper with a higher minimum.
+  const adInput = (key, extra) => ({
+    side: 'sell',
+    asset: 'USDT',
+    fiatCurrency: 'EUR',
+    priceType: 'fixed',
+    minAmount: '10',
+    maxAmount: '50',
+    totalAmount: '60',
+    methods: [METHOD],
+    terms: 'TEST terms',
+    idempotencyKey: `${J}:${key}:${state.seller.handle}`,
+    ...extra,
+  });
+  const ad = (key, extra) => s.mutate('offers.create', adInput(key, extra));
   const dear = (await ad('dear', { price: '0.95' })).id;
   const cheap = (await ad('cheap', { price: '0.90', minAmount: '30' })).id;
-  const float = (await ad('float', { priceType: 'float', price: '1.01' })).id;
+  // A floating ad posts only while a EUR / USDT reference prices it (P-ads-merchant-03). This stack publishes none, so it
+  // is refused with that reason and never reaches the board as an ad nobody can price; where a feed answers, it is closed
+  // again so the board below holds the same three ads either way.
+  const floating = await s.raw.mutate('offers.create', adInput('float', { priceType: 'float', price: '1.01' }));
+  if (floating.status === 200) await s.mutate('offers.close', { offerId: floating.body.result.data.id });
+  else expect(refusalCode(floating)).toBe('p2p.reference_price_unavailable');
   const first = state.offerId;
 
   const buyer = p2p(await api(state.buyer));
@@ -173,25 +186,22 @@ test('J-p2p-01 #2 the ad board searches by coin, fiat, method and amount, sorts 
     } while (cursor && seen.length < 10);
     return seen;
   };
-  expect(await walk('price_asc')).toEqual([cheap, first, dear, float]);
-  expect(await walk('price_desc')).toEqual([dear, first, cheap, float]);
+  expect(await walk('price_asc')).toEqual([cheap, first, dear]);
+  expect(await walk('price_desc')).toEqual([dear, first, cheap]);
 
   await signIn(page, state.buyer);
   await page.goto(`/p2p?makerId=${maker}`);
   const rows = page.locator('li.p2p-offer-row');
   const order = () => rows.evaluateAll((items) => items.map((item) => item.getAttribute('data-offer-id')));
-  await expect(rows).toHaveCount(4);
-  expect(await order()).toEqual([cheap, first, dear, float]);
+  await expect(rows).toHaveCount(3);
+  expect(await order()).toEqual([cheap, first, dear]);
   // Each row: price, limits, method and maker.
   const firstRow = page.locator(`li[data-offer-id="${first}"]`);
   await expect(firstRow).toContainText('0.92');
   await expect(firstRow).toContainText(METHOD);
-  await expect(page.locator(`li[data-offer-id="${float}"]`).getByTestId('p2p-offer-needs-feed')).toContainText(
-    'Needs a market feed: no EUR / USDT reference price is published',
-  );
   await expect(page.getByText('That is every open offer for these filters.')).toBeVisible();
 
-  // Coin, fiat, method and a 20 EUR amount, dearest first: the cheap ad (30 USDT minimum) and the floating ad drop out.
+  // Coin, fiat, method and a 20 EUR amount, dearest first: the cheap ad (30 USDT minimum) drops out.
   await page.getByText('Filters', { exact: true }).click();
   const filters = page.locator('form.pay-filters');
   await filters.getByLabel('Asset', { exact: true }).fill('USDT');
@@ -405,7 +415,7 @@ test('J-p2p-01 #4 a payment method retired while the ad is open refuses in plain
     country: 'DE',
     fiatCurrency: 'EUR',
     label: 'TEST second account',
-    details: { account_holder: seller.handle, iban: TEST_IBAN },
+    details: { account_holder: holderOf(seller), iban: TEST_IBAN },
   });
   const offer = await s.mutate('offers.create', {
     side: 'sell',
@@ -593,7 +603,8 @@ test('J-p2p-01 #6 the payment details name the seller’s account holder and num
   page,
 }) => {
   const state = journey();
-  const s = p2p(await api(state.seller));
+  // Changing a saved account is confirmed with the seller's TEST passkey (P-ads-merchant-18).
+  const s = p2p(await api(state.seller), await restorePasskey(state.sellerPasskey));
   await signIn(page, state.buyer);
 
   // While escrow is held: the account holder and IBAN under their labels, and the name the payment must carry.
@@ -621,7 +632,7 @@ test('J-p2p-01 #6 the payment details name the seller’s account holder and num
   const switched = 'DE00TESTPAYEECHANGED01';
   await s.mutate('instruments.update', {
     instrumentId: saved.id,
-    details: { account_holder: state.seller.handle, iban: switched },
+    details: { account_holder: holderOf(state.seller), iban: switched },
   });
   const after = await reveal();
   await expect(after.getByTestId('order-payee-changed')).toContainText(
@@ -633,8 +644,10 @@ test('J-p2p-01 #6 the payment details name the seller’s account holder and num
   // Put the seller's account back, so the later steps pay the account the ad was placed with.
   await s.mutate('instruments.update', {
     instrumentId: saved.id,
-    details: { account_holder: state.seller.handle, iban: TEST_IBAN },
+    details: { account_holder: holderOf(state.seller), iban: TEST_IBAN },
   });
+  // A passkey's counter only goes up: keep how far it went for the release in #8.
+  run.write({ sellerPasskey: s.passkey().saved() });
 });
 
 test('J-p2p-01 #7 the buyer ticks the checklist and marks paid; the order moves to Paid with the release countdown, and the seller is told once', async ({
@@ -680,6 +693,93 @@ test('J-p2p-01 #7 the buyer ticks the checklist and marks paid; the order moves 
   expect(await notices()).toHaveLength(1);
 });
 
+test('J-p2p-01 #7 a method that is not instant shows its settlement window on the board, the ad, the take and the order; the seller must accept it, and a dispute waits for the window', async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  // Its own seller and buyer, and a TEST method whose money takes up to two days; the shared TEST bank transfer stays instant.
+  const registered = await registerSlowMethod();
+  expect(registered.settlement).toEqual({ instant: false, windowSeconds: SLOW_WINDOW_SECONDS });
+  const seller = await signUp(page, 'p2p01n');
+  await verify(page, seller);
+  expect(fund(seller.email, 'USDT', '100').tx).toBeTruthy();
+  const s = p2p(await api(seller));
+  await testInstrument(s, seller);
+  await s.mutate('instruments.create', {
+    instrumentId: randomUUID(),
+    methodId: SLOW_METHOD,
+    country: 'DE',
+    fiatCurrency: 'EUR',
+    label: 'TEST slow account',
+    details: { account_holder: holderOf(seller), iban: TEST_IBAN },
+  });
+  const ad = {
+    side: 'sell',
+    asset: 'USDT',
+    fiatCurrency: 'EUR',
+    priceType: 'fixed',
+    price: AD.price,
+    minAmount: AD.min,
+    maxAmount: AD.max,
+    totalAmount: '100',
+    methods: [METHOD, SLOW_METHOD],
+    terms: 'TEST terms: pay from an account in your own name.',
+  };
+
+  // Listing a method that is not instant needs the seller's consent; with it, the ad goes up and says so.
+  const unconsented = await s.raw.mutate('offers.create', { ...ad, idempotencyKey: `${J}:slow-offer-refused:${seller.handle}` });
+  expect(unconsented.status).toBe(400);
+  expect(refusalCode(unconsented)).toBe('p2p.non_instant_not_accepted');
+  const offer = await s.mutate('offers.create', { ...ad, acceptsNonInstant: true, idempotencyKey: `${J}:slow-offer:${seller.handle}` });
+  expect(offer.acceptsNonInstant).toBe(true);
+  expect(offer.nonInstantMethods).toEqual([{ methodId: SLOW_METHOD, windowSeconds: SLOW_WINDOW_SECONDS }]);
+
+  const buyer = await signUp(page, 'p2p01w');
+  await verify(page, buyer);
+  const b = await readyTaker(await api(buyer), buyer);
+  await signIn(page, buyer);
+
+  // The board names the slow method and its window on the ad's row.
+  await page.goto(`/p2p?methodId=${SLOW_METHOD}&makerId=${offer.makerId}`);
+  const row = page.locator(`li[data-offer-id="${offer.id}"]`);
+  await expect(row.getByTestId('offer-settlement')).toContainText(`${SLOW_METHOD}: not instant, the money can take up to 2 days to arrive`);
+
+  // The ad says it too, with the seller's consent; the take tells the buyer the window when they choose that method.
+  await page.goto(`/p2p?offerId=${offer.id}`);
+  const settlement = page.getByRole('main').getByTestId('offer-settlement').first();
+  await expect(settlement).toContainText(`${SLOW_METHOD}: not instant, the money can take up to 2 days to arrive`);
+  await expect(settlement).toContainText('The seller accepts payment methods that are not instant.');
+  const take = page.getByTestId('take-offer');
+  await take.locator('select').selectOption(SLOW_METHOD);
+  await expect(take.getByTestId('take-settlement')).toHaveText(
+    'This method is not instant: the money can take up to 2 days to arrive. Your order shows its own payment deadline, and on a method that is not instant a dispute opens only after that deadline.',
+  );
+  await take.locator('select').selectOption(METHOD);
+  await expect(take.getByTestId('take-settlement')).toHaveCount(0);
+
+  // The order copies the window: the buyer has two days to pay, not the published payment time.
+  const placed = await b.mutate('trades.take', { offerId: offer.id, tradeId: randomUUID(), amount: AD.min, method: SLOW_METHOD });
+  await expect.poll(async () => (await b.query('trades.get', { tradeId: placed.id })).status, { timeout: 30_000 }).toBe('escrowed');
+  const trade = await b.query('trades.get', { tradeId: placed.id });
+  expect(trade.settlement).toEqual({ instant: false, windowSeconds: SLOW_WINDOW_SECONDS });
+  expect(Date.parse(trade.deadlineAt) - Date.parse(trade.escrowedAt)).toBe(SLOW_WINDOW_SECONDS * 1000);
+
+  await page.goto(`/uc/order?tradeId=${placed.id}`);
+  const order = page.getByRole('main');
+  await expect(order.getByTestId('order-settlement')).toHaveText(
+    'Not instant: the payment window is 2 days, and a dispute opens only after it ends',
+  );
+  await expect(order.getByTestId('escrow-path')).toContainText(/4[67] h \d+ min left/);
+
+  // Marked paid, the money may still be on its way: neither side can open a dispute until the window ends.
+  expect((await b.mutate('trades.markFiatSent', { tradeId: placed.id })).status).toBe('fiat_sent');
+  for (const side of [b, s]) {
+    const early = await side.raw.mutate('disputes.open', { tradeId: placed.id, reason: 'TEST not received yet' });
+    expect(early.status).toBe(400);
+    expect(refusalCode(early)).toBe('p2p.dispute_before_settlement');
+  }
+});
+
 test('J-p2p-01 #8 the seller releases; the order says Completed with the coins after the fee, they are in the balance, and the list says Completed', async ({
   page,
 }) => {
@@ -689,8 +789,9 @@ test('J-p2p-01 #8 the seller releases; the order says Completed with the coins a
   const usdt = async () => (await buyer.balances()).USDT?.free ?? '0';
   const before = await usdt();
 
-  // The seller saw the money in their own bank and releases the escrow once.
-  expect((await p2p(seller).mutate('trades.confirmReceived', { tradeId: state.tradeId })).status).toBe('released');
+  // The seller saw the money in their own bank and releases the escrow once, confirmed with their passkey.
+  const sellerPasskey = await restorePasskey(state.sellerPasskey);
+  expect((await p2p(seller, sellerPasskey).mutate('trades.confirmReceived', { tradeId: state.tradeId })).status).toBe('released');
   const trade = await p2p(buyer).query('trades.get', { tradeId: state.tradeId });
   expect(trade).toMatchObject({ status: 'released', displayStatus: 'completed' });
   // The release split is the fee rate frozen at take; the buyer's share is what the ledger pays out.
@@ -719,4 +820,64 @@ test('J-p2p-01 #8 the seller releases; the order says Completed with the coins a
     .getByRole('button', { name: /^Completed \(\d+\)$/ })
     .click();
   await expect(row).toBeVisible();
+});
+
+test('J-p2p-01 #9 the completed order has a receipt and an open one none; each side reviews the other once', async ({ page }) => {
+  const state = journey();
+  const buyer = p2p(await api(state.buyer));
+  const seller = p2p(await api(state.seller));
+  await signIn(page, state.buyer);
+  await page.goto(`/uc/order?tradeId=${state.tradeId}`);
+
+  // A receipt for this completed order.
+  await page.getByRole('button', { name: 'Get receipt' }).click();
+  const receipt = page.getByTestId('order-receipt');
+  await expect(receipt).toContainText(state.tradeId);
+  await expect(receipt).toContainText('Buyer');
+
+  // The buyer rates the seller, once.
+  const panel = page.getByTestId('order-review');
+  await expect(panel).toContainText('The other side has not reviewed you on this order.');
+  const form = panel.getByRole('form', { name: 'Leave a review' });
+  await form.getByRole('button', { name: 'Good' }).click();
+  await form.getByLabel('Comment (optional)').fill('TEST released on time');
+  await form.getByRole('button', { name: 'Leave review' }).click();
+  const mine = panel.getByRole('region', { name: 'Your review' });
+  await expect(mine).toContainText('Good');
+  await expect(mine).toContainText('TEST released on time');
+  await expect(panel.getByRole('form', { name: 'Leave a review' })).toHaveCount(0);
+  const first = (await buyer.query('reviews.forTrade', { tradeId: state.tradeId })).mine;
+  // A second leave returns the first, unchanged.
+  const again = await buyer.mutate('reviews.leave', { tradeId: state.tradeId, rating: 'bad', explanation: 'TEST second try' });
+  expect(again).toMatchObject({ id: first.id, rating: 'good', comment: 'TEST released on time' });
+
+  // The seller's bad review needs an explanation; the buyer then sees it on the order.
+  expect(refusalCode(await seller.raw.mutate('reviews.leave', { tradeId: state.tradeId, rating: 'bad' }))).toBe('p2p.explanation_required');
+  await seller.mutate('reviews.leave', { tradeId: state.tradeId, rating: 'bad', explanation: 'TEST paid from another name' });
+  await page.reload();
+  const theirs = page.getByRole('region', { name: 'Their review of you' });
+  await expect(theirs).toContainText('Bad');
+  await expect(theirs).toContainText('TEST paid from another name');
+  // The buyer answers it once, under the words it answers.
+  const reply = page.getByTestId('order-review').getByRole('form', { name: 'Reply to their review' });
+  await reply.getByLabel('Reply to their review').fill('TEST the account is in my own name');
+  await reply.getByRole('button', { name: 'Reply' }).click();
+  await expect(theirs).toContainText('Reply: TEST the account is in my own name');
+  await expect(page.getByRole('form', { name: 'Reply to their review' })).toHaveCount(0);
+  // One review per party: the seller's is about the buyer, the buyer's about the seller.
+  const rows = await buyer.query('reviews.forTrade', { tradeId: state.tradeId });
+  expect(rows.theirs).toMatchObject({ authorId: rows.mine.subjectId, subjectId: rows.mine.authorId, rating: 'bad' });
+
+  // An order that has not completed has neither a receipt nor a review: a fresh one on the same ad, then cancelled.
+  // The account's TEST passkey for this API take. The browser's copy moved its signature counter on in #5, so this copy
+  // starts well past it, as a counter only ever rises.
+  const taker = p2p(await api(state.buyer), await restorePasskey({ ...state.passkey, signCount: state.passkey.signCount + 1000 }));
+  const open = await taker.mutate('trades.take', { offerId: state.offerId, tradeId: randomUUID(), amount: AD.min, method: METHOD });
+  expect(open.status).toBe('escrowed');
+  await page.goto(`/uc/order?tradeId=${open.id}`);
+  await expect(page.getByText('A receipt is available once the order is completed.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Get receipt' })).toHaveCount(0);
+  await expect(page.getByText('Only a completed order can be reviewed.')).toBeVisible();
+  expect(refusalCode(await buyer.raw.mutate('reviews.leave', { tradeId: open.id, rating: 'good' }))).toBe('p2p.review_not_eligible');
+  await taker.mutate('trades.cancel', { tradeId: open.id, reason: 'TEST journey order that never completes' });
 });

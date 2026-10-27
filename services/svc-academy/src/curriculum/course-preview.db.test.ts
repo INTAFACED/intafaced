@@ -103,13 +103,15 @@ describe('Preview as new learner (AC-catalogue-03)', () => {
       price: null,
       priceAsset: null,
       state: 'draft',
+      pacing: null,
       sections: [
         {
           title: 'Start here',
+          release: null,
           items: [
-            { kind: 'subheader', title: 'Part 1', indent: 0, lock: null },
-            { kind: 'lesson', title: 'Position size', indent: 0, lock: 'not_released' },
-            { kind: 'link', title: 'Reading', indent: 0, lock: 'enrolment_closed' },
+            { id: expect.any(String), kind: 'subheader', title: 'Part 1', indent: 0, lock: null },
+            { id: expect.any(String), kind: 'lesson', title: 'Position size', indent: 0, lock: 'not_released' },
+            { id: expect.any(String), kind: 'link', title: 'Reading', indent: 0, lock: 'enrolment_closed' },
           ],
         },
       ],

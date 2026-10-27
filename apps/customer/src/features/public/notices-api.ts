@@ -10,7 +10,7 @@ export const NOTICE_LIST_LIMIT = 50;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const isNoticeId = (value: string | null | undefined): value is string => !!value && UUID.test(value);
 
-/** Changelog entries have their own page (/developers/changelog), so the feed keeps the other three kinds. */
+/** Changelog entries have their own page (/developers/changelog), so the feed keeps every other kind. */
 export const feedNotices = (rows: readonly Notice[]): Notice[] => rows.filter((row) => row.kind !== 'changelog');
 
 export const readNotices = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<Notice[]>> =>

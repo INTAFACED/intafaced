@@ -53,10 +53,10 @@ describe('custody deposit addresses (real Postgres)', () => {
   let chain: MemoryChain | UnconfiguredChain = new MemoryChain();
 
   const service = () => new CustodyDepositService({ sql: db.sql, chain, registries: { listRoutableNetworks: async () => networks } });
-  async function setting(asset = 'USDT', net = 'ethereum', over: { minimum?: string; enabled?: boolean } = {}) {
+  async function setting(asset = 'USDT', net = 'ethereum', over: { minimum?: string; enabled?: boolean; haltNote?: string } = {}) {
     await db.sql`
-      INSERT INTO pay.custody_deposit_settings (asset_id, network_id, label, minimum_deposit, estimated_arrival_minutes, enabled, set_by)
-      VALUES (${asset}, ${net}, 'Ethereum', ${over.minimum ?? '10'}, 5, ${over.enabled ?? true}, 'test-profile')`;
+      INSERT INTO pay.custody_deposit_settings (asset_id, network_id, label, minimum_deposit, estimated_arrival_minutes, enabled, halt_note, set_by)
+      VALUES (${asset}, ${net}, 'Ethereum', ${over.minimum ?? '10'}, 5, ${over.enabled ?? true}, ${over.haltNote ?? null}, 'test-profile')`;
   }
 
   beforeAll(async () => {
@@ -71,12 +71,12 @@ describe('custody deposit addresses (real Postgres)', () => {
   beforeEach(async () => {
     networks = [network()];
     chain = new MemoryChain();
-    await db.sql`TRUNCATE pay.custody_deposit_settings, pay.custody_deposit_addresses`;
+    await db.sql`TRUNCATE pay.custody_deposit_settings, pay.custody_deposit_addresses, pay.custody_deposit_setting_events`;
   }, 30_000);
 
   describe('catalogue', () => {
     it('is empty with no owner setting, and lists a pair once its setting and a routable network exist', async () => {
-      expect(await service().catalogue()).toEqual({ entries: [] });
+      expect(await service().catalogue()).toEqual({ entries: [], halted: [] });
       await setting();
       expect((await service().catalogue()).entries).toEqual([
         {
@@ -97,7 +97,36 @@ describe('custody deposit addresses (real Postgres)', () => {
       await setting('DAI', 'ethereum', { enabled: false });
       for (const nets of [[], [network({ confirmationsRequired: null })], [network({ assetCodes: ['DAI'] })]]) {
         networks = nets;
-        expect(await service().catalogue()).toEqual({ entries: [] });
+        expect((await service().catalogue()).entries).toEqual([]);
+      }
+    });
+
+    it('names a pair the owner switched off, with the note, only where its network would otherwise take it, and issues it no address', async () => {
+      await setting();
+      await setting('DAI', 'ethereum', { enabled: false, haltNote: 'TEST maintenance' });
+      // Switched on once (its audit says so), then off with no note.
+      await setting('USDC', 'ethereum', { enabled: false });
+      await db.sql`
+        INSERT INTO pay.custody_deposit_setting_events (asset_id, network_id, action, actor_id, approver_id, dual_control, before, after, reason)
+        VALUES ('USDC', 'ethereum', 'update', 'test-founder-a', 'test-founder-b', true, ${db.sql.json({ enabled: false })},
+                ${db.sql.json({ enabled: true })}, 'TEST switch on')`;
+      // Created off and never switched on: not launched, so not mentioned.
+      await setting('EURC', 'ethereum', { enabled: false });
+      networks = [network({ assetCodes: ['USDT', 'DAI', 'USDC', 'EURC'] })];
+      const catalogue = await service().catalogue();
+      expect(catalogue.entries.map((e) => e.assetId)).toEqual(['USDT']);
+      expect(catalogue.halted).toEqual([
+        { assetId: 'DAI', networkId: 'ethereum', label: 'Ethereum', haltNote: 'TEST maintenance' },
+        { assetId: 'USDC', networkId: 'ethereum', label: 'Ethereum', haltNote: null },
+      ]);
+      expect(await service().address({ userId: ALICE, assetId: 'DAI', networkId: 'ethereum' })).toEqual({
+        state: 'refused',
+        code: 'pay.deposit_pair_unpublished',
+      });
+      // A switched-off pair on a network that is not routable, or does not list the asset, is not named at all.
+      for (const nets of [[], [network({ enabled: false, confirmationsRequired: null })], [network({ assetCodes: ['USDT'] })]]) {
+        networks = nets;
+        expect((await service().catalogue()).halted).toEqual([]);
       }
     });
 
@@ -171,6 +200,96 @@ describe('custody deposit addresses (real Postgres)', () => {
       await expect(svc.address({ userId: BOB, assetId: 'USDT', networkId: 'ethereum' })).rejects.toThrow();
       const rows = await db.sql<Array<{ user_id: string }>>`SELECT user_id FROM pay.custody_deposit_addresses`;
       expect(rows.map((r) => r.user_id)).toEqual([ALICE]);
+    });
+
+    it('keeps the first address in the reference and reply shape it had before extras: no index, no expiry', async () => {
+      await setting();
+      expect(await service().address({ userId: ALICE, assetId: 'USDT', networkId: 'ethereum' })).toEqual({
+        state: 'issued',
+        address: { address: 'addr_usdt_deposit-user:user-alice', memo: null, qrPayload: null },
+      });
+      expect(await db.sql`SELECT address_index, expires_at FROM pay.custody_deposit_addresses`).toEqual([
+        { address_index: 0, expires_at: null },
+      ]);
+    });
+
+    it('stores an extra address per index with the expiry it was first asked with, and keeps that expiry', async () => {
+      await setting();
+      const first = await service().address({ userId: ALICE, assetId: 'USDT', networkId: 'ethereum' });
+      const expiresAt = '2099-11-24T00:00:00.000Z';
+      const extra = await service().address({ userId: ALICE, assetId: 'USDT', networkId: 'ethereum', addressIndex: 1, expiresAt });
+      expect(extra).toEqual({
+        state: 'issued',
+        address: { address: 'addr_usdt_deposit-user-extra:1:user-alice', memo: null, qrPayload: null, addressIndex: 1, expiresAt },
+      });
+      // A later call with another expiry returns the stored one: an address's expiry is set once.
+      expect(
+        await service().address({
+          userId: ALICE,
+          assetId: 'USDT',
+          networkId: 'ethereum',
+          addressIndex: 1,
+          expiresAt: '2099-12-01T00:00:00.000Z',
+        }),
+      ).toEqual(extra);
+      const second = await service().address({ userId: ALICE, assetId: 'USDT', networkId: 'ethereum', addressIndex: 2, expiresAt });
+      expect(second.state === 'issued' && second.address.address).toBe('addr_usdt_deposit-user-extra:2:user-alice');
+      // Asking for index 0 again still returns the first address, untouched.
+      expect(await service().address({ userId: ALICE, assetId: 'USDT', networkId: 'ethereum' })).toEqual(first);
+      expect(await db.sql`SELECT 1 FROM pay.custody_deposit_addresses`).toHaveLength(3);
+    });
+
+    it('throws and stores nothing when an extra address has no expiry or the first one has one (the route refuses both first)', async () => {
+      await setting();
+      await expect(service().address({ userId: ALICE, assetId: 'USDT', networkId: 'ethereum', addressIndex: 1 })).rejects.toThrow(
+        'pay.deposit_address_expiry_mismatch',
+      );
+      await expect(
+        service().address({ userId: ALICE, assetId: 'USDT', networkId: 'ethereum', expiresAt: '2099-11-24T00:00:00.000Z' }),
+      ).rejects.toThrow('pay.deposit_address_expiry_mismatch');
+      expect(await db.sql`SELECT 1 FROM pay.custody_deposit_addresses`).toHaveLength(0);
+    });
+
+    it('refuses a new extra address whose expiry has passed, and still returns a stored one that has since expired', async () => {
+      await setting();
+      const past = new Date(Date.now() - 60_000).toISOString();
+      expect(await service().address({ userId: ALICE, assetId: 'USDT', networkId: 'ethereum', addressIndex: 1, expiresAt: past })).toEqual({
+        state: 'refused',
+        code: 'pay.deposit_address_expiry_past',
+      });
+      expect(await db.sql`SELECT 1 FROM pay.custody_deposit_addresses`).toHaveLength(0);
+      const soon = new Date(Date.now() + 60_000).toISOString();
+      await service().address({ userId: ALICE, assetId: 'USDT', networkId: 'ethereum', addressIndex: 1, expiresAt: soon });
+      await db.sql`UPDATE pay.custody_deposit_addresses SET expires_at = now() - interval '1 hour' WHERE address_index = 1`;
+      // The caller sees the stored expiry and decides; the address is still watched, and a deposit to it is held for release.
+      expect(
+        await service().address({ userId: ALICE, assetId: 'USDT', networkId: 'ethereum', addressIndex: 1, expiresAt: soon }),
+      ).toMatchObject({ state: 'issued', address: { addressIndex: 1 } });
+    });
+
+    it('never derives one reference for two people, whatever their ids hold', async () => {
+      await setting();
+      // 'u' at index 1 and 'u:1' or '1:u' at index 0 would collide under a joined reference; they do not here.
+      for (const userId of ['u:1', '1:u']) await service().address({ userId, assetId: 'USDT', networkId: 'ethereum' });
+      const extra = await service().address({
+        userId: 'u',
+        assetId: 'USDT',
+        networkId: 'ethereum',
+        addressIndex: 1,
+        expiresAt: '2099-01-01T00:00:00.000Z',
+      });
+      expect(extra.state).toBe('issued');
+      expect(await db.sql`SELECT 1 FROM pay.custody_deposit_addresses`).toHaveLength(3);
+    });
+
+    it('refuses at the table an index outside 0 to 9999, an extra address with no expiry and a first address with one', async () => {
+      const insert = (index: number, expires: string | null) => db.sql`
+        INSERT INTO pay.custody_deposit_addresses (user_id, asset_id, network_id, address_index, address, expires_at)
+        VALUES (${ALICE}, 'USDT', 'ethereum', ${index}, ${`addr_${index}`}, ${expires})`;
+      await expect(insert(10000, '2026-11-24T00:00:00Z')).rejects.toThrow();
+      await expect(insert(-1, '2026-11-24T00:00:00Z')).rejects.toThrow();
+      await expect(insert(1, null)).rejects.toThrow();
+      await expect(insert(0, '2026-11-24T00:00:00Z')).rejects.toThrow();
     });
 
     it('treats addresses that differ only by case as one on a network', async () => {
@@ -264,6 +383,13 @@ describe('custody deposit addresses (real Postgres)', () => {
       expect((await a.inject(post(path, { userId: ALICE, assetId: 'USDT', networkId: 'ethereum' }, 'svc-identity'))).statusCode).toBe(403);
       expect((await a.inject(post(path, { userId: ALICE, assetId: 'USDT' }))).statusCode).toBe(400);
       expect((await a.inject(post(path, { userId: ALICE, assetId: 'USDT', networkId: 'ethereum', extra: 1 }))).statusCode).toBe(400);
+      // An extra address without an expiry, a first address with one, and an index past the cap are not the contract.
+      expect((await a.inject(post(path, { userId: ALICE, assetId: 'USDT', networkId: 'ethereum', addressIndex: 1 }))).statusCode).toBe(400);
+      const expiresAt = '2099-11-24T00:00:00.000Z';
+      expect((await a.inject(post(path, { userId: ALICE, assetId: 'USDT', networkId: 'ethereum', expiresAt }))).statusCode).toBe(400);
+      expect(
+        (await a.inject(post(path, { userId: ALICE, assetId: 'USDT', networkId: 'ethereum', addressIndex: 10000, expiresAt }))).statusCode,
+      ).toBe(400);
       expect((await a.inject(post('/internal/custody-deposits/catalogue', { x: 1 }))).statusCode).toBe(400);
       expect((await a.inject(post('/internal/custody-deposits/catalogue', {}, 'svc-identity'))).statusCode).toBe(403);
       await a.close();

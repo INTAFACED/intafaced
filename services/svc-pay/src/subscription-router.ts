@@ -77,6 +77,8 @@ const subscriptionView = z.object({
    * have.
    */
   stallReason: z.enum(['operator_pause', 'runner_outage', 'arrears', 'fee_unpublished', 'window_exhausted', 'due_pass_fault']).nullable(),
+  /** The catalogue price it was started on, kept for its whole life; null when it was started from a mandate alone. */
+  priceId: z.string().guid().nullable(),
 });
 
 /** One recorded period. The journal, not a status word. */
@@ -150,6 +152,8 @@ function toSubOut(s: Awaited<ReturnType<SubscriptionService['getSubscription']>>
     resumedAt: s.resumedAt === null ? null : s.resumedAt.toISOString(),
     stalledAt: s.stalledAt === null ? null : s.stalledAt.toISOString(),
     stallReason: s.stallReason,
+    // A record built without one (an older fake, a row read before the column) has no price.
+    priceId: s.priceId ?? null,
   };
 }
 
@@ -195,6 +199,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.merchant_not_found':
       case 'pay.mandate_not_found':
       case 'pay.subscription_not_found':
+      case 'pay.price_not_found':
         return 'NOT_FOUND' as const;
       case 'pay.merchant_forbidden':
       case 'pay.submerchant_permission_denied':
@@ -228,6 +233,9 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.subscription_list_limit_unset':
       case 'pay.subscription_execution_list_limit_unset':
       case 'pay.subscription_cycle_list_limit_unset':
+      // The catalogue price or its product is archived: nothing new starts on it (M-adv-payments-core-20).
+      case 'pay.price_archived':
+      case 'pay.product_archived':
         return 'PRECONDITION_FAILED' as const;
       default:
         return 'BAD_REQUEST' as const;
@@ -486,6 +494,12 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
              * refusal is that pay code, not a generic parser error.
              */
             idempotencyKey: z.string().optional(),
+            /**
+             * A catalogue price to start it on (M-adv-payments-core-20): a monthly fixed price of this business whose
+             * asset and amount are the monthly mandate's. The subscription keeps it for its whole life, through Replace
+             * price and archiving.
+             */
+            priceId: z.string().guid().optional(),
           }),
         )
         .output(subscriptionView)
@@ -503,6 +517,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
               mandateId: input.mandateId,
               path: input.path,
               idempotencyKey: input.idempotencyKey,
+              ...(input.priceId ? { priceId: input.priceId } : {}),
             });
             return toSubOut(sub);
           }),

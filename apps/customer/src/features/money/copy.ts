@@ -131,6 +131,9 @@ const messages = {
   'components.this.request.may.have.completed.keep.this':
     'This request may have completed. Keep this reference and inspect the original record before making another request.',
   'components.refresh.original.records': 'Refresh original records',
+  'components.send.the.same.request.again': 'Send the same request again',
+  'components.the.bank.answers.this.reference.with.its.first.result':
+    'The bank answers this reference with its first result, so sending it again never pays twice.',
   'components.close': 'Close',
   'components.edit.request': 'Edit request',
   'index.spaces': 'Spaces',
@@ -818,6 +821,9 @@ const es = {
   'components.this.request.may.have.completed.keep.this':
     'Esta solicitud puede haberse completado. Conserva esta referencia e inspecciona el registro original antes de hacer otra solicitud.',
   'components.refresh.original.records': 'Actualizar registros originales',
+  'components.send.the.same.request.again': 'Enviar la misma solicitud otra vez',
+  'components.the.bank.answers.this.reference.with.its.first.result':
+    'El banco responde a esta referencia con su primer resultado, así que enviarla otra vez nunca paga dos veces.',
   'components.close': 'Cerrar',
   'components.edit.request': 'Editar solicitud',
   'index.spaces': 'Espacios',
@@ -1524,6 +1530,9 @@ const fr = {
   'components.this.request.may.have.completed.keep.this':
     'Cette demande peut avoir abouti. Conserve cette référence et examine l’enregistrement original avant d’effectuer une autre demande.',
   'components.refresh.original.records': 'Actualiser les enregistrements originaux',
+  'components.send.the.same.request.again': 'Envoyer à nouveau la même demande',
+  'components.the.bank.answers.this.reference.with.its.first.result':
+    'La banque répond à cette référence par son premier résultat : la renvoyer ne paie donc jamais deux fois.',
   'components.close': 'Fermer',
   'components.edit.request': 'Modifier la demande',
   'index.spaces': 'Espaces',

@@ -94,7 +94,7 @@ const week = (from: Date) => new Date(from.getTime() + 7 * 24 * 60 * 60 * 1000);
 describe('progress page (AC-progress-02)', () => {
   it('shows percent complete over the course’s items with each completion, and an empty grades list with no average', async () => {
     const academy = service();
-    expect(await academy.progressPage(USER)).toEqual({ courses: [], grades: { rows: [], averages: [] } });
+    expect(await academy.progressPage(USER)).toEqual({ courses: [], grades: { rows: [], averages: [] }, courseGrades: [] });
     await academy.enrolCourse({ userId: USER, slug: 'markets', track: 'audit' });
     const items = listCurriculum({ path: 'markets' });
     await academy.markCurriculumComplete({ userId: USER, itemSlug: items[0]!.slug });
@@ -176,6 +176,18 @@ describe('progress page (AC-progress-02)', () => {
     const later = new Date(until.getTime() + 1000);
     const released = await academy.progressPage(USER, later);
     expect(released.grades.rows[0]).toMatchObject({ pending: false, attempts: 3, score: '2', percent: '100.0' });
+  });
+});
+
+describe('progress page grades and courses staff made (AC-quizzes-01)', () => {
+  it('leaves a quiz in a course staff made out of the path grades', async () => {
+    const academy = service();
+    const itemId = '77777777-7777-4777-8777-777777777777';
+    await sql`
+      INSERT INTO academy.assessment_attempts (user_id, slug, client_attempt_id, score, max_score, passed, submitted_at)
+      VALUES (${USER}, ${itemId}, 'quiz-attempt:TEST', 1, 2, false, now())
+    `;
+    expect((await academy.progressPage(USER)).grades).toEqual({ rows: [], averages: [] });
   });
 });
 

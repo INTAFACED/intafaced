@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'pay',
   env: () => ({
@@ -5,9 +7,14 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     DATABASE_URL: dbUrl('svc_pay', secrets),
     LEDGER_URL: urlOf('ledger'),
     IDENTITY_URL: urlOf('identity'),
+    // W-withdraw-14: a withdrawal to another account's platform address is one send at svc-bank (transfers.settleWithdrawal).
+    BANK_URL: urlOf('bank'),
     IDENTITY_ADMISSION_SECRET: secrets.payAdmission,
     PAY_CRYPTO_WEBHOOK_SECRET: secrets.payCryptoWebhook,
     PAY_CARD_SANDBOX_WEBHOOK_SECRET: secrets.payCardWebhook,
+    // The TEST bank for pushed bank transfers at hosted checkout (J-merchant-04 step 6): no real bank, transfers arrive only
+    // through `local-test-stack.mjs bank-transfer`. svc-pay refuses this secret outside APP_ENV dev or test.
+    PAY_BANK_TRANSFER_SANDBOX_WEBHOOK_SECRET: secrets.payBankTransferWebhook,
     PAY_CRYPTO_WATCHER_ENABLED: 'false', // no chain RPC in the local stack
     PAY_ALLOW_SANDBOX_RAILS: 'false',
     // Required, no default. LOCAL TEST values copied from .env.example.
@@ -23,5 +30,34 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // LOCAL-TEST merchant terms (tooling/profiles/test-owner-values/pay.json), so go-live can show and accept them. svc-pay refuses a TEST version outside APP_ENV dev or test.
     PAY_MERCHANT_TERMS_VERSION: 'TEST-merchant-terms-1',
     PAY_MERCHANT_TERMS_URL: 'https://terms.example/TEST-merchant-terms-1',
+    // The stack's own key for business verification documents (generated once in secrets.json), so uploads are stored encrypted.
+    PAY_KYB_DOC_KEY: secrets.payKybDocKey,
+    // The stack's own travel-rule sealing key (generated once in secrets.json), so a deposit declaration is stored sealed.
+    // 32 bytes as base64, derived from the stored secret, so plan mode's placeholder gives a valid key too.
+    PAY_TRAVEL_RULE_MESSAGE_KEY: createHash('sha256').update(secrets.payTravelRuleKey).digest('base64'),
+    PAY_TRAVEL_RULE_MESSAGE_KEY_ID: 'local-test-1',
+    // LOCAL-TEST value (tooling/profiles/test-owner-values/pay.json): a business application is due 30 days after it starts.
+    PAY_KYB_APPLICATION_DUE_DAYS: '30',
+    // LOCAL-TEST scanner for information-request files: infected only when a file carries the EICAR test string. svc-pay refuses it outside APP_ENV dev or test.
+    PAY_KYB_MALWARE_SCANNER: 'local-test-eicar',
+    // LOCAL-TEST screener for custodial sends (W9): answers clear, recorded as provider local-test, so J-wallet-07 #3-#5 can
+    // walk an internal withdrawal. No supplier is connected anywhere else; svc-pay refuses it outside APP_ENV dev or test.
+    PAY_SCREENING_SCREENER: 'local-test',
+    // LOCAL-TEST value (tooling/profiles/test-owner-values/pay.json): the largest product image, 500 KB.
+    PAY_PRODUCT_IMAGE_MAX_BYTES: '500000',
+    // LOCAL-TEST value (tooling/profiles/test-owner-values/pay.json): the largest hosted checkout logo, 100 KB.
+    PAY_CHECKOUT_LOGO_MAX_BYTES: '100000',
+    // LOCAL-TEST value (tooling/profiles/test-owner-values/pay.json): the risk band the hosted checkout routes with.
+    PAY_CHECKOUT_RISK_BAND: 'low',
+    // LOCAL-TEST value (same file): the success fraction smart routing reads for each checkout rail.
+    PAY_CHECKOUT_SUCCESS_RATES: 'crypto-native:0.9,bank-transfer-sandbox:0.9',
+    // LOCAL-TEST: the hosted checkout takes crypto and TEST bank transfers. The TEST bank exists only on this stack.
+    PAY_CHECKOUT_RAILS: 'crypto-native:crypto,bank-transfer-sandbox:bank_transfer',
+    // LOCAL-TEST value (same file): RC-merchant-09, a bank transfer is captured only when the name on the sending account
+    // matches the name the payer gave, after case, accents, punctuation and spacing. Anything else is held for review.
+    PAY_PAYER_NAME_MATCH_RULE: 'exact_normalised',
+    // Withdrawal limits per KYC tier are enforced (D-148). The figures are LOCAL-TEST ones set by local-test-gates.mjs through
+    // founderAdmin.limits.change (TEST_WITHDRAWAL_LIMITS), and a founder's override for one customer comes from identity.
+    PAY_WITHDRAWAL_LIMITS: 'required',
   }),
 });

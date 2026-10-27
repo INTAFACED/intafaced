@@ -73,10 +73,30 @@ export interface BankTransferInput {
  *   own    a user moving value between their own spaces (a one-off transfer)
  *   p2p    a user paying another user (personal pay, pay-by-handle, a paid request)
  *   sched  one firing of one standing order (`transferId` is the schedule id)
- *   rail   a send to a payment rail boundary, and its reversal
+ *   rail      a send to a payment rail boundary, and its reversal
+ *   recovery  one sweep of a recovery claim (RC-identity-08): after a confirmed death notice, the trading balances the
+ *             owner's recovery keys claim move to the heir the owner named. `transferId` is
+ *             `recoverySweepTransferId(claimId, account)`, one per claim and account swept, so a retried claim books
+ *             each balance once; value that reaches the account after a sweep goes in the next `occurrence`. Never
+ *             reversed by consent: a sweep has no living sender to give the value back to.
  */
-export const BANK_TRANSFER_KEY_SPACES = ['own', 'p2p', 'sched', 'rail'] as const;
+export const BANK_TRANSFER_KEY_SPACES = ['own', 'p2p', 'sched', 'rail', 'recovery'] as const;
 export type BankTransferKeySpace = (typeof BANK_TRANSFER_KEY_SPACES)[number];
+
+/** The one kind of transfer each key space books: a standing order fires `scheduled`, everything else is `manual`. */
+const KEY_SPACE_KIND: Readonly<Record<BankTransferKeySpace, BankTransferInput['kind']>> = {
+  own: 'manual',
+  p2p: 'manual',
+  sched: 'scheduled',
+  rail: 'manual',
+  recovery: 'manual',
+};
+
+/** The transfer id of one recovery sweep: the claim and the account swept, so two spaces of one asset are two sweeps. */
+export function recoverySweepTransferId(claimId: string, account: AccountRef): string {
+  if (typeof claimId !== 'string' || claimId.trim() === '') throw new InvalidEntryError('A recovery sweep needs its claim id');
+  return `${claimId.trim()}:${accountKey(account)}`;
+}
 
 function requireOccurrence(occurrence: number): void {
   if (!Number.isInteger(occurrence) || occurrence < 0) {
@@ -134,7 +154,7 @@ export function bankTransfer(input: BankTransferInput): PostRequest {
     throw new InvalidEntryError('Transfers move between available accounts only — locks have their own recipes');
   }
   requireOccurrence(input.occurrence);
-  if (input.keySpace !== undefined && (input.keySpace === 'sched') !== (input.kind === 'scheduled')) {
+  if (input.keySpace !== undefined && KEY_SPACE_KIND[input.keySpace] !== input.kind) {
     throw new InvalidEntryError(`Key space ${input.keySpace} does not go with a ${input.kind} transfer`);
   }
 
@@ -145,7 +165,12 @@ export function bankTransfer(input: BankTransferInput): PostRequest {
         : bankTransferKey(input.keySpace, input.transferId, input.occurrence),
     module: 'bank',
     reason: input.kind === 'scheduled' ? 'bank.transfer.scheduled' : 'bank.transfer.manual',
-    meta: { transferId: input.transferId, occurrence: input.occurrence },
+    // A sweep keeps the ordinary transfer reason (tax and activity read it as a transfer); the meta names it a sweep.
+    meta: {
+      transferId: input.transferId,
+      occurrence: input.occurrence,
+      ...(input.keySpace === 'recovery' ? { keySpace: input.keySpace } : {}),
+    },
     entries: [credit(input.from, input.amount), debit(input.to, input.amount)],
   };
 }

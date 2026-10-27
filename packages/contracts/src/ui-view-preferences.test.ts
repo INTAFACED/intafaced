@@ -19,7 +19,7 @@ describe('ui.view record', () => {
   it.each([
     { layoutMode: 'compact' },
     { hideBalances: 'yes' },
-    { displayCurrency: 'EUR' },
+    { displayCurrency: 'JPY' },
     { theme: 'blue' },
     { activeProfile: 'business:' },
     { activeProfile: 'business:has space' },

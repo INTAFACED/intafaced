@@ -47,6 +47,8 @@ import { HISTORY_RAILS, parseHistoryDoorInput, parseHistoryPageInput, parseHisto
 import { LEDGER_DOOR_CALLERS } from './door-callers.js';
 import { applyCallerBinding, type CallerBindingOptions, type PostCaller } from './caller-binding.js';
 import { RECIPE_REQUIRED_CODE, assertKnownRecipePost } from './recipe-gate.js';
+import { MAKER_REBATE_UNBOUND_CODE, assertMakerRebateBound } from './maker-rebate-binding.js';
+import { CAMPAIGN_LOCK_UNBOUND_CODE, assertCampaignLockBound } from './campaign-lock-binding.js';
 import { statementPnlFromThisBook, statementPnlInputSchema, statementPnlResultSchema } from './ledger/statement-pnl.js';
 import {
   operatorOwnerBalances,
@@ -56,7 +58,13 @@ import {
 import { isWriteBlockCode } from './ledger/write-block.js';
 import { operatorTraceInputSchema, operatorTraceOutputSchema, traceBusinessKey, TraceInconsistentError } from './ledger/operator-trace.js';
 import { LookupUnrecordedError, requireLookupAuthority } from './ledger/operator-lookup.js';
-import { LEDGER_TX_NOT_FOUND, operatorTxGet, operatorTxGetInputSchema, operatorTxGetOutputSchema } from './ledger/operator-tx-get.js';
+import {
+  BookingRecordMissingError,
+  LEDGER_TX_NOT_FOUND,
+  operatorTxGet,
+  operatorTxGetInputSchema,
+  operatorTxGetOutputSchema,
+} from './ledger/operator-tx-get.js';
 import { ReconciliationControlError } from './ledger/reconciliation-control-error.js';
 import {
   defineReconciliationControl,
@@ -138,7 +146,9 @@ function toTrpcError(err: unknown): TRPCError {
       err.code === 'ledger.history_range_too_large' ||
       err.code === 'ledger.history_page_socket' ||
       err.code === 'ledger.history_cursor_invalid' ||
-      err.code === RECIPE_REQUIRED_CODE)
+      err.code === RECIPE_REQUIRED_CODE ||
+      err.code === MAKER_REBATE_UNBOUND_CODE ||
+      err.code === CAMPAIGN_LOCK_UNBOUND_CODE)
   ) {
     return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
@@ -255,6 +265,8 @@ export function createLedgerRouter(
               : { kind: 'legacy', claimed: ctx.service };
           applyCallerBinding(caller, input, binding);
           assertKnownRecipePost(input);
+          await assertMakerRebateBound(ledger, input);
+          await assertCampaignLockBound(ledger, input);
           const entries: EntryInput[] = input.entries.map((e) => ({
             account: e.account,
             direction: e.direction,
@@ -446,6 +458,8 @@ export function createLedgerRouter(
               rail: z.enum(HISTORY_RAILS).nullable(),
               /** The page owner's own trade order this line belongs to (hold, amend, release, fill), else null. */
               orderId: z.string().min(1).max(128).nullable(),
+              /** Decimal string: the fee taken from the owner's receiving line of a fill (`0` when none), else null. */
+              fee: z.string().nullable(),
             }),
           ),
           nextCursor: z.string().nullable(),
@@ -537,7 +551,7 @@ export function createLedgerRouter(
         try {
           return await traceBusinessKey(ledger, { actorId: ctx.principal.userId, requestId: ctx.requestId ?? null }, input);
         } catch (err) {
-          if (err instanceof TraceInconsistentError || err instanceof LookupUnrecordedError) {
+          if (err instanceof TraceInconsistentError || err instanceof BookingRecordMissingError || err instanceof LookupUnrecordedError) {
             throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err.code, cause: err });
           }
           throw toTrpcError(err);
@@ -558,7 +572,7 @@ export function createLedgerRouter(
           if (err instanceof LedgerError && err.code === LEDGER_TX_NOT_FOUND) {
             throw new TRPCError({ code: 'NOT_FOUND', message: err.code, cause: err });
           }
-          if (err instanceof LookupUnrecordedError) {
+          if (err instanceof LookupUnrecordedError || err instanceof BookingRecordMissingError) {
             throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err.code, cause: err });
           }
           throw toTrpcError(err);

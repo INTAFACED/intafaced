@@ -4,6 +4,9 @@ import { CARD_ISSUER_SETTINGS } from './cards/issuer.js';
 import { parseRecoveryBatchLimit, parseRecoveryInterval } from './recovery-jobs.js';
 import { RAMP_SETTINGS } from './ramps/rails.js';
 import { GLOBAL_PARTNER_SETTINGS } from './personal-pay/global-sim.js';
+import { ONRAMP_RATE_SETTINGS } from './ramps/onramp-sim.js';
+import { PAYOUT_PARTNER_SETTINGS } from './cash-out/payout-sim.js';
+import { DD_SCHEME_SETTINGS } from './direct-debits/scheme.js';
 
 // This service self-mounts /trpc, so it must be able to authenticate the edge.
 // Every procedure here resolves `ctx.principal.userId` into somebody's spaces
@@ -68,6 +71,16 @@ const schema = serviceEnvSchema
        * interest leaves the pool reserve, and a reserve drained by a runaway job
        * cannot be un-paid without asking users to return money.
        */
+      /**
+       * Emergency stop for the direct debit collection run (BK-xfer-11). Same posture as the standing-order runner: each
+       * collection is a real debit, and stopping the run must not also turn off the person's block and refund controls,
+       * which unsetting the scheme would.
+       */
+      BANK_DD_COLLECTIONS_ENABLED: z
+        .union([z.boolean(), z.string()])
+        .default(true)
+        .transform((v) => (typeof v === 'boolean' ? v : !['0', 'false', 'off', 'no'].includes(v.toLowerCase()))),
+
       INTEREST_ACCRUAL_ENABLED: z
         .union([z.boolean(), z.string()])
         .default(true)
@@ -224,6 +237,29 @@ const schema = serviceEnvSchema
       BANK_RAMP_MODE: z.enum(RAMP_SETTINGS).default('none'),
 
       /**
+       * WHO PRICES ADD MONEY ON A TEST STACK. `none` (default) | `ramp-sim` (J-bank-02 #4).
+       *
+       * `none` leaves fiat pay-in as `socket.psp-partners`: every way to pay refuses by name. `ramp-sim` is a TEST rate
+       * stand-in for the local stack and journey tests only (`ramps/onramp-sim.ts`): it quotes from the typed TEST
+       * catalogue in `BANK_ONRAMP_SIM_JSON` for the asks it lists, opens no payment and credits nothing, and the service
+       * refuses to start with it outside dev or test.
+       */
+      BANK_ONRAMP_RATES: z.enum(ONRAMP_RATE_SETTINGS).default('none'),
+      /** The add-money stand-in's TEST catalogue (countries, ways to pay, rates, fees, quote validity). Read only with `ramp-sim`. */
+      BANK_ONRAMP_SIM_JSON: z.string().optional(),
+      /**
+       * Who pays cash-outs out to bank accounts (J-bank-03). `none` | `payout-sim`.
+       *
+       * `none` keeps every cash-out refused `bank.fiat_ramp_socket` (`rail.bank`), with nothing held or posted. `payout-sim`
+       * is a TEST payout stand-in for the local stack and journey tests only (`cash-out/payout-sim.ts`): it prices the
+       * assets in `BANK_PAYOUT_SIM_JSON` and takes a payout, and its verify, paid, failed and returned answers are signed job
+       * calls. The service refuses to start with it outside dev or test.
+       */
+      BANK_PAYOUT_PARTNER: z.enum(PAYOUT_PARTNER_SETTINGS).default('none'),
+      /** The payout stand-in's TEST catalogue (assets, pay currency, rate, fee). Read only with `payout-sim`. */
+      BANK_PAYOUT_SIM_JSON: z.string().optional(),
+
+      /**
        * MONEY-OUT STEP-UP (ADR 2026-10-14-money-out-step-up, phase 1). `off` | `required`.
        *
        * `off` (default) leaves every door as it was. `required` makes sends to other users, standing
@@ -302,12 +338,36 @@ const schema = serviceEnvSchema
       BANK_ADDRESS_BOOK_CAP: z.string().optional(),
 
       /**
+       * Owner-set number of deposit addresses one customer may hold open for one asset on one network, the first included
+       * (W-deposit-02), a whole number from 1 to 9999.
+       *
+       * No default. Blank / unset / out of range → making another address refuses `bank.deposit_address_cap_unset`.
+       */
+      BANK_DEPOSIT_ADDRESS_CAP: z.string().optional(),
+
+      /**
+       * Owner-set days an extra deposit address stays open before it expires (W-deposit-02), a whole number from 1 to 9999. A
+       * deposit that first reaches it after that is held for release.
+       *
+       * No default. Blank / unset / out of range → making another address refuses `bank.deposit_address_expiry_unset`.
+       */
+      BANK_DEPOSIT_ADDRESS_EXPIRY_DAYS: z.string().optional(),
+
+      /**
        * Owner-set minutes a wallet ownership proof offer stays open for signing (W-withdraw-17).
        *
        * No default. Blank / unset / zero / not a whole number → starting a proof refuses
        * `bank.wallet_proof_window_unset`. Boot stays up; the start is the refuse.
        */
       BANK_WALLET_PROOF_WINDOW_MINUTES: z.string().optional(),
+
+      /**
+       * Owner-set minutes an emailed link that approves a new withdrawal address works (W-withdraw-09), up to seven days.
+       *
+       * No default. Blank / unset / zero / not a whole number → asking for a link refuses `bank.address_approval_link_unset`.
+       * Approving from another signed-in device does not need it. Boot stays up; the request is the refuse.
+       */
+      BANK_ADDRESS_APPROVAL_LINK_MINUTES: z.string().optional(),
 
       /**
        * Owner-set days a verified wallet ownership proof holds before the customer proves the wallet again (W-withdraw-17).
@@ -353,6 +413,32 @@ const schema = serviceEnvSchema
       BANK_SPACE_LIMIT: z.string().optional(),
 
       /**
+       * Owner-set hours an early pot unlock waits before the pot opens (BK-pots-02), 0 to 8760. NO DEFAULT. Blank / unset /
+       * not a whole number → asking to unlock a pot before its lock date refuses `bank.space_unlock_rule_unset` and the pot
+       * stays locked to its date. Boot stays up; the ask is the refuse.
+       */
+      BANK_SPACE_UNLOCK_WAIT_HOURS: z.string().optional(),
+
+      /**
+       * Owner-set smallest payment from another person that the income sorter splits (BK-pots-03), a decimal; 0 sorts
+       * every payment. NO DEFAULT. Blank / unset / not a decimal → making a sorter refuses `bank.sorter_terms_unset` and
+       * no payment is sorted. Boot stays up; the ask is the refuse.
+       */
+      BANK_INCOME_SORTER_MIN_CREDIT: z.string().optional(),
+
+      /**
+       * Owner-set minutes a shared pot invite stays open (BK-acct-09), 1 to 43200. NO DEFAULT. Blank / unset / not a whole
+       * number → inviting someone to a pot, and accepting an invite, refuse `bank.joint_unset`. Boot stays up.
+       */
+      BANK_SHARED_POT_INVITE_MINUTES: z.string().optional(),
+
+      /**
+       * Owner-set number of people one pot may be shared with, open invites included (BK-acct-09), 1 to 50. NO DEFAULT.
+       * Blank / unset → inviting and accepting refuse `bank.joint_unset`. Boot stays up.
+       */
+      BANK_SHARED_POT_PEOPLE_CAP: z.string().optional(),
+
+      /**
        * Owner-published rules for the purpose, source of funds and reference of a global send, as JSON: `{ reference:
        * [{ deliveryMethod, country?, maxLength }], purposeRequired: ["INR", ...], sourceOfFunds: [{ asset, threshold }] }`.
        * No default. Blank / unset / not in shape → `bank.send_field_rules_unset`; a reference with no rule for its rail →
@@ -371,6 +457,18 @@ const schema = serviceEnvSchema
       BANK_GLOBAL_PARTNER: z.enum(GLOBAL_PARTNER_SETTINGS).default('none'),
       /** The stand-in's TEST catalogue (corridors, rates, banks, travel-rule fields, and optionally the amounts it screens). Read only when the setting is `global-sim`. */
       BANK_GLOBAL_SIM_JSON: z.string().optional(),
+
+      /**
+       * WHO SPEAKS FOR THE DIRECT DEBIT SCHEME (BK-xfer-11). `none` (default) | `dd-sim`.
+       *
+       * The scheme, its failure fees and its guarantee periods are the owner's decision (decision list item 12), and
+       * nothing is switched on: `none` refuses every direct debit control with `rail.bank`. `dd-sim` is a TEST stand-in
+       * for the local stack and journey tests only (`direct-debits/scheme.ts`): its TEST creditors and guarantee period
+       * come from `BANK_DD_SIM_JSON`, it pays nobody, and the service refuses to start with it outside dev or test.
+       */
+      BANK_DD_SCHEME: z.enum(DD_SCHEME_SETTINGS).default('none'),
+      /** The direct debit stand-in's TEST catalogue (creditors, guarantee days). Read only when the setting is `dd-sim`. */
+      BANK_DD_SIM_JSON: z.string().optional(),
 
       /**
        * Owner-published payee controls for a global send as JSON: `{ blockedAccounts: ["..."] }`. A published empty list

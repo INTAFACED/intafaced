@@ -21,6 +21,7 @@ import { createTradeApi, type Order, type TradeApi } from '../../../features/tra
 import { decimalSchema } from '../../../shared/money';
 import type { OrderBook, Trade } from '@intafaced/exchange-contract/schemas';
 import { deskListingSchema, toDeskMarkets, type DeskMarket } from './market';
+import { feeTokenFetcher, type FeeToken } from './fee-token';
 
 export const DESK_INTERVALS = {
   markets: 300_000,
@@ -159,15 +160,15 @@ export function useFills(fast: boolean): Loadable<Trade[]> {
 }
 
 const feesSchema = z.record(z.string(), z.object({ maker: decimalSchema, taker: decimalSchema }).passthrough());
-export type ListedFees = Record<string, { maker: string; taker: string }>;
+export type MyFees = Record<string, { maker: string; taker: string }>;
 
-/** The fee rates the market lists for each pair (maker and taker, as ratios). Before any rank discount; the order check has the rate this order pays. */
-export function useListedFees(): Loadable<ListedFees> {
+/** The caller's own fee rates for each pair (maker and taker, as ratios), at its fee tier and after its rank discount; the order check has the rate this order pays. */
+export function useMyFees(): Loadable<MyFees> {
   const env = useDataEnv();
   return useSource(
     useMemo(
       () =>
-        privateSource<ListedFees>(
+        privateSource<MyFees>(
           env,
           'desk-fees',
           async (signal) => {
@@ -183,6 +184,20 @@ export function useListedFees(): Loadable<ListedFees> {
           },
           DESK_INTERVALS.fees,
         ),
+      [env],
+    ),
+  );
+}
+
+/** Paying fees in the platform token: the owner's terms, and when signed in the person's stake discount and the ladder. */
+export function useFeeToken(): Loadable<FeeToken> {
+  const env = useDataEnv();
+  return useSource(
+    useMemo(
+      () =>
+        env.poller.source<FeeToken>(`desk-fee-token:${env.userId ?? 'signed-out'}`, feeTokenFetcher(env.api, Boolean(env.userId)), {
+          intervalMs: DESK_INTERVALS.fees,
+        }),
       [env],
     ),
   );

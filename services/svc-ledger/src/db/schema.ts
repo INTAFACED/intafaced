@@ -9,6 +9,7 @@ import {
   integer,
   jsonb,
   pgSchema,
+  primaryKey,
   text,
   timestamp,
   unique,
@@ -599,7 +600,7 @@ export const postingFreeze = ledger.table(
 );
 
 /**
- * One row per operator read of an owner's account detail (0024) or lookup of one transaction (0026). Append-only by trigger; written BEFORE the read is
+ * One row per operator read of an owner's account detail (0024), lookup of one transaction (0026), or page of the ledger desk's list or address search (0028). Append-only by trigger; written BEFORE the read is
  * answered, so a read that cannot be recorded is refused.
  */
 export const operatorAccessLog = ledger.table(
@@ -618,7 +619,10 @@ export const operatorAccessLog = ledger.table(
   (t) => [
     index('operator_access_log_target_idx').on(t.targetOwnerType, t.targetOwnerId, t.accessedAt),
     check('operator_access_log_actor_ck', sql`length(actor_id) > 0`),
-    check('operator_access_log_action_ck', sql`action IN ('owner_balances.read', 'transaction.read', 'trace.read')`),
+    check(
+      'operator_access_log_action_ck',
+      sql`action IN ('owner_balances.read', 'transaction.read', 'trace.read', 'transactions.list', 'accounts.search', 'account_metadata.read')`,
+    ),
   ],
 );
 
@@ -780,6 +784,66 @@ export const reconciliationControlRuns = ledger.table(
     check('reconciliation_control_runs_actor_ck', sql`length(actor_id) > 0`),
     check('reconciliation_control_runs_reason_ck', sql`length(reason) >= 12`),
     check('reconciliation_control_runs_fingerprint_ck', sql`length(fingerprint) > 0`),
+  ],
+);
+
+/**
+ * Operator metadata on a ledger account (0029, OPS-ledger-desk-01): one row per key with its current value. A deleted
+ * key keeps its row with a NULL value, so the revision only grows. Not a posting and not part of the hash chain.
+ */
+export const accountMetadata = ledger.table(
+  'account_metadata',
+  {
+    accountId: uuid('account_id').notNull(),
+    key: text('key').notNull(),
+    value: text('value'),
+    revision: integer('revision').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).defaultNow().notNull(),
+    updatedBy: text('updated_by').notNull(),
+  },
+  (t) => [
+    primaryKey({ name: 'account_metadata_pk', columns: [t.accountId, t.key] }),
+    foreignKey({ columns: [t.accountId], foreignColumns: [accounts.id], name: 'account_metadata_account_fk' }).onDelete('restrict'),
+    check('account_metadata_key_ck', sql`key ~ '^[a-z][a-z0-9_.:-]{0,63}$'`),
+    check('account_metadata_value_ck', sql`value IS NULL OR (length(value) BETWEEN 1 AND 500)`),
+    check('account_metadata_revision_ck', sql`revision >= 1`),
+  ],
+);
+
+/**
+ * Every set and delete of account metadata (0029), with the value before and after, who asked, who approved a delete
+ * and why. Append-only by trigger.
+ */
+export const accountMetadataChanges = ledger.table(
+  'account_metadata_changes',
+  {
+    seq: bigserial('seq', { mode: 'bigint' }).primaryKey(),
+    accountId: uuid('account_id').notNull(),
+    key: text('key').notNull(),
+    action: text('action').notNull(),
+    before: text('before'),
+    after: text('after'),
+    revision: integer('revision').notNull(),
+    requesterId: text('requester_id').notNull(),
+    approverId: text('approver_id'),
+    approvalId: text('approval_id'),
+    reason: text('reason').notNull(),
+    recordedAt: timestamp('recorded_at', { withTimezone: true, mode: 'date' })
+      .default(sql`clock_timestamp()`)
+      .notNull(),
+  },
+  (t) => [
+    foreignKey({ columns: [t.accountId], foreignColumns: [accounts.id], name: 'account_metadata_changes_account_fk' }).onDelete('restrict'),
+    unique('account_metadata_changes_revision_uq').on(t.accountId, t.key, t.revision),
+    unique('account_metadata_changes_approval_uq').on(t.approvalId),
+    index('account_metadata_changes_account_idx').on(t.accountId, t.seq),
+    check('account_metadata_changes_action_ck', sql`action IN ('set', 'delete')`),
+    check('account_metadata_changes_reason_ck', sql`length(reason) BETWEEN 12 AND 500`),
+    check('account_metadata_changes_requester_ck', sql`length(requester_id) > 0`),
+    check(
+      'account_metadata_changes_shape_ck',
+      sql`(action = 'set' AND after IS NOT NULL AND approval_id IS NULL AND approver_id IS NULL) OR (action = 'delete' AND after IS NULL AND before IS NOT NULL AND approval_id IS NOT NULL AND approver_id IS NOT NULL AND approver_id <> requester_id)`,
+    ),
   ],
 );
 

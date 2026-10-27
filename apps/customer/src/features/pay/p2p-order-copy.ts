@@ -35,9 +35,6 @@ const en = {
   cancelBody:
     'If escrow is locked, cancellation returns the asset to the seller. It does not refund an external bank payment. Resolve any external payment separately.',
   refundTo: 'Asset returns to',
-  releaseTo: 'Release to',
-  gross: 'Escrow release quantity (gross)',
-  releaseTerms: 'The fee and the net amount the buyer receives aren’t shown here. Releasing follows the order’s settlement terms.',
   resultTitle: 'Result',
   youReceived: 'You received',
   youSent: 'You sent',
@@ -55,6 +52,7 @@ const en = {
   paidCheckOwnAccount: 'I paid from an account in my own name',
   paidCheckDetails: 'I paid to the payment details shown on this order',
   paidChecklistIncomplete: 'Tick each line to mark the payment sent.',
+  escrowHeld: 'Left in escrow for this order:',
 } as const;
 const es = {
   seller: 'Eres el vendedor',
@@ -92,10 +90,6 @@ const es = {
   cancelBody:
     'Si el depósito está bloqueado, la cancelación devuelve el activo al vendedor. No reembolsa un pago bancario externo. Resuelve cualquier pago externo por separado.',
   refundTo: 'El activo vuelve a',
-  releaseTo: 'Liberar a',
-  gross: 'Cantidad bruta que se libera del depósito',
-  releaseTerms:
-    'Aquí no se muestran la comisión ni el importe neto que recibe el comprador. La liberación sigue las condiciones de liquidación de la orden.',
   resultTitle: 'Resultado',
   youReceived: 'Recibiste',
   youSent: 'Enviaste',
@@ -113,6 +107,7 @@ const es = {
   paidCheckOwnAccount: 'Pagué desde una cuenta a mi nombre',
   paidCheckDetails: 'Pagué a los datos de pago que muestra este pedido',
   paidChecklistIncomplete: 'Marca cada línea para indicar el pago como enviado.',
+  escrowHeld: 'Queda en el depósito para este pedido:',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   seller: 'Vous êtes le vendeur',
@@ -150,10 +145,6 @@ const fr = {
   cancelBody:
     'Si le séquestre est verrouillé, l’annulation restitue l’actif au vendeur. Elle ne rembourse pas un paiement bancaire externe. Réglez tout paiement externe séparément.',
   refundTo: 'L’actif revient à',
-  releaseTo: 'Libérer à',
-  gross: 'Quantité brute libérée du séquestre',
-  releaseTerms:
-    'Les frais et le montant net reçu par l’acheteur ne sont pas affichés ici. La libération suit les conditions de règlement de la commande.',
   resultTitle: 'Résultat',
   youReceived: 'Vous avez reçu',
   youSent: 'Vous avez envoyé',
@@ -171,5 +162,6 @@ const fr = {
   paidCheckOwnAccount: 'J’ai payé depuis un compte à mon nom',
   paidCheckDetails: 'J’ai payé aux informations de paiement affichées sur cette commande',
   paidChecklistIncomplete: 'Cochez chaque ligne pour marquer le paiement comme envoyé.',
+  escrowHeld: 'Reste sous séquestre pour cette commande :',
 } satisfies Record<keyof typeof en, string>;
 export const orderCopy = defineCopy('pay.p2p.order', en, { es, fr });

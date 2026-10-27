@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ACADEMY_COURSE_PACING } from './academy-course-release.js';
 
 /**
  * AC-course-structure-01: a course is a record staff create on the Academy desk. Its slug is fixed at creation; its details
@@ -503,8 +504,13 @@ export type AcademySetCourseTopicsInput = z.infer<typeof academySetCourseTopicsI
  * only, never sample data, and reading it writes nothing. Each item carries its lock: `not_released` while no lesson
  * revision is published to learners; otherwise `enrol` until the reader enrols, or `enrolment_closed` while the course
  * is not published (nobody can enrol yet, or any more). A subheader is a label and has none.
+ *
+ * AC-release-access-01: a section may be released at an instant or some days after the reader's enrolment. Until then
+ * its items carry `scheduled` for an enrolled reader, and the section carries its release: the instant in UTC (the
+ * screen shows it in the reader's own time), or for a reader not yet enrolled the days after enrolling.
  */
-export const ACADEMY_LEARNER_ITEM_LOCKS = ['enrol', 'enrolment_closed', 'not_released'] as const;
+export const ACADEMY_LEARNER_ITEM_LOCKS = ['enrol', 'enrolment_closed', 'not_released', 'scheduled'] as const;
+// An enrolled reader (`authoredCourse`, signed in) sees no `enrol` lock on what is released.
 export type AcademyLearnerItemLock = (typeof ACADEMY_LEARNER_ITEM_LOCKS)[number];
 export const academyCourseLearnerViewSchema = z.object({
   slug: z.string().min(1),
@@ -515,11 +521,26 @@ export const academyCourseLearnerViewSchema = z.object({
   price: z.string().nullable(),
   priceAsset: z.string().nullable(),
   state: z.enum(ACADEMY_COURSE_STATES),
+  /** How the course is paced; null while staff have not said. */
+  pacing: z.enum(ACADEMY_COURSE_PACING).nullable(),
   sections: z.array(
     z.object({
       title: z.string().min(1),
+      /** When the section opens to this reader; null when it has no release rule. */
+      release: z
+        .object({
+          /** The instant it opens for this reader, or null while that depends on an enrolment they do not have. */
+          at: isoInstant.nullable(),
+          /** Days after enrolling, for a rule relative to enrolment; null for a fixed instant. */
+          afterEnrolmentDays: z.number().int().positive().nullable(),
+          /** Whether it is open for this reader now. */
+          open: z.boolean(),
+        })
+        .nullable(),
       items: z.array(
         z.object({
+          /** The outline item, so an open assignment links to its page (AC-assignments-01). */
+          id: z.string().guid(),
           kind: z.enum(ACADEMY_OUTLINE_ITEM_KINDS),
           title: z.string().min(1),
           indent: z.number().int().min(0).max(2),
@@ -577,3 +598,363 @@ export type AcademyRevokePrivateLinkInput = z.infer<typeof academyRevokePrivateL
  */
 export const academyCourseByLinkInputSchema = z.object({ slug: z.string().min(1).max(120), key: z.string().min(1).max(200) }).strict();
 export type AcademyCourseByLinkInput = z.infer<typeof academyCourseByLinkInputSchema>;
+
+/**
+ * AC-catalogue-03: the published courses staff made, as the public catalogue lists them (most recently published first). Published is
+ * listed; a course reached before that is unlisted and opens only through a private link. The page size is the
+ * caller's to send.
+ */
+export const academyPublishedCoursesInputSchema = z.object({ limit: z.number().int().positive().max(200) }).strict();
+export const academyPublishedCourseCardSchema = z.object({
+  slug: z.string().min(1),
+  title: z.string().min(1),
+  summary: z.string().nullable(),
+  thumbnailUrl: z.string().nullable(),
+  pricing: z.enum(ACADEMY_COURSE_PRICING),
+  price: z.string().nullable(),
+  priceAsset: z.string().nullable(),
+  /** Items released to learners, which an enrolled learner can open (subheaders are labels and are not counted). */
+  items: z.number().int().nonnegative(),
+});
+export type AcademyPublishedCourseCard = z.infer<typeof academyPublishedCourseCardSchema>;
+export const academyPublishedCourseListSchema = z.array(academyPublishedCourseCardSchema);
+
+/** `publicAuthoredCourse`, `authoredCourse`, `authoredCourseEnrolment`: one course staff made, by its address. */
+export const academyAuthoredCourseInputSchema = z.object({ slug: z.string().min(1).max(120) }).strict();
+
+/** `leaveAuthoredCourse`: the enrolment that began at `enrolledAt` ends; a repeat after a lost reply is the same leave. */
+export const academyLeaveAuthoredCourseInputSchema = z.object({ slug: z.string().min(1).max(120), enrolledAt: isoInstant }).strict();
+export type AcademyLeaveAuthoredCourseInput = z.infer<typeof academyLeaveAuthoredCourseInputSchema>;
+
+/**
+ * AC-assignments-01: an assignment is an outline item of kind `assignment` with a brief staff set on the founder console:
+ * instructions, points as a decimal string, an optional due date, and whether a text answer and a file are off, optional
+ * or required. It is released to enrolled learners once its brief is saved. A learner hands in a numbered version keyed
+ * `submit:<item>:<account>:<version>`, so a retry after a lost reply is the same hand-in; late is worked out on each
+ * read against the due date and never stored. The course has no late rule until gradebook setup (AC-assignments-04), so
+ * none is shown. No money moves here.
+ */
+export const ACADEMY_ANSWER_MODES = ['off', 'optional', 'required'] as const;
+export type AcademyAnswerMode = (typeof ACADEMY_ANSWER_MODES)[number];
+export const ACADEMY_SUBMISSION_STATES = ['draft', 'submitted', 'pending_review', 'graded', 'returned', 'withdrawn'] as const;
+export type AcademySubmissionState = (typeof ACADEMY_SUBMISSION_STATES)[number];
+/** Points: a decimal string above zero with at most two places, never a JavaScript number. */
+export const ACADEMY_POINTS = /^(?:0|[1-9]\d{0,5})(?:\.\d{1,2})?$/;
+export const academyPointsSchema = z
+  .string()
+  .regex(ACADEMY_POINTS)
+  .refine((v) => /[1-9]/.test(v), { message: 'points are more than zero' });
+
+const assignmentBrief = {
+  instructions: z.string().trim().min(1).max(10_000),
+  points: academyPointsSchema,
+  /** The due date, or null for none (an author choice: no due date, nothing is late). */
+  dueAt: isoInstant.nullable(),
+  text: z.enum(ACADEMY_ANSWER_MODES),
+  file: z.enum(ACADEMY_ANSWER_MODES),
+};
+
+/**
+ * AC-assignments-03: rubrics and peer or self review. A rubric is a list of criteria, each with two to ten levels as
+ * ascending decimal strings; a saved rubric is never changed, so a review keeps the criteria it was scored against. The
+ * review steps run in order: peer review (each learner reviews `peerCount` classmates' work), then a self review of the
+ * learner's own. A learner reviews only after handing in, is never handed their own work as a peer, and waits while no
+ * classmate's work is free. Each review is keyed `peer:<assignment>:<reviewer>:<author>`; the reviewer never learns who
+ * the author is. Training examples, cohort-only pairing and rubric import by file are later parts. No money moves here.
+ */
+export const ACADEMY_RUBRIC_LEVEL = /^(?:0|[1-9]\d{0,5})(?:\.\d{1,2})?$/;
+export const ACADEMY_RUBRIC_MAX_CRITERIA = 20;
+export const ACADEMY_REVIEW_MAX_PEERS = 20;
+const rubricLevel = z.string().regex(ACADEMY_RUBRIC_LEVEL);
+/** Levels as typed: "0", "1.5". Ascending, no two alike; compared as decimals, never as JavaScript numbers. */
+const ascending = (levels: readonly string[]) => levels.every((level, i) => i === 0 || decimalCompare(levels[i - 1]!, level) < 0);
+/** A rubric level in hundredths, exactly: "1.5" is 150n. */
+const levelHundredths = (level: string) => {
+  const [whole, fraction = ''] = level.split('.');
+  return BigInt(whole!) * 100n + BigInt(`${fraction}00`.slice(0, 2));
+};
+/** -1, 0 or 1 for two rubric levels, compared as exact decimals. */
+export function decimalCompare(a: string, b: string): number {
+  const left = levelHundredths(a);
+  const right = levelHundredths(b);
+  return left === right ? 0 : left < right ? -1 : 1;
+}
+export const academyRubricCriterionSchema = z
+  .object({ name: z.string().trim().min(1).max(120), levels: z.array(rubricLevel).min(2).max(10) })
+  .strict()
+  .refine((c) => ascending(c.levels), { message: 'levels go up, with no two alike', path: ['levels'] });
+export type AcademyRubricCriterion = z.infer<typeof academyRubricCriterionSchema>;
+export const academyRubricSchema = z.object({
+  id: z.string().guid(),
+  criteria: z.array(academyRubricCriterionSchema).min(1).max(ACADEMY_RUBRIC_MAX_CRITERIA),
+});
+export type AcademyRubric = z.infer<typeof academyRubricSchema>;
+
+/** An assignment's review steps as staff see them, with who is waiting. Null until first saved. */
+export const academyReviewStepsSchema = z.object({
+  /** 0 until first saved; each save is the next revision. */
+  revision: z.number().int().nonnegative(),
+  peer: z.boolean(),
+  /** Reviews each learner gives; null is not set, and a course with peer review on and no count is not published. */
+  peerCount: z.number().int().min(1).max(ACADEMY_REVIEW_MAX_PEERS).nullable(),
+  self: z.boolean(),
+  rubric: academyRubricSchema.nullable(),
+  /** Learners who handed in and still need peer reviews from classmates. */
+  authorsShortOfReviews: z.number().int().nonnegative(),
+  /** Learners who owe peer reviews while no classmate's work is free for them: the waiting list. */
+  reviewersWaiting: z.number().int().nonnegative(),
+});
+export type AcademyReviewSteps = z.infer<typeof academyReviewStepsSchema>;
+
+/** `admin.assignment`: an assignment item as staff see it. `brief` is null until it is first saved. */
+export const academyAdminAssignmentSchema = z.object({
+  itemId: z.string().guid(),
+  courseId: z.string().guid(),
+  title: z.string().min(1),
+  /** 0 until the brief is first saved; each save is the next revision. */
+  revision: z.number().int().nonnegative(),
+  brief: z.object(assignmentBrief).nullable(),
+  savedBy: z.string().guid().nullable(),
+  savedAt: isoInstant.nullable(),
+  /** Set when staff withdrew it: learners can no longer hand in, and what they handed in stays readable to them. */
+  withdrawnAt: isoInstant.nullable(),
+  withdrawReason: z.string().nullable(),
+  /** Learners who handed in at least once. */
+  learnersHandedIn: z.number().int().nonnegative(),
+  /** AC-assignments-03: the review steps and rubric; null until first saved. */
+  review: academyReviewStepsSchema.nullable(),
+});
+export type AcademyAdminAssignment = z.infer<typeof academyAdminAssignmentSchema>;
+
+/** `admin.saveAssignment`: the brief, over the revision read (a stale one refuses `academy.revision_stale`). */
+export const academySaveAssignmentInputSchema = z
+  .object({ itemId: z.string().guid(), revision: z.number().int().nonnegative(), ...assignmentBrief })
+  .strict()
+  .refine((v) => v.text !== 'off' || v.file !== 'off', { message: 'a learner hands in text, a file or both', path: ['text'] });
+export type AcademySaveAssignmentInput = z.infer<typeof academySaveAssignmentInputSchema>;
+
+/** `admin.withdrawAssignment`: learners can no longer hand in; the reason is kept. */
+export const academyWithdrawAssignmentInputSchema = z
+  .object({ itemId: z.string().guid(), reason: z.string().trim().min(1).max(500) })
+  .strict();
+export type AcademyWithdrawAssignmentInput = z.infer<typeof academyWithdrawAssignmentInputSchema>;
+
+/** A file a learner handed in, as they see it. Its bytes are never served inline. */
+export const academySubmissionFileSchema = z.object({
+  id: z.string().guid(),
+  fileName: z.string().min(1),
+  contentType: z.string().min(1),
+  bytes: z.number().int().positive(),
+});
+export type AcademySubmissionFile = z.infer<typeof academySubmissionFileSchema>;
+
+export const academySubmissionSchema = z.object({
+  version: z.number().int().positive(),
+  state: z.enum(ACADEMY_SUBMISSION_STATES),
+  text: z.string().nullable(),
+  file: academySubmissionFileSchema.nullable(),
+  submittedAt: isoInstant,
+  /** Handed in after the due date, worked out on this read. */
+  late: z.boolean(),
+});
+export type AcademySubmission = z.infer<typeof academySubmissionSchema>;
+
+/** AC-assignments-02: the grade on the learner's newest graded hand-in, as they see it: never the grader. */
+export const academyLearnerGradeSchema = z.object({
+  version: z.number().int().positive(),
+  /** The grade event shown: 1 for the first grade, higher after a change. Mark as read names it. */
+  n: z.number().int().positive(),
+  score: z.string(),
+  points: z.string(),
+  comment: z.string().nullable(),
+  gradedAt: isoInstant,
+  /** When the learner marked this grade's feedback read; null until then. */
+  readAt: isoInstant.nullable(),
+});
+export type AcademyLearnerGrade = z.infer<typeof academyLearnerGradeSchema>;
+
+/** `assignment`: an assignment as the enrolled learner sees it, with their own hand-ins, newest first. */
+export const academyAssignmentInputSchema = z.object({ itemId: z.string().guid() }).strict();
+export const academyAssignmentViewSchema = z.object({
+  itemId: z.string().guid(),
+  courseSlug: z.string().min(1),
+  courseTitle: z.string().min(1),
+  title: z.string().min(1),
+  ...assignmentBrief,
+  /** The course's late rule; null while the course has none. */
+  lateRule: z.string().nullable(),
+  /**
+   * The upload limits for a file answer: the smaller of the owner's size limit and the inline bound, and the owner's
+   * types. A null field is not set by the owner, and a file is refused until it is.
+   */
+  fileLimits: z.object({ maxBytes: z.number().int().positive().nullable(), types: z.array(z.string()).nullable() }),
+  withdrawnAt: isoInstant.nullable(),
+  submissions: z.array(academySubmissionSchema),
+  /** AC-assignments-02: the grade on the newest graded hand-in, released when staff save it; null before. */
+  grade: academyLearnerGradeSchema.nullable(),
+  /** The version the next hand-in takes; a retry of a lost hand-in sends the version it was made with. */
+  nextVersion: z.number().int().positive(),
+  /** AC-release-access-02: this learner's own later due date, with the reason staff gave; null when they have none. */
+  extension: z.object({ dueAt: isoInstant, reason: z.string().min(1) }).nullable(),
+});
+export type AcademyAssignmentView = z.infer<typeof academyAssignmentViewSchema>;
+
+/**
+ * The most a learner's file carries inline through the customer API: 768 KiB, whose base64 fits a 1 MiB request body.
+ * A transport bound, not an owner value: the page shows the smaller of it and the owner's upload limit.
+ */
+export const ACADEMY_ASSIGNMENT_FILE_INLINE_MAX_BYTES = 786_432;
+
+/** `uploadAssignmentFile`: a file for the next hand-in, its bytes in base64; the same file again is the same row. */
+export const academyUploadAssignmentFileInputSchema = z
+  .object({
+    itemId: z.string().guid(),
+    fileName: z.string().trim().min(1).max(200),
+    contentType: z.string().trim().min(1).max(100),
+    contentBase64: z
+      .string()
+      .min(1)
+      .max(Math.ceil(ACADEMY_ASSIGNMENT_FILE_INLINE_MAX_BYTES / 3) * 4),
+  })
+  .strict();
+export type AcademyUploadAssignmentFileInput = z.infer<typeof academyUploadAssignmentFileInputSchema>;
+
+/** `submitAssignment`: version `version` of the caller's hand-in, keyed `submit:<item>:<account>:<version>`. */
+export const academySubmitAssignmentInputSchema = z
+  .object({
+    itemId: z.string().guid(),
+    version: z.number().int().positive(),
+    text: z.string().max(20_000).nullable(),
+    fileId: z.string().guid().nullable(),
+  })
+  .strict();
+export type AcademySubmitAssignmentInput = z.infer<typeof academySubmitAssignmentInputSchema>;
+
+/** `admin.saveReviewSteps`: the steps and the rubric, over the revision read. A rubric is needed when any step is on. */
+export const academySaveReviewStepsInputSchema = z
+  .object({
+    itemId: z.string().guid(),
+    revision: z.number().int().nonnegative(),
+    peer: z.boolean(),
+    peerCount: z.number().int().min(1).max(ACADEMY_REVIEW_MAX_PEERS).nullable(),
+    self: z.boolean(),
+    criteria: z.array(academyRubricCriterionSchema).max(ACADEMY_RUBRIC_MAX_CRITERIA),
+  })
+  .strict();
+export type AcademySaveReviewStepsInput = z.infer<typeof academySaveReviewStepsInputSchema>;
+
+export const ACADEMY_REVIEW_STAGES = ['off', 'hand_in_first', 'peer', 'waiting', 'self', 'done'] as const;
+export type AcademyReviewStage = (typeof ACADEMY_REVIEW_STAGES)[number];
+
+/** Work handed to the learner to review: a classmate's under an alias, or their own for the self review. */
+export const academyReviewTaskSchema = z.object({
+  id: z.string().guid(),
+  kind: z.enum(['peer', 'self']),
+  /** The n-th classmate's work this learner was handed, as their alias; null on the self review. Never the author's account. */
+  ordinal: z.number().int().positive().nullable(),
+  text: z.string().nullable(),
+  /** The file handed in; its name only on the self review, since a classmate's file name can name them. */
+  file: z.object({ fileName: z.string().min(1).nullable(), contentType: z.string().min(1), bytes: z.number().int().positive() }).nullable(),
+  criteria: z.array(academyRubricCriterionSchema).min(1),
+});
+export type AcademyReviewTask = z.infer<typeof academyReviewTaskSchema>;
+
+/** `peerReview` and `submitPeerReview`: where the caller is in the review steps, with the work to review now. */
+export const academyReviewStateSchema = z.object({
+  itemId: z.string().guid(),
+  stage: z.enum(ACADEMY_REVIEW_STAGES),
+  peer: z.boolean(),
+  peerCount: z.number().int().positive().nullable(),
+  self: z.boolean(),
+  peerDone: z.number().int().nonnegative(),
+  selfDone: z.boolean(),
+  task: academyReviewTaskSchema.nullable(),
+});
+export type AcademyReviewState = z.infer<typeof academyReviewStateSchema>;
+
+/** `peerReview`: the caller's review stage; hands them the next classmate's work when one is due and free. */
+export const academyPeerReviewInputSchema = z.object({ itemId: z.string().guid() }).strict();
+
+/** `peerReviewFile`: the file of work handed to the caller to review, its bytes in base64 (at most the inline bound). */
+export const academyPeerReviewFileInputSchema = z.object({ itemId: z.string().guid(), taskId: z.string().guid() }).strict();
+export const academyPeerReviewFileSchema = z.object({
+  contentType: z.string().min(1),
+  bytes: z.number().int().positive(),
+  contentBase64: z.string().min(1),
+});
+export type AcademyPeerReviewFile = z.infer<typeof academyPeerReviewFileSchema>;
+
+/** `submitPeerReview`: one level per criterion, in the rubric's order; the same marks again answer as stored. */
+export const academySubmitPeerReviewInputSchema = z
+  .object({
+    itemId: z.string().guid(),
+    taskId: z.string().guid(),
+    marks: z.array(rubricLevel).min(1).max(ACADEMY_RUBRIC_MAX_CRITERIA),
+  })
+  .strict();
+export type AcademySubmitPeerReviewInput = z.infer<typeof academySubmitPeerReviewInputSchema>;
+
+/**
+ * AC-assignments-02: staff grade a hand-in with a score and comment. A grade is an append-only trail keyed
+ * `grade:<submission>:<n>`; the newest event is the grade. Changing a grade is an override and needs a reason
+ * (`academy.reason_required`). A grader holds a lease on the hand-in for the owner's lease length while grading; another
+ * grader is refused `academy.grader_locked`, and with the length blank grading refuses `academy.grader_lease_unset`.
+ * Graders see learners under a per-assignment alias, never their name or account, and a learner never sees who graded.
+ * A grade is released to the learner when it is saved. Bulk grading by file and removing a response are later parts.
+ */
+/** A score: a decimal string from 0 with at most two places, never above the assignment's points (`academy.grade_invalid`). */
+/** A score is written as points are, so any score up to the points is one. */
+export const ACADEMY_SCORE = ACADEMY_POINTS;
+export const academyGradingQueueInputSchema = z.object({ itemId: z.string().guid() }).strict();
+export const academyGradingRowSchema = z.object({
+  submissionId: z.string().guid(),
+  /** "Learner 3": stable per assignment, by first hand-in. Never the learner's name or account. */
+  alias: z.number().int().positive(),
+  version: z.number().int().positive(),
+  submittedAt: isoInstant,
+  late: z.boolean(),
+  text: z.string().nullable(),
+  file: z.object({ fileName: z.string().min(1), contentType: z.string().min(1), bytes: z.number().int().positive() }).nullable(),
+  /** Peer reviews this hand-in received, and their mean total as a decimal string (null with none). */
+  peerReviews: z.object({ received: z.number().int().nonnegative(), meanTotal: z.string().nullable() }),
+  grade: z
+    .object({ score: z.string(), comment: z.string().nullable(), gradedAt: isoInstant, overrides: z.number().int().nonnegative() })
+    .nullable(),
+  /** The event number the next grade on this hand-in takes. */
+  nextN: z.number().int().positive(),
+  lease: z.object({ mine: z.boolean(), expiresAt: isoInstant }).nullable(),
+});
+export type AcademyGradingRow = z.infer<typeof academyGradingRowSchema>;
+export const academyGradingQueueSchema = z.object({
+  itemId: z.string().guid(),
+  courseId: z.string().guid(),
+  title: z.string().min(1),
+  points: z.string(),
+  /** The owner's grader lease length in seconds; null is not set, and grading refuses until it is. */
+  leaseSeconds: z.number().int().positive().nullable(),
+  rows: z.array(academyGradingRowSchema),
+});
+export type AcademyGradingQueue = z.infer<typeof academyGradingQueueSchema>;
+
+/** `admin.openGrading`: take (or renew) the lease on one hand-in; answers with the queue. */
+export const academyOpenGradingInputSchema = z.object({ itemId: z.string().guid(), submissionId: z.string().guid() }).strict();
+export type AcademyOpenGradingInput = z.infer<typeof academyOpenGradingInputSchema>;
+
+/** `admin.gradeSubmission`: grade event `n` on a hand-in; the same `n` again answers as stored. */
+export const academyGradeSubmissionInputSchema = z
+  .object({
+    itemId: z.string().guid(),
+    submissionId: z.string().guid(),
+    n: z.number().int().positive(),
+    score: z.string().regex(ACADEMY_SCORE),
+    comment: z.string().trim().max(5000).nullable(),
+    reason: z.string().trim().min(1).max(500).nullable(),
+  })
+  .strict();
+export type AcademyGradeSubmissionInput = z.infer<typeof academyGradeSubmissionInputSchema>;
+
+/** `markFeedbackRead`: the caller read grade event `n` on version `version`; a repeat answers as stored. */
+export const academyMarkFeedbackReadInputSchema = z
+  .object({ itemId: z.string().guid(), version: z.number().int().positive(), n: z.number().int().positive() })
+  .strict();
+export type AcademyMarkFeedbackReadInput = z.infer<typeof academyMarkFeedbackReadInputSchema>;

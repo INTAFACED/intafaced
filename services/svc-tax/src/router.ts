@@ -7,7 +7,14 @@ import {
   basisWriteResultSchema,
   lotBookInputSchema,
   lotBookSchema,
+  lotChoiceSavedSchema,
   missingBasisSchema,
+  pickSaleLotInputSchema,
+  pnlOverTimeInputSchema,
+  pnlOverTimeSchema,
+  setDayMethodInputSchema,
+  setIncludeTransfersInputSchema,
+  setLotMethodInputSchema,
 } from '@intafaced/contracts/tax-lot-book';
 import { TAX_EXPORT_INCOMPLETE, TAX_JURISDICTION_UNMAPPED, TaxError } from './codes.js';
 import { LOT_METHODS } from './lots.js';
@@ -101,6 +108,23 @@ export function createTaxRouter(tax: TaxService) {
         }
       }),
 
+    /** The indicator over a date range: the cumulative result at each moment, and the change split by coin, market and day. */
+    pnlOverTime: scopedProcedure('tax:read', { module: 'tax', plane: 'fiat' })
+      .input(pnlOverTimeInputSchema)
+      .output(pnlOverTimeSchema)
+      .query(async ({ ctx, input }) => {
+        try {
+          return await tax.pnlOverTime({
+            userId: ctx.principal!.userId,
+            from: input.from,
+            ...(input.to === undefined ? {} : { to: input.to }),
+            utcOffsetMinutes: input.utcOffsetMinutes,
+          });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
     /** Open lots and disposals that still have no basis. The effect is "unknown share", never a made-up gain. */
     missingBasis: scopedProcedure('tax:read', { module: 'tax', plane: 'fiat' })
       .input(lotBookInputSchema)
@@ -140,6 +164,58 @@ export function createTaxRouter(tax: TaxService) {
           }
         }),
     }),
+
+    /** The caller's own matching method for the account or one coin. Settings only: nothing is posted to the ledger. */
+    setLotMethod: scopedProcedure('tax:write', { module: 'tax', plane: 'fiat' })
+      .input(setLotMethodInputSchema)
+      .output(lotChoiceSavedSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          await tax.setLotMethod({ userId: ctx.principal!.userId, assetId: input.assetId, method: input.method });
+          return { saved: true as const };
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** The caller's own method for one UTC day. Settings only. */
+    setDayMethod: scopedProcedure('tax:write', { module: 'tax', plane: 'fiat' })
+      .input(setDayMethodInputSchema)
+      .output(lotChoiceSavedSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          await tax.setDayMethod({ userId: ctx.principal!.userId, day: input.day, assetId: input.assetId, method: input.method });
+          return { saved: true as const };
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** The lot one of the caller's own sales draws on first. Checked against the caller's own book. Settings only. */
+    pickSaleLot: scopedProcedure('tax:write', { module: 'tax', plane: 'fiat' })
+      .input(pickSaleLotInputSchema)
+      .output(lotChoiceSavedSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          await tax.pickSaleLot({ userId: ctx.principal!.userId, saleTxId: input.saleTxId, assetId: input.assetId, lotId: input.lotId });
+          return { saved: true as const };
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** Whether the caller's own deposits, transfers in and withdrawals count in their profit and loss. Settings only. */
+    setIncludeTransfers: scopedProcedure('tax:write', { module: 'tax', plane: 'fiat' })
+      .input(setIncludeTransfersInputSchema)
+      .output(lotChoiceSavedSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          await tax.setIncludeTransfers({ userId: ctx.principal!.userId, include: input.include });
+          return { saved: true as const };
+        } catch (err) {
+          mapError(err);
+        }
+      }),
 
     exportPreview: scopedProcedure('tax:read', { module: 'tax', plane: 'fiat' })
       .input(exportInput)

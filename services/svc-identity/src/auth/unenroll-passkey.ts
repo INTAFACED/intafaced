@@ -4,6 +4,8 @@
  */
 import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
+import { assertLeavesAWayIn, lockedSigninMethods } from './signin-methods.js';
+import { queueFactorChangedNotice } from './factor-changed-notice.js';
 
 export class UnenrollPasskeyError extends Error {
   constructor(
@@ -48,12 +50,15 @@ export async function unenrollPasskey(
       throw new UnenrollPasskeyError('No enrolled passkey', 'auth.passkey_missing');
     }
 
+    // The last way in stays (I-account-lifecycle-07): a passkey is removed only while another method remains.
+    assertLeavesAWayIn(await lockedSigninMethods(tx, userId));
     const remaining = existing.filter((c) => c.credentialId !== id);
     await tx`
       UPDATE users
          SET webauthn_creds = ${tx.json(remaining as never)}, updated_at = now()
        WHERE id = ${userId}
     `;
+    await queueFactorChangedNotice(tx, { userId, change: 'passkey_removed', now: new Date() });
     return { credentialId: id, remaining: remaining.length };
   });
 }

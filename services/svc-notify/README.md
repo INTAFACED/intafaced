@@ -254,6 +254,18 @@ still spends an identity four-eyes approval (`notify.notice.publish`) and the ap
   `status.category_unknown`. It is stored with its name as listed then, bound by the publish approval's payload hash,
   held by the published-row trigger, and carried on every notice read as `category` (`null` for none), so renaming a
   category later leaves published notices as they were filed. The founders file announcements at `/notify/notices`.
+- Notice audiences (P-trade-orders-23 merchant notices, migration 0034): an announcement is for `everyone` unless the
+  draft names a member audience (`audience: 'p2p-merchants'`); any other kind, or an unknown audience, is
+  `notify.notice_audience_invalid`, and the table checks the same. The audience is bound by the publish approval's payload
+  hash (added only when it is not `everyone`, so every earlier hash is unchanged) and held by the published-row trigger.
+  A members' notice is on no public read (`notify.notices`, `notify.notice`, `notify.announcement`, `/v1/notices`), is
+  never mailed to status subscribers, and cannot be re-sent to them. `notify.noticeAudiences` (public) lists the
+  audiences and whether each one's membership can be read here. `notify.memberNotices` (`notify:read`, `{ limit }`)
+  answers the signed-in account's open announcements for the audiences it is in, newest first, or `[]`. Membership is
+  asked of its owner at read time: P2P merchants are the accounts svc-p2p's signed `GET /internal/reputation/:userId`
+  answers `merchant: true` for (a frozen, withdrawn or rejected merchant reads `false`, and `null`, no programme wired, is
+  not a member). With `P2P_URL` unset, or svc-p2p not answering, the read refuses `notify.notice_audience_unavailable`
+  rather than guess.
 
 ### Status badge (SP-status-05)
 
@@ -443,27 +455,31 @@ _None._
 
 **Consumes**
 
-| Subject                                   | Consumer (durable)                | Effect                                                                                                       |
-| ----------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `intafaced.trade.fill.settled`            | `notify-fill-settled`             | Inbox row for the fill owner                                                                                 |
-| `intafaced.trade.order.updated`           | `notify-order-updated`            | Inbox row on cancelled / rejected / expired only                                                             |
-| `intafaced.trade.position.updated`        | `notify-position-updated`         | **Critical** inbox row + fan-out on liquidation only                                                         |
-| `intafaced.p2p.escrow.locked`             | `notify-p2p-escrow-locked`        | Inbox rows for seller and buyer                                                                              |
-| `intafaced.p2p.escrow.released`           | `notify-p2p-escrow-released`      | Inbox rows when escrow releases to buyer                                                                     |
-| `intafaced.p2p.escrow.refunded`           | `notify-p2p-escrow-refunded`      | Inbox rows when escrow returns to seller                                                                     |
-| `intafaced.p2p.trade.disputed`            | `notify-p2p-trade-disputed`       | Inbox row for the opener only (no counterparty on payload)                                                   |
-| `intafaced.p2p.trade_fiat.sent`           | `notify-p2p-trade-fiat-sent`      | Inbox row `p2p.trade.fiat_sent` for the seller when the buyer marks the order paid                           |
-| `intafaced.identity.kyc.approved`         | `notify-kyc-approved`             | Inbox row when verification tier is granted                                                                  |
-| `intafaced.identity.rank.updated`         | `notify-rank-updated`             | Inbox row when rank changes                                                                                  |
-| `intafaced.token.stake.created`           | `notify-stake-created`            | Inbox row when a stake is locked                                                                             |
-| `intafaced.bank.margin_call.created`      | `notify-bank-margin-called`       | **Critical** inbox row + fan-out when a loan is called                                                       |
-| `intafaced.bank.personal_request.created` | `notify-personal-request-created` | Inbox row `pay.request_created` for the person asked to pay                                                  |
-| `intafaced.bank.personal_request.settled` | `notify-personal-request-settled` | Inbox row `pay.request_paid` for the person who was paid                                                     |
-| `intafaced.bank.personal_transfer.posted` | `notify-personal-transfer-posted` | Inbox rows `pay.transfer_received` (recipient) and `pay.transfer_sent` (sender) for one posted personal send |
-| `intafaced.support.ticket.resolved`       | `notify-support-ticket-resolved`  | Inbox row `support.rate_request` asking the owner to rate a resolved request                                 |
-| `intafaced.agents.action.rejected`        | `notify-agent-action-rejected`    | Inbox row when a guardrail refuses an agent action                                                           |
-| `intafaced.agents.action.completed`       | `notify-agent-action-completed`   | Inbox row on completion / session_close only                                                                 |
-| `intafaced.ledger.freeze.updated`         | `notify-ledger-freeze-updated`    | One audience-all inbox notice when the posting freeze is set or cleared                                      |
+| Subject                                       | Consumer (durable)                 | Effect                                                                                                        |
+| --------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `intafaced.trade.fill.settled`                | `notify-fill-settled`              | Inbox row for the fill owner                                                                                  |
+| `intafaced.trade.order.updated`               | `notify-order-updated`             | Inbox row on cancelled / rejected / expired only                                                              |
+| `intafaced.trade.position.updated`            | `notify-position-updated`          | **Critical** inbox row + fan-out on liquidation only                                                          |
+| `intafaced.p2p.escrow.locked`                 | `notify-p2p-escrow-locked`         | Inbox rows for seller and buyer                                                                               |
+| `intafaced.p2p.escrow.released`               | `notify-p2p-escrow-released`       | Inbox rows when escrow releases to buyer                                                                      |
+| `intafaced.p2p.escrow.refunded`               | `notify-p2p-escrow-refunded`       | Inbox rows when escrow returns to seller                                                                      |
+| `intafaced.p2p.trade.disputed`                | `notify-p2p-trade-disputed`        | Inbox row for the opener only (no counterparty on payload)                                                    |
+| `intafaced.p2p.trade_fiat.sent`               | `notify-p2p-trade-fiat-sent`       | Inbox row `p2p.trade.fiat_sent` for the seller when the buyer marks the order paid                            |
+| `intafaced.identity.kyc.approved`             | `notify-kyc-approved`              | Inbox row when verification tier is granted                                                                   |
+| `intafaced.identity.security_factor.updated`  | `notify-security-factor-changed`   | Inbox row when a sign-in factor is turned on, off, replaced, added or removed                                 |
+| `intafaced.identity.rank.updated`             | `notify-rank-updated`              | Inbox row when rank changes                                                                                   |
+| `intafaced.token.stake.created`               | `notify-stake-created`             | Inbox row when a stake is locked                                                                              |
+| `intafaced.bank.margin_call.created`          | `notify-bank-margin-called`        | **Critical** inbox row + fan-out when a loan is called                                                        |
+| `intafaced.bank.personal_request.created`     | `notify-personal-request-created`  | Inbox row `pay.request_created` for the person asked to pay                                                   |
+| `intafaced.bank.personal_request.settled`     | `notify-personal-request-settled`  | Inbox row `pay.request_paid` for the person who was paid                                                      |
+| `intafaced.bank.personal_transfer.posted`     | `notify-personal-transfer-posted`  | Inbox rows `pay.transfer_received` (recipient) and `pay.transfer_sent` (sender) for one posted personal send  |
+| `intafaced.pay.deposit_credit.posted`         | `notify-pay-deposit-credit-posted` | Inbox row `bank.deposit.credited` for the customer whose crypto deposit the ledger credited, once per deposit |
+| `intafaced.bank.scheduled_reminder.triggered` | `notify-bank-scheduled-reminder`   | Inbox row `bank.scheduled_reminder` for the owner of a standing order due within their reminder lead time     |
+| `intafaced.bank.scheduled_run.failed`         | `notify-bank-scheduled-failed`     | Inbox row `bank.scheduled_failed`, with the bank's reason, for a standing-order run that took nothing         |
+| `intafaced.support.ticket.resolved`           | `notify-support-ticket-resolved`   | Inbox row `support.rate_request` asking the owner to rate a resolved request                                  |
+| `intafaced.agents.action.rejected`            | `notify-agent-action-rejected`     | Inbox row when a guardrail refuses an agent action                                                            |
+| `intafaced.agents.action.completed`           | `notify-agent-action-completed`    | Inbox row on completion / session_close only                                                                  |
+| `intafaced.ledger.freeze.updated`             | `notify-ledger-freeze-updated`     | One audience-all inbox notice when the posting freeze is set or cleared                                       |
 
 ### Posting-freeze notice (audience `all`)
 
@@ -840,6 +856,7 @@ is actually open.
 | `NOTIFY_VERIFY_CODE_PEPPER`             | —       | Required. Blank refuses `notify.verify_code_pepper_unset` — no default. HMAC key for confirmation codes.                                                            |
 | `TRADE_URL`                             | —       | Unset ⇒ alert marks stay dark. Set ⇒ public ticker mark source (live wiring).                                                                                       |
 | `MATCHING_URL`                          | —       | Unset ⇒ venue halt unwired (not allFine, not invented halt). Set ⇒ consume GET /markets. Never POST /halt-all.                                                      |
+| `P2P_URL`                               | —       | Unset ⇒ the `p2p-merchants` notice audience is unavailable and `notify.memberNotices` refuses. Set ⇒ signed GET /internal/reputation/:userId on svc-p2p.            |
 | `NOTIFY_INCIDENT_SILENCE`               | `false` | Latch: matching-open is not allFine until `NOTIFY_INCIDENT_ALL_CLEAR`.                                                                                              |
 | `NOTIFY_INCIDENT_ALL_CLEAR`             | `false` | Explicit recovered. Halt / unavailable matching still refuse allFine.                                                                                               |
 | `NOTIFY_INBOX_PAGE_SIZE`                | —       | 1–100. Served by `notify.inboxPolicy`; blank reports `notify.list_limit_unset` — never invent 20.                                                                   |

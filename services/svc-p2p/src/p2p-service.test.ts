@@ -7,7 +7,6 @@ import { describe, expect, it, beforeAll, beforeEach, afterAll } from 'vitest';
 import { MemoryEventBus, type Envelope, type EventName, type Payload, type PublishOptions } from '@intafaced/events';
 import {
   MemoryLedger,
-  InsufficientFundsError,
   formatAmount,
   parseAmount as amt,
   recipes,
@@ -543,6 +542,280 @@ describe('svc-p2p escrow', () => {
       expect(fiatSentNotices()).toHaveLength(1);
     });
 
+    // P-trade-orders-15 / J-p2p-02 #2: the buyer reminds a slow seller, after the owner's wait and up to the owner's count.
+    describe('seller reminders', () => {
+      const WAIT = 60;
+      const reminders = () => bus.published.filter((env) => env.subject === 'intafaced.p2p.trade_reminder.sent');
+      const remindingService = (policy = { waitSeconds: WAIT, max: 2 }) => {
+        p2p = new P2pService(sql, ledger, bus, { ...options, reminders: policy });
+        return p2p;
+      };
+      /** Moves the order's paid mark and its reminders back by `seconds`, as if that much time had passed. */
+      const later = async (tradeId: string, seconds: number) => {
+        await sql`UPDATE p2p.p2p_trades SET fiat_sent_at = fiat_sent_at - make_interval(secs => ${seconds}) WHERE id = ${tradeId}`;
+        await sql`UPDATE p2p.trade_reminders SET reminded_at = reminded_at - make_interval(secs => ${seconds}) WHERE trade_id = ${tradeId}`;
+      };
+      const paid = async () => {
+        const trade = await escrowedTrade('100');
+        return p2p.markFiatSent(trade.id, TAKER);
+      };
+
+      it('refuses a reminder before the wait with the time it may go, and sends nothing', async () => {
+        remindingService();
+        const trade = await paid();
+        const refused = await p2p.remindSeller(trade.id, TAKER).catch((error: unknown) => error);
+        expect(refused).toMatchObject({ code: 'p2p.remind_too_early' });
+        expect((refused as P2pError).limit?.until).toBe(new Date(trade.fiatSentAt!.getTime() + WAIT * 1000).toISOString());
+        expect(reminders()).toHaveLength(0);
+        expect((await p2p.reminderState(trade)).count).toBe(0);
+      });
+
+      it('after the wait sends one reminder keyed by order and number, and the next waits again until the count is spent', async () => {
+        remindingService();
+        const trade = await paid();
+        await later(trade.id, WAIT);
+        const first = await p2p.remindSeller(trade.id, TAKER);
+        expect(first.count).toBe(1);
+        expect(first.nextAt!.getTime()).toBe(first.lastAt!.getTime() + WAIT * 1000);
+        expect(reminders()).toHaveLength(1);
+        expect(reminders()[0]).toMatchObject({
+          idempotencyKey: `p2p.trade_reminder.sent:${trade.id}:1`,
+          payload: { tradeId: trade.id, n: 1, buyerId: TAKER, sellerId: MAKER },
+        });
+        // A second press at once is too early, not a second reminder.
+        await expect(p2p.remindSeller(trade.id, TAKER)).rejects.toMatchObject({ code: 'p2p.remind_too_early' });
+        await later(trade.id, WAIT);
+        expect((await p2p.remindSeller(trade.id, TAKER)).count).toBe(2);
+        await later(trade.id, WAIT);
+        const capped = await p2p.remindSeller(trade.id, TAKER).catch((error: unknown) => error);
+        expect(capped).toMatchObject({ code: 'p2p.remind_rate_limited', limit: { until: null, cap: '2' } });
+        expect(reminders()).toHaveLength(2);
+        expect((await p2p.reminderState(await p2p.getTrade(trade.id))).nextAt).toBeNull();
+        expect(await p2p.sweepReminders(100)).toEqual({ sent: 0, failures: [] });
+      });
+
+      it('only the buyer reminds; a stranger is told the order does not exist', async () => {
+        remindingService();
+        const trade = await paid();
+        await later(trade.id, WAIT);
+        await expect(p2p.remindSeller(trade.id, MAKER)).rejects.toMatchObject({ code: 'p2p.not_the_buyer' });
+        await expect(p2p.remindSeller(trade.id, crypto.randomUUID())).rejects.toMatchObject({ code: 'p2p.trade_not_found' });
+        expect(reminders()).toHaveLength(0);
+      });
+
+      it('refuses on an order not waiting on release, and while the owner figures are blank', async () => {
+        remindingService();
+        const escrowed = await escrowedTrade('100');
+        await expect(p2p.remindSeller(escrowed.id, TAKER)).rejects.toMatchObject({ code: 'p2p.invalid_transition' });
+        const trade = await paid();
+        await later(trade.id, WAIT);
+        await p2p.confirmFiatReceived(trade.id, MAKER);
+        await expect(p2p.remindSeller(trade.id, TAKER)).rejects.toMatchObject({ code: 'p2p.trade_terminal' });
+
+        remindingService({ waitSeconds: null, max: null } as never);
+        const unset = await paid();
+        await later(unset.id, WAIT);
+        await expect(p2p.remindSeller(unset.id, TAKER)).rejects.toMatchObject({ code: 'p2p.config_unset' });
+        expect((await p2p.reminderState(unset)).nextAt).toBeNull();
+        expect(reminders()).toHaveLength(0);
+      });
+
+      it('sends with the bus down; the sweep hands it over next tick, and drops one whose order was released meanwhile', async () => {
+        bus = new BusFailingOnce('svc-p2p', 'p2pTradeReminderSent');
+        remindingService();
+        const trade = await paid();
+        await later(trade.id, WAIT);
+        expect((await p2p.remindSeller(trade.id, TAKER)).count).toBe(1);
+        expect(reminders()).toHaveLength(0);
+        expect(await p2p.sweepReminders(100)).toEqual({ sent: 1, failures: [] });
+        expect(reminders()).toHaveLength(1);
+
+        bus = new BusFailingOnce('svc-p2p', 'p2pTradeReminderSent');
+        remindingService();
+        const other = await paid();
+        await later(other.id, WAIT);
+        await p2p.remindSeller(other.id, TAKER);
+        await p2p.confirmFiatReceived(other.id, MAKER);
+        expect(await p2p.sweepReminders(100)).toEqual({ sent: 0, failures: [] });
+        expect(reminders().filter((env) => (env.payload as { tradeId: string }).tradeId === other.id)).toHaveLength(0);
+      });
+    });
+
+    // P-trade-orders-20 / J-p2p-02 #3: the seller reports what arrived in their own bank; the owner's band classifies it.
+    describe('amount mismatch reports', () => {
+      const reporting = (toleranceBps: number | null = 50) => {
+        p2p = new P2pService(sql, ledger, bus, { ...options, mismatchToleranceBps: toleranceBps });
+        return p2p;
+      };
+      const paid = async () => {
+        const trade = await escrowedTrade('100');
+        return p2p.markFiatSent(trade.id, TAKER);
+      };
+      const rows = async (tradeId: string) => sql`SELECT * FROM p2p.trade_mismatches WHERE trade_id = ${tradeId}`;
+
+      it('within the band logs the report and the order goes on; the same report again answers the first', async () => {
+        reporting(50);
+        const trade = await paid();
+        // 0.1 % short, inside a 0.5 % band, in the currency's own unit.
+        const received = trade.fiatAmount - trade.fiatAmount / 1000n - ((trade.fiatAmount - trade.fiatAmount / 1000n) % amt('0.01'));
+        const report = await p2p.reportMismatch(trade.id, MAKER, { kind: 'under', amountReceived: received });
+        expect(report).toMatchObject({ classification: 'within_tolerance', toleranceBps: 50, expected: trade.fiatAmount });
+        expect((await p2p.getTrade(trade.id)).status).toBe('fiat_sent');
+        expect(await p2p.reportMismatch(trade.id, MAKER, { kind: 'under', amountReceived: received })).toEqual(report);
+        expect(await p2p.mismatchReport(trade.id)).toEqual(report);
+        await expect(p2p.reportMismatch(trade.id, MAKER, { kind: 'partial', amountReceived: received })).rejects.toMatchObject({
+          code: 'p2p.mismatch_report_exists',
+        });
+        expect(await rows(trade.id)).toHaveLength(1);
+        // The seller may still release once satisfied; the report moved nothing.
+        expect((await p2p.confirmFiatReceived(trade.id, MAKER)).status).toBe('released');
+      });
+
+      it('outside the band the order stays paid and nothing is released', async () => {
+        reporting(50);
+        const trade = await paid();
+        const report = await p2p.reportMismatch(trade.id, MAKER, { kind: 'under', amountReceived: trade.fiatAmount / 2n });
+        expect(report.classification).toBe('outside_tolerance');
+        const after = await p2p.getTrade(trade.id);
+        expect(after.status).toBe('fiat_sent');
+        expect(after.resolution).toBeNull();
+        expect((await ledger.balance(tradeEscrowAccount(MAKER, ASSET, trade.id))).amount).toBe(trade.amount);
+      });
+
+      it('a blank band classifies nothing: the report goes to a person', async () => {
+        reporting(null);
+        const trade = await paid();
+        const report = await p2p.reportMismatch(trade.id, MAKER, { kind: 'over', amountReceived: trade.fiatAmount + amt('1') });
+        expect(report).toMatchObject({ classification: 'reported', toleranceBps: null });
+      });
+
+      it('refuses an amount that contradicts the kind or is finer than the currency, and writes nothing', async () => {
+        reporting(50);
+        const trade = await paid();
+        for (const [kind, amountReceived] of [
+          ['over', trade.fiatAmount - amt('1')],
+          ['under', trade.fiatAmount + amt('1')],
+          ['partial', trade.fiatAmount],
+          ['under', amt('0.001')],
+          ['under', 0n],
+        ] as const) {
+          await expect(p2p.reportMismatch(trade.id, MAKER, { kind, amountReceived })).rejects.toMatchObject({ code: 'p2p.invalid_amount' });
+        }
+        expect(await rows(trade.id)).toHaveLength(0);
+      });
+
+      it('only the seller reports, a stranger is told the order does not exist, and only a paid order takes one', async () => {
+        reporting(50);
+        const trade = await paid();
+        const half = { kind: 'under', amountReceived: trade.fiatAmount / 2n } as const;
+        await expect(p2p.reportMismatch(trade.id, TAKER, half)).rejects.toMatchObject({ code: 'p2p.not_the_seller' });
+        await expect(p2p.reportMismatch(trade.id, crypto.randomUUID(), half)).rejects.toMatchObject({ code: 'p2p.trade_not_found' });
+        const escrowed = await escrowedTrade('100');
+        await expect(p2p.reportMismatch(escrowed.id, MAKER, half)).rejects.toMatchObject({ code: 'p2p.invalid_transition' });
+        await p2p.confirmFiatReceived(trade.id, MAKER);
+        await expect(p2p.reportMismatch(trade.id, MAKER, half)).rejects.toMatchObject({ code: 'p2p.trade_terminal' });
+        expect(await rows(trade.id)).toHaveLength(0);
+      });
+    });
+
+    // P-trade-orders-11 / J-p2p-02 #4: the bank rail checks the payment; an exact match releases once, anything else waits.
+    describe('payment validation through a bank rail', () => {
+      type Confirmation = { confirmationId: string; currency: string; amount: bigint; reference: string } | null;
+      /** A TEST rail: answers what the test says arrived, for the methods it covers. */
+      const testRail = (answer: (tradeId: string) => Confirmation, methods = ['sepa']) => ({
+        methods: new Set(methods),
+        confirmation: async (order: { tradeId: string }) => answer(order.tradeId),
+      });
+      const railService = (rail: ReturnType<typeof testRail> | null) => {
+        p2p = new P2pService(sql, ledger, bus, { ...options, paymentRail: rail });
+        return p2p;
+      };
+      const paid = async () => {
+        const trade = await escrowedTrade('100');
+        return p2p.markFiatSent(trade.id, TAKER);
+      };
+      const exact = (trade: { id: string; fiatCurrency: string; fiatAmount: bigint }) => ({
+        confirmationId: `TEST-${trade.id}`,
+        currency: trade.fiatCurrency,
+        amount: trade.fiatAmount,
+        reference: trade.id,
+      });
+      const exceptions = async (tradeId: string) => sql`SELECT * FROM p2p.rail_exceptions WHERE trade_id = ${tradeId}`;
+
+      it('with no rail refuses rail.bank and nothing moves', async () => {
+        railService(null);
+        const trade = await paid();
+        expect(p2p.paymentValidationBlocker(trade)).toBe('rail.bank');
+        await expect(p2p.validatePayment(trade.id, MAKER)).rejects.toMatchObject({ code: 'rail.bank' });
+        expect((await p2p.getTrade(trade.id)).status).toBe('fiat_sent');
+      });
+
+      it('refuses a method the rail does not validate, and a buyer or a stranger', async () => {
+        railService(testRail(() => null, ['other-method']));
+        const trade = await paid();
+        expect(p2p.paymentValidationBlocker(trade)).toBe('p2p.method_not_rail_validated');
+        await expect(p2p.validatePayment(trade.id, MAKER)).rejects.toMatchObject({ code: 'p2p.method_not_rail_validated' });
+        railService(testRail(() => null));
+        await expect(p2p.validatePayment(trade.id, TAKER)).rejects.toMatchObject({ code: 'p2p.not_the_seller' });
+        await expect(p2p.validatePayment(trade.id, crypto.randomUUID())).rejects.toMatchObject({ code: 'p2p.trade_not_found' });
+      });
+
+      it('answers pending while nothing has arrived, and refuses before the order is marked paid', async () => {
+        railService(testRail(() => null));
+        const trade = await paid();
+        expect((await p2p.validatePayment(trade.id, MAKER)).outcome).toBe('pending');
+        expect((await p2p.getTrade(trade.id)).status).toBe('fiat_sent');
+        const escrowed = await escrowedTrade('100');
+        await expect(p2p.validatePayment(escrowed.id, MAKER)).rejects.toMatchObject({ code: 'p2p.invalid_transition' });
+      });
+
+      it('an exact match releases once; a second check answers the same released order', async () => {
+        const before = await availableOf(TAKER);
+        let order: Awaited<ReturnType<typeof paid>> | undefined;
+        railService(testRail(() => exact(order!)));
+        order = await paid();
+        const first = await p2p.validatePayment(order.id, MAKER);
+        expect(first).toMatchObject({ outcome: 'released', trade: { status: 'released', resolution: 'released' } });
+        const received = await availableOf(TAKER);
+        expect(amt(received)).toBeGreaterThan(amt(before));
+        const again = await p2p.validatePayment(order.id, MAKER);
+        expect(again.outcome).toBe('released');
+        expect(await availableOf(TAKER)).toBe(received);
+      });
+
+      it('a release by hand at the same moment posts once', async () => {
+        const before = await availableOf(TAKER);
+        let order: Awaited<ReturnType<typeof paid>> | undefined;
+        railService(testRail(() => exact(order!)));
+        order = await paid();
+        const [byRail, byHand] = await Promise.allSettled([p2p.validatePayment(order.id, MAKER), p2p.confirmFiatReceived(order.id, MAKER)]);
+        expect(byRail.status === 'fulfilled' || byHand.status === 'fulfilled').toBe(true);
+        expect((await p2p.getTrade(order.id)).status).toBe('released');
+        const once = amt(await availableOf(TAKER)) - amt(before);
+        // Exactly the net of one release: a second posting would double it.
+        const settled = await p2p.getTrade(order.id);
+        expect(once).toBe(settled.amount - (settled.amount * BigInt(settled.feeBps)) / 10_000n);
+      });
+
+      it('a mismatch releases nothing and leaves one exception row per confirmation', async () => {
+        let order: Awaited<ReturnType<typeof paid>> | undefined;
+        railService(testRail(() => ({ ...exact(order!), amount: order!.fiatAmount - amt('1') })));
+        order = await paid();
+        await expect(p2p.validatePayment(order.id, MAKER)).rejects.toMatchObject({ code: 'p2p.rail_mismatch' });
+        await expect(p2p.validatePayment(order.id, MAKER)).rejects.toMatchObject({ code: 'p2p.rail_mismatch' });
+        expect((await p2p.getTrade(order.id)).status).toBe('fiat_sent');
+        const rows = await exceptions(order.id);
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({ reason: 'amount', received_reference: order.id });
+
+        let other: Awaited<ReturnType<typeof paid>> | undefined;
+        railService(testRail(() => ({ ...exact(other!), confirmationId: `TEST-ref-${other!.id}`, reference: 'someone else' })));
+        other = await paid();
+        await expect(p2p.validatePayment(other.id, MAKER)).rejects.toMatchObject({ code: 'p2p.rail_mismatch' });
+        expect((await exceptions(other.id))[0]).toMatchObject({ reason: 'reference' });
+      });
+    });
+
     it('still marks paid when the bus is down, and the sweep tells the seller on the next tick', async () => {
       bus = new BusFailingOnce('svc-p2p', 'p2pTradeFiatSent');
       p2p = new P2pService(sql, ledger, bus, options);
@@ -677,6 +950,32 @@ describe('svc-p2p escrow', () => {
 
       await p2p.confirmFiatReceived(trade.id, TAKER);
       expect(await availableOf(MAKER)).toBe('99');
+      await expectBooksClosed();
+    });
+
+    it('refuses a TAKER selling into a buy offer from a short balance with their own figures, and holds nothing (J-p2p-02 #2)', async () => {
+      await fund(TAKER, '30');
+      const offer = await p2p.createOffer({
+        makerId: MAKER,
+        side: 'buy',
+        asset: ASSET,
+        fiatCurrency: 'USD',
+        priceType: 'fixed',
+        price: amt('1'),
+        minAmt: amt('10'),
+        maxAmt: amt('500'),
+        methods: ['sepa'],
+      });
+      const tradeId = crypto.randomUUID();
+      const refused = await p2p
+        .takeOffer({ offerId: offer.id, takerId: TAKER, amount: amt('100'), method: 'sepa', tradeId })
+        .catch((error: unknown) => error);
+
+      expect(refused).toBeInstanceOf(P2pError);
+      expect(refused).toMatchObject({ code: 'p2p.insufficient_balance', limit: { until: null, available: '30', shortBy: '70' } });
+      expect((await p2p.getTrade(tradeId)).resolution).toBe('voided');
+      expect(await availableOf(TAKER)).toBe('30');
+      expect(await escrowOf(TAKER)).toBe('0');
       await expectBooksClosed();
     });
   });
@@ -2183,7 +2482,10 @@ describe('svc-p2p escrow', () => {
         releaseSecond();
         const failure = await taking;
         await cancelling;
-        expect(failure).toBeInstanceOf(InsufficientFundsError);
+        // A maker short on their own sell ad: the buyer reads a typed refusal, never the maker's figures.
+        expect(failure).toBeInstanceOf(P2pError);
+        expect(failure).toMatchObject({ code: 'p2p.offer_unfunded' });
+        expect(failure).not.toHaveProperty('limit.available');
       }
       expect((await p2p.getTrade(tradeId)).resolution).toBe('voided');
       expect(await availableOf(MAKER)).toBe('1000');

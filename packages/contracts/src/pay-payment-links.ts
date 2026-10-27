@@ -24,6 +24,12 @@ export const payCreateLinkInputSchema = z
     profileId: z.string().guid().nullish(),
     amount: payAmountStringSchema.optional(),
     currency: payAssetCodeSchema.optional(),
+    /**
+     * A one-time fixed price of an active product in the business's catalogue (M-catalogue-03). The link then charges that
+     * price's amount and asset; `amount` and `currency`, when sent too, must be the price's. The link keeps the price for
+     * its whole life, so it still names what it sells after the price is replaced or the product archived.
+     */
+    priceId: z.string().guid().optional(),
     /** Omit for the service default. A link with no expiry cannot be created. */
     expiresAt: payTimestampSchema.optional(),
     /** Completed payments this link may take. Omit for unbounded. */
@@ -86,6 +92,8 @@ export const payLinkListItemSchema = z
     maxUses: z.number().int().nullable(),
     uses: z.number().int(),
     createdAt: z.string(),
+    /** The catalogue price the link was made from; null when it was made without one. */
+    priceId: z.string().guid().nullable().optional(),
     /** Null when this link was minted before the credential was stored. */
     token: z.string().min(8).max(200).nullable(),
     /** Null when `token` is null. A path, not an invented host. */

@@ -7,6 +7,7 @@ import {
   integer,
   jsonb,
   pgSchema,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -64,12 +65,19 @@ export const users = identity.table(
 
     /** WebAuthn credentials — array of {credentialId, publicKey, counter, ...}. */
     webauthnCreds: jsonb('webauthn_creds').notNull().default([]),
+    /** The owner asked for a passkey after the password at sign-in (I-signin-sessions-10). Read only while a passkey exists. */
+    passkeySecondStep: boolean('passkey_second_step').notNull().default(false),
+    /** The owner signs in by a mailed code to the proved address (I-account-lifecycle-07). On unless they turned it off. */
+    emailCodeSignin: boolean('email_code_signin').notNull().default(true),
     status: userStatusEnum('status').notNull().default('active'),
     identityControlVersion: bigint('identity_control_version', { mode: 'bigint' }).notNull().default(0n),
     /** Staff close reason code (0068). Null while open, and for a closure the customer finalised. */
     closedReason: text('closed_reason'),
     /** Closed while staff-frozen (0068): a reopen returns it frozen. */
     closedFromFrozen: boolean('closed_from_frozen').notNull().default(false),
+    /** Staff archive of a closed account (J-ops-console-04 #10): set once with its reason code, never cleared. */
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    archiveReason: text('archive_reason'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -312,9 +320,8 @@ export const mailOutbox = identity.table(
   'mail_outbox',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    flowId: uuid('flow_id')
-      .notNull()
-      .references(() => authFlows.id, { onDelete: 'cascade' }),
+    /** Null only for a mail another service asked for (`POST /internal/mail`), which has its key and account instead. */
+    flowId: uuid('flow_id').references(() => authFlows.id, { onDelete: 'cascade' }),
     purpose: text('purpose').notNull(),
     recipient: text('recipient').notNull(),
     code: text('code'),
@@ -323,8 +330,20 @@ export const mailOutbox = identity.table(
     status: text('status').notNull(),
     createdAt: createdAt(),
     sentAt: tstz('sent_at'),
+    userId: uuid('user_id'),
+    dedupeKey: text('dedupe_key'),
+    bodyHash: text('body_hash'),
+    detail: text('detail'),
+    /** Sends that threw. Only a security notice (password changed, second-step reset) is tried again, until this reaches `MAIL_RETRY_CAP`. */
+    failedSends: integer('failed_sends').notNull().default(0),
+    /** A retried notice waits until this time; null for every first try. */
+    nextAttemptAt: tstz('next_attempt_at'),
   },
-  (t) => [index('mail_outbox_pending_idx').on(t.createdAt)],
+  (t) => [
+    index('mail_outbox_pending_idx').on(t.createdAt),
+    // Partial in the migration (WHERE dedupe_key IS NOT NULL); owner check: a flow, or a key, account and body hash.
+    uniqueIndex('mail_outbox_dedupe_key_uq').on(t.dedupeKey),
+  ],
 );
 
 /**
@@ -591,9 +610,100 @@ export const accountClosures = identity.table('account_closures', {
   clientRequestId: text('client_request_id').notNull(),
 });
 
+/**
+ * A customer's staff-edited personal details (J-ops-console-04 #9), one encrypted JSON document under the KYC document
+ * key. Protected details change only through `customerDetailReviews`; the migration owns the one-open index.
+ */
+export const customerDetails = identity.table('customer_details', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  version: bigint('version', { mode: 'bigint' }).notNull(),
+  ciphertext: bytea('ciphertext').notNull(),
+  nonce: bytea('nonce').notNull(),
+  keyId: text('key_id').notNull().default('v1'),
+  updatedAt: tstz('updated_at').notNull().defaultNow(),
+  updatedBy: uuid('updated_by').notNull(),
+});
+
+export const customerDetailReviews = identity.table('customer_detail_reviews', {
+  reviewId: uuid('review_id').primaryKey(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  status: text('status').notNull(),
+  fields: text('fields').array().notNull(),
+  ciphertext: bytea('ciphertext').notNull(),
+  nonce: bytea('nonce').notNull(),
+  keyId: text('key_id').notNull().default('v1'),
+  documentIds: uuid('document_ids').array().notNull(),
+  reason: text('reason').notNull(),
+  requestedBy: uuid('requested_by').notNull(),
+  requestedAt: tstz('requested_at').notNull(),
+  decidedBy: uuid('decided_by'),
+  decidedAt: tstz('decided_at'),
+  decisionNote: text('decision_note'),
+});
+
+/** Append-only: every edit or decision attempt, with field names but no values. */
+export const customerDetailEvents = identity.table('customer_detail_events', {
+  auditId: uuid('audit_id').primaryKey(),
+  requestId: uuid('request_id').notNull(),
+  actorId: uuid('actor_id'),
+  userId: uuid('user_id').notNull(),
+  fingerprint: text('fingerprint').notNull(),
+  result: jsonb('result').notNull(),
+  stored: boolean('stored').notNull(),
+  createdAt: tstz('created_at').notNull().defaultNow(),
+});
+
+/**
+ * A customer's temporary override of one rail's limit figures for one asset (J-ops-console-04 #12), one row per rail and
+ * asset, replaced on each set. The base limits stay with the service that enforces them; the migration owns the CHECKs.
+ */
+export const accountLimitOverrides = identity.table(
+  'account_limit_overrides',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    rail: text('rail').notNull(),
+    assetId: text('asset_id').notNull(),
+    version: bigint('version', { mode: 'bigint' }).notNull(),
+    perTx: text('per_tx'),
+    rolling24h: text('rolling_24h'),
+    expiresAt: tstz('expires_at').notNull(),
+    setBy: uuid('set_by').notNull(),
+    approvedBy: uuid('approved_by'),
+    approvalId: text('approval_id'),
+    setAt: tstz('set_at').notNull(),
+    reason: text('reason').notNull(),
+    clearedBy: uuid('cleared_by'),
+    clearedAt: tstz('cleared_at'),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.rail, t.assetId] })],
+);
+
+/** Append-only: every set or clear attempt on a customer's limit overrides. */
+export const accountLimitEvents = identity.table('account_limit_events', {
+  auditId: uuid('audit_id').primaryKey(),
+  requestId: uuid('request_id').notNull(),
+  actorId: uuid('actor_id'),
+  userId: uuid('user_id').notNull(),
+  fingerprint: text('fingerprint').notNull(),
+  result: jsonb('result').notNull(),
+  stored: boolean('stored').notNull(),
+  createdAt: tstz('created_at').notNull().defaultNow(),
+});
+
 export const schema = {
   users,
+  accountLimitOverrides,
+  accountLimitEvents,
   accountClosures,
+  customerDetails,
+  customerDetailReviews,
+  customerDetailEvents,
   profiles,
   kycRecords,
   rankState,

@@ -3005,6 +3005,7 @@ describe('svc-bank money PG-hard', () => {
           'the INSTRUCTION; a customer edit replaces it under a new revision, and the run posts the amount it locked',
         'schedule_revisions.amount': 'a RECORD of one replaced instruction; written once when an edit lands',
         'transfer_executions.amount': 'a RECORD of one completed firing; written once',
+        'dd_collections.amount': 'a RECORD of what a creditor presented for one direct debit collection; written once',
         'personal_transfers.amount': 'a RECORD of one completed personal send; written once',
         'personal_transfer_terms.per_transfer_limit': 'a POLICY ceiling on one send; no money path writes it',
         'personal_transfer_terms.daily_limit': 'a POLICY ceiling on one UTC day; no money path writes it',
@@ -3015,6 +3016,7 @@ describe('svc-bank money PG-hard', () => {
         'earn_pools.min_deposit': 'a POLICY floor on a single deposit',
         'earn_positions.principal': 'the deposit RECORD; interest is paid to available, never added here',
         'interest_accruals.paid_amount': 'a RECORD of one day; summing the table is the lifetime figure',
+        'earn_renewals.principal': 'a RECORD of the amount one renewed term holds; written once, nothing posts with it',
 
         // ── Loans (§8.1) ─────────────────────────────────────────────────────
         //
@@ -3037,6 +3039,8 @@ describe('svc-bank money PG-hard', () => {
         'loan_interest_accruals.interest_amount': "a RECORD of one day's charge; summing the table is the lifetime figure",
         'loan_repayments.interest_amount': 'a RECORD of one completed repayment; written once',
         'loan_repayments.principal_amount': 'a RECORD of one completed repayment; written once',
+        'loan_adjustments.amount':
+          'a RECORD of one approved interest correction, signed; written once and never edited (append-only trigger)',
         'loan_margin_calls.cure_collateral_amount':
           'a FIGURE quoted at one instant; the next mark writes a new row rather than revising this one',
         'loan_liquidations.mark_price': 'the PRICE one rung executed at, for the dispute nobody wants to have',
@@ -3099,7 +3103,10 @@ describe('svc-bank money PG-hard', () => {
         'add_money_requests.amount':
           'the amount the customer asked to add on one request; kept refused or opened, never credited from here',
         'cash_out_requests.amount':
-          'the amount the customer asked to cash out on one request; kept refused, never held or posted from here',
+          'the amount the customer asked to cash out on one request; refused, or held, settled or given back under its own key',
+        'cash_out_requests.fee': "the partner's fee for that one payout, copied once from its price; never charged from here",
+        'cash_out_requests.receive_amount': 'what the partner said arrives for that one payout, copied once; not a balance',
+        'cash_out_requests.returned_amount': 'a RECORD of what came back on one returned payout; credited once with its ledger tx id',
         'rail_send_intents.amount':
           'the amount the customer asked to send over a bank rail on one intent; kept refused, never held or posted from here',
 
@@ -3108,11 +3115,15 @@ describe('svc-bank money PG-hard', () => {
         'auto_invest_rules.threshold': 'a POLICY keep-amount for a threshold sweep; instruction, not a holding',
         'auto_invest_rules.amount': 'a POLICY spend for a DCA schedule, or round-up granularity; instruction, not a holding',
         'auto_invest_runs.amount': 'a RECORD of one run (settled or rejected); written once',
+        'income_sorter_runs.credit_amount': 'a RECORD of one posted payment from another person, as the ledger booked it; written once',
+        'income_sorter_run_legs.amount': 'an INSTRUCTION fixed when the run is made: one split of that payment; written once',
         'business_accounts.spend_threshold': 'a POLICY dual-control floor; instruction, not a holding',
         'business_control_requests.spend_threshold':
           'the PROPOSED floor on one dual-control request; written once, applied by copying it onto the account',
         'business_approvals.amount': 'a RECORD of one proposed/approved transfer; written once',
         'business_payroll_lines.amount': 'a RECORD of one payroll line; written once with the run',
+        'recovery_sweeps.amount':
+          'the PLAN of one recovery sweep round for one account, written before it posts; the ledger holds the balance',
       };
 
       const guard = moneyColumnGuard(columns, MONEY_COLUMNS);

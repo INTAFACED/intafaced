@@ -134,6 +134,8 @@ export function missingProgrammes(message: string): string[] {
 export type RefusalKey =
   | 'refAssessmentUnpublished'
   | 'refPassMarkUnset'
+  | 'refCertNotDue'
+  | 'refCertRevoked'
   | 'refAssessmentInvalid'
   | 'refAttemptLimit'
   | 'refAttemptCooldown'
@@ -144,6 +146,7 @@ export type RefusalKey =
   | 'refVerifyAddressUnset'
   | 'refEnrollmentNotFound'
   | 'refProgrammeInvalid'
+  | 'refProgrammeNotFound'
   | 'refPrerequisite'
   | 'refPrerequisiteUnnamed'
   | 'refVideoStorageUnconfigured'
@@ -156,6 +159,8 @@ export type RefusalKey =
   | 'refCourseNotFound'
   | 'refEnrolmentClosed'
   | 'refItemNotOpen'
+  | 'refNotReleasedYet'
+  | 'refItemPrerequisite'
   | 'refCompletionRuleUnmet'
   | 'refRequestReused'
   | 'refAttemptClosed'
@@ -166,7 +171,36 @@ export type RefusalKey =
   | 'refPlannerLimitUnset'
   | 'refPlannerFull'
   | 'refTodoNotFound'
-  | 'refGoalInvalid';
+  | 'refGoalInvalid'
+  | 'refEnrolmentRequired'
+  | 'refSubmissionIncomplete'
+  | 'refSubmissionIncompleteFile'
+  | 'refSubmissionIncompleteText'
+  | 'refAssignmentNotFound'
+  | 'refAssignmentClosed'
+  | 'refSubmissionStale'
+  | 'refUploadLimitsUnset'
+  | 'refUploadTooLarge'
+  | 'refUploadTypeRefused'
+  | 'refFileTypeMismatch'
+  | 'refUploadIncomplete'
+  | 'refPeerCountUnset'
+  | 'refReviewMarksInvalid'
+  | 'refReviewTaskNotFound'
+  | 'refReviewAlreadySent'
+  | 'refFileUnavailable'
+  | 'refGradeNotFound'
+  | 'refPostLimitUnset'
+  | 'refPostTooLong'
+  | 'refAttachmentLimitUnset'
+  | 'refAttachmentTooLarge'
+  | 'refAttachmentTypeRefused'
+  | 'refPostNotFound'
+  | 'refPermissionDenied'
+  | 'refTopicNotFound'
+  | 'refMessageLimitUnset'
+  | 'refMessageTooLong'
+  | 'refConversationNotFound';
 
 /** Which sentence words a typed Academy refusal, or null when Academy did not type it (a dropped connection, a sign-in problem). */
 export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): RefusalKey | null {
@@ -185,6 +219,10 @@ export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): R
       return 'refCertNotFound';
     case 'academy.certificate_unpublished':
       return 'refCertUnpublished';
+    case 'academy.cert_not_due':
+      return 'refCertNotDue';
+    case 'academy.cert_revoked':
+      return 'refCertRevoked';
     case 'academy.verify_rate_limited':
       return 'refVerifyRateLimited';
     case 'academy.verify_rate_unset':
@@ -196,7 +234,11 @@ export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): R
     case 'academy.cert_invalid':
     case 'academy.path_not_found':
       return 'refProgrammeInvalid';
+    case 'academy.programme_not_found':
+      return 'refProgrammeNotFound';
     case 'academy.prerequisite_unmet':
+      // An assignment or quiz of a course staff made names the items it needs (AC-release-access-02).
+      if (/\bitems=/.test(failure.message)) return 'refItemPrerequisite';
       return missingProgrammes(failure.message).length > 0 ? 'refPrerequisite' : 'refPrerequisiteUnnamed';
     case 'academy.video_storage_unconfigured':
       return 'refVideoStorageUnconfigured';
@@ -218,6 +260,8 @@ export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): R
       return 'refEnrolmentClosed';
     case 'academy.window_invalid':
       return 'refItemNotOpen';
+    case 'academy.not_released_yet':
+      return 'refNotReleasedYet';
     case 'academy.completion_rule_unmet':
       return 'refCompletionRuleUnmet';
     case 'academy.request_reused':
@@ -240,6 +284,66 @@ export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): R
       return 'refTodoNotFound';
     case 'academy.goal_invalid':
       return 'refGoalInvalid';
+    case 'academy.enrolment_required':
+      return 'refEnrolmentRequired';
+    case 'academy.submission_incomplete': {
+      const missing = /\bmissing=(\S+)/.exec(failure.message)?.[1];
+      return missing === 'file'
+        ? 'refSubmissionIncompleteFile'
+        : missing === 'text'
+          ? 'refSubmissionIncompleteText'
+          : 'refSubmissionIncomplete';
+    }
+    case 'academy.assignment_not_found':
+      return 'refAssignmentNotFound';
+    case 'academy.assignment_closed':
+      return 'refAssignmentClosed';
+    case 'academy.submission_version_stale':
+      return 'refSubmissionStale';
+    case 'academy.upload_limits_unset':
+      return 'refUploadLimitsUnset';
+    case 'academy.upload_too_large':
+      return 'refUploadTooLarge';
+    case 'academy.upload_type_refused':
+      return 'refUploadTypeRefused';
+    case 'academy.file_type_mismatch':
+      return 'refFileTypeMismatch';
+    case 'academy.upload_incomplete':
+      return 'refUploadIncomplete';
+    case 'academy.peer_count_unset':
+      return 'refPeerCountUnset';
+    case 'academy.review_marks_invalid':
+      return 'refReviewMarksInvalid';
+    case 'academy.review_task_not_found':
+      return 'refReviewTaskNotFound';
+    case 'academy.review_already_sent':
+      return 'refReviewAlreadySent';
+    case 'academy.file_unavailable':
+      return 'refFileUnavailable';
+    case 'academy.submission_not_found':
+      return 'refGradeNotFound';
+    case 'academy.post_limit_unset':
+      return 'refPostLimitUnset';
+    case 'academy.post_too_long':
+      return 'refPostTooLong';
+    case 'academy.attachment_limit_unset':
+      return 'refAttachmentLimitUnset';
+    case 'academy.attachment_too_large':
+      return 'refAttachmentTooLarge';
+    case 'academy.attachment_type_refused':
+      return 'refAttachmentTypeRefused';
+    case 'academy.post_not_found':
+      return 'refPostNotFound';
+    case 'academy.permission_denied':
+      return 'refPermissionDenied';
+    case 'academy.topic_not_found':
+      return 'refTopicNotFound';
+    case 'academy.message_limit_unset':
+      return 'refMessageLimitUnset';
+    case 'academy.message_too_long':
+      return 'refMessageTooLong';
+    case 'academy.conversation_not_found':
+      return 'refConversationNotFound';
     default:
       return null;
   }

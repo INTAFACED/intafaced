@@ -86,8 +86,26 @@ describe('fee schedule versions (PG-hard)', () => {
       payloadHash: payloadHash({ actionType: 'trade.fee_schedule_set', schedule, effectiveAt, expectedVersion, reason }),
       requesterId,
       approverId: APPROVER,
+      // svc-identity gives the operation its own id at propose time; consume must send that one, not the approval's.
+      operationId: `op-${approvalId}`,
     });
   }
+
+  it("refuses a write that names the approval's id in place of identity's operation id", async () => {
+    const schedule = proposal();
+    allow('fee-op', schedule);
+    await expect(
+      admin.feeScheduleSet(writer(), {
+        schedule,
+        effectiveAt: LATER,
+        expectedVersion: '0',
+        reason,
+        approvalId: 'fee-op',
+        operationId: 'fee-op',
+      }),
+    ).rejects.toMatchObject({ code: 'approval_mismatch' });
+    expect(await db.sql`SELECT version FROM trade.fee_schedule_versions`).toHaveLength(0);
+  });
 
   it('writes a version after a second operator approves, and an order placed before it keeps the old schedule', async () => {
     const schedule = proposal();
@@ -98,6 +116,7 @@ describe('fee schedule versions (PG-hard)', () => {
       expectedVersion: '0',
       reason,
       approvalId: 'fee-1',
+      operationId: 'op-fee-1',
     });
     expect(written).toMatchObject({ version: '1', approverId: APPROVER, operatorId: OP, effectiveAt: LATER });
 
@@ -114,7 +133,30 @@ describe('fee schedule versions (PG-hard)', () => {
     const schedule = proposal([row({ takerBps: undefined })]);
     allow('fee-blank', schedule);
     await expect(
-      admin.feeScheduleSet(writer(), { schedule, effectiveAt: LATER, expectedVersion: '0', reason, approvalId: 'fee-blank' }),
+      admin.feeScheduleSet(writer(), {
+        schedule,
+        effectiveAt: LATER,
+        expectedVersion: '0',
+        reason,
+        approvalId: 'fee-blank',
+        operationId: 'op-fee-blank',
+      }),
+    ).rejects.toMatchObject({ code: 'trade.fee_schedule_blank' });
+    expect(await feeScheduleHistory(db.sql)).toEqual([]);
+  });
+
+  it('refuses a maker rebate no fill could pay (a maker fee on its row), and stores nothing', async () => {
+    const schedule = proposal([row({ makerRebateBps: '2' })]);
+    allow('fee-rebate', schedule);
+    await expect(
+      admin.feeScheduleSet(writer(), {
+        schedule,
+        effectiveAt: LATER,
+        expectedVersion: '0',
+        reason,
+        approvalId: 'fee-rebate',
+        operationId: 'op-fee-rebate',
+      }),
     ).rejects.toMatchObject({ code: 'trade.fee_schedule_blank' });
     expect(await feeScheduleHistory(db.sql)).toEqual([]);
   });
@@ -129,6 +171,7 @@ describe('fee schedule versions (PG-hard)', () => {
         expectedVersion: '0',
         reason,
         approvalId: 'fee-past',
+        operationId: 'op-fee-past',
       }),
     ).rejects.toMatchObject({ code: 'fee_schedule_effective_in_past' });
     await expect(
@@ -138,13 +181,21 @@ describe('fee schedule versions (PG-hard)', () => {
         expectedVersion: '0',
         reason,
         approvalId: 'n',
+        operationId: 'op-n',
       }),
     ).rejects.toMatchObject({ code: 'trade.fee_schedule_blank' });
     await expect(
-      admin.feeScheduleSet(writer(), { schedule, effectiveAt: LATER, expectedVersion: '3', reason, approvalId: 'n' }),
+      admin.feeScheduleSet(writer(), { schedule, effectiveAt: LATER, expectedVersion: '3', reason, approvalId: 'n', operationId: 'op-n' }),
     ).rejects.toMatchObject({ code: 'fee_schedule_stale' });
     await expect(
-      admin.feeScheduleSet(writer(), { schedule, effectiveAt: LATER, expectedVersion: '0', reason, approvalId: 'none' }),
+      admin.feeScheduleSet(writer(), {
+        schedule,
+        effectiveAt: LATER,
+        expectedVersion: '0',
+        reason,
+        approvalId: 'none',
+        operationId: 'op-none',
+      }),
     ).rejects.toMatchObject({ code: 'approval_missing' });
     expect(await feeScheduleHistory(db.sql)).toEqual([]);
   });
@@ -162,18 +213,39 @@ describe('fee schedule versions (PG-hard)', () => {
       approverId: APPROVER,
     });
     await expect(
-      admin.feeScheduleSet(writer(), { schedule, effectiveAt: LATER, expectedVersion: '0', reason, approvalId: 'fee-same' }),
+      admin.feeScheduleSet(writer(), {
+        schedule,
+        effectiveAt: LATER,
+        expectedVersion: '0',
+        reason,
+        approvalId: 'fee-same',
+        operationId: 'op-fee-same',
+      }),
     ).rejects.toMatchObject({ code: 'approval_mismatch' });
   });
 
   it('keeps every version, newest effective wins, and the row cannot be changed', async () => {
     const first = proposal();
     allow('fee-a', first);
-    await admin.feeScheduleSet(writer(), { schedule: first, effectiveAt: LATER, expectedVersion: '0', reason, approvalId: 'fee-a' });
+    await admin.feeScheduleSet(writer(), {
+      schedule: first,
+      effectiveAt: LATER,
+      expectedVersion: '0',
+      reason,
+      approvalId: 'fee-a',
+      operationId: 'op-fee-a',
+    });
     const second = proposal([row({ makerBps: '6', takerBps: '12' })]);
     const later = '2026-10-22T00:00:00.000Z';
     allow('fee-b', second, '1', later);
-    await admin.feeScheduleSet(writer(), { schedule: second, effectiveAt: later, expectedVersion: '1', reason, approvalId: 'fee-b' });
+    await admin.feeScheduleSet(writer(), {
+      schedule: second,
+      effectiveAt: later,
+      expectedVersion: '1',
+      reason,
+      approvalId: 'fee-b',
+      operationId: 'op-fee-b',
+    });
 
     const view = await admin.feeScheduleGet(reader());
     expect(view.version).toBe('2');
@@ -191,6 +263,7 @@ describe('fee schedule versions (PG-hard)', () => {
         expectedVersion: '2',
         reason,
         approvalId: 'fee-c',
+        operationId: 'op-fee-c',
       }),
     ).rejects.toMatchObject({ code: 'fee_schedule_effective_out_of_order' });
     await expect(db.sql`UPDATE trade.fee_schedule_versions SET reason = 'edit'`).rejects.toThrow();

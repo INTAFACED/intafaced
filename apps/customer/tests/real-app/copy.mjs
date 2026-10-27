@@ -1,6 +1,6 @@
 import { expect } from '@playwright/test';
 import { approverSessions, makeContext, refusalText } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { EDGE, ORIGIN, api, bestPrices } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, api, bestPrices } from './stack.mjs';
 
 // The copy journeys' other actors: the operator who lists a leader (the stack's TEST founder, through svc-trade's own
 // operator door, as the founder console would), and the leader's own orders on the real book.
@@ -10,7 +10,7 @@ export async function userIdOf(who) {
   const res = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
     method: 'POST',
     headers: { origin: ORIGIN, 'content-type': 'application/json' },
-    body: JSON.stringify({ identifier: who.email, password: who.password }),
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
   });
   const userId = (await res.json())?.result?.data?.userId;
   if (!userId) throw new Error(`sign-in for ${who.email} refused: ${res.status}`);

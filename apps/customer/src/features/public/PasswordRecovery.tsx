@@ -5,6 +5,7 @@ import { navigate } from '../../app/location';
 import { MAX_INPUT_LENGTH, passwordIssue, passwordProblem, singleFlight } from '../../shared/password';
 import { passwordCopy } from '../../shared/password-copy';
 import { ContactSupport } from './ContactSupport';
+import { HandleRecovery } from './HandleRecovery';
 import {
   RECOVERY_STEPS,
   clearsCode,
@@ -147,6 +148,7 @@ export function PasswordRecovery() {
           {problemText}
         </p>
       )}
+      <HandleRecovery />
       <ContactSupport context="recovery" />
       <a className="text-link" href="/help">
         {copy.t('help')} →

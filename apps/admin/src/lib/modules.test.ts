@@ -71,6 +71,7 @@ describe('ADMIN_MODULES gate', () => {
     expect(moduleForApi('/api/crm/privacy')).toBe('crm');
     expect(moduleForApi('/api/accounts')).toBe('accounts');
     expect(moduleForApi('/api/kill-switch')).toBe('killswitches');
+    expect(moduleForApi('/api/service-records')).toBe('killswitches');
     expect(moduleForApi('/api/ledger-freeze')).toBe('ledger');
     expect(moduleForApi('/api/operator-tools')).toBe('tools');
     expect(moduleForApi('/api/analytics/warehouse')).toBe('tools');
@@ -98,6 +99,8 @@ describe('ADMIN_MODULES gate', () => {
   it('puts the identity keys desk behind the identity-ops module', () => {
     expect(moduleForPage('/identity-ops/keys')).toBe('identity-ops');
     expect(moduleForApi('/api/identity-ops/keys')).toBe('identity-ops');
+    expect(moduleForPage('/more-ops/campaigns/waves')).toBe('more-ops');
+    expect(moduleForApi('/api/more-ops/waves')).toBe('more-ops');
     expect(moduleForPage('/identity-ops/oauth')).toBe('identity-ops');
     expect(moduleForApi('/api/identity-ops/oauth')).toBe('identity-ops');
     expect(isModuleEnabled('identity-ops', { ADMIN_MODULES: 'crm' })).toBe(false);

@@ -58,6 +58,8 @@ export const merchantCapabilityFlagsSchema = z
     'payouts.read': z.boolean(),
     'webhooks.read': z.boolean(),
     'webhooks.manage': z.boolean(),
+    'products.read': z.boolean(),
+    'products.manage': z.boolean(),
   })
   .strict();
 
@@ -311,6 +313,14 @@ export const ONBOARDING_BLOCKERS = [
   'terms_not_accepted',
   'kyb_not_approved',
   'merchant_not_active',
+  /** RC-merchant-08: the owner has published no business categories. */
+  'category_policy_unset',
+  /** The business has not chosen its category. */
+  'category_not_chosen',
+  /** The chosen category is prohibited: INTAFACED does not take this business. */
+  'category_prohibited',
+  /** The chosen category is restricted and its reserve terms are blank. */
+  'reserve_terms_unset',
 ] as const;
 
 export const merchantOnboardingProgressSchema = z

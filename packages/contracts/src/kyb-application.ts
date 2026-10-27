@@ -48,6 +48,9 @@ export const kybApplicationViewSchema = z
     missing: z.array(kybApplicationSectionSchema),
     kybRef: z.string().nullable(),
     submittedAt: z.string().nullable(),
+    startedAt: z.string(),
+    /** When the owner publishes how long a business has to finish (`PAY_KYB_APPLICATION_DUE_DAYS`): the start plus that. Null while unpublished. */
+    dueAt: z.string().nullable(),
   })
   .strict();
 export type KybApplicationView = z.infer<typeof kybApplicationViewSchema>;
@@ -74,6 +77,22 @@ export const kybApplicationSaveSectionInputSchema = z
     expectedVersion: z.number().int().min(0),
     complete: z.boolean(),
     data: kybApplicationSectionDataSchema,
+  })
+  .strict();
+
+/**
+ * Change the draft's entity type or country. Every section is cleared and the required sections come again from the new
+ * type's published requirements; documents uploaded before the change no longer count. The same type and country again change nothing.
+ */
+export const kybApplicationChangeTypeInputSchema = z
+  .object({
+    applicationId: z.string().guid(),
+    entityType: kybEntityTypeSchema,
+    country: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z]{2}$/)
+      .transform((c) => c.toUpperCase()),
   })
   .strict();
 

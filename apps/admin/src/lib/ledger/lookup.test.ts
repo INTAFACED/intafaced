@@ -12,9 +12,33 @@ const tx = {
   postedAt: '2026-10-23T04:00:00.000Z',
   hash: 'h1',
   previousHash: 'h0',
+  booking: {
+    seq: '42',
+    bookedAt: '2026-10-23T04:00:00.010Z',
+    reference: 'corr-TEST-1',
+    event: { id: 'ev-1', subject: 'intafaced.ledger.tx.posted', recordedAt: '2026-10-23T04:00:00.010Z', publishedAt: null },
+  },
   postings: [
-    { entryId: 'e1', accountId: 'a1', assetId: 'USDT', direction: 'debit', amount: '25', balanceAfter: '-25' },
-    { entryId: 'e2', accountId: 'a2', assetId: 'USDT', direction: 'credit', amount: '25', balanceAfter: '25.5' },
+    {
+      entryId: 'e1',
+      accountId: 'a1',
+      assetId: 'USDT',
+      direction: 'debit',
+      side: 'destination',
+      amount: '25',
+      balanceBefore: '-50',
+      balanceAfter: '-25',
+    },
+    {
+      entryId: 'e2',
+      accountId: 'a2',
+      assetId: 'USDT',
+      direction: 'credit',
+      side: 'source',
+      amount: '25',
+      balanceBefore: '50.5',
+      balanceAfter: '25.5',
+    },
   ],
 };
 
@@ -56,6 +80,19 @@ describe('parseLookupAnswer', () => {
     expect(parseLookupAnswer({ txId: TX }, { ...tx, postings: [] })).toBeNull();
     expect(parseLookupAnswer({ txId: TX }, { ...tx, postedAt: 'yesterday' })).toBeNull();
     expect(parseLookupAnswer({ txId: TX }, null)).toBeNull();
+  });
+
+  it('refuses a posting whose side disagrees with its direction, a missing before balance, and a missing or bad booking record', () => {
+    expect(parseLookupAnswer({ txId: TX }, { ...tx, postings: [{ ...tx.postings[0], side: 'source' }] })).toBeNull();
+    expect(parseLookupAnswer({ txId: TX }, { ...tx, postings: [{ ...tx.postings[0], balanceBefore: undefined }] })).toBeNull();
+    const { booking: _booking, ...withoutBooking } = tx;
+    expect(parseLookupAnswer({ txId: TX }, withoutBooking)).toBeNull();
+    expect(parseLookupAnswer({ txId: TX }, { ...tx, booking: { ...tx.booking, seq: 42 } })).toBeNull();
+    expect(
+      parseLookupAnswer({ txId: TX }, { ...tx, booking: { ...tx.booking, event: { ...tx.booking.event, recordedAt: 'soon' } } }),
+    ).toBeNull();
+    // No event record and no booking time are honest absences, shown as such.
+    expect(parseLookupAnswer({ txId: TX }, { ...tx, booking: { seq: '42', bookedAt: null, reference: null, event: null } })).not.toBeNull();
   });
 });
 

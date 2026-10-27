@@ -307,6 +307,13 @@ export function PathProgrammesView({
   );
 }
 
+/** A grant's name: its certificate's title, or for a programme certificate (AC-programmes-01) that word and its address. */
+function grantTitle(t: (typeof copy)['t'], tracking: Tracking, certId: string): string {
+  const programme = /^programme:(.+)$/.exec(certId)?.[1];
+  if (programme) return `${t('programmeCertTitle')} · ${programme}`;
+  return tracking.definitions.find((d) => d.id === certId)?.title ?? certId;
+}
+
 function Grants({ tracking }: { tracking: Tracking }) {
   const { t, Copy } = copy.useCopy();
   const { language } = usePreferences();
@@ -322,7 +329,7 @@ function Grants({ tracking }: { tracking: Tracking }) {
             {tracking.grants.map((grant, index) => (
               <li key={grant.idempotencyKey}>
                 <span>{index + 1}</span>
-                <strong lang="und">{tracking.definitions.find((d) => d.id === grant.certId)?.title ?? grant.certId}</strong>
+                <strong lang="und">{grantTitle(t, tracking, grant.certId)}</strong>
                 <time dateTime={grant.grantedAt}>{formatDay(grant.grantedAt, language)}</time>
               </li>
             ))}

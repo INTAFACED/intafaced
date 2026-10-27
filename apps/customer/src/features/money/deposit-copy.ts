@@ -48,6 +48,13 @@ const en = {
   total: 'Total shown: {amount} {asset}',
   networkPick: 'Choose a network',
   networkLoadFailed: 'We could not load the networks. Try again.',
+  networkVerify: 'Crypto deposits open once your identity is verified.',
+  allNetworksOff: 'Deposits of {asset} are switched off on every network.',
+  networkOffOption: '{network} (switched off)',
+  haltedTitle: 'Deposits of {asset} on {network} are switched off',
+  haltedBody: 'No address is shown for it. Choose another network, or come back when it is switched on.',
+  haltedKept:
+    'Anything sent to an address you already had for it is not lost: it waits, and is credited after deposits are switched back on.',
   networkRetry: 'Try again',
   pickFirst: 'Choose an asset and a network, then confirm below to see your address.',
   ackLabel: 'I will send only {asset} on {network}. I understand anything else can be lost for good.',
@@ -81,6 +88,12 @@ const en = {
   notesWarnings: 'Warnings for this network',
   wrongNetwork: 'This address takes {asset} on {network} only. The same coin on another network, or any other asset, can be lost for good.',
   ackLabelNotes: 'I will send only {asset} on {network}. I have read the notes above. I understand anything else can be lost for good.',
+  registryUnavailable: 'The list of supported assets and networks could not be read, so no network is offered. Try again.',
+  registryRetired:
+    '{asset} is retired from the supported asset list: it takes no new deposits. What you hold and your history with it stay.',
+  registryHalted: 'Deposits of {asset} are paused in the supported asset list, so no address is shown.',
+  registryNotAllowed: 'The supported asset list does not take deposits of {asset} on {network}, so no address is shown.',
+  registryLink: 'Supported assets and networks',
   noNetworksPublished: 'No networks are published for {asset}.',
 } as const;
 const es = {
@@ -131,6 +144,13 @@ const es = {
   total: 'Total mostrado: {amount} {asset}',
   networkPick: 'Elige una red',
   networkLoadFailed: 'No pudimos cargar las redes. Inténtalo de nuevo.',
+  networkVerify: 'Los depósitos cripto se abren cuando tu identidad está verificada.',
+  allNetworksOff: 'Los depósitos de {asset} están desactivados en todas las redes.',
+  networkOffOption: '{network} (desactivada)',
+  haltedTitle: 'Los depósitos de {asset} en {network} están desactivados',
+  haltedBody: 'No se muestra ninguna dirección para ella. Elige otra red o vuelve cuando esté activada.',
+  haltedKept:
+    'Lo que envíes a una dirección que ya tenías para ella no se pierde: queda en espera y se abona cuando se vuelvan a activar los depósitos.',
   networkRetry: 'Reintentar',
   pickFirst: 'Elige un activo y una red y confirma abajo para ver tu dirección.',
   ackLabel: 'Enviaré solo {asset} por la red {network}. Entiendo que cualquier otra cosa puede perderse para siempre.',
@@ -166,6 +186,12 @@ const es = {
     'Esta dirección solo acepta {asset} en la red {network}. La misma moneda en otra red, o cualquier otro activo, puede perderse para siempre.',
   ackLabelNotes:
     'Enviaré solo {asset} en la red {network}. He leído las notas de arriba. Entiendo que cualquier otro envío puede perderse para siempre.',
+  registryUnavailable: 'No se pudo leer la lista de activos y redes admitidos, así que no se ofrece ninguna red. Inténtalo de nuevo.',
+  registryRetired:
+    '{asset} está retirado de la lista de activos admitidos: no acepta nuevos depósitos. Lo que tienes y tu historial con él se conservan.',
+  registryHalted: 'Los depósitos de {asset} están en pausa en la lista de activos admitidos, así que no se muestra ninguna dirección.',
+  registryNotAllowed: 'La lista de activos admitidos no acepta depósitos de {asset} en {network}, así que no se muestra ninguna dirección.',
+  registryLink: 'Activos y redes admitidos',
   noNetworksPublished: 'No hay redes publicadas para {asset}.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
@@ -216,6 +242,13 @@ const fr = {
   total: 'Total affiché : {amount} {asset}',
   networkPick: 'Choisissez un réseau',
   networkLoadFailed: 'Nous n’avons pas pu charger les réseaux. Réessayez.',
+  networkVerify: 'Les dépôts crypto s’ouvrent une fois votre identité vérifiée.',
+  allNetworksOff: 'Les dépôts de {asset} sont désactivés sur tous les réseaux.',
+  networkOffOption: '{network} (désactivé)',
+  haltedTitle: 'Les dépôts de {asset} sur {network} sont désactivés',
+  haltedBody: 'Aucune adresse n’est affichée pour ce réseau. Choisissez-en un autre, ou revenez quand il sera réactivé.',
+  haltedKept:
+    'Ce qui est envoyé à une adresse que vous aviez déjà pour ce réseau n’est pas perdu : il attend, et il est crédité quand les dépôts sont réactivés.',
   networkRetry: 'Réessayer',
   pickFirst: 'Choisissez un actif et un réseau, puis confirmez ci-dessous pour voir votre adresse.',
   ackLabel: 'J’enverrai uniquement {asset} sur le réseau {network}. Je comprends que tout autre envoi peut être perdu définitivement.',
@@ -251,6 +284,13 @@ const fr = {
     'Cette adresse accepte uniquement {asset} sur le réseau {network}. La même pièce sur un autre réseau, ou tout autre actif, peut être perdue définitivement.',
   ackLabelNotes:
     'J’enverrai uniquement {asset} sur le réseau {network}. J’ai lu les notes ci-dessus. Je comprends que tout autre envoi peut être perdu définitivement.',
+  registryUnavailable: 'La liste des actifs et réseaux pris en charge n’a pas pu être lue, donc aucun réseau n’est proposé. Réessayez.',
+  registryRetired:
+    '{asset} est retiré de la liste des actifs pris en charge : il n’accepte plus de nouveaux dépôts. Ce que vous détenez et votre historique avec lui restent.',
+  registryHalted: 'Les dépôts de {asset} sont en pause dans la liste des actifs pris en charge, donc aucune adresse n’est affichée.',
+  registryNotAllowed:
+    'La liste des actifs pris en charge n’accepte pas les dépôts de {asset} sur {network}, donc aucune adresse n’est affichée.',
+  registryLink: 'Actifs et réseaux pris en charge',
   noNetworksPublished: 'Aucun réseau n’est publié pour {asset}.',
 } satisfies Record<keyof typeof en, string>;
 

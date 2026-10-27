@@ -95,10 +95,28 @@ export interface FounderCallOptions {
    * (every field optional) refuses a missing input, so asking for "all of it" needs an explicit `{}`.
    */
   readonly sendEmptyInput?: boolean;
+  /** A shorter bound than the default, for a read that sits in front of every page or write (maintenance mode). */
+  readonly timeoutMs?: number;
 }
 
 export async function founderCall<T>(
   ctx: FounderCallContext,
+  module: CallModule,
+  procedure: string,
+  method: 'GET' | 'POST',
+  input: unknown,
+  parse: (raw: unknown) => T | null,
+  options: FounderCallOptions = {},
+): Promise<FounderCallResult<T>> {
+  return edgeCall({ edgeUrl: ctx.config.edgeUrl, token: ctx.session.accessToken }, module, procedure, method, input, parse, options);
+}
+
+/**
+ * The same hop with a named bearer. Only `treasuryOps` (lib/accounts/holds-server.ts) passes anything but the founder's own token: the treasury
+ * credential, for the procedures a founder session can never carry (`admin:treasury`).
+ */
+export async function edgeCall<T>(
+  target: { readonly edgeUrl: string; readonly token: string },
   module: CallModule,
   procedure: string,
   method: 'GET' | 'POST',
@@ -111,17 +129,17 @@ export async function founderCall<T>(
   const query = method === 'GET' && hasInput ? `?input=${encodeURIComponent(JSON.stringify(input))}` : '';
   let response: Response;
   try {
-    response = await fetch(`${ctx.config.edgeUrl}/api/${module}/trpc/${procedure}${query}`, {
+    response = await fetch(`${target.edgeUrl}/api/${module}/trpc/${procedure}${query}`, {
       method,
       headers: {
         accept: 'application/json',
-        authorization: `Bearer ${ctx.session.accessToken}`,
+        authorization: `Bearer ${target.token}`,
         ...(method === 'POST' ? { 'content-type': 'application/json' } : {}),
       },
       ...(method === 'POST' ? { body: JSON.stringify(input ?? {}) } : {}),
       cache: 'no-store',
       redirect: 'error',
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(options.timeoutMs ?? TIMEOUT_MS),
     });
   } catch {
     // The request may or may not have arrived. For a read that is harmless; for a write it is "unknown".

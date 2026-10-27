@@ -2,7 +2,8 @@ import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { ROOT, mailedLines, signUpInBrowser } from './stack.mjs';
-import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, nextCode, virtualAuthenticator } from './identity-factors.mjs';
+import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, forgetSession, nextCode, virtualAuthenticator } from './identity-factors.mjs';
+import { installTestWallet } from './test-wallet.mjs';
 
 // J-identity-04, in the running app (docs/roadmap/journeys.json): I turn on two-factor sign-in and check my Security
 // centre. Tests titled "J-identity-04 #<n>" prove a whole step; the others prove part of one and say which.
@@ -352,4 +353,189 @@ test(`${J} #6 "my codes do not work" names a clock that is out by seconds, or sa
   await expect(help.getByRole('status')).toHaveText(/This device’s clock is (89|90|91) seconds ahead of ours\./);
   await expect(help.getByRole('button', { name: 'Replace', exact: true })).toHaveCount(0);
   await skewed.close();
+});
+
+/** The passkeys a virtual authenticator holds, by their base64url ids. */
+async function heldPasskeys({ cdp, authenticatorId }) {
+  const { credentials } = await cdp.send('WebAuthn.getCredentials', { authenticatorId });
+  return credentials.map((c) => Buffer.from(c.credentialId, 'base64').toString('base64url'));
+}
+
+test(`${J} #4 sets a passkey as the second step and keeps one for signing in: another person's passkey is refused, and the kept passkey is the only one offered`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const device = await virtualAuthenticator(page);
+
+  // Someone else signs up on this browser first and adds a passkey, which stays on the same authenticator.
+  const other = person('po');
+  await signUpInBrowser(page, other);
+  await addPasskey(page);
+  const [theirs] = await heldPasskeys(device);
+  const { credentials: theirCredentials } = await device.cdp.send('WebAuthn.getCredentials', { authenticatorId: device.authenticatorId });
+  await forgetSession(page);
+
+  // This person adds a passkey on the device, then asks for it after the password.
+  const who = person('ps');
+  await signUpInBrowser(page, who);
+  await addPasskey(page);
+  const mine = (await heldPasskeys(device)).find((id) => id !== theirs);
+  const names = page.locator('.security__passkey-names');
+  const second = names.getByRole('group', { name: 'A passkey after your password' });
+  await expect(second).toContainText('Off: your password signs you in');
+  await second.getByRole('button', { name: 'Ask for a passkey' }).click();
+  await second.getByRole('button', { name: 'Save with a passkey' }).click();
+  await expect(names.getByRole('status')).toHaveText('Saved how you sign in.');
+  await expect(second).toContainText('On: signing in with your password also asks for one of your passkeys.');
+
+  // A second passkey, a security key, kept for signing in only.
+  const key = await virtualAuthenticator(page, 'usb');
+  await page.getByRole('button', { name: 'Add passkey' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Add passkey' }).click();
+  await page.locator('.failure').getByRole('button', { name: 'Confirm it is you' }).click();
+  await page
+    .getByRole('dialog', { name: /confirm it’s you/i })
+    .getByRole('button', { name: 'Use a passkey' })
+    .click();
+  await expect(names.locator('.security__row')).toHaveCount(2);
+  const [kept] = await heldPasskeys(key);
+  const securityKey = names.locator('.security__row', { hasText: 'Security key' });
+  await expect(securityKey).toContainText('Kept for: nothing in particular');
+  await securityKey.getByRole('button', { name: /^Choose what passkey/ }).click();
+  await securityKey.getByLabel('Signing in').check();
+  await securityKey.getByRole('button', { name: 'Save with a passkey' }).click();
+  await expect(names.getByRole('status')).toHaveText('Saved what this passkey is for.');
+  await expect(securityKey).toContainText('Kept for: Signing in');
+  await expect(names.locator('.security__row', { hasText: 'This device' })).toContainText('Kept for: nothing in particular');
+  await forgetSession(page);
+
+  async function password() {
+    await page.goto('/login');
+    await page.fill('input[name=identifier]', who.email);
+    await page.fill('input[name=password]', who.password);
+    const answer = page.waitForResponse((res) => new URL(res.url()).pathname.endsWith('/api/identity/trpc/auth.login'));
+    await page.getByRole('button', { name: /^sign in$/i }).click();
+    const body = await (await answer).json();
+    await expect(page.getByRole('alert')).toContainText('Your password is right. Now confirm with one of your passkeys.');
+    return body.error.data.secondStep;
+  }
+
+  // The password is not enough now. The kept passkey is the only one offered; the device's own passkey is not.
+  const offered = await password();
+  expect(offered.totp).toBe(false);
+  expect(offered.passkey.allowCredentials.map((c) => c.id)).toEqual([kept]);
+  expect(mine).toBeDefined();
+
+  // A browser that offers the other person's passkey instead gets it refused, and nothing signs in. Their passkey is put
+  // on the security key too, so whichever authenticator answers holds it.
+  await key.cdp.send('WebAuthn.addCredential', { authenticatorId: key.authenticatorId, credential: theirCredentials[0] });
+  const loginCall = (url) => url.pathname.endsWith('/api/identity/trpc/auth.login');
+  await page.route(loginCall, async (route) => {
+    const res = await route.fetch();
+    const body = await res.json();
+    body.error.data.secondStep.passkey.allowCredentials = [{ type: 'public-key', id: theirs }];
+    await route.fulfill({ response: res, json: body });
+  });
+  await password();
+  await page.getByRole('button', { name: 'Use your passkey' }).click();
+  await expect(page.getByRole('alert')).toContainText('That passkey is not one this account signs in with.');
+  await expect(page).toHaveURL(/\/login/);
+  await page.unroute(loginCall);
+
+  // The person's own kept passkey signs them in.
+  await password();
+  await page.getByRole('button', { name: 'Use your passkey' }).click();
+  await page.waitForURL((url) => url.pathname !== '/login');
+  await page.goto('/uc/safe');
+  await expect(page.locator('.security__passkey-names')).toContainText(
+    'On: signing in with your password also asks for one of your passkeys.',
+  );
+});
+
+test(`${J} #7 links a wallet with its own signature and a confirmation, refuses a wrong key, shows the texting and social provider notices, and refuses to remove the last way in`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  await virtualAuthenticator(page);
+  // A TEST wallet stands in for the person's own (tests/real-app/test-wallet.mjs); nothing reaches a chain.
+  const wallet = await installTestWallet(page, { chainId: 1 });
+  const who = person('sm');
+  await signUpInBrowser(page, who);
+  await addPasskey(page);
+  const card = page.locator('.security__signin-methods');
+  const row = (name) => card.getByRole('listitem', { name, exact: true });
+  await expect(row('Password')).toContainText('On: you can sign in with your password.');
+  await expect(row('Code by email')).toContainText(`On: we can mail a sign-in code to ${who.email}.`);
+  await expect(row('Wallets')).toContainText('No wallet linked.');
+
+  // A phone number and a social account need outside providers that are off in this build; the card names them.
+  await row('Phone number').getByRole('button', { name: 'Link a phone number' }).click();
+  await row('Phone number').getByLabel('Phone number, starting with +').fill('+44 20 7946 0000');
+  await row('Phone number').getByRole('button', { name: 'Text me a code' }).click();
+  await expect(card.locator('[data-not-connected="vendor.sms"]')).toContainText('Texting a sign-in code needs an SMS delivery provider.');
+  await row('Social account').getByRole('button', { name: 'Link a social account' }).click();
+  await expect(card.locator('[data-not-connected="idp.social"]')).toContainText(
+    'Signing in with a social account needs an outside sign-in provider.',
+  );
+
+  // A signature from another key is refused before any confirmation is asked for, and nothing is linked.
+  wallet.signWithOtherKeyNext();
+  await row('Wallets').getByRole('button', { name: 'Link a wallet' }).click();
+  await expect(card.locator('.failure')).toContainText('That signature is not from this wallet. Nothing was changed.');
+  await expect(card.getByRole('form', { name: 'Confirm it is you' })).toHaveCount(0);
+  await expect(row('Wallets')).toContainText('No wallet linked.');
+
+  // The wallet's own signature, then a confirmation with the passkey, links it.
+  async function confirmWithPasskey() {
+    await card.getByRole('form', { name: 'Confirm it is you' }).getByRole('button', { name: 'Confirm with a passkey' }).click();
+  }
+  await row('Wallets').getByRole('button', { name: 'Link a wallet' }).click();
+  await confirmWithPasskey();
+  const short = `${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`;
+  await expect(card.getByRole('status')).toContainText(`Wallet ${short} linked. You can sign in with it.`);
+  await expect(row('Wallets').getByTitle(wallet.address)).toBeVisible();
+  expect(wallet.requests.filter((request) => request.method === 'personal_sign')).toHaveLength(2);
+
+  // Code by email off, then the password, each confirmed with the passkey.
+  await row('Code by email').getByRole('button', { name: 'Turn off' }).click();
+  await confirmWithPasskey();
+  await expect(row('Code by email')).toContainText('Off: no sign-in code is mailed.');
+  await row('Password').getByRole('button', { name: 'Stop using a password' }).click();
+  await confirmWithPasskey();
+  await expect(row('Password')).toContainText('Off: your old password no longer signs in.');
+  await forgetSession(page);
+
+  // The old password no longer signs in. The passkey does, and then it is removed, leaving the wallet as the only way in.
+  await page.goto('/login');
+  await page.fill('input[name=identifier]', who.email);
+  await page.fill('input[name=password]', who.password);
+  await page.getByRole('button', { name: /^sign in$/i }).click();
+  await expect(page.locator('.failure')).toBeVisible();
+  await expect(page).toHaveURL(/\/login/);
+  await page.goto('/login');
+  await page.fill('input[name=identifier]', who.handle);
+  await page.getByRole('button', { name: 'Use a passkey' }).click();
+  await page.waitForURL((url) => url.pathname !== '/login');
+  await page.goto('/uc/safe');
+  await page.getByRole('button', { name: /^Remove passkey / }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Remove passkey' }).click();
+  await expect(row('Passkeys')).toContainText('None on this account.');
+  await expect(card).toContainText('This is your only way to sign in, so it cannot be removed. Add another first.');
+
+  // Removing the wallet now is refused as the last way in, before any confirmation, and the wallet stays.
+  await row('Wallets')
+    .getByRole('button', { name: `Remove wallet ${short}` })
+    .click();
+  await expect(card.locator('.failure')).toContainText('This is your last way to sign in. Add another before you remove it.');
+  await expect(card.getByRole('form', { name: 'Confirm it is you' })).toHaveCount(0);
+  await expect(row('Wallets').getByTitle(wallet.address)).toBeVisible();
+  await forgetSession(page);
+
+  // The wallet signs in on the sign-in page by its signature alone.
+  await page.goto('/login');
+  await page.getByRole('button', { name: 'Continue with a wallet' }).click();
+  await page.waitForURL((url) => url.pathname !== '/login');
+  await page.goto('/uc/safe');
+  await expect(row('Wallets').getByTitle(wallet.address)).toBeVisible();
+  await expect(row('Password')).toContainText('Off: your old password no longer signs in.');
 });

@@ -2,6 +2,6 @@
 @layer components {
   .service-off__code {
     color: var(--if-fg-3);
-    font-size: 12px;
+    font-size: var(--if-text-xs);
   }
 }

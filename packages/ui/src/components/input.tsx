@@ -246,7 +246,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(function Inp
         invalid ? 'border-error' : 'border-transparent',
         !disabled && !readOnly && 'hover:bg-raised',
         readOnly && !disabled && 'bg-panel',
-        'has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-lime',
+        'has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus',
         disabled && 'cursor-not-allowed opacity-40',
         className,
       )}

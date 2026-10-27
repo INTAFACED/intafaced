@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { api, fund, journeyState, toUnits } from './stack.mjs';
+import { api, fund, journeyState, toUnits, signOutBrowser } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
 // J-pay-01, in the running app (docs/roadmap/journeys.json): send TEST money to a person by handle and see it complete.
@@ -136,7 +136,7 @@ test(`${J} #6 reads the payment status page: Completed for both, no Cancel, and 
     await expect(
       page.getByRole('link', { name: 'Report a problem' }).or(page.getByRole('button', { name: 'Report a problem' })),
     ).toBeVisible();
-    await page.context().clearCookies();
+    await signOutBrowser(page.context());
   }
 });
 
@@ -159,6 +159,6 @@ test(`${J} #8 each person's balance on screen equals the ledger`, async ({ page 
     // The screen groups thousands; the ledger answers a plain decimal (75 and 25 here, so no grouping to undo).
     const ledger = await usdt(who);
     await expect(page.getByText(new RegExp(`(^|\\s)${ledger.replace('.', '\\.')}\\s*USDT`)).first()).toBeVisible();
-    await page.context().clearCookies();
+    await signOutBrowser(page.context());
   }
 });

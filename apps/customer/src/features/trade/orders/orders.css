@@ -1,26 +1,26 @@
 @layer components {
   .orders-room {
     display: grid;
-    gap: 16px;
+    gap: var(--if-space-4);
     min-width: 0;
   }
   .orders-filters {
     display: flex;
     flex-wrap: wrap;
     align-items: flex-end;
-    gap: 12px;
+    gap: var(--if-space-3);
   }
   .orders-field {
     display: grid;
-    gap: 4px;
-    font-size: 13px;
+    gap: var(--if-space-1);
+    font-size: var(--if-text-sm);
   }
   .orders-field select,
   .orders-field input {
     min-height: 40px;
-    padding: 0 8px;
+    padding: 0 var(--if-space-2);
     border: 1px solid var(--if-line, currentColor);
-    border-radius: var(--if-r-sm, 8px);
+    border-radius: var(--if-r-sm, var(--if-r-sm));
     background: transparent;
     color: inherit;
     font: inherit;
@@ -30,8 +30,8 @@
   }
   .orders-note--good,
   .orders-note--bad {
-    padding: 8px 12px;
-    border-radius: var(--if-r-sm, 8px);
+    padding: var(--if-space-2) var(--if-space-3);
+    border-radius: var(--if-r-sm, var(--if-r-sm));
     border: 1px solid var(--if-line, currentColor);
   }
   .orders-table {
@@ -39,13 +39,13 @@
   }
   .orders-list {
     display: grid;
-    gap: 8px;
+    gap: var(--if-space-2);
     margin: 0;
   }
   .orders-row {
     display: grid;
     grid-template-columns: minmax(120px, 200px) 1fr;
-    gap: 12px;
+    gap: var(--if-space-3);
   }
   .orders-row dt {
     color: var(--if-text-secondary);
@@ -56,7 +56,7 @@
   }
   .orders-section {
     display: grid;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .orders-section h2 {
     margin: 0;
@@ -67,16 +67,16 @@
     padding: 0;
     list-style: none;
     display: grid;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .orders-fill summary {
     min-height: 44px;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--if-space-2);
     cursor: pointer;
   }
   .orders-fill .orders-list {
-    padding: 8px 0 8px 16px;
+    padding: var(--if-space-2) 0 var(--if-space-2) var(--if-space-4);
   }
 }

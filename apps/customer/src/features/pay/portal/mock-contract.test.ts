@@ -7,6 +7,7 @@ import type { ContractCase, ContractPart } from './mock-contract-kit';
 import { moneyContract } from './money/contract-cases';
 import { paymentsContract } from './payments/contract-cases';
 import { settingsContract } from './settings/contract-cases';
+import { catalogContract } from './catalog/contract-cases';
 
 const USER = '22222222-2222-4222-8222-222222222222';
 const merchant = '11111111-1111-4111-8111-111111111111';
@@ -35,7 +36,13 @@ const core: ContractPart = {
     setPreference: 'a write: the stand-in answers it, and the Playwright run exercises it',
   },
 };
-const parts: Record<string, ContractPart> = { core, money: moneyContract, payments: paymentsContract, settings: settingsContract };
+const parts: Record<string, ContractPart> = {
+  core,
+  money: moneyContract,
+  payments: paymentsContract,
+  settings: settingsContract,
+  catalog: catalogContract,
+};
 
 /** Run the real client against the stand-in with no browser: a fetch that hands each request to the mock as a route. */
 function clientFor(mock: ReturnType<typeof createPortalMock>): PortalApi {

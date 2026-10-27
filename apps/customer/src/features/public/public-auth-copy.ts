@@ -24,6 +24,8 @@ export const publicAuthCopy = defineCopy(
     password: 'Password sign-in',
     options: 'Passkey preparation',
     passkey: 'Passkey sign-in',
+    secondStep: 'Passkey after your password',
+    wallet: 'Wallet sign-in',
     help: 'Get account help',
     changed: 'This sign-in context changed. No further authentication was sent and no returned session was applied here.',
     storage:
@@ -44,6 +46,26 @@ export const publicAuthCopy = defineCopy(
     needCode: 'Your password is right. Enter it again with the six-digit code from your authenticator app, or with a recovery code.',
     codeMismatch:
       'That code did not work. Every code works only once, and an app code changes every 30 seconds. Enter your password again with a new code.',
+    needPasskey: 'Your password is right. Now confirm with one of your passkeys.',
+    needCodeOrPasskey:
+      'Your password is right. Confirm with one of your passkeys, or enter your password again with the six-digit code from your authenticator app or a recovery code.',
+    usePasskeyStep: 'Use your passkey',
+    passkeyStepStopped: 'The passkey did not answer. Try again, or enter your password again.',
+    passkeyMismatch: 'That passkey is not one this account signs in with. Enter your password again, then use one of your own passkeys.',
+    secondStepExpired: 'This sign-in step timed out. Enter your password again.',
+    walletNeedCode:
+      'Your wallet is right. Enter the six-digit code from your authenticator app or a recovery code, then continue with your wallet again.',
+    walletNeedPasskey: 'Your wallet is right. Now confirm with one of your passkeys.',
+    walletNeedCodeOrPasskey:
+      'Your wallet is right. Confirm with one of your passkeys, or enter the code from your authenticator app and continue with your wallet again.',
+    walletCodeMismatch: 'That code did not work. Every code works only once. Enter a new code, then continue with your wallet again.',
+    walletPasskeyMismatch:
+      'That passkey is not one this account signs in with. Continue with your wallet again, then use one of your own passkeys.',
+    walletPasskeyStepStopped: 'The passkey did not answer. Try again, or continue with your wallet again.',
+    walletSecondStepExpired: 'This sign-in step timed out. Continue with your wallet again.',
+    walletNone: 'No wallet answered in this browser. Nothing was signed in.',
+    walletRejected: 'You declined in your wallet. Nothing was signed in.',
+    walletFailed: 'The wallet could not sign. Nothing was signed in.',
   } as const,
   {
     es: {

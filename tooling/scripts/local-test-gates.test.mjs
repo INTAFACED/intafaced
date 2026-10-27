@@ -23,6 +23,13 @@ import {
   termsProposal,
   TEST_TRANSFER_TERMS,
   TEST_ASSET_ROWS,
+  TEST_RETIRED_ASSET_ROW,
+  TEST_DEPOSIT_NETWORKS,
+  TEST_DEPOSIT_TERMS,
+  TEST_HALTED_DEPOSIT,
+  TEST_WITHDRAWAL_LIMITS,
+  networkRowMatches,
+  payProposal,
   assetEditProposal,
   assetRowMatches,
   needsFullTier,
@@ -35,9 +42,13 @@ import {
   TEST_CHART_DATA_CLASSES,
   chartDataClassPayloadHash,
   chartDataClassProposal,
+  nextTotpStep,
+  TOTP_SKEW_STEPS,
+  EDGE_AUTHORITY_CACHE_MAX_MS,
 } from './local-test-gates.mjs';
 import { draftFounderVault } from './local-test-founders.mjs';
 import { TEST_SPOT_LISTINGS, localTestDatabaseUrl } from './seed-spot-test-listing.mjs';
+import { TEST_KYB_ENTITY_TYPES, TEST_KYB_UPLOAD_RULES } from './seed-pay-kyb-test-requirements.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const script = resolve(here, 'local-test-gates.mjs');
@@ -246,6 +257,82 @@ for (const row of TEST_ASSET_ROWS) {
   assert.ok(!assetRowMatches(null, row));
 }
 
+// The retired TEST row: named TEST, allows nothing, lists a TEST network, and is not one of the active rows deposits use.
+assert.ok(TEST_RETIRED_ASSET_ROW.id.startsWith('TEST'));
+assert.equal(TEST_RETIRED_ASSET_ROW.state, 'retired');
+assert.deepEqual(TEST_RETIRED_ASSET_ROW.allowedActions, []);
+assert.ok(TEST_RETIRED_ASSET_ROW.networks.every((n) => n.label.startsWith('TEST ')));
+assert.ok(!TEST_ASSET_ROWS.some((row) => row.id === TEST_RETIRED_ASSET_ROW.id));
+assert.ok(assetRowMatches({ ...TEST_RETIRED_ASSET_ROW, revision: 1, updatedAt: '2026-10-24T00:00:00.000Z' }, TEST_RETIRED_ASSET_ROW));
+assert.ok(!assetRowMatches({ ...TEST_RETIRED_ASSET_ROW, state: 'active' }, TEST_RETIRED_ASSET_ROW), 'an unretired row taken as published');
+
+// TEST deposit networks and terms: labelled, decimal strings for money, every pair on a published network, and a network row
+// published once is left alone (version and clock aside) while any difference publishes it again.
+assert.deepEqual(
+  TEST_DEPOSIT_NETWORKS.map((n) => n.networkId),
+  ['ethereum', 'base'],
+);
+for (const n of TEST_DEPOSIT_NETWORKS) {
+  assert.ok(n.displayName.startsWith('TEST '), n.displayName);
+  assert.equal(typeof n.feeEstimateAmount, 'string');
+  const published = { ...n, assetCodes: [...n.assetCodes].reverse(), version: 3, updatedAt: '2026-10-24T00:00:00.000Z' };
+  assert.ok(networkRowMatches(published, n), `${n.networkId} published again on every run`);
+  assert.ok(
+    networkRowMatches({ ...published, assetCodes: [...n.assetCodes, 'ETH'] }, n),
+    'another asset on the network is not a difference',
+  );
+  assert.ok(!networkRowMatches({ ...published, assetCodes: ['USDC'] }, n), `${n.networkId} missing a TEST asset taken as published`);
+  assert.ok(!networkRowMatches({ ...published, enabled: false }, n), `${n.networkId} switched off taken as published`);
+  assert.ok(!networkRowMatches({ ...published, confirmationsRequired: null }, n));
+  assert.ok(!networkRowMatches(null, n));
+}
+// The TEST networks ask for as many confirmations as the stack's svc-pay credits at, so the room's count and the credit agree.
+{
+  const { default: payService } = await import('./local-stack-services/pay.mjs');
+  const payEnv = payService({
+    c: () => ({}),
+    secrets: { payTravelRuleKey: 'TEST-placeholder' },
+    dbUrl: () => '',
+    urlOf: () => '',
+    PORTS: {},
+  }).env();
+  for (const n of TEST_DEPOSIT_NETWORKS) assert.equal(String(n.confirmationsRequired), payEnv.PAY_MIN_CONFIRMATIONS, n.networkId);
+}
+assert.equal(TEST_DEPOSIT_TERMS.length, 4);
+for (const t of TEST_DEPOSIT_TERMS) {
+  const network = TEST_DEPOSIT_NETWORKS.find((n) => n.networkId === t.networkId);
+  assert.ok(network?.assetCodes.includes(t.assetId), `${t.assetId} on ${t.networkId} is not on a TEST network`);
+  assert.equal(t.label, network.displayName);
+  assert.equal(typeof t.minimumDeposit, 'string');
+  // Exactly one TEST pair stays switched off, with a TEST note; every other pair is on with none.
+  const off = t.assetId === TEST_HALTED_DEPOSIT.assetId && t.networkId === TEST_HALTED_DEPOSIT.networkId;
+  assert.equal(t.enabled, !off);
+  if (off) assert.match(t.haltNote, /^TEST: /);
+  else assert.equal(t.haltNote, null);
+}
+assert.equal(TEST_DEPOSIT_TERMS.filter((t) => !t.enabled).length, 1);
+// TEST withdrawal limits for every verified level, none for an unverified account, and the stack's svc-pay enforces them.
+assert.deepEqual([...TEST_WITHDRAWAL_LIMITS.tiers], ['basic', 'full', 'institutional']);
+{
+  const { default: payService } = await import('./local-stack-services/pay.mjs');
+  const payEnv = payService({
+    c: () => ({}),
+    secrets: { payTravelRuleKey: 'TEST-placeholder' },
+    dbUrl: () => '',
+    urlOf: () => '',
+    PORTS: {},
+  }).env();
+  assert.equal(payEnv.PAY_WITHDRAWAL_LIMITS, 'required');
+}
+assert.deepEqual(payProposal('pay.registry_change', 'sha256:abc'), {
+  actionType: 'pay.registry_change',
+  targetService: 'svc-pay',
+  targetId: 'pay.registry_change',
+  expectedVersion: '1',
+  payloadHash: 'sha256:abc',
+  policyVersion: MARKERS.policyVersion,
+});
+
 // Operators are labelled and distinct.
 const a = operatorIdentity('a');
 const b = operatorIdentity('B');
@@ -289,6 +376,35 @@ assert.deepEqual(
   assert.equal(localTestDatabaseUrl(local, {}), local);
   assert.throws(() => localTestDatabaseUrl(local, { NODE_ENV: 'production' }), /NODE_ENV is production/);
   assert.throws(() => localTestDatabaseUrl('postgres://u:p@db.example:5432/intafaced', {}), /does not look local or test/);
+}
+
+// The TEST business verification requirements: shaped as pay.kyb_entity_types accepts them, every key labelled test_, and
+// a sole trader asked for different documents than a company (J-merchant-02 #3). `apply` publishes them.
+{
+  const KNOWN = [
+    'private_company',
+    'listed_company',
+    'financial_institution',
+    'fund',
+    'trust',
+    'non_profit',
+    'government_owned',
+    'family_office',
+    'partnership',
+    'sole_proprietorship',
+  ];
+  for (const t of TEST_KYB_ENTITY_TYPES) {
+    assert.ok(KNOWN.includes(t.entityType), t.entityType);
+    for (const key of [...t.documentKeys, ...t.peopleRoles, ...t.questionnaireKeys]) assert.match(key, /^test_[a-z0-9_]{1,58}$/);
+    assert.ok(t.countries.length >= 1 && t.countries.every((c) => /^[A-Z]{2}$/.test(c)));
+    // The journeys open their businesses in DE (merchant.mjs openBusiness).
+    assert.ok(t.countries.includes('DE'));
+  }
+  const docs = (name) => TEST_KYB_ENTITY_TYPES.find((t) => t.entityType === name).documentKeys;
+  assert.notDeepEqual(docs('private_company'), docs('sole_proprietorship'));
+  assert.ok(TEST_KYB_UPLOAD_RULES.maxBytes >= 1 && TEST_KYB_UPLOAD_RULES.contentTypes.length >= 1);
+  const gatesSrc = readFileSync(script, 'utf8');
+  assert.match(gatesSrc, /await seedSpotTestListings\(ctx\);\n\s*await seedPayKybRequirements\(ctx\);/);
 }
 
 // Tier planning: nobody with an approved full or institutional record is touched.
@@ -367,5 +483,35 @@ assert.equal(proposal.targetId, 'ETH/USDT');
 assert.equal(proposal.expectedVersion, '2');
 assert.equal(proposal.policyVersion, 'trade-chart-data-class-v1', 'the same policy version the founder page proposes');
 assert.match(proposal.payloadHash, /^sha256:[0-9a-f]{64}$/);
+
+// TOTP steps: never a step identity already consumed (it refuses any step at or before the last one), never one before
+// the current step, and the step after the current one only because identity accepts one step of clock skew. Pinned to
+// identity's own window, so a narrower window there fails here instead of in every journeys shard.
+assert.equal(nextTotpStep(0, 100), 100, 'a fresh operator signs in with the current step');
+assert.equal(nextTotpStep(90, 100), 100, 'an old last step gives the current one, not the one after it');
+assert.equal(nextTotpStep(99, 100), 100);
+assert.equal(nextTotpStep(100, 100), 101, 'the current step spent: the next one, inside the skew window, without waiting');
+assert.equal(nextTotpStep(101, 100), null, 'both spent: wait for the clock');
+assert.equal(nextTotpStep(105, 100), null);
+assert.equal(nextTotpStep(undefined, 100), 100);
+assert.equal(nextTotpStep('not a step', 100), 100, 'an unreadable last step never waits forever');
+for (let last = 95; last <= 102; last += 1) {
+  const step = nextTotpStep(last, 100);
+  if (step !== null) assert.ok(step > last && step >= 100 && step <= 100 + TOTP_SKEW_STEPS, `last ${last} gave ${step}`);
+}
+const identityTotp = readFileSync(resolve(here, '../../services/svc-identity/src/auth/totp.ts'), 'utf8');
+assert.match(identityTotp, /const window = options\.window \?\? (\d+);/, 'identity still names its default skew window');
+assert.equal(
+  Number(/const window = options\.window \?\? (\d+);/.exec(identityTotp)[1]) >= TOTP_SKEW_STEPS,
+  true,
+  "the gates look ahead no further than identity's skew window",
+);
+// `apply` waits out Edge's authority cache after verify, so svc-p2p reads the founders' new tier: pinned to Edge's cap.
+const edgeAuthority = readFileSync(resolve(here, '../../services/svc-edge/src/live-authority.ts'), 'utf8');
+assert.equal(
+  Number(/export const AUTHORITY_POSITIVE_CACHE_MAX_MS = (\d+);/.exec(edgeAuthority)?.[1]),
+  EDGE_AUTHORITY_CACHE_MAX_MS,
+  "the gates wait exactly as long as Edge's authority cache can hold a session's tier",
+);
 
 console.log('local-test-gates: marker, builder, hash and planning checks passed');

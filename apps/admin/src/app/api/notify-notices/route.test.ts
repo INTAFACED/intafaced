@@ -58,7 +58,8 @@ function upstream(handlers: Record<string, (init: RequestInit, url: string) => R
   );
   return calls;
 }
-const calls = <T extends { url: string }>(c: T[]) => c.filter((x) => !x.url.includes('operatorStatus'));
+const calls = <T extends { url: string }>(c: T[]) =>
+  c.filter((x) => !x.url.includes('operatorStatus') && !x.url.includes('consoleMode.get'));
 const sent = (c: { url: string; init: RequestInit }[], procedure: string) =>
   JSON.parse(String(calls(c).find((x) => x.url.includes(procedure))!.init.body));
 
@@ -102,6 +103,10 @@ const DEFINITION = {
   updatedAt: '2026-10-23T10:00:00.000Z',
   publicOrigin: null,
 };
+const AUDIENCES = [
+  { id: 'everyone', available: true },
+  { id: 'p2p-merchants', available: true },
+];
 const DRAFT = { op: 'draft', title: 'TEST new listing', body: 'TEST the market opens on Monday', category: 'listings', basis: null };
 
 describe('announcement desk BFF', () => {
@@ -110,6 +115,7 @@ describe('announcement desk BFF', () => {
     const c = upstream({
       'notify.operatorNotices': () => ok([NOTICE]),
       'statusPage.definition': () => ok(DEFINITION),
+      'notify.noticeAudiences': () => ok(AUDIENCES),
       'actionApproval.list': () => ok({ approvals: [] }),
     });
     const body = await (await GET(get())).json();
@@ -120,6 +126,7 @@ describe('announcement desk BFF', () => {
     upstream({
       'notify.operatorNotices': () => ok([{ ...NOTICE, category: 'listings' }]),
       'statusPage.definition': () => ok({ ...DEFINITION, noticeCategories: null }),
+      'notify.noticeAudiences': () => ok(AUDIENCES),
       'actionApproval.list': () => ok({ approvals: [] }),
     });
     const next = await (await GET(get())).json();
@@ -172,5 +179,48 @@ describe('announcement desk BFF', () => {
     for (const bad of ['listings', 'Listings: New', 'listings: A\nlistings: B']) expect((await save(bad)).status).toBe(400);
     expect((await save('listings: A', ' ')).status).toBe(400);
     expect(calls(c)).toHaveLength(2);
+  });
+
+  it('reads who an announcement is for: a row from before audiences is for everyone, and the list svc-notify offers', async () => {
+    configure();
+    upstream({
+      'notify.operatorNotices': () => ok([NOTICE, { ...NOTICE, id: '44444444-4444-4444-8444-444444444444', audience: 'p2p-merchants' }]),
+      'statusPage.definition': () => ok(DEFINITION),
+      'notify.noticeAudiences': () => ok([AUDIENCES[0], { id: 'p2p-merchants', available: false }]),
+      'actionApproval.list': () => ok({ approvals: [] }),
+    });
+    const body = await (await GET(get())).json();
+    expect(body.announcements.data.map((n: { audience: string }) => n.audience)).toEqual(['everyone', 'p2p-merchants']);
+    expect(body.audiences).toEqual({ kind: 'ok', data: [AUDIENCES[0], { id: 'p2p-merchants', available: false }] });
+    upstream({
+      'notify.operatorNotices': () => ok([{ ...NOTICE, audience: 'whales' }]),
+      'statusPage.definition': () => ok(DEFINITION),
+      'notify.noticeAudiences': () => ok([{ id: 'whales', available: true }]),
+      'actionApproval.list': () => ok({ approvals: [] }),
+    });
+    const odd = await (await GET(get())).json();
+    expect(odd.announcements.kind).toBe('failed');
+    expect(odd.audiences.kind).toBe('failed');
+  });
+
+  it('drafts for P2P merchants under its own key; for everyone the key is as before; an unknown audience never leaves', async () => {
+    configure();
+    const c = upstream({ 'notify.draftNotice': () => ok(NOTICE) });
+    await POST(post(DRAFT));
+    await POST(post({ ...DRAFT, audience: 'everyone' }));
+    await POST(post({ ...DRAFT, audience: 'p2p-merchants' }));
+    const [plain, everyone, merchants] = calls(c).map((x) => JSON.parse(String(x.init.body)));
+    expect(plain.audience).toBe('everyone');
+    expect(everyone.clientRequestId).toBe(plain.clientRequestId);
+    expect(merchants).toMatchObject({ kind: 'announcement', audience: 'p2p-merchants' });
+    expect(merchants.clientRequestId).not.toBe(plain.clientRequestId);
+    for (const bad of ['whales', 7]) expect((await POST(post({ ...DRAFT, audience: bad }))).status).toBe(400);
+    expect(calls(c)).toHaveLength(3);
+    upstream({ 'notify.draftNotice': () => refusal('notify.notice_audience_invalid', 412) });
+    expect(await (await POST(post({ ...DRAFT, audience: 'p2p-merchants' }))).json()).toMatchObject({
+      ok: false,
+      code: 'notify.notice_audience_invalid',
+      title: 'That audience is not one an announcement can have',
+    });
   });
 });

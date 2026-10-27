@@ -1267,3 +1267,99 @@ describe('Exact original P2P reconciliation identity', () => {
     });
   }
 });
+
+describe('adding a P2P payment method (P-ads-merchant-18)', () => {
+  const instrumentId = '55555555-5555-4555-8555-555555555555';
+  const input = { instrumentId, methodId: 'test-bank-transfer', country: 'DE', fiatCurrency: 'EUR', label: '', details: { iban: 'X' } };
+  const header = {
+    id: instrumentId,
+    methodId: 'test-bank-transfer',
+    country: 'DE',
+    fiatCurrency: 'EUR',
+    label: '',
+    status: 'active',
+    createdAt: '2026-10-24T22:00:00Z',
+    updatedAt: '2026-10-24T22:00:00Z',
+    removedAt: null,
+  };
+  const lostAnswer = (listed: unknown[]) =>
+    createApiClient({
+      fetch: async (_url, options) =>
+        options?.method === 'POST'
+          ? new Response(JSON.stringify({ error: { message: 'Connection ended' } }), { status: 503 })
+          : response(listed),
+    });
+
+  it('settles a lost answer from the person’s own list: found means saved', async () => {
+    const pay = createPersonalPayApi(lostAnswer([header]), userId, createPayMutationGuard());
+    expect(await pay.addInstrument(input)).toEqual({ ok: true, data: header });
+  });
+
+  it('keeps a lost answer unconfirmed when the id is not listed, and holds nothing back for the resend', async () => {
+    const pay = createPersonalPayApi(lostAnswer([]), userId, createPayMutationGuard());
+    expect(await pay.addInstrument(input)).toMatchObject({ ok: false, reason: 'uncertain' });
+    // The same id goes again rather than being held as an unresolved operation.
+    expect(await pay.addInstrument(input)).toMatchObject({ ok: false, reason: 'uncertain' });
+  });
+
+  it('passes a refusal through with its code and field', async () => {
+    const api = createApiClient({
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              message: 'x',
+              data: { code: 'BAD_REQUEST', cause: { code: 'p2p.account_format_invalid' }, p2pLimit: { until: null, field: 'iban' } },
+            },
+          }),
+          { status: 400 },
+        ),
+    });
+    expect(await createPersonalPayApi(api, userId, createPayMutationGuard()).addInstrument(input)).toMatchObject({
+      ok: false,
+      code: 'p2p.account_format_invalid',
+      p2pLimit: { until: null, field: 'iban' },
+    });
+  });
+  it('sends the person’s confirmation with a save and a removal only when there is one', async () => {
+    const sent: unknown[] = [];
+    const api = createApiClient({
+      fetch: async (_url, options) => {
+        sent.push(JSON.parse(String(options?.body)));
+        return response(header);
+      },
+    });
+    const pay = createPersonalPayApi(api, userId, createPayMutationGuard());
+    await pay.addInstrument({ ...input, stepUpApprovalId: 'approval-1' });
+    await pay.addInstrument(input);
+    await pay.removeInstrument(instrumentId, 'approval-2');
+    await pay.removeInstrument(instrumentId);
+    expect(sent).toEqual([
+      { ...input, stepUpApprovalId: 'approval-1' },
+      input,
+      { instrumentId, stepUpApprovalId: 'approval-2' },
+      { instrumentId },
+    ]);
+  });
+
+  it('reads saved details masked through the logged read and refuses an answer without them', async () => {
+    const urls: string[] = [];
+    const answer = (body: unknown) =>
+      createApiClient({
+        fetch: async (url) => {
+          urls.push(String(url));
+          return response(body);
+        },
+      });
+    const shown = await createPersonalPayApi(
+      answer({ ...header, details: { iban: '•••• 3000' } }),
+      userId,
+      createPayMutationGuard(),
+    ).maskedInstrument(instrumentId);
+    expect(shown).toEqual({ ok: true, data: { ...header, details: { iban: '•••• 3000' } } });
+    expect(urls[0]).toContain('instruments.revealMasked');
+    expect(await createPersonalPayApi(answer(header), userId, createPayMutationGuard()).maskedInstrument(instrumentId)).toMatchObject({
+      ok: false,
+    });
+  });
+});

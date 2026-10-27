@@ -1,5 +1,5 @@
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
-import { ChainNotConfiguredError, type CryptoChainPort } from './chain-port.js';
+import { ChainNotConfiguredError, type ConfirmedTransfer, type CryptoChainPort } from './chain-port.js';
 import {
   railFailure,
   railHealthStaleReason,
@@ -11,6 +11,7 @@ import {
   type PaymentIntent,
   type RailAdapter,
   type RailCapability,
+  type RailCaptureOptions,
   type RailEvent,
   type RailHealth,
   type RailMode,
@@ -236,10 +237,10 @@ export class CryptoNativeAdapter implements RailAdapter {
     // process restarts — a second authorize never hands the buyer a second
     // address to pay into, which would split one payment across two.
     let address: string;
-    let transfer: Awaited<ReturnType<CryptoChainPort['inboundTransfer']>>;
+    let transfers: readonly ConfirmedTransfer[];
     try {
       address = await this.chain.acceptanceAddress(p.paymentId, p.assetId);
-      transfer = await this.chain.inboundTransfer(address);
+      transfers = await this.chain.inboundTransfers(address);
     } catch (err) {
       // A chain provider having a bad minute is not an exception in a payments
       // core. Nothing has moved and nothing is stranded — the buyer's funds, if
@@ -255,7 +256,7 @@ export class CryptoNativeAdapter implements RailAdapter {
       });
     }
 
-    if (!transfer) {
+    if (transfers.length === 0) {
       return {
         ok: true,
         railRef: address,
@@ -267,11 +268,21 @@ export class CryptoNativeAdapter implements RailAdapter {
       };
     }
 
+    const inAsset = transfers.filter((t) => t.assetId === p.assetId);
+    // A later transfer in another token: not this payment's, but not gone either. It stays in `raw` with who sent it,
+    // so support can send it back without a chain explorer.
+    const strays = transfers
+      .filter((t) => t.assetId !== p.assetId)
+      .map((t) => ({ txHash: t.txHash, from: t.from, assetId: t.assetId, amount: formatAmount(t.amount) }));
+
+    const transfer = transfers[0]!;
     if (transfer.assetId !== p.assetId) {
       // The payer sent the wrong token to the right address. Payers do this.
       // The payment fails, but the funds are not gone: they are at `address`,
       // in `transfer.assetId`, refundable to `transfer.from` — all of which is
       // in `raw` precisely so support can act on it without a chain explorer.
+      // The first transfer decides the address's asset here and in `capture`
+      // alike, so the two can never book different tokens.
       return railFailure({
         railRef: address,
         amount: transfer.amount,
@@ -283,35 +294,45 @@ export class CryptoNativeAdapter implements RailAdapter {
       });
     }
 
-    if (transfer.confirmations < this.minConfirmations) {
-      // Seen but not final. Pending, not authorized: a shallow transfer can
-      // still be reorganised away, and a merchant who ships against it has
-      // shipped against nothing.
+    // A payer can pay in parts (J-merchant-04 step 5, M-payments-core-04b): every final transfer in the payment's asset
+    // counts, and the payment authorizes once, when they add up. A shallow transfer counts for nothing yet — it can
+    // still be reorganised away, and a merchant who ships against it has shipped against nothing.
+    const final = inAsset.filter((t) => t.confirmations >= this.minConfirmations);
+    const received = final.reduce((sum, t) => sum + t.amount, 0n);
+
+    if (received < p.amount) {
+      // Not enough is final yet: the payer has sent part of it, or the rest is
+      // still shallow. Pending, not failed — an underpayment is the first half
+      // of a payment more often than it is a mistake, and the funds that did
+      // arrive are at `address`, listed here with who sent them. The payment
+      // stays open for the rest; failing it would turn the payer's second
+      // transfer into money nothing points at.
+      const shallow = inAsset.filter((t) => t.confirmations < this.minConfirmations);
+      const confirming = shallow.reduce((sum, t) => sum + t.amount, 0n);
       return {
         ok: true,
         railRef: address,
         status: 'pending',
-        amount: transfer.amount,
+        amount: received,
         assetId: p.assetId,
         at: this.now(),
-        raw: { address, txHash: transfer.txHash, confirmations: transfer.confirmations, required: this.minConfirmations },
+        raw: {
+          address,
+          received: formatAmount(received),
+          missing: formatAmount(p.amount - received),
+          // Sent but not yet final: the page must not ask the payer to send this again.
+          confirming: formatAmount(confirming),
+          required: this.minConfirmations,
+          transfers: inAsset.map((t) => ({
+            txHash: t.txHash,
+            from: t.from,
+            amount: formatAmount(t.amount),
+            confirmations: t.confirmations,
+          })),
+          ...(shallow.length === 1 && final.length === 0 ? { txHash: shallow[0]!.txHash, confirmations: shallow[0]!.confirmations } : {}),
+          ...(strays.length > 0 ? { strays } : {}),
+        },
       };
-    }
-
-    if (transfer.amount < p.amount) {
-      // Underpayment is a real event, not an error: the buyer sent something,
-      // and it is now sitting at an address we control. Failing the payment is
-      // right — but the funds are not lost, they are at `address`, recorded in
-      // `raw`, and refundable to `transfer.from`.
-      return railFailure({
-        railRef: address,
-        amount: transfer.amount,
-        assetId: p.assetId,
-        failureCode: 'chain.underpaid',
-        failureReason: `Received ${formatAmount(transfer.amount)}, expected ${formatAmount(p.amount)}`,
-        at: this.now(),
-        raw: { address, txHash: transfer.txHash, from: transfer.from },
-      });
     }
 
     return {
@@ -321,23 +342,30 @@ export class CryptoNativeAdapter implements RailAdapter {
       // What the chain actually delivered, which may be MORE than asked. The
       // core books what arrived; inventing a smaller number here would leave
       // the difference stranded at an address nothing points at.
-      amount: transfer.amount,
+      amount: received,
       assetId: p.assetId,
       at: this.now(),
-      raw: { address, txHash: transfer.txHash, from: transfer.from, confirmations: transfer.confirmations },
+      raw: {
+        address,
+        txHash: final[0]!.txHash,
+        from: final[0]!.from,
+        confirmations: Math.min(...final.map((t) => t.confirmations)),
+        ...(final.length > 1 ? { txHashes: final.map((t) => t.txHash) } : {}),
+        ...(strays.length > 0 ? { strays } : {}),
+      },
     };
   }
 
-  async capture(ref: string): Promise<RailResult> {
+  async capture(ref: string, opts?: RailCaptureOptions): Promise<RailResult> {
     const blocked = this.blockMoney(0n, '', ref);
     if (blocked) return blocked;
     this.lastContact = this.now();
 
     // Derived from chain state, never from adapter memory — that is what makes
     // this safe to re-run after a crash at any point.
-    let transfer: Awaited<ReturnType<CryptoChainPort['inboundTransfer']>>;
+    let paid: PaidAt | null;
     try {
-      transfer = await this.findTransfer(ref);
+      paid = await this.paidAt(ref);
     } catch (err) {
       return railFailure({
         railRef: ref,
@@ -349,7 +377,7 @@ export class CryptoNativeAdapter implements RailAdapter {
       });
     }
 
-    if (!transfer) {
+    if (!paid) {
       return railFailure({
         railRef: ref,
         amount: 0n,
@@ -360,25 +388,38 @@ export class CryptoNativeAdapter implements RailAdapter {
       });
     }
 
-    if (transfer.confirmations < this.minConfirmations) {
+    if (paid.final.length === 0) {
+      const shallow = paid.shallow[0]!;
       return railFailure({
         railRef: ref,
-        amount: transfer.amount,
-        assetId: transfer.assetId,
+        amount: shallow.amount,
+        assetId: paid.assetId,
         failureCode: 'chain.insufficient_confirmations',
-        failureReason: `${transfer.confirmations} confirmations, ${this.minConfirmations} required`,
+        failureReason: `${shallow.confirmations} confirmations, ${this.minConfirmations} required`,
         at: this.now(),
       });
     }
 
+    // The final transfers, as `authorize` counted them: oldest first, up to
+    // the authorization the core names. A transfer that landed after authorize
+    // (dust anyone can send to a public address) comes later on the chain and
+    // is left out, so it cannot make every capture disagree with the
+    // authorization. A part reorganised away since is not counted, so the total
+    // comes back short and the core books neither number
+    // (`pay.rail_amount_mismatch`) until the chain agrees again.
+    const counted = countedUpTo(paid.final, opts?.authorized);
     return {
       ok: true,
       railRef: ref,
       status: 'captured',
-      amount: transfer.amount,
-      assetId: transfer.assetId,
+      amount: counted.reduce((sum, t) => sum + t.amount, 0n),
+      assetId: paid.assetId,
       at: this.now(),
-      raw: { txHash: transfer.txHash, confirmations: transfer.confirmations },
+      raw: {
+        txHash: counted[0]!.txHash,
+        confirmations: Math.min(...counted.map((t) => t.confirmations)),
+        ...(counted.length > 1 ? { txHashes: counted.map((t) => t.txHash) } : {}),
+      },
     };
   }
 
@@ -387,12 +428,13 @@ export class CryptoNativeAdapter implements RailAdapter {
     if (blocked) return blocked;
     this.lastContact = this.now();
 
-    let transfer: Awaited<ReturnType<CryptoChainPort['inboundTransfer']>>;
+    let paid: PaidAt | null;
     try {
-      transfer = await this.findTransfer(ref);
+      paid = await this.paidAt(ref);
     } catch (err) {
       throw new RailOutcomeUnknownError(err);
     }
+    const transfer = paid?.final[0] ?? null;
 
     if (!transfer) {
       return railFailure({
@@ -405,15 +447,28 @@ export class CryptoNativeAdapter implements RailAdapter {
       });
     }
 
+    const senders = new Set(paid!.final.map((t) => t.from?.trim() ?? ''));
     const payer = transfer.from?.trim() ?? '';
     // Payer dest only — never invent an address.
-    if (!payer) {
+    if (!payer || senders.has('')) {
       return railFailure({
         railRef: ref,
         amount,
         assetId: transfer.assetId,
         failureCode: 'refund.destination_missing',
         failureReason: 'On-chain refund requires the payer address — no invented dest',
+        at: this.now(),
+      });
+    }
+    if (senders.size > 1) {
+      // Paid in parts from different addresses: sending it all to one of them
+      // would give one payer another's money, irreversibly.
+      return railFailure({
+        railRef: ref,
+        amount,
+        assetId: transfer.assetId,
+        failureCode: 'refund.destination_ambiguous',
+        failureReason: `The payment arrived from ${senders.size} addresses; an on-chain refund has no single destination`,
         at: this.now(),
       });
     }
@@ -440,7 +495,8 @@ export class CryptoNativeAdapter implements RailAdapter {
     }
 
     const already = this.refunded.get(ref) ?? 0n;
-    const refundable = transfer.amount - already;
+    // A payment paid in parts refunds up to all of its final transfers.
+    const refundable = paid!.total - already;
     if (amount > refundable) {
       return railFailure({
         railRef: ref,
@@ -610,7 +666,7 @@ export class CryptoNativeAdapter implements RailAdapter {
     const railRef = typeof b.ref === 'string' ? b.ref : null;
     const type = typeof b.type === 'string' ? b.type : null;
     if (!eventId || !railRef || !type) return null;
-    if (!['authorized', 'captured', 'refunded', 'failed', 'payout.completed'].includes(type)) return null;
+    if (!['authorized', 'captured', 'refunded', 'failed', 'payout.completed', 'chain.reorged'].includes(type)) return null;
 
     let amount: Amount | undefined;
     if (typeof b.amount === 'string') {
@@ -628,6 +684,18 @@ export class CryptoNativeAdapter implements RailAdapter {
     const occurredAt = typeof b.occurredAt === 'string' ? new Date(b.occurredAt) : new Date();
     if (Number.isNaN(occurredAt.getTime())) return null;
 
+    const chain =
+      typeof b.txHash === 'string' &&
+      b.txHash &&
+      Number.isInteger(b.logIndex) &&
+      (b.logIndex as number) >= 0 &&
+      Number.isInteger(b.confirmations) &&
+      (b.confirmations as number) >= 0
+        ? { txHash: b.txHash, logIndex: b.logIndex as number, confirmations: b.confirmations as number }
+        : undefined;
+    // A reorg names the transfer it takes back by its chain position; without one there is nothing it could be about.
+    if (type === 'chain.reorged' && !chain) return null;
+
     return {
       railId: this.id,
       eventId,
@@ -637,15 +705,7 @@ export class CryptoNativeAdapter implements RailAdapter {
       assetId: typeof b.assetId === 'string' ? b.assetId : undefined,
       occurredAt,
       failureCode: typeof b.failureCode === 'string' ? b.failureCode : undefined,
-      chain:
-        typeof b.txHash === 'string' &&
-        b.txHash &&
-        Number.isInteger(b.logIndex) &&
-        (b.logIndex as number) >= 0 &&
-        Number.isInteger(b.confirmations) &&
-        (b.confirmations as number) >= 0
-          ? { txHash: b.txHash, logIndex: b.logIndex as number, confirmations: b.confirmations as number }
-          : undefined,
+      chain,
     };
   }
 
@@ -684,12 +744,45 @@ export class CryptoNativeAdapter implements RailAdapter {
   /**
    * A rail reference for this adapter is an acceptance address. The chain says
    * what landed there — including which asset — so nothing here has to infer
-   * the asset from the shape of a string.
+   * the asset from the shape of a string. The payment's asset is the first
+   * transfer's, and its total is every FINAL transfer in that asset, as
+   * `authorize` counts it (a payer can pay in parts); a transfer in another
+   * token, or one still shallow or reorganised away, is never added to it.
    */
-  private async findTransfer(address: string) {
+  private async paidAt(address: string): Promise<PaidAt | null> {
     if (!address) return null;
-    return this.chain.inboundTransfer(address);
+    const all = await this.chain.inboundTransfers(address);
+    const first = all[0];
+    if (!first) return null;
+    const inAsset = all.filter((t) => t.assetId === first.assetId);
+    const final = inAsset.filter((t) => t.confirmations >= this.minConfirmations);
+    return {
+      assetId: first.assetId,
+      final,
+      shallow: inAsset.filter((t) => t.confirmations < this.minConfirmations),
+      total: final.reduce((sum, t) => sum + t.amount, 0n),
+    };
   }
+}
+
+/** The oldest transfers whose sum first reaches `authorized`; all of them when it is not named or never reached. */
+function countedUpTo(transfers: readonly ConfirmedTransfer[], authorized: Amount | undefined): readonly ConfirmedTransfer[] {
+  if (authorized === undefined) return transfers;
+  let sum = 0n;
+  for (let i = 0; i < transfers.length; i++) {
+    sum += transfers[i]!.amount;
+    if (sum >= authorized) return transfers.slice(0, i + 1);
+  }
+  return transfers;
+}
+
+/** What landed at an acceptance address in the payment's asset, oldest first: final and still shallow. */
+interface PaidAt {
+  readonly assetId: string;
+  readonly final: readonly ConfirmedTransfer[];
+  readonly shallow: readonly ConfirmedTransfer[];
+  /** The final transfers' sum. */
+  readonly total: Amount;
 }
 
 /** Transport failure is uncertainty, never a provider refusal or rollback. */

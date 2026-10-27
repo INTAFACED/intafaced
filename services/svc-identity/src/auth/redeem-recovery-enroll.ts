@@ -10,6 +10,7 @@
 import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import type { StoredPasskey } from './enroll-passkey.js';
+import { queueFactorChangedNotice } from './factor-changed-notice.js';
 import { assertOwnLiveSession, redeemRecoveryCode, type RecoveryRedeemCode } from './recovery-redeem.js';
 
 export class RedeemRecoveryEnrollError extends Error {
@@ -42,6 +43,7 @@ export async function enrollPasskeyAfterRecoveryCode(
       if (!rows[0]) throw make('User not found', 'auth.not_found');
       const creds = Array.isArray(rows[0].webauthn_creds) ? (rows[0].webauthn_creds as StoredPasskey[]) : [];
       await tx`UPDATE users SET webauthn_creds = ${tx.json([...creds, input.cred] as never)}, updated_at = now() WHERE id = ${input.userId}`;
+      await queueFactorChangedNotice(tx, { userId: input.userId, change: 'passkey_added', now: new Date() });
     });
     return { credentialId: input.cred.credentialId };
   });

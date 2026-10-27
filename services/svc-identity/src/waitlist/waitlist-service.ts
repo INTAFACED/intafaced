@@ -48,6 +48,7 @@ export class WaitlistError extends Error {
       | 'waitlist.referral_locked'
       | 'waitlist.wave_unknown'
       | 'waitlist.wave_empty'
+      | 'waitlist.email_unverified'
       | 'drop.wave_unset',
   ) {
     super(message);
@@ -114,14 +115,29 @@ export class WaitlistService {
       throw mapStoreError(err);
     }
     if (!entry) throw new WaitlistError('Referral code is not on the waitlist', 'waitlist.not_found');
-    const [standing, queueLength] = await Promise.all([this.store.standing(entry), this.store.count()]);
-    return {
-      position: entry.position,
-      referralCode: entry.referralCode,
-      referredCount: entry.referredCount,
-      queueLength,
-      ...standing,
-    };
+    return this.placeOf(entry);
+  }
+
+  /**
+   * The signed-in caller's own place (the drop room, J-campaigns-20 #4), found by the account's confirmed email. Null when
+   * that email never joined. `self` reads the session's own account, never the request, and runs only after the flag
+   * check, so a switched-off waitlist names its flag and reads no account. An unconfirmed email refuses
+   * `waitlist.email_unverified`, so nobody reads a place by typing someone else's address at sign-up.
+   */
+  async mine(self: () => Promise<{ email: string; emailVerified: boolean } | null>): Promise<WaitlistPosition | null> {
+    this.assertWaitlist();
+    const account = await self();
+    if (account === null) return null;
+    if (!account.emailVerified) {
+      throw new WaitlistError('Confirm your email to see your place in the queue', 'waitlist.email_unverified');
+    }
+    let entry: WaitlistEntry | null;
+    try {
+      entry = await this.store.getByEmail(account.email);
+    } catch (err) {
+      throw mapStoreError(err);
+    }
+    return entry ? this.placeOf(entry) : null;
   }
 
   /** Operator view of the waves: the owner's size, the next wave number and every released wave. */
@@ -170,6 +186,17 @@ export class WaitlistService {
   async list(input: { limit: number; offset: number }): Promise<WaitlistList> {
     this.assertWaitlist();
     return this.store.list(input);
+  }
+
+  private async placeOf(entry: WaitlistEntry): Promise<WaitlistPosition> {
+    const [standing, queueLength] = await Promise.all([this.store.standing(entry), this.store.count()]);
+    return {
+      position: entry.position,
+      referralCode: entry.referralCode,
+      referredCount: entry.referredCount,
+      queueLength,
+      ...standing,
+    };
   }
 
   private assertWaitlist(): void {

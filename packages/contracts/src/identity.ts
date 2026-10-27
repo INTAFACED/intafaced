@@ -68,6 +68,26 @@ export const emailProofSchema = z
 export type EmailProof = z.infer<typeof emailProofSchema>;
 
 /**
+ * Who an account is, for a campaign's participation rules (CM-eligibility-rules-01, J-campaigns-01 #4-#5): the account
+ * type chosen at sign-up, the region identity holds (ISO 3166 alpha-2, null when none is recorded), the freeze/close
+ * status and the KYC tier. svc-campaigns reads it per check from `GET /internal/campaign-participant/:userId` (service
+ * credentials) and keeps no copy. No name, email or document is in it.
+ */
+export const campaignParticipantSchema = z
+  .object({
+    userId: z.string().guid(),
+    accountType: z.enum(['individual', 'business']),
+    region: z
+      .string()
+      .regex(/^[A-Z]{2}$/)
+      .nullable(),
+    status: z.enum(['active', 'frozen', 'closed']),
+    kycTier: kycTierSchema,
+  })
+  .strict();
+export type CampaignParticipant = z.infer<typeof campaignParticipantSchema>;
+
+/**
  * CUSTOMER SECURITY LOCK (W-withdraw-09, wallet-withdraw-015). The account owner's own switch that stops withdrawals and
  * changes to withdrawal addresses, the password and verification until they unlock it. Locking applies at once; unlocking
  * is a request that takes effect only after the owner-set wait, and a repeated request never moves that time earlier.
@@ -89,6 +109,190 @@ export const securityLockSchema = z
   })
   .strict();
 export type SecurityLockView = z.infer<typeof securityLockSchema>;
+
+/**
+ * OWN-NAME RULE (P-ads-merchant-18, J-p2p-04 #2). A service that stores a payout destination in the person's own name
+ * asks identity whether the holder name it was given is the account's verified legal name. svc-identity compares, so the
+ * legal name never leaves it: the caller sends a name and gets only the outcome. `POST /internal/holder-name-check`,
+ * service credentials, body-bound; svc-p2p is the only caller today.
+ *
+ * - `match` / `mismatch`: the names compared after identity's normalising (case, Latin accents, spacing, dashes,
+ *   apostrophes, full stops and commas do not count; the words and their order do).
+ * - `unverified`: identity holds no verified legal name for the account. The caller refuses; it never reads as a match.
+ * - `unconfigured`: identity's details key is unset, so no name can be read. The caller refuses.
+ * - `inactive`: the account is frozen, closed or archived. The caller refuses.
+ * The answer's userId is lower case. Unknown account: 404; a record identity cannot read: 503
+ * `identity.details_unreadable`. The caller refuses on both.
+ */
+export const IDENTITY_HOLDER_NAME_CHECK_PATH = '/internal/holder-name-check';
+export const holderNameCheckInputSchema = z
+  .object({
+    userId: z.string().guid(),
+    name: z.string().min(1).max(200),
+  })
+  .strict();
+export type HolderNameCheckInput = z.infer<typeof holderNameCheckInputSchema>;
+export const holderNameCheckSchema = z
+  .object({
+    userId: z.string().guid(),
+    outcome: z.enum(['match', 'mismatch', 'unverified', 'unconfigured', 'inactive']),
+  })
+  .strict();
+export type HolderNameCheck = z.infer<typeof holderNameCheckSchema>;
+
+/**
+ * The locked-out second-step reset (I-signin-sessions-12, J-identity-05 #2/#3), svc-identity's top-level `mfaReset`.
+ * `start` and `confirm` answer a view: a code sent to the masked proved address, or the wait with who was told. `sms`
+ * names the missing texting rail when a proved phone could not be texted. `status` is the account's waiting reset, for
+ * its own sessions; `cancel` says whether one was stopped.
+ */
+export const mfaResetViewSchema = z.discriminatedUnion('state', [
+  z
+    .object({
+      state: z.literal('code_sent'),
+      resetId: z.string().guid(),
+      email: z.string(),
+      codeExpiresAt: z.string().datetime({ offset: true }),
+    })
+    .strict(),
+  z
+    .object({
+      state: z.literal('waiting'),
+      resetId: z.string().guid(),
+      completesAt: z.string().datetime({ offset: true }),
+      told: z.object({ email: z.string(), sms: z.literal('vendor.sms').nullable() }).strict(),
+    })
+    .strict(),
+]);
+export type MfaResetView = z.infer<typeof mfaResetViewSchema>;
+export const mfaResetStatusSchema = z
+  .object({
+    waiting: z
+      .object({
+        resetId: z.string().guid(),
+        waitingSince: z.string().datetime({ offset: true }),
+        completesAt: z.string().datetime({ offset: true }),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+export const mfaResetCancelSchema = z.object({ cancelled: z.boolean() }).strict();
+/**
+ * Support-assisted recovery (I-signin-sessions-24; J-identity-05 #5, J-identity-19), svc-identity's top-level
+ * `supportRecovery`. An operator opens a case (masked proved address and live sessions, no link yet), files the
+ * `approvalProposal` as a four-eyes approval that a different operator approves, then sends a one-time link to the
+ * account's proved address. No answer ever carries the link. `state` reads `expired` once a sent link's lifetime ended.
+ * `redeem` is the signed-out page the link opens: it answers only that the account was recovered.
+ */
+export const supportRecoveryCaseSchema = z
+  .object({
+    caseId: z.string().guid(),
+    userId: z.string().guid(),
+    handle: z.string(),
+    state: z.enum(['open', 'link_sent', 'used', 'cancelled', 'expired']),
+    reason: z.string(),
+    openedBy: z.string().guid(),
+    openedAt: z.string().datetime({ offset: true }),
+    approvedBy: z.string().guid().nullable(),
+    linkSentAt: z.string().datetime({ offset: true }).nullable(),
+    linkExpiresAt: z.string().datetime({ offset: true }).nullable(),
+    usedAt: z.string().datetime({ offset: true }).nullable(),
+    closedAt: z.string().datetime({ offset: true }).nullable(),
+    contact: z.object({ email: z.string().nullable(), emailProved: z.boolean() }).strict(),
+    sessions: z.array(
+      z
+        .object({
+          deviceLabel: z.string().nullable(),
+          created: z.string().datetime({ offset: true }),
+          lastSeen: z.string().datetime({ offset: true }),
+        })
+        .strict(),
+    ),
+    approvalProposal: z
+      .object({
+        actionType: z.literal('identity.support_recovery_link'),
+        targetService: z.literal('svc-identity'),
+        targetId: z.string().guid(),
+        expectedVersion: z.literal('1'),
+        payloadHash: z.string(),
+      })
+      .strict(),
+  })
+  .strict();
+export type SupportRecoveryCase = z.infer<typeof supportRecoveryCaseSchema>;
+export const supportRecoveryRedeemSchema = z.object({ recovered: z.literal(true) }).strict();
+/**
+ * A mail another service asks identity to send to a customer's own proved address (`POST /internal/mail`, service
+ * credentials). Identity holds the address, so the caller names the account and never sees or sends one. Each purpose
+ * has one link shape that identity builds from `token`, and one caller allowed to ask for it:
+ * - `withdraw-address-approval` (svc-bank, W-withdraw new-address approval): `approveAddress?token=<token>`.
+ *
+ * `key` is the caller's business key (for example `address-approval:<addressId>:<n>`). The same key with the same body
+ * answers with the first mail and sends nothing more, even after the link expired; the same key with a different body is refused
+ * (`identity.mail_key_conflict`). `detail` is a short plain line shown in the mail (for example the network and the
+ * address's first and last characters) so the customer can see what they approve.
+ */
+export const SERVICE_MAIL_PATH = '/internal/mail' as const;
+export const serviceMailPurposeSchema = z.enum(['withdraw-address-approval']);
+export type ServiceMailPurpose = z.infer<typeof serviceMailPurposeSchema>;
+export const serviceMailRequestSchema = z
+  .object({
+    key: z
+      .string()
+      .min(8)
+      .max(200)
+      .regex(/^[A-Za-z0-9:._-]+$/),
+    userId: z.string().guid(),
+    purpose: serviceMailPurposeSchema,
+    /** The secret the link carries. Identity never logs it and clears it from its outbox once the mail is handed off. */
+    token: z
+      .string()
+      .min(16)
+      .max(256)
+      .regex(/^[A-Za-z0-9_-]+$/),
+    detail: z
+      .string()
+      .min(1)
+      .max(120)
+      .regex(/^[A-Za-z0-9 .:,()_-]+$/)
+      .optional(),
+    /** When the link stops working, as the caller enforces it. Shown in the mail. Identity refuses a time past or more than seven days ahead. */
+    expiresAt: z.string().datetime({ offset: true }),
+  })
+  .strict();
+export type ServiceMailRequest = z.infer<typeof serviceMailRequestSchema>;
+export const serviceMailAcceptedSchema = z.object({ accepted: z.literal(true), mailId: z.string().guid() }).strict();
+export type ServiceMailAccepted = z.infer<typeof serviceMailAcceptedSchema>;
+/**
+ * Whether a trusted device (the `dev` claim on an access token) may still be relied on, read by another service at the
+ * moment it acts (`GET /internal/trusted-devices/:userId/:deviceId`, service credentials). A token's `dev` names the
+ * device it was minted on; it does not prove the device is still trusted, so a caller that lets one device approve
+ * another's request asks here each time.
+ * - `live`: the device belongs to that account, is not removed, has not run past its trusted time, and the account is
+ *   active.
+ * - `trustedBy`: how it came to be trusted. `sign-up` (the device the account was made on) and `approval` (approved by
+ *   a mailed code, or from another device that was itself proved) were proved; `sign-in` was trusted as it signed in
+ *   while the new-device check was off (or was approved from such a device), so anyone holding the account's factors
+ *   could have made it. Devices trusted before this was recorded read `sign-in`.
+ * - `newDeviceCheck`: the owner's setting now (`IDENTITY_NEW_DEVICE_CHECK`); blank answers `off`.
+ * An unknown device, or one of another account, answers 200 with `live: false` and `trustedBy: null` (never a 404), so
+ * a caller relies on a device only when `live` is true.
+ */
+export const TRUSTED_DEVICE_READ_PATH = '/internal/trusted-devices/:userId/:deviceId' as const;
+export function trustedDeviceReadPath(userId: string, deviceId: string): string {
+  return `/internal/trusted-devices/${encodeURIComponent(userId)}/${encodeURIComponent(deviceId)}`;
+}
+export const trustedDeviceTrustedBySchema = z.enum(['sign-up', 'sign-in', 'approval']);
+export type TrustedDeviceTrustedBy = z.infer<typeof trustedDeviceTrustedBySchema>;
+export const trustedDeviceStateSchema = z
+  .object({
+    live: z.boolean(),
+    trustedBy: trustedDeviceTrustedBySchema.nullable(),
+    newDeviceCheck: z.enum(['on', 'off']),
+  })
+  .strict();
+export type TrustedDeviceState = z.infer<typeof trustedDeviceStateSchema>;
 /** The step-up door for an unlock request (see `CUSTOMER_STEP_UP_DOORS`). Locking needs none: it only takes power away. */
 export const SECURITY_LOCK_UNLOCK_STEP_UP_SCOPE = 'identity.step_up.security_lock_unlock' as const;
 export const SECURITY_LOCK_UNLOCK_STEP_UP_PURPOSE = 'account.securityLock.unlock' as const;

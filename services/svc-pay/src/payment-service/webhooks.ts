@@ -20,6 +20,7 @@ import {
 import { recordDisputeOutcomeConflict } from '../fraud/dispute-outcome-conflict.js';
 import type { PayService, PayServiceInternal, PaymentRow, PaymentStatus, PaymentView, WebhookOutcome } from '../payment-service.js';
 import { PayError, appendEvent, assertTransition, lockPayment } from './internal.js';
+import { payerNameHoldOf } from '../payer-name/holds.js';
 
 // ── Webhooks ───────────────────────────────────────────────────────────────
 
@@ -79,11 +80,29 @@ export async function applyWebhook(svc: PayServiceInternal, adapter: RailAdapter
         return { railId: adapter.id, eventId: event.eventId, type: event.type, duplicate: false, paymentId: null, applied: true };
       }
     }
+    if (svc.custodyDeposits?.reverse && event.type === 'chain.reorged' && chain) {
+      const reversed = await svc.custodyDeposits.reverse({ address: event.railRef, txHash: chain.txHash, outputIndex: chain.logIndex });
+      // A reorg of a transfer this address never recorded takes nothing back: answered, not acted on, so the watcher stops.
+      if (reversed.state !== 'unmatched') {
+        const applied = reversed.state === 'recorded';
+        return { railId: adapter.id, eventId: event.eventId, type: event.type, duplicate: false, paymentId: null, applied };
+      }
+    }
     // A verified event about a payment we have no record of. Rejecting is
     // right — inventing a payment row from a webhook is how a rail's bug
     // becomes our liability — but it is also an operator signal, not a
     // client error.
     throw new PayError(`No payment for ${adapter.id} reference ${event.railRef}`, 'pay.webhook_unmatched', {
+      railId: adapter.id,
+      railRef: event.railRef,
+      eventId: event.eventId,
+    });
+  }
+
+  // A chain reorg names a payment address: nothing here acts on it, and it is not recorded as handled, so it stays an
+  // operator signal (a 202 the route logs) and a redelivery is seen again, as it was before the type existed.
+  if (event.type === 'chain.reorged') {
+    throw new PayError(`Chain reorg for ${adapter.id} payment ${payment.id} is not acted on`, 'pay.webhook_unmatched', {
       railId: adapter.id,
       railRef: event.railRef,
       eventId: event.eventId,
@@ -109,174 +128,89 @@ export async function applyWebhook(svc: PayServiceInternal, adapter: RailAdapter
   // what makes it safe to apply before the marker is written — and safe for
   // two concurrent deliveries of the same event to race here.
   let applied = false;
-  switch (event.type) {
-    case 'authorized':
-      if (payment.status === 'created') {
-        await svc.authorize(payment.id);
-        applied = true;
-      }
-      break;
-    case 'captured':
-      if (payment.status === 'authorized') {
-        await svc.capture(payment.id);
-        applied = true;
-      } else if (payment.status === 'created') {
-        // Some rails announce authorization and capture in one delivery.
-        await svc.authorize(payment.id);
-        await svc.capture(payment.id);
-        applied = true;
-      }
-      break;
-    case 'failed':
-      if (payment.status === 'created' || payment.status === 'authorized') {
-        await svc.markFailed(payment.id, event.failureCode ?? 'rail.failed');
-        applied = true;
-      }
-      break;
-    case 'refunded':
-    case 'payout.completed':
-      // Recorded, not acted on. A refund we did not initiate, or a payout the
-      // rail is confirming, both need a human decision — acting on either
-      // automatically would move money on a rail's say-so alone.
-      break;
-    case 'dispute.opened': {
-      // Post the opening recipe via ledger-client, or named refuse. Never claim
-      // posted without a tx id. An unfunded shortfall is a named refuse: the
-      // dispute is still recorded and a later lost or closed delivery can book it.
-      const disputeId = event.disputeId?.trim();
-      if (disputeId) {
-        const amount = event.amount === undefined ? payment.amount : formatAmount(event.amount);
-        const assetId = event.assetId ?? payment.currency;
-        await svc.withChargebackOutcomeLock(disputeId, async () => {
-          const current = await svc.disputeCases.get(disputeId);
-          // A late open must not debit a dispute that already closed.
-          if (current && isTerminalDisputeStatus(current.status)) {
-            applied = true;
-            return;
+  // RC-merchant-09: on a rail that checks the sending name, `authorize` holds the payment instead of authorizing when a
+  // counted transfer's name fails the owner's rule. A delivery for a held payment is handled: recorded, nothing more.
+  const nameHeld = async () => adapter.checksPayerName === true && (await payerNameHoldOf(svc.sql, payment.id)) !== null;
+  const takeIn = event.type === 'authorized' || event.type === 'captured';
+  if (takeIn && payment.status === 'created' && (await nameHeld())) {
+    applied = true;
+  } else
+    switch (event.type) {
+      case 'authorized':
+        if (payment.status === 'created') {
+          if ((await svc.authorize(payment.id)).status === 'created') {
+            if (!(await nameHeld())) return stillPending(adapter, event, payment.id);
           }
-          const wire = await svc.postChargebackOpenOrRefuse({
-            disputeId,
-            paymentId: payment.id,
-            merchantId: payment.merchant_id,
-            amount,
-            assetId,
-          });
-          const mark = {
-            disputeId,
-            reasonCode: event.reasonCode ?? null,
-            ledgerWire: wire.ledgerPost ? ('posted' as const) : ('refused' as const),
-            ledgerTxId: wire.ledgerPost?.txId ?? null,
-          };
-          // The status read at the top of this delivery can be stale: another dispute's win may restore the payment
-          // meanwhile. Read it fresh here, and again once the case row exists (see restoreAfterWonDispute).
-          const marked = await svc.markDisputedIfLive(payment.id, mark);
-          await svc.disputeCases.open({
-            disputeId,
-            paymentId: payment.id,
-            merchantId: payment.merchant_id,
-            amount,
-            assetId,
-            reasonCode: event.reasonCode ?? null,
-            paymentMarkedDisputed: marked,
-            ledgerPost: wire.ledgerPost,
-            ledgerRefuse: wire.ledgerRefuse,
-          });
-          await svc.markDisputedIfLive(payment.id, mark);
-          await recordRailDisputeDeadline(svc.sql, {
-            merchantId: payment.merchant_id,
-            disputeId,
-            evidenceDueBy: event.evidenceDueBy ?? null,
-            railEventId: deliveryKey,
-          });
           applied = true;
-        });
-      }
-      break;
-    }
-    case 'dispute.won':
-    case 'dispute.lost':
-    case 'dispute.closed': {
-      // Lost and closed finalise the opening debit (clearing, then merchant
-      // balance, then the recipe's shortfall). Won reverses a debit that was
-      // already booked. A ledger error throws before the case moves.
-      const disputeId = event.disputeId?.trim();
-      if (disputeId) {
-        const outcome: RailResolutionOutcome = event.type === 'dispute.won' ? 'won' : event.type === 'dispute.lost' ? 'lost' : 'closed';
-        const amountExplicit = event.amount !== undefined;
-        const assetId = event.assetId ?? payment.currency;
-        try {
+        }
+        break;
+      case 'captured':
+        if (payment.status === 'authorized') {
+          await svc.capture(payment.id);
+          applied = true;
+        } else if (payment.status === 'created') {
+          // Some rails announce authorization and capture in one delivery.
+          if ((await svc.authorize(payment.id)).status === 'created') {
+            if (!(await nameHeld())) return stillPending(adapter, event, payment.id);
+          } else await svc.capture(payment.id);
+          applied = true;
+        }
+        break;
+      case 'failed':
+        if (payment.status === 'created' || payment.status === 'authorized') {
+          await svc.markFailed(payment.id, event.failureCode ?? 'rail.failed');
+          applied = true;
+        }
+        break;
+      case 'refunded':
+      case 'payout.completed':
+        // Recorded, not acted on. A refund we did not initiate, or a payout the
+        // rail is confirming, both need a human decision — acting on either
+        // automatically would move money on a rail's say-so alone.
+        break;
+      case 'dispute.opened': {
+        // Post the opening recipe via ledger-client, or named refuse. Never claim
+        // posted without a tx id. An unfunded shortfall is a named refuse: the
+        // dispute is still recorded and a later lost or closed delivery can book it.
+        const disputeId = event.disputeId?.trim();
+        if (disputeId) {
+          const amount = event.amount === undefined ? payment.amount : formatAmount(event.amount);
+          const assetId = event.assetId ?? payment.currency;
           await svc.withChargebackOutcomeLock(disputeId, async () => {
             const current = await svc.disputeCases.get(disputeId);
-            const amount = event.amount !== undefined ? formatAmount(event.amount) : current ? current.amount : payment.amount;
-            if (current && isTerminalDisputeStatus(current.status) && railOutcomeConflicts(current.status, outcome)) {
-              await recordDisputeOutcomeConflict(svc.sql, {
-                merchantId: payment.merchant_id,
-                disputeId,
-                railEventId: deliveryKey,
-                railId: adapter.id,
-                storedStatus: current.status,
-                outcome,
-              });
-            } else {
-              let booked: ChargebackLedgerEffect;
-              try {
-                booked = await svc.bookDisputeResolution({
-                  disputeId,
-                  paymentId: payment.id,
-                  merchantId: payment.merchant_id,
-                  amount,
-                  assetId,
-                  outcome,
-                  amountExplicit,
-                });
-              } catch (err) {
-                if (!(err instanceof PayError) || err.code !== 'pay.chargeback_plan_conflict') throw err;
-                await svc.recordChargebackPlanConflict({
-                  merchantId: payment.merchant_id,
-                  disputeId,
-                  paymentId: payment.id,
-                  amount,
-                  assetId,
-                  reasonCode: event.reasonCode ?? null,
-                  railEventId: deliveryKey,
-                  railId: adapter.id,
-                  storedStatus: current?.status ?? 'open',
-                  outcome,
-                  evidenceDueBy: event.evidenceDueBy ?? null,
-                });
-                applied = true;
-                return;
-              }
-              if (!current) {
-                const txId = booked.openingTxId ?? booked.shortfallTxId ?? booked.wonTxId ?? booked.recoveredTxId;
-                await svc.disputeCases.open({
-                  disputeId,
-                  paymentId: payment.id,
-                  merchantId: payment.merchant_id,
-                  amount,
-                  assetId,
-                  reasonCode: event.reasonCode ?? null,
-                  paymentMarkedDisputed: false,
-                  ...(txId
-                    ? { ledgerPost: { txId } }
-                    : { ledgerRefuse: refuseChargebackNothingToReverse({ disputeId, paymentId: payment.id }) }),
-                });
-              }
-              if (payment.status === 'settled' || payment.status === 'captured') {
-                await svc.markDisputed(payment.id, {
-                  disputeId,
-                  reasonCode: event.reasonCode ?? null,
-                  ledgerWire: booked.openingTxId || booked.shortfallTxId ? 'posted' : 'refused',
-                  ledgerTxId: booked.openingTxId ?? booked.shortfallTxId,
-                });
-              }
-              await svc.disputeCases.applyRailResolution({
-                disputeId,
-                railEventId: deliveryKey,
-                outcome,
-              });
-              if (outcome === 'won') await svc.restoreAfterWonDispute(payment.id, disputeId);
+            // A late open must not debit a dispute that already closed.
+            if (current && isTerminalDisputeStatus(current.status)) {
+              applied = true;
+              return;
             }
+            const wire = await svc.postChargebackOpenOrRefuse({
+              disputeId,
+              paymentId: payment.id,
+              merchantId: payment.merchant_id,
+              amount,
+              assetId,
+            });
+            const mark = {
+              disputeId,
+              reasonCode: event.reasonCode ?? null,
+              ledgerWire: wire.ledgerPost ? ('posted' as const) : ('refused' as const),
+              ledgerTxId: wire.ledgerPost?.txId ?? null,
+            };
+            // The status read at the top of this delivery can be stale: another dispute's win may restore the payment
+            // meanwhile. Read it fresh here, and again once the case row exists (see restoreAfterWonDispute).
+            const marked = await svc.markDisputedIfLive(payment.id, mark);
+            await svc.disputeCases.open({
+              disputeId,
+              paymentId: payment.id,
+              merchantId: payment.merchant_id,
+              amount,
+              assetId,
+              reasonCode: event.reasonCode ?? null,
+              paymentMarkedDisputed: marked,
+              ledgerPost: wire.ledgerPost,
+              ledgerRefuse: wire.ledgerRefuse,
+            });
+            await svc.markDisputedIfLive(payment.id, mark);
             await recordRailDisputeDeadline(svc.sql, {
               merchantId: payment.merchant_id,
               disputeId,
@@ -285,30 +219,125 @@ export async function applyWebhook(svc: PayServiceInternal, adapter: RailAdapter
             });
             applied = true;
           });
-        } catch (err) {
-          // A closed case stays closed. A different later outcome is recorded
-          // for founders and this delivery still succeeds, so the rail does
-          // not retry a refusal it cannot repair. A ledger refusal is not that
-          // case: it propagates and the dispute row stays where it was.
-          if (!(err instanceof DisputeCaseError) || err.code !== 'pay.dispute_closed') throw err;
-          const current = await svc.disputeCases.get(disputeId);
-          if (!current || !isTerminalDisputeStatus(current.status)) throw err;
-          if (railOutcomeConflicts(current.status, outcome)) {
-            await recordDisputeOutcomeConflict(svc.sql, {
-              merchantId: payment.merchant_id,
-              disputeId,
-              railEventId: deliveryKey,
-              railId: adapter.id,
-              storedStatus: current.status,
-              outcome,
-            });
-          }
-          applied = true;
         }
+        break;
       }
-      break;
+      case 'dispute.won':
+      case 'dispute.lost':
+      case 'dispute.closed': {
+        // Lost and closed finalise the opening debit (clearing, then merchant
+        // balance, then the recipe's shortfall). Won reverses a debit that was
+        // already booked. A ledger error throws before the case moves.
+        const disputeId = event.disputeId?.trim();
+        if (disputeId) {
+          const outcome: RailResolutionOutcome = event.type === 'dispute.won' ? 'won' : event.type === 'dispute.lost' ? 'lost' : 'closed';
+          const amountExplicit = event.amount !== undefined;
+          const assetId = event.assetId ?? payment.currency;
+          try {
+            await svc.withChargebackOutcomeLock(disputeId, async () => {
+              const current = await svc.disputeCases.get(disputeId);
+              const amount = event.amount !== undefined ? formatAmount(event.amount) : current ? current.amount : payment.amount;
+              if (current && isTerminalDisputeStatus(current.status) && railOutcomeConflicts(current.status, outcome)) {
+                await recordDisputeOutcomeConflict(svc.sql, {
+                  merchantId: payment.merchant_id,
+                  disputeId,
+                  railEventId: deliveryKey,
+                  railId: adapter.id,
+                  storedStatus: current.status,
+                  outcome,
+                });
+              } else {
+                let booked: ChargebackLedgerEffect;
+                try {
+                  booked = await svc.bookDisputeResolution({
+                    disputeId,
+                    paymentId: payment.id,
+                    merchantId: payment.merchant_id,
+                    amount,
+                    assetId,
+                    outcome,
+                    amountExplicit,
+                  });
+                } catch (err) {
+                  if (!(err instanceof PayError) || err.code !== 'pay.chargeback_plan_conflict') throw err;
+                  await svc.recordChargebackPlanConflict({
+                    merchantId: payment.merchant_id,
+                    disputeId,
+                    paymentId: payment.id,
+                    amount,
+                    assetId,
+                    reasonCode: event.reasonCode ?? null,
+                    railEventId: deliveryKey,
+                    railId: adapter.id,
+                    storedStatus: current?.status ?? 'open',
+                    outcome,
+                    evidenceDueBy: event.evidenceDueBy ?? null,
+                  });
+                  applied = true;
+                  return;
+                }
+                if (!current) {
+                  const txId = booked.openingTxId ?? booked.shortfallTxId ?? booked.wonTxId ?? booked.recoveredTxId;
+                  await svc.disputeCases.open({
+                    disputeId,
+                    paymentId: payment.id,
+                    merchantId: payment.merchant_id,
+                    amount,
+                    assetId,
+                    reasonCode: event.reasonCode ?? null,
+                    paymentMarkedDisputed: false,
+                    ...(txId
+                      ? { ledgerPost: { txId } }
+                      : { ledgerRefuse: refuseChargebackNothingToReverse({ disputeId, paymentId: payment.id }) }),
+                  });
+                }
+                if (payment.status === 'settled' || payment.status === 'captured') {
+                  await svc.markDisputed(payment.id, {
+                    disputeId,
+                    reasonCode: event.reasonCode ?? null,
+                    ledgerWire: booked.openingTxId || booked.shortfallTxId ? 'posted' : 'refused',
+                    ledgerTxId: booked.openingTxId ?? booked.shortfallTxId,
+                  });
+                }
+                await svc.disputeCases.applyRailResolution({
+                  disputeId,
+                  railEventId: deliveryKey,
+                  outcome,
+                });
+                if (outcome === 'won') await svc.restoreAfterWonDispute(payment.id, disputeId);
+              }
+              await recordRailDisputeDeadline(svc.sql, {
+                merchantId: payment.merchant_id,
+                disputeId,
+                evidenceDueBy: event.evidenceDueBy ?? null,
+                railEventId: deliveryKey,
+              });
+              applied = true;
+            });
+          } catch (err) {
+            // A closed case stays closed. A different later outcome is recorded
+            // for founders and this delivery still succeeds, so the rail does
+            // not retry a refusal it cannot repair. A ledger refusal is not that
+            // case: it propagates and the dispute row stays where it was.
+            if (!(err instanceof DisputeCaseError) || err.code !== 'pay.dispute_closed') throw err;
+            const current = await svc.disputeCases.get(disputeId);
+            if (!current || !isTerminalDisputeStatus(current.status)) throw err;
+            if (railOutcomeConflicts(current.status, outcome)) {
+              await recordDisputeOutcomeConflict(svc.sql, {
+                merchantId: payment.merchant_id,
+                disputeId,
+                railEventId: deliveryKey,
+                railId: adapter.id,
+                storedStatus: current.status,
+                outcome,
+              });
+            }
+            applied = true;
+          }
+        }
+        break;
+      }
     }
-  }
 
   // The dedupe marker, written last. `ON CONFLICT DO NOTHING` because two
   // concurrent deliveries of one event both get here; the loser reports the
@@ -339,6 +368,15 @@ export async function applyWebhook(svc: PayServiceInternal, adapter: RailAdapter
     paymentId: payment.id,
     applied,
   };
+}
+
+/**
+ * The rail still says pending after the delivery: on crypto-native, part of the amount has arrived and the rest has not
+ * (J-merchant-04 step 5), or a transfer is not yet final. Nothing is booked, and no dedupe marker is written, so the
+ * next delivery (the rest, or this transfer seen deeper) still acts.
+ */
+function stillPending(adapter: RailAdapter, event: RailEvent, paymentId: string): WebhookOutcome {
+  return { railId: adapter.id, eventId: event.eventId, type: event.type, duplicate: false, paymentId, applied: false };
 }
 
 export async function markFailed(svc: PayServiceInternal, paymentId: string, failureCode: string): Promise<void> {

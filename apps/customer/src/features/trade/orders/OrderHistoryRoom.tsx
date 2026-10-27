@@ -21,7 +21,7 @@ type State =
 
 const SIDES = ['buy', 'sell'] as const;
 const STATES = ['closed', 'canceled', 'rejected', 'expired'] as const;
-const TYPES = ['market', 'limit', 'stop_limit'] as const;
+const TYPES = ['market', 'limit', 'stop_limit', 'stop'] as const;
 
 /** The service's typed refusals of a filter, which the page says in its own words. */
 const FILTER_CODES: Record<string, 'filter' | 'from' | 'to' | 'range' | 'cursor'> = {
@@ -188,7 +188,7 @@ export function OrderHistoryRoom({ path }: { path: string }) {
             label={t('filterType')}
             value={params.type}
             choices={TYPES}
-            words={{ market: t('typeMarket'), limit: t('typeLimit'), stop_limit: t('typeStopLimit') }}
+            words={{ market: t('typeMarket'), limit: t('typeLimit'), stop_limit: t('typeStopLimit'), stop: t('typeStopMarket') }}
             onPick={(type) => setParams({ ...params, type })}
             t={t}
           />
@@ -225,7 +225,7 @@ export function OrderHistoryRoom({ path }: { path: string }) {
         {state.status === 'loading' ? <Loading label={t('loading')} /> : null}
         {state.status === 'failed' ? <Failure result={state.failure} retry={() => setRevision((n) => n + 1)} /> : null}
         {state.status === 'refused' ? (
-          <div className="failure" role="alert">
+          <div data-testid="failure" className="failure" role="alert">
             <h3>{t('refusedTitle')}</h3>
             <p>{refusedWords[state.problem]}</p>
             <Button variant="secondary" size={40} onClick={() => setParams({ ...NO_PARAMS, size: params.size })}>
@@ -241,7 +241,7 @@ export function OrderHistoryRoom({ path }: { path: string }) {
               <p className="muted orders-note" role="status">
                 {t('shownCount', { count: String(state.rows.length) })}
               </p>
-              <div className="orders-table">
+              <div data-testid="orders-table" className="orders-table">
                 <OrdersTable rows={state.rows} withAction={false} desk precision={precision} onChanged={() => undefined} />
               </div>
               {state.repeated > 0 ? <p className="orders-note">{t('repeated')}</p> : null}

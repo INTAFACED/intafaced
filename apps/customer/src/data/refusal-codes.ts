@@ -61,6 +61,7 @@ export type RefusalKind =
   | 'notFound'
   | 'duplicate'
   | 'notSetUp'
+  | 'feeScheduleUnset'
   | 'walletPaused'
   | 'walletFee'
   | 'walletCap'
@@ -68,6 +69,7 @@ export type RefusalKind =
   | 'walletAddress'
   | 'addressLabelTaken'
   | 'addressBookFull'
+  | 'securityLocked'
   | 'activitySortBounded'
   | 'entriesDoNotSum'
   | 'entriesTooLong'
@@ -181,7 +183,8 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.insufficient_margin': 'insufficient',
   'trade.algo_insufficient_balance': 'insufficient',
   'trade.algo_balance_unreadable': 'tryAgain',
-  'trade.fee_schedule_blank': 'notSetUp',
+  // No published rate for this market (the schedule, or this pair group's row, is blank): its own words, before any hold.
+  'trade.fee_schedule_blank': 'feeScheduleUnset',
   'trade.fee_product_unpublished': 'notSetUp',
   // A maker rebate or a minimum fee the ledger has no recipe to post yet: not switched on, never shown as paid.
   'trade.rebate_recipe_unavailable': 'notSetUp',
@@ -217,6 +220,10 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.invalid_tag': 'tagInvalid',
   'trade.invalid_expiry': 'expiryInvalid',
   'trade.fee_currency_unsupported': 'optionUnsupported',
+  // Paying the fee in the platform token: terms or a price not published is set-up, the stake read is a retry.
+  'trade.fee_currency_ifc_unset': 'notSetUp',
+  'trade.fee_ifc_index_unset': 'notSetUp',
+  'trade.fee_ifc_discount_unavailable': 'tryAgain',
   'trade.orders_paused': 'ordersPaused',
   'trade.below_min_notional': 'belowMinimum',
   'trade.below_min_qty': 'belowMinimum',
@@ -241,6 +248,8 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'bank.eligibility_unset': 'eligibilityUnset',
   'bank.destination_label_taken': 'addressLabelTaken',
   'bank.address_book_full': 'addressBookFull',
+  'bank.security_locked': 'securityLocked',
+  'bank.security_lock_unavailable': 'tryAgain',
   'bank.global_corridors_unset': 'globalOff',
   'bank.global_corridors_unusable': 'globalOff',
   'bank.global_payout_unset': 'globalOff',

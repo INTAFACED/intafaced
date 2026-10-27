@@ -4,13 +4,16 @@ import { disableUser, installDisabledMintRefuse, requireDisableUserId } from './
 import { ACTION_APPROVAL_MISSING, stubActionApprovals } from './privileged-dual-control.js';
 import { DUAL_CONTROL_MISSING } from './four-eyes.js';
 
-type UserRow = { id: string; status: string };
+type UserRow = { id: string; status: string; archived?: boolean };
 type KeyRow = { id: string; user_id: string; revoked: boolean };
 
 function store(users: UserRow[], keys: KeyRow[]) {
   let writes = 0;
   const fn = async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?').toLowerCase();
+    if (text.includes('archived_at is not null')) {
+      return users.filter((u) => u.id === values[0] && u.archived).map((u) => ({ id: u.id }));
+    }
     if (text.includes('from users')) {
       const id = values[0];
       return users.filter((u) => u.id === id).map((u) => ({ id: u.id, status: u.status }));
@@ -18,10 +21,14 @@ function store(users: UserRow[], keys: KeyRow[]) {
     if (text.includes('update users')) {
       writes += 1;
       const id = values[0];
+      const out: Array<{ id: string }> = [];
       for (const u of users) {
-        if (u.id === id) u.status = 'frozen';
+        if (u.id === id && !u.archived) {
+          u.status = 'frozen';
+          out.push({ id: u.id });
+        }
       }
-      return [];
+      return out;
     }
     if (text.includes('update sessions')) {
       writes += 1;
@@ -76,6 +83,21 @@ describe('disableUser', () => {
     expect(sql.writes).toBe(0);
     expect(sql.users[0]?.status).toBe('active');
     expect(sql.keys[0]?.revoked).toBe(false);
+  });
+
+  it('refuses an archived record before the approval is spent, and does not write', async () => {
+    const sql = store([{ id: A, status: 'closed', archived: true }], [{ id: 'k', user_id: A, revoked: false }]);
+    let spent = 0;
+    const counting = {
+      consume: async (...args: Parameters<typeof approvals.consume>) => {
+        spent += 1;
+        return approvals.consume(...args);
+      },
+    };
+    await expect(disableUser(sql, A, dual, counting)).rejects.toMatchObject({ code: 'identity.account_archived' });
+    expect(spent).toBe(0);
+    expect(sql.writes).toBe(0);
+    expect(sql.users[0]?.status).toBe('closed');
   });
 
   it('freezes the named user and revokes only their live keys', async () => {

@@ -1,4 +1,6 @@
 import { checkoutUrlFor, paymentLinkCreateFingerprint, paymentLinkCreateKey } from './payment-link-create.js';
+import { linkPrice } from './link-price.js';
+import { checkoutLookOf, type CheckoutLook } from './checkout-branding/branding.js';
 import {
   confirmationFingerprint,
   parseInactiveMessage,
@@ -28,12 +30,18 @@ import { PublicCheckoutUnavailable, type ValueMovementPolicy } from './rails/pos
 import {
   REFERENCE_RAIL_ROUTING_PROFILES,
   selectSmartCheckoutRail,
+  SmartRoutingApprovalRateUnsetError,
   SmartRoutingNoRailError,
   toRoutingDecisionRecord,
   type RailRoutingProfile,
 } from './routing/decide.js';
 import { RoutingInputError } from './routing-inputs.js';
 import { merchantKybMoneyGateRefusal } from './merchant-kyb-money-gate.js';
+import { assertCategoryAllows, categoryRails, checkoutCategoryRule } from './onboarding-policy/category.js';
+import { methodRailsOf, type MethodRails } from './checkout-methods/catalogue.js';
+import { checkoutMethodFor } from './checkout-methods/methods.js';
+import { givenPayerName, type PayerNameMatchRule } from './payer-name/match.js';
+import { NAME_CHECKED_METHOD, isHeldOpenPayment, recordGivenPayerName } from './payer-name/holds.js';
 import { assertOnlyPayoutDestinations, type MerchantPayoutDestinations } from './merchant-payout-destination.js';
 import { encodeListCursor } from './list-page.js';
 import { type PaymentAttemptView } from './payments/attempts.js';
@@ -168,6 +176,13 @@ export type PayErrorCode =
    * Distinct from scope issuance (Layer A); never invents `pay:*`.
    */
   | 'pay.kyb_required'
+  /** RC-merchant-08: the business's category is prohibited; no payment or checkout session is opened. */
+  | 'pay.category_prohibited'
+  | 'pay.category_not_chosen'
+  /** RC-merchant-08: the business's category is restricted and its reserve terms are blank. */
+  | 'pay.reserve_terms_unset'
+  /** RC-merchant-08: the business's category takes payments on the crypto-native rail only. */
+  | 'pay.category_rail_refused'
   | 'pay.payment_not_found'
   /** payment.list page size unpublished. Blank is not 50. */
   | 'pay.payment_list_limit_unset'
@@ -216,6 +231,18 @@ export type PayErrorCode =
   | 'pay.routing_input_missing'
   /** Smart routing ran; no configured rail honestly accepts these dims. */
   | 'pay.routing_no_rail'
+  /** Smart routing ran; no rail that could take it has an owner-declared success fraction (PAY_CHECKOUT_SUCCESS_RATES). */
+  | 'pay.routing_approval_rate_unset'
+  /** M-adv-payments-core-11: more than one method the business offers can take this payment; the payer picks one. */
+  | 'pay.checkout_method_required'
+  /** M-adv-payments-core-11: the payer named a method the business does not offer for this payment. */
+  | 'pay.checkout_method_not_offered'
+  /** M-adv-payments-core-11: none of the methods the business offers for this payment has a rail. */
+  | 'pay.checkout_no_method'
+  /** RC-merchant-09: a bank transfer needs the name on the payer's bank account before it opens. Nothing was written. */
+  | 'pay.payer_name_required'
+  /** RC-merchant-09: the bank transfer's name did not pass the owner's rule; the payment is held for review and nothing moves. */
+  | 'pay.payer_name_held'
   | 'pay.invalid_amount'
   | 'pay.identity_admission_unavailable'
   | 'pay.identity_admission_denied'
@@ -358,6 +385,18 @@ export type PayErrorCode =
   | 'pay.withdrawal_not_cancellable'
   | 'pay.withdrawal_not_reversible'
   | 'pay.withdrawal_canceled'
+  /** W-withdraw-14: the address is one of the sender's own deposit addresses on the platform. Nothing is claimed. */
+  | 'pay.withdrawal_self_send'
+  /** W-withdraw-14: an internal send named an address that belongs to no account on the platform. */
+  | 'pay.internal_destination_external'
+  /** W-withdraw-14: the platform address is frozen, past its expiry, or names more than one account; nothing is claimed. */
+  | 'pay.internal_destination_unavailable'
+  /** W-withdraw-14: this process has no svc-bank client for internal settlement. */
+  | 'pay.internal_settlement_unwired'
+  /** W-withdraw-14: svc-bank proved nothing was posted and refused the send (`failureCode` names its reason). */
+  | 'pay.internal_settlement_refused'
+  | 'pay.internal_asset_unsupported'
+  | 'pay.withdrawal_platform_address'
   | 'pay.wallet_withdraw_unavailable'
   | 'pay.wallet_withdraw_disabled'
   | 'pay.wallet_typed_address'
@@ -499,7 +538,19 @@ export type PayErrorCode =
    * The mandate already has a subscription that is not cancelled and not
    * completed. Paused still counts: the schedule exists.
    */
-  | 'pay.subscription_mandate_open';
+  | 'pay.subscription_mandate_open'
+  /** A subscription started from a catalogue price: no such price of this business. */
+  | 'pay.price_not_found'
+  /** That price is archived (or replaced), so nothing new starts on it. */
+  | 'pay.price_archived'
+  /** That price's product is archived, so nothing new starts on it. */
+  | 'pay.product_archived'
+  /** The mandate's asset, amount or cadence is not the price's: a monthly fixed price equal to the mandate's terms. */
+  | 'pay.subscription_price_terms_differ'
+  /** A payment link sells one payment of one amount: a monthly price or one the customer chooses is refused. */
+  | 'pay.link_price_not_one_time'
+  /** A payment link made from a price was sent an amount or asset that is not the price's. */
+  | 'pay.link_price_terms_differ';
 
 /** Owner link default lifetime unpublished. Blank PAY_LINK_DEFAULT_TTL_DAYS is not 30. */
 export function publishedLinkDefaultTtlDays(days: number | null | undefined): number {
@@ -805,6 +856,11 @@ export interface CustodyDepositReceiver {
     amount: Amount;
     confirmations: number;
   }): Promise<{ state: 'unmatched' } | { state: 'recorded' }>;
+  /**
+   * The chain took a transfer back (W-deposit-06): reverse its credit once, or close the record if nothing was credited.
+   * `unmatched` is an address no customer holds; `unknown` is a customer address with no record of that transfer.
+   */
+  reverse?(input: { address: string; txHash: string; outputIndex: number }): Promise<{ state: 'unmatched' | 'unknown' | 'recorded' }>;
 }
 
 export interface PayServiceOptions {
@@ -890,6 +946,12 @@ export interface PayServiceOptions {
 
   /** Eligibility profiles for smart checkout. Default is the v1 reference set. */
   readonly routingProfiles?: readonly RailRoutingProfile[];
+
+  /**
+   * RC-merchant-09: the owner's rule for comparing the name on a bank transfer with the name the payer gave
+   * (`PAY_PAYER_NAME_MATCH_RULE`). Unset, every bank transfer is held for review: a rule is never guessed.
+   */
+  readonly payerNameMatchRule?: PayerNameMatchRule | null;
 
   /**
    * How long a browser handoff stays open (seconds). Never applied to the payment.
@@ -1011,6 +1073,17 @@ export interface CheckoutSessionView {
    * learn a rail's shape to produce.
    */
   readonly instruction: { readonly reference: string; readonly amount: string; readonly currency: string } | null;
+  /**
+   * Part of the amount has arrived and the rest has not (J-merchant-04 step 5): decimal strings, as the rail last
+   * counted final transfers; `confirming` is sent but not yet final. Null until something final has arrived. Nothing is
+   * credited to the merchant before it is all in.
+   */
+  readonly progress?: { readonly received: string; readonly missing: string; readonly confirming: string } | null;
+  /**
+   * RC-merchant-09: the payer's bank transfer arrived and is held for a review of the name it came from. Nothing has
+   * been taken from it; the business is paid only if the review lets it through.
+   */
+  readonly heldForReview?: boolean;
   readonly confirmationMessage?: string | null;
   readonly confirmationUrl?: string | null;
 }
@@ -1172,6 +1245,7 @@ export type PayServiceInternal = { [K in keyof PayService]: PayService[K] } & {
   now: PayService['now'];
   paymentFactsFor: PayService['paymentFactsFor'];
   paymentIsSandbox: PayService['paymentIsSandbox'];
+  payerNameMatchRule: PayService['payerNameMatchRule'];
   payoutDestinations: PayService['payoutDestinations'];
   postChargebackOpenOrRefuse: PayService['postChargebackOpenOrRefuse'];
   postPendingSettlement: PayService['postPendingSettlement'];
@@ -1210,6 +1284,7 @@ export class PayService {
   private readonly checkoutRails: readonly CheckoutRail[];
   private readonly checkoutRiskBand: string | undefined;
   private readonly routingProfiles: readonly RailRoutingProfile[];
+  private readonly payerNameMatchRule: PayerNameMatchRule | null;
   private readonly checkoutSessionTtlSeconds: number | null;
   private readonly linkDefaultTtlDays: number | null;
   private readonly linkMaxTtlDays: number | null;
@@ -1251,6 +1326,7 @@ export class PayService {
     this.checkoutRails = options.checkoutRails ?? DEFAULT_CHECKOUT_RAILS;
     this.checkoutRiskBand = options.checkoutRiskBand?.trim() || undefined;
     this.routingProfiles = options.routingProfiles ?? REFERENCE_RAIL_ROUTING_PROFILES;
+    this.payerNameMatchRule = options.payerNameMatchRule ?? null;
     this.checkoutSessionTtlSeconds = options.checkoutSessionTtlSeconds ?? null;
     this.linkDefaultTtlDays = options.linkDefaultTtlDays ?? null;
     this.linkMaxTtlDays = options.linkMaxTtlDays ?? null;
@@ -1276,6 +1352,20 @@ export class PayService {
     this.chargebackOutcomeTails = new Map();
   }
 
+  /**
+   * The payment methods the public checkout can take (M-adv-payments-core-11): the checkout rails this environment lets
+   * take strangers' money, with the countries their routing profiles declare.
+   */
+  checkoutMethodRails(onlyRails?: readonly string[]): MethodRails {
+    return methodRailsOf({
+      checkoutRails: this.checkoutRails,
+      profiles: this.routingProfiles,
+      rails: this.rails,
+      policy: this.publicCheckoutMovement,
+      ...(onlyRails ? { onlyRails } : {}),
+    });
+  }
+
   /** The book `payoutSettlement` reads. Tests use it to store a verified destination. */
   destinationBook(): MerchantPayoutDestinations {
     return this.payoutDestinations;
@@ -1291,7 +1381,11 @@ export class PayService {
   }
 
   /** D26-P1-P3 — geo/method/risk rail pick. Payer never names a rail id. */
-  private selectCheckoutRail(input: { geoCountry?: string; method?: string; riskBand?: string }) {
+  private selectCheckoutRail(
+    input: { geoCountry?: string; method?: string; riskBand?: string },
+    /** RC-merchant-08: the rails the business's category allows; omitted, no category limit. */
+    onlyRails?: readonly string[],
+  ) {
     // BEFORE smart routing. An empty list used to surface as
     // `pay.routing_input_missing` (no unique method) — that names the payer's
     // form, not the operator gap. Unset PSP used to surface as
@@ -1315,10 +1409,14 @@ export class PayService {
         rails: this.rails,
         policy: this.publicCheckoutMovement,
         now: this.now(),
+        ...(onlyRails ? { onlyRails } : {}),
       });
     } catch (e) {
       if (e instanceof RoutingInputError) {
         throw new PayError(e.message, 'pay.routing_input_missing', { missing: e.missing });
+      }
+      if (e instanceof SmartRoutingApprovalRateUnsetError) {
+        throw new PayError(e.message, 'pay.routing_approval_rate_unset', { considered: e.considered });
       }
       if (e instanceof SmartRoutingNoRailError) {
         const posture = e.considered.filter((c) => c.reason === 'sandbox' || c.reason === 'absent' || c.reason === 'unhealthy');
@@ -1328,6 +1426,16 @@ export class PayService {
         if (posture.length > 0 && other.length === 0) {
           const reason = posture[0]!.reason as 'sandbox' | 'absent' | 'unhealthy';
           throw new PublicCheckoutUnavailable(posture[0]!.railId, reason);
+        }
+        if (onlyRails && e.considered.some((c) => c.reason === 'category-restricted')) {
+          throw new PayError(
+            `This business takes payments on ${onlyRails.join(', ')} only, and none of those can take this one`,
+            'pay.category_rail_refused',
+            {
+              allowed: onlyRails,
+              considered: e.considered,
+            },
+          );
         }
         throw new PayError(e.message, 'pay.routing_no_rail', { considered: e.considered });
       }
@@ -1557,6 +1665,11 @@ export class PayService {
     profileId?: string | null;
     amount?: Amount;
     currency?: string;
+    /**
+     * A one-time fixed catalogue price (M-catalogue-03). The link charges its amount and asset and keeps it; an amount or
+     * asset sent too must be the price's.
+     */
+    priceId?: string;
     /** Omit for the default lifetime. `null` — "never expires" — is refused. */
     expiresAt?: Date | null;
     /** Completed payments this link may take. Omit for unbounded. */
@@ -1609,6 +1722,7 @@ export class PayService {
           expiresAt: input.expiresAt === undefined ? 'default' : input.expiresAt === null ? 'null' : input.expiresAt.toISOString(),
           maxUses: input.maxUses ?? null,
           ...(input.confirmation !== undefined ? { confirmation: confirmationFingerprint(share.message, share.url) } : {}),
+          ...(input.priceId !== undefined ? { priceId: input.priceId } : {}),
         })
       : null;
 
@@ -1619,12 +1733,16 @@ export class PayService {
       this.assertMerchantActive(await this.getMerchant(input.merchantId));
       const expiresAt = this.linkExpiryFor(input.expiresAt);
       await this.assertLinkProfile(this.sql, input.merchantId, input.profileId);
-      return this.insertPaymentLink(this.sql, {
-        ...input,
-        expiresAt,
-        confirmationMessage: share.message,
-        confirmationUrl: share.url,
-      });
+      // One transaction, so a catalogue price stays held (and unarchived) until the link that sells it is written.
+      return transaction(this.sql, async (tx) =>
+        this.insertPaymentLink(tx, {
+          ...input,
+          ...(input.priceId !== undefined ? await linkPrice(tx, input.merchantId, input.priceId, input) : {}),
+          expiresAt,
+          confirmationMessage: share.message,
+          confirmationUrl: share.url,
+        }),
+      );
     }
 
     const idempotencyKey = key.key;
@@ -1662,6 +1780,7 @@ export class PayService {
       await this.assertLinkProfile(tx, input.merchantId, input.profileId);
       const created = await this.insertPaymentLink(tx, {
         ...input,
+        ...(input.priceId !== undefined ? await linkPrice(tx, input.merchantId, input.priceId, input) : {}),
         expiresAt,
         confirmationMessage: share.message,
         confirmationUrl: share.url,
@@ -1711,6 +1830,7 @@ export class PayService {
       profileId?: string | null;
       amount?: Amount;
       currency?: string;
+      priceId?: string;
       expiresAt: Date;
       maxUses?: number;
       confirmationMessage?: string | null;
@@ -1733,7 +1853,7 @@ export class PayService {
     const rows = await sql<Array<{ id: string }>>`
       INSERT INTO pay.payment_links (
         merchant_id, profile_id, token_hash, token_prefix, checkout_token, label, amount, currency, expires_at, max_uses,
-        confirmation_message, confirmation_url
+        confirmation_message, confirmation_url, price_id
       ) VALUES (
         ${input.merchantId},
         ${input.profileId ?? null},
@@ -1746,7 +1866,8 @@ export class PayService {
         ${input.expiresAt},
         ${input.maxUses ?? null},
         ${input.confirmationMessage ?? null},
-        ${input.confirmationUrl ?? null}
+        ${input.confirmationUrl ?? null},
+        ${input.priceId ?? null}
       )
       RETURNING id
     `;
@@ -1865,6 +1986,28 @@ export class PayService {
     return this.readLink(this.sql, token);
   }
 
+  /**
+   * The saved look (M-payments-core-08) of the business a payment link or checkout session belongs to, for the hosted
+   * page: its brand colour and logo, or null for the default look (and for a token that opens nothing). The token is
+   * the capability, as for `resolvePaymentLink`; only the page asks, so no other read carries the logo's bytes.
+   */
+  async checkoutLook(ref: { linkToken: string } | { sessionToken: string }): Promise<CheckoutLook | null> {
+    const tokenHash = createHash('sha256')
+      .update('linkToken' in ref ? ref.linkToken : ref.sessionToken)
+      .digest('hex');
+    const rows =
+      'linkToken' in ref
+        ? await this.sql<Array<{ brand_color: string; logo_type: string | null; logo_bytes: Buffer | null }>>`
+            SELECT b.brand_color, b.logo_type, b.logo_bytes
+              FROM pay.payment_links l JOIN pay.checkout_branding b ON b.merchant_id = l.merchant_id
+             WHERE l.token_hash = ${tokenHash}`
+        : await this.sql<Array<{ brand_color: string; logo_type: string | null; logo_bytes: Buffer | null }>>`
+            SELECT b.brand_color, b.logo_type, b.logo_bytes
+              FROM pay.checkout_sessions s JOIN pay.checkout_branding b ON b.merchant_id = s.merchant_id
+             WHERE s.token_hash = ${tokenHash}`;
+    return rows[0] ? checkoutLookOf(rows[0]) : null;
+  }
+
   private async readLink(
     sql: Sql,
     token: string,
@@ -1961,6 +2104,7 @@ export class PayService {
       confirmationMessage: string | null;
       confirmationUrl: string | null;
       embedSnippet: string | null;
+      priceId: string | null;
     }>;
     nextCursor: string | null;
   }> {
@@ -1987,10 +2131,11 @@ export class PayService {
         inactive_message: string | null;
         confirmation_message: string | null;
         confirmation_url: string | null;
+        price_id: string | null;
       }>
     >`
       SELECT id, token_prefix, checkout_token, label, amount::text, currency, active, expires_at, max_uses, uses, created_at,
-             inactive_message, confirmation_message, confirmation_url,
+             inactive_message, confirmation_message, confirmation_url, price_id,
              to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
         FROM pay.payment_links
        WHERE merchant_id = ${merchantId}
@@ -2043,6 +2188,7 @@ export class PayService {
     confirmationMessage: string | null;
     confirmationUrl: string | null;
     embedSnippet: string | null;
+    priceId: string | null;
   }> {
     await this.getMerchant(merchantId);
     const rows = await this.sql<
@@ -2061,10 +2207,11 @@ export class PayService {
         inactive_message: string | null;
         confirmation_message: string | null;
         confirmation_url: string | null;
+        price_id: string | null;
       }>
     >`
       SELECT id, token_prefix, checkout_token, label, amount::text, currency, active, expires_at, max_uses, uses, created_at,
-             inactive_message, confirmation_message, confirmation_url
+             inactive_message, confirmation_message, confirmation_url, price_id
         FROM pay.payment_links
        WHERE id = ${linkId}
          AND merchant_id = ${merchantId}
@@ -2089,6 +2236,7 @@ export class PayService {
     inactive_message: string | null;
     confirmation_message: string | null;
     confirmation_url: string | null;
+    price_id: string | null;
   }): {
     id: string;
     prefix: string;
@@ -2106,6 +2254,7 @@ export class PayService {
     confirmationMessage: string | null;
     confirmationUrl: string | null;
     embedSnippet: string | null;
+    priceId: string | null;
   } {
     const token = r.checkout_token;
     const checkoutUrl = token ? this.checkoutUrl(token) : null;
@@ -2131,6 +2280,7 @@ export class PayService {
         currency: r.currency,
         label: r.label,
       }),
+      priceId: r.price_id,
     };
   }
 
@@ -2221,17 +2371,44 @@ export class PayService {
      * Operator/test risk band. Public tRPC/HTML must not send this — use `checkoutRiskBand`.
      */
     riskBand?: string;
+    /**
+     * RC-merchant-09: the name on the bank account a payer will send a bank transfer from. Required for a bank transfer
+     * (`pay.payer_name_required` before anything is written), kept with the payment, and ignored for any other method.
+     */
+    payerName?: string;
   }): Promise<{ sessionToken: string; session: CheckoutSessionView }> {
     // Step 0. Before anything exists. Smart routing (D26-P1-P3) replaces
     // preference-only selection. Blank geo/method/risk refuses rather than invent.
     // A payer still cannot name a rail adapter.
-    const decision = this.selectCheckoutRail({
-      geoCountry: input.geoCountry,
-      method: input.method,
-      riskBand: input.riskBand,
-    });
+    // RC-merchant-08: the business's category decides which rails are candidates at all (a prohibited one opens
+    // nothing). This read is a hint for routing only; the admission guard below re-checks inside the transaction.
+    const categoryRule = await checkoutCategoryRule(this.sql, input.linkToken);
+    if (categoryRule?.class === 'prohibited') assertCategoryAllows(categoryRule, null);
+    // M-adv-payments-core-11: only a method the business offers for this country, currency and amount, in its order.
+    const offeredMethod = await checkoutMethodFor(
+      this.sql,
+      this.checkoutMethodRails(categoryRails(categoryRule) ?? undefined),
+      input,
+      this.now(),
+    );
+    const decision = this.selectCheckoutRail(
+      {
+        geoCountry: input.geoCountry,
+        method: offeredMethod,
+        riskBand: input.riskBand,
+      },
+      categoryRails(categoryRule) ?? undefined,
+    );
     const adapter = decision.adapter;
+    // Blank reserve terms (and any rule the routing hint did not cover) refuse by name before any row.
+    assertCategoryAllows(categoryRule, adapter.id);
     const method = this.checkoutRails.find((r) => r.railId === adapter.id)!.method;
+    // RC-merchant-09: the transfer will be checked against the name the payer gives, so a payment on a rail that checks
+    // names opens only with one.
+    const payerName = adapter.checksPayerName ? givenPayerName(input.payerName) : null;
+    if (adapter.checksPayerName && payerName === null) {
+      throw new PayError('Give the name on the bank account you will pay from', 'pay.payer_name_required', { method });
+    }
 
     const opened = await transaction(
       this.sql,
@@ -2314,6 +2491,7 @@ export class PayService {
             this.identityAuthorityGuard,
           );
         const payment = await insertPayment(tx, { ...creationInput, id: paymentId });
+        if (payerName !== null) await recordGivenPayerName(tx, payment.id, payerName);
 
         // SPEC §5 — reason per decision. Taxonomy only (no cost/approval invent).
         // Survives in payment_events so a later dispute can answer "why this rail".
@@ -2395,10 +2573,12 @@ export class PayService {
     const method = this.checkoutRails.find((r) => r.railId === row.rail_adapter)?.method ?? 'crypto';
 
     if (row.status !== 'open') {
-      return toCheckoutSessionView(row, row.label, method, {
+      const view = toCheckoutSessionView(row, row.label, method, {
         message: row.confirmation_message,
         url: row.confirmation_url,
       });
+      // A closed window over a payment paid in part: the payer must still see what arrived and where the rest goes.
+      return row.status === 'expired' ? { ...view, ...(await this.checkoutArrivals(row.payment_id, method)) } : view;
     }
 
     if (row.expires_at.getTime() <= this.now().getTime()) {
@@ -2408,12 +2588,54 @@ export class PayService {
         UPDATE pay.checkout_sessions SET status = 'expired', updated_at = now()
          WHERE id = ${row.id} AND status = 'open'
       `;
-      return toCheckoutSessionView({ ...row, status: 'expired' }, row.label, method);
+      const view = toCheckoutSessionView({ ...row, status: 'expired' }, row.label, method);
+      return { ...view, ...(await this.checkoutArrivals(row.payment_id, method)) };
     }
 
     // The resume: a session committed before the rail was asked. Idempotent on
     // the payment id, so re-running is free and produces the same address.
-    return toCheckoutSessionView(await this.ensureInstruction(row), row.label, method);
+    const view = toCheckoutSessionView(await this.ensureInstruction(row), row.label, method);
+    return { ...view, ...(await this.checkoutArrivals(row.payment_id, method)) };
+  }
+
+  /**
+   * What has arrived for the payment, as the payer reads it: held for a payer-name review (RC-merchant-09), or the part
+   * received so far. A held payment shows no "send the missing" line: nothing more should be sent until the review.
+   */
+  private async checkoutArrivals(
+    paymentId: string | null,
+    method: string,
+  ): Promise<Pick<CheckoutSessionView, 'progress' | 'heldForReview'>> {
+    if (paymentId && method === NAME_CHECKED_METHOD && (await isHeldOpenPayment(this.sql, paymentId))) {
+      return { progress: null, heldForReview: true };
+    }
+    return { progress: await this.checkoutProgress(paymentId) };
+  }
+
+  /**
+   * What the rail last said has arrived for a payment paid in parts: the newest `rail.pending` event that counted
+   * something. Read from the payment's own events, so the page shows what the core recorded, never a figure of its own.
+   */
+  private async checkoutProgress(paymentId: string | null): Promise<CheckoutSessionView['progress']> {
+    if (!paymentId) return null;
+    const rows = await this.sql<Array<{ received: string | null; missing: string | null; confirming: string | null }>>`
+      SELECT e.payload->>'received' AS received, e.payload->>'missing' AS missing, e.payload->>'confirming' AS confirming
+        FROM pay.payment_events e
+        JOIN pay.payments p ON p.id = e.payment_id
+       WHERE e.payment_id = ${paymentId} AND e.event = 'rail.pending'
+         -- Only while the payment still takes the rest: once it is authorized, captured or failed, "send the missing"
+         -- would ask a payer for money nothing will count.
+         AND p.status = 'created'
+       ORDER BY e.seq DESC
+       LIMIT 1
+    `;
+    const latest = rows[0];
+    if (!latest?.received || !latest.missing) return null;
+    const received = parseAmount(latest.received);
+    const missing = parseAmount(latest.missing);
+    if (received <= 0n || missing <= 0n) return null;
+    const confirming = latest.confirming ? parseAmount(latest.confirming) : 0n;
+    return { received: formatAmount(received), missing: formatAmount(missing), confirming: formatAmount(confirming) };
   }
 
   /**

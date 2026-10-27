@@ -206,7 +206,7 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
     <Frame meta={meta}>
       {marketsLoading ? <TopCardsSkeleton /> : cards.length > 0 ? <TopCards cards={cards} mode={layoutMode} onSeeAll={seeAll} /> : null}
 
-      <div className="mkt-tabs" ref={tableTop}>
+      <div data-testid="mkt-tabs" className="mkt-tabs" ref={tableTop}>
         <Tabs value={view.tab} onValueChange={(value) => change({ tab: value === 'favorites' ? 'favorites' : 'spot' })}>
           <TabsList className="mkt-tabs__list">
             <TabsTab value="favorites" className="mkt-tab">
@@ -229,7 +229,7 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
         />
       </div>
 
-      <div className="mkt-chips">
+      <div data-testid="mkt-chips" className="mkt-chips">
         <ToggleGroup
           value={chip}
           onValueChange={(value) => change({ chip: CHIPS.find((item) => item === value) ?? 'all' })}
@@ -284,14 +284,14 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
       </div>
 
       {tickers.status === 'error' ? (
-        <div className="mkt-notice" role="status">
+        <div data-testid="mkt-notice" className="mkt-notice" role="status">
           <span>{t('Couldn’t load prices')}</span>
           <Button variant="ghost" size={28} onClick={tickers.retry}>
             {t('Try again')}
           </Button>
         </div>
       ) : tickers.status === 'refused' ? (
-        <div className="mkt-notice" role="status">
+        <div data-testid="mkt-notice" className="mkt-notice" role="status">
           <span>
             {t('Couldn’t load prices')} {refusalCopy(tickers.code).title}. {refusalCopy(tickers.code).body}{' '}
             <span className="mkt-muted">{tickers.code}</span>
@@ -335,7 +335,7 @@ function Freshness({ tickers }: { tickers: Loadable<Record<string, TickerRow>> }
 function Frame({ children, meta }: { children: ReactNode; meta: ReactNode }) {
   const { t } = marketsCopy.useCopy();
   return (
-    <div className="if-markets">
+    <div data-testid="if-markets" className="if-markets">
       <header className="mkt-page__head">
         <h1>{t('Markets')}</h1>
         {meta}

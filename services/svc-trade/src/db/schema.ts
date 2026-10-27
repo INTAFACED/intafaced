@@ -284,6 +284,14 @@ export const orders = trade.table(
      * settleable when svc-identity is down.
      */
     feeDiscountBps: bps('fee_discount_bps').notNull().default('0'),
+    /** The fee tier at placement (fee-tiers.ts); fills charge it, as they charge the placement schedule version. */
+    feeTier: text('fee_tier').notNull().default('regular'),
+    /** Whether its fills count toward the owner's fee tier, decided at placement (fee-tier-store.ts). */
+    tierVolume: boolean('tier_volume').notNull().default(true),
+    /** The platform token this order pays its fees in (fee-ifc.ts), or null for the asset each fill receives. */
+    feeCurrency: text('fee_currency'),
+    /** The stake discount off the token fee at placement (svc-token `accessOf`); set with `feeCurrency`, else null. */
+    feeIfcDiscountBps: integer('fee_ifc_discount_bps'),
     tag: text('tag'),
     /**
      * The protection price a market BUY was submitted at. A market buy is
@@ -391,6 +399,15 @@ export const fills = trade.table(
     feeAmount: amount('fee_amount').notNull(),
     /** Effective rate after the rank discount. Stored so a fee is explicable years later. */
     feeBps: bps('fee_bps').notNull(),
+    /**
+     * A maker leg's rebate: the rate it was paid at, the amount and the asset (what this maker paid). Never a negative
+     * fee. All three or none; the ledger pays it under `trade.fill.rebate:<fillId>`.
+     */
+    rebateBps: integer('rebate_bps'),
+    rebateAmount: amount('rebate_amount'),
+    rebateAsset: text('rebate_asset'),
+    /** Why a leg whose order chose the token paid in the asset it received (fee-ifc.ts `IfcFeeFallback`), else null. */
+    feeFallback: text('fee_fallback'),
     /** Engine sequence. One match, one sequence, forever. */
     sequence: integer('sequence').notNull(),
     ts: tstz('ts').notNull().defaultNow(),

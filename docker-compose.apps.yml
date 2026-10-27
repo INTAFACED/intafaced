@@ -303,6 +303,7 @@ services:
       TAX_URL: http://svc-tax:4020
       QUANT_URL: http://svc-quant:4021
       OPS_URL: http://svc-ops:4022
+      CAMPAIGNS_URL: http://svc-campaigns:4024
       # connect.data-lake TSDB + retention owner env — blank retention refuses persist.
       CONNECT_DATA_LAKE_TSDB_URL: postgres://svc_connect_lake:${SVC_CONNECT_LAKE_DB_PASSWORD:-svc_connect_lake}@postgres:5432/intafaced
       CONNECT_DATA_LAKE_RETENTION_DAYS: ${CONNECT_DATA_LAKE_RETENTION_DAYS:-}
@@ -709,6 +710,8 @@ services:
       TRADE_COPY_DISCLOSURE_LAW: ${TRADE_COPY_DISCLOSURE_LAW:-}
       # CB-copy-02 lead-page metric definitions. Empty = no metric number shown.
       TRADE_COPY_METRIC_DEFINITIONS: ${TRADE_COPY_METRIC_DEFINITIONS:-}
+      # CB-copy-03 copy verification level. Empty = every follow refuses.
+      TRADE_COPY_MIN_TIER: ${TRADE_COPY_MIN_TIER:-}
       # PTX-M21 fee/rebate schedule — pass-through, no compose default.
       # Blank host → order preview refuses (never invent bps).
       TRADE_FEE_SCHEDULE: ${TRADE_FEE_SCHEDULE:-}
@@ -951,6 +954,9 @@ services:
       # instead of publishing an invented floor.
       PAY_CHECKOUT_MAX_OPEN_SESSIONS: ${PAY_CHECKOUT_MAX_OPEN_SESSIONS:?missing — copy .env.example to .env}
       PAY_CHECKOUT_RISK_BAND: ${PAY_CHECKOUT_RISK_BAND:-}
+      # Owner-declared success fraction per checkout rail (railId:fraction). Blank
+      # declares none and the hosted checkout refuses; never an invented rate.
+      PAY_CHECKOUT_SUCCESS_RATES: ${PAY_CHECKOUT_SUCCESS_RATES:-}
       # Payment-link default + max lifetime. No git default — blank refuses
       # (never 30 / 365). Owner may set 30 / 365 explicitly (see .env.example).
       # Same `:?` shape as webhook secrets / confirmations so compose-up fails
@@ -984,7 +990,8 @@ services:
     expose: ['4006']
     healthcheck: *healthcheck
     depends_on:
-      # No `nats` — svc-pay connects to no bus (see its index.ts).
+      # No `nats` dependency: svc-pay connects to the bus on first need and keeps
+      # deposit credit announcements owed until it answers (see its index.ts).
       <<: *needs-schema
       svc-ledger:
         condition: service_healthy
@@ -1166,6 +1173,10 @@ services:
       # Owner-set number of saved withdrawal addresses per customer. Blank refuses
       # `bank.address_book_cap_unset` on save rather than inventing a limit.
       BANK_ADDRESS_BOOK_CAP: ${BANK_ADDRESS_BOOK_CAP:-}
+      # Owner-set deposit addresses open at once per asset and network, and days an extra one lasts (W-deposit-02).
+      # Blank refuses making another address rather than inventing a limit or an expiry.
+      BANK_DEPOSIT_ADDRESS_CAP: ${BANK_DEPOSIT_ADDRESS_CAP:-}
+      BANK_DEPOSIT_ADDRESS_EXPIRY_DAYS: ${BANK_DEPOSIT_ADDRESS_EXPIRY_DAYS:-}
       # Money-out step-up (off | required). `off` leaves every door as it was.
       # `required` makes sends to other people, standing orders to them, business
       # payments, card unfreeze/issue need a same-person identity approval. Flip it
@@ -1528,6 +1539,8 @@ services:
       SERVICE_NAME: svc-tax
       HTTP_PORT: '4020'
       LEDGER_URL: http://svc-ledger:4001
+      # Which named spaces are the customer's, so the lot book follows a move to a space (spaces.ownedAccounts).
+      BANK_URL: http://svc-bank:4009
       # Counsel/owner map. Blank is refuse-closed (tax.jurisdiction_unmapped).
       TAX_JURISDICTION_MAP_JSON: ${TAX_JURISDICTION_MAP_JSON:-}
       # Owner-published history window. Blank refuses tax.history_years_unset (never invent 10).
@@ -1545,6 +1558,25 @@ services:
       <<: *needs-schema
       svc-ledger:
         condition: service_healthy
+
+  # Seasons, limited drops and the TGE claim (RC-campaigns-04/-05). Holds no balance, imports no ledger recipe.
+  # A blank TGE schedule refuses every TGE claim launch.schedule_unset; never a default date.
+  svc-campaigns:
+    <<: *app
+    container_name: intafaced-svc-campaigns
+    command: ['node', 'services/svc-campaigns/dist/index.js']
+    environment:
+      <<: [*service-env, *edge-secret]
+      SERVICE_NAME: svc-campaigns
+      HTTP_PORT: '4024'
+      CAMPAIGNS_TGE_SCHEDULE_JSON: ${CAMPAIGNS_TGE_SCHEDULE_JSON:-}
+      # Role svc_campaigns and schema campaigns come from postgres-init; migrate-all applies the drizzle files.
+      # Blank DATABASE_POOL_MAX (x-service-env) refuses boot. Never invent a pool size.
+      DATABASE_URL: postgres://svc_campaigns:${SVC_CAMPAIGNS_DB_PASSWORD:-svc_campaigns}@postgres:5432/intafaced
+    expose: ['4024']
+    healthcheck: *healthcheck
+    depends_on:
+      <<: *needs-schema
 
   # Strategy sandbox (§29). Paper book, no ledger. Port 4021: 4020 held for tax.
   svc-quant:
@@ -1605,6 +1637,10 @@ services:
       OPS_RESTORE_ARCHIVE_URL: ${OPS_RESTORE_ARCHIVE_URL:-}
       # Owner storage target for restored data. Blank → restore.start and restore.finalize refuse ops.restore_target_unset.
       OPS_RESTORE_TARGET: ${OPS_RESTORE_TARGET:-}
+      # Staff holds on funds: the owner-named account a confirmed hold moves to, and the longest hold expiry in hours.
+      # Blank → confirm refuses owner.decision and an expiry refuses ops.hold_expiry_unset. Never invent either.
+      OPS_STAFF_HOLD_CONFIRM_ACCOUNT: ${OPS_STAFF_HOLD_CONFIRM_ACCOUNT:-}
+      OPS_STAFF_HOLD_EXPIRY_MAX_HOURS: ${OPS_STAFF_HOLD_EXPIRY_MAX_HOURS:-}
       # The restore.watermark.read doors. svc-ops is the only caller each allows. IDENTITY_URL is also the founder authority and
       # the second-founder approval wiring (finalize, protocol listing, custody).
       IDENTITY_URL: http://svc-identity:4002
@@ -1736,6 +1772,14 @@ services:
       ACADEMY_LESSON_IMPORT_MAX_BYTES: ${ACADEMY_LESSON_IMPORT_MAX_BYTES:-}
       ACADEMY_UPLOAD_MAX_BYTES: ${ACADEMY_UPLOAD_MAX_BYTES:-}
       ACADEMY_TOPICS_LIST_LIMIT: ${ACADEMY_TOPICS_LIST_LIMIT:-}
+      ACADEMY_GRADER_LEASE_SECONDS: ${ACADEMY_GRADER_LEASE_SECONDS:-}
+      ACADEMY_CERT_ISSUE_SWEEP_SECONDS: ${ACADEMY_CERT_ISSUE_SWEEP_SECONDS:-}
+      ACADEMY_PROGRAMME_MAX_COURSES: ${ACADEMY_PROGRAMME_MAX_COURSES:-}
+      ACADEMY_POST_MAX_CHARS: ${ACADEMY_POST_MAX_CHARS:-}
+      ACADEMY_POST_IMAGE_MAX_BYTES: ${ACADEMY_POST_IMAGE_MAX_BYTES:-}
+      ACADEMY_MESSAGE_MAX_CHARS: ${ACADEMY_MESSAGE_MAX_CHARS:-}
+      # Proxies whose x-intafaced-client-ip names the caller (CIDR list). Empty: a quiz with an IP filter refuses.
+      ACADEMY_TRUSTED_PROXY_CIDRS: ${ACADEMY_TRUSTED_PROXY_CIDRS:-}
       ACADEMY_UPLOAD_VIDEO_TYPES: ${ACADEMY_UPLOAD_VIDEO_TYPES:-}
       ACADEMY_UPLOAD_HANDOUT_TYPES: ${ACADEMY_UPLOAD_HANDOUT_TYPES:-}
       # Owner-published seconds between watch-position saves while playing.

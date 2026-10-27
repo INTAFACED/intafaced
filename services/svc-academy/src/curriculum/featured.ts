@@ -37,22 +37,34 @@ export class FeaturedSlot {
   /** `itemSlug: null` clears the slot. A reason is required either way; a blank one is refused, never filled in. */
   async choose(input: { itemSlug: string | null; reason: string; operatorId: string; now?: Date }): Promise<FeaturedChoice> {
     const reason = requireFeaturedReason(input.reason);
+    const at = input.now ?? new Date();
+    // Every feature and clear is a featured_events row with who and why, the same as learn-hub.ts.
     if (input.itemSlug === null) {
-      await this.sql`DELETE FROM academy.featured_items WHERE slot = 'hub'`;
+      await this.sql`
+        WITH gone AS (DELETE FROM academy.featured_items WHERE slot = 'hub' RETURNING item_slug, course_item_id)
+        INSERT INTO academy.featured_events (slot, action, item_slug, course_item_id, reason, actor, at)
+        SELECT 'hub', 'cleared', item_slug, course_item_id, ${reason}, ${input.operatorId}, ${at} FROM gone
+      `;
       return { itemSlug: null, reason: null, chosenAt: null };
     }
     const itemSlug = requireCurriculumSlug(input.itemSlug);
-    const chosenAt = input.now ?? new Date();
-    await this.sql`
-      INSERT INTO academy.featured_items (slot, item_slug, reason, chosen_by, chosen_at)
-      VALUES ('hub', ${itemSlug}, ${reason}, ${input.operatorId}, ${chosenAt})
-      ON CONFLICT (slot) DO UPDATE SET
-        item_slug = EXCLUDED.item_slug,
-        course_item_id = NULL,
-        reason = EXCLUDED.reason,
-        chosen_by = EXCLUDED.chosen_by,
-        chosen_at = EXCLUDED.chosen_at
-    `;
+    const chosenAt = at;
+    await this.sql.begin(async (tx) => {
+      await tx`
+        INSERT INTO academy.featured_items (slot, item_slug, reason, chosen_by, chosen_at)
+        VALUES ('hub', ${itemSlug}, ${reason}, ${input.operatorId}, ${chosenAt})
+        ON CONFLICT (slot) DO UPDATE SET
+          item_slug = EXCLUDED.item_slug,
+          course_item_id = NULL,
+          reason = EXCLUDED.reason,
+          chosen_by = EXCLUDED.chosen_by,
+          chosen_at = EXCLUDED.chosen_at
+      `;
+      await tx`
+        INSERT INTO academy.featured_events (slot, action, item_slug, reason, actor, at)
+        VALUES ('hub', 'featured', ${itemSlug}, ${reason}, ${input.operatorId}, ${chosenAt})
+      `;
+    });
     return { itemSlug, reason, chosenAt };
   }
 }

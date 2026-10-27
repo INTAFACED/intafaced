@@ -98,6 +98,7 @@ export const accountControlResultSchema = z
           'restriction_no_four_eyes',
           'restriction_approval_mismatch',
           'restriction_approval_consumed',
+          'identity.account_archived',
         ]),
         current: accountControlStateSchema.nullable(),
       })
@@ -236,6 +237,7 @@ export const accountClosureResultSchema = z
           'identity.close_approval_consumed',
           'identity.close_blocked',
           'identity.close_check_unavailable',
+          'identity.account_archived',
         ]),
         current: accountClosureStateSchema.nullable(),
         blockers: z.array(closureBlockerSchema).max(50).optional(),
@@ -276,6 +278,136 @@ export const accountClosureResultSchema = z
     }
   });
 export type AccountClosureResult = z.infer<typeof accountClosureResultSchema>;
+
+/**
+ * Archive of one customer record (J-ops-console-04 #10), svc-identity only. Irreversible and four-eyes: the actor runs it
+ * with an `identity.account_archive` approval the other founder gave, bound to the account, the reason code, the reason and
+ * `expectedVersion`. Only a closed account can be archived (`identity.archive_blocked_open_account` while it is open).
+ * Archived, the record is read-only: freeze, unfreeze and reopen refuse `identity.account_archived`. The reason codes are a starting list for the owner and counsel to settle.
+ */
+export const accountArchiveReasonCodes = ['dormant', 'customer_request', 'duplicate', 'other'] as const;
+export const accountArchiveReasonCodeSchema = z.enum(accountArchiveReasonCodes);
+export type AccountArchiveReasonCode = z.infer<typeof accountArchiveReasonCodeSchema>;
+
+export const accountArchiveInputSchema = z
+  .object({
+    requestId: id,
+    userId: id,
+    reasonCode: accountArchiveReasonCodeSchema,
+    reason: closureReason,
+    expectedVersion: version,
+    approvalId: z.string().trim().min(1).max(128).optional(),
+  })
+  .strict();
+export type AccountArchiveInput = z.infer<typeof accountArchiveInputSchema>;
+
+export const accountArchiveStateSchema = z
+  .object({
+    userId: id,
+    version,
+    status: z.enum(['active', 'frozen', 'closed']),
+    archivedAt: timestamp.nullable(),
+    archiveReasonCode: accountArchiveReasonCodeSchema.nullable(),
+  })
+  .strict()
+  .refine((state) => (state.archivedAt === null) === (state.archiveReasonCode === null), 'An archive carries its reason code')
+  .refine((state) => state.archivedAt === null || state.status === 'closed', 'Only a closed account is archived');
+export type AccountArchiveState = z.infer<typeof accountArchiveStateSchema>;
+
+export const accountArchiveLookupInputSchema = z.object({ userId: id }).strict();
+export const accountArchiveHistoryInputSchema = z.object({ userId: id, limit: z.number().int().min(1).max(200) }).strict();
+
+const archiveAuditFields = {
+  auditId: id,
+  requestId: id,
+  userId: id,
+  reasonCode: accountArchiveReasonCodeSchema,
+  reason: closureReason,
+  occurredAt: timestamp,
+};
+
+export const accountArchiveResultSchema = z
+  .discriminatedUnion('outcome', [
+    z
+      .object({
+        ...archiveAuditFields,
+        outcome: z.literal('changed'),
+        changed: z.literal(true),
+        actorUserId: id,
+        approverUserId: id,
+        before: accountArchiveStateSchema,
+        after: accountArchiveStateSchema,
+      })
+      .strict(),
+    z
+      .object({
+        ...archiveAuditFields,
+        outcome: z.literal('refused'),
+        changed: z.literal(false),
+        actorUserId: id.nullable(),
+        code: z.enum([
+          'operator.denied',
+          'mfa.required',
+          'target.not_found',
+          'request.conflict',
+          'identity.archive_founder_forbidden',
+          'identity.archive_self_forbidden',
+          'identity.archive_blocked_open_account',
+          'identity.account_archived',
+          'identity.archive_requires_approver',
+          'identity.archive_approval_mismatch',
+          'identity.archive_approval_consumed',
+        ]),
+        current: accountArchiveStateSchema.nullable(),
+      })
+      .strict(),
+    z
+      .object({
+        ...archiveAuditFields,
+        outcome: z.literal('conflict'),
+        changed: z.literal(false),
+        actorUserId: id,
+        code: z.literal('restriction.version_conflict'),
+        current: accountArchiveStateSchema,
+      })
+      .strict(),
+  ])
+  .superRefine((result, ctx) => {
+    if (result.outcome === 'refused' && (result.code === 'operator.denied' || result.code === 'mfa.required') && result.current !== null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['current'], message: 'Unauthorized attempts cannot disclose target state' });
+    }
+    const states = 'before' in result ? [result.before, result.after] : result.current === null ? [] : [result.current];
+    if (states.some((state) => state.userId !== result.userId)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['userId'], message: 'State belongs to a different account' });
+    }
+    if (result.outcome === 'changed') {
+      const coherent =
+        result.before.archivedAt === null &&
+        result.after.archivedAt !== null &&
+        result.after.archiveReasonCode === result.reasonCode &&
+        version.safeParse(result.before.version).success &&
+        version.safeParse(result.after.version).success &&
+        BigInt(result.after.version) === BigInt(result.before.version) + 1n &&
+        result.approverUserId !== result.actorUserId;
+      if (!coherent) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['after'], message: 'Outcome and archive state disagree' });
+    }
+  });
+export type AccountArchiveResult = z.infer<typeof accountArchiveResultSchema>;
+
+/**
+ * Customers identity proposes for archive (J-ops-console-04 #10): closed, not archived, and with no change and no new
+ * session for the owner's dormancy period. Only a proposal: a person archives each one with a second approver. The period
+ * ships blank: `dormancyDays` null means no proposal is made and the console says the period is not set.
+ */
+export const accountArchiveProposalsSchema = z
+  .object({
+    dormancyDays: z.number().int().min(1).max(36500).nullable(),
+    proposals: z.array(z.object({ userId: id, lastActivityAt: timestamp }).strict()).max(200),
+    asOf: timestamp,
+  })
+  .strict()
+  .refine((list) => list.dormancyDays !== null || list.proposals.length === 0, 'No proposal without a dormancy period');
+export type AccountArchiveProposals = z.infer<typeof accountArchiveProposalsSchema>;
 
 /**
  * Account product tiers (J-ops-console-04 #11). Identity keeps which tier an account is on; the tiers and their terms are
@@ -420,6 +552,226 @@ export const accountTierResultSchema = z
     }
   });
 export type AccountTierResult = z.infer<typeof accountTierResultSchema>;
+
+/**
+ * Account limit overrides (J-ops-console-04 #12, OPS-accounts-desk-03). The base limits stay with the service that
+ * enforces them (svc-pay's withdrawal limits by KYC tier, D-148). Identity keeps a temporary per-customer override of one
+ * rail's figures for one asset, which ends at a stored time; after it the base limit is back. A null figure keeps the base
+ * figure. Figures are decimal strings in the asset's own units, never numbers, and never zero (a freeze stops an account).
+ *
+ * The owner policy (`IDENTITY_LIMIT_OVERRIDE_POLICY`) ships blank: the longest an override may last and, per rail and
+ * asset, the ceiling above which an override needs the other founder. Blank, invalid, or no ceiling for the asset refuses
+ * `identity.limit_ceiling_unset`; nothing is assumed.
+ */
+export const ACCOUNT_LIMIT_RAILS = ['withdrawal'] as const;
+export const accountLimitRailSchema = z.enum(ACCOUNT_LIMIT_RAILS);
+export type AccountLimitRail = z.infer<typeof accountLimitRailSchema>;
+export const accountLimitAssetIdSchema = z
+  .string()
+  .min(1)
+  .max(16)
+  .regex(/^[A-Z0-9]+$/);
+/** A positive decimal string: no sign, no exponent, at most 20 whole digits and 18 decimals (the ledger's column), never zero. */
+export const accountLimitAmountSchema = z
+  .string()
+  .max(40)
+  .regex(/^(?:0|[1-9]\d{0,19})(?:\.\d{1,18})?$/)
+  .refine((value) => !/^0(?:\.0+)?$/.test(value), 'A limit figure is above zero');
+const limitReason = z.string().trim().min(12).max(255);
+
+export const accountLimitOverrideSchema = z
+  .object({
+    userId: id,
+    rail: accountLimitRailSchema,
+    assetId: accountLimitAssetIdSchema,
+    /** Of this rail and asset for this customer; each set or clear adds one. */
+    version,
+    perTx: accountLimitAmountSchema.nullable(),
+    rolling24h: accountLimitAmountSchema.nullable(),
+    expiresAt: timestamp,
+    /** `expired` once the stored expiry has passed; `cleared` when a founder ended it early. */
+    status: z.enum(['active', 'expired', 'cleared']),
+    setBy: id,
+    /** The other founder, when the override is above the ceiling. */
+    approvedBy: id.nullable(),
+    setAt: timestamp,
+    reason: limitReason,
+    clearedBy: id.nullable(),
+    clearedAt: timestamp.nullable(),
+  })
+  .strict();
+export type AccountLimitOverride = z.infer<typeof accountLimitOverrideSchema>;
+
+export const accountLimitCeilingSchema = z
+  .object({ rail: accountLimitRailSchema, assetId: accountLimitAssetIdSchema, ceiling: accountLimitAmountSchema })
+  .strict();
+export type AccountLimitCeiling = z.infer<typeof accountLimitCeilingSchema>;
+export const accountLimitPolicySchema = z.discriminatedUnion('configured', [
+  z
+    .object({
+      configured: z.literal(true),
+      /** Whole hours, 1 to 8784 (a leap year). */
+      maxLifetimeHours: z.string().regex(/^[1-9]\d{0,3}$/),
+      ceilings: z.array(accountLimitCeilingSchema).min(1).max(100),
+    })
+    .strict(),
+  z.object({ configured: z.literal(false), code: z.literal('identity.limit_ceiling_unset') }).strict(),
+]);
+export type AccountLimitPolicy = z.infer<typeof accountLimitPolicySchema>;
+
+/** The customer's overrides as they stand, one per rail and asset ever set, with the owner policy. */
+export const accountLimitsStateSchema = z
+  .object({
+    userId: id,
+    overrides: z.array(accountLimitOverrideSchema).max(100),
+    policy: accountLimitPolicySchema,
+    closed: z.boolean(),
+    archived: z.boolean(),
+  })
+  .strict()
+  .refine((state) => state.overrides.every((row) => row.userId === state.userId), 'An override belongs to another account');
+export type AccountLimitsState = z.infer<typeof accountLimitsStateSchema>;
+
+export const accountLimitOverrideSetInputSchema = z
+  .object({
+    requestId: id,
+    userId: id,
+    rail: accountLimitRailSchema,
+    assetId: accountLimitAssetIdSchema,
+    perTx: accountLimitAmountSchema.nullable(),
+    rolling24h: accountLimitAmountSchema.nullable(),
+    expiresAt: timestamp,
+    reason: limitReason,
+    expectedVersion: version,
+    /** A stored `identity.change_limit` approval from the other founder; needed only above the ceiling. */
+    approvalId: z.string().trim().min(1).max(128).optional(),
+  })
+  .strict()
+  .refine((input) => input.perTx !== null || input.rolling24h !== null, 'An override sets at least one figure');
+export type AccountLimitOverrideSetInput = z.infer<typeof accountLimitOverrideSetInputSchema>;
+export const accountLimitOverrideClearInputSchema = z
+  .object({
+    requestId: id,
+    userId: id,
+    rail: accountLimitRailSchema,
+    assetId: accountLimitAssetIdSchema,
+    reason: limitReason,
+    expectedVersion: version,
+  })
+  .strict();
+export type AccountLimitOverrideClearInput = z.infer<typeof accountLimitOverrideClearInputSchema>;
+export const accountLimitsLookupInputSchema = z.object({ userId: id }).strict();
+export const accountLimitsHistoryInputSchema = z.object({ userId: id, limit: z.number().int().min(1).max(200) }).strict();
+
+const limitAuditFields = {
+  auditId: id,
+  requestId: id,
+  userId: id,
+  action: z.enum(['set', 'clear']),
+  rail: accountLimitRailSchema,
+  assetId: accountLimitAssetIdSchema,
+  reason: limitReason,
+  occurredAt: timestamp,
+};
+
+export const accountLimitResultSchema = z
+  .discriminatedUnion('outcome', [
+    z
+      .object({
+        ...limitAuditFields,
+        outcome: z.literal('changed'),
+        changed: z.literal(true),
+        actorUserId: id,
+        approverUserId: id.nullable(),
+        before: accountLimitOverrideSchema.nullable(),
+        after: accountLimitOverrideSchema,
+      })
+      .strict(),
+    z
+      .object({
+        ...limitAuditFields,
+        outcome: z.literal('refused'),
+        changed: z.literal(false),
+        actorUserId: id.nullable(),
+        code: z.enum([
+          'operator.denied',
+          'mfa.required',
+          'target.not_found',
+          'request.conflict',
+          'identity.limit_ceiling_unset',
+          'identity.limit_expiry_past',
+          'identity.limit_lifetime_exceeded',
+          'identity.limit_unchanged',
+          'identity.limit_self_forbidden',
+          'identity.limit_account_closed',
+          'identity.account_archived',
+          'identity.limit_requires_approver',
+          'identity.limit_approval_mismatch',
+          'identity.limit_approval_consumed',
+          'identity.limit_override_not_found',
+          'identity.limit_override_expired',
+        ]),
+        current: accountLimitOverrideSchema.nullable(),
+        /** With `identity.limit_requires_approver`: the owner ceiling the override goes above. */
+        ceiling: accountLimitAmountSchema.optional(),
+      })
+      .strict(),
+    z
+      .object({
+        ...limitAuditFields,
+        outcome: z.literal('conflict'),
+        changed: z.literal(false),
+        actorUserId: id,
+        code: z.literal('restriction.version_conflict'),
+        current: accountLimitOverrideSchema.nullable(),
+      })
+      .strict(),
+  ])
+  .superRefine((result, ctx) => {
+    if (result.outcome === 'refused' && (result.code === 'operator.denied' || result.code === 'mfa.required') && result.current !== null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['current'], message: 'Unauthorized attempts cannot disclose target state' });
+    }
+    const states = 'after' in result ? [result.before, result.after] : [result.current];
+    if (
+      states.some((row) => row !== null && (row.userId !== result.userId || row.rail !== result.rail || row.assetId !== result.assetId))
+    ) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['userId'], message: 'Override belongs to another account, rail or asset' });
+    }
+    if (result.outcome === 'refused' && (result.code === 'identity.limit_requires_approver') !== (result.ceiling !== undefined)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['ceiling'], message: 'The ceiling comes with limit_requires_approver only' });
+    }
+    if (result.outcome === 'changed') {
+      const coherent =
+        BigInt(result.after.version) === BigInt(result.before?.version ?? '0') + 1n &&
+        (result.action === 'set' ? result.after.status === 'active' : result.after.status === 'cleared') &&
+        result.approverUserId !== result.actorUserId;
+      if (!coherent) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['after'], message: 'Outcome, action and versions disagree' });
+    }
+  });
+export type AccountLimitResult = z.infer<typeof accountLimitResultSchema>;
+
+/**
+ * svc-identity's `GET /internal/limit-override/:userId?rail=&assetId=`: the override in force now for one rail and asset,
+ * read by the service that enforces the limit. `override` null: none in force (never set, expired or cleared), so the
+ * base limit applies.
+ */
+export const accountLimitOverrideReadSchema = z
+  .object({
+    userId: id,
+    rail: accountLimitRailSchema,
+    assetId: accountLimitAssetIdSchema,
+    override: z
+      .object({
+        version,
+        perTx: accountLimitAmountSchema.nullable(),
+        rolling24h: accountLimitAmountSchema.nullable(),
+        expiresAt: timestamp,
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+export type AccountLimitOverrideRead = z.infer<typeof accountLimitOverrideReadSchema>;
 
 export const accountCredentialReferenceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('session'), sessionId: id }).strict(),
@@ -621,3 +973,223 @@ export interface AccountControlsContract {
   admit(context: Context, input: OperationAdmissionInput): Promise<OperationAdmissionResult>;
   resolveRecovery(context: Context, input: OperationRecoveryInput): Promise<CommittedOperationAdmission>;
 }
+
+/**
+ * Staff edits of one customer's personal details (J-ops-console-04 #9, OPS-accounts-desk-02 `identity.accounts.editDetails`).
+ * Contact, address, occupation, income and business details are applied at once by a live founder with a reason. Name,
+ * date of birth and tax number are protected: an edit of them opens a compliance review, the old value stays on record,
+ * and identity applies the proposed value only when a second founder passes the review. One edit changes either open
+ * details or protected ones, never both. Identity keeps the details encrypted; the history names fields, never values.
+ */
+export const CUSTOMER_PROTECTED_DETAIL_KEYS = ['legalName', 'dateOfBirth', 'taxNumber'] as const;
+export const CUSTOMER_OPEN_DETAIL_KEYS = [
+  'phone',
+  'addressLine1',
+  'addressLine2',
+  'city',
+  'postalCode',
+  'countryCode',
+  'occupation',
+  'income',
+  'businessDetails',
+] as const;
+export const CUSTOMER_DETAIL_KEYS = [...CUSTOMER_PROTECTED_DETAIL_KEYS, ...CUSTOMER_OPEN_DETAIL_KEYS] as const;
+export type CustomerDetailKey = (typeof CUSTOMER_DETAIL_KEYS)[number];
+export type CustomerProtectedDetailKey = (typeof CUSTOMER_PROTECTED_DETAIL_KEYS)[number];
+export const customerDetailKeySchema = z.enum(CUSTOMER_DETAIL_KEYS);
+
+const detailText = (max: number) => z.string().trim().min(1).max(max);
+/** A real calendar date of birth: from 1900 and not after today. */
+const birthDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((value) => {
+    const date = new Date(`${value}T00:00:00Z`);
+    return (
+      !Number.isNaN(date.getTime()) &&
+      date.toISOString().slice(0, 10) === value &&
+      value >= '1900-01-01' &&
+      value <= new Date().toISOString().slice(0, 10)
+    );
+  }, 'a real date of birth (YYYY-MM-DD, from 1900, not in the future)');
+
+/** One schema per detail. A null value is "not on record"; identity never fills one in. */
+export const customerDetailValueSchemas = {
+  legalName: detailText(200),
+  dateOfBirth: birthDate,
+  taxNumber: detailText(64),
+  phone: z
+    .string()
+    .trim()
+    .regex(/^\+?[0-9][0-9 ()-]{3,31}$/),
+  addressLine1: detailText(200),
+  addressLine2: detailText(200),
+  city: detailText(100),
+  postalCode: detailText(32),
+  countryCode: z.string().regex(/^[A-Z]{2}$/),
+  occupation: detailText(120),
+  income: detailText(120),
+  businessDetails: detailText(500),
+} as const satisfies Record<CustomerDetailKey, z.ZodType<string>>;
+
+export const customerDetailsSchema = z
+  .object(
+    Object.fromEntries(CUSTOMER_DETAIL_KEYS.map((key) => [key, customerDetailValueSchemas[key].nullable()])) as {
+      [K in CustomerDetailKey]: z.ZodNullable<(typeof customerDetailValueSchemas)[K]>;
+    },
+  )
+  .strict();
+export type CustomerDetails = z.infer<typeof customerDetailsSchema>;
+
+/** The details an edit changes: a value sets it, null takes it off the record. At least one. */
+export const customerDetailChangesSchema = customerDetailsSchema
+  .partial()
+  .strict()
+  .refine((changes) => Object.keys(changes).length > 0, 'at least one detail');
+export type CustomerDetailChanges = z.infer<typeof customerDetailChangesSchema>;
+
+const detailReason = z.string().trim().min(12).max(255);
+
+export const customerDetailReviewStatuses = ['open', 'passed', 'rejected'] as const;
+export const customerDetailReviewSchema = z
+  .object({
+    reviewId: id,
+    userId: id,
+    status: z.enum(customerDetailReviewStatuses),
+    fields: z.array(z.enum(CUSTOMER_PROTECTED_DETAIL_KEYS)).min(1).max(3),
+    /** The proposed values, shown to founders only; the record keeps the old ones until the review passes. */
+    proposed: customerDetailsSchema.pick({ legalName: true, dateOfBirth: true, taxNumber: true }).partial().strict(),
+    /** KYC documents of this same customer the requester attached as evidence (identity's encrypted store). */
+    documentIds: z.array(id).max(5),
+    reason: detailReason,
+    requestedBy: id,
+    requestedAt: timestamp,
+    decidedBy: id.nullable(),
+    decidedAt: timestamp.nullable(),
+    decisionNote: detailReason.nullable(),
+  })
+  .strict()
+  .refine((review) => (review.status === 'open') === (review.decidedBy === null), 'an open review has no decision');
+export type CustomerDetailReview = z.infer<typeof customerDetailReviewSchema>;
+
+export const customerDetailsStateSchema = z
+  .object({
+    userId: id,
+    /** Bumped by every applied change; an edit names the version it read. */
+    version,
+    details: customerDetailsSchema,
+    openReview: customerDetailReviewSchema.nullable(),
+    /** An archived record is read-only (`identity.account_archived`). */
+    archived: z.boolean(),
+  })
+  .strict();
+export type CustomerDetailsState = z.infer<typeof customerDetailsStateSchema>;
+
+export const customerDetailsLookupInputSchema = z.object({ userId: id }).strict();
+export const customerDetailsHistoryInputSchema = z.object({ userId: id, limit: z.number().int().min(1).max(200) }).strict();
+export const customerDetailReviewsInputSchema = customerDetailsHistoryInputSchema;
+
+export const customerDetailsEditInputSchema = z
+  .object({
+    requestId: id,
+    userId: id,
+    expectedVersion: version,
+    reason: detailReason,
+    changes: customerDetailChangesSchema,
+    documentIds: z.array(id).max(5).optional(),
+  })
+  .strict();
+export type CustomerDetailsEditInput = z.infer<typeof customerDetailsEditInputSchema>;
+
+export const customerDetailDecisionInputSchema = z
+  .object({
+    requestId: id,
+    /** The customer the review is about; identity refuses a review of anyone else as not found. */
+    userId: id,
+    reviewId: id,
+    decision: z.enum(['pass', 'reject']),
+    note: detailReason,
+  })
+  .strict();
+export type CustomerDetailDecisionInput = z.infer<typeof customerDetailDecisionInputSchema>;
+
+/** Kept in the history: which fields, who and why. Never the values. */
+const detailAuditFields = {
+  auditId: id,
+  requestId: id,
+  userId: id,
+  fields: z.array(customerDetailKeySchema).max(CUSTOMER_DETAIL_KEYS.length),
+  reason: detailReason,
+  occurredAt: timestamp,
+};
+export const customerDetailsResultSchema = z.discriminatedUnion('outcome', [
+  /** Open details applied by the editor, or protected ones applied when the second founder passed their review. */
+  z
+    .object({
+      ...detailAuditFields,
+      outcome: z.literal('applied'),
+      changed: z.literal(true),
+      actorUserId: id,
+      reviewId: id.nullable(),
+      version,
+    })
+    .strict(),
+  /** Protected details asked for: nothing changed on the record yet. */
+  z
+    .object({
+      ...detailAuditFields,
+      outcome: z.literal('review_opened'),
+      changed: z.literal(false),
+      actorUserId: id,
+      reviewId: id,
+      version,
+    })
+    .strict(),
+  z
+    .object({
+      ...detailAuditFields,
+      outcome: z.literal('review_rejected'),
+      changed: z.literal(false),
+      actorUserId: id,
+      reviewId: id,
+      version,
+    })
+    .strict(),
+  z
+    .object({
+      ...detailAuditFields,
+      outcome: z.literal('refused'),
+      changed: z.literal(false),
+      actorUserId: id.nullable(),
+      reviewId: id.nullable(),
+      code: z.enum([
+        'operator.denied',
+        'mfa.required',
+        'target.not_found',
+        'request.conflict',
+        'identity.account_archived',
+        'identity.details_unconfigured',
+        'identity.details_founder_forbidden',
+        'identity.details_mixed_edit',
+        'identity.details_unchanged',
+        'identity.details_documents_unknown',
+        'identity.details_review_open',
+        'identity.details_review_not_found',
+        'identity.details_review_closed',
+        'identity.details_review_self_forbidden',
+      ]),
+    })
+    .strict(),
+  z
+    .object({
+      ...detailAuditFields,
+      outcome: z.literal('conflict'),
+      changed: z.literal(false),
+      actorUserId: id,
+      reviewId: z.null(),
+      code: z.literal('restriction.version_conflict'),
+      version,
+    })
+    .strict(),
+]);
+export type CustomerDetailsResult = z.infer<typeof customerDetailsResultSchema>;

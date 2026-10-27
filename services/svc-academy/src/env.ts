@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ACADEMY_DISCUSSION_IMAGE_MAX_BYTES } from '@intafaced/contracts';
 import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
 
 /**
@@ -116,6 +117,69 @@ const schema = serviceEnvSchema
       ACADEMY_LESSON_IMPORT_MAX_BYTES: z.preprocess(
         (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
         z.union([z.undefined(), z.coerce.number().int().min(1).max(1_048_576)]),
+      ),
+
+      /**
+       * AC-programmes-01: how many courses one learning programme may hold. Blank / unset is unpublished: a programme save
+       * with courses refuses `academy.programme_limit_unset`.
+       */
+      ACADEMY_PROGRAMME_MAX_COURSES: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(100)]),
+      ),
+
+      /**
+       * AC-rooms-01: the longest discussion post or reply, in characters. Blank / unset is unpublished: posting refuses
+       * `academy.post_limit_unset`.
+       */
+      ACADEMY_POST_MAX_CHARS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(20_000)]),
+      ),
+
+      /**
+       * AC-rooms-01: the largest image, in bytes, one discussion post may carry. Blank / unset is unpublished: a post with an
+       * image refuses `academy.attachment_limit_unset`; a post without one is not affected.
+       */
+      ACADEMY_POST_IMAGE_MAX_BYTES: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(ACADEMY_DISCUSSION_IMAGE_MAX_BYTES)]),
+      ),
+
+      /**
+       * AC-rooms-04: the longest message to or from a course team, in characters. Blank / unset is unpublished: sending
+       * refuses `academy.message_limit_unset`.
+       */
+      ACADEMY_MESSAGE_MAX_CHARS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(20_000)]),
+      ),
+
+      /**
+       * AC-quizzes-01: the proxies (comma-separated CIDR ranges) whose `x-intafaced-client-ip` header names the caller.
+       * Blank / unset: no caller address can be read, so a quiz with an IP filter refuses `academy.ip_unreadable`.
+       */
+      ACADEMY_TRUSTED_PROXY_CIDRS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.string().max(4000)]),
+      ),
+
+      /**
+       * AC-certificates-02: seconds between issue sweeps, which issue delayed certificates once due. Blank / unset is
+       * unpublished: no sweep runs and a delayed issue rule refuses `academy.cert_sweep_unset`.
+       */
+      ACADEMY_CERT_ISSUE_SWEEP_SECONDS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(86_400)]),
+      ),
+
+      /**
+       * AC-assignments-02: how many seconds a grader holds a hand-in while grading it. Blank / unset is unpublished:
+       * grading refuses `academy.grader_lease_unset`.
+       */
+      ACADEMY_GRADER_LEASE_SECONDS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(86_400)]),
       ),
 
       /**

@@ -23,7 +23,19 @@ const tx = {
   postedAt: '2026-10-23T04:00:00.000Z',
   hash: 'h1',
   previousHash: null,
-  postings: [{ entryId: 'e1', accountId: 'a1', assetId: 'USDT', direction: 'credit', amount: '25', balanceAfter: '25' }],
+  booking: { seq: '1', bookedAt: '2026-10-23T04:00:00.010Z', reference: TX, event: null },
+  postings: [
+    {
+      entryId: 'e1',
+      accountId: 'a1',
+      assetId: 'USDT',
+      direction: 'credit',
+      side: 'source',
+      amount: '25',
+      balanceBefore: '50',
+      balanceAfter: '25',
+    },
+  ],
 };
 const get = (query: string) => GET(new Request(`https://admin.example/api/ledger-lookup?${query}`));
 

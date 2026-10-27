@@ -62,7 +62,7 @@ export function fillsAverage(fills: readonly { readonly price: string; readonly 
 
 /** `average`: the order's average fill price, from the wire or from its fills; null when not known. */
 export function orderTrigger(order: Order, terminal: boolean, average: string | null = order.average): TriggerState {
-  if (order.type !== 'stop_limit' || !order.stopPrice) return { kind: 'not-stop' };
+  if ((order.type !== 'stop_limit' && order.type !== 'stop') || !order.stopPrice) return { kind: 'not-stop' };
   const stopPrice = order.stopPrice;
   if (order.triggered === undefined) return { kind: 'not-stated', stopPrice };
   if (order.triggered === null) return terminal ? { kind: 'not-recorded', stopPrice } : { kind: 'waiting', stopPrice };

@@ -1,0 +1,20 @@
+{
+  "label": "TEST: CX-8 rig and local test stack only. Not an owner decision and not a product default.",
+  "values": {
+    "CAMPAIGNS_PLATFORM_TIME_ZONE": {
+      "service": "campaigns",
+      "value": "UTC",
+      "note": "The platform time zone campaign windows and the calendar are read in, so J-campaigns-01 can activate and join a TEST campaign. Not an owner decision."
+    },
+    "CAMPAIGNS_RECONCILE_AFTER_SECONDS": {
+      "service": "campaigns",
+      "value": "5",
+      "note": "How long after an attempt the reconciler posts an open task reward or pot sweep again under the same key, so J-campaigns-02 sees a reward post once its pot is funded. Not an owner decision."
+    },
+    "CAMPAIGNS_ROLLBACK_WINDOW_SECONDS": {
+      "service": "campaigns",
+      "value": "86400",
+      "note": "The rollback window a reward record shows in the redemption log (J-campaigns-02 #7). Nothing can be rolled back yet: no reversing recipe exists. Not an owner decision."
+    }
+  }
+}

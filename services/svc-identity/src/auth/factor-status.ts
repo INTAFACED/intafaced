@@ -29,7 +29,7 @@ export class FactorStatusError extends Error {
 }
 
 type Row = {
-  password_hash: string | null;
+  password_set: boolean;
   totp_on: boolean;
   totp_label: string | null;
   webauthn_creds: unknown;
@@ -51,7 +51,7 @@ export function checklistFor(status: Omit<FactorStatus, 'checklist'>): FactorSta
 
 export async function factorStatus(sql: Sql, userId: string): Promise<FactorStatus> {
   const rows = await sql<Row[]>`
-    SELECT password_hash, totp_secret IS NOT NULL AS totp_on, totp_label, webauthn_creds, recovery_code_hashes FROM users WHERE id = ${userId}`;
+    SELECT password_set, totp_secret IS NOT NULL AS totp_on, totp_label, webauthn_creds, recovery_code_hashes FROM users WHERE id = ${userId}`;
   const row = rows[0];
   if (!row) throw new FactorStatusError('auth.not_found');
   const kinds: Record<PasskeyKind, number> = { platform: 0, cross_device: 0, security_key: 0, unknown: 0 };
@@ -66,7 +66,8 @@ export async function factorStatus(sql: Sql, userId: string): Promise<FactorStat
   }
   const on = row.totp_on;
   const base = {
-    password: typeof row.password_hash === 'string' && row.password_hash.length > 0,
+    // A password the owner stopped using (I-account-lifecycle-07) is off, though an unusable hash stays in its place.
+    password: row.password_set,
     authenticator: { on, label: on ? row.totp_label : null },
     passkeys: { count: creds.length, kinds },
     recoveryCodesLeft: on ? list(row.recovery_code_hashes).filter((h) => typeof h === 'string').length : 0,

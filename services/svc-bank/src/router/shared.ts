@@ -71,6 +71,9 @@ export const destinationViewOutput = z.object({
       offerExpiresAt: z.string().nullable(),
     })
     .strict(),
+  approvedAt: z.string().nullable(),
+  approvedBy: z.enum(['link', 'device']).nullable(),
+  approvalLinkExpiresAt: z.string().nullable(),
 });
 
 export const balanceAccountsOutput = z.object({
@@ -122,6 +125,8 @@ export const allocationOutput = z.object({
       assets: z.array(z.object({ asset: z.string(), valueUsd: signedAmountString, share: signedAmountString })),
     }),
   ),
+  /** Set when the classes could not be worked out (the asset registry could not be read); `classes` is then empty. */
+  classesRefused: z.literal('bank.asset_registry_unavailable').nullable(),
   types: z.array(z.object({ type: z.enum(ALLOCATION_TYPES), valueUsd: signedAmountString, share: signedAmountString })),
   unpriced: z.array(z.object({ asset: z.string(), amount: z.string(), reason: z.enum(['no_market', 'no_price_yet']) })),
   asOf: z.number().int(),
@@ -199,7 +204,9 @@ export async function gateDestination(
   // Otherwise: somebody else's live space in the right asset. Cross-user
   // transfer is the product; it proceeds, and a failure after this point comes
   // from the caller's OWN side — their funds, their lock — and is theirs to
-  // read.
+  // read. One exception the caller already knows of: they view that space as a
+  // member of a shared pot (BK-acct-09), and a viewer adds no money to it.
+  await bank.sharedPots.assertMayAddTo(callerUserId ?? '', to.id);
   return { mayDescribe: false };
 }
 
@@ -233,6 +240,11 @@ export const spaceOutput = z.object({
   name: z.string(),
   goalTarget: z.string().nullable(),
   lockedUntil: z.string().nullable(),
+  /** An early unlock still waiting (BK-pots-02): when the pot opens, and when its owner asked. Null when none waits. */
+  unlocksAt: z.string().nullable(),
+  unlockRequestedAt: z.string().nullable(),
+  /** Set when this pot pays the person's bills (BK-pots-03): whether a standing order from it tops it up from the account. */
+  billsPot: z.object({ fallback: z.boolean() }).nullable(),
   /** Read from the ledger at request time. Not stored, not cached. */
   balance: amountString,
   /** The ledger account this space is a view of — so a client can verify us. */

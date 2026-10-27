@@ -98,7 +98,14 @@ export function createTotpLifecycleRouter(lifecycle: TotpLifecycle, stepUp: Secu
             })
             .strict(),
         )
-        .output(z.object({ replaced: z.literal(true), recoveryCodeSpent: z.boolean() }))
+        .output(
+          z.object({
+            replaced: z.literal(true),
+            recoveryCodeSpent: z.boolean(),
+            recoveryCodes: z.array(z.string()),
+            sessionsEnded: z.number().int().min(0),
+          }),
+        )
         .mutation(async ({ ctx, input }) => {
           try {
             await stepUp.require(
@@ -107,7 +114,7 @@ export function createTotpLifecycleRouter(lifecycle: TotpLifecycle, stepUp: Secu
               { clientRequestId: input.clientRequestId },
               input.stepUpApprovalId,
             );
-            return await lifecycle.replaceConfirm(ctx.principal.userId, input);
+            return await lifecycle.replaceConfirm(ctx.principal.userId, input, ctx.principal.sid);
           } catch (err) {
             return mapError(err);
           }

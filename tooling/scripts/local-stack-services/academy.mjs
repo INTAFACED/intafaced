@@ -43,6 +43,31 @@ const uploadLimits = () =>
 // LOCAL TEST topic list limit (a TEST owner value): 100 (J-academy-11 #8).
 const topicsLimit = () => (process.env.LOCAL_STACK_ACADEMY_TOPICS_LIMIT === 'off' ? {} : { ACADEMY_TOPICS_LIST_LIMIT: '100' });
 
+// LOCAL TEST grader lease (a TEST owner value): 15 minutes (J-academy-04 #6).
+const graderLease = () => (process.env.LOCAL_STACK_ACADEMY_GRADER_LEASE === 'off' ? {} : { ACADEMY_GRADER_LEASE_SECONDS: '900' });
+
+// LOCAL TEST certificate issue sweep (a TEST owner value): every 5 seconds, so a one-minute delayed certificate is issued
+// within the journey (J-academy-05 #1). `LOCAL_STACK_ACADEMY_CERT_SWEEP=off` leaves it blank.
+const certSweep = () => (process.env.LOCAL_STACK_ACADEMY_CERT_SWEEP === 'off' ? {} : { ACADEMY_CERT_ISSUE_SWEEP_SECONDS: '5' });
+
+// LOCAL TEST public certificate check rate (TEST owner values): 10 checks per address per 30 seconds, so the journey
+// sees a valid check and then the typed rate refusal (J-academy-05 #4). `LOCAL_STACK_ACADEMY_VERIFY_RATE=off` leaves it blank.
+const verifyRate = () =>
+  process.env.LOCAL_STACK_ACADEMY_VERIFY_RATE === 'off'
+    ? {}
+    : { ACADEMY_CERT_VERIFY_RATE_MAX: '10', ACADEMY_CERT_VERIFY_RATE_WINDOW_SECONDS: '30' };
+
+// LOCAL TEST programme size (a TEST owner value): four courses, every published course (J-academy-06 #1).
+// `LOCAL_STACK_ACADEMY_PROGRAMME_MAX=off` leaves it blank.
+const programmeMax = () => (process.env.LOCAL_STACK_ACADEMY_PROGRAMME_MAX === 'off' ? {} : { ACADEMY_PROGRAMME_MAX_COURSES: '4' });
+
+// LOCAL TEST discussion and course-team message limits (TEST owner values): 4000 characters a post or message, a 256 KiB
+// image (J-academy-08 #2, #5). `LOCAL_STACK_ACADEMY_POST_LIMITS=off` leaves all three blank.
+const postLimits = () =>
+  process.env.LOCAL_STACK_ACADEMY_POST_LIMITS === 'off'
+    ? {}
+    : { ACADEMY_POST_MAX_CHARS: '4000', ACADEMY_POST_IMAGE_MAX_BYTES: '262144', ACADEMY_MESSAGE_MAX_CHARS: '4000' };
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'academy',
   env: () => ({
@@ -58,5 +83,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     ...importLimit(),
     ...uploadLimits(),
     ...topicsLimit(),
+    ...graderLease(),
+    ...certSweep(),
+    ...programmeMax(),
+    ...postLimits(),
+    ...verifyRate(),
   }),
 });

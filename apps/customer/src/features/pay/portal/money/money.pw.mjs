@@ -48,7 +48,7 @@ async function snap(page, name) {
 const confirm = (page, title) =>
   page
     .getByRole('dialog', { name: `Review: ${title}` })
-    .locator('.form-stack > button')
+    .locator('[data-testid="form-stack"] > button')
     .last()
     .click();
 
@@ -216,7 +216,10 @@ test('someone who did not ask for a payout is not offered to take the request ba
 test('approvals and payouts name the same payout the same way', async ({ page }) => {
   await setup(page);
   const names = () =>
-    page.locator('.pe-table tbody tr td:first-child').evaluateAll((cells) => cells.map((c) => c.innerText.split('\n')[0].trim()));
+    page
+      .getByTestId('pe-table')
+      .locator('tbody tr td:first-child')
+      .evaluateAll((cells) => cells.map((c) => c.innerText.split('\n')[0].trim()));
   await signIn(page, '/pay/payouts');
   await expect.poll(async () => (await names()).filter((n) => / · [A-Z][a-z]{2} \d/.test(n)).length).toBeGreaterThan(3);
   const payoutNames = await names();
@@ -236,7 +239,7 @@ test('an owner whose session carries no refund or payout scope sees every money-
   // Identity grants an owner pay:read, pay:write and pay:onboard only. Refund and payout come from confirming it's them.
   const { mock } = await setup(page);
   await signIn(page, '/pay/merchant');
-  const overview = page.locator('.plo-actions');
+  const overview = page.getByTestId('plo-actions');
   await expect(overview.getByRole('link', { name: 'Pay out' })).toBeVisible();
   await expect(overview.getByRole('link', { name: 'Refund' })).toBeVisible();
   await expect(page.locator('main')).not.toContainText(/confirmed sign-in step|does not offer/);
@@ -370,7 +373,7 @@ test('a confirmation that runs out between the review and the send is asked for 
   await expect(page.getByRole('dialog', { name: 'Review: Pay out' })).toBeVisible();
   // ten minutes pass while the review is open
   mock.stepUp.expireAll();
-  await page.getByRole('dialog', { name: 'Review: Pay out' }).locator('.form-stack > button').last().click();
+  await page.getByRole('dialog', { name: 'Review: Pay out' }).locator('[data-testid="form-stack"] > button').last().click();
   await expect(askedDialog(page)).toBeVisible();
   await expect(askedDialog(page)).toContainText('That confirmation expired. Confirm again.');
   await snap(page, 'su6-confirm-expired');

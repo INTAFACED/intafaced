@@ -14,6 +14,8 @@ import { OfferTabs, TakeOfferPanel } from './personal/P2PDepth';
 import { TraderName, TraderSummary, useTraders, type TraderRecords } from './personal/Trader';
 import { isOwnOffer } from './personal/p2p-model';
 import { p2pDepth } from './personal/p2p-depth-copy';
+import { OfferSettlement } from './personal/Settlement';
+import { settlementCopy } from './personal/settlement-copy';
 import { CounterpartyLink, offerReturn, p2pReturn, closeReturnedOffer, consumeMarketArrival, type P2PReturn } from './p2p-return';
 
 /** Only the owner-key/reference names are enumerated. Opaque originals are
@@ -44,6 +46,9 @@ export const offerMethods = (offer: Offer) =>
         ? [method.id]
         : [],
   );
+/** P-disputes-security-09: a details row for an ad's non-instant methods, or none when they are all instant. */
+const settlementRow = (offer: Offer): [string, ReactNode][] =>
+  offer.nonInstantMethods?.length ? [[settlementCopy.t('label'), <OfferSettlement offer={offer} label={(methodId) => methodId} />]] : [];
 function OfferLimits({ offer }: { offer: Offer }) {
   return (
     <span className="p2p-offer-range">
@@ -421,6 +426,7 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
                                 <span className="muted" lang="zxx">
                                   {offerMethods(offer).join(', ') || payCopy.t('noUsableMethodsDeclared')}
                                 </span>
+                                <OfferSettlement offer={offer} label={(methodId) => methodId} />
                                 <Status value={offer.status} />
                               </div>
                               <OfferPrice offer={offer} />
@@ -711,6 +717,7 @@ function CurrentOffer({
             <PayAmount value={offer.remainingAmount} unit={offer.asset} label={payCopy.t('remainingQuantity')} />,
           ],
           [payCopy.t('agreedPaymentMethods'), <span lang="zxx">{offerMethods(offer).join(', ')}</span>],
+          ...settlementRow(offer),
           [t('terms'), offer.terms ? <span lang="und">{offer.terms}</span> : payCopy.t('noTermsSupplied')],
         ]}
       />
@@ -746,6 +753,7 @@ function CurrentOffer({
             payCopy.t('agreedPaymentMethods'),
             offerMethods(offer).length ? <span lang="zxx">{offerMethods(offer).join(', ')}</span> : payCopy.t('noUsableMethodsDeclared'),
           ],
+          ...settlementRow(offer),
           [t('terms'), offer.terms ? <span lang="und">{offer.terms}</span> : payCopy.t('noTermsSupplied')],
           own
             ? [p2pDepth.t('yourOffer'), <OfferSide offer={offer} own />]

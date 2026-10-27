@@ -4,7 +4,7 @@ import { cn } from './cn.js';
 export type StatusKind = 'filled' | 'working' | 'pending' | 'cancelled' | 'failed';
 
 const look: Record<StatusKind, { tone: string; label: string }> = {
-  filled: { tone: 'text-lime bg-lime-soft', label: 'Filled' },
+  filled: { tone: 'text-accent-text bg-lime-soft', label: 'Filled' },
   working: { tone: 'text-fg-2', label: 'Working' },
   pending: { tone: 'text-warn', label: 'Pending' },
   cancelled: { tone: 'text-down-text', label: 'Cancelled' },

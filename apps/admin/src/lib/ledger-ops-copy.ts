@@ -2,7 +2,7 @@ export type LedgerLocale = 'en' | 'es' | 'fr';
 const en = {
   title: 'Ledger operations',
   intro:
-    'Read the ledger posting record and its last change. A freeze takes two different operators and an unfreeze two different current founders (identity enforces both; this console admits only founders). Both are disabled until the ledger read returns its version. Reconciliation is not available from this console.',
+    'Read the ledger posting record and its last change. A freeze takes two different operators and an unfreeze two different current founders (identity enforces both; this console admits only founders). Both are disabled until the ledger read returns its version. Reconciliation controls are below the transaction lookup.',
   record: 'Ledger posting record',
   completed: 'Latest completed read · last change recorded below',
   refresh: 'Refresh',
@@ -43,17 +43,12 @@ const en = {
     'An unfreeze resumes value movement platform-wide. Two different current founders must agree (identity enforces it), and the cause of the freeze must be resolved first.',
   freezeReasonLabel: 'Why (recorded with the freeze, 12 to 500 characters)',
   thawReasonLabel: 'Not needed: an unfreeze clears the recorded reason',
-  reconcile: 'Reconciliation',
-  reconcileMissing:
-    'Not available from this console. svc-ledger can run a full reconciliation (balances against replay, and the hash chain), but svc-edge exposes no route for it, so this console can neither start one nor read the last result.',
-  reconcileWhy:
-    'No figure is shown because none was read. A reconciliation failure freezes the ledger by itself; the posting record above shows that.',
 } as const;
 type LedgerCopy = { readonly [K in keyof typeof en]: string };
 const es: LedgerCopy = {
   title: 'Operaciones del libro',
   intro:
-    'Consulta el estado de contabilización y su último cambio. Congelar requiere a dos operadores distintos y reanudar a dos fundadores actuales distintos (identity lo exige; esta consola solo admite fundadores); ambos están desactivados hasta que la lectura del libro devuelva su versión. La conciliación no está disponible desde esta consola.',
+    'Consulta el estado de contabilización y su último cambio. Congelar requiere a dos operadores distintos y reanudar a dos fundadores actuales distintos (identity lo exige; esta consola solo admite fundadores); ambos están desactivados hasta que la lectura del libro devuelva su versión. Los controles de conciliación están debajo de la consulta de transacciones.',
   record: 'Registro de contabilización',
   completed: 'Última lectura completada · último cambio abajo',
   refresh: 'Actualizar',
@@ -94,16 +89,11 @@ const es: LedgerCopy = {
     'Reanudar restablece el movimiento de valor en toda la plataforma. Deben estar de acuerdo dos fundadores actuales distintos (identity lo exige), y la causa de la congelación debe estar resuelta.',
   freezeReasonLabel: 'Motivo (se registra con la congelación, de 12 a 500 caracteres)',
   thawReasonLabel: 'No hace falta: reanudar borra el motivo registrado',
-  reconcile: 'Conciliación',
-  reconcileMissing:
-    'No disponible desde esta consola. svc-ledger puede ejecutar una conciliación completa (saldos frente a repetición y la cadena de hashes), pero svc-edge no expone ninguna ruta, así que esta consola no puede iniciarla ni leer el último resultado.',
-  reconcileWhy:
-    'No se muestra ninguna cifra porque no se leyó ninguna. Un fallo de conciliación congela el libro por sí mismo; el registro de arriba lo muestra.',
 };
 const fr: LedgerCopy = {
   title: 'Opérations du registre',
   intro:
-    'Consultez l’état des écritures et son dernier changement. Le gel demande deux opérateurs différents et la reprise deux fondateurs actuels différents (identity l’impose ; cette console n’admet que des fondateurs) ; les deux sont désactivés tant que la lecture du registre ne renvoie pas sa version. Le rapprochement n’est pas disponible depuis cette console.',
+    'Consultez l’état des écritures et son dernier changement. Le gel demande deux opérateurs différents et la reprise deux fondateurs actuels différents (identity l’impose ; cette console n’admet que des fondateurs) ; les deux sont désactivés tant que la lecture du registre ne renvoie pas sa version. Les contrôles de rapprochement sont sous la recherche de transaction.',
   record: 'État des écritures',
   completed: 'Dernière lecture terminée · dernier changement ci-dessous',
   refresh: 'Actualiser',
@@ -144,11 +134,6 @@ const fr: LedgerCopy = {
     'La reprise rétablit les mouvements de valeur sur toute la plateforme. Deux fondateurs actuels différents doivent être d’accord (identity l’impose), et la cause du gel doit être résolue.',
   freezeReasonLabel: 'Motif (enregistré avec le gel, de 12 à 500 caractères)',
   thawReasonLabel: 'Inutile : la reprise efface le motif enregistré',
-  reconcile: 'Rapprochement',
-  reconcileMissing:
-    'Indisponible depuis cette console. svc-ledger sait lancer un rapprochement complet (soldes contre rejeu, et chaîne de hachages), mais svc-edge n’expose aucune route : cette console ne peut ni en lancer un ni lire le dernier résultat.',
-  reconcileWhy:
-    'Aucun chiffre n’est affiché car aucun n’a été lu. Un échec de rapprochement gèle le registre de lui-même ; l’état ci-dessus le montre.',
 };
 export const LEDGER_COPY: Readonly<Record<LedgerLocale, LedgerCopy>> = { en, es, fr };
 export function ledgerCopy(locale: LedgerLocale = 'en'): LedgerCopy {

@@ -17,6 +17,7 @@ import {
   SECURITY_LOCK_UNLOCK_STEP_UP_PURPOSE,
   SECURITY_LOCK_UNLOCK_STEP_UP_SCOPE,
 } from './identity.js';
+import { RECOVERY_KEY_STEP_UP_PURPOSE, RECOVERY_KEY_STEP_UP_SCOPE } from './identity-recovery.js';
 
 /** How long the user has to answer the passkey or authenticator after begin. */
 export const CUSTOMER_STEP_UP_CHALLENGE_TTL_SECONDS = 120;
@@ -259,6 +260,31 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     fixed: {},
   },
   {
+    // svc-p2p releaseStepUpPayloadHash: the order whose escrow goes to the buyer. Its coin, amount and buyer are fixed
+    // at take and cannot change, so the order id names the whole release.
+    scope: 'p2p.step_up.trades.confirmReceived',
+    purpose: 'trades.confirmReceived',
+    clientFields: ['tradeId'],
+    targetField: 'tradeId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    // svc-p2p instrumentStepUpPayloadHash: the payment method (instrument), whether it is added, changed or removed, and
+    // the digest of the details it saves (`p2pInstrumentDetailsDigest`; empty when the change sends none), so one
+    // confirmation approves one account number. Identity never sees the details themselves.
+    scope: 'p2p.step_up.instruments.change',
+    purpose: 'instruments.change',
+    clientFields: ['instrumentId', 'change', 'detailsDigest'],
+    targetField: 'instrumentId',
+    targetRequired: true,
+    emptyOk: ['detailsDigest'],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
     scope: 'pay.step_up.payoutDestination.set',
     purpose: 'payoutDestination.set',
     clientFields: ['merchantId', 'railId', 'kind', 'ref'],
@@ -384,6 +410,28 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     fixed: {},
   },
   {
+    // `purposes` is the sorted, comma-joined set (`money_out,security_change,signin`), empty for "every action".
+    scope: 'identity.step_up.passkey_purposes',
+    purpose: 'account.passkey.purposes',
+    clientFields: ['credentialId', 'purposes', 'clientRequestId'],
+    targetField: 'credentialId',
+    targetRequired: true,
+    emptyOk: ['purposes'],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    // `on` is `on` or `off`.
+    scope: 'identity.step_up.passkey_second_step',
+    purpose: 'account.passkey.secondStep',
+    clientFields: ['on', 'clientRequestId'],
+    targetField: 'clientRequestId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
     scope: 'identity.step_up.totp_replace',
     purpose: 'account.totp.replace',
     clientFields: ['clientRequestId'],
@@ -464,6 +512,16 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     fixed: {},
   },
   {
+    scope: 'identity.step_up.trusted_device_approve',
+    purpose: 'account.trustedDevice.approve',
+    clientFields: ['flowId'],
+    targetField: 'flowId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
     scope: 'identity.step_up.link_method',
     purpose: 'account.signinMethod.link',
     clientFields: ['method', 'clientRequestId'],
@@ -478,6 +536,17 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     purpose: 'account.signinMethod.unlink',
     clientFields: ['method', 'clientRequestId'],
     targetField: 'method',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: RECOVERY_KEY_STEP_UP_SCOPE,
+    purpose: RECOVERY_KEY_STEP_UP_PURPOSE,
+    // `change` is add, revoke or plan; `target` is the key's fingerprint, the key id, or `plan:<heir handle>:<threshold>`.
+    clientFields: ['change', 'target', 'clientRequestId'],
+    targetField: 'target',
     targetRequired: true,
     emptyOk: [],
     decimalFields: [],

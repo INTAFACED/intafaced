@@ -10,7 +10,9 @@ import { Withdrawal } from './Withdrawal';
 import { WithdrawalAllowlist } from './WithdrawalAllowlist';
 import { WithdrawalApprovals } from './WithdrawalApprovals';
 import { WithdrawalAddresses } from './WithdrawalAddresses';
+import { ApproveAddress } from './ApproveAddress';
 import { Deposit } from './Deposit';
+import { SupportedAssets } from './SupportedAssets';
 import { pendingKey, pendingOutcomes, restorePendingOutcomes } from './pending-outcomes';
 import './money.css';
 
@@ -120,8 +122,11 @@ function MoneyRooms({ path }: { path: string }) {
   const match = pathname.match(/^\/(?:portfolio|money\/asset)\/([^/]+)(\/repeat-buy)?$/);
   let content;
   if (pathname === '/uc/recharge') content = <Deposit />;
+  else if (pathname === '/uc/assets') content = <SupportedAssets />;
   else if (pathname === '/uc/withdraw/address')
     content = <WithdrawalAddresses key={`addresses:${revision}:${context.epoch}`} open={open} />;
+  // Read once: the page takes the link's token out of the address bar.
+  else if (pathname === '/approveAddress') content = <ApproveAddress search={new URL(context.href).search} />;
   else if (pathname === '/uc/withdraw/allowlist')
     content = (
       <WithdrawalAllowlist
@@ -151,7 +156,7 @@ function MoneyRooms({ path }: { path: string }) {
   return (
     <>
       {pending.length > 0 && (
-        <div id="bank-unconfirmed" className="page money-pending" role="alert">
+        <div id="bank-unconfirmed" data-testid="page" className="page money-pending" role="alert">
           <h2>
             <Text k="index.bank.writes.are.paused.while.an.outcome" />
           </h2>
@@ -159,7 +164,7 @@ function MoneyRooms({ path }: { path: string }) {
             <Text k="index.refreshing.quantities.cannot.prove.the.outcome.of" />
           </p>
           {pending.map((record, index) => (
-            <p className="money-reference" key={`${record.reference}:${index}`}>
+            <p data-testid="money-reference" className="money-reference" key={`${record.reference}:${index}`}>
               {record.title} · {record.reference === 'unreadable' ? <Text k="pending-outcomes.recovery.required" /> : record.procedure}
               <Text k="index.reference" />
               {record.reference}

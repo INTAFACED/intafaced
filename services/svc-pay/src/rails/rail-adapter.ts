@@ -336,6 +336,12 @@ export interface RailResult {
    * already states about refundable balances.
    */
   readonly remainingAuthorized?: Amount;
+
+  /**
+   * On a rail that `checksPayerName`: the name on the sending account of EVERY transfer this result counts (null for one
+   * the bank reported no name for), so the core checks exactly the money it is about to take in (RC-merchant-09).
+   */
+  readonly payerNames?: readonly (string | null)[];
 }
 
 /**
@@ -382,7 +388,13 @@ export type RailEventType =
   | 'dispute.closed'
   | 'refund.reversed'
   | 'mandate.created'
-  | 'mandate.revoked';
+  | 'mandate.revoked'
+  /**
+   * A chain watcher saw a transfer it reported leave the chain: the block it was in was rewritten and the transfer is not in
+   * the new one (W-deposit-06). Carries `chain`. Only the customer deposit record acts on it; on a payment it is recorded and
+   * not acted on, like any type without a `case`.
+   */
+  | 'chain.reorged';
 
 /** §6.1: `verifyWebhook(req): RailEvent | null`. */
 export interface RailEvent {
@@ -418,8 +430,14 @@ export interface RailEvent {
   /** The mandate this delivery is about, on `mandate.*`. */
   readonly mandateRef?: string;
 
-  /** Where the chain saw the transfer, on a `captured` delivery from a chain watcher. Absent from every other rail. */
+  /** Where the chain saw the transfer, on a `captured` or `chain.reorged` delivery from a chain watcher. Absent from every other rail. */
   readonly chain?: { readonly txHash: string; readonly logIndex: number; readonly confirmations: number };
+
+  /**
+   * The name on the account the money came from, on a `captured` delivery from a bank rail that reports it. Compared with
+   * the name the payer gave before a bank transfer is captured (RC-merchant-09); never shown to the payer or the business.
+   */
+  readonly payerName?: string;
 }
 
 /**
@@ -430,7 +448,7 @@ export interface RailEvent {
  *   id: string;
  *   capabilities: RailCapability[];
  *   authorize(p: PaymentIntent): Promise<RailResult>;
- *   capture(ref: string): Promise<RailResult>;
+ *   capture(ref: string, opts?: RailCaptureOptions): Promise<RailResult>;
  *   refund(ref: string, amount: Amount, opts?: RailRefundOptions): Promise<RailResult>;
  *   payout(s: SettlementInstruction): Promise<RailResult>;
  *   verifyWebhook(req): RailEvent | null;
@@ -449,11 +467,23 @@ export interface RailEvent {
  * `capturePartial`, below, and it is optional: a rail declares `capture.partial`
  * or the core refuses to ask it, by name.
  *
+ * `capture` optional `authorized` (J-merchant-04 step 5) is not a partial
+ * capture: it is the whole authorization, named, for a rail whose reference
+ * can keep receiving value after authorize (a chain acceptance address paid in
+ * parts). Such a rail books exactly what it authorized, so a later transfer to
+ * the address (anyone can send dust to a public address) cannot make every
+ * capture disagree with the authorization. Other rails ignore it.
+ *
  * `refund` optional `refundId` (M226-02): irreversible chain refunds must key
  * the outbound broadcast on the core's durable refund id, not a process-local
  * counter. Sandbox rails may ignore it.
  */
 /** Optional third argument to `RailAdapter.refund` (backward compatible). */
+export interface RailCaptureOptions {
+  /** The amount the core holds as authorized for this reference: the whole authorization, never less. */
+  readonly authorized?: Amount;
+}
+
 export interface RailRefundOptions {
   /**
    * Durable business key from the payment core (ledger / payment_events).
@@ -833,6 +863,13 @@ export interface RailAdapter {
    * lost only on such a rail; on any other it stays in flight until someone reconciles it.
    */
   readonly refundIsIdempotentByRefundId?: boolean;
+  /**
+   * True on a rail the payer pushes money to from an account they choose (a bank transfer). Its authorize results name
+   * the sending account of every transfer counted (`RailResult.payerNames`), and the core holds the payment for review,
+   * instead of authorizing it, when any of them fails the owner's payer-name rule (RC-merchant-09). Keyed on the rail,
+   * never on the payment's method string, so no method name skips the check.
+   */
+  readonly checksPayerName?: boolean;
 
   /**
    * `live`, `sandbox` or `absent`. See `RailMode`.
@@ -853,7 +890,7 @@ export interface RailAdapter {
   probe?(): Promise<RailProbeResult>;
 
   authorize(p: PaymentIntent): Promise<RailResult>;
-  capture(ref: string): Promise<RailResult>;
+  capture(ref: string, opts?: RailCaptureOptions): Promise<RailResult>;
   refund(ref: string, amount: Amount, opts?: RailRefundOptions): Promise<RailResult>;
   payout(s: SettlementInstruction): Promise<RailResult>;
 

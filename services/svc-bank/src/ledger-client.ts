@@ -7,10 +7,20 @@ import {
   type HttpLedgerOptions,
   type LedgerClient,
 } from '@intafaced/ledger-client';
-import { assetsListOutputSchema, serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import {
+  assetsListOutputSchema,
+  ledgerHoldingsHistoryInputSchema,
+  ledgerHoldingsHistorySchema,
+  serviceCallSigner,
+  type LedgerHoldingsHistory,
+  type LedgerHoldingsHistoryInput,
+  type ServiceAuthMode,
+  type ServiceSigner,
+} from '@intafaced/contracts';
 import type { HistoryRange, LedgerEntryRecord, LedgerHistory } from './analytics/ledger-history.js';
 import type { LedgerHistoryPages, LedgerPageRequest } from './activity/activity-service.js';
 import type { WithdrawNetworkSource } from './ramps/withdraw-networks.js';
+import type { AssetRegistryReads } from './assets/supported-assets.js';
 
 /**
  * Budgets for svc-ledger calls.
@@ -181,16 +191,45 @@ export function createLedgerHistoryPages(baseUrl: string, internalSecret: string
 }
 
 /**
- * svc-ledger's asset and network registry (`/trpc/assetsList`), filtered to active assets that allow withdrawals.
+ * svc-ledger's asset and network registry (`/trpc/assetsList`): `withdrawable` filtered to active assets that allow
+ * withdrawals, `listed` every published row in any state (the customer's list and the deposit catalogue's narrowing).
  * Same signing and read budget as a balance read. The answer is parsed with the registry's own wire schema, so a row
  * that does not fit it is refused here rather than offered as a network. A failure is thrown, never an empty list.
  */
-export function createLedgerAssetRegistry(baseUrl: string, internalSecret: string, s2s?: LedgerS2s): WithdrawNetworkSource {
+export function createLedgerAssetRegistry(
+  baseUrl: string,
+  internalSecret: string,
+  s2s?: LedgerS2s,
+): WithdrawNetworkSource & AssetRegistryReads {
   const call = createLedgerTransport({ ...sharedOptions(baseUrl, internalSecret, s2s), ...READ_BUDGET });
   return {
     async withdrawable() {
       const answer = await call<unknown>('/trpc/assetsList', { state: 'active', action: 'withdraw' });
       return assetsListOutputSchema.parse(answer).assets;
+    },
+    async listed() {
+      const answer = await call<unknown>('/trpc/assetsList', {});
+      return assetsListOutputSchema.parse(answer).assets;
+    },
+  };
+}
+
+/** svc-ledger `holdingsHistory`, read only: one owner's holdings now and its movements since `from`, in one snapshot. */
+export interface LedgerHoldingsHistoryReads {
+  holdingsHistory(input: LedgerHoldingsHistoryInput): Promise<LedgerHoldingsHistory>;
+}
+
+/**
+ * svc-ledger's holdings history door (`/trpc/holdingsHistory`, svc-bank only). History budget: it scans the owner's entries
+ * since `from`. The answer is parsed with the door's own wire schema, so a row that does not fit is refused here, and a
+ * refusal (a window the ledger cannot answer, or too many rows) keeps the ledger's code.
+ */
+export function createLedgerHoldingsHistory(baseUrl: string, internalSecret: string, s2s?: LedgerS2s): LedgerHoldingsHistoryReads {
+  const call = createLedgerTransport({ ...sharedOptions(baseUrl, internalSecret, s2s), ...HISTORY_BUDGET });
+  return {
+    async holdingsHistory(input) {
+      const answer = await call<unknown>('/trpc/holdingsHistory', ledgerHoldingsHistoryInputSchema.parse(input));
+      return ledgerHoldingsHistorySchema.parse(answer);
     },
   };
 }

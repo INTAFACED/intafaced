@@ -9,6 +9,7 @@
  *   node tooling/scripts/local-test-gates.mjs verify     test accounts submit, test operators approve "full"
  *   node tooling/scripts/local-test-gates.mjs terms      publish TEST personal transfer limits (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs assets     publish TEST supported assets and networks (two-person approval)
+ *   node tooling/scripts/local-test-gates.mjs deposit-terms   publish TEST crypto deposit networks and terms in svc-pay (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs futures    list the TEST perpetual, publish TEST derivatives terms and quiz
  *   node tooling/scripts/local-test-gates.mjs halt <SYMBOL>    halt one book in matching (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs resume <SYMBOL>  resume a halted book (two-person approval)
@@ -17,6 +18,7 @@
  *   node tooling/scripts/local-test-gates.mjs chart-class <SYMBOL> <dataClass>   one market's data class (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs risk <SYMBOL> collar=0.1|unset throttle=20|unset   change one market's limits
  *   node tooling/scripts/local-test-gates.mjs p2p        register the TEST P2P payment method (two-person approval)
+ *   node tooling/scripts/local-test-gates.mjs kyb        publish the TEST business verification requirements and upload rules
  *   node tooling/scripts/local-test-gates.mjs age <handle> <seconds>   move one TEST account's sign-up time back
  *   node tooling/scripts/local-test-gates.mjs status     read-only: what is open, who is verified
  *
@@ -35,6 +37,9 @@
  *   9. time passing for one TEST journey account (`age`): its sign-up time, referral relationship, latest fee event and
  *      ended relationships move back, so a journey can show a window measured from sign-up closed (J-campaigns-05 #5, the referral attach
  *      window) or a relationship past the inactivity period (#7) without waiting for it.
+ *  10. the owner who publishes what each type of business sends to verify and the upload rules for its documents
+ *      (svc-pay ships both tables empty, so no business application can start while they are). There is no door for
+ *      this owner data, so the repo's own seed tool writes the rows (`seed-pay-kyb-test-requirements.mjs`).
  * Every record it writes is labelled "LOCAL TEST — not a real approval" and carries one of the markers
  * below, so a production check can recognise and refuse them (see MARKERS).
  *
@@ -68,6 +73,7 @@ import { localStackState, assertActiveLocalStack, localPgBin } from './local-tes
 import { GuardError, assertLocalTarget as assertMarketTarget } from './local-test-market.mjs';
 import { FOUNDER_STEPS_NAME, FOUNDER_VAULT_NAME, enrolledFounderPair } from './local-test-founders.mjs';
 import { TEST_AGREEMENTS, TEST_ELIGIBILITY_RULES } from './local-test-futures-terms.mjs';
+import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -410,7 +416,7 @@ function decodeJwtPayload(token) {
 
 // ── Context ─────────────────────────────────────────────────────────────────
 
-export async function makeContext({ home = os.homedir(), log = say } = {}) {
+export async function makeContext({ home = os.homedir(), log = say, shareSessions = false } = {}) {
   const { paths, marker } = assertLocalTarget({ home });
   assertActiveLocalStack({ stateDir: paths.stateDir });
   const p = gatePaths(home);
@@ -429,6 +435,8 @@ export async function makeContext({ home = os.homedir(), log = say } = {}) {
     url,
     edge: new Edge(url('edge'), `http://${HOST}:${marker.ports.customer ?? 3210}`),
     guard: paths,
+    /** Set: approverSessions and operatorSessions sign each pair in once for this context (see `shared`). */
+    sessionCache: shareSessions ? {} : null,
   };
 }
 
@@ -455,18 +463,37 @@ function saveOperators(ctx, ops) {
   });
 }
 
-const stepNow = () => Math.floor(Date.now() / 30_000);
+const STEP_MS = 30_000;
+/** The longest Edge keeps a session's authority, tier included (services/svc-edge/src/live-authority.ts, AUTHORITY_POSITIVE_CACHE_MAX_MS). */
+export const EDGE_AUTHORITY_CACHE_MAX_MS = 1000;
+const stepNow = () => Math.floor(Date.now() / STEP_MS);
+/** Identity accepts a code one step either side of its own clock (services/svc-identity/src/auth/totp.ts, matchTotpStep). */
+export const TOTP_SKEW_STEPS = 1;
+
+/**
+ * Which TOTP step to sign in with next: the first one after the last this operator used (identity refuses a step at or
+ * before the last one it consumed), and never one before the current step. The step after the current one is inside
+ * the skew window identity accepts, so a second sign-in in the same 30 seconds takes that one instead of waiting
+ * (failure it prevents: every sign-in after the first waited for the clock, about 30 s each, 5.5 of the 12 minutes the
+ * journeys run spent opening the TEST markets in run 541). Null while both are spent: the caller waits for the clock.
+ */
+export function nextTotpStep(lastStep, current) {
+  const last = Number(lastStep ?? 0);
+  // An unreadable last step (a hand-edited file) counts as none, as before: the current step, never an endless wait.
+  const step = Number.isFinite(last) ? Math.max(last + 1, current) : current;
+  return step <= current + TOTP_SKEW_STEPS ? step : null;
+}
 
 /** A TOTP code for a step strictly after the last one this operator used (identity refuses replays). */
 async function freshCode(ctx, op) {
-  while (stepNow() <= Number(op.lastStep ?? 0)) await sleep(1000);
-  const code = ctx.totp.totp(op.totpSecret);
-  op.lastStep = stepNow();
-  return code;
+  let step;
+  while ((step = nextTotpStep(op.lastStep, stepNow())) === null) await sleep(1000);
+  op.lastStep = step;
+  return ctx.totp.totp(op.totpSecret, { at: new Date(step * STEP_MS) });
 }
 
 async function operatorLogin(ctx, op) {
-  const input = { identifier: op.email ?? op.handle, password: op.password };
+  const input = { identifier: op.email ?? op.handle, password: op.password, deviceKey: LOCAL_TEST_DEVICE_KEY };
   if (op.totpSecret) input.totpCode = await freshCode(ctx, op);
   const res = await ctx.edge.mutate('identity', 'auth.login', input);
   const d = data(res);
@@ -484,12 +511,21 @@ export async function ensureOperators(ctx) {
     const op = ops[l];
     let token = null;
     if (!op.totpSecret) {
-      const reg = await ctx.edge.mutate('identity', 'auth.register', { handle: op.handle, email: op.email, password: op.password });
+      const reg = await ctx.edge.mutate('identity', 'auth.register', {
+        handle: op.handle,
+        email: op.email,
+        password: op.password,
+        deviceKey: LOCAL_TEST_DEVICE_KEY,
+      });
       if (data(reg)?.accessToken) {
         token = data(reg).accessToken;
         ctx.log(`operator ${op.handle} registered (${MARKERS.label})`);
       } else {
-        const login = await ctx.edge.mutate('identity', 'auth.login', { identifier: op.email, password: op.password });
+        const login = await ctx.edge.mutate('identity', 'auth.login', {
+          identifier: op.email,
+          password: op.password,
+          deviceKey: LOCAL_TEST_DEVICE_KEY,
+        });
         token = data(login)?.accessToken ?? null;
         if (!token)
           throw new Error(`operator ${op.handle}: register refused (${refusalText(reg)}) and login refused (${refusalText(login)})`);
@@ -514,17 +550,39 @@ export async function ensureOperators(ctx) {
 
 /** Short-lived access token for this operator's live session, carrying an `admin:compliance` operator scope. */
 async function mintOperatorToken(ctx, op, scopes = ['admin:compliance']) {
-  const minted = await ctx.tokens.issueAccessToken(
+  return (await mintSessionToken(ctx, op, scopes, 300)).token;
+}
+
+async function mintSessionToken(ctx, op, scopes, ttlSeconds) {
+  return ctx.tokens.issueAccessToken(
     { userId: op.userId, sessionId: op.sessionId, scopes, tier: 'none', mfa: true },
-    { secret: ctx.secrets.jwt, issuer: 'intafaced', audience: 'intafaced.api', accessTtlSeconds: 300 },
+    { secret: ctx.secrets.jwt, issuer: 'intafaced', audience: 'intafaced.api', accessTtlSeconds: ttlSeconds },
   );
-  return minted.token;
+}
+
+/**
+ * With `shareSessions` (the CLI's commands), one sign-in per pair serves every step of the command: `apply` signed the
+ * founders in once per step, about a dozen times, and each sign-in needs its own TOTP step. Without it (journey files
+ * hold their own pair), every call signs in afresh, as before. A sign-in that fails is not kept, so the next call tries
+ * again.
+ */
+function shared(ctx, key, signIn) {
+  if (!ctx.sessionCache) return signIn();
+  if (!ctx.sessionCache[key]) {
+    ctx.sessionCache[key] = signIn().catch((err) => {
+      delete ctx.sessionCache[key];
+      throw err;
+    });
+  }
+  return ctx.sessionCache[key];
 }
 
 /** Sign both operators in with their second factor. Returns { a, b } sessions with minted tokens. */
 export async function operatorSessions(ctx) {
-  const ops = await ensureOperators(ctx);
-  return signInPair(ctx, ops, () => saveOperators(ctx, ops));
+  return shared(ctx, 'operators', async () => {
+    const ops = await ensureOperators(ctx);
+    return signInPair(ctx, ops, () => saveOperators(ctx, ops));
+  });
 }
 
 /** The vault's two enrolled LOCAL TEST founders as sign-ins keyed `a`/`b` (the keys their TOTP steps use), or none. */
@@ -544,11 +602,34 @@ export function founderSignIns(vault) {
 export async function approverSessions(ctx) {
   const pair = founderSignIns(readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), null));
   if (pair.length === 0) return operatorSessions(ctx);
+  return shared(ctx, 'founders', () => {
+    const stepsFile = path.join(ctx.paths.stateDir, FOUNDER_STEPS_NAME);
+    const steps = readJson(stepsFile, {});
+    const ops = {};
+    for (const { key, ...f } of pair) ops[key] = { ...f, lastStep: Number(steps[key] ?? 0) };
+    return signInPair(ctx, ops, () => writePrivate(stepsFile, { ...readJson(stepsFile, {}), a: ops.a.lastStep, b: ops.b.lastStep }));
+  });
+}
+
+/**
+ * The founder console's LOCAL TEST treasury credential (ADMIN_TREASURY_TOKEN): founder a signs in with their second
+ * factor, and that fresh session gets `admin:treasury`, which svc-edge's treasury doors check together with the second
+ * factor and a live session. Founder sessions never carry that scope, so without this the stack's console shows the
+ * treasury doors parked. The stack's own JWT secret signs it, so it is valid nowhere else. Null until the founder pair
+ * is enrolled.
+ */
+export async function consoleTreasuryToken(ctx, { ttlSeconds }) {
+  const a = founderSignIns(readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), null)).find((f) => f.key === 'a');
+  if (!a) return null;
   const stepsFile = path.join(ctx.paths.stateDir, FOUNDER_STEPS_NAME);
-  const steps = readJson(stepsFile, {});
-  const ops = {};
-  for (const { key, ...f } of pair) ops[key] = { ...f, lastStep: Number(steps[key] ?? 0) };
-  return signInPair(ctx, ops, () => writePrivate(stepsFile, { ...readJson(stepsFile, {}), a: ops.a.lastStep, b: ops.b.lastStep }));
+  const op = { ...a, lastStep: Number(readJson(stepsFile, {}).a ?? 0) };
+  try {
+    await operatorLogin(ctx, op);
+  } finally {
+    // Identity may have spent the step even when the login then failed: never hand it to the next tool.
+    writePrivate(stepsFile, { ...readJson(stepsFile, {}), a: op.lastStep });
+  }
+  return mintSessionToken(ctx, op, ['admin:treasury'], ttlSeconds);
 }
 
 /**
@@ -587,13 +668,25 @@ async function signInPair(ctx, ops, saveSteps) {
       async approvalToken() {
         return mintOperatorToken(ctx, op);
       },
+      /** Same session with `admin:treasury`, the scope svc-bank's four-eyes treasury doors check (ops.adjustLoanInterest). */
+      async treasuryToken() {
+        return mintOperatorToken(ctx, op, ['admin:treasury']);
+      },
       /** Same session with the trade operator write scope svc-trade's admin doors check (admin.risk.set). */
       async tradeOpsToken() {
         return mintOperatorToken(ctx, op, ['admin:read', 'admin:write']);
       },
+      /** Same session as compliance: the trade desk's VIP application review also needs `admin:compliance`. */
+      async complianceToken() {
+        return mintOperatorToken(ctx, op, ['admin:read', 'admin:write', 'admin:compliance']);
+      },
       /** Same session with the CRM scopes svc-ops checks before it asks identity whether the caller is a founder. */
       async crmToken() {
         return mintOperatorToken(ctx, op, ['ops:read', 'ops:write']);
+      },
+      /** Same session with the campaign operator scope svc-campaigns checks (seasons and drops: one creates, the other publishes). */
+      async campaignsOpsToken() {
+        return mintOperatorToken(ctx, op, ['campaigns:ops']);
       },
       /** Same session with the support desk staff scope svc-support checks (help-centre settings, article publishing). */
       async supportOpsToken() {
@@ -605,7 +698,7 @@ async function signInPair(ctx, ops, saveSteps) {
 }
 
 /** Operator A proposes, operator B approves, with two different signed-in sessions. Returns { approvalId, operationId }. */
-async function twoPerson(ctx, sessions, proposal) {
+export async function twoPerson(ctx, sessions, proposal) {
   // Two different people, or the approval proves nothing: refuse when the proposer and approver are the same operator
   // or cannot be told apart.
   const who = (s) => s.op?.handle ?? s.op?.email ?? null;
@@ -623,6 +716,47 @@ async function twoPerson(ctx, sessions, proposal) {
   if (data(approved)?.status !== 'APPROVED')
     throw new Error(`actionApproval.approve refused (${approved.status}): ${refusalText(approved)}`);
   return { approvalId: row.approvalId, operationId: row.operationId };
+}
+
+// ── KYC documents (journeys) ────────────────────────────────────────────────
+
+/** A four-eyes proposal for one of identity's KYC document doors (`kyc.doc.store`, `kyc.doc.bind`): the verb is the target. */
+function kycDocProposal(verb, fields) {
+  return {
+    actionType: verb,
+    targetService: 'svc-identity',
+    targetId: verb,
+    expectedVersion: '1',
+    payloadHash: identityPayloadHash(verb, fields),
+    policyVersion: MARKERS.policyVersion,
+  };
+}
+
+/**
+ * Store one LABELLED TEST document in identity's KYC vault for `userId`, the way an operator does (`kyc.storeDocument`): the
+ * two TEST operators approve it at identity. Needs the stack's vault key (IDENTITY_KYC_DOC_KEY). Returns identity's meta.
+ */
+export async function storeTestKycDocument(ctx, { userId, contentType, bytes }) {
+  const pair = await operatorSessions(ctx);
+  const ids = await twoPerson(ctx, pair, kycDocProposal('kyc.doc.store', { userId }));
+  const res = await ctx.edge.mutate(
+    'identity',
+    'kyc.storeDocument',
+    { userId, contentType, bytesBase64: Buffer.from(bytes).toString('base64'), ...ids },
+    await pair.a.complianceToken(),
+  );
+  const meta = data(res);
+  if (!meta?.id) throw new Error(`kyc.storeDocument refused (${res.status}): ${refusalText(res)}`);
+  return meta;
+}
+
+/** Attach a stored document to its subject's pending KYC record (`kyc.bindDocument`), approved by the two TEST operators. */
+export async function bindTestKycDocument(ctx, { recordId, documentId }) {
+  const pair = await operatorSessions(ctx);
+  const ids = await twoPerson(ctx, pair, kycDocProposal('kyc.doc.bind', { recordId, documentId }));
+  const res = await ctx.edge.mutate('identity', 'kyc.bindDocument', { recordId, documentId, ...ids }, await pair.a.complianceToken());
+  if (data(res)?.providerRef !== documentId) throw new Error(`kyc.bindDocument refused (${res.status}): ${refusalText(res)}`);
+  return data(res);
 }
 
 // ── 1. Lifecycle (the owner stand-in) ───────────────────────────────────────
@@ -849,6 +983,21 @@ export const TEST_ASSET_ROWS = ['USDT', 'USDC'].map((id) => ({
   allowedActions: ['deposit', 'withdraw', 'trade', 'transfer'],
   state: 'active',
 }));
+/**
+ * A LOCAL TEST asset published retired (J-wallet-01 #5): a retired asset stays in the customer's supported-asset list with
+ * its history, and nothing new is allowed on it. Its id names it TEST; it is no real coin, so its places are part of this
+ * TEST row, not an owner value. Journeys credit it TEST funds so the history has a line.
+ */
+export const TEST_RETIRED_ASSET_ROW = {
+  id: 'TESTRETIRED',
+  kind: 'crypto',
+  precision: 6,
+  networks: [{ networkId: 'ethereum', label: 'TEST Ethereum' }],
+  defaultNetworkId: 'ethereum',
+  allowedActions: [],
+  state: 'retired',
+};
+const PUBLISHED_TEST_ASSET_ROWS = [...TEST_ASSET_ROWS, TEST_RETIRED_ASSET_ROW];
 export const ASSET_EDIT_ACTION = 'ledger.asset_edit';
 
 /** True when the published row already says what the TEST row says (revision and clock aside). */
@@ -908,7 +1057,7 @@ export async function publishAssetRegistry(ctx) {
   if (listed.status !== 200 || !Array.isArray(listed.json?.assets))
     throw new Error(`ledger GET /operator/assets refused (${listed.status}): ${listed.text.slice(0, 300)}`);
   const out = [];
-  for (const want of TEST_ASSET_ROWS) {
+  for (const want of PUBLISHED_TEST_ASSET_ROWS) {
     const row = listed.json.assets.find((a) => a.id === want.id) ?? null;
     if (assetRowMatches(row, want)) {
       out.push({ assetId: want.id, status: 'already published', revision: row.revision });
@@ -923,6 +1072,241 @@ export async function publishAssetRegistry(ctx) {
     ctx.log(
       `asset ${want.id}: ${want.networks.map((n) => n.networkId).join(', ')} published (${MARKERS.label}); approval ${ids.approvalId}`,
     );
+  }
+  return out;
+}
+
+// ── 2c+. Crypto deposits: TEST networks and deposit terms (two-person approval) ──
+
+/**
+ * LOCAL TEST deposit terms, not owner values. svc-pay publishes a deposit pair only when its network is in the payment
+ * network registry (switched on, a confirmation count and a fee source set, the asset listed) AND the pair has an owner
+ * setting switched on (`pay.custody_deposit_settings`). Both start empty, so the Deposit room offers nothing and every
+ * address request refuses. The networks are the two TEST EVM chains the address book already offers.
+ */
+export const TEST_DEPOSIT_NETWORKS = [
+  { networkId: 'ethereum', displayName: 'TEST Ethereum' },
+  { networkId: 'base', displayName: 'TEST Base' },
+].map((n) => ({
+  ...n,
+  assetCodes: ['USDC', 'USDT'],
+  // TEST counts: as many confirmations as svc-pay's PAY_MIN_CONFIRMATIONS on the stack, and a TEST network fee estimate.
+  confirmationsRequired: 6,
+  enabled: true,
+  feeEstimateSource: 'fixed',
+  feeEstimateAmount: '1.5',
+}));
+/** The one TEST pair kept switched off, so the Deposit room's switched-off notice can be seen; every other pair is on. */
+export const TEST_HALTED_DEPOSIT = { assetId: 'USDC', networkId: 'base' };
+export const TEST_DEPOSIT_TERMS = TEST_DEPOSIT_NETWORKS.flatMap((n) =>
+  n.assetCodes.map((assetId) => {
+    const off = assetId === TEST_HALTED_DEPOSIT.assetId && n.networkId === TEST_HALTED_DEPOSIT.networkId;
+    return {
+      assetId,
+      networkId: n.networkId,
+      label: n.displayName,
+      minimumDeposit: '10',
+      estimatedArrivalMinutes: 15,
+      enabled: !off,
+      haltNote: off ? 'TEST: switched off on this test stack so the notice can be seen.' : null,
+    };
+  }),
+);
+
+/**
+ * LOCAL TEST inbound travel rule for every TEST deposit coin (W-deposit-07), not an owner value: a deposit of 1000 or more is
+ * held for the depositor's declaration of the sender's name and address. Every other journey deposits far less, so it credits
+ * as before. svc-pay credits nothing for a coin with no rule, so the stack must publish one.
+ */
+export const TEST_DEPOSIT_TRAVEL_RULE = Object.freeze({ threshold: '1000', fields: ['originator_name', 'originator_address'] });
+/**
+ * LOCAL TEST travel-rule wait limits (svc-pay `founderAdmin.travelRule.waitLimits`), not owner values: a wait on the sending
+ * platform runs out after 60 seconds, so J-wallet-03 #3 can see it run out and the deposit stay held.
+ */
+export const TEST_TRAVEL_RULE_WAITS = Object.freeze({ pendingSeconds: 60, repairSeconds: 600 });
+
+/** The svc-pay approval a founder change needs: the target is the action type itself, at version 1 (consumePayApproval). */
+export function payProposal(actionType, payloadHash) {
+  return {
+    actionType,
+    targetService: 'svc-pay',
+    targetId: actionType,
+    expectedVersion: '1',
+    payloadHash,
+    policyVersion: MARKERS.policyVersion,
+  };
+}
+
+/**
+ * One svc-pay founder change: preview it, and when the preview says a second founder must approve, founder A proposes the
+ * exact payload hash the preview names and founder B approves it; then founder A saves. Returns the saved row.
+ */
+async function payFounderSave(ctx, sessions, { preview, previewInput, save, input, what }) {
+  const token = sessions.a.token;
+  const looked = await ctx.edge.query('pay', preview, previewInput, token);
+  const plan = data(looked);
+  if (!plan?.payloadHash) throw new Error(`pay ${preview} for ${what} refused (${looked.status}): ${refusalText(looked)}`);
+  const ids = plan.needsDualControl ? await twoPerson(ctx, sessions, payProposal(plan.actionType, plan.payloadHash)) : {};
+  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+  const saved = await ctx.edge.mutate('pay', save, { ...input, ...ids }, token);
+  const row = data(saved);
+  if (!row) throw new Error(`pay ${save} for ${what} refused (${saved.status}): ${refusalText(saved)}`);
+  return { row, approvalId: ids.approvalId ?? null };
+}
+
+/**
+ * True when the registry row already carries the TEST network (version and clock aside). Assets listed beyond the TEST ones are
+ * someone else's and do not count as a difference.
+ */
+export function networkRowMatches(row, want) {
+  if (!row) return false;
+  const pick = (r) => JSON.stringify([r.displayName, r.confirmationsRequired, r.enabled, r.feeEstimateSource, r.feeEstimateAmount]);
+  return pick(row) === pick(want) && want.assetCodes.every((code) => row.assetCodes.includes(code));
+}
+
+/**
+ * Publish the TEST deposit networks and deposit terms through the founders' doors in svc-pay
+ * (`founderAdmin.registries.networks.save`, `founderAdmin.depositSettings.save`). A deposit pair is created switched off and
+ * switched on as its own dual-controlled change, as the service requires. A row that already says the same is left alone.
+ */
+export async function publishDepositTerms(ctx) {
+  const sessions = await approverSessions(ctx);
+  const token = sessions.a.token;
+  const out = [];
+  const networks = await ctx.edge.query('pay', 'founderAdmin.registries.networks.list', {}, token);
+  if (!Array.isArray(data(networks))) throw new Error(`pay networks.list refused (${networks.status}): ${refusalText(networks)}`);
+  for (const want of TEST_DEPOSIT_NETWORKS) {
+    const what = `network ${want.networkId}`;
+    let row = data(networks).find((n) => n.networkId === want.networkId) ?? null;
+    if (networkRowMatches(row, want)) {
+      out.push({ what, status: 'already published' });
+      continue;
+    }
+    const reason = `${MARKERS.label}: TEST deposit network`;
+    const save = (change) =>
+      payFounderSave(ctx, sessions, {
+        preview: 'founderAdmin.registries.preview',
+        previewInput: { registry: 'network', change },
+        save: 'founderAdmin.registries.networks.save',
+        input: change,
+        what,
+      });
+    // A new entry must be created switched off; switching it on is its own dual-controlled edit.
+    if (!row) row = (await save({ ...want, enabled: false, expectedVersion: null, reason })).row;
+    // Keep any asset already listed on the network beside the TEST ones.
+    const assetCodes = [...new Set([...row.assetCodes, ...want.assetCodes])].sort();
+    const r = await save({ ...want, assetCodes, expectedVersion: row.version, reason });
+    out.push({ what, status: 'published', approvalId: r.approvalId });
+    ctx.log(`deposit network ${want.networkId}: ${want.assetCodes.join(', ')} published (${MARKERS.label})`);
+  }
+  const listed = await ctx.edge.query('pay', 'founderAdmin.depositSettings.list', {}, token);
+  if (!Array.isArray(data(listed))) throw new Error(`pay depositSettings.list refused (${listed.status}): ${refusalText(listed)}`);
+  for (const want of TEST_DEPOSIT_TERMS) {
+    const what = `deposit ${want.assetId} on ${want.networkId}`;
+    let row = data(listed).find((r) => r.assetId === want.assetId && r.networkId === want.networkId) ?? null;
+    const same = (r) =>
+      r &&
+      r.label === want.label &&
+      r.minimumDeposit === want.minimumDeposit &&
+      r.estimatedArrivalMinutes === want.estimatedArrivalMinutes &&
+      r.enabled === want.enabled &&
+      r.haltNote === want.haltNote;
+    if (same(row)) {
+      out.push({ what, status: 'already published' });
+      continue;
+    }
+    const reason = `${MARKERS.label}: TEST deposit terms`;
+    const save = (change) =>
+      payFounderSave(ctx, sessions, {
+        preview: 'founderAdmin.depositSettings.preview',
+        previewInput: change,
+        save: 'founderAdmin.depositSettings.save',
+        input: change,
+        what,
+      });
+    // A new pair must be created switched off; switching it on (with the TEST terms) is its own dual-controlled change.
+    if (!row) row = (await save({ ...want, enabled: false, haltNote: null, expectedVersion: null, reason })).row;
+    const r = same(row) ? { approvalId: null } : await save({ ...want, expectedVersion: row.version, reason });
+    out.push({ what, status: 'published', approvalId: r.approvalId });
+    ctx.log(
+      `${what}: minimum ${want.minimumDeposit}, about ${want.estimatedArrivalMinutes} min, ${want.enabled ? 'switched on' : 'kept switched off'} (${MARKERS.label})`,
+    );
+  }
+  // The inbound travel rule per coin and the travel-rule wait limits: one founder each, kept on svc-pay's history.
+  const rules = await ctx.edge.query('pay', 'founderAdmin.depositTravelRule.rules.list', {}, token);
+  if (!Array.isArray(data(rules))) throw new Error(`pay depositTravelRule.rules.list refused (${rules.status}): ${refusalText(rules)}`);
+  for (const assetId of [...new Set(TEST_DEPOSIT_TERMS.map((t) => t.assetId))].sort()) {
+    const what = `deposit travel rule ${assetId}`;
+    const row = data(rules).find((r) => r.assetId === assetId);
+    const want = TEST_DEPOSIT_TRAVEL_RULE;
+    if (row && row.applies && row.threshold === want.threshold && JSON.stringify(row.fields) === JSON.stringify(want.fields)) {
+      out.push({ what, status: 'already published' });
+      continue;
+    }
+    const set = await ctx.edge.mutate(
+      'pay',
+      'founderAdmin.depositTravelRule.rules.set',
+      { assetId, applies: true, threshold: want.threshold, fields: [...want.fields], reason: `${MARKERS.label}: TEST inbound travel rule` },
+      token,
+    );
+    if (!data(set)) throw new Error(`pay depositTravelRule.rules.set ${assetId} refused (${set.status}): ${refusalText(set)}`);
+    out.push({ what, status: 'published' });
+    ctx.log(`${what}: held at ${want.threshold} or more for ${want.fields.join(', ')} (${MARKERS.label})`);
+  }
+  const waits = await ctx.edge.query('pay', 'founderAdmin.travelRule.waitLimits.get', {}, token);
+  const w = data(waits);
+  if (!w) throw new Error(`pay travelRule.waitLimits.get refused (${waits.status}): ${refusalText(waits)}`);
+  if (w.pendingSeconds === TEST_TRAVEL_RULE_WAITS.pendingSeconds && w.repairSeconds === TEST_TRAVEL_RULE_WAITS.repairSeconds) {
+    out.push({ what: 'travel-rule wait limits', status: 'already published' });
+  } else {
+    const set = await ctx.edge.mutate('pay', 'founderAdmin.travelRule.waitLimits.set', { ...TEST_TRAVEL_RULE_WAITS }, token);
+    if (!data(set)) throw new Error(`pay travelRule.waitLimits.set refused (${set.status}): ${refusalText(set)}`);
+    out.push({ what: 'travel-rule wait limits', status: 'published' });
+  }
+  return out;
+}
+
+/**
+ * LOCAL TEST withdrawal limits (svc-pay `founderAdmin.limits`, W-withdraw-05), not owner values: TEST 1000 a withdrawal and
+ * TEST 5000 a rolling day, for every verified tier and every TEST deposit coin. svc-pay refuses every withdrawal for a tier
+ * and coin with no limit (`pay.guard_withdrawal_limit_unset`), so J-wallet-07 #3-#5 (a send to another account's platform
+ * address, W-withdraw-14) needs them. The `none` tier stays unset: an unverified account withdraws nothing.
+ */
+export const TEST_WITHDRAWAL_LIMITS = Object.freeze({ tiers: ['basic', 'full', 'institutional'], perTx: '1000', rolling24h: '5000' });
+
+/** Publish the TEST withdrawal limits through the founders' door (a second founder approves when svc-pay asks). */
+export async function publishWithdrawalLimits(ctx) {
+  const sessions = await approverSessions(ctx);
+  const token = sessions.a.token;
+  const listed = await ctx.edge.query('pay', 'founderAdmin.limits.list', {}, token);
+  if (!Array.isArray(data(listed))) throw new Error(`pay limits.list refused (${listed.status}): ${refusalText(listed)}`);
+  const want = { perTx: TEST_WITHDRAWAL_LIMITS.perTx, rolling24h: TEST_WITHDRAWAL_LIMITS.rolling24h };
+  const out = [];
+  for (const assetId of [...new Set(TEST_DEPOSIT_TERMS.map((t) => t.assetId))].sort()) {
+    for (const tier of TEST_WITHDRAWAL_LIMITS.tiers) {
+      const what = `withdrawal limit ${tier} ${assetId}`;
+      const row = data(listed).find((r) => r.tier === tier && r.assetId === assetId) ?? null;
+      if (row?.limit && row.limit.perTx === want.perTx && row.limit.rolling24h === want.rolling24h) {
+        out.push({ what, status: 'already published' });
+        continue;
+      }
+      const change = {
+        tier,
+        assetId,
+        limit: want,
+        expectedVersion: row ? row.version : null,
+        reason: `${MARKERS.label}: TEST withdrawal limit`,
+      };
+      const r = await payFounderSave(ctx, sessions, {
+        preview: 'founderAdmin.limits.preview',
+        previewInput: change,
+        save: 'founderAdmin.limits.change',
+        input: change,
+        what,
+      });
+      out.push({ what, status: 'published', approvalId: r.approvalId });
+      ctx.log(`${what}: ${want.perTx} a withdrawal, ${want.rolling24h} a day (${MARKERS.label})`);
+    }
   }
   return out;
 }
@@ -1026,6 +1410,175 @@ export async function publishPairRisk(ctx) {
   return out;
 }
 
+// ── 2c'. TEST fee schedule versions (two-person approval) ──────────────────
+
+export const FEE_SCHEDULE_SET_ACTION = 'trade.fee_schedule_set';
+
+/** The hash svc-trade recomputes when it consumes a trade.fee_schedule_set approval (services/svc-trade/src/admin/service.ts). */
+export function feeScheduleSetPayloadHash({ schedule, effectiveAt, expectedVersion, reason }) {
+  const body = { actionType: FEE_SCHEDULE_SET_ACTION, schedule, effectiveAt, expectedVersion, reason };
+  return `sha256:${crypto.createHash('sha256').update(canonicalJson(body)).digest('hex')}`;
+}
+
+/**
+ * Write one new version of the spot fee schedule through svc-trade's two-person door, as two operators would. `schedule`
+ * is the rates only (svc-trade sets `version` and `published`); it takes effect at `effectiveAt` (ISO, not in the past;
+ * default ten seconds from the write), and an order placed before then keeps the version it was placed under. Versions
+ * are append-only and the latest effective one wins for every later order on the stack, futures included, so a
+ * schedule written here carries every block the stack's own TRADE_FEE_SCHEDULE has. Returns the written version row.
+ */
+export async function setFeeSchedule(ctx, schedule, { effectiveAt, reason, sessions = null } = {}) {
+  const pair = sessions ?? (await approverSessions(ctx));
+  const current = data(await ctx.edge.query('trade', 'admin.fees.get', undefined, await pair.a.tradeOpsToken()));
+  if (typeof current?.version !== 'string') throw new Error('trade admin.fees.get gave no version');
+  // The time is bound into the approval, and svc-trade refuses one already past when the write lands, so the default
+  // leaves room for the propose, approve and write round trips after the sign-ins and the read above.
+  const at = new Date(effectiveAt ?? Date.now() + 10_000).toISOString();
+  const body = { schedule, effectiveAt: at, expectedVersion: current.version, reason: reason ?? `${MARKERS.label}: TEST fee schedule` };
+  const ids = await twoPerson(ctx, pair, {
+    actionType: FEE_SCHEDULE_SET_ACTION,
+    targetService: 'svc-trade',
+    targetId: 'spot-fee-schedule',
+    expectedVersion: body.expectedVersion,
+    payloadHash: feeScheduleSetPayloadHash(body),
+    policyVersion: MARKERS.policyVersion,
+  });
+  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+  const res = await ctx.edge.mutate(
+    'trade',
+    'admin.fees.set',
+    { ...body, approvalId: ids.approvalId, operationId: ids.operationId },
+    await pair.a.tradeOpsToken(),
+  );
+  const row = data(res);
+  if (!row?.version) throw new Error(`trade admin.fees.set refused (${res.status}): ${refusalText(res)}`);
+  ctx.log(`fee schedule: version ${row.version} from ${row.effectiveAt} (${MARKERS.label}); approval ${ids.approvalId}`);
+  return row;
+}
+
+// ── 2c'''. VIP application review (two-person approval) ──────────────────
+
+export const VIP_REVIEW_ACTION = 'trade.vip_application_review';
+export const VIP_TRIAL_GRANT_ACTION = 'trade.vip_trial_grant';
+
+/** The hash svc-trade recomputes when it consumes a review approval (services/svc-trade/src/admin/vip-review.ts). */
+export function vipReviewPayloadHash({ applicationId, decision, reason, trial }) {
+  const body = { actionType: VIP_REVIEW_ACTION, applicationId, decision, reason, trial: decision === 'approve' ? (trial ?? null) : null };
+  return `sha256:${crypto.createHash('sha256').update(canonicalJson(body)).digest('hex')}`;
+}
+
+/** The hash svc-trade recomputes when it consumes a trial grant approval. */
+export function vipTrialGrantPayloadHash({ applicationId, reason, trial }) {
+  const body = { actionType: VIP_TRIAL_GRANT_ACTION, applicationId, reason, trial };
+  return `sha256:${crypto.createHash('sha256').update(canonicalJson(body)).digest('hex')}`;
+}
+
+/**
+ * Decide one VIP application as compliance does: one TEST operator proposes, the other approves at identity, the first
+ * applies it. The approval binds the trial the owner publishes now (read from the review list), as the door does.
+ * Returns svc-trade's answer as it came, refusal included.
+ */
+export async function reviewVipApplication(ctx, { applicationId, decision, reason, sessions = null }) {
+  const pair = sessions ?? (await approverSessions(ctx));
+  const list = data(await ctx.edge.query('trade', 'admin.vipApplications.list', { status: 'pending' }, await pair.a.complianceToken()));
+  if (!list) throw new Error('trade admin.vipApplications.list gave no answer');
+  const body = { applicationId, decision, reason: reason ?? `${MARKERS.label}: TEST VIP review` };
+  const ids = await twoPerson(ctx, pair, {
+    actionType: VIP_REVIEW_ACTION,
+    targetService: 'svc-trade',
+    targetId: applicationId,
+    expectedVersion: 'pending',
+    payloadHash: vipReviewPayloadHash({ ...body, trial: list.trialRules }),
+    policyVersion: MARKERS.policyVersion,
+  });
+  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+  return ctx.edge.mutate(
+    'trade',
+    'admin.vipApplications.review',
+    { ...body, approvalId: ids.approvalId, operationId: ids.operationId },
+    await pair.a.complianceToken(),
+  );
+}
+
+/**
+ * Ask svc-trade to grant the trial the owner publishes to an application approved without one. With none published it
+ * refuses `vip.trial_unset` before any approval is asked for, so no approval is spent: this reads the refusal first,
+ * and only with a trial published runs the two-person approval. Returns svc-trade's answer as it came.
+ */
+export async function grantVipTrial(ctx, { applicationId, reason, sessions = null }) {
+  const pair = sessions ?? (await approverSessions(ctx));
+  const body = { applicationId, reason: reason ?? `${MARKERS.label}: TEST VIP trial` };
+  const list = data(
+    await ctx.edge.query('trade', 'admin.vipApplications.list', { status: 'approved_no_trial' }, await pair.a.complianceToken()),
+  );
+  if (!list) throw new Error('trade admin.vipApplications.list gave no answer');
+  if (!list.trialRules) {
+    // No trial published: the door refuses before it consumes anything, so an approval nobody can use is not proposed.
+    return ctx.edge.mutate(
+      'trade',
+      'admin.vipApplications.grantTrial',
+      { ...body, approvalId: 'none-proposed', operationId: 'none-proposed' },
+      await pair.a.complianceToken(),
+    );
+  }
+  const ids = await twoPerson(ctx, pair, {
+    actionType: VIP_TRIAL_GRANT_ACTION,
+    targetService: 'svc-trade',
+    targetId: applicationId,
+    expectedVersion: 'approved_no_trial',
+    payloadHash: vipTrialGrantPayloadHash({ ...body, trial: list.trialRules }),
+    policyVersion: MARKERS.policyVersion,
+  });
+  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+  return ctx.edge.mutate(
+    'trade',
+    'admin.vipApplications.grantTrial',
+    { ...body, approvalId: ids.approvalId, operationId: ids.operationId },
+    await pair.a.complianceToken(),
+  );
+}
+
+// ── 2c''. TEST fee-decay schedule for IFC holders (two-person approval) ───
+
+export const FEE_DISCOUNT_PUBLISH_ACTION = 'token.fee_discount.publish';
+
+/** The hash svc-token recomputes when it consumes a token.fee_discount.publish approval (services/svc-token/src/router.ts). */
+export function feeDiscountPublishPayloadHash({ schedule, expectedVersion }) {
+  const body = JSON.stringify({ actionType: FEE_DISCOUNT_PUBLISH_ACTION, schedule: canonicalJson(schedule), expectedVersion });
+  return `sha256:${crypto.createHash('sha256').update(body).digest('hex')}`;
+}
+
+/**
+ * Publish svc-token's fee-decay schedule (stake thresholds to fee discount bps) through its two-person founder door, as
+ * two founders would: read the stored version, approve exactly this ladder over it, write. Every value is the caller's
+ * TEST ladder; the stack ships the column blank. Returns `{ schedule, version, previousVersion }`.
+ */
+export async function setFeeDiscountSchedule(ctx, schedule, { sessions = null } = {}) {
+  const pair = sessions ?? (await approverSessions(ctx));
+  const current = data(await ctx.edge.query('token', 'feeDiscount.get', undefined, await pair.a.tradeOpsToken()));
+  if (typeof current?.version !== 'string') throw new Error('token feeDiscount.get gave no version');
+  const body = { schedule, expectedVersion: current.version };
+  const ids = await twoPerson(ctx, pair, {
+    actionType: FEE_DISCOUNT_PUBLISH_ACTION,
+    targetService: 'svc-token',
+    targetId: FEE_DISCOUNT_PUBLISH_ACTION,
+    expectedVersion: current.version,
+    payloadHash: feeDiscountPublishPayloadHash(body),
+    policyVersion: MARKERS.policyVersion,
+  });
+  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+  const res = await ctx.edge.mutate(
+    'token',
+    'feeDiscount.publish',
+    { ...body, approvalId: ids.approvalId, operationId: ids.operationId },
+    await pair.a.tradeOpsToken(),
+  );
+  const row = data(res);
+  if (!row?.version) throw new Error(`token feeDiscount.publish refused (${res.status}): ${refusalText(res)}`);
+  ctx.log(`fee discount schedule: version ${row.version} (${MARKERS.label}); approval ${ids.approvalId}`);
+  return row;
+}
+
 // ── 2d'. TEST P2P payment method (two-person approval) ─────────────────────
 
 /**
@@ -1038,10 +1591,19 @@ export const TEST_P2P_METHODS = [
     country: 'DE',
     label: 'TEST bank transfer',
     fields: [
-      // In the order svc-p2p normalises a field to (key, label, required, pattern, minLength, maxLength, sensitive):
+      // In the order svc-p2p normalises a field to (key, label, required, pattern, minLength, maxLength, sensitive, help,
+      // holderName):
       // the approval hash covers the normalised fields, so any other order is a different action.
-      { key: 'account_holder', label: 'Account holder', required: true, minLength: 2, maxLength: 120 },
-      { key: 'iban', label: 'IBAN', required: true, pattern: '^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$', sensitive: true },
+      // The holder is the person's own verified legal name (P-ads-merchant-18); the IBAN's hint shows on a format refusal.
+      { key: 'account_holder', label: 'Account holder', required: true, minLength: 2, maxLength: 120, holderName: true },
+      {
+        key: 'iban',
+        label: 'IBAN',
+        required: true,
+        pattern: '^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$',
+        sensitive: true,
+        help: 'Two capital letters, two digits, then 11 to 30 capital letters or digits, with no spaces',
+      },
     ],
   },
 ];
@@ -1075,7 +1637,9 @@ export async function publishP2pMethods(ctx) {
     const listed = data(read);
     if (!Array.isArray(listed) && !read.text.includes('p2p.instrument_method_unknown'))
       throw new Error(`p2p instruments.methods.list for ${method.methodId} refused (${read.status}): ${refusalText(read)}`);
-    if (listed?.length > 0) {
+    // Registered with these very fields: nothing to do. Registered with older ones (a stack from before the TEST method
+    // gained its holder-name field and format hint): register again, which replaces the fields and keeps the rest.
+    if (listed?.length > 0 && JSON.stringify(listed[0].fields) === JSON.stringify(method.fields)) {
       out.push({ methodId: method.methodId, country: method.country, changed: false });
       continue;
     }
@@ -1161,6 +1725,27 @@ export async function seedSpotTestListings(ctx) {
       ctx.log(`TEST spot ${row.symbol} listed as ${row.id} (${MARKERS.label})`);
       out.push({ symbol: row.symbol, marketId: row.id });
     }
+    return out;
+  } finally {
+    await sql.end();
+  }
+}
+
+/** Publish the TEST business verification requirements (`TEST_KYB_ENTITY_TYPES`) and upload rules once, as svc-pay's own role. */
+export async function seedPayKybRequirements(ctx) {
+  const { createRequire } = await import('node:module');
+  const postgres = createRequire(path.join(REPO, 'services', 'svc-pay', 'package.json'))('postgres');
+  const { insertKybTestRequirements, localTestDatabaseUrl } = await import('./seed-pay-kyb-test-requirements.mjs');
+  const url = `postgres://svc_pay:${encodeURIComponent(ctx.secrets.pgService)}@${HOST}:${ctx.marker.ports.postgres ?? 15460}/${DB_NAME}`;
+  const databaseUrl = localTestDatabaseUrl(url);
+  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+  const sql = postgres(databaseUrl, { max: 1, onnotice: () => {} });
+  try {
+    // A row already there (an earlier run, or anything else) is kept, never overwritten.
+    const out = await insertKybTestRequirements(sql);
+    for (const t of out.types)
+      ctx.log(`TEST business type ${t.entityType} ${t.changed ? 'published' : 'already published'} (${MARKERS.label})`);
+    ctx.log(`TEST document upload rules ${out.uploadRules.changed ? 'published' : 'already published'} (${MARKERS.label})`);
     return out;
   } finally {
     await sql.end();
@@ -1394,16 +1979,28 @@ export async function submitOwnedAccounts(ctx, { users, approved, pending }, { f
     if (!u) continue;
     const has = approved.get(u.id) ?? new Set();
     if (has.has('full') || has.has('institutional') || pendingUsers.has(u.id)) continue;
-    const totpCode = acct.key ? await founderTotp(ctx, acct.key, acct.totpSecret) : undefined;
-    const login = await ctx.edge.mutate('identity', 'auth.login', {
-      identifier: acct.email,
-      password: acct.password,
-      ...(totpCode ? { totpCode } : {}),
-    });
-    const token = data(login)?.accessToken;
+    // A founder already signed in for this command submits from that session (its own), so it spends no new step.
+    const own =
+      acct.key && ctx.sessionCache
+        ? await approverSessions(ctx).then(
+            (pair) => pair[acct.key],
+            () => null,
+          )
+        : null;
+    let token = own?.op.userId === u.id ? own.token : null;
     if (!token) {
-      out.push({ handle: u.handle, ok: false, why: `login refused: ${refusalText(login)}` });
-      continue;
+      const totpCode = acct.key ? await founderTotp(ctx, acct.key, acct.totpSecret) : undefined;
+      const login = await ctx.edge.mutate('identity', 'auth.login', {
+        identifier: acct.email,
+        password: acct.password,
+        deviceKey: LOCAL_TEST_DEVICE_KEY,
+        ...(totpCode ? { totpCode } : {}),
+      });
+      token = data(login)?.accessToken;
+      if (!token) {
+        out.push({ handle: u.handle, ok: false, why: `login refused: ${refusalText(login)}` });
+        continue;
+      }
     }
     const sub = await ctx.edge.mutate('identity', 'kyc.submit', { tier: 'full', jurisdiction: MARKERS.kycJurisdiction }, token);
     out.push({ handle: u.handle, ok: Boolean(data(sub)?.id), why: data(sub)?.id ? 'submitted' : refusalText(sub) });
@@ -1508,7 +2105,7 @@ async function main() {
   const cmd = process.argv[2] ?? 'status';
   let ctx;
   try {
-    ctx = await makeContext();
+    ctx = await makeContext({ shareSessions: true });
   } catch (err) {
     die(String(err.message ?? err));
   }
@@ -1543,6 +2140,7 @@ async function main() {
       // The TEST perpetual and TEST spot markets are listed first, so the lifecycle, book and limit steps below include it.
       await seedFuturesListing(ctx);
       await seedSpotTestListings(ctx);
+      await seedPayKybRequirements(ctx);
       await publishFuturesTerms(ctx);
       for (const r of await publishLifecycles(ctx)) say(`  lifecycle ${r.symbol.padEnd(10)} ${r.status}`);
       for (const r of await openBooks(ctx)) say(`  open      ${r.symbol.padEnd(10)} accepted`);
@@ -1555,15 +2153,28 @@ async function main() {
       for (const a of v.approved) say(`  verify    ${a.handle} ${a.tier}: ${a.ok ? 'approved' : a.why}`);
       if (v.stillWithoutFull.length)
         say(`  still without a verified tier (they must submit the request themselves): ${v.stillWithoutFull.join(', ')}`);
+      // The founders' sessions are shared from before verify, and Edge may hold a session's tier for up to a second
+      // (EDGE_AUTHORITY_POSITIVE_CACHE_MS, at most 1000): let that pass, so svc-p2p reads the tier verify just approved.
+      await sleep(EDGE_AUTHORITY_CACHE_MAX_MS + 100);
       // After verify: svc-p2p refuses an operator without a verified tier, and a fresh stack's founders have none
       // before it (every journeys shard stopped here in run 231).
       for (const r of await publishP2pMethods(ctx))
         say(`  p2p       ${r.methodId} ${r.country} ${r.changed ? 'registered' : 'already registered'}`);
+      // Last: a svc-pay refusal here stops nothing the trading and transfer journeys need.
+      for (const r of await publishDepositTerms(ctx)) say(`  deposits  ${r.what}: ${r.status}`);
+      for (const r of await publishWithdrawalLimits(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
+    } else if (cmd === 'kyb') {
+      const out = await seedPayKybRequirements(ctx);
+      for (const t of out.types) say(`  kyb       ${t.entityType} ${t.changed ? 'published' : 'already published'}`);
     } else if (cmd === 'p2p') {
       for (const r of await publishP2pMethods(ctx))
         say(`  p2p       ${r.methodId} ${r.country} ${r.changed ? 'registered' : 'already registered'}`);
     } else if (cmd === 'assets') {
       for (const r of await publishAssetRegistry(ctx)) say(`  asset     ${r.assetId.padEnd(10)} ${r.status} (revision ${r.revision})`);
+    } else if (cmd === 'deposit-terms') {
+      for (const r of await publishDepositTerms(ctx)) say(`  deposits  ${r.what}: ${r.status}`);
+    } else if (cmd === 'withdrawal-limits') {
+      for (const r of await publishWithdrawalLimits(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
     } else if (cmd === 'halt' || cmd === 'resume') {
       const symbol = process.argv[3];
       if (!symbol) die(`usage: local-test-gates.mjs ${cmd} <SYMBOL>, for example ETH/USDT`, 2);
@@ -1610,7 +2221,7 @@ async function main() {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
       die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | halt <SYMBOL> | resume <SYMBOL> | age <handle> <seconds> | status',
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | halt <SYMBOL> | resume <SYMBOL> | age <handle> <seconds> | status',
         2,
       );
     }

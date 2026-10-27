@@ -20,6 +20,8 @@ import { createProtocolRouter, type ProtocolRouter } from './router.js';
 import { parseGasPercentileSetting } from './chain/gas-price.js';
 import { badgeChainIsMainnet, badgeWindowFromSetting, noBadgeSigner } from './nft/founding-badge.js';
 import { PostgresBadgeStore } from './nft/founding-badge.pg.js';
+import { representationFromSetting } from './representation/representation.js';
+import { PostgresRepresentationStore } from './representation/representation.pg.js';
 import { badgeApprovalConsumer } from './nft/founding-badge-approval.js';
 import { loadNetworkRegistry } from './networks/registry.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
@@ -55,7 +57,13 @@ const db = createDb({ url: env.DATABASE_URL, schema: 'protocol', max: env.DATABA
 // The read model must exist before we claim to serve it — a missing table here
 // is a missed migration, and it should fail at boot rather than on a user's
 // first request.
-for (const tableName of ['smart_accounts', 'founding_badge_claims', 'founding_badge_list', 'founding_badge_mint_clears']) {
+for (const tableName of [
+  'smart_accounts',
+  'founding_badge_claims',
+  'founding_badge_list',
+  'founding_badge_mint_clears',
+  'signing_representations',
+]) {
   const [table] = await db.sql<Array<{ exists: boolean }>>`
     SELECT EXISTS (
       SELECT 1 FROM information_schema.tables
@@ -100,6 +108,13 @@ const relay = new SessionRelay(chain);
 
 let relayEnabled = env.PROTOCOL_RELAY_ENABLED;
 
+// Raw APP_ENV, not the schema's default: an unset APP_ENV must not pass for the local test stack.
+const representationSetting = representationFromSetting(
+  env.PROTOCOL_REPRESENTATION_VERSION,
+  env.PROTOCOL_REPRESENTATION_TEXT,
+  process.env.APP_ENV,
+);
+
 export const appRouter = createProtocolRouter({
   opsWindowSeconds: () => env.PROTOCOL_OPS_WINDOW_SECONDS,
   gasPercentiles: () => parseGasPercentileSetting(env.PROTOCOL_GAS_PERCENTILES, env.PROTOCOL_GAS_HISTORY_BLOCKS),
@@ -110,6 +125,10 @@ export const appRouter = createProtocolRouter({
   ammFactoryAddress: () => env.PROTOCOL_AMM_FACTORY_ADDRESS as `0x${string}`,
   swapSlippageBps: () => env.PROTOCOL_SWAP_SLIPPAGE_BPS,
   probeTimeoutMs: () => env.PROTOCOL_PEER_TIMEOUT_MS,
+  representation: {
+    store: new PostgresRepresentationStore(db.sql),
+    setting: () => representationSetting,
+  },
   badge: {
     store: new PostgresBadgeStore(db.sql),
     minter: noBadgeSigner,

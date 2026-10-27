@@ -479,6 +479,8 @@ const messages = {
   'moreroutes.campaigns': 'Campaigns',
   'moreroutes.campaign.participation': 'Your joined campaigns, eligibility and reward status.',
   'moreroutes.your.campaign.participation': 'Follow your campaign participation and published campaign details.',
+  'moreroutes.drop.room': 'Drop room',
+  'moreroutes.drop.room.description': 'Your waitlist place, the season, limited drops and the token claim.',
   'moreroutes.signed.in.draft.assessment.and.publication.boundaries': 'Signed-in draft assessment and publication boundaries.',
   'moreroutes.copy': 'Copy',
   'moreroutes.follow.leaders.through.the.trade.permission.and': 'Follow leaders through the Trade permission and grant flow.',
@@ -1417,6 +1419,8 @@ const es = {
   'moreroutes.campaigns': 'Campañas',
   'moreroutes.campaign.participation': 'Tus campañas, elegibilidad y estado de recompensas.',
   'moreroutes.your.campaign.participation': 'Sigue tu participación en campañas y sus detalles publicados.',
+  'moreroutes.drop.room': 'Sala de drops',
+  'moreroutes.drop.room.description': 'Tu lugar en la lista de espera, la temporada, los drops limitados y el reclamo del token.',
   'moreroutes.signed.in.draft.assessment.and.publication.boundaries':
     'Evaluación de borradores con sesión iniciada y límites de publicación.',
   'moreroutes.copy': 'Copy',
@@ -2374,6 +2378,8 @@ const fr = {
   'moreroutes.campaigns': 'Campagnes',
   'moreroutes.campaign.participation': 'Tes campagnes rejointes, ton admissibilité et l’état de tes récompenses.',
   'moreroutes.your.campaign.participation': 'Suis ta participation aux campagnes et leurs informations publiées.',
+  'moreroutes.drop.room': 'Salle des drops',
+  'moreroutes.drop.room.description': 'Ta place sur la liste d’attente, la saison, les drops limités et la réclamation du jeton.',
   'moreroutes.signed.in.draft.assessment.and.publication.boundaries':
     'Évaluation de brouillons avec connexion au compte et limites de publication.',
   'moreroutes.copy': 'Copy',

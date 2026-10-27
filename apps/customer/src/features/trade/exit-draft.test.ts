@@ -135,3 +135,47 @@ describe('OCO and bracket drafts', () => {
     expect(previewSchema.safeParse({ ...base, exitFees: { ...exitFees, side: 'up' } }).success).toBe(false);
   });
 });
+
+describe('OTO drafts', () => {
+  const oto = {
+    symbol: 'BTC/USDT',
+    side: 'buy',
+    type: 'limit',
+    amount: '0.1',
+    price: '100',
+    timeInForce: 'GTC',
+    postOnly: false,
+    clientOrderId: 'desk:3',
+    close: '110',
+  } as const;
+
+  it('accepts a GTC, IOC or FOK limit buy with a close above its price', () => {
+    for (const timeInForce of ['GTC', 'IOC', 'FOK'] as const) expect(draftSchema.safeParse({ ...oto, timeInForce }).success).toBe(true);
+  });
+
+  it('refuses what the service refuses: a sell, a market or post-only entry, a close at or under the entry, a close beside exits', () => {
+    expect(draftSchema.safeParse({ ...oto, side: 'sell' }).success).toBe(false);
+    expect(draftSchema.safeParse({ ...oto, type: 'market', price: undefined }).success).toBe(false);
+    expect(draftSchema.safeParse({ ...oto, timeInForce: 'PO', postOnly: true }).success).toBe(false);
+    expect(draftSchema.safeParse({ ...oto, close: '100' }).success).toBe(false);
+    expect(draftSchema.safeParse({ ...oto, close: '99' }).success).toBe(false);
+    expect(draftSchema.safeParse({ ...oto, exit: { kind: 'bracket', takeProfit: '110', stopLoss: '90' } }).success).toBe(false);
+  });
+
+  it('previews the buy alone and places it with oto and its close price', () => {
+    expect(previewBody(oto)).not.toHaveProperty('close');
+    expect(previewBody(oto)).not.toHaveProperty('oto');
+    expect(placeBody(oto)).toEqual({
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      type: 'limit',
+      amount: '0.1',
+      price: '100',
+      timeInForce: 'GTC',
+      postOnly: false,
+      clientOrderId: 'desk:3',
+      oto: true,
+      close: { price: '110' },
+    });
+  });
+});

@@ -20,6 +20,47 @@ import {
   academyQuizReviewSchema,
   academyQuizSchema,
   academySetQuizInputSchema,
+  academySetCertIssueRuleInputSchema,
+  academySaveProgrammeInputSchema,
+  academySaveDiscussionTopicInputSchema,
+  academyDiscussionTopicSchema,
+  academyDiscussionCourseSchema,
+  academyDiscussionCoursesInputSchema,
+  academyDiscussionTopicsSchema,
+  academyDiscussionTopicsInputSchema,
+  academyDiscussionPostSchema,
+  academyDiscussionPostsInputSchema,
+  academyDiscussionReplySchema,
+  academyDiscussionThreadSchema,
+  academyDiscussionThreadInputSchema,
+  academyDiscussionPostImageInputSchema,
+  academyDiscussionImageSchema,
+  academyDiscussionFollowResultSchema,
+  academyDiscussionLikeResultSchema,
+  academyDiscussionAcceptResultSchema,
+  academyCreateDiscussionPostInputSchema,
+  academyReplyDiscussionPostInputSchema,
+  academyAcceptDiscussionReplyInputSchema,
+  academyDiscussionToggleInputSchema,
+  academyStaffDiscussionThreadSchema,
+  academySendCourseMessageInputSchema,
+  academySendCourseMessageResultSchema,
+  academyCourseConversationsInputSchema,
+  academyCourseConversationInputSchema,
+  academyCourseConversationSummarySchema,
+  academyCourseConversationSchema,
+  academyStaffConversationSummarySchema,
+  academyStaffConversationSchema,
+  academyReplyCourseMessageInputSchema,
+  academyProgrammeRecordSchema,
+  academyProgrammeSchema,
+  academyProgrammeInputSchema,
+  academyProgrammesInputSchema,
+  academyCertIssueRuleSchema,
+  academyCertIssueSchema,
+  academyCertIdSchema,
+  academyCertRevocationSchema,
+  academyRevokeCertInputSchema,
   academyItemVideoSchema,
   academySetItemVideoInputSchema,
   academySetVideoTracksInputSchema,
@@ -62,7 +103,55 @@ import {
   academyFeatureLessonInputSchema,
   academyClearFeaturedInputSchema,
   academyTopicListSchema,
+  academyAuthoredCourseEnrolmentSchema,
+  academyAuthoredCourseInputSchema,
   academyCourseByLinkInputSchema,
+  academyLeaveAuthoredCourseInputSchema,
+  academyAdminAssignmentSchema,
+  academyAdminCourseQuizSchema,
+  academyCourseQuizInputSchema,
+  academyLearnerCourseQuizSchema,
+  academySaveCourseQuizInputSchema,
+  academySetCourseQuizStateInputSchema,
+  academyStartCourseQuizInputSchema,
+  academyCourseReleaseInputSchema,
+  academyCourseReleaseSchema,
+  academySetSectionReleaseInputSchema,
+  academySetCoursePacingInputSchema,
+  academyCourseItemRulesSchema,
+  academyCourseItemRulesInputSchema,
+  academySetCourseItemPrerequisitesInputSchema,
+  academyGrantCourseExtensionInputSchema,
+  academyCourseGradebookSchema,
+  academyCourseGradebookInputSchema,
+  academySaveGradingPolicyInputSchema,
+  academyCourseQuizAttemptSchema,
+  academyAnswerCourseQuizInputSchema,
+  academyFinishCourseQuizInputSchema,
+  academySubmitCourseSurveyInputSchema,
+  academySurveySubmittedSchema,
+  academyCourseQuizReviewsSchema,
+  academyScoreCourseQuizEssaysInputSchema,
+  academyAssignmentInputSchema,
+  academyAssignmentViewSchema,
+  academySaveAssignmentInputSchema,
+  academySaveReviewStepsInputSchema,
+  academyPeerReviewInputSchema,
+  academyGradingQueueInputSchema,
+  academyGradingQueueSchema,
+  academyOpenGradingInputSchema,
+  academyGradeSubmissionInputSchema,
+  academyMarkFeedbackReadInputSchema,
+  academyPeerReviewFileInputSchema,
+  academyPeerReviewFileSchema,
+  academyReviewStateSchema,
+  academySubmitPeerReviewInputSchema,
+  academySubmissionFileSchema,
+  academySubmitAssignmentInputSchema,
+  academyUploadAssignmentFileInputSchema,
+  academyWithdrawAssignmentInputSchema,
+  academyPublishedCourseListSchema,
+  academyPublishedCoursesInputSchema,
   academyCourseIdInputSchema,
   academyCourseLearnerViewSchema,
   academyCreatedPrivateLinkSchema,
@@ -574,6 +663,8 @@ const certGrantOut = z.object({
   grantedAt: z.date(),
   idempotencyKey: z.string(),
   publicId: z.string().regex(/^[0-9a-f]{32}$/),
+  /** `revoked` once staff revoked it (AC-certificates-03); the public check then says revoked too. */
+  status: z.enum(['valid', 'revoked']).optional(),
 });
 /**
  * Stage-2 XP outcome on a grant.
@@ -638,6 +729,7 @@ const certProgressOut = z.object({
   complete: z.boolean(),
   granted: z.boolean(),
   grantIdempotencyKey: z.string().nullable(),
+  issue: academyCertIssueSchema,
 });
 
 const seatFor = (seats: readonly CallerSeat[], id: string, kind: 'room' | 'session'): { role: AttendeeRole } | null => {
@@ -742,6 +834,8 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.residency_not_pending':
     case 'academy.cert_already_granted':
     case 'academy.cert_incomplete':
+    case 'academy.cert_not_due':
+    case 'academy.cert_revoked':
       return new TRPCError({ code: 'CONFLICT', message, cause: err });
 
     case 'academy.cert_not_found':
@@ -834,10 +928,16 @@ function toTrpcError(err: unknown): TRPCError {
 
     case 'academy.assessment_unpublished':
     case 'academy.pass_mark_unset':
+    case 'academy.quiz_no_questions':
+    case 'academy.scoring_policy_unset':
+    case 'academy.ip_unreadable':
+    case 'academy.not_released_yet':
     case 'academy.certificate_unpublished':
     case 'academy.enrolment_closed':
     case 'academy.verify_rate_unset':
     case 'academy.verify_address_unset':
+    case 'academy.cert_delay_unset':
+    case 'academy.cert_sweep_unset':
     case 'academy.video_captions_unpublished':
     case 'academy.video_transcript_unpublished':
     case 'academy.watch_threshold_unset':
@@ -851,10 +951,14 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.attempt_open':
     case 'academy.attempt_required':
     case 'academy.planner_full':
+    case 'academy.item_has_attempts':
+    case 'academy.survey_duplicate':
+    case 'academy.pacing_locked':
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
 
     case 'academy.attempt_not_found':
     case 'academy.todo_not_found':
+    case 'academy.quiz_not_found':
       return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
 
     case 'academy.attempt_limit':
@@ -863,6 +967,8 @@ function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
 
     case 'academy.sign_in_required':
+    case 'academy.access_code_invalid':
+    case 'academy.ip_not_allowed':
       return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
 
     case 'academy.assessment_invalid':
@@ -884,7 +990,17 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.revision_stale':
     case 'academy.item_kind_locked':
     case 'academy.topic_slug_taken':
+    case 'academy.programme_slug_taken':
+    case 'academy.assignment_closed':
+    case 'academy.submission_version_stale':
+    case 'academy.assignment_has_submissions':
+    case 'academy.review_already_sent':
+    case 'academy.grader_locked':
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+
+    case 'academy.enrolment_required':
+    case 'academy.permission_denied':
+      return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
 
     case 'academy.price_unset':
     case 'academy.course_outline_empty':
@@ -897,12 +1013,32 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.lesson_not_live':
     case 'academy.item_video_missing':
     case 'academy.upload_incomplete':
+    case 'academy.file_unavailable':
+    case 'academy.grader_lease_unset':
+    case 'academy.programme_limit_unset':
+    case 'academy.post_limit_unset':
+    case 'academy.attachment_limit_unset':
+    case 'academy.message_limit_unset':
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
 
+    case 'academy.programme_not_found':
+    case 'academy.post_not_found':
+    case 'academy.conversation_not_found':
+      return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
+
     case 'academy.outline_too_large':
+    case 'academy.programme_too_large':
+    case 'academy.post_too_long':
+    case 'academy.message_too_long':
+    case 'academy.attachment_too_large':
+    case 'academy.attachment_type_refused':
     case 'academy.item_has_no_lesson':
     case 'academy.import_too_large':
     case 'academy.lesson_blocks_invalid':
+    case 'academy.submission_incomplete':
+    case 'academy.peer_count_unset':
+    case 'academy.rubric_invalid':
+    case 'academy.review_marks_invalid':
     case 'academy.upload_too_large':
     case 'academy.upload_type_refused':
     case 'academy.file_type_mismatch':
@@ -913,11 +1049,19 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.media_not_found':
     case 'academy.topic_not_found':
     case 'academy.private_link_not_found':
+    case 'academy.assignment_not_found':
+    case 'academy.review_task_not_found':
+    case 'academy.submission_not_found':
       return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
 
     case 'academy.prerequisite_cycle':
+    case 'academy.prerequisite_unmeasured':
+    case 'academy.weights_invalid':
+    case 'academy.grading_policy_invalid':
     case 'academy.window_invalid':
+    case 'academy.ip_rule_invalid':
     case 'academy.reason_required':
+    case 'academy.grade_invalid':
       return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
 }
@@ -939,6 +1083,30 @@ async function consumeOperatorApproval(
   targetId: string,
   fields: Record<string, string>,
 ): Promise<string> {
+  const consumed = await consumeApproval(principal, approvals, input, targetId, fields);
+  return consumed.approverId ?? consumed.requesterId;
+}
+
+/** The same consume, answering both people: who proposed the action and who approved it (refused when nobody approved it). */
+async function consumeApprovalPair(
+  principal: Principal | null | undefined,
+  approvals: ActionApprovalConsumer,
+  input: { readonly approvalId?: string | null; readonly operationId?: string | null },
+  targetId: string,
+  fields: Record<string, string>,
+): Promise<{ proposedBy: string; approvedBy: string }> {
+  const consumed = await consumeApproval(principal, approvals, input, targetId, fields);
+  if (!consumed.approverId) throw new DualControlError('the approval names no approver; a second person must approve it');
+  return { proposedBy: consumed.requesterId, approvedBy: consumed.approverId };
+}
+
+async function consumeApproval(
+  principal: Principal | null | undefined,
+  approvals: ActionApprovalConsumer,
+  input: { readonly approvalId?: string | null; readonly operationId?: string | null },
+  targetId: string,
+  fields: Record<string, string>,
+) {
   if (!principal) {
     throw new DualControlError('operator identity is required; the academy ambassador door does not invent a caller');
   }
@@ -951,7 +1119,7 @@ async function consumeOperatorApproval(
     throw err;
   }
   const ids = readApprovalIds(input);
-  const consumed = await approvals.consume({
+  return approvals.consume({
     approvalId: ids.approvalId,
     operationId: ids.operationId,
     payloadHash: academyActionPayloadHash(targetId, fields),
@@ -959,7 +1127,12 @@ async function consumeOperatorApproval(
     targetId,
     expectedVersion: '1',
   });
-  return consumed.approverId ?? consumed.requesterId;
+}
+
+/** The caller address an IP filter checks, as the trusted edge named it; null when it cannot be read (AC-quizzes-01). */
+function quizClientAddressOf(ctx: object): string | null {
+  const value = (ctx as { quizClientAddress?: unknown }).quizClientAddress;
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
 /** TCP peer the HTTP adapter attached. Blank is not an address. */
@@ -1097,6 +1270,18 @@ export function createAcademyRouter(
       .input(academyCourseByLinkInputSchema)
       .output(academyCourseLearnerViewSchema)
       .mutation(({ input }) => guard(() => academy.courseByLink(input))),
+
+    /** AC-catalogue-03: the published courses staff made, newest first, up to the page asked for. */
+    publicAuthoredCourses: publicProcedure
+      .input(academyPublishedCoursesInputSchema)
+      .output(academyPublishedCourseListSchema)
+      .query(({ input }) => guard(() => academy.publishedCourses(input.limit))),
+
+    /** AC-catalogue-03: a published course's public page; anything else is `academy.course_not_found`. Writes nothing. */
+    publicAuthoredCourse: publicProcedure
+      .input(academyAuthoredCourseInputSchema)
+      .output(academyCourseLearnerViewSchema)
+      .query(({ input }) => guard(() => academy.authoredCoursePage(input.slug, null))),
 
     /** AC-articles-01: the hub's featured slot, only what staff chose; null when nobody chose one. */
     publicHub: publicProcedure.output(academyPublicHubSchema).query(() => guard(async () => ({ featured: await academy.featuredItem() }))),
@@ -2336,6 +2521,22 @@ export function createAcademyRouter(
         })),
       ),
 
+    /**
+     * AC-certificates-01: every learning path with its published certificate, or the refusal a path with no published
+     * certificate design gets (`academy.certificate_unpublished`), so the Certificates tab shows each path in full layout.
+     */
+    certPaths: scopedProcedure('academy:read', { module: 'academy' })
+      .output(
+        z.array(
+          z.object({
+            path: curriculumPath,
+            certId: z.string().nullable(),
+            refusal: z.literal('academy.certificate_unpublished').nullable(),
+          }),
+        ),
+      )
+      .query(() => academy.certPaths()),
+
     enrollCertPath: scopedProcedure('academy:write', { module: 'academy' })
       .input(z.object({ pathSlug: z.string().min(1).max(64) }))
       .output(enrollmentOut)
@@ -2354,6 +2555,126 @@ export function createAcademyRouter(
       .input(z.object({ slug: z.string().min(1).max(64) }).strict())
       .output(academyCourseEnrolmentSchema)
       .query(({ input, ctx }) => guard(() => academy.courseEnrolment({ userId: ctx.principal.userId, slug: input.slug }))),
+
+    /** AC-catalogue-03: a published course staff made, as the caller sees it: their enrolment opens what is released. */
+    authoredCourse: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyAuthoredCourseInputSchema)
+      .output(academyCourseLearnerViewSchema)
+      .query(({ input, ctx }) => guard(() => academy.authoredCoursePage(input.slug, ctx.principal.userId))),
+
+    /** AC-enrolment-01: the terms of enrolling in a course staff made, and the caller's own enrolment. */
+    authoredCourseEnrolment: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyAuthoredCourseInputSchema)
+      .output(academyAuthoredCourseEnrolmentSchema)
+      .query(({ input, ctx }) => guard(() => academy.authoredCourseEnrolment({ userId: ctx.principal.userId, slug: input.slug }))),
+
+    /** AC-enrolment-01: enrol on the free track, keyed `enrol:<user>:<course>`; a closed track refuses `academy.enrolment_closed`. */
+    enrolAuthoredCourse: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyEnrolCourseInputSchema)
+      .output(academyAuthoredCourseEnrolmentSchema)
+      .mutation(({ input, ctx }) =>
+        guard(() => academy.enrolAuthoredCourse({ userId: ctx.principal!.userId, slug: input.slug, track: input.track })),
+      ),
+
+    /** AC-enrolment-01: leave the enrolment that began at `enrolledAt`; a repeat is the same leave. */
+    leaveAuthoredCourse: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyLeaveAuthoredCourseInputSchema)
+      .output(academyAuthoredCourseEnrolmentSchema)
+      .mutation(({ input, ctx }) => guard(() => academy.leaveAuthoredCourse({ ...input, userId: ctx.principal!.userId }))),
+
+    /** AC-assignments-01: an assignment as the enrolled learner sees it, with their own hand-ins, newest first. */
+    assignment: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyAssignmentInputSchema)
+      .output(academyAssignmentViewSchema)
+      .query(({ input, ctx }) => guard(() => academy.assignment({ itemId: input.itemId, userId: ctx.principal.userId }))),
+
+    /** AC-quizzes-01: a published quiz in a course staff made, as the enrolled learner reads it: no key, code or filter. */
+    courseQuiz: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyCourseQuizInputSchema)
+      .output(academyLearnerCourseQuizSchema)
+      .query(({ input, ctx }) => guard(() => academy.courseQuizzes.learnerView({ itemId: input.itemId, userId: ctx.principal.userId }))),
+
+    /** AC-quizzes-01: start (or get back) the caller's attempt; enrolment, the access code and the IP filter are checked first. */
+    startCourseQuiz: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyStartCourseQuizInputSchema)
+      .output(academyCourseQuizAttemptSchema)
+      .mutation(({ input, ctx }) =>
+        guard(() =>
+          academy.courseQuizzes.start({
+            itemId: input.itemId,
+            userId: ctx.principal.userId,
+            accessCode: input.accessCode,
+            clientAddress: quizClientAddressOf(ctx),
+            now: new Date(),
+          }),
+        ),
+      ),
+
+    /** AC-quizzes-02: the caller's newest attempt on a course quiz, with its score as the results visibility allows; null before any. */
+    courseQuizAttempt: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyCourseQuizInputSchema)
+      .output(academyCourseQuizAttemptSchema.nullable())
+      .query(({ input, ctx }) =>
+        guard(() => academy.courseQuizzes.current({ itemId: input.itemId, userId: ctx.principal.userId, now: new Date() })),
+      ),
+
+    /** AC-quizzes-02: save one answer on the caller's open attempt: a choice, choices, a decimal or text. */
+    answerCourseQuiz: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyAnswerCourseQuizInputSchema)
+      .output(academyCourseQuizAttemptSchema)
+      .mutation(({ input, ctx }) => guard(() => academy.courseQuizzes.answer({ ...input, userId: ctx.principal.userId, now: new Date() }))),
+
+    /** AC-quizzes-02: finish and score once; an essay leaves the attempt pending review. */
+    finishCourseQuiz: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyFinishCourseQuizInputSchema)
+      .output(academyCourseQuizAttemptSchema)
+      .mutation(({ input, ctx }) =>
+        guard(() => academy.courseQuizzes.finish({ attemptId: input.attemptId, userId: ctx.principal.userId, now: new Date() })),
+      ),
+
+    /** AC-quizzes-02: one survey response; an anonymous survey keeps no account with it. */
+    submitCourseSurvey: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academySubmitCourseSurveyInputSchema)
+      .output(academySurveySubmittedSchema)
+      .mutation(({ input, ctx }) =>
+        guard(() => academy.courseQuizzes.submitSurvey({ ...input, userId: ctx.principal.userId, now: new Date() })),
+      ),
+
+    /** AC-assignments-01: a file for the next hand-in, checked against the owner's limits; the same file is the same row. */
+    uploadAssignmentFile: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyUploadAssignmentFileInputSchema)
+      .output(academySubmissionFileSchema)
+      .mutation(({ input, ctx }) => guard(() => academy.uploadAssignmentFile({ ...input, userId: ctx.principal!.userId }))),
+
+    /** AC-assignments-01: hand in version n, keyed `submit:<item>:<account>:<n>`; a retry returns the stored hand-in. */
+    submitAssignment: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academySubmitAssignmentInputSchema)
+      .output(academyAssignmentViewSchema)
+      .mutation(({ input, ctx }) => guard(() => academy.submitAssignment({ ...input, userId: ctx.principal!.userId }))),
+
+    /** AC-assignments-03: the caller's review stage; hands them the next classmate's work when one is due and free. */
+    peerReview: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyPeerReviewInputSchema)
+      .output(academyReviewStateSchema)
+      .mutation(({ input, ctx }) => guard(() => academy.peerReview({ itemId: input.itemId, userId: ctx.principal!.userId }))),
+
+    /** AC-assignments-02: the caller read the feedback on one of their graded hand-ins; changes no grade. */
+    markFeedbackRead: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyMarkFeedbackReadInputSchema)
+      .output(academyAssignmentViewSchema)
+      .mutation(({ input, ctx }) => guard(() => academy.markFeedbackRead({ ...input, userId: ctx.principal!.userId }))),
+
+    /** AC-assignments-03: the file of work handed to the caller to review, read back so its store address stays hidden. */
+    peerReviewFile: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyPeerReviewFileInputSchema)
+      .output(academyPeerReviewFileSchema)
+      .query(({ input, ctx }) => guard(() => academy.peerReviewFile({ ...input, userId: ctx.principal!.userId }))),
+
+    /** AC-assignments-03: one review's marks, keyed `peer:<assignment>:<reviewer>:<author>`; the same marks answer as stored. */
+    submitPeerReview: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academySubmitPeerReviewInputSchema)
+      .output(academyReviewStateSchema)
+      .mutation(({ input, ctx }) => guard(() => academy.submitPeerReview({ ...input, userId: ctx.principal!.userId }))),
 
     /** AC-catalogue-02: My learning, the caller's enrolled courses with real progress and where Continue goes. */
     myLearning: scopedProcedure('academy:read', { module: 'academy' })
@@ -2547,6 +2868,100 @@ export function createAcademyRouter(
         };
       }),
 
+    /** AC-programmes-01: the learning programmes newest first, each with the caller's course counts and certificate. */
+    programmes: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyProgrammesInputSchema)
+      .output(z.array(academyProgrammeSchema))
+      .query(({ input, ctx }) =>
+        guard(() => academy.programmes({ userId: ctx.principal!.userId, limit: input.limit, mine: input.mine ?? false })),
+      ),
+
+    /** AC-programmes-01: one programme: its courses in order with the caller's state on each, the counts and the certificate. */
+    programme: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyProgrammeInputSchema)
+      .output(academyProgrammeSchema)
+      .query(({ input, ctx }) => guard(() => academy.programme({ userId: ctx.principal!.userId, slug: input.slug }))),
+
+    /** AC-rooms-01: the published courses the caller is enrolled in, each a way into its discussion. */
+    discussionCourses: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyDiscussionCoursesInputSchema)
+      .output(z.array(academyDiscussionCourseSchema))
+      .query(({ input, ctx }) => guard(() => academy.discussion.courses(ctx.principal!.userId, input.limit))),
+
+    /** AC-rooms-01: a course's discussion topics, pinned first, with the default General topic. Enrolled learners only. */
+    discussionTopics: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyDiscussionTopicsInputSchema)
+      .output(academyDiscussionTopicsSchema)
+      .query(({ input, ctx }) => guard(() => academy.discussion.topics({ userId: ctx.principal!.userId, courseSlug: input.courseSlug }))),
+
+    /** AC-rooms-01: one topic's posts, newest first. */
+    discussionPosts: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyDiscussionPostsInputSchema)
+      .output(z.array(academyDiscussionPostSchema))
+      .query(({ input, ctx }) => guard(() => academy.discussion.posts({ ...input, userId: ctx.principal!.userId }))),
+
+    /** AC-rooms-01: one post and up to `limit` of its replies, the accepted answer first. */
+    discussionThread: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyDiscussionThreadInputSchema)
+      .output(academyDiscussionThreadSchema)
+      .query(({ input, ctx }) => guard(() => academy.discussion.thread({ ...input, userId: ctx.principal!.userId }))),
+
+    /** AC-rooms-01: a post's image, or null when it has none. */
+    discussionPostImage: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyDiscussionPostImageInputSchema)
+      .output(academyDiscussionImageSchema.nullable())
+      .query(({ input, ctx }) => guard(() => academy.discussion.image({ userId: ctx.principal!.userId, postId: input.postId }))),
+
+    /** AC-rooms-01: post a question or a discussion; a retry with the same client request id is the same post. */
+    createDiscussionPost: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyCreateDiscussionPostInputSchema)
+      .output(academyDiscussionPostSchema)
+      .mutation(({ input, ctx }) =>
+        guard(() => academy.discussion.createPost({ ...input, userId: ctx.principal!.userId, now: new Date() })),
+      ),
+
+    /** AC-rooms-01: reply to a post (one level). */
+    replyDiscussionPost: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyReplyDiscussionPostInputSchema)
+      .output(academyDiscussionReplySchema)
+      .mutation(({ input, ctx }) => guard(() => academy.discussion.reply({ ...input, userId: ctx.principal!.userId, now: new Date() }))),
+
+    /** AC-rooms-01: the asker marks one reply as the accepted answer; marking another moves the mark. */
+    acceptDiscussionReply: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyAcceptDiscussionReplyInputSchema)
+      .output(academyDiscussionAcceptResultSchema)
+      .mutation(({ input, ctx }) => guard(() => academy.discussion.accept({ ...input, userId: ctx.principal!.userId }))),
+
+    /** AC-rooms-01: follow a post or stop; a repeat changes nothing. */
+    followDiscussionPost: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyDiscussionToggleInputSchema)
+      .output(academyDiscussionFollowResultSchema)
+      .mutation(({ input, ctx }) => guard(() => academy.discussion.follow({ ...input, userId: ctx.principal!.userId, now: new Date() }))),
+
+    /** AC-rooms-01: like a post or a reply, or take it back; a repeat changes nothing. */
+    likeDiscussionPost: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyDiscussionToggleInputSchema)
+      .output(academyDiscussionLikeResultSchema)
+      .mutation(({ input, ctx }) => guard(() => academy.discussion.like({ ...input, userId: ctx.principal!.userId, now: new Date() }))),
+
+    /** AC-rooms-04: write to the course team of a course the caller is enrolled in; the mail copy names vendor.email. */
+    sendCourseMessage: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academySendCourseMessageInputSchema)
+      .output(academySendCourseMessageResultSchema)
+      .mutation(({ input, ctx }) => guard(() => academy.courseMessages.send({ ...input, userId: ctx.principal!.userId, now: new Date() }))),
+
+    /** AC-rooms-04: the caller's own conversations with course teams, newest first, each with its unread marker. */
+    courseConversations: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyCourseConversationsInputSchema)
+      .output(z.array(academyCourseConversationSummarySchema))
+      .query(({ input, ctx }) => guard(() => academy.courseMessages.inbox(ctx.principal!.userId, input.limit))),
+
+    /** AC-rooms-04: open one of the caller's conversations, which marks it read on their side. */
+    openCourseConversation: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyCourseConversationInputSchema)
+      .output(academyCourseConversationSchema)
+      .mutation(({ input, ctx }) => guard(() => academy.courseMessages.open({ ...input, userId: ctx.principal!.userId, now: new Date() }))),
+
     myCerts: scopedProcedure('academy:read', { module: 'academy' })
       .input(z.object({ limit: z.number().optional() }).optional())
       .output(z.array(certGrantOut))
@@ -2569,6 +2984,7 @@ export function createAcademyRouter(
             complete: p.complete,
             granted: p.granted,
             grantIdempotencyKey: p.grantIdempotencyKey,
+            issue: p.issue,
           };
         }),
       ),
@@ -2926,6 +3342,142 @@ export function createAcademyRouter(
         .output(academyImportLessonResultSchema)
         .mutation(({ input, ctx }) => guard(() => academy.importLesson({ ...input, operatorId: ctx.principal!.userId }))),
 
+      /** AC-quizzes-01: a quiz item's questions, rules, state, attempts and what stops Publish. */
+      courseQuiz: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyCourseQuizInputSchema)
+        .output(academyAdminCourseQuizSchema)
+        .query(({ input }) => guard(() => academy.courseQuizzes.adminView(input.itemId))),
+
+      /** AC-quizzes-01: the draft over the revision read; questions are fixed once a learner has an attempt. */
+      saveCourseQuiz: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySaveCourseQuizInputSchema)
+        .output(academyAdminCourseQuizSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.courseQuizzes.save({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
+
+      /** AC-quizzes-01: publish when nothing blocks it, or take back to draft while no learner has an attempt, with a reason. */
+      setCourseQuizState: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySetCourseQuizStateInputSchema)
+        .output(academyAdminCourseQuizSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.courseQuizzes.setState({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
+
+      /** AC-quizzes-02: finished attempts waiting for an essay score, under per-quiz aliases. */
+      courseQuizReviews: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyCourseQuizInputSchema)
+        .output(academyCourseQuizReviewsSchema)
+        .query(({ input }) => guard(() => academy.courseQuizzes.reviews(input.itemId))),
+
+      /** AC-quizzes-02: score an attempt's essays and grade it; answers the quiz's remaining queue. */
+      scoreCourseQuizEssays: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyScoreCourseQuizEssaysInputSchema)
+        .output(academyCourseQuizReviewsSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.courseQuizzes.scoreEssays({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
+
+      /** AC-release-access-01: a course's pacing and each section's release rule. */
+      courseRelease: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyCourseReleaseInputSchema)
+        .output(academyCourseReleaseSchema)
+        .query(({ input }) => guard(() => academy.courseRelease.adminView(input.courseId))),
+
+      /** AC-release-access-01: a section opens at an instant or days after enrolment, or with the course; with a reason. */
+      setSectionRelease: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySetSectionReleaseInputSchema)
+        .output(academyCourseReleaseSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.courseRelease.setSectionRelease({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
+
+      /** AC-release-access-01: self-paced or instructor-paced, refused once a learner has enrolled. */
+      setCoursePacing: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySetCoursePacingInputSchema)
+        .output(academyCourseReleaseSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.courseRelease.setPacing({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
+
+      /** AC-release-access-02: each assignment and quiz with what it requires, and every learner's moved due date. */
+      courseItemRules: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyCourseItemRulesInputSchema)
+        .output(academyCourseItemRulesSchema)
+        .query(({ input }) => guard(() => academy.courseItemRules.adminView(input.courseId))),
+
+      /** AC-release-access-02: the whole set an item requires, refused when it makes a cycle; with a reason. */
+      setCourseItemPrerequisites: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySetCourseItemPrerequisitesInputSchema)
+        .output(academyCourseItemRulesSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.courseItemRules.setPrerequisites({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
+
+      /** AC-release-access-02: one enrolled learner's later due date on an assignment, with who and why. */
+      grantCourseExtension: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyGrantCourseExtensionInputSchema)
+        .output(academyCourseItemRulesSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.courseItemRules.grantExtension({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
+
+      /** AC-assignments-04: the grading policy, the course's graded items and each enrolled learner's scores. */
+      courseGradebook: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyCourseGradebookInputSchema)
+        .output(academyCourseGradebookSchema)
+        .query(({ input }) => guard(() => academy.courseGradebook.view(input.courseId))),
+
+      /** AC-assignments-04: types with weights adding up to exactly 1 and dropped lowest, over the revision read. */
+      saveGradingPolicy: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySaveGradingPolicyInputSchema)
+        .output(academyCourseGradebookSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.courseGradebook.savePolicy({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
+
+      /** AC-assignments-01: an assignment item's brief, who saved it, and how many learners handed in. */
+      assignment: scopedProcedure('admin:read', { module: 'academy' })
+        .input(z.object({ itemId: z.string().guid() }).strict())
+        .output(academyAdminAssignmentSchema)
+        .query(({ input }) => guard(() => academy.assignmentForStaff(input.itemId))),
+
+      /** AC-assignments-01: the brief over the revision read; a saved brief releases the item to enrolled learners. */
+      saveAssignment: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySaveAssignmentInputSchema)
+        .output(academyAdminAssignmentSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.saveAssignment({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-assignments-01: learners can no longer hand in; the brief and every hand-in stay. */
+      withdrawAssignment: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyWithdrawAssignmentInputSchema)
+        .output(academyAdminAssignmentSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.withdrawAssignment({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-assignments-02: each learner's newest hand-in under an alias, with its peer reviews, grade and lease. */
+      gradingQueue: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyGradingQueueInputSchema)
+        .output(academyGradingQueueSchema)
+        .query(({ input, ctx }) => guard(() => academy.gradingQueue({ itemId: input.itemId, operatorId: ctx.principal!.userId }))),
+
+      /** AC-assignments-02: take or renew the caller's grader lease on one hand-in. */
+      openGrading: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyOpenGradingInputSchema)
+        .output(academyGradingQueueSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.openGrading({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-assignments-02: grade event n, keyed `grade:<submission>:<n>`; an override needs a reason. */
+      gradeSubmission: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyGradeSubmissionInputSchema)
+        .output(academyGradingQueueSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.gradeSubmission({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-assignments-03: peer and self review steps and the rubric, over the revision read. */
+      saveReviewSteps: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySaveReviewStepsInputSchema)
+        .output(academyAdminAssignmentSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.saveReviewSteps({ ...input, operatorId: ctx.principal!.userId }))),
+
       /** AC-videos-02: one item's uploads, caption languages and the owner's upload limits. */
       itemMedia: scopedProcedure('admin:read', { module: 'academy' })
         .input(z.object({ itemId: z.string().guid() }).strict())
@@ -3037,6 +3589,84 @@ export function createAcademyRouter(
         .input(academySetQuizInputSchema)
         .output(z.object({ slug: z.string(), published: z.boolean() }))
         .mutation(({ input, ctx }) => guard(() => academy.setQuiz({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-programmes-01: create a learning programme, or replace its details and ordered courses over the revision read. */
+      saveProgramme: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySaveProgrammeInputSchema)
+        .output(academyProgrammeRecordSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.saveProgramme({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-rooms-01: create a course discussion topic, or change its title, pin and position, with a reason. */
+      saveDiscussionTopic: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySaveDiscussionTopicInputSchema)
+        .output(academyDiscussionTopicSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.discussion.saveTopic({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
+
+      /** AC-rooms-01: a post and its replies with the account behind each, anonymous or not. */
+      discussionThread: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyDiscussionThreadInputSchema)
+        .output(academyStaffDiscussionThreadSchema)
+        .query(({ input }) => guard(() => academy.discussion.staffThread(input.postId, input.limit))),
+
+      /** AC-rooms-04: every conversation with a course team, newest first, with the staff-side unread marker. */
+      courseInbox: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyCourseConversationsInputSchema)
+        .output(z.array(academyStaffConversationSummarySchema))
+        .query(({ input }) => guard(() => academy.courseMessages.staffInbox(input.limit))),
+
+      /** AC-rooms-04: open one conversation, which marks it read on the staff side. */
+      openCourseConversation: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyCourseConversationInputSchema)
+        .output(academyStaffConversationSchema)
+        .mutation(({ input }) => guard(() => academy.courseMessages.staffOpen({ ...input, now: new Date() }))),
+
+      /** AC-rooms-04: answer a learner's conversation as the course team. */
+      replyCourseMessage: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyReplyCourseMessageInputSchema)
+        .output(academySendCourseMessageResultSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.courseMessages.staffReply({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
+
+      /** AC-programmes-01: the programmes staff made, newest first. */
+      programmes: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyProgrammesInputSchema.omit({ mine: true }))
+        .output(z.array(academyProgrammeRecordSchema))
+        .query(({ input }) => guard(() => academy.adminProgrammes(input.limit))),
+
+      /** AC-certificates-02: how one published certificate is issued (manual, automatic, or after the owner's delay), with a reason. */
+      setCertIssueRule: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySetCertIssueRuleInputSchema)
+        .output(academyCertIssueRuleSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.setCertIssueRule({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /**
+       * AC-certificates-03: revoke one issued certificate by its public code, under two-person approval
+       * (`academy.cert.revoke`, payload `{publicId, reason}`). The public check then says revoked.
+       */
+      revokeCert: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyRevokeCertInputSchema)
+        .output(academyCertRevocationSchema)
+        .mutation(({ input, ctx }) =>
+          guard(async () => {
+            // A repeat answers with the first record, and an unknown code refuses, before the two people's approval is spent.
+            const recorded = await academy.certRevocation(input.publicId);
+            if (recorded) return recorded;
+            const pair = await consumeApprovalPair(ctx.principal, approvals, input, 'academy.cert.revoke', {
+              publicId: input.publicId,
+              reason: input.reason,
+            });
+            return academy.revokeCert({ publicId: input.publicId, reason: input.reason, ...pair, operatorId: ctx.principal!.userId });
+          }),
+        ),
+
+      /** AC-certificates-02: one certificate's stored issue rule, or null when staff have set none (the learner claims it). */
+      certIssueRule: scopedProcedure('admin:read', { module: 'academy' })
+        .input(z.object({ certId: academyCertIdSchema }))
+        .output(academyCertIssueRuleSchema.nullable())
+        .query(({ input }) => guard(() => academy.certIssueRule(input.certId))),
 
       /** AC-videos-01: attach a spine video to one curriculum item (it then completes by `watch`), or take it off with null. */
       setItemVideo: scopedProcedure('admin:write', { module: 'academy' })

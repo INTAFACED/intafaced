@@ -12,9 +12,10 @@ export function clockTime(at: number, zone: Zone): string {
 
 /**
  * "14 Oct, 19:29" in the viewer's zone ("14 Oct 2025, 19:29" when it is not this year); a picked zone is named.
- * `at` is an ISO time from the service. An unreadable time shows "—", never a made-up one.
+ * `at` is an ISO time from the service. An unreadable time shows "—", never a made-up one. `seconds` adds them, for a
+ * deadline shorter than a minute can show.
  */
-export function stamp(iso: string, zone: Zone, now: number = Date.now()): string {
+export function stamp(iso: string, zone: Zone, now: number = Date.now(), seconds = false): string {
   const at = Date.parse(iso);
   if (Number.isNaN(at)) return '—';
   const timeZone = zoneName(zone);
@@ -26,6 +27,7 @@ export function stamp(iso: string, zone: Zone, now: number = Date.now()): string
     ...(sameYear ? {} : { year: 'numeric' }),
     hour: '2-digit',
     minute: '2-digit',
+    ...(seconds ? { second: '2-digit' } : {}),
     hour12: false,
     timeZone,
   })
@@ -34,4 +36,11 @@ export function stamp(iso: string, zone: Zone, now: number = Date.now()): string
   const date = text.slice(0, text.lastIndexOf(' '));
   const clock = text.slice(text.lastIndexOf(' ') + 1);
   return `${date}, ${clock}${zone === 'device' ? '' : ` ${zone}`}`;
+}
+
+/** The calendar day ("2026-10-24") an instant falls on in the viewer's zone, as a date input takes it. */
+export function dayIn(iso: string, zone: Zone): string {
+  const at = Date.parse(iso);
+  if (Number.isNaN(at)) return '';
+  return new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit', timeZone: zoneName(zone) }).format(at);
 }

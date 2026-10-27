@@ -29,6 +29,8 @@ export type PasswordProblem =
   | 'notConnected'
   | 'badCode'
   | 'policy'
+  /** The new password is on the owner's breached-password list (`auth.password_breached`). */
+  | 'breached'
   | 'unchanged'
   | 'wrongCurrent'
   | 'rateLimited'
@@ -57,6 +59,8 @@ export function passwordProblem(result: Refusal): PasswordProblem {
       return 'badCode';
     case 'auth.password_policy':
       return 'policy';
+    case 'auth.password_breached':
+      return 'breached';
     case 'auth.password_unchanged':
       return 'unchanged';
     case 'auth.invalid_credentials':

@@ -15,6 +15,7 @@ import { encodeListCursor, ListQueryError, parseListFilters } from '../list-page
 import { merchantKybMoneyGateRefusal, type MerchantKybStatus } from '../merchant-kyb-money-gate.js';
 import type { ValueMovementPolicy } from '../rails/posture.js';
 import { CADENCES, occurrenceStart, type Cadence } from './schedule.js';
+import { subscriptionPrice } from './subscription-price.js';
 import {
   MAX_ATTEMPTS_PER_CYCLE,
   assertWithinMandateCeiling,
@@ -60,10 +61,12 @@ function subscriptionCreateKey(raw: string | undefined): string | undefined {
   return key;
 }
 
-function subscriptionCreateFingerprint(mandateId: string, path: string | undefined): string {
+function subscriptionCreateFingerprint(mandateId: string, path: string | undefined, priceId: string | undefined): string {
   return fingerprintRequest('POST', 'subscription.create', {
     mandateId: mandateId.toLowerCase(),
     path: normaliseSubscriptionPath(path),
+    // Only when one is named, so a create without a price keeps the fingerprint it always had.
+    ...(priceId ? { priceId: priceId.toLowerCase() } : {}),
   });
 }
 
@@ -135,6 +138,8 @@ export interface SubscriptionRecord {
   stalledAt: Date | null;
   /** Why it stopped advancing. An operator pause and an outage are not the same fact. */
   stallReason: StallReason | null;
+  /** The catalogue price it was started on, kept for its whole life; null when it was started from a mandate alone. */
+  priceId: string | null;
 }
 
 /** One period of one subscription, as recorded. */
@@ -203,6 +208,8 @@ interface SubRow {
   resumed_at: Date | null;
   stalled_at: Date | null;
   stall_reason: StallReason | null;
+  /** Absent on rows read by a column list that predates it; read as no price. */
+  price_id?: string | null;
 }
 
 interface CycleRow {
@@ -256,6 +263,7 @@ function toSub(r: SubRow): SubscriptionRecord {
     resumedAt: r.resumed_at,
     stalledAt: r.stalled_at,
     stallReason: r.stall_reason,
+    priceId: r.price_id ?? null,
   };
 }
 
@@ -460,10 +468,16 @@ export class SubscriptionService {
    * not cancelled and not completed. The partial unique index is the race
    * backstop; the mandate row lock makes the second caller see the first.
    */
-  async createSubscription(input: { mandateId: string; path?: string; idempotencyKey?: string }): Promise<SubscriptionRecord> {
+  async createSubscription(input: {
+    mandateId: string;
+    path?: string;
+    idempotencyKey?: string;
+    /** A catalogue price to start it on: a monthly fixed price of the mandate's business with the mandate's terms. */
+    priceId?: string;
+  }): Promise<SubscriptionRecord> {
     const idempotencyKey = subscriptionCreateKey(input.idempotencyKey);
     const mandate = await this.getMandate(input.mandateId);
-    const fingerprint = subscriptionCreateFingerprint(mandate.id, input.path);
+    const fingerprint = subscriptionCreateFingerprint(mandate.id, input.path, input.priceId);
 
     return transaction(this.sql, async (tx) => {
       const lockedRows = await tx<Array<{ status: MandateStatus; merchant_id: string }>>`
@@ -523,20 +537,22 @@ export class SubscriptionService {
         throw new PayError(`Mandate ${mandate.id} already has an open subscription`, 'pay.subscription_mandate_open');
       }
 
+      if (input.priceId) await subscriptionPrice(tx, locked.merchant_id, input.priceId, mandate);
+
       const nextRunAt = occurrenceStart(mandate.startsAt, mandate.cadence, 0);
       const path = normaliseSubscriptionPath(input.path);
       let rows: SubRow[];
       try {
         rows = await tx<SubRow[]>`
           INSERT INTO pay.subscriptions (
-            mandate_id, merchant_id, customer_id, next_run_at, status, path
+            mandate_id, merchant_id, customer_id, next_run_at, status, path, price_id
           ) VALUES (
             ${mandate.id}, ${locked.merchant_id}, ${mandate.customerId},
-            ${nextRunAt}, 'active', ${path}
+            ${nextRunAt}, 'active', ${path}, ${input.priceId ?? null}
           )
           RETURNING id, mandate_id, merchant_id, customer_id, next_run_at, status,
                     cancelled_at, path, created_at, anchor_at, anchor_occurrence,
-                    paused_at, resumed_at, stalled_at, stall_reason
+                    paused_at, resumed_at, stalled_at, stall_reason, price_id
         `;
       } catch (err) {
         if (openMandateIndexViolation(err)) {
@@ -569,7 +585,7 @@ export class SubscriptionService {
     const rows = await sql<SubRow[]>`
       SELECT id, mandate_id, merchant_id, customer_id, next_run_at, status,
                 cancelled_at, path, created_at, anchor_at, anchor_occurrence,
-                paused_at, resumed_at, stalled_at, stall_reason
+                paused_at, resumed_at, stalled_at, stall_reason, price_id
         FROM pay.subscriptions WHERE id = ${subscriptionId}
     `;
     const row = rows[0];
@@ -619,7 +635,7 @@ export class SubscriptionService {
     const rows = await this.sql<Array<SubRow & { created_at_cursor: string }>>`
       SELECT id, mandate_id, merchant_id, customer_id, next_run_at, status,
              cancelled_at, path, created_at, anchor_at, anchor_occurrence,
-             paused_at, resumed_at, stalled_at, stall_reason,
+             paused_at, resumed_at, stalled_at, stall_reason, price_id,
              to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
         FROM pay.subscriptions
        WHERE merchant_id = ${merchantId}
@@ -667,7 +683,7 @@ export class SubscriptionService {
        WHERE id = ${subscriptionId}
       RETURNING id, mandate_id, merchant_id, customer_id, next_run_at, status,
                 cancelled_at, path, created_at, anchor_at, anchor_occurrence,
-                paused_at, resumed_at, stalled_at, stall_reason
+                paused_at, resumed_at, stalled_at, stall_reason, price_id
     `;
     return toSub(rows[0]!);
   }
@@ -758,6 +774,10 @@ export class SubscriptionService {
    * subscription onto the live crypto-invoice path; on one already there it
    * returns the record unchanged (setting it twice gives the same answer).
    * A cancelled or completed subscription refuses `pay.subscription_inactive`.
+   * Moving a card subscription refuses an inactive or KYB-blocked merchant
+   * (`pay.merchant_inactive` or the KYB gate code) before any write. Setting the
+   * method a subscription already has returns before that check: nothing is
+   * written, and the charge cycle gates every new invoice itself.
    */
   async setCollectionMethod(subscriptionId: string, method: CollectionMethod): Promise<SubscriptionRecord> {
     assertCollectionMethodAvailable(method);
@@ -766,6 +786,9 @@ export class SubscriptionService {
       throw new PayError(`Subscription ${subscriptionId} is ${existing.status}`, 'pay.subscription_inactive');
     }
     if (collectionMethodOf(existing.path) === method) return existing;
+    // Moving onto crypto_invoice opens money on the next cycle: the same status and KYB
+    // cut-off as creating a mandate or subscription. The cycle re-checks before each invoice.
+    this.assertMerchantMayOpenMoney(await this.requireMerchant(existing.merchantId));
     const at = this.now();
     const rows = await this.sql<SubRow[]>`
       UPDATE pay.subscriptions
@@ -773,7 +796,7 @@ export class SubscriptionService {
        WHERE id = ${subscriptionId} AND status IN ('active', 'paused')
       RETURNING id, mandate_id, merchant_id, customer_id, next_run_at, status,
                 cancelled_at, path, created_at, anchor_at, anchor_occurrence,
-                paused_at, resumed_at, stalled_at, stall_reason
+                paused_at, resumed_at, stalled_at, stall_reason, price_id
     `;
     const row = rows[0];
     if (!row) throw new PayError(`Subscription ${subscriptionId} is no longer open`, 'pay.subscription_inactive');
@@ -804,7 +827,7 @@ export class SubscriptionService {
        WHERE id = ${subscriptionId} AND status = 'active'
       RETURNING id, mandate_id, merchant_id, customer_id, next_run_at, status,
                 cancelled_at, path, created_at, anchor_at, anchor_occurrence,
-                paused_at, resumed_at, stalled_at, stall_reason
+                paused_at, resumed_at, stalled_at, stall_reason, price_id
     `;
     const row = rows[0];
     if (!row) return this.getSubscription(subscriptionId);
@@ -861,7 +884,7 @@ export class SubscriptionService {
            AND stall_reason = 'fee_unpublished'
         RETURNING id, mandate_id, merchant_id, customer_id, next_run_at, status,
                   cancelled_at, path, created_at, anchor_at, anchor_occurrence,
-                  paused_at, resumed_at, stalled_at, stall_reason
+                  paused_at, resumed_at, stalled_at, stall_reason, price_id
       `;
       const row = rows[0];
       if (!row) throw new PayError(`Subscription ${subscriptionId} is no longer paused`, 'pay.subscription_inactive');
@@ -896,7 +919,7 @@ export class SubscriptionService {
        WHERE id = ${subscriptionId} AND status = 'paused'
       RETURNING id, mandate_id, merchant_id, customer_id, next_run_at, status,
                 cancelled_at, path, created_at, anchor_at, anchor_occurrence,
-                paused_at, resumed_at, stalled_at, stall_reason
+                paused_at, resumed_at, stalled_at, stall_reason, price_id
     `;
     const row = rows[0];
     if (!row) throw new PayError(`Subscription ${subscriptionId} is no longer paused`, 'pay.subscription_inactive');
@@ -931,7 +954,7 @@ export class SubscriptionService {
     const due = await this.sql<SubRow[]>`
       SELECT id, mandate_id, merchant_id, customer_id, next_run_at, status,
                 cancelled_at, path, created_at, anchor_at, anchor_occurrence,
-                paused_at, resumed_at, stalled_at, stall_reason
+                paused_at, resumed_at, stalled_at, stall_reason, price_id
         FROM pay.subscriptions
        WHERE status = 'active' AND next_run_at <= ${now}
        ORDER BY next_run_at ASC
@@ -1204,7 +1227,7 @@ export class SubscriptionService {
         const lockedSubRows = await tx<SubRow[]>`
           SELECT id, mandate_id, merchant_id, customer_id, next_run_at, status,
                  cancelled_at, path, created_at, anchor_at, anchor_occurrence,
-                 paused_at, resumed_at, stalled_at, stall_reason
+                 paused_at, resumed_at, stalled_at, stall_reason, price_id
             FROM pay.subscriptions
            WHERE id = ${loadedSub.id}
            FOR UPDATE
@@ -1347,6 +1370,15 @@ export class SubscriptionService {
           // never opens a second invoice.
           let paymentId = priorPaymentId;
           if (!paymentId) paymentId = await this.createdPaymentId(tx, sub.id, occurrence);
+          /*
+           * A NEW invoice is new money: refuse it for a merchant that is no
+           * longer active or is KYB-blocked (the same cut-off as the mandate and
+           * subscription doors) BEFORE the pre-charge notice. The opener
+           * (createPayment) refuses too, but only after the customer was told
+           * of an invoice that never opens. Linking an invoice already opened
+           * is not gated.
+           */
+          if (!paymentId) this.assertMerchantMayOpenMoney(await this.requireMerchant(sub.merchantId, tx));
           /*
            * SPEC §4 pre-charge notify — record the attempt BEFORE money work,
            * including invoice reuse. Unwired is skipped_unwired, never silent

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
-import { EDGE, journeyState } from './stack.mjs';
+import { EDGE, journeyState, signOutBrowser } from './stack.mjs';
 import { signIn, signUp } from './desk.mjs';
 
 // J-charts-desk-11, in the running app (docs/roadmap/journeys.json): watchlists beside the chart, kept on the account, with live
@@ -47,7 +47,7 @@ test(`${J} #1 adds BTC-USDT by search to a list; it appears at the end and survi
   run.reset({ account: who });
   // Sign-up leaves this browser signed in, and /login resets its form once the session refresh answers, which can wipe
   // the typed email. Start the sign-in signed out, as the other steps do.
-  await page.context().clearCookies();
+  await signOutBrowser(page.context());
   await signIn(page, who);
   await openWorkbench(page);
   await addMarket(page, 'eth', 'ETH/USDT');
@@ -131,7 +131,7 @@ test(`${J} #4 a row click shows that market on the chart at the interval the wor
   await expect(page.getByTestId('chart-title').first()).toHaveText('ETH/USDT · 15m');
   // Drag a row onto the chart, in steps: a single-jump dragTo never starts the browser's native drag here.
   const from = await row(page, 'BTC/USDT').boundingBox();
-  const to = await page.locator('.cw-split-chart').boundingBox();
+  const to = await page.getByTestId('cw-split-chart').boundingBox();
   await page.mouse.move(from.x + 12, from.y + from.height / 2);
   await page.mouse.down();
   await page.mouse.move(from.x + 30, from.y + from.height / 2, { steps: 5 });

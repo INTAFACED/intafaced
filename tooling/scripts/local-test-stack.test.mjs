@@ -58,6 +58,41 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: one service file per started service');
 }
 
+// The bank asks the stack's own svc-pay for the deposit catalogue and addresses; without PAY_URL every deposit answer is
+// "not published" (bank.deposit_custody_unset).
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const envs = localTestServiceEnvs();
+  const bank = envs.find((service) => service.name === 'bank');
+  const pay = envs.find((service) => service.name === 'pay');
+  assert.equal(bank.env.PAY_URL, `http://127.0.0.1:${pay.env.HTTP_PORT}`);
+  console.log('local-test-stack: bank reads deposit custody from the stack svc-pay');
+}
+
+// `LOCAL_STACK_BANK_DEPOSIT_CUSTODY=off` starts the bank with no custody port at all (J-wallet-02 #1), and nothing else changes.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const bankEnv = () => localTestServiceEnvs().find((service) => service.name === 'bank').env;
+  const before = process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
+  try {
+    delete process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
+    const on = bankEnv();
+    assert.ok(on.PAY_URL);
+    process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY = 'off';
+    const off = bankEnv();
+    assert.equal('PAY_URL' in off, false);
+    const { PAY_URL: _payUrl, ...rest } = on;
+    assert.deepEqual(off, rest);
+    // Any other value is a mistake, refused by name, never read as connected.
+    process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY = 'OFF';
+    assert.throws(bankEnv, /LOCAL_STACK_BANK_DEPOSIT_CUSTODY is "OFF"/);
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
+    else process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY = before;
+  }
+  console.log('local-test-stack: bank can start with deposit custody unset');
+}
+
 // The bank process carries its BK-xfer-07 TEST values from the bank profile, verbatim, so a global send on this
 // stack meets the same payee list, exchange allowance and proof limits as CX-8 instead of the unset refusals.
 {
@@ -80,8 +115,14 @@ const script = resolve(here, 'local-test-stack.mjs');
   const bank = localTestServiceEnvs().find((service) => service.name === 'bank');
   const profile = loadProfile().values;
   assert.equal(bank.env.BANK_GLOBAL_PARTNER, 'global-sim');
+  assert.equal(bank.env.BANK_ONRAMP_RATES, 'ramp-sim');
+  assert.equal(bank.env.BANK_PAYOUT_PARTNER, 'payout-sim');
+  assert.equal(bank.env.BANK_DD_SCHEME, 'dd-sim');
   for (const name of [
     'BANK_GLOBAL_SIM_JSON',
+    'BANK_ONRAMP_SIM_JSON',
+    'BANK_PAYOUT_SIM_JSON',
+    'BANK_DD_SIM_JSON',
     'BANK_SEND_FIELD_RULES_JSON',
     'BANK_PAYEE_COOLING_HOURS',
     'BANK_GLOBAL_HOLD_CANCEL_HOURS',
@@ -454,7 +495,7 @@ console.log('local-test-stack: customer folder override checks passed');
     source,
     /if \(!only \|\| only\.includes\('customer'\)\) await startCustomer\(\);\s*if \(!only \|\| only\.includes\('invitation'\)\) await startInvitation\(\);\s*if \(!only \|\| only\.includes\('admin'\)\) await startAdmin\(secrets\);\s*ensureMarket\(\);/,
   );
-  assert.match(source, /const order = \['admin', 'invitation', 'customer', \.\.\.serviceNames\(\)\.reverse\(\), 'nats'\];/);
+  assert.match(source, /const order = \['admin', 'invitation', 'customer', \.\.\.serviceNames\(\)\.reverse\(\), 'video-store', 'nats'\];/);
   // Its session key is canonical 32-byte base64url (apps/admin/src/lib/founder-session.ts), and it never runs in prod posture.
   assert.match(source, /s\.adminSession = crypto\.randomBytes\(32\)\.toString\('base64url'\);/);
   assert.match(source, /APP_ENV: 'dev',/);
@@ -526,6 +567,96 @@ console.log('local-test-stack: customer folder override checks passed');
     assert.equal(upgradeBody.key, 'CUSTOMER_WS_URL');
     assert.equal(upgradeBody.code, 'ws.upstream_unset');
     console.log('local-test-stack: /ws refusal names CUSTOMER_WS_URL');
+  } finally {
+    server.kill('SIGTERM');
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
+// The Customer site carries the production security headers, and the browser's CSP reports are recorded and fail the run.
+{
+  const { customerSecurityHeaders, cspReportRows } = await import('./local-test-stack.mjs');
+  const headers = customerSecurityHeaders();
+  assert.match(headers['Content-Security-Policy'], /^default-src 'self'; script-src 'self';/);
+  assert.match(headers['Content-Security-Policy'], /font-src 'self';/);
+  assert.match(
+    headers['Content-Security-Policy'],
+    /media-src 'self' blob: http:\/\/127\.0\.0\.1:\d+;/,
+    'the TEST video store stands in for the storage origin',
+  );
+  assert.match(headers['Content-Security-Policy'], /; report-uri \/__csp-report$/);
+  assert.equal(headers['X-Frame-Options'], 'DENY');
+  const legacy = cspReportRows(
+    JSON.stringify({
+      'csp-report': {
+        'effective-directive': 'script-src-elem',
+        'blocked-uri': 'inline',
+        'document-uri': 'http://127.0.0.1:3210/home?x=1',
+        'line-number': 3,
+      },
+    }),
+    't',
+  );
+  assert.deepEqual(legacy, [
+    { at: 't', directive: 'script-src-elem', blocked: 'inline', page: 'http://127.0.0.1:3210/home', source: '', line: 3, sample: '' },
+  ]);
+  const modern = cspReportRows(
+    JSON.stringify([
+      {
+        type: 'csp-violation',
+        body: { effectiveDirective: 'font-src', blockedURL: 'https://fonts.example/x.woff2', documentURL: 'http://127.0.0.1:3210/' },
+      },
+    ]),
+    't',
+  );
+  assert.equal(modern[0].directive, 'font-src');
+  assert.deepEqual(cspReportRows('not json'), []);
+
+  const home = mkdtempSync(join(tmpdir(), 'local-test-stack-csp-'));
+  const port = await new Promise((ok) => {
+    const probe = createServer();
+    probe.listen(0, '127.0.0.1', () => {
+      const { port: pt } = probe.address();
+      probe.close(() => ok(pt));
+    });
+  });
+  // LOCAL_STACK_STATE would point the throwaway server at a running stack's record: send it to the temp folder.
+  const env = { ...process.env, HOME: home, LOCAL_STACK_STATE: join(home, 'state') };
+  const server = spawn(process.execPath, [script, '__serve-customer', String(port)], {
+    env,
+    stdio: 'ignore',
+  });
+  const report = (args) => spawnSync(process.execPath, [script, 'csp-report', ...args], { env, encoding: 'utf8' });
+  try {
+    let res;
+    for (let i = 0; i < 50 && !res; i++) {
+      try {
+        res = await fetch(`http://127.0.0.1:${port}/some/room`);
+      } catch {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    }
+    assert.ok(res, 'throwaway server answered');
+    assert.match(
+      res.headers.get('content-security-policy') ?? '',
+      /script-src 'self'/,
+      'the app shell carries the CSP, even with no build',
+    );
+    assert.equal(report(['--fail']).status, 0, 'no violations yet');
+    const posted = await fetch(`http://127.0.0.1:${port}/__csp-report`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/csp-report' },
+      body: JSON.stringify({
+        'csp-report': { 'effective-directive': 'script-src-elem', 'blocked-uri': 'inline', 'document-uri': `http://127.0.0.1:${port}/` },
+      }),
+    });
+    assert.equal(posted.status, 204);
+    const red = report(['--fail']);
+    assert.equal(red.status, 1, 'a recorded violation fails the run');
+    assert.match(red.stdout, /script-src-elem blocked inline/);
+    assert.equal(report(['--clear']).status, 0);
+    assert.equal(report(['--fail']).status, 0, 'cleared');
+    console.log('local-test-stack: real CSP served, violations recorded and failing');
   } finally {
     server.kill('SIGTERM');
     rmSync(home, { recursive: true, force: true });

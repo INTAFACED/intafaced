@@ -7,6 +7,7 @@ import type { LedgerService } from '../service.js';
 import { LookupUnrecordedError } from './operator-lookup.js';
 import type { OperatorAccessEntry } from './operator-owner-balances.js';
 import { TraceInconsistentError, traceBusinessKey } from './operator-trace.js';
+import { BookingRecordMissingError } from './operator-tx-get.js';
 
 const USER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const authConfig = {
@@ -25,7 +26,18 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
 }
 
 const ACTOR = { actorId: USER, requestId: 'req-1' };
-const record = { recordOperatorAccess: async () => {} };
+const BOOKING = {
+  seq: '7',
+  bookedAt: '2026-10-24T12:00:00.000Z',
+  reference: 'corr-TEST-1',
+  event: {
+    id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+    subject: 'intafaced.ledger.tx.posted' as const,
+    recordedAt: '2026-10-24T12:00:00.000Z',
+    publishedAt: null,
+  },
+};
+const record = { recordOperatorAccess: async () => {}, readBookingRecord: async () => BOOKING };
 
 /** TEST amounts only. A memory book that also keeps the access rows a lookup writes. */
 async function seeded() {
@@ -33,7 +45,10 @@ async function seeded() {
   const deposit = recipes.deposit({ userId: USER, assetId: 'USDT', amount: parseAmount('10.5'), rail: 'test', railRef: 'trace-1' });
   const tx = await book.post(deposit);
   const access: OperatorAccessEntry[] = [];
-  const ledger = Object.assign(book, { recordOperatorAccess: async (entry: OperatorAccessEntry) => void access.push(entry) });
+  const ledger = Object.assign(book, {
+    recordOperatorAccess: async (entry: OperatorAccessEntry) => void access.push(entry),
+    readBookingRecord: async (id: string) => (id === tx.id ? BOOKING : null),
+  });
   return { ledger, deposit, tx, access };
 }
 
@@ -49,6 +64,9 @@ describe('traceBusinessKey', () => {
       expect(typeof p.balanceAfter).toBe('string');
     }
     expect(out.postings.map((p) => p.amount)).toContain('10.5');
+    // Its place in the log and its audit entry: the sequence and the tx.posted record written in the same commit.
+    expect(out.booking).toEqual(BOOKING);
+    expect(out.postings.map((p) => p.side).sort()).toEqual(['destination', 'source']);
     expect(access).toEqual([
       { actorId: USER, requestId: 'req-1', ownerType: 'business_key', ownerId: deposit.idempotencyKey, action: 'trace.read' },
     ]);
@@ -62,6 +80,7 @@ describe('traceBusinessKey', () => {
         read = true;
         return null;
       },
+      readBookingRecord: async () => BOOKING,
     };
     await expect(traceBusinessKey(reader, ACTOR, { businessKey: 'k' })).rejects.toBeInstanceOf(LookupUnrecordedError);
     expect(read).toBe(false);
@@ -84,6 +103,12 @@ describe('traceBusinessKey', () => {
     const { tx } = await seeded();
     const lying = { ...record, getTxByKey: async () => tx };
     await expect(traceBusinessKey(lying, ACTOR, { businessKey: 'other:key' })).rejects.toBeInstanceOf(TraceInconsistentError);
+  });
+
+  it('refuses a transaction with no row in the log rather than showing it without one', async () => {
+    const { ledger, deposit } = await seeded();
+    const lost = { ...record, getTxByKey: (k: string) => ledger.getTxByKey(k), readBookingRecord: async () => null };
+    await expect(traceBusinessKey(lost, ACTOR, { businessKey: deposit.idempotencyKey })).rejects.toBeInstanceOf(BookingRecordMissingError);
   });
 
   it('surfaces a ledger read failure rather than a partial answer', async () => {

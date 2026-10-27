@@ -18,8 +18,16 @@ import {
   sellProtectionPriceFor,
 } from './risk.js';
 import { assertStopTrigger, TRADE_STOP_TRIGGER_INVALID } from './stop-trigger-door.js';
+import { STOP_MARKET, stopMarketLimit } from './stop-market.js';
 import { validateSlippageTolerance } from './slippage-tolerance.js';
-import { FeeScheduleError, previewFeeBps, type OwnerFeeSchedule } from './fee-schedule.js';
+import {
+  FEE_SCHEDULE_RESIDUAL,
+  FeeScheduleError,
+  REGULAR_FEE_TIER,
+  makerRebateBpsFor,
+  previewFeeBps,
+  type OwnerFeeSchedule,
+} from './fee-schedule.js';
 import { TradeError, type Market, type OrderSide, type OrderType, type TimeInForce } from './types.js';
 import type { EdgeTrust } from '../edge-trust.js';
 
@@ -84,10 +92,17 @@ export interface SpotOrderPreviewWire {
   feeRole: 'maker' | 'taker' | null;
   /** Owner schedule version. Null when the schedule is unpublished. */
   feeScheduleVersion: string | null;
+  /** The fee tier the rates above are for: the one an order placed now would keep. */
+  feeTier: string;
   /** Discounted maker bps the fill would post if this order rests. */
   makerFeeBps: number | null;
   /** Discounted taker bps the fill would post if this order takes. */
   takerFeeBps: number | null;
+  /**
+   * The maker rebate this market's row publishes, in bps of what the maker pays, if this order rests: 0 = none, null
+   * = not known (no row). Up to: the ledger pays it from each fill's own taker fee, so it is held below that rate.
+   */
+  makerRebateBps: number | null;
   /** Fees of the linked exit legs when the request carries `exit`; null otherwise or when a leg cannot be figured. */
   exitFees: SpotOrderPreviewExitFees | null;
   orderable: boolean;
@@ -131,6 +146,11 @@ export interface SpotOrderPreviewRestDeps {
   optionsSettlementLawStamped: boolean;
   /** Null/unset → market-buy preview refuses `trade.slippage_cap_unset`. */
   slippageCapBps: number | null;
+  /**
+   * The cap a stop-market on this market is placed at (the operator's per-market cap, else the env cap), the same one
+   * placement reads. Absent: the env cap above.
+   */
+  stopMarketCapBps?: (marketId: string) => Promise<number | null>;
   /** PTX-M21 owner fee/rebate schedule. Unpublished → typed refuse, never invent bps. */
   feeSchedule: OwnerFeeSchedule;
   /** The schedule in force now (a later approved version, else `feeSchedule`). Absent: `feeSchedule` as booted. */
@@ -140,6 +160,8 @@ export interface SpotOrderPreviewRestDeps {
    * zero. A failure refuses the fee rather than showing a rate the fill will not post.
    */
   feeDiscountBps?(userId: string): Promise<number>;
+  /** The fee tier an order placed now would take, the same read place uses. Absent in tests means regular. */
+  feeTier?(userId: string): Promise<string>;
 }
 
 const ALLOWED_FIELDS = new Set([
@@ -235,7 +257,7 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
     const side: OrderSide | null = body.side === 'buy' || body.side === 'sell' ? body.side : null;
     const typeWire = typeof body.type === 'string' ? body.type.trim() : '';
     const amountWire = typeof body.amount === 'string' ? body.amount.trim() : '';
-    const priceWire = body.price === undefined ? null : typeof body.price === 'string' ? body.price.trim() : '';
+    let priceWire = body.price === undefined ? null : typeof body.price === 'string' ? body.price.trim() : '';
     if (
       !symbol ||
       !side ||
@@ -307,7 +329,12 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
     } else if (expireWire !== null) {
       refusals.push({ code: 'trade.invalid_tif', field: 'expireAt', message: 'an expiry only applies to a good-till-date order' });
     }
-    const isStopLimit = typeWire === 'stop_limit' && deps.stopLimitEnabled === true;
+    // A stop-market (`stop`) is previewed as the stop-limit it is placed as, at its protection price (spot/stop-market.ts).
+    const isStopMarket = typeWire === STOP_MARKET && deps.stopLimitEnabled === true;
+    const isStopLimit = (typeWire === 'stop_limit' || isStopMarket) && deps.stopLimitEnabled === true;
+    if (isStopMarket && priceWire !== null) {
+      refusals.push({ code: 'trade.invalid_price', field: 'price', message: 'a stop-market is priced by the market: send no price' });
+    }
     let orderType: OrderType | null = null;
     try {
       orderType = isStopLimit ? 'limit' : requireSupportedType(typeWire);
@@ -407,6 +434,14 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
           stopTrigger = parsedStop;
         } catch (error) {
           pushError(refusals, error, 'stopPrice');
+        }
+        if (isStopMarket && stopTrigger !== null && priceWire === null) {
+          try {
+            const cap = deps.stopMarketCapBps ? await deps.stopMarketCapBps(market.id) : deps.slippageCapBps;
+            priceWire = formatAmount(stopMarketLimit(market, side, stopTrigger, cap));
+          } catch (error) {
+            pushError(refusals, error, 'stopPrice');
+          }
         }
       }
       if (tif !== 'GTC') {
@@ -534,6 +569,17 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       }
     }
 
+    // As placement reads it: a sub-account order and anything but spot are regular.
+    let feeTier: string = REGULAR_FEE_TIER;
+    if (deps.feeTier && market.kind === 'spot' && !market.paper && body.subAccountId == null) {
+      try {
+        feeTier = await deps.feeTier(principal.userId);
+      } catch {
+        discountKnown = false;
+        refusals.push({ code: 'trade.fee_tier_unavailable', field: 'fee', message: 'fee tier is unavailable' });
+      }
+    }
+
     // A stop-limit's role is unknown until it triggers, so the preview shows the taker (worst-case) fee.
     const takes =
       orderType !== null &&
@@ -548,17 +594,24 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
     const feeRole: 'maker' | 'taker' | null = orderType === null ? null : rests ? 'maker' : 'taker';
     // A schedule row that refuses (no row, rebate or minimum with no recipe) leaves the fee unavailable, never a guess.
     const scheduleNow = deps.feeScheduleNow ? await deps.feeScheduleNow() : deps.feeSchedule;
+    // The code a refusing row gave (no row for this market's pair group, say), so the refusal names it.
+    let feeRowRefusal: FeeScheduleError | null = null;
     const feeBpsFor = (role: 'maker' | 'taker'): number | null => {
       if (!discountKnown) return null;
       try {
-        return previewFeeBps(scheduleNow, role, discountBps, { symbol: market.symbol });
+        return previewFeeBps(scheduleNow, role, discountBps, { symbol: market.symbol, tierId: feeTier });
       } catch (err) {
-        if (err instanceof FeeScheduleError) return null;
+        if (err instanceof FeeScheduleError) {
+          feeRowRefusal ??= err;
+          return null;
+        }
         throw err;
       }
     };
     const makerFeeBps = feeBpsFor('maker');
     const takerFeeBps = feeBpsFor('taker');
+    // Same row as the maker rate above, so it is known exactly when that rate is.
+    const makerRebateBps = makerFeeBps === null ? null : makerRebateBpsFor(scheduleNow, { symbol: market.symbol, tierId: feeTier });
     const feeScheduleVersion = scheduleNow.published === true ? scheduleNow.version : null;
     const feeBps = feeRole === null ? null : feeRole === 'maker' ? makerFeeBps : takerFeeBps;
     let estimatedFee: Amount | null = null;
@@ -566,11 +619,17 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
     if (feeRole === null) {
       // type already refused
     } else if (feeBps === null) {
-      refusals.push({
-        code: 'trade.order_preview_fee_unavailable',
-        field: 'fee',
-        message: 'published fee schedule is unavailable',
-      });
+      // A blank schedule, or a row that refuses for this market, names the same code the order path refuses with, in
+      // plain words (the schedule's own message names its env key and internal ids). An unknown rank discount is
+      // the remaining case.
+      const rowRefusal = feeRowRefusal as FeeScheduleError | null;
+      refusals.push(
+        rowRefusal
+          ? { code: rowRefusal.code, field: 'fee', message: rowRefusal.residual }
+          : scheduleNow.published !== true
+            ? { code: 'trade.fee_schedule_blank', field: 'fee', message: FEE_SCHEDULE_RESIDUAL }
+            : { code: 'trade.order_preview_fee_unavailable', field: 'fee', message: 'published fee schedule is unavailable' },
+      );
     } else if (
       orderType === 'limit'
         ? limitPrice !== null
@@ -667,8 +726,10 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       feeBps,
       feeRole,
       feeScheduleVersion,
+      feeTier,
       makerFeeBps,
       takerFeeBps,
+      makerRebateBps,
       exitFees,
       orderable: uniqueRefusals.length === 0,
       refusals: uniqueRefusals,

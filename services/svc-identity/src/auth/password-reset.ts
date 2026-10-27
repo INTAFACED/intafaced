@@ -2,8 +2,10 @@ import { createHmac } from 'node:crypto';
 import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { AuthError } from './auth-service.js';
+import { queuePasswordChangedNotice } from './password-changed-notice.js';
 import { assertNotSecurityLocked } from './security-lock.js';
 import {
+  assertPasswordNotBreached,
   assertPasswordShape,
   assertPasswordNotIdentity,
   dummyPasswordHash,
@@ -56,6 +58,8 @@ export interface PasswordResetMail {
     readonly userId?: string;
     /** The account's anti-phishing code, on mails to its own address when its owner set one. */
     readonly antiPhishingCode?: string;
+    /** A plain line naming what a service mail is about (`POST /internal/mail`), for example the address to approve. */
+    readonly detail?: string;
   }): Promise<void>;
 }
 
@@ -69,7 +73,19 @@ export type MailPurpose =
   | 'handle-recovery'
   | 'handle-recovery-no-account'
   | 'signup-code'
-  | 'signup-existing';
+  | 'signup-existing'
+  | 'login-code'
+  | 'login-no-account'
+  | 'new-device-code'
+  | 'withdraw-address-approval'
+  | 'password-changed'
+  | 'mfa-reset-code'
+  | 'mfa-reset-started'
+  | 'mfa-reset-cancelled'
+  | 'mfa-reset-completed'
+  | 'factor-changed'
+  | 'support-recovery'
+  | 'support-recovery-used';
 
 export interface PasswordResetDeps {
   readonly sql: Sql;
@@ -226,25 +242,59 @@ export async function requestHandleRecovery(deps: PasswordResetDeps, input: { em
 }
 
 /**
- * Send the pending jobs, once each. A row is claimed (its secret cleared) before the send, so a crash or
- * a lost reply leaves `unknown` and the flow still valid (T-10), never a second mail. With no mail
- * transport the rows are marked `undeliverable` for the founder delivery desk.
+ * Retries of a security notice (password changed, second-step reset) whose send threw: the first waits
+ * `MAIL_RETRY_FIRST_WAIT_MS`, each next one twice as long, and after `MAIL_RETRY_CAP` failed sends (about two hours from
+ * the first) the row stays `unknown` like any other failed mail and the relay logs that it gave up. An engineering bound on retrying an outage, not an owner setting or a live
+ * magnitude: it decides only how long a free notice is retried.
+ */
+export const MAIL_RETRY_CAP = 8;
+export const MAIL_RETRY_FIRST_WAIT_MS = 60_000;
+
+/**
+ * Notices that tell the person something already happened to the account's security: never withdrawn by a later freeze
+ * or address change, and sent again when a send threw. They carry no secret.
+ */
+const SECURITY_NOTICES = new Set([
+  'password-changed',
+  'mfa-reset-started',
+  'mfa-reset-cancelled',
+  'mfa-reset-completed',
+  'factor-changed',
+  'support-recovery-used',
+]);
+
+/**
+ * Send the pending jobs that are due. A row is claimed (its secret cleared) before the send, so a crash or
+ * a lost reply leaves `unknown` and the flow still valid (T-10), never a second mail. A security notice whose send
+ * threw is the one row sent again, on the wait above. With no mail transport the rows are marked `undeliverable`
+ * for the founder delivery desk.
  */
 export async function relayMailOutbox(
   deps: PasswordResetDeps,
   limit = 25,
 ): Promise<{ sent: number; undeliverable: number; unknown: number }> {
   const claimed = await deps.sql<
-    Array<{ id: string; purpose: string; recipient: string; code: string | null; handle: string | null; expires_at: Date }>
+    Array<{
+      id: string;
+      purpose: string;
+      recipient: string;
+      code: string | null;
+      handle: string | null;
+      expires_at: Date;
+      user_id: string | null;
+      detail: string | null;
+    }>
   >`
     WITH due AS (
-      SELECT id, code, handle FROM mail_outbox WHERE status = 'pending' ORDER BY created_at LIMIT ${limit} FOR UPDATE SKIP LOCKED
+      SELECT id, code, handle FROM mail_outbox
+      WHERE status = 'pending' AND (next_attempt_at IS NULL OR next_attempt_at <= ${deps.now()})
+      ORDER BY created_at LIMIT ${limit} FOR UPDATE SKIP LOCKED
     )
     UPDATE mail_outbox AS m
     SET status = ${deps.mail ? 'unknown' : 'undeliverable'}, code = NULL, handle = NULL
     FROM due
     WHERE m.id = due.id
-    RETURNING m.id, m.purpose, m.recipient, due.code, due.handle, m.expires_at
+    RETURNING m.id, m.purpose, m.recipient, due.code, due.handle, m.expires_at, m.user_id, m.detail
   `;
   const out = { sent: 0, undeliverable: 0, unknown: 0 };
   const mail = deps.mail;
@@ -253,6 +303,14 @@ export async function relayMailOutbox(
     return out;
   }
   for (const job of claimed) {
+    // A service mail (POST /internal/mail) goes out only while its account is still active and the address is still
+    // its proved one; a freeze or an address change between the request and the send withdraws it. The password-changed
+    // notice and the second-step reset notices are not withdrawn: they go to the address proved at the change, which is
+    // the point of them.
+    if (job.user_id && !SECURITY_NOTICES.has(job.purpose) && !(await stillOwnAddress(deps.sql, job.user_id, job.recipient))) {
+      await deps.sql`UPDATE mail_outbox SET status = 'suppressed' WHERE id = ${job.id}`;
+      continue;
+    }
     try {
       await mail.send({
         email: job.recipient,
@@ -260,16 +318,43 @@ export async function relayMailOutbox(
         expiresAt: job.expires_at instanceof Date ? job.expires_at : new Date(job.expires_at),
         purpose: job.purpose as MailPurpose,
         ...(job.handle ? { handle: job.handle } : {}),
+        ...(job.user_id ? { userId: job.user_id } : {}),
+        ...(job.detail ? { detail: job.detail } : {}),
       });
       await deps.sql`UPDATE mail_outbox SET status = 'sent', sent_at = ${deps.now()} WHERE id = ${job.id}`;
       out.sent += 1;
     } catch {
-      // A throw can follow a send that landed. The row stays `unknown`, the flow stays valid.
+      // A throw can follow a send that landed. The row stays `unknown`, the flow stays valid. A security notice carries
+      // no secret, so a second copy harms nothing: it goes back to pending and waits its turn, until the cap.
       deps.log.warn({ jobId: job.id, purpose: job.purpose }, 'auth.password_reset_delivery_failed');
+      if (SECURITY_NOTICES.has(job.purpose)) await retryNotice(deps, job.id);
       out.unknown += 1;
     }
   }
   return out;
+}
+
+/** One statement, so a crash cannot count a failed send without putting the notice back for its next try. */
+async function retryNotice(deps: PasswordResetDeps, id: string): Promise<void> {
+  const [row] = await deps.sql<Array<{ failed_sends: number }>>`
+    UPDATE mail_outbox
+    SET failed_sends = failed_sends + 1,
+      status = CASE WHEN failed_sends + 1 < ${MAIL_RETRY_CAP} THEN 'pending' ELSE status END,
+      next_attempt_at = CASE WHEN failed_sends + 1 < ${MAIL_RETRY_CAP}
+        THEN ${deps.now()}::timestamptz + make_interval(secs => ${MAIL_RETRY_FIRST_WAIT_MS / 1000} * power(2, failed_sends))
+        ELSE next_attempt_at END
+    WHERE id = ${id}
+    RETURNING failed_sends
+  `;
+  const failed = row?.failed_sends ?? MAIL_RETRY_CAP;
+  if (failed >= MAIL_RETRY_CAP) deps.log.warn({ jobId: id, failedSends: failed }, 'auth.password_changed_notice_abandoned');
+}
+
+async function stillOwnAddress(sql: Sql, userId: string, recipient: string): Promise<boolean> {
+  const [user] = await sql<Array<{ status: string; email: string | null; email_verified_at: Date | null }>>`
+    SELECT status, email, email_verified_at FROM users WHERE id = ${userId}
+  `;
+  return user?.status === 'active' && user.email === recipient && user.email_verified_at !== null;
 }
 
 type OpenFlow = { id: string; user_id: string | null; code_hash: string; status: string; attempts: number; expires_at: Date };
@@ -320,8 +405,9 @@ export async function completePasswordReset(
   try {
     assertPasswordShape(input.newPassword);
     assertPasswordNotIdentity(input.newPassword, user);
+    assertPasswordNotBreached(input.newPassword);
   } catch (err) {
-    if (err instanceof WeakPasswordError) throw new AuthError(err.message, 'auth.password_policy');
+    if (err instanceof WeakPasswordError) throw new AuthError(err.message, err.code);
     throw err;
   }
   if (await verifyPassword(user.password_hash, input.newPassword)) {
@@ -329,7 +415,7 @@ export async function completePasswordReset(
   }
   const nextHash = await hashPassword(input.newPassword);
 
-  const revokedIds = await transaction(
+  const { revokedIds, noticed } = await transaction(
     deps.sql,
     async (tx) => {
       const locked = await tx<Array<{ status: string }>>`
@@ -347,7 +433,8 @@ export async function completePasswordReset(
         FOR UPDATE
       `;
       if (!proof[0]) throw new AuthError(INVALID_PROOF, 'auth.reset_proof_invalid');
-      await tx`UPDATE users SET password_hash = ${nextHash}, updated_at = now() WHERE id = ${user.id}`;
+      // A reset gives back a password the owner stopped using (I-account-lifecycle-07): the mailed code proved the address.
+      await tx`UPDATE users SET password_hash = ${nextHash}, password_set = true, updated_at = now() WHERE id = ${user.id}`;
       await tx`
         UPDATE auth_flows SET status = 'consumed', consumed_at = ${deps.now()}
         WHERE user_id = ${user.id} AND kind = 'password_reset' AND consumed_at IS NULL
@@ -357,10 +444,13 @@ export async function completePasswordReset(
         WHERE user_id = ${user.id} AND revoked = false
         RETURNING id
       `;
-      return revoked.map((row) => row.id);
+      const noticed = await queuePasswordChangedNotice(tx, { userId: user.id, now: deps.now() });
+      return { revokedIds: revoked.map((row) => row.id), noticed };
     },
     { isolation: 'read committed' },
   );
+  // The reset has committed: a relay that fails to start now must not make it look refused. The timer relay sends it.
+  if (noticed) await Promise.resolve(deps.afterCommit?.()).catch(() => undefined);
 
   return { userId: user.id, sessionsRevoked: revokedIds.length };
 }

@@ -8,6 +8,39 @@ import { DAY, MERCHANT_ID, NOT_MINE, USER_ID, hex, iso, ok, refuse } from './sha
 import { fromU, toU } from './world.mjs';
 
 const uuid = (prefix, n) => hex(prefix, n);
+/** A TEST logo rule (100 KB), as the local stack publishes it; not an owner value. */
+const TEST_LOGO_RULES = { logoMaxBytes: 100_000, logoTypes: ['image/png', 'image/jpeg', 'image/webp'] };
+/** The stand-in platform takes crypto and TEST bank transfers, as the local stack does; the rest name what they need. */
+const TEST_METHOD_CONNECTION = {
+  crypto: { state: 'connected' },
+  card: { state: 'not_connected', notice: 'rail.card' },
+  bank_debit: { state: 'not_connected', notice: 'rail.bank' },
+  pay_later: { state: 'not_connected', notice: 'rail.card' },
+  bank_transfer: { state: 'connected' },
+};
+const TEST_METHOD_CURRENCIES = { crypto: 'crypto', card: 'fiat', bank_debit: 'fiat', pay_later: 'fiat', bank_transfer: 'fiat' };
+const testCheckoutMethods = (state) => {
+  const saved = state.checkoutMethods;
+  const rules =
+    saved?.rules ??
+    ['crypto', 'card', 'bank_debit', 'pay_later', 'bank_transfer'].map((method) => ({
+      method,
+      enabled: method === 'crypto' || method === 'bank_transfer',
+      ruleAsset: null,
+      minAmount: null,
+      maxAmount: null,
+    }));
+  return {
+    status: saved ? 'saved' : 'default',
+    version: saved?.version ?? 0,
+    updatedAt: saved?.updatedAt ?? null,
+    methods: rules.map((rule) => ({
+      rule,
+      connection: TEST_METHOD_CONNECTION[rule.method],
+      currencies: TEST_METHOD_CURRENCIES[rule.method],
+    })),
+  };
+};
 const decimalPlaces = (value) => (String(value).split('.')[1] ?? '').length;
 const OWNER_ONLY = new Set([
   'payment.refund',
@@ -21,6 +54,18 @@ const OWNER_ONLY = new Set([
   'mandate.cancel',
   'merchant.profile',
 ]);
+
+const escapeHtml = (value) => String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/** An https address with a host, as svc-pay's parseLinkConfirmation takes it. */
+function httpsPage(value) {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'https:' && parsed.hostname.length > 0 && parsed.href.startsWith('https://');
+  } catch {
+    return false;
+  }
+}
 
 export function createWritesMock(ctx) {
   const { now, state, scenario, world } = ctx;
@@ -83,6 +128,14 @@ export function createWritesMock(ctx) {
         }
         case 'merchant.createLink': {
           if (input.amount && !input.currency) return refuse(route, 400, 'pay.payment_link_currency_required');
+          // As the service: a blank message and a page that is not https are refused before anything is made.
+          const after = input.confirmation;
+          const afterUrl = typeof after?.url === 'string' ? after.url.trim() : '';
+          const afterMessage = typeof after?.message === 'string' ? after.message.trim() : '';
+          if (after?.kind === 'redirect' && !afterUrl) return refuse(route, 400, 'pay.link_confirmation_unset');
+          if (after?.kind === 'redirect' && !httpsPage(afterUrl)) return refuse(route, 400, 'pay.link_redirect_not_https');
+          if (after?.kind === 'message' && (!afterMessage || afterMessage.length > 500))
+            return refuse(route, 400, 'pay.link_confirmation_unset');
           // The same request sent twice (a lost reply, then "check and finish") makes one link, and answers the same way.
           const seenLink = input.idempotencyKey ? replays.get(`link:${input.idempotencyKey}`) : undefined;
           if (seenLink) return ok(route, seenLink);
@@ -102,6 +155,14 @@ export function createWritesMock(ctx) {
             uses: 0,
             createdAt: iso(Date.now()),
             checkoutUrl: `/pay/checkout?token=TEST-token-${prefix}`,
+            priceId: input.priceId ?? null,
+            inactiveMessage: null,
+            confirmationMessage: after?.kind === 'message' ? afterMessage : null,
+            confirmationUrl: after?.kind === 'redirect' ? afterUrl : null,
+            // As the service's paymentLinkEmbedSnippet: the label as the button's text, attributes and text escaped.
+            embedSnippet: input.amount
+              ? `<a href="/pay/checkout?token=TEST-token-${prefix}" data-amount="${escapeHtml(input.amount)}" data-asset="${escapeHtml(input.currency)}">${escapeHtml(input.label)}</a>`
+              : null,
           };
           world.links.unshift(link);
           const made = {
@@ -120,7 +181,10 @@ export function createWritesMock(ctx) {
         case 'merchant.deactivateLink': {
           const link = world.links.find((l) => l.id === input.linkId);
           if (!link) return refuse(route, 404, 'pay.payment_link_not_found');
+          // Turning a link off is one-way, and its message is the one sent with the first deactivate.
+          if (!link.active) return ok(route, { deactivated: false });
           link.active = false;
+          link.inactiveMessage = input.message?.trim() || null;
           return ok(route, { deactivated: true });
         }
         case 'merchant.checkoutSettings.get': {
@@ -139,6 +203,55 @@ export function createWritesMock(ctx) {
             domains: ['checkout.shop.example.test'],
             createdAt: iso(now - 80 * DAY),
           });
+        }
+        case 'merchantCheckout.branding.get':
+          return ok(route, { rules: TEST_LOGO_RULES, look: state.checkoutLook ?? { status: 'default' } });
+        case 'merchantCheckout.branding.save': {
+          if (ctx.role !== 'owner' && ctx.role !== 'admin') return refuse(route, 403, 'pay.team_role_forbidden');
+          const version = state.checkoutLook?.version ?? 0;
+          if (input.expectedVersion !== version) return refuse(route, 409, 'pay.checkout_branding_stale');
+          let logo = state.checkoutLook?.logo ?? null;
+          if (input.logo === null) logo = null;
+          else if (input.logo) {
+            const bytes = Buffer.from(input.logo.dataBase64, 'base64');
+            if (bytes.length > TEST_LOGO_RULES.logoMaxBytes) return refuse(route, 400, 'pay.checkout_logo_too_large');
+            if (!TEST_LOGO_RULES.logoTypes.includes(input.logo.contentType)) return refuse(route, 400, 'pay.checkout_logo_type_refused');
+            logo = {
+              contentType: input.logo.contentType,
+              byteSize: bytes.length,
+              sha256: '0'.repeat(64),
+              dataBase64: input.logo.dataBase64,
+            };
+          }
+          state.checkoutLook = {
+            status: 'saved',
+            brandColor: String(input.brandColor).toLowerCase(),
+            logo,
+            version: version + 1,
+            updatedAt: iso(now),
+          };
+          return ok(route, { branding: { rules: TEST_LOGO_RULES, look: state.checkoutLook }, replayed: false });
+        }
+        case 'merchantCheckoutMethods.get':
+          return ok(route, testCheckoutMethods(state));
+        case 'merchantCheckoutMethods.save': {
+          if (ctx.role !== 'owner' && ctx.role !== 'admin') return refuse(route, 403, 'pay.team_role_forbidden');
+          const version = state.checkoutMethods?.version ?? 0;
+          if (input.expectedVersion !== version) return refuse(route, 409, 'pay.checkout_methods_stale');
+          state.checkoutMethods = { rules: input.methods, version: version + 1, updatedAt: iso(now) };
+          return ok(route, { methods: testCheckoutMethods(state), replayed: false });
+        }
+        case 'merchantCheckoutMethods.preview': {
+          // The stand-in has the crypto rail only, everywhere, as the local stack does.
+          const fiat = !/^(USDT|USDC|BTC|ETH|SOL)$/.test(String(input.currency).toUpperCase());
+          const offered = [];
+          const leftOut = [];
+          for (const rule of testCheckoutMethods(state).methods.map((m) => m.rule)) {
+            if (!rule.enabled) leftOut.push({ method: rule.method, reason: 'off' });
+            else if ((rule.method !== 'crypto') !== fiat) leftOut.push({ method: rule.method, reason: 'currency' });
+            else offered.push({ method: rule.method, connection: TEST_METHOD_CONNECTION[rule.method] });
+          }
+          return ok(route, { offered, leftOut });
         }
         case 'merchant.profile': {
           // Saves the checkout domains (a new checkout profile). The read above keeps answering from its fixed record.
@@ -196,6 +309,7 @@ export function createWritesMock(ctx) {
             resumedAt: null,
             stalledAt: null,
             stallReason: null,
+            priceId: input.priceId ?? null,
           };
           world.subscriptions.unshift(row);
           if (input.idempotencyKey) replays.set(`sub:${input.idempotencyKey}`, row);

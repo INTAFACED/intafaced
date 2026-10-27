@@ -61,6 +61,8 @@ const space = (id: string, userId: string, name: string): SpaceRecord => ({
   name,
   goalTarget: null,
   lockedUntil: null,
+  unlockRequestedAt: null,
+  unlocksAt: null,
   archivedAt: null,
 });
 

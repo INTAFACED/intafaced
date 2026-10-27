@@ -28,6 +28,7 @@ import type { PortalRoute } from '../routes';
 import type { ApiResult } from '../../../../shared/api';
 import { checkSubscriptionOriginal, createSubscriptionWithRecovery, replaySubscriptionCreate } from './subscription-recovery';
 import { definite } from './not-available';
+import { SubscriptionPriceFact, SubscriptionPricePicker, subscriptionPriceLabel } from '../catalog/SubscriptionPrice';
 
 type Subscription = z.infer<typeof subscriptionSchema>;
 type Mandate = z.infer<typeof mandateSchema>;
@@ -327,6 +328,7 @@ function SubscriptionRelated({
       cycles={cycles.resource}
       executions={executions.resource}
       pay={pay}
+      price={<SubscriptionPriceFact portal={portal} priceId={subscription.priceId} />}
       reload={() => {
         reload();
         mandate.reload();
@@ -342,6 +344,7 @@ export function SubscriptionDetailView({
   cycles,
   executions,
   pay,
+  price,
   reload,
 }: {
   subscription: Subscription;
@@ -349,6 +352,8 @@ export function SubscriptionDetailView({
   cycles: Resource<{ subscriptionId: string; cycles: Cycle[] }>;
   executions: Resource<Execution[]>;
   pay: BusinessPayApi | null;
+  /** The catalogue price it runs on, read in the catalogue's words. */
+  price?: ReactNode;
   reload: () => void;
 }) {
   const at = useReadAt(true, subscription);
@@ -382,6 +387,7 @@ export function SubscriptionDetailView({
             [c.t('status'), <SubscriptionChip status={subscription.status} />],
             [c.t('chargePath'), pathLabel(subscription.path)],
             [c.t('nextRun'), <NextRun status={subscription.status} nextRunAt={subscription.nextRunAt} />],
+            ...(price ? [[subscriptionPriceLabel(), price] as [string, ReactNode]] : []),
           ]}
         />
         <ReadStamp at={at} />
@@ -717,9 +723,14 @@ export function CreateSubscriptionView({
   const [, refreshLock] = useState(0);
   const [mandateId, setMandateId] = useUrlParam('mandateId');
   const [draftPath, setPath] = useState('');
-  const recoveredPath =
-    pay && mandateId ? pay.guard.original(`${pay.authority!.userId}:subscription-create:${mandateId}`)?.value.path : undefined;
+  const recovered = pay && mandateId ? pay.guard.original(`${pay.authority!.userId}:subscription-create:${mandateId}`)?.value : undefined;
+  const recoveredPath = recovered?.path;
   const path = recoveredPath ?? draftPath;
+  // The catalogue price chosen for this mandate; a create being recovered keeps the one it was sent with.
+  const [draftPrice, setPrice] = useState('');
+  useEffect(() => setPrice(''), [mandateId]);
+  const recoveredPrice = recovered ? (recovered.priceId ?? '') : undefined;
+  const priceId = recoveredPrice ?? draftPrice;
   const [created, setCreated] = useState('');
   const [createNotice, setCreateNotice] = useState('');
   useUnsavedForm(Boolean(mandateId || path), c.t('draftWarning'));
@@ -748,7 +759,7 @@ export function CreateSubscriptionView({
         <Gate resource={mandates} retry={reload}>
           {() =>
             choices.length ? (
-              <div className="form-stack pp-form">
+              <div data-testid="form-stack" className="form-stack pp-form">
                 <SelectField
                   label={c.t('chooseMandate')}
                   value={mandateId}
@@ -773,12 +784,21 @@ export function CreateSubscriptionView({
                         : []),
                   ]}
                 />
+                {selected && portal && (
+                  <SubscriptionPricePicker
+                    portal={portal}
+                    mandate={selected}
+                    value={priceId}
+                    onChange={setPrice}
+                    disabled={recoveredPrice !== undefined}
+                  />
+                )}
                 {selected && <SubscriptionTerms mandate={selected} path={path} />}
                 {pay && locked && (
                   <SubscriptionRecovery
                     key={`${pay.authority!.userId}:${mandateId}`}
                     outcomeShown={uncertainShown === mandateId}
-                    check={(current) => replaySubscriptionCreate(pay, mandateId, path, current)}
+                    check={(current) => replaySubscriptionCreate(pay, mandateId, path, current, priceId || undefined)}
                     onKnown={(data) => {
                       setCreateNotice('');
                       setCreated(data.id);
@@ -819,11 +839,22 @@ export function CreateSubscriptionView({
                       key={`${mandateId}:${revision}`}
                       title={c.t('createSubscription')}
                       description={c.t('subscriptionCreateReview')}
-                      review={selected && <SubscriptionTerms mandate={selected} path={path} />}
+                      review={
+                        selected && (
+                          <>
+                            <SubscriptionTerms mandate={selected} path={path} />
+                            {priceId && portal && (
+                              <p>
+                                {subscriptionPriceLabel()}: <SubscriptionPriceFact portal={portal} priceId={priceId} />
+                              </p>
+                            )}
+                          </>
+                        )
+                      }
                       disabled={!selected || !allowed || Boolean(pay.access('pay:write')) || locked}
                       perform={async () => {
                         try {
-                          const result = await createSubscriptionWithRecovery(pay, mandateId, path);
+                          const result = await createSubscriptionWithRecovery(pay, mandateId, path, priceId || undefined);
                           setUncertainShown(!result.ok && result.reason === 'uncertain' ? mandateId : '');
                           // An unconfirmed reply is shown once, by the review and the check below it.
                           if (!result.ok && result.reason !== 'uncertain') setCreateNotice(result.message);
@@ -837,6 +868,7 @@ export function CreateSubscriptionView({
                         setCreated(data.id);
                         setMandateId('');
                         setPath('');
+                        setPrice('');
                         reload();
                       }}
                     />

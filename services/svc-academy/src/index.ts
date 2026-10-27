@@ -17,6 +17,7 @@ import { videoGateFromEnv, videoStorageFromEnv } from './video/library.js';
 import { createTradePublicPaperFlagPort } from './paper/market-flag-verify.js';
 import { parseAmbassadorIfcPayLawJson, parseAmbassadorRevenueShareLawJson } from './ambassadors/ifc-pay-rate-law.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
+import { createQuizAddressResolver } from './curriculum/course-quizzes.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -134,6 +135,12 @@ const academy = new AcademyService(
     mediaStorage: videoStorageFromEnv(env),
     uploadMaxBytes: env.ACADEMY_UPLOAD_MAX_BYTES,
     topicsListLimit: env.ACADEMY_TOPICS_LIST_LIMIT,
+    graderLeaseSeconds: env.ACADEMY_GRADER_LEASE_SECONDS,
+    certIssueSweepSeconds: env.ACADEMY_CERT_ISSUE_SWEEP_SECONDS,
+    programmeMaxCourses: env.ACADEMY_PROGRAMME_MAX_COURSES,
+    postMaxChars: env.ACADEMY_POST_MAX_CHARS,
+    postImageMaxBytes: env.ACADEMY_POST_IMAGE_MAX_BYTES,
+    messageMaxChars: env.ACADEMY_MESSAGE_MAX_CHARS,
     uploadVideoTypes: env.ACADEMY_UPLOAD_VIDEO_TYPES,
     uploadHandoutTypes: env.ACADEMY_UPLOAD_HANDOUT_TYPES,
     videoWatchThresholdSeconds: env.ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS,
@@ -176,6 +183,9 @@ export type AppRouter = typeof appRouter;
 // Built before the listener opens: a service that cannot authenticate the edge
 // must fail to start, not start and serve every request as anonymous.
 const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, ...edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
+
+// AC-quizzes-01: built before the listener opens, so a malformed proxy range stops the service instead of reading no address.
+const quizAddress = createQuizAddressResolver(env.ACADEMY_TRUSTED_PROXY_CIDRS);
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 
@@ -221,17 +231,45 @@ await app.register(fastifyTRPCPlugin, {
     createContext: ({ req }) => {
       const ctx = edgeContext(req);
       const peer = (req as { ip?: unknown }).ip;
-      return Object.assign(ctx, { clientAddress: typeof peer === 'string' ? peer.trim() : '' });
+      return Object.assign(ctx, {
+        clientAddress: typeof peer === 'string' ? peer.trim() : '',
+        quizClientAddress: quizAddress(req.socket.remoteAddress, req.headers['x-intafaced-client-ip']),
+      });
     },
   } satisfies FastifyTRPCPluginOptions<AcademyRouter>['trpcOptions'],
 });
 
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
+
+/**
+ * AC-certificates-02: the issue sweep issues delayed certificates once due. One sweep at a time: a slow one is never
+ * stacked under the next. Blank interval, no sweep, and delayed issue rules refuse `academy.cert_sweep_unset`.
+ */
+let sweeping: Promise<void> | null = null;
+const certSweep =
+  env.ACADEMY_CERT_ISSUE_SWEEP_SECONDS === undefined
+    ? null
+    : setInterval(() => {
+        if (sweeping) return;
+        sweeping = academy
+          .issueDueCertificates()
+          .then(
+            () => undefined,
+            (err: unknown) => app.log.error({ err }, 'certificate issue sweep failed; the next one retries'),
+          )
+          .finally(() => {
+            sweeping = null;
+          });
+      }, env.ACADEMY_CERT_ISSUE_SWEEP_SECONDS * 1000);
+certSweep?.unref();
 app.log.info({ port: env.HTTP_PORT, stream: stream.id, xp: certXp.id, trpc: true }, 'svc-academy ready');
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
+      if (certSweep) clearInterval(certSweep);
+      // A sweep under way finishes before the pool closes, so no issue is cut off between its grant and its cleanup.
+      await sweeping;
       await app.close();
       await bus?.close();
       await sql.end({ timeout: 5 });

@@ -46,6 +46,7 @@ describe('parseFeeScheduleJson', () => {
       takerBps: 20,
       makerRebateBps: null,
       perpetual: null,
+      ifcFee: null,
     });
   });
 

@@ -304,7 +304,7 @@ test(`${J} #6 opens ledger history: every balance change with its ledger referen
   const shown = await table
     .locator('tbody tr')
     .evaluateAll((trs) =>
-      trs.map((tr) => ({ id: tr.getAttribute('data-entry'), ref: tr.querySelector('.dk-ledger-ref')?.textContent?.trim() })),
+      trs.map((tr) => ({ id: tr.getAttribute('data-entry'), ref: tr.querySelector('[data-testid="dk-ledger-ref"]')?.textContent?.trim() })),
     );
   expect(shown).toEqual(lines.map((l) => ({ id: l.id, ref: l.referenceId })));
 

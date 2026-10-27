@@ -21,20 +21,41 @@ const data = (res, what) => {
 };
 
 /**
- * svc-notify's payload hash: id, kind, title, body and version, plus the incident status fields when the draft set any.
- * No scope or changelog fields (no journey here drafts those).
+ * svc-notify's payload hash: id, kind, title, body and version, plus the incident status fields when the draft set any,
+ * the asset, network and phase as stored (an update keeps its incident's pair) when it has any, the category when it names
+ * one and the audience when it is not everyone. A fee change adds the time it takes effect. No changelog or reminder fields (no journey here drafts those).
  */
 const payloadHash = (row) => {
   const status = row.statusFields;
   const withStatus = status && (status.impact || status.components.length > 0 || status.parentId || status.resolves) ? { status } : {};
+  const [asset, network, phase] = [row.asset ?? null, row.network ?? null, row.phase ?? null];
+  const withScope = asset !== null || phase !== null ? { scope: { asset, network, phase } } : {};
+  const withCategory = row.category ? { category: row.category } : {};
+  const withAudience = row.audience && row.audience !== 'everyone' ? { audience: row.audience } : {};
+  const withEffective = row.kind === 'fee_change' ? { effectiveAt: row.startsAt ?? null } : {};
   return `sha256:${createHash('sha256')
-    .update(JSON.stringify({ id: row.id, kind: row.kind, title: row.title, body: row.body, version: row.version, ...withStatus }))
+    .update(
+      JSON.stringify({
+        id: row.id,
+        kind: row.kind,
+        title: row.title,
+        body: row.body,
+        version: row.version,
+        ...withStatus,
+        ...withScope,
+        ...withCategory,
+        ...withAudience,
+        ...withEffective,
+      }),
+    )
     .digest('hex')}`;
 };
 
 /**
  * A draft notice, open from now for `minutes` unless `startsAt`/`endsAt` say otherwise. Returns the stored row. An incident may name an impact and status page
- * components, update an earlier incident (`parentId`) and close it (`resolves`).
+ * components, update an earlier incident (`parentId`) and close it (`resolves`). A funding incident or maintenance window names
+ * one `asset` on one `network` (the registry's spelling, e.g. USDT and ethereum), and every incident entry its `phase`.
+ * A `fee_change` notice takes `startsAt` as the time its fee schedule version takes effect, and no end.
  */
 export async function draftNotice({
   kind,
@@ -49,8 +70,16 @@ export async function draftNotice({
   startsAt = null,
   endsAt = null,
   category = null,
+  audience = null,
+  asset = null,
+  network = null,
+  phase = null,
 }) {
-  if (endsAt === null && !(minutes > 0)) throw new Error('draftNotice needs `minutes` or an `endsAt`');
+  // A fee change names the time it takes effect and has no end; every other notice gets a short window.
+  const feeChange = kind === 'fee_change';
+  if (feeChange && !startsAt) throw new Error('a fee_change notice needs the `startsAt` it takes effect');
+  if (feeChange && endsAt !== null) throw new Error('a fee_change notice has no `endsAt`: svc-notify refuses one');
+  if (!feeChange && endsAt === null && !(minutes > 0)) throw new Error('draftNotice needs `minutes` or an `endsAt`');
   const { ctx, pair } = await founders();
   const now = Date.now();
   const res = await ctx.edge.mutate(
@@ -61,12 +90,15 @@ export async function draftNotice({
       title,
       body,
       startsAt: startsAt ?? new Date(now - 60_000).toISOString(),
-      endsAt: endsAt ?? new Date(now + minutes * 60_000).toISOString(),
+      ...(feeChange ? {} : { endsAt: endsAt ?? new Date(now + minutes * 60_000).toISOString() }),
       ...(impact ? { impact } : {}),
       ...(components.length ? { components } : {}),
       ...(parentId ? { parentId } : {}),
       ...(resolves ? { resolves } : {}),
       ...(category ? { category } : {}),
+      ...(audience ? { audience } : {}),
+      ...(asset ? { asset, network } : {}),
+      ...(phase ? { phase } : {}),
       clientRequestId: `journey:notice-draft:${key}`,
     },
     await pair.a.tradeOpsToken(),

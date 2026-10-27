@@ -14,6 +14,7 @@ import { DestinationConfirm } from '../../access/DestinationConfirm';
 import type { DestinationProof } from '../../access/destination-step-up';
 import { normaliseReference } from '../../money/Destinations';
 import { useUnsavedForm } from '../../useUnsavedForm';
+import { BusinessApplication } from './Application';
 import { reason as notLive } from '../../chrome/copy';
 import { accountCopy } from '../account/copy';
 import type { Progress, TermsState } from '../account/schemas';
@@ -201,7 +202,7 @@ function Terms({
       </Blocker>
     );
   return (
-    <div className="stack">
+    <div data-testid="onboarding-terms" className="stack">
       <h3 className="pp-sub">{a('termsTitle')}</h3>
       <p className="muted">{a('termsBody')}</p>
       <a className="text-link" href={terms.url} target="_blank" rel="noreferrer noopener">
@@ -323,7 +324,12 @@ function StepBusiness({ portal, merchant, starterFee, onCreated, progress }: Onb
       <PaySection title={t('step1Title')} description={t('step1DoneBody')}>
         <PayDetails
           values={[
-            [t('factMerchantId'), <span className="pp-mono">{merchant.id}</span>],
+            [
+              t('factMerchantId'),
+              <span data-testid="pp-mono" className="pp-mono">
+                {merchant.id}
+              </span>,
+            ],
             [t('factMode'), t(merchant.mode === 'gateway' ? 'modeGateway' : merchant.mode === 'psp' ? 'modePsp' : 'modePayfac')],
             [t('factStatus'), <Chip kind="merchant" value={merchant.status} />],
           ]}
@@ -345,6 +351,7 @@ function StepBusiness({ portal, merchant, starterFee, onCreated, progress }: Onb
   return (
     <PaySection title={t('step1Title')} description={t('step1Body')}>
       <form
+        data-testid="form-stack"
         className="form-stack pp-form"
         noValidate
         onSubmit={(e) => {
@@ -498,7 +505,7 @@ function StepVerification({ portal, merchant, kyb, history, loadMoreHistory, onK
                         : t('kybNoneNote')}
                 </p>
                 {canSubmit && (
-                  <div className="form-stack pp-form">
+                  <div data-testid="form-stack" className="form-stack pp-form">
                     <Field
                       label={`${t('fKybRef')} *`}
                       value={ref}
@@ -528,9 +535,13 @@ function StepVerification({ portal, merchant, kyb, history, loadMoreHistory, onK
           }}
         </Gate>
       </PaySection>
-      <Blocker reason={notLive('reasonDocuments')} needs="document check provider" title={a('docsHeading')}>
-        {a('docsBlocked')}
-      </Blocker>
+      <BusinessApplication
+        portal={portal}
+        merchant={merchant}
+        kybStatus={kyb.status === 'ready' && kyb.data ? kyb.data.kybStatus : merchant.kybStatus}
+        kybRef={kyb.status === 'ready' && kyb.data ? kyb.data.kybRef : merchant.kybRef}
+        onSubmitted={onKybSubmitted}
+      />
       <a className="text-link" href="/pay/onboarding/go-live">
         {a('continueGoLive')}
       </a>
@@ -611,7 +622,7 @@ function StepGoLive(props: OnboardingViewProps) {
             const kind = railKind(chosen.id);
             const shapeOk = ref.trim() === '' || destinationShapeOk(kind, ref);
             return (
-              <div className="form-stack pp-form">
+              <div data-testid="form-stack" className="form-stack pp-form">
                 <SelectField
                   label={`${t('fRail')} *`}
                   value={chosen.id}
@@ -641,7 +652,12 @@ function StepGoLive(props: OnboardingViewProps) {
                         values={[
                           [t('fRail'), railWords(m, chosen.id)],
                           [t('fKind'), t(kind === 'crypto' ? 'kindCrypto' : 'kindBank')],
-                          [t('factDestination'), <span className="pp-mono">{normaliseReference(ref)}</span>],
+                          [
+                            t('factDestination'),
+                            <span data-testid="pp-mono" className="pp-mono">
+                              {normaliseReference(ref)}
+                            </span>,
+                          ],
                         ]}
                       />
                       <DestinationConfirm proof={proof} onChange={setProof} />

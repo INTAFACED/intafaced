@@ -81,7 +81,11 @@ if (!(await postgresAvailable(URL))) {
     store.auditConsumed({ ...row, at }),
   );
   const api = createStepUpRouter(new CustomerStepUpService(db.sql, store, auth, clock));
-  const guard = new SecurityStepUp({ sql: db.sql, approvals, secondFactor: (userId) => auth.customerStepUpMaterial(userId) });
+  const guard = new SecurityStepUp({
+    sql: db.sql,
+    approvals,
+    secondFactor: (userId) => auth.customerStepUpMaterial(userId, 'security_change'),
+  });
 
   let n = 0;
   const unique = () => `ssu${process.pid}${++n}`;
@@ -104,13 +108,15 @@ if (!(await postgresAvailable(URL))) {
     const handle = unique();
     const session = await auth.register({ handle, email: `${handle}@example.com`, password: 'correct horse battery staple', region: 'DE' });
     let secret = '';
+    let recoveryCodes: string[] = [];
     if (withTotp) {
       const started = await auth.startTotpEnrolment(session.userId, PASSWORD_SESSION);
       await auth.confirmTotpEnrolment(session.userId, PASSWORD_SESSION, started.secret, totp(started.secret));
       secret = started.secret;
+      recoveryCodes = started.recoveryCodes;
     }
     const principal: SecurityStepUpPrincipal = { userId: session.userId, sid: session.sessionId };
-    return { session, secret, principal };
+    return { session, secret, recoveryCodes, principal };
   }
 
   /** Runs the real ceremony and returns the approval id. */
@@ -132,8 +138,8 @@ if (!(await postgresAvailable(URL))) {
     mint(user, REMOVE, 'account.passkey.remove', fields, fields.credentialId);
 
   describe('SecurityStepUp.require', () => {
-    it('names the 13 STP-3 scopes and the security lock unlock, and each has a door the guard can bind', () => {
-      expect(new Set(SECURITY_STEP_UP_SCOPES).size).toBe(14);
+    it('names the 13 STP-3 scopes, the security lock unlock, new-device approval and recovery keys, and each has a door the guard can bind', () => {
+      expect(new Set(SECURITY_STEP_UP_SCOPES).size).toBe(18);
       for (const scope of SECURITY_STEP_UP_SCOPES) expect(doorForScope(scope)?.scope).toBe(scope);
     });
 
@@ -219,6 +225,56 @@ if (!(await postgresAvailable(URL))) {
       await expect(
         guard.require(user.principal, 'identity.step_up.close_account' as never, { intent: 'close', clientRequestId: 'x' }, 'a'),
       ).rejects.toThrow(/not a security step-up scope/);
+    });
+  });
+
+  describe('a recovery code in place of the app (J-identity-05 #4)', () => {
+    const REPLACE = 'identity.step_up.totp_replace' as const;
+    const begin = async (
+      user: Awaited<ReturnType<typeof newUser>>,
+      scope: SamePersonActionType,
+      purpose: string,
+      fields: Record<string, string> = { clientRequestId: 'req-lost-phone' },
+      target = fields.clientRequestId!,
+    ) => {
+      const caller = api.createCaller(await ctxOf(user.session.accessToken));
+      return { caller, begun: await caller.stepUp.begin({ scope, purpose, target, fields }) };
+    };
+    const left = async (userId: string) =>
+      (await db.sql<Array<{ n: number }>>`SELECT jsonb_array_length(recovery_code_hashes) AS n FROM users WHERE id = ${userId}`)[0]!.n;
+
+    it('completes the replace step-up once, and the code is spent', async () => {
+      const user = await newUser();
+      const before = await left(user.session.userId);
+      const { caller, begun } = await begin(user, REPLACE, 'account.totp.replace');
+      const done = await caller.stepUp.complete({ challengeId: begun.challengeId, recoveryCode: user.recoveryCodes[0]! });
+      expect(done.stepUpApprovalId).toBeTruthy();
+      expect(await left(user.session.userId)).toBe(before - 1);
+      const again = await begin(user, REPLACE, 'account.totp.replace');
+      await expect(
+        again.caller.stepUp.complete({ challengeId: again.begun.challengeId, recoveryCode: user.recoveryCodes[0]! }),
+      ).rejects.toMatchObject({
+        cause: { code: 'auth.mfa_invalid' },
+      });
+    });
+
+    it('never confirms anything but the authenticator itself, and spends nothing when refused', async () => {
+      const user = await newUser();
+      const before = await left(user.session.userId);
+      const { caller, begun } = await begin(user, REMOVE, 'account.passkey.remove', removeFields, removeFields.credentialId);
+      await expect(caller.stepUp.complete({ challengeId: begun.challengeId, recoveryCode: user.recoveryCodes[0]! })).rejects.toMatchObject({
+        cause: { code: 'auth.mfa_invalid' },
+      });
+      expect(await left(user.session.userId)).toBe(before);
+    });
+
+    it('a code and a recovery code together are refused', async () => {
+      const user = await newUser();
+      const { caller, begun } = await begin(user, REPLACE, 'account.totp.replace');
+      await expect(
+        caller.stepUp.complete({ challengeId: begun.challengeId, totpCode: totpNext(user.secret), recoveryCode: user.recoveryCodes[0]! }),
+      ).rejects.toThrow(/exactly one of totpCode, recoveryCode or webauthn/);
+      expect(await left(user.session.userId)).toBe(10);
     });
   });
 }

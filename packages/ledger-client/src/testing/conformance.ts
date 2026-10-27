@@ -1,8 +1,8 @@
 import { describe, expect, it, beforeEach, afterAll } from 'vitest';
 import { formatAmount, parseAmount as amt } from '../money.js';
-import { houseFees, railBoundary, userAvailable, userCollateral, userEscrow, userHold, userStake } from '../accounts.js';
+import { houseFees, railBoundary, rewardsEngine, userAvailable, userCollateral, userEscrow, userHold, userStake } from '../accounts.js';
 import { InsufficientFundsError, InvalidEntryError, type AccountKind, type LedgerTx } from '../types.js';
-import { recipes } from '../recipes/index.js';
+import { campaignLockAccount, recipes } from '../recipes/index.js';
 import type { LedgerClient } from '../client.js';
 
 /**
@@ -505,6 +505,82 @@ export function runLedgerConformance(name: string, createHarness: () => Promise<
         expect(formatAmount((await ledger.balance(houseFees('trade', 'BTC'))).amount)).toBe('0.002');
         expect(await heldTotal(USER_A, 'USDT')).toBe('0');
         expect(await heldTotal(USER_B, 'BTC')).toBe('0');
+      });
+
+      it('maker rebate: its own post after the fill, out of that fill taker fee, once', async () => {
+        await fund(USER_A, 'USDT', '1000');
+        await fund(USER_B, 'BTC', '2');
+        await ledger.post(recipes.orderHold({ orderId: 'taker-r1', userId: USER_A, assetId: 'USDT', amount: amt('900') }));
+        await ledger.post(recipes.orderHold({ orderId: 'maker-r1', userId: USER_B, assetId: 'BTC', amount: amt('1') }));
+        const input = {
+          fillId: 'conformance-r1',
+          makerId: USER_B,
+          takerId: USER_A,
+          makerOrderId: 'maker-r1',
+          takerOrderId: 'taker-r1',
+          baseAsset: 'BTC',
+          quoteAsset: 'USDT',
+          qty: amt('1'),
+          quoteAmount: amt('900'),
+          takerSide: 'buy' as const,
+          makerFeeBps: 0,
+          takerFeeBps: 10,
+          makerRebateBps: 5,
+        };
+
+        // Before the fill there is no taker fee to pay it from.
+        await expect(ledger.post(recipes.tradeFillMakerRebate(input))).rejects.toBeInstanceOf(InsufficientFundsError);
+        await ledger.post(recipes.tradeFill(input));
+        const rebate = await ledger.post(recipes.tradeFillMakerRebate(input));
+        const again = await ledger.post(recipes.tradeFillMakerRebate(input));
+
+        expect(again.id).toBe(rebate.id);
+        expect(await balanceOf(USER_B, 'USDT')).toBe('900');
+        expect(await balanceOf(USER_B, 'BTC')).toBe('1.0005');
+        expect(await balanceOf(USER_A, 'BTC')).toBe('0.999');
+        expect(formatAmount((await ledger.balance(houseFees('trade', 'BTC'))).amount)).toBe('0.0005');
+        expect(await heldTotal(USER_B, 'BTC')).toBe('0');
+      });
+
+      it('locked campaign reward: lock from the rewards engine into its own pot, then one outcome', async () => {
+        await fund(USER_B, 'USDT', '500');
+        await ledger.post(
+          recipes.feeCharge({
+            chargeId: 'c-lock-fee',
+            userId: USER_B,
+            module: 'campaigns',
+            mode: 'asset',
+            assetId: 'USDT',
+            amount: amt('500'),
+          }),
+        );
+        await ledger.post(
+          recipes.sweepFeesToRewards({ windowId: 'c-lock-w', sourceModule: 'campaigns', assetId: 'USDT', amount: amt('500') }),
+        );
+        const reward = (n: number) => ({
+          rewardKey: `task:conformance-${n}:${USER_A}:once`,
+          userId: USER_A,
+          assetId: 'USDT',
+          amount: amt('100'),
+        });
+        const pot = async (n: number) => formatAmount((await ledger.balance(campaignLockAccount(reward(n).rewardKey, 'USDT'))).amount);
+
+        await ledger.post(recipes.campaignRewardLock(reward(1)));
+        await ledger.post(recipes.campaignRewardLock(reward(1)));
+        await ledger.post(recipes.campaignRewardLock(reward(2)));
+        expect(await balanceOf(USER_A, 'USDT')).toBe('0');
+        expect(await pot(1)).toBe('100');
+        expect(await pot(2)).toBe('100');
+
+        await ledger.post(recipes.campaignRewardUnlock(reward(1)));
+        await expect(ledger.post(recipes.campaignRewardForfeit(reward(1)))).rejects.toBeInstanceOf(InsufficientFundsError);
+        await ledger.post(recipes.campaignRewardForfeit(reward(2)));
+        await expect(ledger.post(recipes.campaignRewardUnlock(reward(2)))).rejects.toBeInstanceOf(InsufficientFundsError);
+
+        expect(await balanceOf(USER_A, 'USDT')).toBe('100');
+        expect(await pot(1)).toBe('0');
+        expect(await pot(2)).toBe('0');
+        expect(formatAmount((await ledger.balance(rewardsEngine('USDT'))).amount)).toBe('400');
       });
 
       it('p2p escrow: lock → release strands nothing', async () => {

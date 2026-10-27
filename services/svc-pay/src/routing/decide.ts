@@ -47,7 +47,9 @@ export type SmartRoutingSkipReason =
   | 'risk-unset'
   | 'approval-rate-unset'
   | 'outranked-success-rate'
-  | 'tied-declared-rate-lost-preference-order';
+  | 'tied-declared-rate-lost-preference-order'
+  /** RC-merchant-08: the business's category takes payments on other rails only. */
+  | 'category-restricted';
 
 export interface SmartRailDecisionEntry {
   readonly railId: string;
@@ -88,6 +90,11 @@ export interface SmartRoutingRequest {
   readonly rails: RailRegistry;
   readonly policy: ValueMovementPolicy;
   readonly now?: Date;
+  /**
+   * RC-merchant-08: when set, only these rails may be chosen (a permissionless or restricted business category).
+   * Every other candidate is skipped `category-restricted`. Omitted: no category limit.
+   */
+  readonly onlyRails?: readonly string[];
 }
 
 /** Present, trimmed inputs after the refuse-missing gate. */
@@ -234,6 +241,10 @@ export function selectSmartCheckoutRail(request: SmartRoutingRequest): SmartRout
   const slots: Array<EligibleSlot | SkipSlot> = [];
 
   for (const railId of request.preference) {
+    if (request.onlyRails && !request.onlyRails.includes(railId)) {
+      slots.push({ tag: 'skip', entry: { railId, outcome: 'skipped', reason: 'category-restricted' } });
+      continue;
+    }
     const profile = profiles.get(railId);
     if (!profile) {
       slots.push({ tag: 'skip', entry: { railId, outcome: 'skipped', reason: 'profile-missing' } });
@@ -332,12 +343,14 @@ export function selectSmartCheckoutRail(request: SmartRoutingRequest): SmartRout
 }
 
 /**
- * Reference profiles for the two v1 adapters. Operators pass these (or a
+ * Reference profiles for the v1 adapters and the TEST bank. Operators pass these (or a
  * tightened subset) into `selectSmartCheckoutRail` — they are never applied
  * silently when the caller omitted profiles.
  *
  * - crypto-native: crypto method; explicit worldwide geo (`*`); low/external bands.
  * - card-sandbox: card method; explicit worldwide; low/medium only (sandbox refuse on live-only still applies).
+ * - bank-transfer-sandbox: pushed bank transfer (J-merchant-04 step 6); explicit worldwide; low/medium only; sandbox, so
+ *   refused wherever only live rails may take a public payment.
  */
 export const REFERENCE_RAIL_ROUTING_PROFILES: readonly RailRoutingProfile[] = [
   {
@@ -349,6 +362,12 @@ export const REFERENCE_RAIL_ROUTING_PROFILES: readonly RailRoutingProfile[] = [
   {
     railId: 'card-sandbox',
     methods: ['card'],
+    countries: ['*'],
+    riskBands: ['low', 'medium'],
+  },
+  {
+    railId: 'bank-transfer-sandbox',
+    methods: ['bank_transfer'],
     countries: ['*'],
     riskBands: ['low', 'medium'],
   },

@@ -49,6 +49,7 @@ type Entry = {
   postedAt: string;
   assetId: string;
   orderId: string | null;
+  fee?: string | null;
 };
 const entry = (e: Partial<Entry> & Pick<Entry, 'txId' | 'direction' | 'amount' | 'assetId'>): Entry => ({
   reason: 'trade.fill',
@@ -82,6 +83,8 @@ function ledger(opts: { endless?: boolean; coinDeposit?: boolean } = {}) {
                     assetId: 'USDT',
                     orderId: 'o2',
                     postedAt: '2026-10-03T00:00:00.000Z',
+                    // The ledger names the fee this sale's receiving line paid; the buy's line (below) carries none.
+                    fee: '1.5',
                   }),
                   entry({ txId: 'noise', reason: 'deposit', direction: 'debit', amount: '500', assetId: 'USDT' }),
                   entry({ txId: 'released', reason: 'order.hold.released', direction: 'debit', amount: '2', assetId: 'SOL' }),
@@ -129,6 +132,15 @@ describe('tax.lotBook', () => {
     expect(book.realizedUsd).toBe('200');
     expect(book.sales).toEqual([
       {
+        kind: 'sale',
+        counted: 'all',
+        // The fee was taken from the 300 received: it is already inside the result, and shown on its own.
+        fee: { status: 'known', assetId: 'USDT', amount: '1.5', usd: '1.5' },
+        // Where it was sold: the coin sold over the coin received.
+        market: 'BTC/USDT',
+        method: 'FIFO',
+        methodSource: 'default',
+        pickedLotId: null,
         assetId: 'BTC',
         txId: 'sell',
         disposedAt: '2026-10-03T00:00:00.000Z',
@@ -137,9 +149,13 @@ describe('tax.lotBook', () => {
         proceedsUsd: '300',
         costUsd: '100',
         realizedUsd: '200',
-        matches: [{ lotId: 'lot:buy:BTC', qty: '1', costUsd: '100', proceedsUsd: '300', realizedUsd: '200' }],
+        matches: [{ lotId: 'lot:buy:BTC', qty: '1', costUsd: '100', proceedsUsd: '300', realizedUsd: '200', counted: true }],
       },
     ]);
+    // A ledger line with no fee field leaves that fill's fee unknown, so the total is unknown too, never a guess.
+    expect(book.lots.find((lot) => lot.id === 'lot:buy:BTC')?.fee).toEqual({ status: 'unknown' });
+    expect(book.feesUsd).toBeNull();
+    expect(book.includeTransfers).toBe(true);
     expect(book.residuals).toEqual([]);
     // Self-only: every read is scoped to the caller, never to input.
     for (const call of asked.filter((c) => c.path === '/trpc/historyPage' || c.path === '/trpc/balances')) {
@@ -236,6 +252,67 @@ describe('tax.lotBook', () => {
     const byOrder = new Map(fills.map((f) => [f.received.assetId, f.paid?.assetId]));
     expect(byOrder.get('BTC')).toBe('USDT');
     expect(byOrder.get('USDT')).toBe('BTC');
+  });
+
+  it("reads each withdrawal from its own hold account, found in the customer's account list, and pairs its lines there", async () => {
+    const asked: Array<Record<string, unknown>> = [];
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      asked.push({ path, ...body });
+      let result: unknown = { entries: [], nextCursor: null };
+      if (path === '/trpc/balances')
+        result = [
+          { accountId: 'a4', assetId: 'BTC', kind: 'available', purpose: '', amount: '0' },
+          // Two withdrawals of the same coin and amount; the ledger lists their hold accounts even when empty.
+          { accountId: 'a5', assetId: 'BTC', kind: 'hold', purpose: 'withdraw:w-ok', amount: '0' },
+          { accountId: 'a6', assetId: 'BTC', kind: 'hold', purpose: 'withdraw:w-failed', amount: '0' },
+          { accountId: 'a7', assetId: 'BTC', kind: 'hold', purpose: 'order:o7', amount: '0' },
+        ];
+      else if (body.purpose === 'withdraw:w-ok')
+        result = {
+          entries: [
+            entry({ txId: 'ok-s', reason: 'withdraw.settled', direction: 'credit', amount: '1', assetId: 'BTC' }),
+            entry({
+              txId: 'ok',
+              reason: 'withdraw.held',
+              direction: 'debit',
+              amount: '1',
+              assetId: 'BTC',
+              postedAt: '2026-10-05T00:00:00.000Z',
+            }),
+          ],
+          nextCursor: null,
+        };
+      else if (body.purpose === 'withdraw:w-failed')
+        result = {
+          entries: [
+            entry({ txId: 'bad-r', reason: 'withdraw.reversed', direction: 'credit', amount: '1', assetId: 'BTC' }),
+            entry({
+              txId: 'bad',
+              reason: 'withdraw.held',
+              direction: 'debit',
+              amount: '1',
+              assetId: 'BTC',
+              postedAt: '2026-10-04T00:00:00.000Z',
+            }),
+          ],
+          nextCursor: null,
+        };
+      return new Response(JSON.stringify(result), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    const reads = createTaxLedgerReads('http://ledger.test', 'test-internal-service-secret-32-chars');
+    const { withdrawalHolds } = await reads.tradeFills!(USER);
+    expect(withdrawalHolds?.map((h) => [h.purpose, h.lines.map((l) => l.reason)])).toEqual([
+      ['withdraw:w-ok', ['withdraw.settled', 'withdraw.held']],
+      ['withdraw:w-failed', ['withdraw.reversed', 'withdraw.held']],
+    ]);
+    // Only withdrawal holds are walked this way, each by its own purpose and for the caller alone.
+    const walked = asked.filter((c) => c.kind === 'hold').map((c) => [c.ownerId, c.purpose]);
+    expect(walked).toEqual([
+      [USER, 'withdraw:w-ok'],
+      [USER, 'withdraw:w-failed'],
+    ]);
   });
 
   it("a coin deposit makes that coin's sales unknown, while a released hold and a dollar deposit do not", async () => {

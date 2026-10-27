@@ -87,6 +87,17 @@ describe('take limits in plain words (P-trade-orders-03, P-disputes-security-15)
     expect(takeRefusalIsDefinite({ reason: 'error', code: 'p2p.buying_restricted', status: 409 })).toBe(true);
   });
 
+  it('says by how much a sale into a buy ad falls short of the seller’s free balance, and that nothing was held (J-p2p-02 #2)', async () => {
+    const shown = await note(refused('p2p.insufficient_balance', { until: null, available: '30', shortBy: '370' }));
+    expect(shown.dataset.kind).toBe('shortBalance');
+    expect(shown.textContent).toContain('Your free balance of this coin is 30, 370 short of this order. Nothing was held');
+    expect(takeRefusalIsDefinite({ reason: 'error', code: 'p2p.insufficient_balance', status: 409 })).toBe(true);
+    root?.unmount();
+    expect((await note(refused('p2p.insufficient_balance'))).textContent).toContain(
+      'Your free balance of this coin is short of this order.',
+    );
+  });
+
   it('asks for the take’s fresh confirmation in words, links Security, and counts it as nothing placed', async () => {
     const shown = await note(refused('auth.step_up_required'));
     expect(shown.dataset.kind).toBe('stepUp');

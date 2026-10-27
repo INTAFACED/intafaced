@@ -4,9 +4,13 @@ import type { Principal } from '@intafaced/auth';
 import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { orderSchema } from '@intafaced/exchange-contract';
 import { fakeOrder, registerPrivateRest, type OcoExitLegs, type PrivateRestDeps } from '../private-rest.js';
+import type { OrderLink } from './order-links.js';
 import { fakeMarket } from '../public-rest.js';
 
-/** The orders API marks an OCO parent and a bracket's exit with their linked legs, so the desk can show them. */
+/**
+ * The orders API marks an OCO parent and a bracket's exit with their linked legs, and an OTO entry and its close with
+ * each other, so the desk can show them.
+ */
 
 const SECRET = 'a-trade-order-exit-edge-secret-long-enough-x';
 const ALICE = '11111111-1111-4111-8111-111111111111';
@@ -79,5 +83,65 @@ describe('order exit marker', () => {
     const app = await build(false);
     const res = await app.inject({ method: 'GET', url: '/api/v1/orders/o-oco', headers: signed(ALICE) });
     expect(res.json().exit).toBeUndefined();
+  });
+});
+
+describe('OTO link', () => {
+  const entry = fakeOrder({ id: 'o-oto', userId: ALICE, marketId: market.id, clientOrderId: 'oto-1' });
+  const close = fakeOrder({ id: 'o-close', userId: ALICE, marketId: market.id, clientOrderId: 'oto:o-oto:close', side: 'sell' });
+  const plain = fakeOrder({ id: 'o-plain', userId: ALICE, marketId: market.id, clientOrderId: 'plain-1' });
+  const LINKS = new Map<string, OrderLink>([
+    ['o-oto', { role: 'entry', closePrice: '110', closeOrderId: 'o-close' }],
+    ['o-close', { role: 'close', entryOrderId: 'o-oto' }],
+  ]);
+
+  async function buildLinked() {
+    const all = [entry, close, plain];
+    const app = Fastify();
+    registerPrivateRest(app, {
+      edgeSecret: SECRET,
+      serviceName: 'svc-trade',
+      orderLinks: async (ids: readonly string[]) => new Map(ids.flatMap((i) => (LINKS.has(i) ? [[i, LINKS.get(i)!] as const] : []))),
+      marketById: async () => market,
+      marketBySymbol: async () => market,
+      openOrders: async () => all,
+      getOrder: async (_p: Principal, id: string) => all.find((o) => o.id === id)!,
+      placeOrder: async () => entry,
+    } as unknown as PrivateRestDeps);
+    await app.ready();
+    return app;
+  }
+
+  it('links an OTO entry and its close on reads, leaves a plain order alone, and the wire parses as an order', async () => {
+    const app = await buildLinked();
+    const res = await app.inject({ method: 'GET', url: '/api/v1/orders/open?limit=50', headers: signed(ALICE) });
+    const byId = new Map((res.json() as Array<{ id: string; linked?: unknown }>).map((o) => [o.id, o]));
+    expect(byId.get('o-oto')?.linked).toEqual({ role: 'entry', closePrice: '110', closeOrderId: 'o-close' });
+    expect(byId.get('o-close')?.linked).toEqual({ role: 'close', entryOrderId: 'o-oto' });
+    expect(byId.get('o-plain')?.linked).toBeUndefined();
+    const got = await app.inject({ method: 'GET', url: '/api/v1/orders/o-close', headers: signed(ALICE) });
+    expect(orderSchema.safeParse(got.json()).success).toBe(true);
+    expect(orderSchema.parse(got.json()).linked).toEqual({ role: 'close', entryOrderId: 'o-oto' });
+  });
+
+  it('answers the placement of an OTO entry with its stored close', async () => {
+    const app = await buildLinked();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/orders',
+      headers: { ...signed(ALICE), 'content-type': 'application/json' },
+      payload: {
+        symbol: 'BTC/USDT',
+        type: 'limit',
+        side: 'buy',
+        amount: '1',
+        price: '100',
+        clientOrderId: 'oto-1',
+        oto: true,
+        close: { price: '110' },
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().linked).toEqual({ role: 'entry', closePrice: '110', closeOrderId: 'o-close' });
   });
 });

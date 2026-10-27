@@ -16,6 +16,7 @@ import { assetPausesProcedure, setAssetPauseProcedure } from '../ops/asset-pause
 import { cardProgrammeProcedure, setCardStatusProcedure } from '../ops/card-programme.js';
 import { decideLimitRequestProcedure, limitRequestQueueProcedure } from '../transfers/limit-requests.js';
 import { createLoanProductProcedure } from '../ops/loan-products.js';
+import { createEarnPoolProcedure, setEarnPoolRateProcedure } from '../ops/earn-pools.js';
 import { publishTransferTermsProcedure } from '../transfers/transfer-terms.js';
 import { rampHealthProcedure } from '../ops/ramp-health.js';
 import { transferHealthProcedure } from '../ops/transfer-health.js';
@@ -24,7 +25,8 @@ import { customerBalanceEntriesProcedure, customerBalancesProcedure } from '../o
 import { transferDetailProcedure } from '../ops/transfer-detail.js';
 import { authorizationGetProcedure } from '../ops/authorization-detail.js';
 import { businessApprovalsProcedure } from '../ops/business-approvals.js';
-import { amountString, actionApprovalFields } from './shared.js';
+import { ADJUST_LOAN_INTEREST_ACTION, correctionApprovalFields } from '../loans/loan-adjustments.js';
+import { amountString, actionApprovalFields, signedAmountString } from './shared.js';
 import { guard } from './errors.js';
 import type { BankRouterContext } from './context.js';
 
@@ -38,6 +40,7 @@ export function createOpsRouter(c: BankRouterContext) {
     autoInvestEnabled,
     limitRequests,
     consumeOpsApproval,
+    consumeOpsApprovalPair,
     jobProcedure,
   } = c;
   /**
@@ -135,6 +138,38 @@ export function createOpsRouter(c: BankRouterContext) {
             throw new BankError('auto-invest is disabled', 'bank.auto_invest_disabled');
           }
           return bank.autoInvest.runDue({ limit: input.limit });
+        }),
+      ),
+
+    /**
+     * Start the next term of every ended fixed-term saving with auto-renew on (BK-earn-03). Moves no money; keyed per
+     * (saving, term), so a second run renews nothing twice. tRPC only: the scheduler signs as svc-bank.
+     */
+    renewEarnTerms: jobProcedure
+      .input(
+        z.object({
+          limit: z.number().int().min(1).max(1_000).optional(),
+          poolId: z.string().guid().optional(),
+          at: z.string().datetime({ offset: true }).optional(),
+        }),
+      )
+      .output(
+        z.object({
+          renewed: z.array(z.object({ positionId: z.string(), terms: z.array(z.number().int()), maturesAt: z.string() })),
+          skipped: z.array(z.object({ positionId: z.string(), code: z.string() })),
+        }),
+      )
+      .mutation(async ({ input }) =>
+        guard(async () => {
+          const report = await bank.earn.renewDue({
+            limit: input.limit,
+            ...(input.poolId ? { poolId: input.poolId } : {}),
+            ...(input.at ? { at: new Date(input.at) } : {}),
+          });
+          return {
+            renewed: report.renewed.map((r) => ({ positionId: r.positionId, terms: r.terms, maturesAt: r.maturesAt.toISOString() })),
+            skipped: report.skipped,
+          };
         }),
       ),
 
@@ -257,6 +292,68 @@ export function createOpsRouter(c: BankRouterContext) {
             amount: parseAmount(input.amount),
           });
           return { ...posted, confirmOperatorId };
+        }),
+      ),
+
+    /**
+     * LOAN-05 interest correction, four-eyes: one founder proposes `bank.adjust_loan_interest` over these exact fields
+     * at identity, the other approves, and this door consumes that approval and writes one new correction row. It moves
+     * no value and edits no past day. A retry with the same id and terms returns the first row without consuming again;
+     * a correction that would be refused is refused before the approval is spent.
+     */
+    adjustLoanInterest: scopedProcedure('admin:treasury')
+      .input(
+        z.object({
+          loanId: z.string().guid(),
+          adjustmentId: z.string().guid(),
+          amount: signedAmountString,
+          reason: z.string().min(3).max(500),
+          ...actionApprovalFields,
+        }),
+      )
+      .output(
+        z.object({
+          adjustmentId: z.string(),
+          loanId: z.string(),
+          amount: z.string(),
+          reason: z.string(),
+          proposedBy: z.string(),
+          approvedBy: z.string(),
+          createdAt: z.string(),
+          replay: z.boolean(),
+          interestOwed: amountString,
+        }),
+      )
+      .mutation(async ({ input }) =>
+        guard(async () => {
+          const terms = { adjustmentId: input.adjustmentId, loanId: input.loanId, amount: input.amount, reason: input.reason };
+          const prior = await bank.loans.interestAdjustment(input.adjustmentId);
+          let written;
+          if (prior) {
+            bank.loans.assertSameCorrection(prior, terms);
+            written = { adjustment: prior, replay: true };
+          } else {
+            await bank.loans.checkCorrection(terms);
+            const pair = await consumeOpsApprovalPair(input, ADJUST_LOAN_INTEREST_ACTION, correctionApprovalFields(terms));
+            written = await bank.loans.correctInterest(terms, {
+              proposedBy: pair.requesterId,
+              approvedBy: pair.approverId,
+              approvalId: pair.approvalId,
+            });
+          }
+          const debt = await bank.loans.outstanding(input.loanId);
+          const a = written.adjustment;
+          return {
+            adjustmentId: a.id,
+            loanId: a.loanId,
+            amount: formatAmount(a.amount),
+            reason: a.reason,
+            proposedBy: a.proposedBy,
+            approvedBy: a.approvedBy,
+            createdAt: a.createdAt.toISOString(),
+            replay: written.replay,
+            interestOwed: formatAmount(debt.interest),
+          };
         }),
       ),
 
@@ -524,6 +621,9 @@ export function createOpsRouter(c: BankRouterContext) {
             amount: amountString,
             reason: z.string().optional(),
             positionId: z.string().optional(),
+            /** A round-up into one of the person's own spaces: that space and the transfer that moved it. */
+            spaceId: z.string().optional(),
+            ledgerTxId: z.string().optional(),
           }),
           confirmOperatorId: z.string(),
         }),
@@ -561,7 +661,11 @@ export function createOpsRouter(c: BankRouterContext) {
               status: result.roundUp.status,
               amount: formatAmount(result.roundUp.amount),
               ...(result.roundUp.status === 'skipped' || result.roundUp.status === 'refused' ? { reason: result.roundUp.reason } : {}),
-              ...(result.roundUp.status === 'settled' ? { positionId: result.roundUp.positionId } : {}),
+              ...(result.roundUp.status === 'settled'
+                ? 'positionId' in result.roundUp
+                  ? { positionId: result.roundUp.positionId }
+                  : { spaceId: result.roundUp.spaceId, ledgerTxId: result.roundUp.ledgerTxId }
+                : {}),
             },
             confirmOperatorId,
           };
@@ -793,6 +897,8 @@ export function createOpsRouter(c: BankRouterContext) {
     limitRequests: limitRequestQueueProcedure(limitRequests, guard),
     decideLimitRequest: decideLimitRequestProcedure(limitRequests, guard),
     createLoanProduct: createLoanProductProcedure(bank, consumeOpsApproval, guard),
+    createEarnPool: createEarnPoolProcedure(bank, consumeOpsApproval, guard),
+    setEarnPoolRate: setEarnPoolRateProcedure(bank, consumeOpsApproval, guard),
     publishTransferTerms: publishTransferTermsProcedure(() => bank.transferOps.sql, consumeOpsApproval, guard),
     cardProgramme: cardProgrammeProcedure(bank, guard),
     setCardStatus: setCardStatusProcedure(bank, consumeOpsApproval, guard),

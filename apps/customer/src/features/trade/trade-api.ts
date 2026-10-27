@@ -1,7 +1,6 @@
 import { tradeError, tradeRefusal, tradeCopy as copy } from './copy';
 import { z } from 'zod';
 import {
-  marketSchema,
   orderSchema as contractOrderSchema,
   orderBookSchema,
   tickerSchema,
@@ -16,16 +15,10 @@ import {
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { decimalSchema, parseAmount, formatAmount } from '../../shared/money';
 import { dailyHistoryWindow, deriveUtc8Daily, DailyHistoryError } from './daily-history';
+import { listingSchema, positive } from './listing';
 import { planZonedDaily, deriveZonedDaily, ZonedDailyError } from './zoned-daily-history';
 
-const positive = decimalSchema.refine((value) => parseAmount(value) > 0n, { error: () => copy.t('expectedAPositiveExactDecimalString') });
-export const listingSchema = marketSchema.extend({
-  orderable: z.boolean(),
-  precision: z.object({ price: positive, amount: positive }),
-  taker: decimalSchema,
-  maker: decimalSchema,
-});
-export type Listing = z.infer<typeof listingSchema>;
+export { listingSchema, type Listing } from './listing';
 export const orderSchema = contractOrderSchema.extend({
   amount: positive,
   filled: decimalSchema,
@@ -133,7 +126,7 @@ const exitLegFeeSchema = z.object({
 export const previewSchema = z.object({
   symbol: z.string(),
   side: z.enum(['buy', 'sell']),
-  type: z.enum(['market', 'limit', 'stop_limit']),
+  type: z.enum(['market', 'limit', 'stop_limit', 'stop']),
   amount: positive,
   price: positive.nullable(),
   stopPrice: positive.nullable().optional(),
@@ -145,6 +138,8 @@ export const previewSchema = z.object({
   feeAsset: z.string().nullable(),
   feeBps: z.number().int().nonnegative().nullable(),
   feeRole: z.enum(['maker', 'taker']).nullable(),
+  /** The maker rebate this market publishes if the order rests (0 = none); absent on older wires. Never a negative fee. */
+  makerRebateBps: z.number().int().nonnegative().nullable().optional(),
   orderable: z.boolean(),
   refusals: z.array(
     z.object({ code: z.string(), field: z.string(), message: z.string(), data: z.record(z.string(), z.string()).optional() }),
@@ -160,11 +155,15 @@ export const previewSchema = z.object({
     .optional(),
 });
 export type Preview = z.infer<typeof previewSchema>;
+/** A stop-limit or a stop-market: both wait off the book for their trigger. */
+export const isStopType = (type: string): type is 'stop_limit' | 'stop' => type === 'stop_limit' || type === 'stop';
+
 export const draftSchema = z
   .object({
     symbol: z.string().min(3),
     side: z.enum(['buy', 'sell']),
-    type: z.enum(['market', 'limit', 'stop_limit']),
+    /** `stop` is a stop-market: a trigger and no price; the service places it at its protection price. */
+    type: z.enum(['market', 'limit', 'stop_limit', 'stop']),
     amount: positive,
     price: positive.optional(),
     stopPrice: positive.optional(),
@@ -180,6 +179,8 @@ export const draftSchema = z
     stpMode: z.literal('cancel_maker').optional(),
     /** The person's own label for the order (1 to 16 characters). Shown on the order; never part of its identity. */
     tag: z.string().min(1).max(16).optional(),
+    /** The platform token to pay this order's fees in, on a plain limit or market order. Absent: the asset it receives. */
+    feeCurrency: z.string().min(1).max(32).optional(),
     /**
      * An OCO or a buy bracket. A bracket: the order above is its entry. A sell OCO: the order above is its take-profit leg.
      * A buy OCO: the order above is a limit buy at the stop-loss limit (where its one hold is sized); `stopLoss` is the trigger.
@@ -187,6 +188,11 @@ export const draftSchema = z
     exit: z
       .object({ kind: z.enum(['oco', 'bracket']), takeProfit: positive, stopLoss: positive, stopLossLimit: positive.optional() })
       .optional(),
+    /**
+     * An OTO: the order above is a limit buy, and once it has finished filling the service places one sell limit at this
+     * price for the base it received. Never with `exit`.
+     */
+    close: positive.optional(),
   })
   .superRefine((draft, ctx) => {
     if (draft.exit) {
@@ -210,15 +216,27 @@ export const draftSchema = z
         if (kind === 'oco' && draft.price !== undefined && parseAmount(draft.price) !== parseAmount(takeProfit))
           bad('price', copy.t('enterALimitPrice'));
       }
-      if (kind === 'bracket' && (draft.side !== 'buy' || draft.type === 'stop_limit' || draft.postOnly || draft.timeInForce === 'PO'))
+      if (kind === 'bracket' && (draft.side !== 'buy' || isStopType(draft.type) || draft.postOnly || draft.timeInForce === 'PO'))
         bad('kind', copy.t('enterALimitPrice'));
     }
-    if (draft.type === 'stop_limit' && !draft.stopPrice)
+    if (draft.close !== undefined) {
+      const ok =
+        !draft.exit &&
+        draft.side === 'buy' &&
+        draft.type === 'limit' &&
+        !draft.postOnly &&
+        ['GTC', 'IOC', 'FOK'].includes(draft.timeInForce) &&
+        draft.price !== undefined &&
+        parseAmount(draft.close) > parseAmount(draft.price);
+      if (!ok) ctx.addIssue({ code: 'custom', path: ['close'], message: copy.t('enterALimitPrice') });
+    }
+    if (isStopType(draft.type) && !draft.stopPrice)
       ctx.addIssue({ code: 'custom', path: ['stopPrice'], message: copy.t('enterALimitPrice') });
-    if (draft.type !== 'stop_limit' && draft.stopPrice !== undefined)
+    if (!isStopType(draft.type) && draft.stopPrice !== undefined)
       ctx.addIssue({ code: 'custom', path: ['stopPrice'], message: copy.t('enterALimitPrice') });
-    if (draft.type !== 'market' && !draft.price) ctx.addIssue({ code: 'custom', path: ['price'], message: copy.t('enterALimitPrice') });
-    if (draft.type === 'market' && draft.price !== undefined)
+    if (draft.type !== 'market' && draft.type !== 'stop' && !draft.price)
+      ctx.addIssue({ code: 'custom', path: ['price'], message: copy.t('enterALimitPrice') });
+    if ((draft.type === 'market' || draft.type === 'stop') && draft.price !== undefined)
       ctx.addIssue({ code: 'custom', path: ['price'], message: copy.t('aMarketOrderCannotCarryALimitPrice') });
     if (draft.timeInForce === 'GTD' && (draft.type !== 'limit' || !draft.expireAt || draft.exit))
       ctx.addIssue({ code: 'custom', path: ['expireAt'], message: copy.t('aGoodTillDateLimitOrderNeedsAnExpiry') });
@@ -233,9 +251,13 @@ export type Draft = z.infer<typeof draftSchema>;
  * The advisory preview: the order itself, plus its exit legs so the service can price their fees. The service
  * names a bracket's exit `bracket_exit`; the prices ride as the decimal strings the person entered.
  */
-export function previewBody(draft: Draft): Omit<Draft, 'exit' | 'stpMode' | 'tag'> & { exit?: Record<string, string> } {
-  // The preview takes only what prices the order: a self-trade mode and a tag change neither, and it refuses unknown fields.
-  const { exit, stpMode: _stpMode, tag: _tag, ...order } = draft;
+export function previewBody(
+  draft: Draft,
+): Omit<Draft, 'exit' | 'stpMode' | 'tag' | 'close' | 'feeCurrency'> & { exit?: Record<string, string> } {
+  // The preview takes only what prices the order: a self-trade mode, a tag and the fee currency change none of it (the
+  // rate is the same; the token conversion happens at the fill), and it refuses unknown fields.
+  // An OTO's close is not placed until the buy fills, so the preview prices the buy alone.
+  const { exit, stpMode: _stpMode, tag: _tag, close: _close, feeCurrency: _feeCurrency, ...order } = draft;
   if (!exit) return order;
   const { kind, takeProfit, stopLoss, stopLossLimit } = exit;
   return {
@@ -245,11 +267,13 @@ export function previewBody(draft: Draft): Omit<Draft, 'exit' | 'stpMode' | 'tag
 }
 
 /**
- * The create-order body: the order, plus `oco` or `bracket` with both exit prices as decimal strings. A bracket's exit
- * is placed by the service after the entry fills, for the base actually received.
+ * The create-order body: the order, plus `oco` or `bracket` with both exit prices as decimal strings, or `oto` with its
+ * close price. A bracket's exit and an OTO's close are placed by the service after the entry fills, for the base
+ * actually received.
  */
 export function placeBody(draft: Draft): Record<string, unknown> {
-  const { exit, ...order } = draft;
+  const { exit, close, ...order } = draft;
+  if (close !== undefined) return { ...order, oto: true, close: { price: close } };
   if (!exit) return order;
   // A buy OCO's stop-loss leg is a stop-limit: its limit price rides beside its trigger.
   const legs = {
@@ -334,7 +358,12 @@ function matchesPreview(draft: Draft, preview: Preview) {
       ? preview.stopPrice != null && parseAmount(draft.stopPrice) === parseAmount(preview.stopPrice)
       : preview.stopPrice == null) &&
     parseAmount(preview.amount) === parseAmount(draft.amount) &&
-    (draft.price ? preview.price !== null && parseAmount(draft.price) === parseAmount(preview.price) : preview.price === null) &&
+    // A stop-market names no price; the preview answers with the protection price the service will place it at.
+    (draft.type === 'stop'
+      ? preview.price !== null
+      : draft.price
+        ? preview.price !== null && parseAmount(draft.price) === parseAmount(preview.price)
+        : preview.price === null) &&
     preview.timeInForce === (draft.postOnly ? 'PO' : draft.timeInForce)
   );
 }

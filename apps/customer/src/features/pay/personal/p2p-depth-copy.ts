@@ -143,6 +143,8 @@ const en = {
   failLimitsUnset: 'The order limits for this ad could not be checked, so no order can be placed. Nothing was placed.',
   failMethodRetired:
     'This payment method has been retired and no longer takes orders. This has no end time: choose another method on this ad, or another ad. Nothing was placed.',
+  failNonInstant:
+    'This ad does not accept payment methods that are not instant, and this one is not instant. Choose another method on this ad, or another ad. Nothing was placed.',
   failMethodRetiredRegulation:
     'This payment method has been retired because of a regulatory requirement. This has no end time: choose another method on this ad, or another ad. Nothing was placed.',
   failMethodRetiredProviderWithdrawn:
@@ -155,6 +157,9 @@ const en = {
     'You cancelled {cap} orders, or let their payment time run out, within {hours} hours, so buying is paused until {time}. Selling is not paused. Nothing was placed.',
   failBuyingPausedPlain:
     'You cancelled too many orders, or let their payment time run out, in a short time, so buying is paused; selling is not. Nothing was placed.',
+  failShortBalance:
+    'Your free balance of this coin is {available}, {shortBy} short of this order. Nothing was held: add funds or sell less.',
+  failShortBalancePlain: 'Your free balance of this coin is short of this order. Nothing was held: add funds or sell less.',
   failStepUp: 'Confirm this order with your authenticator app or a passkey before it is placed. Nothing was placed.',
   failStepUpExpired:
     'Your last confirmation has ended. Confirm this order again with your authenticator app or a passkey. Nothing was placed.',
@@ -225,11 +230,10 @@ const en = {
   problemMinTooHigh: 'The minimum is above the maximum',
   problemTotalTooLow: 'The total is below the maximum',
   problemTooLong: 'Too long',
+  problemNonInstantConsent: 'A method you chose is not instant: accept that before you post.',
+  problemNonInstantEdit: 'This ad was posted without accepting methods that are not instant. Post a new ad to offer one.',
   formReview: 'Review offer',
   formSave: 'Save changes',
-  formOffCreateTitle: 'Publishing from this form is off',
-  formOffCreateBody:
-    'This form can’t publish: a new offer needs its payment details encrypted by a key service, and this form has no connection to one. Offers already on the board, including your own, were published outside this form (on a test stack, by its test setup). What you type here is not saved or sent.',
   formOffEditTitle: 'Editing a published offer is off',
   formOffEditBody:
     'The service can’t change an offer after it is published. You can pause or close it from My offers. What you type here is not saved or sent.',
@@ -432,6 +436,8 @@ const es = {
     'No se pudieron comprobar los límites de pedido de este anuncio, así que no se puede hacer ningún pedido. No se hizo nada.',
   failMethodRetired:
     'Este método de pago se ha retirado y ya no admite pedidos. No tiene fecha de fin. Elige otro método de este anuncio u otro anuncio. No se hizo nada.',
+  failNonInstant:
+    'Este anuncio no acepta métodos de pago que no sean instantáneos, y este no lo es. Elige otro método de este anuncio u otro anuncio. No se hizo nada.',
   failMethodRetiredRegulation:
     'Este método de pago se ha retirado por un requisito normativo. No tiene fecha de fin. Elige otro método de este anuncio u otro anuncio. No se hizo nada.',
   failMethodRetiredProviderWithdrawn:
@@ -444,6 +450,9 @@ const es = {
     'Cancelaste {cap} pedidos, o dejaste que se acabara su plazo de pago, en {hours} horas, así que las compras quedan en pausa hasta las {time}. Las ventas no se pausan. No se hizo nada.',
   failBuyingPausedPlain:
     'Cancelaste demasiados pedidos, o dejaste que se acabara su plazo de pago, en poco tiempo, así que las compras quedan en pausa; las ventas no. No se hizo nada.',
+  failShortBalance:
+    'Tu saldo libre de esta moneda es {available}; faltan {shortBy} para este pedido. No se retuvo nada: añade fondos o vende menos.',
+  failShortBalancePlain: 'Tu saldo libre de esta moneda no alcanza para este pedido. No se retuvo nada: añade fondos o vende menos.',
   failStepUp: 'Confirma este pedido con tu app de autenticación o una passkey antes de hacerlo. No se hizo nada.',
   failStepUpExpired:
     'Tu última confirmación ha terminado. Confirma este pedido de nuevo con tu app de autenticación o una passkey. No se hizo nada.',
@@ -515,11 +524,10 @@ const es = {
   problemMinTooHigh: 'El mínimo supera el máximo',
   problemTotalTooLow: 'El total es inferior al máximo',
   problemTooLong: 'Demasiado largo',
+  problemNonInstantConsent: 'Un método que elegiste no es instantáneo: acéptalo antes de publicar.',
+  problemNonInstantEdit: 'Este anuncio se publicó sin aceptar métodos no instantáneos. Publica un anuncio nuevo para ofrecer uno.',
   formReview: 'Revisar oferta',
   formSave: 'Guardar cambios',
-  formOffCreateTitle: 'Publicar desde este formulario está desactivado',
-  formOffCreateBody:
-    'Este formulario no puede publicar: una oferta nueva necesita que sus datos de pago se cifren con un servicio de claves, y este formulario no tiene conexión con ninguno. Las ofertas que ya están en el tablón, incluidas las tuyas, se publicaron fuera de este formulario (en un entorno de prueba, por su configuración de prueba). Lo que escribas aquí no se guarda ni se envía.',
   formOffEditTitle: 'La edición de una oferta publicada está desactivada',
   formOffEditBody:
     'El servicio no puede cambiar una oferta ya publicada. Puedes pausarla o cerrarla desde Mis ofertas. Lo que escribas aquí no se guarda ni se envía.',
@@ -722,6 +730,8 @@ const fr = {
     'Les limites de commande de cette annonce n’ont pas pu être vérifiées, aucune commande ne peut donc être passée. Rien n’a été passé.',
   failMethodRetired:
     'Ce mode de paiement a été retiré et n’accepte plus de commandes. Ce retrait n’a pas de fin. Choisissez un autre mode sur cette annonce, ou une autre annonce. Rien n’a été passé.',
+  failNonInstant:
+    'Cette annonce n’accepte pas les modes de paiement non instantanés, et celui-ci ne l’est pas. Choisissez un autre mode sur cette annonce, ou une autre annonce. Rien n’a été passé.',
   failMethodRetiredRegulation:
     'Ce mode de paiement a été retiré en raison d’une exigence réglementaire. Ce retrait n’a pas de fin. Choisissez un autre mode sur cette annonce, ou une autre annonce. Rien n’a été passé.',
   failMethodRetiredProviderWithdrawn:
@@ -734,6 +744,10 @@ const fr = {
     'Vous avez annulé {cap} commandes, ou laissé passer leur délai de paiement, en {hours} heures, les achats sont donc en pause jusqu’à {time}. Les ventes ne sont pas en pause. Rien n’a été passé.',
   failBuyingPausedPlain:
     'Vous avez annulé trop de commandes, ou laissé passer leur délai de paiement, en peu de temps, les achats sont donc en pause ; les ventes non. Rien n’a été passé.',
+  failShortBalance:
+    'Votre solde libre de cette crypto est de {available}, il manque {shortBy} pour cette commande. Rien n’a été bloqué : ajoutez des fonds ou vendez moins.',
+  failShortBalancePlain:
+    'Votre solde libre de cette crypto ne suffit pas pour cette commande. Rien n’a été bloqué : ajoutez des fonds ou vendez moins.',
   failStepUp: 'Confirmez cette commande avec votre app d’authentification ou une passkey avant qu’elle soit passée. Rien n’a été passé.',
   failStepUpExpired:
     'Votre dernière confirmation a pris fin. Confirmez de nouveau cette commande avec votre app d’authentification ou une passkey. Rien n’a été passé.',
@@ -808,11 +822,11 @@ const fr = {
   problemMinTooHigh: 'Le minimum dépasse le maximum',
   problemTotalTooLow: 'Le total est inférieur au maximum',
   problemTooLong: 'Trop long',
+  problemNonInstantConsent: 'Un moyen choisi n’est pas instantané : acceptez-le avant de publier.',
+  problemNonInstantEdit:
+    'Cette annonce a été publiée sans accepter les moyens non instantanés. Publiez une nouvelle annonce pour en proposer un.',
   formReview: 'Vérifier l’offre',
   formSave: 'Enregistrer les modifications',
-  formOffCreateTitle: 'La publication depuis ce formulaire est désactivée',
-  formOffCreateBody:
-    'Ce formulaire ne peut pas publier : une nouvelle offre exige que ses coordonnées de paiement soient chiffrées par un service de clés, et ce formulaire n’y est pas relié. Les offres déjà affichées, y compris les vôtres, ont été publiées hors de ce formulaire (sur un environnement de test, par sa configuration de test). Ce que vous saisissez ici n’est ni enregistré ni envoyé.',
   formOffEditTitle: 'La modification d’une offre publiée est désactivée',
   formOffEditBody:
     'Le service ne peut pas modifier une offre une fois publiée. Vous pouvez la mettre en pause ou la fermer depuis Mes offres. Ce que vous saisissez ici n’est ni enregistré ni envoyé.',

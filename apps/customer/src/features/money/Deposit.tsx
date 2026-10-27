@@ -14,6 +14,7 @@ import { str } from '../../data/decimal';
 import { ReportedTime } from './bank-context';
 import { depositAssets, depositHistory, depositTotal } from './deposit-model';
 import { depositCopy } from './deposit-copy';
+import { supportedAssetsCopy } from './supported-assets-copy';
 import { DepthPanel } from './DepthParts';
 import { useHoldings } from './holdings';
 import './bank-depth.css';
@@ -47,14 +48,32 @@ export function Deposit() {
   const heldIds = held.resource.status === 'ready' ? held.resource.data.assets.map((asset) => asset.assetId) : [];
   const listed = markets.status === 'ready' ? markets.data.map((row) => row.base) : [];
   // Only what custody publishes can be paid in. While the list is unavailable the person still sees the coins they know.
-  const published = catalogue.resource.status === 'ready' ? catalogue.resource.data.assets.map((row) => row.assetId) : null;
+  // A coin whose every network is switched off stays listed, so the person can see why.
+  const published =
+    catalogue.resource.status === 'ready'
+      ? [
+          ...new Set([
+            ...catalogue.resource.data.assets.map((row) => row.assetId),
+            ...(catalogue.resource.data.halted ?? []).map((row) => row.assetId),
+          ]),
+        ]
+      : null;
   const assets = useMemo(() => published ?? depositAssets(heldIds, listed), [published?.join(','), heldIds.join(','), listed.join(',')]);
   const asset = picked || assets[0] || '';
   const items = activity.status === 'ready' ? activity.data.items : [];
   const rows = depositHistory(items, onlyAsset && asset ? asset : null);
   const total = onlyAsset && asset ? depositTotal(rows) : null;
   return (
-    <Page eyebrow={t('eyebrow')} title={t('title')} description={t('lead')}>
+    <Page
+      eyebrow={t('eyebrow')}
+      title={t('title')}
+      description={t('lead')}
+      actions={
+        <a className="text-link" href="/uc/assets">
+          {supportedAssetsCopy.t('linkLabel')} ↗
+        </a>
+      }
+    >
       <DepositMethods />
       <div className="bd-columns">
         <div className="bd-stack">

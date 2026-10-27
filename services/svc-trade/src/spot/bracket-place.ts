@@ -2,6 +2,9 @@
  * Place a linked bracket with entry, take-profit, and stop-loss through matching (#3658).
  * One submit. Entry fill rests the exits. Refuse if any leg is missing.
  * Trade does not invent a trigger.
+ *
+ * An OTO (J-cex-spot-08 #10) is the same entry with one attached close instead of the exit pair: a sell limit at the
+ * close price for the base the entry received. It shares the bracket's stored intent, place grant and sweep.
  * Installed onto TradeService.prototype so trade-service.ts never moves.
  * Not a redo of #3658 (matching rest) or #3634 (OCO place).
  */
@@ -23,7 +26,13 @@ export type PlaceWithBracket = PlaceOrderInput & {
   bracket?: boolean;
   takeProfit?: Amount | BracketLeg | string | null;
   stopLoss?: Amount | BracketLeg | string | null;
+  /** An OTO: one close, a sell limit at `close`, placed for what the entry received. */
+  oto?: boolean;
+  close?: Amount | BracketLeg | string | null;
 };
+
+/** Which linked exit an entry carries: the take-profit and stop-loss pair, or one attached close. */
+export type ExitKind = 'bracket' | 'oto';
 
 const FLAG = Symbol.for('intafaced.trade.bracketPlace');
 
@@ -70,16 +79,20 @@ export function wantsBracket(rec: { readonly bracket?: boolean }): boolean {
   return rec.bracket === true;
 }
 
+export function wantsOto(rec: { readonly oto?: boolean }): boolean {
+  return rec.oto === true;
+}
+
 export function readEntry(order: { readonly type?: string; readonly price?: Amount | null }): Amount | null {
   if (order.type === 'market') return null;
   if (order.price === undefined || order.price === null || order.price <= ZERO) return null;
   return order.price;
 }
 
-export function entryRefuse(order: { readonly type?: string; readonly price?: Amount | null }): TradeError | null {
+export function entryRefuse(order: { readonly type?: string; readonly price?: Amount | null }, name = 'a bracket'): TradeError | null {
   if (order.type === 'market') return null;
   if (readEntry(order) !== null) return null;
-  return new TradeError('a bracket entry is missing; trade does not invent a trigger', 'trade.missing_price');
+  return new TradeError(`${name} entry is missing; trade does not invent a trigger`, 'trade.missing_price');
 }
 
 export function takeProfitRefuse(takeProfit: Amount | null): TradeError | null {
@@ -92,13 +105,29 @@ export function stopLossRefuse(stopLoss: Amount | null): TradeError | null {
   return new TradeError('a bracket stop-loss is missing; trade does not invent a trigger', 'trade.missing_stop_price');
 }
 
-/** The legs this request's own body asks for, or null when it is not a bracket. Refuses what it cannot read. */
-export function readBracketFromBody(rec: Readonly<Record<string, unknown>>): { takeProfit: BracketLeg; stopLoss: BracketLeg } | null {
-  if (rec.bracket !== true) return null;
+/**
+ * The legs this request's own body asks for, or null when it is neither a bracket nor an OTO. Refuses what it cannot
+ * read. An OTO's close is a price (`close: { price }`); a stop close is not offered, so a `stopPrice` there is refused.
+ */
+export function readBracketFromBody(
+  rec: Readonly<Record<string, unknown>>,
+): { kind: 'bracket'; takeProfit: BracketLeg; stopLoss: BracketLeg } | { kind: 'oto'; close: BracketLeg } | null {
+  if (rec.bracket !== true && rec.oto !== true) return null;
+  if (rec.bracket === true && rec.oto === true) {
+    throw new TradeError('an order is a bracket or an OTO, not both', 'trade.order_type_unsupported');
+  }
   if (!clientKey(rec)) {
     throw new TradeError('clientOrderId is required (1–64 chars) so a retry cannot open a second hold', 'trade.client_order_id_required');
   }
+  if (rec.oto === true) {
+    const close = rec.close;
+    if (close !== null && typeof close === 'object' && !Array.isArray(close) && Object.hasOwn(close, 'stopPrice')) {
+      throw new TradeError('an OTO close is a limit price; a stop close is a bracket stop-loss', 'trade.order_type_unsupported');
+    }
+    return { kind: 'oto', close: asLeg(close) ?? { stopPrice: '' } };
+  }
   return {
+    kind: 'bracket',
     takeProfit: asLeg(rec.takeProfit) ?? { stopPrice: '' },
     stopLoss: asLeg(rec.stopLoss) ?? { stopPrice: '' },
   };
@@ -106,10 +135,11 @@ export function readBracketFromBody(rec: Readonly<Record<string, unknown>>): { t
 
 export function bindBracket(input: PlaceOrderInput): PlaceWithBracket {
   const extra = input as PlaceWithBracket;
-  if (wantsBracket(extra)) return extra;
+  if (wantsBracket(extra) || wantsOto(extra)) return extra;
   const body = carriedPlacementBody(extra);
   const stashed = body === null ? null : readBracketFromBody(body);
   if (!stashed) return extra;
+  if (stashed.kind === 'oto') return { ...extra, oto: true, close: stashed.close };
   return { ...extra, bracket: true, takeProfit: stashed.takeProfit, stopLoss: stashed.stopLoss };
 }
 
@@ -132,7 +162,10 @@ type BracketHost = {
     principal: Principal,
     input: PlaceOrderInput,
   ) => Promise<{ id: string; status: string; filledQty: bigint; marketId: string }>;
-  requireMarket: (input: { symbol?: string; marketId?: string }) => Promise<{ id: string; baseAsset: string; lotSize: Amount }>;
+  requireMarket: (input: {
+    symbol?: string;
+    marketId?: string;
+  }) => Promise<{ id: string; baseAsset: string; lotSize: Amount; tickSize: Amount }>;
   marketById: (id: string) => Promise<{ id: string; baseAsset: string; lotSize: Amount } | null>;
   cancelOrder: (principal: Principal, orderId: string) => Promise<{ status: string }>;
   now: () => Date;
@@ -151,26 +184,40 @@ export function exitClientOrderId(entryId: string): string {
   return `bracket:${entryId}:exit`;
 }
 
+export function otoCloseClientOrderId(entryId: string): string {
+  return `oto:${entryId}:close`;
+}
+
 async function writeIntent(
   host: BracketHost,
   entryId: string,
   userId: string,
+  kind: ExitKind,
   takeProfit: Amount,
-  stopLoss: Amount,
+  stopLoss: Amount | null,
   grant: { claims: ReturnType<typeof captureAlgoPlaceGrant>; expiresAt: Date } | null,
 ): Promise<void> {
   await host.sql`
-    INSERT INTO trade.order_bracket_intent (order_id, user_id, take_profit, stop_loss, grant_claims, grant_expires_at)
-    VALUES (${entryId}, ${userId}, ${formatAmount(takeProfit)}::numeric, ${formatAmount(stopLoss)}::numeric,
+    INSERT INTO trade.order_bracket_intent (order_id, user_id, kind, take_profit, stop_loss, grant_claims, grant_expires_at)
+    VALUES (${entryId}, ${userId}, ${kind}, ${formatAmount(takeProfit)}::numeric,
+            ${stopLoss === null ? null : formatAmount(stopLoss)}::numeric,
             ${grant ? host.sql.json(grant.claims as never) : null}, ${grant ? grant.expiresAt : null})
     ON CONFLICT (order_id) DO NOTHING
   `;
-  const rows = await host.sql<Array<{ take_profit: string; stop_loss: string }>>`
-    SELECT take_profit::text, stop_loss::text FROM trade.order_bracket_intent WHERE order_id = ${entryId}
+  const rows = await host.sql<Array<{ kind: string; take_profit: string; stop_loss: string | null }>>`
+    SELECT kind, take_profit::text, stop_loss::text FROM trade.order_bracket_intent WHERE order_id = ${entryId}
   `;
   const stored = rows[0];
-  if (!stored || parseAmount(stored.take_profit) !== takeProfit || parseAmount(stored.stop_loss) !== stopLoss) {
-    throw new TradeError('clientOrderId was already used for a bracket with different exit prices', 'trade.client_order_id_conflict');
+  const sameStop = stored?.stop_loss == null ? stopLoss === null : stopLoss !== null && parseAmount(stored.stop_loss) === stopLoss;
+  const named = (k: string | undefined) => (k === 'oto' ? 'an OTO' : 'a bracket');
+  if (!stored || stored.kind !== kind) {
+    throw new TradeError(`clientOrderId was already used for ${named(stored?.kind)}, not ${named(kind)}`, 'trade.client_order_id_conflict');
+  }
+  if (parseAmount(stored.take_profit) !== takeProfit || !sameStop) {
+    throw new TradeError(
+      `clientOrderId was already used for ${named(stored.kind)} with different exit prices`,
+      'trade.client_order_id_conflict',
+    );
   }
 }
 
@@ -191,6 +238,8 @@ const PLAIN_ENTRY_FIELDS = new Set([
   'bracket',
   'takeProfit',
   'stopLoss',
+  'oto',
+  'close',
 ]);
 
 // The same allow-list over the request's own body, which travels on the input under a symbol: the inner installers
@@ -213,6 +262,8 @@ const PLAIN_BODY_FIELDS = new Set([
   'bracket',
   'takeProfit',
   'stopLoss',
+  'oto',
+  'close',
 ]);
 
 function firstExtra(rec: Readonly<Record<string, unknown>>, allowed: ReadonlySet<string>): string | null {
@@ -239,8 +290,9 @@ export function deferredEntryField(input: PlaceOrderInput): string | null {
 }
 
 /**
- * Place the one sell OCO for the base the entry actually received. Idempotent: the exit has a deterministic client
- * order id and the intent records it. Returns true when an exit exists afterwards.
+ * Place the exit for the base the entry actually received: a bracket's one sell OCO, or an OTO's one sell limit at its
+ * close. Idempotent: the exit has a deterministic client order id and the intent records it. Returns true when an exit
+ * exists afterwards.
  */
 async function placeBracketExit(
   service: TradeService,
@@ -248,7 +300,7 @@ async function placeBracketExit(
   entryId: string,
   market: { id: string; baseAsset: string; lotSize: Amount },
   takeProfit: Amount,
-  stopLoss: Amount,
+  stopLoss: Amount | null,
 ): Promise<boolean> {
   const host = service as unknown as BracketHost;
   const done = await host.sql<Array<{ exit_order_id: string | null }>>`
@@ -267,22 +319,43 @@ async function placeBracketExit(
   if (qty <= ZERO) return false;
 
   try {
-    const exit = await service.placeOrder(principal, {
-      marketId: market.id,
-      side: 'sell',
-      type: 'limit',
-      qty,
-      price: takeProfit,
-      clientOrderId: exitClientOrderId(entryId),
-      oco: true,
-      takeProfit: { stopPrice: formatAmount(takeProfit) },
-      stopLoss: { stopPrice: formatAmount(stopLoss) },
-    } as PlaceOrderInput);
+    // An OTO (no stop-loss) closes with a plain sell limit that rests until it fills or is cancelled.
+    const exit = await service.placeOrder(
+      principal,
+      stopLoss === null
+        ? ({
+            marketId: market.id,
+            side: 'sell',
+            type: 'limit',
+            qty,
+            price: takeProfit,
+            tif: 'GTC',
+            clientOrderId: otoCloseClientOrderId(entryId),
+          } as PlaceOrderInput)
+        : ({
+            marketId: market.id,
+            side: 'sell',
+            type: 'limit',
+            qty,
+            price: takeProfit,
+            clientOrderId: exitClientOrderId(entryId),
+            oco: true,
+            takeProfit: { stopPrice: formatAmount(takeProfit) },
+            stopLoss: { stopPrice: formatAmount(stopLoss) },
+          } as PlaceOrderInput),
+    );
+    // Recorded only once it is live (resting or filled). An order whose submit is unknown, or that never reached the
+    // book, is not an exit: the sweep keeps counting it failed until it is live or the grant runs out (surfaced).
+    if (exit.status !== 'open' && exit.status !== 'filled') {
+      throw new Error(`the ${stopLoss === null ? 'close' : 'exit'} ${exit.id} is ${exit.status}, not on the book`);
+    }
     await host.sql`UPDATE trade.order_bracket_intent SET exit_order_id = ${exit.id} WHERE order_id = ${entryId}`;
     return true;
   } catch (err) {
+    const what = stopLoss === null ? 'OTO entry' : 'bracket entry';
+    const leg = stopLoss === null ? 'close' : 'exit';
     throw new TradeError(
-      `the bracket entry ${entryId} filled but its exit could not be placed (${err instanceof Error ? err.message : String(err)}); retry the same request to place it`,
+      `the ${what} ${entryId} filled but its ${leg} could not be placed (${err instanceof Error ? err.message : String(err)}); retry the same request to place it`,
       'trade.bracket_exit_failed',
     );
   }
@@ -294,6 +367,65 @@ async function closeGrant(host: BracketHost, entryId: string): Promise<void> {
     UPDATE trade.order_bracket_intent SET grant_claims = NULL, grant_expires_at = NULL
      WHERE order_id = ${entryId} AND exit_order_id IS NULL
   `;
+}
+
+/** One stored intent with a grant and no exit yet, joined to its entry's market and status. */
+type IntentRow = {
+  order_id: string;
+  user_id: string;
+  market_id: string;
+  status: string;
+  take_profit: string;
+  stop_loss: string | null;
+  grant_claims: unknown;
+  grant_expires_at: Date;
+};
+
+/**
+ * Work one stored intent with a grant and no exit yet: place the exit for a terminal entry as the grant's principal.
+ * The sweep (`sweep`) also cancels a still-resting entry first (it runs near the grant's lapse) and closes the grant
+ * when there is nothing to place or no authority left, which it counts and alerts on. A fill (`fill`) never cancels
+ * and never touches a lapsed grant: those are left for the sweep, so nothing it finds goes uncounted. Either mode
+ * closes the grant of a terminal entry that received nothing (no exit to place). Throws when the exit could not be placed.
+ */
+async function settleIntent(
+  service: TradeService,
+  row: IntentRow,
+  mode: 'sweep' | 'fill',
+): Promise<{ readonly placed: boolean; readonly cancelled: boolean; readonly unavailable: boolean }> {
+  const host = service as unknown as BracketHost;
+  const now = host.now();
+  const grant = parseAlgoPlaceGrant(row.grant_claims);
+  let principal: Principal | null = null;
+  if (grant) {
+    try {
+      principal = principalFromAlgoGrant({ userId: row.user_id, grant, expiresAt: new Date(row.grant_expires_at), now });
+    } catch {
+      principal = null;
+    }
+  }
+  if (principal === null) {
+    if (mode === 'fill') return { placed: false, cancelled: false, unavailable: false };
+    // Nothing to place with: counted once, then no longer swept. A resting entry past its grant can still fill
+    // later with no exit, so it is surfaced too.
+    await closeGrant(host, row.order_id);
+    return { placed: false, cancelled: false, unavailable: true };
+  }
+  let cancelled = false;
+  if (row.status === 'open' || row.status === 'pending') {
+    if (mode === 'fill') return { placed: false, cancelled: false, unavailable: false };
+    await host.cancelOrder(principal, row.order_id);
+    cancelled = true;
+  }
+  const market = await host.marketById(row.market_id);
+  if (!market) return { placed: false, cancelled, unavailable: false };
+  const stopLoss = row.stop_loss === null ? null : parseAmount(row.stop_loss);
+  if (await placeBracketExit(service, principal, row.order_id, market, parseAmount(row.take_profit), stopLoss)) {
+    return { placed: true, cancelled, unavailable: false };
+  }
+  // Terminal with nothing received: nothing to protect, stop sweeping it.
+  await closeGrant(host, row.order_id);
+  return { placed: false, cancelled, unavailable: false };
 }
 
 /**
@@ -317,18 +449,7 @@ async function sweepBracketExits(service: TradeService, graceMs: number, limit =
     // Only rows with something to do: a terminal entry, or a resting one whose grant lapses within the grace
     // window (or already has). A resting entry far from its lapse stays out of the window, so it can never crowd
     // out a later entry that has filled. Paged by order id so no row is starved by the ones before it.
-    const rows = await host.sql<
-      Array<{
-        order_id: string;
-        user_id: string;
-        market_id: string;
-        status: string;
-        take_profit: string;
-        stop_loss: string;
-        grant_claims: unknown;
-        grant_expires_at: Date;
-      }>
-    >`
+    const rows = await host.sql<IntentRow[]>`
       SELECT i.order_id, i.user_id, o.market_id, o.status, i.take_profit::text, i.stop_loss::text, i.grant_claims, i.grant_expires_at
         FROM trade.order_bracket_intent i
         JOIN trade.orders o ON o.id = i.order_id
@@ -342,38 +463,11 @@ async function sweepBracketExits(service: TradeService, graceMs: number, limit =
     for (const row of rows) {
       cursor = row.order_id;
       examined += 1;
-      const now = host.now();
-      const grant = parseAlgoPlaceGrant(row.grant_claims);
-      let principal: Principal | null = null;
-      if (grant) {
-        try {
-          principal = principalFromAlgoGrant({ userId: row.user_id, grant, expiresAt: new Date(row.grant_expires_at), now });
-        } catch {
-          principal = null;
-        }
-      }
-      if (principal === null) {
-        // Nothing to place with: counted once, then no longer swept. A resting entry past its grant can still fill
-        // later with no exit, so it is surfaced too.
-        unavailable += 1;
-        await closeGrant(host, row.order_id);
-        continue;
-      }
       try {
-        let terminal = row.status !== 'open' && row.status !== 'pending';
-        if (!terminal) {
-          await host.cancelOrder(principal, row.order_id);
-          cancelledEntries += 1;
-          terminal = true;
-        }
-        const market = await host.marketById(row.market_id);
-        if (!market) continue;
-        if (await placeBracketExit(service, principal, row.order_id, market, parseAmount(row.take_profit), parseAmount(row.stop_loss))) {
-          placed += 1;
-        } else {
-          // Terminal with nothing received: nothing to protect, stop sweeping it.
-          await closeGrant(host, row.order_id);
-        }
+        const outcome = await settleIntent(service, row, 'sweep');
+        if (outcome.unavailable) unavailable += 1;
+        if (outcome.cancelled) cancelledEntries += 1;
+        if (outcome.placed) placed += 1;
       } catch {
         failed += 1;
       }
@@ -381,6 +475,38 @@ async function sweepBracketExits(service: TradeService, graceMs: number, limit =
     if (rows.length < limit) break;
   }
   return { examined, placed, cancelledEntries, unavailable, failed };
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The fills just settled may have ended a resting OTO or bracket entry: place its exit now, not at the next sweep
+ * ("the close fires when the entry fills"). Only entries the fills made terminal are worked; a still-resting or
+ * part-filled entry waits. Best effort and never throws: an exit it could not place is placed (or alerted) by the sweep.
+ */
+async function placeExitsAfterFills(service: TradeService, orderIds: readonly string[]): Promise<void> {
+  const ids = [...new Set(orderIds.filter((id) => UUID.test(id)))];
+  if (ids.length === 0) return;
+  const host = service as unknown as BracketHost;
+  try {
+    const rows = await host.sql<IntentRow[]>`
+      SELECT i.order_id, i.user_id, o.market_id, o.status, i.take_profit::text, i.stop_loss::text, i.grant_claims, i.grant_expires_at
+        FROM trade.order_bracket_intent i
+        JOIN trade.orders o ON o.id = i.order_id
+       WHERE i.order_id IN ${host.sql(ids)}
+         AND i.exit_order_id IS NULL AND i.grant_claims IS NOT NULL
+         AND o.status NOT IN ('open', 'pending', 'recovery_required', 'hold_unknown')
+    `;
+    for (const row of rows) {
+      try {
+        await settleIntent(service, row, 'fill');
+      } catch {
+        // Left for the sweep, which retries and alerts.
+      }
+    }
+  } catch {
+    // Left for the sweep.
+  }
 }
 
 export function installBracketPlace(ctor: typeof TradeService): void {
@@ -396,25 +522,82 @@ export function installBracketPlace(ctor: typeof TradeService): void {
       return sweepBracketExits(this, graceMs, limit);
     };
 
+  // A resting entry that a fill ends gets its exit at once, whichever path settled the fill: the taker's own request
+  // (settleOutcome) or the matching event (settleFillEvent). The sweep stays the backstop.
+  const settling = proto as unknown as {
+    settleOutcome: (
+      market: unknown,
+      fills: readonly { makerOrderId: string; takerOrderId: string }[],
+      cancellations: unknown,
+    ) => Promise<void>;
+    settleFillEvent: (input: { makerOrderId: string; takerOrderId: string }) => Promise<void>;
+  };
+  const origSettleOutcome = settling.settleOutcome;
+  settling.settleOutcome = async function (this: TradeService, market, fills, cancellations) {
+    await origSettleOutcome.call(this, market, fills, cancellations);
+    if (fills.length > 0)
+      await placeExitsAfterFills(
+        this,
+        fills.flatMap((fill) => [fill.makerOrderId, fill.takerOrderId]),
+      );
+  };
+  const origSettleFillEvent = settling.settleFillEvent;
+  settling.settleFillEvent = async function (this: TradeService, input) {
+    await origSettleFillEvent.call(this, input);
+    await placeExitsAfterFills(this, [input.makerOrderId, input.takerOrderId]);
+  };
+
+  // A replacement is a new order under a new id: the intent stays with the cancelled entry and its exit would never
+  // be placed. An entry whose exit is still to come is therefore cancelled and placed again, never replaced.
+  const changing = proto as unknown as {
+    replaceOrder: (principal: Principal, originalOrderId: string, input: PlaceOrderInput) => Promise<unknown>;
+  };
+  const origReplace = changing.replaceOrder;
+  changing.replaceOrder = async function (this: TradeService, principal: Principal, originalOrderId: string, input: PlaceOrderInput) {
+    if (UUID.test(originalOrderId)) {
+      const host = this as unknown as BracketHost;
+      const [pending] = await host.sql<Array<{ kind: string }>>`
+        SELECT kind FROM trade.order_bracket_intent WHERE order_id = ${originalOrderId} AND user_id = ${principal.userId} AND exit_order_id IS NULL
+      `;
+      if (pending) {
+        throw new TradeError(
+          `${pending.kind === 'oto' ? 'an OTO' : 'a bracket'} entry carries an exit that is placed when it fills; cancel it and place it again`,
+          'trade.order_type_unsupported',
+        );
+      }
+    }
+    return origReplace.call(this, principal, originalOrderId, input);
+  };
+
   const origPlace = proto.placeOrder;
   proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
     const bound = bindBracket(input);
-    if (!wantsBracket(bound)) return origPlace.call(this, principal, bound);
-    const missingEntry = entryRefuse(bound);
+    const oto = wantsOto(bound);
+    if (!wantsBracket(bound) && !oto) return origPlace.call(this, principal, bound);
+    const kind: ExitKind = oto ? 'oto' : 'bracket';
+    const name = oto ? 'an OTO' : 'a bracket';
+    const missingEntry = entryRefuse(bound, name);
     if (missingEntry) throw missingEntry;
-    const takeProfit = triggerOf(bound.takeProfit);
+    // An OTO's close is judged against the price its entry pays, so the entry is a limit; a market buy has none.
+    if (oto && bound.type !== 'limit') {
+      throw new TradeError('an OTO entry is a limit buy: its close is judged against the entry price', 'trade.order_type_unsupported');
+    }
+    const takeProfit = triggerOf(oto ? bound.close : bound.takeProfit);
+    if (oto && takeProfit === null) {
+      throw new TradeError('an OTO close price is missing; trade does not invent one', 'trade.missing_price');
+    }
     const missingTp = takeProfitRefuse(takeProfit);
     if (missingTp) throw missingTp;
-    const stopLoss = triggerOf(bound.stopLoss);
-    const missingSl = stopLossRefuse(stopLoss);
+    const stopLoss = oto ? null : triggerOf(bound.stopLoss);
+    const missingSl = oto ? null : stopLossRefuse(stopLoss);
     if (missingSl) throw missingSl;
     if (bound.side !== 'buy') {
-      throw new TradeError('a bracket entry must be a buy for now', 'trade.order_type_unsupported');
+      throw new TradeError(`${name} entry must be a buy for now`, 'trade.order_type_unsupported');
     }
     const deferred = deferredEntryField(bound);
     if (deferred !== null) {
       throw new TradeError(
-        `a bracket entry must resolve inside the request: ${deferred} defers or conditions execution`,
+        `${name} entry must resolve inside the request or rest as a plain limit: ${deferred} defers or conditions execution`,
         'trade.order_type_unsupported',
       );
     }
@@ -427,34 +610,49 @@ export function installBracketPlace(ctor: typeof TradeService): void {
     const resting = bound.type === 'limit' && bound.tif !== 'IOC' && bound.tif !== 'FOK';
     if (resting) {
       if (!principal.scopes.includes('trade:write')) {
-        throw new TradeError('a resting bracket entry needs trade:write to store a place grant', 'trade.order_type_unsupported');
+        throw new TradeError(
+          `a resting ${oto ? 'OTO' : 'bracket'} entry needs trade:write to store a place grant`,
+          'trade.order_type_unsupported',
+        );
       }
       if (!(principal.expiresAt instanceof Date) || principal.expiresAt.getTime() <= (this as unknown as BracketHost).now().getTime()) {
         throw new TradeError(
-          'a resting bracket entry needs a credential with a known, future expiry to store a place grant',
+          `a resting ${oto ? 'OTO' : 'bracket'} entry needs a credential with a known, future expiry to store a place grant`,
           'trade.order_type_unsupported',
         );
       }
     }
-    if ((takeProfit as Amount) <= (stopLoss as Amount)) {
+    if (stopLoss !== null && (takeProfit as Amount) <= stopLoss) {
       throw new TradeError('a bracket take-profit must be above its stop-loss', 'trade.invalid_price');
+    }
+    // An OTO close sells what the entry bought: at or under a priced entry it would sell straight back at no gain.
+    const entryPrice = readEntry(bound);
+    if (oto && entryPrice !== null && (takeProfit as Amount) <= entryPrice) {
+      throw new TradeError('an OTO close must be above its entry price', 'trade.invalid_price');
     }
 
     const host = this as unknown as BracketHost;
     const market = await host.requireMarket({ symbol: bound.symbol, marketId: bound.marketId });
+    // The exit is placed later with no caller present: a price off the market's grid would be refused then, leaving the
+    // bought base with no exit. It is refused now, before anything is held.
+    const offGrid = (price: Amount | null) => price !== null && market.tickSize > ZERO && price % market.tickSize !== ZERO;
+    if (offGrid(takeProfit) || offGrid(stopLoss)) {
+      throw new TradeError(`${name} ${oto ? 'close' : 'exit'} price must be a whole number of price steps`, 'trade.invalid_price');
+    }
     const clientOrderId = bound.clientOrderId as string;
     const entryId = orderIdFor(principal.userId, market.id, clientOrderId);
     await writeIntent(
       host,
       entryId,
       principal.userId,
+      kind,
       takeProfit as Amount,
-      stopLoss as Amount,
+      stopLoss,
       resting ? { claims: captureAlgoPlaceGrant(principal), expiresAt: principal.expiresAt } : null,
     );
 
     // The entry is an ordinary order: the exit fields never reach it or the engine.
-    const { bracket: _b, takeProfit: _tp, stopLoss: _sl, ...entryInput } = bound;
+    const { bracket: _b, takeProfit: _tp, stopLoss: _sl, oto: _oto, close: _close, ...entryInput } = bound;
     // The request body is dropped from the entry: the inner installers must not re-read an option (an alias such as
     // tif: 'PO') from it, so the entry is exactly the typed input this guard has checked.
     const entry = await origPlace.call(this, principal, withoutCarriedBody(entryInput as PlaceOrderInput));
@@ -464,7 +662,7 @@ export function installBracketPlace(ctor: typeof TradeService): void {
     // An unresolved entry (no verdict yet) may still fill: sizing an exit now would leave later fills unprotected.
     // The caller retries the same request once it resolves.
     if (entry.status === 'recovery_required' || entry.status === 'hold_unknown') return entry;
-    await placeBracketExit(this, principal, entryId, market, takeProfit as Amount, stopLoss as Amount);
+    await placeBracketExit(this, principal, entryId, market, takeProfit as Amount, stopLoss);
     return entry;
   };
 }

@@ -40,6 +40,42 @@ describe('pay custody deposit port', () => {
     ]);
   });
 
+  it('carries the pairs the owner switched off, with their notes, beside the open ones', async () => {
+    const port = createPayCustodyDepositPort({
+      catalogue: async () => ({
+        state: 'ok',
+        catalogue: {
+          entries: [entry('USDC', 'base')],
+          halted: [
+            { assetId: 'USDT', networkId: 'base', label: 'TEST Base', haltNote: 'TEST maintenance' },
+            { assetId: 'USDC', networkId: 'ethereum', label: 'TEST Ethereum', haltNote: null },
+          ],
+        },
+      }),
+      address: async () => UNAVAILABLE,
+      records: async () => UNAVAILABLE,
+    });
+    expect(await port.catalogue!()).toEqual({
+      assets: [
+        {
+          assetId: 'USDC',
+          networks: [{ id: 'base', label: 'base', minimumDeposit: '10', confirmationsRequired: 12, estimatedArrivalMinutes: 5 }],
+        },
+      ],
+      halted: [
+        { assetId: 'USDT', networkId: 'base', label: 'TEST Base', haltNote: 'TEST maintenance' },
+        { assetId: 'USDC', networkId: 'ethereum', label: 'TEST Ethereum', haltNote: null },
+      ],
+    });
+    // An older pay reply without the list names none as switched off.
+    const older = createPayCustodyDepositPort({
+      catalogue: async () => ({ state: 'ok', catalogue: { entries: [] } }),
+      address: async () => UNAVAILABLE,
+      records: async () => UNAVAILABLE,
+    });
+    expect(await older.catalogue!()).toEqual({ assets: [], halted: [] });
+  });
+
   it('publishes an empty catalogue as empty, and an unreachable pay as not published', async () => {
     const empty = createPayCustodyDepositPort({
       catalogue: async () => ({ state: 'ok', catalogue: { entries: [] } }),
@@ -53,6 +89,7 @@ describe('pay custody deposit port', () => {
       records: async () => UNAVAILABLE,
     });
     expect(await down.listAssets()).toBeNull();
+    expect(await down.catalogue!()).toBeNull();
   });
 
   it('returns an issued address, and null for a refusal or an unreachable pay, never an invented address', async () => {
@@ -61,7 +98,7 @@ describe('pay custody deposit port', () => {
       address: async () => ({ state: 'issued', address: { address: '0xabc', memo: null, qrPayload: null } }),
       records: async () => UNAVAILABLE,
     });
-    expect(await issued.address(input)).toEqual({ address: '0xabc', memo: null, qrPayload: null });
+    expect(await issued.address(input)).toEqual({ address: '0xabc', memo: null, qrPayload: null, expiresAt: null });
     for (const reply of [
       { state: 'refused', code: 'pay.deposit_pair_unpublished' } as const,
       { state: 'refused', code: 'pay.deposit_source_unset' } as const,
@@ -74,6 +111,28 @@ describe('pay custody deposit port', () => {
       });
       expect(await port.address(input)).toBeNull();
     }
+  });
+
+  it('passes an extra address through with its stored expiry, and repeats no answer for another number or without an expiry', async () => {
+    const expiresAt = '2026-11-23T12:00:00.000Z';
+    const extra = { ...input, addressIndex: 2, expiresAt };
+    const answering = (address: object) =>
+      createPayCustodyDepositPort({
+        catalogue: async () => UNAVAILABLE,
+        address: async () => ({ state: 'issued', address: { address: '0xdef', memo: null, qrPayload: null, ...address } }),
+        records: async () => UNAVAILABLE,
+      });
+    expect(await answering({ addressIndex: 2, expiresAt }).address(extra)).toEqual({
+      address: '0xdef',
+      memo: null,
+      qrPayload: null,
+      expiresAt,
+    });
+    expect(await answering({ addressIndex: 1, expiresAt }).address(extra)).toBeNull();
+    expect(await answering({}).address(extra)).toBeNull();
+    expect(await answering({ addressIndex: 2, expiresAt: null }).address(extra)).toBeNull();
+    // The first address never carries a number from an extra one.
+    expect(await answering({ addressIndex: 2, expiresAt }).address(input)).toBeNull();
   });
 
   const record = (over: object = {}) => ({

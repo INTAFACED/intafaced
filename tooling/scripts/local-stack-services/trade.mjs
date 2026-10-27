@@ -40,6 +40,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     // trade.cancel_all_after_unset. The sweep runs every second here so a journey does not wait on the 5 s default.
     TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC: '10,30,60,120',
     TRADE_CANCEL_ALL_AFTER_SWEEP_INTERVAL_MS: '1000',
+    // LOCAL TEST, not an owner decision: how often the fee tier snapshot job looks for a due snapshot. It runs a
+    // snapshot only when the schedule in force has a tier programme with a snapshot time (spot/fee-tier-jobs.ts), so
+    // with the boot schedule below it does nothing; J-cex-spot-10 #5-#6 publishes a TEST programme. Blank is off.
+    TRADE_FEE_TIER_JOBS_INTERVAL_MS: '5000',
+    TRADE_VIP_PROOF_KEY: secrets.tradeVipProofKey,
     // LOCAL TEST, not an owner decision (option B, 2026-10-13). Fee schedule reference: OKX's public
     // regular-user spot tier, maker 8 bps, taker 10 bps, no maker rebate (makerRebateBps omitted).
     // Without it trade refuses every order with 400 trade.fee_schedule_blank
@@ -84,5 +89,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     TRADE_COPY_JURISDICTION_LAW: testValue('TRADE_COPY_JURISDICTION_LAW'),
     TRADE_COPY_DISCLOSURE_LAW: testValue('TRADE_COPY_DISCLOSURE_LAW'),
     TRADE_COPY_METRIC_DEFINITIONS: testValue('TRADE_COPY_METRIC_DEFINITIONS'),
+    TRADE_COPY_MIN_TIER: testValue('TRADE_COPY_MIN_TIER'),
+    // LOCAL TEST, not an owner decision: the copy driver places each copy as the follower, so J-copy-bots-otc-01 #8
+    // sees a first copied trade on TEST money. Production leaves it off until the owner turns copy placing on.
+    TRADE_COPY_PLACE_MIRROR: 'on',
   }),
 });

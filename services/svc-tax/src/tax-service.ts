@@ -1,10 +1,12 @@
 import { formatAmount, mul, parseAmount, type Amount } from '@intafaced/ledger-client';
+import type { PnlOverTime } from '@intafaced/contracts/tax-lot-book';
 import { listMissingBasis, parseBasisSet, type BasisSetInput, type MissingBasisItem } from './basis-override.js';
 import { type ActiveBasis, type BasisRow, type BasisStore } from './basis-store.js';
 import {
   PORTFOLIO_BASIS_OVERRIDE_NOT_ALLOWED,
   TAX_BASIS_LOT_UNKNOWN,
   TAX_BASIS_STORE_UNWIRED,
+  TAX_CHOICES_UNAVAILABLE,
   TAX_CLOSED_LOTS_UNINDEXED,
   TAX_COST_BASIS_UNAVAILABLE,
   TAX_CUSTOMER_BASIS_EXPORT_UNSET,
@@ -17,15 +19,39 @@ import {
   TAX_INDEXER_UNPROBED,
   TAX_LEDGER_UNWIRED,
   TAX_LOT_METHOD_REQUIRED,
+  TAX_LOT_PICK_INVALID,
+  TAX_OWN_SPACES_UNAVAILABLE,
+  TAX_OWN_SPACES_UNWIRED,
+  TAX_PNL_PRICES_UNAVAILABLE,
+  TAX_PNL_RANGE_INVALID,
+  TAX_PNL_RANGE_TOO_LONG,
   TAX_PRICE_AT_TIME_UNAVAILABLE,
   TaxError,
 } from './codes.js';
 import { parseJurisdictionMap, refuseExportCompleteness, requireMappedRegion, type JurisdictionMap } from './jurisdiction-map.js';
-import type { HistoryRange, InflowLine, SubAccountActivityLine, TaxLedgerReads } from './ledger-reads.js';
-import type { PriceAt, PriceAtTime } from './prices.js';
-import { buildLotBook, DEFAULT_LOT_BOOK_METHOD, PAR_ASSETS, type Inflow, type LotBook, type ManualPosition } from './lot-book.js';
+import type { AccountLine, HistoryRange, InflowLine, SubAccountActivityLine, TaxLedgerReads } from './ledger-reads.js';
+import type { CloseSeries, CloseSeriesSource, PriceAt, PriceAtTime } from './prices.js';
+import { BookTimeline, chooseInterval, pnlOverTime } from './pnl-over-time.js';
+import {
+  buildLotBook,
+  DEFAULT_LOT_BOOK_METHOD,
+  PAR_ASSETS,
+  type BookChoices,
+  type BookSpaces,
+  type Inflow,
+  type LotBook,
+  type ManualPosition,
+  type Withdrawal,
+} from './lot-book.js';
+import type { BankOwnSpacesPort } from '@intafaced/contracts';
+import { pairOwnMoves, type OwnMove, type SpaceInflow } from './own-moves.js';
+import { outsideWithdrawals, WITHDRAWAL_HOLD_PREFIX } from './withdrawals.js';
+import { NO_CHOICES, saleRules, type ChoiceStore, type CostBasisChoices } from './choices.js';
 import { isLotMethod, runLots, type LotMethod, type LotMovement } from './lots.js';
 import { isEngineMethod, type EngineMethod, type ValuedAt } from './lot-engine.js';
+
+/** Candle series reads (one per coin) run this many at a time. */
+const CANDLE_READ_PARALLEL = 8;
 
 /** The lot book also offers AVERAGE; the year pack takes FIFO, LIFO or HIFO only. */
 function requireBookMethod(raw: string): EngineMethod {
@@ -99,8 +125,14 @@ export interface TaxServiceDeps {
   readonly depositBasis?: DepositBasisPolicy;
   /** Price of a coin at a past moment. Absent: arrivals are not valued, named `tax.price_at_time_unavailable`. */
   readonly prices?: PriceAtTime;
+  /** Each coin's candles over a window, for the result over time. Absent: that view refuses `tax.pnl_prices_unavailable`. */
+  readonly closes?: CloseSeriesSource;
   /** Customer-entered basis. Absent: writes refuse `tax.basis_store_unwired` and the book ignores overrides. */
   readonly basis?: BasisStore;
+  /** The customer's saved cost-basis choices. Absent: saves refuse `tax.basis_store_unwired` and the product default applies. */
+  readonly choices?: ChoiceStore;
+  /** Which named spaces are the customer's (svc-bank). Absent: the book follows the main account only, `tax.own_spaces_unwired`. */
+  readonly spaces?: BankOwnSpacesPort;
 }
 
 export const DEPOSIT_BASIS_POLICIES = ['market', 'customer'] as const;
@@ -194,7 +226,10 @@ export class TaxService {
   private readonly now: () => Date;
   private readonly depositBasis: DepositBasisPolicy | undefined;
   private readonly prices: PriceAtTime | undefined;
+  private readonly closes: CloseSeriesSource | undefined;
   private readonly basis: BasisStore | undefined;
+  private readonly choices: ChoiceStore | undefined;
+  private readonly spaces: BankOwnSpacesPort | undefined;
 
   constructor(deps: TaxServiceDeps) {
     this.map = parseJurisdictionMap(deps.mapRaw);
@@ -205,7 +240,10 @@ export class TaxService {
     this.now = deps.now ?? (() => new Date());
     this.depositBasis = deps.depositBasis;
     this.prices = deps.prices;
+    this.closes = deps.closes;
     this.basis = deps.basis;
+    this.choices = deps.choices;
+    this.spaces = deps.spaces;
   }
 
   async exportPreview(input: { userId: string; region: string; lotMethod: string; complete?: boolean }): Promise<TaxExportPreview> {
@@ -218,29 +256,98 @@ export class TaxService {
   }
 
   /**
-   * Profit and loss as an indicator, from the caller's own trade fills (lot-book.ts). Not tied to a jurisdiction map and not a
-   * tax pack. The method defaults to FIFO (a product default, changeable per call); an unknown name is refused, not guessed.
+   * Profit and loss as an indicator, from the caller's own ledger (lot-book.ts). Not tied to a jurisdiction map and not a
+   * tax pack. Without a method it applies the customer's saved choices (choices.ts), else the product default FIFO; with
+   * one it previews that method for every sale. An unknown name is refused, not guessed.
    */
   async lotBook(input: { userId: string; method?: string }): Promise<LotBook> {
-    const method = input.method === undefined ? DEFAULT_LOT_BOOK_METHOD : requireBookMethod(input.method);
+    const preview = input.method === undefined ? null : requireBookMethod(input.method);
+    // The indicator needs no settings to be worked out: if the saved choices cannot be read, it answers with the default
+    // and says so (`choices.status: 'unavailable'`), rather than failing every customer's page.
+    let saved: CostBasisChoices = NO_CHOICES;
+    let unreadable = false;
+    if (this.choices) {
+      try {
+        saved = await this.choices.read(input.userId);
+      } catch {
+        unreadable = true;
+      }
+    }
+    return this.bookWith(
+      input.userId,
+      preview,
+      saved,
+      unreadable ? { status: 'unavailable', code: TAX_CHOICES_UNAVAILABLE } : this.bookChoices(saved),
+    );
+  }
+
+  /**
+   * The indicator over a date range (J-portfolio-05 #4-#5): the cumulative result at each moment of the range and the
+   * change over it split by coin, market and day, from the customer's own lot book (pnl-over-time.ts). A range that
+   * ends in the future ends now. Read-only.
+   */
+  async pnlOverTime(input: { userId: string; from: string; to?: string; utcOffsetMinutes: number }): Promise<PnlOverTime> {
+    const now = this.now();
+    const from = new Date(input.from);
+    const asked = input.to === undefined ? now : new Date(input.to);
+    const to = asked.getTime() > now.getTime() ? now : asked;
+    if (!(from.getTime() < to.getTime())) throw new TaxError(TAX_PNL_RANGE_INVALID, 'the range must start before it ends, and before now');
+    const interval = chooseInterval(from, to, now);
+    if (interval === null) throw new TaxError(TAX_PNL_RANGE_TOO_LONG, 'the range starts too long ago to be priced: pick a later start');
+    const book = await this.lotBook({ userId: input.userId });
+    const timeline = new BookTimeline(book);
+    const coins = timeline.coins();
+    const closes = new Map<string, CloseSeries | null>();
+    if (coins.length > 0) {
+      const source = this.closes;
+      if (!source) throw new TaxError(TAX_PNL_PRICES_UNAVAILABLE, 'market data is not attached: no chart is drawn without prices');
+      try {
+        for (let i = 0; i < coins.length; i += CANDLE_READ_PARALLEL) {
+          await Promise.all(
+            coins
+              .slice(i, i + CANDLE_READ_PARALLEL)
+              .map(async (assetId) => closes.set(assetId, await source.closes(assetId, interval, from, to))),
+          );
+        }
+      } catch {
+        throw new TaxError(TAX_PNL_PRICES_UNAVAILABLE, 'market data could not be read: no chart is drawn from part of it');
+      }
+    }
+    return pnlOverTime({ book, from, to, now, interval, utcOffsetMinutes: input.utcOffsetMinutes, closes, timeline });
+  }
+
+  private async bookWith(userId: string, preview: EngineMethod | null, saved: CostBasisChoices, choices: BookChoices): Promise<LotBook> {
+    const method = preview ?? saved.accountMethod ?? DEFAULT_LOT_BOOK_METHOD;
+    const shared = {
+      method,
+      rules: saleRules(saved, DEFAULT_LOT_BOOK_METHOD, preview),
+      preview: preview !== null,
+      choices,
+      // A preview changes the method only; whether transfers count stays the customer's choice.
+      includeTransfers: saved.includeTransfers ?? true,
+    };
     const readFills = this.reads.tradeFills;
     if (!readFills) throw new TaxError(TAX_LEDGER_UNWIRED, 'the ledger fill reader is not attached — tax does not invent a book');
-    const [balances, filled, active] = await Promise.all([
-      this.reads.balances('user', input.userId),
-      readFills.call(this.reads, input.userId),
-      this.activeBasis(input.userId),
+    const [balances, filled, active, spaces] = await Promise.all([
+      this.reads.balances('user', userId),
+      readFills.call(this.reads, userId),
+      this.activeBasis(userId),
+      this.ownSpaces(userId),
     ]);
     const held = new Map<string, Amount>();
+    // Coins held for a withdrawal are on their way out: the book counts them gone from the moment they were held.
+    const followsWithdrawals = filled.inflows !== undefined;
     for (const row of balances) {
+      if (followsWithdrawals && row.account.kind === 'hold' && (row.account.purpose ?? '').startsWith(WITHDRAWAL_HOLD_PREFIX)) continue;
       if (row.amount > 0n) held.set(row.account.assetId, (held.get(row.account.assetId) ?? 0n) + row.amount);
     }
     const overridePricePerUnit = pricesOf(active);
     if (filled.inflows === undefined) {
       return this.withManual(
         buildLotBook({
+          ...shared,
           fills: filled.fills,
           held,
-          method,
           truncated: filled.truncated,
           outsideInflows: filled.outsideInflows,
           ...(overridePricePerUnit ? { overridePricePerUnit } : {}),
@@ -249,17 +356,147 @@ export class TaxService {
       );
     }
     const extra = new Set<string>();
-    const inflows = await this.valueInflows(filled.inflows, extra);
+    const own = await this.ownMoves(spaces, filled.inflows, filled.outflows ?? [], extra);
+    const inflows = await this.valueInflows([...own.mainInflows, ...own.spaceInflows], extra);
+    // Left out, a withdrawal reaches no figure, so a missing price for it is not a reason any figure is unknown.
+    const withdrawals = await this.valueWithdrawals(
+      outsideWithdrawals(filled.withdrawalHolds ?? []),
+      shared.includeTransfers ? extra : new Set<string>(),
+    );
     const book = buildLotBook({
+      ...shared,
       fills: filled.fills,
       held,
-      method,
-      truncated: filled.truncated,
+      truncated: filled.truncated || own.truncated,
       inflows,
+      moves: own.moves,
+      withdrawals,
+      spaces: own.spaces,
+      ...(own.spaceHeld ? { spaceHeld: own.spaceHeld } : {}),
       now: this.now(),
       ...(overridePricePerUnit ? { overridePricePerUnit } : {}),
     });
     return this.withManual({ ...book, residuals: [...new Set([...book.residuals, ...extra])].sort() }, active);
+  }
+
+  /** The caller's named spaces from svc-bank. No port: unwired; no answer: unavailable, and the book says so. */
+  private async ownSpaces(userId: string): Promise<BookSpaces> {
+    if (!this.spaces) return { status: 'unwired', code: TAX_OWN_SPACES_UNWIRED };
+    const got = await this.spaces.list({ userId });
+    if (got.state !== 'read') return { status: 'unavailable', code: TAX_OWN_SPACES_UNAVAILABLE };
+    return {
+      status: 'read',
+      list: got.spaces.map((s) => ({ spaceId: s.spaceId, assetId: s.assetId, name: s.name, archived: s.archived })),
+    };
+  }
+
+  /**
+   * Reads the caller's spaces' ledger history and pairs lines inside one transaction into moves between their own accounts
+   * (own-moves.ts). A space history that cannot be read leaves the spaces out of this answer, named, rather than failing it.
+   */
+  private async ownMoves(
+    spaces: BookSpaces,
+    mainInflows: readonly InflowLine[],
+    mainOutflows: readonly AccountLine[],
+    residuals: Set<string>,
+  ): Promise<{
+    spaces: BookSpaces;
+    moves: OwnMove[];
+    mainInflows: InflowLine[];
+    spaceInflows: SpaceInflow[];
+    truncated: boolean;
+    spaceHeld?: Map<string, Map<string, Amount>>;
+  }> {
+    const none = { moves: [], mainInflows: [...mainInflows], spaceInflows: [], truncated: false };
+    if (spaces.status === 'unavailable') residuals.add(TAX_OWN_SPACES_UNAVAILABLE);
+    if (spaces.status !== 'read' || spaces.list.length === 0) return { spaces, ...none };
+    const readHistory = this.reads.spaceHistory;
+    if (!readHistory) {
+      residuals.add(TAX_OWN_SPACES_UNAVAILABLE);
+      return { spaces: { status: 'unavailable', code: TAX_OWN_SPACES_UNAVAILABLE }, ...none };
+    }
+    let history;
+    try {
+      history = await readHistory.call(
+        this.reads,
+        spaces.list.map((s) => s.spaceId),
+      );
+    } catch {
+      residuals.add(TAX_OWN_SPACES_UNAVAILABLE);
+      return { spaces: { status: 'unavailable', code: TAX_OWN_SPACES_UNAVAILABLE }, ...none };
+    }
+    // What each space holds now, from its own lines: the book checks the space's lots against it.
+    const spaceHeld = new Map<string, Map<string, Amount>>();
+    for (const line of history.lines) {
+      const held = spaceHeld.get(line.spaceId) ?? new Map<string, Amount>();
+      held.set(line.assetId, (held.get(line.assetId) ?? 0n) + (line.direction === 'debit' ? line.amount : -line.amount));
+      spaceHeld.set(line.spaceId, held);
+    }
+    for (const space of spaces.list) if (!spaceHeld.has(space.spaceId)) spaceHeld.set(space.spaceId, new Map());
+    return {
+      spaces,
+      ...pairOwnMoves({ mainInflows, mainOutflows, spaceLines: history.lines }),
+      truncated: history.truncated,
+      spaceHeld,
+    };
+  }
+
+  private bookChoices(saved: CostBasisChoices): BookChoices {
+    if (!this.choices) return { status: 'unwired', code: TAX_BASIS_STORE_UNWIRED };
+    return {
+      status: 'saved',
+      accountMethod: saved.accountMethod,
+      assetMethods: [...saved.assetMethods].sort(([a], [b]) => a.localeCompare(b)).map(([assetId, m]) => ({ assetId, method: m })),
+      days: saved.days.map((d) => ({ day: d.day, assetId: d.assetId, method: d.method })),
+      picks: saved.picks.map((p) => ({ saleTxId: p.saleTxId, assetId: p.assetId, lotId: p.lotId })),
+      includeTransfers: saved.includeTransfers,
+    };
+  }
+
+  /** Whether the caller's deposits, transfers in and withdrawals count in their figures; null clears it. Settings only. */
+  async setIncludeTransfers(input: { userId: string; include: boolean | null }): Promise<void> {
+    await this.choiceStoreOrRefuse().setIncludeTransfers(input.userId, input.include);
+  }
+
+  /** The caller's method for the whole account (`assetId` null) or one coin; null clears it. Settings only. */
+  async setLotMethod(input: { userId: string; assetId: string | null; method: string | null }): Promise<void> {
+    const method = input.method === null ? null : requireBookMethod(input.method);
+    await this.choiceStoreOrRefuse().setMethod(input.userId, input.assetId, method);
+  }
+
+  /** The caller's method for one UTC day, for one coin or every coin; null clears it. Settings only. */
+  async setDayMethod(input: { userId: string; day: string; assetId: string | null; method: string | null }): Promise<void> {
+    const method = input.method === null ? null : requireBookMethod(input.method);
+    await this.choiceStoreOrRefuse().setDayMethod(input.userId, input.day, input.assetId, method);
+  }
+
+  /**
+   * The lot one of the caller's sales draws on first; null clears it. Worked out with the pick in place: the sale must be in
+   * the caller's own book, and the lot of that coin and still open at the sale (arrived by then, not used up by an earlier
+   * sale), so the sale really draws on it. Anything else is refused, not stored.
+   */
+  async pickSaleLot(input: { userId: string; saleTxId: string; assetId: string; lotId: string | null }): Promise<void> {
+    const store = this.choiceStoreOrRefuse();
+    if (input.lotId !== null) {
+      const saved = await store.read(input.userId);
+      const picks = [
+        ...saved.picks.filter((p) => !(p.saleTxId === input.saleTxId && p.assetId === input.assetId)),
+        { saleTxId: input.saleTxId, assetId: input.assetId, lotId: input.lotId },
+      ];
+      const book = await this.bookWith(input.userId, null, { ...saved, picks }, this.bookChoices(saved));
+      const sale = book.sales.find((s) => s.txId === input.saleTxId && s.assetId === input.assetId);
+      if (!sale || sale.pickedLotId !== input.lotId) {
+        throw new TaxError(TAX_LOT_PICK_INVALID, 'that lot is not one this sale could draw on: same coin, arrived by then, not used up');
+      }
+      // Under AVERAGE every coin costs the pool's average, so a picked lot would change no figure: refused, not stored.
+      if (sale.method === 'AVERAGE') throw new TaxError(TAX_LOT_PICK_INVALID, 'a sale matched at the average cost draws on no one lot');
+    }
+    await store.setPick(input.userId, input.saleTxId, input.assetId, input.lotId);
+  }
+
+  private choiceStoreOrRefuse(): ChoiceStore {
+    if (!this.choices) throw new TaxError(TAX_BASIS_STORE_UNWIRED, 'DATABASE_URL is unset — a cost-basis choice is not stored');
+    return this.choices;
   }
 
   /** Lots and disposals whose basis is still null. The effect column is "unknown share", never a computed gain. */
@@ -314,7 +551,7 @@ export class TaxService {
   }
 
   /** Each arrival becomes a lot: its source, its value when it arrived, and the basis the owner's policy gives it. */
-  private async valueInflows(lines: readonly InflowLine[], residuals: Set<string>): Promise<Inflow[]> {
+  private async valueInflows(lines: ReadonlyArray<InflowLine & { spaceId?: string }>, residuals: Set<string>): Promise<Inflow[]> {
     const cache = new Map<string, Promise<PriceAt | null>>();
     const priceAt = (assetId: string, at: Date): Promise<PriceAt | null> => {
       const prices = this.prices;
@@ -356,6 +593,26 @@ export class TaxService {
           source: inflowSource(line.reason),
           costUsd: this.depositBasis === 'market' && valuedAt !== null ? valuedAt.usd : null,
           valuedAt,
+          ...(line.spaceId === undefined ? {} : { spaceId: line.spaceId }),
+        };
+      }),
+    );
+  }
+
+  /** Each withdrawal, valued when it left: quantity times the coin's price at that moment, or null when none was found. */
+  private async valueWithdrawals(lines: readonly AccountLine[], residuals: Set<string>): Promise<Withdrawal[]> {
+    const coins = lines.filter((line) => !PAR_ASSETS.has(line.assetId.toUpperCase()));
+    return Promise.all(
+      coins.map(async (line): Promise<Withdrawal> => {
+        // A failed market data read is the same as no price: the value stays unknown and is named.
+        const price = this.prices ? await this.prices.priceAt(line.assetId, line.postedAt).catch(() => null) : null;
+        if (price === null) residuals.add(TAX_PRICE_AT_TIME_UNAVAILABLE);
+        return {
+          txId: line.txId,
+          postedAt: line.postedAt,
+          assetId: line.assetId,
+          amount: line.amount,
+          valueUsd: price === null ? null : mul(line.amount, price.price),
         };
       }),
     );

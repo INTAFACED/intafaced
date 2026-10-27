@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import { TRPCError } from '@intafaced/contracts';
 import type { Amount } from '@intafaced/ledger-client';
 
 /**
@@ -137,6 +138,14 @@ export class PayGuardRefusal extends Error {
   }
 }
 
+/**
+ * A guard refusal on a tRPC door: typed, never the PayError default (BAD_REQUEST reads as "fix your request"). The message
+ * is the code only: composeGuards already stripped any internals. `unavailable` is SERVICE_UNAVAILABLE, a refusal FORBIDDEN.
+ */
+export function guardRefusalToTrpc(err: PayGuardRefusal): TRPCError {
+  return new TRPCError({ code: err.kind === 'unavailable' ? 'SERVICE_UNAVAILABLE' : 'FORBIDDEN', message: err.code, cause: err });
+}
+
 /** Run a refusal's `afterRollback` follow-up, if any. Never throws: a failed follow-up must not change the refusal. */
 export async function settleGuardRefusal(error: unknown): Promise<void> {
   if (!(error instanceof PayGuardRefusal) || !error.afterRollback) return;
@@ -174,7 +183,9 @@ export type GuardReplayReason =
   | 'payout_hold_booked'
   | 'withdrawal_already_sent'
   | 'withdrawal_rail_outcome_recorded'
-  | 'withdrawal_hold_booked';
+  | 'withdrawal_hold_booked'
+  /** An internal withdrawal (W-withdraw-14) whose send was asked of svc-bank and whose answer is not on record. */
+  | 'withdrawal_internal_send_asked';
 
 /** Fresh admission, an idempotent repeat, or the finishing of work already admitted. See REPLAY AND RECOVERY above. */
 export type GuardReplay = { readonly kind: 'fresh' } | { readonly kind: 'replay' | 'recovery'; readonly reason: GuardReplayReason };

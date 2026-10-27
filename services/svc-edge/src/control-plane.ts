@@ -810,6 +810,59 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi, match
     return reply.code(res.status).send(res.body);
   });
 
+  /**
+   * The ledger desk's browsing reads (OPS-ledger-desk-01): the transaction list, the account address search and the
+   * book's counts. The lookups' authority, the operator's OWN token forwarded so svc-ledger records the list and the
+   * search against the person before it reads. Only each read's named query keys go through; svc-ledger checks them.
+   */
+  for (const read of ['transactions', 'accounts', 'stats'] as const) {
+    app.get(`/admin/ledger/${read}`, async (req, reply) => {
+      const auth = await operator(req.headers.authorization, reply, 'lookup');
+      if (!auth) return reply;
+      const res = await admin.readLedgerDesk(read, req.query, auth.bearer);
+      return reply.code(res.status).send(res.body);
+    });
+  }
+
+  /**
+   * An account's operator metadata (J-ops-console-03 #6, #7). The read takes the lookups' authority with the operator's
+   * own token, so svc-ledger records it against the person; the set and the delete are treasury writes like a control
+   * run. A delete's body carries the second founder's approval, which svc-ledger spends. svc-ledger's answer passes
+   * through, `ledger.frozen` included.
+   */
+  app.get<{ Params: { accountId: string } }>('/admin/ledger/accounts/:accountId/metadata', async (req, reply) => {
+    const auth = await operator(req.headers.authorization, reply, 'lookup');
+    if (!auth) return reply;
+    const res = await admin.readAccountMetadata(req.params.accountId, auth.bearer);
+    return reply.code(res.status).send(res.body);
+  });
+
+  for (const write of ['set', 'delete'] as const) {
+    app.post<{ Params: { accountId: string } }>(`/admin/ledger/accounts/:accountId/metadata/${write}`, async (req, reply) => {
+      const auth = await operator(req.headers.authorization, reply, 'treasury');
+      if (!auth) return reply;
+      let res;
+      try {
+        res = await admin.writeAccountMetadata(write, req.params.accountId, req.body, auth.bearer);
+      } catch (err) {
+        if (!(err instanceof InvalidControlBodyError)) throw err;
+        return reply.code(400).send({ error: err.message, code: 'edge.invalid_account_metadata' });
+      }
+      const sent = req.body as { key?: unknown; approvalId?: unknown } | undefined;
+      req.log.warn(
+        {
+          operator: auth.principal.userId,
+          status: res.status,
+          accountId: req.params.accountId,
+          key: sent?.key,
+          approvalId: sent?.approvalId,
+        },
+        `edge: LEDGER ACCOUNT METADATA ${write}`,
+      );
+      return reply.code(res.status).send(res.body);
+    });
+  }
+
   const matchingUnwired = {
     error: 'MATCHING_URL or EDGE_PRINCIPAL_SECRET is unpublished. This edge does not read the book and does not halt it.',
     code: 'edge.matching_unwired' as const,

@@ -26,6 +26,7 @@ import type {
 } from '@intafaced/contracts';
 import { ACADEMY_COURSE_STATES } from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
+import { assertPeerCountsSet } from './peer-review.js';
 import { assertSlugNotReserved } from './reserved-slugs.js';
 import { CURRICULUM_PATHS, getCurriculumItem } from './catalog.js';
 
@@ -225,6 +226,7 @@ export class CourseRecords {
         throw new AcademyError('a paid course has no price, so it is not published', 'academy.price_unset');
       if (row.items === 0)
         throw new AcademyError('the course has nothing in its outline, so it is not published', 'academy.course_outline_empty');
+      await assertPeerCountsSet(tx, row.id);
       const [next] = await tx<CourseRow[]>`
         UPDATE academy.courses SET state = ${input.to}, revision = revision + 1, updated_at = ${input.now}
         WHERE id = ${row.id}
@@ -312,6 +314,35 @@ export class CourseRecords {
         SELECT count(*)::int AS n FROM academy.lesson_revisions WHERE item_id = ANY(${labelled.map((i) => i.id!)}::uuid[])
       `;
       if (written!.n > 0) throw new AcademyError('an item with a lesson does not become a subheader or a link', 'academy.item_kind_locked');
+    }
+    // An assignment with a brief stays an assignment, and one learners handed in to stays in the outline (AC-assignments-01).
+    const kept = new Set(sections.flatMap((s) => s.items).flatMap((i) => (i.id !== undefined && i.kind === 'assignment' ? [i.id] : [])));
+    const briefs = await tx<Array<{ item_id: string; handed_in: boolean }>>`
+      SELECT a.item_id, EXISTS (SELECT 1 FROM academy.assignment_submissions s WHERE s.item_id = a.item_id) AS handed_in
+      FROM academy.course_assignments a JOIN academy.course_items i ON i.id = a.item_id WHERE i.course_id = ${courseId}
+    `;
+    const listed = new Set(sections.flatMap((s) => s.items).flatMap((i) => (i.id === undefined ? [] : [i.id])));
+    for (const brief of briefs) {
+      if (kept.has(brief.item_id)) continue;
+      if (brief.handed_in && !listed.has(brief.item_id))
+        throw new AcademyError(
+          'learners handed in to this assignment, so it stays in the outline; withdraw it instead',
+          'academy.assignment_has_submissions',
+        );
+      if (listed.has(brief.item_id)) throw new AcademyError('an assignment with a brief stays an assignment', 'academy.item_kind_locked');
+    }
+    // A saved quiz stays a quiz, and one learners attempted or answered stays in the outline (AC-quizzes-01, 02).
+    const quizKept = new Set(sections.flatMap((s) => s.items).flatMap((i) => (i.id !== undefined && i.kind === 'quiz' ? [i.id] : [])));
+    const quizzes = await tx<Array<{ item_id: string; attempted: boolean }>>`
+      SELECT q.item_id, (EXISTS (SELECT 1 FROM academy.course_quiz_attempts t WHERE t.item_id = q.item_id)
+        OR EXISTS (SELECT 1 FROM academy.course_survey_responses r WHERE r.item_id = q.item_id)) AS attempted
+      FROM academy.course_quizzes q JOIN academy.course_items i ON i.id = q.item_id WHERE i.course_id = ${courseId}
+    `;
+    for (const quiz of quizzes) {
+      if (quizKept.has(quiz.item_id)) continue;
+      if (quiz.attempted && !listed.has(quiz.item_id))
+        throw new AcademyError('learners attempted this quiz, so it stays in the outline', 'academy.item_has_attempts');
+      if (listed.has(quiz.item_id)) throw new AcademyError('a saved quiz stays a quiz', 'academy.item_kind_locked');
     }
     await tx`UPDATE academy.course_items SET position = -1 - position WHERE course_id = ${courseId}`;
     await tx`UPDATE academy.course_sections SET position = -1 - position WHERE course_id = ${courseId}`;

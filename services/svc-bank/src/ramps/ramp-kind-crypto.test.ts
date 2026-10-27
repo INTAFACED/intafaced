@@ -21,6 +21,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PayFiatRampPort } from './pay-fiat-adapter.js';
 import { RampService } from './ramp-service.js';
 import { CRYPTO_LEDGER_PROGRAMME } from './rails.js';
+import { memorySecurityLock } from '../security-lock.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -83,7 +84,7 @@ describe('ramp tables are the crypto ledger half only', () => {
     process.env.BANK_OFFRAMP_COOLING_HOURS = '0';
     await sql`TRUNCATE bank.ramp_offramps, bank.ramp_onramps, bank.user_withdraw_destinations RESTART IDENTITY CASCADE`;
     ledger = new MemoryLedger();
-    ramps = new RampService(sql, ledger, { programme: CRYPTO_LEDGER_PROGRAMME, payFiat: livePay });
+    ramps = new RampService(sql, ledger, { securityLock: memorySecurityLock(), programme: CRYPTO_LEDGER_PROGRAMME, payFiat: livePay });
   });
 
   afterAll(async () => {

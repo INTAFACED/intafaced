@@ -60,6 +60,18 @@ import {
 import { createAlertRulesRouter } from './alerts/router.js';
 import { createAlertDeskRoutes } from './alerts/overview.js';
 import type { AlertDeskStore } from './alerts/desk-store.js';
+import { ConsoleModeDesk } from './console-mode/desk.js';
+import { createConsoleModeRouter } from './console-mode/router.js';
+import type { ConsoleModeStore } from './console-mode/store.js';
+import { AnnouncementDesk } from './console-announcements/desk.js';
+import { createAnnouncementsRouter } from './console-announcements/router.js';
+import type { AnnouncementStore } from './console-announcements/store.js';
+import { createPreferencesRouter } from './console-preferences/router.js';
+import type { PreferenceStore } from './console-preferences/store.js';
+import { createServiceRecordsRouter } from './service-records/router.js';
+import { StaffHoldDesk } from './staff-holds/desk.js';
+import { createStaffHoldsRouter } from './staff-holds/router.js';
+import type { ServiceRecordStore } from './service-records/store.js';
 import { createProtocolListingRouter } from './protocol-listing/router.js';
 import type { ListingDesk } from './protocol-listing/wiring.js';
 import { createComplianceRouter } from './compliance/router.js';
@@ -229,6 +241,16 @@ export interface OperatorDeskConfig {
   readonly protocolListing?: ListingDesk;
   /** Durable compliance cases. Absent means every compliance call refuses `ops.compliance_storage_unconfigured`. */
   readonly compliance?: ComplianceStore;
+  /** The founder console's maintenance mode. Absent means every call refuses `ops.console_mode_storage_unconfigured`. */
+  readonly consoleMode?: ConsoleModeStore;
+  /** The console's announcement banner. Absent means every call refuses `ops.announcement_storage_unconfigured`. */
+  readonly announcements?: AnnouncementStore;
+  /** Console preferences. Absent means every call refuses `ops.preferences_storage_unconfigured`. */
+  readonly preferences?: PreferenceStore;
+  /** Service records per module (owner, dependencies, runbook). Absent means every call refuses `ops.service_storage_unconfigured`. */
+  readonly serviceRecords?: ServiceRecordStore;
+  /** Staff holds on funds. Absent means every call refuses `ops.hold_storage_unconfigured`. */
+  readonly staffHolds?: StaffHoldDesk;
 }
 
 export function createOpsRouter(
@@ -807,6 +829,25 @@ export function createOpsRouter(
     alertRules: createAlertRulesRouter(desks.alertRules, desks.alertState),
 
     compliance: createComplianceRouter(desks.compliance, now),
+
+    consoleMode: createConsoleModeRouter(new ConsoleModeDesk({ store: desks.consoleMode, approvals: desks.approvals, now })),
+
+    announcements: createAnnouncementsRouter(new AnnouncementDesk({ store: desks.announcements, now })),
+
+    preferences: createPreferencesRouter({ store: desks.preferences, now }),
+
+    services: createServiceRecordsRouter({ store: desks.serviceRecords, now }),
+
+    staffHolds: createStaffHoldsRouter(
+      desks.staffHolds ??
+        new StaffHoldDesk({
+          store: undefined,
+          ledger: undefined,
+          approvals: desks.approvals,
+          settings: { confirmAccount: null, expiryMaxHours: null },
+          now: () => new Date(),
+        }),
+    ),
 
     alerts: router({
       list: scopedProcedure('admin:read', guards)

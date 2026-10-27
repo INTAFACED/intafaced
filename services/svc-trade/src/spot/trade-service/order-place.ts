@@ -10,6 +10,9 @@ import { requireScope, type Principal } from '@intafaced/auth';
 import { formatAmount, parseAmount, recipes, type Amount } from '@intafaced/ledger-client';
 import { withMoneySpan } from '../../tracing.js';
 import { orderIdFor } from '../ids.js';
+import { REGULAR_FEE_TIER } from '../fee-schedule.js';
+import { isPlacedForThem } from '../fee-tier-store.js';
+import { ifcFeeAtPlacement, sameFeeCurrency, type IfcPlacement } from '../fee-ifc.js';
 import {
   assertMarketOpen,
   assertNotional,
@@ -118,6 +121,7 @@ export async function placeOrderInner(
   const existing = await svc.findOrder(orderId);
   if (existing) {
     assertSamePlaceCommand(existing, input, orderType, tif, expectedSeeded);
+    assertSameFeeCurrency(existing, input, market);
     // A lost hold reply left this row. The same key resolves it; it does not
     // open a second hold and it does not return the stuck row as placed.
     if (existing.status === 'hold_unknown') return svc.resumeHoldUnknown(existing, 'retry');
@@ -175,9 +179,38 @@ export async function placeOrderInner(
   // cannot straddle a session boundary and get two answers.
   assertMarketOpen(market, svc.now());
 
+  // The fee tier is read once, here, and carried in the admitted payload like the rank perks: the row keeps it and a
+  // tier snapshot taken after this never re-prices the order. The house market maker and a sub-account have no tier of
+  // their own (sub-account volume never counts toward its parent), and only spot is tiered.
+  const feeTier =
+    seeded || input.subAccountId != null || market.kind !== 'spot' || market.paper ? REGULAR_FEE_TIER : await svc.feeTierAt(userId);
+  // Whether this order's fills count toward the person's tier, decided by the path that placed it: never for an order
+  // copy trading, an algorithm or an execution child placed for them, a sub-account's, or the house market maker's.
+  const tierVolume = !seeded && input.subAccountId == null && kind !== 'copy.mirror' && !isPlacedForThem(input.clientOrderId);
+
   // Owner schedule before paper SQL or any hold. Listing-row 10/20 is not a
-  // schedule; unpublished is a typed refuse (same hitch as order preview).
-  await svc.assertOwnerFeeSchedulePublished();
+  // schedule; unpublished, or no row for this market's pair group at the
+  // person's fee tier, is a typed refuse (same hitch as order preview).
+  await svc.assertOwnerFeeSchedulePublished(market, undefined, feeTier);
+
+  // Paying the fee in the platform token (fee-ifc.ts): the choice and the stake discount are read once, here, before
+  // paper SQL or any hold, and carried like the tier. The conversion is the one in the version each fill is charged at.
+  const feeIfc = await ifcFeeAtPlacement(
+    input.feeCurrency,
+    input.side === 'buy' ? market.baseAsset : market.quoteAsset,
+    !seeded &&
+      input.subAccountId == null &&
+      market.kind === 'spot' &&
+      !market.paper &&
+      kind !== 'copy.mirror' &&
+      !isPlacedForThem(input.clientOrderId),
+    async () => {
+      const schedule = await svc.feeScheduleAt(svc.now());
+      return schedule.published === true ? schedule.ifcFee : null;
+    },
+    svc.ifcDiscount,
+    userId,
+  );
 
   // Ownership + revoked gate (identity S2S). Before any new row or hold — a
   // foreign or revoked id must never land on trade.orders.sub_account_id.
@@ -336,6 +369,9 @@ export async function placeOrderInner(
     tif,
     hold,
     perks,
+    feeTier,
+    tierVolume,
+    feeIfc,
     protectionPrice,
     seeded,
     attribution,
@@ -418,6 +454,14 @@ export async function executeAdmittedOrder(svc: TradeServiceInternal, evidence: 
   const lifecycleProof = evidence.lifecycleProof as LifecycleAdmissionProof;
   const engineRequest = evidence.engineRequest as EngineSubmitRequest;
   if (!(await svc.findOrder(orderId))) await svc.refuseRestartedEngineSequence(market);
+  // Read at admission (placeOrderInner). A payload admitted before tiers existed was placed at the regular tier, and
+  // its fills count unless its client id says something placed it for the person.
+  const feeTier = typeof evidence.feeTier === 'string' ? evidence.feeTier : REGULAR_FEE_TIER;
+  const tierVolume =
+    typeof evidence.tierVolume === 'boolean'
+      ? evidence.tierVolume
+      : !seeded && input.subAccountId == null && !isPlacedForThem(input.clientOrderId);
+  const feeIfc = readFeeIfc(evidence.feeIfc);
   // ── 2b · THE INTENT ROW ─────────────────────────────────────────────────
   //
   // If this crashes exactly here, whose funds are stranded? Nobody's. A
@@ -429,32 +473,46 @@ export async function executeAdmittedOrder(svc: TradeServiceInternal, evidence: 
   // hold posted against an order id that exists nowhere is money nobody can
   // find. This way there is always a row pointing at the money, in every
   // interleaving.
-  const inserted = await svc.sql<Array<{ id: string }>>`
+  const inserted = await svc.sql<Array<{ id: string; created_at: Date }>>`
     INSERT INTO trade.orders (
       id, user_id, sub_account_id, market_id, client_order_id, side, type,
-      price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, protection_price, seeded, lifecycle_proof,
-      replacement_of, replacement_request_hash, session_id, api_key_id, tag
+      price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, fee_tier, tier_volume, fee_currency, fee_ifc_discount_bps,
+      protection_price, seeded, lifecycle_proof, replacement_of, replacement_request_hash, session_id, api_key_id, tag
     ) VALUES (
       ${orderId}, ${userId}, ${input.subAccountId ?? null}, ${market.id}, ${input.clientOrderId!},
       ${input.side}, ${orderType},
       ${input.price == null ? null : formatAmount(input.price)}::numeric,
       ${formatAmount(input.qty)}::numeric, 'pending', ${tif},
-      ${hold.assetId}, ${formatAmount(hold.amount)}::numeric, ${perks.feeDiscountBps},
+      ${hold.assetId}, ${formatAmount(hold.amount)}::numeric, ${perks.feeDiscountBps}, ${feeTier}, ${tierVolume},
+      ${feeIfc?.tokenAsset ?? null}, ${feeIfc?.discountBps ?? null},
       ${protectionPrice === null ? null : formatAmount(protectionPrice)}::numeric,
       ${seeded}, ${JSON.stringify(lifecycleProof)}::text::jsonb,
       ${input.replacementOf ?? null}, ${input.replacementRequestHash ?? null},
       ${attribution.sessionId}, ${attribution.apiKeyId}, ${input.tag ?? null}
     )
     ON CONFLICT (id) DO NOTHING
-    RETURNING id
+    RETURNING id, created_at
   `;
 
   if (inserted.length === 0) {
     // Lost a race with a concurrent identical submission. The winner owns the
     // hold and the engine submission; return what it wrote.
     const raced = await svc.findOrder(orderId);
-    if (raced) return assertSamePlaceCommand(raced, input, orderType, tif, seeded);
+    if (raced) {
+      assertSameFeeCurrency(raced, input, market);
+      return assertSamePlaceCommand(raced, input, orderType, tif, seeded);
+    }
     throw new TradeError(`order ${orderId} vanished between insert and read`, 'trade.order_not_found');
+  }
+
+  // Fills are charged at the version in force at this row's own `created_at`, at the row's fee tier. A version that took
+  // effect between the check above and this insert is checked here, still before the hold, so it cannot leave a held
+  // order that every fill refuses. Nothing is held yet, so a refusal only removes the pending row.
+  try {
+    await svc.assertOwnerFeeSchedulePublished(market, inserted[0]!.created_at, feeTier);
+  } catch (err) {
+    await svc.sql`DELETE FROM trade.orders WHERE id = ${orderId} AND status = 'pending'`;
+    throw err;
   }
 
   // ── 3 · THE HOLD ────────────────────────────────────────────────────────
@@ -570,4 +628,19 @@ export async function placePaperOrderIsolated(
   if (!settled) throw new TradeError(`order ${orderId} vanished during paper place`, 'trade.order_not_found');
   await svc.publishOrderUpdated(settled);
   return settled;
+}
+
+/** A retry under the same client id that asks for another fee currency is another order. */
+function assertSameFeeCurrency(order: OrderRecord, input: PlaceOrderInput, market: Market): void {
+  if (!sameFeeCurrency(order.feeCurrency, input.feeCurrency, input.side === 'buy' ? market.baseAsset : market.quoteAsset)) {
+    throw new TradeError('clientOrderId was already used for a different order request', 'trade.client_order_id_conflict');
+  }
+}
+
+/** The admitted payload's token choice. A payload admitted before the choice existed paid in the received asset. */
+function readFeeIfc(raw: unknown): IfcPlacement | null {
+  if (raw == null || typeof raw !== 'object') return null;
+  const { tokenAsset, discountBps } = raw as { tokenAsset?: unknown; discountBps?: unknown };
+  if (typeof tokenAsset !== 'string' || typeof discountBps !== 'number') return null;
+  return { tokenAsset, discountBps };
 }

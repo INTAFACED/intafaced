@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { Sql } from 'postgres';
+import type { PendingQuery, Row, Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import {
   InsufficientFundsError,
@@ -211,8 +211,11 @@ export interface CardRecord {
   replacesCardId: string | null;
   replacedByCardId: string | null;
   replaceReason: CardReplaceReason | null;
-  /** `operator` is a freeze the owner cannot lift. Null when the card is not frozen that way, or the owner froze it. */
-  frozenBy: 'owner' | 'operator' | null;
+  /**
+   * Who froze it: the owner, a holder of a shared pot the card is linked to (`holder`), or the bank (`operator`, a freeze
+   * the owner cannot lift). Null when the card is not frozen by a recorded actor.
+   */
+  frozenBy: 'owner' | 'holder' | 'operator' | null;
 }
 
 export interface CardShippingAddress {
@@ -314,6 +317,8 @@ export type RoundUpOutcome =
   | { readonly status: 'none'; readonly amount: Amount }
   | { readonly status: 'skipped'; readonly amount: Amount; readonly reason: string }
   | { readonly status: 'settled'; readonly amount: Amount; readonly positionId: string }
+  /** Into one of the person's own spaces (BK-pots-02): the space and the own-space transfer that moved it. */
+  | { readonly status: 'settled'; readonly amount: Amount; readonly spaceId: string; readonly ledgerTxId: string }
   | { readonly status: 'refused'; readonly amount: Amount; readonly reason: string };
 
 export type CaptureSettledHook = (event: {
@@ -354,7 +359,24 @@ export interface CardServiceOptions {
    * CardService catches and reports `refused`.
    */
   readonly onCaptureSettled?: CaptureSettledHook;
+  /**
+   * After a card's status really changes, in the same transaction as the card's row: a shared pot's log names who did
+   * it (BK-acct-09). Throwing rolls the row back. Absent = nothing else is told.
+   */
+  readonly onStatusChanged?: CardStatusHook;
 }
+
+/** One change of a card's status, as `onStatusChanged` hears it. */
+export interface CardStatusChange {
+  cardId: string;
+  ownerUserId: string;
+  /** A person's user id, or `operator` for the bank's own freeze. */
+  actor: { userId: string } | 'operator';
+  status: CardRecord['status'];
+  /** Set when the card was closed because this card replaces it. */
+  replacementCardId?: string;
+}
+export type CardStatusHook = (tx: Sql, change: CardStatusChange) => Promise<void>;
 
 export class CardService {
   private readonly issuer: CardIssuerAdapter;
@@ -363,6 +385,7 @@ export class CardService {
   private readonly clock: () => Date;
   private readonly moduleEnabled: boolean;
   private readonly onCaptureSettled: CaptureSettledHook | null;
+  private readonly onStatusChanged: CardStatusHook | null;
 
   constructor(
     private readonly sql: Sql,
@@ -375,6 +398,7 @@ export class CardService {
     this.clock = options.clock ?? (() => new Date());
     this.moduleEnabled = options.moduleEnabled !== false;
     this.onCaptureSettled = options.onCaptureSettled ?? null;
+    this.onStatusChanged = options.onStatusChanged ?? null;
   }
 
   private assertModuleEnabled(): void {
@@ -538,8 +562,11 @@ export class CardService {
    * The issuer is told, and if it refuses the row is not changed: a card this
    * service thinks is frozen while the issuer still authorises on it is the
    * worst of the available states, because the user has been told they are safe.
+   *
+   * `actorUserId` is who asked: the owner by default, or a holder of a shared pot the card is linked to, whose freeze is
+   * recorded as `holder`. When the status really changes, `onStatusChanged` hears it in the row's own transaction.
    */
-  async setStatus(cardId: string, status: CardRecord['status']): Promise<CardRecord> {
+  async setStatus(cardId: string, status: CardRecord['status'], actorUserId?: string): Promise<CardRecord> {
     const card = await this.card(cardId);
     if (card.status === 'closed' && status !== 'closed') {
       throw new BankError('A closed card cannot be reopened', 'bank.card_not_active');
@@ -553,8 +580,14 @@ export class CardService {
     if (card.frozenBy === 'operator' && status === 'frozen') return card;
 
     await this.issuer.setStatus({ cardId: card.id, issuerRef: card.issuerRef, status });
-    const frozenBy = status === 'frozen' ? 'owner' : null;
-    await this.sql`UPDATE bank.cards SET status = ${status}, frozen_by = ${frozenBy}, updated_at = now() WHERE id = ${cardId}`;
+    const actor = actorUserId ?? card.userId;
+    const frozenBy = status === 'frozen' ? (actor === card.userId ? 'owner' : 'holder') : null;
+    await transaction(this.sql, async (tx) => {
+      const changed = await this.updateStatus(tx, cardId, tx`status = ${status}, frozen_by = ${frozenBy}`, status);
+      if (changed && this.onStatusChanged) {
+        await this.onStatusChanged(tx, { cardId, ownerUserId: card.userId, actor: { userId: actor }, status });
+      }
+    });
     return this.card(cardId);
   }
 
@@ -600,6 +633,10 @@ export class CardService {
       await this.issuer.setStatus({ cardId: card.id, issuerRef: card.issuerRef, status: input.status });
       const frozenBy = input.status === 'frozen' ? 'operator' : null;
       await tx`UPDATE bank.cards SET status = ${input.status}, frozen_by = ${frozenBy}, updated_at = now() WHERE id = ${card.id}`;
+      // The row is locked above, so this is the status it had.
+      if (card.status !== input.status && this.onStatusChanged) {
+        await this.onStatusChanged(tx, { cardId: card.id, ownerUserId: card.userId, actor: 'operator', status: input.status });
+      }
       await tx`
         INSERT INTO bank.card_operator_commands (client_request_id, card_id, target_status, reason, result_status, frozen_by)
         VALUES (${input.clientRequestId}, ${card.id}, ${input.status}, ${reason}, ${input.status}, ${frozenBy})
@@ -2109,11 +2146,37 @@ export class CardService {
       throw new BankError('This card was already replaced on different terms', 'bank.card_replace_conflict');
     }
     await this.issuer.setStatus({ cardId: current.id, issuerRef: current.issuerRef, status: 'closed' });
-    await this.sql`
-      UPDATE bank.cards
-         SET status = 'closed', replaced_by_card_id = ${replacementId}, replace_reason = ${reason}, updated_at = now()
-       WHERE id = ${current.id}
+    await transaction(this.sql, async (tx) => {
+      const changed = await this.updateStatus(
+        tx,
+        current.id,
+        tx`status = 'closed', replaced_by_card_id = ${replacementId}, replace_reason = ${reason}, frozen_by = NULL`,
+        'closed',
+      );
+      if (changed && this.onStatusChanged) {
+        await this.onStatusChanged(tx, {
+          cardId: current.id,
+          ownerUserId: current.userId,
+          actor: { userId: current.userId },
+          status: 'closed',
+          replacementCardId: replacementId,
+        });
+      }
+    });
+  }
+
+  /**
+   * Set a card's status under its row lock. True when the status it had differs from `status`: two callers making the
+   * same change at once change it once, so a hook hears it once.
+   */
+  private async updateStatus(tx: Sql, cardId: string, set: PendingQuery<Row[]>, status: CardRecord['status']): Promise<boolean> {
+    const [old] = await tx<Array<{ status: string }>>`
+      UPDATE bank.cards c SET ${set}, updated_at = now()
+        FROM (SELECT id, status FROM bank.cards WHERE id = ${cardId} FOR UPDATE) o
+       WHERE c.id = o.id
+      RETURNING o.status
     `;
+    return !!old && old.status !== status;
   }
 }
 
@@ -2197,7 +2260,7 @@ function toCard(row: CardRow): CardRecord {
     replacedByCardId: row.replaced_by_card_id,
     replaceReason:
       row.replace_reason === 'lost' || row.replace_reason === 'stolen' || row.replace_reason === 'damaged' ? row.replace_reason : null,
-    frozenBy: row.frozen_by === 'owner' || row.frozen_by === 'operator' ? row.frozen_by : null,
+    frozenBy: row.frozen_by === 'owner' || row.frozen_by === 'holder' || row.frozen_by === 'operator' ? row.frozen_by : null,
   };
 }
 

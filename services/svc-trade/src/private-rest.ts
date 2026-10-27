@@ -32,8 +32,22 @@ import {
 } from './ccxt-errors.js';
 import type { Position } from '@intafaced/exchange-contract';
 import type { MarketStateSnapshot } from '@intafaced/exchange-contract';
-import { MARKETS_LIMIT_MAX, OpenOrdersLimitUnsetError, type AmendOrderInput, type PlaceOrderInput } from './spot/trade-service.js';
-import { FEE_SCHEDULE_RESIDUAL, FeeScheduleError, publishedProductBps, type OwnerFeeSchedule } from './spot/fee-schedule.js';
+import {
+  MARKETS_LIMIT_MAX,
+  OpenOrdersLimitUnsetError,
+  replacementClientOrderId,
+  type AmendOrderInput,
+  type PlaceOrderInput,
+} from './spot/trade-service.js';
+import {
+  discountedFeeBps,
+  FEE_SCHEDULE_RESIDUAL,
+  FeeScheduleError,
+  publicFeeSchedule,
+  publishedProductBps,
+  REGULAR_FEE_TIER,
+  type OwnerFeeSchedule,
+} from './spot/fee-schedule.js';
 import {
   TradeError,
   type AmendOrderOutcome,
@@ -66,11 +80,13 @@ import type { AssessmentResult, EligibilityState } from './futures/derivatives-e
 import type { AcceptAgreementResult, AgreementView } from './futures/risk-agreements.js';
 import { refuseArmById } from './ccxt-capability-matrix.js';
 import { assertStopTrigger, SPOT_ORDER_TYPES, TRADE_STOP_TRIGGER_INVALID, type StopTriggerStore } from './spot/stop-trigger-door.js';
+import { stopMarketBody, type StopKind } from './spot/stop-market.js';
 import { orderIdFor } from './spot/ids.js';
 import type { OrderHold } from './spot/order-holds.js';
 import type { EdgeTrust } from './edge-trust.js';
 import { carryPlacementBody, schemaBodyOf } from './spot/placement-extras.js';
 import { readBracketFromBody } from './spot/bracket-place.js';
+import type { OrderLink } from './spot/order-links.js';
 import { readOcoFromBody } from './spot/oco-place.js';
 import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from './spot/matching-client.js';
 
@@ -97,7 +113,7 @@ import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from 
  *   DELETE /api/v1/orders          scope: trade:write + jurisdiction(module=trade)  (cancelAll; ?symbol= optional)
  *   POST   /api/v1/markets/:marketId/orders/mass-cancel scope: trade:write + jurisdiction  (matching mass-cancel; auth account only)
  *   GET    /api/v1/account/trades  scope: trade:read  (?symbol=&limit=&since= ms)
- *   GET    /api/v1/account/fees    scope: trade:read  (published maker/taker from markets)
+ *   GET    /api/v1/account/fees    scope: trade:read  (the caller's maker/taker: its tier, less its rank discount)
  *   GET    /api/v1/account/balance scope: trade:read  (ledger projection; self-only)
  *   GET    /api/v1/positions       scope: trade:read  (open futures rows; [] when none)
  *   GET    /api/v1/positions/closed scope: trade:read (closed/liquidated; [] when none; ?symbol=&limit=&since= ms)
@@ -179,8 +195,16 @@ export interface PrivateRestDeps {
   icebergDisplay?: IcebergDisplayStore;
   /** Stop triggers of stop-limit orders. Absent: stop-limit is refused (fail closed). */
   stopTriggers?: StopTriggerStore;
+  /**
+   * The protection cap a stop-market on this market is placed at, the one its market orders are bounded by (the
+   * operator's per-market cap, else `TRADE_MARKET_SLIPPAGE_CAP_BPS`): its limit is the stop plus (buy) or minus (sell)
+   * this many basis points. Absent or null refuses a stop-market `trade.protection_unset`.
+   */
+  stopMarketCapBps?: (marketId: string) => Promise<number | null>;
   /** The stored legs for OCO parents (and bracket exits), by order id; absent when the store is not wired. */
   ocoExits?: (orderIds: readonly string[]) => Promise<ReadonlyMap<string, OcoExitLegs>>;
+  /** How OTO entries and their closes name each other, by order id; absent when not wired, and then no order is linked. */
+  orderLinks?: (orderIds: readonly string[]) => Promise<ReadonlyMap<string, OrderLink>>;
   /** What each live order still holds, by order id; absent when not wired, and then no order carries a hold. */
   orderHolds?: (orders: readonly OrderRecord[]) => Promise<ReadonlyMap<string, OrderHold>>;
   /**
@@ -250,6 +274,10 @@ export interface PrivateRestDeps {
   feeSchedule?: OwnerFeeSchedule;
   /** The schedule in force now (a later approved version, else `feeSchedule`). Absent: `feeSchedule` as booted. */
   feeScheduleNow?: () => Promise<OwnerFeeSchedule>;
+  /** The caller's fee tier for a new spot order under `schedule` (the last finished snapshot). Absent: regular. */
+  feeTier?(userId: string, schedule: OwnerFeeSchedule): Promise<string>;
+  /** The caller's rank discount in bps of the published rate. Absent: none. */
+  feeDiscountBps?(userId: string): Promise<number>;
   /** Clock for `serverTime` on private reads. Default `new Date()`. */
   now?: () => Date;
   /** Authenticated PX-S01 projection; missing publisher remains typed refusal. */
@@ -558,31 +586,52 @@ function hasRawStopPx(body: unknown): boolean {
   return !!body && typeof body === 'object' && !Array.isArray(body) && (body as { stopPx?: unknown }).stopPx !== undefined;
 }
 
+/** The stop-limit body a `type: stop` (stop-market) request is placed with, or null when the request is no stop-market. */
+async function stopMarketOf(deps: PrivateRestDeps, body: unknown): Promise<{ body: unknown } | null> {
+  if (body === null || typeof body !== 'object' || Array.isArray(body) || (body as { type?: unknown }).type !== 'stop') return null;
+  const symbol = (body as { symbol?: unknown }).symbol;
+  const market = typeof symbol === 'string' ? await deps.marketBySymbol(symbol) : null;
+  const cap = market && deps.stopMarketCapBps ? await deps.stopMarketCapBps(market.id) : null;
+  const out = stopMarketBody(body, market, cap);
+  return out.kind === 'stop' ? { body: out.body } : null;
+}
+
 /** A stop-limit rests as a limit; its stored trigger turns the wire order back into the stop-limit the caller placed. */
 async function withStopTriggers(deps: PrivateRestDeps, orders: readonly OrderRecord[]) {
   const ids = orders.map((o) => o.id);
   const triggers = deps.stopTriggers && orders.length > 0 ? await deps.stopTriggers.readMany(ids) : null;
   const fired = deps.stopTriggers && triggers && triggers.size > 0 ? await deps.stopTriggers.readFired(ids) : null;
+  const markets = deps.stopTriggers && triggers && triggers.size > 0 ? await deps.stopTriggers.readStopMarkets(ids) : null;
   return <W extends { type: string; stopPrice: string | null }>(order: OrderRecord, wire: W): W => {
     const trigger = triggers?.get(order.id);
     if (!trigger) return wire;
     // `triggered`: when the stop fired and the price that reached it; null while it waits (or if no record was kept).
     const when = fired?.get(order.id);
     const triggered = when ? { at: when.at, by: when.by, referencePrice: when.referencePrice } : null;
-    return { ...wire, type: 'stop_limit', stopPrice: trigger, triggered };
+    // A stop-market rests as the stop-limit at its protection price; its `price` stays that bound.
+    return { ...wire, type: markets?.has(order.id) ? 'stop' : 'stop_limit', stopPrice: trigger, triggered };
   };
 }
 
 export type OcoExitLegs = { readonly takeProfit: string; readonly stopLoss: string; readonly stopLossLimit: string | null };
 
-/** An OCO parent (or a bracket's exit) carries its linked legs on the wire as `exit`; every other order is untouched. */
+/**
+ * An OCO parent (or a bracket's exit) carries its linked legs on the wire as `exit`, and an OTO entry or its close
+ * carries `linked`; every other order is untouched.
+ */
 async function withOcoExit(deps: PrivateRestDeps, orders: readonly OrderRecord[]) {
-  const legs = deps.ocoExits && orders.length > 0 ? await deps.ocoExits(orders.map((o) => o.id)) : null;
+  const ids = orders.map((o) => o.id);
+  const [legs, links] = await Promise.all([
+    deps.ocoExits && orders.length > 0 ? deps.ocoExits(ids) : null,
+    deps.orderLinks && orders.length > 0 ? deps.orderLinks(ids) : null,
+  ]);
   return <W extends object>(order: OrderRecord, wire: W): W => {
     const found = legs?.get(order.id);
-    if (!found) return wire;
+    const link = links?.get(order.id);
+    const linked = link ? { ...wire, linked: link } : wire;
+    if (!found) return linked;
     const kind = /^bracket:.+:exit$/.test(order.clientOrderId ?? '') ? 'bracket_exit' : 'oco';
-    return { ...wire, exit: { kind, ...found } };
+    return { ...linked, exit: { kind, ...found } };
   };
 }
 
@@ -681,19 +730,52 @@ export function presentCcxtTradingFee(market: Market) {
   };
 }
 
+/** Which published block the fill path charges a market from: spot rows, the futures `perpetual` block, none for options. */
+export function feeProductOf(market: Market): 'spot' | 'perpetual' | null {
+  return market.kind === 'spot' ? 'spot' : market.kind === 'futures' ? 'perpetual' : null;
+}
+
+/** Whether a market's rate depends on the caller's fee tier: live spot only (paper and futures are always regular). */
+export function tieredMarket(market: Market): boolean {
+  return market.kind === 'spot' && !market.paper;
+}
+
+/** Whose rates `presentAccountFees` answers: the caller's fee tier and rank discount, as the order check reads them. */
+export interface AccountFeeTerms {
+  readonly tierId: string;
+  readonly discountBps: number;
+}
+
+const REGULAR_TERMS: AccountFeeTerms = { tierId: REGULAR_FEE_TIER, discountBps: 0 };
+
 /**
- * Customer fee card. Maker/taker are the owner schedule, once per symbol.
- * Listing-row bps are not copied onto this wire.
+ * Customer fee card: once per symbol, the rates `terms` pays on the owner schedule in force, the way placement and the
+ * order check resolve them. Spot reads the market's pair-group row at the tier (a paper market is regular), futures the
+ * `perpetual` block, and both take the rank discount; options have no rate and are left out. Listing-row bps are not
+ * copied onto this wire. With no terms, the regular tier before any discount (the public schedule).
  */
 export function presentAccountFees(
   markets: readonly Market[],
   schedule: Extract<OwnerFeeSchedule, { published: true }>,
-): Record<string, ReturnType<typeof presentCcxtTradingFee> & { makerBps: number; takerBps: number; version: string }> {
-  const out: Record<string, ReturnType<typeof presentCcxtTradingFee> & { makerBps: number; takerBps: number; version: string }> = {};
+  terms: AccountFeeTerms = REGULAR_TERMS,
+): Record<
+  string,
+  ReturnType<typeof presentCcxtTradingFee> & { makerBps: number; takerBps: number; version: string; tier: string; discountBps: number }
+> {
+  const out: ReturnType<typeof presentAccountFees> = {};
   for (const market of markets) {
+    const product = feeProductOf(market);
+    if (!product) continue;
+    const tierId = tieredMarket(market) ? terms.tierId : REGULAR_FEE_TIER;
     let rates: { makerBps: number; takerBps: number } | null;
     try {
-      rates = publishedProductBps(schedule, 'spot', { symbol: market.symbol });
+      rates = publishedProductBps(schedule, product, product === 'spot' ? { symbol: market.symbol, tierId } : undefined);
+      if (rates) {
+        rates = {
+          makerBps: discountedFeeBps(rates.makerBps, terms.discountBps),
+          takerBps: discountedFeeBps(rates.takerBps, terms.discountBps),
+        };
+      }
     } catch (err) {
       // A market whose schedule row refuses shows no rate; the order path refuses it with the typed code.
       if (err instanceof FeeScheduleError) continue;
@@ -708,6 +790,8 @@ export function presentAccountFees(
       makerBps: rates.makerBps,
       takerBps: rates.takerBps,
       version: schedule.version,
+      tier: tierId,
+      discountBps: terms.discountBps,
     };
   }
   return out;
@@ -741,7 +825,7 @@ export interface AdminMarketFee {
  */
 export function presentAdminFees(markets: readonly Market[], schedule: Extract<OwnerFeeSchedule, { published: true }>) {
   const rows: AdminMarketFee[] = markets.map((market) => {
-    const product = market.kind === 'spot' ? 'spot' : market.kind === 'futures' ? 'perpetual' : null;
+    const product = feeProductOf(market);
     let rates: { makerBps: number; takerBps: number } | null = null;
     let refusal: AdminFeeRefusal | null = null;
     if (product) {
@@ -772,7 +856,7 @@ export function presentAdminFees(markets: readonly Market[], schedule: Extract<O
 
 /**
  * CCXT private trade (my fill) — decimal strings; fee.rate from bps.
- * `order` is the caller's order id (not the counter).
+ * `order` is the caller's order id (not the counter). A maker rebate is its own `rebate` field, never a negative fee.
  */
 export function presentCcxtMyTrade(fill: FillRecord, symbol: string) {
   const ts = fill.ts.getTime();
@@ -793,6 +877,11 @@ export function presentCcxtMyTrade(fill: FillRecord, symbol: string) {
       currency: fill.feeAsset,
       rate: bpsToFeeRate(fill.feeBps),
     },
+    ...(fill.rebate
+      ? { rebate: { cost: formatAmount(fill.rebate.amount), currency: fill.rebate.asset, rate: bpsToFeeRate(fill.rebate.bps) } }
+      : {}),
+    // The order chose to pay in the platform token and this fill took the fee in what it received instead: why.
+    ...(fill.feeFallback ? { feeFallback: fill.feeFallback } : {}),
   };
 }
 
@@ -843,8 +932,8 @@ const CLOSED_STATUS_WORDS: Record<string, 'filled' | 'cancelled' | 'rejected' | 
 };
 
 /** Optional `side` and `status` filters of orders/closed; CCXT status words, anything else is a 400. */
-export type ClosedOrderType = 'market' | 'limit' | 'stop_limit';
-const CLOSED_ORDER_TYPES: readonly string[] = ['market', 'limit', 'stop_limit'];
+export type ClosedOrderType = 'market' | 'limit' | 'stop_limit' | 'stop';
+const CLOSED_ORDER_TYPES: readonly string[] = ['market', 'limit', 'stop_limit', 'stop'];
 
 export function parseClosedFilters(query: {
   side?: unknown;
@@ -856,7 +945,7 @@ export function parseClosedFilters(query: {
   const out: { side?: 'buy' | 'sell'; status?: 'filled' | 'cancelled' | 'rejected' | 'expired'; type?: ClosedOrderType } = {};
   if (query.type !== undefined && query.type !== '') {
     if (typeof query.type !== 'string' || !CLOSED_ORDER_TYPES.includes(query.type)) {
-      return { ok: false, message: 'type must be market, limit or stop_limit' };
+      return { ok: false, message: 'type must be market, limit, stop_limit or stop' };
     }
     out.type = query.type as ClosedOrderType;
   }
@@ -890,24 +979,54 @@ function createBodyRefusal(error: { issues: ReadonlyArray<{ path: ReadonlyArray<
   return { ...typed, issues: error.issues.map((i) => ({ path: i.path, message: i.message })) };
 }
 
+/** The create-body fields a plain market or limit order has. Any other field places through an installer. */
+const PLAIN_ORDER_FIELDS: ReadonlySet<string> = new Set([
+  'symbol',
+  'type',
+  'side',
+  'amount',
+  'price',
+  'timeInForce',
+  'postOnly',
+  'clientOrderId',
+  'tag',
+  'feeCurrency',
+  'requestDeadline',
+  'expireAt',
+  'stpMode',
+]);
+
 /**
- * Spot takes the fee in the asset the order receives (base on a buy, quote on a sell) and has no fee token, so a
- * different `feeCurrency` is refused rather than dropped. A market that does not exist is left to the place door.
+ * Spot takes the fee in the asset the order receives (base on a buy, quote on a sell), or in the platform token when
+ * the order asks for it (fee-ifc.ts: the service decides, from the owner's terms and the stake). The token is carried
+ * only on a plain market or limit order: a stop, an OCO, a bracket, an iceberg or a reduce-only order is placed through
+ * an installer that does not carry it, so it is refused here rather than dropped. A market that does not exist is left
+ * to the place door. Returns what to carry, or undefined when the order pays in the asset it receives.
  */
-async function refuseFeeCurrency(
+async function feeCurrencyFor(
   deps: Pick<PrivateRestDeps, 'marketBySymbol'>,
-  body: { symbol: string; side: string; feeCurrency?: string },
-): Promise<void> {
-  if (body.feeCurrency === undefined) return;
+  body: { symbol: string; side: string; type: string; feeCurrency?: string },
+  rawBody: unknown,
+): Promise<string | undefined> {
+  if (body.feeCurrency === undefined) return undefined;
   const market = await deps.marketBySymbol(body.symbol);
-  if (!market) return;
+  if (!market) return undefined;
   const received = body.side === 'buy' ? market.baseAsset : market.quoteAsset;
-  if (body.feeCurrency.toUpperCase() !== received.toUpperCase()) {
+  if (body.feeCurrency.trim().toUpperCase() === received.toUpperCase()) return undefined;
+  const raw = rawBody !== null && typeof rawBody === 'object' && !Array.isArray(rawBody) ? Object.keys(rawBody) : [];
+  const notPlain = body.type !== 'market' && body.type !== 'limit' ? body.type : raw.find((field) => !PLAIN_ORDER_FIELDS.has(field));
+  if (notPlain !== undefined) {
     throw new TradeError(
-      `fees are taken in ${received}, the asset this order receives; there is no fee token to pay them in ${body.feeCurrency}`,
+      `fees on this order are taken in ${received}, the asset it receives; only a plain market or limit order ` +
+        `(no ${notPlain}) can pay them in ${body.feeCurrency}`,
       'trade.fee_currency_unsupported',
     );
   }
+  return body.feeCurrency;
+}
+
+function withFeeCurrency(input: PlaceOrderInput, feeCurrency: string | undefined): PlaceOrderInput {
+  return feeCurrency === undefined ? input : { ...input, feeCurrency };
 }
 
 export function mapCreateOrderBody(body: CreateOrderRequest, opts: { allowStopLimit?: boolean } = {}): PlaceOrderInput {
@@ -961,7 +1080,7 @@ function refuseExitLegs(body: unknown, allowOco = false): void {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return;
   const rec = body as Record<string, unknown>;
   if (!allowOco && readBracketFromBody(rec) !== null) {
-    throw new TradeError('bracket orders are available on the create-order route only', 'trade.order_type_unsupported');
+    throw new TradeError('bracket and OTO orders are available on the create-order route only', 'trade.order_type_unsupported');
   }
   if (!allowOco && readOcoFromBody(rec) !== null) {
     throw new TradeError('OCO orders are available on the create-order route only', 'trade.order_type_unsupported');
@@ -1454,10 +1573,12 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   });
 
   /**
-   * Owner `TRADE_FEE_SCHEDULE` maker/taker, once per listed symbol. Same bps
-   * order preview returns as `feeBps`. Listing-row maker_bps/taker_bps are not
-   * this schedule. No rank personalisation. Empty listing → `{}`. Unpublished
-   * schedule with symbols listed → `trade.fee_schedule_blank`.
+   * The rates this caller pays, once per listed symbol: the owner schedule in force at the caller's fee tier (the last
+   * finished snapshot, as placement reads it) less its rank discount, the same bps the order check returns as `feeBps`
+   * for an order on the account itself (a sub-account's orders are charged the regular tier, as placement does).
+   * Listing-row maker_bps/taker_bps are not this schedule. Empty listing → `{}`. Unpublished schedule with symbols
+   * listed → `trade.fee_schedule_blank`; a tier or rank read that fails refuses rather than answer the regular rate.
+   * The volume behind the tier is `GET /api/v1/account/fee-tier`.
    */
   app.get('/api/v1/account/fees', async (req, reply) => {
     const principal = requirePrincipal(req, reply);
@@ -1475,7 +1596,29 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
           intafacedCode: 'trade.fee_schedule_blank',
         });
       }
-      return reply.code(200).send(presentAccountFees(listed, schedule));
+      // Read together. The tier is matched against the schedule just read, so the rows it names are the ones in force;
+      // it is read only when a live spot market is listed, since nothing else is tiered.
+      const refuse = (message: string, intafacedCode: string) =>
+        reply.code(503).send({ code: 'ExchangeNotAvailable', message, intafacedCode });
+      const [tier, discount] = await Promise.allSettled([
+        deps.feeTier && listed.some(tieredMarket) ? deps.feeTier(principal.userId, schedule) : Promise.resolve(REGULAR_FEE_TIER),
+        deps.feeDiscountBps ? deps.feeDiscountBps(principal.userId) : Promise.resolve(0),
+      ]);
+      if (tier.status === 'rejected') {
+        req.log.warn({ err: tier.reason }, 'fee tier read failed; the fee read refuses');
+        return refuse('fee tier is unavailable', 'trade.fee_tier_unavailable');
+      }
+      // A discount outside 0..9999 bps is not one the fill path would take: refuse rather than drop every market.
+      if (discount.status === 'rejected' || !Number.isInteger(discount.value) || discount.value < 0 || discount.value >= 10_000) {
+        req.log.warn(
+          { err: discount.status === 'rejected' ? discount.reason : discount.value },
+          'rank discount read failed; the fee read refuses',
+        );
+        return refuse('rank discount is unavailable', 'trade.perks_unavailable');
+      }
+      const tierId = tier.value;
+      const discountBps = discount.value;
+      return reply.code(200).send(presentAccountFees(listed, schedule, { tierId, discountBps }));
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
@@ -1484,9 +1627,11 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   });
 
   /**
-   * The published spot schedule for anyone, signed in or not: the same regular-tier maker and taker rates
-   * `/account/fees` answers (that read has no rank personalisation either), with the schedule version. Strategy
-   * backtests in svc-quant price their simulated fills with it. Unpublished refuses `trade.fee_schedule_blank`; a
+   * The published schedule for anyone, signed in or not: per listed market the regular-tier rate before any rank
+   * discount (spot from its pair-group row, futures from the `perpetual` block, options left out), with the schedule
+   * version, and the whole
+   * schedule by pair group and tier (`groups`, `tiers`) for the public fee page. Strategy backtests in svc-quant price
+   * their simulated fills with `fees`. Unpublished refuses `trade.fee_schedule_blank`; a
    * market whose row refuses is left out, never shown at zero. An empty listing answers an empty `fees` map.
    */
   app.get('/api/v1/fees/published', async (_req, reply) => {
@@ -1499,11 +1644,15 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
           intafacedCode: 'trade.fee_schedule_blank',
         });
       }
+      const listed = await deps.markets(MARKETS_LIMIT_MAX);
       const fees: Record<string, { makerBps: number; takerBps: number }> = {};
-      for (const [symbol, row] of Object.entries(presentAccountFees(await deps.markets(MARKETS_LIMIT_MAX), schedule))) {
+      for (const [symbol, row] of Object.entries(presentAccountFees(listed, schedule))) {
         fees[symbol] = { makerBps: row.makerBps, takerBps: row.takerBps };
       }
-      return reply.code(200).send({ version: schedule.version, fees });
+      const spotSymbols = listed.filter((market) => market.kind === 'spot').map((market) => market.symbol);
+      // Paying a spot fee in the platform token: the owner's terms as published, or null (the desk then says why not).
+      const feeToken = schedule.ifcFee ? { asset: schedule.ifcFee.tokenAsset, perUnit: schedule.ifcFee.perUnit } : null;
+      return reply.code(200).send({ version: schedule.version, fees, ...publicFeeSchedule(schedule, spotSymbols), feeToken });
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
@@ -2490,8 +2639,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         const now = (deps.now ?? (() => new Date()))();
         const replay = await isDeadlineReplay(deps, principal, parsed.data, now);
         refuseUnsupportedPlacementOptions(parsed.data, now, replay);
-        await refuseFeeCurrency(deps, parsed.data);
-        input = mapCreateOrderBody(parsed.data);
+        input = withFeeCurrency(mapCreateOrderBody(parsed.data), await feeCurrencyFor(deps, parsed.data, rawItem));
       } catch (err) {
         const mapped = toCcxtError(err);
         if (mapped) {
@@ -2768,7 +2916,22 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     if (!principal) return;
     if (!requireTradeJurisdiction(req, reply, principal)) return;
 
-    const parsed = createOrderRequestSchema.safeParse(schemaBodyOf(req.body));
+    // A stop-market is placed as the stop-limit it becomes, at the owner's protection price from its stop.
+    let rawBody: unknown = req.body;
+    let stopKind: StopKind = 'stop_limit';
+    try {
+      const stopMarket = deps.stopTriggers ? await stopMarketOf(deps, req.body) : null;
+      if (stopMarket) {
+        rawBody = stopMarket.body;
+        stopKind = 'stop';
+      }
+    } catch (err) {
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+
+    const parsed = createOrderRequestSchema.safeParse(schemaBodyOf(rawBody));
     if (!parsed.success) {
       // CCXT `InvalidOrder`, not `BadRequest`: it is specifically the order
       // that is wrong, and that is the branch a client's order-builder listens
@@ -2783,12 +2946,16 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const now = (deps.now ?? (() => new Date()))();
       const replay = await isDeadlineReplay(deps, principal, parsed.data, now);
       refuseUnsupportedPlacementOptions(parsed.data, now, replay);
-      await refuseFeeCurrency(deps, parsed.data);
-      input = carryPlacement(mapCreateOrderBody(parsed.data, { allowStopLimit: deps.stopTriggers !== undefined }), req.body, true);
-      const attached = await attachIcebergDisplay(deps, input, parsed.data, readRawDisplayQty(req.body));
+      const feeCurrency = await feeCurrencyFor(deps, parsed.data, rawBody);
+      input = carryPlacement(
+        withFeeCurrency(mapCreateOrderBody(parsed.data, { allowStopLimit: deps.stopTriggers !== undefined }), feeCurrency),
+        rawBody,
+        true,
+      );
+      const attached = await attachIcebergDisplay(deps, input, parsed.data, readRawDisplayQty(rawBody));
       input = attached.input;
       displayQty = attached.displayQty;
-      if (deps.stopTriggers && parsed.data.type !== 'stop_limit' && hasRawStopPx(req.body)) {
+      if (deps.stopTriggers && parsed.data.type !== 'stop_limit' && hasRawStopPx(rawBody)) {
         throw new TradeError('a stop is placed as type stop_limit with a stopPrice', TRADE_STOP_TRIGGER_INVALID);
       }
       if (deps.stopTriggers && parsed.data.type !== 'stop_limit') {
@@ -2816,7 +2983,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
           });
           if (existing) throw new TradeError('this clientOrderId was already used for a non-stop order', TRADE_STOP_TRIGGER_INVALID);
         }
-        stopTrigger = await deps.stopTriggers.remember(orderId, principal.userId, formatAmount(trigger));
+        stopTrigger = await deps.stopTriggers.remember(orderId, principal.userId, formatAmount(trigger), stopKind);
         if (stopTrigger !== formatAmount(trigger)) {
           throw new TradeError('this clientOrderId was already used with a different stopPrice', TRADE_STOP_TRIGGER_INVALID);
         }
@@ -2866,8 +3033,9 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const stored = deps.icebergDisplay ? await deps.icebergDisplay.read(order.id) : displayQty;
       const market = await deps.marketById(order.marketId);
       const symbol = market?.symbol ?? parsed.data.symbol;
-      const wire = presentCcxtOrder(order, symbol);
-      if (stopTrigger) return reply.code(201).send({ ...wire, type: 'stop_limit', stopPrice: stopTrigger });
+      // An OTO entry answers with its attached close, as every read of it does.
+      const wire = (await withOcoExit(deps, [order]))(order, presentCcxtOrder(order, symbol));
+      if (stopTrigger) return reply.code(201).send({ ...wire, type: stopKind, stopPrice: stopTrigger, triggered: null });
       return reply.code(201).send(stored ? { ...wire, displayQty: stored } : wire);
     } catch (err) {
       const sent = sendDomainError(reply, err);
@@ -3056,7 +3224,23 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       return reply.code(503).send({ error: 'order replacement is not configured', code: 'trade.replace_unconfigured' });
     }
 
-    const parsed = createOrderRequestSchema.safeParse(schemaBodyOf(req.body));
+    // A stop's trigger is changed by replacing the stop with one at the new trigger (J-cex-spot-08 #3): the original's
+    // hold is released before the replacement takes its own, sized at the new limit or protection price.
+    let rawBody: unknown = req.body;
+    let stopKind: StopKind = 'stop_limit';
+    try {
+      const stopMarket = deps.stopTriggers ? await stopMarketOf(deps, req.body) : null;
+      if (stopMarket) {
+        rawBody = stopMarket.body;
+        stopKind = 'stop';
+      }
+    } catch (err) {
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+
+    const parsed = createOrderRequestSchema.safeParse(schemaBodyOf(rawBody));
     if (!parsed.success) {
       return reply.code(400).send({
         ...invalidOrder(parsed.error.issues[0]?.message ?? 'invalid replacement order body').body,
@@ -3079,7 +3263,39 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       if (req.body !== null && typeof req.body === 'object' && Object.hasOwn(req.body, 'trail')) {
         throw new TradeError('a trailing stop cannot be set on an order replacement', 'trade.order_type_unsupported');
       }
-      input = carryPlacement(mapCreateOrderBody(parsed.data), req.body);
+      const stopReplacement = parsed.data.type === 'stop_limit' && deps.stopTriggers !== undefined;
+      if (deps.stopTriggers) {
+        // Only a stop's trigger is changed this way, and only into the same kind of stop. A resting limit swapped for a
+        // dormant stop, or a stop for a live limit at its protection price, is a different order: cancel and place it.
+        const originalId = req.params.id;
+        const originalStop = (await deps.stopTriggers.readMany([originalId])).has(originalId);
+        const originalKind: StopKind | null = !originalStop
+          ? null
+          : (await deps.stopTriggers.readStopMarkets([originalId])).has(originalId)
+            ? 'stop'
+            : 'stop_limit';
+        const replacementKind: StopKind | null = stopReplacement ? stopKind : null;
+        if (originalKind !== replacementKind) {
+          // One wording either way: the refusal never says what kind of order an id is before the saga checks its owner.
+          throw new TradeError(
+            'a replacement keeps the kind of the order it replaces (only a stop changes its trigger this way); cancel it and place the new order',
+            TRADE_STOP_TRIGGER_INVALID,
+          );
+        }
+      }
+      input = carryPlacement(mapCreateOrderBody(parsed.data, { allowStopLimit: stopReplacement }), rawBody);
+      if (stopReplacement && deps.stopTriggers) {
+        const market = await deps.marketBySymbol(parsed.data.symbol);
+        if (!market) throw new TradeError(`market ${parsed.data.symbol} not found`, 'trade.market_not_found');
+        const trigger = (input as PlaceOrderInput & { stopPx: Amount }).stopPx;
+        assertStopTrigger(trigger, market.tickSize);
+        // Written before the original is cancelled: the replacement must never reach the engine without its trigger.
+        const replacementId = orderIdFor(principal.userId, market.id, replacementClientOrderId(parsed.data.clientOrderId));
+        const stored = await deps.stopTriggers.remember(replacementId, principal.userId, formatAmount(trigger), stopKind);
+        if (stored !== formatAmount(trigger)) {
+          throw new TradeError('this replacement key was already used with a different stopPrice', TRADE_STOP_TRIGGER_INVALID);
+        }
+      }
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
@@ -3090,15 +3306,19 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const outcome = await deps.replaceOrder(principal, req.params.id, input);
       const originalMarket = await deps.marketById(outcome.original.marketId);
       const replacementMarket = outcome.replacement === null ? originalMarket : await deps.marketById(outcome.replacement.marketId);
-      return reply
-        .code(200)
-        .send(
-          presentReplaceOutcome(
-            outcome,
-            originalMarket?.symbol ?? outcome.original.marketId,
-            replacementMarket?.symbol ?? outcome.replacement?.marketId ?? outcome.original.marketId,
-          ),
-        );
+      const presented = presentReplaceOutcome(
+        outcome,
+        originalMarket?.symbol ?? outcome.original.marketId,
+        replacementMarket?.symbol ?? outcome.replacement?.marketId ?? outcome.original.marketId,
+      );
+      // Both stops answer as the stops they are (kind, trigger, whether it fired), as every other read of them does.
+      const asStop = await withStopTriggers(deps, outcome.replacement ? [outcome.original, outcome.replacement] : [outcome.original]);
+      return reply.code(200).send({
+        ...presented,
+        original: asStop(outcome.original, presented.original),
+        replacement:
+          outcome.replacement && presented.replacement ? asStop(outcome.replacement, presented.replacement) : presented.replacement,
+      });
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
@@ -3345,6 +3565,7 @@ export function fakeOrder(partial: {
     holdAmount: 100_000_000_000_000_000_000n,
     amendReleased: 0n,
     feeDiscountBps: 0,
+    feeTier: 'regular',
     tag: null,
     protectionPrice: partial.protectionPrice === undefined ? null : partial.protectionPrice,
     engineSequence: 1,

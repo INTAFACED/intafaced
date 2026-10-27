@@ -55,11 +55,33 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_SIGNUP_REQUEST_MAX: '10',
     IDENTITY_SIGNUP_REQUEST_WINDOW_SECONDS: '3600',
     IDENTITY_SIGNUP_CLOSED_COUNTRIES: 'AQ',
+    // Sign-in by a mailed code (J-identity-02 #3): TEST values from the profile file, not owner decisions.
+    IDENTITY_LOGIN_CODE_TTL_SECONDS: testValue('IDENTITY_LOGIN_CODE_TTL_SECONDS'),
+    IDENTITY_LOGIN_CODE_MAX_ATTEMPTS: testValue('IDENTITY_LOGIN_CODE_MAX_ATTEMPTS'),
+    IDENTITY_LOGIN_CODE_RESEND_SECONDS: testValue('IDENTITY_LOGIN_CODE_RESEND_SECONDS'),
+    IDENTITY_LOGIN_CODE_REQUEST_MAX: testValue('IDENTITY_LOGIN_CODE_REQUEST_MAX'),
+    IDENTITY_LOGIN_CODE_REQUEST_WINDOW_SECONDS: testValue('IDENTITY_LOGIN_CODE_REQUEST_WINDOW_SECONDS'),
+    // Password reset and username recovery (J-identity-03): TEST values from the profile file, not owner decisions.
+    IDENTITY_PASSWORD_RESET_TTL_SECONDS: testValue('IDENTITY_PASSWORD_RESET_TTL_SECONDS'),
+    IDENTITY_BREACHED_PASSWORDS_FILE: testValue('IDENTITY_BREACHED_PASSWORDS_FILE'),
+    IDENTITY_PASSWORD_RESET_MAX_ATTEMPTS: testValue('IDENTITY_PASSWORD_RESET_MAX_ATTEMPTS'),
+    IDENTITY_PASSWORD_RESET_REQUEST_MAX: testValue('IDENTITY_PASSWORD_RESET_REQUEST_MAX'),
+    IDENTITY_PASSWORD_RESET_REQUEST_WINDOW_SECONDS: testValue('IDENTITY_PASSWORD_RESET_REQUEST_WINDOW_SECONDS'),
+    IDENTITY_NEW_DEVICE_CHECK: testValue('IDENTITY_NEW_DEVICE_CHECK'),
+    IDENTITY_NEW_DEVICE_TTL_SECONDS: testValue('IDENTITY_NEW_DEVICE_TTL_SECONDS'),
+    IDENTITY_NEW_DEVICE_MAX_ATTEMPTS: testValue('IDENTITY_NEW_DEVICE_MAX_ATTEMPTS'),
+    IDENTITY_MFA_RESET_WAIT_SECONDS: testValue('IDENTITY_MFA_RESET_WAIT_SECONDS'),
+    IDENTITY_KYC_REQUIREMENTS_BY_LEVEL: testValue('IDENTITY_KYC_REQUIREMENTS_BY_LEVEL'),
+    IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL: testValue('IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL'),
+    IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS: testValue('IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS'),
     // LOCAL TEST ONLY, not an owner decision (W-withdraw-09): a security lock ends one day after its unlock is asked
     // for, so a journey can see the lock still holding with its end time.
     IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS: '86400',
     // Sealing key for operator second factors (TOTP). Generated per machine in secrets.json.
     IDENTITY_TOTP_SECRET_KEY: secrets.identityTotp,
+    // LOCAL TEST ONLY: the KYC document vault's key, generated for this stack (secrets.json, mode 600). Without it the vault is
+    // off and the founder console's document list and viewer refuse kyc_doc.unwired.
+    IDENTITY_KYC_DOC_KEY: secrets.identityKycDoc,
     // LOCAL TEST, not the lead's grant (which founder holds which scope is the lead's call for a real stack). The
     // operator reads the founder console makes: svc-bank's desks (admin:read), svc-p2p's
     // operator lists (admin:compliance) and svc-market's vendor desk (market:ops), and the notify desk's writes
@@ -90,6 +112,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // purpose, so the console shows a tier that cannot be assigned (identity.tier_terms_unset).
     // One copy: the labelled TEST value in tooling/profiles/test-owner-values/identity.json.
     IDENTITY_ACCOUNT_TIERS: testValue('IDENTITY_ACCOUNT_TIERS'),
+    // LOCAL TEST limit override policy (J-ops-console-04 #12), labelled TEST in the same profile, never an owner decision:
+    // blank refuses every override with identity.limit_ceiling_unset.
+    IDENTITY_LIMIT_OVERRIDE_POLICY: testValue('IDENTITY_LIMIT_OVERRIDE_POLICY'),
     // LOCAL TEST referral attach window and code length (J-campaigns-05), labelled TEST in the same profile. Blank refuses
     // every link attach (referral.attach_window_unset) and every new code (referral.code_length_unset).
     IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS: testValue('IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS'),

@@ -15,24 +15,29 @@ import {
 import { BankError } from '../errors.js';
 import { assertOfframpsListLimit, assertOnrampsListLimit } from '../owner-list-limit.js';
 import { BANK_OFFRAMP_COOLING_HOURS_ENV, assertOfframpDestCoolingElapsed, requireOfframpCoolingHours } from '../offramp-cooling.js';
+import { assertSecurityLockOpen, unconfiguredSecurityLock, type SecurityLockPort } from '../security-lock.js';
 import { withSessionAdvisoryLock } from '../session-lock.js';
 import { withMoneySpan } from '../tracing.js';
 import { emptyPayFiatRampPort, resolvePayFiatRailId, assertEmptyRailsCannotLookLive, type PayFiatRampPort } from './pay-fiat-adapter.js';
 import type { OfframpFeeSource, OnrampMethod, OnrampPaymentPort, OnrampQuoteSource } from './customer-ports.js';
+import type { OnrampStandIn } from './onramp-sim.js';
 import {
   checkDestination,
   createOnramp,
   onrampQuoteOf,
   customerOnrampsByIds,
+  destinationReadiness,
   listDestinations,
   quoteOfframp,
   quoteOnramp,
   removeDestination,
   renameDestination,
   saveDestination,
+  viewWithOwnership,
   type CustomerOnrampView,
   type CustomerRampDeps,
   type DestinationCheck,
+  type DestinationReadiness,
   type DestinationView,
   type OfframpQuoteView,
   type OnrampQuoteView,
@@ -49,10 +54,23 @@ import {
 } from './wallet-ownership.js';
 import { assertCryptoRamp, assertFiatSocketWhenNone, refuseFiatRamp, type RampProgramme, NO_RAMP_PROGRAMME } from './rails.js';
 import {
+  BANK_ADDRESS_APPROVAL_LINK_ENV,
+  approveByLink,
+  approveOnDevice,
+  requestApprovalMail,
+  sqlApprovalLinks,
+  unconfiguredApprovalMail,
+  type AddressApprovalDeps,
+  type ApprovalLinkStore,
+  type ApprovalMailPort,
+} from './address-approval.js';
+import { unconfiguredTrustedDevices, type TrustedDevicePort } from './trusted-devices.js';
+import {
   BANK_ADDRESS_BOOK_CAP_ENV,
   destKindForRamp,
   UserWithdrawDestinationStore,
   type SaveDestinationInput,
+  type SavedOn,
   type UserWithdrawDestinations,
   type WithdrawDestination,
 } from '../withdraw-destination.js';
@@ -217,6 +235,8 @@ export interface RampServiceOptions {
    * The service does not invent a pay amount, fee, or rate.
    */
   onrampQuotes?: OnrampQuoteSource | null;
+  /** The local stack's TEST rate stand-in (`BANK_ONRAMP_RATES=ramp-sim`), for the asks it lists. Unset everywhere else. */
+  onrampStandIn?: OnrampStandIn | null;
   /**
    * Partner that opens a hosted payment or bank-transfer instruction.
    * Unset refuses `bank.fiat_ramp_socket` and inserts no row.
@@ -240,6 +260,22 @@ export interface RampServiceOptions {
    */
   walletProofWindowMinutes?: string;
   walletProofValidDays?: string;
+  /**
+   * The owner's security lock, read from svc-identity per request (W-withdraw-09). While it holds, adding or removing a
+   * withdrawal address and sending to one refuse `bank.security_locked`. Omitted, every one of those refuses
+   * `bank.security_lock_unset`: a bank that cannot read the lock does not act as if there were none.
+   */
+  securityLock?: SecurityLockPort;
+  /**
+   * New-address approval (W-withdraw-09): the links store (omit for the Postgres store on `sql`), identity's mail door
+   * (omitted, a link request refuses `bank.address_approval_mail_unavailable`), and the owner's link lifetime
+   * (`BANK_ADDRESS_APPROVAL_LINK_MINUTES`; omit to read the env at call time, blank refuses).
+   */
+  approvalLinks?: ApprovalLinkStore;
+  approvalMail?: ApprovalMailPort;
+  addressApprovalLinkMinutes?: string;
+  /** Identity's trusted devices, for approval from another device (omitted, every such approval refuses unavailable). */
+  trustedDevices?: TrustedDevicePort;
 }
 
 export class RampService {
@@ -248,12 +284,18 @@ export class RampService {
   private readonly destinations: UserWithdrawDestinations;
   private readonly offrampCoolingHours: string | undefined;
   private readonly onrampQuotes: OnrampQuoteSource | null;
+  private readonly onrampStandIn: OnrampStandIn | null;
   private readonly onrampPayments: OnrampPaymentPort | null;
   private readonly offrampFees: OfframpFeeSource | null;
   private readonly withdrawNetworkSource: WithdrawNetworkSource | null;
   private readonly walletProofs: WalletProofStore;
   private readonly walletProofWindowMinutes: string | undefined;
   private readonly walletProofValidDays: string | undefined;
+  private readonly securityLock: SecurityLockPort;
+  private readonly approvalLinks: ApprovalLinkStore;
+  private readonly approvalMail: ApprovalMailPort;
+  private readonly addressApprovalLinkMinutes: string | undefined;
+  private readonly trustedDevices: TrustedDevicePort;
 
   constructor(
     private readonly sql: Sql,
@@ -269,12 +311,30 @@ export class RampService {
       });
     this.offrampCoolingHours = options.offrampCoolingHours;
     this.onrampQuotes = options.onrampQuotes ?? null;
+    this.onrampStandIn = options.onrampStandIn ?? null;
     this.onrampPayments = options.onrampPayments ?? null;
     this.offrampFees = options.offrampFees ?? null;
     this.withdrawNetworkSource = options.withdrawNetworks ?? null;
     this.walletProofs = options.walletProofs ?? sqlWalletProofs(sql);
     this.walletProofWindowMinutes = options.walletProofWindowMinutes;
     this.walletProofValidDays = options.walletProofValidDays;
+    this.securityLock = options.securityLock ?? unconfiguredSecurityLock();
+    this.approvalLinks = options.approvalLinks ?? sqlApprovalLinks(sql);
+    this.approvalMail = options.approvalMail ?? unconfiguredApprovalMail();
+    this.addressApprovalLinkMinutes = options.addressApprovalLinkMinutes;
+    this.trustedDevices = options.trustedDevices ?? unconfiguredTrustedDevices();
+  }
+
+  private approvalDeps(): AddressApprovalDeps {
+    return {
+      destinations: this.destinations,
+      links: this.approvalLinks,
+      mail: this.approvalMail,
+      devices: this.trustedDevices,
+      securityLock: this.securityLock,
+      linkMinutesRaw: () =>
+        this.addressApprovalLinkMinutes !== undefined ? this.addressApprovalLinkMinutes : process.env[BANK_ADDRESS_APPROVAL_LINK_ENV],
+    };
   }
 
   private walletProofDeps(): WalletProofDeps {
@@ -294,12 +354,15 @@ export class RampService {
       programme: this.programme,
       payFiat: this.payFiat,
       quotes: this.onrampQuotes,
+      standIn: this.onrampStandIn,
       payments: this.onrampPayments,
       fees: this.offrampFees,
       destinations: this.destinations,
       networks: this.withdrawNetworkSource,
       coolingRaw: () => this.ownerOfframpCoolingHoursRaw(),
       proofs: this.walletProofs,
+      securityLock: this.securityLock,
+      approvalLinks: this.approvalLinks,
     };
   }
 
@@ -331,8 +394,9 @@ export class RampService {
     throw new BankError('A live cash ramp is refused. The missing piece is an outside company, the cash rail.', 'bank.live_ramp_unset');
   }
 
-  /** Persist a user withdraw dest (IBAN/IFSC/EVM) so a later offramp has a real ref. */
-  setWithdrawDestination(input: { userId: string; kind: string; ref: string; label?: string }) {
+  /** Persist a user withdraw dest (IBAN/IFSC/EVM) so a later offramp has a real ref. Refused while the security lock holds. */
+  async setWithdrawDestination(input: { userId: string; kind: string; ref: string; label?: string }) {
+    await assertSecurityLockOpen(this.securityLock, input.userId, 'changing a withdrawal address');
     return this.destinations.persist(input);
   }
 
@@ -374,9 +438,34 @@ export class RampService {
     return verifyWalletProof(this.walletProofDeps(), input);
   }
 
+  /** Whether money may be sent to one saved address now, or what stands in the way first (W-withdraw-09). Read-only. */
+  destinationReadiness(input: { userId: string; destinationId: string }): Promise<DestinationReadiness> {
+    return destinationReadiness(this.customerDeps(), input);
+  }
+
+  /** Mail a single-use link that approves one new address (W-withdraw-09). Says until when it works; never that it arrived. */
+  requestAddressApproval(input: { userId: string; destinationId: string }): Promise<{ destinationId: string; expiresAt: string }> {
+    return requestApprovalMail(this.approvalDeps(), input);
+  }
+
+  /** Approve the new address an emailed link names, for the customer it was sent to. */
+  async approveAddressByLink(input: { userId: string; token: string }): Promise<DestinationView> {
+    return viewWithOwnership(this.customerDeps(), input.userId, await approveByLink(this.approvalDeps(), input));
+  }
+
+  /** Approve a new address from a signed-in device that did not save it (the router asks for the fresh confirmation). */
+  async approveAddressOnDevice(input: { userId: string; destinationId: string; approving: SavedOn }): Promise<DestinationView> {
+    return viewWithOwnership(this.customerDeps(), input.userId, await approveOnDevice(this.approvalDeps(), input));
+  }
+
   /** Remove one saved destination. `idempotencyKey` replays the same removal. */
   removeDestination(input: { userId: string; destinationId: string; idempotencyKey: string }) {
     return removeDestination(this.customerDeps(), input);
+  }
+
+  /** The TEST label of the stand-in that would price this ask, or null when a real source (or nothing) answers it. */
+  onrampStandInFor(input: { assetId: string; method: OnrampMethod; country: string }): string | null {
+    return this.onrampStandIn?.covers({ ...input, country: input.country.trim().toUpperCase() }) ? this.onrampStandIn.label : null;
   }
 
   /** Pay amount, fee, and rate from the quote source. Refuses when the PSP or the source is blank. */
@@ -524,6 +613,19 @@ export class RampService {
     }
     assertRampAssetId(input.assetId);
     const rail = assertCryptoRamp(this.programme);
+    // While the owner's security lock holds, no new send starts (W-withdraw-09): asked before the claim, so a locked
+    // account writes no row and posts no hold. A send already claimed under this id before the lock was set is a replay
+    // or a resume, not a new send: it carries on, so a settled one answers as before and a held one is not left held.
+    // Only with the address it was claimed with: an offered address is stored before the claim's terms are checked, so a
+    // replay naming another one would change the withdrawal address, and that waits for the lock like any change does.
+    // Identity unreachable refuses every send, replays included: it cannot say whether the lock holds.
+    if ((await this.securityLock.read(input.userId)).locked) {
+      const claimedTo = await this.offrampClaimedTo(input.offrampId, input.userId);
+      const offered = input.destinationRef?.trim();
+      if (claimedTo === null || (offered && offered !== claimedTo)) {
+        await assertSecurityLockOpen(this.securityLock, input.userId, 'a withdrawal');
+      }
+    }
     const coolingHours = requireOfframpCoolingHours(this.ownerOfframpCoolingHoursRaw());
     const dest = await this.resolveWithdrawDestination(input.userId, input.kind, input.destinationRef);
     assertOfframpDestCoolingElapsed(coolingHours, dest.updatedAt);
@@ -679,6 +781,14 @@ export class RampService {
       `;
       return sameOnrampOrConflict(toOnramp(rows[0]!), input);
     });
+  }
+
+  /** The address this customer's off-ramp under this id was claimed with (whatever its state), or null when there is none. */
+  private async offrampClaimedTo(offrampId: string, userId: string): Promise<string | null> {
+    const rows = await this.sql<Array<{ destination_ref: string }>>`
+      SELECT destination_ref FROM bank.ramp_offramps WHERE id = ${offrampId}::uuid AND user_id = ${userId}
+    `;
+    return rows[0]?.destination_ref ?? null;
   }
 
   private async claimOfframp(input: {

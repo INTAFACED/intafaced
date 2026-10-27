@@ -9,7 +9,13 @@ import type { ControlService } from '../control/service.js';
 import type { FounderAuthority } from '../founder-authority.js';
 import type { MetricsRuntime } from '../metrics/index.js';
 import type { RegistriesMountDeps } from '../registries/index.js';
+import type { CategoryPolicyMountDeps } from '../onboarding-policy/category-router.js';
+import { createMerchantCatalogRouter, type CatalogMountDeps } from '../catalog/router.js';
+import { createCheckoutBrandingRouter, type CheckoutBrandingMountDeps } from '../checkout-branding/router.js';
+import { createCheckoutMethodsRouter, type CheckoutMethodsMountDeps } from '../checkout-methods/router.js';
 import type { DepositSettingsMountDeps } from '../custody/deposits/settings.js';
+import type { DepositFreezesMountDeps } from '../custody/deposits/freezes.js';
+import type { DepositTravelRuleMountDeps } from '../custody/deposits/travel-rule.js';
 import type { CustodyMountDeps } from '../custody/router.js';
 import type { PurchaseHoldMountDeps } from '../withdrawals/purchase-holds/router.js';
 import type { WithdrawalQuoteMountDeps } from '../withdrawals/quotes/router.js';
@@ -59,7 +65,15 @@ export function createPayNamespaces(deps: {
   founderAuthority: FounderAuthority;
   metrics?: MetricsRuntime;
   registries?: RegistriesMountDeps;
+  categoryPolicy?: CategoryPolicyMountDeps;
+  /** The product catalogue (M-catalogue-01). Absent: every merchantCatalog procedure refuses. */
+  catalog?: CatalogMountDeps;
+  checkoutBranding?: CheckoutBrandingMountDeps;
+  /** The hosted checkout's payment methods (M-adv-payments-core-11). Absent: every merchantCheckoutMethods procedure refuses. */
+  checkoutMethods?: CheckoutMethodsMountDeps;
   depositSettings?: DepositSettingsMountDeps;
+  depositFreezes?: DepositFreezesMountDeps;
+  depositTravelRule?: DepositTravelRuleMountDeps;
   limits?: WithdrawalLimitsMountDeps;
   custody?: CustodyMountDeps;
   purchaseHolds?: PurchaseHoldMountDeps;
@@ -112,7 +126,10 @@ export function createPayNamespaces(deps: {
     createFounderAdminRouter(deps.founderAuthority, {
       metrics: deps.metrics,
       registries: deps.registries,
+      categoryPolicy: deps.categoryPolicy,
       depositSettings: deps.depositSettings,
+      depositFreezes: deps.depositFreezes,
+      depositTravelRule: deps.depositTravelRule,
       limits: deps.limits,
       custody: deps.custody,
       purchaseHolds: deps.purchaseHolds,
@@ -134,6 +151,9 @@ export function createPayNamespaces(deps: {
     createConversionRouter(deps.conversion),
     createPayHaltsRouter(deps.founderAuthority, deps.payHalts),
     createMerchantOpsRouter(opsDeps), // W15: merchantOps.*  (founderAdmin.ops.* is mounted via createFounderAdminRouter above)
+    createMerchantCatalogRouter(deps.catalog), // M-catalogue-01: merchantCatalog.*
+    createCheckoutBrandingRouter(deps.checkoutBranding), // M-payments-core-08: merchantCheckout.branding.*
+    createCheckoutMethodsRouter(deps.checkoutMethods), // M-adv-payments-core-11: merchantCheckoutMethods.*
     // W10: b2bRamp.* refuses while pay.b2b_ramp is off, including a direct caller.
     createB2bRampRouter({ founderAuthority: deps.founderAuthority, sql: deps.sql }),
     // M-plat-org-10: receipt preview and send. Email switches mount on the portal `merchant` router.

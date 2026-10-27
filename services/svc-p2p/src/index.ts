@@ -27,6 +27,10 @@ import { programmeVouch, reputationOnPublicDoor } from './merchant-programme.js'
 import { MerchantService } from './merchant-service.js';
 import { createIdentityApprovalClient, unwiredApprovalConsumer } from './action-approval-consume.js';
 import { createTakeStepUp } from './take-step-up.js';
+import { createReleaseStepUp } from './release-step-up.js';
+import { createInstrumentStepUp } from './instrument-step-up.js';
+import { createIdentityHolderNameRule } from './holder-name.js';
+import { createIdentityPublicProfile } from './public-profile.js';
 import { OpsReads } from './ops/ops-reads.js';
 import { createP2pRouter, type P2pRouter } from './router.js';
 import { BlockRfqService } from './block-rfq.js';
@@ -39,6 +43,11 @@ import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { instrumentKeyHealth } from './instrument-key-provider.js';
 import { parseVerificationLimits } from './verification-limits.js';
 import { parseActiveOrderCap, parseBuyerCancelLimit, parsePairLimits } from './take-limits.js';
+import { parseReminderPolicy } from './seller-reminders.js';
+import { parseToleranceBps } from './amount-mismatch.js';
+import { parseAdContentRules } from './ad-content-rules.js';
+import { parsePostingThresholds } from './posting-eligibility.js';
+import { AdvertiserTermsAcceptances, advertiserTermsVersion, createAdvertiserTerms } from './advertiser-terms.js';
 import { createLocalTestKeyProvider } from './local-test-kms.js';
 import {
   createIdentityContactReader,
@@ -125,6 +134,8 @@ const instrumentKey = instrumentKeyHealth(instrumentKeyProvider?.kind);
 const instruments = new InstrumentService(sql, {
   retentionDays: publishedInstrumentRetentionDays(env.P2P_INSTRUMENT_RETENTION_DAYS),
   keyProvider: instrumentKeyProvider,
+  // P-ads-merchant-18: a destination with an account-holder field is in the person's verified legal name, or refused.
+  ...(env.IDENTITY_URL ? { holderNames: createIdentityHolderNameRule(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) } : {}),
 });
 
 /**
@@ -145,6 +156,7 @@ const p2p: P2pService = new P2pService(sql, ledger, bus, {
   tradingEnabled: env.P2P_TRADING_ENABLED,
   offerLimits,
   appealReviewHours: env.P2P_APPEAL_REVIEW_HOURS,
+  reviewEditWindowSeconds: env.P2P_REVIEW_EDIT_WINDOW_SECONDS,
   exportPolicy: {
     maxRangeDays: env.P2P_EXPORT_MAX_RANGE_DAYS,
     maxRows: env.P2P_EXPORT_MAX_ROWS,
@@ -170,6 +182,17 @@ const p2p: P2pService = new P2pService(sql, ledger, bus, {
     pairLimits: parsePairLimits(env.P2P_PAIR_LIMITS),
     buyerCancels: parseBuyerCancelLimit(env.P2P_BUYER_CANCEL_LIMIT, env.P2P_BUYER_CANCEL_WINDOW_HOURS),
   },
+  reminders: parseReminderPolicy(env.P2P_REMIND_WAIT_SECONDS, env.P2P_REMIND_MAX),
+  mismatchToleranceBps: parseToleranceBps(env.P2P_MISMATCH_TOLERANCE_BPS),
+  // P-ads-merchant-01: every new ad needs the published advertiser terms accepted (blank refuses every post), and a
+  // sell ad's total is checked against the maker's free balance. Nothing is reserved at post.
+  advertiserTerms: createAdvertiserTerms({
+    acceptances: new AdvertiserTermsAcceptances(sql),
+    version: advertiserTermsVersion(env.P2P_ADVERTISER_TERMS_VERSION),
+  }),
+  sellBalanceAtPost: true,
+  adContentRules: parseAdContentRules(env.P2P_AD_CONTENT_RULES),
+  postingThresholds: parsePostingThresholds(env.P2P_POSTING_THRESHOLDS),
   deadlines: {
     escrowSeconds: publishedEscrowDeadlineSeconds(env.P2P_ESCROW_DEADLINE_SECONDS),
     paymentSeconds: publishedPaymentDeadlineSeconds(env.P2P_PAYMENT_DEADLINE_SECONDS),
@@ -217,6 +240,9 @@ const actionApprovals = env.IDENTITY_URL
 // P-trade-orders-07: a take is confirmed with identity's single-use same-person approval; without IDENTITY_URL
 // no confirmation can be spent and every take refuses.
 const takeStepUp = createTakeStepUp({ sql, approvals: actionApprovals });
+// P-trade-orders-07 and -16: a release is confirmed the same way; one confirmation covers that session's releases for ten minutes.
+const releaseStepUp = createReleaseStepUp({ sql, approvals: actionApprovals });
+const instrumentStepUp = createInstrumentStepUp({ sql, approvals: actionApprovals });
 
 export const appRouter = createP2pRouter(
   p2p,
@@ -232,6 +258,10 @@ export const appRouter = createP2pRouter(
     disputeResolveRequiresApproval: env.P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL,
     takeGate,
     takeStepUp,
+    releaseStepUp,
+    instrumentStepUp,
+    // The other side of an order by their handle; without IDENTITY_URL reputation.get says the profile is unwired.
+    ...(env.IDENTITY_URL ? { publicProfile: createIdentityPublicProfile(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) } : {}),
   },
   merchants,
 );
@@ -325,6 +355,11 @@ async function sweep(): Promise<void> {
       app.log.error({ err, sweep: 'fiat_sent_notice' }, 'p2p buyer-paid notice sweep failed — sellers may not be told yet');
       return { sent: 0, failures: [] };
     });
+    // Seller reminders the fast path did not hand over, on their own catch for the same reason.
+    const reminders = await p2p.sweepReminders(100).catch((err: unknown) => {
+      app.log.error({ err, sweep: 'trade_reminder' }, 'p2p seller reminder sweep failed — sellers may not be told yet');
+      return { sent: 0, failures: [] };
+    });
 
     // Data retention, on the same tick. It runs last on purpose: it only ever
     // touches trades that are already terminal, so it can never take work away
@@ -347,6 +382,9 @@ async function sweep(): Promise<void> {
         { ...f, sweep: 'fiat_sent_notice' },
         'p2p buyer-paid notice could not be handed to the bus — the seller is not told yet',
       );
+    }
+    for (const f of reminders.failures) {
+      app.log.error({ ...f, sweep: 'trade_reminder' }, 'p2p seller reminder could not be handed to the bus — the seller is not told yet');
     }
     for (const f of swept.failures) {
       app.log.error({ ...f, sweep: 'timeout' }, 'p2p timeout sweep could not act on a trade');

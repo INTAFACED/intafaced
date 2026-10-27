@@ -173,6 +173,55 @@ export const kycInfoRequested = defineEvent(
   'Compliance asked for more information on a KYC case. The case waits for the customer; nothing is approved or rejected.',
 );
 
+/**
+ * I-signin-sessions-08 (J-identity-05 #6). One change to a sign-in factor: the authenticator app turned on, off or
+ * replaced, or a passkey added or removed. svc-identity publishes it from an outbox row written in the same transaction
+ * as the change (at least once). No secret, code, credential id or address rides on it.
+ */
+export const SECURITY_FACTOR_CHANGES = ['totp_added', 'totp_removed', 'totp_replaced', 'passkey_added', 'passkey_removed'] as const;
+
+export const securityFactorChanged = defineEvent(
+  'identity',
+  'security_factor',
+  'updated',
+  1,
+  z.object({
+    userId: userIdSchema,
+    change: z.enum(SECURITY_FACTOR_CHANGES),
+    changedAt: z.string().datetime({ offset: true }),
+    /** The business key `factor-changed:<userId>:<n>`, n counted per account; a consumer dedupes on it. */
+    noticeKey: z.string().min(1).max(128),
+  }),
+  'A sign-in factor of an account changed. svc-notify writes the security inbox notice (I-signin-sessions-08); svc-identity already mailed the proved address.',
+);
+
+/**
+ * A death notice for an account (RC-identity-02, J-identity-05 #7). `created`: staff recorded one; the account is not
+ * changed by it (a false report must never lock a living person). `confirmed`: a second person approved it, and in the
+ * same transaction the account was frozen and its sessions and API keys revoked. Both are published from an outbox row,
+ * at least once, with the business key `identity.death_notice.<created|confirmed>:<noticeId>`. Who reported and the
+ * evidence never ride on the bus.
+ */
+const deathNoticePayload = z.object({ userId: userIdSchema, noticeId: z.string().guid(), at: z.string().datetime({ offset: true }) });
+
+export const deathNoticeCreated = defineEvent(
+  'identity',
+  'death_notice',
+  'created',
+  1,
+  deathNoticePayload,
+  'Staff recorded a death notice for an account (RC-identity-02). The account is unchanged until a second person confirms it.',
+);
+
+export const deathNoticeConfirmed = defineEvent(
+  'identity',
+  'death_notice',
+  'confirmed',
+  1,
+  deathNoticePayload,
+  'A second person confirmed a death notice (RC-identity-02): the account is frozen and its sessions and API keys revoked. Its balances move only by the recovery keys the owner set (RC-identity-08).',
+);
+
 // ── ledger (§4.2) ────────────────────────────────────────────────────────────
 
 export const ledgerTxPosted = defineEvent(
@@ -947,6 +996,25 @@ export const p2pTradeFiatSent = defineEvent(
   'The buyer marked the fiat payment as sent. The seller must check and release. A trade is marked paid once, so consumers dedupe on tradeId.',
 );
 
+/**
+ * P-trade-orders-15 / J-p2p-02 #2: the buyer reminded the seller to check the payment and release. Numbered from 1 per
+ * order (`n`); the owner's wait and count bound how many there are. Consumers dedupe on tradeId and n.
+ */
+export const p2pTradeReminderSent = defineEvent(
+  'p2p',
+  'trade_reminder',
+  'sent',
+  1,
+  z.object({
+    tradeId: z.string().guid(),
+    n: z.number().int().positive(),
+    buyerId: userIdSchema,
+    sellerId: userIdSchema,
+    remindedAt: z.string().datetime({ offset: true }),
+  }),
+  'The buyer reminded the seller to check the payment and release. A reminder is sent once per (tradeId, n).',
+);
+
 export const p2pChatMessageSent = defineEvent(
   'p2p',
   'chat_message',
@@ -1105,6 +1173,54 @@ export const personalDisputeUpdated = defineEvent(
     changedAt: z.string().datetime({ offset: true }),
   }),
   'A personal Pay dispute changed state. svc-notify writes pay.dispute_changed for the opener and the counterparty.',
+);
+
+/**
+ * BK-acct-10 (J-bank-06 #6). Standing-order notices (the spec's `bank.scheduled.reminder/failed`, named with the
+ * subject law's verbs). svc-bank records each notice as owed in its own outbox
+ * (`bank.scheduled_notices`, one row per schedule, occurrence and kind) and publishes it until the bus takes it, so a
+ * retried job never tells a person twice and a lost publish is sent again. Neither moves value: the run that failed has
+ * already been recorded, and a reminder is about a run that has not happened.
+ */
+export const bankScheduledReminder = defineEvent(
+  'bank',
+  'scheduled_reminder',
+  'triggered',
+  1,
+  z.object({
+    noticeId: z.string().guid(),
+    userId: userIdSchema,
+    scheduleId: z.string().guid(),
+    /** Periods since the schedule's start; with `scheduleId` it names the one run this reminds of. */
+    occurrence: z.number().int().min(0),
+    dueAt: z.string().datetime({ offset: true }),
+    /** What the order will try to move, as it stands when the reminder is sent. */
+    amount: amountSchema,
+    assetId: assetIdSchema,
+    /** The lead time the person chose, in hours. */
+    leadHours: z.number().int().min(1),
+  }),
+  'A standing order runs within the lead time its owner chose. svc-notify writes bank.scheduled_reminder for that person.',
+);
+
+export const bankScheduledFailed = defineEvent(
+  'bank',
+  'scheduled_run',
+  'failed',
+  1,
+  z.object({
+    noticeId: z.string().guid(),
+    userId: userIdSchema,
+    scheduleId: z.string().guid(),
+    occurrence: z.number().int().min(0),
+    /** What the run tried to move. Nothing was posted. */
+    amount: amountSchema,
+    assetId: assetIdSchema,
+    /** Why the run was refused, as svc-bank recorded it (for example `ledger.insufficient_funds`). */
+    reasonCode: z.string().min(1).max(64),
+    failedAt: z.string().datetime({ offset: true }),
+  }),
+  'A standing order run was refused and posted nothing. svc-notify writes bank.scheduled_failed for its owner.',
 );
 
 // ── core-ops: platform alert rules (OPS-alerts-01) ───────────────────────────
@@ -1347,6 +1463,37 @@ export const payCustodyAuditCreated = defineEvent(
   'A wallet or custody action (withdrawal, address change, limit change, freeze, policy change) was recorded for the append-only audit log behind /custody-ops. Deduplicated by entryKey.',
 );
 
+// ── pay: a crypto deposit was credited (W-deposit-05, W-deposit-09) ─────────
+
+/**
+ * One crypto deposit the ledger has credited to the customer's available balance. Published by svc-pay after the
+ * deposit row turned `credited` (the ledger post is the credit; this only says it happened). svc-pay records that it
+ * announced the row and announces again any credited row it has not recorded, so a crash after the credit still reaches
+ * the customer. Business key `pay:deposit-credit:posted:<depositId>`; a consumer keys its notice on `depositId`.
+ */
+export const payDepositCreditPostedPayloadSchema = z
+  .object({
+    depositId: z.string().guid(),
+    userId: userIdSchema,
+    assetId: assetIdSchema,
+    networkId: z.string().min(1).max(64),
+    amount: amountSchema,
+    txHash: z.string().min(1).max(256),
+    ledgerTxId: z.string().guid(),
+    creditedAt: z.string().datetime({ offset: true }),
+  })
+  .strict();
+export type PayDepositCreditPostedPayload = z.infer<typeof payDepositCreditPostedPayloadSchema>;
+
+export const payDepositCreditPosted = defineEvent(
+  'pay',
+  'deposit_credit',
+  'posted',
+  1,
+  payDepositCreditPostedPayloadSchema,
+  'A crypto deposit was credited to the customer (the ledger deposit post is the credit). For the inbox notice; deduplicated by depositId.',
+);
+
 // ── The registry ─────────────────────────────────────────────────────────────
 
 export const EVENT_CATALOG = {
@@ -1357,6 +1504,9 @@ export const EVENT_CATALOG = {
   kycSubmitted,
   kycRejected,
   kycInfoRequested,
+  securityFactorChanged,
+  deathNoticeCreated,
+  deathNoticeConfirmed,
   ledgerTxPosted,
   ledgerReconciliationFailed,
   ledgerReconciliationRunFailed,
@@ -1374,6 +1524,7 @@ export const EVENT_CATALOG = {
   coreOpsRestoreCompleted,
   coreOpsRestoreFailed,
   payCustodyAuditCreated,
+  payDepositCreditPosted,
   stakeCreated,
   buybackExecuted,
   bankMarginCalled,
@@ -1383,6 +1534,8 @@ export const EVENT_CATALOG = {
   personalTransferPosted,
   personalRefundPosted,
   personalDisputeUpdated,
+  bankScheduledReminder,
+  bankScheduledFailed,
   blueprintCreated,
   blueprintDeleted,
   crewMemberCreated,
@@ -1408,6 +1561,7 @@ export const EVENT_CATALOG = {
   p2pDisputeResolved,
   p2pTradeExpired,
   p2pTradeFiatSent,
+  p2pTradeReminderSent,
   p2pChatMessageSent,
   p2pDisputeEscalated,
   p2pQuoteExpired,
@@ -1512,6 +1666,20 @@ export interface WiringSocket {
 }
 
 export const WIRING_SOCKETS = [
+  {
+    event: 'deathNoticeCreated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No subscriber yet (RC-identity-02): the notice is a durable svc-identity row that staff read on the account; nothing else acts on an unconfirmed notice, and no customer is promised a notice of it.',
+  },
+  {
+    event: 'deathNoticeConfirmed',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No subscriber yet (RC-identity-02): the freeze, session and API key revocation happen in the confirming transaction, and the recovery claim (RC-identity-08) asks identity for the confirmed notice when it runs, so nothing waits on the event.',
+  },
   {
     event: 'kycSubmitted',
     missing: 'publisher',
@@ -2036,6 +2204,13 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'svc-notify turns it into the chat-waiting notice in the P-trade-orders-23 svc-notify PR, idempotent by event id. Until then no publisher exists either, so no user is promised a notice.',
+  },
+  {
+    event: 'p2pTradeReminderSent',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      "svc-p2p publishes it from its reminder outbox (P-trade-orders-15, J-p2p-02 #2), and the seller sees the reminder on the order itself. svc-notify turns it into the seller's inbox notice in its own PR, idempotent by tradeId and n; until then no inbox notice is promised.",
   },
   {
     event: 'p2pDisputeEscalated',

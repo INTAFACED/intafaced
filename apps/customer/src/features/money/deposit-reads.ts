@@ -1,9 +1,18 @@
-// hand-declared-ok: svc-bank's `bank.deposits.assets` and `bank.deposits.address` outputs are declared inline in its router, not in a browser-safe @intafaced/contracts export; moving them there is a contracts follow-up.
+// hand-declared-ok: svc-bank's `bank.deposits.assets`, `bank.deposits.address` and `bank.deposits.addresses.*` outputs are declared inline in its router, not in a browser-safe @intafaced/contracts export; moving them there is a contracts follow-up.
 import { z } from 'zod';
+import {
+  PAY_CUSTODY_DEPOSIT_REASONS,
+  PAY_CUSTODY_DEPOSIT_STATUSES,
+  payDepositTravelRuleDeclareInputSchema,
+  payDepositTravelRuleGetInputSchema,
+  payDepositTravelRuleViewSchema,
+  type PayDepositTravelRuleView,
+} from '@intafaced/contracts/pay-custody-deposit';
 import { useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema } from '../../shared/money';
 import type { ApiClient, ApiResult } from '../../shared/api';
+import { contractProcedure, readContract } from '../../shared/contract-call';
 
 /** What custody says can be paid in. Every number is the service's own decimal or count; nothing here is typed by hand. */
 export const depositNetworkSchema = z.object({
@@ -22,8 +31,24 @@ export const depositNetworkSchema = z.object({
 });
 export type DepositNetworkView = z.infer<typeof depositNetworkSchema>;
 
+/**
+ * A pair switched off: listed so the person sees why, never given an address. `haltNote` is the owner's line, as written.
+ * `blockedBy: 'registry'` is a pair the supported asset list does not allow, with the asset's state there (null: not listed).
+ */
+export const depositHaltedSchema = z.object({
+  assetId: z.string().min(1),
+  networkId: z.string().min(1),
+  label: z.string().min(1),
+  haltNote: z.string().min(1).nullable(),
+  blockedBy: z.literal('registry').optional(),
+  assetState: z.enum(['active', 'halted', 'retired']).nullable().optional(),
+});
+export type DepositHaltedView = z.infer<typeof depositHaltedSchema>;
+
 export const depositCatalogueSchema = z.object({
   assets: z.array(z.object({ assetId: z.string().min(1), networks: z.array(depositNetworkSchema) })),
+  /** Absent from an older bank: none are known to be switched off. */
+  halted: z.array(depositHaltedSchema).optional(),
 });
 export type DepositCatalogue = z.infer<typeof depositCatalogueSchema>;
 
@@ -35,6 +60,29 @@ export const depositAddressSchema = z.object({
   qrPayload: z.string().nullable(),
 });
 export type DepositAddressView = z.infer<typeof depositAddressSchema>;
+
+/** One of the person's deposit addresses (W-deposit-02): the first (number 0, never expires) or an extra one. */
+export const depositAddressItemSchema = z.object({
+  assetId: z.string().min(1),
+  networkId: z.string().min(1),
+  addressIndex: z.number().int().nonnegative(),
+  address: z.string().min(1),
+  memo: z.string().nullable(),
+  qrPayload: z.string().nullable(),
+  label: z.string().min(1).nullable(),
+  createdAt: z.string(),
+  expiresAt: z.string().nullable(),
+  state: z.enum(['active', 'expired']),
+});
+export type DepositAddressItem = z.infer<typeof depositAddressItemSchema>;
+
+/** The address list, with the founders' cap and expiry window, null while they are not set. */
+export const depositAddressListSchema = z.object({
+  items: z.array(depositAddressItemSchema),
+  cap: z.number().int().positive().nullable(),
+  expiryDays: z.number().int().positive().nullable(),
+});
+export type DepositAddressList = z.infer<typeof depositAddressListSchema>;
 
 export function createDepositReads(api: ApiClient) {
   return {
@@ -53,6 +101,17 @@ export function createDepositReads(api: ApiClient) {
           }
         : result;
     },
+    addresses: (assetId: string, networkId: string, signal?: AbortSignal): Promise<ApiResult<DepositAddressList>> =>
+      api.query('bank', 'deposits.addresses.list', { assetId, networkId }, depositAddressListSchema, { signal }),
+    createAddress: (assetId: string, networkId: string, label: string | null): Promise<ApiResult<DepositAddressItem>> =>
+      api.mutate('bank', 'deposits.addresses.create', { assetId, networkId, label }, depositAddressItemSchema),
+    labelAddress: (
+      assetId: string,
+      networkId: string,
+      addressIndex: number,
+      label: string | null,
+    ): Promise<ApiResult<DepositAddressItem>> =>
+      api.mutate('bank', 'deposits.addresses.label', { assetId, networkId, addressIndex, label }, depositAddressItemSchema),
   };
 }
 
@@ -61,27 +120,29 @@ export function useDepositCatalogue() {
   return useResource<DepositCatalogue>(async (signal) => createDepositReads(api).assets(signal), `${userId}:deposit-catalogue`);
 }
 
-/** The states and reasons a deposit record can carry (W-deposit-05). Declared here for the same reason as the schemas above. */
-export const DEPOSIT_STATUSES = [
-  'detected',
-  'confirming',
-  'credited',
-  'below_minimum',
-  'held_for_screening',
-  'rejected',
-  'reversed',
-  'needs_review',
-] as const;
+/** The states and reasons a deposit record can carry (W-deposit-05), svc-pay's own lists. */
+export const DEPOSIT_STATUSES = PAY_CUSTODY_DEPOSIT_STATUSES;
 export type DepositStatus = (typeof DEPOSIT_STATUSES)[number];
-export const DEPOSIT_REASONS = [
-  'below_minimum',
-  'amount_mismatch',
-  'unknown_asset',
-  'minimum_unset',
-  'confirmations_unset',
-  'chain_reorg',
-  'reversal_unfunded',
-] as const;
+export const DEPOSIT_REASONS = PAY_CUSTODY_DEPOSIT_REASONS;
+
+/** A deposit held for the inbound travel rule (W-deposit-07): the depositor's own record and declaration, straight from svc-pay. */
+export const depositTravelRuleGet = contractProcedure('pay', 'custodyDeposit.travelRule.get', {
+  input: payDepositTravelRuleGetInputSchema,
+  output: payDepositTravelRuleViewSchema,
+});
+export const depositTravelRuleDeclare = contractProcedure('pay', 'custodyDeposit.travelRule.declare', {
+  input: payDepositTravelRuleDeclareInputSchema,
+  output: payDepositTravelRuleViewSchema,
+});
+export type DepositTravelRuleView = PayDepositTravelRuleView;
+
+export function useDepositTravelRule(depositId: string) {
+  const { api, userId } = useSession();
+  return useResource<DepositTravelRuleView>(
+    (signal) => readContract(api, depositTravelRuleGet, { depositId }, { signal }),
+    `${userId}:deposit-travel-rule:${depositId}`,
+  );
+}
 
 export const depositPendingSchema = z.object({
   items: z.array(

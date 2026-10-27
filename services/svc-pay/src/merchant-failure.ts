@@ -24,6 +24,7 @@ const FAILURE_CATALOG: Readonly<Record<string, string>> = {
   'chain.unavailable': 'The network could not be reached.',
   'chain.not_configured': 'This payout network is not configured.',
   'refund.destination_missing': 'The refund has no destination.',
+  'refund.destination_ambiguous': 'The payment came from more than one address, so the refund has no single destination.',
   'refund.invalid_amount': 'The refund amount is not valid.',
   'refund.exceeds_captured': 'The refund is larger than the captured amount.',
   'payout.invalid_amount': 'The payout amount is not valid.',

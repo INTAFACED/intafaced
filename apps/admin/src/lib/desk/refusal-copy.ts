@@ -22,6 +22,136 @@ interface Entry {
 }
 
 const BY_CODE: Readonly<Record<string, Entry>> = {
+  'ops.hold_storage_unconfigured': {
+    title: 'Staff holds have no storage',
+    body: 'svc-ops has no database configured for staff holds, so none can be read or placed. Nothing was changed.',
+    next: 'Ask whoever runs the svc-ops host to connect its database.',
+  },
+  'ops.hold_ledger_unconfigured': {
+    title: 'svc-ops is not connected to the ledger',
+    body: 'svc-ops has no ledger address or credential, so nothing can be held, released or confirmed. Nothing was changed.',
+    next: 'Ask whoever runs the svc-ops host to set its ledger address.',
+  },
+  'ops.hold_state_illegal': {
+    title: 'The hold cannot take that now',
+    body: 'Either nothing is left on the hold, or another action on it is still waiting for the ledger’s answer. Nothing was changed.',
+    next: 'Read the holds again, then decide on what is left.',
+  },
+  'ops.hold_amount_exceeds_remaining': {
+    title: 'More than is held',
+    body: 'The amount is more than the hold still holds, so nothing was released and the approval was not spent.',
+    next: 'Read the hold again and ask for at most what is still held.',
+  },
+  'ops.hold_expiry_unset': {
+    title: 'No longest hold expiry is set',
+    body: 'The owner has not set how long a hold may last, so a hold cannot be given an expiry. Nothing was held.',
+    next: 'Place it without an expiry, or ask the owner to set the longest expiry.',
+  },
+  'ops.hold_expiry_too_long': {
+    title: 'That expiry is too long',
+    body: 'The expiry is longer than the owner allows. Nothing was held.',
+    next: 'Give a shorter expiry.',
+  },
+  'ops.idempotency_conflict': {
+    title: 'A hold from this list was already asked for',
+    body: 'An earlier place from this list of holds asked for a different hold, and svc-ops keeps that one. This one was not placed.',
+    next: 'Read the holds again: once the list shows the earlier hold, a new one can be placed.',
+  },
+  'ops.hold_not_found': {
+    title: 'No such hold',
+    body: 'svc-ops has no hold with that number. Nothing was changed.',
+    next: 'Read the holds again.',
+  },
+  'ledger.insufficient_funds': {
+    title: 'Not enough available',
+    body: 'The ledger refused: the customer does not have that much available. Nothing was moved.',
+    next: 'Read the customer’s balance and ask for less.',
+  },
+  'ops.console_read_only': {
+    title: 'The console is in maintenance mode',
+    body: 'Two founders turned on maintenance mode, so this console takes no writes. Reads still work, and so do the halts. Nothing was sent.',
+    next: 'Wait for maintenance to end, or ask two founders to turn the mode off on Tools → Maintenance mode.',
+  },
+  'ops.console_mode_storage_unconfigured': {
+    title: 'Maintenance mode has no storage',
+    body: 'svc-ops has no database configured for the console mode, so it cannot be turned on or off, and it is never on. Nothing was changed.',
+    next: 'Ask whoever runs the svc-ops host to connect its database, then start a new request.',
+  },
+  'ops.banner_window_invalid': {
+    title: 'That window cannot be shown',
+    body: 'The announcement’s window ends before it starts, or it has already ended. Nothing was published.',
+    next: 'Pick a start and an end in the future, then try again.',
+  },
+  'ops.banner_conflict': {
+    title: 'Another announcement holds that window',
+    body: 'Only one announcement shows at a time, and a published one already covers part of this window. Nothing was published.',
+    next: 'Withdraw the other announcement first, or pick a window that does not overlap it.',
+  },
+  'ops.announcement_not_found': {
+    title: 'That announcement is not there',
+    body: 'svc-ops has no announcement with that id. Nothing was changed.',
+    next: 'Read the desk again.',
+  },
+  'ops.announcement_withdrawn': {
+    title: 'That announcement was withdrawn',
+    body: 'A withdrawn announcement stays withdrawn. Nothing was published.',
+    next: 'Write a new announcement instead.',
+  },
+  'ops.announcement_storage_unconfigured': {
+    title: 'Announcements have no storage',
+    body: 'svc-ops has no database configured for console announcements, so none can be saved and none shows. Nothing was changed.',
+    next: 'Ask whoever runs the svc-ops host to connect its database.',
+  },
+  'ops.preference_invalid': {
+    title: 'That is not a value the console takes',
+    body: 'A preference was not one svc-ops accepts: a time zone must be a known one such as Europe/Berlin, and a home page a console path such as /ledger. Nothing was saved.',
+    next: 'Correct it and save again.',
+  },
+  'ops.preferences_team_unassigned': {
+    title: 'No team is named for you',
+    body: 'The staff directory names no team for a founder yet, so team preferences cannot be set.',
+    next: 'Set the organisation’s preferences or your own instead.',
+  },
+  'ops.preferences_stale': {
+    title: 'Someone saved these preferences first',
+    body: 'Another save reached svc-ops after you opened this page, so yours was not applied. Nothing of theirs was overwritten.',
+    next: 'The page now shows what is stored. Make your change again and save.',
+  },
+  'ops.preferences_storage_unconfigured': {
+    title: 'Preferences have no storage',
+    body: 'svc-ops has no database configured for console preferences, so every preference is the server’s and none can be saved.',
+    next: 'Ask whoever runs the svc-ops host to connect its database.',
+  },
+  'ops.service_not_found': {
+    title: 'That is not a platform module',
+    body: 'svc-ops knows no module by that name, so it has no service page. Nothing was saved.',
+    next: 'Open the module from the module health board.',
+  },
+  'ops.service_record_invalid': {
+    title: 'That is not a value the service record takes',
+    body: 'An owner team is at most 80 characters, a runbook is a path inside docs/runbooks/ ending in .md, and each dependency is another platform module, once. Nothing was saved.',
+    next: 'Correct the field it names and save again.',
+  },
+  'ops.service_record_stale': {
+    title: 'Someone saved this service record first',
+    body: 'Another save reached svc-ops after you opened this page, so yours was not applied. Nothing of theirs was overwritten.',
+    next: 'The page now shows what is stored. Make your change again and save.',
+  },
+  'ops.service_storage_unconfigured': {
+    title: 'Service records have no storage',
+    body: 'svc-ops has no database configured for service records, so no owner, dependency or runbook can be read or saved.',
+    next: 'Ask whoever runs the svc-ops host to connect its database.',
+  },
+  'ops.service_owner_unset': {
+    title: 'Owner not set',
+    body: 'Nobody has named the team that owns this module, so no owner is shown rather than a guess.',
+    next: 'Set the owner team on the module’s service page.',
+  },
+  'ops.service_source_unavailable': {
+    title: 'One panel could not be read',
+    body: 'The source behind this panel did not answer or refused, so it shows nothing in place of its data. The other panels are unaffected.',
+    next: 'Reload the page to read it again.',
+  },
   'custody_approval.initiator_cannot_decide': {
     title: 'A different approver has to decide this',
     body: 'The person who started a task cannot approve or reject it. Nothing was recorded.',
@@ -66,6 +196,26 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     title: 'That approval is not for this change',
     body: 'Identity checked the approval against this account, its current version and the reason, and they differ, or the approval was made or signed by someone it does not accept for this account. Nothing was changed and the approval was not used.',
     next: 'Read the account again and make a new request.',
+  },
+  'deposit_freeze.address_unknown': {
+    title: 'That is not one of this account’s deposit addresses',
+    body: 'svc-pay found no deposit address of this account on that network matching it. Nothing was changed.',
+    next: 'Read the account’s deposit addresses again and pick the row from there.',
+  },
+  'deposit_freeze.already_frozen': {
+    title: 'This deposit address is already frozen',
+    body: 'svc-pay already holds an open freeze on this address, so nothing new was placed. Deposits to it stay on hold.',
+    next: 'Read the deposit addresses again to see the freeze, who placed it and why.',
+  },
+  'deposit_freeze.not_frozen': {
+    title: 'This deposit address is not frozen',
+    body: 'svc-pay holds no open freeze on this address, so there was nothing to lift. Nothing was changed and the approval was not used.',
+    next: 'Read the deposit addresses again: if an earlier run went through and its answer was lost, the freeze is already lifted.',
+  },
+  'deposit_freeze.freeze_changed': {
+    title: 'The freeze changed since it was read',
+    body: 'The approval is for one freeze, and the address now has a different one (it was lifted and placed again), or someone lifted it first. Nothing was changed.',
+    next: 'Read the deposit addresses again and make a new request for the freeze that is open now.',
   },
   restriction_approval_consumed: {
     title: 'That approval was already used',
@@ -162,6 +312,41 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'A founder does not change the tier of their own account. Nothing was changed.',
     next: 'The other founder can make the request.',
   },
+  'identity.account_archived': {
+    title: 'This customer record is archived',
+    body: 'Identity keeps an archived record read-only: it cannot be frozen, unfrozen, reopened or archived again. Nothing was changed and any approval was not used.',
+    next: 'Nothing to do here: an archive is not undone from the console.',
+  },
+  'identity.archive_blocked_open_account': {
+    title: 'The account is still open',
+    body: 'Identity archives only a closed account. Nothing was changed and the approval was not used.',
+    next: 'Close the account first (Close or reopen), then ask again at the new control version.',
+  },
+  'identity.archive_requires_approver': {
+    title: 'Archiving needs a second person',
+    body: 'Identity archives a customer record only with an approval a different person signed. Nothing was changed.',
+    next: 'Make the request, send the packet to the other founder, and run it once they approve.',
+  },
+  'identity.archive_approval_mismatch': {
+    title: 'That approval is not for this archive',
+    body: 'Identity checked the approval against this account, its current version, the reason code and the reason, and they differ, or the approval was made or signed by someone it does not accept for this account. Nothing was changed and the approval was not used.',
+    next: 'Read the account again and make a new request.',
+  },
+  'identity.archive_approval_consumed': {
+    title: 'That approval was already used',
+    body: 'Identity spends an archive approval once. Nothing more was changed.',
+    next: 'Read the account again; if it is not archived, make a new request.',
+  },
+  'identity.archive_founder_forbidden': {
+    title: 'A founder record cannot be archived here',
+    body: 'Identity refuses to archive either founder record from the console. Nothing was changed.',
+    next: 'Nothing to do here.',
+  },
+  'identity.archive_self_forbidden': {
+    title: 'You cannot archive your own record',
+    body: 'Identity refuses an archive of the signed-in founder’s own record. Nothing was changed.',
+    next: 'Nothing to do here.',
+  },
   'identity.tier_account_closed': {
     title: 'The account is closed',
     body: 'Identity does not move a closed account onto a tier. Nothing was changed.',
@@ -182,6 +367,61 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'An approval runs once. Nothing was changed by this attempt.',
     next: 'Read the account again: if an earlier run went through and its answer was lost, the move is already there. If it still needs doing, make a new request.',
   },
+  'identity.limit_ceiling_unset': {
+    title: 'No limit override policy is set',
+    body: 'The owner has not set the limit override policy (IDENTITY_LIMIT_OVERRIDE_POLICY) for this rail and asset: the longest an override may last and the ceiling above which it needs the other founder. Identity sets no override without it. Nothing was changed.',
+    next: 'The owner sets the policy; nothing here fills it in.',
+  },
+  'identity.limit_expiry_past': {
+    title: 'That end time has already passed',
+    body: 'An override must end after now. Nothing was changed.',
+    next: 'Choose a later end time.',
+  },
+  'identity.limit_lifetime_exceeded': {
+    title: 'That override would last too long',
+    body: 'The owner’s policy caps how long an override may last, and this one ends after that. Nothing was changed.',
+    next: 'Choose an end time within the longest lifetime shown.',
+  },
+  'identity.limit_unchanged': {
+    title: 'That override is already in force',
+    body: 'The same figures and end time are already set. Nothing was changed.',
+    next: 'Read the account again.',
+  },
+  'identity.limit_self_forbidden': {
+    title: 'You cannot change your own limits',
+    body: 'A founder does not override the limits of their own account. Nothing was changed.',
+    next: 'The other founder can make the change.',
+  },
+  'identity.limit_account_closed': {
+    title: 'The account is closed',
+    body: 'Identity sets no limit override on a closed account. Nothing was changed.',
+    next: 'Reopen the account first if that is allowed.',
+  },
+  'identity.limit_requires_approver': {
+    title: 'Above the ceiling, a second founder must approve',
+    body: 'This override goes above the owner’s ceiling for its rail and asset, so identity sets it only with the other founder’s approval. Nothing was changed.',
+    next: 'Ask the other founder to approve the request, then run it.',
+  },
+  'identity.limit_approval_mismatch': {
+    title: 'That approval is not for this override',
+    body: 'The approval does not match this account, rail, asset, figures, end time, reason or override version, was not approved by a different founder who is still a founder, or has expired. Nothing was changed.',
+    next: 'Read the account again and make a new request if it still needs doing.',
+  },
+  'identity.limit_approval_consumed': {
+    title: 'That approval was already used',
+    body: 'An approval runs once. Nothing was changed by this attempt.',
+    next: 'Read the account again: if an earlier run went through and its answer was lost, the override is already there. If it still needs doing, make a new request.',
+  },
+  'identity.limit_override_not_found': {
+    title: 'No override is in force',
+    body: 'There is no override of this rail and asset to end. The base limit applies. Nothing was changed.',
+    next: 'Read the account again.',
+  },
+  'identity.limit_override_expired': {
+    title: 'That override has already ended',
+    body: 'Its stored end time has passed, so the base limit applies again. Nothing was changed.',
+    next: 'Read the account again.',
+  },
   'action_approval.same_person': {
     title: 'A different founder has to do this',
     body: 'The person who made the request cannot approve it or reject it. Identity enforces this.',
@@ -201,6 +441,36 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     title: 'The second approver has not approved this yet',
     body: 'Identity will not let this run until a different approver has approved exactly this request: another operator for a module kill or re-enable, another founder for a ledger unfreeze. Nothing was changed.',
     next: 'Ask the second approver to approve the request packet, then run it.',
+  },
+  'drop.wave_unset': {
+    title: 'The wave size is not set',
+    body: 'Nobody can be released until the owner sets how many people one waitlist wave releases (IDENTITY_WAITLIST_WAVE_SIZE). Nothing was released and no approval was spent.',
+    next: 'Ask the owner to set the wave size in the identity service settings, then start a new request.',
+  },
+  'waitlist.wave_unknown': {
+    title: 'That is not the next wave',
+    body: 'Waves are released in order, and another release may have landed since you read the desk. Nothing was released.',
+    next: 'Read the waves below and request the wave number shown as next.',
+  },
+  'waitlist.wave_empty': {
+    title: 'Nobody is waiting',
+    body: 'Every person on the waitlist has already been released, so there is nobody to invite. Nothing was released.',
+    next: 'Read the waves below. Release again once more people have joined.',
+  },
+  'waitlist.unbuilt': {
+    title: 'The waitlist is not connected',
+    body: 'Identity has no waitlist store on this host, so no wave can be released. Nothing was released.',
+    next: 'Ask whoever runs the identity host to connect the waitlist database, then start a new request.',
+  },
+  'flag.waitlist.enabled.disabled': {
+    title: 'The waitlist is switched off',
+    body: 'The waitlist.enabled switch is off, so identity releases no wave. Nothing was released.',
+    next: 'Turn the waitlist back on first, then start a new request.',
+  },
+  'flag.waitlist.enabled.drop_pending': {
+    title: 'The waitlist has not opened yet',
+    body: 'The waitlist.enabled switch is waiting for its launch drop, so identity releases no wave yet. Nothing was released.',
+    next: 'Release once the waitlist is open.',
   },
   'auth_key.approval_required': {
     title: 'The approval did not cover this key change',
@@ -293,6 +563,32 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'svc-edge refused it before doing anything.',
     next: 'Start from the request step.',
   },
+  'kyc_doc.unwired': {
+    title: 'Identity’s document vault is switched off',
+    body: 'Its encryption key (IDENTITY_KYC_DOC_KEY) is not set on this deployment, so no document can be stored, listed or opened. Nothing was read.',
+    next: 'The key is an owner setting. Ask engineering to set it.',
+  },
+  'kyc_doc.not_found': {
+    title: 'Identity holds no such document',
+    body: 'The document is not in identity’s vault (it may have been deleted), so nothing was shown. Identity spent the approval on the attempt.',
+    next: 'Read the account’s document list again; opening another document needs a new request.',
+  },
+  'kyc_doc.reviews_unwired': {
+    title: 'Identity cannot say which verification each document belongs to',
+    body: 'Its document vault is on, but the lookup of each document’s verification is not wired on this deployment, so identity refuses the list rather than show every document as not attached.',
+    next: 'Tell engineering: identity’s boot is missing the document review lookup.',
+  },
+  'kyc_doc.reader_not_requester': {
+    title: 'Only the founder who asked can open this document',
+    body: 'Identity opens a document only for the person who made the request, never for the approver or anyone else holding the packet. Nothing was shown.',
+    next: 'The founder who asked runs it on their own console.',
+  },
+  'kyc_doc.decrypt_failed': {
+    title: 'Identity could not decrypt the document',
+    body: 'Its stored contents do not open with the vault’s key, so nothing is shown. The approval may have been spent.',
+    next: 'Tell engineering: the vault key or the stored document is damaged.',
+    changed: 'unknown',
+  },
   'action_approval.consume_failed': {
     title: 'Identity refused to release the approval',
     body: 'Most often the second founder has not approved yet, or the approval expired. The command was not run.',
@@ -342,6 +638,82 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     title: 'The edge cannot reach the ledger',
     body: 'svc-edge has no route to svc-ledger on this deployment, so nothing was sent to it.',
     next: 'Ask engineering. Nothing was changed.',
+  },
+  'ops.control_state_illegal': {
+    title: 'Only an active control can run',
+    body: 'svc-ledger refused before it read anything or used the approval: this control is still a draft.',
+    next: 'Activate the control first. Activating changes its version, so ask for a new approval after that.',
+  },
+  'ops.control_margin_unset': {
+    title: 'A run at a past instant needs a margin',
+    body: 'Neither the request nor the control names how many seconds before the instant to read, so nothing ran.',
+    next: 'Type a margin (0 is accepted) or set one on the control, then ask for a new approval.',
+  },
+  'ops.control_policy_unset': {
+    title: 'The control is missing a policy value',
+    body: 'Tolerance, schedule and severity are needed (a threshold control also needs a threshold per asset), so it was not activated.',
+    next: 'Fill in the blank values. Nothing was changed.',
+  },
+  'ledger.frozen': {
+    title: 'The ledger is frozen',
+    body: 'The posting freeze is on, so svc-ledger takes no write, metadata included. Reads still work. Nothing was changed, and an approval was not used.',
+    next: 'Wait for the freeze to be lifted, then try again with the same approval.',
+  },
+  'ledger.account_metadata_stale': {
+    title: 'That key changed since you read it',
+    body: 'Someone else set or deleted this key after it was read, so svc-ledger changed nothing.',
+    next: 'Read the account again, and ask for a new approval if this was a delete.',
+  },
+  'ledger.account_metadata_approval_spent': {
+    title: 'The approval was used, but nothing was deleted',
+    body: 'The posting freeze or another change to this key landed in the moment svc-ledger was writing the delete, so it changed nothing. Identity had already spent the approval.',
+    next: 'Read the account again, then ask a second founder for a new approval.',
+  },
+  'ledger.account_metadata_key_absent': {
+    title: 'That key holds no value',
+    body: 'svc-ledger has no value under this key on the account, so there was nothing to delete.',
+    next: 'Read the account again.',
+  },
+  'ledger.account_not_found': {
+    title: 'No ledger account has that id',
+    body: 'svc-ledger has no account with that id, so nothing was read or changed.',
+    next: 'Search the account address again.',
+  },
+  'ledger.account_metadata_invalid': {
+    title: 'The key, value or reason was refused',
+    body: 'A key is lower case (a letter, then letters, digits, _ . : or -, 64 at most), a value is 1 to 500 characters and a reason 12 to 500. Nothing was changed.',
+    next: 'Correct it and try again.',
+  },
+  'ledger.reconcile_asof_invalid': {
+    title: 'That instant is in the future',
+    body: 'A control reads only the past, so svc-ledger refused before it read anything or used the approval.',
+    next: 'Choose a past instant and ask for a new approval.',
+  },
+  'ledger.reconcile_control_not_found': {
+    title: 'No control has that id',
+    body: 'svc-ledger has no reconciliation control with that id, so nothing ran.',
+    next: 'Read the controls again.',
+  },
+  'ledger.reconcile_builtin_immutable': {
+    title: 'Built-in controls cannot be changed',
+    body: 'The three built-in controls cover the whole book and cannot be changed or removed. Nothing was changed.',
+    next: 'Define a new control instead.',
+  },
+  'ledger.reconcile_source_unavailable': {
+    title: 'svc-ledger could not reach its book',
+    body: 'The control could not be read or run. A result row may already exist for this run.',
+    next: 'Read the controls again before repeating anything.',
+    changed: 'unknown',
+  },
+  'ledger.idempotency_conflict': {
+    title: 'This approval was used for a different run',
+    body: 'svc-ledger keeps one run per approval. The same operation with another reason, instant or margin is refused, and nothing new ran.',
+    next: 'Ask for a new approval.',
+  },
+  'edge.invalid_reconciliation_control': {
+    title: 'The request was refused for its shape',
+    body: 'svc-edge checked it against the contract and refused it before the ledger was called. The approval was not used.',
+    next: 'Tell engineering: the console and the edge disagree about the contract.',
   },
   'notify.notice_publish_same_operator': {
     title: 'The approver cannot also publish',
@@ -407,6 +779,11 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     title: 'That notice is not published',
     body: 'Only a published notice has deliveries to send again. Nothing was sent.',
     next: 'Read the desk again and pick a published notice.',
+  },
+  'notify.notice_audience_invalid': {
+    title: 'That audience is not one an announcement can have',
+    body: 'An announcement is for everyone, or for P2P merchants only. Incidents, maintenance and changelog entries are always for everyone. Nothing was saved.',
+    next: 'Choose everyone or P2P merchants.',
   },
   'status.category_unknown': {
     title: 'That category is not on the list',
@@ -718,6 +1095,141 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'A block of this lesson is over the lesson format’s limits, so it was refused before it was stored.',
     next: 'Shorten the lesson or split the section, then try again. Nothing was changed.',
   },
+  'academy.assignment_not_found': {
+    title: 'Not an assignment',
+    body: 'This item is not an assignment, or it has no brief to change.',
+    next: 'Read the course again. Nothing was changed.',
+  },
+  'academy.quiz_not_found': {
+    title: 'Not a quiz',
+    body: 'This outline item is not a quiz, so it has no questions or attempt rules.',
+    next: 'Read the course again. Nothing was changed.',
+  },
+  'academy.quiz_no_questions': {
+    title: 'The quiz has no questions',
+    body: 'A quiz with no questions is not published, because there is nothing to take.',
+    next: 'Add at least one question and save, then publish. Nothing was published.',
+  },
+  'academy.pass_mark_unset': {
+    title: 'The pass mark is not set',
+    body: 'Learners could not be marked passed or failed, so a quiz with no pass mark is not published. A pass mark of 0 means taking it completes it.',
+    next: 'Set the pass mark and save, then publish. Nothing was published.',
+  },
+  'academy.scoring_policy_unset': {
+    title: 'No scoring policy for more than one attempt',
+    body: 'This quiz allows more than one attempt, so it needs to say which attempt counts: highest, latest, first or average.',
+    next: 'Choose a scoring policy, or allow one attempt, and save. Nothing was published.',
+  },
+  'academy.item_has_attempts': {
+    title: 'Learners have taken this quiz',
+    body: 'A quiz with attempts keeps its questions and stays published, so every attempt is read against what was asked.',
+    next: 'Its rules can still change. To ask different questions, add a new quiz item. Nothing was changed.',
+  },
+  'academy.assessment_invalid': {
+    title: 'The quiz does not add up',
+    body: 'svc-academy found this quiz inconsistent: for example a pass mark above the questions’ points together, an essay score above its question’s points, or an access code or IP filter on a survey.',
+    next: 'Check the pass mark, points, answers and scores, then try again. Nothing was saved.',
+  },
+  'academy.attempt_closed': {
+    title: 'Already scored',
+    body: 'This attempt is not waiting for an essay score any more: it was scored already.',
+    next: 'Read the quiz again. Nothing was changed.',
+  },
+  'academy.prerequisite_cycle': {
+    title: 'That would make a loop',
+    body: 'With this set, an item would end up requiring itself, directly or through other items, so no learner could open any of them.',
+    next: 'Remove one of the items that leads back. Nothing was saved.',
+  },
+  'academy.window_invalid': {
+    title: 'That date or window does not work',
+    body: 'Academy found the dates out of order: for example a learner’s own due date not after the assignment’s, an assignment with no due date to move, or a window that ends before it starts.',
+    next: 'Check the dates and try again. Nothing was saved.',
+  },
+  'academy.enrolment_required': {
+    title: 'Not enrolled',
+    body: 'That account is not enrolled in this course.',
+    next: 'Check the learner’s account id. Nothing was changed.',
+  },
+  'academy.weights_invalid': {
+    title: 'The weights do not add up to 1',
+    body: 'The weights of all the types together must come to exactly 1, for example 0.6 and 0.4.',
+    next: 'Change the weights so they add up to 1. Nothing was saved.',
+  },
+  'academy.grading_policy_invalid': {
+    title: 'The grading policy does not fit the course',
+    body: 'Each item may sit in one type only, a type may not drop every score it holds, two types may not share a name, and only the course’s assignments and graded quizzes count.',
+    next: 'Correct the types and save again. Nothing was saved.',
+  },
+  'academy.prerequisite_unmeasured': {
+    title: 'That item cannot be required',
+    body: 'A lesson, video, file or link records no completion on a course staff made, so no learner could ever meet it.',
+    next: 'Require an assignment or a quiz instead. Nothing was saved.',
+  },
+  'academy.pacing_locked': {
+    title: 'Pacing is fixed',
+    body: 'Learners have enrolled in this course, so its pacing stays as it was when they joined.',
+    next: 'Section release dates can still change. Nothing was changed.',
+  },
+  'academy.not_released_yet': {
+    title: 'Not open yet',
+    body: 'This section is scheduled and has not opened for this learner yet.',
+    next: 'It opens at the time shown. Nothing was changed.',
+  },
+  'academy.attempt_not_found': {
+    title: 'No such attempt',
+    body: 'This attempt is not on record.',
+    next: 'Read the quiz again. Nothing was changed.',
+  },
+  'academy.ip_rule_invalid': {
+    title: 'An IP filter entry is not an address',
+    body: 'Each entry is one address or a CIDR range, such as 203.0.113.7 or 203.0.113.0/24.',
+    next: 'Correct the entry and save. Nothing was saved.',
+  },
+  'academy.assignment_closed': {
+    title: 'Assignment withdrawn',
+    body: 'This assignment was withdrawn, so its brief is not edited and learners hand in nothing more.',
+    next: 'Nothing was changed. What learners handed in stays readable to them.',
+  },
+  'academy.grader_locked': {
+    title: 'Another grader holds this hand-in',
+    body: 'Someone else opened this hand-in for grading and their hold has not run out, so two grades never cross.',
+    next: 'Grade another hand-in, or try this one again later. Nothing was changed.',
+  },
+  'academy.grader_lease_unset': {
+    title: 'The grader hold time is not set',
+    body: 'The owner has not set how long a grader holds a hand-in, so no hand-in is graded.',
+    next: 'Ask the owner to set the grader hold time. Nothing was changed.',
+  },
+  'academy.grade_invalid': {
+    title: 'That score is above the points',
+    body: 'A score runs from 0 to the assignment’s points, with at most two decimals.',
+    next: 'Correct the score and save again. Nothing was changed.',
+  },
+  'academy.reason_required': {
+    title: 'A reason is needed',
+    body: 'Changing a grade that was already saved is an override, and an override keeps its reason.',
+    next: 'Say why the grade changes, then save again. Nothing was changed.',
+  },
+  'academy.submission_not_found': {
+    title: 'Not a hand-in to grade',
+    body: 'This is not the newest hand-in of a learner on this assignment.',
+    next: 'Read the queue again. Nothing was changed.',
+  },
+  'academy.peer_count_unset': {
+    title: 'Peer review has no review count',
+    body: 'Peer review is on, but how many classmates each learner reviews is not set, so learners could not be handed work.',
+    next: 'Set the number of reviews each learner gives, or turn peer review off. Nothing was changed.',
+  },
+  'academy.rubric_invalid': {
+    title: 'The rubric is not complete',
+    body: 'A peer or self review is scored against a rubric: at least one criterion, each with its own name.',
+    next: 'Add a criterion or rename one of the two alike. Nothing was changed.',
+  },
+  'academy.assignment_has_submissions': {
+    title: 'Learners handed in to this assignment',
+    body: 'An assignment learners handed in to stays in the outline, so their work stays readable.',
+    next: 'Withdraw the assignment from its page instead. The outline was not saved.',
+  },
   'academy.upload_limits_unset': {
     title: 'The upload limits are not set',
     body: 'The owner has not set the largest file the desk uploads, or the video or handout types it accepts, so no file is uploaded.',
@@ -873,10 +1385,16 @@ export function explainRefusal(code: string | null, status: number, uncertain = 
 /**
  * Edge and ledger wrap identity's failure into a sentence that carries the typed code in square brackets
  * (`identity refused consumeForEdge (412) ... [action_approval.not_approved]`). Pull it out so the desk can
- * explain it. Returns the first known `action_approval.*` code in the text, or null.
+ * explain it. A bracketed code is identity's own and wins over the wrapper's: svc-ops sends
+ * `action_approval.identity_unwired — identity refused consume (412) ... [action_approval.not_approved]` for any refusal, and
+ * the founder must read "not approved yet", not "not connected". Otherwise the first known `action_approval.*` code, or null.
  */
 export function codeInText(text: string | null | undefined): string | null {
   if (!text) return null;
+  for (const match of text.matchAll(/\[(action_approval\.[a-z_]+)\]/g)) if (isKnownCode(match[1])) return match[1];
   for (const match of text.matchAll(/\b(action_approval\.[a-z_]+)\b/g)) if (isKnownCode(match[1])) return match[1];
+  // svc-pay's deposit address freezes put their code first: `deposit_freeze.not_frozen: …`.
+  const freeze = /^(deposit_freeze\.[a-z_]+):/.exec(text)?.[1];
+  if (freeze && isKnownCode(freeze)) return freeze;
   return null;
 }

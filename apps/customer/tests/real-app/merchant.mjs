@@ -20,9 +20,16 @@ export async function businessReadyPerson(page, prefix, destination = '/pay/merc
   return who;
 }
 
-/** The sign-in form, with the authenticator's next code once the person has one. */
+/**
+ * The sign-in form, with the authenticator's next code once the person has one. The form is used only once the page's
+ * own session check (`auth.refresh`) has answered: a sign-in sent while that answer lands is discarded by the form as
+ * "sign-in context changed", which a person typing never meets but a script filling in 200 ms does.
+ */
 export async function signInWithCode(page, who, destination) {
+  const restored = page.waitForResponse((r) => r.url().includes('auth.refresh'), { timeout: 10_000 }).catch(() => null);
   await page.goto(`/login?redirect=${encodeURIComponent(destination)}`);
+  await restored;
+  await expect(page.getByRole('button', { name: /^sign in$/i })).toBeEnabled();
   if (who.secret) {
     const { code, step } = await nextCode(who.totp, who.secret, who.step);
     who.step = step;
@@ -53,13 +60,36 @@ export async function openBusiness(page, who, legalName = 'TEST Merchant Ltd') {
   return (Array.isArray(sent) ? sent[0] : sent).result.data.id;
 }
 
+/**
+ * Once the stack's category table has categories (J-merchant-02 #7 adds one), approval needs a chosen category that
+ * INTAFACED takes (RC-merchant-08). The owner picks the first taken one with its terms set; an empty table asks nothing.
+ */
+async function chooseTakenCategory(page) {
+  await page.goto('/pay/compliance');
+  const section = page
+    .locator('section[data-testid="pay-section"]')
+    .filter({ has: page.getByRole('heading', { name: 'Business category' }) });
+  const all = section.getByRole('list', { name: 'Every category' });
+  await expect(section.getByTestId('category-no-rule').or(all)).toBeVisible();
+  if (!(await all.isVisible())) return;
+  for (const item of await all.getByRole('listitem').all()) {
+    const text = (await item.textContent()) ?? '';
+    if (text.includes('Not taken') || text.includes('Not set.')) continue;
+    await section.getByLabel('Your business category').selectOption({ label: await item.getAttribute('aria-label') });
+    await section.getByRole('button', { name: 'Save category' }).click();
+    await expect(section.getByText('Your category was saved.')).toBeVisible();
+    return;
+  }
+}
+
 /** Step 2 of setup: the owner sends a TEST verification reference, then the stack's founder pair approves it through
  * svc-pay's two-person door (`local-test-world.mjs approve-kyb`). The owner signs in again after, for the new grant. */
 export async function verifiedBusiness(page, who, merchantId) {
+  await chooseTakenCategory(page);
   await page.goto('/pay/onboarding/verification');
   await page.getByLabel('Verification file reference *').fill(`TEST-kyb-${who.handle}`);
   await page.getByRole('button', { name: 'Send for review' }).click();
-  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
   await expect(page.getByText('INTAFACED is reviewing it')).toBeVisible();
   const decided = JSON.parse(tool('local-test-world.mjs', 'approve-kyb', merchantId).trim().split('\n').pop());
   expect(decided.kybStatus).toBe('approved');

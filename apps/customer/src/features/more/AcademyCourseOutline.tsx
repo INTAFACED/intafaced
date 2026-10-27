@@ -230,6 +230,11 @@ export function CourseOutlineView({ outline, current }: { outline: AcademyCourse
           );
         })}
       </ol>
+      {outline.items.length > 0 && outline.items.every((row) => row.state === 'completed') && (
+        <p role="status" data-testid="course-complete">
+          {t('courseComplete')}
+        </p>
+      )}
       <div className="academy-outline-nav">
         {outline.items.some(opens) ? (
           <>

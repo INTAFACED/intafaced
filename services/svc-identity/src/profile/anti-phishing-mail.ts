@@ -24,6 +24,17 @@ export const ANTI_PHISHING_MAIL_PURPOSES: ReadonlySet<MailPurpose> = new Set<Mai
   'email-change-notice',
   'handle-recovery',
   'signup-existing',
+  'login-code',
+  'new-device-code',
+  'withdraw-address-approval',
+  'password-changed',
+  'mfa-reset-code',
+  'mfa-reset-started',
+  'mfa-reset-cancelled',
+  'mfa-reset-completed',
+  'factor-changed',
+  'support-recovery',
+  'support-recovery-used',
 ]);
 
 /** The code set on the account (by id, else by its address), or null (no account, no code, no key, or unreadable). */

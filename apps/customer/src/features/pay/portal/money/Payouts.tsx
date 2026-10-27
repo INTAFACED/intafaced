@@ -262,7 +262,13 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
           {
             header: t('colTransaction'),
             cell: (r) =>
-              r.payoutReference ? <span className="pp-mono">{r.payoutReference}</span> : <span className="muted">{t('notPaidYet')}</span>,
+              r.payoutReference ? (
+                <span data-testid="pp-mono" className="pp-mono">
+                  {r.payoutReference}
+                </span>
+              ) : (
+                <span className="muted">{t('notPaidYet')}</span>
+              ),
           },
         ]}
         card={(r) => ({

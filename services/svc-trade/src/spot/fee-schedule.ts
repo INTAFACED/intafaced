@@ -9,6 +9,7 @@
  */
 
 import { logRefusalSpec } from '../refusal-spec-log.js';
+import { parseTierProgram, type FeeTierProgram } from './fee-tiers.js';
 
 export const TRADE_FEE_SCHEDULE_ENV = 'TRADE_FEE_SCHEDULE' as const;
 
@@ -37,7 +38,10 @@ export interface FeeScheduleRow {
   /** Zero when `zeroFee`. */
   readonly makerBps: number;
   readonly takerBps: number;
-  /** Null = no rebate published. A positive rebate needs a signed-fee ledger recipe, which does not exist: it refuses at use. */
+  /**
+   * Null or 0 = no rebate. A positive rebate is paid to the maker by the ledger's `tradeFillMakerRebate`, out of the same
+   * fill's taker fee: the row's maker fee must be 0 and the rebate below every taker rate in its pair group.
+   */
   readonly makerRebateBps: number | null;
   /** Null = "no minimum by owner decision". A decimal-string minimum needs an amount-level fee recipe: it refuses at use. */
   readonly minFee: string | null;
@@ -80,7 +84,21 @@ export type OwnerFeeSchedule =
       /** Symbol → pair group. A symbol not listed sits in `defaultPairGroup`. */
       readonly pairGroups?: Readonly<Record<string, string>>;
       readonly defaultPairGroup?: string;
+      /** Tiers by 30-day volume (fee-tiers.ts). Absent or null: every account is on the regular tier. */
+      readonly tierProgram?: FeeTierProgram | null;
+      /** Paying spot fees in the platform token (fee-ifc.ts). Absent or null: the choice refuses `trade.fee_currency_ifc_unset`. */
+      readonly ifcFee?: IfcFeeTerms | null;
     };
+
+/**
+ * The owner's terms for paying a spot fee in the platform token (RC-cex-spot-11). `perUnit` says how many tokens one
+ * unit of each fee asset is worth; there is no index price feed, so this published figure is the conversion, versioned
+ * with the rates. An asset it does not name cannot be paid in the token (`trade.fee_ifc_index_unset`).
+ */
+export interface IfcFeeTerms {
+  readonly tokenAsset: string;
+  readonly perUnit: Readonly<Record<string, string>>;
+}
 
 export const UNPUBLISHED_FEE_SCHEDULE: OwnerFeeSchedule = { published: false };
 
@@ -160,8 +178,12 @@ export function parseFeeScheduleJson(raw: string | null | undefined): OwnerFeeSc
       rows: spot.rows,
       pairGroups: spot.pairGroups,
       defaultPairGroup: spot.defaultPairGroup,
+      tierProgram: parseTierProgram(obj.tierProgram, spot.rows),
+      ifcFee: parseIfcFeeTerms(obj.ifcFee),
     };
   }
+  parseTierProgram(obj.tierProgram, undefined);
+  const ifcFee = parseIfcFeeTerms(obj.ifcFee);
 
   const makerBps = parseBpsDecimalString(obj.makerBps, 'makerBps');
   const takerBps = parseBpsDecimalString(obj.takerBps, 'takerBps');
@@ -173,7 +195,33 @@ export function parseFeeScheduleJson(raw: string | null | undefined): OwnerFeeSc
     takerBps,
     makerRebateBps,
     perpetual,
+    ifcFee,
   };
+}
+
+const ASSET_ID = /^[A-Z0-9]{2,12}$/;
+const POSITIVE_DECIMAL = /^(?:0|[1-9][0-9]{0,19})(?:\.[0-9]{1,18})?$/;
+
+function parseIfcFeeTerms(raw: unknown): IfcFeeTerms | null {
+  if (raw === undefined || raw === null) return null;
+  const blank = (message: string) => new FeeScheduleError(`${TRADE_FEE_SCHEDULE_ENV}.ifcFee${message}`, 'trade.fee_schedule_blank');
+  if (typeof raw !== 'object' || Array.isArray(raw)) throw blank(' must be an object');
+  const obj = raw as Record<string, unknown>;
+  for (const key of Object.keys(obj))
+    if (key !== 'tokenAsset' && key !== 'perUnit') throw blank(`.${key} is not a field of the IFC fee terms`);
+  if (typeof obj.tokenAsset !== 'string' || !ASSET_ID.test(obj.tokenAsset)) throw blank('.tokenAsset must be an asset id');
+  if (!obj.perUnit || typeof obj.perUnit !== 'object' || Array.isArray(obj.perUnit)) throw blank('.perUnit must be an object');
+  const perUnit: Record<string, string> = {};
+  for (const [asset, value] of Object.entries(obj.perUnit as Record<string, unknown>)) {
+    if (!ASSET_ID.test(asset)) throw blank(`.perUnit.${asset} is not an asset id`);
+    if (asset === obj.tokenAsset) throw blank(`.perUnit.${asset}: a fee taken in the token is already paid in it`);
+    if (typeof value !== 'string' || !POSITIVE_DECIMAL.test(value) || !/[1-9]/.test(value)) {
+      throw blank(`.perUnit.${asset} must be a positive decimal string (never a JSON number)`);
+    }
+    perUnit[asset] = value;
+  }
+  if (Object.keys(perUnit).length === 0) throw blank('.perUnit must name at least one fee asset');
+  return { tokenAsset: obj.tokenAsset, perUnit };
 }
 
 const MIN_FEE_DECIMAL = /^[0-9]{1,30}(\.[0-9]{1,18})?$/;
@@ -241,6 +289,38 @@ function parseRowsBlock(obj: Record<string, unknown>): {
   return { rows, pairGroups, defaultPairGroup };
 }
 
+/**
+ * Why `row`'s maker rebate cannot be paid, or null when it can (or it publishes none). The rebate comes out of the
+ * taker's fee on the same fill, so the row's maker fee must be 0, and the taker may sit on any tier of the group.
+ */
+function unpayableRebate(rows: readonly FeeScheduleRow[], row: FeeScheduleRow): string | null {
+  if (row.makerRebateBps === null || row.makerRebateBps === 0) return null;
+  if (row.zeroFee || row.makerBps !== 0) return 'a maker rebate needs makerBps "0" on a row that is not zeroFee';
+  const lowestTaker = Math.min(...rows.filter((other) => other.pairGroup === row.pairGroup).map((other) => other.takerBps));
+  if (row.makerRebateBps >= lowestTaker) return `a maker rebate must be below every taker rate in its pair group (lowest ${lowestTaker})`;
+  return null;
+}
+
+/**
+ * The write doors (the boot env and `admin.fees.set`) refuse a schedule with a rebate no fill could pay, or one on the
+ * flat schedule, which pays none. Reads of a stored version do not: an older version stays readable, and its rebate
+ * reads as none (`makerRebateBpsFor`), so its orders keep settling.
+ */
+export function assertMakerRebatesPayable(schedule: OwnerFeeSchedule): void {
+  if (schedule.published !== true) return;
+  const blank = (message: string) => new FeeScheduleError(`${TRADE_FEE_SCHEDULE_ENV}.${message}`, 'trade.fee_schedule_blank');
+  if (!schedule.rows) {
+    if (schedule.makerRebateBps !== null && schedule.makerRebateBps > 0) {
+      throw blank('makerRebateBps: the flat schedule pays no maker rebate; publish rows with a rebate row instead');
+    }
+    return;
+  }
+  for (const row of schedule.rows) {
+    const why = unpayableRebate(schedule.rows, row);
+    if (why) throw blank(`rows ${row.pairGroup}/${row.tierId}: ${why}`);
+  }
+}
+
 function parsePerpetualRates(raw: unknown): { makerBps: number; takerBps: number } | null {
   if (raw === undefined || raw === null) return null;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -279,8 +359,8 @@ export interface FeeSelector {
  *
  * A symbol not named in `pairGroups` sits in the owner's default pair group. A missing `(group, tier)` row refuses
  * `trade.fee_schedule_blank`: a VIP tier with no row never falls back to the regular rate, and regular never to a VIP one.
- * A positive rebate or a decimal minimum fee refuses too, because no granted ledger recipe carries a signed fee or an
- * amount-level floor; refusing keeps the rebate from showing as paid and the floor from being silently skipped.
+ * A decimal minimum fee refuses too, because no ledger recipe takes an amount-level floor; refusing keeps the floor from
+ * being silently skipped. A maker rebate is not a refusal: it is paid by its own ledger post after the fill.
  */
 export function resolveFeeRow(schedule: Extract<OwnerFeeSchedule, { published: true }>, selector: FeeSelector): FeeScheduleRow | null {
   if (!schedule.rows) return null;
@@ -292,14 +372,6 @@ export function resolveFeeRow(schedule: Extract<OwnerFeeSchedule, { published: t
     throw new FeeScheduleError(
       `${TRADE_FEE_SCHEDULE_ENV} has no row for pair group '${pairGroup}' tier '${tierId}'`,
       'trade.fee_schedule_blank',
-    );
-  }
-  if (row.makerRebateBps !== null && row.makerRebateBps > 0) {
-    logRefusalSpec('trade.rebate_recipe_unavailable');
-    throw new FeeScheduleError(
-      'A maker rebate needs a ledger recipe that carries a signed fee; none exists yet',
-      'trade.rebate_recipe_unavailable',
-      'Maker rebates are not available yet: the ledger has no recipe that pays one.',
     );
   }
   if (row.minFee !== null) {
@@ -321,6 +393,29 @@ export function previewFeeBps(schedule: OwnerFeeSchedule, role: 'maker' | 'taker
 }
 
 export type FeeProduct = 'spot' | 'perpetual';
+
+/**
+ * The maker rebate a spot fill's maker earns on its row, in bps of what the maker paid; 0 when the row publishes none
+ * or one no fill could pay (`assertMakerRebatesPayable`). Only a rows schedule pays one.
+ */
+export function makerRebateBpsFor(schedule: OwnerFeeSchedule, selector: FeeSelector): number {
+  if (schedule.published !== true || !schedule.rows) return 0;
+  const row = resolveFeeRow(schedule, selector);
+  return row ? paidRebateBps(schedule.rows, row) : 0;
+}
+
+function paidRebateBps(rows: readonly FeeScheduleRow[], row: FeeScheduleRow): number {
+  return unpayableRebate(rows, row) === null ? (row.makerRebateBps ?? 0) : 0;
+}
+
+/**
+ * The rebate one fill pays: the maker's published rate, held below the taker rate this fill actually charges (a rank
+ * discount can bring a taker under the rebate), because the ledger pays it out of that same taker fee. 0 = none.
+ */
+export function fundedMakerRebateBps(makerRebateBps: number, makerFeeBps: number, takerFeeBps: number): number {
+  if (makerRebateBps <= 0 || makerFeeBps !== 0 || takerFeeBps <= 1) return 0;
+  return Math.min(makerRebateBps, takerFeeBps - 1);
+}
 
 /** Spot uses the top-level rates. Perpetual uses its own block, or refuses. */
 export function publishedProductBps(
@@ -359,4 +454,93 @@ export function requirePublishedFeeSchedule(schedule: OwnerFeeSchedule): Extract
     throw new FeeScheduleError('Trading fees are not available yet: the maker and taker schedule is not set.', 'trade.fee_schedule_blank');
   }
   return schedule;
+}
+
+/** One tier's published spot rates in one pair group, as the public schedule shows them. */
+export interface PublicFeeRow {
+  readonly tierId: string;
+  readonly zeroFee: boolean;
+  readonly makerBps: number;
+  readonly takerBps: number;
+  readonly makerRebateBps: number | null;
+  /** Absent on the flat schedule, which publishes no minimum either way. */
+  readonly minFee?: string | null;
+  /**
+   * Set when an order on this row is refused although the row is published: a minimum fee that no ledger recipe can
+   * post (`resolveFeeRow`). A page shows the row as not available, never as a rate anyone pays.
+   */
+  readonly refusal?: 'trade.min_fee_recipe_unavailable';
+}
+
+/** The code `resolveFeeRow` refuses a published row with, or undefined when the row can be charged. */
+function rowRefusal(row: FeeScheduleRow): PublicFeeRow['refusal'] {
+  if (row.minFee !== null) return 'trade.min_fee_recipe_unavailable';
+  return undefined;
+}
+
+/** One pair group: the listed spot markets in it and the tiers the owner published a row for. */
+export interface PublicFeeGroup {
+  readonly pairGroup: string;
+  /** The group every symbol not named in `pairGroups` sits in. */
+  readonly isDefault: boolean;
+  readonly symbols: readonly string[];
+  readonly rows: readonly PublicFeeRow[];
+}
+
+/** The flat schedule's one group: every listed market at the regular tier. */
+export const FLAT_PAIR_GROUP = 'all' as const;
+
+/**
+ * The published spot schedule by pair group and tier, for the public fee page and the fee API.
+ *
+ * Every group the owner named appears, even one with no rows at all, so a page can say "not set" for a tier the owner
+ * left blank instead of leaving the group out. `tiers` lists every tier any group publishes, regular first. Nothing is
+ * resolved or defaulted here: a missing `(group, tier)` row is simply absent from that group's rows.
+ */
+export function publicFeeSchedule(
+  schedule: Extract<OwnerFeeSchedule, { published: true }>,
+  spotSymbols: readonly string[],
+): { readonly groups: readonly PublicFeeGroup[]; readonly tiers: readonly string[] } {
+  if (!schedule.rows || !schedule.defaultPairGroup) {
+    return {
+      groups: [
+        {
+          pairGroup: FLAT_PAIR_GROUP,
+          isDefault: true,
+          symbols: [...spotSymbols],
+          rows: [
+            {
+              tierId: REGULAR_FEE_TIER,
+              zeroFee: false,
+              makerBps: schedule.makerBps,
+              takerBps: schedule.takerBps,
+              // The flat schedule pays no rebate, so it publishes none.
+              makerRebateBps: null,
+            },
+          ],
+        },
+      ],
+      tiers: [REGULAR_FEE_TIER],
+    };
+  }
+  const defaultGroup = schedule.defaultPairGroup;
+  const groupOf = (symbol: string) => schedule.pairGroups?.[symbol] ?? defaultGroup;
+  const names = [defaultGroup, ...schedule.rows.map((row) => row.pairGroup), ...Object.values(schedule.pairGroups ?? {})];
+  const groups = [...new Set(names)].map((pairGroup): PublicFeeGroup => ({
+    pairGroup,
+    isDefault: pairGroup === defaultGroup,
+    symbols: spotSymbols.filter((symbol) => groupOf(symbol) === pairGroup),
+    rows: schedule
+      .rows!.filter((row) => row.pairGroup === pairGroup)
+      .map((row) => {
+        const refusal = rowRefusal(row);
+        const { tierId, zeroFee, makerBps, takerBps, minFee } = row;
+        // The rebate a fill on this row pays: one no fill could pay publishes as none, never as a rate.
+        const paid = paidRebateBps(schedule.rows!, row);
+        const makerRebateBps = paid > 0 ? paid : row.makerRebateBps === null ? null : 0;
+        return { tierId, zeroFee, makerBps, takerBps, makerRebateBps, minFee, ...(refusal ? { refusal } : {}) };
+      }),
+  }));
+  const tiers = [...new Set([REGULAR_FEE_TIER, ...schedule.rows.map((row) => row.tierId)])];
+  return { groups, tiers };
 }

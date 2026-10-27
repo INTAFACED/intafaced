@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { transferQuoteSchema } from '../pay/schemas';
 import { decimalSchema as money, parseAmount, signedDecimalSchema } from '../../shared/money';
 import { spaceSchema } from './client';
+import { businessListSchema, businessSchema } from './business-schema';
 
 export const scheduleSchema = z.object({
   id: z.string(),
@@ -13,6 +14,10 @@ export const scheduleSchema = z.object({
   nextRunAt: z.string(),
   status: z.string(),
   revision: z.number().int().positive(),
+  /** The person's own space the order pays from. */
+  fromSpaceId: z.string().optional(),
+  /** The person's own space it pays into, or null when it pays another person. */
+  toSpaceId: z.string().nullable().optional(),
 });
 export const poolSchema = z.object({
   id: z.string(),
@@ -28,7 +33,40 @@ export const positionSchema = z.object({
   poolId: z.string(),
   assetId: z.string(),
   principal: money,
+  openedAt: z.string(),
   maturesAt: z.string().nullable(),
+  /** The pool's recorded rate when the position opened; null when it opened before the pool's first record. */
+  rateAtOpenBps: z.number().int().nullable(),
+  /** The UTC midnight the position first earns from (BK-earn-01): a day pays positions opened before it began. */
+  accruesFrom: z.string(),
+  accrual: z.enum(['waiting', 'accruing', 'pool_closed', 'below_unit']),
+  /** A fixed-term saving the saver asked to renew when its term ends (BK-earn-03). */
+  autoRenew: z.boolean(),
+  /** How many new terms auto-renew has started; `maturesAt` is the end of the current one. */
+  renewals: z.number().int().nonnegative(),
+  /** The next UTC day the bank pays this saving's interest (a date); null when no day pays it. */
+  nextPayoutOn: z.string().date().nullable(),
+});
+/**
+ * What a pool publishes beyond its rate and term (svc-bank `earn.router.ts`, BK-earn-02 and BK-earn-05): how interest is
+ * paid, in which asset, from where, and the owner tables that may be blank. A null is a figure nobody published.
+ */
+export const poolFacts = {
+  payoutEvery: z.literal('day'),
+  compounding: z.literal('simple'),
+  rewardAssetId: z.string(),
+  yieldSource: z.literal('pool_reserve'),
+  rateBands: z.array(z.object({ from: money, rateBps: z.number().int() })).nullable(),
+  commissionBps: z.number().int().nullable(),
+  capacity: money.nullable(),
+};
+export const earnPoolSchema = poolSchema.extend(poolFacts);
+export const earnPoolPageSchema = earnPoolSchema.extend({ status: z.enum(['open', 'closed']) });
+export const rateHistorySchema = z.object({
+  poolId: z.string(),
+  currentBps: z.number().int(),
+  changes: z.array(z.object({ rateBps: z.number().int(), effectiveAt: z.string(), reason: z.string().nullable() })),
+  earlier: z.boolean(),
 });
 export const productSchema = z.object({
   id: z.string(),
@@ -55,6 +93,82 @@ export const loanSchema = z.object({
   status: z.string(),
   marginCalledAt: z.string().nullable(),
 });
+/** `bank.loans.projection` (BK-loan-06): the accrual rule run forward by the bank. A projection, never a schedule. */
+export const loanProjectionSchema = z.object({
+  loanId: z.string(),
+  kind: z.literal('projection'),
+  obligation: z.literal(false),
+  aprBps: z.number().int(),
+  days: z.number().int(),
+  openingPrincipal: money,
+  openingInterest: money,
+  extraApplied: money.nullable(),
+  rows: z.array(z.object({ date: z.string(), basis: money, interest: money, principal: money, debt: money })),
+});
+export type LoanProjection = z.infer<typeof loanProjectionSchema>;
+/** `bank.loans.payoffQuote` (BK-loan-06): what clears the loan now, re-priced on every read and never stored. */
+export const payoffQuoteSchema = z.object({
+  loanId: z.string(),
+  principal: money,
+  interest: money,
+  fee: money,
+  total: money,
+  assetId: z.string(),
+  interestThrough: z.string(),
+  validUntil: z.string(),
+});
+export type PayoffQuote = z.infer<typeof payoffQuoteSchema>;
+/** A signed statement file from `bank.statements.export`: the whole account, or one space (BK-pots-02). */
+export const statementFileSchema = z.object({
+  format: z.enum(['csv', 'pdf']),
+  filename: z.string(),
+  contentType: z.string(),
+  bodyBase64: z.string(),
+  sha256: z.string(),
+  rowCount: z.number().int().nonnegative(),
+});
+/** `bank.loans.statement` (BK-loan-06): one loan's signed CSV over a period; a month still running is provisional. */
+export const loanStatementSchema = z.object({
+  format: z.literal('csv'),
+  filename: z.string(),
+  contentType: z.string(),
+  bodyBase64: z.string(),
+  sha256: z.string(),
+  signature: z.string(),
+  rowCount: z.number().int().nonnegative(),
+  provisional: z.boolean(),
+  openingPrincipal: money,
+  openingInterest: money,
+  closingPrincipal: money,
+  closingInterest: money,
+  generatedAt: z.string(),
+});
+export type LoanStatement = z.infer<typeof loanStatementSchema>;
+/** `bank.loans.interestRows` (LOAN-05): each accrual day as written, each approved correction with its reason, and their totals. */
+export const loanInterestRowsSchema = z.object({
+  loanId: z.string(),
+  assetId: z.string(),
+  days: z.array(z.object({ date: z.string(), rateBps: z.number().int(), basis: money, interest: money })),
+  earlierDays: z.number().int().nonnegative(),
+  corrections: z.array(z.object({ id: z.string(), at: z.string(), amount: signedDecimalSchema, reason: z.string() })),
+  accrued: money,
+  corrected: signedDecimalSchema,
+  paid: money,
+  owed: money,
+});
+export type LoanInterestRows = z.infer<typeof loanInterestRowsSchema>;
+/** `bank.loans.ledgerCheck` (LOAN-05): this loan's settled rows against the ledger's own transactions, leg by leg. */
+export const loanLedgerCheckSchema = z.object({
+  loanId: z.string(),
+  status: z.enum(['agrees', 'differs', 'pending']),
+  checked: z.number().int().nonnegative(),
+  pending: z.number().int().nonnegative(),
+  collateralHeld: money,
+  collateralExpected: signedDecimalSchema,
+  mismatches: z.array(z.object({ kind: z.string(), ref: z.string(), problem: z.string() })),
+  checkedAt: z.string(),
+});
+export type LoanLedgerCheck = z.infer<typeof loanLedgerCheckSchema>;
 export const programmeSchema = z.object({ id: z.string(), simulated: z.boolean(), displayName: z.string() });
 export const shippingAddressSchema = z.object({
   name: z.string(),
@@ -108,12 +222,120 @@ export const offrampSchema = rampBase.extend({
   holdLedgerTxId: z.string().nullable(),
   settleLedgerTxId: z.string().nullable(),
 });
+/** Shared pots (BK-acct-09, J-bank-07 #6): who shares which pot, invites with their lifetime, from the bank. */
+const sharedPotRoleSchema = z.enum(['contributor', 'viewer']);
+const sharedPotPersonSchema = z.object({ userId: z.string(), handle: z.string().nullable() });
+const sharedPotMemberSchema = sharedPotPersonSchema.extend({ role: sharedPotRoleSchema, joinedAt: z.string() });
+const sharedPotInviteSchema = z.object({
+  inviteId: z.string(),
+  spaceId: z.string(),
+  role: sharedPotRoleSchema,
+  createdAt: z.string(),
+  expiresAt: z.string(),
+  expired: z.boolean(),
+});
+const sharedPotSchema = z.object({ id: z.string(), name: z.string(), assetId: z.string() });
+/** The owner's card linked to a pot so its holders can freeze it: four digits and its status, never a number. */
+export const sharedPotCardSchema = z.object({
+  cardId: z.string(),
+  panTail: z.string(),
+  status: z.enum(['active', 'frozen', 'closed']),
+  /** Who froze it; `operator` is the bank, and only the bank lifts that. */
+  frozenBy: z.enum(['owner', 'holder', 'operator']).nullable(),
+});
+export const sharedPotsSchema = z.object({
+  terms: z.object({ inviteMinutes: z.number().int().nullable(), peopleCap: z.number().int().nullable() }),
+  owned: z.array(
+    z.object({
+      pot: sharedPotSchema,
+      card: sharedPotCardSchema.nullable(),
+      members: z.array(sharedPotMemberSchema),
+      invites: z.array(sharedPotInviteSchema.extend({ invitee: sharedPotPersonSchema })),
+    }),
+  ),
+  shared: z.array(
+    z.object({
+      pot: sharedPotSchema.extend({ balance: money }),
+      card: sharedPotCardSchema.nullable(),
+      owner: sharedPotPersonSchema,
+      role: sharedPotRoleSchema,
+      members: z.array(sharedPotMemberSchema),
+    }),
+  ),
+  invites: z.array(sharedPotInviteSchema.extend({ pot: sharedPotSchema.omit({ id: true }), owner: sharedPotPersonSchema })),
+});
+export const sharedPotActivitySchema = z.object({
+  id: z.string(),
+  kind: z.enum([
+    'invited',
+    'cancelled',
+    'joined',
+    'declined',
+    'left',
+    'removed',
+    'card_linked',
+    'card_unlinked',
+    'card_frozen',
+    'card_unfrozen',
+  ]),
+  actor: sharedPotPersonSchema,
+  subject: sharedPotPersonSchema.nullable(),
+  role: sharedPotRoleSchema.nullable(),
+  card: z.object({ cardId: z.string(), panTail: z.string() }).nullable(),
+  at: z.string(),
+});
+
+/** One income sorter (BK-pots-03): whole basis points of each payment from another person into the person's own spaces. */
+export const sorterSchema = z.object({
+  id: z.string(),
+  assetId: z.string(),
+  status: z.enum(['active', 'cancelled']),
+  legs: z.array(z.object({ spaceId: z.string(), shareBp: z.number().int() })),
+  createdAt: z.string(),
+  cancelledAt: z.string().nullable(),
+});
+export const sorterListSchema = z.object({
+  terms: z.discriminatedUnion('state', [
+    z.object({ state: z.literal('set'), minCredit: money }),
+    z.object({ state: z.literal('not_set'), code: z.literal('bank.sorter_terms_unset') }),
+  ]),
+  /** Each leg names its space and says whether it was archived since: its share then stays in the account. */
+  sorters: z.array(
+    sorterSchema.extend({
+      legs: z.array(z.object({ spaceId: z.string(), shareBp: z.number().int(), spaceName: z.string(), archived: z.boolean() })),
+    }),
+  ),
+});
+/** What one sorted payment came to: each split's amount and what became of it. */
+export const sorterRunSchema = z.object({
+  id: z.string(),
+  creditTransferId: z.string(),
+  creditTxId: z.string(),
+  creditAmount: money,
+  /** When the payment posted; `createdAt` is when it was sorted. */
+  creditPostedAt: z.string(),
+  /** Recorded and not split: under the bank's smallest sorted payment, or no terms stood. */
+  skippedReason: z.enum(['below_minimum', 'terms_unset']).nullable(),
+  createdAt: z.string(),
+  legs: z.array(
+    z.object({
+      position: z.number().int(),
+      spaceId: z.string(),
+      amount: money,
+      status: z.enum(['pending', 'settled', 'rejected']),
+      ledgerTxId: z.string().nullable(),
+      rejectionCode: z.string().nullable(),
+    }),
+  ),
+});
 export const ruleSchema = z.object({
   id: z.string(),
   kind: z.enum(['threshold_sweep', 'dca', 'card_roundup']),
   assetId: z.string(),
   threshold: money.nullable(),
   targetPoolId: z.string().nullable(),
+  /** A card round-up into one of the person's own spaces (BK-pots-02). */
+  targetSpaceId: z.string().nullable().optional(),
   buyAssetId: z.string().nullable(),
   amount: money.nullable(),
   cadence: z.enum(['daily', 'weekly', 'monthly']).nullable(),
@@ -121,14 +343,7 @@ export const ruleSchema = z.object({
   status: z.enum(['active', 'paused', 'cancelled']),
   createdAt: z.string(),
 });
-export const businessSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  assetId: z.string(),
-  spendThreshold: money,
-  status: z.enum(['active', 'closed']),
-  createdAt: z.string(),
-});
+export { businessSchema } from './business-schema';
 export const memberRoleSchema = z.enum(['admin', 'maker', 'checker']);
 export const approvalSchema = z.object({
   id: z.string(),
@@ -196,8 +411,15 @@ export const destinationSchema = z.object({
       offerExpiresAt: z.string().nullable(),
     })
     .optional(),
+  // A new address waits (`pending`) until approved by an emailed link or from another signed-in device (W-withdraw-09).
+  approvedAt: z.string().nullable().optional(),
+  approvedBy: z.enum(['link', 'device']).nullable().optional(),
+  // Until when the newest emailed approval link works, while one is open.
+  approvalLinkExpiresAt: z.string().nullable().optional(),
 });
 export type Destination = z.infer<typeof destinationSchema>;
+/** svc-bank `bank.ramps.destinations.approval.requestMail`: the approval link was asked for, and works until `expiresAt`. */
+export const approvalMailAskedSchema = z.object({ destinationId: z.string(), expiresAt: z.string() });
 /** A message the bank offers to sign, proving the customer controls a saved wallet. */
 export const walletProofStartedSchema = z.object({
   proofId: z.string(),
@@ -222,6 +444,15 @@ export const withdrawAssetSchema = z.object({
 });
 export type WithdrawAsset = z.infer<typeof withdrawAssetSchema>;
 export const destinationRemovedSchema = z.object({ destinationId: z.string(), removed: z.literal(true) });
+/** svc-bank `bank.ramps.destinations.readiness`: whether money may be sent to one saved address now, or what stands first. */
+export const destinationReadinessSchema = z.object({
+  destinationId: z.string(),
+  state: z.enum(['ready', 'locked', 'blocked', 'approval_pending', 'cooling_unset', 'cooling']),
+  coolingOffEndsAt: z.string().nullable(),
+  lockUnlocksAt: z.string().nullable(),
+  approvalLinkExpiresAt: z.string().nullable().optional(),
+});
+export type DestinationReadiness = z.infer<typeof destinationReadinessSchema>;
 /** svc-bank `bank.ramps.destinations.check`: whether the bank takes an address as typed, before any confirmation. */
 export const destinationCheckSchema = z.object({
   address: z.enum(['ok', 'invalid', 'checksum_mismatch']),
@@ -311,6 +542,8 @@ export const addMoneyMethodsSchema = z.object({
       rail: z.enum(['rail.bank', 'rail.card']),
       quote: addMoneyQuoteSchema.nullable(),
       blocker: z.string().nullable(),
+      // The TEST stand-in's label when the local stack's rate stand-in priced this way to pay.
+      standIn: z.string().nullable().default(null),
     }),
   ),
 });
@@ -357,6 +590,110 @@ export const linkedAccountWrites = {
   link: z.object({ account: linkedAccountSchema, created: z.boolean() }),
   remove: z.object({ accountId: z.string(), removed: z.literal(true) }),
 };
+/** svc-bank `bank.directDebits.*` (J-bank-06 #4, BK-xfer-11): mandates, their collections and refund requests. */
+export const directDebitCollectionSchema = z.object({
+  id: z.string(),
+  mandateId: z.string(),
+  collectionId: z.string(),
+  creditorName: z.string(),
+  assetId: z.string(),
+  amount: money,
+  dueAt: z.string(),
+  status: z.enum(['upcoming', 'processing', 'collected', 'failed', 'rejected']),
+  failureCode: z.string().nullable(),
+  ledgerTxId: z.string().nullable(),
+  presentedAt: z.string(),
+  settledAt: z.string().nullable(),
+  failureFee: z.null(),
+  failureFeeBlocker: z.literal('bank.dd_failure_fee_unset').nullable(),
+  refund: z.object({
+    state: z.enum(['none', 'available', 'requested', 'closed', 'unset']),
+    endsAt: z.string().nullable(),
+    requestedAt: z.string().nullable(),
+  }),
+});
+export type DirectDebitCollection = z.infer<typeof directDebitCollectionSchema>;
+export const directDebitMandateSchema = z.object({
+  id: z.string(),
+  creditorId: z.string(),
+  creditorName: z.string(),
+  reference: z.string(),
+  assetId: z.string(),
+  status: z.enum(['active', 'blocked']),
+  blockedAt: z.string().nullable(),
+  createdAt: z.string(),
+  upcoming: z.array(directDebitCollectionSchema),
+});
+export type DirectDebitMandate = z.infer<typeof directDebitMandateSchema>;
+export const directDebitsViewSchema = z.object({
+  scheme: z.object({
+    status: z.enum(['unset', 'live']),
+    standIn: z.string().nullable(),
+    guaranteeDays: z.number().int().nullable(),
+    blocker: z.literal('rail.bank').nullable(),
+  }),
+  mandates: z.array(directDebitMandateSchema),
+  collections: z.array(directDebitCollectionSchema),
+});
+export type DirectDebitsView = z.infer<typeof directDebitsViewSchema>;
+export const directDebitWrites = {
+  block: z.object({
+    mandate: directDebitMandateSchema,
+    rejected: z.array(z.string()),
+    tooLate: z.array(z.object({ collectionId: z.string(), code: z.literal('bank.dd_too_late') })),
+  }),
+  unblock: z.object({ mandate: directDebitMandateSchema }),
+  requestRefund: z.object({ collection: directDebitCollectionSchema, created: z.boolean() }),
+};
+/** svc-bank `bank.calendar.window` (J-bank-06 #5, BK-acct-10): what is dated in a window, and how each source answered. */
+export const calendarSources = ['standing_orders', 'bills', 'direct_debits', 'loans', 'earn'] as const;
+export type CalendarSource = (typeof calendarSources)[number];
+export const calendarItemSchema = z.object({
+  source: z.enum(calendarSources),
+  refId: z.string(),
+  key: z.string(),
+  date: z.string(),
+  label: z.string().nullable(),
+  assetId: z.string(),
+  amount: money.nullable(),
+  status: z.enum(['upcoming', 'paused', 'done', 'failed', 'skipped', 'refused']),
+  reasonCode: z.string().nullable(),
+});
+export type CalendarItem = z.infer<typeof calendarItemSchema>;
+export const calendarViewSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  items: z.array(calendarItemSchema),
+  sources: z.array(
+    z.object({
+      source: z.enum(calendarSources),
+      state: z.enum(['ok', 'not_set', 'refused', 'unavailable']),
+      count: z.number().int(),
+      code: z.string().nullable(),
+      complete: z.boolean(),
+    }),
+  ),
+});
+export type CalendarView = z.infer<typeof calendarViewSchema>;
+/** svc-bank `bank.rules.*` (J-bank-06 #6, BK-acct-10): the payment reminder rule, and money rules waiting on the owner. */
+export const reminderLeadChoices = [24, 48, 72, 168] as const;
+export const reminderRuleSchema = z.object({
+  ruleKey: z.string(),
+  leadHours: z.literal(reminderLeadChoices).nullable(),
+  revision: z.number().int(),
+  updatedAt: z.string(),
+});
+export type ReminderRule = z.infer<typeof reminderRuleSchema>;
+export const rulesViewSchema = z.object({
+  reminder: reminderRuleSchema.nullable(),
+  leadChoices: z.array(z.number().int()),
+  moneyRules: z.object({ state: z.literal('not_set'), code: z.string() }),
+});
+export type RulesView = z.infer<typeof rulesViewSchema>;
+export const rulesWrites = {
+  setReminder: reminderRuleSchema,
+  createMoneyRule: z.never(),
+};
 /** svc-bank `bank.cashOut.*` (J-bank-03): cash out to a linked bank account, with what stands in the way. */
 export const cashOutQuoteSchema = z.object({
   assetId: z.string(),
@@ -366,20 +703,44 @@ export const cashOutQuoteSchema = z.object({
   rail: z.literal('rail.bank'),
   fee: money.nullable(),
   receiveAmount: money.nullable(),
-  blocker: z.string(),
+  receiveCurrency: z.string().nullable().default(null),
+  /** What stands in the way, or null when the bank's partner can take it. */
+  blocker: z.string().nullable(),
+  /** The TEST label when the partner pricing it is the local stack's stand-in. */
+  standIn: z.string().nullable().default(null),
 });
 export type CashOutQuote = z.infer<typeof cashOutQuoteSchema>;
+export const CASH_OUT_STATUSES = ['refused', 'processing', 'completed', 'failed', 'returned'] as const;
 export const cashOutRequestSchema = z.object({
   requestId: z.string(),
   assetId: z.string(),
   amount: money,
   linkedAccountId: z.string(),
   rail: z.literal('rail.bank'),
-  status: z.literal('refused'),
-  refusalCode: z.string(),
+  status: z.enum(CASH_OUT_STATUSES),
+  refusalCode: z.string().nullable(),
+  fee: money.nullable().default(null),
+  receiveAmount: money.nullable().default(null),
+  receiveCurrency: z.string().nullable().default(null),
+  payoutRef: z.string().nullable().default(null),
+  ledgerTxId: z.string().nullable().default(null),
+  failureCode: z.string().nullable().default(null),
+  returnedAmount: money.nullable().default(null),
+  remainsPaidOut: money.nullable().default(null),
   createdAt: z.string(),
+  completedAt: z.string().nullable().default(null),
+  failedAt: z.string().nullable().default(null),
+  returnedAt: z.string().nullable().default(null),
 });
 export type CashOutRequest = z.infer<typeof cashOutRequestSchema>;
+export const cashOutReceiptSchema = z.object({
+  fileName: z.string(),
+  text: z.string(),
+  ledgerTxId: z.string(),
+  sha256: z.string(),
+  signature: z.string(),
+});
+export type CashOutReceipt = z.infer<typeof cashOutReceiptSchema>;
 /** svc-bank `bank.railSends.*` (J-bank-04 #1): send to a bank account over a bank rail, each rail with its own form. */
 export const BANK_RAILS = ['ach', 'wire', 'instant', 'sepa', 'proxy'] as const;
 export const railRequirementsSchema = z.object({
@@ -446,6 +807,57 @@ export const currencyWrites = {
   add: accountCurrencySchema,
   remove: z.object({ assetId: z.string(), removed: z.literal(true) }),
 };
+/** A ledger balance of a dead owner's account, as the heir's claim room shows it (RC-identity-08). */
+const recoveryAccountSchema = z.object({
+  ownerType: z.enum(['user', 'subaccount']),
+  assetId: z.string(),
+  kind: z.string(),
+  spaceId: z.string().nullable(),
+  spaceName: z.string().nullable(),
+  amount: signedDecimalSchema,
+});
+export type RecoveryAccount = z.infer<typeof recoveryAccountSchema>;
+const recoveryClaimSchema = z.object({
+  claimId: z.string(),
+  status: z.enum(['open', 'executed']),
+  round: z.number().int(),
+  createdAt: z.string(),
+  executedAt: z.string().nullable(),
+});
+export const recoveryEstateSchema = z.object({
+  userId: z.string(),
+  handle: z.string(),
+  threshold: z.number().int().min(1),
+  liveKeys: z.number().int().min(0),
+  claim: recoveryClaimSchema.nullable(),
+  sweepable: z.array(recoveryAccountSchema),
+  /** Held for an order, withdrawal, stake or collateral: stays until released. */
+  held: z.array(recoveryAccountSchema),
+  /** Debts: any of these stops a sweep. */
+  blockers: z.array(recoveryAccountSchema),
+});
+export type RecoveryEstate = z.infer<typeof recoveryEstateSchema>;
+const recoverySweepSchema = z.object({
+  round: z.number().int(),
+  ownerType: z.enum(['user', 'subaccount']),
+  spaceId: z.string().nullable(),
+  assetId: z.string(),
+  amount: money,
+  status: z.enum(['pending', 'posted', 'refused']),
+  ledgerTxId: z.string().nullable(),
+  refusalCode: z.string().nullable(),
+});
+export type RecoverySweep = z.infer<typeof recoverySweepSchema>;
+export const recoveryWrites = {
+  open: recoveryClaimSchema.extend({
+    ownerUserId: z.string(),
+    handle: z.string(),
+    threshold: z.number().int(),
+    liveKeys: z.number().int(),
+    message: z.string(),
+  }),
+  execute: z.object({ claim: recoveryClaimSchema, round: z.number().int().nullable(), sweeps: z.array(recoverySweepSchema) }),
+};
 export const bankReads = {
   'accounts.features': accountTermsSchema,
   'accounts.profile': bankProfileSchema,
@@ -455,6 +867,14 @@ export const bankReads = {
   'accountDetails.list': z.object({ currencies: z.array(accountDetailsRowSchema) }),
   'eligibility.get': eligibilitySchema,
   'linkedAccounts.list': z.object({ accounts: z.array(linkedAccountSchema) }),
+  'directDebits.list': directDebitsViewSchema,
+  'recovery.estates': z.object({ estates: z.array(recoveryEstateSchema) }),
+  'calendar.window': calendarViewSchema,
+  'rules.get': rulesViewSchema,
+  'sorter.list': sorterListSchema,
+  'sorter.runs': z.array(sorterRunSchema),
+  'sharedPots.list': sharedPotsSchema,
+  'sharedPots.activity': z.array(sharedPotActivitySchema),
   'cashOut.quote': cashOutQuoteSchema,
   // The same wire shape Pay reads (J-bank-04 #3): one definition of `bank.transfers.quote`.
   'transfers.quote': transferQuoteSchema,
@@ -475,10 +895,29 @@ export const bankReads = {
       rejectionCode: z.string().nullable(),
     }),
   ),
-  'earn.pools': z.array(poolSchema),
+  'earn.pools': z.array(earnPoolSchema),
+  'earn.pool': earnPoolPageSchema,
+  'earn.rateHistory': rateHistorySchema,
   'earn.positions': z.array(positionSchema),
+  'earn.interestHistory': z.object({
+    days: z.array(z.object({ date: z.string(), rateBps: z.number().int(), amount: money, ledgerTxId: z.string() })),
+    total: money,
+    unitemisedDays: z.number().int(),
+  }),
   'loans.products': z.array(productSchema),
   'loans.list': z.array(loanSchema),
+  'loans.projection': loanProjectionSchema,
+  'loans.payoffQuote': payoffQuoteSchema,
+  'loans.interestRows': loanInterestRowsSchema,
+  'loans.ledgerCheck': loanLedgerCheckSchema,
+  /** `bank.loans.releasable` (BK-loan-05): the most collateral `releaseExcess` would release now, under the product's max LTV. */
+  'loans.releasable': z.object({
+    loanId: z.string(),
+    held: money,
+    releasable: money,
+    maxLtvBps: z.number().int(),
+    ltvBps: z.number().int(),
+  }),
   'loans.health': z.object({
     debtValue: money,
     collateralValue: money,
@@ -517,17 +956,32 @@ export const bankReads = {
   }),
   'autoInvest.list': z.array(ruleSchema),
   'analytics.spend': analyticsSchema,
-  'business.list': z.array(businessSchema),
+  'business.list': businessListSchema,
   'business.pending': z.array(pendingApprovalSchema),
   'business.members': teamSchema,
   'business.myRole': z.object({ role: memberRoleSchema }),
   'business.resolveRecipientSpace': recipientSpaceSchema,
 } as const;
 export type BankRead = keyof typeof bankReads;
+/** A space's goal and lock after its owner changed one (BK-pots-02). `unlocksAt` is an early unlock still waiting. */
+export const spaceLockStateSchema = z.object({
+  id: z.string(),
+  goalTarget: money.nullable(),
+  lockedUntil: z.string().datetime({ offset: true }).nullable(),
+  unlocksAt: z.string().datetime({ offset: true }).nullable(),
+  unlockRequestedAt: z.string().datetime({ offset: true }).nullable(),
+});
 export const bankWrites = {
   'spaces.create': z.object({ id: z.string(), name: z.string() }),
   'ramps.destinations.rename': destinationSchema,
   'spaces.archive': z.object({ archived: z.literal(true) }),
+  'spaces.setGoal': spaceLockStateSchema,
+  'spaces.setLock': spaceLockStateSchema,
+  'spaces.requestUnlock': spaceLockStateSchema,
+  'spaces.cancelUnlock': spaceLockStateSchema,
+  // The bills pot (BK-pots-03): the space that pays bills, and whether a standing order from it tops it up from the account.
+  'spaces.setBillsPot': z.object({ spaceId: z.string(), assetId: z.string(), fallback: z.boolean() }),
+  'spaces.clearBillsPot': z.object({ spaceId: z.string(), billsPot: z.null() }),
   'transfers.create': z.object({ ledgerTxId: z.string(), amount: money }),
   // A personal send echoes the note and reference it stored, so the review can be checked against them.
   'transfers.toUser': z.object({ ledgerTxId: z.string(), amount: money, note: z.string().nullable(), reference: z.string().nullable() }),
@@ -545,6 +999,7 @@ export const bankWrites = {
   }),
   'earn.deposit': z.object({ positionId: z.string(), maturesAt: z.string().nullable() }),
   'earn.withdraw': z.object({ positionId: z.string(), principal: money }),
+  'earn.setAutoRenew': z.object({ positionId: z.string(), autoRenew: z.boolean(), maturesAt: z.string().nullable() }),
   'loans.open': z.object({ loanId: z.string(), status: z.string(), ltvBps: z.number().int(), drawLedgerTxId: z.string() }),
   'loans.addCollateral': z.object({ ledgerTxId: z.string(), sequence: z.number().int() }),
   'loans.releaseExcess': z.object({ ledgerTxId: z.string(), sequence: z.number().int() }),
@@ -567,6 +1022,17 @@ export const bankWrites = {
   'autoInvest.pause': ruleSchema,
   'autoInvest.resume': ruleSchema,
   'autoInvest.cancel': z.object({ ok: z.literal(true) }),
+  'sorter.create': sorterSchema,
+  'sorter.cancel': sorterSchema,
+  'sharedPots.invite': sharedPotInviteSchema.extend({ invitee: sharedPotPersonSchema }),
+  'sharedPots.cancelInvite': z.object({ cancelled: z.literal(true) }),
+  'sharedPots.accept': z.object({ spaceId: z.string(), role: sharedPotRoleSchema }),
+  'sharedPots.decline': z.object({ declined: z.literal(true) }),
+  'sharedPots.leave': z.object({ left: z.literal(true) }),
+  'sharedPots.remove': z.object({ removed: z.literal(true) }),
+  'sharedPots.linkCard': sharedPotCardSchema,
+  'sharedPots.unlinkCard': z.object({ unlinked: z.literal(true) }),
+  'sharedPots.freezeCard': sharedPotCardSchema,
   'ramps.setWithdrawDestination': z.object({ kind: z.string(), ref: z.string() }),
   'ramps.offramp': offrampSchema,
   'business.create': businessSchema,
@@ -617,6 +1083,10 @@ export function bankWriteForReview(procedure: BankWrite, input: Record<string, u
       case 'earn.deposit':
       case 'earn.withdraw':
         return (data as { positionId: string }).positionId === input.positionId;
+      case 'earn.setAutoRenew': {
+        const row = data as z.infer<(typeof bankWrites)['earn.setAutoRenew']>;
+        return row.positionId === input.positionId && row.autoRenew === input.on && row.maturesAt !== null;
+      }
       case 'autoInvest.createDca': {
         const row = data as z.infer<typeof ruleSchema>;
         return (
@@ -642,7 +1112,8 @@ export function bankWriteForReview(procedure: BankWrite, input: Record<string, u
           row.kind === (threshold ? 'threshold_sweep' : 'card_roundup') &&
           row.status === 'active' &&
           row.assetId === input.assetId &&
-          row.targetPoolId === input.targetPoolId &&
+          row.targetPoolId === (input.targetPoolId ?? null) &&
+          (row.targetSpaceId ?? null) === (input.targetSpaceId ?? null) &&
           (threshold
             ? exact(row.threshold, input.threshold) && row.amount === null
             : exact(row.amount, input.granularity) && row.threshold === null) &&
@@ -650,6 +1121,35 @@ export function bankWriteForReview(procedure: BankWrite, input: Record<string, u
           row.cadence === null &&
           row.nextRunAt === null
         );
+      }
+      case 'sorter.create': {
+        const row = data as z.infer<typeof sorterSchema>,
+          legs = Array.isArray(input.legs) ? (input.legs as Array<{ spaceId: unknown; shareBp: unknown }>) : [];
+        return (
+          row.id === input.sorterId &&
+          row.status === 'active' &&
+          row.assetId === input.assetId &&
+          row.legs.length === legs.length &&
+          row.legs.every((leg, i) => leg.spaceId === legs[i]!.spaceId && leg.shareBp === legs[i]!.shareBp)
+        );
+      }
+      case 'spaces.setBillsPot': {
+        const row = data as z.infer<(typeof bankWrites)['spaces.setBillsPot']>;
+        return row.spaceId === input.spaceId && row.fallback === input.fallback;
+      }
+      case 'spaces.clearBillsPot':
+        return (data as z.infer<(typeof bankWrites)['spaces.clearBillsPot']>).spaceId === input.spaceId;
+      case 'sharedPots.linkCard':
+        return (data as z.infer<typeof sharedPotCardSchema>).cardId === input.cardId;
+      case 'sharedPots.freezeCard':
+        return (data as z.infer<typeof sharedPotCardSchema>).status === 'frozen';
+      case 'sharedPots.invite': {
+        const row = data as z.infer<(typeof bankWrites)['sharedPots.invite']>;
+        return row.inviteId === input.inviteId && row.spaceId === input.spaceId && row.role === input.role;
+      }
+      case 'sorter.cancel': {
+        const row = data as z.infer<typeof sorterSchema>;
+        return row.id === input.sorterId && row.status === 'cancelled';
       }
       case 'autoInvest.pause':
       case 'autoInvest.resume': {

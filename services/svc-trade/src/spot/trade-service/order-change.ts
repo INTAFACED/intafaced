@@ -697,6 +697,8 @@ export async function replaceOrder(
 
       const replacementInput: PlaceOrderInput = {
         ...input,
+        // A replacement pays its fees as the order it replaces chose to (fee-ifc.ts), unless the request says otherwise.
+        ...(input.feeCurrency === undefined && original.feeCurrency ? { feeCurrency: original.feeCurrency } : {}),
         marketId: market.id,
         clientOrderId: replacementClientId,
         replacementOf: original.id,

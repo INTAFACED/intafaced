@@ -75,6 +75,7 @@ function openOrder(clientOrderId: string): OrderRecord {
     holdAmount: 100n * ONE,
     amendReleased: 0n,
     feeDiscountBps: 0,
+    feeTier: 'regular',
     protectionPrice: null,
     engineSequence: null,
     engineVersion: 0,

@@ -10,7 +10,6 @@ import { describeUnconfigured, type AuthorityStatus } from '@/lib/console-status
 import { fetchFreeze, type FreezeResult } from '@/lib/ledger-freeze-browser';
 import { decodeFreezeState, freezeUnavailable, type FreezeState } from '@/lib/ledger-freeze-contract';
 import { ledgerCopy, type LedgerLocale } from '@/lib/ledger-ops-copy';
-import { RECONCILE_AVAILABILITY } from '@/lib/operator-commands';
 import './ledger-ops.css';
 
 export const FREEZE_CONFIRM_PHRASE = 'FREEZE LEDGER';
@@ -207,13 +206,6 @@ export function LedgerOpsView({ treasury, freeze, readAt, userId, owners = [], o
               </div>
             </div>
           </Panel>
-          <section className="lo-section" aria-labelledby="lo-reconcile">
-            <h2 id="lo-reconcile">{c.reconcile}</h2>
-            <p className="lo-muted" data-testid="reconcile-unavailable" data-available={String(RECONCILE_AVAILABILITY.available)}>
-              {c.reconcileMissing}
-            </p>
-            <p className="lo-muted">{c.reconcileWhy}</p>
-          </section>
         </div>
       </div>
     </div>

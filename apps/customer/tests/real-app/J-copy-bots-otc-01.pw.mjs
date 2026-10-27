@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { journeyState } from './stack.mjs';
+import { api, fund, journeyState, tool, signOutBrowser } from './stack.mjs';
 import { fundedTrader, signIn, signUp, verify } from './desk.mjs';
 import { listLeader, takeBest } from './copy.mjs';
 
@@ -55,7 +55,7 @@ test(`${J} #2 chooses the Futures tab and searches a name: only futures leaders,
   await listLeader(futuresLeader, futuresName, { marketMode: 'futures' });
   run.write({ leader, spotName, spotRef, futuresName });
 
-  await page.context().clearCookies();
+  await signOutBrowser(page.context());
   await signIn(page, state('follower'));
   await page.goto('/trade/copy?tab=futures');
   const table = page.getByRole('table', { name: 'Leaders' });
@@ -118,7 +118,7 @@ test(`${J} #4 opens a lead profile: metrics only with a definition, and the lead
   await expect(page.getByRole('heading', { name: state('spotName'), level: 1 })).toBeVisible();
 
   // Return and drawdown carry the TEST definitions; this listing publishes no figure, so each reads Not published.
-  const metric = (key) => page.locator(`.cb-metric[data-metric=${key}]`);
+  const metric = (key) => page.locator(`[data-testid="cb-metric"][data-metric=${key}]`);
   await expect(metric('publishedReturn')).toContainText('Not published');
   await expect(metric('publishedReturn')).toContainText('TEST definition');
   // No definition is published for these, so no number is shown.
@@ -141,4 +141,193 @@ test(`${J} #4 opens a lead profile: metrics only with a definition, and the lead
   // An unknown leader page is a typed not-found, never an empty profile.
   await page.goto('/trade/copy/no-such-leader');
   await expect(page.getByText('That leader was not found')).toBeVisible();
+});
+
+/** A permission end a week ahead, in the datetime-local box's own format. */
+function weekAhead() {
+  const when = new Date(Date.now() + 7 * 24 * 3600_000);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())}T${pad(when.getHours())}:${pad(when.getMinutes())}`;
+}
+
+/** Start copying from the lead page, through the country and market steps, to the limits step. */
+async function openWizardAtLimits(page) {
+  await page.goto(`/trade/copy/${state('spotRef')}`);
+  await page.getByRole('button', { name: 'Start copying' }).click();
+  const wizard = page.getByRole('dialog');
+  await expect(wizard.getByText(state('spotName'))).toBeVisible();
+  await wizard.getByLabel('Your country').fill('DE');
+  await wizard.getByRole('button', { name: 'Next' }).click();
+  await wizard.getByText('BTC/USDT', { exact: true }).click();
+  await wizard.getByRole('button', { name: 'Next' }).click();
+  return wizard;
+}
+
+async function fillLimits(wizard, { perOrder, total, fixed }) {
+  await wizard.getByLabel('Most per order (USDT)').fill(perOrder);
+  await wizard.getByLabel('Most in total (USDT)').fill(total);
+  await wizard.getByLabel('Fixed amount per copied order (USDT)').fill(fixed);
+  await wizard.getByLabel('Permission ends').fill(weekAhead());
+}
+
+test(`${J} #5 presses Start copying below the copy verification level: refused by name, and nothing is followed`, async ({ page }) => {
+  // Signing up and funding a new account takes most of a minute.
+  test.setTimeout(240_000);
+  // Verified at basic, which opens the copy room, but the TEST copy level is full.
+  const unverified = await signUp(page, 'jcn');
+  await page.goto('/verification');
+  await page.getByLabel('Level to request').selectOption({ label: 'Basic' });
+  await page.getByLabel('Country code').fill('DE');
+  await page.getByRole('button', { name: 'Review request' }).click();
+  await page.getByRole('button', { name: 'Submit this request' }).click();
+  await expect(page.getByText('Your reviewed request')).toBeVisible();
+  tool('local-test-gates.mjs', 'verify');
+  fund(unverified.email, 'USDT', '1000');
+  await signOutBrowser(page.context());
+  await signIn(page, unverified);
+  const wizard = await openWizardAtLimits(page);
+  await fillLimits(wizard, { perOrder: '50', total: '200', fixed: '20' });
+  await wizard.getByRole('button', { name: 'Next' }).click();
+  await wizard.getByRole('checkbox', { name: 'I have read this disclosure and accept it.' }).click();
+  const answer = page.waitForResponse((res) => res.url().includes('copy.follow'));
+  await wizard.getByRole('button', { name: 'Start copying' }).click();
+  expect((await answer).status()).toBe(403);
+  await expect(wizard.getByRole('alert').filter({ hasText: 'More verification needed' })).toBeVisible();
+  await expect(wizard.getByText('Reference trade.tier_insufficient')).toBeVisible();
+
+  // Nothing was written: no follow, and the balance is untouched.
+  await page.keyboard.press('Escape');
+  await page.goto('/trade/copy?tab=follows');
+  await expect(page.getByText('You aren’t following anyone')).toBeVisible();
+  expect((await (await api(unverified)).balances()).USDT).toMatchObject({ free: '1000', used: '0' });
+});
+
+test(`${J} #6 reads the copy disclosure: the owner's text and version, and Start stays off until it is accepted`, async ({ page }) => {
+  const follower = state('follower');
+  fund(follower.email, 'USDT', '1000');
+  await signIn(page, follower);
+  const wizard = await openWizardAtLimits(page);
+  await fillLimits(wizard, { perOrder: '50', total: '200', fixed: '20' });
+  await wizard.getByRole('button', { name: 'Next' }).click();
+
+  const terms = wizard.getByRole('region', { name: 'Copy risk disclosure' });
+  await expect(terms).toContainText('TEST disclosure, not owner text.');
+  await expect(terms).toContainText('Version TEST-2026-10-23');
+  const start = wizard.getByRole('button', { name: 'Start copying' });
+  await expect(start).toBeDisabled();
+  await terms.getByRole('checkbox', { name: 'I have read this disclosure and accept it.' }).click();
+  await expect(start).toBeEnabled();
+});
+
+test(`${J} #7 enters a fixed amount and starts: zero and above-cap refused, the reserve is held from the free balance, and the same request returns the same follow`, async ({
+  page,
+}) => {
+  const follower = state('follower');
+  const before = (await (await api(follower)).balances()).USDT;
+  await signIn(page, follower);
+  const wizard = await openWizardAtLimits(page);
+
+  await fillLimits(wizard, { perOrder: '50', total: '200', fixed: '0' });
+  await wizard.getByRole('button', { name: 'Next' }).click();
+  await expect(wizard.getByText('Enter an amount above zero')).toBeVisible();
+  await wizard.getByLabel('Fixed amount per copied order (USDT)').fill('60');
+  await wizard.getByRole('button', { name: 'Next' }).click();
+  await expect(wizard.getByText('The most per order is 50 USDT')).toBeVisible();
+  // More than the free balance is refused on the screen, before the service is asked.
+  await wizard.getByLabel('Fixed amount per copied order (USDT)').fill('20');
+  await wizard.getByLabel('Most in total (USDT)').fill('5000');
+  await wizard.getByRole('button', { name: 'Next' }).click();
+  await expect(wizard.getByText('That is more than your free USDT')).toBeVisible();
+  await wizard.getByLabel('Most in total (USDT)').fill('200');
+  await expect(wizard.getByText('Reserved for this copy')).toBeVisible();
+  await wizard.getByRole('button', { name: 'Next' }).click();
+
+  await wizard.getByRole('checkbox', { name: 'I have read this disclosure and accept it.' }).click();
+  const answer = page.waitForResponse((res) => res.url().includes('copy.follow'));
+  await wizard.getByRole('button', { name: 'Start copying' }).click();
+  expect((await answer).status()).toBe(200);
+  await expect(page).toHaveURL(/tab=follows/);
+  // The follows table is a grid: its second row group holds one row per follow.
+  const row = page.getByRole('grid', { name: 'My follows' }).getByRole('rowgroup').nth(1).getByRole('row');
+  await expect(row).toHaveCount(1);
+  await row.first().getByRole('button', { name: 'Manage' }).click();
+  const detail = page.getByRole('dialog');
+  await expect(detail.getByText('Reserved for this copy')).toBeVisible();
+  await expect(detail).toContainText('200 USDT');
+  await expect(detail).toContainText('20 USDT');
+
+  // The reserve is a limit, not a hold: the ledger balance is what it was.
+  expect((await (await api(follower)).balances()).USDT).toEqual(before);
+
+  // The same request sent twice is one follow (here to the futures leader, by the API the screen uses).
+  const me = await api(follower);
+  const request = {
+    leaderRef: await futuresRef(me),
+    region: 'DE',
+    permittedMarkets: ['BTC/USDT'],
+    maxNotionalPerOrder: '50',
+    maxAggregateExposure: '100',
+    fixedOrderSize: '10',
+    expiresAt: new Date(Date.now() + 7 * 24 * 3600_000).toISOString(),
+    clientRequestId: `journey-start:${state('tag')}`,
+  };
+  const first = await me.post('/api/trade/trpc/copy.follow', request);
+  const second = await me.post('/api/trade/trpc/copy.follow', request);
+  expect(first.status, JSON.stringify(first.body).slice(0, 300)).toBe(200);
+  expect(second.body.result.data.followId).toBe(first.body.result.data.followId);
+  expect(second.body.result.data.reserve).toEqual({ asset: 'USDT', amount: '100', released: false });
+});
+
+/** The futures leader's public ref, read from the directory the way the screen reads it. */
+async function futuresRef(me) {
+  const input = encodeURIComponent(JSON.stringify({ limit: 50, marketMode: 'futures', q: state('futuresName') }));
+  const page = await me.get(`/api/trade/trpc/copy.listLeaders?input=${input}`);
+  const ref = page.body?.result?.data?.leaders?.[0]?.leaderRef;
+  if (!ref) throw new Error(`no futures leader listed: ${JSON.stringify(page.body).slice(0, 300)}`);
+  return ref;
+}
+
+test(`${J} #8 sees the first copied trade: the leader's next buy is copied once as the follower at the fixed amount, and listed on the follow`, async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const follower = state('follower');
+  await signIn(page, follower);
+  await page.goto('/trade/copy?tab=follows');
+  // #7 followed the spot leader on screen and the futures leader by the API; this is the spot leader's follow.
+  const row = page
+    .getByRole('grid', { name: 'My follows' })
+    .getByRole('rowgroup')
+    .nth(1)
+    .getByRole('row')
+    .filter({ hasText: state('spotRef') });
+  await row.first().getByRole('button', { name: 'Manage' }).click();
+  const detail = page.getByRole('dialog');
+  // Start copying in #7 also turned automatic copying on; nothing is copied before the leader trades again.
+  await expect(detail.getByRole('button', { name: 'Turn off automatic copying' })).toBeVisible();
+  await expect(detail.getByText('No copied orders')).toBeVisible();
+
+  // The lead buys on the TEST book; the copy driver places the follower's copy at the leader's price, 20 USDT worth.
+  await takeBest(state('leader'), 'buy', '0.001', `${J}-8-buy-${state('tag')}`);
+  const copied = detail.getByRole('table', { name: 'Copied orders' }).locator('tbody tr:not([data-slot="table-empty-row"])');
+  await expect(async () => {
+    await page.reload();
+    await row.first().getByRole('button', { name: 'Manage' }).click();
+    await expect(copied).toHaveCount(1, { timeout: 2_000 });
+  }).toPass({ timeout: 60_000 });
+  await expect(copied.first()).toContainText('BTC/USDT');
+  await expect(copied.first()).toContainText('Buy');
+  // The copy is the fixed amount at the leader's price, stepped down to the market's lot: never more than 20 USDT.
+  const cells = copied.first().locator('td');
+  const number = async (i) => Number((await cells.nth(i).innerText()).replace(/[^\d.]/g, ''));
+  const notional = (await number(2)) * (await number(4));
+  expect(notional).toBeGreaterThan(0);
+  expect(notional).toBeLessThanOrEqual(20);
+  // The list reads the follower's own order book, so this row is an order placed as them.
+
+  // A second sweep places nothing more: still one copied order a few seconds later.
+  await page.waitForTimeout(5_000);
+  await page.reload();
+  await row.first().getByRole('button', { name: 'Manage' }).click();
+  await expect(copied).toHaveCount(1);
 });

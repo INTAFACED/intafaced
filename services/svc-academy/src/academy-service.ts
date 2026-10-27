@@ -44,8 +44,16 @@ import { FeaturedSlot } from './curriculum/featured.js';
 import { CourseRecords } from './curriculum/courses.js';
 import { LessonRecords } from './curriculum/lessons.js';
 import { CourseMedia, type ReadBackFn } from './curriculum/media.js';
+import { CourseAssignments, type PutObjectFn } from './curriculum/assignments.js';
+import { CourseQuizzes } from './curriculum/course-quizzes.js';
+import { CourseRelease } from './curriculum/course-release.js';
+import { CourseItemRules } from './curriculum/course-item-rules.js';
+import { CourseGradebook } from './curriculum/course-gradebook.js';
+import { PeerReviews, type GetObjectFn } from './curriculum/peer-review.js';
+import { AssignmentGrading } from './curriculum/grading.js';
 import { LearnHub } from './curriculum/learn-hub.js';
 import { CoursePreview } from './curriculum/course-preview.js';
+import { CourseLearners } from './curriculum/course-learners.js';
 import type { VideoStorageConfig } from './video/storage.js';
 import { CourseStarts } from './curriculum/course-start.js';
 import { publicCourse } from './curriculum/public-catalogue.js';
@@ -71,6 +79,15 @@ import type {
   AcademyRevertLessonInput,
   AcademyPublishLessonInput,
   AcademyDuplicateItemInput,
+  AcademySaveAssignmentInput,
+  AcademySaveReviewStepsInput,
+  AcademyGradeSubmissionInput,
+  AcademyMarkFeedbackReadInput,
+  AcademyOpenGradingInput,
+  AcademySubmitPeerReviewInput,
+  AcademySubmitAssignmentInput,
+  AcademyUploadAssignmentFileInput,
+  AcademyWithdrawAssignmentInput,
   AcademyImportLessonInput,
   AcademyAssistantDraftInput,
   AcademyDecideDraftInput,
@@ -80,14 +97,28 @@ import type {
   AcademySetCourseTopicsInput,
   AcademySetItemCaptionsInput,
   AcademyUpdateCourseInput,
+  AcademyCertIssue,
+  AcademyCertIssueRule,
+  AcademyCertRevocation,
+  AcademySetCertIssueRuleInput,
+  AcademyProgramme,
+  AcademyProgrammeCourseState,
+  AcademyProgrammeRecord,
+  AcademySaveProgrammeInput,
 } from '@intafaced/contracts';
+import { academyProgrammeCertId } from '@intafaced/contracts';
+import { CertIssueRules, issueDueAt } from './certs/issue-rules.js';
+import { ProgrammeRecords } from './curriculum/programme-records.js';
+import { CourseDiscussion } from './curriculum/discussion.js';
+import { CourseMessages } from './curriculum/course-messages.js';
 import { normaliseHolderName } from './certs/holder-name.js';
-import { PROGRAMME_SLUGS } from './curriculum/programmes.js';
+import { PROGRAMME_SLUGS, type ProgrammeSlug } from './curriculum/programmes.js';
 import {
   alreadyGrantedAfterInsert,
   CertError,
   certIdempotencyKey,
   decideGrant,
+  assessmentRequirementSlug,
   decideItemComplete,
   progressReport,
   type CertDefinition,
@@ -277,6 +308,12 @@ export interface AcademyServiceOptions {
   uploadVideoTypes?: readonly string[];
   uploadHandoutTypes?: readonly string[];
   mediaReadBack?: ReadBackFn;
+  /** Test seam: how a learner's file reaches the object store. Production PUTs over HTTP. */
+  assignmentPut?: PutObjectFn;
+  /** Test seam: how a reviewed file is read back from the object store. Production GETs over HTTP. */
+  assignmentGet?: GetObjectFn;
+  /** AC-assignments-02: seconds a grader holds a hand-in (`ACADEMY_GRADER_LEASE_SECONDS`). Unset, grading refuses. */
+  graderLeaseSeconds?: number;
   /** AC-articles-01: how many topics a list shows (`ACADEMY_TOPICS_LIST_LIMIT`). Unset, the list refuses. */
   topicsListLimit?: number;
   /** Stage-1 tournament ladder kill-switch (`ACADEMY_TOURNAMENT_ENABLED`). */
@@ -299,9 +336,62 @@ export interface AcademyServiceOptions {
   videoSaveEverySeconds?: number;
   /** Test seam. Production is the owner catalog, which is foundations-v1 only. */
   certCatalog?: readonly CertDefinition[];
+  /**
+   * AC-certificates-02: owner-set seconds between issue sweeps (`ACADEMY_CERT_ISSUE_SWEEP_SECONDS`). Undefined: no sweep
+   * runs, so a delayed issue rule refuses `academy.cert_sweep_unset`.
+   */
+  certIssueSweepSeconds?: number;
+  /** AC-programmes-01: owner-set courses per learning programme (`ACADEMY_PROGRAMME_MAX_COURSES`). Undefined: a save with courses refuses. */
+  programmeMaxCourses?: number;
+  /** AC-rooms-01: owner-set characters per discussion post (`ACADEMY_POST_MAX_CHARS`). Undefined: posting refuses. */
+  postMaxChars?: number;
+  /** AC-rooms-01: owner-set bytes per post image (`ACADEMY_POST_IMAGE_MAX_BYTES`). Undefined: a post with an image refuses. */
+  postImageMaxBytes?: number;
+  /** AC-rooms-04: owner-set characters per course-team message (`ACADEMY_MESSAGE_MAX_CHARS`). Undefined: sending refuses. */
+  messageMaxChars?: number;
   /** Test seam. Production is empty: no owner-published scored assessment. */
   assessmentCatalog?: readonly AssessmentDefinition[];
 }
+
+const MANUAL_ISSUE: AcademyCertIssue = { mode: 'manual', delayMinutes: null, issuesAt: null };
+
+/** AC-programmes-01: a programme's certificate is a grant under `programme:<slug>` (`academyProgrammeCertId`). */
+const PROGRAMME_CERT_PREFIX = academyProgrammeCertId('');
+type ProgrammeGrant = { publicId: string; grantedAt: Date; status: 'valid' | 'revoked' };
+type LearnerCourses = {
+  completed: ReadonlySet<string>;
+  enrolled: ReadonlySet<string>;
+  started: ReadonlySet<string>;
+  grants: ReadonlyMap<string, ProgrammeGrant>;
+};
+/** A course is complete once every one of its items is recorded. */
+const courseComplete = (course: CurriculumPath, completed: ReadonlySet<string>) => {
+  const items = listCurriculum({ path: course });
+  return items.length > 0 && items.every((row) => completed.has(row.slug));
+};
+
+/** Rows one pass of the issue sweep reads: a batch size of an internal loop that drains until nothing is due, not a list a person reads. */
+const CERT_ISSUE_SWEEP_BATCH = 100;
+
+const REVOCATION_COLUMNS = ['public_id', 'cert_id', 'proposed_by', 'approved_by', 'revoked_by', 'reason', 'revoked_at'] as const;
+type RevocationRow = {
+  public_id: string;
+  cert_id: string;
+  proposed_by: string;
+  approved_by: string;
+  revoked_by: string;
+  reason: string;
+  revoked_at: Date;
+};
+const revocationRecord = (r: RevocationRow): AcademyCertRevocation => ({
+  publicId: r.public_id,
+  certId: r.cert_id,
+  proposedBy: r.proposed_by,
+  approvedBy: r.approved_by,
+  revokedBy: r.revoked_by,
+  reason: r.reason,
+  revokedAt: r.revoked_at,
+});
 
 export class AcademyService {
   private readonly customer: AcademyCustomerStore;
@@ -311,11 +401,27 @@ export class AcademyService {
   private readonly courseRecords: CourseRecords;
   private readonly lessonRecords: LessonRecords;
   private readonly courseMedia: CourseMedia;
+  private readonly courseAssignments: CourseAssignments;
+  private readonly peerReviews: PeerReviews;
+  private readonly grading: AssignmentGrading;
   private readonly learnHub: LearnHub;
   private readonly coursePreview: CoursePreview;
+  private readonly courseLearners: CourseLearners;
   private readonly courseStarts: CourseStarts;
   private readonly plannerStore: PlannerStore;
   private readonly videoTracks: VideoTracks;
+  private readonly issueRules: CertIssueRules;
+  private readonly programmeRecords: ProgrammeRecords;
+  /** AC-rooms-01: course discussions. The router calls it directly; it decides nothing about any other record. */
+  readonly discussion: CourseDiscussion;
+  /** AC-rooms-04: conversations with course teams. The router calls it directly. */
+  readonly courseMessages: CourseMessages;
+  /** AC-quizzes-01: quizzes on the items of a course staff made. The router calls it directly (AC-quizzes-02: its own attempts). */
+  readonly courseQuizzes: CourseQuizzes;
+  /** AC-release-access-01: scheduled release and pacing on a course staff made. The router calls it directly. */
+  readonly courseRelease: CourseRelease;
+  readonly courseItemRules: CourseItemRules;
+  readonly courseGradebook: CourseGradebook;
 
   constructor(
     private readonly sql: Sql,
@@ -340,6 +446,7 @@ export class AcademyService {
     this.lessonRecords = new LessonRecords(sql, this.courseRecords, this.options.lessonImportMaxBytes ?? null);
     this.learnHub = new LearnHub(sql, this.options.topicsListLimit ?? null);
     this.coursePreview = new CoursePreview(sql);
+    this.courseLearners = new CourseLearners(sql, this.coursePreview);
     this.courseMedia = new CourseMedia(
       sql,
       this.options.mediaStorage ?? null,
@@ -350,9 +457,28 @@ export class AcademyService {
       },
       this.options.mediaReadBack,
     );
+    this.courseAssignments = new CourseAssignments(
+      sql,
+      this.options.mediaStorage ?? null,
+      { maxBytes: this.options.uploadMaxBytes ?? null, types: this.options.uploadHandoutTypes ?? null },
+      this.options.assignmentPut,
+    );
+    this.grading = new AssignmentGrading(sql, this.courseAssignments, this.options.graderLeaseSeconds ?? null);
+    this.peerReviews = new PeerReviews(sql, this.courseAssignments, this.options.mediaStorage ?? null, this.options.assignmentGet);
     this.courseStarts = new CourseStarts(sql);
     this.plannerStore = new PlannerStore(sql, this.options.plannerTodoLimit ?? null);
     this.videoTracks = new VideoTracks(sql);
+    this.issueRules = new CertIssueRules(sql);
+    this.programmeRecords = new ProgrammeRecords(sql, this.options.programmeMaxCourses);
+    this.courseMessages = new CourseMessages(sql, this.options.messageMaxChars ?? null);
+    this.courseQuizzes = new CourseQuizzes(sql);
+    this.courseRelease = new CourseRelease(sql);
+    this.courseItemRules = new CourseItemRules(sql);
+    this.courseGradebook = new CourseGradebook(sql);
+    this.discussion = new CourseDiscussion(sql, {
+      postMaxChars: this.options.postMaxChars ?? null,
+      imageMaxBytes: this.options.postImageMaxBytes ?? null,
+    });
     const assessments = this.options.assessmentCatalog ?? ASSESSMENT_CATALOG;
     this.assessments = new AssessmentRepository(sql, assessments);
     if (this.options.certCatalog) {
@@ -1735,6 +1861,14 @@ export class AcademyService {
     return [...this.certs()];
   }
 
+  /** AC-certificates-01: each learning path's published certificate, or the refusal for a path with none. */
+  certPaths(): Array<{ path: ProgrammeSlug; certId: string | null; refusal: 'academy.certificate_unpublished' | null }> {
+    return PROGRAMME_SLUGS.map((path) => {
+      const cert = certificateForPath(path, this.certs());
+      return { path, certId: cert?.id ?? null, refusal: cert ? null : 'academy.certificate_unpublished' };
+    });
+  }
+
   async enrollCertPath(input: { userId: string; pathSlug: string }): Promise<EnrollmentRecord> {
     this.refuseUnpublishedPath(input.pathSlug);
     const row = await this.customer.enrollCertPath({
@@ -1838,7 +1972,15 @@ export class AcademyService {
    * quiz, pending while staff hide results, with per-type averages over released results only.
    */
   async progressPage(userId: string, now: Date = new Date()): Promise<AcademyProgressPage> {
-    const [enrolments, grades] = await Promise.all([this.publishedEnrolments(userId), this.assessments.grades(userId, now)]);
+    const [enrolments, allGrades, courseGrades] = await Promise.all([
+      this.publishedEnrolments(userId),
+      this.assessments.grades(userId, now),
+      this.grading.courseGrades(userId),
+    ]);
+    // Attempts on quizzes in courses staff made, started before those quizzes had attempts of their own (AC-quizzes-01),
+    // left score rows under their item id as slug. Course quiz grades belong to that course's gradebook (AC-assignments-04,
+    // from course_quiz_attempts), not to the curriculum paths' grades here.
+    const grades = allGrades.filter((row) => getCurriculumItem(row.slug) !== null);
     const paths = enrolments.map((row) => row.pathSlug as CurriculumPath);
     const times = await this.completionTimes(
       userId,
@@ -1861,7 +2003,7 @@ export class AcademyService {
       };
     });
     const rows = grades.map((row) => {
-      const title = getCurriculumItem(row.slug)?.title ?? row.slug;
+      const title = getCurriculumItem(row.slug)!.title;
       return row.pending
         ? {
             pending: true as const,
@@ -1897,7 +2039,7 @@ export class AcademyService {
               ),
             },
           ];
-    return { courses, grades: { rows, averages } };
+    return { courses, grades: { rows, averages }, courseGrades };
   }
 
   planner(userId: string) {
@@ -2003,6 +2145,7 @@ export class AcademyService {
           throw err;
         }
         await this.recordCompletion(input.userId, slug, now);
+        await this.settleProgrammesHolding(input.userId, slug, now);
       }
     }
     const completedItems: string[] = [];
@@ -2298,6 +2441,29 @@ export class AcademyService {
     return this.coursePreview.revokeLink({ ...input, now: input.now ?? new Date() });
   }
 
+  /** AC-catalogue-03: the published courses staff made, newest first. */
+  publishedCourses(limit: number) {
+    return this.courseLearners.published(limit);
+  }
+
+  /** AC-catalogue-03: a published course's page; signed in, the caller's enrolment opens what is released. */
+  authoredCoursePage(slug: string, readerId: string | null) {
+    return this.courseLearners.page(slug, readerId);
+  }
+
+  /** AC-enrolment-01: the terms of enrolling in a course staff made, with the caller's own enrolment. */
+  authoredCourseEnrolment(input: { userId: string; slug: string }) {
+    return this.courseLearners.terms(input);
+  }
+
+  enrolAuthoredCourse(input: { userId: string; slug: string; track: AcademyEnrolmentTrack; now?: Date }) {
+    return this.courseLearners.enrol({ ...input, now: input.now ?? new Date() });
+  }
+
+  leaveAuthoredCourse(input: { userId: string; slug: string; enrolledAt: string; now?: Date }) {
+    return this.courseLearners.leave({ ...input, now: input.now ?? new Date() });
+  }
+
   /** AC-videos-02: an item's uploads, captions and the owner's upload limits. */
   itemMedia(itemId: string, now: Date = new Date()) {
     return this.courseMedia.itemMedia(itemId, now);
@@ -2316,6 +2482,71 @@ export class AcademyService {
   /** AC-videos-02: one language's SRT or WebVTT captions for the item's video. */
   setItemCaptions(input: AcademySetItemCaptionsInput & { operatorId: string; now?: Date }) {
     return this.courseMedia.setCaptions({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-assignments-01: an assignment item's brief as staff see it. */
+  assignmentForStaff(itemId: string) {
+    return this.courseAssignments.adminView(itemId);
+  }
+
+  saveAssignment(input: AcademySaveAssignmentInput & { operatorId: string; now?: Date }) {
+    return this.courseAssignments.save({ ...input, now: input.now ?? new Date() });
+  }
+
+  withdrawAssignment(input: AcademyWithdrawAssignmentInput & { operatorId: string; now?: Date }) {
+    return this.courseAssignments.withdraw({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-assignments-01: the assignment as the enrolled learner sees it, with their own hand-ins. */
+  assignment(input: { itemId: string; userId: string }) {
+    return this.courseAssignments.learnerView(input);
+  }
+
+  uploadAssignmentFile(input: AcademyUploadAssignmentFileInput & { userId: string; now?: Date }) {
+    return this.courseAssignments.uploadFile({ ...input, now: input.now ?? new Date() });
+  }
+
+  submitAssignment(input: AcademySubmitAssignmentInput & { userId: string; now?: Date }) {
+    return this.courseAssignments.submit({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-assignments-03: the review steps and rubric over the revision read; answers with the assignment as staff see it. */
+  async saveReviewSteps(input: AcademySaveReviewStepsInput & { operatorId: string; now?: Date }) {
+    await this.peerReviews.save({ ...input, now: input.now ?? new Date() });
+    return this.courseAssignments.adminView(input.itemId);
+  }
+
+  /** AC-assignments-03: the learner's review stage, handing out the next work when one is due and free. */
+  peerReview(input: { itemId: string; userId: string; now?: Date }) {
+    return this.peerReviews.state({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-assignments-02: the grading queue of one assignment, learners under aliases. */
+  gradingQueue(input: { itemId: string; operatorId: string; now?: Date }) {
+    return this.grading.queue({ ...input, now: input.now ?? new Date() });
+  }
+
+  openGrading(input: AcademyOpenGradingInput & { operatorId: string; now?: Date }) {
+    return this.grading.open({ ...input, now: input.now ?? new Date() });
+  }
+
+  gradeSubmission(input: AcademyGradeSubmissionInput & { operatorId: string; now?: Date }) {
+    return this.grading.grade({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-assignments-02: the learner read their feedback; answers with the assignment as they see it. */
+  async markFeedbackRead(input: AcademyMarkFeedbackReadInput & { userId: string; now?: Date }) {
+    await this.grading.markRead({ ...input, now: input.now ?? new Date() });
+    return this.courseAssignments.learnerView({ itemId: input.itemId, userId: input.userId });
+  }
+
+  /** AC-assignments-03: the file of work handed to the caller to review, read back through svc-academy. */
+  peerReviewFile(input: { itemId: string; taskId: string; userId: string; now?: Date }) {
+    return this.peerReviews.file({ ...input, now: input.now ?? new Date() });
+  }
+
+  submitPeerReview(input: AcademySubmitPeerReviewInput & { userId: string; now?: Date }) {
+    return this.peerReviews.submit({ ...input, now: input.now ?? new Date() });
   }
 
   setFeatured(input: { itemSlug: string | null; reason: string; operatorId: string; now?: Date }) {
@@ -2381,7 +2612,10 @@ export class AcademyService {
       (rule === 'score' && (await this.assessments.passedSlugs(input.userId, now)).has(slug)) ||
       (rule === 'watch' && (await this.watchedItems(input.userId, new Map([[slug, video!]]))).has(slug));
     if (!met) throw new AcademyError(`academy.completion_rule_unmet rule=${rule}`, 'academy.completion_rule_unmet');
-    return this.recordCompletion(input.userId, slug, now);
+    const record = await this.recordCompletion(input.userId, slug, now);
+    await this.settleCertificatesNeeding(input.userId, slug, now);
+    await this.settleProgrammesHolding(input.userId, slug, now);
+    return record;
   }
 
   /** Records one completion and its history row; a concurrent completion of the same item returns that one. */
@@ -2428,7 +2662,7 @@ export class AcademyService {
     const clientRequestId = input.clientRequestId.trim();
     const completedAt = new Date(input.completedAt);
     const now = input.now ?? new Date();
-    return transaction(this.sql, async (tx) => {
+    const undone = await transaction(this.sql, async (tx) => {
       // completed_at may carry microseconds (rows from before this change used now()); the caller saw it in milliseconds.
       // The request id first, so two Undos sharing one id on different items take turns and the second reads the first.
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${input.userId}:${clientRequestId}:undo-request`}, 0))`;
@@ -2456,6 +2690,9 @@ export class AcademyService {
       `;
       return { userId: input.userId, itemSlug: slug, undoneAt: now.toISOString() };
     });
+    // A delayed certificate waiting on this item stops waiting; completing again starts a new wait.
+    if (undone.undoneAt !== null) await this.settleCertificatesNeeding(input.userId, slug, now);
+    return undone;
   }
 
   private async currentCompletion(sql: Sql, userId: string, slug: string): Promise<ItemCompletionRecord | null> {
@@ -2513,10 +2750,15 @@ export class AcademyService {
     return new Set(rows.map((r) => r.item_slug));
   }
 
-  private async existingGrant(userId: string, certId: string): Promise<(CertGrantRecord & { publicId: string }) | null> {
+  private async existingGrant(
+    userId: string,
+    certId: string,
+  ): Promise<(CertGrantRecord & { publicId: string; status: 'valid' | 'revoked' }) | null> {
     const key = certIdempotencyKey(userId, certId);
-    const rows = await this.sql<Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; public_id: string }>>`
-      SELECT user_id, cert_id, granted_at, idempotency_key, public_id FROM academy.cert_grants
+    const rows = await this.sql<
+      Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; public_id: string; status: string }>
+    >`
+      SELECT user_id, cert_id, granted_at, idempotency_key, public_id, status FROM academy.cert_grants
        WHERE user_id = ${userId} AND cert_id = ${certId}
     `;
     if (!rows[0]) return null;
@@ -2526,7 +2768,304 @@ export class AcademyService {
       grantedAt: rows[0].granted_at,
       idempotencyKey: rows[0].idempotency_key ?? key,
       publicId: rows[0].public_id,
+      status: rows[0].status === 'revoked' ? 'revoked' : 'valid',
     };
+  }
+
+  /**
+   * AC-programmes-01: staff create a learning programme or replace its details and ordered courses over the revision
+   * they read (admin door, reason required). A course is one of the published learning-path courses.
+   */
+  saveProgramme(input: AcademySaveProgrammeInput & { operatorId: string; now?: Date }): Promise<AcademyProgrammeRecord> {
+    const { now = new Date(), ...rest } = input;
+    return this.programmeRecords.save({ ...rest, now }, (course) => listCurriculum({ path: course as CurriculumPath }).length > 0);
+  }
+
+  /** AC-programmes-01: the programmes staff made, newest first, up to the caller's limit. */
+  adminProgrammes(limit: number): Promise<AcademyProgrammeRecord[]> {
+    return this.programmeRecords.list(limit);
+  }
+
+  /** AC-programmes-01: one programme as the caller stands on it: each course in order, the three counts, the certificate. */
+  async programme(input: { userId: string; slug: string; now?: Date }): Promise<AcademyProgramme> {
+    const record = await this.programmeRecords.get(input.slug);
+    if (!record) throw new AcademyError(`academy.programme_not_found slug=${input.slug}`, 'academy.programme_not_found');
+    return this.programmeStanding(input.userId, record, await this.learnerCourses(input.userId), input.now ?? new Date());
+  }
+
+  /**
+   * AC-programmes-01: the programmes newest first, up to the caller's limit, each as the caller stands on it. `mine` keeps
+   * only the programmes the caller has a certificate for or holds a completed or enrolled course of, wherever they sit in
+   * the list, so an older programme's certificate is never paged out of the Certificates tab.
+   */
+  async programmes(input: { userId: string; limit: number; mine?: boolean; now?: Date }): Promise<AcademyProgramme[]> {
+    const learner = await this.learnerCourses(input.userId);
+    const records = await this.programmeRecords.list(
+      input.limit,
+      input.mine ? { earned: [...learner.grants.keys()], courses: [...learner.started] } : undefined,
+    );
+    const now = input.now ?? new Date();
+    return Promise.all(records.map((record) => this.programmeStanding(input.userId, record, learner, now)));
+  }
+
+  /**
+   * What the caller has done, in three reads: the items recorded, the courses with an open enrolment, and the programme
+   * certificates they hold. `started` is every course they are enrolled in or have every item of.
+   */
+  private async learnerCourses(userId: string): Promise<LearnerCourses> {
+    const [completed, enrolments, grants] = await Promise.all([
+      this.completedSlugs(userId),
+      this.publishedEnrolments(userId),
+      this.programmeGrants(userId),
+    ]);
+    const enrolled = new Set(enrolments.map((row) => row.pathSlug));
+    const started = new Set([...enrolled, ...PROGRAMME_SLUGS.filter((path) => courseComplete(path, completed))]);
+    return { completed, enrolled, started, grants };
+  }
+
+  /** The caller's programme certificates by programme slug, in one read. */
+  private async programmeGrants(userId: string): Promise<Map<string, ProgrammeGrant>> {
+    const rows = await this.sql<Array<{ cert_id: string; granted_at: Date; public_id: string; status: string }>>`
+      SELECT cert_id, granted_at, public_id, status FROM academy.cert_grants
+       WHERE user_id = ${userId} AND starts_with(cert_id, ${PROGRAMME_CERT_PREFIX})
+    `;
+    return new Map(
+      rows.map((row) => [
+        row.cert_id.slice(PROGRAMME_CERT_PREFIX.length),
+        { publicId: row.public_id, grantedAt: row.granted_at, status: row.status === 'revoked' ? 'revoked' : 'valid' },
+      ]),
+    );
+  }
+
+  /**
+   * How the caller stands on one programme. A course is completed once every one of its items is recorded (whether or not
+   * the learner is still enrolled), else enrolled while an enrolment is open, else not enrolled. With every course of a
+   * non-empty programme completed, the certificate is issued here if it is not yet: once, keyed `cert:<user>:<cert>`, so a
+   * completion whose issue was lost is issued by the learner's next read. A revoked certificate stays revoked.
+   */
+  private async programmeStanding(
+    userId: string,
+    record: AcademyProgrammeRecord,
+    learner: LearnerCourses,
+    now: Date,
+  ): Promise<AcademyProgramme> {
+    const courses = record.courseSlugs.map((slug) => {
+      const items = listCurriculum({ path: slug }).map((row) => row.slug);
+      const completed = items.filter((item) => learner.completed.has(item)).length;
+      const state: AcademyProgrammeCourseState =
+        items.length > 0 && completed === items.length ? 'completed' : learner.enrolled.has(slug) ? 'enrolled' : 'not_enrolled';
+      return { slug, state, items: items.length, completed };
+    });
+    const count = (state: AcademyProgrammeCourseState) => courses.filter((row) => row.state === state).length;
+    const certId = academyProgrammeCertId(record.slug);
+    const finished = courses.length > 0 && count('completed') === courses.length;
+    const grant = learner.grants.get(record.slug) ?? (finished ? await this.issueProgrammeCert(userId, certId, now) : null);
+    return {
+      slug: record.slug,
+      title: record.title,
+      summary: record.summary,
+      courses,
+      counts: { completed: count('completed'), enrolled: count('enrolled'), notEnrolled: count('not_enrolled') },
+      certificate: grant
+        ? { state: 'earned', certId, publicId: grant.publicId, grantedAt: grant.grantedAt, status: grant.status }
+        : { state: 'not_earned', certId },
+    };
+  }
+
+  /** Writes the programme certificate once; a concurrent issue answers with the row the other one wrote. No XP, no money. */
+  private async issueProgrammeCert(userId: string, certId: string, now: Date): Promise<ProgrammeGrant> {
+    await this.insertCertGrant({ userId, certId, grantedAt: now, idempotencyKey: certIdempotencyKey(userId, certId) });
+    const grant = await this.existingGrant(userId, certId);
+    if (!grant) throw new AcademyError(`Programme certificate left no row for ${certId}`, 'academy.cert_invalid');
+    return grant;
+  }
+
+  /** The one write of a certificate grant: a new serial, and nothing when the learner already holds this certificate. */
+  private insertCertGrant(grant: CertGrantRecord) {
+    return this.sql<Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; public_id: string }>>`
+      INSERT INTO academy.cert_grants (user_id, cert_id, granted_at, idempotency_key, public_id)
+      VALUES (${grant.userId}, ${grant.certId}, ${grant.grantedAt}, ${grant.idempotencyKey}, ${randomPublicId()})
+      ON CONFLICT (user_id, cert_id) DO NOTHING
+      RETURNING user_id, cert_id, granted_at, idempotency_key, public_id
+    `;
+  }
+
+  /** A certificate's title for anyone who checks it: the published definition's, or the programme's. */
+  private async certTitle(certId: string): Promise<string | undefined> {
+    if (!certId.startsWith(PROGRAMME_CERT_PREFIX)) return this.certDefinition(certId)?.title;
+    return (await this.programmeRecords.get(certId.slice(PROGRAMME_CERT_PREFIX.length)))?.title;
+  }
+
+  /**
+   * After a completion: issues the certificate of every programme holding the item's course that the learner has now
+   * finished. The completion is already recorded and stays so; a certificate this step could not issue is issued by the
+   * learner's next programme read.
+   */
+  private async settleProgrammesHolding(userId: string, itemSlug: string, now: Date): Promise<void> {
+    const course = getCurriculumItem(itemSlug)?.path as CurriculumPath | undefined;
+    if (!course) return;
+    try {
+      // A programme can only be finished by the completion that finished its course.
+      if (!courseComplete(course, await this.completedSlugs(userId))) return;
+      const held = await this.programmeRecords.holding(course);
+      if (held.length === 0) return;
+      const learner = await this.learnerCourses(userId);
+      for (const record of held) await this.programmeStanding(userId, record, learner, now);
+    } catch (err) {
+      console.error({ err, course }, 'programme certificate issue failed; the next programme read retries it');
+    }
+  }
+
+  /** AC-certificates-02: staff set how one published certificate is issued (admin door, reason required). */
+  async setCertIssueRule(input: AcademySetCertIssueRuleInput & { operatorId: string; now?: Date }): Promise<AcademyCertIssueRule> {
+    if (!this.certDefinition(input.certId)) {
+      this.refuseUnpublishedPath(input.certId);
+      throw new AcademyError('Unknown certification', 'academy.cert_not_found');
+    }
+    return this.issueRules.setRule({
+      ...input,
+      now: input.now ?? new Date(),
+      sweepRunning: this.options.certIssueSweepSeconds !== undefined,
+    });
+  }
+
+  /**
+   * AC-certificates-03: the revocation recorded for one issued certificate, or null while it stands. An unknown code is
+   * `academy.cert_not_found`. The router reads this before spending a two-person approval, so a repeat or a typo costs
+   * nobody's approval.
+   */
+  async certRevocation(publicId: string, tx: Sql = this.sql): Promise<AcademyCertRevocation | null> {
+    if (!isPublicId(publicId)) throw new AcademyError('Certificate not found', 'academy.cert_not_found');
+    const grants = await tx`SELECT 1 FROM academy.cert_grants WHERE public_id = ${publicId}`;
+    if (grants.length === 0) throw new AcademyError('Certificate not found', 'academy.cert_not_found');
+    const rows = await tx<RevocationRow[]>`
+      SELECT ${tx(REVOCATION_COLUMNS)} FROM academy.cert_revocations WHERE public_id = ${publicId}
+    `;
+    return rows[0] ? revocationRecord(rows[0]) : null;
+  }
+
+  /**
+   * AC-certificates-03: staff revoke one issued certificate by its public code, once two people approved it (the router
+   * consumes identity's approval and passes who proposed and who approved it). The grant turns `revoked` and one record
+   * names them, the operator who carried it out, the reason and the time. A repeat answers with the first record and
+   * writes nothing; an unknown code is `academy.cert_not_found`.
+   */
+  async revokeCert(input: {
+    publicId: string;
+    reason: string;
+    proposedBy: string;
+    approvedBy: string;
+    operatorId: string;
+    now?: Date;
+  }): Promise<AcademyCertRevocation> {
+    const reason = input.reason.trim();
+    if (reason.length === 0 || reason.length > 500) throw new AcademyError('A revoke needs a reason', 'academy.cert_invalid');
+    return transaction(this.sql, async (tx) => {
+      await tx`SELECT 1 FROM academy.cert_grants WHERE public_id = ${input.publicId} FOR UPDATE`;
+      const recorded = await this.certRevocation(input.publicId, tx);
+      if (recorded) return recorded;
+      const [grant] = await tx<Array<{ user_id: string; cert_id: string }>>`
+        UPDATE academy.cert_grants SET status = 'revoked' WHERE public_id = ${input.publicId} RETURNING user_id, cert_id
+      `;
+      const rows = await tx<RevocationRow[]>`
+        INSERT INTO academy.cert_revocations (public_id, user_id, cert_id, proposed_by, approved_by, revoked_by, reason, revoked_at)
+        VALUES (${input.publicId}, ${grant!.user_id}, ${grant!.cert_id}, ${input.proposedBy}, ${input.approvedBy},
+                ${input.operatorId}, ${reason}, ${input.now ?? new Date()})
+        RETURNING ${tx(REVOCATION_COLUMNS)}
+      `;
+      return revocationRecord(rows[0]!);
+    });
+  }
+
+  /** The stored issue rule of one certificate, or null when staff have set none. */
+  certIssueRule(certId: string): Promise<AcademyCertIssueRule | null> {
+    return this.issueRules.rule(certId);
+  }
+
+  /**
+   * AC-certificates-02: how the learner's certificate stands under its issue rule, writing nothing but the wait.
+   * `manual` (or no rule) issues nothing by itself: the learner claims it, and any wait left from an earlier delayed rule
+   * is dropped. `automatic` is due once every requirement is met. `delayed` records the wait the first time the learner
+   * stands complete, due the owner's delay after the later of their last lesson completion and the rule's own revision
+   * (a rule set after someone finished starts their wait then); a certificate with an assessment requirement counts from
+   * now, since a pass is settled when it happens. A learner no longer complete (an Undo) drops the wait.
+   */
+  private async issueStanding(
+    userId: string,
+    cert: CertDefinition,
+    progress: ProgressReport,
+    now: Date,
+  ): Promise<{ issue: AcademyCertIssue; due: boolean }> {
+    const rule = await this.issueRules.rule(cert.id);
+    if (!rule || rule.mode === 'manual' || progress.granted || !progress.complete) {
+      await this.issueRules.dropPending(userId, cert.id);
+      return {
+        issue: rule && rule.mode !== 'manual' ? { mode: rule.mode, delayMinutes: rule.delayMinutes, issuesAt: null } : MANUAL_ISSUE,
+        due: false,
+      };
+    }
+    const view: AcademyCertIssue = { mode: rule.mode, delayMinutes: rule.delayMinutes, issuesAt: null };
+    if (rule.mode === 'automatic') return { issue: view, due: true };
+    const hasAssessment = cert.requiredItemSlugs.some((slug) => assessmentRequirementSlug(slug) !== null);
+    const lessons = [...(await this.completionTimes(userId, cert.requiredItemSlugs)).values()].map((at) => at.getTime());
+    const completeAt = new Date(Math.max(rule.updatedAt.getTime(), ...(hasAssessment ? [now.getTime()] : lessons)));
+    const dueAt = await this.issueRules.ensurePending(userId, cert.id, issueDueAt(completeAt, rule.delayMinutes!), now);
+    return dueAt.getTime() > now.getTime() ? { issue: { ...view, issuesAt: dueAt }, due: false } : { issue: view, due: true };
+  }
+
+  /** Issues the learner's certificate when its rule says it is due, and answers how it is issued. Safe to repeat. */
+  private async settleCertIssue(userId: string, cert: CertDefinition, now: Date, progress?: ProgressReport): Promise<AcademyCertIssue> {
+    const standing = await this.issueStanding(userId, cert, progress ?? (await this.progressOf(userId, cert)), now);
+    if (standing.due) {
+      await this.grantCert({ userId, certId: cert.id, byRule: true, now });
+      await this.issueRules.dropPending(userId, cert.id);
+    }
+    return standing.issue;
+  }
+
+  /**
+   * After a completion, an Undo or an assessment result: settles every certificate that needs this requirement (a lesson
+   * slug, or `assessment:<slug>`). What happened is already recorded and stays so whatever happens here; a certificate
+   * this step could not issue is issued by the learner's next read or the sweep.
+   */
+  private async settleCertificatesNeeding(userId: string, requirement: string, now: Date): Promise<void> {
+    for (const cert of this.certs().filter((row) => row.requiredItemSlugs.includes(requirement))) {
+      try {
+        await this.settleCertIssue(userId, cert, now);
+      } catch (err) {
+        console.error({ err, certId: cert.id }, 'certificate issue failed; the next read or sweep retries it');
+      }
+    }
+  }
+
+  /**
+   * The issue sweep: issues every delayed certificate due by `now`, in batches until none is left, and answers how many
+   * it settled. One learner's failure is logged and left for the next sweep; it never stops the others.
+   */
+  async issueDueCertificates(now: Date = new Date()): Promise<number> {
+    let settled = 0;
+    const seen = new Set<string>();
+    for (;;) {
+      const due = await this.issueRules.due(now, CERT_ISSUE_SWEEP_BATCH);
+      // Every settled row leaves the table; a row read twice in one sweep would mean it stayed, so stop rather than spin.
+      if (due.some((row) => seen.has(`${row.userId}:${row.certId}`))) return settled;
+      let failed = false;
+      for (const row of due) {
+        seen.add(`${row.userId}:${row.certId}`);
+        const cert = this.certDefinition(row.certId);
+        try {
+          if (cert) await this.settleCertIssue(row.userId, cert, now);
+          else await this.issueRules.dropPending(row.userId, row.certId);
+          settled += 1;
+        } catch (err) {
+          failed = true;
+          console.error({ err, certId: row.certId }, 'certificate issue sweep: one certificate failed; the next sweep retries it');
+        }
+      }
+      // A full batch may have more behind it. After a failure the rest waits for the next sweep, so a row that keeps
+      // failing never spins this loop.
+      if (due.length < CERT_ISSUE_SWEEP_BATCH || failed) return settled;
+    }
   }
 
   /**
@@ -2569,13 +3108,27 @@ export class AcademyService {
   async grantCert(input: {
     userId: string;
     certId: string;
+    /** Set when the certificate's issue rule issues it, not the learner's own claim. */
+    byRule?: boolean;
+    now?: Date;
   }): Promise<{ grant: CertGrantRecord & { publicId: string }; alreadyGranted: boolean; xp: CertXpEmitResult; perks: CertPerkOutcome }> {
-    assertNoCertPerkMoneyAttachment(input);
+    const { byRule = false, now = new Date(), ...claim } = input;
+    assertNoCertPerkMoneyAttachment(claim);
     const cert = this.certDefinition(input.certId);
     if (!cert) this.refuseUnpublishedPath(input.certId);
+    if (!byRule && cert) {
+      // A delayed certificate is issued when its wait ends; claiming it sooner refuses with the time it is due. Once due,
+      // the learner's claim is the issue, answered as a first grant.
+      const standing = await this.issueStanding(input.userId, cert, await this.progressOf(input.userId, cert), now);
+      if (standing.issue.issuesAt !== null) {
+        throw new AcademyError(`academy.cert_not_due issuesAt=${standing.issue.issuesAt.toISOString()}`, 'academy.cert_not_due');
+      }
+    }
     const completed = await this.completedSlugs(input.userId);
     const passed = await this.assessments.passedSlugs(input.userId);
     const existing = await this.existingGrant(input.userId, input.certId);
+    // A revoked certificate stays revoked: claiming it again answers the typed refusal and publishes nothing.
+    if (existing?.status === 'revoked') throw new AcademyError(`academy.cert_revoked cert=${input.certId}`, 'academy.cert_revoked');
     let decision: { grant: CertGrantRecord; alreadyGranted: boolean };
     try {
       decision = decideGrant({
@@ -2594,15 +3147,9 @@ export class AcademyService {
       const perks = await resolveCertPerkOutcome({ userId: input.userId, hostRights: this.hostRights, xp });
       return { grant: { ...decision.grant, publicId: existing.publicId }, alreadyGranted: true, xp, perks };
     }
-    const publicId = randomPublicId();
     // ON CONFLICT DO NOTHING — concurrent second writer must not hardcode
     // alreadyGranted:false (UI would fire "just earned" twice; XP still safe).
-    const rows = await this.sql<Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; public_id: string }>>`
-      INSERT INTO academy.cert_grants (user_id, cert_id, granted_at, idempotency_key, public_id)
-      VALUES (${decision.grant.userId}, ${decision.grant.certId}, ${decision.grant.grantedAt}, ${decision.grant.idempotencyKey}, ${publicId})
-      ON CONFLICT (user_id, cert_id) DO NOTHING
-      RETURNING user_id, cert_id, granted_at, idempotency_key, public_id
-    `;
+    const rows = await this.insertCertGrant(decision.grant);
     if (rows.length === 0) {
       const raced = await this.existingGrant(input.userId, input.certId);
       if (!raced) {
@@ -2634,10 +3181,15 @@ export class AcademyService {
     };
   }
 
-  async myCertGrants(userId: string, requested?: number): Promise<Array<CertGrantRecord & { publicId: string }>> {
+  async myCertGrants(
+    userId: string,
+    requested?: number,
+  ): Promise<Array<CertGrantRecord & { publicId: string; status: 'valid' | 'revoked' }>> {
     const limit = assertMyCertsListLimit(requested);
-    const rows = await this.sql<Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; public_id: string }>>`
-      SELECT user_id, cert_id, granted_at, idempotency_key, public_id FROM academy.cert_grants
+    const rows = await this.sql<
+      Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; public_id: string; status: string }>
+    >`
+      SELECT user_id, cert_id, granted_at, idempotency_key, public_id, status FROM academy.cert_grants
        WHERE user_id = ${userId}
        ORDER BY granted_at DESC
        LIMIT ${limit}
@@ -2648,12 +3200,37 @@ export class AcademyService {
       grantedAt: r.granted_at,
       idempotencyKey: r.idempotency_key,
       publicId: r.public_id,
+      status: r.status === 'revoked' ? ('revoked' as const) : ('valid' as const),
     }));
   }
 
-  async certProgress(input: { userId: string; certId: string }): Promise<ProgressReport> {
+  /**
+   * The caller's progress toward one certificate, with how it is issued. A certificate its rule says is due is issued
+   * here first: the recovery path for an issue the completion did not finish (the process stopped between the two).
+   */
+  async certProgress(input: { userId: string; certId: string; now?: Date }): Promise<ProgressReport & { issue: AcademyCertIssue }> {
     const cert = this.certDefinition(input.certId);
-    if (!cert) this.refuseUnpublishedPath(input.certId);
+    if (!cert) {
+      this.refuseUnpublishedPath(input.certId);
+      throw new AcademyError('Unknown certification', 'academy.cert_not_found');
+    }
+    const now = input.now ?? new Date();
+    const progress = await this.progressOf(input.userId, cert);
+    const standing = await this.issueStanding(input.userId, cert, progress, now);
+    if (!standing.due) return { ...progress, issue: standing.issue };
+    try {
+      await this.grantCert({ userId: input.userId, certId: cert.id, byRule: true, now });
+      await this.issueRules.dropPending(input.userId, cert.id);
+    } catch (err) {
+      // The read still answers; the certificate stays ready and the sweep or the next read issues it.
+      console.error({ err, certId: cert.id }, 'certificate issue on a progress read failed');
+      return { ...progress, issue: standing.issue };
+    }
+    return { ...(await this.progressOf(input.userId, cert)), issue: standing.issue };
+  }
+
+  private async progressOf(userId: string, cert: CertDefinition): Promise<ProgressReport> {
+    const input = { userId, certId: cert.id };
     const completed = await this.completedSlugs(input.userId);
     const passed = await this.assessments.passedSlugs(input.userId);
     const existing = await this.existingGrant(input.userId, input.certId);
@@ -2691,14 +3268,16 @@ export class AcademyService {
     };
   }
 
-  submitAssessment(input: {
+  async submitAssessment(input: {
     userId: string;
     slug: string;
     answers: readonly { questionId: string; choiceId: string }[];
     clientAttemptId: string;
     now?: Date;
   }): Promise<AttemptRow> {
-    return this.assessments.submit(input);
+    const row = await this.assessments.submit(input);
+    await this.settleCertificatesNeeding(input.userId, `assessment:${input.slug}`, input.now ?? new Date());
+    return row;
   }
 
   assessmentAttempts(userId: string, slug: string): Promise<VisibleAttemptRow[]> {
@@ -2718,8 +3297,10 @@ export class AcademyService {
     return this.assessments.answer(input);
   }
 
-  finishQuizAttempt(input: { userId: string; attemptId: string; now?: Date }): Promise<AcademyQuizAttempt> {
-    return this.assessments.finish(input);
+  async finishQuizAttempt(input: { userId: string; attemptId: string; now?: Date }): Promise<AcademyQuizAttempt> {
+    const attempt = await this.assessments.finish(input);
+    await this.settleCertificatesNeeding(input.userId, `assessment:${attempt.slug}`, input.now ?? new Date());
+    return attempt;
   }
 
   reviewQuizAttempt(input: { userId: string; attemptId: string; now?: Date }): Promise<AcademyQuizReview> {
@@ -2753,12 +3334,14 @@ export class AcademyService {
     `;
     const row = rows[0];
     if (!row) throw new AcademyError('Certificate not found', 'academy.cert_not_found');
-    const cert = this.certDefinition(row.cert_id);
-    if (!cert) throw new AcademyError(`academy.certificate_unpublished cert=${row.cert_id}`, 'academy.certificate_unpublished');
+    const title = await this.certTitle(row.cert_id);
+    if (title === undefined) {
+      throw new AcademyError(`academy.certificate_unpublished cert=${row.cert_id}`, 'academy.certificate_unpublished');
+    }
     const status = row.status === 'valid' ? 'valid' : 'revoked';
     const body: { certId: string; title: string; grantedAt: Date; status: 'valid' | 'revoked'; holderName?: string } = {
       certId: row.cert_id,
-      title: cert.title,
+      title,
       grantedAt: row.granted_at,
       status,
     };

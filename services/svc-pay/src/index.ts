@@ -22,6 +22,8 @@ import { ConversionService } from './conversion/service.js';
 import { CONVERSION_HOLD_SWEEP_MS, CONVERSION_LATE_FILL_TICK_MS } from './conversion/late-fill-schedule.js';
 import { assertConversionBoot, openConversionVenue, readConversionConfig } from './conversion/venue.js';
 import { createRegistryReader } from './registries/read-api.js';
+import { JetStreamEventBus } from '@intafaced/events';
+import { createIdentityLimitOverrideClient } from './limits/identity-override.js';
 import { createIdentityKycTierClient } from './limits/identity-tier.js';
 import { PAY_WITHDRAWAL_LIMITS_ENV, loadWithdrawalLimitMode } from './limits/config.js';
 import { createWithdrawalEligibility, ledgerNegativeBalanceSource } from './withdrawals/eligibility.js';
@@ -36,6 +38,7 @@ import { createAllowlistRouter } from './withdrawals/allowlist/router.js';
 import { WithdrawalQuoteService } from './withdrawals/quotes/service.js';
 import { loadMessageCipher } from './travel-rule/cipher.js';
 import { createTravelRuleCustomerRouter } from './travel-rule/customer-router.js';
+import { createDepositTravelRuleCustomerRouter } from './custody/deposits/travel-rule.js';
 import { TravelRuleService } from './travel-rule/service.js';
 import { purchaseHoldSource } from './withdrawals/purchase-holds/source.js';
 import { createWithdrawalHistory } from './withdrawals/history.js';
@@ -71,6 +74,8 @@ import { WalletPay, failClosedWalletPublish } from './wallet/wallet-pay.js';
 import { createLedgerClient, createReceiptAssetPlaces } from './ledger-client.js';
 import { BankPayoutAbsentAdapter } from './rails/bank-payout.js';
 import { CardSandboxAdapter } from './rails/card-sandbox.js';
+import { bankTransferSandboxFromEnv } from './rails/bank-transfer-sandbox.js';
+import { readPayerNameMatchRule } from './payer-name/match.js';
 import { CryptoNativeAdapter } from './rails/crypto-native.js';
 import { RailRegistry } from './rails/registry.js';
 import { CryptoChainWatcher, PostgresChainWatcherCursorStore } from './rails/chain-watcher.js';
@@ -101,8 +106,11 @@ import { KybService } from './kyb-service.js';
 import { PspModeService, assertNoThirdPartyMoneyLibrary } from './psp-mode.js';
 import { createKybPspRouter } from './kyb-router.js';
 import { KybEntityTypeService } from './kyb-entity-types.js';
-import { KybApplicationService } from './kyb-application.js';
+import { KybApplicationService, readKybApplicationDueDays } from './kyb-application.js';
 import { KYB_DOC_KEY_ENV, KybDocumentService, parseKybDocKey } from './kyb-documents.js';
+import { KybInformationRequestService } from './kyb-information-requests.js';
+import { KYB_MALWARE_SCANNER_ENV, openKybMalwareScanner } from './kyb-malware-scan.js';
+import { SCREENING_SCREENER_ENV, openScreeningScreener } from './screening/local-test-screener.js';
 import { SubMerchantService } from './submerchants.js';
 import { createSubMerchantRouter } from './submerchant-router.js';
 import { createSubscriptionRouter } from './subscription-router.js';
@@ -119,6 +127,7 @@ import {
   retainRawBody,
   createIdentityOperationDecisionClient,
   createBankApproverEligibilityClient,
+  createBankInternalWithdrawalClient,
   s2sFromEnv,
 } from '@intafaced/contracts';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
@@ -129,8 +138,13 @@ import { registerCaptureReconcileRoutes } from './capture-reconcile-routes.js';
 import { setCaptureReconcileLogger } from './capture-reconcile.js';
 import { loadTeamEmailInviteLimit } from './merchant-ops/team-email.js';
 import { loadWebhookRetryLimit } from './merchant-ops/webhooks.js';
+import { readProductImageRule } from './catalog/image-rules.js';
+import { readCheckoutLogoRule } from './checkout-branding/logo-rules.js';
 import { registerMerchantEmailInviteRoutes } from './merchant-ops/team-email-claim-routes.js';
 import { claimEmailTeamInvites } from './merchant-ops/team-email-claim.js';
+import { REFERENCE_RAIL_ROUTING_PROFILES } from './routing/decide.js';
+import { parseCheckoutSuccessRates, withSuccessRates } from './routing/success-rates-env.js';
+import { feedSandboxChain } from './rails/sandbox-chain-feed.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -216,6 +230,15 @@ const cryptoRail = new CryptoNativeAdapter({
 /** Filled once Fastify exists. A malformed rail due date is logged and ignored. */
 const evidenceDueByLog: { warn: (eventId: string) => void } = { warn: () => undefined };
 
+/**
+ * The TEST bank for pushed bank transfers at hosted checkout (J-merchant-04 step 6): registered only when its secret is
+ * set, and only under APP_ENV dev or test (anywhere else its secret refuses boot). A public checkout takes it only when
+ * `PAY_CHECKOUT_RAILS` names it.
+ */
+const bankTransferRail = bankTransferSandboxFromEnv(process.env, env.PAY_WEBHOOK_TOLERANCE_SECONDS);
+/** RC-merchant-09: the owner's payer-name rule. Blank holds every bank transfer for review; an unknown value refuses boot. */
+const payerNameMatchRule = readPayerNameMatchRule(process.env);
+
 const rails = new RailRegistry([
   cryptoRail,
   // Always registered. mode:'absent' — not a sandbox, so staging/prod boot is
@@ -231,6 +254,7 @@ const rails = new RailRegistry([
         }),
       ]
     : []),
+  ...(bankTransferRail ? [bankTransferRail] : []),
 ]);
 
 /**
@@ -268,6 +292,16 @@ for (const { railId } of env.PAY_CHECKOUT_RAILS) {
   }
 }
 
+/** The checkout rails' eligibility with the owner's declared success fractions (blank: none, checkout refuses). */
+const checkoutSuccessRates = parseCheckoutSuccessRates(env.PAY_CHECKOUT_SUCCESS_RATES, REFERENCE_RAIL_ROUTING_PROFILES);
+// Rates that name no checkout rail are a typo, not the owner's choice to keep checkout off (that is a blank value).
+if (Object.keys(checkoutSuccessRates).length > 0 && !env.PAY_CHECKOUT_RAILS.some(({ railId }) => railId in checkoutSuccessRates)) {
+  throw new Error(
+    `PAY_CHECKOUT_SUCCESS_RATES names ${Object.keys(checkoutSuccessRates).join(', ')}, none of which is in PAY_CHECKOUT_RAILS (${env.PAY_CHECKOUT_RAILS.map((r) => r.railId).join(', ')})`,
+  );
+}
+const checkoutRoutingProfiles = withSuccessRates(REFERENCE_RAIL_ROUTING_PROFILES, checkoutSuccessRates);
+
 /**
  * Outbound merchant webhooks (pay.public-api step 3 / ADR §2.4).
  * Durable journal — Memory alone is not multi-replica safe.
@@ -301,14 +335,28 @@ if (process.env[PAY_WITHDRAWAL_LIMITS_ENV]?.trim()) {
 const kycTierSource = env.IDENTITY_URL
   ? createIdentityKycTierClient({ baseUrl: env.IDENTITY_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: s2sKey })
   : undefined;
+// A founder's override for one customer and asset (J-ops-console-04 #12) comes from the same identity service, per request.
+const limitOverrideSource = env.IDENTITY_URL
+  ? createIdentityLimitOverrideClient({ baseUrl: env.IDENTITY_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: s2sKey })
+  : undefined;
 const limitSource = createSqlLimitSource();
+const withdrawalLimitReader = createWithdrawalLimitReader({
+  sql,
+  source: limitSource,
+  mode: loadWithdrawalLimitMode(process.env),
+  tierOf: kycTierSource,
+  overrideOf: limitOverrideSource,
+});
 // W-custody-ops-07: fail closed by default; a bad value stops the boot.
 const payGuards = buildPayGuards({
   sql,
   ledger,
   kycTierOf: kycTierSource,
+  limitOverrideOf: limitOverrideSource,
   limitSource,
   custodyPolicyMode: loadCustodyPolicyMode(process.env),
+  // No screener is connected: blank refuses every custodial send. `local-test` is the test stack's stand-in (dev/test only).
+  screening: openScreeningScreener({ appEnv: process.env.APP_ENV, setting: process.env[SCREENING_SCREENER_ENV] }) ?? undefined,
 });
 const conversion = new ConversionService({
   sql,
@@ -324,11 +372,53 @@ const chargebackOutcomeSlots = env.DATABASE_POOL_MAX - 1;
 if (chargebackOutcomeSlots < 1) {
   throw new Error('pay.chargeback_outcome_slots: DATABASE_POOL_MAX must leave one connection free of the chargeback outcome lock');
 }
+/**
+ * `ownedStreams: ['pay']`: this process creates `INTAFACED_PAY`. It carries no money. Its one live subject says a crypto
+ * deposit was credited (W-deposit-09), after the ledger post that is the credit; the inbox reads it. The bus is connected on
+ * first need and again on the next pass after it is lost: a bus that cannot be reached leaves the announcements owed in
+ * `pay.custody_deposits`, payments and crediting carry on, and they go out once it is back, with no restart.
+ */
+let bus: JetStreamEventBus | null = null;
+let connecting: Promise<JetStreamEventBus | null> | null = null;
+const connectBus = (): Promise<JetStreamEventBus | null> => {
+  if (bus) return Promise.resolve(bus);
+  connecting ??= JetStreamEventBus.connect({
+    servers: env.NATS_URL,
+    producer: env.SERVICE_NAME,
+    streamPrefix: env.NATS_STREAM_PREFIX,
+    ownedStreams: ['pay'],
+  })
+    .then((connected) => {
+      bus = connected;
+      // Gone for good (the client stopped reconnecting): the next pass connects again.
+      void connected.whenClosed().then(() => {
+        if (bus === connected) bus = null;
+      });
+      return connected;
+    })
+    .catch((err: unknown) => {
+      app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'event bus unreachable, deposit credits stay owed');
+      return null;
+    })
+    .finally(() => {
+      connecting = null;
+    });
+  return connecting;
+};
+
 // W-deposit-05: the record of customer crypto deposits. A chain delivery to a customer address is booked here, not as a payment.
 const custodyDepositBook = new CustodyDepositBook({
   sql,
   postDeposit: (input) => userMoney.postCustodyDeposit(input),
+  // W-deposit-06: a credited deposit the chain took back is reversed once, or sent to review when the funds were spent.
+  reverseDeposit: (input) => userMoney.reverseCustodyDeposit(input),
   registries: createRegistryReader(sql),
+  // W-deposit-09: one announcement per credited deposit, keyed by the deposit; the book records it and retries what it did not.
+  announceCredit: async (credit) => {
+    const connected = await connectBus();
+    if (!connected) throw new Error('event bus unreachable');
+    await connected.publish('payDepositCreditPosted', credit, { idempotencyKey: `pay:deposit-credit:posted:${credit.depositId}` });
+  },
   log: (msg, extra) => app.log.warn(extra ?? {}, msg),
 });
 
@@ -349,6 +439,8 @@ const pay = new PayService(sql, ledger, rails, {
   publicCheckoutMovement: railPosture.publicCheckoutPolicy,
   checkoutRails: env.PAY_CHECKOUT_RAILS,
   checkoutRiskBand: env.PAY_CHECKOUT_RISK_BAND,
+  routingProfiles: checkoutRoutingProfiles,
+  payerNameMatchRule,
   checkoutSessionTtlSeconds: env.PAY_CHECKOUT_SESSION_TTL_SECONDS,
   linkDefaultTtlDays: env.PAY_LINK_DEFAULT_TTL_DAYS,
   linkMaxTtlDays: env.PAY_LINK_MAX_TTL_DAYS,
@@ -468,12 +560,7 @@ const userMoney = new UserMoneyService(sql, ledger, rails, {
   valueMovement: railPosture.policy,
   wallet: walletPay,
   chainReader: walletChainReader,
-  withdrawalLimits: createWithdrawalLimitReader({
-    sql,
-    source: limitSource,
-    mode: loadWithdrawalLimitMode(process.env),
-    tierOf: kycTierSource,
-  }),
+  withdrawalLimits: withdrawalLimitReader,
   withdrawalHistory: createWithdrawalHistory(sql),
   // The negative-balance and purchase-hold checks are answerable here (from the ledger and our own hold records); every other reason reads `unwired`.
   withdrawalEligibility: createWithdrawalEligibility({
@@ -481,6 +568,11 @@ const userMoney = new UserMoneyService(sql, ledger, rails, {
     purchase_hold: purchaseHoldSource(purchaseHolds, ledger),
   }),
   purchaseHolds,
+  // W-withdraw-14: a withdrawal to another account's platform address is one send at svc-bank. Without BANK_URL it is not
+  // wired, so such a withdrawal refuses (`pay.internal_settlement_unwired`) before anything is claimed.
+  internalSettlement: env.BANK_URL
+    ? createBankInternalWithdrawalClient({ bankUrl: env.BANK_URL, secret: env.INTERNAL_SERVICE_SECRET, s2s: s2sKey })
+    : undefined,
 });
 
 /**
@@ -525,6 +617,7 @@ const merchantState = new MerchantStateService(sql);
  */
 const kyb = new KybService(sql);
 const kybEntityTypes = new KybEntityTypeService(sql);
+const kybDocuments = new KybDocumentService(sql, kybEntityTypes, parseKybDocKey(process.env[KYB_DOC_KEY_ENV]));
 const pspMode = new PspModeService(sql);
 
 /**
@@ -583,6 +676,8 @@ export const appRouter = mergeRouters(
   createAllowlistRouter(allowlist),
   // W-compliance-notices-04: the customer's own travel-rule status on a withdrawal.
   createTravelRuleCustomerRouter(new TravelRuleService({ sql, cipher: travelRuleCipher })),
+  // W-deposit-07: the customer's declaration on a large deposit held under the inbound travel rule.
+  createDepositTravelRuleCustomerRouter({ sql, book: custodyDepositBook, cipher: travelRuleCipher }),
   // W-compliance-notices-02: the compliance desk over screened sends. No supplier is connected, so a rescreen answers unavailable.
   createScreeningRouter(
     new ScreeningDeskService({ sql, approvals: actionApprovals, releaseTtlSeconds: loadScreeningReleaseTtl(process.env) }),
@@ -600,8 +695,15 @@ export const appRouter = mergeRouters(
     actionApprovals,
     pay,
     kybEntityTypes,
-    new KybApplicationService(sql, kyb, kybEntityTypes),
-    new KybDocumentService(sql, kybEntityTypes, parseKybDocKey(process.env[KYB_DOC_KEY_ENV])),
+    new KybApplicationService(sql, kyb, kybEntityTypes, readKybApplicationDueDays(process.env)),
+    kybDocuments,
+    // Blank scanner setting: a file answer refuses `pay.kyb_scan_unconfigured`; a note alone still answers.
+    new KybInformationRequestService(
+      sql,
+      kybDocuments,
+      parseKybDocKey(process.env[KYB_DOC_KEY_ENV]),
+      openKybMalwareScanner({ appEnv: process.env.APP_ENV, setting: process.env[KYB_MALWARE_SCANNER_ENV] }),
+    ),
   ),
   // `pay` is passed only as the ACTOR LOOKUP — the router resolves the caller's
   // own merchant node from the authenticated principal, because a merchant node
@@ -622,7 +724,13 @@ export const appRouter = mergeRouters(
     // Places come from the published ledger asset registry. Null or blank stays unset.
     receiptPlaces: createReceiptAssetPlaces(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey),
     depositSettings: { sql, approvals: actionApprovals },
-    limits: { sql, approvals: actionApprovals },
+    depositFreezes: { sql, approvals: actionApprovals, book: custodyDepositBook },
+    depositTravelRule: { sql, book: custodyDepositBook, cipher: travelRuleCipher },
+    categoryPolicy: { sql, approvals: actionApprovals },
+    catalog: { sql, imageRule: readProductImageRule(process.env) },
+    checkoutBranding: { sql, logoRule: readCheckoutLogoRule(process.env) },
+    checkoutMethods: { sql, rails: () => pay.checkoutMethodRails() },
+    limits: { sql, approvals: actionApprovals, reader: withdrawalLimitReader },
     custody: {
       sql,
       sweepStaleAfterSeconds: loadSweepStaleAfterSeconds(process.env),
@@ -1017,10 +1125,13 @@ await app.register(async (webhookScope) => {
     }
 
     try {
-      const outcome = await pay.handleWebhook(request.params.railId, {
-        headers,
-        body: typeof request.body === 'string' ? request.body : '',
-      });
+      const delivery = { headers, body: typeof request.body === 'string' ? request.body : '' };
+      // Dev/test in-memory chain only: a verified transfer is recorded on it before the delivery is applied.
+      if (request.params.railId === cryptoRail.id) await feedSandboxChain(chain, cryptoRail.verifyWebhook(delivery));
+      // The TEST bank books a verified transfer before the delivery is applied, as the in-memory chain does above.
+      if (bankTransferRail && request.params.railId === bankTransferRail.id)
+        bankTransferRail.receive(bankTransferRail.verifyWebhook(delivery));
+      const outcome = await pay.handleWebhook(request.params.railId, delivery);
       // A duplicate is a 200. A rail that gets anything else will keep retrying
       // a delivery we have already handled, forever.
       return reply.code(200).send({ received: true, duplicate: outcome.duplicate });
@@ -1134,6 +1245,27 @@ if (chain instanceof EvmLiveChain && env.PAY_CRYPTO_WATCHER_ENABLED === 'true') 
 const railProbe = new RailHealthProbeLoop(rails.list());
 void railProbe.start();
 
+// W-deposit-09: a credit whose announcement failed (bus down, crash) is announced again, with or without the chain watcher.
+const announceOwedCredits = () =>
+  custodyDepositBook
+    .announceOwed()
+    .catch((err: unknown) => app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'deposit credits not announced'));
+void announceOwedCredits();
+const creditAnnouncements = setInterval(() => void announceOwedCredits(), 60_000);
+creditAnnouncements.unref();
+// W-deposit-07: a counterparty wait on a deposit held for the travel rule that ran out is recorded, with or without the chain
+// watcher. The deposit stays held: a timer never releases it.
+const travelRuleWaits = setInterval(
+  () =>
+    void custodyDepositBook
+      .expireTravelRuleWaits()
+      .catch((err: unknown) =>
+        app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'deposit travel-rule waits not checked'),
+      ),
+  30_000,
+);
+travelRuleWaits.unref();
+
 /**
  * The posture goes in the log on every start. In dev, where `assertRailPosture`
  * does not throw, THIS LINE IS THE CONTROL'S ONLY VISIBILITY — the same reason
@@ -1170,6 +1302,8 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       railProbe.stop();
       clearInterval(lateFillSweep);
       clearInterval(holdSweep);
+      clearInterval(creditAnnouncements);
+      clearInterval(travelRuleWaits);
       payoutReconciler?.stop();
       // No new metrics pass may start against a pool that is closing; an in-flight one rolls back and its marks stay.
       metricsRefresher.stop();
@@ -1177,6 +1311,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       // process exits, because the alternative is a payment captured at a rail
       // that this service never got to book.
       await app.close();
+      await bus?.close().catch(() => undefined);
       await sql.end({ timeout: 5 });
       process.exit(0);
     })();

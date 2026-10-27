@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { AuthError, requireMfa } from '@intafaced/auth';
 import {
+  kybApplicationChangeTypeInputSchema,
   kybApplicationCurrentInputSchema,
   kybApplicationRestartInputSchema,
   kybApplicationSaveSectionInputSchema,
@@ -8,11 +9,24 @@ import {
   kybApplicationSubmitInputSchema,
   kybApplicationViewSchema,
   kybDocumentChecklistViewSchema,
+  kybDocumentFileInputSchema,
+  kybDocumentFileSchema,
+  kybDocumentReviewInputSchema,
+  kybDocumentReviewViewInputSchema,
+  kybDocumentReviewViewSchema,
   kybDocumentsChecklistInputSchema,
   kybDocumentsUploadInputSchema,
   kybDocumentsUploadResultSchema,
   kybDecisionBindingSchema,
   kybEntityTypesViewSchema,
+  kybRequestAnswerInputSchema,
+  kybRequestCloseInputSchema,
+  kybRequestCreateInputSchema,
+  kybRequestFileBytesSchema,
+  kybRequestFileInputSchema,
+  kybRequestResultSchema,
+  kybRequestsListInputSchema,
+  kybRequestsViewSchema,
   kybRequirementsReadInputSchema,
   kybRequirementsViewSchema,
   router,
@@ -32,6 +46,7 @@ import { PAY_KYB_DECIDE, kybApprovalFields, kybDecisionBindingView } from './kyb
 import { KybError, KYB_STATUSES, type KybService } from './kyb-service.js';
 import { KybEntityTypeService } from './kyb-entity-types.js';
 import type { KybApplicationService } from './kyb-application.js';
+import type { KybInformationRequestService } from './kyb-information-requests.js';
 import type { KybDocumentService } from './kyb-documents.js';
 import { assertMerchantOwnership, type MerchantOwnerLookup } from './merchant-ownership.js';
 import { PayError } from './payment-service.js';
@@ -108,21 +123,48 @@ function toTrpcError(err: unknown): unknown {
       err.code === 'pay.psp_pricing_history_limit_unset' ||
       err.code === 'pay.kyb_requirements_unset' ||
       err.code === 'pay.kyb_upload_rules_unset' ||
-      err.code === 'pay.kyb_doc_key_unset'
+      err.code === 'pay.kyb_doc_key_unset' ||
+      err.code === 'pay.kyb_document_unreadable' ||
+      err.code === 'pay.kyb_scan_unconfigured' ||
+      err.code === 'pay.kyb_scan_failed' ||
+      err.code === 'pay.category_not_chosen' ||
+      err.code === 'pay.category_prohibited'
     ) {
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
     }
     if (
       err.code === 'pay.kyb_identity_changed' ||
       err.code === 'pay.kyb_section_version_conflict' ||
-      err.code === 'pay.kyb_application_exists'
+      err.code === 'pay.kyb_application_exists' ||
+      err.code === 'pay.kyb_application_changed'
     ) {
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
     }
-    if (err.code === 'pay.kyb_application_not_found') {
+    if (
+      err.code === 'pay.kyb_document_already_reviewed' ||
+      err.code === 'pay.kyb_document_not_current' ||
+      err.code === 'pay.kyb_application_decided' ||
+      err.code === 'pay.kyb_request_already_answered' ||
+      err.code === 'pay.kyb_request_closed' ||
+      err.code === 'pay.kyb_request_key_conflict' ||
+      err.code === 'pay.kyb_request_asked_before'
+    ) {
+      return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+    }
+    if (
+      err.code === 'pay.kyb_application_not_found' ||
+      err.code === 'pay.kyb_document_not_found' ||
+      err.code === 'pay.kyb_request_not_found' ||
+      err.code === 'pay.kyb_request_file_not_found'
+    ) {
       return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
     }
-    if (err.code === 'pay.kyb_incomplete' || err.code === 'pay.kyb_application_submitted' || err.code === 'pay.kyb_application_unwired') {
+    if (
+      err.code === 'pay.kyb_incomplete' ||
+      err.code === 'pay.kyb_documents_missing' ||
+      err.code === 'pay.kyb_application_submitted' ||
+      err.code === 'pay.kyb_application_unwired'
+    ) {
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
     }
     return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
@@ -147,8 +189,10 @@ export function createKybPspRouter(
     },
   },
   /** Unwired means no application can be kept: every call refuses. */
-  applications?: Pick<KybApplicationService, 'merchantOf' | 'start' | 'current' | 'saveSection' | 'restart' | 'submit'>,
-  documents?: Pick<KybDocumentService, 'checklist' | 'upload'>,
+  applications?: Pick<KybApplicationService, 'merchantOf' | 'start' | 'current' | 'saveSection' | 'restart' | 'changeType' | 'submit'>,
+  documents?: Pick<KybDocumentService, 'checklist' | 'upload' | 'reviewView' | 'review' | 'file'>,
+  /** Unwired means no information request can be kept: every call refuses. */
+  requests?: Pick<KybInformationRequestService, 'merchantOf' | 'list' | 'create' | 'answer' | 'close' | 'file'>,
 ) {
   const applicationService = () => {
     if (!applications) throw new KybError('Business applications are not wired in this build', 'pay.kyb_application_unwired');
@@ -157,6 +201,16 @@ export function createKybPspRouter(
   const documentService = () => {
     if (!documents) throw new KybError('Business documents are not wired in this build', 'pay.kyb_application_unwired');
     return documents;
+  };
+  const requestService = () => {
+    if (!requests) throw new KybError('Information requests are not wired in this build', 'pay.kyb_application_unwired');
+    return requests;
+  };
+  /** The caller must own the merchant the request was sent to. An unknown id and someone else's refuse alike. */
+  const ownedRequest = async (userId: string, requestId: string): Promise<void> => {
+    const merchantId = await requestService().merchantOf(requestId);
+    if (merchantId === null) throw new PayError('Merchant not found', 'pay.merchant_not_found');
+    await assertMerchantOwnership(merchants, userId, merchantId);
   };
   /** The caller must own the merchant the application belongs to. An unknown id and someone else's refuse alike. */
   const ownedApplication = async (userId: string, applicationId: string): Promise<{ merchantId: string }> => {
@@ -232,6 +286,17 @@ export function createKybPspRouter(
             }),
           ),
 
+        /** Change the draft's entity type or country: the sections clear and what is needed is listed again for the new type. */
+        changeType: scopedProcedure('pay:onboard', { module: 'pay' })
+          .input(kybApplicationChangeTypeInputSchema)
+          .output(kybApplicationViewSchema)
+          .mutation(({ ctx, input }) =>
+            wrap(async () => {
+              await ownedApplication(ctx.principal.userId, input.applicationId);
+              return applicationService().changeType({ ...input, actorId: ctx.principal.userId });
+            }),
+          ),
+
         /** Submit once every required section is complete (`pay.kyb_incomplete` names the rest). Moves KYB to pending. */
         submit: scopedProcedure('pay:onboard', { module: 'pay' })
           .input(kybApplicationSubmitInputSchema)
@@ -264,6 +329,125 @@ export function createKybPspRouter(
             wrap(async () => {
               await ownedApplication(ctx.principal.userId, input.applicationId);
               return { row: await documentService().upload({ ...input, actorId: ctx.principal.userId }) };
+            }),
+          ),
+
+        /** Compliance: a merchant's current application and each document, with who gave each verdict. Interactive sign-in with a second factor. */
+        reviewView: scopedProcedure('admin:compliance', { module: 'pay' })
+          .input(kybDocumentReviewViewInputSchema)
+          .output(kybDocumentReviewViewSchema)
+          .query(({ ctx, input }) =>
+            wrap(async () => {
+              requireMfa(ctx.principal);
+              return documentService().reviewView(input.merchantId);
+            }),
+          ),
+
+        /**
+         * Compliance: one verdict on a current upload. Accepted reads Verified to the business; rejected reads Invalid
+         * with the reason given here. One reviewer is enough: a verdict unlocks nothing, `kyb.decide` stays two-person.
+         */
+        review: scopedProcedure('admin:compliance', { module: 'pay' })
+          .input(kybDocumentReviewInputSchema)
+          .output(kybDocumentsUploadResultSchema)
+          .mutation(({ ctx, input }) =>
+            wrap(async () => {
+              requireMfa(ctx.principal);
+              return {
+                row: await documentService().review({
+                  applicationId: input.applicationId,
+                  documentId: input.documentId,
+                  verdict: input.verdict,
+                  reason: input.reason ?? null,
+                  actorId: ctx.principal.userId,
+                }),
+              };
+            }),
+          ),
+
+        /** Compliance: the bytes of one upload, so the reviewer can read it. A mutation, because every read is recorded. */
+        file: scopedProcedure('admin:compliance', { module: 'pay' })
+          .input(kybDocumentFileInputSchema)
+          .output(kybDocumentFileSchema)
+          .mutation(({ ctx, input }) =>
+            wrap(async () => {
+              requireMfa(ctx.principal);
+              return documentService().file({ ...input, actorId: ctx.principal.userId });
+            }),
+          ),
+      }),
+
+      /** Information requests (J-merchant-02 step 4): compliance asks, the business answers once, compliance closes. */
+      requests: router({
+        /** The business's requests, newest first, each with its due date, answer and who closed it. */
+        list: scopedProcedure('pay:onboard', { module: 'pay' })
+          .input(kybRequestsListInputSchema)
+          .output(kybRequestsViewSchema)
+          .query(({ ctx, input }) =>
+            wrap(async () => {
+              await assertMerchantOwnership(merchants, ctx.principal.userId, input.merchantId);
+              return requestService().list(input.merchantId);
+            }),
+          ),
+
+        /** The business answers an open request once: a note, a file (scanned before it is kept), or both. */
+        answer: scopedProcedure('pay:onboard', { module: 'pay' })
+          .input(kybRequestAnswerInputSchema)
+          .output(kybRequestResultSchema)
+          .mutation(({ ctx, input }) =>
+            wrap(async () => {
+              await ownedRequest(ctx.principal.userId, input.requestId);
+              const request = await requestService().answer({
+                requestId: input.requestId,
+                note: input.note ?? null,
+                file: input.file ?? null,
+                actorId: ctx.principal.userId,
+              });
+              return { request };
+            }),
+          ),
+
+        /** For compliance: one merchant's requests. */
+        reviewList: scopedProcedure('admin:compliance', { module: 'pay' })
+          .input(kybRequestsListInputSchema)
+          .output(kybRequestsViewSchema)
+          .query(({ ctx, input }) =>
+            wrap(async () => {
+              requireMfa(ctx.principal);
+              return requestService().list(input.merchantId);
+            }),
+          ),
+
+        /** For compliance: ask a merchant for more, with a due date in the future. The request key makes it idempotent. */
+        create: scopedProcedure('admin:compliance', { module: 'pay' })
+          .input(kybRequestCreateInputSchema)
+          .output(kybRequestResultSchema)
+          .mutation(({ ctx, input }) =>
+            wrap(async () => {
+              requireMfa(ctx.principal);
+              return { request: await requestService().create({ ...input, actorId: ctx.principal.userId }) };
+            }),
+          ),
+
+        /** For compliance: close an open or answered request with a note the business reads. */
+        close: scopedProcedure('admin:compliance', { module: 'pay' })
+          .input(kybRequestCloseInputSchema)
+          .output(kybRequestResultSchema)
+          .mutation(({ ctx, input }) =>
+            wrap(async () => {
+              requireMfa(ctx.principal);
+              return { request: await requestService().close({ ...input, actorId: ctx.principal.userId }) };
+            }),
+          ),
+
+        /** For compliance: the decrypted bytes of an answer's file. Each read is recorded. */
+        file: scopedProcedure('admin:compliance', { module: 'pay' })
+          .input(kybRequestFileInputSchema)
+          .output(kybRequestFileBytesSchema)
+          .mutation(({ ctx, input }) =>
+            wrap(async () => {
+              requireMfa(ctx.principal);
+              return requestService().file({ requestId: input.requestId, actorId: ctx.principal.userId });
             }),
           ),
       }),

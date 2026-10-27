@@ -14,6 +14,7 @@ import { checkAccess } from '@intafaced/config';
 import { formatAmount, parseAmount, InsufficientFundsError, LedgerError } from '@intafaced/ledger-client';
 import { orderSideSchema, timeInForceSchema } from '@intafaced/exchange-contract';
 import { TradeError, type FillRecord, type Market, type OrderRecord, type TimeInForce } from './spot/types.js';
+import { MatchingNoBookError } from './spot/matching-client.js';
 import { assertProductionUnsettledAssetClassListing, forexSettlementStatus } from './spot/forex-settlement.js';
 import { fxNamedDegrade } from './spot/fx-product.js';
 import {
@@ -492,6 +493,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'trade.copy_pnl_fee_forbidden':
       case 'trade.copy_ranking_forbidden':
       case 'trade.copy_leader_resume_forbidden':
+      case 'trade.tier_insufficient':
+      case 'trade.copy_subaccount_refused':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
       case 'trade.copy_fee_share_blank':
       case 'trade.copy_jurisdiction_blank':
@@ -516,6 +519,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'trade.copy_leader_suspended':
       case 'trade.copy_leader_delisted':
       case 'trade.copy_leader_capacity_full':
+      case 'trade.copy_tier_unset':
+      case 'trade.copy_reserve_exceeds_balance':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'trade.copy_paper_live_forbidden':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
@@ -571,6 +576,13 @@ function toTrpcError(err: unknown): TRPCError {
 
   if (err instanceof LedgerError) {
     return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+  }
+
+  // Matching holds no book for the market (its 404): the named refusal `trade.no_book`, as on the REST and ccxt
+  // doors, not a 500. Mapped here, at the door, so the service's own TradeError catch-alls (copy mirroring retries a
+  // missing book on the next tick) keep treating it as the transient engine state it is.
+  if (err instanceof MatchingNoBookError) {
+    return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
   }
 
   return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Request failed', cause: err });
@@ -1503,6 +1515,10 @@ export function createTradeRouter(
             maxDrawdown: decimal.optional(),
             maxLeverage: z.union([z.string(), z.number()]).optional(),
             expiresAt: z.string().datetime(),
+            /** The request's own key: a second press with the same key returns the same follow. */
+            clientRequestId: z.string().min(8).max(120),
+            /** Quote amount each copied order uses. Omitted means no fixed size. */
+            fixedOrderSize: decimal.optional(),
             leaderSettings: z
               .object({
                 maxAllocation: decimal.optional(),
@@ -1521,7 +1537,7 @@ export function createTradeRouter(
               logRefusalSpec('trade.copy_jurisdiction_blank');
               throw new CopyError(COPY_JURISDICTION_RESIDUAL, 'trade.copy_jurisdiction_blank', COPY_JURISDICTION_RESIDUAL);
             }
-            return copy.follow(ctx.principal, input);
+            return copy.startFollow(ctx.principal, input);
           }),
         ),
 
@@ -1687,6 +1703,16 @@ export function createTradeRouter(
           guard(async () => {
             if (!copy) throw new CopyError('Leader not found', 'trade.copy_leader_not_found');
             return copy.leaderTrades(ctx.principal, input);
+          }),
+        ),
+
+      /** The caller's copied orders on one of their follows, newest first. */
+      followPositions: scopedProcedure('trade:read', { module: 'trade' })
+        .input(z.object({ followId: z.string().min(1).max(64) }))
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
+            return copy.followPositions(ctx.principal, input);
           }),
         ),
 

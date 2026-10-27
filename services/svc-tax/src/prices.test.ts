@@ -81,3 +81,55 @@ describe('price at time', () => {
     await expect(down.prices.priceAt('BTC', new Date(T))).rejects.toThrow(/connection reset/);
   });
 });
+
+describe('candle series', () => {
+  const from = new Date(HOUR - 3 * 3_600_000);
+  const to = new Date(HOUR);
+
+  it('reads one whole window from one candle before the start, and keeps the candles up to the end', async () => {
+    const { prices, asked } = door({
+      'ETH/USDT 1h': { body: [c(HOUR - 4 * 3_600_000, '2000'), c(HOUR - 3_600_000, '2100'), c(HOUR + 3_600_000, '2500')] },
+    });
+    expect(await prices.closes('ETH', '1h', from, to)).toEqual({
+      market: 'ETH/USDT',
+      candles: [
+        [HOUR - 4 * 3_600_000, amt('2000')],
+        [HOUR - 3_600_000, amt('2100')],
+      ],
+    });
+    expect(asked).toEqual([{ key: 'ETH/USDT 1h', since: HOUR - 4 * 3_600_000 }]);
+  });
+
+  it('falls back to the USDC market, and answers null for a coin with neither', async () => {
+    const { prices } = door({ 'SOL/USDC 1h': { body: [c(HOUR - 3_600_000, '150')] } });
+    expect(await prices.closes('SOL', '1h', from, to)).toMatchObject({ market: 'SOL/USDC' });
+    expect(await prices.closes('XYZ', '1h', from, to)).toBeNull();
+  });
+
+  it('a coin that last traded before the window starts from that last price, on the same market, never a later one', async () => {
+    const DAY = 86_400_000;
+    const dayStart = Math.floor(from.getTime() / DAY) * DAY;
+    const { prices } = door({
+      'ETH/USDT 1h': { body: [c(HOUR - 2 * 3_600_000, '2100')] },
+      'ETH/USDT 1m': { body: [] },
+      'ETH/USDT 1d': { body: [c(dayStart - DAY, '1800')] },
+    });
+    expect(await prices.closes('ETH', '1h', from, to)).toEqual({
+      market: 'ETH/USDT',
+      candles: [
+        [from.getTime() - 3_600_000, amt('1800')],
+        [HOUR - 2 * 3_600_000, amt('2100')],
+      ],
+    });
+    // No earlier price at all: the start stays without one.
+    const none = door({ 'ETH/USDT 1h': { body: [c(HOUR - 2 * 3_600_000, '2100')] }, 'ETH/USDT 1m': { body: [] } });
+    expect((await none.prices.closes('ETH', '1h', from, to))!.candles).toEqual([[HOUR - 2 * 3_600_000, amt('2100')]]);
+  });
+
+  it('throws when the window cannot be read whole, so no chart is drawn from part of it', async () => {
+    const tooFar = door({ 'ETH/USDT 1h': { status: 400, body: { intafacedCode: 'trade.candles_range_point_cap' } } });
+    await expect(tooFar.prices.closes('ETH', '1h', from, to)).rejects.toThrow();
+    const down = door({ 'ETH/USDT 1h': 'throw' });
+    await expect(down.prices.closes('ETH', '1h', from, to)).rejects.toThrow();
+  });
+});

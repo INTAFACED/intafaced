@@ -21,10 +21,35 @@ export interface DepositAsset {
   networks: readonly DepositNetwork[];
 }
 
+/** A pair the owner switched off: it takes no new address. `haltNote` is the owner's line, or null for the standard line only. */
+export interface HaltedDepositPair {
+  assetId: string;
+  networkId: string;
+  label: string;
+  haltNote: string | null;
+}
+
+/** The whole catalogue in one read: what can take a deposit now, and what the owner switched off. */
+export interface CustodyDepositCatalogue {
+  assets: readonly DepositAsset[];
+  halted: readonly HaltedDepositPair[];
+}
+
 export interface CustodyDepositAddress {
   address: string;
   memo?: string | null;
   qrPayload?: string | null;
+  /** The expiry custody stored for an extra address (W-deposit-02); absent or null for the first, which never expires. */
+  expiresAt?: string | null;
+}
+
+/** Which address to ask custody for: the first (no index), or an extra one with the expiry the owner's window gives it. */
+export interface CustodyDepositAddressRequest {
+  userId: string;
+  assetId: string;
+  networkId: string;
+  addressIndex?: number;
+  expiresAt?: string;
 }
 
 export interface CustodyPendingDeposit {
@@ -54,8 +79,13 @@ export interface CustodyDepositRecordsQuery {
 export interface CustodyDepositPort {
   /** `null` = catalogue not published. An empty array is a published empty list. */
   listAssets(): Promise<readonly DepositAsset[] | null>;
+  /**
+   * The same catalogue with the switched-off pairs, in one read. `null` = not published. Absent on a port that knows nothing of
+   * switched-off pairs; the service then reads `listAssets` and names none as switched off.
+   */
+  catalogue?(): Promise<CustodyDepositCatalogue | null>;
   /** `null` = custody will not issue an address. */
-  address(input: { userId: string; assetId: string; networkId: string }): Promise<CustodyDepositAddress | null>;
+  address(input: CustodyDepositAddressRequest): Promise<CustodyDepositAddress | null>;
   /** `null` = custody is not reporting incoming deposits. An empty array means none are incoming. */
   pending(userId: string): Promise<readonly CustodyPendingDeposit[] | null>;
   /** `null` = custody does not report deposit records. Absent on a port built before the record existed. */

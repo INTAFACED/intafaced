@@ -2,7 +2,7 @@ import { payCopy, PayCopy, payRefusal } from './copy';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable } from '@intafaced/ui';
+import { Button } from '@intafaced/ui';
 import { EmptyState, Field, Page } from './ui-kit';
 import { createPersonalPayApi, type PersonalPayApi } from './pay-api';
 import {
@@ -21,6 +21,10 @@ import { displayAmount } from '../../shared/money';
 import { useP2PView, type P2PView } from './p2p-view';
 import { P2POffers } from './P2POffers';
 import { P2POrder } from './P2POrder';
+import { ReleaseAction } from './p2p-release';
+import { RemindSeller } from './p2p-remind';
+import { BuyerMismatch, ReportMismatch } from './p2p-mismatch';
+import { ValidatePayment } from './p2p-validate';
 import { orderCopy } from './p2p-order-copy';
 import { P2PCounterparty } from './P2PCounterparty';
 import { p2pReturn } from './p2p-return';
@@ -29,8 +33,10 @@ import { OrderChat } from './personal/OrderChat';
 import { OfferForm } from './personal/OfferForm';
 import { OrderHistory } from './personal/OrderHistory';
 import { OrderReceipt } from './personal/OrderReceipt';
+import { OrderReview } from './personal/OrderReview';
 import { p2pDepth } from './personal/p2p-depth-copy';
 import { P2PEligibilityPanel } from './personal/Eligibility';
+import { PaymentMethods } from './personal/PaymentMethods';
 
 export function P2P({ path }: { path: string }) {
   const view = useP2PView();
@@ -116,7 +122,7 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
         <a href="/uc/ad" aria-current={showMine || inspectionMine ? 'page' : undefined}>
           <PayCopy k="yourOffers" />
         </a>
-        <a href="/p2p?view=methods" aria-current={showMethods ? 'page' : undefined}>
+        <a href="/p2p/methods" aria-current={showMethods ? 'page' : undefined}>
           <PayCopy k="paymentMethods" />
         </a>
         <a href="/p2p/access" aria-current={showAccess ? 'page' : undefined}>
@@ -250,6 +256,7 @@ function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: s
         <>
           <EscrowPath trade={trade} userId={userId} />
           <OrderReceipt pay={pay} trade={trade} />
+          <OrderReview key={'review:' + trade.id + ':' + trade.status} pay={pay} trade={trade} />
           <OrderPaymentDetails key={trade.id + ':' + trade.status} trade={trade} pay={pay} userId={userId} />
           <OrderChat pay={pay} trade={trade} userId={userId} />
           <OrderDispute trade={trade} pay={pay} reloadOrder={reload} />
@@ -384,8 +391,9 @@ export function OrderActions({
     [payCopy.t('order'), <span lang="zxx">{trade.id}</span>],
     [payCopy.t('you'), trade.sellerId === userId ? payCopy.t('seller') : payCopy.t('buyer')],
   ];
-  const perform = async (action: 'markFiatSent' | 'confirmReceived' | 'cancel', current: () => boolean) => {
-    const result = await pay.manageTrade(trade.id, action, action === 'cancel' ? reason : undefined, { expected: trade, current });
+  const perform = async (action: 'markFiatSent' | 'confirmReceived' | 'cancel', current: () => boolean, stepUpApprovalId?: string) => {
+    const reasonText = action === 'cancel' ? reason : undefined;
+    const result = await pay.manageTrade(trade.id, action, reasonText, { expected: trade, current }, stepUpApprovalId);
     onOutcome(result);
     return result;
   };
@@ -418,35 +426,19 @@ export function OrderActions({
             disabled={locked}
           />
         )}
+        {trade.buyerId === userId && trade.status === 'fiat_sent' && <RemindSeller trade={trade} pay={pay} onSent={reload} />}
+        {trade.buyerId === userId && trade.status === 'fiat_sent' && <BuyerMismatch trade={trade} />}
         {trade.sellerId === userId && trade.status === 'fiat_sent' && (
-          <ReviewedAction
-            title={payCopy.t('releaseEscrow')}
-            variant="primary"
-            description={payCopy.t('confirmOnlyAfterTheExternalPaymentHas')}
-            review={
-              <div className="p2p-order-review">
-                <PayDetails
-                  values={[
-                    ...reviewValues,
-                    [t('gross'), <PayAmount value={trade.amount} unit={trade.asset} label={t('gross')} />],
-                    [t('releaseTo'), <span lang="zxx">{trade.buyerId}</span>],
-                    [
-                      payCopy.t('paymentToVerify'),
-                      <PayAmount value={trade.fiatAmount} unit={trade.fiatCurrency} label={payCopy.t('paymentToVerify')} />,
-                    ],
-                    [payCopy.t('paymentMethod'), <span lang="zxx">{trade.method}</span>],
-                  ]}
-                />
-                <p className="muted">
-                  <Copy k="releaseTerms" />
-                </p>
-              </div>
-            }
-            perform={(current) => perform('confirmReceived', current)}
+          <ReleaseAction
+            trade={trade}
+            pay={pay}
+            release={(current, stepUpApprovalId) => perform('confirmReceived', current, stepUpApprovalId)}
             onConfirmed={reload}
             disabled={locked}
           />
         )}
+        {trade.sellerId === userId && trade.status === 'fiat_sent' && <ValidatePayment trade={trade} pay={pay} onChecked={reload} />}
+        {trade.sellerId === userId && trade.status === 'fiat_sent' && <ReportMismatch trade={trade} pay={pay} onReported={reload} />}
       </div>
       {['created', 'escrowed'].includes(trade.status) && (
         <details className="p2p-order-other">
@@ -567,53 +559,6 @@ function OrderDispute({ trade, pay, reloadOrder }: { trade: Trade; pay: Personal
         </p>
       )}
     </PaySection>
-  );
-}
-function PaymentMethods({ pay, userId }: { pay: PersonalPayApi; userId: string | null }) {
-  const [limit, setLimit] = useState(50);
-  const instruments = useResource((signal) => pay.instruments(limit, signal), `pay:instruments:${userId}:${limit}`);
-  return (
-    <div className="stack">
-      <PayNotice title={payCopy.t('newPaymentDestinationsAreUnavailable')}>
-        <PayCopy k="theRequiredInstrumentEncryptionProviderIsAbsent" />
-      </PayNotice>
-      <PaySection title={payCopy.t('yourPaymentDestinationLabels')}>
-        <PayState resource={instruments.resource} retry={instruments.reload} empty={payCopy.t('noPaymentDestinationHeadersReturned')}>
-          {(rows) => (
-            <>
-              <DataTable
-                label={payCopy.t('paymentDestinations')}
-                headers={[payCopy.t('label'), payCopy.t('method'), payCopy.t('currencyCountry'), payCopy.t('state'), '']}
-              >
-                {rows.map((instrument) => (
-                  <tr key={instrument.id}>
-                    <td>{instrument.label || payCopy.t('unlabelledDestination')}</td>
-                    <td>{instrument.methodId}</td>
-                    <td>
-                      {instrument.fiatCurrency} / {instrument.country}
-                    </td>
-                    <td>
-                      <Status value={instrument.status} />
-                    </td>
-                    <td>
-                      {instrument.status === 'active' && (
-                        <ReviewedAction
-                          title={payCopy.t('removeDestination')}
-                          description={payCopy.t('thisRemovesTheDestinationFromFutureTrades')}
-                          perform={() => pay.removeInstrument(instrument.id)}
-                          onConfirmed={instruments.reload}
-                        />
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </DataTable>
-              <PayPagination count={rows.length} limit={limit} setLimit={setLimit} />
-            </>
-          )}
-        </PayState>
-      </PaySection>
-    </div>
   );
 }
 function TradingProgramme({ pay, userId }: { pay: PersonalPayApi; userId: string | null }) {

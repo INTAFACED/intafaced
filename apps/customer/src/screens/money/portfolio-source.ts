@@ -30,6 +30,8 @@ export interface MoneyRow {
   share: Decimal | null;
   /** The market that priced it ("BTC-USDT"); null for dollar coins and coins with no price. */
   priceSymbol: string | null;
+  /** The USD price the bank valued it at ("1" for dollar coins); null with no price, or when the screen derived the value itself. */
+  priceUsd: Decimal | null;
 }
 
 export interface MoneyView {
@@ -42,12 +44,15 @@ export interface MoneyView {
   rows: MoneyRow[];
   /** Coins held but left out of the total (no USD price). */
   unpriced: string[];
+  /** Why each coin in `unpriced` was left out, when the bank said: no market to price it, or a market with no price yet. */
+  unpricedReasons: Record<string, 'no_market' | 'no_price_yet'>;
   /** Epoch ms when today's change only covers part of a day; null for a full day. */
   windowStart: number | null;
   source: 'server' | 'derived';
   asOf: number;
   /** The total in BTC when the bank was asked for it; null when it was not, or when it has no BTC price (`reason`). */
-  btc: { total: Decimal | null; reason: string | null } | null;
+  /** The BTC total and the BTC price the bank used for it; `priceUsd` also converts every other value on screen. */
+  btc: { total: Decimal | null; priceUsd: Decimal | null; reason: string | null } | null;
 }
 
 /** Which accounts a total covers: `combined` (default), `main`, or the id of one named account. */
@@ -110,6 +115,7 @@ export function fromServer(summary: ServerSummary): MoneyView {
       changeRatio: changeRatioOf(value, dec(row.change24hUsd)),
       share: value !== null && counted > 0n ? decOrNull(ratio(value, counted)) : null,
       priceSymbol: row.pair ? row.pair.replace('/', '-') : null,
+      priceUsd: row.priceUsd,
     };
   });
   for (const row of summary.unpriced)
@@ -122,6 +128,7 @@ export function fromServer(summary: ServerSummary): MoneyView {
       changeRatio: null,
       share: null,
       priceSymbol: null,
+      priceUsd: null,
     });
   rows.sort(byValue);
 
@@ -140,10 +147,13 @@ export function fromServer(summary: ServerSummary): MoneyView {
     cryptoUsd: summary.cryptoUsd,
     rows,
     unpriced: summary.unpriced.map((row) => row.asset),
+    unpricedReasons: Object.fromEntries(
+      summary.unpriced.flatMap((row) => (row.reason === 'no_market' || row.reason === 'no_price_yet' ? [[row.asset, row.reason]] : [])),
+    ),
     windowStart: summary.windowStart,
     source: 'server',
     asOf: summary.asOf,
-    btc: summary.btc ? { total: summary.btc.total, reason: summary.btc.reason } : null,
+    btc: summary.btc ? { total: summary.btc.total, priceUsd: summary.btc.priceUsd, reason: summary.btc.reason } : null,
   };
 }
 
@@ -157,6 +167,7 @@ export function fromDerived(summary: PortfolioSummary): MoneyView {
     changeRatio: changeRatioOf(dec(holding.usdValue), dec(holding.usdChange24h)),
     share: holding.share,
     priceSymbol: holding.priceSymbol,
+    priceUsd: holding.priceUsd ?? null,
   }));
   rows.sort(byValue);
   return {
@@ -167,6 +178,7 @@ export function fromDerived(summary: PortfolioSummary): MoneyView {
     cryptoUsd: summary.cryptoUsd,
     rows,
     unpriced: summary.unpriced,
+    unpricedReasons: {},
     windowStart: summary.windowStart ?? null,
     source: 'derived',
     asOf: summary.asOf,
@@ -180,7 +192,8 @@ export function fromDerived(summary: PortfolioSummary): MoneyView {
 export const SERVER_SUMMARY_MISSING = 'money.server_summary_missing';
 const PRICES_DOWN = 'bank.prices_unavailable';
 export const SERVER_SUMMARY_KEY = 'bank-portfolio-summary';
-const SUMMARY_INTERVAL = 30_000;
+/** How often the screen asks the bank for a new valuation; the valuation note names it. */
+export const SUMMARY_INTERVAL = 30_000;
 
 /** What to ask the bank: nothing for the default view (combined, USD), so that view shares one request with Home. */
 function summaryInput(scope: MoneyScope, unit: MoneyUnit): { scope?: string; displayCurrency?: string } | undefined {
@@ -209,6 +222,46 @@ function serverSource(env: DataEnv, scope: MoneyScope, unit: MoneyUnit): Source<
   return env.poller.source(`${SERVER_SUMMARY_KEY}:${env.userId}${variant}`, summaryFetcher(env, scope, unit), {
     intervalMs: SUMMARY_INTERVAL,
   });
+}
+
+/** The unit the bank is asked for: BTC when chosen, else USD (a currency with no rate is shown in USD). */
+export function moneyUnitOf(displayCurrency: string): MoneyUnit {
+  return displayCurrency === 'BTC' ? 'BTC' : 'USD';
+}
+
+/** Long enough that the probe is read about once per visit: the answer is an owner setting, not a moving figure. */
+const RATE_PROBE_INTERVAL = 3_600_000;
+
+/**
+ * A display currency the screen has no rate for (anything but USD and BTC) is asked of the bank, which owns the rule.
+ * `no_rate`: the bank refused it by name (`bank.fx_rate_unset`); `unchecked`: the bank could not be asked or answered
+ * something else, so the screen cannot say which; either way every value stays in USD and the screen says so.
+ */
+export type DisplayRate = { state: 'usd_or_btc' } | { state: 'pending' } | { state: 'no_rate'; code: string } | { state: 'unchecked' };
+
+export const FX_RATE_UNSET = 'bank.fx_rate_unset';
+
+export function useDisplayRate(code: string): DisplayRate {
+  const env = useDataEnv();
+  const ask = code !== 'USD' && code !== 'BTC';
+  const snap = useSource(
+    useMemo(
+      () =>
+        ask && env.userId
+          ? env.poller.source(
+              `${SERVER_SUMMARY_KEY}:${env.userId}:unit:${code}`,
+              async (signal): Promise<Outcome<ServerSummary>> =>
+                env.api.query('bank', 'portfolio.summary', { displayCurrency: code }, summarySchema, { signal }),
+              { intervalMs: RATE_PROBE_INTERVAL },
+            )
+          : constantSource<ServerSummary>({ status: 'refused', code: 'auth.required' }),
+      [env, ask, code],
+    ),
+  );
+  if (!ask) return { state: 'usd_or_btc' };
+  if (snap.status === 'loading') return { state: 'pending' };
+  if (snap.status === 'refused' && snap.code === FX_RATE_UNSET) return { state: 'no_rate', code: snap.code };
+  return { state: 'unchecked' };
 }
 
 function mapLoadable<A>(snap: Loadable<A>, map: (value: A) => MoneyView): Loadable<MoneyView> {

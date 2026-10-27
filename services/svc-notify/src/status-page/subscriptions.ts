@@ -368,10 +368,11 @@ export class StatusSubscriptions {
 
   /**
    * A published notice to every active subscriber it concerns: one whose choice is every component, or names a component
-   * the notice names; a notice naming no component goes to all. Email always, the webhook when one is set.
+   * the notice names; a notice naming no component goes to all. Email always, the webhook when one is set. A changelog
+   * entry or a fee change is not a status update, so it goes to no one here.
    */
   async fanOut(notice: Pick<NoticeWire, 'id' | 'kind' | 'title' | 'body'> & { components: readonly string[] }): Promise<void> {
-    if (notice.kind === 'changelog') return;
+    if (notice.kind === 'changelog' || notice.kind === 'fee_change') return;
     for (const subscriber of await this.deps.store.active()) {
       const chosen = subscriber.componentIds;
       if (chosen !== null && notice.components.length > 0 && !notice.components.some((c) => chosen.includes(c))) continue;

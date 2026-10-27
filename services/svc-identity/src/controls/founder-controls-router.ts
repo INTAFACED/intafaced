@@ -13,12 +13,32 @@ import {
   accountClosureHistoryInputSchema,
   accountClosureStateSchema,
   accountClosureResultSchema,
+  accountArchiveInputSchema,
+  accountArchiveLookupInputSchema,
+  accountArchiveHistoryInputSchema,
+  accountArchiveStateSchema,
+  accountArchiveResultSchema,
+  accountArchiveProposalsSchema,
   accountTierListSchema,
   accountTierMoveInputSchema,
   accountTierLookupInputSchema,
   accountTierHistoryInputSchema,
   accountTierStateSchema,
   accountTierResultSchema,
+  accountLimitOverrideClearInputSchema,
+  accountLimitOverrideSetInputSchema,
+  accountLimitResultSchema,
+  accountLimitsHistoryInputSchema,
+  accountLimitsLookupInputSchema,
+  accountLimitsStateSchema,
+  customerDetailDecisionInputSchema,
+  customerDetailReviewSchema,
+  customerDetailReviewsInputSchema,
+  customerDetailsEditInputSchema,
+  customerDetailsHistoryInputSchema,
+  customerDetailsLookupInputSchema,
+  customerDetailsResultSchema,
+  customerDetailsStateSchema,
   serviceOperatorEntitlementInputSchema,
   currentAuthorityInputSchema,
   currentAuthorityResultSchema,
@@ -30,6 +50,8 @@ import {
   type Context,
 } from '@intafaced/contracts';
 import { FounderControlError, founderEntitlementChangeSchema, type FounderControls } from './founder-controls.js';
+import type { AccountLimitsDesk } from './account-limits.js';
+import type { CustomerDetailsDesk } from './customer-details.js';
 import {
   RestrictedListCursorError,
   RestrictedListDeniedError,
@@ -51,11 +73,17 @@ export type FounderControlsPort = Pick<
   | 'closure'
   | 'closureState'
   | 'closureHistory'
+  | 'archive'
+  | 'archiveState'
+  | 'archiveHistory'
+  | 'archiveProposals'
   | 'tiers'
   | 'tierMove'
   | 'tierState'
   | 'tierHistory'
 >;
+export type CustomerDetailsPort = Pick<CustomerDetailsDesk, 'state' | 'edit' | 'decide' | 'reviews' | 'history'>;
+export type AccountLimitsPort = Pick<AccountLimitsDesk, 'state' | 'set' | 'clear' | 'history'>;
 export const identityRestrictionInputSchema = accountControlInputSchema.refine(
   (input) => input.target.area === 'identity',
   'Identity target required',
@@ -114,7 +142,19 @@ export async function controlCall<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-export function createFounderControlsRouter(controls: FounderControlsPort) {
+/** Without a details desk (no wiring), the details doors refuse as unconfigured rather than answer with nothing. */
+function detailsDesk(details: CustomerDetailsPort | undefined): CustomerDetailsPort {
+  if (details) return details;
+  throw new FounderControlError('identity.details_unconfigured', 'identity.details_unconfigured');
+}
+
+/** Without a limits desk (no wiring), the limit doors refuse as unconfigured rather than answer with nothing. */
+function limitsDesk(limits: AccountLimitsPort | undefined): AccountLimitsPort {
+  if (limits) return limits;
+  throw new FounderControlError('identity.controls_unconfigured', 'identity.controls_unconfigured');
+}
+
+export function createFounderControlsRouter(controls: FounderControlsPort, details?: CustomerDetailsPort, limits?: AccountLimitsPort) {
   return router({
     accountControls: router({
       change: protectedProcedure
@@ -147,6 +187,23 @@ export function createFounderControlsRouter(controls: FounderControlsPort) {
         .input(accountClosureHistoryInputSchema)
         .output(z.array(accountClosureResultSchema))
         .query(({ ctx, input }) => controlCall(() => controls.closureHistory(ctx, input))),
+      // Archive of a closed customer record (J-ops-console-04 #10): four-eyes, irreversible, and the dormancy proposals.
+      archive: protectedProcedure
+        .input(accountArchiveInputSchema)
+        .output(accountArchiveResultSchema)
+        .mutation(({ ctx, input }) => controlCall(() => controls.archive(ctx, input))),
+      archiveState: protectedProcedure
+        .input(accountArchiveLookupInputSchema)
+        .output(accountArchiveStateSchema.nullable())
+        .query(({ ctx, input }) => controlCall(() => controls.archiveState(ctx, input))),
+      archiveHistory: protectedProcedure
+        .input(accountArchiveHistoryInputSchema)
+        .output(z.array(accountArchiveResultSchema))
+        .query(({ ctx, input }) => controlCall(() => controls.archiveHistory(ctx, input))),
+      archiveProposals: protectedProcedure
+        .input(z.object({}).strict())
+        .output(accountArchiveProposalsSchema)
+        .query(({ ctx }) => controlCall(() => controls.archiveProposals(ctx))),
       // Account product tiers (J-ops-console-04 #11): the owner's tier list, and a move a second live founder approved.
       tiers: protectedProcedure
         .input(z.object({}).strict())
@@ -164,6 +221,46 @@ export function createFounderControlsRouter(controls: FounderControlsPort) {
         .input(accountTierHistoryInputSchema)
         .output(z.array(accountTierResultSchema))
         .query(({ ctx, input }) => controlCall(() => controls.tierHistory(ctx, input))),
+      // Customer details (J-ops-console-04 #9): open details apply at once; name, date of birth and tax number go through a
+      // compliance review the other founder passes. Values are encrypted at rest; the history names fields, never values.
+      details: protectedProcedure
+        .input(customerDetailsLookupInputSchema)
+        .output(customerDetailsStateSchema.nullable())
+        .query(({ ctx, input }) => controlCall(() => detailsDesk(details).state(ctx, input))),
+      detailsEdit: protectedProcedure
+        .input(customerDetailsEditInputSchema)
+        .output(customerDetailsResultSchema)
+        .mutation(({ ctx, input }) => controlCall(() => detailsDesk(details).edit(ctx, input))),
+      detailsDecide: protectedProcedure
+        .input(customerDetailDecisionInputSchema)
+        .output(customerDetailsResultSchema)
+        .mutation(({ ctx, input }) => controlCall(() => detailsDesk(details).decide(ctx, input))),
+      detailsReviews: protectedProcedure
+        .input(customerDetailReviewsInputSchema)
+        .output(z.array(customerDetailReviewSchema))
+        .query(({ ctx, input }) => controlCall(() => detailsDesk(details).reviews(ctx, input))),
+      detailsHistory: protectedProcedure
+        .input(customerDetailsHistoryInputSchema)
+        .output(z.array(customerDetailsResultSchema))
+        .query(({ ctx, input }) => controlCall(() => detailsDesk(details).history(ctx, input))),
+      // Limit overrides (J-ops-console-04 #12): a temporary override of one rail's figures for one asset, ending at a stored
+      // time; above the owner ceiling it spends the other founder's approval.
+      limits: protectedProcedure
+        .input(accountLimitsLookupInputSchema)
+        .output(accountLimitsStateSchema.nullable())
+        .query(({ ctx, input }) => controlCall(() => limitsDesk(limits).state(ctx, input))),
+      limitsSet: protectedProcedure
+        .input(accountLimitOverrideSetInputSchema)
+        .output(accountLimitResultSchema)
+        .mutation(({ ctx, input }) => controlCall(() => limitsDesk(limits).set(ctx, input))),
+      limitsClear: protectedProcedure
+        .input(accountLimitOverrideClearInputSchema)
+        .output(accountLimitResultSchema)
+        .mutation(({ ctx, input }) => controlCall(() => limitsDesk(limits).clear(ctx, input))),
+      limitsHistory: protectedProcedure
+        .input(accountLimitsHistoryInputSchema)
+        .output(z.array(accountLimitResultSchema))
+        .query(({ ctx, input }) => controlCall(() => limitsDesk(limits).history(ctx, input))),
       listRestricted: scopedProcedure('admin:read')
         .input(
           z
