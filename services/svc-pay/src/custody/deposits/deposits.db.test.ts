@@ -113,6 +113,7 @@ describe('custody deposit addresses (real Postgres)', () => {
         "ARRAY['']",
         "ARRAY['   ']",
         "ARRAY[' padded']",
+        "ARRAY[E'padded\\t']",
         `ARRAY['${'x'.repeat(281)}']`,
         "ARRAY['TEST a', 'TEST a']",
       ]) {

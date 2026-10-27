@@ -9,7 +9,7 @@ LANGUAGE sql IMMUTABLE AS $$
   SELECT cardinality(cases) <= 20
      AND NOT EXISTS (
            SELECT 1 FROM unnest(cases) AS c
-            WHERE c IS NULL OR c <> btrim(c) OR length(c) NOT BETWEEN 1 AND 280)
+            WHERE c IS NULL OR c ~ '^\s|\s$' OR length(c) NOT BETWEEN 1 AND 280)
      AND (SELECT count(DISTINCT c) FROM unnest(cases) AS c) = cardinality(cases)
 $$;
 ALTER TABLE "pay"."custody_deposit_settings" ADD COLUMN IF NOT EXISTS "unsupported_cases" text[] NOT NULL DEFAULT '{}';
