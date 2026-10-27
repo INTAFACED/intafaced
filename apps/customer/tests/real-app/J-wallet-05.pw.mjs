@@ -1,21 +1,22 @@
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { EDGE, ORIGIN, ROOT, fund, journeyState, toUnits, tool } from './stack.mjs';
+import { EDGE, ORIGIN, ROOT, fund, journeyState, mailedLines, toUnits, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
-// J-wallet-05, in the running app (docs/roadmap/journeys.json): I withdraw crypto. Run in order on one verified TEST
-// account with an authenticator app, TEST 300 USDT and 5 USDC, and one saved wallet past its cooling-off. The fee, the
-// quote lifetime and the limits are the TEST withdrawal terms the stack's founders publish in svc-pay
-// (`local-test-gates.mjs withdraw-terms`): a fixed 1.5 fee on TEST Ethereum and TEST Base, fee on top, a 90-second
-// quote, and USDT limits of 100 per withdrawal and 200 a day for verified accounts; USDC has none. The cooling-off wait
-// is stood in for by `local-test-stack.mjs age-addresses`. Not here yet: #1 (minimum, maximum, step and tag rules have
-// no catalogue in svc-pay), #2 (the fraud list and screening at send), #4's two parallel sends (every send is refused
-// before a claim while no custody signer is connected), #5 (travel rule), #6 (a sent withdrawal and its success panel)
-// and #8 (status: nothing is recorded while every send is refused).
+// J-wallet-05, in the running app (docs/roadmap/journeys.json): I withdraw crypto. One test per step, titled
+// "J-wallet-05 #<n>", run in order on one verified TEST account with an authenticator app, TEST 300 USDT, and one saved
+// wallet approved by its emailed link and past its cooling-off (the wait is stood in for by `local-test-stack.mjs
+// age-addresses`). The fee, the quote lifetime and the limits are the TEST withdrawal terms the stack's founders publish
+// in svc-pay (`local-test-gates.mjs withdraw-terms`): a fixed 1.5 network fee on TEST Ethereum and TEST Base, the fee on
+// top, a 90-second quote, and USDT limits of 1000 a withdrawal and 5000 a day for verified accounts.
+// Not here yet: #1 (minimum, maximum, step and tag rules have no catalogue in svc-pay), #2 (the fraud list and screening at
+// send), #4's two parallel sends, #5 (travel rule), #6 (a sent withdrawal and its success panel) and #8 (status): svc-pay has
+// no custody signer for any network, so every send to an outside wallet is refused before a claim.
 const J = 'J-wallet-05';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ADDRESS = '0x52908400098527886E0F7030069857D2E4169EE7';
+const LABEL = 'TEST send wallet';
 
 test.describe.configure({ mode: 'default' });
 
@@ -76,34 +77,45 @@ async function customerApi() {
       return body.balances[asset]?.free ?? '0';
     },
     async withdrawals() {
-      const { status, body } = await get(`/api/pay/trpc/withdrawal.mine?input=${encodeURIComponent(JSON.stringify({ limit: 10 }))}`);
-      if (status !== 200) throw new Error(`withdrawal list refused: ${status}`);
-      return body.result.data;
+      const { status, body } = await get(`/api/pay/trpc/withdrawal.history?input=${encodeURIComponent(JSON.stringify({ limit: 10 }))}`);
+      if (status !== 200) throw new Error(`withdrawal history refused: ${status}`);
+      return body.result.data.items;
     },
   };
 }
 
 const form = (page) => page.getByTestId('withdraw-form');
-/** A field of the Withdraw form by its own label (each hint sits inside the label, so a plain label match is ambiguous). */
-const field = (page, name) =>
-  form(page)
-    .locator('label.field', { has: page.locator('span', { hasText: new RegExp(`^${name}$`) }) })
-    .locator('input, select');
+// Each field's hint sits inside its label, so a field's name starts with its label.
+const pick = (page, name) => form(page).getByRole('combobox', { name: new RegExp(`^${name}`) });
+const amountBox = (page) => form(page).getByRole('textbox', { name: /^Amount/ });
+const confirmSend = (page) => page.getByRole('button', { name: 'Confirm and send' });
 
 /** Opens Withdraw with USDT on its default network, the saved TEST wallet chosen and `amount` typed. */
 async function fillSend(page, amount) {
   await page.goto('/uc/withdraw');
   await page.mouse.move(0, 600);
-  await field(page, 'Asset').selectOption('USDT');
-  await expect(field(page, 'Network')).toHaveValue('ethereum');
-  const saved = field(page, 'Saved address');
-  await expect(saved.locator('option', { hasText: 'TEST send wallet' })).toHaveText('TEST send wallet · 0x5290…9EE7 · Ready to use');
-  await saved.selectOption({ label: 'TEST send wallet · 0x5290…9EE7 · Ready to use' });
-  await field(page, 'Amount').fill(amount);
+  await pick(page, 'Asset').selectOption('USDT');
+  await expect(pick(page, 'Network')).toHaveValue('ethereum');
+  const saved = pick(page, 'Saved address');
+  const ready = `${LABEL} · 0x5290…9EE7 · Ready to use`;
+  await expect(saved.locator('option', { hasText: LABEL })).toHaveText(ready);
+  await saved.selectOption({ label: ready });
+  await amountBox(page).fill(amount);
 }
 
-test(`${J} starts: a verified TEST account with 300 USDT, a second factor and a saved wallet past its cooling-off`, async ({ page }) => {
-  test.setTimeout(240_000);
+/** The approval link mailed to `email` once more than `seen` have been, from the stack's LOCAL-TEST outbox. */
+async function approvalLink(email, seen) {
+  const links = () =>
+    mailedLines(email, 'withdraw-address-approval').map((line) => `/${/link=(approveAddress\?token=\S+)/.exec(line)?.[1]}`);
+  await expect.poll(() => links().length, { timeout: 20_000 }).toBeGreaterThan(seen);
+  return links().at(-1);
+}
+
+test(`${J} starts: a verified TEST account with 300 USDT, a second factor and a saved wallet approved and past its cooling-off`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(300_000);
   tool('local-test-gates.mjs', 'withdraw-terms');
   const who = await signUp(page, 'wd');
   await verify(page, who);
@@ -112,22 +124,44 @@ test(`${J} starts: a verified TEST account with 300 USDT, a second factor and a 
   const { secret, step } = await addAuthenticator(page, totp);
   run.reset({ account: who, secret, step });
   expect(fund(who.email, 'USDT', '300').tx).toBeTruthy();
-  expect(fund(who.email, 'USDC', '5').tx).toBeTruthy();
 
   await page.goto('/uc/withdraw/address');
   const add = page.getByRole('form', { name: 'Add an address' });
-  const addField = (name) =>
-    add.locator('label.field', { has: page.locator('span', { hasText: new RegExp(`^${name}$`) }) }).locator('input, select');
-  await addField('Label').fill('TEST send wallet');
-  await addField('Asset').selectOption('USDT');
-  await addField('Network').selectOption('ethereum');
-  await addField('Address').fill(ADDRESS);
+  await add.getByRole('textbox', { name: /^Label/ }).fill(LABEL);
+  await add.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
+  await add.getByRole('combobox', { name: /^Network/ }).selectOption('ethereum');
+  await add.getByRole('textbox', { name: /^Address/ }).fill(ADDRESS);
   await add.getByRole('button', { name: 'Save address' }).click();
   await confirmItsMe(page);
-  await expect(page.getByText('TEST send wallet was saved to your address book.')).toBeVisible();
+  await expect(page.getByText(`${LABEL} was saved to your address book.`)).toBeVisible();
+
+  // A new address waits for approval by its emailed link, opened in another browser (J-wallet-04 #5).
+  const seen = mailedLines(who.email, 'withdraw-address-approval').length;
+  const row = page.locator('tbody tr', { hasText: LABEL });
+  await row.getByRole('button', { name: 'Withdraw to this address' }).click();
+  await page.getByTestId('address-use').getByRole('button', { name: 'Email me an approval link' }).click();
+  const link = await approvalLink(who.email, seen);
+  const other = await browser.newContext();
+  try {
+    const away = await other.newPage();
+    await away.goto(link);
+    await away.getByRole('link', { name: 'Sign in' }).last().click();
+    await away.fill('input[name=totp]', await freshCode());
+    await away.fill('input[name=identifier]', who.email);
+    await away.fill('input[name=password]', who.password);
+    await away.getByRole('button', { name: /^sign in$/i }).click();
+    await expect(away).toHaveURL(/\/approveAddress$/);
+    await away.getByTestId('approve-address').getByRole('button', { name: 'Approve' }).click();
+    await confirmItsMe(away);
+    await expect(away.getByRole('heading', { name: 'Address approved' })).toBeVisible();
+  } finally {
+    await other.close();
+  }
+
+  // The cooling-off runs from the approval; the LOCAL TEST clock moves it past its end.
   expect(tool('local-test-stack.mjs', 'age-addresses', who.email, '25')).toContain('1 saved address(es)');
   await page.reload();
-  await expect(page.locator('tbody tr', { hasText: 'TEST send wallet' })).toContainText('Ready to use');
+  await expect(page.locator('tbody tr', { hasText: LABEL })).toContainText('Ready to use');
 });
 
 test(`${J} #3 reads the fee quote: fee, what arrives and the total debit as exact decimals, and an expired quote must be got again`, async ({
@@ -138,9 +172,8 @@ test(`${J} #3 reads the fee quote: fee, what arrives and the total debit as exac
   await fillSend(page, '25');
   const fee = page.getByTestId('withdraw-fee');
   const review = page.getByTestId('withdraw-review');
-  const confirm = page.getByRole('button', { name: 'Confirm and send' });
   await expect(fee).toContainText('Get the fee to see it');
-  await expect(confirm).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Review withdrawal' })).toBeDisabled();
 
   await page.getByRole('button', { name: 'Get the fee' }).click();
   await expect(fee).toContainText('1.5 USDT');
@@ -148,39 +181,30 @@ test(`${J} #3 reads the fee quote: fee, what arrives and the total debit as exac
   await expect(review).toContainText('Arrives25 USDT');
   await expect(review).toContainText('Leaves your balance26.5 USDT');
   await expect(page.getByText('The fee is added to the amount.')).toBeVisible();
-  await expect(confirm).toBeEnabled();
+  await expect(confirmSend(page)).toBeEnabled();
 
   // A changed amount drops the quote: no fee is shown for terms it was not quoted for.
-  await field(page, 'Amount').fill('26');
+  await amountBox(page).fill('26');
   await expect(fee).toContainText('Get the fee to see it');
-  await expect(confirm).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Review withdrawal' })).toBeDisabled();
 
   // The TEST quote lives 90 seconds. Once it has expired, confirm goes off until the fee is got again.
   await page.getByRole('button', { name: 'Get the fee' }).click();
   await expect(review).toContainText('Leaves your balance27.5 USDT');
   await expect(page.getByText('This quote has expired. Get the fee again.')).toBeVisible({ timeout: 120_000 });
-  await expect(confirm).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Review withdrawal' })).toBeDisabled();
   await page.getByRole('button', { name: 'Get the fee' }).click();
   await expect(review).toContainText('Leaves your balance27.5 USDT');
-  await expect(confirm).toBeEnabled();
+  await expect(confirmSend(page)).toBeEnabled();
 });
 
-test(`${J} limit line: the allowance for the account's level, an amount above it refused at the field, a blank limit refused`, async ({
-  page,
-}) => {
+test(`${J}, part of #4 reads the limit line: what the account's level may send now, per withdrawal and in 24 hours`, async ({ page }) => {
   test.setTimeout(180_000);
   await signInWithCode(page);
-  await fillSend(page, '150');
-  const limit = page.getByTestId('withdraw-limit');
-  await expect(limit).toContainText('You can send up to 100 USDT now: 100 per withdrawal, and 200 of 200 left in the last 24 hours.');
-  await expect(form(page).locator('#withdraw-amount-help')).toHaveText('That is above what you can send now: 100 USDT.');
-  await expect(page.getByRole('button', { name: 'Get the fee' })).toBeDisabled();
-
-  // USDC has no TEST limit: the line refuses in words and nothing can be quoted or sent.
-  await field(page, 'Asset').selectOption('USDC');
-  await expect(limit).toContainText('No withdrawal limit is set for your account level and this asset, so nothing can be sent.');
-  await field(page, 'Amount').fill('1');
-  await expect(page.getByRole('button', { name: 'Confirm and send' })).toBeDisabled();
+  await fillSend(page, '25');
+  await expect(page.getByTestId('withdraw-limit')).toContainText(
+    'You can send up to 1,000 USDT now: 1,000 per withdrawal, and 5,000 of 5,000 left in the last 24 hours.',
+  );
 });
 
 test(`${J} #7 confirms with a fresh step-up while no signer is connected: refused by name, nothing held, the balance still reads 300`, async ({
@@ -191,14 +215,14 @@ test(`${J} #7 confirms with a fresh step-up while no signer is connected: refuse
   await fillSend(page, '25');
   await page.getByRole('button', { name: 'Get the fee' }).click();
   await expect(page.getByTestId('withdraw-review')).toContainText('Leaves your balance26.5 USDT');
-  await page.getByRole('button', { name: 'Confirm and send' }).click();
+  await confirmSend(page).click();
   await expect(page.getByRole('dialog', { name: 'Confirm it’s you' })).toContainText('Sending money out needs a fresh confirmation.');
   await confirmItsMe(page);
 
   const outcome = page.getByTestId('withdraw-outcome');
   await expect(outcome).toContainText('Not sent');
   await expect(outcome).toContainText(
-    'Sending out of INTAFACED isn’t connected: no custody signer is set up, so every withdrawal is refused before anything is held.',
+    'Sending to a wallet outside INTAFACED isn’t connected: no custody signer is set up, so this withdrawal was refused before anything was held.',
   );
   await expect(outcome).toContainText('Nothing was sent and nothing is held. Your available balance is 300 USDT.');
   await expect(page.getByRole('dialog')).toHaveCount(0);

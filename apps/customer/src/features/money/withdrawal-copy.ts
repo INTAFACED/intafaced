@@ -96,7 +96,8 @@ const en = {
   fSavedWhy: 'Money is sent only to an address in your address book, once its cooling-off has ended.',
   fManage: 'Manage saved addresses',
   fNew: 'Or enter a new address',
-  fNewHint: 'Paste an address to check it. Another INTAFACED account’s address can be sent to at once; any other address must be in your address book.',
+  fNewHint:
+    'Paste an address to check it. Another INTAFACED account’s address can be sent to at once; any other address must be in your address book.',
   fAmount: 'Amount',
   fMax: 'Use all available',
   fAmountInvalid: 'Enter the amount as a number, for example 25.5.',
@@ -174,7 +175,7 @@ const en = {
   sHeldNothing: 'Nothing was sent and nothing is held.',
   sBalance: 'Your available balance is {amount} {asset}.',
   sNoSigner:
-    'Sending out of INTAFACED isn’t connected: no custody signer is set up, so every withdrawal is refused before anything is held.',
+    'Sending to a wallet outside INTAFACED isn’t connected: no custody signer is set up, so this withdrawal was refused before anything was held.',
   sDisabled: 'Withdrawals are turned off for this account.',
   sNotSaved: 'Money is sent only to a saved address.',
   sCooling: 'This address is still in its cooling-off period.',
@@ -436,7 +437,8 @@ const es = {
   fSavedWhy: 'El dinero solo se envía a una dirección de tu libreta, cuando termina su periodo de espera.',
   fManage: 'Gestionar direcciones guardadas',
   fNew: 'O introduce una dirección nueva',
-  fNewHint: 'Pega una dirección para comprobarla. A la dirección de otra cuenta de INTAFACED se puede enviar al instante; cualquier otra debe estar en tu libreta de direcciones.',
+  fNewHint:
+    'Pega una dirección para comprobarla. A la dirección de otra cuenta de INTAFACED se puede enviar al instante; cualquier otra debe estar en tu libreta de direcciones.',
   fAmount: 'Importe',
   fMax: 'Usar todo lo disponible',
   fAmountInvalid: 'Introduce el importe como un número, por ejemplo 25.5.',
@@ -515,7 +517,7 @@ const es = {
   sHeldNothing: 'No se envió nada y no hay nada retenido.',
   sBalance: 'Tu saldo disponible es {amount} {asset}.',
   sNoSigner:
-    'El envío fuera de INTAFACED no está conectado: no hay un firmante de custodia, así que todo retiro se rechaza antes de retener nada.',
+    'El envío a una cartera fuera de INTAFACED no está conectado: no hay un firmante de custodia, así que este retiro se rechazó antes de retener nada.',
   sDisabled: 'Los retiros están desactivados para esta cuenta.',
   sNotSaved: 'El dinero solo se envía a una dirección guardada.',
   sCooling: 'Esta dirección sigue en su periodo de espera.',
@@ -779,7 +781,8 @@ const fr = {
   fSavedWhy: 'L’argent n’est envoyé qu’à une adresse de ton carnet, une fois sa période d’attente terminée.',
   fManage: 'Gérer les adresses enregistrées',
   fNew: 'Ou saisis une nouvelle adresse',
-  fNewHint: 'Colle une adresse pour la vérifier. On peut envoyer aussitôt à l’adresse d’un autre compte INTAFACED ; toute autre adresse doit être dans ton carnet d’adresses.',
+  fNewHint:
+    'Colle une adresse pour la vérifier. On peut envoyer aussitôt à l’adresse d’un autre compte INTAFACED ; toute autre adresse doit être dans ton carnet d’adresses.',
   fAmount: 'Montant',
   fMax: 'Utiliser tout le disponible',
   fAmountInvalid: 'Saisis le montant sous forme de nombre, par exemple 25.5.',
@@ -859,7 +862,7 @@ const fr = {
   sHeldNothing: 'Rien n’a été envoyé et rien n’est bloqué.',
   sBalance: 'Ton solde disponible est de {amount} {asset}.',
   sNoSigner:
-    'L’envoi hors d’INTAFACED n’est pas connecté : aucun signataire de conservation n’est en place, donc chaque retrait est refusé avant que rien ne soit bloqué.',
+    'L’envoi vers un portefeuille hors d’INTAFACED n’est pas connecté : aucun signataire de garde n’est en place, donc ce retrait a été refusé avant que rien ne soit bloqué.',
   sDisabled: 'Les retraits sont désactivés pour ce compte.',
   sNotSaved: 'L’argent n’est envoyé qu’à une adresse enregistrée.',
   sCooling: 'Cette adresse est encore dans sa période d’attente.',
