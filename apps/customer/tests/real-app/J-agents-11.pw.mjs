@@ -41,7 +41,9 @@ async function signInAs(page, key, destination) {
 
 /** Signs `key` in with its code and opens the agents Team page. */
 async function openTeam(page, key = 'owner') {
-  await signInAs(page, key, '/agents/team');
+  // Signed in on /agents, a route that exists today, then the Team page, so an unbuilt page fails at its heading.
+  await signInAs(page, key, '/agents');
+  await page.goto('/agents/team');
   await expect(main(page).getByRole('heading', { name: 'Team', level: 1 })).toBeVisible(UNBUILT);
 }
 
@@ -111,7 +113,8 @@ test(`${J} #2 gives a member allow runner and deny runner: the effective result 
 });
 
 test(`${J} #3 a creator who also holds approver approves their own agent's action: the four-eyes rule refuses`, async ({ page }) => {
-  await signInAs(page, 'one', '/agents/approvals');
+  await signInAs(page, 'one', '/agents');
+  await page.goto('/agents/approvals');
   const own = tableIn(main(page), 'Approvals').getByRole('row').filter({ hasText: 'Your agent' }).first();
   await own.getByRole('button', { name: 'Approve' }).click(UNBUILT);
   await expect(main(page).getByRole('alert')).toContainText('agents.approval.four_eyes');
@@ -187,6 +190,7 @@ test(`${J} #8 removes a member: their allocation stops applying and their next r
       .filter({ hasText: person('two').handle }),
   ).toHaveCount(0);
   await forgetSession(page);
-  await signInAs(page, 'two', '/agents/team');
+  await signInAs(page, 'two', '/agents');
+  await page.goto('/agents/team');
   await expect(main(page).getByRole('alert')).toContainText('agents.team.not_a_member');
 });
