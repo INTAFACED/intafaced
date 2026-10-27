@@ -24,6 +24,7 @@ import { ReferralError } from './affiliates/referral-tree.js';
 import { KycCaseError, parseKycRejectReasons } from './kyc/cases.js';
 import { KycCapabilityError } from './kyc/capabilities.js';
 import { KycAttemptsError } from './kyc/attempts.js';
+import { KycProfileError, type KycProfileDesk } from './kyc/profile.js';
 
 /**
  * The tRPC boundary for KYC and step-up.
@@ -683,6 +684,63 @@ describe('kyc.reject names a reason from the owner list (I-kyc-compliance-01)', 
     expect(checked).toEqual([[RECORD, { reasonCode: 'document_unreadable', customerNote: null, noteVisible: false }]]);
     expect(consumed).toEqual([]);
     expect(stub.calls.filter((c) => c.method === 'rejectKycRecord')).toHaveLength(0);
+  });
+});
+
+describe('kyc.profile and kyc.documentTypes (I-kyc-compliance-08)', () => {
+  it('without the desk every door refuses kyc.profile_unconfigured', async () => {
+    const api = await caller(['identity:read', 'identity:write']);
+    for (const call of [
+      () => api.kyc.profile.read(),
+      () => api.kyc.profile.start({ tier: 'basic' }),
+      () => api.kyc.documentTypes.read({ country: 'DE' }),
+    ]) {
+      const err = await call().catch((e: unknown) => e);
+      expect(codeOf(err)).toBe('PRECONDITION_FAILED');
+      expect((err as { cause?: { code?: string } }).cause?.code).toBe('kyc.profile_unconfigured');
+    }
+  });
+
+  it("acts only on the caller's own draft, and maps each refusal", async () => {
+    const seen: unknown[][] = [];
+    const desk = {
+      async start(...args: unknown[]) {
+        seen.push(['start', ...args]);
+        throw new KycProfileError('stale', 'kyc.profile_version');
+      },
+      async upload(...args: unknown[]) {
+        seen.push(['upload', ...args]);
+        throw new KycProfileError('over', 'kyc.upload_too_large', { maxBytes: 1 });
+      },
+      async saveStep(...args: unknown[]) {
+        seen.push(['saveStep', ...args]);
+        throw new KycProfileError('none', 'kyc.document_types_unset');
+      },
+    } as unknown as KycProfileDesk;
+    const api = createIdentityRouter(stub.auth, stub.rank, { kycProfile: desk }).createCaller(await ctx(['identity:write']));
+    // There is no id to tamper with: an extra `userId` is refused as input, before the desk.
+    expect(codeOf(await api.kyc.profile.start({ tier: 'basic', userId: OPERATOR } as never).catch((e: unknown) => e))).toBe('BAD_REQUEST');
+    expect(codeOf(await api.kyc.profile.start({ tier: 'basic' }).catch((e: unknown) => e))).toBe('CONFLICT');
+    expect(
+      codeOf(await api.kyc.profile.upload({ version: 1, contentType: 'image/png', bytesBase64: 'AQID' }).catch((e: unknown) => e)),
+    ).toBe('PAYLOAD_TOO_LARGE');
+    const notCanonical = await api.kyc.profile
+      .upload({ version: 1, contentType: 'image/png', bytesBase64: 'AQID\n' })
+      .catch((e: unknown) => e);
+    expect(codeOf(notCanonical)).toBe('BAD_REQUEST');
+    expect(codeOf(await api.kyc.profile.saveStep({ step: 'document', version: 1, fields: {} }).catch((e: unknown) => e))).toBe(
+      'PRECONDITION_FAILED',
+    );
+    expect(seen.map((c) => [c[0], c[1]])).toEqual([
+      ['start', USER],
+      ['upload', USER],
+      ['saveStep', USER],
+    ]);
+    const read = await createIdentityRouter(stub.auth, stub.rank, { kycProfile: desk })
+      .createCaller(await ctx(['identity:read']))
+      .kyc.profile.start({ tier: 'basic' })
+      .catch((e: unknown) => e);
+    expect(codeOf(read)).toBe('FORBIDDEN');
   });
 });
 

@@ -92,9 +92,72 @@ test(`${J}, part of #1 (I-kyc-compliance-04, withdrawal limits): owner limits no
 test(`${J} #2: guided verification resumes at the step left, a country with no document list says so, an over-size file names the cap`, async ({
   page,
 }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(120_000);
   await atVerification(page);
-  await expect(page.getByRole('button', { name: 'Start guided verification' })).toBeVisible(UNBUILT);
+  const guided = page.getByRole('region', { name: 'Guided verification' });
+  const current = guided.getByTestId('verification__guided-steps').locator('li[aria-current="step"]');
+  const cases = page.getByRole('region', { name: 'Case history' }).getByTestId('verification__case');
+  await guided.getByRole('button', { name: 'Start guided verification' }).click();
+  await expect(current).toHaveAttribute('data-step', 'residence');
+
+  // Steps 1 and 2 for a country with no published ID list (TEST lists only DE and US): the ID step says so.
+  await guided.getByLabel('Country you live in').fill('FR');
+  await guided.getByLabel('Nationality').fill('FR');
+  await guided.getByRole('button', { name: 'Save and continue' }).click();
+  await expect(current).toHaveAttribute('data-step', 'identity');
+  await guided.getByLabel('Legal name').fill('TEST Anna Muster');
+  await guided.getByLabel('Date of birth').fill('1990-01-31');
+  await guided.getByRole('button', { name: 'Save and continue' }).click();
+  await expect(current).toHaveAttribute('data-step', 'document');
+  await expect(guided.getByTestId('verification__guided-doc-types')).toHaveAttribute('data-published', 'false');
+  await expect(guided.getByTestId('verification__guided-doc-types')).toHaveText(
+    'No accepted ID list is published for FR, so this step cannot be finished here. Ask Support about it.',
+  );
+
+  // Left and back: it resumes at step 3, and what was entered is kept.
+  await page.reload();
+  await expect(guided.getByTestId('verification__guided-resume')).toHaveText(
+    'You stopped at step 3 of 6: ID document. What you entered is kept.',
+  );
+  await expect(current).toHaveAttribute('data-step', 'document');
+  await guided.getByRole('button', { name: '1. Where you live' }).click();
+  await expect(guided.getByLabel('Country you live in')).toHaveValue('FR');
+  await guided.getByLabel('Country you live in').fill('DE');
+  await guided.getByLabel('Nationality').fill('DE');
+  await guided.getByRole('button', { name: 'Save and continue' }).click();
+  await expect(guided.getByLabel('Legal name')).toHaveValue('TEST Anna Muster');
+  await guided.getByRole('button', { name: 'Save and continue' }).click();
+
+  // DE has a published list: pick from it.
+  await expect(guided.getByTestId('verification__guided-doc-types')).toHaveAttribute('data-published', 'true');
+  await guided.getByLabel('ID type').selectOption({ label: 'TEST: Passport' });
+  await expect(guided.getByText('Bring the original. A copy is not accepted.')).toBeVisible();
+  await guided.getByLabel('ID number').fill('TEST123456');
+  await guided.getByRole('button', { name: 'Save and continue' }).click();
+  await guided.getByLabel('Street and number').fill('TEST Strasse 1');
+  await guided.getByLabel('City').fill('Berlin');
+  await guided.getByLabel('Postal code').fill('10115');
+  await guided.getByRole('button', { name: 'Save and continue' }).click();
+
+  // The photo: over the owner's TEST cap (256 KiB) it is refused naming the cap; a small PNG is stored.
+  await expect(current).toHaveAttribute('data-step', 'upload');
+  const file = guided.getByLabel('Photo of your ID');
+  await expect(file).toHaveAttribute('data-max-bytes', '262144');
+  await file.setInputFiles({ name: 'id.png', mimeType: 'image/png', buffer: Buffer.alloc(300 * 1024, 7) });
+  await guided.getByRole('button', { name: 'Upload photo' }).click();
+  await expect(guided.getByTestId('verification__guided-problem')).toHaveText('This file is 300 KiB. The limit is 256 KiB.');
+  const png = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010806000000', 'hex');
+  await file.setInputFiles({ name: 'id.png', mimeType: 'image/png', buffer: png });
+  await guided.getByRole('button', { name: 'Upload photo' }).click();
+
+  // Check and send: one pending case; the automatic check is not connected, so a person reviews it.
+  await expect(current).toHaveAttribute('data-step', 'review');
+  await expect(guided.getByTestId('verification__guided-review')).toContainText('TEST Anna Muster');
+  await guided.getByRole('button', { name: 'Send for review' }).click();
+  await expect(guided.getByTestId('verification__guided-sent')).toBeVisible();
+  await expect(guided.getByTestId('verification__guided-manual')).toContainText('a person reviews your documents');
+  await expect(cases).toHaveCount(1);
+  await expect(cases.first()).toHaveAttribute('data-state', 'submitted');
 });
 
 test(`${J} #3: with the face check switched off the selfie is kept for manual review; a hand-off link used twice is refused`, async ({
