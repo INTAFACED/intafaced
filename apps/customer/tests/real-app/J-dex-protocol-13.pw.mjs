@@ -28,9 +28,15 @@ async function openPools(page) {
   return wallet;
 }
 
-/** Opens the pool of `type` (Range, Hook, Stable, Permissioned) for TEST tokens A and B. */
+/** Opens the pool of `type` (Range, Hook, Stable, Permissioned) for TEST tokens A and B, connecting the wallet first. */
 async function openPool(page, type) {
   await openPools(page);
+  return choosePool(page, type);
+}
+
+/** From /dex/pools with the wallet already connected, opens the pool of `type` for TEST tokens A and B. */
+async function choosePool(page, type) {
+  await page.goto('/dex/pools');
   await page.getByRole('main').getByRole('group', { name: 'Pool type' }).getByRole('button', { name: type }).click(UNBUILT);
   await bodyRows(pools(page)).filter({ hasText: 'TEST Token A / TEST Token B' }).getByRole('link').click();
   const pool = page.getByRole('main').getByRole('region', { name: 'Pool' });
@@ -103,7 +109,7 @@ test(`${J} #4 opens a stable pair and a skewed volatile pair: the stable fee is 
   const stable = await openPool(page, 'Stable');
   const fees = stable.getByRole('region', { name: 'Fees' });
   await expect(fees.getByTestId('fee-rule')).toHaveText(/^(Inside the band: optimal fee|Outside the band: corrective fee) [\d.]+ ?%$/);
-  const volatile = await openPool(page, 'Range');
+  const volatile = await choosePool(page, 'Range');
   const sides = volatile.getByRole('region', { name: 'Fees' });
   const bid = await sides.getByTestId('fee-bid').innerText();
   const ask = await sides.getByTestId('fee-ask').innerText();
@@ -150,11 +156,18 @@ test(`${J} #8 stakes LP shares into a TEST incentive of 1000 over 10 blocks: rew
   const funded = bodyRows(incentives).filter({ hasText: 'TEST 1000 over 10 blocks' });
   await funded.getByRole('button', { name: 'Stake' }).click();
   await page.getByRole('button', { name: 'Continue in wallet' }).click();
-  // The TEST incentive's other staker holds a third of this wallet's shares: this wallet earns three quarters.
-  await expect(funded.getByTestId('your-reward')).toHaveText('750 TEST reward', { timeout: 120_000 });
+  // The TEST incentive's other staker holds a third of this wallet's shares: this wallet's split is three quarters,
+  // 750 of the 1000 over the full period.
+  await expect(funded.getByTestId('your-split')).toHaveText('75% · 750 of 1000 TEST reward over the period', { timeout: 60_000 });
+  // Leaving mid-period: once some reward has accrued, unstake; the reward stays where it was until the period ends.
+  const reward = funded.getByTestId('your-reward');
+  await expect(reward).not.toHaveText(/^0(\.0+)? TEST reward$/, { timeout: 60_000 });
   await funded.getByRole('button', { name: 'Unstake' }).click();
   await page.getByRole('button', { name: 'Continue in wallet' }).click();
-  await expect(funded.getByRole('status')).toHaveText('Not earning');
+  await expect(funded.getByRole('status')).toHaveText('Not earning', { timeout: 60_000 });
+  const left = await reward.innerText();
+  await expect(funded).toContainText('Period ended', { timeout: 120_000 });
+  await expect(reward).toHaveText(left);
   const unfunded = bodyRows(incentives).filter({ hasText: 'TEST unfunded' });
   await expect(unfunded.getByRole('button', { name: 'Start' })).toBeDisabled();
   await expect(unfunded).toContainText('Not funded: cannot start');

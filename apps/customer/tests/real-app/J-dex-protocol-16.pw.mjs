@@ -69,9 +69,13 @@ test(`${J} #3 reads the unstake queue and lockup: lockup terms as typed paramete
     await expect(value).toBeVisible();
   }
   await expect(queue.getByRole('definition').filter({ hasText: /^(Not set|\d+ (blocks|days))$/ })).toHaveCount(2);
+  // Reachable at 360 px: the page does not scroll sideways, and the control sits inside the width.
   const unstake = queue.getByRole('button', { name: 'Unstake' });
-  await unstake.scrollIntoViewIfNeeded();
-  await expect(unstake).toBeInViewport();
+  await expect(unstake).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+  const box = await unstake.boundingBox();
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(360);
 });
 
 test(`${J} #4 opens staking rewards and the liquid staking token: each control shows the blocker; a rewards call returns the refusal and no number`, async ({

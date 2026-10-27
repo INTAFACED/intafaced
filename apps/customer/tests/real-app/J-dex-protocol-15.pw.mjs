@@ -70,9 +70,18 @@ test(`${J} #2 withdraws the same shares with no interest: at most 1000 comes bac
   const back = await form.getByTestId('you-receive').innerText();
   expect(toUnits(back.replace(/[^\d.]/g, '')) <= toUnits(dex.run.read().supplied ?? '1000')).toBe(true);
   await sign(page);
+  await expect(shares(page)).toHaveText(/^0(\.0+)? shares$/, { timeout: 60_000 });
+  // Each book line is one exact amount in TEST Token A, at full precision; the identity holds once the withdraw lands.
   const books = market(page).getByRole('region', { name: 'Market books' });
-  const read = async (id) => toUnits((await books.getByTestId(id).innerText()).replace(/[^\d.]/g, ''));
-  expect(await read('supplier-assets')).toBe((await read('cash')) + (await read('debt')) - (await read('reserve')));
+  const read = async (id) => {
+    const text = await books.getByTestId(id).innerText();
+    const amount = text.match(/^([\d,]+(?:\.\d+)?) TEST Token A$/)?.[1];
+    expect(amount, `${id}: ${text}`).toBeTruthy();
+    return toUnits(amount.replaceAll(',', ''));
+  };
+  await expect(async () => {
+    expect(await read('supplier-assets')).toBe((await read('cash')) + (await read('debt')) - (await read('reserve')));
+  }).toPass({ timeout: 30_000 });
 });
 
 test(`${J} #3 tries to withdraw the whole cash at once on a market with an expanding limit: the part above the available amount is refused and the room shows when the rest frees up`, async ({
@@ -100,8 +109,9 @@ test(`${J} #4 retries later: the expanded limit lets the rest through`, async ({
 test(`${J} #5 reaches the debt ceiling as a borrower: borrow refuses with the ceiling named`, async ({ page }) => {
   await openEarn(page);
   await page.goto('/dex/lend');
-  const markets = tableIn(page.getByRole('main'), 'Lending markets');
+  const markets = tableIn(page.getByRole('main'), 'TEST markets');
   await bodyRows(markets).filter({ hasText: 'TEST ceiling' }).getByRole('link').click(UNBUILT);
+  await page.getByRole('main').getByRole('button', { name: 'Borrow' }).click();
   const borrow = page.getByRole('form', { name: 'Borrow' });
   await borrow.getByRole('textbox', { name: /^Amount/ }).fill('1000000');
   await borrow.getByRole('button', { name: 'Review' }).click();

@@ -11,14 +11,16 @@ import { bodyRows, tableIn } from './tables.mjs';
 // - the Web3 side has no lending room (/dex/lend): no market list, market page, oracle status, position or collateral
 //   classes (D-lend-earn-02, -03, -04);
 // - the stack publishes no market and has no TEST chain or oracle, so a supply, borrow, price fall or repay has nothing
-//   to go to. #1 is the stack's own case; #2 to #8 need a published TEST market.
+//   to go to. #1 reads the owner-published list, which stays empty on the stack; #2 to #8 use TEST markets, listed
+//   apart and labelled TEST, so both hold on one stack. #3's stale source is its own TEST market, so #4's borrow is
+//   not paused by it.
 const J = 'J-dex-protocol-14';
 const dex = dexRun(J);
 const MARKET = 'TEST Token A / TEST Token B';
 
 test.describe.configure({ mode: 'default' });
 
-const markets = (page) => tableIn(page.getByRole('main'), 'Lending markets');
+const markets = (page) => tableIn(page.getByRole('main'), 'TEST markets');
 const position = (page) => page.getByRole('main').getByRole('region', { name: 'Your loan' });
 
 /** Opens the lending room with the run's wallet connected. */
@@ -29,11 +31,11 @@ async function openLend(page) {
   return wallet;
 }
 
-/** Opens the TEST market's page. */
-async function openMarket(page) {
+/** Opens a TEST market's page (`name`, the run's market by default). */
+async function openMarket(page, name = MARKET) {
   await openLend(page);
-  await bodyRows(markets(page)).filter({ hasText: MARKET }).getByRole('link').click(UNBUILT);
-  const market = page.getByRole('main').getByRole('region', { name: MARKET });
+  await bodyRows(markets(page)).filter({ hasText: name }).getByRole('link').click(UNBUILT);
+  const market = page.getByRole('main').getByRole('region', { name });
   await expect(market).toBeVisible();
   return market;
 }
@@ -52,10 +54,13 @@ test(`${J} #1 opens the market list with no market published: "No lending market
   page,
 }) => {
   await openLend(page);
+  const published = tableIn(page.getByRole('main'), 'Published markets');
   for (const header of ['Market', 'Supply rate', 'Borrow rate', 'Utilisation'])
-    await expect(markets(page).getByRole('columnheader', { name: header })).toBeVisible();
-  await expect(page.getByRole('main')).toContainText('No lending market is published yet.');
+    await expect(published.getByRole('columnheader', { name: header })).toBeVisible();
+  await expect(bodyRows(published)).toHaveText(['No lending market is published yet.']);
   await expect(page.getByRole('main').getByText('Owner decision', { exact: true })).toBeVisible();
+  // TEST markets are listed apart, each labelled TEST, never mixed into the published list.
+  await expect(bodyRows(markets(page)).filter({ hasNotText: 'TEST' })).toHaveCount(0);
 });
 
 test(`${J} #2 opens a TEST market at 40 percent utilisation: its own supply and borrow rates, a two-slope curve with the kink and the reserve view`, async ({
@@ -74,11 +79,12 @@ test(`${J} #2 opens a TEST market at 40 percent utilisation: its own supply and 
 test(`${J} #3 opens the oracle status: each source with its age and the agreed mark; a stale or disagreeing source is named and borrows pause`, async ({
   page,
 }) => {
-  const market = await openMarket(page);
+  // A TEST market of its own whose second source is stale, so the run's market keeps lending.
+  const market = await openMarket(page, 'TEST stale oracle');
   const oracle = tableIn(market, 'Price sources');
   for (const header of ['Source', 'Age', 'Price']) await expect(oracle.getByRole('columnheader', { name: header })).toBeVisible();
   await expect(market.getByTestId('agreed-mark')).toHaveText(/^Agreed mark [\d,.]+$/);
-  // The TEST market's second source is stale: it is named, and borrowing pauses until the sources agree again.
+  // Its second source is stale: it is named, and borrowing pauses until the sources agree again.
   await expect(bodyRows(oracle).filter({ hasText: 'Stale' })).toHaveCount(1);
   await expect(market.getByRole('alert')).toContainText(/Borrowing is paused: .+ is stale/);
 });
@@ -110,11 +116,14 @@ test(`${J} #5 opens the position: collateral, debt, health factor and the price 
 });
 
 test(`${J} #6 sees the price fall: a health factor under 1 warns; the account is listed as liquidatable`, async ({ page }) => {
-  const market = await openMarket(page);
+  const wallet = await connectWallet(page, dex, { tokens: [TOKEN_A, TOKEN_B] });
+  await page.goto('/dex/lend');
+  await bodyRows(markets(page)).filter({ hasText: MARKET }).getByRole('link').click(UNBUILT);
+  const market = page.getByRole('main').getByRole('region', { name: MARKET });
   // The TEST oracle's next mark is lower; the position reads unhealthy and others may liquidate it.
   await expect(position(page).getByRole('alert')).toContainText('Health factor under 1', { timeout: 120_000 });
   const liquidatable = tableIn(market, 'Liquidatable accounts');
-  await expect(bodyRows(liquidatable).filter({ hasText: /0x[0-9a-fA-F]{4}/ })).not.toHaveCount(0);
+  await expect(bodyRows(liquidatable).filter({ hasText: new RegExp(wallet.address, 'i') })).toHaveCount(1);
 });
 
 test(`${J} #7 repays in full and withdraws collateral: debt zero, collateral back in the wallet`, async ({ page }) => {
