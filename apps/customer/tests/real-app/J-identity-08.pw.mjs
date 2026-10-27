@@ -33,9 +33,7 @@ async function sendRequest(page, country = 'DE') {
   await expect(page.getByText('Your reviewed request')).toBeVisible();
 }
 
-test(`${J}, part of #1 (I-kyc-compliance-04): a ladder of levels, and every gated feature says which level unlocks it`, async ({
-  page,
-}) => {
+test(`${J} #1 (I-kyc-compliance-04): a ladder of levels, and every gated feature says which level unlocks it`, async ({ page }) => {
   test.setTimeout(90_000);
   const { ladder, rung } = await atVerification(page);
   await expect(ladder.getByTestId('verification__rung')).toHaveCount(LEVELS.length);
@@ -63,7 +61,7 @@ test(`${J}, part of #1 (I-kyc-compliance-04): a ladder of levels, and every gate
   await expect(rung('none').getByRole('button', { name: 'Verify to unlock' })).toHaveCount(0);
 });
 
-test(`${J}, part of #1 (I-kyc-compliance-05): requirements not published say none are published; the review time is stated or says it is not`, async ({
+test(`${J} #1 (I-kyc-compliance-05): requirements not published say none are published; the review time is stated or says it is not`, async ({
   page,
 }) => {
   test.setTimeout(90_000);
@@ -82,7 +80,7 @@ test(`${J}, part of #1 (I-kyc-compliance-05): requirements not published say non
   }
 });
 
-test(`${J}, part of #1 (I-kyc-compliance-04, withdrawal limits): owner limits not set read "not set"`, async ({ page }) => {
+test(`${J} #1 (I-kyc-compliance-04, withdrawal limits): owner limits not set read "not set"`, async ({ page }) => {
   test.setTimeout(90_000);
   const { rung } = await atVerification(page);
   // Each level's withdrawal limits are svc-pay's owner-set figures (D-148). The stack's TEST gates set figures for the

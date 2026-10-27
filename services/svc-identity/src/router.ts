@@ -554,6 +554,11 @@ const kycRecordOutput = z.object({
  * the reviewing operator to the user under review is how a compliance officer
  * acquires a personal adversary. Both stay server-side.
  */
+/** A KYC decision is an operator's: any service caller or agent key is refused, whatever its name. */
+function refuseAgentKycReview(ctx: { service?: string | null; principal: { kid?: string | null } }): void {
+  assertOperatorKycReview({ service: ctx.service, kid: ctx.principal.kid });
+}
+
 function presentKyc(record: KycRecordView) {
   return {
     id: record.id,
@@ -2191,7 +2196,7 @@ export function createIdentityRouter(
         .mutation(async ({ ctx, input }) => {
           try {
             requireMfa(ctx.principal);
-            assertOperatorKycReview({ service: ctx.service, kid: ctx.principal.kid });
+            refuseAgentKycReview(ctx);
             await refuseOwnKyc(input.recordId, ctx.principal.userId, input);
             const parties = await consumePrivileged(ctx.principal.userId, input, 'kyc.approve', { recordId: input.recordId });
             return presentKyc(
@@ -2235,7 +2240,7 @@ export function createIdentityRouter(
         .mutation(async ({ ctx, input }) => {
           try {
             requireMfa(ctx.principal);
-            assertOperatorKycReview({ service: ctx.service, kid: ctx.principal.kid });
+            refuseAgentKycReview(ctx);
             await refuseOwnKyc(input.recordId, ctx.principal.userId, input);
             requireRejectReason(options.kycRejectReasons ?? new Map(), input.reasonCode);
             const customerNote = input.customerNote ?? null;
@@ -2343,7 +2348,7 @@ export function createIdentityRouter(
           .mutation(async ({ ctx, input }) => {
             try {
               requireMfa(ctx.principal);
-              assertOperatorKycReview({ service: ctx.service, kid: ctx.principal.kid });
+              refuseAgentKycReview(ctx);
               assertNotOwnKyc(input.userId, [ctx.principal.userId]);
               requireRejectReason(options.kycCapabilityReasons ?? new Map(), input.reasonCode, 'capability reasons');
               await auth.assertKycCapabilityDeactivatable(input.userId, input.capability, input.reasonCode);
