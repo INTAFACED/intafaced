@@ -435,13 +435,13 @@ test(`${J} #5 sees a payout: one payout per period posted, and the schedule show
   await expect(earned).toHaveAttribute('data-total', fromUnits(daily('100', 125) * 2n));
 });
 
-test(`${J} #6 opens a staking-style pool: unbonding states, pool status and a risk disclosure; a closed pool refuses deposits while existing positions keep accruing and can withdraw`, async ({
+test(`${J} #6 opens a staking-style pool: unbonding states and pool status; a closed pool refuses deposits while existing positions keep accruing and can withdraw`, async ({
   page,
 }) => {
   const { who, pool } = state();
   await signIn(page, who);
   await page.goto(poolPage(pool));
-  await expect(page.getByTestId('earn-risk-disclosure')).toBeVisible(UNBUILT);
+  await expect(page.getByTestId('earn-pool-unbonding')).toBeVisible(UNBUILT);
 });
 
 test(`${J} #7 turns on auto earn and opts in: the setting is saved, and a threshold must be above zero`, async ({ page }) => {
