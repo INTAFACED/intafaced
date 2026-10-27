@@ -82,6 +82,7 @@ COPY packages/portfolio-view/package.json    packages/portfolio-view/
 COPY packages/quant-honesty/package.json     packages/quant-honesty/
 COPY packages/safe-regex/package.json        packages/safe-regex/
 COPY packages/sbe-codec/package.json         packages/sbe-codec/
+COPY packages/service-kit/package.json       packages/service-kit/
 COPY packages/sdk-ts/package.json            packages/sdk-ts/
 COPY packages/telemetry/package.json         packages/telemetry/
 COPY packages/ui/package.json                packages/ui/

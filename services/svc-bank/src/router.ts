@@ -191,6 +191,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
                     minimumDeposit: amountString,
                     confirmationsRequired: z.number().int().nonnegative(),
                     estimatedArrivalMinutes: z.number().int().nonnegative(),
+                    /** The owner's cases custody will not credit on this network; absent when none was published. */
+                    unsupported: z.array(z.string().min(1)).optional(),
                   }),
                 ),
               }),

@@ -25,6 +25,7 @@ export function createPayCustodyDepositPort(pay: PayCustodyDepositPort): Custody
           minimumDeposit: entry.minimumDeposit,
           confirmationsRequired: entry.confirmationsRequired,
           estimatedArrivalMinutes: entry.estimatedArrivalMinutes,
+          ...(entry.unsupported ? { unsupported: entry.unsupported } : {}),
         },
       ];
       byAsset.set(entry.assetId, asset);

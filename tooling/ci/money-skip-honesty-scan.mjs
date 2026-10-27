@@ -113,6 +113,11 @@ if (rooted.length === 0) {
 /** @type {string[]} */
 const files = [];
 for (const r of rooted) walk(join(ROOT, r), files);
+// Paid rows only warn (owner decision 2026-10-27), so roots that hold no test file must refuse on their own.
+if (files.length === 0) {
+  console.error('\n✖ MONEY SKIP HONESTY FAILED — the money-path roots hold no test file. A seal that walks nothing is not a seal.\n');
+  process.exit(1);
+}
 
 /** @type {Map<string, string>} rel → stripped content for skipping files */
 const skipping = new Map();

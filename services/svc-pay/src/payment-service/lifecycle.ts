@@ -163,6 +163,14 @@ export async function admitPaymentOperation<T>(
 }
 
 /**
+ * A payment that was already captured: captured, settled, refunded or disputed. A capture call on one returns it as it
+ * is and appends nothing. `disputed -> captured` is in TRANSITIONS only for a won dispute (restoreAfterWonDispute), so
+ * capture does not read that table: a capture retried after a dispute opened would append a second `captured` event and
+ * double the captured and refundable totals.
+ */
+const BEYOND_CAPTURE: ReadonlySet<string> = new Set(['captured', 'settled', 'refunded', 'disputed']);
+
+/**
  * Fresh, replay or recovery for a payment admission, from durable state, read
  * without locking the payment row (the guard runs before it is locked).
  *   create     the payment row exists: an idempotent repeat.
@@ -177,7 +185,7 @@ export async function classifyPaymentAdmission(svc: PayServiceInternal, tx: Sql,
   const status = rows[0]?.status;
   if (!status) return FRESH;
   if (input.kind === 'payment.create') return { kind: 'replay', reason: 'payment_exists' };
-  const beyondCapture = status === 'captured' || status === 'settled' || status === 'refunded';
+  const beyondCapture = BEYOND_CAPTURE.has(status);
   if (input.kind === 'payment.authorize') {
     return beyondCapture || status === 'authorized' ? { kind: 'replay', reason: 'already_authorized' } : FRESH;
   }
@@ -406,6 +414,15 @@ export async function authorize(
   });
 }
 
+/** Only an authorized payment is captured. */
+function assertCapturable(row: { id: string; status: string }): void {
+  if (row.status === 'authorized') return;
+  throw new PayError(`Payment ${row.id} is ${row.status}; only an authorized payment is captured`, 'pay.invalid_transition', {
+    from: row.status,
+    to: 'captured',
+  });
+}
+
 /**
  * `authorized → captured`. THE INBOUND MONEY PATH.
  *
@@ -431,7 +448,8 @@ export async function capture(
   } = {},
 ): Promise<PaymentView> {
   const original = await readPayment(svc.sql, paymentId);
-  if (['captured', 'settled'].includes(original.status)) return svc.getPayment(paymentId);
+  if (BEYOND_CAPTURE.has(original.status)) return svc.getPayment(paymentId);
+  assertCapturable(original);
   return withMoneySpan('pay.capture', { operation: 'capture', paymentId }, async (span) =>
     svc
       .admitPaymentOperation(
@@ -453,7 +471,7 @@ export async function capture(
         async (tx, admitted) => {
           const observed = await readPayment(tx, paymentId);
 
-          if (observed.status === 'captured' || observed.status === 'settled') return svc.view(tx, observed);
+          if (BEYOND_CAPTURE.has(observed.status)) return svc.view(tx, observed);
 
           // Merchant → payment is the single svc-pay money lock order. The shared
           // merchant lock (taken in admitPaymentOperation, before the guard)
@@ -461,8 +479,9 @@ export async function capture(
           // earlier, a cutoff could commit after this check but before the
           // irreversible capture, recreating the stale-eligibility race.
           const row = await lockPayment(tx, paymentId);
-          if (row.status === 'captured' || row.status === 'settled') return svc.view(tx, row);
-          assertTransition(row, 'captured');
+          // A concurrent capture, and then a dispute, can land between the first read and this lock.
+          if (BEYOND_CAPTURE.has(row.status)) return svc.view(tx, row);
+          assertCapturable(row);
           if (svc.rails.has(row.rail_adapter) && svc.rails.get(row.rail_adapter).checksPayerName) await assertNoPayerNameHold(tx, row.id);
           if (
             admitted &&

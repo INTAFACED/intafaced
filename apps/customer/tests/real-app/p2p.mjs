@@ -10,7 +10,7 @@ import { PASSKEY_ORIGIN, virtualAuthenticator } from './identity-factors.mjs';
 export const METHOD = 'test-bank-transfer';
 export const TEST_IBAN = 'DE89370400440532013000';
 
-// Edge allows 1200 requests a minute per address on the stack: keep the setup well under it.
+// Edge allows 6000 requests a minute per address on the stack (local-stack-services/edge.mjs): keep the setup well under it.
 const pace = () => new Promise((resolve) => setTimeout(resolve, 75));
 
 /** The scope and purpose a take is confirmed under (svc-p2p take-step-up.ts, contracts CUSTOMER_STEP_UP_DOORS). */

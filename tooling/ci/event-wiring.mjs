@@ -591,12 +591,16 @@ for (const s of bFound) {
   }
 }
 
+const warnStale = (file, reason) =>
+  console.log(process.env.GITHUB_ACTIONS ? `::warning file=${file},title=Event wiring::${reason}` : `  ! ${file}: ${reason}`);
+
 for (const p of CLASS_B_AWAITING_A_DECISION) {
   const key = `${p.event}::${p.missing}`;
   const live = bFound.find((s) => `${s.event}::${s.missing}` === key);
   if (live === undefined) {
     const still = socketFor(p.event, p.missing);
-    fail(
+    // A fix never fails the build (owner decision 2026-10-27): a stale pin warns, naming the row to delete.
+    warnStale(
       catalogPath,
       `STALE PIN — CLASS_B_AWAITING_A_DECISION freezes the ${p.missing} socket for "${p.event}" as Class B, and it is ${
         still === null ? 'no longer in WIRING_SOCKETS at all' : `now classified ${still.class}`
@@ -1092,9 +1096,10 @@ for (const event of EVENTS) {
 
     // The other direction, and the reason this list cannot rot into a suppression
     // list: a socket kept after the gap closed is a written claim that something
-    // is missing when it is not, and the next reader believes it.
+    // is missing when it is not, and the next reader believes it. It warns rather
+    // than fails: a fix never fails the build (owner decision 2026-10-27).
     if (wired.length > 0 && socket !== null) {
-      fail(
+      warnStale(
         catalogPath,
         `WIRING_SOCKETS still records "${event}" as having no ${missing} (line ${socket.line}), but one exists at ${wired[0]} — delete the socket entry; a stale socket is a lie about the system that outlives the gap it described`,
       );
