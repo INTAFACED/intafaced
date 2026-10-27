@@ -1,12 +1,13 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { useDataEnv, useSource } from '../../data/hooks';
 import { refusalCopy } from '../../data';
 import type { Loadable } from '../../data/types';
 import { useLocation } from '../../app/location';
 import { safeReturnTo } from '../../app/navigation';
 import { useSession } from '../session/session';
-import { feeTierFetcher, snapshotTime, type FeeTier } from './fee-tier';
+import { feeTierFetcher, snapshotTime, type FeeTier, type FeeTierBenefits } from './fee-tier';
 import { feeTierCopy } from './fee-tier-copy';
+import { VipApply } from './VipApply';
 import './public-pages.css';
 
 /**
@@ -54,10 +55,11 @@ export function MyTierPage() {
 function SignedInTier() {
   const env = useDataEnv();
   const source = useMemo(() => env.poller.source<FeeTier | null>('my-fee-tier', feeTierFetcher(env.api), { intervalMs: 15_000 }), [env]);
-  return <MyTierView load={useSource(source)} />;
+  return <MyTierView load={useSource(source)} apply={<VipApply />} />;
 }
 
-export function MyTierView({ load }: { load: Loadable<FeeTier | null> }) {
+/** `apply` is the VIP application: shown whatever the tier read answers, so a pending application stays in view. */
+export function MyTierView({ load, apply }: { load: Loadable<FeeTier | null>; apply?: ReactNode }) {
   const copy = feeTierCopy.useCopy();
   return (
     <div className="pub-page" data-room="my-tier">
@@ -82,6 +84,7 @@ export function MyTierView({ load }: { load: Loadable<FeeTier | null> }) {
         </section>
       ) : null}
       {load.status === 'ready' && load.data ? <Tier tier={load.data} /> : null}
+      {apply}
       <p>
         <a className="text-link" href="/fees">
           {copy.t('feesLink')} →
@@ -100,7 +103,13 @@ function Tier({ tier }: { tier: FeeTier }) {
       <section className="pub-card" aria-label={copy.t('yourTier', { tier: name(tier.tier) })} data-tier-page="tier">
         <h2 data-tier={tier.tier}>{copy.t('yourTier', { tier: name(tier.tier) })}</h2>
         <p>
-          {tier.lastSnapshot ? copy.t('tierFromSnapshot', { time: snapshotTime(tier.lastSnapshot.instant) }) : copy.t('tierNoSnapshot')}
+          {tier.trial ? (
+            <span data-tier-page="trial">{copy.t('tierFromTrial', { time: snapshotTime(tier.trial.endsAt) })}</span>
+          ) : tier.lastSnapshot ? (
+            copy.t('tierFromSnapshot', { time: snapshotTime(tier.lastSnapshot.instant) })
+          ) : (
+            copy.t('tierNoSnapshot')
+          )}
         </p>
         {program === null ? <p data-tier-page="thresholds-not-set">{copy.t('thresholdsNotSet')}</p> : null}
       </section>
@@ -158,6 +167,12 @@ function Tier({ tier }: { tier: FeeTier }) {
           </section>
         </>
       ) : null}
+      <Benefits
+        benefits={program?.benefits ?? null}
+        tiers={program ? ['regular', ...program.thresholds.map((threshold) => threshold.tierId)] : []}
+        yours={tier.tier}
+        name={name}
+      />
       <section className="pub-card" aria-label={copy.t('snapshotsTitle')} data-tier-page="snapshots">
         <h2>{copy.t('snapshotsTitle')}</h2>
         {tier.snapshots.length === 0 ? (
@@ -188,5 +203,68 @@ function Tier({ tier }: { tier: FeeTier }) {
         )}
       </section>
     </>
+  );
+}
+
+const NOT_SET = { prioritySupport: null, vipPortal: null, ambassador: null, subAccountCap: null, withdrawalLimit24h: null } as const;
+
+/**
+ * The owner's benefits table: one row per tier of the programme, lowest first, the person's own marked. A cell the owner
+ * left blank, or a tier with no row, says "not set".
+ */
+function Benefits({
+  benefits,
+  tiers,
+  yours,
+  name,
+}: {
+  benefits: readonly FeeTierBenefits[] | null;
+  tiers: readonly string[];
+  yours: string;
+  name: (tierId: string) => string;
+}) {
+  const copy = feeTierCopy.useCopy();
+  const flag = (value: boolean | null) => (value === null ? copy.t('benefitNotSet') : value ? copy.t('benefitYes') : copy.t('benefitNo'));
+  return (
+    <section className="pub-card" aria-labelledby="tier-benefits-title" data-tier-page="benefits">
+      <h2 id="tier-benefits-title">{copy.t('benefitsTitle')}</h2>
+      {benefits === null ? (
+        <p data-benefits="not-set">{copy.t('benefitsNotSet')}</p>
+      ) : (
+        <>
+          <p>{copy.t('benefitsLead')}</p>
+          <table className="pub-table" aria-labelledby="tier-benefits-title">
+            <thead>
+              <tr>
+                <th scope="col">{copy.t('colTier')}</th>
+                <th scope="col">{copy.t('colPrioritySupport')}</th>
+                <th scope="col">{copy.t('colVipPortal')}</th>
+                <th scope="col">{copy.t('colAmbassador')}</th>
+                <th scope="col">{copy.t('colSubAccountCap')}</th>
+                <th scope="col">{copy.t('colWithdrawalLimit')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tiers
+                .map((tierId) => benefits.find((row) => row.tierId === tierId) ?? { ...NOT_SET, tierId })
+                .map((row) => (
+                  <tr key={row.tierId} data-benefits={row.tierId} aria-current={row.tierId === yours ? 'true' : undefined}>
+                    <th scope="row">{row.tierId === yours ? copy.t('benefitYours', { tier: name(row.tierId) }) : name(row.tierId)}</th>
+                    <td data-benefit="prioritySupport">{flag(row.prioritySupport)}</td>
+                    <td data-benefit="vipPortal">{flag(row.vipPortal)}</td>
+                    <td data-benefit="ambassador">{flag(row.ambassador)}</td>
+                    <td data-benefit="subAccountCap">{row.subAccountCap === null ? copy.t('benefitNotSet') : String(row.subAccountCap)}</td>
+                    <td data-benefit="withdrawalLimit24h">
+                      {row.withdrawalLimit24h === null
+                        ? copy.t('benefitNotSet')
+                        : copy.t('benefitLimit', { amount: row.withdrawalLimit24h.amount, asset: row.withdrawalLimit24h.asset })}
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </>
+      )}
+    </section>
   );
 }

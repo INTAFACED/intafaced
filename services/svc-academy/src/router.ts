@@ -118,6 +118,13 @@ import {
   academyCourseReleaseSchema,
   academySetSectionReleaseInputSchema,
   academySetCoursePacingInputSchema,
+  academyCourseItemRulesSchema,
+  academyCourseItemRulesInputSchema,
+  academySetCourseItemPrerequisitesInputSchema,
+  academyGrantCourseExtensionInputSchema,
+  academyCourseGradebookSchema,
+  academyCourseGradebookInputSchema,
+  academySaveGradingPolicyInputSchema,
   academyCourseQuizAttemptSchema,
   academyAnswerCourseQuizInputSchema,
   academyFinishCourseQuizInputSchema,
@@ -1048,6 +1055,9 @@ function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
 
     case 'academy.prerequisite_cycle':
+    case 'academy.prerequisite_unmeasured':
+    case 'academy.weights_invalid':
+    case 'academy.grading_policy_invalid':
     case 'academy.window_invalid':
     case 'academy.ip_rule_invalid':
     case 'academy.reason_required':
@@ -3388,6 +3398,42 @@ export function createAcademyRouter(
         .output(academyCourseReleaseSchema)
         .mutation(({ input, ctx }) =>
           guard(() => academy.courseRelease.setPacing({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
+
+      /** AC-release-access-02: each assignment and quiz with what it requires, and every learner's moved due date. */
+      courseItemRules: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyCourseItemRulesInputSchema)
+        .output(academyCourseItemRulesSchema)
+        .query(({ input }) => guard(() => academy.courseItemRules.adminView(input.courseId))),
+
+      /** AC-release-access-02: the whole set an item requires, refused when it makes a cycle; with a reason. */
+      setCourseItemPrerequisites: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySetCourseItemPrerequisitesInputSchema)
+        .output(academyCourseItemRulesSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.courseItemRules.setPrerequisites({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
+
+      /** AC-release-access-02: one enrolled learner's later due date on an assignment, with who and why. */
+      grantCourseExtension: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyGrantCourseExtensionInputSchema)
+        .output(academyCourseItemRulesSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.courseItemRules.grantExtension({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
+
+      /** AC-assignments-04: the grading policy, the course's graded items and each enrolled learner's scores. */
+      courseGradebook: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyCourseGradebookInputSchema)
+        .output(academyCourseGradebookSchema)
+        .query(({ input }) => guard(() => academy.courseGradebook.view(input.courseId))),
+
+      /** AC-assignments-04: types with weights adding up to exactly 1 and dropped lowest, over the revision read. */
+      saveGradingPolicy: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySaveGradingPolicyInputSchema)
+        .output(academyCourseGradebookSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.courseGradebook.savePolicy({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
         ),
 
       /** AC-assignments-01: an assignment item's brief, who saved it, and how many learners handed in. */

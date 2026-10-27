@@ -240,6 +240,11 @@ function Reward({
           {t('rewardHeldUntil', { when: when(r.holdUntil) })}
         </p>
       ) : null}
+      {r.lock && (r.state === 'locked' || r.state === 'settling') ? (
+        <p data-testid="task-reward-locked-until" data-until={r.lock.until}>
+          {t('rewardLockedUntil', { when: when(r.lock.until) })}
+        </p>
+      ) : null}
       {r.ledgerTxId ? (
         <p>
           <span data-testid="task-reward-tx" data-tx={r.ledgerTxId}>

@@ -445,6 +445,44 @@ child or copy trading. An order takes the tier of the last finished snapshot whe
 row (`orders.fee_tier`). No programme means every account is regular. `GET /api/v1/account/fee-tier` gives the
 caller's tier, counted volume, next threshold, next snapshot and own snapshot rows.
 
+`tierProgram.benefits` (SP-fees-vip-03, J-cex-spot-10 #7) is the owner's benefits table: one row per tier
+(`regular` or a threshold tier), each row carrying every field (`prioritySupport`, `vipPortal`, `ambassador` as
+true/false, `subAccountCap` as a whole number, `withdrawalLimit24h` as `{asset, amount}`), `null` where the owner sets
+none. Absent or `null` means no table. A field left out, an unknown field, a guessed type, an empty table, a repeated
+tier or a tier the programme does not name refuses the schedule as blank. The table is what each tier is promised:
+support and treasury read it, and nothing in this service applies it. My tier lists it; a blank cell reads "not set".
+
+`tierProgram.application` (SP-fees-vip-04, J-cex-spot-10 #7) opens VIP applications: `proofTypes` (only types this
+service recognises from a file's first bytes: `application/pdf`, `image/png`, `image/jpeg`) and `maxBytes` (1 to
+5 MiB). Absent or `null`, every application refuses `vip.application_unset`. `POST /api/v1/vip/applications`
+`{requestId, proof: {fileName, contentType, bytesBase64}, note?}` (`trade:write`) checks the type against the bytes,
+then keeps the proof encrypted with `TRADE_VIP_PROOF_KEY` (32 bytes as hex or base64; AES-256-GCM bound to the row id
+and the file's SHA-256; blank refuses `vip.proof_key_unset`) and appends a `pending` event. One application waits per
+person (`vip.application_open`). The same `requestId` with the same file, name and note answers the application it
+made (200), even after the rules change; with anything else it refuses `vip.request_reused`. A name or note with a
+control or direction-override character refuses `vip.request_invalid`. `GET /api/v1/vip/applications` (`trade:read`)
+answers the rules, `closed` (`vip.application_unset` or `vip.proof_key_unset` when not open, with `rules: null`) and
+the caller's own applications, metadata only: the file never leaves the service on this door. The edge's
+`EDGE_BODY_LIMIT_BYTES` also bounds an upload: base64 adds a third, so a `maxBytes` above three quarters of it is
+refused at the edge first (the screen says the file is too large to upload).
+
+Compliance decides an application on the operator desk (`admin.vipApplications`, SP-fees-vip-04 part 2): `list`
+(`admin:read`) gives the applications with their history, any trial, the trial the owner publishes now and whether
+proofs open; `proof` (`admin:compliance`, a reason, audited as `vip_application.proof_view`) opens one proof file.
+`review` (`admin:write` and `admin:compliance`) takes `approve` or `reject` with a reason and consumes identity's `trade.vip_application_review`
+approval, bound to the application, `pending`, the decision, the reason and the trial an approval would grant; the
+operator who approved cannot also apply it. `tierProgram.trial {tierId, days}` (a threshold tier, 1 to 366 whole days)
+is the trial an approval grants; absent or `null`, an approval leaves the application `approved_no_trial` and says
+`vip.trial_unset`. `grantTrial` (the same scopes, approval `trade.vip_trial_grant`, bound to `approved_no_trial` and the
+trial) grants it once one is published, and still refuses `vip.trial_unset` before any approval is consumed while none
+is. A person with a trial in force is granted no second one (`vip.trial_active`). A trial is a `trade.vip_trials` row
+keyed `vip-trial:<userId>:<applicationId>`, append-only, one per application, spanning whole 24-hour days.
+`feeTierAt` charges the higher of the snapshot tier and a trial in force, each while the programme still names it, and
+`GET /api/v1/account/fee-tier` names the trial the tier comes from (`trial`). The same approval sent again (or twice at
+once) answers what it decided; for another decision or reason it refuses `approval_mismatch`, and for another
+application `approval_reused`. A status only moves forward (a database
+trigger), and each decision's event carries the approver and the approval.
+
 ---
 
 ## Database constraints as a backstop

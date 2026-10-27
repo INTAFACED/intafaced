@@ -85,6 +85,8 @@ import { registerQuantLiveDeployRest } from './quant/live-deploy-rest.js';
 import { registerPromoRest } from './spot/promo-rest.js';
 import { registerSpotOrderPreviewRest } from './spot/order-preview-rest.js';
 import { registerFeeTierRest } from './spot/fee-tier-rest.js';
+import { registerVipRest } from './spot/vip-rest.js';
+import { VipApplicationStore, parseVipProofKey } from './spot/vip-applications.js';
 import { assertMakerRebatesPayable, parseFeeScheduleJson } from './spot/fee-schedule.js';
 import { feeScheduleAt } from './spot/fee-schedule-store.js';
 import { feeTierAt } from './spot/fee-tier-store.js';
@@ -176,6 +178,7 @@ import { loadOtcMakerDirectory } from './otc/maker-directory.js';
 import { parseOtcConvertBoundsJson } from './otc/otc-convert-bounds.js';
 import { SqlOtcQuoteStore } from './otc/quote-store.js';
 import { createOtcStakeSource } from './otc/stake-source.js';
+import { createIfcDiscountSource } from './spot/fee-ifc.js';
 import { canonicalizeCopyFillId } from './copy/fee-share.js';
 import { parseCopyFeeShareLawJson, parseCopyJurisdictionLawJson } from './copy/fee-share-law.js';
 import { parseCopyDisclosureLawJson } from './copy/disclosure.js';
@@ -313,6 +316,8 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
   affiliatePayout,
   dropCopyIngest,
   holdUnknownTakerMaxAgeMs: env.TRADE_HOLD_UNKNOWN_TAKER_MAX_AGE_MS,
+  // A spot fee paid in the platform token is discounted by the owner's stake, read from svc-token at placement.
+  ifcDiscount: createIfcDiscountSource(env.TOKEN_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
   onHoldUnknownAlert: (a) => app.log.error({ alert: a }, 'order.hold reply lost'),
 });
 const venuePublicAdapter = createVenueMarketDataAdapter(env.TRADE_VENUE_MARK_VENUE);
@@ -495,6 +500,8 @@ export const appRouter = createTradeRouter(
     trade,
     ledger,
     approvals: tradeOpsApprovals,
+    feeSchedule,
+    vipProofKey: parseVipProofKey(env.TRADE_VIP_PROOF_KEY),
   }),
   new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),
   new SupportTradeSummaryReader({ sql }),
@@ -1141,6 +1148,13 @@ registerFeeTierRest(app, {
   scheduleAt: (at) => feeScheduleAt(sql, feeSchedule, at),
   bootSchedule: feeSchedule,
   snapshotsRunning: env.TRADE_FEE_TIER_JOBS_INTERVAL_MS !== null && env.TRADE_FEE_TIER_JOBS_INTERVAL_MS > 0,
+});
+registerVipRest(app, {
+  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  edgeTrust: edgeTrustFromEnv(env),
+  serviceName: env.SERVICE_NAME,
+  store: new VipApplicationStore(sql, parseVipProofKey(env.TRADE_VIP_PROOF_KEY)),
+  scheduleAt: (at) => feeScheduleAt(sql, feeSchedule, at),
 });
 const fundingHistory = memoryFundingHistory();
 registerInternalFundingRate(app, {

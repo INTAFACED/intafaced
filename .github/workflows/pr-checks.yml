@@ -38,8 +38,19 @@
 #    HIGH came back to main (#904). The gate worked; nothing made anyone wait
 #    for it.
 #
-# Dependabot and manual `workflow_dispatch` still surface advisories against
-# dependencies nobody touched — `js-yaml` (#942) landed that way.
+# A PR THAT CHANGES NO DEPENDENCY ONLY WARNS (owner decision 2026-10-25). The
+# advisory database moves by itself: on 2026-10-23 one zod advisory held 24 PRs
+# for seven hours, and 22 of them changed no dependency. With `--base HEAD^1`
+# (the base side of the PR's merge commit, hence `fetch-depth: 2`) the script
+# holds a PR into main to the full ratchet only when it touches the lockfile,
+# the root package.json, pnpm-workspace.yaml, .npmrc, .pnpmfile.cjs or the
+# frozen list itself (tooling/ci/dependency-audit.mjs).
+#
+# ON MAIN IT IS THE FULL RATCHET. Every push to main runs both jobs, and Main
+# trust (main-trust.yml) watches this workflow: a red re-runs once, then opens
+# one "Broken on main: PR checks" issue, so a new advisory gets an owner.
+# Dependabot security updates and manual `workflow_dispatch` surface it too —
+# `js-yaml` (#942) landed that way.
 #
 name: PR checks
 
@@ -48,6 +59,8 @@ on:
     # No `edited`: neither job reads the title or body, so an edit has nothing new to check. It also used to cancel an
     # in-progress run through the concurrency group below.
     types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -55,7 +68,8 @@ permissions:
 
 concurrency:
   group: pr-checks-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Not on main: a merge must not cancel the run (or the re-run Main trust asked for) that judges the merge before it.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   gitleaks:
@@ -82,6 +96,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2 # HEAD^1 is the base side of a PR's merge commit
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -89,5 +105,8 @@ jobs:
 
       # No `--frozen-lockfile` install: the audit reads the lockfile, and a full
       # workspace install would spend minutes to tell us nothing extra.
+      - run: node tooling/ci/dependency-audit.mjs --self-test
       - name: Audit dependencies against the frozen advisory list
-        run: node tooling/ci/dependency-audit.mjs
+        # Only a PR into main is judged by its own diff: a stacked PR's diff against another branch says nothing about
+        # what it brings to main, and retargeting a PR (an `edited` event) does not re-run this job.
+        run: node tooling/ci/dependency-audit.mjs ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main' && '--base HEAD^1' || '' }}

@@ -33,6 +33,9 @@ const position = {
   rateAtOpenBps: 350,
   accruesFrom: '2026-01-02T00:00:00.000Z',
   accrual: 'accruing',
+  autoRenew: false,
+  renewals: 0,
+  nextPayoutOn: '2026-01-03',
 };
 const reply = (r, data) => r.fulfill({ json: { result: { data } } }),
   failed = (r) => r.fulfill({ status: 503, json: { error: 'Unavailable', message: 'Current read failed.' } });

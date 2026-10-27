@@ -346,7 +346,13 @@ export type AcademyErrorCode =
   /** AC-release-access-01: learners have enrolled, so the course's pacing stays as it is. */
   | 'academy.pacing_locked'
   /** AC-release-access-01: the item's section has not opened for this learner yet. */
-  | 'academy.not_released_yet';
+  | 'academy.not_released_yet'
+  /** AC-release-access-02: a lesson, video, file or link records no completion on a course staff made, so it cannot be required. */
+  | 'academy.prerequisite_unmeasured'
+  /** AC-assignments-04: the gradebook weights do not add up to exactly 1. */
+  | 'academy.weights_invalid'
+  /** AC-assignments-04: a type names an item that is not one of the course's assignments or quizzes, twice, or drops them all. */
+  | 'academy.grading_policy_invalid';
 
 export class AcademyError extends Error {
   constructor(
@@ -538,6 +544,9 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.survey_duplicate',
   'academy.pacing_locked',
   'academy.not_released_yet',
+  'academy.prerequisite_unmeasured',
+  'academy.weights_invalid',
+  'academy.grading_policy_invalid',
   'academy.ip_rule_invalid',
 ] as const;
 

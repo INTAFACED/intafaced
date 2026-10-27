@@ -14,7 +14,9 @@ export function YourCoin({ asset, holding }: { asset: string; holding: Holding }
   return (
     <section className="coin-card coin-yours" aria-label={t('Your {asset}', { asset })} data-testid="your-coin">
       <div className="coin-yours__main">
-        <h2 className="coin-h2">{t('Your {asset}', { asset })}</h2>
+        <h2 data-testid="coin-h2" className="coin-h2">
+          {t('Your {asset}', { asset })}
+        </h2>
         <Amount className="coin-yours__amount" value={`${fmtAmount(holding.total, { places: 8 })} ${asset}`} />
         <Money className="coin-yours__value" value={holding.usdValue === null ? null : fmtUsd(holding.usdValue)} />
       </div>

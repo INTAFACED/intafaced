@@ -16,9 +16,11 @@ export default function NotificationSettings() {
   const copy = centreCopy.useCopy();
   const { load, reload, mute } = useCentre();
   return (
-    <div className="if-notify">
+    <div data-testid="if-notify" className="if-notify">
       <div className="nf-head">
-        <h1 className="nf-h1">{copy.t('prefsTitle')}</h1>
+        <h1 data-testid="nf-h1" className="nf-h1">
+          {copy.t('prefsTitle')}
+        </h1>
       </div>
       <NotifyNav current="settings" />
       <p className="nf-intro">{copy.t('prefsIntro')}</p>
@@ -29,12 +31,16 @@ export default function NotificationSettings() {
       ) : (
         <>
           <h2 className="nf-h2">{copy.t('waysTitle')}</h2>
-          <ul className="nf-card nf-channels">
-            <li className="nf-channelcard">
+          <ul data-testid="nf-card" className="nf-card nf-channels">
+            <li data-testid="nf-channelcard" className="nf-channelcard">
               <div className="nf-channelcard__head">
                 <span className="nf-text">
-                  <span className="nf-title">{copy.t('channelInbox')}</span>
-                  <span className="nf-body nf-body--wrap">{copy.t('inboxState')}</span>
+                  <span data-testid="nf-title" className="nf-title">
+                    {copy.t('channelInbox')}
+                  </span>
+                  <span data-testid="nf-body" className="nf-body nf-body--wrap">
+                    {copy.t('inboxState')}
+                  </span>
                 </span>
                 <span />
                 <Switch aria-label={copy.t('channelInbox')} checked disabled />
@@ -52,8 +58,10 @@ export default function NotificationSettings() {
             </h2>
             <div className="nf-offrow">
               <span className="nf-text">
-                <span className="nf-title">{copy.t('quietLabel')}</span>
-                <span className="nf-body nf-body--wrap" id="nf-quiet-why">
+                <span data-testid="nf-title" className="nf-title">
+                  {copy.t('quietLabel')}
+                </span>
+                <span data-testid="nf-body" className="nf-body nf-body--wrap" id="nf-quiet-why">
                   {copy.t('quietReason')}
                 </span>
               </span>

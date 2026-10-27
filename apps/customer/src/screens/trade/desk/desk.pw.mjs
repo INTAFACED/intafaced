@@ -54,8 +54,8 @@ async function mount(page, exchange = new Exchange(), { hold = [], url = PAIR } 
 }
 
 const ready = async (page) => {
-  await page.locator('.dk-ticker .dk-pair').waitFor();
-  await page.locator('.dk-bk-row[data-side="bid"]').first().waitFor();
+  await page.getByTestId('dk-ticker').getByTestId('dk-pair').waitFor();
+  await page.locator('[data-testid="dk-bk-row"][data-side="bid"]').first().waitFor();
 };
 const shot = async (page, name, { full = false } = {}) => {
   await page.waitForTimeout(350); // let dialogs and fades finish
@@ -73,8 +73,8 @@ const shotBoth = async (page, name, options) => {
   }
   await page.setViewportSize({ width: 1440, height: 900 });
 };
-const buyForm = (page) => page.locator('form.dk-form[data-side="buy"]');
-const sellForm = (page) => page.locator('form.dk-form[data-side="sell"]');
+const buyForm = (page) => page.locator('form[data-testid="dk-form"][data-side="buy"]');
+const sellForm = (page) => page.locator('form[data-testid="dk-form"][data-side="sell"]');
 async function fillBuy(page, { price, amount }) {
   const form = buyForm(page);
   if (price !== undefined) await form.getByRole('textbox', { name: 'Price' }).fill(price);
@@ -96,11 +96,11 @@ test('classic desktop keeps the complete ticket and monitoring tabs in view at t
     [1920, 1080],
   ]) {
     await page.setViewportSize({ width, height });
-    await expect(page.locator('.dk-left')).toBeVisible();
+    await expect(page.getByTestId('dk-left')).toBeVisible();
     for (const selector of [
-      '.dk-form[data-side="buy"] button[type="submit"]',
-      '.dk-form[data-side="sell"] button[type="submit"]',
-      '.dk-bottom-head',
+      '[data-testid="dk-form"][data-side="buy"] button[type="submit"]',
+      '[data-testid="dk-form"][data-side="sell"] button[type="submit"]',
+      '[data-testid="dk-bottom-head"]',
     ]) {
       const rectangle = await page.locator(selector).boundingBox();
       expect(rectangle, selector).not.toBeNull();
@@ -116,40 +116,40 @@ test('ready state at 1440x900: the three columns, ticker, chart, book, form, str
   const m = await mount(page);
   await ready(page);
   await expect(page.locator('canvas').first()).toBeVisible();
-  await expect(page.locator('.pc-host a[href*="tradingview"]')).toHaveCount(1); // attribution kept
+  await expect(page.getByTestId('pc-host').locator('a[href*="tradingview"]')).toHaveCount(1); // attribution kept
   await page.waitForTimeout(800);
 
   // Classic compact: watchlist | chart and dual ticket | book, with 1 px dividers.
   const box = async (selector) => await page.locator(selector).first().boundingBox();
-  expect(Math.abs((await box('.dk-left')).width - 216)).toBeLessThanOrEqual(2);
-  expect(Math.abs((await box('.dk-book')).width - 264)).toBeLessThanOrEqual(2);
-  const centre = await box('.dk-centre');
+  expect(Math.abs((await box('[data-testid="dk-left"]')).width - 216)).toBeLessThanOrEqual(2);
+  expect(Math.abs((await box('[data-testid="dk-book"]')).width - 264)).toBeLessThanOrEqual(2);
+  const centre = await box('[data-testid="dk-centre"]');
   expect(Math.abs(centre.width - (1440 - 216 - 264 - 2))).toBeLessThanOrEqual(2);
-  expect((await box('.dk-ticker')).height).toBe(48);
+  expect((await box('[data-testid="dk-ticker"]')).height).toBe(48);
   const gutter = await page
-    .locator('.if-desk')
+    .getByTestId('if-desk')
     .evaluate((node) => getComputedStyle(node).rowGap + ' ' + getComputedStyle(node).backgroundColor);
   expect(gutter).toContain('1px');
 
   // Ticker strip: every figure from /ticker; plain quote prices, no "$" (critic L8)
-  await expect(page.locator('.dk-pair')).toHaveText('BTC/USDT');
-  await expect(page.locator('.dk-last')).toHaveText('65,000.00');
-  await expect(page.locator('.dk-stats')).toContainText('24h low');
-  await expect(page.locator('.dk-stats')).toContainText('64,100.00');
-  await expect(page.locator('.dk-stats')).toContainText('65,400.00');
-  await expect(page.locator('.dk-stats')).toContainText('24h volume (BTC)');
-  await expect(page.locator('.dk-stats')).toContainText('1.8894');
-  await expect(page.locator('.dk-stats')).toContainText('24h turnover (USDT)');
+  await expect(page.getByTestId('dk-pair')).toHaveText('BTC/USDT');
+  await expect(page.getByTestId('dk-last')).toHaveText('65,000.00');
+  await expect(page.getByTestId('dk-stats')).toContainText('24h low');
+  await expect(page.getByTestId('dk-stats')).toContainText('64,100.00');
+  await expect(page.getByTestId('dk-stats')).toContainText('65,400.00');
+  await expect(page.getByTestId('dk-stats')).toContainText('24h volume (BTC)');
+  await expect(page.getByTestId('dk-stats')).toContainText('1.8894');
+  await expect(page.getByTestId('dk-stats')).toContainText('24h turnover (USDT)');
   // The trading mode is the listing's lifecycle state, not the ticker's
-  await expect(page.locator('.dk-stats')).toContainText('Trading mode');
-  await expect(page.locator('.dk-stats')).toContainText('Cash spot · Open');
+  await expect(page.getByTestId('dk-stats')).toContainText('Trading mode');
+  await expect(page.getByTestId('dk-stats')).toContainText('Cash spot · Open');
 
   // Order book: 22 px rows, asks highest first, best ask next to the mid price, depth bars
-  const row = page.locator('.dk-bk-row').first();
+  const row = page.locator(':is([data-testid="dk-bk-row"], [data-testid="dk-bk-row--tape"])').first();
   expect((await row.boundingBox()).height).toBe(22);
   expect(await row.evaluate((node) => getComputedStyle(node).fontSize)).toBe('12px');
-  const askPrices = await page.locator('.dk-bk-row[data-side="ask"] .dk-bk-price').allTextContents();
-  const bidPrices = await page.locator('.dk-bk-row[data-side="bid"] .dk-bk-price').allTextContents();
+  const askPrices = await page.locator('[data-testid="dk-bk-row"][data-side="ask"] [data-testid="dk-bk-price"]').allTextContents();
+  const bidPrices = await page.locator('[data-testid="dk-bk-row"][data-side="bid"] [data-testid="dk-bk-price"]').allTextContents();
   expect(askPrices.length).toBeGreaterThan(5);
   expect(askPrices.at(-1)).toBe('65,000.10');
   expect(bidPrices[0]).toBe('64,999.90');
@@ -157,20 +157,20 @@ test('ready state at 1440x900: the three columns, ticker, chart, book, form, str
   expect(asc).toEqual([...asc].sort((a, b) => b - a));
   expect(
     await page
-      .locator('.dk-bk-row[data-side="bid"]')
+      .locator('[data-testid="dk-bk-row"][data-side="bid"]')
       .first()
-      .locator('.dk-bk-bar')
+      .getByTestId('dk-bk-bar')
       .evaluate((node) => getComputedStyle(node).backgroundColor),
   ).toBe('rgb(7, 33, 16)');
   expect(
     await page
-      .locator('.dk-bk-row[data-side="ask"]')
+      .locator('[data-testid="dk-bk-row"][data-side="ask"]')
       .first()
-      .locator('.dk-bk-bar')
+      .getByTestId('dk-bk-bar')
       .evaluate((node) => getComputedStyle(node).backgroundColor),
   ).toBe('rgb(40, 13, 20)');
-  await expect(page.locator('.dk-bk-ratio')).toContainText('B ');
-  await expect(page.locator('.dk-bk-mid')).toContainText('65,000.00');
+  await expect(page.getByTestId('dk-bk-ratio')).toContainText('B ');
+  await expect(page.getByTestId('dk-bk-mid')).toContainText('65,000.00');
 
   // Forms side by side with the up and down colours and near-black text on green
   await expect(buyButton(page)).toBeDisabled();
@@ -190,8 +190,8 @@ test('ready state at 1440x900: the three columns, ticker, chart, book, form, str
   await page.getByRole('tab', { name: 'Positions' }).click();
   await expect(page.getByText('Not applicable: cash spot holds balances, not positions')).toBeVisible();
   await page.getByRole('tab', { name: 'Open orders' }).click();
-  await expect(page.locator('.dk-mk-row')).toHaveCount(4);
-  await expect(page.locator('.dk-mk-row[data-selected] .dk-mk-pair')).toHaveText('BTC/USDT');
+  await expect(page.getByTestId('dk-mk-row')).toHaveCount(4);
+  await expect(page.locator('[data-testid="dk-mk-row"][data-selected] [data-testid="dk-mk-pair"]')).toHaveText('BTC/USDT');
 
   // Words
   expect(await page.locator('main').innerText()).not.toMatch(forbidden);
@@ -205,13 +205,17 @@ test('market list: a young market’s "since" mark stays inside its own row (Pha
   exchange.opts.windowStart = Date.now() - 4 * 60 * 60 * 1000;
   await mount(page, exchange);
   await ready(page);
-  const rows = page.locator('.dk-mk-row');
+  const rows = page.getByTestId('dk-mk-row');
   await expect(rows).toHaveCount(4);
   await expect(rows.first()).toContainText('since');
   const overflow = await rows.evaluateAll((items) =>
     items.flatMap((row) => {
       const box = row.getBoundingClientRect();
-      return [...row.querySelectorAll('.dk-mk-pair, .dk-mk-price, .dk-mk-sub, .dk-mk-change')]
+      return [
+        ...row.querySelectorAll(
+          '[data-testid="dk-mk-pair"], [data-testid="dk-mk-price"], [data-testid="dk-mk-sub"], [data-testid="dk-mk-change"]',
+        ),
+      ]
         .filter((node) => {
           const r = node.getBoundingClientRect();
           return r.top < box.top - 0.5 || r.bottom > box.bottom + 0.5;
@@ -224,14 +228,14 @@ test('market list: a young market’s "since" mark stays inside its own row (Pha
   const clash = await rows.evaluateAll(
     (items) =>
       items.filter((row) => {
-        const name = row.querySelector('.dk-mk-name');
+        const name = row.querySelector('[data-testid="dk-mk-name"]');
         if (name.scrollWidth > name.clientWidth) return true; // its text runs past its own box
         const right = name.getBoundingClientRect().right;
-        return [...row.querySelectorAll('.dk-mk-figures > *')].some((node) => node.getBoundingClientRect().left < right);
+        return [...row.querySelectorAll('[data-testid="dk-mk-figures"] > *')].some((node) => node.getBoundingClientRect().left < right);
       }).length,
   );
   expect(clash).toBe(0);
-  await page.locator('.dk-mk-list').screenshot({ path: join(shots, 'desk-markets-young.png') });
+  await page.getByTestId('dk-mk-list').screenshot({ path: join(shots, 'desk-markets-young.png') });
 });
 
 test('chart: intervals, candles and line, market rules; the book tabs and grouping', async ({ page }) => {
@@ -246,23 +250,23 @@ test('chart: intervals, candles and line, market rules; the book tabs and groupi
   await expect(page.getByRole('button', { name: /^30m/ })).toBeVisible();
   await page.getByRole('button', { name: 'Line' }).click();
   await expect(page.getByRole('button', { name: 'Line' })).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('.pc-legend')).toBeVisible();
+  await expect(page.getByTestId('pc-legend')).toBeVisible();
   await page.getByRole('tab', { name: 'Info' }).click();
-  await expect(page.locator('.dk-info')).toContainText('Price step');
-  await expect(page.locator('.dk-info')).toContainText('0.01 USDT');
-  await expect(page.locator('.dk-info')).toContainText('0.00001 BTC');
-  await expect(page.locator('.dk-info')).toContainText('The fee for an order is shown with the order check');
+  await expect(page.getByTestId('dk-info')).toContainText('Price step');
+  await expect(page.getByTestId('dk-info')).toContainText('0.01 USDT');
+  await expect(page.getByTestId('dk-info')).toContainText('0.00001 BTC');
+  await expect(page.getByTestId('dk-info')).toContainText('The fee for an order is shown with the order check');
   await shotBoth(page, 'desk-chart-info');
   await page.getByRole('tab', { name: 'Chart' }).click();
 
   // Grouping: x10 merges 0.10 steps into whole-dollar buckets
   await page.getByRole('combobox', { name: 'Group prices by' }).click();
   await page.getByRole('option', { name: '1', exact: true }).click();
-  const bids = await page.locator('.dk-bk-row[data-side="bid"] .dk-bk-price').allTextContents();
+  const bids = await page.locator('[data-testid="dk-bk-row"][data-side="bid"] [data-testid="dk-bk-price"]').allTextContents();
   expect(bids[0]).toBe('64,999');
   // Last trades
   await page.getByRole('tab', { name: 'Last trades' }).click();
-  await expect(page.locator('.dk-bk-row--tape').first()).toBeVisible();
+  await expect(page.getByTestId('dk-bk-row--tape').first()).toBeVisible();
   await expect.poll(() => m.exchange.requests.some((r) => r.path.startsWith('trades/'))).toBe(true);
   await shotBoth(page, 'desk-trades');
   expect(m.errors).toEqual([]);
@@ -293,7 +297,7 @@ test('limit buy: preview, review, placed, in Open orders, cancelled; one request
   // A resting GTC limit is only a taker if it fills at once: the server's taker rate is the worst case.
   await expect(dialog).toContainText('Taker if it fills at once; any part that rests on the book pays the maker rate');
   await expect(dialog).toContainText('A retry sends this same ID, so it can’t become a second order.');
-  const shownId = await dialog.getByText('Client order ID').locator('..').locator('.if-num').innerText();
+  const shownId = await dialog.getByText('Client order ID').locator('..').getByTestId('client-order-id').innerText();
   await shotBoth(page, 'desk-review-limit');
   expect(m.requests('POST', 'orders')).toHaveLength(0); // nothing sent until the click
 
@@ -301,7 +305,7 @@ test('limit buy: preview, review, placed, in Open orders, cancelled; one request
   await dialog.getByRole('button', { name: 'Confirm buy' }).click();
   // While the order is on its way the desk says nothing about "checking": that is only for a lost answer.
   await page.waitForTimeout(400);
-  await expect(page.locator('.dk-note--warn')).toHaveCount(0);
+  await expect(page.getByTestId('dk-note--warn')).toHaveCount(0);
   await expect(buyButton(page)).toBeDisabled();
   await expect(dialog).toHaveCount(0);
   await expect(buyForm(page)).toContainText('Your buy order is in');
@@ -322,7 +326,7 @@ test('limit buy: preview, review, placed, in Open orders, cancelled; one request
   // The marker that guards against a lost answer is gone once the outcome is known.
   expect(await page.evaluate(() => localStorage.getItem('trade-pending:00000000-0000-4000-8000-000000000001'))).toBeNull();
 
-  const table = page.locator('.dk-bottom-body table');
+  const table = page.getByTestId('dk-bottom-body').locator('table');
   await expect(table.locator('tbody tr')).toHaveCount(1);
   await expect(table.locator('tbody tr').first()).toContainText('BTC/USDT');
   await expect(table.locator('tbody tr').first()).toContainText('63,999.90');
@@ -361,7 +365,7 @@ test('market buy: the preview shows the fee and the price protection before conf
   expect(sent.type).toBe('market');
   expect('price' in sent).toBe(false);
   await page.getByRole('tab', { name: 'Trade history' }).click();
-  const row = page.locator('.dk-bottom-body table tbody tr').first();
+  const row = page.getByTestId('dk-bottom-body').locator('table tbody tr').first();
   await expect(row).toContainText('BTC/USDT');
   await expect(row).toContainText('65,000.10');
   await expect(row).toContainText('0.0001');
@@ -399,7 +403,7 @@ test('client refusals: below the smallest order; finer than the lot or tick cann
 test("the pair's rules are on the ticket: steps, smallest order, price band and open-order cap as published", async ({ page }) => {
   await mount(page);
   await ready(page);
-  const rules = page.locator('details.dk-rules');
+  const rules = page.locator('details[data-testid="dk-rules"]');
   await expect(rules.locator('summary')).toHaveText('BTC/USDT rules');
   await rules.locator('summary').click();
   await expect(rules).toContainText('Price step');
@@ -419,7 +423,7 @@ test('a pair with no band or cap published reads "Not published", never a defaul
   }
   await mount(page, exchange);
   await ready(page);
-  const rules = page.locator('details.dk-rules');
+  const rules = page.locator('details[data-testid="dk-rules"]');
   await rules.locator('summary').click();
   const row = (name) => rules.locator('dl > div').filter({ has: page.locator('dt', { hasText: new RegExp(`^${name}$`) }) });
   await expect(row('Price band').locator('dd')).toHaveText('Not published');
@@ -432,7 +436,7 @@ test('refused: a price outside the band names the edges; too many open orders na
   const m = await mount(page, exchange);
   await ready(page);
   await fillBuy(page, { price: '80000', amount: '0.0001' });
-  const note = buyForm(page).locator('.dk-note--bad');
+  const note = buyForm(page).getByTestId('dk-note--bad');
   await expect(note).toContainText('Price is outside the allowed range');
   await expect(note).toContainText('buy prices up to 71,500.00 and sell prices down to 58,500.00');
   await expect(buyForm(page)).not.toContainText('trade.price_band');
@@ -451,7 +455,7 @@ test('refused: an account that is not verified gets words and the Verify path, n
   const m = await mount(page, exchange);
   await ready(page);
   await fillBuy(page, { price: '63999.9', amount: '0.0001' });
-  const note = buyForm(page).locator('.dk-note--bad');
+  const note = buyForm(page).getByTestId('dk-note--bad');
   await expect(note).toContainText('Verify your identity first');
   await expect(note).toContainText('You need a verified account to do this.');
   await expect(note.getByRole('link', { name: 'Verify now' })).toHaveAttribute('href', '/verification');
@@ -471,7 +475,7 @@ test('a lost answer: the order is looked up, never sent again, and new orders wa
   await fillBuy(page, { price: '63999.9', amount: '0.0001' });
   await openReview(page);
   await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm buy' }).click();
-  const notice = page.locator('.dk-note--warn');
+  const notice = page.getByTestId('dk-note--warn');
   await expect(notice).toContainText('Checking your order…');
   await expect(notice).toContainText('You can’t place another order until this is settled');
   const key = 'trade-pending:00000000-0000-4000-8000-000000000001';
@@ -482,7 +486,7 @@ test('a lost answer: the order is looked up, never sent again, and new orders wa
   expect(m.requests('POST', 'orders')).toHaveLength(1); // never retried
   // The service still hides the order: the check says it was not found, and that it may still arrive.
   await notice.getByRole('button', { name: 'Check order' }).click();
-  await expect(page.locator('.dk-note--warn')).toContainText('It may still arrive');
+  await expect(page.getByTestId('dk-note--warn')).toContainText('It may still arrive');
   expect(m.requests('POST', 'orders')).toHaveLength(1);
   await shotBoth(page, 'desk-checking-not-found', { full: true });
   // The service shows the order; the check finds it and the desk is free again.
@@ -493,7 +497,7 @@ test('a lost answer: the order is looked up, never sent again, and new orders wa
     .getByRole('button', { name: 'Check order' })
     .click({ timeout: 5_000 })
     .catch(() => undefined);
-  await expect(page.locator('.dk-note--warn')).toHaveCount(0);
+  await expect(page.getByTestId('dk-note--warn')).toHaveCount(0);
   await expect(page.getByText(/Checked: your order is/)).toBeVisible();
   expect(await page.evaluate((k) => localStorage.getItem(k), key)).toBeNull();
   expect(m.requests('POST', 'orders')).toHaveLength(1);
@@ -518,7 +522,7 @@ test('the preview changing at confirm shows the new numbers and asks again', asy
 test('states: loading, no book, market closed, errors, signed out', async ({ page, browser }) => {
   // Loading
   let m = await mount(page, new Exchange(), { hold: ['markets'] });
-  await page.locator('.if-desk[aria-busy="true"]').waitFor();
+  await page.locator('[data-testid="if-desk"][aria-busy="true"]').waitFor();
   await shotBoth(page, 'desk-loading');
   await m.release();
   await ready(page);
@@ -526,9 +530,9 @@ test('states: loading, no book, market closed, errors, signed out', async ({ pag
   // Book panel loading, with the book held back
   const heldBook = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   m = await mount(heldBook, new Exchange(), { hold: ['orderbook', 'ohlcv'] });
-  await heldBook.locator('.dk-ticker .dk-pair').waitFor();
-  await heldBook.locator('.dk-bk-skeleton').waitFor();
-  await expect(heldBook.locator('.dk-chart-skeleton')).toBeVisible();
+  await heldBook.getByTestId('dk-ticker').getByTestId('dk-pair').waitFor();
+  await heldBook.getByTestId('dk-bk-skeleton').waitFor();
+  await expect(heldBook.getByTestId('dk-chart-skeleton')).toBeVisible();
   await shotBoth(heldBook, 'desk-panels-loading');
   await heldBook.close();
 
@@ -537,9 +541,9 @@ test('states: loading, no book, market closed, errors, signed out', async ({ pag
   const exchange = new Exchange();
   exchange.opts.book = book({ empty: true });
   m = await mount(empty, exchange);
-  await empty.locator('.dk-bk-note').waitFor();
-  await expect(empty.locator('.dk-bk-note')).toHaveText('No orders in this market.');
-  await expect(empty.locator('.dk-bk-mid')).toContainText('—');
+  await empty.getByTestId('dk-bk-note').waitFor();
+  await expect(empty.getByTestId('dk-bk-note')).toHaveText('No orders in this market.');
+  await expect(empty.getByTestId('dk-bk-mid')).toContainText('—');
   await shotBoth(empty, 'desk-no-book');
   await empty.close();
 
@@ -548,10 +552,10 @@ test('states: loading, no book, market closed, errors, signed out', async ({ pag
   const shut = new Exchange();
   shut.opts.markets = markets({ btcOpen: false });
   m = await mount(closed, shut);
-  await closed.locator('.dk-order [data-slot="state-block"]').waitFor();
-  await expect(closed.locator('.dk-order')).toContainText('This market isn’t open');
-  await expect(closed.locator('.dk-order')).toContainText('You can’t trade it right now');
-  await expect(closed.locator('.dk-stats')).toContainText('Cash spot · Not open for new orders');
+  await closed.getByTestId('dk-order').locator('[data-slot="state-block"]').waitFor();
+  await expect(closed.getByTestId('dk-order')).toContainText('This market isn’t open');
+  await expect(closed.getByTestId('dk-order')).toContainText('You can’t trade it right now');
+  await expect(closed.getByTestId('dk-stats')).toContainText('Cash spot · Not open for new orders');
   await shotBoth(closed, 'desk-market-closed');
   await closed.close();
 
@@ -560,22 +564,22 @@ test('states: loading, no book, market closed, errors, signed out', async ({ pag
   const down = new Exchange();
   down.opts.fail = { orderbook: 500, ohlcv: 500, orders: 500 };
   m = await mount(broken, down);
-  await broken.locator('.dk-bk [data-kind="error"]').waitFor({ timeout: 40000 });
-  await expect(broken.locator('.dk-bk')).toContainText('Couldn’t load the order book.');
-  await expect(broken.locator('.dk-chart')).toContainText('Couldn’t load the chart.');
-  await expect(broken.locator('.dk-ticker .dk-pair')).toHaveText('BTC/USDT'); // the rest of the desk stays
+  await broken.getByTestId('dk-bk').locator('[data-kind="error"]').waitFor({ timeout: 40000 });
+  await expect(broken.getByTestId('dk-bk')).toContainText('Couldn’t load the order book.');
+  await expect(broken.getByTestId('dk-chart')).toContainText('Couldn’t load the chart.');
+  await expect(broken.getByTestId('dk-ticker').getByTestId('dk-pair')).toHaveText('BTC/USDT'); // the rest of the desk stays
   await shotBoth(broken, 'desk-errors');
   await broken.close();
 
   // Signed out
   const out = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   m = await mount(out, new Exchange(), { url: `${PAIR}?signedout=1` });
-  await out.locator('.dk-ticker .dk-pair').waitFor();
-  const login = out.locator('form.dk-form[data-side="buy"]').getByRole('link', { name: 'Log in to trade' });
+  await out.getByTestId('dk-ticker').getByTestId('dk-pair').waitFor();
+  const login = out.locator('form[data-testid="dk-form"][data-side="buy"]').getByRole('link', { name: 'Log in to trade' });
   await expect(login).toBeVisible();
   expect(await login.getAttribute('href')).toMatch(/^\/login\?redirect=%2Ftrade%2Fspot%2FBTC-USDT/);
   await expect(out.getByText('Log in to see your orders.')).toBeVisible();
-  await expect(out.locator('form.dk-form[data-side="buy"] .dk-avail')).toContainText('—');
+  await expect(out.locator('form[data-testid="dk-form"][data-side="buy"] [data-testid="dk-avail"]')).toContainText('—');
   expect(
     m.exchange.requests.filter((r) => r.path.startsWith('orders/') || r.path === 'account/balance' || r.path === 'account/trades'),
   ).toHaveLength(0);
@@ -607,7 +611,7 @@ test('book and trade clicks fill the price; percent chips and Max round down to 
   await mount(page);
   await ready(page);
   const price = buyForm(page).getByRole('textbox', { name: 'Price' });
-  await page.locator('.dk-bk-row[data-side="ask"]').last().click();
+  await page.locator('[data-testid="dk-bk-row"][data-side="ask"]').last().click();
   await expect(price).toHaveValue('65000.10');
   await expect(sellForm(page).getByRole('textbox', { name: 'Price' })).toHaveValue('65000.10');
   await buyForm(page).getByRole('button', { name: '50% of max' }).click();
@@ -630,7 +634,7 @@ test('a lost order that never arrived: the person sends the SAME order again, on
   await fillBuy(page, { price: '63999.9', amount: '0.0001' });
   await openReview(page);
   await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm buy' }).click();
-  const notice = page.locator('.dk-note--warn');
+  const notice = page.getByTestId('dk-note--warn');
   await expect(notice).toContainText('Checking your order…');
   await expect(notice.getByRole('button', { name: 'Send the same order again' })).toBeVisible();
   const key = 'trade-pending:00000000-0000-4000-8000-000000000001';
@@ -640,7 +644,7 @@ test('a lost order that never arrived: the person sends the SAME order again, on
   expect(m.requests('POST', 'orders')).toHaveLength(1); // nothing is ever sent by itself
   exchange.opts.placeMode = 'ok';
   await notice.getByRole('button', { name: 'Send the same order again' }).click();
-  await expect(page.locator('.dk-note--warn')).toHaveCount(0);
+  await expect(page.getByTestId('dk-note--warn')).toHaveCount(0);
   await expect(page.getByText(/Done: your order is/)).toBeVisible();
   const sent = m.requests('POST', 'orders');
   expect(sent).toHaveLength(2);
@@ -683,12 +687,12 @@ test('flatten: one control in Assets reviews a market sell of every free lot; th
   await expect(dialog).toContainText('Review your sell');
   await expect(dialog).toContainText('Price protection');
   expect(m.requests('POST', 'orders')).toHaveLength(0); // nothing is sent before Confirm
-  const reference = await dialog.getByText('Client order ID').locator('..').locator('.if-num').innerText();
+  const reference = await dialog.getByText('Client order ID').locator('..').getByTestId('client-order-id').innerText();
   // Leave and press Flatten again for the same coin: the same order, under the same number.
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await flatten.click();
   await expect(dialog).toContainText('Review your sell');
-  expect(await dialog.getByText('Client order ID').locator('..').locator('.if-num').innerText()).toBe(reference);
+  expect(await dialog.getByText('Client order ID').locator('..').getByTestId('client-order-id').innerText()).toBe(reference);
   await shot(page, 'desk-flatten-review');
   await dialog.getByRole('button', { name: 'Confirm sell' }).click();
   await expect(sellForm(page)).toContainText('Your sell order filled: 0.25 BTC');
@@ -706,7 +710,7 @@ test('a market sell the service refuses (no protection published) says so in wor
   await ready(page);
   await page.getByRole('tab', { name: 'Market' }).click();
   await sellForm(page).getByRole('textbox', { name: 'Amount' }).fill('0.0001');
-  await expect(sellForm(page).locator('.dk-note--bad')).toContainText('Price protection isn’t set');
+  await expect(sellForm(page).getByTestId('dk-note--bad')).toContainText('Price protection isn’t set');
   await expect(sellForm(page).getByRole('button', { name: 'Sell BTC' })).toBeDisabled();
   await expect(sellForm(page)).not.toContainText('trade.protection_unset');
   await expect(sellForm(page)).not.toContainText('raw words from the service');
@@ -784,11 +788,11 @@ test('another pair from the list: the URL changes and the form resets', async ({
   await mount(page);
   await ready(page);
   await fillBuy(page, { price: '63999.9', amount: '0.0001' });
-  await page.locator('.dk-mk-row', { hasText: 'ETH/USDT' }).getByRole('link').click();
+  await page.getByTestId('dk-mk-row').filter({ hasText: 'ETH/USDT' }).getByRole('link').click();
   await expect(page).toHaveURL(/\/trade\/spot\/ETH-USDT$/);
-  await expect(page.locator('.dk-pair')).toHaveText('ETH/USDT');
+  await expect(page.getByTestId('dk-pair')).toHaveText('ETH/USDT');
   await expect(buyForm(page).getByRole('textbox', { name: 'Amount' })).toHaveValue('');
-  await expect(page.locator('.dk-mk-row[data-selected] .dk-mk-pair')).toHaveText('ETH/USDT');
+  await expect(page.locator('[data-testid="dk-mk-row"][data-selected] [data-testid="dk-mk-pair"]')).toHaveText('ETH/USDT');
 });
 
 test('layout holds at 1180, 1100, 800 and 390: no horizontal page scroll, the market picker appears', async ({ page }) => {
@@ -845,7 +849,7 @@ const pickTif = async (page, label) => {
   await page.getByRole('combobox', { name: 'Time in force' }).click();
   await page.getByRole('option', { name: label, exact: true }).click();
 };
-const openTable = (page) => page.locator('.dk-bottom-body table');
+const openTable = (page) => page.getByTestId('dk-bottom-body').locator('table');
 
 test('time in force: post only, IOC and FOK are what the order sends; a market order offers only standard or fill or kill', async ({
   page,
@@ -1134,7 +1138,7 @@ test('data status: one chip, each feed on its own line; one failed feed makes it
   const chip = page.getByRole('button', { name: /Data status/ });
   await expect(chip).toContainText('Data OK');
   await chip.click();
-  const pop = page.locator('.dk-feed-pop');
+  const pop = page.getByTestId('dk-feed-pop');
   for (const line of ['Sign-in', 'Order book', 'Prices', 'Your orders', 'Your balances']) await expect(pop).toContainText(line);
   await expect(pop).toContainText('Signed in');
   await expect(pop).toContainText('not a live stream');
@@ -1163,11 +1167,11 @@ test('a frozen ledger: the service refuses the order with a generic error; the d
   m.exchange.opts.placeMode = { status: 400, json: { code: 'ExchangeError', message: 'ledger.frozen', intafacedCode: 'LedgerError' } };
   await fillBuy(page, { price: '63999.9', amount: '0.0001' });
   await openReview(page);
-  const headBefore = (await page.locator('.dk-bottom-head').boundingBox()).y;
+  const headBefore = (await page.getByTestId('dk-bottom-head').boundingBox()).y;
   await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm buy' }).click();
   await expect(buyForm(page)).toContainText('Orders are paused right now');
   // The refusal floats: the order monitor stays exactly where it was.
-  expect((await page.locator('.dk-bottom-head').boundingBox()).y).toBe(headBefore);
+  expect((await page.getByTestId('dk-bottom-head').boundingBox()).y).toBe(headBefore);
   await expect(buyForm(page)).toContainText("this one wasn't placed");
   await expect(buyForm(page)).not.toContainText("can't be done right now");
   // The desk does not look ready to trade: the status chip says orders are paused, and the layout did not move.

@@ -141,6 +141,38 @@ export function createOpsRouter(c: BankRouterContext) {
         }),
       ),
 
+    /**
+     * Start the next term of every ended fixed-term saving with auto-renew on (BK-earn-03). Moves no money; keyed per
+     * (saving, term), so a second run renews nothing twice. tRPC only: the scheduler signs as svc-bank.
+     */
+    renewEarnTerms: jobProcedure
+      .input(
+        z.object({
+          limit: z.number().int().min(1).max(1_000).optional(),
+          poolId: z.string().guid().optional(),
+          at: z.string().datetime({ offset: true }).optional(),
+        }),
+      )
+      .output(
+        z.object({
+          renewed: z.array(z.object({ positionId: z.string(), terms: z.array(z.number().int()), maturesAt: z.string() })),
+          skipped: z.array(z.object({ positionId: z.string(), code: z.string() })),
+        }),
+      )
+      .mutation(async ({ input }) =>
+        guard(async () => {
+          const report = await bank.earn.renewDue({
+            limit: input.limit,
+            ...(input.poolId ? { poolId: input.poolId } : {}),
+            ...(input.at ? { at: new Date(input.at) } : {}),
+          });
+          return {
+            renewed: report.renewed.map((r) => ({ positionId: r.positionId, terms: r.terms, maturesAt: r.maturesAt.toISOString() })),
+            skipped: report.skipped,
+          };
+        }),
+      ),
+
     accrueInterest: jobProcedure
       .input(z.object({ poolId: z.string().guid().optional(), at: z.string().datetime({ offset: true }).optional() }))
       .output(

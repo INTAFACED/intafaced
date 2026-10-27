@@ -21,6 +21,11 @@ export function assertEarnResumePendingLimit(limit: number | undefined): number 
   return assertJobBatchLimit(limit, 'bank.earn_resume_pending_limit_unset', 100, RESUME_MAX, 'earn.resumePending');
 }
 
+/** earn.renewDue worker batch: how many ended fixed-term savings one run renews. Blank refuses, never a default. */
+export function assertEarnRenewBatchLimit(limit: number | undefined): number {
+  return assertJobBatchLimit(limit, 'bank.earn_renew_batch_limit_unset', 100, RESUME_MAX, 'earn.renewDue');
+}
+
 /** loans.resumePending worker batch. Omit used to invent 100. */
 export function assertLoanResumePendingLimit(limit: number | undefined): number {
   return assertJobBatchLimit(limit, 'bank.loan_resume_pending_limit_unset', 100, RESUME_MAX, 'loans.resumePending');

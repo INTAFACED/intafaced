@@ -246,10 +246,10 @@ export function InvoiceCreate({ portal, merchantId }: { portal: PortalApi; merch
         ← {t('inv_back')}
       </a>
       <PaySection title={t('inv_createTitle')} description={t('inv_createBody')}>
-        <div className="form-stack pp-form">
+        <div data-testid="form-stack" className="form-stack pp-form">
           <div className="form-row">
             {hasLines ? (
-              <div className="field pp-line-total" role="group" aria-label={t('inv_fieldTotal')}>
+              <div data-testid="pp-line-total" className="field pp-line-total" role="group" aria-label={t('inv_fieldTotal')}>
                 <span>{t('inv_fieldTotal')}</span>
                 <strong className="numeric">{total ? <Money value={total} asset={asset} /> : '—'}</strong>
                 <small>{shown('lineItems') ?? t('inv_hintTotal')}</small>

@@ -6,7 +6,16 @@ import type { earnPoolPageSchema, positionSchema, rateHistorySchema } from './co
 import { earnPoolCopy } from './earn-pool-copy';
 import { poolFactRows } from './EarnCompare';
 import { stepChart, utcDay as day } from './earn-rate-history';
-import { AccrualState, AutoEarn, EarnCalculator, PoolDeposit, PoolEarned, PoolWithdraw } from './EarnPoolActions';
+import {
+  AccrualState,
+  AutoEarn,
+  EarnCalculator,
+  FixedTerm,
+  PayoutSchedule,
+  PoolDeposit,
+  PoolEarned,
+  PoolWithdraw,
+} from './EarnPoolActions';
 import './earn-pool.css';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
@@ -37,7 +46,8 @@ function Refused({ failure, retry }: { failure: Failed; retry: () => void }) {
 
 /**
  * `/bank/earn/pool?id=<pool>` (BK-earn-02, BK-earn-05, J-bank-08 #1 and #2): one pool's published terms, how its rate
- * has changed, and the person's savings in it with the rate in force when each was opened. Every line is the bank's
+ * has changed, and the person's savings in it with the rate in force when each was opened, each saving's payout
+ * schedule and, on a fixed term, its lock date and auto-renew choice (BK-earn-03, J-bank-08 #4 and #5). Every line is the bank's
  * answer (`earn.pool`, `earn.rateHistory`, `earn.positions`); a blank owner table reads "not set".
  */
 export function EarnPool({ poolId, open }: { poolId: string | null; open: Open }) {
@@ -192,6 +202,8 @@ function Yours({ pool, positions, open }: { pool: Pool; positions: Position[]; o
               <strong className="numeric">{funds(position.principal, position.assetId)}</strong>
             </header>
             <AccrualState position={position} />
+            <FixedTerm pool={pool} position={position} open={open} />
+            <PayoutSchedule pool={pool} position={position} />
             <PoolWithdraw pool={pool} position={position} open={open} />
           </article>
         );

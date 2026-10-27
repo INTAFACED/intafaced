@@ -14,6 +14,7 @@
  */
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { FeeScheduleError, REGULAR_FEE_TIER, TRADE_FEE_SCHEDULE_ENV, type FeeScheduleRow } from './fee-schedule.js';
+import { RECOGNISED_PROOF_TYPES, VIP_PROOF_MAX_BYTES_CEILING, type VipApplicationRules } from './vip-applications.js';
 
 /** The tier a programme gives at `minVolume30d` or more, in counted quote units. */
 export interface FeeTierThreshold {
@@ -29,7 +30,42 @@ export interface FeeTierProgram {
   readonly volumeQuotes: readonly string[];
   /** "HH:MM" UTC, once a day. Null: no snapshot runs; tiers stay at the last snapshot, regular for a new account. */
   readonly snapshotTimeUtc: string | null;
+  /** What each tier gives beyond its rates (SP-fees-vip-03 benefits), or null: the owner published no benefits table. */
+  readonly benefits: readonly FeeTierBenefits[] | null;
+  /** The owner's rules for VIP applications (vip-applications.ts), or null: applications are not open. */
+  readonly application: VipApplicationRules | null;
+  /** The trial an approved application grants (vip-review.ts), or null: an approval grants none (`vip.trial_unset`). */
+  readonly trial: VipTrialRules | null;
 }
+
+/** A time-limited tier an approved VIP application grants: which tier, for how many days. */
+export interface VipTrialRules {
+  /** A threshold tier of the programme. */
+  readonly tierId: string;
+  /** Whole days, 1 to 366. */
+  readonly days: number;
+}
+
+/** The longest trial the owner may publish, in days. */
+export const VIP_TRIAL_MAX_DAYS = 366;
+
+/**
+ * One tier's row of the owner's benefits table. A null cell is not set, and the page says so: nothing is assumed. The
+ * benefits are read by people and by the planes that honour them (support, withdrawals); they change nothing here.
+ */
+export interface FeeTierBenefits {
+  /** `regular` or a threshold tier. */
+  readonly tierId: string;
+  readonly prioritySupport: boolean | null;
+  readonly vipPortal: boolean | null;
+  readonly ambassador: boolean | null;
+  /** How many sub-accounts the tier may open. */
+  readonly subAccountCap: number | null;
+  /** The withdrawal limit over 24 hours, in one asset. */
+  readonly withdrawalLimit24h: { readonly asset: string; readonly amount: string } | null;
+}
+
+const BENEFIT_KEYS = ['tierId', 'prioritySupport', 'vipPortal', 'ambassador', 'subAccountCap', 'withdrawalLimit24h'] as const;
 
 /** The days a snapshot looks back over. */
 export const TIER_VOLUME_DAYS = 30;
@@ -97,7 +133,124 @@ export function parseTierProgram(raw: unknown, rows: readonly FeeScheduleRow[] |
     return { tierId, minVolume30d: formatAmount(min) };
   });
   if (new Set(thresholds.map((t) => t.tierId)).size !== thresholds.length) throw blank('.thresholds repeats a tier');
-  return { thresholds, volumeQuotes, snapshotTimeUtc: obj.snapshotTimeUtc as string | null };
+  const benefits = parseBenefits(obj.benefits, thresholds, blank);
+  const application = parseApplication(obj.application, blank);
+  const trial = parseTrial(obj.trial, thresholds, blank);
+  return { thresholds, volumeQuotes, snapshotTimeUtc: obj.snapshotTimeUtc as string | null, benefits, application, trial };
+}
+
+/**
+ * `tierProgram.trial`: the tier an approved VIP application is granted, and for how many days. Absent or null: an
+ * approval grants no trial and says so. The tier must be one the programme names above regular.
+ */
+function parseTrial(
+  raw: unknown,
+  thresholds: readonly FeeTierThreshold[],
+  blank: (message: string) => FeeScheduleError,
+): VipTrialRules | null {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== 'object' || Array.isArray(raw)) throw blank('.trial must be an object or null');
+  const obj = raw as Record<string, unknown>;
+  const extra = Object.keys(obj).filter((key) => key !== 'tierId' && key !== 'days');
+  if (extra.length > 0) throw blank(`.trial has unknown fields: ${extra.join(', ')}`);
+  const tierId = typeof obj.tierId === 'string' ? obj.tierId.trim() : '';
+  if (!thresholds.some((threshold) => threshold.tierId === tierId)) throw blank('.trial.tierId must be a tier the thresholds name');
+  const days = obj.days;
+  if (typeof days !== 'number' || !Number.isSafeInteger(days) || days < 1 || days > VIP_TRIAL_MAX_DAYS) {
+    throw blank(`.trial.days must be a whole number of days from 1 to ${VIP_TRIAL_MAX_DAYS}`);
+  }
+  return { tierId, days };
+}
+
+/**
+ * `tierProgram.application`: the proof file types accepted (only types this service recognises from a file's bytes)
+ * and the largest file. Absent or null: applications are not open. Anything else refuses the schedule as blank.
+ */
+function parseApplication(raw: unknown, blank: (message: string) => FeeScheduleError): VipApplicationRules | null {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== 'object' || Array.isArray(raw)) throw blank('.application must be an object or null');
+  const obj = raw as Record<string, unknown>;
+  const extra = Object.keys(obj).filter((key) => key !== 'proofTypes' && key !== 'maxBytes');
+  if (extra.length > 0) throw blank(`.application has unknown fields: ${extra.join(', ')}`);
+  if (!Array.isArray(obj.proofTypes) || obj.proofTypes.length === 0) throw blank('.application.proofTypes must name the accepted types');
+  const recognised = Object.keys(RECOGNISED_PROOF_TYPES);
+  const proofTypes = obj.proofTypes.map((type, index) => {
+    if (typeof type !== 'string' || !recognised.includes(type)) {
+      throw blank(`.application.proofTypes[${index}] must be one of ${recognised.join(', ')}: only these are checked against the file`);
+    }
+    return type;
+  });
+  if (new Set(proofTypes).size !== proofTypes.length) throw blank('.application.proofTypes repeats a type');
+  const max = obj.maxBytes;
+  if (typeof max !== 'number' || !Number.isSafeInteger(max) || max < 1 || max > VIP_PROOF_MAX_BYTES_CEILING) {
+    throw blank(`.application.maxBytes must be a whole number of bytes from 1 to ${VIP_PROOF_MAX_BYTES_CEILING}`);
+  }
+  return { proofTypes, maxBytes: max };
+}
+
+/**
+ * `tierProgram.benefits`: rows for the tiers the programme names (regular included), each with every benefit present,
+ * null where the owner sets none; a tier with no row has nothing set. Absent or null: no table. A row for a tier the programme does not name, a repeated
+ * tier, an unknown field or a guessed type refuses the whole schedule, as every other blank rule does.
+ */
+function parseBenefits(
+  raw: unknown,
+  thresholds: readonly FeeTierThreshold[],
+  blank: (message: string) => FeeScheduleError,
+): readonly FeeTierBenefits[] | null {
+  if (raw === undefined || raw === null) return null;
+  if (!Array.isArray(raw) || raw.length === 0) throw blank('.benefits must be a non-empty array or null');
+  const tiers = new Set<string>([REGULAR_FEE_TIER, ...thresholds.map((t) => t.tierId)]);
+  const rows = raw.map((entry, index): FeeTierBenefits => {
+    const at = `.benefits[${index}]`;
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw blank(`${at} must be an object`);
+    const row = entry as Record<string, unknown>;
+    const extra = Object.keys(row).filter((key) => !(BENEFIT_KEYS as readonly string[]).includes(key));
+    if (extra.length > 0) throw blank(`${at} has unknown fields: ${extra.join(', ')}`);
+    for (const key of BENEFIT_KEYS) if (!(key in row)) throw blank(`${at}.${key} must be set or null (never absent)`);
+    const tierId = typeof row.tierId === 'string' ? row.tierId.trim() : '';
+    if (!tiers.has(tierId)) throw blank(`${at}.tierId must be '${REGULAR_FEE_TIER}' or a tier of the thresholds`);
+    const flag = (key: 'prioritySupport' | 'vipPortal' | 'ambassador'): boolean | null => {
+      const value = row[key];
+      if (value !== null && typeof value !== 'boolean') throw blank(`${at}.${key} must be true, false or null`);
+      return value;
+    };
+    const cap = row.subAccountCap;
+    if (cap !== null && (typeof cap !== 'number' || !Number.isSafeInteger(cap) || cap < 0)) {
+      throw blank(`${at}.subAccountCap must be a whole number or null`);
+    }
+    return {
+      tierId,
+      prioritySupport: flag('prioritySupport'),
+      vipPortal: flag('vipPortal'),
+      ambassador: flag('ambassador'),
+      subAccountCap: cap,
+      withdrawalLimit24h: parseLimit(row.withdrawalLimit24h, `${at}.withdrawalLimit24h`, blank),
+    };
+  });
+  if (new Set(rows.map((row) => row.tierId)).size !== rows.length) throw blank('.benefits repeats a tier');
+  return rows;
+}
+
+function parseLimit(
+  raw: unknown,
+  at: string,
+  blank: (message: string) => FeeScheduleError,
+): { readonly asset: string; readonly amount: string } | null {
+  if (raw === null) return null;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw blank(`${at} must be {asset, amount} or null`);
+  const limit = raw as Record<string, unknown>;
+  if (Object.keys(limit).some((key) => key !== 'asset' && key !== 'amount')) throw blank(`${at} has unknown fields`);
+  if (typeof limit.asset !== 'string' || !ASSET.test(limit.asset)) throw blank(`${at}.asset must be an asset code`);
+  let amount: bigint;
+  try {
+    if (typeof limit.amount !== 'string') throw new Error('not a string');
+    amount = parseAmount(limit.amount);
+  } catch {
+    throw blank(`${at}.amount must be a decimal string`);
+  }
+  if (amount <= 0n) throw blank(`${at}.amount must be above zero`);
+  return { asset: limit.asset, amount: formatAmount(amount) };
 }
 
 /** The tier `volume` reaches: the highest threshold at or below it, else regular. */

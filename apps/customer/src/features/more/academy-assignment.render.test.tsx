@@ -30,6 +30,7 @@ const VIEW: AcademyAssignmentView = {
   submissions: [],
   grade: null,
   nextVersion: 1,
+  extension: null,
 };
 
 describe('an assignment page (AC-assignments-01)', () => {
@@ -40,6 +41,13 @@ describe('an assignment page (AC-assignments-01)', () => {
     expect(out).toContain('Late rule: this course has none.');
     expect(out).toContain('Worth 10 points');
     expect(out).toContain('href="/academy/learning/course/risk-basics"');
+  });
+
+  it('shows the learner their own later due date with the reason, and nothing when they have none (AC-release-access-02)', () => {
+    expect(html(<AssignmentBrief data={VIEW} />)).not.toContain('assignment-extension');
+    const out = html(<AssignmentBrief data={{ ...VIEW, extension: { dueAt: '2026-10-28T12:00:00.000Z', reason: 'TEST illness' } }} />);
+    expect(out).toContain('Your own due date, moved by the course team:');
+    expect(out).toContain('Reason: TEST illness');
   });
 
   it('says the upload limits are not set rather than inventing one', () => {

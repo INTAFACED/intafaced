@@ -206,6 +206,95 @@ export function PoolWithdraw({ pool, position, open }: { pool: Pool; position: P
   );
 }
 
+/**
+ * A fixed-term saving's term and its auto-renew choice (BK-earn-03, crypto-credit-earn-056/057, J-bank-08 #4): the lock
+ * date, how many terms auto-renew has started, and the choice itself. On, a new term of the pool's length starts with
+ * the same amount when this one ends; a term that is over, or a pool that takes no new terms, offers only what is true.
+ */
+export function FixedTerm({ pool, position, open }: { pool: Pool; position: Position; open: Open }) {
+  const { t } = earnPoolActionsCopy.useCopy();
+  const { api } = useSession();
+  if (position.maturesAt === null) return null;
+  const maturesAt = position.maturesAt;
+  const ended = Date.parse(maturesAt) <= Date.now();
+  const days = pool.termDays ?? 0;
+  const preflight = async (): Promise<ApiResult<null>> => {
+    const fresh = await api.query('bank', 'earn.positions', { limit: POSITIONS, poolId: pool.id }, bankReads['earn.positions']);
+    if (!fresh.ok) return readFailed(t('subjectRenew'));
+    const current = fresh.data.find((row) => row.id === position.id);
+    return current && current.maturesAt === maturesAt && current.autoRenew === position.autoRenew ? { ok: true, data: null } : changed();
+  };
+  const choose = (on: boolean) =>
+    open({
+      title: t(on ? 'renewOnTitle' : 'renewOffTitle'),
+      procedure: 'earn.setAutoRenew',
+      unit: position.assetId,
+      facts: [
+        [t('pool'), pool.name],
+        [t('saved'), amount(position.principal, position.assetId)],
+        [t('term'), t('termDays', { days })],
+        [t('renewEnds'), date(maturesAt)],
+      ],
+      notes: on ? [t('renewOnNote'), t('renewOnTakeBack')] : [t('renewOffNote')],
+      preflight,
+      input: () => ({ positionId: position.id, on }),
+      submit: t(on ? 'renewTurnOn' : 'renewTurnOff'),
+    });
+  // Only an open pool takes a new term, and only a term still running can be renewed (the bank refuses the rest).
+  const poolOpen = pool.status === 'open';
+  const canTurnOn = !ended && poolOpen;
+  // What the bank will do at the end of the term, and nothing it will not.
+  const renewLine = () => {
+    if (position.autoRenew && !poolOpen) return t('renewOnClosed', { date: date(maturesAt) });
+    if (position.autoRenew) return ended ? t('renewDue', { days }) : t('renewOn', { date: date(maturesAt), days });
+    if (!poolOpen) return t('renewClosed');
+    return ended ? t('renewOffEnded') : t('renewOff', { date: date(maturesAt) });
+  };
+  return (
+    <div className="money-earn-term" data-testid="earn-fixed-term" data-matures={maturesAt} data-renewals={position.renewals}>
+      <p className="money-caption">
+        {ended ? t('fixedEnded', { date: date(maturesAt) }) : t('fixedTerm', { days, date: date(maturesAt) })}
+      </p>
+      {position.renewals > 0 && <p className="money-caption">{t('renewedCount', { count: position.renewals })}</p>}
+      <div data-testid="earn-auto-renew" data-on={String(position.autoRenew)}>
+        <p className="money-caption">{renewLine()}</p>
+        {position.autoRenew ? (
+          <Button variant="ghost" onClick={() => choose(false)}>
+            {t('renewTurnOff')}
+          </Button>
+        ) : (
+          canTurnOn && (
+            <Button variant="secondary" onClick={() => choose(true)}>
+              {t('renewTurnOn')}
+            </Button>
+          )
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * When the bank pays this saving (BK-earn-03, crypto-credit-earn-044, J-bank-08 #5): once a UTC day, to the main
+ * balance, so nothing compounds; the next day the bank has not yet paid this pool, from `earn.positions`.
+ */
+export function PayoutSchedule({ pool, position }: { pool: Pool; position: Position }) {
+  const { t } = earnPoolActionsCopy.useCopy();
+  return (
+    <div className="money-earn-schedule" data-testid="earn-payout-schedule" data-next={position.nextPayoutOn ?? ''}>
+      <h4>{t('scheduleTitle')}</h4>
+      <p className="money-caption">{t('scheduleDaily', { asset: position.assetId })}</p>
+      {pool.termDays !== null && <p className="money-caption">{t('scheduleThroughTerm')}</p>}
+      <p className="money-caption" data-testid="earn-payout-next">
+        <strong>{position.nextPayoutOn ? t('scheduleNext', { date: utcDay(position.nextPayoutOn) }) : t('scheduleNone')}</strong>
+      </p>
+      <p className="money-caption" data-testid="earn-compounding" data-compounding="none">
+        {t('compounding')}
+      </p>
+    </div>
+  );
+}
+
 /** The interest this pool has paid the person, day by day, from the bank's own record (`earn.interestHistory`). */
 export function PoolEarned({ pool }: { pool: Pool }) {
   const { t } = earnPoolActionsCopy.useCopy();

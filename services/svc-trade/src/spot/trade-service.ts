@@ -53,6 +53,7 @@ import { type HoldRead, type HoldUnknownAlert, type HoldUnknownSweepResult } fro
 import { toMarket, toOrder, type OrderRow } from './rows.js';
 import { loadListedMarketRows, loadMarketBySymbol } from '../futures/futures-reads.js';
 import type { RankPerksSource } from './rank-perks.js';
+import { UNWIRED_IFC_DISCOUNT, type IfcDiscountSource } from './fee-ifc.js';
 import { NoopAffiliateAccrue, type AffiliateAccruePort } from './affiliate-accrue.js';
 import { NoopAffiliatePayout, type AffiliatePayoutPort } from './affiliate-payout.js';
 import { NoopDropCopyIngest, type DropCopyFillWire, type DropCopyHitchSource, type DropCopyIngestPort } from './drop-copy-ingest.js';
@@ -329,6 +330,11 @@ export interface TradeServiceOptions {
    * Mirrors `TRADE_HOLD_UNKNOWN_TAKER_MAX_AGE_MS`.
    */
   holdUnknownTakerMaxAgeMs?: number;
+  /**
+   * svc-token's stake discount for an order that pays its fees in the platform token (fee-ifc.ts). Default unwired:
+   * every such order refuses `trade.fee_ifc_discount_unavailable`.
+   */
+  ifcDiscount?: IfcDiscountSource;
 }
 
 export interface ConvertQuoteRequest {
@@ -401,6 +407,11 @@ export interface PlaceOrderInput {
    * Flagged orders are excluded from public volume / tape (SD-3).
    */
   seeded?: boolean;
+  /**
+   * The asset to pay this order's fees in. Absent, or the asset it receives: fees come out of each fill as always. The
+   * platform token, on a person's own spot order, when the owner's schedule publishes its terms (fee-ifc.ts).
+   */
+  feeCurrency?: string;
   /** Internal binding for the cancel/replace saga; never accepted from REST. */
   replacementOf?: string;
   replacementRequestHash?: string;
@@ -557,6 +568,7 @@ export type TradeServiceInternal = { [K in keyof TradeService]: TradeService[K] 
   onCopyMirrorFill: TradeService['onCopyMirrorFill'];
   onHoldUnknownAlert: TradeService['onHoldUnknownAlert'];
   holdUnknownTakerMaxAgeMs: TradeService['holdUnknownTakerMaxAgeMs'];
+  ifcDiscount: TradeService['ifcDiscount'];
   sql: TradeService['sql'];
   ledger: TradeService['ledger'];
   matching: TradeService['matching'];
@@ -684,6 +696,7 @@ export class TradeService {
   }) => Promise<void>;
   private readonly onHoldUnknownAlert?: (alert: HoldUnknownAlert) => void;
   private readonly holdUnknownTakerMaxAgeMs: number;
+  private readonly ifcDiscount: IfcDiscountSource;
 
   constructor(
     private readonly sql: Sql,
@@ -730,6 +743,7 @@ export class TradeService {
     this.dropCopyIngest = options.dropCopyIngest ?? new NoopDropCopyIngest();
     this.onCopyMirrorFill = options.onCopyMirrorFill;
     this.onHoldUnknownAlert = options.onHoldUnknownAlert;
+    this.ifcDiscount = options.ifcDiscount ?? UNWIRED_IFC_DISCOUNT;
     const takerMaxAge = options.holdUnknownTakerMaxAgeMs ?? 30_000;
     this.holdUnknownTakerMaxAgeMs = Number.isInteger(takerMaxAge) && takerMaxAge >= 1_000 && takerMaxAge <= 600_000 ? takerMaxAge : 30_000;
     this.algo = new TwapEngine(

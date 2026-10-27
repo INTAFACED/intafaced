@@ -6,7 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 /** W-withdraw-14 on the Withdraw form: an address of another INTAFACED account settles inside, once, with a kept reference. */
 const query = vi.fn();
 const mutate = vi.fn();
-vi.mock('../session/session', () => ({ useSession: () => ({ userId: 'u1', api: { query, mutate } }) }));
+// The form also reads the caller's campaign rewards (the locked-rewards note): none here.
+const noRewards = { ok: true, data: { rewards: [], totals: [], more: false } };
+const route = (module: string, ...rest: unknown[]) => (module === 'campaigns' ? Promise.resolve(noRewards) : query(module, ...rest));
+vi.mock('../session/session', () => ({ useSession: () => ({ userId: 'u1', api: { query: route, mutate } }) }));
 vi.mock('./holdings', () => ({
   useHoldings: () => ({
     resource: { status: 'ready', data: { assets: [{ assetId: 'USDT', available: '80' }], spaces: [], holdings: [] } },

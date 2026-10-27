@@ -5,7 +5,7 @@ vi.mock('../../../../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 import type { PortalApi } from '../../api';
-import { groups } from '../../home-layout/Navigation';
+import { groups } from '../../home-layout/groups';
 import { parsePortalRoute } from '../../routes';
 import { bpsPercent, isPlatformAccount, parsePercentToBps } from '../account/model';
 import type { Grant, PermissionEvent, SubMerchant, SubSummary } from '../account/schemas';

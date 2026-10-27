@@ -198,6 +198,11 @@ export function AssignmentBrief({ data }: { data: AcademyAssignmentView }) {
         <span data-testid="assignment-due">{data.dueAt ? t('asgDue', { date: when(data.dueAt, language) }) : t('asgNoDue')}</span>
         <span data-testid="assignment-points">{t('asgPoints', { points: data.points })}</span>
       </p>
+      {data.extension && (
+        <p className="academy-lms-meta" data-testid="assignment-extension">
+          <span lang="und">{t('asgExtended', { date: when(data.extension.dueAt, language), reason: data.extension.reason })}</span>
+        </p>
+      )}
       <section aria-label={t('asgBrief')}>
         <h3>{t('asgBrief')}</h3>
         <p lang="und" style={{ whiteSpace: 'pre-wrap' }}>

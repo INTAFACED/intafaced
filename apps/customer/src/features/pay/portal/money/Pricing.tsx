@@ -301,6 +301,7 @@ export function FeeCalculator({
   return (
     <PaySection title={t('calcTitle')} description={t('calcBody')}>
       <form
+        data-testid="form-stack"
         className="form-stack pp-form"
         onSubmit={(e) => {
           e.preventDefault();

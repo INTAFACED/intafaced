@@ -11,7 +11,8 @@ import { api, fund, journeyState, signOutBrowser, signUpInBrowser, tool } from '
 // really buys BTC/USDT against the stack's market maker. USDT rewards come from the one reward pot, which the founders fund
 // from trade fees the platform earned. The BTC reward's pot is never funded here, so it stays still open. The hold times
 // are this run's TEST campaign values; the reconciler interval is the stack's labelled TEST value
-// (tooling/profiles/test-owner-values/campaigns.json). Steps #4-#6 (locked rewards and bonuses) are not built.
+// (tooling/profiles/test-owner-values/campaigns.json). The locked reward's lock and the bonus's expiry are this run's TEST
+// campaign values too; neither is ever in the customer's balance.
 const J = 'J-campaigns-03';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -19,6 +20,9 @@ const SYMBOL = 'BTC/USDT';
 const TRADE = '0.001';
 const REWARD = '0.01';
 const BTC_REWARD = '0.00001';
+// The reconciler pays the oldest open reward first, so a pot funded for one reward can go to one an earlier step left
+// waiting (#2 leaves one on purpose). Steps after #2 fund ten rewards' worth so their own is always covered.
+const COVER = '0.1';
 const DAY = 86_400_000;
 
 test.describe.configure({ mode: 'default' });
@@ -46,7 +50,7 @@ const data = (res, what) => {
 };
 
 /** A TEST task campaign with one step (buy BTC/USDT once) and every field the activation gate needs. */
-async function liveCampaign(name, { holdSeconds, asset = 'USDT', amount = REWARD, budget = '0.05' }) {
+async function liveCampaign(name, { holdSeconds, asset = 'USDT', amount = REWARD, budget = '0.05', lock = null }) {
   const { ctx, pair } = await operators();
   const a = await pair.a.campaignsOpsToken();
   const b = await pair.b.campaignsOpsToken();
@@ -63,6 +67,7 @@ async function liveCampaign(name, { holdSeconds, asset = 'USDT', amount = REWARD
       steps: [{ title: 'TEST buy BTC', event: 'trade.fill', market: SYMBOL, side: 'buy', count: 1 }],
       claimWindowSeconds: 3600,
       holdSeconds,
+      lock,
       kycGate: 'basic',
     },
   };
@@ -284,7 +289,7 @@ test(`${J} #3 watches a held reward when its hold ends under a posting freeze: s
   const { me } = state('me');
   const hold = await liveCampaign(`TEST short hold ${tag}`, { holdSeconds: 75 });
   await completeAll(me, [hold.id]);
-  await fundPot(`TEST-${J}-3-${tag}`, REWARD);
+  await fundPot(`TEST-${J}-3-${tag}`, COVER);
   const claimed = await call(me, 'POST', 'tasks.claim', { campaignId: hold.id });
   expect(claimed.reward.state).toBe('held');
   const until = new Date(claimed.reward.holdUntil).getTime();
@@ -320,6 +325,138 @@ test(`${J} #3 watches a held reward when its hold ends under a posting freeze: s
   const rows = (await mine(me)).rewards.filter((r) => r.campaignId === hold.id);
   expect(rows).toHaveLength(1);
   expect(rows[0].ledgerTxId).toBe(reward.ledgerTxId);
+});
+
+const LOCK_STEP = { title: 'TEST sell BTC', event: 'trade.fill', market: SYMBOL, side: 'sell', count: 1 };
+
+/** Adds two decimal strings exactly (no float). */
+function addDecimal(a, b) {
+  const scale = 18;
+  const units = (x) => {
+    const [w, f = ''] = x.split('.');
+    return BigInt(w + f.padEnd(scale, '0'));
+  };
+  const sum = (units(a) + units(b)).toString().padStart(scale + 1, '0');
+  const whole = sum.slice(0, -scale);
+  const frac = sum.slice(-scale).replace(/0+$/, '');
+  return frac ? `${whole}.${frac}` : whole;
+}
+
+test(`${J} #4 fails the condition on a locked reward: it shows forfeited once and is not reissued`, async ({ page }) => {
+  test.setTimeout(300_000);
+  const { me } = state('me');
+  const locked = await liveCampaign(`TEST locked reward ${tag}`, {
+    holdSeconds: 0,
+    lock: { kind: 'locked', seconds: 60, step: LOCK_STEP },
+  });
+  await completeAll(me, [locked.id]);
+  await fundPot(`TEST-${J}-4-${tag}`, COVER);
+  const claimed = await call(me, 'POST', 'tasks.claim', { campaignId: locked.id });
+  await expect.poll(async () => (await progressOf(me, locked.id)).reward.state, { timeout: 60_000 }).toBe('locked');
+  const reward = (await progressOf(me, locked.id)).reward;
+  expect(reward).toMatchObject({ form: 'locked', ledgerTxId: null });
+  expect(reward.lock.condition).toEqual({ title: LOCK_STEP.title, done: 0, target: 1 });
+
+  await signIn(page, me);
+  let hub = await openHub(page);
+  await expect(row(hub, locked.id)).toHaveAttribute('data-status', 'locked');
+  await expect(row(hub, locked.id).getByTestId('reward-status')).toHaveText('Locked');
+  await expect(row(hub, locked.id).getByTestId('reward-why')).toContainText(`Locked until you complete “${LOCK_STEP.title}” (0 of 1)`);
+  await expect(row(hub, locked.id).getByTestId('reward-why')).toContainText('cannot be withdrawn');
+  await expect(row(hub, locked.id).getByTestId('reward-lock-tx')).toHaveAttribute('data-tx', reward.lock.txId);
+
+  // The customer never sells: the lock ends without its step, and it is forfeited once.
+  await page.waitForTimeout(Math.max(0, new Date(reward.lock.until).getTime() - Date.now()));
+  // A locked reward forfeits a grace minute after its lock ends (late fills may still count), then on the next pass.
+  await expect.poll(async () => (await progressOf(me, locked.id)).reward.state, { timeout: 150_000 }).toBe('forfeited');
+  hub = await openHub(page);
+  await expect(row(hub, locked.id)).toHaveAttribute('data-status', 'closed');
+  await expect(row(hub, locked.id).getByTestId('reward-why')).toHaveAttribute('data-reason', 'campaigns.lock_condition_failed');
+  await expect(row(hub, locked.id).getByTestId('reward-why')).toContainText(`Forfeited: “${LOCK_STEP.title}” was not completed by`);
+  await expect(row(hub, locked.id).getByTestId('reward-why')).toContainText('It is not given again.');
+
+  // Not reissued: claiming again returns the same forfeited reward, and later reconciler passes add nothing.
+  const again = await call(me, 'POST', 'tasks.claim', { campaignId: locked.id });
+  expect(again.created).toBe(false);
+  expect(again.reward).toMatchObject({ rewardKey: claimed.reward.rewardKey, state: 'forfeited' });
+  await page.waitForTimeout(12_000);
+  const after = (await progressOf(me, locked.id)).reward;
+  expect(after.attempts.filter((a) => a.outcome === 'forfeited')).toHaveLength(1);
+  expect(after.attempts.filter((a) => a.outcome === 'locked')).toHaveLength(1);
+  expect(after.ledgerTxId).toBe(again.reward.ledgerTxId);
+  expect((await mine(me)).rewards.filter((r) => r.campaignId === locked.id)).toHaveLength(1);
+});
+
+test(`${J} #5 tries to withdraw a bonus: the withdraw path refuses and the screen explains the restriction`, async ({ page }) => {
+  test.setTimeout(300_000);
+  const { me } = state('me');
+  const bonus = await liveCampaign(`TEST bonus ${tag}`, {
+    holdSeconds: 0,
+    lock: { kind: 'bonus', expirySeconds: 120, appliesTo: ['derivatives'] },
+  });
+  await completeAll(me, [bonus.id]);
+  await fundPot(`TEST-${J}-5-${tag}`, COVER);
+  await call(me, 'POST', 'tasks.claim', { campaignId: bonus.id });
+  await expect.poll(async () => (await progressOf(me, bonus.id)).reward.state, { timeout: 60_000 }).toBe('locked');
+  const reward = (await progressOf(me, bonus.id)).reward;
+  expect(reward).toMatchObject({ form: 'bonus' });
+  expect(reward.lock).toMatchObject({ condition: null, appliesTo: ['derivatives'] });
+
+  await signIn(page, me);
+  const hub = await openHub(page);
+  await expect(row(hub, bonus.id)).toHaveAttribute('data-status', 'locked');
+  await expect(row(hub, bonus.id).getByTestId('reward-why')).toContainText(
+    'A bonus for derivatives. It is not in your balance and cannot be withdrawn.',
+  );
+  const locked = hub.locator('[data-testid="rewards-total"][data-status="locked"][data-asset="USDT"]');
+  await expect(locked.getByTestId('rewards-total-amount')).toHaveText(`${REWARD} USDT`);
+
+  // The withdraw form names the bonus as not withdrawable and refuses an amount that would need it.
+  await page.goto('/uc/withdraw');
+  const form = page.getByTestId('withdraw-form');
+  await expect(form).toBeVisible({ timeout: 30_000 });
+  await form.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
+  const note = form.getByTestId('withdraw-locked-rewards');
+  await expect(note).toHaveAttribute('data-state', 'ready', { timeout: 30_000 });
+  await expect(note).toHaveAttribute('data-amount', REWARD);
+  await expect(note).toContainText(
+    `${REWARD} USDT of campaign rewards is locked or a bonus: it is not in your available balance and cannot be withdrawn.`,
+  );
+  await expect(note.getByRole('link', { name: 'See why in My rewards' })).toHaveAttribute('href', '/uc/promotion');
+  await form.getByRole('button', { name: 'Use all available' }).click();
+  const available = await form.locator('input[aria-describedby="withdraw-amount-help"]').inputValue();
+  await form.locator('input[aria-describedby="withdraw-amount-help"]').fill(addDecimal(available, REWARD));
+  await expect(form.locator('#withdraw-amount-help')).toHaveText('That is more than you have available.');
+  await expect(page.getByTestId('withdraw-review').getByText(addDecimal(available, REWARD))).toHaveCount(0);
+  run.write({ bonusId: bonus.id });
+});
+
+test(`${J} #6 waits for a bonus to expire: a forfeit shows once and the restricted balance is zero`, async ({ page }) => {
+  test.setTimeout(300_000);
+  const { me, bonusId } = state('me', 'bonusId');
+  const reward = (await progressOf(me, bonusId)).reward;
+  await page.waitForTimeout(Math.max(0, new Date(reward.lock.until).getTime() - Date.now()));
+  await expect.poll(async () => (await progressOf(me, bonusId)).reward.state, { timeout: 60_000 }).toBe('forfeited');
+  await signIn(page, me);
+  const hub = await openHub(page);
+  await expect(row(hub, bonusId)).toHaveAttribute('data-status', 'closed');
+  await expect(row(hub, bonusId).getByTestId('reward-why')).toHaveAttribute('data-reason', 'campaigns.bonus_expired');
+  await expect(row(hub, bonusId).getByTestId('reward-why')).toContainText('Forfeited: the bonus expired on');
+  // The restricted balance is zero: no locked total remains, here or on the withdraw form.
+  await expect(hub.locator('[data-testid="rewards-total"][data-status="locked"]')).toHaveCount(0);
+  expect((await mine(me)).totals.filter((t) => t.status === 'locked')).toEqual([]);
+  await page.goto('/uc/withdraw');
+  await page
+    .getByTestId('withdraw-form')
+    .getByRole('combobox', { name: /^Asset/ })
+    .selectOption('USDT');
+  await page.waitForTimeout(3_000);
+  await expect(page.getByTestId('withdraw-locked-rewards')).toHaveCount(0);
+  // Once: one forfeit in the log, and later reconciler passes add nothing.
+  await page.waitForTimeout(12_000);
+  const after = (await progressOf(me, bonusId)).reward;
+  expect(after.attempts.filter((a) => a.outcome === 'forfeited')).toHaveLength(1);
+  expect(after.ledgerTxId).toBeTruthy();
 });
 
 test(`${J} #7 opens the hub while the campaigns service is down: the error state, no stale number shown as current`, async ({ page }) => {

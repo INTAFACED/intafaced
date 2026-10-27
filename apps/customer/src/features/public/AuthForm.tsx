@@ -708,14 +708,14 @@ export function AuthForm({ register }: { register: boolean }) {
                 <div lang="und">
                   {result.code === 'auth.too_many_attempts' && result.reason !== 'uncertain' ? (
                     // The per-account pause: say how long, from the service's own Retry-After.
-                    <p className="failure" role="alert" lang={languageFor('locked')}>
+                    <p data-testid="failure" className="failure" role="alert" lang={languageFor('locked')}>
                       {result.retryAfterSeconds
                         ? t('locked', { minutes: Math.max(1, Math.ceil(result.retryAfterSeconds / 60)) })
                         : t('lockedPlain')}
                     </p>
                   ) : secondStep ? (
                     // The second step, on the page that asks for it. A wrong code and a used one read the same.
-                    <div className="failure" role="alert">
+                    <div data-testid="failure" className="failure" role="alert">
                       <p lang={languageFor(secondStep)}>{t(secondStep)}</p>
                       {codeStep && (
                         <Button
@@ -749,7 +749,7 @@ export function AuthForm({ register }: { register: boolean }) {
                     </div>
                   ) : result.code === 'auth.account_frozen' && result.reason !== 'uncertain' && result.accountState ? (
                     // Sent only after the password verified: name the state and the one way forward.
-                    <div className="failure" role="alert">
+                    <div data-testid="failure" className="failure" role="alert">
                       <p lang={languageFor(result.accountState)}>{t(result.accountState)}</p>
                       <a className="text-link" href="/help" lang={languageFor('stateHelp')}>
                         {t('stateHelp')}
@@ -791,7 +791,7 @@ export function AuthForm({ register }: { register: boolean }) {
             </form>
             {!register && <CodeSignIn />}
             {!register && walletStopped && (
-              <p className="failure" role="alert" lang={languageFor(walletWordsStopped[walletStopped])}>
+              <p data-testid="failure" className="failure" role="alert" lang={languageFor(walletWordsStopped[walletStopped])}>
                 {t(walletWordsStopped[walletStopped])}
               </p>
             )}

@@ -2,14 +2,14 @@
   max-width: 880px;
   width: calc(100% - 48px);
   margin: 0 auto;
-  padding: var(--spacing-48) 0 var(--spacing-72);
+  padding: var(--if-space-12) 0 var(--spacing-72);
   display: grid;
-  gap: var(--spacing-28);
+  gap: var(--if-space-7);
   overflow-wrap: anywhere;
 }
 .pub-heading {
   display: grid;
-  gap: var(--spacing-8);
+  gap: var(--if-space-2);
 }
 .pub-heading h1 {
   margin: 0;
@@ -25,24 +25,24 @@
 .pub-card,
 .contact-card {
   display: grid;
-  gap: var(--spacing-12);
-  padding: var(--spacing-20) var(--spacing-24, 24px);
+  gap: var(--if-space-3);
+  padding: var(--if-space-5) var(--spacing-24, var(--if-space-6));
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-12);
+  border-radius: var(--if-r-md);
   background: var(--color-surface);
 }
 .pub-notice {
-  border-left: 3px solid var(--color-accent);
+  border-left: 3px solid var(--if-lime);
 }
 .pub-notice h2,
 .pub-card h2,
 .contact-card h2 {
   margin: 0;
-  font-size: var(--text-20);
+  font-size: var(--if-text-lg);
   font-weight: var(--font-weight-semibold);
 }
 .contact-card h3 {
-  margin: var(--spacing-4) 0 0;
+  margin: var(--if-space-1) 0 0;
   font-size: var(--text-15);
 }
 .pub-notice p,
@@ -53,40 +53,40 @@
 .contact-card ul,
 .pub-card ul {
   margin: 0;
-  padding-left: var(--spacing-20);
+  padding-left: var(--if-space-5);
   display: grid;
-  gap: var(--spacing-4);
+  gap: var(--if-space-1);
 }
 .contact-card .button,
 .pub-card .button {
   justify-self: start;
 }
 .contact-card__warning {
-  padding: var(--spacing-8) var(--spacing-12);
-  border-radius: var(--radius-8);
+  padding: var(--if-space-2) var(--if-space-3);
+  border-radius: var(--if-r-sm);
   border: 1px solid var(--color-border);
-  border-left: 3px solid var(--color-accent);
+  border-left: 3px solid var(--if-lime);
 }
 .contact-card__small {
-  font-size: var(--text-13);
+  font-size: var(--if-text-sm);
 }
 .pub-steps {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  gap: var(--spacing-16);
+  gap: var(--if-space-4);
 }
 .pub-step {
   display: grid;
-  gap: var(--spacing-8);
-  padding: var(--spacing-20) var(--spacing-24, 24px);
+  gap: var(--if-space-2);
+  padding: var(--if-space-5) var(--spacing-24, var(--if-space-6));
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-12);
+  border-radius: var(--if-r-md);
   background: var(--color-surface);
 }
 .pub-step--current {
-  border-color: var(--color-accent);
+  border-color: var(--if-lime);
 }
 .pub-step h2,
 .pub-step p {
@@ -96,16 +96,16 @@
   font-size: var(--text-18);
 }
 .pub-step__number {
-  font-size: var(--text-13);
+  font-size: var(--if-text-sm);
   color: var(--color-muted);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 .pub-form {
   display: grid;
-  gap: var(--spacing-12);
+  gap: var(--if-space-3);
   max-width: 420px;
-  margin-top: var(--spacing-8);
+  margin-top: var(--if-space-2);
 }
 .pub-form .button {
   justify-self: start;
@@ -113,27 +113,27 @@
 .pub-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: var(--spacing-16);
+  gap: var(--if-space-4);
 }
 .pub-door {
   display: grid;
-  gap: var(--spacing-8);
+  gap: var(--if-space-2);
   align-content: start;
 }
 .pub-door__head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: var(--spacing-12);
+  gap: var(--if-space-3);
 }
 .pub-door ul {
   list-style: none;
   padding: 0;
-  gap: var(--spacing-8);
+  gap: var(--if-space-2);
 }
 .pub-door li a {
   display: grid;
-  gap: 2px;
+  gap: var(--if-space-0-5);
 }
 .pub-door li small {
   color: var(--color-muted);
@@ -143,14 +143,14 @@
   padding: 0;
   margin: 0;
   display: grid;
-  gap: var(--spacing-12);
+  gap: var(--if-space-3);
 }
 .pub-list li {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--spacing-16);
-  padding: var(--spacing-12) 0;
+  gap: var(--if-space-4);
+  padding: var(--if-space-3) 0;
   border-bottom: 1px solid var(--color-divider);
 }
 .pub-list li strong {
@@ -159,24 +159,24 @@
 .pub-inside {
   max-width: 1280px;
   margin-inline: auto;
-  padding: var(--spacing-48) 28px;
+  padding: var(--if-space-12) var(--if-space-7);
   display: grid;
-  gap: var(--spacing-20);
+  gap: var(--if-space-5);
 }
 .pub-inside h2 {
   margin: 0;
-  font-size: var(--text-24);
+  font-size: var(--if-text-xl);
 }
 @media (max-width: 720px) {
   .pub-page {
     width: calc(100% - 32px);
-    padding-top: var(--spacing-32);
+    padding-top: var(--if-space-8);
   }
   .pub-list li {
     grid-template-columns: 1fr;
   }
   .pub-inside {
-    padding-inline: 16px;
+    padding-inline: var(--if-space-4);
   }
 }
 .pub-page--inline {
@@ -195,7 +195,7 @@
   border: 0;
 }
 .pub-card--flat {
-  margin-bottom: var(--spacing-16);
+  margin-bottom: var(--if-space-4);
 }
 .pub-card ol.pub-list {
   padding: 0;
@@ -208,7 +208,7 @@
 }
 .pub-table th,
 .pub-table td {
-  padding: var(--spacing-8, 8px) var(--spacing-12);
+  padding: var(--if-space-2) var(--if-space-3);
   border-bottom: 1px solid var(--color-border);
   vertical-align: top;
 }

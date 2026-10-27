@@ -9,6 +9,7 @@ import {
   type PayoutRecordList,
   type PotFunding,
   type RedemptionAttempt,
+  type RewardLock,
   type RewardRecord,
   type TaskClaimResult,
   type TaskProgress,
@@ -38,6 +39,12 @@ import { NO_STREAK, streakOf } from './streaks.js';
  * - A campaign with a risk-review hold (`holdSeconds` above 0) writes the claimed intent `held` until the hold ends; it
  *   keeps its place in the budget and nothing is posted. `releaseHolds` releases each one once when its hold has ended:
  *   to `qualified` and the saga, or `withheld` when the account is not active then. An unread account stays held.
+ * - A campaign that gives its reward locked or as a bonus (`tasks.lock`) stores that form and the lock's length on the
+ *   intent before anything posts; the saga then posts the lock into the reward's own campaigns pot, never the customer's
+ *   balance. A locked reward counts its unlock step's fills while it is locked (one row per fill). `settleLocks` decides
+ *   each one once, by a conditional update that writes the outcome first: unlock when the step is done, forfeit when the
+ *   lock ends without it, and a bonus forfeits when it expires. A forfeited reward is never given again: a claim after
+ *   it returns the same forfeited record.
  */
 
 type Sql = postgres.Sql;
@@ -71,7 +78,16 @@ type IntentRow = {
   created_at: Date;
   posted_at: Date | null;
   hold_until: Date | null;
+  form: RewardRecord['form'];
+  lock_seconds: number | null;
+  lock_tx_id: string | null;
+  locked_at: Date | null;
+  lock_until: Date | null;
+  settle: 'unlock' | 'forfeit' | null;
 };
+
+/** What a locked row shows: its campaign's lock terms and how many unlock-step fills counted so far. */
+type LockView = { lock: RewardLock | null; done: number };
 
 type AttemptRow = { reward_key: string; outcome: RedemptionAttempt['outcome']; reason: string | null; at: Date };
 
@@ -106,6 +122,8 @@ const GATE_RANK: Record<KycGate, number> = { none: 0, basic: 1, full: 2 };
 export const PERIOD_ONCE = 'once';
 /** How many rewards My Rewards lists, newest first. */
 export const MY_REWARDS_LIMIT = 200;
+/** Seconds after a lock ends that a fill made inside it may still arrive and count, before the reward forfeits. */
+export const LOCK_FILL_GRACE_SECONDS = 60;
 
 export const rewardKeyOf = (campaignId: string, accountId: string, period: string) => `task:${campaignId}:${accountId}:${period}`;
 
@@ -162,6 +180,21 @@ export function stepStates(
     const n = Math.min(mine.length, s.count);
     return { index, title: s.title, done: n, target: s.count, complete: n >= s.count, streak: null };
   });
+}
+
+type LockTerms = { form: RewardRecord['form']; seconds: number | null };
+
+/** How this campaign gives its reward and for how long a lock lasts. Blank seconds refuse; nothing is written then. */
+export function lockTermsOf(tasks: CampaignTasks): LockTerms {
+  const lock = tasks.lock ?? null;
+  if (!lock) return { form: 'paid', seconds: null };
+  if (lock.kind === 'locked') {
+    if (lock.seconds === null) throw new CampaignsError('campaigns.lock_period_unset', 'This campaign has no lock period set');
+    return { form: 'locked', seconds: lock.seconds };
+  }
+  if (lock.expirySeconds === null) throw new CampaignsError('campaigns.bonus_expiry_unset', 'This campaign has no bonus expiry set');
+  if (lock.appliesTo.length === 0) throw new CampaignsError('campaigns.bonus_scope_unset', 'This bonus names no product it applies to');
+  return { form: 'bonus', seconds: lock.expirySeconds };
 }
 
 export function meetsGate(gate: KycGate, tier: CampaignParticipant['kycTier']): boolean {
@@ -225,8 +258,10 @@ export class TaskService {
         (!(row.weekdays || (row.hours_from && row.hours_to)) || (timeZone !== null && outsideWindow(row, at, timeZone) === null)),
     );
     // The market is named only when a step needs it; an unreachable market list throws, so the fill comes again.
-    const named = live.some((row) => row.tasks!.steps.some((s) => s.market)) && this.markets;
-    const match = { side: fill.side, symbol: named ? await named.symbolOf(fill.marketId) : null };
+    // Resolved at most once per fill, for the campaign steps and the lock steps alike.
+    let symbol: Promise<string | null> | null = null;
+    const symbolOf = (needed: boolean) => (needed && this.markets ? (symbol ??= this.markets.symbolOf(fill.marketId)) : null);
+    const match = { side: fill.side, symbol: await symbolOf(live.some((row) => row.tasks!.steps.some((s) => s.market))) };
     let moved = 0;
     for (const row of live) {
       const steps = row.tasks!.steps.map((step, index) => ({ step, index })).filter(({ step }) => stepMatches(step, match));
@@ -252,7 +287,63 @@ export class TaskService {
       });
       moved += 1;
     }
-    return moved;
+    return moved + (await this.countLockFill(fill, at, symbolOf));
+  }
+
+  /** A fill made while a locked reward of this account is locked counts once toward its unlock step. */
+  private async countLockFill(fill: FillEvent, at: Date, symbolOf: (needed: boolean) => Promise<string | null> | null): Promise<number> {
+    const locked = await this.sql<{ reward_key: string; tasks: CampaignTasks | null }[]>`
+      SELECT i.reward_key, c.tasks FROM campaigns.reward_intents i JOIN campaigns.campaigns c ON c.id = i.campaign_id
+      WHERE lower(i.account_id) = lower(${fill.userId}) AND i.state = 'locked' AND i.form = 'locked'
+        AND i.locked_at <= ${at} AND i.lock_until > ${at}`;
+    const steps = locked.flatMap((r) => (r.tasks?.lock?.kind === 'locked' ? [{ key: r.reward_key, step: r.tasks.lock.step }] : []));
+    if (steps.length === 0) return 0;
+    const match = { side: fill.side, symbol: await symbolOf(steps.some((l) => l.step.market)) };
+    let counted = 0;
+    for (const { key, step } of steps) {
+      if (!stepMatches(step, match)) continue;
+      const added = await this.sql`
+        INSERT INTO campaigns.lock_progress (reward_key, event_id, occurred_at) VALUES (${key}, ${fill.fillId}, ${at})
+        ON CONFLICT DO NOTHING`;
+      counted += added.count;
+    }
+    return counted;
+  }
+
+  /**
+   * Decides every locked reward and bonus that is due (the reconciler calls it each pass): a locked reward whose unlock
+   * step is done unlocks; one whose lock ended without it forfeits; a bonus forfeits once it expires. The outcome is
+   * written first, by one conditional update from `locked`, so of two passes at once one decides; then
+   * the saga posts it under its own key. A crash after the decision leaves a `settling` row the reconciler posts.
+   * Returns how many it decided.
+   */
+  async settleLocks(limit = 100): Promise<number> {
+    if (!this.saga) return 0;
+    const now = this.now();
+    // A fill made inside the lock can arrive after it ends: a locked reward forfeits only once that grace has passed too.
+    const forfeitBy = new Date(now.getTime() - LOCK_FILL_GRACE_SECONDS * 1000);
+    const due = await this.sql<{ reward_key: string; met: boolean }[]>`
+      SELECT reward_key, met FROM (
+        SELECT i.reward_key, i.form, i.lock_until,
+          i.form = 'locked' AND c.tasks->'lock'->>'kind' = 'locked' AND (
+            SELECT count(*) FROM campaigns.lock_progress p WHERE p.reward_key = i.reward_key
+          ) >= (c.tasks->'lock'->'step'->>'count')::int AS met
+        FROM campaigns.reward_intents i JOIN campaigns.campaigns c ON c.id = i.campaign_id
+        WHERE i.state = 'locked'
+      ) d
+      WHERE met OR (form = 'bonus' AND lock_until <= ${now}) OR lock_until <= ${forfeitBy}
+      ORDER BY lock_until, reward_key LIMIT ${limit}`;
+    let decided = 0;
+    for (const row of due) {
+      const settle = row.met ? 'unlock' : 'forfeit';
+      const changed = await this.sql`
+        UPDATE campaigns.reward_intents SET state = 'settling', settle = ${settle}, updated_at = now()
+        WHERE reward_key = ${row.reward_key} AND state = 'locked'`;
+      if (changed.count === 0) continue;
+      await this.saga.settle(row.reward_key);
+      decided += 1;
+    }
+    return decided;
   }
 
   // ── Customer (own account only) ───────────────────────────────────────────
@@ -322,12 +413,13 @@ export class TaskService {
     // Stored before holds existed, or blank: never read as "no hold".
     const holdSeconds = tasks.holdSeconds ?? null;
     if (holdSeconds === null) throw new CampaignsError('campaigns.hold_period_unset', 'This campaign has no hold period set');
+    const terms = lockTermsOf(tasks);
     const now = this.now();
     // Withheld when its hold ended: it was claimed inside the window and served its hold, so neither applies again.
     const served = existing?.state === 'withheld' && existing.hold_until !== null;
     const closes = new Date(completion.completed_at.getTime() + tasks.claimWindowSeconds * 1000);
     if (!served && now >= closes) {
-      await this.write(row, input.accountId, key, 'forfeited', 'campaigns.claim_expired');
+      await this.write(row, input.accountId, key, 'forfeited', 'campaigns.claim_expired', null, terms);
       throw new CampaignsError('campaigns.claim_expired', 'The claim window closed; this reward is forfeited');
     }
     // Identity is read before any write, and nothing it answers is stored.
@@ -337,14 +429,14 @@ export class TaskService {
       throw new CampaignsError('campaigns.kyc_required', `This reward needs ${tasks.kycGate} verification before it can be claimed`);
     }
     if (who.status !== 'active') {
-      const made = await this.write(row, input.accountId, key, 'withheld', `account.${who.status}`);
+      const made = await this.write(row, input.accountId, key, 'withheld', `account.${who.status}`, null, terms);
       return { reward: await this.record(made.intent), created: made.created };
     }
     if (holdSeconds > 0 && !served) {
-      const held = await this.write(row, input.accountId, key, 'held', null, new Date(now.getTime() + holdSeconds * 1000));
+      const held = await this.write(row, input.accountId, key, 'held', null, new Date(now.getTime() + holdSeconds * 1000), terms);
       return { reward: await this.record(held.intent), created: held.created };
     }
-    const made = await this.write(row, input.accountId, key, 'qualified', null);
+    const made = await this.write(row, input.accountId, key, 'qualified', null, null, terms);
     if (made.created) await this.saga.attempt(key);
     return { reward: await this.record((await this.intent(key))!), created: made.created };
   }
@@ -407,9 +499,9 @@ export class TaskService {
         SELECT state, asset, sum(amount)::text AS amount, count(*)::int AS n FROM campaigns.reward_intents
         WHERE account_id = ${input.accountId} GROUP BY state, asset`,
     ]);
-    const attempts = await this.attemptsOf(rows.map((r) => r.reward_key));
+    const [attempts, locks] = await Promise.all([this.attemptsOf(rows.map((r) => r.reward_key)), this.locksOf(rows)]);
     const rewards = rows.map((r) => ({
-      ...this.toRecord(r, attempts.get(r.reward_key) ?? []),
+      ...this.toRecord(r, attempts.get(r.reward_key) ?? [], locks.get(r.reward_key)),
       campaignName: r.campaign_name,
       status: REWARD_STATUS_OF[r.state],
     }));
@@ -436,7 +528,8 @@ export class TaskService {
     key: string,
     state: 'held' | 'qualified' | 'forfeited' | 'withheld',
     reason: string | null,
-    holdUntil: Date | null = null,
+    holdUntil: Date | null,
+    terms: LockTerms,
   ): Promise<{ intent: IntentRow; created: boolean }> {
     return transaction(this.sql, async (tx) => {
       const [locked] = await tx<{ budget_limit: string | null }[]>`
@@ -464,9 +557,9 @@ export class TaskService {
             WHERE reward_key = ${key} RETURNING *, amount::text AS amount`
         : await tx<IntentRow[]>`
             INSERT INTO campaigns.reward_intents (reward_key, campaign_id, account_id, period, asset, amount, state, reason,
-              hold_until)
+              hold_until, form, lock_seconds)
             VALUES (${key}, ${row.id}, ${accountId}, ${PERIOD_ONCE}, ${row.reward_asset!}, ${row.reward_amount!}, ${state}, ${reason},
-              ${holdUntil})
+              ${holdUntil}, ${terms.form}, ${terms.seconds})
             RETURNING *, amount::text AS amount`;
       await tx`INSERT INTO campaigns.redemption_attempts (reward_key, outcome, reason) VALUES (${key}, ${state}, ${reason})`;
       await tx`
@@ -484,8 +577,13 @@ export class TaskService {
       SELECT *, amount::text AS amount FROM campaigns.reward_intents
       WHERE ${input.campaignId ?? null}::text IS NULL OR campaign_id = ${input.campaignId ?? null}
       ORDER BY created_at DESC LIMIT 200`;
-    const attempts = await this.attemptsOf(rows.map((r) => r.reward_key));
-    return { records: rows.map((r) => ({ ...this.toRecord(r, attempts.get(r.reward_key) ?? []), accountId: r.account_id })) };
+    const [attempts, locks] = await Promise.all([this.attemptsOf(rows.map((r) => r.reward_key)), this.locksOf(rows)]);
+    return {
+      records: rows.map((r) => ({
+        ...this.toRecord(r, attempts.get(r.reward_key) ?? [], locks.get(r.reward_key)),
+        accountId: r.account_id,
+      })),
+    };
   }
 
   /** One operator asks for a sweep of earned fees into the reward pot. The reference is the business key. */
@@ -590,6 +688,20 @@ export class TaskService {
     return row ?? null;
   }
 
+  /** The lock terms and unlock-step count of each locked reward among these rows. */
+  private async locksOf(rows: readonly IntentRow[]): Promise<Map<string, LockView>> {
+    const out = new Map<string, LockView>();
+    const keys = rows.filter((r) => r.lock_tx_id).map((r) => r.reward_key);
+    if (keys.length === 0) return out;
+    const found = await this.sql<{ reward_key: string; tasks: CampaignTasks | null; done: number }[]>`
+      SELECT i.reward_key, c.tasks,
+        (SELECT count(*)::int FROM campaigns.lock_progress p WHERE p.reward_key = i.reward_key) AS done
+      FROM campaigns.reward_intents i JOIN campaigns.campaigns c ON c.id = i.campaign_id
+      WHERE i.reward_key IN ${this.sql(keys)}`;
+    for (const f of found) out.set(f.reward_key, { lock: f.tasks?.lock ?? null, done: f.done });
+    return out;
+  }
+
   private async attemptsOf(keys: string[]): Promise<Map<string, RedemptionAttempt[]>> {
     const out = new Map<string, RedemptionAttempt[]>();
     if (keys.length === 0) return out;
@@ -604,11 +716,13 @@ export class TaskService {
   }
 
   private async record(row: IntentRow): Promise<RewardRecord> {
-    return this.toRecord(row, (await this.attemptsOf([row.reward_key])).get(row.reward_key) ?? []);
+    const [attempts, locks] = await Promise.all([this.attemptsOf([row.reward_key]), this.locksOf([row])]);
+    return this.toRecord(row, attempts.get(row.reward_key) ?? [], locks.get(row.reward_key));
   }
 
-  private toRecord(row: IntentRow, attempts: RedemptionAttempt[]): RewardRecord {
+  private toRecord(row: IntentRow, attempts: RedemptionAttempt[], lockView?: LockView): RewardRecord {
     const window = this.rollbackWindowSeconds;
+    const terms = lockView?.lock ?? null;
     return {
       rewardKey: row.reward_key,
       campaignId: row.campaign_id,
@@ -620,6 +734,20 @@ export class TaskService {
       createdAt: iso(row.created_at),
       postedAt: row.posted_at ? iso(row.posted_at) : null,
       holdUntil: row.hold_until ? iso(row.hold_until) : null,
+      form: row.form,
+      lock:
+        row.lock_tx_id && row.lock_until
+          ? {
+              txId: row.lock_tx_id,
+              until: iso(row.lock_until),
+              condition:
+                terms?.kind === 'locked'
+                  ? { title: terms.step.title, done: Math.min(lockView?.done ?? 0, terms.step.count), target: terms.step.count }
+                  : null,
+              appliesTo: terms?.kind === 'bonus' ? terms.appliesTo : [],
+              outcome: row.settle,
+            }
+          : null,
       rollback: {
         windowSeconds: window,
         closesAt: window && row.posted_at ? iso(new Date(row.posted_at.getTime() + window * 1000)) : null,

@@ -250,7 +250,7 @@ export function IssuedAddress({
         <div className="bd-address" data-testid="deposit-address">
           <p>{t('addressLead', { asset, network: network.label })}</p>
           <p>
-            <strong className="numeric" style={{ overflowWrap: 'anywhere' }}>
+            <strong data-testid="numeric" className="numeric" style={{ overflowWrap: 'anywhere' }}>
               {address}
             </strong>
           </p>
@@ -259,7 +259,9 @@ export function IssuedAddress({
             <div role="note">
               <strong>{t('memoTitle')}</strong>
               <p>{t('memoNote')}</p>
-              <p className="numeric">{memo}</p>
+              <p data-testid="numeric" className="numeric">
+                {memo}
+              </p>
               <CopyButton value={memo} label={t('copyMemo')} />
             </div>
           )}

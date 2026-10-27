@@ -12,6 +12,7 @@ import { withMoneySpan } from '../../tracing.js';
 import { orderIdFor } from '../ids.js';
 import { REGULAR_FEE_TIER } from '../fee-schedule.js';
 import { isPlacedForThem } from '../fee-tier-store.js';
+import { ifcFeeAtPlacement, sameFeeCurrency, type IfcPlacement } from '../fee-ifc.js';
 import {
   assertMarketOpen,
   assertNotional,
@@ -120,6 +121,7 @@ export async function placeOrderInner(
   const existing = await svc.findOrder(orderId);
   if (existing) {
     assertSamePlaceCommand(existing, input, orderType, tif, expectedSeeded);
+    assertSameFeeCurrency(existing, input, market);
     // A lost hold reply left this row. The same key resolves it; it does not
     // open a second hold and it does not return the stuck row as placed.
     if (existing.status === 'hold_unknown') return svc.resumeHoldUnknown(existing, 'retry');
@@ -190,6 +192,25 @@ export async function placeOrderInner(
   // schedule; unpublished, or no row for this market's pair group at the
   // person's fee tier, is a typed refuse (same hitch as order preview).
   await svc.assertOwnerFeeSchedulePublished(market, undefined, feeTier);
+
+  // Paying the fee in the platform token (fee-ifc.ts): the choice and the stake discount are read once, here, before
+  // paper SQL or any hold, and carried like the tier. The conversion is the one in the version each fill is charged at.
+  const feeIfc = await ifcFeeAtPlacement(
+    input.feeCurrency,
+    input.side === 'buy' ? market.baseAsset : market.quoteAsset,
+    !seeded &&
+      input.subAccountId == null &&
+      market.kind === 'spot' &&
+      !market.paper &&
+      kind !== 'copy.mirror' &&
+      !isPlacedForThem(input.clientOrderId),
+    async () => {
+      const schedule = await svc.feeScheduleAt(svc.now());
+      return schedule.published === true ? schedule.ifcFee : null;
+    },
+    svc.ifcDiscount,
+    userId,
+  );
 
   // Ownership + revoked gate (identity S2S). Before any new row or hold — a
   // foreign or revoked id must never land on trade.orders.sub_account_id.
@@ -350,6 +371,7 @@ export async function placeOrderInner(
     perks,
     feeTier,
     tierVolume,
+    feeIfc,
     protectionPrice,
     seeded,
     attribution,
@@ -439,6 +461,7 @@ export async function executeAdmittedOrder(svc: TradeServiceInternal, evidence: 
     typeof evidence.tierVolume === 'boolean'
       ? evidence.tierVolume
       : !seeded && input.subAccountId == null && !isPlacedForThem(input.clientOrderId);
+  const feeIfc = readFeeIfc(evidence.feeIfc);
   // ── 2b · THE INTENT ROW ─────────────────────────────────────────────────
   //
   // If this crashes exactly here, whose funds are stranded? Nobody's. A
@@ -453,14 +476,15 @@ export async function executeAdmittedOrder(svc: TradeServiceInternal, evidence: 
   const inserted = await svc.sql<Array<{ id: string; created_at: Date }>>`
     INSERT INTO trade.orders (
       id, user_id, sub_account_id, market_id, client_order_id, side, type,
-      price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, fee_tier, tier_volume, protection_price, seeded, lifecycle_proof,
-      replacement_of, replacement_request_hash, session_id, api_key_id, tag
+      price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, fee_tier, tier_volume, fee_currency, fee_ifc_discount_bps,
+      protection_price, seeded, lifecycle_proof, replacement_of, replacement_request_hash, session_id, api_key_id, tag
     ) VALUES (
       ${orderId}, ${userId}, ${input.subAccountId ?? null}, ${market.id}, ${input.clientOrderId!},
       ${input.side}, ${orderType},
       ${input.price == null ? null : formatAmount(input.price)}::numeric,
       ${formatAmount(input.qty)}::numeric, 'pending', ${tif},
       ${hold.assetId}, ${formatAmount(hold.amount)}::numeric, ${perks.feeDiscountBps}, ${feeTier}, ${tierVolume},
+      ${feeIfc?.tokenAsset ?? null}, ${feeIfc?.discountBps ?? null},
       ${protectionPrice === null ? null : formatAmount(protectionPrice)}::numeric,
       ${seeded}, ${JSON.stringify(lifecycleProof)}::text::jsonb,
       ${input.replacementOf ?? null}, ${input.replacementRequestHash ?? null},
@@ -474,7 +498,10 @@ export async function executeAdmittedOrder(svc: TradeServiceInternal, evidence: 
     // Lost a race with a concurrent identical submission. The winner owns the
     // hold and the engine submission; return what it wrote.
     const raced = await svc.findOrder(orderId);
-    if (raced) return assertSamePlaceCommand(raced, input, orderType, tif, seeded);
+    if (raced) {
+      assertSameFeeCurrency(raced, input, market);
+      return assertSamePlaceCommand(raced, input, orderType, tif, seeded);
+    }
     throw new TradeError(`order ${orderId} vanished between insert and read`, 'trade.order_not_found');
   }
 
@@ -601,4 +628,19 @@ export async function placePaperOrderIsolated(
   if (!settled) throw new TradeError(`order ${orderId} vanished during paper place`, 'trade.order_not_found');
   await svc.publishOrderUpdated(settled);
   return settled;
+}
+
+/** A retry under the same client id that asks for another fee currency is another order. */
+function assertSameFeeCurrency(order: OrderRecord, input: PlaceOrderInput, market: Market): void {
+  if (!sameFeeCurrency(order.feeCurrency, input.feeCurrency, input.side === 'buy' ? market.baseAsset : market.quoteAsset)) {
+    throw new TradeError('clientOrderId was already used for a different order request', 'trade.client_order_id_conflict');
+  }
+}
+
+/** The admitted payload's token choice. A payload admitted before the choice existed paid in the received asset. */
+function readFeeIfc(raw: unknown): IfcPlacement | null {
+  if (raw == null || typeof raw !== 'object') return null;
+  const { tokenAsset, discountBps } = raw as { tokenAsset?: unknown; discountBps?: unknown };
+  if (typeof tokenAsset !== 'string' || typeof discountBps !== 'number') return null;
+  return { tokenAsset, discountBps };
 }

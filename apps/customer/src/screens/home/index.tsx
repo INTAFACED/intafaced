@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { Fragment, Suspense, lazy, useMemo } from 'react';
 import { ChevronRight, Eye, EyeOff } from 'lucide-react';
 import './home.css';
 import { clockTime } from './clock';
@@ -27,13 +27,13 @@ import {
   type Loadable,
   type HomePortfolio,
   type TickerRow,
+  Loading,
 } from './deps';
 import { InfoTip } from './InfoTip';
 import { IN_PANEL, STATE_IN_COLUMN } from './panel';
 import { MarketsFailure, MarketsRow, MarketsSkeleton, MoversHeading, MoversRow, MoversSkeleton } from './MarketsSection';
 import { YourCrypto, YourCryptoSkeleton } from './YourCrypto';
 import { listings, topCards, topMovers } from './select';
-import { HomePro } from './HomePro';
 import { Watchlist } from './Watchlist';
 import { GetStarted } from './GetStarted';
 import { LearnStrip } from './LearnStrip';
@@ -43,11 +43,15 @@ import { TotalFigure, TotalUnitNote } from './TotalFigure';
 import { HOME_LINKS } from './links';
 import { useStartedTile } from './started-data';
 import { CustomiseHome } from './CustomiseHome';
+import { LitSphere } from './LitSphere';
 import { HomeNotices } from './Notices';
 import { useHomeLayout } from './tiles-data';
 import { shownTiles } from './tiles';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 import { useSession } from '../../features/session/session';
+
+// Pro Home carries Trade's client; Simple Home (the default) does not load it.
+const HomePro = lazy(() => import('./HomePro').then((module) => ({ default: module.HomePro })));
 
 /** Simple Home: Buy and Sell open the Buy card (Pro Home goes to the desk, `HomePro.tsx`). */
 const ACTIONS = [
@@ -82,7 +86,7 @@ function ActionPills({ loading, mode }: { loading: boolean; mode: ActionMode }) 
       : ACTIONS.filter((action) => action.label !== 'Add money')
   ).filter((action) => !isHiddenPath(action.href.split('?')[0]!));
   return (
-    <nav className="home-actions" aria-label={t('Actions')}>
+    <nav data-testid="home-actions" className="home-actions" aria-label={t('Actions')}>
       {loading
         ? live.map((action) => <Skeleton key={action.label} width={PILL_WIDTH[action.label]} height={40} circle />)
         : live.map((action, index) => (
@@ -107,14 +111,14 @@ function HoldingsCard({ portfolio, hidden }: { portfolio: HomePortfolio; hidden:
     { id: 'crypto', label: t('Crypto'), glyph: '₿', value: portfolio.cryptoUsd },
   ] as const;
   return (
-    <section className="home-holdings" aria-label={t('Your holdings')}>
+    <section data-testid="home-holdings" className="home-holdings" aria-label={t('Your holdings')}>
       {rows.map((row) => (
-        <a key={row.id} className="home-holdings__row" href={`/money#${row.id}`}>
+        <a key={row.id} data-testid="home-holdings__row" className="home-holdings__row" href={`/money#${row.id}`}>
           <span className="home-holdings__glyph" aria-hidden="true">
             {row.glyph}
           </span>
           <span className="home-holdings__label">{row.label}</span>
-          <Money className="home-holdings__value" value={fmtUsd(row.value)} hidden={hidden} />
+          <Money data-testid="home-holdings__value" className="home-holdings__value" value={fmtUsd(row.value)} hidden={hidden} />
           <ChevronRight size={20} aria-hidden="true" className="home-holdings__chev" />
         </a>
       ))}
@@ -124,9 +128,9 @@ function HoldingsCard({ portfolio, hidden }: { portfolio: HomePortfolio; hidden:
 
 function HoldingsSkeleton() {
   return (
-    <section className="home-holdings" aria-hidden="true">
+    <section data-testid="home-holdings" className="home-holdings" aria-hidden="true">
       {[0, 1].map((index) => (
-        <div key={index} className="home-holdings__row">
+        <div key={index} data-testid="home-holdings__row" className="home-holdings__row">
           <Skeleton width={32} height={32} circle className={IN_PANEL} />
           <span className="home-holdings__label">
             <Skeleton width={64} height={20} className={IN_PANEL} />
@@ -145,10 +149,10 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hi
   if (portfolio.status === 'loading')
     return (
       <div aria-busy="true" aria-label={t('Est. total value')}>
-        <div className="home-total">
+        <div data-testid="home-total" className="home-total">
           <Skeleton width={240} height={56} />
         </div>
-        <div className="home-change">
+        <div data-testid="home-change" className="home-change">
           <Skeleton width={180} height={20} />
         </div>
       </div>
@@ -184,11 +188,13 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hi
   if (empty)
     return (
       <>
-        <div className="home-total">
+        <div data-testid="home-total" className="home-total">
           {/* The balance call answered with no assets, so zero is correct here and only here. */}
           <HeroNumber value="0.00" decimals={2} prefix="$" hidden={hidden} />
         </div>
-        <p className="home-note home-note--lg">{t('No crypto yet')}</p>
+        <p data-testid="home-note" className="home-note home-note--lg">
+          {t('No crypto yet')}
+        </p>
       </>
     );
 
@@ -205,12 +211,12 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hi
   const hasCrypto = (dec(data.cryptoUsd) ?? 0n) > 0n;
   return (
     <>
-      <div className="home-total">
+      <div data-testid="home-total" className="home-total">
         <TotalFigure data={data} displayCurrency={displayCurrency} hidden={hidden} pro={false} />
       </div>
-      <TotalUnitNote data={data} displayCurrency={displayCurrency} hidden={hidden} className="home-note" />
+      <TotalUnitNote data={data} displayCurrency={displayCurrency} hidden={hidden} className="home-note" testId="home-note" />
       {(data.change24hUsd !== null && hasCrypto) || data.source === 'derived' ? (
-        <p className="home-change">
+        <p data-testid="home-change" className="home-change">
           {data.change24hUsd !== null && hasCrypto ? (
             <>
               <ChangeText value={fmtChangeLine(data.change24hUsd, data.change24hPct)} hidden={hidden} suffix={changeLabel} />
@@ -221,7 +227,7 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hi
         </p>
       ) : null}
       {unpriced > 0 ? (
-        <p className="home-note">
+        <p data-testid="home-unpriced-note" className="home-note">
           {unpriced === 1 ? t('Asset not counted') : t('Assets not counted', { count: unpriced })}
           <InfoTip text={t('Not counted list', { assets: data.unpriced.join(', ') })} label={t('Not counted label')} />
         </p>
@@ -299,12 +305,12 @@ function HomeSimple() {
   const started = useStartedTile(portfolio, side.includes('started'));
 
   return (
-    <div className="if-home">
+    <div data-testid="if-home" className="if-home">
       <h1 className="if-sr">{t('Home')}</h1>
       <HomeNotices />
       <div className="home-grid">
-        <div className="home-main">
-          <div className="home-label">
+        <div data-testid="home-main" className="home-main">
+          <div data-testid="home-label" className="home-label">
             <span>{t('Est. total value')}</span>
             <button
               type="button"
@@ -332,9 +338,17 @@ function HomeSimple() {
                 return <WorkList key={id} hidden={hideBalances} />;
               case 'holdings':
                 return portfolio.status === 'loading' ? (
-                  <HoldingsSkeleton key={id} />
+                  // the sphere's section keeps its place while the holdings load (no split, no figures), so it doesn't
+                  // arrive late and push the rows below it down
+                  <Fragment key={id}>
+                    <LitSphere portfolio={portfolio} hidden={hideBalances} />
+                    <HoldingsSkeleton />
+                  </Fragment>
                 ) : portfolio.status === 'ready' && portfolio.data.holdings.length > 0 ? (
-                  <HoldingsCard key={id} portfolio={portfolio.data} hidden={hideBalances} />
+                  <Fragment key={id}>
+                    <LitSphere portfolio={portfolio} hidden={hideBalances} />
+                    <HoldingsCard portfolio={portfolio.data} hidden={hideBalances} />
+                  </Fragment>
                 ) : null;
               case 'markets':
                 return showMarkets ? (
@@ -344,7 +358,9 @@ function HomeSimple() {
                         {t('Markets')}
                       </h2>
                       {pricesAsOf !== null ? (
-                        <p className="home-fresh">{t('Prices updated {time}', { time: clockTime(pricesAsOf, timeZone) })}</p>
+                        <p data-testid="home-fresh" className="home-fresh">
+                          {t('Prices updated {time}', { time: clockTime(pricesAsOf, timeZone) })}
+                        </p>
                       ) : null}
                     </div>
                     {marketsLoading ? (
@@ -380,7 +396,7 @@ function HomeSimple() {
         ) : null}
 
         {showMarkets && !marketsBroken ? (
-          <aside className="home-side">
+          <aside data-testid="home-side" className="home-side">
             {side.map((id) =>
               id === 'your-crypto' ? (
                 portfolio.status === 'loading' ? (
@@ -410,5 +426,11 @@ function HomeSimple() {
 /** The layout preference decides which Home is drawn (UI-SPEC 3.3); a switch in the top bar flips it at once. */
 export default function Home() {
   const { layoutMode } = usePreferences();
-  return layoutMode === 'pro' ? <HomePro /> : <HomeSimple />;
+  return layoutMode === 'pro' ? (
+    <Suspense fallback={<Loading />}>
+      <HomePro />
+    </Suspense>
+  ) : (
+    <HomeSimple />
+  );
 }

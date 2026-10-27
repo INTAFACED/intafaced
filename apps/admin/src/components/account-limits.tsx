@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { AccountLimitOverride, AccountLimitResult, AccountLimitsState } from '@intafaced/contracts';
 import { ControlDesk } from '@/components/control-desk';
 import { founderMutationHeaders } from '@/lib/founder-browser';
-import { aboveCeiling, ceilingFor, overrideFigures } from '@/lib/accounts/limits';
+import { aboveCeiling, allowanceRefusal, ceilingFor, overrideFigures, type AllowanceRow } from '@/lib/accounts/limits';
 
 /** As identity's figure: at most 20 whole digits and 18 decimals. */
 const FIGURE = /^(?:0|[1-9]\d{0,19})(?:\.\d{1,18})?$/;
@@ -30,6 +30,95 @@ function historyText(event: AccountLimitResult): string {
   if (event.outcome === 'refused') return `refused (${event.code})${event.ceiling ? ` · ceiling ${event.ceiling}` : ''}`;
   if (event.outcome === 'conflict') return 'conflict (restriction.version_conflict)';
   return event.action === 'clear' ? 'ended early' : `set: ${overrideFigures(event.after)}`;
+}
+
+/**
+ * What svc-pay, which enforces the withdrawal limit, applies to this customer now for each asset: the base figure for their
+ * verification level, an override in force, what the last 24 hours used and what is left. Read again whenever `reading`
+ * changes, so an override set or ended here shows at once.
+ */
+function WithdrawalAllowances({ userId, reading }: { userId: string; reading: string }) {
+  /** undefined while reading; a string when svc-pay could not be read at all. */
+  const [rows, setRows] = useState<AllowanceRow[] | string | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/accounts/limits/allowance?id=${encodeURIComponent(userId)}`, { cache: 'no-store' });
+        const body = (await res.json().catch(() => null)) as { rows?: AllowanceRow[]; upstream?: string; code?: string } | null;
+        const next = res.ok && Array.isArray(body?.rows) ? body.rows : allowanceRefusal(body?.upstream ?? body?.code ?? null);
+        if (live) setRows(next);
+      } catch {
+        if (live) setRows(allowanceRefusal(null));
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [userId, reading]);
+
+  return (
+    <>
+      <h3>Withdrawal limits now (svc-pay)</h3>
+      {rows === undefined ? (
+        <p className="adm-subtle">Reading what svc-pay applies…</p>
+      ) : typeof rows === 'string' ? (
+        <p className="adm-alert" role="alert" data-testid="account-limits-allowance-refused">
+          {rows}
+        </p>
+      ) : rows.length === 0 ? (
+        <p data-testid="account-limits-allowance-none">
+          svc-pay has no withdrawal limit set for any asset, so it refuses every withdrawal (pay.guard_withdrawal_limit_unset).
+        </p>
+      ) : (
+        <div className="adm-table-scroll">
+          <table className="adm-crm-table" data-testid="account-limits-allowance">
+            <caption className="adm-sr-only">The withdrawal limits svc-pay applies to this customer now</caption>
+            <thead>
+              <tr>
+                <th>Asset</th>
+                <th>Base (verification level)</th>
+                <th>Override</th>
+                <th>In force</th>
+                <th>Used, last 24 hours</th>
+                <th>Left</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((one) => {
+                if ('refused' in one)
+                  return (
+                    <tr key={one.assetId} data-testid={`account-allowance-${one.assetId}`}>
+                      <td>{one.assetId}</td>
+                      <td colSpan={5}>{allowanceRefusal(one.refused)}</td>
+                    </tr>
+                  );
+                const row = one.allowance;
+                return (
+                  <tr key={one.assetId} data-testid={`account-allowance-${one.assetId}`}>
+                    <td>{one.assetId}</td>
+                    <td>
+                      {overrideFigures(row.base)} <span className="adm-subtle">(level {row.tier})</span>
+                    </td>
+                    <td>
+                      {row.override
+                        ? `${overrideFigures(row.override)} until ${new Date(row.override.expiresAt).toLocaleString()}`
+                        : 'No override'}
+                    </td>
+                    <td>{overrideFigures(row)}</td>
+                    <td>{row.used24h}</td>
+                    <td>
+                      per transaction {row.remaining.perTx} · over 24 hours {row.remaining.rolling24h} · most now {row.maxNow}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
 }
 
 /**
@@ -108,6 +197,8 @@ export function AccountLimits({
   const policy = state?.policy;
   const self = id === founderId.toLowerCase();
   const ceilings = policy?.configured ? policy.ceilings.filter((row) => row.rail === RAIL) : [];
+  /** Changes whenever an override is set, ended or reaches its end time, so the svc-pay figures are read again. */
+  const reading = JSON.stringify(state?.overrides.map((row) => [row.assetId, row.version, row.status]) ?? []);
   const ceiling = policy && assetId ? ceilingFor(policy, RAIL, assetId) : null;
   const current = state?.overrides.find((row) => row.rail === RAIL && row.assetId === assetId) ?? null;
   const version = current?.version ?? '0';
@@ -163,12 +254,14 @@ export function AccountLimits({
       )}
       {state === undefined && !error && <p className="adm-subtle">Reading the customer’s limit overrides…</p>}
       {state === null && !error && <p>Identity has no customer with this id, so it has no limits (target.not_found).</p>}
+      {/* svc-pay's own read, shown whatever identity answered: it names its own blockers. */}
+      <WithdrawalAllowances userId={id} reading={reading} />
       {state && policy && (
         <>
           <p className="adm-subtle">
             An override replaces a withdrawal limit figure for one asset until its stored end time; after it, the base limit applies again.
-            The base limits stay with the service that enforces them (svc-pay’s withdrawal limits by verification level) and are not shown
-            here.
+            The base limits stay with the service that enforces them (svc-pay’s withdrawal limits by verification level); what it applies
+            now is shown below the overrides.
           </p>
           <p data-testid="account-limits-policy">
             {policy.configured ? (

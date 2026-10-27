@@ -5,6 +5,8 @@ import type { ApiClient } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Dialog, EmptyState, Failure, Field, Loading, Page } from '../../shared/ui';
 import { verificationCopy as copy } from './verification-copy';
+import { VerificationLadder } from './VerificationLadder';
+import { KYC_LADDER_LEVELS } from '@intafaced/contracts/identity-kyc-levels';
 import {
   finishVerification,
   readVerification,
@@ -36,7 +38,6 @@ type Known = {
 };
 type Problem = 'storage' | 'locks' | 'another' | 'changed' | 'invalidCountry';
 const emptyJournal: VerificationJournal = { records: [], failed: false };
-const levelOrder = ['none', 'basic', 'full', 'institutional'] as const;
 
 export function Verification() {
   const { api, userId, session } = useSession();
@@ -75,7 +76,7 @@ export function Verification() {
   );
   // Only levels above the current one are worth asking for; the first of them is the default.
   const heldLevel = resource.status === 'ready' ? resource.data.tier : 'none';
-  const offeredTiers = levelOrder.slice(levelOrder.indexOf(heldLevel) + 1) as RequestedTier[];
+  const offeredTiers = KYC_LADDER_LEVELS.slice(KYC_LADDER_LEVELS.indexOf(heldLevel) + 1) as RequestedTier[];
   const chosenTier = offeredTiers.includes(tier) ? tier : (offeredTiers[0] ?? tier);
   useEffect(() => {
     mounted.current = true;
@@ -591,6 +592,17 @@ export function Verification() {
             </a>
           </section>
         </div>
+        <VerificationLadder
+          statusTier={resource.status === 'ready' ? resource.data.tier : null}
+          offered={offeredTiers}
+          verifyDisabled={blocked}
+          onVerify={(level) => {
+            const parsed = requestedTier.safeParse(level);
+            if (!parsed.success) return;
+            setTier(parsed.data);
+            jump();
+          }}
+        />
         {privateVisible && review && same(review) && (
           <Dialog title={t('reviewTitle')} onClose={close}>
             <div className="verification__review stack">

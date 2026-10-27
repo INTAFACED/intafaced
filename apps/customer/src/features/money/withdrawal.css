@@ -3,29 +3,29 @@
   min-width: 0;
 }
 .withdrawal-page .money-section {
-  padding-block: 24px;
+  padding-block: var(--if-space-6);
   margin: 0;
 }
 .withdrawal-page .money-section + .money-section {
   border-top: 1px solid var(--color-divider);
 }
 .withdrawal-page .accent {
-  color: var(--color-accent);
+  color: var(--if-accent-text);
 }
 .withdrawal-page .button--secondary {
   background: var(--color-background);
   font-weight: 500;
 }
 .withdrawal-page .money-section > header {
-  gap: 16px;
+  gap: var(--if-space-4);
 }
 .withdrawal-page h2 {
-  font-size: 20px;
+  font-size: var(--if-text-lg);
   font-weight: 600;
-  line-height: 28px;
+  line-height: var(--if-leading-lg);
 }
 .withdrawal-page p {
-  line-height: 24px;
+  line-height: var(--if-leading-md);
 }
 .withdrawal-list {
   margin: 0;
@@ -34,16 +34,16 @@
 }
 .withdrawal-list-labels {
   color: var(--color-muted);
-  font-size: 14px;
+  font-size: var(--if-text-base);
   line-height: 22px;
-  padding-bottom: 12px;
+  padding-bottom: var(--if-space-3);
   border-bottom: 1px solid var(--color-divider);
 }
 .withdrawal-row {
   display: flex;
-  gap: 12px;
+  gap: var(--if-space-3);
   align-items: center;
-  padding-block: 16px;
+  padding-block: var(--if-space-4);
   border-bottom: 1px solid var(--color-divider);
 }
 .withdrawal-row-main {
@@ -51,17 +51,17 @@
   flex: 1;
   min-width: 0;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--if-space-1);
   overflow-wrap: anywhere;
 }
 .withdrawal-row-main strong {
-  font-size: 16px;
+  font-size: var(--if-text-md);
   font-weight: 500;
-  line-height: 24px;
+  line-height: var(--if-leading-md);
 }
 .withdrawal-row-main > span,
 .withdrawal-row-main time {
-  font-size: 14px;
+  font-size: var(--if-text-base);
   line-height: 22px;
 }
 .withdrawal-row-main time,
@@ -74,26 +74,26 @@
   width: 44px;
   min-height: 44px;
   padding: 0;
-  color: var(--color-accent);
+  color: var(--if-accent-text);
 }
 .withdrawal-window {
   display: flex;
   align-items: start;
   flex-direction: column;
-  gap: 12px;
-  padding-top: 16px;
-  font-size: 14px;
+  gap: var(--if-space-3);
+  padding-top: var(--if-space-4);
+  font-size: var(--if-text-base);
 }
 .withdrawal-lookup {
   display: flex;
   align-items: end;
-  gap: 12px;
+  gap: var(--if-space-3);
 }
 .withdrawal-filters {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  padding-bottom: 16px;
+  gap: var(--if-space-3);
+  padding-bottom: var(--if-space-4);
 }
 .withdrawal-filters select {
   min-height: 44px;
@@ -107,37 +107,37 @@
   flex-shrink: 0;
 }
 .withdrawal-original {
-  font-size: 14px;
+  font-size: var(--if-text-base);
   overflow-wrap: anywhere;
-  margin-bottom: 20px;
+  margin-bottom: var(--if-space-5);
 }
 .withdrawal-detail {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--if-space-5);
 }
 .withdrawal-detail-value {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--if-space-2);
 }
 .withdrawal-detail-value strong {
-  font-size: 20px;
+  font-size: var(--if-text-lg);
   font-weight: 600;
-  line-height: 28px;
+  line-height: var(--if-leading-lg);
   overflow-wrap: anywhere;
 }
 .withdrawal-facts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px 32px;
+  gap: var(--if-space-4) var(--if-space-8);
   margin: 0;
 }
 .withdrawal-facts dt {
   color: var(--color-muted);
-  font-size: 14px;
+  font-size: var(--if-text-base);
   line-height: 22px;
-  margin-bottom: 4px;
+  margin-bottom: var(--if-space-1);
 }
 .withdrawal-facts dd {
   margin: 0;
@@ -149,7 +149,7 @@
   align-self: start;
 }
 .withdrawal-return {
-  margin-top: 12px;
+  margin-top: var(--if-space-3);
 }
 .withdrawal-back {
   display: inline-flex;
@@ -161,10 +161,10 @@
   .withdrawal-row {
     display: grid;
     grid-template-columns: minmax(0, 2.5fr) minmax(0, 0.75fr) minmax(0, 1fr) minmax(0, 1.5fr) 44px;
-    gap: 20px;
+    gap: var(--if-space-5);
   }
   .withdrawal-row {
-    padding-block: 24px;
+    padding-block: var(--if-space-6);
   }
   .withdrawal-row-main {
     display: contents;
@@ -181,7 +181,7 @@
   .withdrawal-row-main {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
-    gap: 4px;
+    gap: var(--if-space-1);
   }
   .withdrawal-row-main strong,
   .withdrawal-row-main time {
@@ -220,7 +220,7 @@
   overflow-wrap: anywhere;
 }
 .withdrawal-page > .bd-stack {
-  margin-bottom: 24px;
+  margin-bottom: var(--if-space-6);
 }
 
 .withdrawal-actions {

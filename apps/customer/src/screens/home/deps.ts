@@ -2,6 +2,7 @@
 // @intafaced/ui (B1), the data layer in ../../data (B3) and the feature registry (B2).
 export { Amount, Button, ChangeText, CoinIcon, HeroNumber, Money, Pct, Skeleton, Sparkline, StateBlock, StatusTag } from '@intafaced/ui';
 export { Tooltip, TooltipContent, TooltipTrigger } from '@intafaced/ui';
+export { Loading } from '../../shared/ui';
 
 export {
   direction,
@@ -27,7 +28,7 @@ export { DerivedTotalTag } from '../money/total-note';
 export { groupActivity } from '../money/activity-view';
 export { detailHref } from '../money/activity-detail';
 export type { HomeHolding, HomePortfolio } from '../money/portfolio-source';
-export { compareDecimal, dec, decOrNull, ratio, roundScaled, sub, toFixedString } from '../../data/decimal';
+export { compareDecimal, dec, decOrNull, ratio, roundScaled, str, sub, toFixedString } from '../../data/decimal';
 
 export { isHiddenPath } from '../../app/feature-registry';
 export { coinHref, defaultDeskPair } from '../../app/navigation';

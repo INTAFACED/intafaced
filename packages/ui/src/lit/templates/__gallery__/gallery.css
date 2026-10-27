@@ -1,0 +1,159 @@
+/* Templates gallery page. Kit tokens, then the Lit roles, then the templates. Dev tool only. */
+@import '../../../theme/tokens.css';
+@import '../../lit.css';
+@import '../../components/components.css';
+@import '../templates.css';
+
+html,
+body {
+  margin: 0;
+  background: var(--lit-page);
+  color: var(--lit-text-1);
+  font-family: var(--lit-font-ui);
+}
+
+body {
+  background: var(--lit-field), var(--lit-page);
+  background-attachment: fixed;
+  min-block-size: 100vh;
+}
+
+.gallery-frame {
+  box-sizing: border-box;
+  padding: 16px;
+  margin-inline: auto;
+}
+
+.gallery-frame *,
+.gallery-frame *::before,
+.gallery-frame *::after {
+  box-sizing: border-box;
+}
+
+.gallery-h {
+  margin: 0 0 8px;
+  font-size: var(--lit-type-heading-size);
+  line-height: var(--lit-type-heading-line);
+  font-weight: var(--lit-type-heading-weight);
+}
+
+.gallery-label {
+  margin: 0;
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+
+.gallery-change[data-dir='up'] {
+  color: var(--lit-up-text);
+}
+
+.gallery-index {
+  display: flex;
+  flex-direction: column;
+}
+
+.gallery-index a {
+  color: var(--lit-text-2);
+  text-decoration: none;
+  min-block-size: 36px;
+  display: flex;
+  align-items: center;
+}
+
+.gallery-index a[aria-current] {
+  color: var(--lit-text-1);
+  font-weight: 600;
+}
+
+.gallery-grid {
+  display: grid;
+  gap: var(--lit-gap-item);
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+.gallery-card {
+  background: var(--lit-solid-bg-raised);
+  border-radius: var(--lit-radius-tile);
+  padding: var(--lit-pad-panel);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gallery-card h3 {
+  margin: 0;
+  font-size: var(--lit-type-heading-size);
+}
+
+.gallery-risk {
+  margin: 0;
+  color: var(--lit-text-2);
+}
+
+.gallery-chip {
+  font-size: var(--lit-type-label-size);
+  color: var(--lit-text-2);
+  border: 1px solid var(--lit-line-strong);
+  border-radius: 999px;
+  padding-inline: 8px;
+  inline-size: fit-content;
+}
+
+.gallery-article h2 {
+  font-size: var(--lit-type-heading-size);
+}
+
+.gallery-matrix {
+  padding: 24px;
+  font-family: system-ui, sans-serif;
+}
+
+.gallery-matrix table {
+  border-collapse: collapse;
+}
+
+.gallery-matrix td,
+.gallery-matrix th {
+  padding: 4px 8px;
+  border: 1px solid var(--lit-line);
+  text-align: start;
+}
+
+.gallery-matrix a {
+  color: var(--lit-accent-text);
+}
+
+/* No shell around the gallery frame, so the band sticks to the very top. */
+.gallery-frame {
+  --lit-topbar-h: 0px;
+}
+
+.gallery-gap {
+  margin-block-start: var(--lit-gap-section);
+}
+
+.gallery-baseline {
+  align-items: baseline;
+}
+
+.gallery-ticket {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+}
+
+.gallery-ticket > .lt-button {
+  inline-size: 100%;
+}
+
+/* Section navs: a scrolling row on a phone, so the content isn't pushed below the fold. */
+@container room (max-width: 599px) {
+  .gallery-index {
+    flex-direction: row;
+    gap: var(--lit-gap-item);
+    overflow-x: auto;
+  }
+  .gallery-index a {
+    flex: none;
+  }
+}

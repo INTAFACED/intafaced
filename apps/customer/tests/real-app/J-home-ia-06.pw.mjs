@@ -60,9 +60,9 @@ test.afterAll(async () => {
 
 test(`${J} #1 with nothing published, Home draws no strip and no banner`, async () => {
   await openHome();
-  await expect(page.locator('.home-notices')).toHaveCount(0);
+  await expect(page.getByTestId('home-notices')).toHaveCount(0);
   await expect(page.getByRole('alert')).toHaveCount(0);
-  await expect(page.locator('.home-notice')).toHaveCount(0);
+  await expect(page.getByTestId('home-notice')).toHaveCount(0);
 });
 
 test(`${J} #4 a founder's draft never reaches the customer`, async () => {
@@ -83,7 +83,7 @@ test(`${J} #4 a founder's draft never reaches the customer`, async () => {
   });
   expect([announcement.status, maintenance.status]).toEqual(['draft', 'draft']);
   await openHome();
-  await expect(page.locator('.home-notices')).toHaveCount(0);
+  await expect(page.getByTestId('home-notices')).toHaveCount(0);
   await expect(page.getByText(`TEST announcement ${RUN}`)).toHaveCount(0);
   await expect(page.getByText(`TEST maintenance ${RUN}`)).toHaveCount(0);
 });
@@ -126,7 +126,7 @@ test(`${J} #5 an action the shell cannot run because an outside service is off s
   await signUp(person, 'hmo');
   // Notifications: allowing this device needs the push delivery gateway, which the stack leaves unset.
   await person.goto('/notifications?view=settings');
-  const push = person.locator('.nf-channelcard[data-channel="push"]');
+  const push = person.locator('[data-testid="nf-channelcard"][data-channel="push"]');
   await push.getByRole('button', { name: 'Allow notifications on this device' }).click();
   const pushed = await expectServiceOff(push.locator('[data-not-connected]'), 'vendor.push', 'Registering this device');
   // Web3: staking needs the INTACHAIN launch go-ahead. Same component, same sentence, its own code.

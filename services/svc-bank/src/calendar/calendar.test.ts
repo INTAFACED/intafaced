@@ -148,6 +148,7 @@ describe('the merged window', () => {
               openedAt: new Date('2026-10-01T00:00:00.000Z'),
               maturesAt: new Date('2026-11-25T00:00:00.000Z'),
               status: 'active',
+              autoRenew: false,
             },
             {
               id: 'P-flexible',
@@ -158,6 +159,7 @@ describe('the merged window', () => {
               openedAt: new Date('2026-10-01T00:00:00.000Z'),
               maturesAt: null,
               status: 'active',
+              autoRenew: false,
             },
           ],
         },
@@ -295,6 +297,7 @@ describe('the merged window', () => {
               openedAt: new Date('2026-10-01T00:00:00.000Z'),
               maturesAt: new Date('2026-11-04T00:00:00.000Z'),
               status: 'active',
+              autoRenew: false,
             },
           ],
         },

@@ -535,7 +535,7 @@ function SendForm({
           <span className="buy-receipt__badge" aria-hidden="true" data-tone="ok">
             ✓
           </span>
-          <h2 className="buy-receipt__title">
+          <h2 data-testid="buy-receipt__title" className="buy-receipt__title">
             {entry.handle
               ? payCopy.t('Sent {amount} {asset} to @{handle}', { amount: shownAmount, asset: entry.asset, handle: entry.handle })
               : payCopy.t('Sent {amount} {asset}', { amount: shownAmount, asset: entry.asset })}
@@ -650,7 +650,7 @@ function SendForm({
         </label>
         <div className="pay-to">
           {byHandle ? (
-            <span className="pay-to__at" aria-hidden="true">
+            <span data-testid="pay-to__at" className="pay-to__at" aria-hidden="true">
               @
             </span>
           ) : null}

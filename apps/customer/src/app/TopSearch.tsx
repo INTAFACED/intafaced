@@ -280,7 +280,7 @@ function SearchPanel({
   const loading = source.status === 'loading';
   let index = -1;
   return (
-    <div className="tb-popover tb-search-panel" role="presentation">
+    <div data-testid="tb-search-panel" className="tb-popover tb-search-panel" role="presentation">
       <ul id={id} role="listbox" aria-label={t('Search results')}>
         {groups.map((group) => {
           const inGroup = rows.filter((row) => row.group === group);

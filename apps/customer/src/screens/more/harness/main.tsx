@@ -1,5 +1,4 @@
 // Test harness only. Mounts the More screen with the real theme and providers but without the app shell. No API is used.
-import '../../../shared/tokens.css';
 import '../../../shared/styles.css';
 import '../../../features/public/public.css';
 import '../../../app/redesign.css';
@@ -29,7 +28,7 @@ function Page() {
   return (
     <TooltipProvider>
       <div className="if-app" onClick={follow}>
-        <nav className="harness-bar" aria-label="Harness stand-in for the top bar">
+        <nav data-testid="harness-bar" className="harness-bar" aria-label="Harness stand-in for the top bar">
           <a href="/home">intafaced</a>
           <a href="/home">Home</a>
           <a href="/money">Money</a>

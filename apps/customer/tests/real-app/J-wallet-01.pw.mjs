@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { api, fund, journeyState, toUnits } from './stack.mjs';
-import { awayBid, confirm, deskPath, free, held, openDesk, openOrders, reviewLimit, signIn, signUp, verify } from './desk.mjs';
+import { awayBid, chosePro, confirm, deskPath, free, held, openDesk, openOrders, reviewLimit, signIn, signUp, verify } from './desk.mjs';
 
 // J-wallet-01, in the running app (docs/roadmap/journeys.json): I see what I hold and what I can actually withdraw.
 // One test per step, titled "J-wallet-01 #<n>", run in order on one verified TEST account funded with TEST 500 USDT.
@@ -12,6 +12,8 @@ const J = 'J-wallet-01';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
+// Available, In orders and Locked are the Pro columns of Money; the app opens in Simple, so this person chose Pro.
+test.beforeEach(({ page }) => chosePro(page));
 
 function account() {
   const who = run.read().account;
@@ -49,7 +51,7 @@ test(`${J} #1 opens Assets: available, in orders and locked add up to the ledger
   run.reset({ account: who });
   await signIn(page, who);
   await page.goto('/');
-  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Assets' }).click();
+  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Money' }).click();
   await expect(page).toHaveURL(/\/money(\?|$)/);
   const usdt = await moneyAgreesWithLedger(page);
   expect(usdt).toMatchObject({ free: expect.stringMatching(/^500(\.0+)?$/), total: expect.stringMatching(/^500(\.0+)?$/) });
@@ -125,16 +127,16 @@ test(`${J} #4 holds an asset with no published price: its value says so, never z
   await signIn(page, who);
   await page.goto('/money');
   await page.mouse.move(0, 600);
-  const gold = page.locator('tr.money-row[data-asset="XAU"]');
+  const gold = page.locator('tr[data-testid="money-row"][data-asset="XAU"]');
   await expect(gold).toBeVisible();
   await expect(gold).toContainText('1 XAU');
-  const value = gold.locator('td.money-cell--value');
+  const value = gold.locator('td[data-testid="money-cell--value"]');
   await expect(value).toHaveText('—');
   await expect(value).toHaveAttribute('title', 'No price published');
-  await expect(gold.locator('td.money-cell--today')).toHaveText('—');
+  await expect(gold.locator('td[data-testid="money-cell--today"]')).toHaveText('—');
   await expect(gold).not.toContainText('$0');
   // The total counts only what has a price, and says which coin it leaves out.
-  const note = page.locator('.money-note').filter({ hasText: 'Excludes' });
+  const note = page.getByTestId('money-note').filter({ hasText: 'Excludes' });
   await expect(note).toContainText('Excludes 1 coin (no USD price)');
   await expect(note).toContainText('Not counted: XAU');
 });

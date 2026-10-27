@@ -116,7 +116,8 @@ function Row({ reward: r }: { reward: MyReward }) {
   const reason = r.reason ?? '';
   const leftSeconds = r.holdUntil ? (new Date(r.holdUntil).getTime() - Date.now()) / 1000 : 0;
   const why =
-    r.state === 'held' && r.holdUntil
+    lockWhy(r, t, when, left) ??
+    (r.state === 'held' && r.holdUntil
       ? leftSeconds > 0
         ? t('why_held', { left: left(leftSeconds), when: when(r.holdUntil) })
         : t('why_held_ended', { when: when(r.holdUntil) })
@@ -124,7 +125,7 @@ function Row({ reward: r }: { reward: MyReward }) {
         ? t('why_posted', { when: when(r.postedAt) })
         : r.state === 'held' || r.state === 'posted'
           ? ''
-          : t(`why_${r.state}`, { reason });
+          : t(`why_${r.state as Exclude<MyReward['state'], 'locked' | 'settling' | 'held' | 'posted'>}`, { reason }));
   return (
     <tr data-testid="reward-row" data-status={r.status} data-state={r.state} data-reward-key={r.rewardKey} data-campaign={r.campaignId}>
       <td>
@@ -137,9 +138,23 @@ function Row({ reward: r }: { reward: MyReward }) {
       </td>
       <td data-testid="reward-status">{t(`status_${r.status}`)}</td>
       <td>
-        <span data-testid="reward-why" data-reason={r.reason ?? ''} data-until={r.holdUntil ?? ''}>
+        <span
+          data-testid="reward-why"
+          data-reason={r.reason ?? ''}
+          data-until={r.holdUntil ?? ''}
+          data-form={r.form}
+          data-lock-until={r.lock?.until ?? ''}
+        >
           {why}
         </span>
+        {r.lock && r.state !== 'posted' && r.state !== 'forfeited' ? (
+          <>
+            {' '}
+            <span className="muted" data-testid="reward-lock-tx" data-tx={r.lock.txId} lang="zxx">
+              {t('lockTx', { tx: r.lock.txId })}
+            </span>
+          </>
+        ) : null}
         {r.ledgerTxId ? (
           <>
             {' '}
@@ -156,4 +171,31 @@ function Row({ reward: r }: { reward: MyReward }) {
       </td>
     </tr>
   );
+}
+
+type T = ReturnType<typeof rewardsHubCopy.useCopy>['t'];
+
+/** What a locked reward or bonus says: its condition or expiry, and why it is not in the balance; null for any other. */
+function lockWhy(r: MyReward, t: T, when: (iso: string) => string, left: (seconds: number) => string): string | null {
+  const lock = r.lock;
+  if (r.form === 'paid' || !lock) return null;
+  const until = when(lock.until);
+  const remaining = left((new Date(lock.until).getTime() - Date.now()) / 1000);
+  const step = lock.condition?.title ?? '';
+  if (r.state === 'locked') {
+    return r.form === 'bonus'
+      ? t('why_bonus', { products: lock.appliesTo.map((p) => t(`product_${p}`)).join(', '), when: until, left: remaining })
+      : t('why_locked', {
+          step,
+          done: String(lock.condition?.done ?? 0),
+          target: String(lock.condition?.target ?? 0),
+          when: until,
+          left: remaining,
+        });
+  }
+  if (r.state === 'settling') return t(lock.outcome === 'unlock' ? 'why_settling_unlock' : 'why_settling_forfeit');
+  if (r.state === 'forfeited' && r.reason === 'campaigns.bonus_expired') return t('why_bonus_expired', { when: until });
+  if (r.state === 'forfeited' && r.reason === 'campaigns.lock_condition_failed')
+    return t('why_lock_condition_failed', { step, when: until });
+  return null;
 }

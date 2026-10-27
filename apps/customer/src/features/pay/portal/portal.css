@@ -6,11 +6,11 @@
     .pp-chip {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
+      gap: var(--if-space-1-5);
       height: 22px;
-      padding: 0 8px;
+      padding: 0 var(--if-space-2);
       border-radius: var(--if-r-xs);
-      font-size: 12px;
+      font-size: var(--if-text-xs);
       line-height: 1;
       white-space: nowrap;
       color: var(--if-fg);
@@ -52,7 +52,7 @@
     .pp select:focus-visible,
     .pp textarea:focus-visible,
     .pp [tabindex]:focus-visible {
-      outline: 2px solid var(--if-lime);
+      outline: 2px solid var(--if-focus);
       outline-offset: 2px;
     }
     .pp select,
@@ -64,7 +64,7 @@
       background: var(--if-panel);
       border: 1px solid var(--if-line);
       border-radius: 6px;
-      padding: 11px 12px;
+      padding: 11px var(--if-space-3);
       font: inherit;
     }
     .pp textarea {
@@ -73,18 +73,18 @@
     }
     .pp .field > span:first-child {
       color: var(--if-fg-2);
-      font-size: 13px;
+      font-size: var(--if-text-sm);
     }
     .pp .field small {
       color: var(--if-fg-2);
-      font-size: 13px;
+      font-size: var(--if-text-sm);
     }
     .pp .field small.error-text {
       color: var(--if-down-text);
     }
     .pp-mono {
       font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-      font-size: 13px;
+      font-size: var(--if-text-sm);
       overflow-wrap: anywhere;
     }
     .pp-copy {
@@ -92,30 +92,30 @@
     }
     .pp-unit {
       color: var(--if-fg-2);
-      font-size: 13px;
+      font-size: var(--if-text-sm);
     }
     .pp-exact-tag {
       color: var(--if-fg-2);
-      font-size: 12px;
+      font-size: var(--if-text-xs);
       white-space: nowrap;
     }
     .pp-none {
       color: var(--if-fg-2);
     }
     .pp-note {
-      font-size: 13px;
-      margin-top: 12px;
+      font-size: var(--if-text-sm);
+      margin-top: var(--if-space-3);
     }
     .pp-sub {
-      font-size: 16px;
-      margin: 28px 0 12px;
+      font-size: var(--if-text-md);
+      margin: var(--if-space-7) 0 var(--if-space-3);
     }
     .pp-back {
       align-self: flex-start;
     }
     .pp-actions {
       display: flex;
-      gap: 12px;
+      gap: var(--if-space-3);
       flex-wrap: wrap;
       align-items: center;
     }
@@ -124,37 +124,37 @@
       border-left: 3px solid var(--if-line-strong);
       background: var(--if-panel);
       border-radius: var(--if-r-sm);
-      padding: 14px 16px;
-      font-size: 14px;
+      padding: var(--if-space-3-5) var(--if-space-4);
+      font-size: var(--if-text-base);
       line-height: 22px;
     }
     .pp-confirmed {
       color: var(--if-up-text);
-      font-size: 14px;
+      font-size: var(--if-text-base);
     }
     .pp-declared {
       color: var(--if-fg-2);
-      font-size: 13px;
+      font-size: var(--if-text-sm);
     }
     .pp-group {
       border: 1px solid var(--if-line);
       border-radius: var(--if-r-md);
-      padding: 16px;
+      padding: var(--if-space-4);
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: var(--if-space-4);
       margin: 0;
       min-width: 0;
     }
     .pp-group legend {
       color: var(--if-fg-2);
-      font-size: 13px;
-      padding-inline: 8px;
+      font-size: var(--if-text-sm);
+      padding-inline: var(--if-space-2);
     }
     .pp-check {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: var(--if-space-2);
       min-height: 44px;
       color: var(--if-fg);
     }
@@ -165,10 +165,10 @@
     }
     .pp-filter-row {
       display: flex;
-      gap: 16px;
+      gap: var(--if-space-4);
       align-items: flex-end;
       flex-wrap: wrap;
-      margin-bottom: 16px;
+      margin-bottom: var(--if-space-4);
     }
     .pp-section-action .field {
       min-width: 160px;
@@ -178,8 +178,8 @@
     .pp-skeleton {
       display: flex;
       flex-direction: column;
-      gap: 12px;
-      padding-block: 8px;
+      gap: var(--if-space-3);
+      padding-block: var(--if-space-2);
     }
     .pp-skeleton-row {
       display: block;
@@ -194,21 +194,21 @@
     .pp-kpis {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-      gap: 12px;
-      margin-top: 16px;
+      gap: var(--if-space-3);
+      margin-top: var(--if-space-4);
     }
     .pp-kpis--tight {
-      margin-top: 8px;
+      margin-top: var(--if-space-2);
     }
     .pp-kpi {
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: var(--if-space-2);
       min-width: 0;
       background: var(--if-panel);
       border: 1px solid var(--if-line);
       border-radius: var(--if-r-md);
-      padding: 16px;
+      padding: var(--if-space-4);
     }
     a.pp-kpi:hover {
       outline: 1px solid var(--if-line-stronger);
@@ -220,39 +220,39 @@
     }
     .pp-kpi-label {
       color: var(--if-fg-2);
-      font-size: 13px;
+      font-size: var(--if-text-sm);
       display: flex;
       justify-content: space-between;
-      gap: 8px;
+      gap: var(--if-space-2);
     }
     .pp-kpi-label em {
       font-style: normal;
       color: var(--if-fg-3);
     }
     .pp-kpi-value {
-      font-size: 20px;
-      line-height: 28px;
+      font-size: var(--if-text-lg);
+      line-height: var(--if-leading-lg);
       font-weight: 500;
       letter-spacing: -0.02em;
       overflow-wrap: anywhere;
     }
     .pp-kpi-note {
       color: var(--if-fg-2);
-      font-size: 13px;
+      font-size: var(--if-text-sm);
     }
     .pp-lines {
       display: flex;
       flex-direction: column;
     }
     .pp-glance h3 {
-      font-size: 14px;
+      font-size: var(--if-text-base);
       color: var(--if-fg-2);
       font-weight: 400;
-      margin-top: 20px;
+      margin-top: var(--if-space-5);
     }
     .pp-asof {
       color: var(--if-fg-2);
-      font-size: 13px;
+      font-size: var(--if-text-sm);
     }
     .pp-asof--warn {
       color: var(--if-warn);
@@ -262,18 +262,18 @@
     .pp-status-strip {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-      gap: 20px;
-      margin-bottom: 16px;
+      gap: var(--if-space-5);
+      margin-bottom: var(--if-space-4);
     }
     .pp-status-strip > div {
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: var(--if-space-2);
       align-items: flex-start;
     }
     .pp-strip-label {
       color: var(--if-fg-2);
-      font-size: 13px;
+      font-size: var(--if-text-sm);
     }
 
     /* chips */
@@ -286,7 +286,7 @@
       gap: 3px;
       align-items: end;
       height: 180px;
-      margin-top: 16px;
+      margin-top: var(--if-space-4);
       border-bottom: 1px solid var(--if-line);
     }
     .pp-bar-slot {
@@ -298,7 +298,7 @@
       display: block;
       width: 100%;
       background: var(--if-fg-3);
-      border-radius: 2px 2px 0 0;
+      border-radius: var(--if-r-2xs) var(--if-r-2xs) 0 0;
       min-height: 0;
     }
     .pp-bar--today {
@@ -308,40 +308,40 @@
       display: flex;
       justify-content: space-between;
       color: var(--if-fg-2);
-      font-size: 13px;
-      margin: 8px 0 12px;
+      font-size: var(--if-text-sm);
+      margin: var(--if-space-2) 0 var(--if-space-3);
     }
     .pp-two {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 40px;
+      gap: var(--if-space-10);
     }
     .pp-mix {
       list-style: none;
       padding: 0;
-      margin: 12px 0 0;
+      margin: var(--if-space-3) 0 0;
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: var(--if-space-4);
     }
     .pp-mix-head {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 12px;
+      gap: var(--if-space-3);
     }
     .pp-mix-bar {
       display: block;
       height: 4px;
       background: var(--if-line);
-      border-radius: 2px;
-      margin-top: 8px;
+      border-radius: var(--if-r-2xs);
+      margin-top: var(--if-space-2);
     }
     .pp-mix-bar > span {
       display: block;
       height: 100%;
       background: var(--if-fg-3);
-      border-radius: 2px;
+      border-radius: var(--if-r-2xs);
     }
 
     /* steps */
@@ -351,19 +351,19 @@
       padding: 0;
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 12px;
+      gap: var(--if-space-3);
     }
     .pp-step-button {
       width: 100%;
       min-height: 84px;
       display: flex;
-      gap: 12px;
+      gap: var(--if-space-3);
       text-align: left;
       align-items: flex-start;
       background: var(--if-panel);
       border: 1px solid var(--if-line);
       border-radius: var(--if-r-md);
-      padding: 16px;
+      padding: var(--if-space-4);
       color: var(--if-fg);
     }
     .pp-step-button:disabled {
@@ -379,13 +379,13 @@
     }
     .pp-step-button small {
       color: var(--if-fg-2);
-      font-size: 13px;
+      font-size: var(--if-text-sm);
     }
     .pp-step-state {
       font-style: normal;
-      font-size: 13px;
+      font-size: var(--if-text-sm);
       color: var(--if-fg-2);
-      margin-top: 4px;
+      margin-top: var(--if-space-1);
     }
     .pp-step-num {
       flex: none;
@@ -395,7 +395,7 @@
       border: 1px solid var(--if-line);
       display: grid;
       place-items: center;
-      font-size: 13px;
+      font-size: var(--if-text-sm);
     }
     .pp-step--done .pp-step-num {
       background: var(--if-up-bg-soft);
@@ -407,13 +407,13 @@
     .pp-facts {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-      gap: 16px 28px;
+      gap: var(--if-space-4) var(--if-space-7);
       margin: 0;
     }
     .pp-facts dt {
       color: var(--if-fg-2);
-      font-size: 13px;
-      margin-bottom: 4px;
+      font-size: var(--if-text-sm);
+      margin-bottom: var(--if-space-1);
     }
     .pp-facts dd {
       margin: 0;
@@ -428,8 +428,8 @@
     }
     .pp-timeline li {
       display: flex;
-      gap: 14px;
-      padding-bottom: 20px;
+      gap: var(--if-space-3-5);
+      padding-bottom: var(--if-space-5);
       position: relative;
     }
     .pp-timeline li:not(:last-child)::before {
@@ -445,7 +445,7 @@
       flex: none;
       width: 9px;
       height: 9px;
-      margin-top: 6px;
+      margin-top: var(--if-space-1-5);
       border-radius: 50%;
       background: var(--if-fg-3);
     }
@@ -453,7 +453,7 @@
       background: var(--if-fg);
     }
     .pp-timeline p {
-      font-size: 14px;
+      font-size: var(--if-text-base);
     }
     .pp-cards,
     .pp-prefs,
@@ -470,8 +470,8 @@
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      gap: 20px;
-      padding-block: 16px;
+      gap: var(--if-space-5);
+      padding-block: var(--if-space-4);
       border-bottom: 1px solid var(--if-line);
     }
     .pp-card small,
@@ -497,22 +497,22 @@
       min-width: 0;
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: var(--if-space-1);
     }
     .pp-feed-kind {
       color: var(--if-fg-2);
-      font-size: 13px;
+      font-size: var(--if-text-sm);
     }
     .pp-pref-controls {
       display: flex;
       flex-direction: column;
       align-items: flex-end;
-      gap: 8px;
+      gap: var(--if-space-2);
     }
     .pp-row-actions {
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: var(--if-space-2);
       align-items: stretch;
       min-width: 190px;
       text-align: left;
@@ -524,20 +524,20 @@
       width: 100%;
     }
     .pp tbody th[scope='row'] {
-      font-size: 14px;
+      font-size: var(--if-text-base);
       font-weight: 400;
       color: var(--if-fg);
       text-align: left;
-      padding: 16px;
+      padding: var(--if-space-4);
       padding-left: 0;
       border-top: 1px solid var(--if-line);
       vertical-align: middle;
     }
     .pp-left td:last-child {
       text-align: left;
-      font-size: 14px;
+      font-size: var(--if-text-base);
       line-height: 22px;
-      padding-right: 16px;
+      padding-right: var(--if-space-4);
     }
     .pp-row-actions .pp-select {
       min-width: 130px;
@@ -546,12 +546,12 @@
     .pp-more {
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: var(--if-space-4);
       flex-wrap: wrap;
-      margin-top: 16px;
+      margin-top: var(--if-space-4);
     }
     .pp-more p {
-      font-size: 13px;
+      font-size: var(--if-text-sm);
     }
     .pp .pay-section > header {
       align-items: flex-end;
@@ -574,9 +574,9 @@
       display: inline-block;
       color: var(--if-warn);
       border: 1px dashed var(--if-line);
-      border-radius: 999px;
-      padding: 1px 10px;
-      font-size: 13px;
+      border-radius: var(--if-r-pill);
+      padding: 1px var(--if-space-2-5);
+      font-size: var(--if-text-sm);
     }
     .pp-test {
       display: inline-block;
@@ -586,15 +586,15 @@
       color: var(--if-warn-text);
       background: transparent;
       border: 1px solid var(--if-warn);
-      border-radius: 4px;
-      padding: 1px 6px;
+      border-radius: var(--if-r-xs);
+      padding: 1px var(--if-space-1-5);
       vertical-align: middle;
     }
     .pp-callout--warn {
       border-left-color: var(--if-warn);
     }
     .pp-callout p + p {
-      margin-top: 8px;
+      margin-top: var(--if-space-2);
     }
     .pp-links {
       list-style: none;
@@ -602,7 +602,7 @@
       margin: 0;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: var(--if-space-2);
     }
     .pp-links li > small {
       display: block;
@@ -626,11 +626,11 @@
     .pp-usage {
       position: relative;
       height: 10px;
-      border-radius: 999px;
+      border-radius: var(--if-r-pill);
       background: var(--if-raised);
       border: 1px solid var(--if-line);
       overflow: hidden;
-      margin-block: 8px 12px;
+      margin-block: var(--if-space-2) var(--if-space-3);
     }
     .pp-usage-fill {
       display: block;
@@ -650,41 +650,41 @@
     }
     .pp-limit,
     .pp-approval {
-      padding-block: 20px;
+      padding-block: var(--if-space-5);
       border-bottom: 1px solid var(--if-line);
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: var(--if-space-2);
       min-width: 0;
     }
     .pp-limit-head,
     .pp-approval-head {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: var(--if-space-3);
       flex-wrap: wrap;
     }
     .pp-limit-head h3 {
-      font-size: 16px;
+      font-size: var(--if-text-md);
     }
     .pp-approval-amount {
-      font-size: 20px;
+      font-size: var(--if-text-lg);
       letter-spacing: -0.02em;
     }
     .pp-agechip {
-      font-size: 13px;
+      font-size: var(--if-text-sm);
       color: var(--if-fg-2);
       border: 1px solid var(--if-line);
-      border-radius: 999px;
-      padding: 2px 10px;
+      border-radius: var(--if-r-pill);
+      padding: var(--if-space-0-5) var(--if-space-2-5);
       white-space: nowrap;
     }
     .pp-decision {
-      margin-top: 8px;
+      margin-top: var(--if-space-2);
       max-width: 560px;
     }
     .pp-reserve .pp-sub {
-      margin-top: 20px;
+      margin-top: var(--if-space-5);
     }
 
     @media (max-width: 1000px) {
@@ -743,14 +743,14 @@
   .if-business .pp-kpi {
     border: 0;
     background: var(--if-field);
-    padding: 20px;
-    gap: 8px;
+    padding: var(--if-space-5);
+    gap: var(--if-space-2);
   }
   .if-business .pp-kpi--attention {
     box-shadow: inset 0 2px var(--if-warn);
   }
   .if-business .pp-kpi-value {
-    font-size: 24px;
+    font-size: var(--if-text-xl);
     line-height: 32px;
     font-weight: 600;
   }
@@ -758,12 +758,12 @@
     border: 0;
     border-radius: var(--if-r-md);
     background: var(--if-field);
-    padding: 20px;
+    padding: var(--if-space-5);
   }
   .if-business .pp-soon-tag {
     background: var(--if-raised);
     color: var(--if-fg-2);
-    font-size: 12px;
+    font-size: var(--if-text-xs);
   }
   .if-business .pp-group {
     border-color: var(--if-line);
@@ -779,11 +779,11 @@
   }
   @media (max-width: 600px) {
     .if-business .pp-kpi {
-      padding: 16px;
+      padding: var(--if-space-4);
     }
     .if-business .pp-kpi-value {
-      font-size: 20px;
-      line-height: 28px;
+      font-size: var(--if-text-lg);
+      line-height: var(--if-leading-lg);
     }
   }
 }
@@ -843,15 +843,15 @@
       display: flex;
       flex-wrap: wrap;
       justify-content: space-between;
-      gap: 12px;
-      padding: 14px 4px;
+      gap: var(--if-space-3);
+      padding: var(--if-space-3-5) var(--if-space-1);
       color: var(--if-fg);
       text-decoration: none;
     }
     .pe-card-main,
     .pe-card-side {
       display: grid;
-      gap: 4px;
+      gap: var(--if-space-1);
       align-content: start;
       min-width: 0;
     }
@@ -872,31 +872,31 @@
     }
     .pp-detail-head {
       display: grid;
-      gap: 8px;
+      gap: var(--if-space-2);
     }
     .pp-detail-title {
       display: flex;
       flex-wrap: wrap;
       justify-content: space-between;
       align-items: flex-start;
-      gap: 16px;
+      gap: var(--if-space-4);
     }
     .pp-detail-title h2 {
       margin: 0;
-      font-size: 24px;
+      font-size: var(--if-text-xl);
       font-weight: 500;
     }
     .pp-related ul {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px 20px;
+      gap: var(--if-space-2) var(--if-space-5);
       margin: 0;
       padding: 0;
       list-style: none;
     }
     .pp-filterbar {
       display: grid;
-      gap: 8px;
+      gap: var(--if-space-2);
     }
     /* The kit's text input is 40px high (h-10). Selects in the bar match it, so the row shares one top and one baseline. */
     .pp-filterbar .pp-select select {
@@ -925,22 +925,22 @@
 /* Filter bar: a select and the kit's text input share one label style and one control height (40px), so the row has a single
    top and baseline. These sit outside the layer because the shared `.field` rules do. */
 .if-business .pp-filterbar .pp-select {
-  gap: 6px;
+  gap: var(--if-space-1-5);
 }
 .if-business .pp-filterbar .pp-select > span:first-child {
-  font-size: 14px;
+  font-size: var(--if-text-base);
   font-weight: 500;
-  line-height: 18px;
+  line-height: var(--if-leading-sm);
 }
 
 /* A KPI tile on a phone: the label and its period stack, so "Paid in" and "Today (UTC)" never run together. */
 @media (max-width: 480px) {
   .if-business .pp-kpi-label {
     flex-direction: column;
-    gap: 2px;
+    gap: var(--if-space-0-5);
   }
   .if-business .pp-kpi {
-    padding: 14px;
+    padding: var(--if-space-3-5);
   }
 }
 

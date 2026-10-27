@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { transferQuoteSchema } from '../pay/schemas';
 import { decimalSchema as money, parseAmount, signedDecimalSchema } from '../../shared/money';
 import { spaceSchema } from './client';
+import { businessListSchema, businessSchema } from './business-schema';
 
 export const scheduleSchema = z.object({
   id: z.string(),
@@ -39,6 +40,12 @@ export const positionSchema = z.object({
   /** The UTC midnight the position first earns from (BK-earn-01): a day pays positions opened before it began. */
   accruesFrom: z.string(),
   accrual: z.enum(['waiting', 'accruing', 'pool_closed', 'below_unit']),
+  /** A fixed-term saving the saver asked to renew when its term ends (BK-earn-03). */
+  autoRenew: z.boolean(),
+  /** How many new terms auto-renew has started; `maturesAt` is the end of the current one. */
+  renewals: z.number().int().nonnegative(),
+  /** The next UTC day the bank pays this saving's interest (a date); null when no day pays it. */
+  nextPayoutOn: z.string().date().nullable(),
 });
 /**
  * What a pool publishes beyond its rate and term (svc-bank `earn.router.ts`, BK-earn-02 and BK-earn-05): how interest is
@@ -336,14 +343,7 @@ export const ruleSchema = z.object({
   status: z.enum(['active', 'paused', 'cancelled']),
   createdAt: z.string(),
 });
-export const businessSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  assetId: z.string(),
-  spendThreshold: money,
-  status: z.enum(['active', 'closed']),
-  createdAt: z.string(),
-});
+export { businessSchema } from './business-schema';
 export const memberRoleSchema = z.enum(['admin', 'maker', 'checker']);
 export const approvalSchema = z.object({
   id: z.string(),
@@ -807,6 +807,57 @@ export const currencyWrites = {
   add: accountCurrencySchema,
   remove: z.object({ assetId: z.string(), removed: z.literal(true) }),
 };
+/** A ledger balance of a dead owner's account, as the heir's claim room shows it (RC-identity-08). */
+const recoveryAccountSchema = z.object({
+  ownerType: z.enum(['user', 'subaccount']),
+  assetId: z.string(),
+  kind: z.string(),
+  spaceId: z.string().nullable(),
+  spaceName: z.string().nullable(),
+  amount: signedDecimalSchema,
+});
+export type RecoveryAccount = z.infer<typeof recoveryAccountSchema>;
+const recoveryClaimSchema = z.object({
+  claimId: z.string(),
+  status: z.enum(['open', 'executed']),
+  round: z.number().int(),
+  createdAt: z.string(),
+  executedAt: z.string().nullable(),
+});
+export const recoveryEstateSchema = z.object({
+  userId: z.string(),
+  handle: z.string(),
+  threshold: z.number().int().min(1),
+  liveKeys: z.number().int().min(0),
+  claim: recoveryClaimSchema.nullable(),
+  sweepable: z.array(recoveryAccountSchema),
+  /** Held for an order, withdrawal, stake or collateral: stays until released. */
+  held: z.array(recoveryAccountSchema),
+  /** Debts: any of these stops a sweep. */
+  blockers: z.array(recoveryAccountSchema),
+});
+export type RecoveryEstate = z.infer<typeof recoveryEstateSchema>;
+const recoverySweepSchema = z.object({
+  round: z.number().int(),
+  ownerType: z.enum(['user', 'subaccount']),
+  spaceId: z.string().nullable(),
+  assetId: z.string(),
+  amount: money,
+  status: z.enum(['pending', 'posted', 'refused']),
+  ledgerTxId: z.string().nullable(),
+  refusalCode: z.string().nullable(),
+});
+export type RecoverySweep = z.infer<typeof recoverySweepSchema>;
+export const recoveryWrites = {
+  open: recoveryClaimSchema.extend({
+    ownerUserId: z.string(),
+    handle: z.string(),
+    threshold: z.number().int(),
+    liveKeys: z.number().int(),
+    message: z.string(),
+  }),
+  execute: z.object({ claim: recoveryClaimSchema, round: z.number().int().nullable(), sweeps: z.array(recoverySweepSchema) }),
+};
 export const bankReads = {
   'accounts.features': accountTermsSchema,
   'accounts.profile': bankProfileSchema,
@@ -817,6 +868,7 @@ export const bankReads = {
   'eligibility.get': eligibilitySchema,
   'linkedAccounts.list': z.object({ accounts: z.array(linkedAccountSchema) }),
   'directDebits.list': directDebitsViewSchema,
+  'recovery.estates': z.object({ estates: z.array(recoveryEstateSchema) }),
   'calendar.window': calendarViewSchema,
   'rules.get': rulesViewSchema,
   'sorter.list': sorterListSchema,
@@ -904,7 +956,7 @@ export const bankReads = {
   }),
   'autoInvest.list': z.array(ruleSchema),
   'analytics.spend': analyticsSchema,
-  'business.list': z.array(businessSchema),
+  'business.list': businessListSchema,
   'business.pending': z.array(pendingApprovalSchema),
   'business.members': teamSchema,
   'business.myRole': z.object({ role: memberRoleSchema }),
@@ -947,6 +999,7 @@ export const bankWrites = {
   }),
   'earn.deposit': z.object({ positionId: z.string(), maturesAt: z.string().nullable() }),
   'earn.withdraw': z.object({ positionId: z.string(), principal: money }),
+  'earn.setAutoRenew': z.object({ positionId: z.string(), autoRenew: z.boolean(), maturesAt: z.string().nullable() }),
   'loans.open': z.object({ loanId: z.string(), status: z.string(), ltvBps: z.number().int(), drawLedgerTxId: z.string() }),
   'loans.addCollateral': z.object({ ledgerTxId: z.string(), sequence: z.number().int() }),
   'loans.releaseExcess': z.object({ ledgerTxId: z.string(), sequence: z.number().int() }),
@@ -1030,6 +1083,10 @@ export function bankWriteForReview(procedure: BankWrite, input: Record<string, u
       case 'earn.deposit':
       case 'earn.withdraw':
         return (data as { positionId: string }).positionId === input.positionId;
+      case 'earn.setAutoRenew': {
+        const row = data as z.infer<(typeof bankWrites)['earn.setAutoRenew']>;
+        return row.positionId === input.positionId && row.autoRenew === input.on && row.maturesAt !== null;
+      }
       case 'autoInvest.createDca': {
         const row = data as z.infer<typeof ruleSchema>;
         return (

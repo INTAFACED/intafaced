@@ -23,6 +23,7 @@ const tier: FeeTier = feeTierSchema.parse({
     ],
     volumeQuotes: ['USDT', 'USDC'],
     snapshotTimeUtc: '07:00',
+    benefits: null,
     downgradeGraceDays: null,
     subAccounts: null,
     botsAndCopy: null,
@@ -54,6 +55,62 @@ describe('/fees/my-tier', () => {
     expect(html).toContain('Assets you hold: not counted (no asset thresholds set).');
     expect(html).toMatch(
       /data-snapshot="tier-snapshot:2026-10-24T07:00Z:[^"]+"><th scope="row">2026-10-24 07:00 UTC<\/th><td>test-vip-1<\/td><td>1250\.5<\/td><td>4<\/td><td>v7<\/td>/,
+    );
+  });
+
+  it('lists the published benefits by tier, marks the person\'s own row, and says "not set" for a blank cell', () => {
+    const blank = { prioritySupport: null, vipPortal: null, ambassador: null, subAccountCap: null, withdrawalLimit24h: null };
+    const withBenefits = feeTierSchema.parse({
+      ...tier,
+      program: {
+        ...tier.program,
+        // Out of tier order, and no row for test-vip-2: the page lists every tier lowest first, a missing row "not set".
+        benefits: [
+          {
+            ...blank,
+            tierId: 'test-vip-1',
+            prioritySupport: true,
+            vipPortal: false,
+            subAccountCap: 20,
+            withdrawalLimit24h: { asset: 'USDT', amount: '250000' },
+          },
+          { tierId: 'regular', ...blank },
+        ],
+      },
+    });
+    const html = renderToString(<MyTierView load={ready(withBenefits)} />);
+    expect(html).toContain('VIP benefits');
+    expect(html).toMatch(/data-benefits="regular"><th scope="row">Regular<\/th><td data-benefit="prioritySupport">not set<\/td>/);
+    expect(html).toMatch(/data-benefits="test-vip-1" aria-current="true"><th scope="row">test-vip-1 \(yours\)<\/th>/);
+    expect(html).toContain(
+      '<td data-benefit="prioritySupport">Yes</td><td data-benefit="vipPortal">No</td><td data-benefit="ambassador">not set</td>',
+    );
+    expect(html).toContain('<td data-benefit="subAccountCap">20</td><td data-benefit="withdrawalLimit24h">up to 250000 USDT</td>');
+    expect(html.indexOf('data-benefits="regular"')).toBeLessThan(html.indexOf('data-benefits="test-vip-1"'));
+    expect(html).toMatch(/data-benefits="test-vip-2"><th scope="row">test-vip-2<\/th><td data-benefit="prioritySupport">not set<\/td>/);
+  });
+
+  it('names a VIP trial the tier comes from, and until when', () => {
+    const trial = feeTierSchema.parse({
+      ...tier,
+      tier: 'test-vip-2',
+      lastSnapshot: null,
+      trial: {
+        applicationId: '55555555-5555-4555-8555-555555555555',
+        tierId: 'test-vip-2',
+        startsAt: '2026-10-25T03:00:00.000Z',
+        endsAt: '2026-11-24T03:00:00.000Z',
+      },
+    });
+    const html = renderToString(<MyTierView load={ready(trial)} />);
+    expect(html).toContain('Your tier: test-vip-2');
+    expect(html).toContain('From your VIP trial, until 2026-11-24 03:00 UTC.');
+    expect(html).not.toContain('From the snapshot at');
+  });
+
+  it('says the benefits are not set when the owner published no table', () => {
+    expect(renderToString(<MyTierView load={ready(tier)} />)).toContain(
+      'Benefits not set: no tier has published benefits beyond its rates.',
     );
   });
 

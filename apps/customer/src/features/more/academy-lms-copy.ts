@@ -308,6 +308,7 @@ const en = {
   asgBack: 'Back to the course',
   asgBrief: 'Brief',
   asgDue: 'Due {date}',
+  asgExtended: 'Your own due date, moved by the course team: {date}. Reason: {reason}',
   asgNoDue: 'No due date',
   asgPoints: 'Worth {points} points',
   asgAsks: 'What to hand in',
@@ -632,6 +633,8 @@ const en = {
   refEnrollmentNotFound: 'You are not enrolled in this programme, so there is nothing to leave.',
   refProgrammeInvalid: 'Academy does not offer that programme.',
   refPrerequisite: 'Enrolling needs these programmes first: {programmes}.',
+  refItemPrerequisite:
+    'This needs an earlier assignment or quiz of the course first: hand it in, finish its attempt or answer it, then come back.',
   refPrerequisiteUnnamed: 'Academy says a programme you have not joined is required first.',
   writeNotRecorded: 'Academy did not confirm the request, and your enrolments show it was not recorded. You can try again.',
   enrolButton: 'Enrol',
@@ -977,6 +980,7 @@ const es: Record<keyof typeof en, string> = {
   asgBack: 'Volver al curso',
   asgBrief: 'Enunciado',
   asgDue: 'Entrega {date}',
+  asgExtended: 'Tu propia fecha de entrega, movida por el equipo del curso: {date}. Motivo: {reason}',
   asgNoDue: 'Sin fecha de entrega',
   asgPoints: 'Vale {points} puntos',
   asgAsks: 'Qué entregar',
@@ -1303,6 +1307,8 @@ const es: Record<keyof typeof en, string> = {
   refEnrollmentNotFound: 'No estás inscrito en este programa, así que no hay nada de lo que salir.',
   refProgrammeInvalid: 'Academy no ofrece ese programa.',
   refPrerequisite: 'Para inscribirte primero necesitas estos programas: {programmes}.',
+  refItemPrerequisite:
+    'Esto necesita antes una tarea o un cuestionario anterior del curso: entrégalo, termina tu intento o respóndelo y vuelve.',
   refPrerequisiteUnnamed: 'Academy indica que antes se necesita un programa en el que no estás inscrito.',
   writeNotRecorded: 'Academy no confirmó la solicitud y tus inscripciones muestran que no se registró. Puedes intentarlo de nuevo.',
   enrolButton: 'Inscribirme',
@@ -1646,6 +1652,7 @@ const fr: Record<keyof typeof en, string> = {
   asgBack: 'Retour au cours',
   asgBrief: 'Consigne',
   asgDue: 'À rendre le {date}',
+  asgExtended: 'Votre propre date limite, déplacée par l’équipe du cours : {date}. Raison : {reason}',
   asgNoDue: 'Pas de date limite',
   asgPoints: 'Vaut {points} points',
   asgAsks: 'Ce qu’il faut rendre',
@@ -1974,6 +1981,8 @@ const fr: Record<keyof typeof en, string> = {
   refEnrollmentNotFound: 'Vous n’êtes pas inscrit à ce programme : il n’y a rien à quitter.',
   refProgrammeInvalid: 'Academy ne propose pas ce programme.',
   refPrerequisite: 'Pour vous inscrire, il faut d’abord ces programmes : {programmes}.',
+  refItemPrerequisite:
+    'Il faut d’abord un devoir ou un quiz précédent du cours : rendez-le, terminez votre tentative ou répondez-y, puis revenez.',
   refPrerequisiteUnnamed: 'Academy indique qu’un programme que vous n’avez pas rejoint est requis d’abord.',
   writeNotRecorded:
     'Academy n’a pas confirmé la demande et vos inscriptions montrent qu’elle n’a pas été enregistrée. Vous pouvez réessayer.',

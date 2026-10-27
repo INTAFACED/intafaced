@@ -269,7 +269,7 @@ test(`${J} #3 loses the reply and sends the same repayment again: the bank colle
   expect(first.closed).toBe(false);
   expect(toUnits(first.interestPaid) + toUnits(first.principalPaid)).toBe(toUnits('10'));
   // Every bank write pauses on this one, by its reference.
-  const reference = (await dialog.locator('.money-reference').first().textContent()).replace('Request reference: ', '').trim();
+  const reference = (await dialog.getByTestId('money-reference').first().textContent()).replace('Request reference: ', '').trim();
   await expect(page.locator('#bank-unconfirmed')).toContainText(reference);
   const debt = (loan) => toUnits(loan.outstandingPrincipal) + toUnits(loan.outstandingInterest);
   expect(debt(await loanNow(api, loanId))).toBe(debt(before) - toUnits('10'));

@@ -4,18 +4,18 @@
 .security__layout {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
-  gap: 24px;
+  gap: var(--if-space-6);
   align-items: start;
 }
 .security__card {
   min-width: 0;
   border: 1px solid var(--color-border);
   background: var(--color-surface);
-  border-radius: 12px;
-  padding: 24px;
+  border-radius: var(--if-r-md);
+  padding: var(--if-space-6);
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--if-space-6);
 }
 .security__passkeys {
   grid-column: 1;
@@ -34,8 +34,8 @@
   grid-row: 3;
 }
 .security__card h2 {
-  font-size: 20px;
-  line-height: 28px;
+  font-size: var(--if-text-lg);
+  line-height: var(--if-leading-lg);
 }
 .security__card p {
   margin: 0;
@@ -51,27 +51,27 @@
 .security__setup-intro {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--if-space-3);
 }
 .security__setup-heading {
-  font-size: 20px;
-  line-height: 28px;
+  font-size: var(--if-text-lg);
+  line-height: var(--if-leading-lg);
   font-weight: 600;
 }
 .security__setup-ready {
-  padding: 12px;
+  padding: var(--if-space-3);
   border: 1px solid var(--color-border);
-  border-radius: 8px;
-  font-size: 14px;
+  border-radius: var(--if-r-sm);
+  font-size: var(--if-text-base);
   line-height: 22px;
 }
 .security__empty {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--if-space-3);
 }
 .security__empty h3 {
-  font-size: 16px;
+  font-size: var(--if-text-md);
   font-weight: 500;
 }
 .security__rows {
@@ -82,14 +82,14 @@
 .security__row {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding-block: 24px;
+  gap: var(--if-space-4);
+  padding-block: var(--if-space-6);
   border-top: 1px solid var(--color-border);
 }
 .security__row > div {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--if-space-2);
   flex: 1;
   min-width: 0;
 }
@@ -117,18 +117,18 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--if-space-2);
 }
 .security__wallets button {
   min-height: 44px;
 }
 .security__row time {
-  font-size: 16px;
-  line-height: 24px;
+  font-size: var(--if-text-md);
+  line-height: var(--if-leading-md);
 }
 .security__ref {
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--if-text-sm);
+  line-height: var(--if-leading-base);
   color: var(--color-muted);
   overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
@@ -136,13 +136,13 @@
 .security__context {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--if-space-4);
   margin: 0;
 }
 .security__context > div {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--if-space-2);
   min-width: 0;
 }
 .security__context dt {
@@ -153,15 +153,15 @@
   overflow-wrap: anywhere;
 }
 .security__unknown {
-  padding: 24px;
+  padding: var(--if-space-6);
   border: 1px solid var(--color-border);
-  border-left: 2px solid var(--color-accent);
-  border-radius: 12px;
+  border-left: 2px solid var(--if-lime);
+  border-radius: var(--if-r-md);
   background: var(--color-surface);
 }
 .security__unknown h2 {
-  font-size: 20px;
-  line-height: 28px;
+  font-size: var(--if-text-lg);
+  line-height: var(--if-leading-lg);
 }
 .security__support {
   display: inline-flex;
@@ -176,7 +176,7 @@
 }
 .security__global {
   border-top: 1px solid var(--color-border);
-  padding-top: 24px;
+  padding-top: var(--if-space-6);
   align-items: start;
 }
 .security__card .actions {
@@ -185,7 +185,7 @@
 .security__card summary {
   min-height: 44px;
   cursor: pointer;
-  padding-block: 12px;
+  padding-block: var(--if-space-3);
 }
 .security__card > button,
 .security__card form > button {
@@ -202,7 +202,7 @@
 }
 @media (max-width: 620px) {
   .security__card {
-    padding: 20px;
+    padding: var(--if-space-5);
   }
   .security__passkeys .section-heading,
   .security__row {
@@ -220,10 +220,10 @@
 
 /* Independent owner metadata read; existing security actions stay separate. */
 .api-key-records {
-  margin-top: 24px;
+  margin-top: var(--if-space-6);
 }
 .api-key-records p {
-  font-size: 14px;
+  font-size: var(--if-text-base);
   line-height: 22px;
   overflow-wrap: anywhere;
 }
@@ -231,28 +231,28 @@
 .api-key-records__failure {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--if-space-3);
 }
 .api-key-records__controls {
   display: flex;
   align-items: end;
-  gap: 12px;
+  gap: var(--if-space-3);
 }
 .api-key-records__window {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--if-space-2);
   width: 208px;
   flex-shrink: 0;
-  font-size: 14px;
+  font-size: var(--if-text-base);
   line-height: 22px;
 }
 .api-key-records__controls select {
   min-height: 44px;
   width: 100%;
-  padding: 12px 16px;
+  padding: var(--if-space-3) var(--if-space-4);
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--if-r-sm);
   background: var(--color-surface);
   color: var(--color-text);
   font: inherit;
@@ -268,8 +268,8 @@
 .api-key-records__row {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding-block: 24px;
+  gap: var(--if-space-4);
+  padding-block: var(--if-space-6);
   border-top: 1px solid var(--color-border);
   min-width: 0;
 }
@@ -277,7 +277,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--if-space-4);
 }
 .api-key-records__name h3 {
   min-width: 0;
@@ -295,24 +295,24 @@
 .api-key-records__metadata {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--if-space-2);
   margin: 0;
   min-width: 0;
 }
 .api-key-records__references {
   color: var(--color-muted);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--if-text-sm);
+  line-height: var(--if-leading-base);
   font-variant-numeric: tabular-nums;
 }
 .api-key-records__metadata {
-  font-size: 14px;
+  font-size: var(--if-text-base);
   line-height: 22px;
 }
 .api-key-records dl > div {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 8px;
+  gap: var(--if-space-1) var(--if-space-2);
   min-width: 0;
 }
 .api-key-records dt {
@@ -325,7 +325,7 @@
 }
 .api-key-records__failure {
   border-top: 1px solid var(--color-border);
-  padding-top: 24px;
+  padding-top: var(--if-space-6);
 }
 .api-key-records__failure h3 {
   font-size: 18px;
@@ -340,7 +340,7 @@
 }
 @media (max-width: 560px) {
   .api-key-records {
-    padding: 20px;
+    padding: var(--if-space-5);
   }
   .api-key-records__controls {
     flex-direction: column;
@@ -352,7 +352,7 @@
   .api-key-records__name {
     flex-direction: column;
     align-items: start;
-    gap: 8px;
+    gap: var(--if-space-2);
   }
   .api-key-records__name p {
     width: auto;
@@ -364,9 +364,9 @@
 .api-key-revoke {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--if-space-4);
   min-width: 0;
-  padding-top: 24px;
+  padding-top: var(--if-space-6);
   border-top: 1px solid var(--color-border);
 }
 .api-key-revoke h3,
@@ -377,29 +377,29 @@
   overflow-wrap: anywhere;
 }
 .api-key-revoke h4 {
-  font-size: 16px;
-  line-height: 24px;
+  font-size: var(--if-text-md);
+  line-height: var(--if-leading-md);
   font-weight: 500;
 }
 .api-key-revoke p,
 .api-key-revoke__review p {
-  font-size: 14px;
+  font-size: var(--if-text-base);
   line-height: 22px;
   overflow-wrap: anywhere;
 }
 .api-key-revoke__refs {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--if-space-2);
   margin: 0;
   min-width: 0;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--if-text-sm);
+  line-height: var(--if-leading-base);
 }
 .api-key-revoke__refs > div {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 8px;
+  gap: var(--if-space-1) var(--if-space-2);
   min-width: 0;
 }
 .api-key-revoke__refs dd {
@@ -414,17 +414,17 @@
 .api-key-revoke__review {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--if-space-4);
   min-width: 0;
 }
 .api-key-revoke__current {
-  padding-top: 16px;
+  padding-top: var(--if-space-4);
   border-top: 1px solid var(--color-border);
 }
 .api-key-revoke__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: var(--if-space-3);
 }
 .api-key-revoke > .button,
 .api-key-revoke__current > .button,
@@ -446,7 +446,7 @@
 .security__check {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--if-space-3);
   min-height: 44px;
 }
 .security__check input {
@@ -458,21 +458,21 @@
 .security__mail-preview {
   margin: 0;
   border: 1px dashed var(--color-border);
-  border-radius: 8px;
-  padding: 16px;
+  border-radius: var(--if-r-sm);
+  padding: var(--if-space-4);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--if-space-2);
 }
 .security__mail-preview figcaption {
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--if-text-sm);
+  line-height: var(--if-leading-base);
   color: var(--color-muted);
 }
 /* A recovery key's fingerprint, so its holder can compare it with the key they were given. */
 .security__fingerprint {
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--if-text-sm);
+  line-height: var(--if-leading-base);
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }

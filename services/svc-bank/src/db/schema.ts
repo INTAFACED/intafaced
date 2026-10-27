@@ -303,6 +303,8 @@ export const earnPositions = bank.table(
     /** Claim before the ledger post. An omitted status is not interest-eligible. */
     status: positionStatusEnum('status').notNull().default('pending'),
     closedAt: tstz('closed_at'),
+    /** The saver's choice to start a new term when a fixed-term saving ends (BK-earn-03). Fixed-term only. */
+    autoRenew: boolean('auto_renew').notNull().default(false),
     createdAt: createdAt(),
   },
   (t) => [
@@ -378,6 +380,28 @@ export const earnRateChanges = bank.table(
       .on(t.approvalId)
       .where(sql`${t.approvalId} IS NOT NULL`),
   ],
+);
+
+/**
+ * ONE RENEWED TERM OF A FIXED-TERM SAVING (BK-earn-03) — append-only, one row per (position, term).
+ *
+ * The key is the relock's business key: a renewal job that runs twice renews once. Nothing posts: the principal
+ * stays in the saving's stake pot and only the maturity moves.
+ */
+export const earnRenewals = bank.table(
+  'earn_renewals',
+  {
+    positionId: uuid('position_id')
+      .notNull()
+      .references(() => earnPositions.id),
+    /** 1 for the first renewal, counting up. */
+    term: integer('term').notNull(),
+    previousMaturesAt: tstz('previous_matures_at').notNull(),
+    maturesAt: tstz('matures_at').notNull(),
+    principal: amount('principal').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.positionId, t.term] })],
 );
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1741,6 +1765,7 @@ export const schema = {
   earnPositions,
   interestAccruals,
   earnRateChanges,
+  earnRenewals,
   loanProducts,
   loans,
   loanCollateralEvents,

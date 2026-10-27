@@ -37,7 +37,7 @@ function ReadResult<T>({ resource, retry, children }: { resource: Resource<T>; r
   const result = resource.failure;
   if (result.status === 404 || result.code === 'allowlist.not_found')
     return (
-      <div className="failure" role="status">
+      <div data-testid="failure" className="failure" role="status">
         <h3>{t('notFound')}</h3>
         <p>{t('notFoundNote')}</p>
         <Button variant="secondary" onClick={retry}>
@@ -158,7 +158,7 @@ function AddForm({ current, onDone, onCancel }: { current: () => boolean; onDone
         />
         <Field label={t('label')} name="allowlist-label" maxLength={64} value={label} onChange={(event) => setLabel(event.target.value)} />
         {invalid && (
-          <p className="failure" role="alert">
+          <p data-testid="failure" className="failure" role="alert">
             {t('formInvalid')}
           </p>
         )}
@@ -221,7 +221,7 @@ function Entries({ current }: { current: () => boolean }) {
             {entries.length ? (
               <ul className="withdrawal-list" data-testid="allowlist-entries">
                 {entries.map((entry) => (
-                  <li className="withdrawal-row" key={entry.id}>
+                  <li data-testid="withdrawal-row" className="withdrawal-row" key={entry.id}>
                     <div className="withdrawal-row-main">
                       <strong>{entry.label}</strong>
                       <span className="numeric" lang="und" data-withdrawal-private>
@@ -377,7 +377,7 @@ function OneTime({ current }: { current: () => boolean }) {
                   onChange={(event) => setMaxAmount(event.target.value)}
                 />
                 {invalid && (
-                  <p className="failure" role="alert">
+                  <p data-testid="failure" className="failure" role="alert">
                     {t('policyInvalid')}
                   </p>
                 )}
@@ -453,7 +453,7 @@ function Changes({ current }: { current: () => boolean }) {
           changes.length ? (
             <ul className="withdrawal-list" data-testid="allowlist-changes">
               {changes.map((change) => (
-                <li className="withdrawal-row" key={change.id}>
+                <li data-testid="withdrawal-row" className="withdrawal-row" key={change.id}>
                   <div className="withdrawal-row-main">
                     <strong>{t(`${change.op}_op` as 'add_op')}</strong>
                     {subjectOf(change)}
@@ -533,7 +533,7 @@ function Detail({ id, current }: { id: string; current: () => boolean }) {
                 <span className="numeric">{t('tally', { count: change.approvalCount, required: change.requiredApprovals })}</span>
               </div>
               <p className="muted">{t('hashNote')}</p>
-              <dl className="withdrawal-facts">
+              <dl data-testid="withdrawal-facts" className="withdrawal-facts">
                 {facts.map(([label, value]) => (
                   <div key={label}>
                     <dt>{label}</dt>
@@ -588,7 +588,7 @@ export function WithdrawalAllowlist({ context, search }: { context: AllowlistRea
     <Page eyebrow={t('money')} title={t('title')} description={t('description')}>
       <div className="withdrawal-page">
         {!requested.ok ? (
-          <p className="failure" role="alert">
+          <p data-testid="failure" className="failure" role="alert">
             {t('invalidId')}
           </p>
         ) : requested.id ? (

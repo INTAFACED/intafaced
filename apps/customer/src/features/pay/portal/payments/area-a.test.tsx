@@ -78,7 +78,7 @@ describe('Home panels, in plain words', () => {
   it('shows no lime chip for a completed state: the status chips are the soft ones', () => {
     const out = panels();
     expect(out).toContain('pp-chip pp-chip--done');
-    expect(out).not.toMatch(/bg-lime|text-lime/);
+    expect(out).not.toMatch(/bg-lime|text-lime|text-accent-text/);
   });
   it('tells one fee story, with the TEST label from the server and no basis points', () => {
     const test = panels({ merchant: { ...merchant, feeBps: 250, starterFee: { bps: 250, source: 'local_test' as const } } });

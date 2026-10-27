@@ -69,6 +69,14 @@ export type BankErrorCode =
    * claim first; do not close a half-open position under the operator's feet.
    */
   | 'bank.position_pending'
+  /** Auto-renew asked of a flexible saving, or a pool with no term to renew for: only a fixed-term saving renews. */
+  | 'bank.auto_renew_fixed_only'
+  /** Auto-renew turned on after the saving's term ended: a term that is over does not renew; take it back or save again. */
+  | 'bank.position_matured'
+  /** Identity answers the saver's account is frozen, closed or unknown, so the renewal job starts no new term. */
+  | 'bank.account_not_active'
+  /** One saving's renewal failed for a reason with no code of its own; the job reports it and carries on. */
+  | 'bank.earn_renew_failed'
   /**
    * earn_positions.principal disagrees with the ledger earn stake pot.
    * The table is eligibility (who, which pool, `active`); the money is
@@ -589,6 +597,7 @@ export type BankErrorCode =
    * Blank / non-finite refuses. Owner may pass those magnitudes explicitly.
    */
   | 'bank.earn_resume_pending_limit_unset'
+  | 'bank.earn_renew_batch_limit_unset'
   | 'bank.loan_resume_pending_limit_unset'
   | 'bank.loan_accrue_batch_limit_unset'
   | 'bank.transfer_due_limit_unset'
@@ -832,6 +841,8 @@ export type BankErrorCode =
   | 'bank.space_limit_unset'
   /** The account already holds the owner's number of live named spaces. */
   | 'bank.space_limit_reached'
+  /** The customer already has a space with this name in this currency (`spaces_user_asset_name_idx`); rename and retry. */
+  | 'bank.space_name_taken'
   /** A pot change that cannot be: a goal of zero or less, a lock date not in the future or earlier than the lock, or the primary space (BK-pots-02). */
   | 'bank.space_change_invalid'
   /** The owner has not set how long an early unlock waits (`BANK_SPACE_UNLOCK_WAIT_HOURS`), so the pot stays locked to its date (BK-pots-02). */

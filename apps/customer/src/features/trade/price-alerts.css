@@ -1,7 +1,7 @@
 .price-alerts {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--if-space-6);
 }
 .price-alerts p {
   margin: 0;
@@ -15,7 +15,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--if-space-3);
   flex-wrap: wrap;
 }
 .price-alerts .button,
@@ -28,34 +28,34 @@
 .price-alerts-selection {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--if-space-3);
 }
 .price-alerts-list {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding-top: 20px;
+  gap: var(--if-space-4);
+  padding-top: var(--if-space-5);
   border-top: 1px solid var(--color-divider);
 }
 .price-alerts-row {
-  padding: 16px 0;
+  padding: var(--if-space-4) 0;
   border-bottom: 1px solid var(--color-divider);
 }
 .price-alerts-row > div:first-child {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--if-space-4);
 }
 .price-alerts-status {
   min-width: 64px;
   flex-shrink: 0;
   text-align: right;
-  font-size: 13px;
+  font-size: var(--if-text-sm);
   color: var(--color-muted);
 }
 .price-alerts-status--active {
-  color: var(--color-accent);
+  color: var(--if-accent-text);
 }
 .price-alerts-quantity {
   font-variant-numeric: tabular-nums;
@@ -63,7 +63,7 @@
   min-width: 0;
 }
 .price-alerts-review .price-alerts-quantity {
-  font-size: 28px;
+  font-size: var(--if-text-2xl);
   font-weight: 600;
   line-height: 36px;
 }
@@ -71,7 +71,7 @@
 .price-alerts-result {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--if-space-2);
 }
 .price-alerts-availability strong {
   color: var(--color-text);
@@ -81,15 +81,15 @@
   display: inline-block;
   width: 8px;
   height: 8px;
-  margin-right: 8px;
+  margin-right: var(--if-space-2);
   border-radius: 50%;
-  background: var(--color-accent);
+  background: var(--if-lime);
 }
 .price-alerts-ack {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  padding: 12px 0;
+  gap: var(--if-space-3);
+  padding: var(--if-space-3) 0;
   min-height: 44px;
 }
 .price-alerts-ack input {
@@ -100,10 +100,10 @@
 .price-alerts-original {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 20px;
+  gap: var(--if-space-3);
+  padding: var(--if-space-5);
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--if-r-sm);
 }
 .price-alerts-original code,
 .price-alerts-selection code {
@@ -111,7 +111,7 @@
 }
 .price-alerts-exits {
   display: flex;
-  gap: 16px;
+  gap: var(--if-space-4);
   flex-wrap: wrap;
 }
 .price-alerts-exits a {
@@ -120,7 +120,7 @@
   min-height: 44px;
 }
 .price-alerts-review > .price-alerts-actions {
-  padding-top: 12px;
+  padding-top: var(--if-space-3);
   border-top: 1px solid var(--color-divider);
 }
 .price-alerts select {
@@ -129,9 +129,9 @@
 }
 .trade-root .trade-chart-toolbar > .price-alerts-trigger {
   min-height: 44px;
-  font-size: 12px;
+  font-size: var(--if-text-xs);
   margin-left: 0;
-  padding: 6px 8px;
+  padding: var(--if-space-1-5) var(--if-space-2);
   flex-shrink: 0;
 }
 .price-alerts .field,
@@ -143,7 +143,7 @@
     flex: 1 1 140px;
   }
   .price-alerts-review .price-alerts-quantity {
-    font-size: 24px;
+    font-size: var(--if-text-xl);
     line-height: 32px;
   }
 }

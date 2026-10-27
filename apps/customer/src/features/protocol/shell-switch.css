@@ -4,12 +4,12 @@
     display: inline-flex;
     flex: none;
     border: 1px solid var(--tb-line);
-    border-radius: 999px;
+    border-radius: var(--if-r-pill);
     overflow: hidden;
-    font-size: 13px;
+    font-size: var(--if-text-sm);
   }
   .web3-switch a {
-    padding: 4px 12px;
+    padding: var(--if-space-1) var(--if-space-3);
     color: var(--tb-fg-2);
     text-decoration: none;
   }
@@ -23,7 +23,7 @@
   /* Signed out below 1280 px there is no account menu, so the switch sits in a row of its own under the bar. */
   .tb-switch-row {
     display: flex;
-    padding: 8px 16px;
+    padding: var(--if-space-2) var(--if-space-4);
     background: var(--tb-bg);
     border-bottom: 1px solid var(--tb-line);
   }

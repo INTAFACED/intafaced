@@ -23,6 +23,7 @@ import { CONVERSION_HOLD_SWEEP_MS, CONVERSION_LATE_FILL_TICK_MS } from './conver
 import { assertConversionBoot, openConversionVenue, readConversionConfig } from './conversion/venue.js';
 import { createRegistryReader } from './registries/read-api.js';
 import { JetStreamEventBus } from '@intafaced/events';
+import { createIdentityLimitOverrideClient } from './limits/identity-override.js';
 import { createIdentityKycTierClient } from './limits/identity-tier.js';
 import { PAY_WITHDRAWAL_LIMITS_ENV, loadWithdrawalLimitMode } from './limits/config.js';
 import { createWithdrawalEligibility, ledgerNegativeBalanceSource } from './withdrawals/eligibility.js';
@@ -334,12 +335,24 @@ if (process.env[PAY_WITHDRAWAL_LIMITS_ENV]?.trim()) {
 const kycTierSource = env.IDENTITY_URL
   ? createIdentityKycTierClient({ baseUrl: env.IDENTITY_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: s2sKey })
   : undefined;
+// A founder's override for one customer and asset (J-ops-console-04 #12) comes from the same identity service, per request.
+const limitOverrideSource = env.IDENTITY_URL
+  ? createIdentityLimitOverrideClient({ baseUrl: env.IDENTITY_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: s2sKey })
+  : undefined;
 const limitSource = createSqlLimitSource();
+const withdrawalLimitReader = createWithdrawalLimitReader({
+  sql,
+  source: limitSource,
+  mode: loadWithdrawalLimitMode(process.env),
+  tierOf: kycTierSource,
+  overrideOf: limitOverrideSource,
+});
 // W-custody-ops-07: fail closed by default; a bad value stops the boot.
 const payGuards = buildPayGuards({
   sql,
   ledger,
   kycTierOf: kycTierSource,
+  limitOverrideOf: limitOverrideSource,
   limitSource,
   custodyPolicyMode: loadCustodyPolicyMode(process.env),
   // No screener is connected: blank refuses every custodial send. `local-test` is the test stack's stand-in (dev/test only).
@@ -547,12 +560,7 @@ const userMoney = new UserMoneyService(sql, ledger, rails, {
   valueMovement: railPosture.policy,
   wallet: walletPay,
   chainReader: walletChainReader,
-  withdrawalLimits: createWithdrawalLimitReader({
-    sql,
-    source: limitSource,
-    mode: loadWithdrawalLimitMode(process.env),
-    tierOf: kycTierSource,
-  }),
+  withdrawalLimits: withdrawalLimitReader,
   withdrawalHistory: createWithdrawalHistory(sql),
   // The negative-balance and purchase-hold checks are answerable here (from the ledger and our own hold records); every other reason reads `unwired`.
   withdrawalEligibility: createWithdrawalEligibility({
@@ -722,7 +730,7 @@ export const appRouter = mergeRouters(
     catalog: { sql, imageRule: readProductImageRule(process.env) },
     checkoutBranding: { sql, logoRule: readCheckoutLogoRule(process.env) },
     checkoutMethods: { sql, rails: () => pay.checkoutMethodRails() },
-    limits: { sql, approvals: actionApprovals },
+    limits: { sql, approvals: actionApprovals, reader: withdrawalLimitReader },
     custody: {
       sql,
       sweepStaleAfterSeconds: loadSweepStaleAfterSeconds(process.env),
