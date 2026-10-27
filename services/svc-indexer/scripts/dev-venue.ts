@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createPublicClient, createWalletClient, defineChain, http, pad, stringToHex, toHex } from 'viem';
 import { mnemonicToAccount } from 'viem/accounts';
-import type { Abi, Address, Hex, HDAccount, PublicClient, WalletClient } from 'viem';
+import type { Abi, Address, Chain, Hex, HDAccount, PublicClient, WalletClient } from 'viem';
 import { describeError, recordInfraProbe } from '@intafaced/db';
 
 /**
@@ -53,7 +53,7 @@ export function devAccount(index = 5): HDAccount {
   return mnemonicToAccount(PUBLIC_ANVIL_DEV_MNEMONIC, { addressIndex: index });
 }
 
-export const devChain = (rpcUrl: string, chainId: number = DEV_CHAIN_ID) =>
+export const devChain = (rpcUrl: string, chainId: number = DEV_CHAIN_ID): Chain =>
   defineChain({
     id: chainId,
     name: `intafaced-dev-${chainId}`,
