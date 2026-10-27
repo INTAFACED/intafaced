@@ -50,9 +50,10 @@
  * So: the mechanism lands enforcing, with today's failures pinned. This is the
  * pattern the repo already uses in `fabricated-money-scan` (deleted 2026-10-13) (12 frozen),
  * `vendor-java-money-scan` (55) and `wallet-rpc-mainnet-scan` (57). A NEW error
- * fails the build. A pinned one that gets FIXED also fails the build, telling
- * you to delete its row — so the list can only shrink, and it cannot rot into
- * blanket cover.
+ * fails the build. A pinned one that gets FIXED warns, telling you to delete its
+ * row; a fix never fails the build (owner decision 2026-10-27), and a pin left
+ * above the truth still cannot cover a new error, since counts only allow what
+ * they name.
  *
  * ── WHY PINS CARRY NO LINE NUMBER, AND DO CARRY A COUNT ─────────────────────
  *
@@ -384,7 +385,7 @@ function check(dir) {
   for (const [sig, count] of pinned) {
     const actual = found.get(sig) ?? 0;
     if (actual < count) {
-      problems.push(
+      fixedPins.push(
         `${key} — a PINNED error no longer reproduces (good, the queue shrank):\n` +
           `      ${sig}\n` +
           `      (pinned ${count}×, now ${actual}×)\n` +
@@ -397,6 +398,9 @@ function check(dir) {
   console.log(`  ${problems.length === 0 ? '✓' : '✖'} ${key.padEnd(28)} ${total === 0 ? 'clean' : `${total} pinned`}`);
   return problems;
 }
+
+/** Pins that no longer reproduce: printed as warnings, never a failure. */
+const fixedPins = [];
 
 // ── Run ─────────────────────────────────────────────────────────────────────
 
@@ -415,6 +419,9 @@ if (process.argv.includes('--all')) {
 }
 
 const problems = targets.flatMap(check);
+for (const f of fixedPins) {
+  console.log(process.env.GITHUB_ACTIONS ? `::warning title=Test typecheck::${f.replace(/\s+/g, ' ')}` : `  ! ${f}\n`);
+}
 
 const frozenTotal = Object.values(PINNED).reduce((n, rows) => n + rows.reduce((m, [c]) => m + c, 0), 0);
 
@@ -423,7 +430,7 @@ if (problems.length > 0) {
   for (const p of problems) console.error(`  · ${p}\n`);
   console.error(
     `  ${frozenTotal} pre-existing test type error(s) are pinned in tooling/ci/test-typecheck.mjs.\n` +
-      '  That list may only shrink. A red line above is either a new error or a fixed pin.\n',
+      '  That list may only shrink. A red line above is a new error.\n',
   );
   if (!REPORT_ONLY) process.exit(1);
 } else if (process.argv.includes('--all')) {
