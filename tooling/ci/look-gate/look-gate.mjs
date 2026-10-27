@@ -355,10 +355,16 @@ async function settle(page) {
 }
 
 /**
+ * A generated id (React's useId on the client `_r_…_` or server `_R_…_`, base-ui, Radix) changes between pages and
+ * renders, so a control named by it would be listed once per id. Passed into the page as a source string.
+ */
+const GENERATED_ID = String.raw`[:«»]|^(?:base-ui|radix)-|^_r_\w*_$`;
+
+/**
  * Tab through the first stops; a focused box a `data-obscures` bar paints over fails (inside the bar's band and under
  * it in the stacking order). Runs in the browser after each Tab.
  */
-function focusState() {
+function focusState(generatedId) {
   const el = document.activeElement;
   if (!el || el === document.body) return null;
   const r = el.getBoundingClientRect();
@@ -386,7 +392,7 @@ function focusState() {
       }),
     );
   return {
-    name: `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ''} "${(el.textContent || el.getAttribute('aria-label') || '').trim().slice(0, 30)}"`,
+    name: `${el.tagName.toLowerCase()}${el.id && !new RegExp(generatedId, 'i').test(el.id) ? `#${el.id}` : ''} "${(el.textContent || el.getAttribute('aria-label') || '').trim().slice(0, 30)}"`,
     covered: !!covered,
   };
 }
@@ -593,7 +599,7 @@ async function check(context, origin, target, vpName, opts, registry) {
       await page.setViewportSize(viewport);
       for (let i = 0; i < 25; i++) {
         await page.keyboard.press('Tab');
-        const f = await page.evaluate(focusState);
+        const f = await page.evaluate(focusState, GENERATED_ID);
         if (f?.covered) focus.push(`${f.name} is under a fixed bar`);
       }
     }
@@ -643,11 +649,15 @@ async function check(context, origin, target, vpName, opts, registry) {
 const I18N_FIXTURES = 'packages/i18n/dist/fixtures.js';
 
 /**
- * Whether a string is copy a translation would lengthen. A figure (no letter), a ticker or pair (BTC, BTC-USDT) and the
- * wordmark keep their text, and so does pseudo copy already applied (a second pass after a re-render).
+ * Whether a string is copy a translation would lengthen. A figure (no letter), a ticker or pair (BTC, BTC-USDT), an
+ * amount with its code after it (+50 USDT, 0.1 BTC) and the wordmark keep their text, and so does pseudo copy already
+ * applied (a second pass after a re-render).
  */
 export function isCopy(text) {
-  return /\p{L}/u.test(text) && !/^[A-Z0-9][A-Z0-9./-]{0,11}$/.test(text) && !/^intafaced\W*$/i.test(text) && !text.startsWith('⟦');
+  const amount = /^[+\-−]?\p{Sc}?\d[\d.,\s]*\s?[A-Z][A-Z0-9]{1,9}$/u.test(text);
+  return (
+    /\p{L}/u.test(text) && !amount && !/^[A-Z0-9][A-Z0-9./-]{0,11}$/.test(text) && !/^intafaced\W*$/i.test(text) && !text.startsWith('⟦')
+  );
 }
 
 /**
@@ -672,7 +682,10 @@ async function pseudoCopy(page) {
     window.__lookGateCopy = spots;
     return [...new Set(spots.map((s) => s.text))];
   });
-  const copy = Object.fromEntries(found.filter(isCopy).map((s) => [s, pseudoLocalize(s)]));
+  // The fixture pads with one unbroken run (~·ẅ~·ẅ…), which no translation has: a long sentence's run would spill out
+  // of any box. A zero-width space every two groups lets it wrap like words, without making it longer.
+  const wrap = (text) => text.replace(/(?:~·ẅ){2}(?=~)/g, '$&\u200B');
+  const copy = Object.fromEntries(found.filter(isCopy).map((s) => [s, wrap(pseudoLocalize(s))]));
   return page.evaluate((copy) => {
     let n = 0;
     for (const spot of window.__lookGateCopy ?? []) {
@@ -694,14 +707,21 @@ async function pseudoCopy(page) {
   }, copy);
 }
 
-/** Boxes that cut off their pseudo copy: wider or taller than they show, under hidden or clipped overflow or a line clamp. */
-const CLIPPED_COPY = () => {
+/**
+ * Pseudo copy a person cannot read whole at 130%, as `[box, how]`: its box cuts it off (hidden or clipped overflow, an
+ * ellipsis or a line clamp), it spills sideways out of its box over its neighbours, or a box around it that cannot
+ * scroll there (a tab list, a clipped row) hides part of it.
+ */
+const CLIPPED_COPY = (generatedId) => {
+  // A generated id (GENERATED_ID): name the box by its tag and class instead.
+  const stable = (id) => id && !new RegExp(generatedId, 'i').test(id);
   const name = (el) => {
-    const id = el.getAttribute('data-testid') || el.id;
+    const id = el.getAttribute('data-testid') || (stable(el.id) ? el.id : '');
     const cls = typeof el.className === 'string' ? el.className.trim().split(/\s+/)[0] : '';
     return `${el.tagName.toLowerCase()}${id ? `#${id}` : cls ? `.${cls}` : ''}`;
   };
-  const out = new Set();
+  const cuts = (v) => v === 'hidden' || v === 'clip';
+  const out = new Map();
   for (const own of document.querySelectorAll('[data-look-gate-copy]')) {
     // An inline or display: contents element has no box of its own: judge the block that holds it.
     let el = own;
@@ -710,11 +730,50 @@ const CLIPPED_COPY = () => {
     const r = el.getBoundingClientRect();
     // Hidden, or visually hidden for screen readers (a 1 px clipped box): nobody sees it cut.
     if (c.visibility === 'hidden' || r.width <= 1 || r.height <= 1 || c.clipPath.startsWith('inset(50%')) continue;
-    const cuts = (v) => v === 'hidden' || v === 'clip';
     const clamp = c.webkitLineClamp && c.webkitLineClamp !== 'none';
     const wide = (cuts(c.overflowX) || c.textOverflow === 'ellipsis') && el.scrollWidth > el.clientWidth + 1;
     const tall = (cuts(c.overflowY) || clamp) && el.scrollHeight > el.clientHeight + 1;
-    if (wide || tall) out.add(name(el));
+    let how = wide || tall ? 'cuts off its text' : '';
+    if (!how && own.matches('input, textarea')) continue;
+    // The text's own extent: the marked element's own text nodes, never a child box (a tooltip, a caret) placed elsewhere.
+    const t = { left: Infinity, right: -Infinity, width: 0 };
+    for (const node of own.childNodes) {
+      if (node.nodeType !== Node.TEXT_NODE || !node.textContent.trim()) continue;
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const b = range.getBoundingClientRect();
+      if (!b.width) continue;
+      t.left = Math.min(t.left, b.left);
+      t.right = Math.max(t.right, b.right);
+      t.width = t.right - t.left;
+    }
+    if (!how && t.width > 0 && (t.left < r.left - 1 || t.right > r.right + 1)) how = 'spills out of its box';
+    // A box further out that clips this text where it cannot scroll to show it. A fixed box escapes every clip above it
+    // (its own still cuts: the dock, the top bar); an absolute one escapes the boxes between it and its containing block
+    // (the nearest positioned box).
+    let escaped = c.position === 'absolute';
+    for (let a = el.parentElement; !how && a && a !== document.body && c.position !== 'fixed'; a = a.parentElement) {
+      const ac = getComputedStyle(a);
+      const last = ac.position === 'fixed';
+      const skip = escaped && ac.position === 'static';
+      if (ac.position !== 'static') escaped = ac.position === 'absolute';
+      if (skip || (ac.overflowX === 'visible' && ac.overflowY === 'visible')) {
+        if (last) break;
+        continue;
+      }
+      const ar = a.getBoundingClientRect();
+      const scrolls = (v) => v === 'auto' || v === 'scroll';
+      const x = Math.abs(a.scrollLeft);
+      const room = a.scrollWidth - a.clientWidth;
+      // Scrollable toward the hidden part counts as reachable; the start of a centred row that overflows never is.
+      const startHidden = t.left < ar.left - 1 && !(scrolls(ac.overflowX) && x > 0);
+      const endHidden = t.right > ar.right + 1 && !(scrolls(ac.overflowX) && x < room - 1);
+      // Text wholly outside the box (a slide not shown, a closed panel) is hidden, not cut.
+      const overlaps = t.right > ar.left && t.left < ar.right;
+      if (t.width > 0 && overlaps && (startHidden || endHidden)) how = `is cut by ${name(a)}`;
+      if (last) break;
+    }
+    if (how && !out.has(name(el))) out.set(name(el), how);
     if (out.size >= 12) break;
   }
   return [...out];
@@ -767,8 +826,8 @@ async function variants(browser, origin, target, opts) {
       const overflow = await page.evaluate(() => Math.max(0, document.documentElement.scrollWidth - innerWidth));
       if (overflow > 0) row.findings.overflow = [`${overflow}px wider than the screen`];
       if (setup.pseudo) {
-        const clipped = await page.evaluate(CLIPPED_COPY);
-        if (clipped.length) row.findings.copy = clipped.map((c) => `${c} cuts off its text at 130%`);
+        const clipped = await page.evaluate(CLIPPED_COPY, GENERATED_ID);
+        if (clipped.length) row.findings.copy = clipped.map(([box, how]) => `${box} ${how} at 130%`);
         const dir = join(opts.out, 'shots', target.room);
         mkdirSync(dir, { recursive: true });
         // The whole page in one viewport, as the main shots are, so fixed bars stay where a person sees them.
@@ -786,7 +845,7 @@ async function variants(browser, origin, target, opts) {
       if (!target.scope)
         for (let i = 0; i < 15; i++) {
           await page.keyboard.press('Tab');
-          const f = await page.evaluate(focusState);
+          const f = await page.evaluate(focusState, GENERATED_ID);
           if (f?.covered) focus.push(`${f.name} is under a fixed bar`);
         }
       if (focus.length) row.findings.focus = [...new Set(focus)];
@@ -1011,7 +1070,31 @@ async function main(opts) {
   if (v.mode === 'block') process.exit(1);
 }
 
-function selfTest() {
+/** The copy finder on small fixed pages, in a real browser: what only layout can show. */
+async function selfTestBrowser(eq) {
+  const { chromium } = await import('@playwright/test');
+  const browser = await chromium.launch(process.env.LOOK_GATE_CHROMIUM ? { executablePath: process.env.LOOK_GATE_CHROMIUM } : {});
+  try {
+    const page = await browser.newPage({ viewport: { width: 400, height: 400 } });
+    const cut = (outer) =>
+      page.setContent(
+        `<body style="margin:0">${outer.replace('%', '<span class="label" data-look-gate-copy style="display:block;width:max-content">A long pseudo label that runs on</span>')}</body>`,
+      );
+    const box = 'width:120px;overflow:hidden';
+    await cut(`<div class="row" style="${box}">%</div>`);
+    eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [['span.label', 'is cut by div.row']], 'a clipping row cuts its label');
+    await cut(`<nav class="dock" style="position:fixed;bottom:0;${box}">%</nav>`);
+    eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [['span.label', 'is cut by nav.dock']], 'a fixed bar cuts its own label');
+    await cut(`<div class="row" style="${box}"><nav class="dock" style="position:fixed;top:0;left:0;width:400px">%</nav></div>`);
+    eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [], 'a fixed bar escapes the row around it');
+    await cut(`<div class="row" style="${box}"><div style="transform:translateX(300px)">%</div></div>`);
+    eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [], 'text wholly outside the row is hidden, not cut');
+  } finally {
+    await browser.close();
+  }
+}
+
+async function selfTest() {
   let n = 0;
   const eq = (got, want, what) => {
     n++;
@@ -1215,9 +1298,22 @@ function selfTest() {
   opened.setAAD(Buffer.from('__Host-intafaced-admin\nhttp://127.0.0.1:1\nv1'));
   eq(JSON.parse(Buffer.concat([opened.update(sealed.subarray(28)), opened.final()]).toString()), { a: 1 }, 'the session seal opens');
   eq(
-    ['Send money', 'Bitcoin', 'BTC', 'BTC-USDT', '12,481.91', 'intafaced·', '⟦Šéñð ~·⟧', 'Send'].map(isCopy),
-    [true, true, false, false, false, false, false, true],
-    '130% copy lengthens words, not tickers, figures, the wordmark or copy it already lengthened',
+    [
+      'Send money',
+      'Bitcoin',
+      'BTC',
+      'BTC-USDT',
+      '12,481.91',
+      'intafaced·',
+      '⟦Šéñð ~·⟧',
+      'Send',
+      '+50 USDT',
+      '0.1 BTC',
+      'Send 50 BTC',
+      'TOP 10',
+    ].map(isCopy),
+    [true, true, false, false, false, false, false, true, false, false, true, true],
+    '130% copy lengthens words, not tickers, figures, amounts, the wordmark or copy it already lengthened',
   );
   ok(customerRoutes().length > 50 && customerRoutes().includes('/coin/BTC'), 'routes are the room report list');
   const fakeMark = new Uint8Array(8);
@@ -1235,9 +1331,10 @@ function selfTest() {
   eq([...fakeMark], [0, 0, 0, 0, 255, 0, 80, 255], 'and the differing pixel is marked');
   const h = securityHeaders({ reportUri: REPORT_PATH })['Content-Security-Policy'];
   ok(/script-src 'self';/.test(h) && /font-src 'self';/.test(h), 'the gate serves the production policy');
+  await selfTestBrowser(eq);
   console.log(`✓ look-gate --self-test OK (${n} checks)`);
 }
 
 const opts = args(process.argv.slice(2));
-if (opts.selfTest) selfTest();
+if (opts.selfTest) await selfTest();
 else await main(opts);
