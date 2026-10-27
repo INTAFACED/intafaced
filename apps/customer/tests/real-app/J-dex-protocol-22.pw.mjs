@@ -11,7 +11,9 @@ import { bodyRows, tableIn } from './tables.mjs';
 // - the wallet room has no Pay, Subscriptions, Scheduled, Spaces or Stealth handle sections (RC-merchant-01, -02,
 //   RC-dex-protocol-08, -16, RC-identity-17, RC-pay-03); the on-chain split payment and the stealth scan are proven in
 //   services/svc-protocol (merchant-accept.onchain.test.ts, stealth/scan.test.ts), but no room opens them;
-// - the stack has no TEST chain or keeper, so no payment, pull or scheduled transfer can mine.
+// - the stack has no TEST chain or keeper, so no payment, pull or scheduled transfer can mine. #2's pulls come from the
+//   TEST merchant's own puller and #3's runs from a TEST keeper the stack will run when those rooms are built; the
+//   steps wait for them, they do not start them.
 const J = 'J-dex-protocol-22';
 const dex = dexRun(J);
 // A TEST merchant's on-chain checkout, a friend's address and the members of a space.
@@ -56,6 +58,7 @@ test(`${J} #1 pays a merchant from the wallet: the payment splits to the merchan
 test(`${J} #2 grants a subscription of 10 TEST per period: the cap is shown; a pull of 6 then 5 in one period fails on the second; revoke makes the next pull fail`, async ({
   page,
 }) => {
+  test.setTimeout(240_000);
   await openSection(page, 'Subscriptions');
   await page.getByRole('button', { name: 'New subscription' }).click(UNBUILT);
   const form = page.getByRole('form', { name: 'New subscription' });
@@ -78,6 +81,7 @@ test(`${J} #2 grants a subscription of 10 TEST per period: the cap is shown; a p
 test(`${J} #3 schedules 5 TEST a week to a saved address: a second keeper trigger in one week fails; cancel stops the next run`, async ({
   page,
 }) => {
+  test.setTimeout(300_000);
   await openSection(page, 'Scheduled');
   await page.getByRole('button', { name: 'New scheduled transfer' }).click(UNBUILT);
   const form = page.getByRole('form', { name: 'New scheduled transfer' });
@@ -145,8 +149,8 @@ test(`${J} #5 creates a stealth handle and shares it: two payers get two differe
   const handle = page.getByRole('region', { name: 'Your stealth handle' });
   await expect(handle.getByTestId('stealth-handle')).toHaveText(/^st:[0-9a-zA-Z]+$/);
   await handle.getByRole('button', { name: 'Show two TEST payer addresses' }).click();
+  await expect(handle.getByRole('listitem')).toHaveCount(2);
   const addresses = await handle.getByRole('listitem').allInnerTexts();
-  expect(addresses).toHaveLength(2);
   expect(addresses[0]).not.toBe(addresses[1]);
   for (const address of addresses) expect(address.toLowerCase()).not.toContain(wallet.address);
   await handle.getByRole('button', { name: 'Scan for payments' }).click();

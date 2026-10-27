@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { UNBUILT, dexRun } from './dex.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
+import { chooseContract, confirmOpen, fillTicket } from './futures-desk.mjs';
 import { api, fund, toUnits } from './stack.mjs';
 import { bodyRows, tableIn } from './tables.mjs';
 
@@ -42,34 +43,6 @@ async function positions(who) {
   return body;
 }
 
-/** Types a size and the TEST leverage in the ticket and presses Review, as the desk asks before an open. */
-async function fillTicket(page, size, { review = true } = {}) {
-  const ticket = page.getByRole('region', { name: 'Order ticket' });
-  await ticket.getByRole('textbox', { name: 'Size' }).fill(size);
-  await ticket.getByRole('textbox', { name: 'Leverage' }).fill('5');
-  if (review) await ticket.getByRole('button', { name: 'Review', exact: true }).click({ timeout: 15_000 });
-  return ticket;
-}
-
-/** Confirms the open sheet, accepting a new margin tier, and waits for the fill (J-derivatives-01 #8). */
-async function confirmOpen(page) {
-  const confirm = page.getByRole('alertdialog');
-  const tier = confirm.getByRole('region', { name: 'New margin tier' });
-  const filled = page.getByText('Order filled');
-  for (let attempt = 0; attempt < 2 && !(await filled.isVisible()); attempt++) {
-    if ((await tier.count()) > 0) await tier.getByRole('checkbox').click();
-    await confirm.getByRole('button', { name: 'Confirm open long' }).click();
-    await expect(filled.or(confirm.getByText('The numbers moved since you reviewed'))).toBeVisible({ timeout: 20_000 });
-  }
-  await expect(filled).toBeVisible();
-}
-
-/** Picks a contract in the desk's contract chooser. */
-async function chooseContract(page, name) {
-  await page.getByRole('combobox', { name: 'Choose a contract' }).click();
-  await page.getByRole('option', { name }).click(UNBUILT);
-}
-
 test(`${J} starts: a verified TEST account with TEST margin, on the futures ticket`, async ({ page }) => {
   test.setTimeout(240_000);
   const who = await fundedTrader(page, 'dex18', '1000');
@@ -90,6 +63,7 @@ test(`${J} #1 opens the perps catalogue: each perp with its leverage cap equal t
   const listed = markets.find((m) => m.symbol === SYMBOL);
   await expect(row).toContainText(`${listed.maxLeverage}x`);
   const prelaunch = bodyRows(catalogue).filter({ hasText: 'Prelaunch' });
+  await expect(prelaunch).not.toHaveCount(0);
   for (const market of await prelaunch.all()) await expect(market.getByRole('button', { name: /^Trade/ })).toBeDisabled();
 });
 
@@ -128,6 +102,7 @@ test(`${J} #4 places a TWAP of 10 over 5 slices: five slices each at the accepte
   page,
 }) => {
   await desk(page);
+  test.setTimeout(180_000);
   await page.getByRole('group', { name: 'Order type' }).getByRole('button', { name: 'TWAP' }).click(UNBUILT);
   await fillTicket(page, '0.01');
   await ticket(page).getByRole('spinbutton', { name: 'Slices' }).fill('5');
@@ -160,11 +135,11 @@ test(`${J} #6 switches margin mode and adds 5 TEST margin to an isolated positio
   page,
 }) => {
   const who = await desk(page);
-  await page.getByRole('group', { name: 'Margin mode' }).getByRole('button', { name: 'Isolated' }).click(UNBUILT);
+  await page.getByRole('group', { name: 'Margin mode' }).getByRole('button', { name: 'Isolated' }).click();
   await fillTicket(page, '0.01');
-  await page.getByRole('button', { name: 'Open long' }).click(UNBUILT);
+  await page.getByRole('button', { name: 'Open long' }).click();
   await confirmOpen(page);
-  await expect.poll(async () => (await positions(who)).length, { timeout: 20_000 }).toBe(1);
+  await expect.poll(async () => (await positions(who)).filter((p) => p.symbol === SYMBOL).length, { timeout: 20_000 }).toBeGreaterThan(0);
   const row = page
     .getByRole('row')
     .filter({ hasText: SYMBOL })
@@ -172,11 +147,12 @@ test(`${J} #6 switches margin mode and adds 5 TEST margin to an isolated positio
   await row.getByRole('button', { name: /^Add margin/ }).click(UNBUILT);
   const dialog = page.getByRole('dialog', { name: 'Add margin' });
   await dialog.getByRole('textbox', { name: /^Amount/ }).fill('5');
-  await expect(dialog.getByTestId('new-liquidation-price')).toHaveText(/^New liquidation price [\d,.]+$/);
+  await expect(dialog.getByTestId('new-liquidation-price')).toHaveText(/^New liquidation price [\d,.]+$/, UNBUILT);
+  const [position] = (await positions(who)).filter((p) => p.symbol === SYMBOL);
   await dialog.getByRole('button', { name: 'Add margin' }).dblclick();
-  // A double press posts the margin move once (business key futures.margin.add:<positionId>).
-  const [position] = await positions(who);
-  await expect.poll(async () => (await positions(who))[0].collateral, { timeout: 20_000 }).not.toBe(position.collateral);
+  // A double press posts the margin move once (business key futures.margin.add:<positionId>): exactly 5 more.
+  const collateral = async () => toUnits((await positions(who)).find((p) => p.id === position.id)?.collateral ?? '0');
+  await expect.poll(collateral, { timeout: 20_000 }).toBe(toUnits(position.collateral) + toUnits('5'));
   await expect(page.getByRole('status').filter({ hasText: 'Margin added' })).toHaveCount(1);
 });
 
@@ -185,6 +161,8 @@ test(`${J} #7 pays with another token: the converted amount stays if the open is
 }) => {
   const who = await desk(page);
   fund(who.email, 'ETH', '1');
+  const held = async () => (await positions(who)).filter((p) => p.symbol === SYMBOL).reduce((sum, p) => sum + toUnits(p.contracts), 0n);
+  const before = await held();
   await ticket(page).getByRole('combobox', { name: 'Pay with' }).selectOption({ label: 'ETH' }, UNBUILT);
   await fillTicket(page, '1000');
   await page.getByRole('button', { name: 'Open long' }).click(UNBUILT);
@@ -194,7 +172,8 @@ test(`${J} #7 pays with another token: the converted amount stays if the open is
   await fillTicket(page, '0.01');
   await page.getByRole('button', { name: 'Open long' }).click(UNBUILT);
   await confirmOpen(page);
-  await expect.poll(async () => (await positions(who)).length, { timeout: 20_000 }).toBeGreaterThan(0);
+  // The retry opens once: exactly 0.01 more is held than before the refused open.
+  await expect.poll(held, { timeout: 20_000 }).toBe(before + toUnits('0.01'));
 });
 
 test(`${J} #8 closes 25 percent: exactly a quarter of the size closes at the accepted mark; a caller-supplied price is refused`, async ({

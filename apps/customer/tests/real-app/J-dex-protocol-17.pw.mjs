@@ -33,8 +33,15 @@ async function person(page) {
   return who;
 }
 
-/** A decimal amount read from a line such as "Platform fee 0.0123 TEST Token B". */
-const amount = (text) => toUnits(text.match(/([\d,]+(?:\.\d+)?)/)[1].replaceAll(',', ''));
+/** The one decimal amount on a line such as "Platform fee 0.0123 TEST Token B"; a line with none or several fails by name. */
+function amount(text) {
+  const found = text.match(/\d[\d,]*(?:\.\d+)?/g) ?? [];
+  expect(found, `one amount in "${text}"`).toHaveLength(1);
+  return toUnits(found[0].replaceAll(',', ''));
+}
+
+/** The number of decimals a shown amount carries, so an exact sum can be rounded the way the page rounds it. */
+const shownDecimals = (text) => text.match(/\d[\d,]*\.(\d+)/)?.[1].length ?? 0;
 
 test(`${J} starts: a verified TEST account with trading history and some TEST IFC`, async ({ page }) => {
   test.setTimeout(240_000);
@@ -106,8 +113,10 @@ test(`${J} #5 reads maker rebates and the futures cost breakdown: rebate = tier 
   const rate = amount(await rebates.getByTestId('rebate-rate').innerText());
   const volume = amount(await rebates.getByTestId('maker-volume').innerText());
   const SCALE = 10n ** 18n;
-  // The rate is shown in percent: rate / 100 × volume.
-  expect(amount(await rebates.getByTestId('rebate-due').innerText())).toBe((rate * volume) / (100n * SCALE));
+  // The rate is shown in percent: rate / 100 × volume, rounded down to the decimals the page shows.
+  const due = await rebates.getByTestId('rebate-due').innerText();
+  const step = 10n ** BigInt(18 - shownDecimals(due));
+  expect(amount(due)).toBe(((rate * volume) / (100n * SCALE) / step) * step);
   await expect(bodyRows(tableIn(rebates, 'Rebate payments')).filter({ hasText: 'Paid' })).toHaveCount(1);
   const futures = main(page).getByRole('region', { name: 'Futures costs' });
   const parts = ['cost-trading', 'cost-funding', 'cost-borrow'];
@@ -168,6 +177,7 @@ test(`${J} #9 opens the burn page: stored buyback runs that add up per row; "job
   await expect(runs).toBeVisible(UNBUILT);
   for (const header of ['Bought', 'Burned', 'Sent to rewards'])
     await expect(runs.getByRole('columnheader', { name: header })).toBeVisible();
+  await expect(bodyRows(runs)).not.toHaveCount(0);
   for (const row of await bodyRows(runs).all()) {
     const cells = await row.getByRole('cell').allInnerTexts();
     if (cells.length < 4) {

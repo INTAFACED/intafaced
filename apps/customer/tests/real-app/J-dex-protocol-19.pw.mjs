@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { UNBUILT, dexRun } from './dex.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
-import { api } from './stack.mjs';
+import { chooseContract, confirmOpen, fillTicket } from './futures-desk.mjs';
+import { api, signOutBrowser } from './stack.mjs';
 import { bodyRows, tableIn } from './tables.mjs';
 
 // J-dex-protocol-19, in the running app (docs/roadmap/journeys.json): use the advanced futures controls: portfolio
@@ -34,34 +35,6 @@ async function desk(page, who = account.run.read().who) {
   return who;
 }
 
-/** Types a size and the TEST leverage in the ticket and presses Review, as the desk asks before an open. */
-async function fillTicket(page, size, { review = true } = {}) {
-  const ticket = page.getByRole('region', { name: 'Order ticket' });
-  await ticket.getByRole('textbox', { name: 'Size' }).fill(size);
-  await ticket.getByRole('textbox', { name: 'Leverage' }).fill('5');
-  if (review) await ticket.getByRole('button', { name: 'Review', exact: true }).click({ timeout: 15_000 });
-  return ticket;
-}
-
-/** Confirms the open sheet, accepting a new margin tier, and waits for the fill (J-derivatives-01 #8). */
-async function confirmOpen(page) {
-  const confirm = page.getByRole('alertdialog');
-  const tier = confirm.getByRole('region', { name: 'New margin tier' });
-  const filled = page.getByText('Order filled');
-  for (let attempt = 0; attempt < 2 && !(await filled.isVisible()); attempt++) {
-    if ((await tier.count()) > 0) await tier.getByRole('checkbox').click();
-    await confirm.getByRole('button', { name: 'Confirm open long' }).click();
-    await expect(filled.or(confirm.getByText('The numbers moved since you reviewed'))).toBeVisible({ timeout: 20_000 });
-  }
-  await expect(filled).toBeVisible();
-}
-
-/** Picks a contract in the desk's contract chooser. */
-async function chooseContract(page, name) {
-  await page.getByRole('combobox', { name: 'Choose a contract' }).click();
-  await page.getByRole('option', { name }).click(UNBUILT);
-}
-
 test(`${J} starts: a verified TEST account with an open TEST futures position`, async ({ page }) => {
   test.setTimeout(300_000);
   const who = await fundedTrader(page, 'dex19', '1000');
@@ -82,6 +55,7 @@ test(`${J} #1 presses Enable portfolio margin with open positions: close positio
   await desk(page);
   await portfolio(page).click();
   await expect(main(page).getByText(/Close your open positions first/)).toBeVisible(UNBUILT);
+  await signOutBrowser(page.context());
   await desk(page, account.run.read().empty);
   await portfolio(page).click();
   await expect(main(page).getByText(/portfolio margin (is )?not set/i)).toBeVisible(UNBUILT);

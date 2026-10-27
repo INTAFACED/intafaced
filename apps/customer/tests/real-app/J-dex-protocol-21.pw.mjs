@@ -41,6 +41,7 @@ async function borrower(browser) {
   const wallet = await installTestWallet(page, { chainId: CHAIN_ID, tokens: TOKENS, privateKey });
   await page.goto('/wallet');
   await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
+  await expect(page.getByRole('button', { name: 'Disconnect' })).toBeVisible();
   await page.goto('/dex/lend/fixed');
   await expect(book(page)).toBeVisible(UNBUILT);
   return { context, page, wallet };
@@ -101,9 +102,9 @@ test(`${J} #3 accepts an offer: collateral locks and 100 is paid to the borrower
     const loan = bodyRows(loans(other.page)).filter({ hasText: '100 TEST Token A' });
     await expect(loan).toContainText('Collateral locked: 150 TEST Token B', { timeout: 60_000 });
     await expect(loan).toContainText('Received 100 TEST Token A');
-    // The same acceptance sent again is refused by the contract, never a second loan.
-    await other.page.getByRole('button', { name: 'Reuse last signature' }).click();
-    await expect(other.page.getByRole('alert')).toContainText('This signature was already used');
+    // An accepted offer cannot be taken again: it leaves the book's open offers and there is one loan, never two
+    // (the contract refusing a replayed signature is its own on-chain test).
+    await expect(offerRow(other.page).getByRole('button', { name: 'Accept' })).toHaveCount(0);
     await expect(bodyRows(loans(other.page))).toHaveCount(1);
   } finally {
     await other.context.close();
@@ -130,9 +131,10 @@ test(`${J} #5 a borrower misses maturity: only the lender can claim the collater
   await expect(overdue).toHaveCount(1, UNBUILT);
   const other = await borrower(browser);
   try {
-    await expect(bodyRows(loans(other.page)).filter({ hasText: 'Overdue' }).getByRole('button', { name: 'Claim collateral' })).toHaveCount(
-      0,
-    );
+    // The borrower sees the same overdue loan, and no way to claim it.
+    const theirs = bodyRows(loans(other.page)).filter({ hasText: 'Overdue' });
+    await expect(theirs).toHaveCount(1);
+    await expect(theirs.getByRole('button', { name: 'Claim collateral' })).toHaveCount(0);
   } finally {
     await other.context.close();
   }
