@@ -35,6 +35,13 @@ const app = router({
       cause: new FakeAuthError('auth.too_many_attempts', { retryAfterSeconds: 842 }),
     });
   }),
+  kycLockedOut: publicProcedure.query(() => {
+    throw new TRPCError({
+      code: 'TOO_MANY_REQUESTS',
+      message: 'x',
+      cause: new FakeAuthError('kyc.attempts_exhausted', { retryAfterSeconds: 3599.2 }),
+    });
+  }),
   otherWithDetails: publicProcedure.query(() => {
     throw new TRPCError({
       code: 'UNAUTHORIZED',
@@ -66,6 +73,12 @@ describe('errorFormatter retryAfterSeconds', () => {
     expect(data.retryAfterSeconds).toBe(842);
     expect(data.cause).toEqual({ code: 'auth.too_many_attempts' });
     expect(data.httpStatus).toBe(429);
+  });
+
+  it('reaches the client for kyc.attempts_exhausted, rounded up to whole seconds', async () => {
+    const data = await wireData('kycLockedOut');
+    expect(data.retryAfterSeconds).toBe(3600);
+    expect(data.cause).toEqual({ code: 'kyc.attempts_exhausted' });
   });
 
   it('is not added to any other error, even one that carries the same field', async () => {

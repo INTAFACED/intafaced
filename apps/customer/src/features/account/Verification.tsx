@@ -8,6 +8,7 @@ import { verificationCopy as copy } from './verification-copy';
 import { VerificationLadder } from './VerificationLadder';
 import { VerificationCases } from './VerificationCases';
 import { VerificationCapabilities } from './VerificationCapabilities';
+import { VerificationAttempts } from './VerificationAttempts';
 import { KYC_LADDER_LEVELS } from '@intafaced/contracts/identity-kyc-levels';
 import {
   finishVerification,
@@ -53,6 +54,8 @@ export function Verification() {
     [known, setKnown] = useState<Known[]>([]);
   const [problem, setProblem] = useState<Problem | null>(null),
     [selected, setSelected] = useState<VerificationRecord | null>(null);
+  // At the owner's limit on rejected requests the form holds until the lockout ends (I-kyc-compliance-10).
+  const [locked, setLocked] = useState(false);
   const [stored, setStored] = useState<{ owner: string | null; value: VerificationJournal }>(() => ({
     owner: userId,
     value: userId ? readVerification(userId) : emptyJournal,
@@ -124,7 +127,7 @@ export function Verification() {
   const same = (intent: Original) => sameActor(intent) && original.current === intent;
   const journal = stored.owner === userId ? stored.value : userId ? readVerification(userId) : emptyJournal;
   const busy = Boolean(active && sameActor(active));
-  const blocked = !userId || busy || !api.canWrite() || verificationBlocked(journal);
+  const blocked = !userId || busy || locked || !api.canWrite() || verificationBlocked(journal);
   const visibleKnown = known.filter((receipt) => sameActor(receipt.original));
   function sync(owner: string) {
     if (mounted.current && current.current.userId === owner) setStored({ owner, value: readVerification(owner) });
@@ -544,6 +547,7 @@ export function Verification() {
             <p className="muted">
               <Copy k="requestBody" />
             </p>
+            {casesKey !== null && <VerificationAttempts recordsKey={casesKey} onLocked={setLocked} />}
             {offeredTiers.length > 0 ? (
               <form
                 ref={form}

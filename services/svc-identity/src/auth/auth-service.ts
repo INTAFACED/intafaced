@@ -21,6 +21,8 @@ import {
   type KycCapabilityMap,
 } from '../kyc/capabilities.js';
 import type { KycCapabilitiesOutput, KycCapability } from '@intafaced/contracts/identity-kyc-capabilities';
+import { assertAttemptsLeft, readKycAttempts, type KycAttemptLimit } from '../kyc/attempts.js';
+import type { KycAttempts } from '@intafaced/contracts/identity-kyc-attempts';
 import type { KycCase } from '@intafaced/contracts/identity-kyc-cases';
 import type {
   AccountState,
@@ -579,6 +581,8 @@ export class AuthService {
   private passwordResetTtlSeconds: number | undefined;
   /** The owner's level-to-capability mapping (I-kyc-compliance-07). Empty until index.ts installs it: grants nothing. */
   private kycCapabilities: KycCapabilityMap = new Map();
+  /** The owner's limit on rejected requests (I-kyc-compliance-10). Null until index.ts installs one: no limit. */
+  private kycAttemptLimit: KycAttemptLimit | null = null;
   private passwordResetMail: PasswordResetMail | undefined;
   private passwordResetMaxAttempts: number | undefined;
   private passwordResetRequestMax: number | undefined;
@@ -659,6 +663,11 @@ export class AuthService {
   /** Install the owner's level-to-capability mapping. Empty means none is published: an approval grants no capability. */
   useKycCapabilities(map: KycCapabilityMap): void {
     this.kycCapabilities = map;
+  }
+
+  /** Install the owner's limit on rejected verification requests. Null means none is set, and the page says so. */
+  useKycAttemptLimit(limit: KycAttemptLimit | null): void {
+    this.kycAttemptLimit = limit;
   }
 
   /** Install the mail handoff. Unset refuses every reset request the same way. */
@@ -2868,6 +2877,8 @@ export class AuthService {
       if (pending) return toKycRecord(pending);
       // Inactive is a compliance decision: a request whose level would grant it again is refused (I-kyc-compliance-07).
       await assertRequestable(tx, this.kycCapabilities, input.userId, input.tier);
+      // Too many rejected requests in the owner's window: refused with the seconds left (I-kyc-compliance-10).
+      await assertAttemptsLeft(tx, this.kycAttemptLimit, input.userId, new Date());
       const inserted = await tx<
         KycRow[]
       >`INSERT INTO kyc_records (user_id, tier, jurisdiction, provider_ref, status) VALUES (${input.userId}, ${input.tier}, ${input.jurisdiction}, ${input.providerRef ?? null}, 'pending') RETURNING id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at`;
@@ -2896,6 +2907,11 @@ export class AuthService {
     const users = await this.sql<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${userId}`;
     if (!users[0]) throw new AuthError('User not found', 'auth.not_found');
     return listKycCases(this.sql, userId, published, reasons);
+  }
+
+  /** Where the person stands against the owner's limit on rejected requests (I-kyc-compliance-10). */
+  async kycAttempts(userId: string): Promise<KycAttempts> {
+    return readKycAttempts(this.sql, this.kycAttemptLimit, userId, new Date());
   }
 
   /** A person's capabilities, every one with its state (I-kyc-compliance-07). An unknown person is `auth.not_found`. */
