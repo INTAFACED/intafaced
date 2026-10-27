@@ -16,6 +16,8 @@ const agents = agentsRun(J);
 
 test.describe.configure({ mode: 'default' });
 
+const SPARE = 'TEST spare draft';
+
 const main = (page) => page.getByRole('main');
 const builder = (page) => main(page).getByRole('form', { name: 'Agent builder' });
 const check = (page) => main(page).getByRole('region', { name: 'Protection check' });
@@ -48,6 +50,9 @@ test(`${J} #1 opens the template picker and chooses the service starter: a draft
   await picker.getByRole('button', { name: 'Use the service starter' }).click();
   const second = await builder(page).getByTestId('draft-id').innerText();
   expect(second).not.toBe(first);
+  // Kept as the spare draft #8 deletes.
+  await builder(page).getByRole('textbox', { name: /^Name/ }).fill(SPARE);
+  await builder(page).getByRole('button', { name: 'Save draft' }).click();
 });
 
 test(`${J} #2 edits the name, instructions and tools, adds a tool that moves money: the validator refuses it with its reason; "sessions" is reserved`, async ({
@@ -137,9 +142,11 @@ test(`${J} #8 shares the agent with a co-owner and deletes a spare draft: a grou
   await expect(share.getByRole('alert')).toContainText('A group cannot be a co-owner.');
 
   await openAgents(page, agents);
-  const spare = main(page).getByRole('row').filter({ hasText: 'Draft' }).first();
+  const spare = main(page).getByRole('row').filter({ hasText: SPARE });
   await spare.getByRole('button', { name: 'Delete draft' }).click();
   const confirm = page.getByRole('alertdialog', { name: 'Delete this draft?' });
   await expect(confirm).toContainText('This cannot be undone.');
   await confirm.getByRole('button', { name: 'Delete for good' }).click();
+  await expect(spare).toHaveCount(0);
+  await expect(main(page).getByRole('link', { name: OWN_AGENT, exact: true })).toBeVisible();
 });

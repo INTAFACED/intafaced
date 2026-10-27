@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { UNBUILT, agentsRun, createOwnAgent, openOwnAgent, tableIn } from './agents.mjs';
-import { openOrders, signIn } from './desk.mjs';
+import { free, held, signIn } from './desk.mjs';
+import { api } from './stack.mjs';
 
 // J-agents-08, in the running app (docs/roadmap/journeys.json): give an agent an allowance and access I can revoke, and
 // let it place an order I can see. One test per step, titled "J-agents-08 #<n>", run in order on one verified TEST
@@ -19,6 +20,12 @@ test.describe.configure({ mode: 'default' });
 const main = (page) => page.getByRole('main');
 const access = (page) => main(page).getByRole('region', { name: 'Access' });
 const allowance = (page) => main(page).getByRole('form', { name: 'Allowance' });
+
+/** The account's USDT as the ledger holds it, free and held, in scaled units: a market order never rests, so balances tell. */
+async function usdt() {
+  const balances = await (await api(agents.account())).balances();
+  return { free: free(balances, 'USDT'), held: held(balances, 'USDT') };
+}
 
 test(`${J} starts: a verified TEST account funded with TEST USDT, an agent of its own and two sub-accounts`, async ({ page }) => {
   test.setTimeout(240_000);
@@ -64,13 +71,15 @@ test(`${J} #2 gives the agent access to sub-account A only: a tool naming sub-ac
 test(`${J} #3 asks the agent to place an order before any allowance exists: refused, no hold, and the page says an allowance is needed`, async ({
   page,
 }) => {
+  const before = await usdt();
   await openOwnAgent(page, agents, 'Test');
   await main(page)
     .getByRole('textbox', { name: /^Ask the agent/ })
     .fill('Buy 0.0001 BTC at market', UNBUILT);
   await main(page).getByRole('button', { name: 'Run' }).click();
   await expect(main(page).getByRole('alert')).toContainText('This agent needs an allowance before it can place an order.');
-  expect(await openOrders(agents.account())).toHaveLength(0);
+  // Nothing was sent: the ledger neither holds nor spends anything for it.
+  expect(await usdt()).toEqual(before);
 });
 
 test(`${J} #4 grants an allowance with the amount blank, then TEST 20 for a period: the blank grant names the field; the real one lists remaining and expiry`, async ({
@@ -92,6 +101,7 @@ test(`${J} #4 grants an allowance with the amount blank, then TEST 20 for a peri
 test(`${J} #5 asks the agent to buy a small TEST amount: a preview of side, instrument, type, size, price and fee before anything is sent, and an approval request`, async ({
   page,
 }) => {
+  const before = await usdt();
   await openOwnAgent(page, agents, 'Test');
   await main(page)
     .getByRole('textbox', { name: /^Ask the agent/ })
@@ -101,7 +111,8 @@ test(`${J} #5 asks the agent to buy a small TEST amount: a preview of side, inst
   for (const term of ['Side', 'Market', 'Order type', 'Size', 'Price', 'Fee'])
     await expect(preview.getByRole('term').filter({ hasText: term })).toBeVisible();
   await expect(preview.getByRole('button', { name: 'Approve' })).toBeVisible();
-  expect(await openOrders(agents.account())).toHaveLength(0);
+  // Nothing was sent: the ledger neither holds nor spends anything for it.
+  expect(await usdt()).toEqual(before);
 });
 
 test(`${J} #6 approves the preview: the order is on the person's own trade book with its hold on the ledger; the agent never has withdraw scope`, async ({

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { UNBUILT, agentCard, agentSection, agentsRun, openAgents, tableIn } from './agents.mjs';
+import { UNBUILT, agentCard, agentSection, agentsRun, openAgents, openNavigatorSession, tableIn } from './agents.mjs';
 import { signIn } from './desk.mjs';
 
 // J-agents-01, in the running app (docs/roadmap/journeys.json): find an agent, check what it may do, and run it once.
@@ -24,13 +24,20 @@ test.describe.configure({ mode: 'default' });
 const main = (page) => page.getByRole('main');
 const workspace = (page) => main(page).getByRole('region', { name: 'Session workspace' });
 
-/** Opens a Navigator session from the catalogue through its review sheet. */
-async function openNavigatorSession(page) {
-  await openAgents(page, agents);
-  await agentCard(page, 'Navigator').getByRole('button', { name: 'Open a session' }).click();
-  await main(page).getByRole('button', { name: 'Review session' }).click();
-  await page.getByRole('dialog', { name: 'Review agent session' }).getByRole('button', { name: 'Open agent session' }).click();
-  await expect(page.getByText('Agent session opened')).toBeVisible(UNBUILT);
+/** The session #5 ran, from the run file; a later step after a failed #5 says so instead of using another session. */
+function ranSession() {
+  const { sessionId } = agents.run.read();
+  if (!sessionId) throw new Error(`${J} #5 ran no session, so this step has no session to act on`);
+  return sessionId;
+}
+
+/** Opens Sessions with the session #5 ran selected. */
+async function selectRanSession(page) {
+  const sessionId = ranSession();
+  await openAgents(page, agents, 'Sessions');
+  const records = main(page).getByRole('region', { name: 'Recorded sessions' });
+  await records.getByRole('row').filter({ hasText: sessionId }).getByRole('button', { name: 'Inspect session' }).click(UNBUILT);
+  return main(page).getByRole('region', { name: 'Selected session' });
 }
 
 test(`${J} starts: a verified TEST account funded with TEST USDT, opening Agents from More`, async ({ page }) => {
@@ -83,7 +90,9 @@ test(`${J} #2 selects two agents to compare: one table of tools, modes, caps and
     await expect(compare.getByRole('row').filter({ has: page.getByRole('cell', { name: row, exact: true }) })).toBeVisible();
   }
   // The caps come from each agent's stored guardrail (Navigator publishes 1 per session on the stack).
-  await expect(compare.getByRole('row').filter({ hasText: 'Spend cap per session' })).toContainText('1');
+  await expect(
+    compare.getByRole('row').filter({ hasText: 'Spend cap per session' }).getByRole('cell', { name: '1 USDT per session', exact: true }),
+  ).toHaveCount(2);
 });
 
 test(`${J} #3 opens an agent's detail page: tools with inputs, outputs and refusal reasons; the permission mode; it acts as the person, never with broader access`, async ({
@@ -96,7 +105,7 @@ test(`${J} #3 opens an agent's detail page: tools with inputs, outputs and refus
   for (const header of ['Inputs', 'Outputs', 'Refusals'])
     await expect(tools.getByRole('columnheader', { name: header })).toBeVisible(UNBUILT);
   // A tool that publishes no shape says so, rather than showing an empty cell.
-  await expect(tools.getByRole('cell', { name: '', exact: true })).toHaveCount(0);
+  for (const cell of await tools.getByRole('cell').all()) await expect(cell).toHaveText(/\S/);
   await expect(main(page).getByRole('term').filter({ hasText: 'Permission mode' })).toBeVisible();
   await expect(main(page)).toContainText('This agent acts as you, and never with more access than you have.');
 });
@@ -120,7 +129,8 @@ test(`${J} #4 reads the rate card and asks for an estimate: the published rate, 
 test(`${J} #5 presses Run and confirms the spend ceiling: a run row before the engine; the reply and its exact cost; one request id twice is one run and one charge`, async ({
   page,
 }) => {
-  await openNavigatorSession(page);
+  const sessionId = await openNavigatorSession(page, agents);
+  agents.run.write({ sessionId });
   const ask = workspace(page).getByRole('textbox', { name: /^Ask the agent/ });
   await ask.fill('Where do I place a limit order?');
   await workspace(page).getByRole('button', { name: 'Run' }).click();
@@ -139,22 +149,23 @@ test(`${J} #5 presses Run and confirms the spend ceiling: a run row before the e
 });
 
 test(`${J} #6 closes the session: open windows settle once; a closed session refuses further actions`, async ({ page }) => {
-  await openNavigatorSession(page);
-  await workspace(page).getByRole('button', { name: 'Close session' }).click();
-  await expect(workspace(page).getByRole('status')).toContainText('Session closed. Usage settled.');
-  await expect(workspace(page).getByRole('button', { name: 'Run' })).toBeDisabled();
-  await expect(workspace(page)).toContainText('This session is closed.');
+  // The session #5 ran, with its usage window still open.
+  const selected = await selectRanSession(page);
+  await selected.getByRole('button', { name: 'Close session' }).click();
+  await expect(selected.getByRole('status')).toContainText('Session closed. Usage settled.');
+  await expect(tableIn(selected, 'Usage windows').getByRole('row').filter({ hasText: 'Settled' })).toHaveCount(1);
+  // Closing again settles nothing more, and the session takes no new request.
+  await expect(selected.getByRole('button', { name: 'Close session' })).toHaveCount(0);
+  await expect(selected).toContainText('This session is closed.');
 });
 
 test(`${J} #7 opens session history: the run with exact usage, refusal codes as words and no prompt text; the selection survives a reload and another device`, async ({
   page,
   browser,
 }) => {
-  await openAgents(page, agents, 'Sessions');
-  const records = main(page).getByRole('region', { name: 'Recorded sessions' });
-  await records.getByRole('button', { name: 'Inspect session' }).first().click(UNBUILT);
-  const selected = main(page).getByRole('region', { name: 'Selected session' });
+  const selected = await selectRanSession(page);
   await expect(selected.getByRole('term').filter({ hasText: 'Session usage accrued' })).toBeVisible();
+  await expect(selected).toContainText(ranSession());
   await expect(selected).not.toContainText('Where do I place a limit order?');
   await page.reload();
   await agentSection(page, 'Sessions');

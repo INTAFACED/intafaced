@@ -72,10 +72,21 @@ export async function createOwnAgent(page, { cap = '1' } = {}) {
   await expect(page.getByRole('status')).toContainText('Draft saved');
 }
 
-/** Opens one page of the person's own agent (Limits, Rules, Test, Memory, ...) from My agents. */
+/** Opens one page of the person's own agent (Limits, Rules, Test, Memory, ...) from My agents. Its pages are the app's
+ * Tabs, a group of buttons named "Agent pages", as the room's own sections are. */
 export async function openOwnAgent(page, agents, tab) {
   await openAgents(page, agents);
   await page.getByRole('main').getByRole('link', { name: OWN_AGENT, exact: true }).click(UNBUILT);
   await expect(page.getByRole('main').getByRole('heading', { name: OWN_AGENT, level: 1 })).toBeVisible();
-  if (tab) await page.getByRole('main').getByRole('tab', { name: tab, exact: true }).click(UNBUILT);
+  if (tab) await page.getByRole('group', { name: 'Agent pages' }).getByRole('button', { name: tab, exact: true }).click(UNBUILT);
+}
+
+/** Opens a Navigator session from the catalogue through its review sheet; returns the session id the workspace shows. */
+export async function openNavigatorSession(page, agents) {
+  await openAgents(page, agents);
+  await agentCard(page, 'Navigator').getByRole('button', { name: 'Open a session' }).click();
+  await page.getByRole('main').getByRole('button', { name: 'Review session' }).click();
+  await page.getByRole('dialog', { name: 'Review agent session' }).getByRole('button', { name: 'Open agent session' }).click();
+  await expect(page.getByText('Agent session opened')).toBeVisible(UNBUILT);
+  return page.getByRole('main').getByRole('region', { name: 'Session workspace' }).getByTestId('session-id').innerText();
 }

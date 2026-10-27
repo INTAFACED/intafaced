@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
-import { UNBUILT, agentsRun, createOwnAgent, openOwnAgent, tableIn } from './agents.mjs';
-import { signIn } from './desk.mjs';
+import { OWN_AGENT, UNBUILT, agentsRun, createOwnAgent, openOwnAgent, tableIn } from './agents.mjs';
+import { fundedTrader, signIn } from './desk.mjs';
+import { toUnits } from './stack.mjs';
 
 // J-agents-02, in the running app (docs/roadmap/journeys.json): set my spending limits and see that a run I cannot pay
 // for never starts. One test per step, titled "J-agents-02 #<n>", run in order on one verified TEST account funded with
@@ -79,8 +80,14 @@ test(`${J} #3 starts two runs together whose worst cases are each more than half
 test(`${J} #4 asks for a run when the available balance is below the worst case: refused as insufficient funds, the engine never called, nothing billed`, async ({
   page,
 }) => {
-  await openOwnAgent(page, agents);
-  await main(page).getByRole('button', { name: 'Open a session' }).click(UNBUILT);
+  test.setTimeout(240_000);
+  // A second TEST person with 0.1 USDT and the same kind of agent (cap 1 per session): the worst case is above the balance.
+  const poor = await fundedTrader(page, 'ag02p', '0.1');
+  await signIn(page, poor);
+  await createOwnAgent(page);
+  await page.goto('/agents');
+  await main(page).getByRole('link', { name: OWN_AGENT, exact: true }).click(UNBUILT);
+  await main(page).getByRole('button', { name: 'Open a session' }).click();
   await main(page)
     .getByRole('textbox', { name: /^Ask the agent/ })
     .fill('TEST question');
@@ -132,7 +139,8 @@ test(`${J} #7 opens usage by agent, day and task: totals match the sum of the se
   const usage = tableIn(main(page), 'Usage by day and task');
   await expect(usage).toBeVisible(UNBUILT);
   const sealed = tableIn(main(page), 'Usage windows');
+  // Exact sums in scaled units, never floats: each cell is a decimal string such as "0.00012345 USDT".
   const sum = async (table, id) =>
-    (await table.getByTestId(id).allInnerTexts()).reduce((total, text) => total + Number(text.replace(/[^\d.]/g, '')), 0);
-  expect(await sum(usage, 'usage-cost')).toBeCloseTo(await sum(sealed, 'window-cost'), 8);
+    (await table.getByTestId(id).allInnerTexts()).reduce((total, text) => total + toUnits(text.replace(/ USDT$/, '')), 0n);
+  expect(await sum(usage, 'usage-cost')).toBe(await sum(sealed, 'window-cost'));
 });
