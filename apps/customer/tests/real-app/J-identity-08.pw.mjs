@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import { test, expect } from '@playwright/test';
+import { chromium, test, expect } from '@playwright/test';
+import { localTestDeviceState } from '../../../../tooling/scripts/local-test-device.mjs';
 import { signUpInBrowser, tool } from './stack.mjs';
 
 // J-identity-08, in the running app (docs/roadmap/journeys.json): I get verified and see what each level unlocks.
@@ -164,11 +165,69 @@ test(`${J} #2: guided verification resumes at the step left, a country with no d
 });
 
 test(`${J} #3: with the face check switched off the selfie is kept for manual review; a hand-off link used twice is refused`, async ({
-  page,
+  baseURL,
 }) => {
-  test.setTimeout(60_000);
-  await atVerification(page);
-  await expect(page.getByRole('heading', { name: 'Selfie and liveness' })).toBeVisible(UNBUILT);
+  test.setTimeout(90_000);
+  // A browser whose camera is Chromium's fake device, granted, as a person's would be after they allow it.
+  const browser = await chromium.launch({
+    channel: 'chromium',
+    args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
+    ...(process.env.JOURNEY_CHROMIUM ? { executablePath: process.env.JOURNEY_CHROMIUM } : {}),
+  });
+  try {
+    const context = await browser.newContext({
+      baseURL,
+      permissions: ['camera'],
+      storageState: localTestDeviceState(),
+      viewport: { width: 1440, height: 900 },
+    });
+    const page = await context.newPage();
+    await atVerification(page);
+    const selfie = page.getByTestId('verification__selfie');
+    await expect(page.getByRole('heading', { name: 'Selfie and liveness' })).toBeVisible();
+    await expect(selfie.getByTestId('verification__selfie-manual')).toHaveAttribute('data-face-check', 'not_connected');
+    await expect(selfie.getByTestId('verification__selfie-manual')).toContainText('a person compares your selfie with your ID photo');
+    await expect(selfie.getByTestId('verification__selfie-liveness')).toHaveText('No action asks for a liveness re-check.');
+
+    // Taken live on this device: no file picker is offered, and the selfie waits for a person.
+    await expect(selfie.locator('input[type="file"]')).toHaveCount(0);
+    const takeLive = async (where) => {
+      await where.getByRole('button', { name: 'Open camera' }).click();
+      const preview = where.getByLabel('Camera preview');
+      await expect(preview).toBeVisible();
+      await expect.poll(() => preview.evaluate((video) => video.videoWidth)).toBeGreaterThan(0);
+      await where.getByRole('button', { name: 'Take selfie' }).click();
+      await expect(where.getByTestId('verification__selfie-sent')).toHaveText('Selfie sent. A person compares it with your ID photo.');
+    };
+    await takeLive(selfie);
+    await expect(selfie.getByTestId('verification__selfie-latest')).toHaveAttribute('data-status', 'provided');
+    await expect(selfie.getByTestId('verification__selfie-latest')).toHaveAttribute('data-via', 'this_device');
+
+    // A one-time link for the phone, as a code and as a link, for this account only.
+    await selfie.getByRole('button', { name: 'Use my phone instead' }).click();
+    await expect(selfie.getByRole('img', { name: 'Code with the link for your phone' })).toBeVisible();
+    await expect(selfie.getByText('The link works once, only for this account, for 10 minutes.')).toBeVisible();
+    const href = await selfie.getByTestId('verification__selfie-link').getAttribute('href');
+    expect(href).toMatch(/\/verification\?handoff=[A-Za-z0-9_-]{43}$/);
+
+    // The phone (signed in to the same account) opens the link and takes the selfie there.
+    const phone = await context.newPage();
+    await phone.goto(href);
+    const onPhone = phone.getByTestId('verification__selfie');
+    await expect(onPhone.getByTestId('verification__selfie-handoff')).toHaveAttribute('data-state', 'open');
+    await takeLive(onPhone);
+    await expect(onPhone.getByTestId('verification__selfie-latest')).toHaveAttribute('data-via', 'handoff');
+
+    // The same link opened again is refused in plain words, and offers no camera.
+    const again = await context.newPage();
+    await again.goto(href);
+    const refused = again.getByTestId('verification__selfie').getByTestId('verification__selfie-handoff');
+    await expect(refused).toHaveAttribute('data-state', 'used');
+    await expect(refused).toHaveText('This link was already used. Make a new one on your computer.');
+    await expect(again.getByTestId('verification__selfie').getByRole('button', { name: 'Open camera' })).toHaveCount(0);
+  } finally {
+    await browser.close();
+  }
 });
 
 test(`${J} #4: too many failed attempts give a typed lockout with the seconds left, or say no limit is set`, async ({ page }) => {
