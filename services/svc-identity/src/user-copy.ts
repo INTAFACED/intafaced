@@ -48,6 +48,7 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'auth.email_confirm_invalid': 'That confirmation link is not valid. Request a new one.',
   'auth.email_confirm_unwired': 'Email confirmation is not available yet.',
   'auth.email_confirm_rate_limited': 'Too many confirmation emails. Try again later.',
+  'kyc.attempts_exhausted': 'Too many rejected verification requests. Try again when the wait on the verification page ends.',
   'auth.change_unwired': 'Changing this contact is not available yet.',
   'auth.step_up_required': "Confirm it's you with a passkey or authenticator code.",
   'auth.step_up_expired': 'That confirmation expired. Confirm again.',
