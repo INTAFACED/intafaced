@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
-import { SegmentedControl, Tooltip, TooltipContent, TooltipTrigger, Wordmark } from '@intafaced/ui';
+import { SegmentedControl, Tooltip, TooltipContent, TooltipTrigger, BrandBar } from '@intafaced/ui';
 import { useSession } from '../features/session/session';
 import { usePreferences, savePreferences } from '../shared/preferences';
 import { proCopy } from '../screens/home/pro-copy';
@@ -267,7 +267,7 @@ export function TopBar({
     <>
       <header data-testid="tb" className="tb" data-obscures="top">
         <a className="tb-brand" href="/home" aria-label={t('Go to Home')}>
-          <Wordmark />
+          <BrandBar />
         </a>
         <nav className="tb-nav" aria-label={t('Main navigation')}>
           <ul>

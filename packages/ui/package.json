@@ -20,6 +20,8 @@
     },
     "./a11y/a11y.css": "./src/a11y/a11y.css",
     "./tokens.css": "./src/tokens.css",
+    "./brand.css": "./src/brand/brand.css",
+    "./brand/*": "./brand/*",
     "./theme/tokens.css": "./src/theme/tokens.css",
     "./theme/customer-legacy.css": "./src/theme/customer-legacy.css",
     "./theme/theme.css": "./src/theme/theme.css",

@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes } from 'react';
-import { Panel } from '@intafaced/ui';
+import { BrandIris, Panel } from '@intafaced/ui';
 import { isServiceNotConnected, type ApiResult } from './api';
 import { uiCopy, uiMessage } from './ui-copy';
 import { refusalCopy } from '../data/refusals';
@@ -190,6 +190,15 @@ export function Loading({ label }: { label?: ReactNode }) {
     <div className="loading" role="status">
       <span className="loading-dot" />
       {label ?? <Copy k="loading" />}…
+    </div>
+  );
+}
+/** A room's code is still arriving: the brand's iris loop, then the words. Inside a room, data waits with `Loading`. */
+export function RoomLoading({ label }: { label: ReactNode }) {
+  return (
+    <div className="loading loading--room" role="status">
+      <BrandIris size={24} mode="loop" />
+      {label}…
     </div>
   );
 }
