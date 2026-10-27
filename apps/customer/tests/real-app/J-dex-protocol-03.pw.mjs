@@ -40,6 +40,10 @@ async function quote(page, from, to, amount = '10') {
   await amountIn(page).fill(amount);
 }
 
+/** The nonce of each typed-data message the wallet signed, in order. */
+const signedNonces = (wallet) =>
+  wallet.requests.filter((r) => r.method === 'eth_signTypedData_v4').map((r) => String(JSON.parse(r.params[1]).message.nonce));
+
 /** Opens the intent order form (Swap's "Intent order" mode). */
 async function openIntent(page) {
   const wallet = await openSwap(page);
@@ -71,9 +75,12 @@ test(`${J} #1 swaps a token that supports permit: one signature for the exact am
   await expect.poll(() => wallet.requests.filter((r) => r.method === 'eth_signTypedData_v4').length).toBe(1);
   // approve(address,uint256) is 0x095ea7b3: no approve transaction is ever built.
   expect(wallet.sends.filter((s) => String(s.params[0]?.data).startsWith('0x095ea7b3'))).toHaveLength(0);
-  // The same signature sent again is refused by name, never a second pull.
-  await page.getByRole('button', { name: 'Reuse last permit' }).click();
-  await expect(page.getByRole('alert')).toContainText('This permit was already used');
+  // A signature cannot be used twice: a second swap asks for a new permit with a new nonce, never the old one again
+  // (the contract refusing a replayed permit is its own on-chain test).
+  await swapButton(page).click();
+  await page.getByRole('dialog', { name: 'Check before you sign' }).getByRole('button', { name: 'Continue in wallet' }).click();
+  await expect.poll(() => signedNonces(wallet).length).toBe(2);
+  expect(new Set(signedNonces(wallet)).size).toBe(2);
 });
 
 test(`${J} #2 swaps a token without permit: the room says it has no permit and falls back to the approve step`, async ({ page }) => {
@@ -133,7 +140,7 @@ test(`${J} #5 chooses exact-output with native input: the maximum paid, the dead
 test(`${J} #6 places a signed intent order with a Dutch-auction decay: starts at the best price and decays to the floor over the stated time; a replayed signature is refused`, async ({
   page,
 }) => {
-  const { form } = await openIntent(page);
+  const { wallet, form } = await openIntent(page);
   await form.getByRole('combobox', { name: 'You pay' }).selectOption({ label: TOKEN_A.name });
   await form.getByRole('combobox', { name: 'You receive' }).selectOption({ label: TOKEN_B.name });
   await form.getByRole('textbox', { name: /^Amount you pay/ }).fill('10');
@@ -146,8 +153,11 @@ test(`${J} #6 places a signed intent order with a Dutch-auction decay: starts at
   await review.getByRole('button', { name: 'Continue in wallet' }).click();
   const orders = page.getByRole('region', { name: 'Intent orders' }).getByRole('table');
   await expect(orders.getByRole('row').filter({ hasText: 'Open' })).toHaveCount(1);
-  await page.getByRole('button', { name: 'Reuse last signature' }).click();
-  await expect(page.getByRole('alert')).toContainText('This order signature was already used');
+  // Each order is signed over its own nonce, so no signature can stand for a second order.
+  await form.getByRole('button', { name: 'Review order' }).click();
+  await review.getByRole('button', { name: 'Continue in wallet' }).click();
+  await expect(orders.getByRole('row').filter({ hasText: 'Open' })).toHaveCount(2);
+  expect(new Set(signedNonces(wallet)).size).toBe(signedNonces(wallet).length);
 });
 
 test(`${J} #7 watches the order fill at the midpoint: received equals the decayed price at that second and the order reads filled`, async ({
