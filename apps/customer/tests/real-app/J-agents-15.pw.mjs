@@ -59,7 +59,7 @@ test(`${J} #3 filters by outcome and tool: matching rows; the export applies the
   await page.getByRole('main').getByRole('combobox', { name: 'Outcome' }).selectOption({ label: 'Refused' }, UNBUILT);
   const tool = page.getByRole('main').getByRole('combobox', { name: 'Tool' });
   await tool.selectOption({ index: 1 });
-  const chosen = (await tool.locator('option:checked').innerText()).trim();
+  const chosen = await tool.inputValue();
   await expect(rows(page).getByTestId('action-outcome')).not.toHaveCount(0);
   await expect(
     rows(page)
