@@ -201,6 +201,46 @@ if (!available) {
       expect(await desk.start(userId, 'basic')).toMatchObject({ step: 1, recordId: null, fields: { residence: null } });
     });
 
+    it('going back to fix a step keeps the later ones; a new photo replaces the old one in the vault', async () => {
+      const userId = await person();
+      const ready = await fill(userId);
+      const first = ready.fields.documentId!;
+      const fixed = await desk.saveStep(userId, {
+        step: 'identity',
+        version: ready.version,
+        fields: { legalName: 'TEST Anna Musterfrau', localName: null, dateOfBirth: '1990-01-31' },
+      });
+      expect(fixed).toMatchObject({ step: 6, fields: { legalName: 'TEST Anna Musterfrau', documentId: first } });
+      const again = await desk.upload(userId, {
+        version: fixed.version,
+        contentType: 'image/png',
+        bytes: Buffer.concat([PNG, Buffer.from([1])]),
+      });
+      expect(again.fields.documentId).not.toBe(first);
+      const docs = await db.sql<Array<{ id: string }>>`SELECT id FROM kyc_documents WHERE user_id = ${userId}`;
+      expect(docs.map((d) => d.id)).toEqual([again.fields.documentId]);
+      // A stale upload stores nothing that stays.
+      await expect(desk.upload(userId, { version: fixed.version, contentType: 'image/png', bytes: PNG })).rejects.toMatchObject({
+        code: 'kyc.profile_version',
+      });
+      expect(await db.sql`SELECT id FROM kyc_documents WHERE user_id = ${userId}`).toHaveLength(1);
+      await expect(
+        desk.saveStep(userId, {
+          step: 'identity',
+          version: again.version,
+          fields: { legalName: 'X', localName: null, dateOfBirth: '2099-01-01' },
+        }),
+      ).rejects.toMatchObject({ code: 'kyc.profile_invalid' });
+    });
+
+    it('a request already open at the level, from the plain form, is not taken over', async () => {
+      const userId = await person();
+      await auth.submitKyc({ userId, tier: 'basic', jurisdiction: 'DE' });
+      const ready = await fill(userId);
+      await expect(desk.submit(userId, ready.version)).rejects.toMatchObject({ code: 'kyc.profile_request_open' });
+      expect(kycProfileSchema.parse(await desk.read(userId)).draft).toMatchObject({ recordId: null, version: ready.version });
+    });
+
     it('with no key every door refuses and nothing is stored', async () => {
       const userId = await person();
       const keyless = new KycProfileDesk(db.sql, null, {

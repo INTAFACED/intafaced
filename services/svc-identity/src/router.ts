@@ -191,6 +191,7 @@ export function toTrpcError(err: unknown): TRPCError {
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'kyc.profile_version':
       case 'kyc.profile_sent':
+      case 'kyc.profile_request_open':
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
       case 'kyc.upload_too_large':
         return new TRPCError({ code: 'PAYLOAD_TOO_LARGE', message: err.message, cause: err });

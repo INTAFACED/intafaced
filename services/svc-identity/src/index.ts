@@ -466,7 +466,6 @@ const ledger = env.LEDGER_URL ? createLedgerClient(env.LEDGER_URL, env.INTERNAL_
  * (not a silent missing store). Never invent a key. Live vendor webhook remains Class X.
  */
 const vault = bootKycVault(sql, env.IDENTITY_KYC_DOC_KEY);
-// Staff-edited customer details (J-ops-console-04 #9) are encrypted under the same key; unset, every details door refuses.
 // Guided verification (I-kyc-compliance-08): drafts sealed under the same key; the photo goes to the vault.
 const kycProfile = new KycProfileDesk(sql, parseKycDocKey(env.IDENTITY_KYC_DOC_KEY), {
   documentTypes: parseKycDocumentTypes(env.IDENTITY_KYC_DOCUMENT_TYPES_BY_COUNTRY),
@@ -474,6 +473,7 @@ const kycProfile = new KycProfileDesk(sql, parseKycDocKey(env.IDENTITY_KYC_DOC_K
   vault: vault?.kycDocs,
   submit: (input) => auth.submitKyc(input),
 });
+// Staff-edited customer details (J-ops-console-04 #9) are encrypted under the same key; unset, every details door refuses.
 const customerDetails = new CustomerDetailsDesk(sql, founderControls, parseKycDocKey(env.IDENTITY_KYC_DOC_KEY));
 // Customer limit overrides (J-ops-console-04 #12) under the owner's IDENTITY_LIMIT_OVERRIDE_POLICY; unset, every set refuses.
 const accountLimits = new AccountLimitsDesk(sql, founderControls, parseLimitPolicy(env.IDENTITY_LIMIT_OVERRIDE_POLICY));
