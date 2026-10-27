@@ -38,7 +38,7 @@ test(`${J} starts: a TEST wallet with TEST tokens and one address book entry`, a
   await book.getByRole('textbox', { name: /^Label/ }).fill('TEST friend');
   await book.getByRole('textbox', { name: /^Address/ }).fill(FRIEND);
   await book.getByRole('button', { name: 'Save contact' }).click();
-  await expect(page.getByRole('table', { name: 'Contacts' })).toContainText('TEST friend');
+  await expect(page.getByRole('region', { name: 'Contacts' }).getByRole('table')).toContainText('TEST friend');
 });
 
 test(`${J} #1 opens Send and types a new address: a summary; confirming needs the last four characters; a contract needs a tick; sending to oneself is refused`, async ({
@@ -83,7 +83,9 @@ test(`${J} #3 saves the address in the address book and groups two wallets: the 
 }) => {
   await connectWallet(page, dex, { tokens: [TOKEN_A] });
   await walletSection(page, 'Address book');
-  await expect(page.getByRole('table', { name: 'Contacts' }).getByRole('row').filter({ hasText: 'TEST friend' })).toContainText(FRIEND);
+  await expect(
+    page.getByRole('region', { name: 'Contacts' }).getByRole('table').getByRole('row').filter({ hasText: 'TEST friend' }),
+  ).toContainText(FRIEND);
   await page.getByRole('button', { name: 'New wallet group' }).click();
   const group = page.getByRole('dialog', { name: 'New wallet group' });
   await group.getByRole('textbox', { name: /^Name/ }).fill('TEST group');
@@ -91,7 +93,7 @@ test(`${J} #3 saves the address in the address book and groups two wallets: the 
   await group.getByRole('checkbox', { name: /This wallet/ }).check();
   await group.getByRole('button', { name: 'Save group' }).click();
   await page.getByRole('link', { name: 'TEST group' }).click();
-  await expect(page.getByRole('table', { name: 'Group activity' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Group activity' }).getByRole('table')).toBeVisible();
 });
 
 test(`${J} #4 opens Receive: the address, a code and a warning naming the network for a wrong-chain deposit`, async ({ page }) => {
@@ -151,7 +153,7 @@ test(`${J} #6 creates a claim link for TEST tokens: amount and expiry; the recip
   } finally {
     await other.close();
   }
-  await expect(page.getByRole('table', { name: 'Your claim links' })).toContainText('Claimed');
+  await expect(page.getByRole('region', { name: 'Your claim links' }).getByRole('table')).toContainText('Claimed');
   // An unclaimed link past its expiry can be clawed back by the sender.
   await expect(page.getByRole('button', { name: 'Claw back' }).first()).toBeEnabled({ timeout: 120_000 });
 });
@@ -161,7 +163,7 @@ test(`${J} #7 opens Activity and toggles failed and spam: the counts change with
 }) => {
   await connectWallet(page, dex, { tokens: [TOKEN_A] });
   await walletSection(page, 'Activity');
-  const activity = page.getByRole('table', { name: 'Activity' });
+  const activity = page.getByRole('region', { name: 'Activity' }).getByRole('table');
   const count = page.getByTestId('activity-count');
   await expect(count).toHaveText(/^\d+ shown$/, UNBUILT);
   const before = await count.innerText();
@@ -180,12 +182,12 @@ test(`${J} #8 speeds up a pending transfer, then cancels another that has mined:
 }) => {
   await connectWallet(page, dex, { tokens: [TOKEN_A] });
   await walletSection(page, 'Activity');
-  const pending = page.getByRole('table', { name: 'Activity' }).getByRole('row').filter({ hasText: 'Pending' }).first();
+  const pending = page.getByRole('region', { name: 'Activity' }).getByRole('table').getByRole('row').filter({ hasText: 'Pending' }).first();
   await pending.getByRole('button', { name: 'Speed up' }).click(UNBUILT);
   const sheet = page.getByRole('dialog', { name: 'Speed up' });
   await expect(sheet).toContainText('Same nonce, higher fee');
   await sheet.getByRole('button', { name: 'Continue in wallet' }).click();
-  const mined = page.getByRole('table', { name: 'Activity' }).getByRole('row').filter({ hasText: 'Confirmed' }).first();
+  const mined = page.getByRole('region', { name: 'Activity' }).getByRole('table').getByRole('row').filter({ hasText: 'Confirmed' }).first();
   await expect(mined).toContainText('Final');
   await expect(mined.getByRole('button', { name: 'Cancel' })).toHaveCount(0);
 });

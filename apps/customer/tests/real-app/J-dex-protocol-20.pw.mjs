@@ -44,7 +44,7 @@ async function placeVenueOrder(page, { side, price, amount }) {
 test(`${J} starts: a TEST wallet holding TEST base and quote on the trading venue`, async ({ page }) => {
   dex.start();
   await openBook(page);
-  const balances = venue(page).getByRole('table', { name: 'Venue balances' });
+  const balances = venue(page).getByRole('region', { name: 'Venue balances' }).getByRole('table');
   await expect(balances).toContainText('TEST Base', UNBUILT);
   await expect(balances).toContainText('TEST Quote');
 });
@@ -53,7 +53,7 @@ test(`${J} #1 opens the pro book view on /dex: levels with the finalized height 
   page,
 }) => {
   await openBook(page);
-  const levels = book(page).getByRole('table', { name: 'Levels' });
+  const levels = book(page).getByRole('region', { name: 'Levels' }).getByRole('table');
   await expect(levels).toBeVisible(UNBUILT);
   await expect(book(page).getByTestId('book-finalized-height')).toHaveText(/^Finalized at block \d+$/);
   await expect(book(page).getByTestId('book-as-of')).toHaveText(/^As of \d{2}:\d{2}:\d{2}/);
@@ -68,7 +68,7 @@ test(`${J} #1 opens the pro book view on /dex: levels with the finalized height 
 test(`${J} #2 opens the venue tab with a registered pool: the pool is listed as a leg of the quote`, async ({ page }) => {
   await openBook(page);
   await room(page).getByRole('tab', { name: 'Venue' }).click();
-  const legs = room(page).getByRole('table', { name: 'Quote legs' });
+  const legs = room(page).getByRole('region', { name: 'Quote legs' }).getByRole('table');
   await expect(legs).toBeVisible(UNBUILT);
   await expect(legs.getByRole('row').filter({ hasText: 'Pool' })).toContainText('TEST Base / TEST Quote');
 });
@@ -79,7 +79,7 @@ test(`${J} #3 places an ask, then a crossing bid: the fill comes from matching a
   await openBook(page);
   await expect(venue(page)).toBeVisible(UNBUILT);
   await placeVenueOrder(page, { side: 'Sell', price: '2.00', amount: '1' });
-  const level = book(page).getByRole('table', { name: 'Levels' }).getByRole('row').filter({ hasText: '2.00' });
+  const level = book(page).getByRole('region', { name: 'Levels' }).getByRole('table').getByRole('row').filter({ hasText: '2.00' });
   await expect(level).toContainText('1');
 
   // Crossing your own resting ask is a self-trade: the venue refuses it and the level stays.
@@ -88,7 +88,9 @@ test(`${J} #3 places an ask, then a crossing bid: the fill comes from matching a
   await expect(level).toContainText('1');
 
   // The other TEST maker's crossing bid fills it from matching; the level goes to zero.
-  await expect(room(page).getByRole('table', { name: 'Your fills' }).getByRole('row').filter({ hasText: '2.00' })).toBeVisible();
+  await expect(
+    room(page).getByRole('region', { name: 'Your fills' }).getByRole('table').getByRole('row').filter({ hasText: '2.00' }),
+  ).toBeVisible();
   await expect(level).toHaveCount(0);
 });
 
@@ -100,7 +102,7 @@ test(`${J} #4 requests a private quote from market makers: soft quotes within th
     .getByRole('textbox', { name: /^Amount/ })
     .fill('1', UNBUILT);
   await rfq(page).getByRole('button', { name: 'Ask market makers' }).click();
-  const quotes = rfq(page).getByRole('table', { name: 'Soft quotes' });
+  const quotes = rfq(page).getByRole('region', { name: 'Soft quotes' }).getByRole('table');
   await expect(quotes.getByRole('row').nth(1)).toContainText('Best');
   await expect(quotes).toContainText('unavailable: timeout');
 });
@@ -113,7 +115,13 @@ test(`${J} #5 selects a quote: a hard quote with an expiry; signing after it is 
     .getByRole('textbox', { name: /^Amount/ })
     .fill('1', UNBUILT);
   await rfq(page).getByRole('button', { name: 'Ask market makers' }).click();
-  await rfq(page).getByRole('table', { name: 'Soft quotes' }).getByRole('row').nth(1).getByRole('button', { name: 'Select' }).click();
+  await rfq(page)
+    .getByRole('region', { name: 'Soft quotes' })
+    .getByRole('table')
+    .getByRole('row')
+    .nth(1)
+    .getByRole('button', { name: 'Select' })
+    .click();
   const hard = rfq(page).getByRole('group', { name: 'Hard quote' });
   await expect(hard.getByTestId('quote-expires')).toHaveText(/^Expires in \d+ s$/);
   // Past its expiry the quote cannot be signed.
@@ -122,7 +130,13 @@ test(`${J} #5 selects a quote: a hard quote with an expiry; signing after it is 
 
   // A fresh hard quote that the quoter declines at last look.
   await rfq(page).getByRole('button', { name: 'Ask market makers' }).click();
-  await rfq(page).getByRole('table', { name: 'Soft quotes' }).getByRole('row').nth(1).getByRole('button', { name: 'Select' }).click();
+  await rfq(page)
+    .getByRole('region', { name: 'Soft quotes' })
+    .getByRole('table')
+    .getByRole('row')
+    .nth(1)
+    .getByRole('button', { name: 'Select' })
+    .click();
   await hard.getByRole('button', { name: 'Sign and trade' }).click();
   await expect(rfq(page).getByRole('alert')).toContainText('Quoter declined');
   await expect(rfq(page).getByRole('button', { name: 'Use the pool route' })).toBeVisible();
@@ -135,7 +149,7 @@ test(`${J} #6 registers as a filler and reads the open-order feed: intents in no
   // Before registering, the feed refuses this wallet.
   await expect(fillers(page).getByRole('alert')).toContainText('Register as a filler to read the open-order feed.', UNBUILT);
   await fillers(page).getByRole('button', { name: 'Register as a filler' }).click();
-  const feed = fillers(page).getByRole('table', { name: 'Open intents' });
+  const feed = fillers(page).getByRole('region', { name: 'Open intents' }).getByRole('table');
   // Wait for the feed to load before reading it, so an empty list never passes as "in order".
   await expect(feed.getByTestId('intent-nonce').nth(1)).toBeVisible();
   const nonces = await feed.getByTestId('intent-nonce').allInnerTexts();
@@ -149,7 +163,7 @@ test(`${J} #7 fills an intent as the exclusive filler: a rival under the improve
   page,
 }) => {
   await openBook(page);
-  const intent = fillers(page).getByRole('table', { name: 'Open intents' }).getByRole('row').nth(1);
+  const intent = fillers(page).getByRole('region', { name: 'Open intents' }).getByRole('table').getByRole('row').nth(1);
   await intent.getByRole('button', { name: 'Fill' }).click(UNBUILT);
   await expect(intent).toContainText('Filled by you (exclusive)');
   const rivals = fillers(page).getByRole('list', { name: 'Rival offers' });
@@ -165,7 +179,7 @@ test(`${J} #8 answers an RFQ over the maker transport and downloads a month of m
   await openBook(page);
   const maker = room(page).getByRole('region', { name: 'Maker transport' });
   await expect(maker).toBeVisible(UNBUILT);
-  await expect(maker.getByRole('table', { name: 'Answered requests' })).toContainText('Refused: past its expiry');
+  await expect(maker.getByRole('region', { name: 'Answered requests' }).getByRole('table')).toContainText('Refused: past its expiry');
   await expect(maker.getByTestId('late-webhooks')).toHaveText(/^\d+ late webhooks dropped$/);
   const archive = room(page).getByRole('region', { name: 'Market data' });
   await archive.getByRole('combobox', { name: 'Month' }).selectOption({ index: 0 });
@@ -181,7 +195,11 @@ test(`${J} #9 reads the protocol-run strategy next to its own orders: equal-pric
   page,
 }) => {
   await openBook(page);
-  const level = book(page).getByRole('table', { name: 'Levels' }).getByRole('row').filter({ hasText: 'Protocol strategy' });
+  const level = book(page)
+    .getByRole('region', { name: 'Levels' })
+    .getByRole('table')
+    .getByRole('row')
+    .filter({ hasText: 'Protocol strategy' });
   await expect(level).toBeVisible(UNBUILT);
   await expect(level).toContainText('Your order');
   await expect(book(page).getByRole('note').filter({ hasText: 'strategy' })).toContainText(

@@ -15,7 +15,7 @@ const dex = dexRun(J);
 test.describe.configure({ mode: 'default' });
 
 const plan = (page) => page.getByRole('region', { name: 'Recurring buy' });
-const rounds = (page) => plan(page).getByRole('table', { name: 'Rounds' });
+const rounds = (page) => plan(page).getByRole('region', { name: 'Rounds' }).getByRole('table');
 
 async function openRecurring(page) {
   const wallet = await connectWallet(page, dex, { tokens: [TOKEN_A] });

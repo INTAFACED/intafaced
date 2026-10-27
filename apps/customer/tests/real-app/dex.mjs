@@ -5,6 +5,7 @@ import { installTestWallet, testWalletKey, TEST_WALLET } from './test-wallet.mjs
 // Shared parts of the Web3 journeys (J-dex-protocol-NN) written ahead of their rooms. The app's network on the stack is
 // Base Sepolia (84532), as in J-dex-protocol-01; the person's wallet is the TEST wallet (test-wallet.mjs). A step whose
 // room or control is not built fails at its first missing part within UNBUILT, never by waiting out the whole test.
+// A table is found the way the app's DataTable draws one: a region named by the table's label, holding the table.
 
 /** The wait for a part a step needs that may not be built yet: short, so an unbuilt step fails fast and says where. */
 export const UNBUILT = { timeout: 5_000 };

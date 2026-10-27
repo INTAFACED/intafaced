@@ -119,7 +119,7 @@ test(`${J} #4 opens the route options and excludes the better pool: legs listed 
   await tokenIn(page).selectOption({ label: 'TEST Token A' }, UNBUILT);
   await quoteAB(page);
   await swap(page).getByRole('button', { name: 'Route options' }).click();
-  const routes = page.getByRole('table', { name: 'Routes' });
+  const routes = page.getByRole('region', { name: 'Routes' }).getByRole('table');
   const rows = routes.getByRole('row');
   await expect(rows.nth(1)).toContainText('Best');
   await expect(rows.nth(2)).toContainText(/Lost: /);
@@ -229,7 +229,7 @@ test(`${J} #10 opens the approvals list and revokes the allowance: spender and a
 }) => {
   await connectWallet(page, dex, { tokens: [TOKEN_A, TOKEN_B] });
   await walletSection(page, 'Approvals');
-  const approvals = page.getByRole('table', { name: 'Approvals' });
+  const approvals = page.getByRole('region', { name: 'Approvals' }).getByRole('table');
   const row = approvals.getByRole('row').filter({ hasText: 'TEST Token A' });
   await expect(row).toBeVisible(UNBUILT);
   await expect(row).toContainText('10');

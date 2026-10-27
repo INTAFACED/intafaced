@@ -18,7 +18,7 @@ test.describe.configure({ mode: 'default' });
 
 const room = (page) => page.getByRole('main');
 const orderForm = (page) => page.getByRole('form', { name: 'New order' });
-const orderList = (page) => page.getByRole('table', { name: 'Your orders' });
+const orderList = (page) => page.getByRole('region', { name: 'Your orders' }).getByRole('table');
 const orderRow = (page, text) => orderList(page).getByRole('row').filter({ hasText: text });
 // A row by its order type cell, matched whole, so "Stop" never matches a take-profit linked to a stop.
 const ofKind = (page, kind) =>

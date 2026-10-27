@@ -16,7 +16,7 @@ const dex = dexRun(J);
 
 test.describe.configure({ mode: 'default' });
 
-const pools = (page) => page.getByRole('main').getByRole('table', { name: 'Liquidity pools' });
+const pools = (page) => page.getByRole('main').getByRole('region', { name: 'Liquidity pools' }).getByRole('table');
 const poolRow = (page) => pools(page).getByRole('row').filter({ hasText: 'TEST Token A / TEST Token B' });
 const position = (page) => page.getByRole('main').getByRole('region', { name: 'Your position' });
 
