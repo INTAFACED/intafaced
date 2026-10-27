@@ -9,6 +9,7 @@ import { SqlContactBook } from './contact-channels.js';
 import { SqlAttachmentSettingsBook } from './attachment-settings.js';
 import { SqlSurveyBook } from './survey-settings.js';
 import { SqlHelpCentreBook } from './help-centre.js';
+import { RequestForms, SqlFormsStore } from './request-forms.js';
 import { SqlKbLibraryBook } from './kb-library.js';
 import { createIdentityApprovalClient } from './action-approval-consume.js';
 import { SqlGroupBook } from './desk-groups.js';
@@ -91,6 +92,9 @@ await sql`SELECT 1 FROM support.survey_log LIMIT 1`.catch(() => {
 });
 await sql`SELECT 1 FROM support.help_centre_log LIMIT 1`.catch(() => {
   throw new Error('support.help_centre_log is missing — apply migration 0031 before starting svc-support');
+});
+await sql`SELECT 1 FROM support.request_definitions LIMIT 1`.catch(() => {
+  throw new Error('support.request_definitions is missing — apply migration 20261024072429_request_forms before starting svc-support');
 });
 await sql`SELECT 1 FROM support.kb_library_log LIMIT 1`.catch(() => {
   throw new Error('support.kb_library_log is missing — apply migration 0032 before starting svc-support');
@@ -187,6 +191,7 @@ const appRouter = createSupportRouter(
   createIdentityApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET),
   new SqlHelpCentreBook(sql),
   new SqlKbLibraryBook(sql),
+  new RequestForms(new SqlFormsStore(sql), { forms: env.SUPPORT_FORM_CAP ?? null, fields: env.SUPPORT_FIELD_CAP ?? null }),
 );
 const edgeContext = createEdgeContext({
   secret: env.EDGE_PRINCIPAL_SECRET,

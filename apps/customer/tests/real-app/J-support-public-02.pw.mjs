@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { replyAsLead, setStatusAsLead } from './help-centre.mjs';
+import { defineRequestField, defineRequestForm, replyAsLead, setStatusAsLead } from './help-centre.mjs';
 import { signUp } from './desk.mjs';
 import { api, ORIGIN } from './stack.mjs';
 
@@ -51,6 +51,7 @@ async function draft(main, subject, body) {
 }
 
 const shared = {};
+const TEST_REQUEST = { category: 'other', subject: `TEST ${J} ${RUN} refused`, body: 'TEST refused by the form rules' };
 
 /** The person of these steps, signed in on a page of its own: the one step 1 made, or a new one when a restart lost it. */
 async function person(browser) {
@@ -100,11 +101,105 @@ test(`${J} #2 signed out, the request button asks for a sign-in, keeps the searc
 test(`${J} #3 a request type shows its form: a conditional field is required only when its value is picked, and a dependent field refuses a child that does not belong`, async ({
   browser,
 }) => {
-  const page = await person(browser);
-  await page.goto('/support/new');
-  const main = page.locator('main');
-  // Request forms per type are SP-tickets-03; until it lands the form has no type to pick.
-  await expect(main.getByRole('combobox', { name: 'Request type' })).toBeVisible({ timeout: 5_000 });
+  // The run's own request type: a device choice, a system that depends on it, and a phone model asked only for a phone.
+  const id = (name) => `j02-${RUN}-${name}`;
+  const reason = `TEST ${J} #3`;
+  // Everything defined here is retired in `finally`, even when a later definition fails, so no run leaves live
+  // definitions counting against the desk's caps.
+  const defined = [];
+  let form = null;
+  const field = async (definition) => {
+    const row = await defineRequestField(definition);
+    defined.unshift(row);
+    return row;
+  };
+  try {
+    const device = await field({
+      id: id('device'),
+      label: 'Device',
+      kind: 'choice',
+      options: [
+        { value: 'phone', label: 'Phone' },
+        { value: 'computer', label: 'Computer' },
+      ],
+      expectedRevision: 0,
+      reason,
+    });
+    const system = await field({
+      id: id('system'),
+      label: 'System',
+      kind: 'choice',
+      options: [
+        { value: 'ios', label: 'iOS' },
+        { value: 'android', label: 'Android' },
+        { value: 'windows', label: 'Windows' },
+      ],
+      parent: { fieldId: device.id, allowed: { phone: ['ios', 'android'], computer: ['windows'] } },
+      expectedRevision: 0,
+      reason,
+    });
+    const model = await field({ id: id('model'), label: 'Phone model', kind: 'text', expectedRevision: 0, reason });
+    form = await defineRequestForm({
+      id: id('form'),
+      name: `TEST Device problem ${RUN}`,
+      fields: [
+        { fieldId: device.id, required: true },
+        { fieldId: system.id, required: true },
+        { fieldId: model.id, required: true, showWhen: { fieldId: device.id, value: 'phone' } },
+      ],
+      expectedRevision: 0,
+      reason,
+    });
+    const page = await person(browser);
+    await page.goto('/support/new');
+    const main = page.locator('main');
+    await main.getByRole('combobox', { name: 'Request type' }).selectOption({ label: form.name });
+    const phoneModel = main.getByRole('textbox', { name: 'Phone model (required)' });
+    await expect(phoneModel).toHaveCount(0);
+    // A computer: the system offers only what a computer runs, and no phone model is asked.
+    await main.getByRole('combobox', { name: 'Device (required)' }).selectOption({ label: 'Computer' });
+    const systems = main.getByRole('combobox', { name: 'System (required)' }).locator('option');
+    await expect(systems).toHaveText(['Pick one', 'Windows']);
+    await expect(phoneModel).toHaveCount(0);
+    // A phone: the phone model appears and must be answered before the review.
+    await main.getByRole('combobox', { name: 'Device (required)' }).selectOption({ label: 'Phone' });
+    await expect(systems).toHaveText(['Pick one', 'iOS', 'Android']);
+    await main.getByRole('combobox', { name: 'System (required)' }).selectOption({ label: 'iOS' });
+    await expect(phoneModel).toBeVisible();
+    await expect(phoneModel).toHaveAttribute('required', '');
+    await main.getByLabel('Subject', { exact: true }).fill(`TEST ${J} ${RUN} device`);
+    await main.getByLabel('What happened').fill('TEST The app closes when I open it.');
+    await expect(main.getByRole('button', { name: 'Review request' })).toBeDisabled();
+    await phoneModel.fill('TEST P7');
+    await expect(main.getByRole('button', { name: 'Review request' })).toBeEnabled();
+
+    // The service applies the same rules: a child its parent does not allow, and an answer to a hidden field, are refused.
+    const client = await api(shared.who);
+    const send = (values, key) =>
+      client.post('/api/support/trpc/create', { ...TEST_REQUEST, clientRequestId: `j02:${RUN}:${key}`, form: { formId: form.id, values } });
+    expect(JSON.stringify((await send({ [device.id]: 'computer', [system.id]: 'ios' }, 'child')).body)).toContain(
+      'support.field_value_invalid',
+    );
+    expect(JSON.stringify((await send({ [device.id]: 'computer', [system.id]: 'windows', [model.id]: 'x' }, 'hidden')).body)).toContain(
+      'support.field_value_invalid',
+    );
+    expect((await myRequests(shared.who)).filter((row) => row.subject === TEST_REQUEST.subject)).toHaveLength(0);
+  } finally {
+    if (form)
+      await defineRequestForm({
+        id: form.id,
+        name: form.name,
+        fields: form.fields,
+        retired: true,
+        expectedRevision: form.revision,
+        reason,
+      });
+    // Newest first: a dependent field is retired before the field it depends on.
+    for (const row of defined) {
+      const { revision, updatedAt: _at, ...definition } = row;
+      await defineRequestField({ ...definition, retired: true, expectedRevision: revision, reason });
+    }
+  }
 });
 
 test(`${J} #4 a fraud-report category says it goes to compliance, and an unknown category is refused by name`, async ({ browser }) => {

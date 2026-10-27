@@ -27,7 +27,16 @@ import {
 } from './support-desk';
 import { readRatedTicketIds } from './support-calls';
 import { CATEGORY_VALUES, ticketSchema, type Ticket } from './support-schemas';
+import { supportRequestFormsSchema, type SupportField, type SupportFieldValue } from '@intafaced/contracts/support-forms';
+import { formAnswers, formReady, RequestTypeFields, type FormAnswers } from './SupportRequestForm';
+
 import './support-desk.css';
+
+/** An answer as the review step reads it: a choice by its label, a box as yes or no, text as typed. */
+function answerText(field: SupportField | undefined, value: SupportFieldValue): string {
+  if (typeof value === 'boolean') return value ? copyText('support.answer.yes') : copyText('support.answer.no');
+  return field?.options?.find((option) => option.value === value)?.label ?? value;
+}
 
 type View = 'help' | 'requests' | 'new';
 const VIEWS: readonly View[] = ['help', 'requests', 'new'];
@@ -282,6 +291,17 @@ function NewRequest({
     [body, setBody] = useState(''),
     [headers, setHeaders] = useState('');
   const sendHeaders = category === 'phishing' && headers.trim() !== '' ? headers.trim() : null;
+  // The request types the desk set up, each with its questions (SP-tickets-03). Unread or none: a general request.
+  const catalogue = useResource(
+    (signal) => api.query('support', 'requestForms', undefined, supportRequestFormsSchema, { signal }),
+    `support-forms:${userId}`,
+  );
+  const forms = catalogue.resource.status === 'ready' ? catalogue.resource.data : null;
+  const [formId, setFormId] = useState(''),
+    [answers, setAnswers] = useState<FormAnswers>({});
+  const form = forms?.forms.find((row) => row.id === formId) ?? null;
+  const sendForm = form && forms ? { formId: form.id, values: formAnswers(form, forms.fields, answers) } : null;
+  const formOk = !form || !forms || formReady(form, forms.fields, answers);
   return (
     <section className="support-pane support-new" aria-label={copy.t('tabNew')}>
       <form
@@ -303,6 +323,15 @@ function NewRequest({
                   [copyText('support.subject'), <span lang="und">{subject}</span>],
                   [copyText('support.message'), <span lang="und">{body}</span>],
                   ...(sendHeaders ? [[copy.t('headersField'), <span lang="und">{sendHeaders}</span>] as [string, ReactNode]] : []),
+                  ...(form && sendForm && forms
+                    ? [
+                        [copy.t('requestTypeField'), <span lang="und">{form.name}</span>] as [string, ReactNode],
+                        ...Object.entries(sendForm.values).map(([fieldId, value]) => {
+                          const field = forms.fields.find((row) => row.id === fieldId);
+                          return [field?.label ?? fieldId, <span lang="und">{answerText(field, value)}</span>] as [string, ReactNode];
+                        }),
+                      ]
+                    : []),
                 ]}
               />
             ),
@@ -316,6 +345,7 @@ function NewRequest({
                   body: body.trim(),
                   ...(sendHeaders ? { messageHeaders: sendHeaders } : {}),
                   ...(follows ? { followsTicketId: follows.id } : {}),
+                  ...(sendForm ? { form: sendForm } : {}),
                   clientRequestId,
                 },
                 ticketSchema.refine(
@@ -363,6 +393,17 @@ function NewRequest({
             label: categoryLabel(value),
           }))}
         />
+        <RequestTypeFields
+          catalogue={forms}
+          unread={catalogue.resource.status === 'failed'}
+          formId={formId}
+          onFormId={(id) => {
+            setFormId(id);
+            setAnswers({});
+          }}
+          answers={answers}
+          onAnswers={setAnswers}
+        />
         <Field
           label={copy.t('subjectField')}
           lang="und"
@@ -389,7 +430,7 @@ function NewRequest({
             </label>
           </>
         )}
-        <Button type="submit" disabled={action.disabled || !subject.trim() || !body.trim()}>
+        <Button type="submit" disabled={action.disabled || !subject.trim() || !body.trim() || !formOk}>
           {copy.t('reviewRequest')}
         </Button>
       </form>

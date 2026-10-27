@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { accountStateSchema } from './identity.js';
+import { supportCreateFormSchema } from './support-forms.js';
 
 /**
  * Support desk contracts (ops.support Stage-1 ticket spine).
@@ -80,6 +81,8 @@ export const createTicketInputSchema = z.object({
    * ticket and creates no second one. Optional so older callers still parse.
    */
   clientRequestId: z.string().min(1).max(200).optional(),
+  /** The request type's form and its answers (SP-tickets-03). The service checks them against the stored form. */
+  form: supportCreateFormSchema.optional(),
 });
 export type CreateTicketInput = z.infer<typeof createTicketInputSchema>;
 

@@ -118,6 +118,10 @@
       "types": "./dist/support-help-centre.d.ts",
       "default": "./dist/support-help-centre.js"
     },
+    "./support-forms": {
+      "types": "./dist/support-forms.d.ts",
+      "default": "./dist/support-forms.js"
+    },
     "./outreach-public": {
       "types": "./dist/outreach-public.d.ts",
       "default": "./dist/outreach-public.js"
