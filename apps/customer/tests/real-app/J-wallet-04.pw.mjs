@@ -98,7 +98,7 @@ const addForm = (page) => page.getByRole('form', { name: 'Add an address' });
 /** A field of the add form by its own label (each hint sits inside the label, so a plain label match is ambiguous). */
 const field = (page, name) =>
   addForm(page)
-    .locator('label.field', { has: page.locator('span', { hasText: new RegExp(`^${name}$`) }) })
+    .locator('label[data-testid="field"]', { has: page.locator('span', { hasText: new RegExp(`^${name}$`) }) })
     .locator('input, select');
 const savedRows = (page) => page.locator('tbody tr', { hasText: 'Crypto wallet' });
 
@@ -454,10 +454,10 @@ test(`${J} #7 (the bank's half): with the security lock on, the bank refuses add
   test.setTimeout(240_000);
   await signInWithCode(page);
   await page.goto('/uc/safe');
-  const card = page.locator('.security__lock');
+  const card = page.getByTestId('security__lock');
   await card.getByRole('button', { name: 'Turn on the lock' }).click();
   await card.getByRole('button', { name: 'Turn it on now' }).click();
-  await expect(card.locator('.notice')).toHaveText('The lock is on.');
+  await expect(card.getByTestId('notice')).toHaveText('The lock is on.');
 
   const LOCKED =
     'Your security lock is on, so no withdrawal address can be added and nothing can be withdrawn to one until it ends. Nothing was changed.';
@@ -490,7 +490,7 @@ test(`${J} #7 (the bank's half): with the security lock on, the bank refuses add
   run.reset({ ...state, step });
   await card.getByLabel('6-digit code from your authenticator app').fill(code);
   await card.getByRole('button', { name: 'Ask with code' }).click();
-  await expect(card.locator('.notice')).toContainText('Unlock asked for. The lock ends');
+  await expect(card.getByTestId('notice')).toContainText('Unlock asked for. The lock ends');
   await page.goto('/uc/withdraw/address');
   await savedRows(page).filter({ hasText: 'TEST private wallet' }).getByRole('button', { name: 'Withdraw to this address' }).click();
   await expect(page.getByTestId('address-use').getByRole('alert')).toContainText(

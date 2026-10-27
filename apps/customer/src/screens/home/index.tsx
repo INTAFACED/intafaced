@@ -338,7 +338,12 @@ function HomeSimple() {
                 return <WorkList key={id} hidden={hideBalances} />;
               case 'holdings':
                 return portfolio.status === 'loading' ? (
-                  <HoldingsSkeleton key={id} />
+                  // the sphere's section keeps its place while the holdings load (no split, no figures), so it doesn't
+                  // arrive late and push the rows below it down
+                  <Fragment key={id}>
+                    <LitSphere portfolio={portfolio} hidden={hideBalances} />
+                    <HoldingsSkeleton />
+                  </Fragment>
                 ) : portfolio.status === 'ready' && portfolio.data.holdings.length > 0 ? (
                   <Fragment key={id}>
                     <LitSphere portfolio={portfolio} hidden={hideBalances} />

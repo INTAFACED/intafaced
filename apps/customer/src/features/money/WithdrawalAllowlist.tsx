@@ -37,7 +37,7 @@ function ReadResult<T>({ resource, retry, children }: { resource: Resource<T>; r
   const result = resource.failure;
   if (result.status === 404 || result.code === 'allowlist.not_found')
     return (
-      <div className="failure" role="status">
+      <div data-testid="failure" className="failure" role="status">
         <h3>{t('notFound')}</h3>
         <p>{t('notFoundNote')}</p>
         <Button variant="secondary" onClick={retry}>
@@ -158,7 +158,7 @@ function AddForm({ current, onDone, onCancel }: { current: () => boolean; onDone
         />
         <Field label={t('label')} name="allowlist-label" maxLength={64} value={label} onChange={(event) => setLabel(event.target.value)} />
         {invalid && (
-          <p className="failure" role="alert">
+          <p data-testid="failure" className="failure" role="alert">
             {t('formInvalid')}
           </p>
         )}
@@ -377,7 +377,7 @@ function OneTime({ current }: { current: () => boolean }) {
                   onChange={(event) => setMaxAmount(event.target.value)}
                 />
                 {invalid && (
-                  <p className="failure" role="alert">
+                  <p data-testid="failure" className="failure" role="alert">
                     {t('policyInvalid')}
                   </p>
                 )}
@@ -588,7 +588,7 @@ export function WithdrawalAllowlist({ context, search }: { context: AllowlistRea
     <Page eyebrow={t('money')} title={t('title')} description={t('description')}>
       <div className="withdrawal-page">
         {!requested.ok ? (
-          <p className="failure" role="alert">
+          <p data-testid="failure" className="failure" role="alert">
             {t('invalidId')}
           </p>
         ) : requested.id ? (

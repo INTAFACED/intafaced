@@ -20,7 +20,7 @@ test(`${J} #6 the owner changes a notification preference, sees who changed it a
   const historyOf = (p) => p.locator('section').filter({ has: p.getByRole('heading', { name: 'Change history', level: 2 }) });
   const history = historyOf(page);
   await expect(history).toContainText('No changes yet');
-  const row = page.locator('li.pp-pref').filter({ hasText: 'Export ready' });
+  const row = page.locator('li[data-testid="pp-pref"]').filter({ hasText: 'Export ready' });
   await row.getByRole('checkbox').uncheck();
   await row.getByRole('button', { name: 'Save' }).click();
   await expect(row.getByRole('status')).toHaveText('Saved');
@@ -31,7 +31,7 @@ test(`${J} #6 the owner changes a notification preference, sees who changed it a
   // The change is the service's record, not the page's memory.
   await page.reload();
   await expect(historyOf(page)).toContainText('Export ready turned off');
-  await expect(page.locator('li.pp-pref').filter({ hasText: 'Export ready' }).getByRole('checkbox')).not.toBeChecked();
+  await expect(page.locator('li[data-testid="pp-pref"]').filter({ hasText: 'Export ready' }).getByRole('checkbox')).not.toBeChecked();
   await expect(page.getByText(/History is not connected|is not recorded/)).toHaveCount(0);
 
   await page.getByRole('link', { name: 'Help and support' }).click();

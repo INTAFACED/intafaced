@@ -85,6 +85,12 @@ const schema = serviceEnvSchema
       SUPPORT_VIEW_PERSONAL_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).optional()),
       SUPPORT_VIEW_SHARED_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).optional()),
       /**
+       * How many live request forms and ticket fields the desk may keep (SP-tickets-03). Blank refuses every definition
+       * with support.form_cap_unset / support.field_cap_unset. Never defaulted.
+       */
+      SUPPORT_FORM_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).optional()),
+      SUPPORT_FIELD_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).optional()),
+      /**
        * How many help-answer votes one account or signed-out reader may cast in the window below.
        * Either one blank refuses every vote with support.feedback_rate_limit_unset. Never defaulted.
        */

@@ -109,7 +109,7 @@ export function helpCentreGate(book: Pick<HelpCentreBook, 'get'>) {
   };
 }
 
-async function requireLead(support: Pick<SupportService, 'listStaff'>, actorId: string): Promise<void> {
+export async function requireLead(support: Pick<SupportService, 'listStaff'>, actorId: string): Promise<void> {
   const actor = (await support.listStaff()).find((member) => member.userId === actorId);
   if (actor?.role !== 'lead') {
     throw new TRPCError({ code: 'FORBIDDEN', message: userCopy('support.not_lead') });

@@ -18,7 +18,7 @@ function account() {
   return who;
 }
 
-const openTable = (page) => page.locator('.dk-bottom-body table');
+const openTable = (page) => page.getByTestId('dk-bottom-body').locator('table');
 const rowOf = (page, price) => openTable(page).locator('tbody tr').filter({ hasText: price });
 const editDialog = (page) => page.getByRole('alertdialog');
 /** "64000" as the desk writes a USDT price: "64,000.00". */
@@ -274,7 +274,7 @@ test(`${J} #7 looks at Positions: not applicable to cash spot, no zero row`, asy
   await openDesk(page, who);
   await page.getByRole('tab', { name: 'Positions', exact: true }).click();
   await expect(page.getByText('Not applicable: cash spot holds balances, not positions')).toBeVisible();
-  await expect(page.locator('.dk-bottom-body table')).toHaveCount(0);
+  await expect(page.getByTestId('dk-bottom-body').locator('table')).toHaveCount(0);
 });
 
 test(`${J} #8 presses Flatten on a held coin: one reviewed market sell of all of it, the same order on every retry`, async ({ page }) => {
@@ -294,15 +294,17 @@ test(`${J} #8 presses Flatten on a held coin: one reviewed market sell of all of
   const dialog = page.getByRole('alertdialog');
   await expect(dialog).toContainText('Review your sell');
   await expect(dialog).toContainText('Price protection');
-  const reference = await dialog.getByText('Client order ID').locator('..').locator('.if-num').innerText();
+  const reference = await dialog.getByText('Client order ID').locator('..').getByTestId('client-order-id').innerText();
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await flatten.click();
   await expect(dialog).toContainText('Review your sell');
-  expect(await dialog.getByText('Client order ID').locator('..').locator('.if-num').innerText()).toBe(reference);
+  expect(await dialog.getByText('Client order ID').locator('..').getByTestId('client-order-id').innerText()).toBe(reference);
   expect(posts).toHaveLength(0);
   // The TEST market can move the protection price between review and confirm; the desk then asks again, before sending.
   await confirm(page, 'sell');
-  await expect(page.locator('form.dk-form[data-side="sell"]')).toContainText(/Your sell order (filled|is in)/, { timeout: 20_000 });
+  await expect(page.locator('form[data-testid="dk-form"][data-side="sell"]')).toContainText(/Your sell order (filled|is in)/, {
+    timeout: 20_000,
+  });
   expect(posts).toHaveLength(1);
   expect(posts[0]).toMatchObject({ symbol: 'BTC/USDT', side: 'sell', type: 'market', amount: btcFree });
   expect(posts[0].clientOrderId.endsWith(`:${reference}`)).toBe(true);

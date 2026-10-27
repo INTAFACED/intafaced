@@ -27,7 +27,7 @@
   white-space: nowrap;
 }
 
-/* ---- legal band: fixed at the top, its own border, never faded, never a brand colour (COBS 4.12A 36R, 38R) ---- */
+/* ---- legal band, only with LegalSlotsSwitch on: fixed at the top, its own border, never faded, never a brand colour (COBS 4.12A 36R, 38R) ---- */
 
 .lt-band-slot {
   position: sticky;
@@ -181,6 +181,9 @@
   }
   .lt-grid-list-detail > [data-region='detail'] {
     position: sticky;
+    inset-block-start: calc(var(--lit-topbar-h) + var(--lit-gap-section));
+  }
+  .lt-room[data-band] .lt-grid-list-detail > [data-region='detail'] {
     inset-block-start: calc(var(--lit-topbar-h) + var(--lit-legal-band-min-h) + var(--lit-gap-section));
   }
   .lt-grid-flow {
@@ -1176,12 +1179,13 @@
   font-size: var(--lit-type-label-size);
 }
 
-/* Direction: a credit and a bid read up, a debit and an ask read down, with a sign as well as colour. */
-[data-dir='up'] {
+/* Direction: a credit and a bid read up, a debit and an ask read down, with a sign as well as colour. Only inside a
+   template room, and with no specificity, so a kit component that sets data-dir (Change) keeps its own rules. */
+:where(.lt-room) :where([data-dir='up']) {
   color: var(--lit-up-text);
 }
 
-[data-dir='down'] {
+:where(.lt-room) :where([data-dir='down']) {
   color: var(--lit-down-text);
 }
 

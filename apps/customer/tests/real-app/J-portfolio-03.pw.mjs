@@ -63,7 +63,7 @@ async function allLines(who, input = {}) {
 }
 
 const activity = (page) => page.getByRole('region', { name: 'Activity' }).last();
-const rows = (page) => activity(page).locator('tbody tr.money-act');
+const rows = (page) => activity(page).locator('tbody tr[data-testid="money-act"]');
 
 async function openActivity(page, query = '') {
   await page.goto(`/money/activity${query}`);
@@ -158,7 +158,7 @@ test(`${J} #1 opens /money/activity: every kind of movement in one list, in plai
   const funds = lines.find((l) => l.kind === 'welcome_funds');
   const fundsRow = list.filter({ hasText: 'Welcome test funds' });
   await expect(fundsRow.locator('td').nth(2)).toHaveText('+1,000 USDT');
-  await expect(fundsRow.locator('.money-act__time')).toHaveText(local(funds.postedAt));
+  await expect(fundsRow.getByTestId('money-act__time')).toHaveText(local(funds.postedAt));
   const trade = lines.find((l) => l.kind === 'trade' && l.direction === 'in');
   await expect(
     list
@@ -166,8 +166,8 @@ test(`${J} #1 opens /money/activity: every kind of movement in one list, in plai
       .locator('td')
       .nth(2),
   ).toHaveText(`+${trade.amount} BTC`);
-  await expect(list.filter({ hasText: 'Set aside for an order' }).locator('.money-act__status')).toHaveText('Set aside');
-  await expect(fundsRow.locator('.money-act__status')).toHaveText('Completed');
+  await expect(list.filter({ hasText: 'Set aside for an order' }).getByTestId('money-act__status')).toHaveText('Set aside');
+  await expect(fundsRow.getByTestId('money-act__status')).toHaveText('Completed');
 });
 
 /** The local calendar day `days` from today, as a date input takes it. */
@@ -299,7 +299,7 @@ test(`${J} #3 reads a traded order: its lines share one row, a cancelled order i
   await expect(list.filter({ hasText: 'Order cancelled · nothing spent' })).toHaveCount(1);
   const resting = list.filter({ hasText: 'Set aside for an order' });
   await expect(resting).toHaveCount(1);
-  await expect(resting.locator('.money-act__status')).toHaveText('Set aside');
+  await expect(resting.getByTestId('money-act__status')).toHaveText('Set aside');
 });
 
 test(`${J} #4 opens an entry: its linked lines as one group with the shared reference, and from a purchase a link to the coin`, async ({
@@ -337,7 +337,7 @@ test(`${J} #5 opens Trades: one row per trade with price, total and fee, and par
   const fills = (await (await api(who)).get('/api/v1/account/trades?limit=100')).body;
   const ofSale = fills.filter((f) => f.order === partial);
   await openActivity(page, '?tab=trades');
-  const table = activity(page).locator('table.dk-table');
+  const table = activity(page).locator('table[data-testid="dk-table"]');
   // Each fill is a row with its price, total and fee.
   await expect(table.locator('tbody tr[data-fill]')).toHaveCount(fills.length);
   for (const fill of fills) {
@@ -361,7 +361,7 @@ test(`${J} #6 adds a note to an entry and presses save twice: one note, shown on
   await openActivity(page);
   await rows(page).filter({ hasText: 'Welcome test funds' }).getByRole('link').click();
   const note = page.getByLabel('Your note');
-  const save = page.locator('form.money-note-form').first().getByRole('button');
+  const save = page.locator('form[data-testid="money-note-form"]').first().getByRole('button');
   // Whitespace alone cannot be sent.
   await note.fill('   ');
   await expect(save).toBeDisabled();

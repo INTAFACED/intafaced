@@ -235,7 +235,7 @@ function ProfileForm({
   );
   return (
     <PaySection title={t('profileFormTitle')} description={t('profileFormBody')}>
-      <form className="form-stack pp-form" noValidate onSubmit={(e) => e.preventDefault()}>
+      <form data-testid="form-stack" className="form-stack pp-form" noValidate onSubmit={(e) => e.preventDefault()}>
         <fieldset className="sa-group">
           <legend>{t('groupPublic')}</legend>
           {field('displayName', t('pfDisplayName'), { hint: t('pfhDisplayName') })}
@@ -376,7 +376,7 @@ function ChangeRow({
         )}
       </div>
       {open && mayEdit && (
-        <div className="form-stack">
+        <div data-testid="form-stack" className="form-stack">
           <Field label={t('fReason')} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} hint={t('hReason')} />
           <div className="pp-actions">
             {change.status === 'pending' && !mine && (

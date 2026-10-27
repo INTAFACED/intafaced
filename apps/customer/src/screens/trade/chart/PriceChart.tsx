@@ -338,9 +338,9 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
 
   return (
     <div className="pc-root" role="img" aria-label={labels.chart}>
-      <div ref={host} className="pc-host" />
+      <div ref={host} data-testid="pc-host" className="pc-host" />
       {legend && focus ? (
-        <div className="pc-legend" aria-hidden="true">
+        <div data-testid="pc-legend" className="pc-legend" aria-hidden="true">
           <span className="pc-time">{formatTime(Math.floor(focus.t / 1000))}</span>
           <span className="pc-ohlc">
             {labels.open} <b>{legend.open}</b>

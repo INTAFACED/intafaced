@@ -101,7 +101,7 @@ export function ReviewForm({
         </fieldset>
       ))}
       {missing && (
-        <p role="status" className="failure">
+        <p role="status" data-testid="failure" className="failure">
           {t('rvMissingLevel', { criterion: missing })}
         </p>
       )}
@@ -198,7 +198,7 @@ export function AcademyPeerReview({ itemId, handedIn }: { itemId: string; handed
         />
       )}
       {uncertain && (
-        <p role="status" className="failure">
+        <p role="status" data-testid="failure" className="failure">
           {t('rvUncertain')}
         </p>
       )}

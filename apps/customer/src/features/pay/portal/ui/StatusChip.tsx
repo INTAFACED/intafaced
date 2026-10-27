@@ -13,7 +13,7 @@ const toneOf: Record<Tone, StatusTone> = { good: 'done', neutral: 'progress', at
 /** The chip itself, for a page that has its own words. */
 export function ToneChip({ tone, label, tip }: { tone: StatusTone; label: string; tip?: string }) {
   return (
-    <span className={`pp-chip pp-chip--${tone}`} title={tip} aria-label={tip ? `${label} (${tip})` : undefined}>
+    <span data-testid="pp-chip" className={`pp-chip pp-chip--${tone}`} title={tip} aria-label={tip ? `${label} (${tip})` : undefined}>
       {label}
     </span>
   );

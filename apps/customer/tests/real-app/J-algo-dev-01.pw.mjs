@@ -28,9 +28,9 @@ test(`${J} #1 opens Algo dev from the Trade menu: every room listed, quick start
 
   // The Trade menu opens on hover; Algo dev sits in its list (under Advanced in Simple mode).
   await page.goto('/home');
-  await page.locator('.tb-tab', { hasText: 'Trade' }).hover();
+  await page.getByTestId('tb-tab').filter({ hasText: 'Trade' }).hover();
   await page
-    .locator('.tb-menu')
+    .getByTestId('tb-menu')
     .getByRole('link', { name: /Algo dev/ })
     .click();
   await expect(page).toHaveURL(/\/quant$/);
@@ -43,7 +43,7 @@ test(`${J} #1 opens Algo dev from the Trade menu: every room listed, quick start
 
   // The quick start is ticked from this account's own rows: nothing yet, and no sample strategy anywhere.
   await expect(page.getByTestId('quant-quick-start-count')).toHaveText('0 of 3 steps done');
-  await expect(page.locator('.quant-quick-start li[data-done=true]')).toHaveCount(0);
+  await expect(page.getByTestId('quant-quick-start').locator('li[data-done=true]')).toHaveCount(0);
   await expect(page.getByText('No strategy is saved yet.')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Your strategies' }).getByRole('table')).toHaveCount(0);
   await expect(page.getByText('Simulated only.')).toBeVisible();
@@ -113,7 +113,7 @@ test(`${J} #2 picks a starter template and presses Use: a draft with every numbe
   await loseNextReply(page, 'template.get');
   const use = row.getByRole('button', { name: `Use ${template.name}` });
   await use.click();
-  await expect(templates.locator('.failure')).toBeVisible();
+  await expect(templates.getByTestId('failure')).toBeVisible();
   await expect(page.getByLabel('How the strategy trades')).toHaveValue('blocks');
 
   // Pressing Use again reads it again and fills one draft.
@@ -251,7 +251,7 @@ test(`${J} #4 saves the strategy at version 1; Save again after a lost reply mak
   // The first reply is lost: the service saved it, the screen never heard. Pressing Save again returns the same row.
   await loseNextReply(page, 'studio.save');
   await save.click();
-  await expect(page.locator('.quant-save .failure')).toBeVisible();
+  await expect(page.getByTestId('quant-save').getByTestId('failure')).toBeVisible();
   await save.click();
   await expect(state).toHaveText('Saved as version 1.');
   await expect(save).toBeDisabled();
@@ -264,7 +264,7 @@ test(`${J} #4 saves the strategy at version 1; Save again after a lost reply mak
   await expect(state).toHaveText('Changed since version 1. Save to keep these rules as the next version.');
   await loseNextReply(page, 'studio.update');
   await save.click();
-  await expect(page.locator('.quant-save .failure')).toBeVisible();
+  await expect(page.getByTestId('quant-save').getByTestId('failure')).toBeVisible();
   await save.click();
   await expect(state).toHaveText('Saved as version 2.');
   await expect(library.getByRole('row')).toHaveCount(2);
@@ -375,7 +375,7 @@ test(`${J} #6 runs on the TEST tape: sided trades, equity moving with them, fees
   // The first reply is lost after the service stored the run; Run again with the same inputs reads it back.
   await loseNextReply(page, 'backtest.start');
   await room.getByTestId('quant-backtest-run').click();
-  await expect(room.locator('.failure')).toBeVisible();
+  await expect(room.getByTestId('failure')).toBeVisible();
   await room.getByTestId('quant-backtest-run').click();
   const result = room.getByTestId('quant-bar-result');
   await expect(result).toBeVisible();

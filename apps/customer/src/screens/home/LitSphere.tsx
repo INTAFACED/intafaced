@@ -5,8 +5,7 @@ import { isLook } from '../../app/look';
 import { homeCopy } from './copy';
 import { fmtUsd, type HomePortfolio, type Loadable } from './deps';
 import { sphereShares, type SpherePart } from './lit-shares';
-// the kit's role tokens; flat values unless data-look="lit" (the lead's wiring PR moves this to the app shell)
-import '@intafaced/ui/lit/lit.css';
+// the kit's role tokens (@intafaced/ui/lit/lit.css) load once at the app shell, in main.tsx
 import './lit-spike.css';
 
 const PRESET = FX_PRESETS['sphere-home-blue'];
@@ -90,6 +89,9 @@ function useLeaders(panel: RefObject<HTMLDivElement | null>, sphere: HTMLDivElem
  * No text is drawn over the 3D. Only with the Lit glass look on (`?look=lit`). The legend is the meaning (the 3D is
  * decorative); with balances hidden, or any share unknown, the sphere draws no split and there is no legend.
  */
+/** Placeholder rows in the legend while the holdings load: a fixed count, never a guess at how many there are. */
+const LOADING_ROWS = 3;
+
 export function LitSphere({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hidden: boolean }) {
   const { t } = homeCopy.useCopy();
   const panel = useRef<HTMLDivElement>(null);
@@ -103,6 +105,8 @@ export function LitSphere({ portfolio, hidden }: { portfolio: Loadable<HomePortf
     !hidden &&
     portfolio.status === 'ready' &&
     portfolio.data.holdings.some((h) => h.share === null || h.usdValue === null);
+  // while the holdings load: placeholder rows where the legend goes, and the sphere dimmed with no split
+  const loading = look && !hidden && portfolio.status === 'loading';
   const shares = parts ? sharesFromPercents(parts.map((p) => p.percent)) : null;
   const points = shares && size ? sphereCallouts(shares, size.w, size.h, PRESET.options) : [];
   const leaders = useLeaders(panel, el, points);
@@ -117,7 +121,12 @@ export function LitSphere({ portfolio, hidden }: { portfolio: Loadable<HomePortf
       <h2 id="home-lit-where-title" className="home-h2">
         {t('Where your money is')}
       </h2>
-      <div ref={panel} className="home-lit-where__panel" style={{ '--rows': parts?.length ?? 0 } as CSSProperties}>
+      <div
+        ref={panel}
+        className="home-lit-where__panel"
+        data-loading={loading || undefined}
+        style={{ '--rows': parts?.length ?? (loading ? LOADING_ROWS : 0) } as CSSProperties}
+      >
         <div ref={ref} className="home-lit-sphere">
           <LitFx kind="sphere" options={shares ? { ...PRESET.options, shares } : PRESET.options} poster={poster} />
         </div>
@@ -152,6 +161,15 @@ export function LitSphere({ portfolio, hidden }: { portfolio: Loadable<HomePortf
               ))}
             </ol>
           </>
+        ) : loading ? (
+          <ol className="home-lit-legend" aria-hidden="true" data-testid="home-lit-legend-skeleton">
+            {Array.from({ length: LOADING_ROWS }, (_, i) => (
+              <li key={i} className="home-lit-legend__part" style={{ '--row': LOADING_ROWS - 1 - i } as CSSProperties}>
+                <span className="home-lit-legend__bar" />
+                <span className="home-lit-legend__bar home-lit-legend__bar--value" />
+              </li>
+            ))}
+          </ol>
         ) : unsplit ? (
           <p className="home-lit-where__note">{t('Sphere no split')}</p>
         ) : null}

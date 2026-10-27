@@ -221,7 +221,7 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
                 </EmptyState>
               ) : (
                 <PaySection title={t('cvStep1')} description={t('cvStep1Body')}>
-                  <form className="form-stack pp-form" noValidate onSubmit={(e) => e.preventDefault()}>
+                  <form data-testid="form-stack" className="form-stack pp-form" noValidate onSubmit={(e) => e.preventDefault()}>
                     <SelectField
                       label={t('pnSettlement')}
                       value={settlement?.id ?? ''}
@@ -304,7 +304,7 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
                 disabled={expired || !may || stepReason !== null}
                 disabledReason={expired ? t('cvExpired') : !may ? t('cvNotAllowed') : (stepReason ?? undefined)}
                 review={
-                  <dl className="pp-facts">
+                  <dl data-testid="pp-facts" className="pp-facts">
                     <div>
                       <dt>{t('cvYouConvert')}</dt>
                       <dd>

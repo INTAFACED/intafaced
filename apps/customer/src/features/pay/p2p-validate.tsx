@@ -111,7 +111,7 @@ export function ValidatePayment({ trade, pay, onChecked }: { trade: Trade; pay: 
         {note}
       </p>
       {words ? (
-        <p className="failure" role="status">
+        <p data-testid="failure" className="failure" role="status">
           {t(words, { method: trade.method })}
         </p>
       ) : failure ? (

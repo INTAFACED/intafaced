@@ -275,7 +275,7 @@ export function ApprovalDecision({
     return portalRefusal(result.data.status === 'voided' ? 'rApprovalVoidedResult' : 'rApprovalNotLanded', 'error');
   };
   const review = (verb: string) => (
-    <dl className="pp-facts">
+    <dl data-testid="pp-facts" className="pp-facts">
       <div>
         <dt>{t('decisionVerb')}</dt>
         <dd>{verb}</dd>
@@ -307,7 +307,7 @@ export function ApprovalDecision({
     </dl>
   );
   return (
-    <div className="form-stack pp-form pp-decision">
+    <div data-testid="form-stack" className="form-stack pp-form pp-decision">
       {isCheckedPending(approval) && (
         <p className="pp-callout" role="note">
           {t('checkedBanner', { who: whoIs(approval.checkerUserId!, me, names, t('mnMe')) })}
@@ -375,7 +375,7 @@ export function CancelRequest({
   if (approval.status !== 'pending') return null;
   const why = !mine ? t('cancelOnlyMaker') : stepReason ? stepReason : !minReasonOk(reason) ? t('reasonNeeded') : undefined;
   return (
-    <div className="form-stack pp-form">
+    <div data-testid="form-stack" className="form-stack pp-form">
       <label className="field">
         <span>{t('cancelReason')} *</span>
         <textarea value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} rows={2} disabled={!mine} />
@@ -386,7 +386,7 @@ export function CancelRequest({
         title={t('cancelRequest')}
         description={t('cancelRequestBody')}
         review={
-          <dl className="pp-facts">
+          <dl data-testid="pp-facts" className="pp-facts">
             <div>
               <dt>{t('colAmount')}</dt>
               <dd>

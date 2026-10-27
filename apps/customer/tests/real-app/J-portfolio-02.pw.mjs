@@ -141,11 +141,11 @@ test(`${J} #3 sells the coins: a sale row with what was received, the cost of th
   else await expect(open.locator('td').first()).toHaveText(fromUnits(total(after, 'BTC')));
 });
 
-test(`${J} #4 reads the label: an indicator, not tax advice, with the method FIFO and what it means`, async ({ page }) => {
+test(`${J} #4 reads the label: an indicator, not a tax form, with the method FIFO and what it means`, async ({ page }) => {
   const who = account();
   await signIn(page, who);
   const main = await pnl(page);
-  await expect(main.locator('[data-indicator="true"]')).toHaveText(/indicator .* not tax advice/i);
+  await expect(main.locator('[data-indicator="true"]')).toHaveText(/indicator .* not a tax form/i);
   const methods = main.getByRole('group', { name: 'Matching method' });
   await expect(methods.getByRole('button', { name: 'FIFO: oldest first' })).toHaveAttribute('aria-pressed', 'true');
   await expect(main).toContainText('Each sale is matched against the lots you bought, one lot at a time, using the method you pick.');

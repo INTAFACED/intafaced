@@ -18,6 +18,7 @@ export function MoneyDisplay({
   sensitive = false,
   unit,
   unitClassName = 'pp-unit',
+  testId,
 }: {
   value: string;
   asset: string;
@@ -26,6 +27,8 @@ export function MoneyDisplay({
   /** The asset code to show right after the amount, so "Show exact" sits after both and never between them. */
   unit?: string;
   unitClassName?: string;
+  /** A test id for the amount itself. */
+  testId?: string;
 }) {
   const canShowExact = useContext(ExactMoneyContext);
   const inReview = useExactMoneyScope();
@@ -42,7 +45,7 @@ export function MoneyDisplay({
   if (inReview)
     return (
       <>
-        <Amount className={className} value={full} sensitive={sensitive} />
+        <Amount data-testid={testId} className={className} value={full} sensitive={sensitive} />
         {unitText && <> {unitText}</>}
         {isRounded(value, asset) && <span className="pp-exact-tag"> ({t('exactTag')})</span>}
       </>
@@ -50,7 +53,7 @@ export function MoneyDisplay({
   const hasExtraPrecision = isRounded(value, asset);
   return (
     <span className="plo-money-exact">
-      <Amount className={className} value={exact && canShowExact ? full : compact} sensitive={sensitive} />
+      <Amount data-testid={testId} className={className} value={exact && canShowExact ? full : compact} sensitive={sensitive} />
       {unitText}
       {canShowExact && hasExtraPrecision && (
         <Button variant="ghost" aria-pressed={exact} onClick={() => setExact(!exact)}>

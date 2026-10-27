@@ -11,39 +11,45 @@
  *   contrast     the worst background pixel under every text box (a shot with all text hidden), 4.5:1, or 3:1 for
  *                large text (B4 rules, section 1);
  *   money        a money figure (`[data-slot="money"]`) on a panel less than 80% opaque;
+ *   gpu          the GPU budget (gpu-budget.mjs): blur only on nav and sheet layers, at most 3 blurred surfaces and one
+ *                3D canvas a screenful, a canvas at most 1.5x its box, no 3D on a confirm or review step;
  *   targets      a control smaller than 24x24 px with no 24 px of clear space (WCAG 2.5.8);
  *   focus        a focused control hidden under a `data-obscures` bar (WCAG 2.4.11), over the first 25 tab stops;
  *   csp          any Content-Security-Policy violation (in-page events and report-uri reports);
  *   font         text drawn in a system fallback instead of the web font its font-family names first (a Geist→Arial
  *                swap, a font file that failed to load, a blocked font);
- *   legal        every legal slot (`data-moment` + `data-jurisdiction`): the registry's exact wording, body size, bold
- *                and opaque and pinned to the top for a risk band, 4.5:1, never clipped (policy.mjs `judgeLegal`);
  *   baseline     a pixel difference from `<package>/look-baselines/<room>/<viewport>.png` (no baseline: reported, the
  *                shot is in the artifact to commit with a `Baseline-change:` line).
- * On the phone it also renders right-to-left, at 200% text size and in forced colours, and reports axe, sideways
- * overflow and obscured focus there.
+ * On the phone it also renders right-to-left, at 200% text size, in forced colours and with every string in
+ * pseudo-English 130% long (@intafaced/i18n/fixtures: text, placeholders and button values; not aria labels or CSS
+ * content), and reports axe, sideways overflow and obscured focus there, and for 130% copy any box that cuts off its
+ * text at the phone's height.
  *
  * Reports for two weeks; then a failure on the kit gallery or on a page drawn in the new look blocks a pull request
- * that changes the kit, a baseline, a legal-slot file or a migrated room (policy.mjs). CI runs main's copy.
+ * that changes the kit, a baseline or a migrated room (policy.mjs). CI runs main's copy.
  *
- * Not checked yet, said so in every report: the founder console (apps/admin) shots, 130% copy. Rooms whose calls have
- * no fixture in look-fixtures.mjs still show their refuse state.
+ * The founder console (apps/admin) is shot too, signed in as a TEST founder against a stand-in Edge (admin.mjs), at a
+ * phone and a computer with no variants: its baselines catch a kit change that moves it. Rooms whose calls have no
+ * fixture in look-fixtures.mjs still show their refuse state, said so in every report.
  *
- *   node tooling/ci/look-gate/look-gate.mjs [--shard 1/4] [--out <dir>] [--only gallery|customer] [--routes /a,/b]
+ *   node tooling/ci/look-gate/look-gate.mjs [--shard 1/4] [--out <dir>] [--only gallery|customer|admin] [--routes /a,/b]
  *        [--update-baselines] [--changed-from origin/main]
  *   node tooling/ci/look-gate/look-gate.mjs --self-test
  */
 import { execFileSync } from 'node:child_process';
+import { createDecipheriv } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, appendFileSync, statSync } from 'node:fs';
 import http from 'node:http';
 import { dirname, extname, join, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { securityHeaders } from '../../../apps/customer/deployment/render-security-headers.mjs';
 import { crop, decodePng, encodePng } from './png.mjs';
 import * as policy from './policy.mjs';
+import * as gpu from './gpu-budget.mjs';
 import { sweepRoutes } from '../../../apps/customer/tests/real-app/routes.mjs';
 import * as world from '../../../apps/customer/tests/real-app/look-fixtures.mjs';
 import { fixtureAnswer as answerAt } from './fixture-answer.mjs';
+import { adminRoutes, edgeAnswer, sealSession, startAdmin } from './admin.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const VIEWPORTS = { phone: { width: 390, height: 844 }, computer: { width: 1440, height: 900 } };
@@ -51,8 +57,10 @@ const VIEWPORTS = { phone: { width: 390, height: 844 }, computer: { width: 1440,
 const FROZEN = new Date('2026-10-21T12:00:00Z');
 const SEED = 20261026;
 const REPORT_PATH = '/__csp-report';
+// The gate's fixed ports: the app, the gallery, then the console and its stand-in Edge (admin.mjs). LOOK_GATE_PORT_BASE
+// moves them for a second run on the same machine; its shots then show other addresses, so no baseline comes from it.
+const PORT_BASE = Number(process.env.LOOK_GATE_PORT_BASE ?? 47300);
 const REFUSAL = { code: 'look_gate.no_services', message: 'The look gate renders rooms without services.' };
-const REGISTRY_PATH = 'packages/ui/src/lit/templates/legal/registry.json';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -80,8 +88,10 @@ function args(argv) {
       if (!(k >= 1 && n >= k)) throw new Error(`--shard wants k/n, got ${argv[i]}`);
       out.shard = [k, n];
     } else if (a === '--out') out.out = resolve(argv[++i]);
-    else if (a === '--only') out.only = argv[++i];
-    else if (a === '--routes') out.routes = argv[++i].split(',');
+    else if (a === '--only') {
+      out.only = argv[++i];
+      if (!['gallery', 'customer', 'admin'].includes(out.only)) throw new Error(`--only takes gallery, customer or admin, not ${out.only}`);
+    } else if (a === '--routes') out.routes = argv[++i].split(',');
     else if (a === '--update-baselines') out.update = true;
     else if (a === '--changed-from') out.changedFrom = argv[++i];
     else if (a === '--self-test') out.selfTest = true;
@@ -105,7 +115,7 @@ export function roomName(route) {
 }
 
 /** A static server for a built folder, with the production headers and a report endpoint. SPA fallback to index.html. */
-function serve(dir, reports) {
+function serve(dir, reports, port) {
   const headers = securityHeaders({ reportUri: REPORT_PATH });
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
@@ -139,21 +149,32 @@ function serve(dir, reports) {
     res.writeHead(200, { ...headers, 'content-type': MIME[extname(target)] ?? 'application/octet-stream', 'cache-control': 'no-store' });
     res.end(readFileSync(target));
   });
-  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ server, origin: `http://127.0.0.1:${server.address().port}` })));
+  // A fixed port: a room can print its own address (Receive's QR code holds a link), so a port drawn per run would
+  // change the shot.
+  return new Promise((ok, fail) => {
+    server.once('error', (error) => fail(new Error(`the look gate needs port ${port}: ${error.message}`)));
+    server.listen(port, '127.0.0.1', () => ok({ server, origin: `http://127.0.0.1:${port}` }));
+  });
 }
 
 const INIT = `(() => {
   Math.random = (${policy.mulberry32.toString()})(${SEED});
+  // Ids drawn for a form (a request id) count up per page, so a shot never shows a fresh one.
+  if (window.crypto?.randomUUID) {
+    let n = 0;
+    crypto.randomUUID = () => '00000000-0000-4000-8000-' + String(++n).padStart(12, '0');
+  }
   window.__lookCsp = [];
   document.addEventListener('securitypolicyviolation', (e) => {
     window.__lookCsp.push({ directive: e.effectiveDirective, blocked: e.blockedURI, source: e.sourceFile, line: e.lineNumber, sample: e.sample });
   });
 })();`;
 
-const FREEZE_CSS = `*, *::before, *::after { animation-duration: 0s !important; animation-delay: 0s !important; transition: none !important; caret-color: transparent !important; }`;
+// Scrollbars hidden too: an overlay scrollbar fades on its own clock, so a shot could catch it half drawn.
+const FREEZE_CSS = `*, *::before, *::after { animation-duration: 0s !important; animation-delay: 0s !important; transition: none !important; caret-color: transparent !important; } * { scrollbar-width: none !important; }`;
 const HIDE_TEXT_CSS = `* { color: transparent !important; -webkit-text-fill-color: transparent !important; text-shadow: none !important; text-decoration-color: transparent !important; } ::placeholder { color: transparent !important; }`;
 
-/** Text boxes, money figures, controls, legal slots and font probes, measured in the page. Runs in the browser. */
+/** Text boxes, money figures, controls and font probes, measured in the page. Runs in the browser. */
 function measure({ maxText }) {
   // Any computed colour (rgb, color(srgb ...), oklch, a color-mix result) as sRGB 0-255 and alpha 0-1, read back from
   // a canvas so the browser does the conversion.
@@ -236,7 +257,6 @@ function measure({ maxText }) {
       fontWeight: Number(c.fontWeight) || 400,
       fontFamily: c.fontFamily,
       rects,
-      legal: !!el.closest('[data-moment][data-jurisdiction], [data-legal-slot]'),
     });
   }
 
@@ -274,44 +294,9 @@ function measure({ maxText }) {
     if (clash) small.push(`${nameOf(el)} ${Math.round(r.width)}x${Math.round(r.height)}`);
   }
 
-  const bodySize = parseFloat(getComputedStyle(document.body).fontSize) || 16;
-  const legal = [...document.querySelectorAll('[data-moment][data-jurisdiction], [data-legal-slot]')].map((el) => {
-    const c = getComputedStyle(el);
-    const r = el.getBoundingClientRect();
-    let opaqueWhy = '';
-    const bg = rgba(c.backgroundColor);
-    if (!bg || bg[3] < 1) opaqueWhy = `background ${c.backgroundColor}`;
-    if (c.backdropFilter && c.backdropFilter !== 'none') opaqueWhy ||= `backdrop-filter ${c.backdropFilter}`;
-    let pinned = null;
-    for (let n = el; n && n !== document.documentElement; n = n.parentElement) {
-      const s = getComputedStyle(n);
-      if (Number(s.opacity) < 1) opaqueWhy ||= `opacity ${s.opacity} on ${nameOf(n)}`;
-      if (n !== el && s.backdropFilter && s.backdropFilter !== 'none') opaqueWhy ||= `backdrop-filter on ${nameOf(n)}`;
-      if (!pinned && (s.position === 'sticky' || s.position === 'fixed')) pinned = s;
-    }
-    return {
-      key: el.getAttribute('data-moment') || el.getAttribute('data-legal-slot'),
-      jurisdiction: el.getAttribute('data-jurisdiction') || 'uk',
-      type: el.getAttribute('data-type') || el.getAttribute('data-legal-slot-type') || '',
-      missing: el.hasAttribute('data-missing') || el.getAttribute('data-legal-slot-state') === 'refused',
-      text: el.innerText,
-      fontSize: parseFloat(c.fontSize),
-      fontWeight: Number(c.fontWeight) || 400,
-      bold: el.hasAttribute('data-bold') || !!el.querySelector('[data-bold]') || Number(c.fontWeight) >= 700,
-      opaque: !opaqueWhy,
-      opaqueWhy,
-      pinnedTop: !!pinned && parseFloat(pinned.top) <= 1 && r.top <= 1,
-      position: pinned?.position ?? c.position,
-      top: Math.round(r.top),
-      clipped: el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1 || r.left < 0 || r.right > innerWidth + 1,
-      visible: visible(el),
-      rects: [box(r)],
-    };
-  });
-
   const declared = [...new Set([...document.fonts].map((f) => f.family.replace(/^['"]|['"]$/g, '')))];
   const lit = !!document.querySelector('[data-look="lit"]');
-  return { texts, money, small, legal, bodySize, declared, lit, overflowX: Math.max(0, document.documentElement.scrollWidth - innerWidth) };
+  return { texts, money, small, declared, lit, overflowX: Math.max(0, document.documentElement.scrollWidth - innerWidth) };
 }
 
 /** Wait until the page's size and text stop changing for a second (at most 6 s); false when they never do. */
@@ -330,8 +315,17 @@ async function settle(page) {
   return false;
 }
 
-/** Tab through the first stops; a focused box under a `data-obscures` bar fails. Runs in the browser after each Tab. */
-function focusState() {
+/**
+ * A generated id (React's useId on the client `_r_…_` or server `_R_…_`, base-ui, Radix) changes between pages and
+ * renders, so a control named by it would be listed once per id. Passed into the page as a source string.
+ */
+const GENERATED_ID = String.raw`[:«»]|^(?:base-ui|radix)-|^_r_\w*_$`;
+
+/**
+ * Tab through the first stops; a focused box a `data-obscures` bar paints over fails (inside the bar's band and under
+ * it in the stacking order). Runs in the browser after each Tab.
+ */
+function focusState(generatedId) {
   const el = document.activeElement;
   if (!el || el === document.body) return null;
   const r = el.getBoundingClientRect();
@@ -339,9 +333,27 @@ function focusState() {
   const bottoms = [...document.querySelectorAll('[data-obscures="bottom"]')].map((b) => b.getBoundingClientRect().top);
   const top = Math.max(0, ...tops);
   const bottom = Math.min(innerHeight, ...bottoms);
-  const covered = (tops.length || bottoms.length) && (r.top < top - 0.5 || r.bottom > bottom + 0.5) && !el.closest('[data-obscures]');
+  const under = (tops.length || bottoms.length) && (r.top < top - 0.5 || r.bottom > bottom + 0.5) && !el.closest('[data-obscures]');
+  // Under a bar's band is not yet hidden: the bar must paint over it there. A control stacked above the bar (the skip
+  // link, fixed at z-index 100) stays seen.
+  // The middle of each overlap with a band, at its two ends and centre. elementFromPoint skips `pointer-events: none`
+  // layers, so a bar must take pointer events over the part that hides a control (the kit's bars do).
+  const inset = Math.min(2, r.width / 4);
+  const xs = [r.left + inset, (r.left + r.right) / 2, r.right - inset];
+  const ys = [
+    ...(r.top < top ? [(r.top + Math.min(r.bottom, top)) / 2] : []),
+    ...(r.bottom > bottom ? [(Math.max(r.top, bottom) + r.bottom) / 2] : []),
+  ];
+  const covered =
+    under &&
+    ys.some((y) =>
+      xs.some((x) => {
+        const hit = x >= 0 && y >= 0 && x < innerWidth && y < innerHeight ? document.elementFromPoint(x, y) : null;
+        return hit && !el.contains(hit) && !!hit.closest('[data-obscures]');
+      }),
+    );
   return {
-    name: `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ''} "${(el.textContent || el.getAttribute('aria-label') || '').trim().slice(0, 30)}"`,
+    name: `${el.tagName.toLowerCase()}${el.id && !new RegExp(generatedId, 'i').test(el.id) ? `#${el.id}` : ''} "${(el.textContent || el.getAttribute('aria-label') || '').trim().slice(0, 30)}"`,
     covered: !!covered,
   };
 }
@@ -366,12 +378,12 @@ async function renderedFonts(page, ids) {
   }
 }
 
-/** Which text probes the font check reads: headings, controls, body copy, figures and legal text, a few of each. */
+/** Which text probes the font check reads: headings, controls, body copy and figures, a few of each. */
 function fontProbes(texts) {
   const picked = [];
   const kinds = new Map();
   texts.forEach((t, i) => {
-    const kind = t.legal ? 'legal' : t.name.split(/[.#]/)[0];
+    const kind = t.name.split(/[.#]/)[0];
     const n = kinds.get(kind) ?? 0;
     if (n < 3) picked.push(i);
     kinds.set(kind, n + 1);
@@ -402,16 +414,18 @@ async function prepare(page, target = {}) {
       ['intafaced.customer.view.v1', world.VIEW],
     );
   const signedIn = Boolean(target.customer) && !world.SIGNED_OUT.includes(target.path);
-  await page.route('**/api/**', (route) => {
-    const request = route.request();
-    const answer = target.customer ? fixtureAnswer(request.url(), request.method(), request.postData(), { signedIn }) : null;
-    if (answer) return route.fulfill({ status: answer.status, contentType: 'application/json', body: JSON.stringify(answer.json) });
-    return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify(REFUSAL) });
-  });
+  // The console's own /api is its server talking to the stand-in Edge (admin.mjs), which already refuses.
+  if (!target.admin)
+    await page.route('**/api/**', (route) => {
+      const request = route.request();
+      const answer = target.customer ? fixtureAnswer(request.url(), request.method(), request.postData(), { signedIn }) : null;
+      if (answer) return route.fulfill({ status: answer.status, contentType: 'application/json', body: JSON.stringify(answer.json) });
+      return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify(REFUSAL) });
+    });
   await page.routeWebSocket(/\/ws(\/|$)/, (ws) => ws.close({ code: 1011, reason: REFUSAL.code }));
 }
 
-async function check(context, origin, target, vpName, opts, registry) {
+async function check(context, origin, target, vpName, opts) {
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) =>
@@ -427,6 +441,8 @@ async function check(context, origin, target, vpName, opts, registry) {
   try {
     await page.goto(origin + target.path, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
+    if (target.admin && target.path !== '/login' && new URL(page.url()).pathname === '/login')
+      add('signin', ['landed on /login: the console refused the TEST founder session (admin.mjs seals it as founder-session.ts)']);
     row.lit = await page.evaluate(() => !!document.querySelector('[data-look="lit"], [data-moment][data-jurisdiction]'));
     await page.addStyleTag({ content: FREEZE_CSS });
     // A lazy room shows its loading line first; measure what it settles on.
@@ -502,6 +518,7 @@ async function check(context, origin, target, vpName, opts, registry) {
       'money',
       m.money.map((x) => `${x.name} "${x.text}" on a panel ${Math.round(x.alpha * 100)}% opaque (needs 80%+)`),
     );
+    add('gpu', gpu.judgeGpu(await page.evaluate(gpu.measureGpu), viewport.height));
     add('targets', m.small.slice(0, 20));
 
     // rendered font
@@ -517,33 +534,13 @@ async function check(context, origin, target, vpName, opts, registry) {
     }
     add('font', [...new Set(fontFails)].slice(0, 15));
 
-    // legal slots
-    const legal = [];
-    if (m.legal.length && !registry) row.notes.push(`legal slots present but ${REGISTRY_PATH} is not on this branch`);
-    for (const slot of m.legal) {
-      // The worst text box inside this slot (text boxes are page coordinates, as is the slot's box).
-      const [sb] = slot.rects;
-      const inside = m.texts.filter(
-        (t) =>
-          t.legal &&
-          t.rects.some(
-            (r) => r.x >= sb.x - 1 && r.y >= sb.y - 1 && r.x + r.width <= sb.x + sb.width + 1 && r.y + r.height <= sb.y + sb.height + 1,
-          ),
-      );
-      slot.contrast = inside.length ? Math.min(...inside.map((t) => worstOf(t).ratio)) : null;
-      for (const why of policy.judgeLegal(slot, registry ?? {}, { bodySize: m.bodySize }))
-        legal.push(`${slot.key}/${slot.jurisdiction}: ${why}`);
-    }
-    if (!m.legal.length) row.notes.push('no legal slots on this page');
-    add('legal', legal);
-
     // focus not obscured
     const focus = [];
     if (!target.scope) {
       await page.setViewportSize(viewport);
       for (let i = 0; i < 25; i++) {
         await page.keyboard.press('Tab');
-        const f = await page.evaluate(focusState);
+        const f = await page.evaluate(focusState, GENERATED_ID);
         if (f?.covered) focus.push(`${f.name} is under a fixed bar`);
       }
     }
@@ -590,13 +587,150 @@ async function check(context, origin, target, vpName, opts, registry) {
   return row;
 }
 
-/** The phone-only variants: right-to-left, 200% text, forced colours. axe, sideways overflow and obscured focus. */
-async function variants(browser, origin, target) {
+const I18N_FIXTURES = 'packages/i18n/dist/fixtures.js';
+
+/**
+ * Whether a string is copy a translation would lengthen. A figure (no letter), a ticker or pair (BTC, BTC-USDT), an
+ * amount with its code after it (+50 USDT, 0.1 BTC) and the wordmark keep their text, and so does pseudo copy already
+ * applied (a second pass after a re-render).
+ */
+export function isCopy(text) {
+  const amount = /^[+\-−]?\p{Sc}?\d[\d.,\s]*\s?[A-Z][A-Z0-9]{1,9}$/u.test(text);
+  return (
+    /\p{L}/u.test(text) && !amount && !/^[A-Z0-9][A-Z0-9./-]{0,11}$/.test(text) && !/^intafaced\W*$/i.test(text) && !text.startsWith('⟦')
+  );
+}
+
+/**
+ * Pseudo-English at 130% (B4's `pseudoLocalize`, packages/i18n/src/fixtures.ts) on every visible string: text nodes,
+ * placeholders and button values. A money slot and anything marked translate="no" keep theirs. Returns how many
+ * strings it changed; run it again after a re-render to catch what React wrote back.
+ */
+async function pseudoCopy(page) {
+  const { pseudoLocalize } = await import(pathToFileURL(join(ROOT, I18N_FIXTURES)).href);
+  const found = await page.evaluate(() => {
+    const kept = 'script,style,noscript,[data-slot="money"],[translate="no"]';
+    const spots = [];
+    const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode())
+      if (n.parentElement && !n.parentElement.closest(kept) && n.textContent.trim()) spots.push({ node: n, text: n.textContent.trim() });
+    for (const el of document.querySelectorAll('[placeholder], input[type="submit"], input[type="button"], input[type="reset"]')) {
+      if (el.closest(kept)) continue;
+      const attr = el.hasAttribute('placeholder') ? 'placeholder' : 'value';
+      const text = (el.getAttribute(attr) ?? el.value ?? '').trim();
+      if (text) spots.push({ el, attr, text });
+    }
+    window.__lookGateCopy = spots;
+    return [...new Set(spots.map((s) => s.text))];
+  });
+  // The fixture pads with one unbroken run (~·ẅ~·ẅ…), which no translation has: a long sentence's run would spill out
+  // of any box. A zero-width space every two groups lets it wrap like words, without making it longer.
+  const wrap = (text) => text.replace(/(?:~·ẅ){2}(?=~)/g, '$&\u200B');
+  const copy = Object.fromEntries(found.filter(isCopy).map((s) => [s, wrap(pseudoLocalize(s))]));
+  return page.evaluate((copy) => {
+    let n = 0;
+    for (const spot of window.__lookGateCopy ?? []) {
+      if (!Object.hasOwn(copy, spot.text)) continue;
+      const next = copy[spot.text];
+      if (spot.node) {
+        if (!spot.node.isConnected) continue;
+        spot.node.textContent = spot.node.textContent.replace(spot.text, () => next);
+        spot.node.parentElement?.setAttribute('data-look-gate-copy', '');
+      } else {
+        spot.el.setAttribute(spot.attr, next);
+        if (spot.attr === 'value') spot.el.value = next;
+        spot.el.setAttribute('data-look-gate-copy', '');
+      }
+      n++;
+    }
+    delete window.__lookGateCopy;
+    return n;
+  }, copy);
+}
+
+/**
+ * Pseudo copy a person cannot read whole at 130%, as `[box, how]`: its box cuts it off (hidden or clipped overflow, an
+ * ellipsis or a line clamp), it spills sideways out of its box over its neighbours, or a box around it that cannot
+ * scroll there (a tab list, a clipped row) hides part of it.
+ */
+const CLIPPED_COPY = (generatedId) => {
+  // A generated id (GENERATED_ID): name the box by its tag and class instead.
+  const stable = (id) => id && !new RegExp(generatedId, 'i').test(id);
+  const name = (el) => {
+    const id = el.getAttribute('data-testid') || (stable(el.id) ? el.id : '');
+    const cls = typeof el.className === 'string' ? el.className.trim().split(/\s+/)[0] : '';
+    return `${el.tagName.toLowerCase()}${id ? `#${id}` : cls ? `.${cls}` : ''}`;
+  };
+  const cuts = (v) => v === 'hidden' || v === 'clip';
+  const out = new Map();
+  for (const own of document.querySelectorAll('[data-look-gate-copy]')) {
+    // An inline or display: contents element has no box of its own: judge the block that holds it.
+    let el = own;
+    while (el.parentElement && ['inline', 'contents'].includes(getComputedStyle(el).display)) el = el.parentElement;
+    const c = getComputedStyle(el);
+    const r = el.getBoundingClientRect();
+    // Hidden, or visually hidden for screen readers (a 1 px clipped box): nobody sees it cut.
+    if (c.visibility === 'hidden' || r.width <= 1 || r.height <= 1 || c.clipPath.startsWith('inset(50%')) continue;
+    const clamp = c.webkitLineClamp && c.webkitLineClamp !== 'none';
+    const wide = (cuts(c.overflowX) || c.textOverflow === 'ellipsis') && el.scrollWidth > el.clientWidth + 1;
+    const tall = (cuts(c.overflowY) || clamp) && el.scrollHeight > el.clientHeight + 1;
+    let how = wide || tall ? 'cuts off its text' : '';
+    if (!how && own.matches('input, textarea')) continue;
+    // The text's own extent: the marked element's own text nodes, never a child box (a tooltip, a caret) placed elsewhere.
+    const t = { left: Infinity, right: -Infinity, width: 0 };
+    for (const node of own.childNodes) {
+      if (node.nodeType !== Node.TEXT_NODE || !node.textContent.trim()) continue;
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const b = range.getBoundingClientRect();
+      if (!b.width) continue;
+      t.left = Math.min(t.left, b.left);
+      t.right = Math.max(t.right, b.right);
+      t.width = t.right - t.left;
+    }
+    if (!how && t.width > 0 && (t.left < r.left - 1 || t.right > r.right + 1)) how = 'spills out of its box';
+    // A box further out that clips this text where it cannot scroll to show it. A fixed box escapes every clip above it
+    // (its own still cuts: the dock, the top bar); an absolute one escapes the boxes between it and its containing block
+    // (the nearest positioned box).
+    let escaped = c.position === 'absolute';
+    for (let a = el.parentElement; !how && a && a !== document.body && c.position !== 'fixed'; a = a.parentElement) {
+      const ac = getComputedStyle(a);
+      const last = ac.position === 'fixed';
+      const skip = escaped && ac.position === 'static';
+      if (ac.position !== 'static') escaped = ac.position === 'absolute';
+      if (skip || (ac.overflowX === 'visible' && ac.overflowY === 'visible')) {
+        if (last) break;
+        continue;
+      }
+      const ar = a.getBoundingClientRect();
+      const scrolls = (v) => v === 'auto' || v === 'scroll';
+      const x = Math.abs(a.scrollLeft);
+      const room = a.scrollWidth - a.clientWidth;
+      // Scrollable toward the hidden part counts as reachable; the start of a centred row that overflows never is.
+      const startHidden = t.left < ar.left - 1 && !(scrolls(ac.overflowX) && x > 0);
+      const endHidden = t.right > ar.right + 1 && !(scrolls(ac.overflowX) && x < room - 1);
+      // Text wholly outside the box (a slide not shown, a closed panel) is hidden, not cut.
+      const overlaps = t.right > ar.left && t.left < ar.right;
+      if (t.width > 0 && overlaps && (startHidden || endHidden)) how = `is cut by ${name(a)}`;
+      if (last) break;
+    }
+    if (how && !out.has(name(el))) out.set(name(el), how);
+    if (out.size >= 12) break;
+  }
+  return [...out];
+};
+
+/**
+ * The phone-only variants: right-to-left, 200% text, forced colours and 130% copy. axe, sideways overflow and obscured
+ * focus; for 130% copy also text its box cuts off, and a shot in the artifact (`shots/<room>/phone-copy-130.png`).
+ */
+async function variants(browser, origin, target, opts) {
   const out = [];
   for (const [name, setup] of [
     ['rtl', { css: '', attr: true }],
     ['text-200', { css: 'html { font-size: 200% !important; }' }],
     ['forced-colors', { forced: true }],
+    ['copy-130', { pseudo: true }],
   ]) {
     const context = await browser.newContext({
       viewport: VIEWPORTS.phone,
@@ -613,8 +747,17 @@ async function variants(browser, origin, target) {
       await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
       await page.addStyleTag({ content: FREEZE_CSS });
       if (setup.attr) await page.evaluate(() => document.documentElement.setAttribute('dir', 'rtl'));
+      if (setup.pseudo) {
+        // A lazy room shows its loading line first; lengthen what it settles on.
+        await page
+          .waitForFunction(() => !document.querySelector('.loading, [aria-busy="true"]'), null, { timeout: 8_000 })
+          .catch(() => row.notes.push('still loading after 8 s'));
+        row.notes.push(`${await pseudoCopy(page)} strings at 130%`);
+      }
       if (setup.css) await page.addStyleTag({ content: setup.css });
       if (!(await settle(page))) row.notes.push('layout still moving after 6 s');
+      // What a re-render wrote back in English while the layout settled.
+      if (setup.pseudo && (await pseudoCopy(page)) && !(await settle(page))) row.notes.push('layout still moving after 6 s');
       const { default: AxeBuilder } = await import('@axe-core/playwright');
       const axeBuilder = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']);
       if (target.scope) axeBuilder.include(target.scope);
@@ -623,11 +766,27 @@ async function variants(browser, origin, target) {
       if (serious.length) row.findings.axe = serious.map((v) => `${v.id} ×${v.nodes.length}`);
       const overflow = await page.evaluate(() => Math.max(0, document.documentElement.scrollWidth - innerWidth));
       if (overflow > 0) row.findings.overflow = [`${overflow}px wider than the screen`];
+      if (setup.pseudo) {
+        const clipped = await page.evaluate(CLIPPED_COPY, GENERATED_ID);
+        if (clipped.length) row.findings.copy = clipped.map(([box, how]) => `${box} ${how} at 130%`);
+        const dir = join(opts.out, 'shots', target.room);
+        mkdirSync(dir, { recursive: true });
+        // The whole page in one viewport, as the main shots are, so fixed bars stay where a person sees them.
+        const height = await page.evaluate(() => Math.ceil(document.documentElement.scrollHeight));
+        if (!target.scope && height > VIEWPORTS.phone.height)
+          await page.setViewportSize({ width: VIEWPORTS.phone.width, height: Math.min(height, 12_000) });
+        await settle(page);
+        const path = join(dir, 'phone-copy-130.png');
+        const shotOpts = { path, animations: 'disabled', caret: 'hide', timeout: 30_000 };
+        await (target.scope ? page.locator(target.scope).screenshot(shotOpts) : page.screenshot(shotOpts));
+        // Back to the phone, so the focus walk below sees bars where a person does.
+        await page.setViewportSize(VIEWPORTS.phone);
+      }
       const focus = [];
       if (!target.scope)
         for (let i = 0; i < 15; i++) {
           await page.keyboard.press('Tab');
-          const f = await page.evaluate(focusState);
+          const f = await page.evaluate(focusState, GENERATED_ID);
           if (f?.covered) focus.push(`${f.name} is under a fixed bar`);
         }
       if (focus.length) row.findings.focus = [...new Set(focus)];
@@ -671,11 +830,33 @@ function importsLit(folder) {
   }
 }
 
-function report(rows, opts, meta) {
+/** Whether a row's findings count toward the verdict: the kit gallery or a page drawn in the new look. */
+export function isBlockable(r, litTargets) {
+  return r.target.startsWith('kit ') || litTargets.has(r.target);
+}
+
+/**
+ * Old-room focus debt, for stage C: each control an old room's bar paints over when it takes focus, once. Report only;
+ * the same finding on a new-look page blocks with the rest.
+ */
+export function focusDebt(rows, litTargets) {
+  const seen = new Map();
+  for (const r of rows)
+    if (!isBlockable(r, litTargets))
+      for (const f of r.findings.focus ?? []) {
+        const key = `${r.target}: ${f}`;
+        // The first viewport that shows it, in row order (the plain phone before its variants).
+        if (!seen.has(key)) seen.set(key, `${r.target} (${r.viewport}): ${f}`);
+      }
+  if (!seen.size) return [];
+  return [`## Old-room focus debt (stage C): ${seen.size}`, '', ...[...seen.values()].map((l) => `- ${l.replace(/\|/g, '/')}`), ''];
+}
+
+function report(rows, opts) {
   const failing = rows.filter((r) => Object.keys(r.findings).length);
   // A target is drawn in the new look when any of its shots found it so: its variant and error rows count too.
   const litTargets = new Set(rows.filter((r) => r.lit).map((r) => r.target));
-  const blockable = failing.filter((r) => r.target.startsWith('kit ') || litTargets.has(r.target) || r.findings.legal);
+  const blockable = failing.filter((r) => isBlockable(r, litTargets));
   const kinds = {};
   for (const r of failing) for (const k of Object.keys(r.findings)) kinds[k] = (kinds[k] ?? 0) + 1;
   const changed = opts.changedFrom ? changedFiles(opts.changedFrom) : [];
@@ -691,7 +872,10 @@ function report(rows, opts, meta) {
     '',
     `Verdict: **${v.mode}**${v.why ? ` (${v.why})` : ''}${v.blocking?.length ? `; blocking paths changed: ${v.blocking.slice(0, 5).join(', ')}` : ''}.`,
     '',
-    `Not checked yet: founder console (apps/admin) shots; 130% copy; rooms with no fixture in apps/customer/tests/real-app/look-fixtures.mjs show their refuse state. Legal registry: ${meta.registry ? REGISTRY_PATH : 'not on this branch'}.`,
+    `Not checked yet: rooms with no fixture in apps/customer/tests/real-app/look-fixtures.mjs show their refuse state.`,
+    '',
+    ...focusDebt(rows, litTargets),
+    '## Every page',
     '',
     '| Page | Viewport | Findings | Notes |',
     '| --- | --- | --- | --- |',
@@ -717,16 +901,17 @@ async function main(opts) {
   const { chromium } = await import('@playwright/test');
   const customerDist = join(ROOT, 'apps/customer/dist');
   const galleryDist = join(ROOT, 'packages/ui/.gallery-dist');
-  const registry = existsSync(join(ROOT, REGISTRY_PATH)) ? JSON.parse(readFileSync(join(ROOT, REGISTRY_PATH), 'utf8')) : null;
   const reports = [];
   const servers = [];
   const targets = [];
   const browser = await chromium.launch(process.env.LOOK_GATE_CHROMIUM ? { executablePath: process.env.LOOK_GATE_CHROMIUM } : {});
 
-  if (opts.only !== 'customer') {
+  if (!existsSync(join(ROOT, I18N_FIXTURES)))
+    throw new Error(`no @intafaced/i18n build for the 130% copy pass (${I18N_FIXTURES}): pnpm --filter @intafaced/i18n build`);
+  if (!opts.only || opts.only === 'gallery') {
     if (!existsSync(join(galleryDist, 'index.html')))
       throw new Error(`no kit gallery build in ${galleryDist}: pnpm --filter @intafaced/ui gallery:build`);
-    const g = await serve(galleryDist, reports);
+    const g = await serve(galleryDist, reports, PORT_BASE + 1);
     servers.push(g.server);
     const page = await browser.newPage();
     await page.goto(g.origin + '/', { waitUntil: 'networkidle' });
@@ -742,10 +927,10 @@ async function main(opts) {
         baselines: 'packages/ui/look-baselines',
       });
   }
-  if (opts.only !== 'gallery') {
+  if (!opts.only || opts.only === 'customer') {
     if (!existsSync(join(customerDist, 'index.html')))
       throw new Error(`no Customer build in ${customerDist}: pnpm turbo run build --filter=@intafaced/customer`);
-    const c = await serve(customerDist, reports);
+    const c = await serve(customerDist, reports, PORT_BASE);
     servers.push(c.server);
     for (const route of opts.routes ?? customerRoutes())
       targets.push({
@@ -755,6 +940,21 @@ async function main(opts) {
         room: roomName(route),
         baselines: 'apps/customer/look-baselines',
         customer: true,
+      });
+  }
+  // `--routes` narrows a run to those Customer rooms, so the console runs only when asked for or in a whole run.
+  if (opts.only === 'admin' || (!opts.only && !opts.routes)) {
+    const a = await startAdmin(ROOT, { now: FROZEN.getTime(), port: PORT_BASE + 10 });
+    servers.push({ close: a.stop });
+    for (const route of adminRoutes(ROOT))
+      targets.push({
+        name: `admin ${route}`,
+        origin: a.origin,
+        path: route,
+        room: `admin-${roomName(route)}`,
+        baselines: 'apps/admin/look-baselines',
+        admin: true,
+        cookie: a.cookie,
       });
   }
 
@@ -776,10 +976,12 @@ async function main(opts) {
           timezoneId: 'UTC',
           locale: 'en-GB',
         });
-        out.push(await check(context, target.origin, target, vpName, opts, registry));
+        if (target.cookie) await context.addCookies([target.cookie]);
+        out.push(await check(context, target.origin, target, vpName, opts));
         await context.close();
       }
-      out.push(...(await variants(browser, target.origin, target)));
+      // The console's baselines are what it checks; its variants belong to its own redesign.
+      if (!target.admin) out.push(...(await variants(browser, target.origin, target, opts)));
       perTarget[i] = out;
       process.stdout.write('.');
     }
@@ -804,17 +1006,42 @@ async function main(opts) {
     };
     rows.push(r);
   }
-  const v = report(rows, opts, { registry: !!registry });
+  const v = report(rows, opts);
   if (v.mode === 'block') process.exit(1);
 }
 
-function selfTest() {
+/** The copy finder on small fixed pages, in a real browser: what only layout can show. */
+async function selfTestBrowser(eq) {
+  const { chromium } = await import('@playwright/test');
+  const browser = await chromium.launch(process.env.LOOK_GATE_CHROMIUM ? { executablePath: process.env.LOOK_GATE_CHROMIUM } : {});
+  try {
+    const page = await browser.newPage({ viewport: { width: 400, height: 400 } });
+    const cut = (outer) =>
+      page.setContent(
+        `<body style="margin:0">${outer.replace('%', '<span class="label" data-look-gate-copy style="display:block;width:max-content">A long pseudo label that runs on</span>')}</body>`,
+      );
+    const box = 'width:120px;overflow:hidden';
+    await cut(`<div class="row" style="${box}">%</div>`);
+    eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [['span.label', 'is cut by div.row']], 'a clipping row cuts its label');
+    await cut(`<nav class="dock" style="position:fixed;bottom:0;${box}">%</nav>`);
+    eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [['span.label', 'is cut by nav.dock']], 'a fixed bar cuts its own label');
+    await cut(`<div class="row" style="${box}"><nav class="dock" style="position:fixed;top:0;left:0;width:400px">%</nav></div>`);
+    eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [], 'a fixed bar escapes the row around it');
+    await cut(`<div class="row" style="${box}"><div style="transform:translateX(300px)">%</div></div>`);
+    eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [], 'text wholly outside the row is hidden, not cut');
+  } finally {
+    await browser.close();
+  }
+}
+
+async function selfTest() {
   let n = 0;
   const eq = (got, want, what) => {
     n++;
     if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(`${what}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
   };
   const ok = (cond, what) => eq(!!cond, true, what);
+  gpu.selfTest(eq);
   // contrast
   eq(Number(policy.contrast([0, 0, 0], [255, 255, 255]).toFixed(1)), 21, 'black on white is 21:1');
   eq(Number(policy.contrast([118, 118, 118], [255, 255, 255]).toFixed(2)), 4.54, '#767676 on white is 4.54:1');
@@ -861,62 +1088,6 @@ function selfTest() {
   );
   ok(/no glyphs/.test(policy.judgeFont({ fontFamily: 'Geist Variable', declared, platform: [] })), 'nothing drawn');
   eq(policy.firstFamily(`"Inter Variable", Inter`), 'Inter Variable', 'first family unquoted');
-  // legal
-  const registry = {
-    'crypto-risk-band': {
-      type: 'risk-band',
-      uk: {
-        status: 'fixed',
-        runs: [{ text: 'Don’t invest unless', bold: true }, { text: ' ' }, { text: 'Take 2 mins to learn more', link: true }],
-      },
-      eu: { status: 'lawyer' },
-    },
-    'cfd-warning': { type: 'risk-band', uk: { status: 'fixed', runs: [{ text: '{percent}% of retail accounts lose money.' }] } },
-  };
-  const good = {
-    key: 'crypto-risk-band',
-    jurisdiction: 'uk',
-    type: 'risk-band',
-    missing: false,
-    text: 'Don’t invest unless  Take 2 mins to learn more',
-    fontSize: 16,
-    fontWeight: 700,
-    bold: true,
-    opaque: true,
-    pinnedTop: true,
-    clipped: false,
-    visible: true,
-    contrast: 7,
-  };
-  eq(policy.judgeLegal(good, registry), [], 'a correct risk band passes');
-  eq(policy.judgeLegal({ ...good, text: 'Crypto is risky' }, registry).length, 1, 'changed wording fails');
-  eq(
-    policy.judgeLegal({ ...good, opaque: false, opaqueWhy: 'backdrop-filter blur(20px)' }, registry),
-    ['background not opaque: backdrop-filter blur(20px)'],
-    'glass band fails',
-  );
-  eq(policy.judgeLegal({ ...good, bold: false }, registry).length, 1, 'not bold fails');
-  eq(policy.judgeLegal({ ...good, pinnedTop: false }, registry).length, 1, 'scrolls away fails');
-  eq(policy.judgeLegal({ ...good, fontSize: 12 }, registry).length, 1, 'small print fails');
-  eq(policy.judgeLegal({ ...good, contrast: 3.1 }, registry).length, 1, 'low contrast fails');
-  eq(policy.judgeLegal({ ...good, clipped: true }, registry), ['clipped'], 'clipped fails');
-  eq(policy.judgeLegal({ ...good, jurisdiction: 'eu' }, registry).length, 1, 'a lawyer wording drawn as text fails');
-  eq(
-    policy.judgeLegal({ ...good, jurisdiction: 'eu', missing: true, text: 'Wording pending' }, registry),
-    [],
-    'its designed refusal passes',
-  );
-  eq(
-    policy.judgeLegal({ ...good, key: 'cfd-warning', text: '74% of retail accounts lose money.' }, registry),
-    [],
-    'a filled placeholder passes',
-  );
-  eq(
-    policy.judgeLegal({ ...good, key: 'cfd-warning', text: '% of retail accounts lose money.' }, registry).length,
-    1,
-    'an empty placeholder fails',
-  );
-  eq(policy.judgeLegal({ ...good, key: 'made-up' }, registry), ['no registry entry "made-up"'], 'unknown moment fails');
   // pixels and png
   eq(
     policy.pixelDiff(new Uint8Array([1, 2, 3, 255]), new Uint8Array([2, 3, 4, 255]), { width: 1, height: 1 }).differing,
@@ -987,6 +1158,47 @@ function selfTest() {
   );
   ok(world.SIGNED_OUT.includes('/') && world.SIGNED_OUT.every((r) => customerRoutes().includes(r)), 'signed-out rooms are swept routes');
   eq(roomName('/trade/spot/BTC-USDT'), 'trade-spot-btc-usdt', 'route room');
+  eq(
+    focusDebt(
+      [
+        { target: '/pay', viewport: 'phone', findings: { focus: ['a "Send" is under a fixed bar'] } },
+        { target: '/pay', viewport: 'phone rtl', findings: { focus: ['a "Send" is under a fixed bar'] } },
+        { target: '/lit', viewport: 'phone', findings: { focus: ['a "x" is under a fixed bar'] } },
+      ],
+      new Set(['/lit']),
+    ).filter((l) => l.startsWith('- ')),
+    ['- /pay (phone): a "Send" is under a fixed bar'],
+    'old-room focus debt: one line per control at its first viewport, new-look pages left to the blocking list',
+  );
+  // The founder console: its rooms, the founder check the stand-in Edge answers, and a cookie the console can open.
+  const consoleRooms = adminRoutes(ROOT);
+  ok(['/', '/login', '/ledger'].every((r) => consoleRooms.includes(r)) && !consoleRooms.some((r) => /[[(]/.test(r)), 'console rooms');
+  eq(edgeAnswer('/api/identity/trpc/accountControls.operatorStatus?input=%7B%7D').json.result.data.status, 'enabled', 'founder check');
+  eq(edgeAnswer('/api/ops/trpc/consoleMode.get').status, 503, 'every other console call is refused');
+  const sealKey = Buffer.alloc(32, 7);
+  const sealed = Buffer.from(sealSession({ a: 1 }, sealKey, 'http://127.0.0.1:1'), 'base64url');
+  const opened = createDecipheriv('aes-256-gcm', sealKey, sealed.subarray(0, 12));
+  opened.setAuthTag(sealed.subarray(12, 28));
+  opened.setAAD(Buffer.from('__Host-intafaced-admin\nhttp://127.0.0.1:1\nv1'));
+  eq(JSON.parse(Buffer.concat([opened.update(sealed.subarray(28)), opened.final()]).toString()), { a: 1 }, 'the session seal opens');
+  eq(
+    [
+      'Send money',
+      'Bitcoin',
+      'BTC',
+      'BTC-USDT',
+      '12,481.91',
+      'intafaced·',
+      '⟦Šéñð ~·⟧',
+      'Send',
+      '+50 USDT',
+      '0.1 BTC',
+      'Send 50 BTC',
+      'TOP 10',
+    ].map(isCopy),
+    [true, true, false, false, false, false, false, true, false, false, true, true],
+    '130% copy lengthens words, not tickers, figures, amounts, the wordmark or copy it already lengthened',
+  );
   ok(customerRoutes().length > 50 && customerRoutes().includes('/coin/BTC'), 'routes are the room report list');
   const fakeMark = new Uint8Array(8);
   eq(
@@ -1003,9 +1215,10 @@ function selfTest() {
   eq([...fakeMark], [0, 0, 0, 0, 255, 0, 80, 255], 'and the differing pixel is marked');
   const h = securityHeaders({ reportUri: REPORT_PATH })['Content-Security-Policy'];
   ok(/script-src 'self';/.test(h) && /font-src 'self';/.test(h), 'the gate serves the production policy');
+  await selfTestBrowser(eq);
   console.log(`✓ look-gate --self-test OK (${n} checks)`);
 }
 
 const opts = args(process.argv.slice(2));
-if (opts.selfTest) selfTest();
+if (opts.selfTest) await selfTest();
 else await main(opts);
