@@ -750,6 +750,8 @@ export function createIdentityRouter(
     kycLadder?: KycLadderSettings;
     /** The owner's reject reasons (IDENTITY_KYC_REJECT_REASONS, I-kyc-compliance-01). Absent or empty: every reject refuses. */
     kycRejectReasons?: KycRejectReasons;
+    /** The owner's reasons for switching a capability off (I-kyc-compliance-07). Absent: every switch-off refuses. */
+    kycCapabilityReasons?: KycRejectReasons;
     /** Social sign-in. Absent means no provider is registered: every start answers `idp.social`. */
     social?: SocialSignin;
     /**
@@ -2304,7 +2306,7 @@ export function createIdentityRouter(
           .output(kycCapabilitiesOutputSchema)
           .query(async ({ ctx }) => {
             try {
-              return await auth.listKycCapabilities(ctx.principal.userId);
+              return await auth.listKycCapabilities(ctx.principal.userId, options.kycCapabilityReasons ?? new Map());
             } catch (err) {
               throw toTrpcError(err);
             }
@@ -2315,14 +2317,15 @@ export function createIdentityRouter(
           .output(kycCapabilitiesOutputSchema)
           .query(async ({ input }) => {
             try {
-              return await auth.listKycCapabilities(input.userId);
+              return await auth.listKycCapabilities(input.userId, options.kycCapabilityReasons ?? new Map());
             } catch (err) {
               throw toTrpcError(err);
             }
           }),
         /**
          * Switch one capability off for good. The only state compliance sets here is `inactive`; levels turn
-         * capabilities on. The code comes from the owner's reason list (unset refuses `kyc.reason_codes_unset`), and the
+         * capabilities on. The code comes from the owner's capability reason list (`IDENTITY_KYC_CAPABILITY_REASONS`;
+         * unset refuses `kyc.reason_codes_unset`), and the
          * four-eyes approval binds the person, the capability and the code. Checked before the approval is spent.
          */
         set: scopedProcedure('admin:compliance')
@@ -2342,7 +2345,7 @@ export function createIdentityRouter(
               requireMfa(ctx.principal);
               assertOperatorKycReview({ service: ctx.service, kid: ctx.principal.kid });
               assertNotOwnKyc(input.userId, [ctx.principal.userId]);
-              requireRejectReason(options.kycRejectReasons ?? new Map(), input.reasonCode);
+              requireRejectReason(options.kycCapabilityReasons ?? new Map(), input.reasonCode, 'capability reasons');
               await auth.assertKycCapabilityDeactivatable(input.userId, input.capability, input.reasonCode);
               const parties = await consumePrivileged(ctx.principal.userId, input, 'kyc.capabilities.set', {
                 userId: input.userId,
@@ -2356,6 +2359,7 @@ export function createIdentityRouter(
                 reasonCode: input.reasonCode,
                 reviewerId: ctx.principal.userId,
                 approvalParties: [parties.requesterId, parties.approverId],
+                reasons: options.kycCapabilityReasons ?? new Map(),
               });
             } catch (err) {
               throw toTrpcError(err);

@@ -59,6 +59,7 @@ const capabilitiesRead = {
     state: 'unrequested' as const,
     grantedAt: null,
     reasonCode: null,
+    reasonText: null,
     changedAt: null,
   })),
 };
@@ -687,7 +688,7 @@ describe('kyc.capabilities (I-kyc-compliance-07)', () => {
   it("get reads only the caller's own; getFor is behind admin:compliance", async () => {
     const api = await caller(['identity:read']);
     expect(await api.kyc.capabilities.get()).toEqual(capabilitiesRead);
-    expect(stub.calls.find((c) => c.method === 'listKycCapabilities')!.args).toEqual([USER]);
+    expect(stub.calls.find((c) => c.method === 'listKycCapabilities')!.args[0]).toBe(USER);
     expect(codeOf(await api.kyc.capabilities.getFor({ userId: OPERATOR }).catch((e: unknown) => e))).toBe('FORBIDDEN');
     const operator = await caller(['admin:compliance'], { userId: OPERATOR });
     await operator.kyc.capabilities.getFor({ userId: USER });
@@ -703,7 +704,7 @@ describe('kyc.capabilities (I-kyc-compliance-07)', () => {
         return stubActionApprovals(CONFIRM_KYC).consume(...args);
       },
     };
-    const api = createIdentityRouter(stub.auth, stub.rank, { actionApprovals: approvals, kycRejectReasons: KYC_REASONS }).createCaller(
+    const api = createIdentityRouter(stub.auth, stub.rank, { actionApprovals: approvals, kycCapabilityReasons: KYC_REASONS }).createCaller(
       await ctx(['admin:compliance'], { userId: OPERATOR }),
     );
     await api.kyc.capabilities.set({
@@ -740,7 +741,7 @@ describe('kyc.capabilities (I-kyc-compliance-07)', () => {
       },
     };
     const make = async (opts: { mfa?: boolean; userId?: string } = {}, auth: AuthService = stub.auth) =>
-      createIdentityRouter(auth, stub.rank, { actionApprovals: approvals, kycRejectReasons: KYC_REASONS }).createCaller(
+      createIdentityRouter(auth, stub.rank, { actionApprovals: approvals, kycCapabilityReasons: KYC_REASONS }).createCaller(
         await ctx(['admin:compliance'], { userId: OPERATOR, ...opts }),
       );
     const input = {
@@ -765,6 +766,13 @@ describe('kyc.capabilities (I-kyc-compliance-07)', () => {
     });
     const conflict = await (await make({}, recorded)).kyc.capabilities.set(input).catch((e: unknown) => e);
     expect(codeOf(conflict)).toBe('CONFLICT');
+    // The reject reasons are not switch-off reasons: with only those published, a switch-off refuses as unset.
+    const rejectOnly = createIdentityRouter(stub.auth, stub.rank, {
+      actionApprovals: approvals,
+      kycRejectReasons: KYC_REASONS,
+    }).createCaller(await ctx(['admin:compliance'], { userId: OPERATOR }));
+    const unset = await rejectOnly.kyc.capabilities.set(input).catch((e: unknown) => e);
+    expect((unset as { cause?: { code?: string } }).cause?.code).toBe('kyc.reason_codes_unset');
     expect(consumed).toEqual([]);
     expect(stub.calls.filter((c) => c.method === 'deactivateKycCapability')).toHaveLength(0);
   });

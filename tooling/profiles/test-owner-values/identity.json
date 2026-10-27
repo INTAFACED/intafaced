@@ -26,6 +26,11 @@
       "value": "{\"basic\":[\"custody_crypto\",\"transfer_crypto\",\"trade_crypto\"],\"full\":[\"custody_fiat\",\"transfer_fiat\"]}",
       "note": "TEST: basic grants crypto custody, transfer and trade; full adds fiat custody and transfer; institutional adds nothing of its own, so an approval shows the mapped capabilities turning active (J-identity-08 #6)."
     },
+    "IDENTITY_KYC_CAPABILITY_REASONS": {
+      "service": "identity",
+      "value": "[{\"code\":\"compliance_hold\",\"reason\":\"TEST: this was switched off after a compliance review.\",\"guidance\":\"TEST: ask Support what the review found.\"}]",
+      "note": "TEST: one reason compliance can switch a capability off for, so the switch-off and its refusals can be shown (J-identity-08 #6)."
+    },
     "IDENTITY_MFA_RESET_WAIT_SECONDS": {
       "service": "identity",
       "value": "20",
