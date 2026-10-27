@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { SESSION_SCOPES, type Principal } from '@intafaced/auth';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
+import { MemoryLedger, formatAmount, parseAmount, recipes, userAvailable } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MerchantControlError } from '../../merchant-account-controls.js';
 import { createPayNamespaces } from '../../namespaces/index.js';
@@ -45,6 +46,8 @@ describe('founderAdmin.withdrawalReturns (real Postgres)', () => {
   let adminStop: () => Promise<void> = async () => undefined;
   let db!: TestDatabase;
   let founderOk = true;
+  let founder = FOUNDER;
+  const ledger = new MemoryLedger();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let api: any;
   const r = () => api.founderAdmin.withdrawalReturns;
@@ -56,9 +59,9 @@ describe('founderAdmin.withdrawalReturns (real Postgres)', () => {
     const ns = createPayNamespaces({
       founderAuthority: async () => {
         if (!founderOk) throw new MerchantControlError('operator.denied');
-        return FOUNDER;
+        return founder;
       },
-      withdrawalReturns: { sql: db.sql },
+      withdrawalReturns: { sql: db.sql, ledger },
     });
     const userId = randomUUID();
     const principal: Principal = {
@@ -80,6 +83,7 @@ describe('founderAdmin.withdrawalReturns (real Postgres)', () => {
 
   beforeEach(async () => {
     founderOk = true;
+    founder = FOUNDER;
     await db.sql`TRUNCATE pay.withdrawals RESTART IDENTITY CASCADE`;
   }, 30_000);
 
@@ -95,6 +99,7 @@ describe('founderAdmin.withdrawalReturns (real Postgres)', () => {
     returnRef: `ret-${withdrawalId}`,
     amount: '40',
     reason: 'Bank returned the transfer',
+    reasonCode: 'destination_rejected',
   });
 
   it('starts empty and never invents a row', async () => {
@@ -110,13 +115,24 @@ describe('founderAdmin.withdrawalReturns (real Postgres)', () => {
     expect((await r().list({ limit: 10 })).map((x: { withdrawalId: string }) => x.withdrawalId)).toEqual([id]);
   });
 
-  it('refuses re-credit with the blocker named, and an extra field or a missing page size is a parse error', async () => {
+  it('a second founder re-credits it once; the recorder is refused; an extra field or a missing page size is a parse error', async () => {
     const id = await sentWithdrawal();
+    const w = { userId: USER, assetId: 'USDT', amount: parseAmount('40'), rail: 'card-sandbox', withdrawalId: `${id}:0` };
+    await ledger.post(
+      recipes.deposit({ userId: USER, assetId: 'USDT', amount: parseAmount('40'), rail: 'card-sandbox', railRef: `in-${id}` }),
+    );
+    await ledger.post(recipes.withdrawHold(w));
+    await ledger.post(recipes.withdrawSettle(w));
     await r().record(body(id));
-    const out = await refused(r().recredit({ withdrawalId: id, reason: 'Customer asked' }));
-    expect(out.code).toBe('PRECONDITION_FAILED');
-    expect(out.message).toContain(RETURN_BLOCKER);
+    const same = await refused(r().recredit({ withdrawalId: id, reason: 'Checked' }));
+    expect(same.code).toBe('FORBIDDEN');
+    expect(same.message).toContain('withdrawal_return.same_founder');
+    founder = 'founder-b';
+    const credited = await r().recredit({ withdrawalId: id, reason: 'Checked' });
+    expect(credited).toMatchObject({ state: 'credited', approvedBy: 'founder-b', blocker: null });
+    expect(formatAmount((await ledger.balance(userAvailable(USER, 'USDT'))).amount)).toBe('40');
     expect((await refused(r().record({ ...body(id), extra: 1 }))).code).toBe('BAD_REQUEST');
+    expect((await refused(r().record({ ...body(id), reasonCode: 'made_up' }))).code).toBe('BAD_REQUEST');
     expect((await refused(r().list({}))).code).toBe('BAD_REQUEST');
     expect((await refused(r().record({ ...body(id), amount: 40 }))).code).toBe('BAD_REQUEST');
   });
