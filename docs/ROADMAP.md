@@ -48,7 +48,7 @@ The full slice specs (behaviour, tests, failure cases, references) live in the p
 
 ### Journey map
 
-Done is defined by 453 journeys (3004 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 33 steps still need a capability no slice covers yet.
+Done is defined by 455 journeys (3009 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 33 steps still need a capability no slice covers yet.
 
 | Module         | Journeys | Order 1 | Order 2 | Order 3 | Steps | Steps with no slice |
 | -------------- | -------- | ------- | ------- | ------- | ----- | ------------------- |
@@ -56,9 +56,10 @@ Done is defined by 453 journeys (3004 steps) in `modules/<module>/acceptance/jou
 | dex-protocol   | 32       | 5       | 16      | 11      | 277   | 0                   |
 | copy-bots-otc  | 30       | 5       | 13      | 12      | 206   | 1                   |
 | bank           | 28       | 4       | 15      | 9       | 164   | 7                   |
-| identity       | 21       | 4       | 11      | 6       | 132   | 1                   |
-| p2p            | 21       | 2       | 12      | 7       | 116   | 0                   |
+| identity       | 21       | 4       | 11      | 6       | 133   | 1                   |
+| p2p            | 21       | 2       | 12      | 7       | 117   | 0                   |
 | pay            | 21       | 2       | 11      | 8       | 121   | 1                   |
+| wallet         | 21       | 4       | 9       | 8       | 110   | 0                   |
 | academy        | 20       | 4       | 9       | 7       | 135   | 0                   |
 | agents         | 20       | 2       | 11      | 7       | 120   | 3                   |
 | campaigns      | 20       | 4       | 9       | 7       | 123   | 0                   |
@@ -68,7 +69,6 @@ Done is defined by 453 journeys (3004 steps) in `modules/<module>/acceptance/jou
 | support-public | 20       | 4       | 11      | 5       | 161   | 4                   |
 | charts-desk    | 19       | 1       | 10      | 8       | 120   | 0                   |
 | ops-console    | 19       | 3       | 13      | 3       | 168   | 7                   |
-| wallet         | 19       | 4       | 7       | 8       | 107   | 0                   |
 | developer      | 18       | 4       | 9       | 5       | 116   | 0                   |
 | algo-dev       | 16       | 1       | 8       | 7       | 104   | 0                   |
 | portfolio      | 16       | 2       | 9       | 5       | 93    | 3                   |
@@ -109,7 +109,7 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | svc-pay merchant              | 232    | 36           | 11                    | 36                    | 35            |
 | svc-bank                      | 195    | 53           | 35                    | 37                    | 25            |
 | svc-trade spot                | 163    | 41           | 42                    | 48                    | 6             |
-| svc-identity                  | 136    | 29           | 68                    | 38                    | 12            |
+| svc-identity                  | 136    | 29           | 68                    | 39                    | 11            |
 | svc-protocol                  | 75     | 4            | 1                     | 19                    | 4             |
 | svc-p2p                       | 62     | 10           | 0                     | 19                    | 1             |
 | svc-academy                   | 60     | 3            | 0                     | 19                    | 3             |
@@ -118,7 +118,7 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | svc-ops                       | 42     | 11           | 4                     | 0                     | 12            |
 | svc-notify                    | 39     | 15           | 3                     | 11                    | 1             |
 | svc-support                   | 36     | 7            | 2                     | 10                    | 3             |
-| svc-pay wallet                | 32     | 9            | 14                    | 9                     | 7             |
+| svc-pay wallet                | 32     | 9            | 14                    | 9                     | 6             |
 | svc-quant                     | 31     | 4            | 0                     | 9                     | 0             |
 | ledger                        | 25     | 9            | 7                     | 2                     | 3             |
 | svc-matching                  | 21     | 2            | 4                     | 2                     | 3             |
@@ -270,6 +270,7 @@ First milestone. Lanes take these before their other slices.
 - `SP-order-01` Spot desk completeness: market orders, pro book, per-order detail and positions (M, depth 4, journey order 1) · needs SP-conditional-algo-01, SP-lifecycle-history-02
 - `I-kyc-compliance-07` KYC capability model with a terminal inactive state (M, depth 4, journey order 1) · needs I-kyc-compliance-01, I-kyc-compliance-04
 - `I-kyc-compliance-09` Selfie, face match and liveness (M, depth 4, journey order 1, refuses for an outside service) · needs I-kyc-compliance-01, I-kyc-compliance-08, I-kyc-compliance-10
+- `I-kyc-compliance-11` Proof of address request, submission and accepted documents (M, depth 4, journey order 1, refuses for an outside service) · needs I-kyc-compliance-01, I-kyc-compliance-05, I-kyc-compliance-08
 - `I-kyc-compliance-17` Restriction states and reasons shown to the customer (M, depth 4, journey order 1) · needs I-kyc-compliance-03, I-kyc-compliance-22
 - `I-signin-sessions-25` Anti-phishing code (M, depth 4, journey order 1) · needs I-signin-sessions-01, I-signin-sessions-08
 - `PF-overview-01` Portfolio home: holdings table with price, cost basis and unrealised result; value breakdown; valuation disclosure; best and worst movers (L, depth 4, journey order 1) · needs PF-cost-basis-01, PF-cost-basis-03
@@ -316,6 +317,7 @@ First milestone. Lanes take these before their other slices.
 - `PF-cost-basis-04` Customer-entered entry price, and the missing-basis warning with a guided fix (M, depth 3, journey order 2) · needs PF-cost-basis-01, PF-cost-basis-02
 - `PF-overview-02` Value over time and holdings on a past date (valuation history foundation) (L, depth 3, journey order 2) · needs PF-balances-02, PF-cost-basis-02, PF-statements-01
 - `PF-statements-02` Background exports with a document center (L, depth 3, journey order 2) · needs PF-statements-01
+- `W-deposit-06` Deposit holds, returns, release and reorg reversal (L, depth 3, journey order 2) · needs W-deposit-05
 - `RC-cex-spot-08` Published trading rulebook versions (M, depth 4, journey order 2) · needs SP-developer-status-02, SP-ops-01
 - `SP-ops-02` Fee schedule and pair risk limits: versioned operator writes (L, depth 4, journey order 2) · needs SP-fees-vip-01, SP-ops-01
 - `SP-ops-03` Support order lookup and trade bust with reconciliation (L, depth 4, journey order 2) · needs SP-ops-01
@@ -384,9 +386,7 @@ First milestone. Lanes take these before their other slices.
 - `W-withdraw-16` Travel-rule applicability, capture and status on withdrawals (L, depth 2, refuses for an outside service) · needs W-compliance-notices-04
 - `I-kyc-compliance-12` Onboarding risk questionnaire and tax certification (M, depth 3) · needs I-kyc-compliance-01, I-kyc-compliance-05
 - `OPS-screening-04` List refresh and health, screening audit log, trigger points and hit routing (L, depth 3, refuses for an outside service) · needs OPS-screening-01
-- `W-deposit-06` Deposit holds, returns, release and reorg reversal (L, depth 3) · needs W-deposit-05
 - `W-deposit-07` Deposit travel-rule declaration and held/released state (M, depth 3, refuses for an outside service) · needs W-compliance-notices-04, W-deposit-05, W-withdraw-16
-- `I-kyc-compliance-11` Proof of address request, submission and accepted documents (M, depth 4, refuses for an outside service) · needs I-kyc-compliance-01, I-kyc-compliance-05, I-kyc-compliance-08
 - `I-kyc-compliance-24` Business due-diligence and AML programme questionnaires (M, depth 4) · needs I-kyc-compliance-12, I-kyc-compliance-21
 - `OPS-screening-03` Screening lists catalogue, match policy, presets, saved searches and internal watchlists (L, depth 4, refuses for an outside service) · needs OPS-screening-04
 - `RC-cex-spot-04` Corporate action and token migration policies (L, depth 5, refuses for an outside service) · needs CM-airdrop-campaigns-01, SP-markets-data-02, SP-ops-01, W-compliance-notices-01

@@ -4421,7 +4421,7 @@
       { "n": 2, "slices": ["I-kyc-compliance-08"], "noSlice": false },
       { "n": 3, "slices": ["I-kyc-compliance-09"], "noSlice": false },
       { "n": 4, "slices": ["I-kyc-compliance-10"], "noSlice": false },
-      { "n": 5, "slices": ["I-kyc-compliance-11", "I-kyc-compliance-12"], "noSlice": false, "deferred": true },
+      { "n": 5, "slices": ["I-kyc-compliance-11"], "noSlice": false },
       { "n": 6, "slices": ["I-kyc-compliance-01", "I-kyc-compliance-07"], "noSlice": false },
       { "n": 7, "slices": ["I-kyc-compliance-17"], "noSlice": false }
     ]
@@ -6376,7 +6376,7 @@
       { "n": 3, "slices": ["P-disputes-security-10"], "noSlice": false },
       { "n": 4, "slices": ["P-disputes-security-10"], "noSlice": false },
       { "n": 5, "slices": ["P-disputes-security-12"], "noSlice": false },
-      { "n": 6, "slices": ["P-disputes-security-08"], "noSlice": false, "deferred": true }
+      { "n": 6, "slices": ["P-disputes-security-08"], "noSlice": false }
     ]
   },
   {
@@ -7452,13 +7452,12 @@
     "tier": "core",
     "order": 2,
     "steps": [
-      { "n": 1, "slices": ["W-deposit-07"], "noSlice": false },
-      { "n": 2, "slices": ["W-deposit-07", "W-compliance-notices-05"], "noSlice": false },
-      { "n": 3, "slices": ["W-compliance-notices-05"], "noSlice": false },
-      { "n": 4, "slices": ["W-compliance-notices-03"], "noSlice": false },
+      { "n": 1, "slices": ["W-deposit-07"], "noSlice": false, "deferred": true },
+      { "n": 2, "slices": ["W-deposit-07", "W-compliance-notices-05"], "noSlice": false, "deferred": true },
+      { "n": 3, "slices": ["W-compliance-notices-05"], "noSlice": false, "deferred": true },
+      { "n": 4, "slices": ["W-compliance-notices-03"], "noSlice": false, "deferred": true },
       { "n": 5, "slices": ["W-deposit-06"], "noSlice": false }
-    ],
-    "deferred": true
+    ]
   },
   {
     "id": "J-wallet-04",
@@ -7703,16 +7702,15 @@
     "tier": "core",
     "order": 2,
     "steps": [
-      { "n": 1, "slices": ["W-compliance-notices-02"], "noSlice": false },
-      { "n": 2, "slices": ["W-compliance-notices-02"], "noSlice": false },
-      { "n": 3, "slices": ["W-compliance-notices-03"], "noSlice": false },
+      { "n": 1, "slices": ["W-compliance-notices-02"], "noSlice": false, "deferred": true },
+      { "n": 2, "slices": ["W-compliance-notices-02"], "noSlice": false, "deferred": true },
+      { "n": 3, "slices": ["W-compliance-notices-03"], "noSlice": false, "deferred": true },
       { "n": 4, "slices": ["W-deposit-06"], "noSlice": false },
-      { "n": 5, "slices": ["W-compliance-notices-04", "W-withdraw-16"], "noSlice": false },
-      { "n": 6, "slices": ["W-compliance-notices-05"], "noSlice": false },
+      { "n": 5, "slices": ["W-compliance-notices-04", "W-withdraw-16"], "noSlice": false, "deferred": true },
+      { "n": 6, "slices": ["W-compliance-notices-05"], "noSlice": false, "deferred": true },
       { "n": 7, "slices": ["W-withdraw-03"], "noSlice": false },
-      { "n": 8, "slices": ["W-withdraw-17"], "noSlice": false }
-    ],
-    "deferred": true
+      { "n": 8, "slices": ["W-withdraw-17"], "noSlice": false, "deferred": true }
+    ]
   },
   {
     "id": "J-wallet-20",

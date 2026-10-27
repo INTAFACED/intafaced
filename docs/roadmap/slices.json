@@ -11602,7 +11602,7 @@
     "outside": "`vendor.kyc` (automatic check only)",
     "size": "M",
     "families": 2,
-    "order": 0
+    "order": 1
   },
   {
     "id": "I-kyc-compliance-12",
@@ -21183,7 +21183,7 @@
     "outside": "",
     "size": "L",
     "families": 1,
-    "order": 0
+    "order": 2
   },
   {
     "id": "W-deposit-07",
