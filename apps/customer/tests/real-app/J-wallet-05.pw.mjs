@@ -10,14 +10,20 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // age-addresses`). The fee, the quote lifetime and the limits are the TEST withdrawal terms the stack's founders publish
 // in svc-pay (`local-test-gates.mjs withdraw-terms`): a fixed 1.5 network fee on TEST Ethereum and TEST Base, the fee on
 // top, a 90-second quote, and USDT limits of 1000 a withdrawal and 5000 a day for verified accounts.
-// Not here yet: #1 (minimum, maximum, step and tag rules have no catalogue in svc-pay), #2 (the fraud list at send), #4's
-// two parallel sends, #6 (a sent withdrawal and its success panel) and #8 (status): svc-pay has
-// no custody signer for any network, so every send to an outside wallet is refused before a claim. #5 (travel rule) and the
-// sanctions clause of #2 wait for launch (owner decision 2026-10-27, no compliance work until then).
+// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
+// - #1: svc-pay has no minimum, maximum, step or tag catalogue per network, and the stack publishes none.
+// - #2's fraud list: nothing screens a destination against one, and the stack lists no TEST address (FRAUD_LISTED).
+// - #6, #4's two parallel sends: svc-pay has no custody signer for any network, so every send out is refused before a claim.
+//   They run after #7, which needs the balance still at 300.
+// - #8: a failed withdrawal can't be seeded on the stack yet, so its failure sentence has no row to read.
+// #5 (travel rule) and the sanctions clause of #2 wait for launch (owner decision 2026-10-27, no compliance work until then).
 const J = 'J-wallet-05';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ADDRESS = '0x52908400098527886E0F7030069857D2E4169EE7';
 const LABEL = 'TEST send wallet';
+// The address the stack's TEST fraud list is to hold (the list itself is not built yet).
+const FRAUD_LISTED = '0x7e5700000000000000000000000000000000fa1d';
+const UNBUILT = { timeout: 5_000 };
 
 test.describe.configure({ mode: 'default' });
 
@@ -90,6 +96,15 @@ async function customerApi() {
   };
 }
 
+/** The "Left in the last 24 hours" part of the limit line, as a whole number of USDT. */
+async function leftToday(page) {
+  await expect(page.getByTestId('withdraw-limit')).toContainText('left in the last 24 hours');
+  const line = await page.getByTestId('withdraw-limit').innerText();
+  const left = /([\d,.]+) of [\d,.]+ left in the last 24 hours/.exec(line)?.[1];
+  if (!left) throw new Error(`the limit line names no 24-hour allowance: ${line}`);
+  return Number(left.replaceAll(',', ''));
+}
+
 const form = (page) => page.getByTestId('withdraw-form');
 // Each field's hint sits inside its label, so a field's name starts with its label.
 const pick = (page, name) => form(page).getByRole('combobox', { name: new RegExp(`^${name}`) });
@@ -115,6 +130,34 @@ async function approvalLink(email, seen) {
     mailedLines(email, 'withdraw-address-approval').map((line) => `/${/link=(approveAddress\?token=\S+)/.exec(line)?.[1]}`);
   await expect.poll(() => links().length, { timeout: 20_000 }).toBeGreaterThan(seen);
   return links().at(-1);
+}
+
+const stepUp = (page) => page.getByRole('dialog', { name: 'Confirm it’s you' });
+
+/** Gets the fee for the send `fillSend` set up and opens the step-up, with the next authenticator code typed in. */
+async function readyToConfirm(page, amount) {
+  await fillSend(page, amount);
+  await page.getByRole('button', { name: 'Get the fee' }).click();
+  await expect(confirmSend(page)).toBeEnabled();
+  await confirmSend(page).click();
+  await stepUp(page)
+    .getByLabel('Authenticator code or recovery code')
+    .fill(await freshCode());
+}
+
+/** Sends `amount` USDT to the saved TEST wallet and expects it recorded. */
+async function sendOut(page, amount) {
+  await readyToConfirm(page, amount);
+  await stepUp(page).getByRole('button', { name: 'Confirm' }).click();
+  await expect(page.getByTestId('withdraw-outcome')).toContainText('Withdrawal recorded', UNBUILT);
+}
+
+/** A withdrawal written straight into svc-pay in `state` by the stack (as J-wallet-06 does); returns its id. */
+function seedWithdrawal(who, state, amount, label, ...extra) {
+  const out = tool('local-test-stack.mjs', 'seed-withdrawal', who.email, 'USDT', amount, '--state', state, '--ref', label, ...extra);
+  const id = /^\s*withdrawal\s+([0-9a-f-]{36})$/m.exec(out)?.[1];
+  expect(id, out).toMatch(/^[0-9a-f-]{36}$/);
+  return id;
 }
 
 test(`${J} starts: a verified TEST account with 300 USDT, a second factor and a saved wallet approved and past its cooling-off`, async ({
@@ -168,6 +211,68 @@ test(`${J} starts: a verified TEST account with 300 USDT, a second factor and a 
   expect(tool('local-test-stack.mjs', 'age-addresses', who.email, '25')).toContain('1 saved address(es)');
   await page.reload();
   await expect(page.locator('tbody tr', { hasText: LABEL })).toContainText('Ready to use');
+});
+
+test(`${J} #1 opens Withdraw and picks asset and network: the default network with its tag rule, minimum, maximum and step from the catalogue, and a changed network checks the address again`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  await signInWithCode(page);
+  await page.goto('/uc/withdraw');
+  await page.mouse.move(0, 600);
+  await pick(page, 'Asset').selectOption('USDT');
+  await expect(pick(page, 'Network')).toHaveValue('ethereum');
+
+  // A typed address is checked on the network chosen: saved on TEST Ethereum, not saved on TEST Base.
+  const typed = form(page).getByRole('textbox', { name: /^Or enter a new address/ });
+  await typed.fill(ADDRESS);
+  await expect(form(page)).toContainText(`This is your saved address ${LABEL}. Choose it above to send to it.`);
+  await pick(page, 'Network').selectOption('base');
+  await expect(form(page)).toContainText('This address is not in your address book, so nothing is sent to it.');
+  await pick(page, 'Network').selectOption('ethereum');
+
+  // The network's own rules, as the catalogue publishes them for TEST Ethereum: no tag, and a minimum, maximum and step.
+  const rules = page.getByTestId('withdraw-network-rules');
+  await expect(rules).toBeVisible(UNBUILT);
+  await expect(rules).toContainText('This network takes no tag or memo.');
+  for (const rule of ['Minimum', 'Maximum', 'Step']) await expect(rules).toContainText(new RegExp(`${rule}\\D*[\\d.,]+ USDT`));
+  await expect(form(page).getByRole('textbox', { name: /^(Tag|Memo)/ })).toHaveCount(0);
+});
+
+test(`${J} #2 picks the saved address or pastes one: a mistyped address is refused before any call, and an address on the fraud list is refused by name with nothing held`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  await signInWithCode(page);
+  const writes = [];
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && /\/api\/pay\//.test(request.url())) writes.push(request.url());
+  });
+  await page.goto('/uc/withdraw');
+  await page.mouse.move(0, 600);
+  await pick(page, 'Asset').selectOption('USDT');
+  await form(page)
+    .getByRole('textbox', { name: /^Or enter a new address/ })
+    .fill(ADDRESS.slice(0, -1));
+  await expect(form(page)).toContainText('This is not a valid address. It must be 0x followed by 40 letters a to f or digits.');
+  expect(writes).toEqual([]);
+
+  // The TEST fraud list holds FRAUD_LISTED: saving it is refused with the reason, and it never reaches the address book.
+  await page.goto('/uc/withdraw/address');
+  const add = page.getByRole('form', { name: 'Add an address' });
+  await add.getByRole('textbox', { name: /^Label/ }).fill('TEST fraud-listed wallet');
+  await add.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
+  await add.getByRole('combobox', { name: /^Network/ }).selectOption('ethereum');
+  await add.getByRole('textbox', { name: /^Address/ }).fill(FRAUD_LISTED);
+  await add.getByRole('button', { name: 'Save address' }).click();
+  const refusal = add.getByRole('alert');
+  await expect(refusal.or(stepUp(page))).toBeVisible();
+  if (await stepUp(page).isVisible()) await confirmItsMe(page);
+  await expect(refusal).toContainText(/fraud/i, UNBUILT);
+  await expect(page.locator('tbody tr', { hasText: 'TEST fraud-listed wallet' })).toHaveCount(0);
+  const api = await customerApi();
+  expect(toUnits(await api.available('USDT'))).toBe(toUnits('300'));
+  expect(await api.withdrawals()).toEqual([]);
 });
 
 test(`${J} #3 reads the fee quote: fee, what arrives and the total debit as exact decimals, and an expired quote must be got again`, async ({
@@ -239,4 +344,101 @@ test(`${J} #7 confirms with a fresh step-up while no signer is connected: refuse
   expect(await api.withdrawals()).toEqual([]);
   await page.reload();
   await expect(page.getByText('No withdrawals yet')).toBeVisible();
+});
+
+test(`${J} #6 reviews and confirms with a fresh step-up: no code keeps Confirm shut, a wrong one is refused in words, and neither sends anything; then one withdrawal, a success panel naming it, and its record`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  await signInWithCode(page);
+  await fillSend(page, '25');
+  await page.getByRole('button', { name: 'Get the fee' }).click();
+  await expect(page.getByTestId('withdraw-review')).toContainText('Leaves your balance26.5 USDT');
+  await confirmSend(page).click();
+  const dialog = stepUp(page);
+  const code = dialog.getByLabel('Authenticator code or recovery code');
+  // With no code typed, Confirm stays shut: nothing can be sent without one.
+  await expect(dialog.getByRole('button', { name: 'Confirm' })).toBeDisabled();
+  await code.fill('000000');
+  await dialog.getByRole('button', { name: 'Confirm' }).click();
+  await expect(dialog).toContainText('That code didn’t match. Check your authenticator app and try again.');
+  const api = await customerApi();
+  expect(await api.withdrawals()).toEqual([]);
+
+  await code.fill(await freshCode());
+  await dialog.getByRole('button', { name: 'Confirm' }).click();
+  const outcome = page.getByTestId('withdraw-outcome');
+  await expect(outcome).toContainText('Withdrawal recorded', UNBUILT);
+  const [made] = await api.withdrawals();
+  expect(made?.id).toBeTruthy();
+  await expect(outcome).toContainText(`Withdrawal ${made.id} is recorded.`);
+  expect(await api.withdrawals()).toHaveLength(1);
+  await outcome.getByRole('link', { name: 'See this withdrawal' }).click();
+  await expect(page.getByText(made.id).first()).toBeVisible();
+});
+
+test(`${J} #4 two withdrawals sent at once that together pass the 24-hour limit: exactly one goes through`, async ({ page, browser }) => {
+  test.setTimeout(900_000);
+  expect(fund(account().account.email, 'USDT', '5000').tx).toBeTruthy();
+  await signInWithCode(page);
+  // Use the allowance up 1,000 at a time (the most one withdrawal may send) until less than 1,000 is left.
+  await fillSend(page, '1');
+  let left = await leftToday(page);
+  while (left > 1000) {
+    await sendOut(page, '1000');
+    await fillSend(page, '1');
+    left = await leftToday(page);
+  }
+  // Each of the two fits what is left on its own; together they do not.
+  const each = String(Math.floor(left / 2) + 1);
+  const otherContext = await browser.newContext();
+  try {
+    const other = await otherContext.newPage();
+    await signInWithCode(other);
+    const api = await customerApi();
+    const before = (await api.withdrawals()).length;
+    await readyToConfirm(page, each);
+    await readyToConfirm(other, each);
+    await Promise.all([page, other].map((tab) => stepUp(tab).getByRole('button', { name: 'Confirm' }).click()));
+    const states = await Promise.all(
+      [page, other].map(async (tab) => {
+        const outcome = tab.getByTestId('withdraw-outcome');
+        await expect(outcome).toBeVisible({ timeout: 30_000 });
+        return outcome.getAttribute('data-status');
+      }),
+    );
+    expect(states.filter((state) => state === 'refused')).toHaveLength(1);
+    expect(states.filter((state) => state !== 'refused' && state !== 'unknown')).toHaveLength(1);
+    expect(await api.withdrawals()).toHaveLength(before + 1);
+  } finally {
+    await otherContext.close();
+  }
+});
+
+test(`${J} #8 watches the status: requested, held, broadcast and settled in plain words, an old sent row reads settled, and a failure reads as a sentence`, async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(240_000);
+  // A person of its own, so these withdrawals don't count against the limits the steps above use.
+  const who = await signUp(page, 'wd8');
+  await verify(page, who);
+  await signIn(page, who);
+  expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
+  const tag = `jw05-${who.handle}-r${testInfo.retry}`;
+  const words = { requested: 'Requested', held: 'Held', broadcast: 'Broadcast', sent: 'Settled' };
+  const ids = Object.fromEntries(Object.keys(words).map((state) => [state, seedWithdrawal(who, state, '1', `${tag}-${state}`)]));
+
+  await page.goto('/uc/withdraw');
+  await page.mouse.move(0, 600);
+  const history = page.getByTestId('withdrawal-history');
+  for (const [state, id] of Object.entries(ids)) {
+    const row = history.locator(`[data-testid="withdrawal-row"][data-withdrawal-id="${id}"]`);
+    await expect(row.locator('[data-withdrawal-status]')).toHaveText(words[state], { timeout: 30_000 });
+  }
+
+  // A failed withdrawal says what went wrong in a sentence, never as its code.
+  const failed = seedWithdrawal(who, 'failed', '1', `${tag}-failed`, '--failure-code', 'rail.rejected');
+  await page.goto(`/uc/withdraw?withdrawalId=${failed}`);
+  await expect(page.getByTestId('withdrawal-status')).toHaveText('Failed', { timeout: 30_000 });
+  await expect(page.getByTestId('withdrawal-facts')).not.toContainText('rail.rejected');
 });
