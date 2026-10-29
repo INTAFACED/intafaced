@@ -7,7 +7,8 @@
  * credits it through its ledger-client recipe, keyed on the deposit, and announces it; svc-notify's deposit-credit
  * consumer files the inbox row. The transfer's label is fixed, so a second seed run delivers the same chain event again,
  * which svc-pay recognises: no second deposit, no second row. The notice is drafted by founder a, approved by founder b
- * and published by founder a, as the notice desk does; a published one with the same title is not drafted again.
+ * and published by founder a, as the notice desk does; while a published one with the same title is open, none is
+ * drafted. Each 30-day window has its own draft key, so once the notice has ended the next apply drafts a fresh one.
  * Every figure here is an illustrative TEST value.
  */
 
@@ -24,7 +25,9 @@ export const HOME_NOTICE_BODY = 'TEST notice from the tester seed. Balances here
 export const HOME_NOTICE_DAYS = 30;
 /** svc-notify's inbox row for a credited deposit (services/svc-notify/src/deposit-credit-notice.ts). */
 export const DEPOSIT_CREDITED_KIND = 'bank.deposit.credited';
-const INBOX_WAIT_MS = 150_000;
+const NOTICE_WINDOW_MS = HOME_NOTICE_DAYS * 24 * 60 * 60_000;
+/** How long apply waits for svc-pay's credit and svc-notify's row after the transfer is delivered. */
+const WAIT_MS = 150_000;
 
 const data = (res, what) => {
   const row = res.json?.result?.data;
@@ -32,15 +35,29 @@ const data = (res, what) => {
   return row;
 };
 
-/** The deposit-credited rows in founder a's inbox. */
-async function creditedRows(home) {
+/** The deposit-credited rows in founder a's inbox that svc-notify filed for transfer `txHash`. */
+async function creditedRows(home, txHash) {
   const page = data(await home.edge.query('notify', 'notify.list', { limit: 100 }, home.founder.token), 'notify.list');
-  return page.items.filter((item) => item.kind === DEPOSIT_CREDITED_KIND);
+  return page.items.filter((item) => item.kind === DEPOSIT_CREDITED_KIND && item.params?.txHash === txHash);
 }
 
+/** The published TEST notice that is open now (started, not ended), or null. */
 async function seededNotice(home) {
-  const rows = data(await home.edge.query('notify', 'notify.notices', { limit: 50 }), 'notify.notices');
-  return rows.find((row) => row.title === HOME_NOTICE_TITLE) ?? null;
+  const rows = data(await home.edge.query('notify', 'notify.notices', { kind: 'announcement', limit: 100 }), 'notify.notices');
+  const now = home.now();
+  const open = (row) =>
+    row.status === 'published' && (!row.startsAt || Date.parse(row.startsAt) <= now) && (!row.endsAt || Date.parse(row.endsAt) > now);
+  return rows.find((row) => row.title === HOME_NOTICE_TITLE && open(row)) ?? null;
+}
+
+async function until(home, read, done) {
+  const deadline = home.now() + WAIT_MS;
+  let value = await read();
+  while (!done(value) && home.now() < deadline) {
+    await home.sleep(2_000);
+    value = await read();
+  }
+  return value;
 }
 
 async function depositAddress(home) {
@@ -76,14 +93,19 @@ async function depositRecord(home, address) {
 async function applyNotice(home) {
   const existing = await seededNotice(home);
   if (existing) return { notice: 'skipped', id: existing.id };
-  const row = await home.draftNotice({
-    kind: 'announcement',
-    title: HOME_NOTICE_TITLE,
-    body: HOME_NOTICE_BODY,
-    minutes: HOME_NOTICE_DAYS * 24 * 60,
-    key: 'local-test-seed-home-v1',
-  });
-  const published = await home.publishNotice(row, 'local-test-seed-home-v1');
+  const now = home.now();
+  const window = Math.floor(now / NOTICE_WINDOW_MS);
+  const row = await home.draftNotice(
+    {
+      kind: 'announcement',
+      title: HOME_NOTICE_TITLE,
+      body: HOME_NOTICE_BODY,
+      startsAt: new Date(now - 60_000).toISOString(),
+      endsAt: new Date(now + NOTICE_WINDOW_MS).toISOString(),
+    },
+    `local-test-seed:home-notice:draft:v1:${window}`,
+  );
+  const published = await home.publishNotice(row, (approvalId) => `local-test-seed:home-notice:publish:${row.id}:${approvalId}`);
   return { notice: 'published', id: published.id };
 }
 
@@ -94,18 +116,22 @@ async function applyNotice(home) {
 export async function applyHome(home) {
   const address = await depositAddress(home);
   home.chainDeposit(address, HOME_ASSET, HOME_DEPOSIT_AMOUNT, HOME_DEPOSIT_CONFIRMATIONS, HOME_DEPOSIT_LABEL);
-  const record = await depositRecord(home, address);
+  const record = await until(
+    home,
+    () => depositRecord(home, address),
+    (row) => row?.status === 'credited',
+  );
   if (!record || record.status !== 'credited') {
     throw new Error(`the TEST home deposit was not credited (record ${record ? record.status : 'missing'})`);
   }
   const notice = await applyNotice(home);
-  const deadline = home.now() + INBOX_WAIT_MS;
-  let rows = await creditedRows(home);
-  while (rows.length === 0 && home.now() < deadline) {
-    await home.sleep(2_000);
-    rows = await creditedRows(home);
-  }
-  if (rows.length !== 1) throw new Error(`founder a's inbox has ${rows.length} deposit-credited rows, not 1`);
+  const tx = home.txHash(address, HOME_DEPOSIT_LABEL);
+  const rows = await until(
+    home,
+    () => creditedRows(home, tx),
+    (found) => found.length > 0,
+  );
+  if (rows.length !== 1) throw new Error(`founder a's inbox has ${rows.length} deposit-credited rows for the TEST home deposit, not 1`);
   return [
     `home deposit: ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} on TEST ${HOME_NETWORK} to ${home.founder.handle}, ${record.status}`,
     `home notice: ${HOME_NOTICE_TITLE} ${notice.notice}`,
@@ -113,12 +139,12 @@ export async function applyHome(home) {
   ];
 }
 
-/** What Home's TEST content is on this stack, read back from the services; nothing is written. */
+/** What Home's TEST content is on this stack, read back from the services; no content is written (the founders sign in). */
 export async function homeStatus(home) {
   const address = await knownAddress(home);
   const record = address ? await depositRecord(home, address) : null;
   const notice = await seededNotice(home);
-  const rows = await creditedRows(home);
+  const rows = address ? await creditedRows(home, home.txHash(address, HOME_DEPOSIT_LABEL)) : [];
   return [
     'home:',
     `  deposit  ${record ? `${record.amount} ${HOME_ASSET} ${record.status}` : 'none'}  ${home.founder.handle}`,

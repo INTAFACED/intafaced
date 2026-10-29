@@ -30,7 +30,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { applyHome, homeStatus } from './local-test-home.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
@@ -479,7 +478,8 @@ export async function applyAll(deps) {
   const house = await applyHouse(deps);
   const p2p = await applyP2p(deps);
   // Home's TEST deposit, notice and inbox row need the founder pair; a stack without it seeds the rest.
-  const home = deps.home ? await applyHome(await deps.home()) : ['home: no enrolled founder pair on this stack, so Home is not seeded'];
+  const wired = deps.home ? await deps.home() : null;
+  const home = wired ? await applyHome(wired) : ['home: no enrolled founder pair on this stack, so Home is not seeded'];
   const lines = [
     `earn pools: created ${earn.created}, skipped ${earn.skipped}`,
     `loan products: created ${loans.created}, skipped ${loans.skipped}`,
@@ -613,7 +613,8 @@ export async function statusReport(deps, now = new Date()) {
     lines.push('method:');
     lines.push(`  ${method.methodId}  ${method.enabled ? 'enabled' : 'disabled'}  ${method.label}`);
   }
-  if (deps.home) lines.push(...(await homeStatus(await deps.home())));
+  const wired = deps.home ? await deps.home() : null;
+  lines.push(...(wired ? await homeStatus(wired) : ['home: no enrolled founder pair on this stack']));
   return lines;
 }
 
@@ -664,20 +665,36 @@ function homeDeps(plan) {
   let wired;
   return () =>
     (wired ??= (async () => {
-      const gates = await import('./local-test-gates.mjs');
+      const [gates, founders, notice, stack] = await Promise.all([
+        import('./local-test-gates.mjs'),
+        import('./local-test-founders.mjs'),
+        import('./local-test-notice.mjs'),
+        import('./local-test-stack.mjs'),
+      ]);
+      // A draft vault (the stack wrote it, enrolment has not run or failed) is no founder pair: Home is not seeded.
+      if (!founders.enrolledFounderPair(JSON.parse(fs.readFileSync(vault, 'utf8')))) return null;
       const ctx = await gates.makeContext({ log: () => {} });
       if (path.resolve(ctx.paths.stateDir) !== path.resolve(plan.stateDir)) {
         throw new GuardError(`refusing: the gates read ${ctx.paths.stateDir}, not ${plan.stateDir}; set LOCAL_STACK_STATE to it`);
       }
       const pair = await gates.approverSessions(ctx);
-      if (!pair.a.op.handle?.startsWith('local_test_founder')) throw new GuardError('refusing: Home is seeded for the founder pair only');
-      // The notice desk's own four-eyes steps, as the journeys drive them (founder a drafts and publishes, b approves).
-      const notices = await import('../../apps/customer/tests/real-app/notices.mjs');
+      if (!founders.isLocalTestFounderHandle(pair.a.op.handle)) throw new GuardError('refusing: Home is seeded for the founder pair only');
       return {
         edge: ctx.edge,
         founder: { handle: pair.a.op.handle, token: pair.a.token },
-        draftNotice: (input) => notices.draftNotice(input),
-        publishNotice: (row, key) => notices.publishNotice(row, key),
+        async draftNotice(input, key) {
+          const res = await ctx.edge.mutate(
+            'notify',
+            'notify.draftNotice',
+            { ...input, clientRequestId: key },
+            await pair.a.tradeOpsToken(),
+          );
+          const row = res.json?.result?.data;
+          if (!row) throw new Error(`notify.draftNotice refused (${res.status}): ${res.text.slice(0, 300)}`);
+          return row;
+        },
+        publishNotice: (row, publishKey) =>
+          notice.publishWithApproval({ edge: ctx.edge, pair, policyVersion: gates.MARKERS.policyVersion }, row, publishKey),
         chainDeposit(address, asset, amount, confirmations, label) {
           execFileSync(
             process.execPath,
@@ -694,16 +711,11 @@ function homeDeps(plan) {
             { cwd: REPO, env: { ...process.env, LOCAL_STACK_STATE: plan.stateDir }, stdio: ['ignore', 'pipe', 'pipe'], timeout: 60_000 },
           );
         },
-        txHash: chainTxHash,
+        txHash: stack.chainTxHash,
         now: () => Date.now(),
         sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       };
     })());
-}
-
-/** local-test-stack.mjs chainTxHash: the same label to the same address is the same TEST transfer. */
-function chainTxHash(address, label) {
-  return `0x${createHash('sha256').update(`local-test-chain-deposit:${address}:${label}`).digest('hex')}`;
 }
 
 export async function openLocal(plan) {

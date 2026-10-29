@@ -16,7 +16,7 @@ import { EDGE, ROOT } from './stack.mjs';
 // seed service's wiring and run the seed's own scripts, which refuse anything but a local dev or test build.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - #2: the sign-in page of a non-live build has no "Tester build" panel saying where the founder vault is.
-// - #3: nothing seeds the founder's Home, so it shows no TEST deposit, notice or inbox row.
+// - #3: the seed gives founder a's Home a TEST deposit, notice and inbox row, but Home does not label them TEST.
 // - #5: the Help room does not read the host dispatch receipt (RC-home-ia-01); the check itself is built.
 const J = 'J-home-ia-11';
 const UNBUILT = { timeout: 5_000 };

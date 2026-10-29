@@ -22,16 +22,24 @@ const ok = (data) => ({ status: 200, json: { result: { data } }, text: '' });
 const refused = (code) => ({ status: 400, json: { error: { data: { cause: { code } } } }, text: code });
 
 /** A stand-in stack: svc-pay credits a transfer once per tx, svc-notify files one row per credited deposit. */
-function stack({ credit = true, fileRow = true, extraRecord = false } = {}) {
-  const state = { addresses: [], deposits: new Map(), notices: [], inbox: [], deliveries: 0, drafts: 0, writes: [] };
+function stack({ credit = true, fileRow = true, extraRecord = false, creditAfterReads = 0 } = {}) {
+  const state = {
+    t: Date.parse('2026-10-29T00:00:00.000Z'),
+    addresses: [],
+    deposits: new Map(),
+    notices: [],
+    inbox: [],
+    deliveries: 0,
+    drafts: [],
+    publishKeys: [],
+    writes: [],
+    reads: 0,
+  };
   const txHash = (address, label) => `tx:${address}:${label}`;
   const home = {
     founder: { handle: 'local_test_founder_a', token: 'tok-a' },
     txHash,
-    now: (() => {
-      let t = 0;
-      return () => (t += 50_000);
-    })(),
+    now: () => (state.t += 1_000),
     sleep: async () => {},
     edge: {
       async mutate(mod, proc, input) {
@@ -46,11 +54,17 @@ function stack({ credit = true, fileRow = true, extraRecord = false } = {}) {
       async query(mod, proc, input) {
         if (proc === 'deposits.addresses.list') return ok({ items: state.addresses, cap: null, expiryDays: null });
         if (proc === 'deposits.list') {
-          const items = [...state.deposits.values()].filter((row) => row.txHash === input.txId);
+          state.reads += 1;
+          const items = [...state.deposits.values()]
+            .filter((row) => row.txHash === input.txId)
+            .map((row) => (state.reads > creditAfterReads ? row : { ...row, status: 'confirming' }));
           if (extraRecord && items.length) items.push({ ...items[0], id: 'dup' });
           return ok({ items, total: items.length });
         }
-        if (proc === 'notify.notices') return ok(state.notices);
+        if (proc === 'notify.notices') {
+          assert.equal(input.kind, 'announcement');
+          return ok(state.notices);
+        }
         if (proc === 'notify.list') return ok({ items: state.inbox, nextCursor: null });
         throw new Error(`unexpected query ${proc}`);
       },
@@ -64,16 +78,17 @@ function stack({ credit = true, fileRow = true, extraRecord = false } = {}) {
       const tx = txHash(address, label);
       if (state.deposits.has(tx)) return; // the same chain event again: svc-pay recognises it
       state.deposits.set(tx, { id: `dep-${state.deposits.size}`, txHash: tx, amount, status: credit ? 'credited' : 'held' });
-      if (credit && fileRow) state.inbox.push({ id: `n-${state.inbox.length}`, kind: DEPOSIT_CREDITED_KIND });
+      if (credit && fileRow) state.inbox.push({ id: `n-${state.inbox.length}`, kind: DEPOSIT_CREDITED_KIND, params: { txHash: tx } });
     },
-    async draftNotice(input) {
-      state.drafts += 1;
+    async draftNotice(input, key) {
+      state.drafts.push(key);
       assert.equal(input.kind, 'announcement');
       assert.equal(input.title, HOME_NOTICE_TITLE);
-      return { id: 'notice-1', version: 1, ...input };
+      return { id: `notice-${state.drafts.length}`, version: 1, status: 'draft', ...input };
     },
-    async publishNotice(row) {
-      state.notices.push({ id: row.id, title: row.title });
+    async publishNotice(row, publishKey) {
+      state.publishKeys.push(publishKey(`approval-${state.publishKeys.length + 1}`));
+      state.notices.push({ id: row.id, title: row.title, status: 'published', startsAt: row.startsAt, endsAt: row.endsAt });
       return { id: row.id };
     },
   };
@@ -98,7 +113,7 @@ test('a second apply delivers the same transfer, which makes no second deposit, 
   const again = await applyHome(home);
   assert.equal(state.deliveries, 2);
   assert.equal(state.deposits.size, 1);
-  assert.equal(state.drafts, 1);
+  assert.equal(state.drafts.length, 1);
   assert.equal(state.notices.length, 1);
   assert.equal(state.inbox.length, 1);
   assert.equal(again[1], `home notice: ${HOME_NOTICE_TITLE} skipped`);
@@ -107,12 +122,40 @@ test('a second apply delivers the same transfer, which makes no second deposit, 
 test('a deposit that is not credited stops the seed before any notice is drafted', async () => {
   const { home, state } = stack({ credit: false });
   await assert.rejects(applyHome(home), { message: 'the TEST home deposit was not credited (record held)' });
-  assert.equal(state.drafts, 0);
+  assert.deepEqual(state.drafts, []);
+});
+
+test('a credit that lands after a few reads is waited for, not refused', async () => {
+  const { home, state } = stack({ creditAfterReads: 3 });
+  const lines = await applyHome(home);
+  assert.match(lines[0], /, credited$/);
+  assert.ok(state.reads > 3);
+});
+
+test('an ended TEST notice is drafted afresh under the next window key, and each publish names its approval', async () => {
+  const { home, state } = stack();
+  await applyHome(home);
+  state.t += 31 * 24 * 60 * 60_000; // the 30-day notice has ended
+  const again = await applyHome(home);
+  assert.equal(again[1], `home notice: ${HOME_NOTICE_TITLE} published`);
+  assert.equal(state.drafts.length, 2);
+  assert.notEqual(state.drafts[0], state.drafts[1]);
+  assert.match(state.drafts[0], /^local-test-seed:home-notice:draft:v1:\d+$/);
+  assert.deepEqual(state.publishKeys, [
+    'local-test-seed:home-notice:publish:notice-1:approval-1',
+    'local-test-seed:home-notice:publish:notice-2:approval-2',
+  ]);
+});
+
+test('another credited deposit in the inbox is not counted as the seeded row', async () => {
+  const { home, state } = stack({ fileRow: false });
+  state.inbox.push({ id: 'other', kind: DEPOSIT_CREDITED_KIND, params: { txHash: 'tx:someone-else' } });
+  await assert.rejects(applyHome(home), { message: "founder a's inbox has 0 deposit-credited rows for the TEST home deposit, not 1" });
 });
 
 test('no inbox row within the wait fails the seed by name', async () => {
   const { home } = stack({ fileRow: false });
-  await assert.rejects(applyHome(home), { message: "founder a's inbox has 0 deposit-credited rows, not 1" });
+  await assert.rejects(applyHome(home), { message: "founder a's inbox has 0 deposit-credited rows for the TEST home deposit, not 1" });
 });
 
 test('two records for the seeded transfer fail rather than report one', async () => {
