@@ -68,6 +68,16 @@ test(`${J} #1 follows the trading quickstart: account, key, clock check, first c
   for (const [i, step] of ['account', 'key', 'clock', 'first call'].entries()) {
     await expect(steps.nth(i)).toContainText(new RegExp(step, 'i'));
   }
+  // Each step leads somewhere real: the key step opens the key room, the clock step reads the server, the first call
+  // opens the reference that lists the time route.
+  await expect(steps.nth(2).getByRole('button', { name: 'Check my clock' })).toBeVisible();
+  await steps.nth(1).getByRole('link').click();
+  await expect(page).toHaveURL(/\/uc\/safe\/api-keys$/);
+  await expect(page.getByRole('heading', { name: 'Keys on this account' })).toBeVisible();
+  await page.goBack();
+  await steps.nth(3).getByRole('link').click();
+  await expect(page.getByRole('heading', { name: 'API reference', level: 1 })).toBeVisible();
+  await expect(page.getByRole('main')).toContainText('GET /api/v1/time');
 });
 
 test(`${J} #2 creates a sandbox with a name: listed, and a second named sandbox works`, async () => {
