@@ -76,9 +76,13 @@ export function MiningPool({ probe }: { probe: Probe }) {
   const connection = useResource((signal) => api.query('mining', 'connection', undefined, poolConnection, { signal }), 'mining-connection');
   return (
     <div className="more-columns">
-      <PoolOverviewView read={overview} />
-      <PoolConnectView read={connection} />
-      <PoolProbeView state={probe.state} onPress={probe.press} />
+      <div>
+        <PoolOverviewView read={overview} />
+        <PoolConnectView read={connection} />
+      </div>
+      <div>
+        <PoolProbeView state={probe.state} onPress={probe.press} />
+      </div>
     </div>
   );
 }
@@ -117,7 +121,7 @@ export function PoolConnectView({ read }: { read: Read<PoolConnection> }) {
         <Loading />
       ) : resource.status === 'failed' ? (
         resource.failure.code === CONNECTION_UNSET ? (
-          <div role="alert" data-testid="mining-connection-unset">
+          <div role="alert" data-testid="mining-connection-unset" data-code={CONNECTION_UNSET}>
             <EmptyState title={t('connectionUnsetTitle')}>{t('connectionUnsetBody')}</EmptyState>
           </div>
         ) : (
@@ -278,13 +282,17 @@ export function MiningPoolStatus({ health, probe }: { health: Read<MiningHealth>
   const state = health.resource.status === 'ready' ? 'answering' : health.resource.status === 'failed' ? 'silent' : 'unchecked';
   return (
     <div className="more-columns">
-      <Panel title={t('statusTitle')} aria-label={t('statusTitle')}>
-        <p data-testid="mining-pool-status" data-state={state}>
-          {t(`status_${state}`)}
-        </p>
-        <p className="muted">{t('statusNote')}</p>
-      </Panel>
-      <PoolProbeView state={probe.state} onPress={probe.press} />
+      <div>
+        <Panel title={t('statusTitle')} aria-label={t('statusTitle')}>
+          <p data-testid="mining-pool-status" data-state={state}>
+            {t(`status_${state}`)}
+          </p>
+          <p className="muted">{t('statusNote')}</p>
+        </Panel>
+      </div>
+      <div>
+        <PoolProbeView state={probe.state} onPress={probe.press} />
+      </div>
     </div>
   );
 }

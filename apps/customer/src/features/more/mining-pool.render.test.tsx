@@ -54,7 +54,7 @@ describe('connect your miner', () => {
 
   it('shows host:port, the account id and the worker name exactly as stored', () => {
     const data = {
-      host: '127.0.0.1',
+      host: '198.51.100.1',
       port: '3999',
       secureUrl: null,
       accountId: 'acct-1',
@@ -63,7 +63,7 @@ describe('connect your miner', () => {
       credentialReason: 'mining.credential_not_issued',
     };
     const out = html(<PoolConnectView read={{ resource: { status: 'ready', data }, reload: noop }} />);
-    expect(out).toContain('data-testid="mining-pool-address" lang="und" dir="ltr">127.0.0.1:3999<');
+    expect(out).toContain('data-testid="mining-pool-address" lang="und" dir="ltr">198.51.100.1:3999<');
     expect(out).toContain('data-testid="mining-account-id" lang="und" dir="ltr">acct-1<');
     // No rig typed yet: the worker name is not made up from the bare pattern, and its copy button is off.
     expect(out).toContain('data-testid="mining-worker-name" lang="und" dir="ltr">Type your rig name');

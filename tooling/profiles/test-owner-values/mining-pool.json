@@ -33,8 +33,8 @@
     },
     "MINING_POOL_HOST": {
       "service": "mining-pool",
-      "value": "127.0.0.1",
-      "note": "TEST pool host a miner copies. Not a product default."
+      "value": "198.51.100.1",
+      "note": "TEST pool host a miner copies: a TEST-NET-2 documentation address (RFC 5737) that never answers, so the reachability test times out. Not a product default."
     },
     "MINING_POOL_PORT": {
       "service": "mining-pool",
@@ -43,7 +43,7 @@
     },
     "MINING_POOL_SECURE_URL": {
       "service": "mining-pool",
-      "value": "stratum+ssl://127.0.0.1:3999",
+      "value": "stratum+ssl://198.51.100.1:3999",
       "note": "TEST secure URL, published only in this profile."
     },
     "MINING_WORKER_NAME_PATTERN": {

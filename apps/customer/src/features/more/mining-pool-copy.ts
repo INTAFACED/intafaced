@@ -30,7 +30,7 @@ const en = {
   probeTitle: 'Reachability',
   probeAction: 'Test the connection',
   probeBusy: 'Testing…',
-  probeNone: 'Not tested yet',
+  probeNone: 'No test run',
   probe_reachable: 'Reached in {ms} ms',
   probe_refused: 'Not reached: the pool address refused the connection',
   probe_timed_out: 'Timed out after {ms} ms: the pool address did not answer',
@@ -43,7 +43,7 @@ const en = {
   status_answering: 'Answering',
   status_silent: 'Not answering',
   status_unchecked: 'Not checked',
-  statusNote: 'Answering means the pool process replied just now. It is not proof that shares are being paid.',
+  statusNote: 'Answering means the pool process replied when this room last checked. It is not proof that shares are being paid.',
 } as const;
 const es = {
   overviewTitle: 'El pool',
@@ -87,7 +87,8 @@ const es = {
   status_answering: 'Responde',
   status_silent: 'No responde',
   status_unchecked: 'Sin comprobar',
-  statusNote: 'Responde significa que el proceso del pool contestó ahora mismo. No prueba que se paguen las aportaciones.',
+  statusNote:
+    'Responde significa que el proceso del pool contestó en la última comprobación de esta sala. No prueba que se paguen las aportaciones.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   overviewTitle: 'Le pool',
@@ -118,7 +119,7 @@ const fr = {
   probeTitle: 'Joignabilité',
   probeAction: 'Tester la connexion',
   probeBusy: 'Test en cours…',
-  probeNone: 'Pas encore testé',
+  probeNone: 'Aucun test lancé',
   probe_reachable: 'Joint en {ms} ms',
   probe_refused: 'Non joint : l’adresse du pool a refusé la connexion',
   probe_timed_out: 'Délai dépassé après {ms} ms : l’adresse du pool n’a pas répondu',
@@ -131,6 +132,7 @@ const fr = {
   status_answering: 'Répond',
   status_silent: 'Ne répond pas',
   status_unchecked: 'Non vérifié',
-  statusNote: 'Répond signifie que le processus du pool a répondu à l’instant. Ce n’est pas la preuve que les shares sont payées.',
+  statusNote:
+    'Répond signifie que le processus du pool a répondu lors de la dernière vérification de cette salle. Ce n’est pas la preuve que les shares sont payées.',
 } satisfies Record<keyof typeof en, string>;
 export const miningPoolCopy = defineCopy('more.mining.pool', en, { es, fr });
