@@ -353,6 +353,16 @@ const schema = serviceEnvSchema
         return v;
       }, z.coerce.number().int().min(1).max(50).optional()),
       /**
+       * Owner-published lifetime cap on handle changes per account (PP-send-request-03). Blank / unset → unpublished;
+       * every handle change refuses (`identity.handle_change_cap_unset`). Never invent a default: the stack sets a
+       * labelled TEST value only.
+       */
+      IDENTITY_HANDLE_CHANGE_MAX: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(100).optional()),
+      /**
        * Owner-published lifetime of an OAuth authorisation code, in seconds. Blank / unset → unpublished; an
        * authorise decision and a code exchange refuse (`oauth.lifetime_unset`). Never git-default.
        */

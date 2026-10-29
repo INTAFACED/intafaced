@@ -99,7 +99,7 @@ export class SavedRecipientService {
       }
       return current;
     }
-    const person = await this.activeByHandle(handle);
+    const person = await this.activeByHandle(handle, ownerId);
     if (!person) throw new SavedRecipientError(`No such person (${RECIPIENT_UNKNOWN})`, RECIPIENT_UNKNOWN);
     if (person.id === ownerId) throw new SavedRecipientError(`You cannot save yourself (${RECIPIENT_SELF})`, RECIPIENT_SELF);
     await this.sql.begin(async (tx) => {
@@ -175,9 +175,12 @@ export class SavedRecipientService {
     return rows[0] ?? null;
   }
 
-  private async activeByHandle(handle: string): Promise<{ id: string; handle: string } | null> {
+  /** An undiscoverable handle (PP-send-request-03) is the same miss as an unknown one, except to its owner. */
+  private async activeByHandle(handle: string, ownerId: string): Promise<{ id: string; handle: string } | null> {
     const rows = await this.sql<Array<{ id: string; handle: string }>>`
-      SELECT id, handle::text AS handle FROM users WHERE handle = ${handle} AND status = 'active' LIMIT 1
+      SELECT id, handle::text AS handle FROM users
+       WHERE handle = ${handle} AND status = 'active' AND (handle_discoverable OR id = ${ownerId})
+       LIMIT 1
     `;
     return rows[0] ?? null;
   }

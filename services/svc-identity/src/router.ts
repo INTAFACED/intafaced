@@ -1147,7 +1147,8 @@ export function createIdentityRouter(
        * phone or legal name.
        *
        * No enumeration: exact case-insensitive match only; malformed, unknown,
-       * frozen and closed handles all answer `{ found: false }`; a per-caller
+       * frozen, closed and undiscoverable (to anyone but their owner) handles
+       * all answer `{ found: false }`; a per-caller
        * budget (30/min) refuses bulk probing with 429. Sessions only: an API
        * key may not probe the handle space.
        */
@@ -1174,7 +1175,10 @@ export function createIdentityRouter(
           if (handle === null) return { found: false as const };
           const hit = await auth.findActiveByHandle(handle);
           if (!hit) return { found: false as const };
-          return { found: true as const, userId: hit.userId, handle: hit.handle, self: hit.userId === ctx.principal.userId };
+          const self = hit.userId === ctx.principal.userId;
+          // Discoverability off (PP-send-request-03): the same miss as an unknown handle for everyone but the owner.
+          if (!hit.discoverable && !self) return { found: false as const };
+          return { found: true as const, userId: hit.userId, handle: hit.handle, self };
         }),
 
       /**
