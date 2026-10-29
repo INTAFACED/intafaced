@@ -752,6 +752,7 @@ services:
       TRADE_OTC_MIDS: ${TRADE_OTC_MIDS:-}
       TRADE_DEVELOPER_HOSTS: ${TRADE_DEVELOPER_HOSTS:-}
       TRADE_DEVELOPER_DATA_TERMS: ${TRADE_DEVELOPER_DATA_TERMS:-}
+      TRADE_DEVELOPER_REGIONAL_RULE: ${TRADE_DEVELOPER_REGIONAL_RULE:-}
       TRADE_OTC_MID_FROM_VENUE: ${TRADE_OTC_MID_FROM_VENUE:-false}
       TRADE_OTC_VENUE_SYMBOLS: ${TRADE_OTC_VENUE_SYMBOLS:-}
       # Spot candle materialization (A-TRADE-SPOT-1). Default OFF — same shape as
@@ -1654,8 +1655,9 @@ services:
       IDENTITY_URL: http://svc-identity:4002
       BANK_URL: http://svc-bank:4009
       PAY_URL: http://svc-pay:4006
-      # Alert source. Blank → ops.alert_source_unconfigured. A set URL is not probed.
-      OPS_ALERT_SOURCE_URL: ${OPS_ALERT_SOURCE_URL:-}
+      # Reconciliation alerts read the ledger's settled evaluations through LEDGER_URL. Blank repeat → a repeat failure
+      # still counts and its notice reads ops.alert_repeat_unset.
+      OPS_RECON_ALERT_REPEAT_SECONDS: ${OPS_RECON_ALERT_REPEAT_SECONDS:-}
     expose: ['4022']
     healthcheck: *healthcheck
     depends_on:

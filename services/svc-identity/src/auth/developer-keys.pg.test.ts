@@ -65,12 +65,17 @@ if (!available) {
 
   let caps: ReadonlyMap<KycTier, number> | null = parseApiKeyCapByTier('none=3');
   let passkeyRule = false;
+  const sealKey = randomBytes(32);
+  let signingEncKey: Buffer | null = sealKey;
+  let signingWindowSeconds: number | null = 300;
   let n = 0;
   const unique = () => `dk${process.pid}${++n}`;
 
   beforeEach(async () => {
     caps = parseApiKeyCapByTier('none=3');
     passkeyRule = false;
+    signingEncKey = sealKey;
+    signingWindowSeconds = 300;
     await db.truncateAll();
     await rank.seedTiers();
   });
@@ -87,6 +92,12 @@ if (!available) {
       kycTier: (userId, executor) => auth.kycTier(userId, executor),
       get capByTier() {
         return caps;
+      },
+      get signingEncKey() {
+        return signingEncKey;
+      },
+      get signingWindowSeconds() {
+        return signingWindowSeconds;
       },
       mayMint: async (userId, factor) => {
         if (passkeyRule) await passkeyMintRule(db.sql)(userId, factor);
@@ -187,7 +198,7 @@ if (!available) {
       const first = await c.developerKeys.create({ ...asked, factorProof: await proof(s) });
       // No second factor: a repeat reveals only what the list shows.
       const again = await c.developerKeys.create(asked);
-      expect(again).toEqual({ record: first.record, key: null, replayed: true });
+      expect(again).toEqual({ record: first.record, key: null, signingSecret: null, replayed: true });
       await expect(c.developerKeys.create({ ...asked, scopes: ['trade:read', 'trade:write'] })).rejects.toMatchObject({
         code: 'CONFLICT',
         message: expect.stringContaining('[identity.key_request_conflict]'),
@@ -236,6 +247,89 @@ if (!available) {
       expect(await keysOf(s.userId)).toHaveLength(0);
       const unspent = await db.sql`SELECT 1 FROM pay_step_up_proofs WHERE proof_id = ${p.proofId} AND consumed_at IS NULL`;
       expect(unspent).toHaveLength(1);
+    });
+
+    it('mints a key that may place orders with signing on and a sealed secret, shown once', async () => {
+      const s = await register();
+      const c = await caller(s);
+      const asked = ask(s.userId, 'trader', { scopes: ['trade:read', 'trade:write'] });
+      const made = await c.developerKeys.create({ ...asked, factorProof: await proof(s) });
+      expect(made.signingSecret).toMatch(/^ifs_/);
+      const [row] = await db.sql<Array<{ require_signature: boolean; request_signing_secret: string | null }>>`
+        SELECT require_signature, request_signing_secret FROM api_keys WHERE id = ${made.record.id}
+      `;
+      expect(row!.require_signature).toBe(true);
+      expect(row!.request_signing_secret).toBeTruthy();
+      expect(row!.request_signing_secret).not.toContain(made.signingSecret!);
+      // A repeat never shows the secret again.
+      expect((await c.developerKeys.create(asked)).signingSecret).toBeNull();
+      // A read-only key does not sign by default and gets no secret.
+      const reader = await c.developerKeys.create({ ...ask(s.userId, 'reader'), factorProof: await proof(s) });
+      expect(reader.signingSecret).toBeNull();
+      const [readRow] = await db.sql<Array<{ require_signature: boolean }>>`
+        SELECT require_signature FROM api_keys WHERE id = ${reader.record.id}
+      `;
+      expect(readRow!.require_signature).toBe(false);
+    });
+
+    it('refuses a key that may place orders while signing is not set up, before the factor is spent', async () => {
+      signingEncKey = null;
+      const s = await register();
+      const c = await caller(s);
+      const p = await proof(s);
+      await expect(
+        c.developerKeys.create({ ...ask(s.userId, 'trader', { scopes: ['trade:write'] }), factorProof: p }),
+      ).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+        message: expect.stringContaining('[identity.key_signing_unset]'),
+      });
+      expect(await keysOf(s.userId)).toHaveLength(0);
+      expect(await db.sql`SELECT 1 FROM pay_step_up_proofs WHERE proof_id = ${p.proofId} AND consumed_at IS NULL`).toHaveLength(1);
+    });
+
+    it('refuses a key that may place orders while the owner signing window is blank, before the factor is spent', async () => {
+      signingWindowSeconds = null;
+      const s = await register();
+      const c = await caller(s);
+      const p = await proof(s);
+      await expect(
+        c.developerKeys.create({ ...ask(s.userId, 'trader', { scopes: ['trade:write'] }), factorProof: p }),
+      ).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+        message: expect.stringContaining('[identity.key_signing_unset]'),
+      });
+      expect(await keysOf(s.userId)).toHaveLength(0);
+      expect(await db.sql`SELECT 1 FROM pay_step_up_proofs WHERE proof_id = ${p.proofId} AND consumed_at IS NULL`).toHaveLength(1);
+    });
+
+    it('never leaves a key that must sign without a secret: a mint path that issues no secret does not turn signing on', async () => {
+      const s = await register();
+      const trader = await auth.createApiKey({
+        userId: s.userId,
+        name: 'legacy-trader',
+        scopes: ['trade:read', 'trade:write'],
+        grantorScopes: ['trade:read', 'trade:write'],
+      });
+      const reader = await auth.createApiKey({
+        userId: s.userId,
+        name: 'legacy-reader',
+        scopes: ['trade:read'],
+        grantorScopes: ['trade:read'],
+      });
+      const rows = await db.sql<Array<{ id: string; require_signature: boolean; request_signing_secret: string | null }>>`
+        SELECT id, require_signature, request_signing_secret FROM api_keys WHERE id IN (${trader.id}, ${reader.id})
+      `;
+      expect(rows).toHaveLength(2);
+      for (const row of rows)
+        expect({ id: row.id, signs: row.require_signature, secret: row.request_signing_secret }).toEqual({
+          id: row.id,
+          signs: false,
+          secret: null,
+        });
+      // Every key that signs holds a sealed secret it can be signed with.
+      const unusable =
+        await db.sql`SELECT id FROM api_keys WHERE user_id = ${s.userId} AND require_signature = true AND request_signing_secret IS NULL`;
+      expect(unusable).toEqual([]);
     });
 
     it('refuses an account without a verified passkey with a typed code, before the factor is spent', async () => {

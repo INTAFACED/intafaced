@@ -17,7 +17,8 @@ import { EDGE, ROOT } from './stack.mjs';
 // seed service's wiring and run the seed's own scripts, which refuse anything but a local dev or test build.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - #2: the sign-in page of a non-live build has no "Tester build" panel saying where the founder vault is.
-// - #5: the Help room does not read the host dispatch receipt (RC-home-ia-01); the check itself is built.
+// - #5: no deployment receipt with three served hosts exists on this stack (no apex, app or join host is named), so the
+//   step fails by name, BLOCKED hosts_unset, after the Help room's rows are matched to what the build published.
 const J = 'J-home-ia-11';
 const UNBUILT = { timeout: 5_000 };
 // The stack's own rule for its state folder (LOCAL_STACK_STATE, else per user, else /var/lib as root).
@@ -277,9 +278,29 @@ test(`${J} #5 the apex, app and join hosts are checked: a receipt of three serve
     ['join', 'https://127.0.0.1:9', 'host.not_served'],
   ]);
 
-  // The Help room reads the deployment's receipt and shows each host as served or with its named blocker.
+  // The Help room shows each host exactly as the receipt the build published says: its host and its one result. With no
+  // receipt published (a static host answers the unknown path with the app's index, not JSON), every row is
+  // host.receipt_missing, never served.
+  const published = await page.request.get('/host-dispatch.json');
+  const isReceipt = published.ok() && (published.headers()['content-type'] ?? '').includes('application/json');
+  const served = isReceipt ? await published.json() : null;
   await page.goto('/help');
-  const hosts = page.getByTestId('host-dispatch');
-  await expect(hosts).toBeVisible(UNBUILT);
-  for (const role of ['apex', 'app', 'join']) await expect(hosts).toContainText(new RegExp(`${role}[\\s\\S]*(served|host\\.)`, 'i'));
+  await expect(page.getByTestId('host-dispatch')).toBeVisible();
+  for (const role of ['apex', 'app', 'join']) {
+    const row = page.getByTestId(`host-dispatch-${role}`);
+    const want = served ? (served.hosts.find((host) => host.role === role) ?? {}) : { host: null, result: 'host.receipt_missing' };
+    const result = want.result ?? served?.hosts.find((host) => host.role === 'all')?.result ?? 'host.not_checked';
+    await expect(row).toHaveAttribute('data-result', result);
+    if (want.host) await expect(row).toContainText(want.host);
+  }
+
+  // The step's pass: a receipt in which the apex, app and join hosts are each served. Until a deployment names them,
+  // this fails by name.
+  expect(
+    served?.status === 'served' &&
+      ['apex', 'app', 'join'].every((role) => served.hosts.some((h) => h.role === role && h.result === 'served')),
+    `BLOCKED hosts_unset: the build published ${served ? `a ${served.status} receipt` : 'no host dispatch receipt'}, not one with the apex, app and join hosts served`,
+  ).toBe(true);
+  for (const role of ['apex', 'app', 'join'])
+    await expect(page.getByTestId(`host-dispatch-${role}`)).toHaveAttribute('data-result', 'served');
 });

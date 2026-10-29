@@ -774,6 +774,15 @@ const schema = serviceEnvSchema
        */
       TRADE_DEVELOPER_DATA_TERMS: z.string().default(''),
 
+      /**
+       * The rule for the regional hosts the developer portal states under its base-address table (developer-portal-rest.ts):
+       * plain text, who may use a regional host and when.
+       *
+       * NO DEFAULT. Empty → GET /developer-portal/regional-rule refuses trade.developer_regional_rule_unset and the page says
+       * the rule waits for the owner. Longer than 1000 characters refuses boot. The text is owner content.
+       */
+      TRADE_DEVELOPER_REGIONAL_RULE: z.string().default(''),
+
       /** svc-token — stakeOf for OTC staked-tier gate. */
       TOKEN_URL: z.string().url().default('http://localhost:4003'),
     }),

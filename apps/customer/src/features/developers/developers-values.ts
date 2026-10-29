@@ -12,6 +12,7 @@ import type { Read } from './use-read';
 
 export const DEVELOPER_HOSTS_UNSET = 'trade.developer_hosts_unset';
 export const DEVELOPER_DATA_TERMS_UNSET = 'trade.developer_data_terms_unset';
+export const DEVELOPER_REGIONAL_RULE_UNSET = 'trade.developer_regional_rule_unset';
 
 const hostsSchema = z.object({
   hosts: z.array(z.object({ protocol: z.enum(PROTOCOLS), environment: z.enum(ENVIRONMENTS), host: z.string().min(1).nullable() })),
@@ -24,6 +25,7 @@ const termsSchema = z.object({
     }),
   ),
 });
+const regionalRuleSchema = z.object({ rule: z.string().min(1) });
 type Term = (typeof DATA_TERMS)[number];
 export type DataProduct = (typeof DATA_PRODUCTS)[number];
 export type ProductTerms = Record<Term, string> | null;
@@ -66,4 +68,18 @@ export function termsView(
   }
   const { products } = read.data;
   return { kind: 'table', termsOf: (product) => products.find((row) => row.product === product)?.terms ?? null, unsetCode: null };
+}
+
+export const readRegionalRule = (api: ApiClient, signal: AbortSignal): Promise<ApiResult<z.infer<typeof regionalRuleSchema>>> =>
+  api.plain('trade', '/developer-portal/regional-rule', regionalRuleSchema, { signal });
+
+/** The regional host rule: the owner's text, or unset with the code that says why; any other failure is not "unset". */
+export function regionalRuleView(
+  read: Read<z.infer<typeof regionalRuleSchema>>,
+): { kind: 'loading' } | { kind: 'failed' } | { kind: 'set'; rule: string } | { kind: 'unset'; code: string } {
+  if (read.status === 'loading') return { kind: 'loading' };
+  if (read.status === 'failed') {
+    return read.code === DEVELOPER_REGIONAL_RULE_UNSET ? { kind: 'unset', code: read.code } : { kind: 'failed' };
+  }
+  return { kind: 'set', rule: read.data.rule };
 }
