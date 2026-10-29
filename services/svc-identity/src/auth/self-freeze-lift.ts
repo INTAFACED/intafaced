@@ -17,6 +17,8 @@ export class SelfFreezeLiftError extends Error {
   constructor(
     readonly code: SelfFreezeLiftCode,
     readonly availableAt: Date | null = null,
+    /** Whole seconds until `availableAt`, on the database clock that decided "too soon". */
+    readonly secondsLeft: number | null = null,
   ) {
     super(code);
     this.name = 'SelfFreezeLiftError';
@@ -69,12 +71,14 @@ export class SelfFreezeLift {
   async assertDue(userId: string): Promise<void> {
     const wait = this.waitSeconds;
     assertLiftWaitSet(wait);
-    const open = await this.sql<Array<{ available_at: Date; due: boolean }>>`
+    const open = await this.sql<Array<{ available_at: Date; due: boolean; seconds_left: number }>>`
       SELECT since + make_interval(secs => ${wait}) AS available_at,
-             since + make_interval(secs => ${wait}) <= now() AS due
+             since + make_interval(secs => ${wait}) <= now() AS due,
+             ceil(extract(epoch FROM since + make_interval(secs => ${wait}) - now()))::int AS seconds_left
         FROM account_self_freezes WHERE user_id = ${userId} AND state = 'frozen'`;
     const row = open[0];
-    if (row && !row.due) throw new SelfFreezeLiftError('identity.self_freeze_lift_too_soon', row.available_at);
+    if (row && !row.due)
+      throw new SelfFreezeLiftError('identity.self_freeze_lift_too_soon', row.available_at, Math.max(1, row.seconds_left));
   }
 
   async lift(userId: string): Promise<SelfFreezeLiftResult> {
@@ -82,15 +86,16 @@ export class SelfFreezeLift {
     assertLiftWaitSet(wait);
     const result = await transaction(this.sql, async (tx): Promise<SelfFreezeLiftResult> => {
       await tx`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
-      const open = await tx<Array<{ id: string; available_at: Date; due: boolean }>>`
+      const open = await tx<Array<{ id: string; available_at: Date; due: boolean; seconds_left: number }>>`
         SELECT id,
                since + make_interval(secs => ${wait}) AS available_at,
-               since + make_interval(secs => ${wait}) <= now() AS due
+               since + make_interval(secs => ${wait}) <= now() AS due,
+               ceil(extract(epoch FROM since + make_interval(secs => ${wait}) - now()))::int AS seconds_left
           FROM account_self_freezes WHERE user_id = ${userId} AND state = 'frozen'`;
       const row = open[0];
       // Nothing open: already lifted (a retry after a lost reply) answers the same, changes nothing.
       if (!row) return { frozen: false as const, changed: false, liftedAt: null };
-      if (!row.due) throw new SelfFreezeLiftError('identity.self_freeze_lift_too_soon', row.available_at);
+      if (!row.due) throw new SelfFreezeLiftError('identity.self_freeze_lift_too_soon', row.available_at, Math.max(1, row.seconds_left));
       const lifted = await tx<Array<{ lifted_at: Date }>>`
         UPDATE account_self_freezes SET state = 'lifted', lifted_at = now() WHERE id = ${row.id} RETURNING lifted_at`;
       return { frozen: false as const, changed: true, liftedAt: lifted[0]!.lifted_at };

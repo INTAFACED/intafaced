@@ -15,7 +15,7 @@ import { fundedTrader, signIn, signUp } from './desk.mjs';
 // own record of the quote (rfq.get through Edge) and the ledger balance, not only the screen.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - #1 no asset list on the desk (CB-otc-11); #2 no provider pick (CB-otc-01); #3 no verification-level gate
-//   (CB-otc-08); #4 no minimum notional (CB-otc-07).
+//   (CB-otc-08).
 // - #5: no RFQ board grouped by status (CB-otc-02); #9: Convert has no OTC price (CB-otc-12).
 const J = 'J-copy-bots-otc-24';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -51,18 +51,21 @@ async function accept(page, quote) {
   await expect(quote.getByTestId('phase-line')).toContainText('Accepted, not settled');
 }
 
-/** svc-trade restarted with the desk's settle window blank, or back on the stack's TEST window. */
-function tradeSettleWindow(on) {
-  const before = process.env.LOCAL_STACK_TRADE_OTC_SETTLE_WINDOW;
-  if (on) delete process.env.LOCAL_STACK_TRADE_OTC_SETTLE_WINDOW;
-  else process.env.LOCAL_STACK_TRADE_OTC_SETTLE_WINDOW = 'off';
+/** svc-trade restarted with one desk-law value blank (`<name>=off`), or back on the stack's TEST value. */
+function tradeSwitch(name, on) {
+  const before = process.env[name];
+  if (on) delete process.env[name];
+  else process.env[name] = 'off';
   try {
     tool('local-test-stack.mjs', 'restart', 'trade');
   } finally {
-    if (before === undefined) delete process.env.LOCAL_STACK_TRADE_OTC_SETTLE_WINDOW;
-    else process.env.LOCAL_STACK_TRADE_OTC_SETTLE_WINDOW = before;
+    if (before === undefined) delete process.env[name];
+    else process.env[name] = before;
   }
 }
+
+/** svc-trade restarted with the desk's settle window blank, or back on the stack's TEST window. */
+const tradeSettleWindow = (on) => tradeSwitch('LOCAL_STACK_TRADE_OTC_SETTLE_WINDOW', on);
 
 /** The desk's settle window in ms as its status line publishes it, or 'unset'. */
 async function publishedWindow() {
@@ -74,6 +77,35 @@ async function publishedWindow() {
 async function publishedMinStake(client) {
   const desk = await client.get('/api/trade/trpc/otc.deskStatus');
   return /(?:^| )minStake=(\S+)/.exec(desk.body.result.data.statusLine)?.[1];
+}
+
+/** The desk's minimum for requests in `asset` as its status line publishes it (`minNotional=USDT:1000`), or 'unset'. */
+async function publishedMinimum(client, asset) {
+  const desk = await client.get('/api/trade/trpc/otc.deskStatus');
+  const table = /(?:^| )minNotional=(\S+)/.exec(desk.body.result.data.statusLine)?.[1];
+  if (table === 'unset') return 'unset';
+  return table
+    ?.split(',')
+    .find((entry) => entry.startsWith(`${asset}:`))
+    ?.slice(asset.length + 1);
+}
+
+/** The account's quotes as svc-trade records them (rfq.list), over a window around now. */
+async function listedQuotes(client) {
+  const window = { from: new Date(Date.now() - 3_600_000).toISOString(), to: new Date(Date.now() + 3_600_000).toISOString(), limit: 50 };
+  const read = await client.get(`/api/trade/trpc/rfq.list?input=${encodeURIComponent(JSON.stringify(window))}`);
+  expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
+  return read.body.result.data.rows;
+}
+
+/** Asks for a price on `quantity` BTC against USDT on the open room and returns the service's refusal code. */
+async function askRefused(page, quantity) {
+  const answer = page.waitForResponse((res) => res.url().includes('rfq.quote'));
+  await request(page).getByRole('combobox', { name: 'Pair' }).click();
+  await page.getByRole('option', { name: 'BTC/USDT', exact: true }).click();
+  await request(page).getByRole('textbox', { name: 'Quantity' }).fill(quantity);
+  await page.getByRole('button', { name: 'Request price' }).click();
+  return [await (await answer).json()].flat()[0].error?.data?.cause?.code;
 }
 
 /** svc-token's own record of what the account has staked, as the account reads it. */
@@ -159,30 +191,17 @@ test(`${J} starts: below the desk's tier the price request is refused with trade
   expect(toUnits(short)).toBeGreaterThan(0n);
   await stake(below, me, short);
   const before = await me.balances();
-  // The account's quotes as svc-trade records them (rfq.list), over a window around this step.
-  const window = { from: new Date(Date.now() - 3_600_000).toISOString(), to: new Date(Date.now() + 3_600_000).toISOString(), limit: 50 };
-  const listed = async () => {
-    const read = await me.get(`/api/trade/trpc/rfq.list?input=${encodeURIComponent(JSON.stringify(window))}`);
-    expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
-    return read.body.result.data.rows;
-  };
-  expect(await listed()).toEqual([]);
+  expect(await listedQuotes(me)).toEqual([]);
 
   await signIn(page, below);
   await page.goto('/otc');
   await expect(desk(page)).toBeVisible();
-  const answer = page.waitForResponse((res) => res.url().includes('rfq.quote'));
-  await request(page).getByRole('combobox', { name: 'Pair' }).click();
-  await page.getByRole('option', { name: 'BTC/USDT', exact: true }).click();
-  await request(page).getByRole('textbox', { name: 'Quantity' }).fill('0.5');
-  await page.getByRole('button', { name: 'Request price' }).click();
-  const refused = await (await answer).json();
-  expect([refused].flat()[0].error.data.cause.code).toBe('trade.otc_stake_gate');
+  expect(await askRefused(page, '0.5')).toBe('trade.otc_stake_gate');
   await expect(page.getByText('trade.otc_stake_gate')).toBeVisible();
   await expect(card(page)).toHaveCount(0);
 
   // Re-read after the refusal: no quote was recorded for the account and nothing moved or was held.
-  expect(await listed()).toEqual([]);
+  expect(await listedQuotes(me)).toEqual([]);
   expect(await me.balances()).toEqual(before);
   expect(await stakedOf(me)).toBe(short);
 });
@@ -217,10 +236,46 @@ test(`${J} #3 requests as a user below the owner's level: refused, and no quote 
 });
 
 test(`${J} #4 requests below the desk minimum: refused with the minimum`, async ({ page }) => {
+  test.setTimeout(180_000);
+  // The account from "starts" is staked to the desk's tier, so the stake gate passes and the minimum is what refuses.
+  const me = await api(run.read().who);
+  // The desk's own minimum for USDT requests, read back from its status line, not a number this file chose.
+  const minimum = await publishedMinimum(me, 'USDT');
+  expect(toUnits(minimum)).toBeGreaterThan(0n);
+  const before = await me.balances();
+  const quotes = await listedQuotes(me);
+
+  // 0.00001 BTC at the TEST reference price of 65000 is 0.65 USDT, far below the minimum.
   await openOtc(page);
-  await request(page).getByRole('textbox', { name: 'Quantity' }).fill('0.00001', UNBUILT);
-  await page.getByRole('button', { name: 'Request price' }).click(UNBUILT);
-  await expect(page.getByRole('alert')).toContainText(/minimum of [\d.,]+ USDT/, UNBUILT);
+  expect(await askRefused(page, '0.00001')).toBe('trade.rfq_below_minimum');
+  // The refusal names the minimum, and it is the number the desk publishes.
+  await expect(page.getByText(`Below the desk minimum of ${minimum} USDT.`)).toBeVisible();
+  await expect(card(page)).toHaveCount(0);
+
+  // Re-read after the refusal: no quote was recorded and nothing moved or was held.
+  expect(await listedQuotes(me)).toEqual(quotes);
+  expect(await me.balances()).toEqual(before);
+});
+
+test(`${J} #4 with the desk minimum blank: the request refuses with trade.rfq_size_not_set and records nothing`, async ({ page }) => {
+  test.setTimeout(300_000);
+  const me = await api(run.read().who);
+  try {
+    tradeSwitch('LOCAL_STACK_TRADE_OTC_MIN_NOTIONAL', false);
+    expect(await publishedMinimum(me, 'USDT')).toBe('unset');
+    const before = await me.balances();
+    const quotes = await listedQuotes(me);
+    await openOtc(page);
+    // A size the TEST minimum would price (#6 asks the same), so only the blank minimum can refuse it.
+    expect(await askRefused(page, '0.5')).toBe('trade.rfq_size_not_set');
+    await expect(page.getByText('The desk minimum is not set')).toBeVisible();
+    await expect(card(page)).toHaveCount(0);
+    expect(await listedQuotes(me)).toEqual(quotes);
+    expect(await me.balances()).toEqual(before);
+  } finally {
+    tradeSwitch('LOCAL_STACK_TRADE_OTC_MIN_NOTIONAL', true);
+  }
+  expect(toUnits(await publishedMinimum(me, 'USDT'))).toBeGreaterThan(0n);
 });
 
 test(`${J} #5 opens the RFQ board: grouped by status with counts, the best quote on top, equal quotes to the earlier`, async ({ page }) => {
