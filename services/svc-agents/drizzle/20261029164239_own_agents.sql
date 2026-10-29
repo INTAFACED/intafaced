@@ -1,5 +1,5 @@
 -- svc-agents · agents a person builds for themselves (AG-builder-01)
--- Reversal: 0005_own_agents.down.sql
+-- Reversal: 20261029164239_own_agents.down.sql
 --
 -- A draft is the person's own: its tools come only from the addable catalogue
 -- (src/own/catalog.ts), never a tool that moves money, and a blank spend cap
