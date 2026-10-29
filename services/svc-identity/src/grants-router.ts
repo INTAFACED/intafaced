@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
+import { revokeCauseOf } from './auth/revoke-all-api-keys.js';
 
 /** The name the account page shows for what a key is. */
 const connectedApp = z.object({
@@ -84,10 +85,17 @@ export function createGrantsRouter(sql: Sql) {
         .input(z.object({ keyId: z.string().guid() }).strict())
         .output(z.object({ keyId: z.string().guid(), revoked: z.literal(true), alreadyRevoked: z.boolean() }).strict())
         .mutation(async ({ ctx, input }) => {
-          const updated = await sql`
-            UPDATE api_keys SET revoked = true
-            WHERE id = ${input.keyId} AND user_id = ${ctx.principal.userId} AND revoked = false
-          `;
+          // A key or sub-account may switch off a sibling key; the list then says so instead of "Revoked by you".
+          const updated =
+            revokeCauseOf(ctx.principal) === 'delegate'
+              ? await sql`
+                  UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'delegate'
+                  WHERE id = ${input.keyId} AND user_id = ${ctx.principal.userId} AND revoked = false
+                `
+              : await sql`
+                  UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'owner'
+                  WHERE id = ${input.keyId} AND user_id = ${ctx.principal.userId} AND revoked = false
+                `;
           if (updated.count > 0) return { keyId: input.keyId, revoked: true as const, alreadyRevoked: false };
           const [own] = await sql`SELECT 1 FROM api_keys WHERE id = ${input.keyId} AND user_id = ${ctx.principal.userId}`;
           if (!own) throw new TRPCError({ code: 'NOT_FOUND', message: 'auth.not_found' });

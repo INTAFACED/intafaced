@@ -159,6 +159,10 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'identity.key_request_conflict': 'This request was already used for a different key. Reload the page and try again.',
   'auth.passkey_missing': 'Add a passkey on Security first. Only an account with a passkey can hold API keys.',
   'auth.passkey_verify_unavailable': 'Use your passkey once to sign in or confirm, then make the key.',
+  'auth.delegate_cannot_grant': 'An API key cannot create or change keys, including its own end date. Sign in on a device.',
+  'identity.key_not_found': 'No key with this id is on your account.',
+  'identity.key_not_live': 'This key is revoked or has ended. Make a new key instead.',
+  'identity.key_revoke_reason_invalid': 'Use a reason of at most 200 characters, with no control characters.',
 };
 
 export function userCopy(key: string, params: Readonly<Record<string, string | number | bigint>> = {}): string {

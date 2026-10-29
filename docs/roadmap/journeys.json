@@ -6193,6 +6193,24 @@
     ]
   },
   {
+    "id": "J-ops-console-27",
+    "title": "The money loop reconciles to the cent",
+    "module": "ops-console",
+    "persona": "retail",
+    "tier": "core",
+    "order": 1,
+    "steps": [
+      { "n": 1, "slices": ["I-kyc-compliance-06", "I-signin-sessions-18"], "noSlice": false },
+      { "n": 2, "slices": ["I-kyc-compliance-08", "I-kyc-compliance-02"], "noSlice": false },
+      { "n": 3, "slices": ["W-deposit-05"], "noSlice": false },
+      { "n": 4, "slices": ["SP-order-entry-01", "SP-order-entry-02"], "noSlice": false },
+      { "n": 5, "slices": ["PP-send-request-01"], "noSlice": false },
+      { "n": 6, "slices": ["BK-ord-01", "BK-xfer-08"], "noSlice": false },
+      { "n": 7, "slices": ["W-withdraw-01", "W-withdraw-06"], "noSlice": false },
+      { "n": 8, "slices": ["OPS-reconciliation-02", "OPS-reconciliation-03", "OPS-reconciliation-04"], "noSlice": false }
+    ]
+  },
+  {
     "id": "J-p2p-01",
     "title": "Buy crypto from an ad, pay the seller outside, and receive the coins",
     "module": "p2p",
