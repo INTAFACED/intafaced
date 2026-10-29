@@ -61,6 +61,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { apiSecurityHeaders, securityHeaders } from '../../apps/customer/deployment/render-security-headers.mjs';
 import { marketStatus } from './local-test-market.mjs';
+import { serveRailStatements } from './local-test-rail-statements.mjs';
 import { serveVideoStore } from './local-video-store.mjs';
 import academy from './local-stack-services/academy.mjs';
 import agents from './local-stack-services/agents.mjs';
@@ -170,6 +171,9 @@ const PORTS = {
   campaigns: 14522,
   // The live market-data and private streams the Customer app opens through /ws.
   ws: 14523,
+  // LOCAL TEST statements of each rail stand-in's own records, read by svc-ledger's per-rail outside controls
+  // (local-test-rail-statements.mjs).
+  'rail-statements': 14524,
   customer: 3210,
   invitation: 3220,
   admin: 3100,
@@ -1233,6 +1237,17 @@ async function startVideoStore(secrets) {
   await waitHealthy('video-store', url, pid, 20_000);
 }
 
+/** The LOCAL TEST rail statements (local-test-rail-statements.mjs): each rail stand-in's own records, for svc-ledger. */
+async function startRailStatements() {
+  const procs = readProcs();
+  const url = `${urlOf('rail-statements')}/health`;
+  if (ownedAlive(procs['rail-statements']) && (await httpGet(url, 2000)).status === 200) return;
+  if (await portOpen(PORTS['rail-statements']))
+    fail(`port ${PORTS['rail-statements']} (rail-statements) is in use by a process this script did not start`);
+  const pid = startProc('rail-statements', [process.execPath, SCRIPT, '__serve-rail-statements'], baseEnv(), REPO);
+  await waitHealthy('rail-statements', url, pid, 20_000);
+}
+
 /** The public invitation site (apps/invitation), served like the Customer app so its intake reaches svc-ops through Edge. */
 async function startInvitation() {
   const procs = readProcs();
@@ -1361,6 +1376,13 @@ async function healthTable({ gateMarket = false } = {}) {
     procs['video-store']?.pid ?? '-',
     store.status === 200 ? 'ok (TEST)' : `DOWN (${store.status})`,
   ]);
+  const statements = await httpGet(`${urlOf('rail-statements')}/health`, 2500);
+  rows.push([
+    'rail-statements',
+    PORTS['rail-statements'],
+    procs['rail-statements']?.pid ?? '-',
+    statements.status === 200 ? 'ok (TEST)' : `DOWN (${statements.status})`,
+  ]);
   const cust = await httpGet(`${CUSTOMER_ORIGIN}/`, 2500);
   rows.push([
     'customer',
@@ -1392,7 +1414,7 @@ function onlyFlag(flags) {
   const at = flags.indexOf('--only');
   if (at === -1) return null;
   const names = (flags[at + 1] ?? '').split(',').filter(Boolean);
-  const known = [...serviceNames(), 'video-store', 'customer', 'invitation', 'admin'];
+  const known = [...serviceNames(), 'video-store', 'rail-statements', 'customer', 'invitation', 'admin'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`--only needs a comma list of: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -1458,6 +1480,8 @@ async function cmdStart(flags) {
   }
   // Academy's env points at the video store, so `--only academy` starts it too.
   if (!only || only.includes('video-store') || only.includes('academy')) await startVideoStore(secrets);
+  // Ledger's per-rail outside controls read these statements, so `--only ledger` starts them too.
+  if (!only || only.includes('rail-statements') || only.includes('ledger')) await startRailStatements();
   await startServices(wanted);
   try {
     await ensureLocalTestFounders();
@@ -1520,7 +1544,7 @@ function ensureMarket() {
 
 async function cmdStop(names = []) {
   const procs = readProcs();
-  const order = ['admin', 'invitation', 'customer', ...serviceNames().reverse(), 'video-store', 'nats'];
+  const order = ['admin', 'invitation', 'customer', ...serviceNames().reverse(), 'video-store', 'rail-statements', 'nats'];
   const only = names.length ? names : null;
   let bad = false;
   for (const name of order) {
@@ -1591,7 +1615,7 @@ function cmdPlan(flags) {
 
 /** Stop the named services (plain stop, leaves Postgres and the rest alone), then start whatever is not running. */
 async function cmdRestart(names) {
-  const known = [...serviceNames(), 'video-store', 'customer', 'invitation', 'admin'];
+  const known = [...serviceNames(), 'video-store', 'rail-statements', 'customer', 'invitation', 'admin'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`restart needs service names from: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -2918,6 +2942,7 @@ async function runCli() {
       secretKey: process.env.LOCAL_VIDEO_STORE_SECRET ?? '',
       uploadsDir: path.join(STATE, 'video-store-uploads'),
     });
+  else if (cmd === '__serve-rail-statements') serveRailStatements({ host: HOST, port: PORTS['rail-statements'], stateDir: STATE });
   else if (cmd === 'start' && rest[0] === 'customer-dist')
     cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
   else if (cmd === 'start') await cmdStart(rest);

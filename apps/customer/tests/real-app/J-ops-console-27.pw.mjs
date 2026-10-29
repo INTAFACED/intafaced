@@ -14,7 +14,9 @@ import { ADMIN, founderSignIn } from './admin.mjs';
 // TEST payout stand-in (BANK_PAYOUT_PARTNER=payout-sim, which pays nobody). #7 sends out through svc-pay's TEST custody
 // signer for TEST Ethereum (PAY_TEST_WITHDRAW_SIGNER_NETWORKS, stack only), on the TEST withdrawal terms the stack's
 // founders publish (local-test-gates.mjs withdraw-terms). Each step keeps what the owning service's own record says it
-// moved; #8 reads the ledger back for the customer on every asset it holds and checks each against those records.
+// moved; #8 reads the ledger back for the customer on every asset it holds and checks each against those records, and
+// the founders reconcile each outside rail's boundary (rail:crypto-native, rail:payout-sim) against that rail's own
+// statement, which the stack serves from the stand-ins' records (local-test-rail-statements.mjs).
 const J = 'J-ops-console-27';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ASSET = 'USDT';
@@ -483,7 +485,7 @@ test(`${J} #8 reconciles to the cent: the ledger read back for the customer on e
 });
 
 // The founders' side of #8, on the console's /ledger desk (the J-ops-console-07 run path): one outside_balance control per
-// asset the customer holds, defined by founder A and run once a second founder approves.
+// rail the customer's money crossed, defined by founder A and run once a second founder approves.
 const founders = {};
 test.afterAll(async () => {
   for (const page of Object.values(founders)) await page.context().close();
@@ -509,20 +511,18 @@ async function openLedger(page) {
 
 const controlRow = (section, id) => section.locator(`[data-testid="rc-row"][data-control-id="${id}"]`);
 
-async function defineOutside(section, asset, tag) {
+async function defineOutside(section, rail, tag) {
   const details = section.getByTestId('rc-define');
   if (!(await details.evaluate((el) => el.open))) await details.locator('summary').click();
   const form = section.getByTestId('rc-form-define');
-  const explanation = `LOCAL TEST ${asset} outside balance ${J} ${tag}`;
+  const explanation = `LOCAL TEST rail ${rail} outside balance ${J} ${tag}`;
   await form.getByLabel('Template').selectOption('outside_balance');
   await form.getByLabel('Explanation (optional)').fill(explanation);
-  // Every account of an asset nets to 0 by double entry, so the set is the rail boundaries only: the treasury accounts
-  // `rail:<rail>` that value crosses on its way in or out (the stack has no venue or bridge boundary). The outside side
-  // reports those boundaries in the ledger's own signed form, so the run compares like with like.
-  await form.getByLabel('Owner type').selectOption('treasury');
+  // One rail's boundary: the treasury account `rail:<rail>` value crosses on its way in or out, on every asset, judged
+  // against that rail's own statement (the stand-in's records, served by the stack), never against the ledger read back.
+  // No asset is named, so an asset the ledger holds on that boundary and the statement leaves out is UNSET, not skipped.
+  await form.getByLabel('Rail boundary').fill(rail);
   await form.getByLabel('Account kind').selectOption('available');
-  await form.getByLabel('Owner id starts with').fill('rail:');
-  await form.getByLabel('Asset', { exact: true }).fill(asset);
   await form.getByLabel('Cadence').selectOption('daily');
   await form.getByLabel('Hour (UTC)').fill('6');
   await form.getByLabel('Minute').fill('30');
@@ -535,6 +535,7 @@ async function defineOutside(section, asset, tag) {
   await expect(form.getByTestId('rc-saved')).toBeVisible({ timeout: 30_000 });
   const defined = section.getByTestId('rc-row').filter({ hasText: explanation });
   await expect(defined).toHaveCount(1);
+  await expect(defined).toContainText(`boundary of rail ${rail}`);
   return defined.getAttribute('data-control-id');
 }
 
@@ -567,32 +568,34 @@ async function twoFounderRun(a, b, controlId, tag) {
   return (await reply.innerText()).replace(/\s+/g, ' ');
 }
 
-test(`${J} #8 reconciles to the cent: the founders' outside-side reconciliation PASSes on every asset the customer holds`, async ({
-  browser,
-}) => {
+// The rails whose stand-ins keep their own statement (local-test-rail-statements.mjs), and the steps that moved value
+// across each. Rail `local-test` is the stack's TEST mint: it has no outside side, so it gets no control.
+const RAIL_STEPS = { 'crypto-native': ['deposit', 'withdraw'], 'payout-sim': ['cashOut'] };
+
+test(`${J} #8 reconciles to the cent: each rail's boundary PASSes against that rail's own statement`, async ({ browser }) => {
   test.setTimeout(600_000);
   const { moves = {} } = state();
-  const assets = [...new Set(Object.values(moves).flatMap((byAsset) => Object.keys(byAsset)))].sort();
-  if (!assets.length) throw new Error(`${J} #3 to #7 recorded no move, so no asset to reconcile`);
   const a = await founder(browser, 'a');
   const b = await founder(browser, 'b');
   const tag = `${state().who.handle}-${Date.now().toString(36)}`;
-  for (const asset of assets) {
-    const id = await defineOutside(await openLedger(a), asset, tag);
+  for (const [rail, steps] of Object.entries(RAIL_STEPS)) {
+    const crossed = [...new Set(steps.flatMap((step) => Object.keys(moves[step] ?? {})))].sort();
+    if (!crossed.length) throw new Error(`${J} ${steps.join(' and ')} recorded no move, so rail ${rail} has nothing to reconcile`);
+    const id = await defineOutside(await openLedger(a), rail, tag);
     const answer = await twoFounderRun(a, b, id, tag);
-    // The run read the rail boundaries, not a set that nets to 0.
+    // The run read this rail's boundary: one account per asset on it, never a set that nets to 0.
     const read = /(\d+) accounts? and \d+ assets? read\./.exec(answer);
-    expect(read, `${asset}: the run names how many rail boundary accounts it read`).not.toBeNull();
-    expect(Number(read[1]), `${asset}: at least one rail boundary account read`).toBeGreaterThan(0);
-    const observed = new RegExp(`${asset.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: observed (-?[\\d.]+),`).exec(answer);
-    expect(observed, `${asset}: the run names what the rail boundaries hold`).not.toBeNull();
-    expect(Number(observed[1]), `${asset}: the rail boundaries the customer's money crossed do not sum to 0`).not.toBe(0);
-    // The outside side is the stack's LOCAL TEST outside source (lane 5, LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL), built from
-    // the rail stand-ins' own records; with no source the run answers "Outside side: unset", and this clause stays red by name.
-    // Soft, so each asset's scope above is proven even while the outside side is missing; the step still fails.
-    expect
-      .soft(answer, `${asset}: blocked until the stack serves lane 5's LOCAL TEST outside source (Outside side: unset)`)
-      .toContain('Outside side: snapshot');
-    expect.soft(answer, asset).toMatch(new RegExp(`Run [0-9a-f-]{36}: PASS\\.`));
+    expect(read, `${rail}: the run names how many boundary accounts it read`).not.toBeNull();
+    expect(Number(read[1]), `${rail}: at least one boundary account read`).toBeGreaterThan(0);
+    for (const asset of crossed) {
+      const observed = new RegExp(`${asset.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: observed (-?[\\d.]+),`).exec(answer);
+      expect(observed, `${rail} ${asset}: the run names what the boundary holds`).not.toBeNull();
+      expect(Number(observed[1]), `${rail} ${asset}: the boundary the customer's money crossed is not 0`).not.toBe(0);
+    }
+    // The outside side is this rail's own statement (LEDGER_RECONCILE_RAIL_<RAIL>_URL, the stack's rail-statements
+    // stand-in). Soft, so every rail is judged in one run; the step still fails. A FAIL here is a real break between the
+    // rail and the ledger (for example a deposit the rail delivered that svc-pay did not credit), and stays red by name.
+    expect.soft(answer, `${rail}: the outside side is this rail's own statement`).toContain('Outside side: snapshot');
+    expect.soft(answer, `${rail}: the boundary equals the rail's statement to the cent`).toMatch(/Run [0-9a-f-]{36}: PASS\./);
   }
 });
