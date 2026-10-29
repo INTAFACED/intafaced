@@ -784,7 +784,8 @@ test(`${J} #8 watches the status: requested, held, broadcast and settled in plai
     }
     expect(seen.at(-1), `seen: ${seen.join(' → ')}`).toBe('settled');
     forwards(seen);
-    expect(seen.length, `the page read the send before it settled: ${seen.join(' → ')}`).toBeGreaterThan(1);
+    // While the TEST chain waits, svc-pay holds the money and its record reads `held`: the page must show that, in its word.
+    expect(seen, `the page read the send held before it settled: ${seen.join(' → ')}`).toContain('held');
     await expect(page.getByTestId('withdraw-outcome')).toContainText('Withdrawal recorded', { timeout: 30_000 });
     const made12 = await record(watching.id);
     expect(made12.status).toBe('settled');
