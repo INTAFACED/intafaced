@@ -336,6 +336,31 @@ test(`${J} #4 opens one payment: facts, amounts, timeline, linked refunds and th
     return read;
   };
 
+  // A timeline step's words for each kind of event in the service's history (the page's vocabulary).
+  const STEP = {
+    created: 'Payment created',
+    authorized: 'Authorised',
+    captured: 'Money taken',
+    settled: 'Added to a settlement',
+    refunded: 'Refunded',
+    'refund.reversed': 'A refund did not go through and was put back',
+    disputed: 'Customer disputed the payment',
+    failed: 'The payment did not go through',
+    'payer_name.held': 'Bank transfer held for a name check',
+  };
+  const REFUND_WORD = { posted: 'Refund sent', settled: 'Refund settled', reversed: 'Refund reversed' };
+  /** The page's Timeline lists the payment's history from the service, oldest first, one step per event it names. */
+  const showsItsTimeline = async (paymentId) => {
+    const events = await owner.query('payment.history', { paymentId, limit: 200 });
+    const expected = events
+      .filter((e) => STEP[e.event])
+      .sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts))
+      .map((e) => STEP[e.event]);
+    expect(expected.length, `payment ${paymentId} has a history`).toBeGreaterThan(1);
+    await expect(section('Timeline').getByRole('list', { name: 'Timeline' }).getByRole('listitem').locator('strong')).toHaveText(expected);
+    return expected;
+  };
+
   // The payment refunded in part: its facts and amounts, each read back from the service, and its timeline.
   const refundedRead = await showsItsStatus(ids.refunded, 'captured');
   const summary = section('Summary');
@@ -353,10 +378,20 @@ test(`${J} #4 opens one payment: facts, amounts, timeline, linked refunds and th
   expect(refundedRead.railAdapter).toBe('card-sandbox');
   await expect(fact(facts, 'Paid with')).toHaveText('Card');
   await expect(fact(facts, 'Created').locator('time')).toHaveAttribute('datetime', refundedRead.createdAt);
-  await expect(section('Timeline')).toBeVisible();
-  await expect(page.getByText('Payment created')).toBeVisible();
-  await expect(page.getByText('Money taken')).toBeVisible();
-  await expect(section('Refunds')).toContainText('30.00');
+  // The timeline is the service's own history of the payment, step for step and oldest first, the refund included.
+  const refundedSteps = await showsItsTimeline(ids.refunded);
+  expect(refundedSteps).toContain('Refunded');
+  // The refunds card is the service's refunds list for this payment: each refund's id, amount and status.
+  const refundRows = (await owner.query('payment.refunds.list', { merchantId: state.merchantId, paymentId: ids.refunded, limit: 200 }))
+    .items;
+  expect(refundRows).toHaveLength(1);
+  const [refundRow] = refundRows;
+  expect([refundRow.paymentId, cents(refundRow.amount), refundRow.assetId]).toEqual([ids.refunded, 3000n, 'USDT']);
+  const refundItems = section('Refunds').getByRole('listitem');
+  await expect(refundItems).toHaveCount(1);
+  await expect(refundItems.first()).toContainText(/^30\.00\s*USDT · /);
+  await expect(refundItems.first()).toContainText(REFUND_WORD[refundRow.status]);
+  await expect(refundItems.first().getByRole('link')).toHaveAttribute('href', `/pay/refunds/${encodeURIComponent(refundRow.id)}`);
   // The card the payer used never shows.
   await expect(page.locator('body')).not.toContainText('tok_ok');
   await expect(page.locator('body')).not.toContainText('tok_decline');
@@ -364,11 +399,24 @@ test(`${J} #4 opens one payment: facts, amounts, timeline, linked refunds and th
   // The disputed payment: its status word, the dispute card with its amount and reason, and a way to it.
   await page.goto(`/pay/payments/${ids.disputed}`);
   await showsItsStatus(ids.disputed, 'disputed');
+  // The dispute card is the service's one dispute on this payment: its amount, its reason and a way to it by its id.
+  const disputes = (await owner.query('merchantOps.disputes.list', { limit: 200 })).items.filter((d) => d.paymentId === ids.disputed);
+  expect(disputes).toHaveLength(1);
+  const [disputeRead] = disputes;
+  // The stack's TEST tool labels the reason it opens the dispute with (local-test-world.mjs open-dispute).
+  expect([cents(disputeRead.amount), disputeRead.assetId, disputeRead.reasonCode]).toEqual([
+    1200n,
+    'USDT',
+    'LOCAL-TEST product_not_received',
+  ]);
   const dispute = section('Dispute');
-  await expect(dispute).toBeVisible();
-  await expect(dispute).toContainText('12.00');
-  await expect(dispute.getByRole('link', { name: 'Open the dispute' })).toHaveAttribute('href', /\/pay\/disputes\//);
-  await expect(page.getByText('Customer disputed the payment')).toBeVisible();
+  await expect(fact(dispute, 'Amount')).toHaveText(/^12\.00\s*USDT$/);
+  await expect(fact(dispute, 'Reason')).toHaveText(disputeRead.reasonCode);
+  await expect(dispute.getByRole('link', { name: 'Open the dispute' })).toHaveAttribute(
+    'href',
+    `/pay/disputes/${encodeURIComponent(disputeRead.disputeId)}`,
+  );
+  expect(await showsItsTimeline(ids.disputed)).toContain('Customer disputed the payment');
 
   // The declined payment: one plain word for its status, and why it failed.
   await page.goto(`/pay/payments/${ids.declined}`);

@@ -292,6 +292,10 @@ export const REFUSAL_CODES = [
   'agents.withdraw_scope_required',
   'agents.place_idempotency_required',
   'agents.place_key_conflict',
+  // Refused by the runtime before the engine, not by this policy: a route with no published rate, and a worst case
+  // the person's available balance cannot cover (OWNER 107).
+  'agents.price_unset',
+  'agents.funds_insufficient',
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];
