@@ -59,7 +59,8 @@ if (!(await postgresAvailable(TEST_URL))) {
   afterAll(async () => {
     await db.drop();
   });
-  const desk = new AccountStatusDesk(db.sql, 3600);
+  const REASONS = new Map([['compliance_hold', { reason: 'TEST: switched off after a review.', guidance: 'TEST: ask Support.' }]]);
+  const desk = new AccountStatusDesk(db.sql, 3600, REASONS);
   const lock = new SecurityLock(db.sql, 0);
   let n = 0;
   const person = async () => {
@@ -98,6 +99,8 @@ if (!(await postgresAvailable(TEST_URL))) {
           since: done.since.toISOString(),
           blocks: ['create_api_key'],
           lift: { by: 'owner_after_wait', availableAt: new Date(done.since.getTime() + 3600_000).toISOString() },
+          capability: null,
+          owner: null,
         },
       ]);
       expect(status.cannot).toEqual([{ action: 'create_api_key', kind: 'self_freeze' }]);
@@ -153,6 +156,28 @@ if (!(await postgresAvailable(TEST_URL))) {
         ['self_freeze', 'owner_after_wait'],
       ]);
       expect(status.cannot.every((c) => c.kind === 'staff_freeze')).toBe(true);
+    });
+
+    it("a KYC capability compliance switched off is listed with the owner's words and next step, blocks nothing and never lifts", async () => {
+      const userId = await person();
+      await db.sql`
+        INSERT INTO kyc_capabilities (user_id, capability, state, decided_by, reason_code)
+        VALUES (${userId}, 'trade_crypto', 'inactive', 'reviewer', 'compliance_hold'),
+               (${userId}, 'custody_crypto', 'inactive', 'reviewer', 'no_longer_listed'),
+               (${userId}, 'transfer_fiat', 'active', NULL, NULL)`;
+      const status = await read(userId);
+      expect(status).toMatchObject({ state: 'restricted', reasonCode: null, cannot: [], canStill: [...ACCOUNT_ACTIONS] });
+      expect(status.restrictions.map((r) => [r.kind, r.capability, r.owner, r.blocks, r.lift])).toEqual([
+        ['capability_off', 'custody_crypto', { code: 'no_longer_listed', text: null, guidance: null }, [], { by: 'none' }],
+        [
+          'capability_off',
+          'trade_crypto',
+          { code: 'compliance_hold', text: 'TEST: switched off after a review.', guidance: 'TEST: ask Support.' },
+          [],
+          { by: 'none' },
+        ],
+      ]);
+      expect(status.restrictions.every((r) => r.since !== null)).toBe(true);
     });
 
     it('a closed account names the closure code staff recorded', async () => {

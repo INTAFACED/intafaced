@@ -58,6 +58,8 @@ export type RefusalKind =
   | 'expiryInvalid'
   | 'ordersPaused'
   | 'accountOnHold'
+  | 'platformPaused'
+  | 'spaceLocked'
   | 'notFound'
   | 'duplicate'
   | 'notSetUp'
@@ -148,10 +150,12 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.email_proof_required': 'emailProof',
   'trade.identity_unavailable': 'tryAgain',
   'trade.account_restricted': 'accountOnHold',
-  'ledger.frozen': 'accountOnHold',
-  'ledger.freeze': 'accountOnHold',
-  'ledger.freeze_attributed': 'accountOnHold',
-  'bank.space_locked': 'accountOnHold',
+  // The ledger's posting freeze stops money for everyone; this account is not restricted (ENGINE FRZ-1).
+  'ledger.frozen': 'platformPaused',
+  'ledger.freeze': 'platformPaused',
+  'ledger.freeze_attributed': 'platformPaused',
+  // A savings space the person locked for a time: not a hold on the account.
+  'bank.space_locked': 'spaceLocked',
 
   'trade.rate_limited': 'rateLimited',
   'edge.rate_limited': 'rateLimited',

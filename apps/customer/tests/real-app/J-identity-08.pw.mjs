@@ -239,7 +239,32 @@ test(`${J} #6: one case record with history; an approval unlocks the mapped feat
 });
 
 test(`${J} #7: a restriction on another screen gives its reason in plain words and the next step`, async ({ page }) => {
-  test.setTimeout(60_000);
-  await atVerification(page);
-  await expect(page.getByRole('heading', { name: 'Restrictions on your account' })).toBeVisible(UNBUILT);
+  test.setTimeout(120_000);
+  const { who } = await atVerification(page);
+  const restrictions = page.getByTestId('verification__restrictions');
+  await expect(restrictions.getByRole('heading', { name: 'Restrictions on your account' })).toBeVisible();
+  await expect(restrictions.getByTestId('verification__restrictions-none')).toHaveText('Nothing is restricted on your account.');
+
+  // Compliance switches trading crypto off, two people with the stack's TEST reason (I-kyc-compliance-07).
+  expect(tool('local-test-gates.mjs', 'kyc-capability-off', who.handle, 'trade_crypto', 'compliance_hold')).toContain(
+    'switched off (compliance_hold)',
+  );
+  await page.reload();
+  const off = restrictions.locator('li[data-kind="capability_off"][data-capability="trade_crypto"]');
+  // The reason in the owner's plain words, the next step, and what it does today: nothing reads it, so nothing stops.
+  await expect(off).toContainText('Trade crypto switched off');
+  await expect(off).toContainText('TEST: this was switched off after a compliance review.');
+  await expect(off).toContainText('Next: TEST: ask Support what the review found.');
+  await expect(off).toContainText('no service reads it today, so it does not stop your orders or transfers.');
+  await expect(off).toContainText('It cannot be switched back on.');
+
+  // On another screen: the account status lists it too, and blocks nothing it does not enforce.
+  await restrictions.getByRole('link', { name: 'See your account status' }).click();
+  await expect(page).toHaveURL(/\/uc\/account/);
+  const status = page.getByTestId('account-status');
+  await expect(status.getByTestId('account-status__state')).toHaveAttribute('data-state', 'restricted');
+  await expect(status.locator('li[data-kind="capability_off"][data-capability="trade_crypto"]')).toContainText(
+    'TEST: this was switched off after a compliance review.',
+  );
+  await expect(status.getByTestId('account-status__cannot').locator('li')).toHaveText(['Nothing']);
 });

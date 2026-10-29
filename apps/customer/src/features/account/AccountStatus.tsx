@@ -14,7 +14,6 @@ import { accountStatusCopy as copy } from './account-status-copy';
 export function AccountStatus() {
   const { api, userId } = useSession();
   const { t, Copy } = copy.useCopy();
-  const { timeZone } = usePreferences();
   const { resource, reload } = useResource(
     (signal) =>
       userId
@@ -22,35 +21,6 @@ export function AccountStatus() {
         : Promise.resolve({ ok: true as const, data: null }),
     `account-status:${userId}`,
   );
-
-  const lift = (r: AccountRestriction) => {
-    switch (r.lift.by) {
-      case 'staff':
-        return (
-          <>
-            <Copy k="liftStaff" /> <a href="/help">{t('contactSupport')}</a>
-          </>
-        );
-      case 'owner_after_wait':
-        return (
-          <>
-            {r.lift.availableAt ? <Copy k="liftWait" params={{ time: stamp(r.lift.availableAt, timeZone) }} /> : <Copy k="liftWaitUnset" />}{' '}
-            <a href="/uc/safe">{t('manageFreeze')}</a>
-          </>
-        );
-      case 'owner_unlock':
-        return (
-          <>
-            {r.lift.endsAt ? (
-              <Copy k="liftUnlockAsked" params={{ time: stamp(r.lift.endsAt, timeZone) }} />
-            ) : (
-              <Copy k="liftUnlockNotAsked" />
-            )}{' '}
-            <a href="/uc/safe">{t('manageLock')}</a>
-          </>
-        );
-    }
-  };
 
   const body = () => {
     if (resource.status === 'loading') return <Loading />;
@@ -109,16 +79,7 @@ export function AccountStatus() {
             <h3>
               <Copy k="restrictionsTitle" />
             </h3>
-            <ul data-testid="account-status__restrictions">
-              {status.restrictions.map((r) => (
-                <li key={r.kind} data-kind={r.kind} data-reason={r.reasonCode ?? ''}>
-                  <strong>{t(`kind_${r.kind}`)}</strong>{' '}
-                  {r.reasonCode ? <Copy k="reason" params={{ reason: t(`reason_${r.reasonCode}`) }} /> : <Copy k="noReason" />}{' '}
-                  {r.since && <Copy k="since" params={{ time: stamp(r.since, timeZone) }} />}{' '}
-                  {r.blocks.length === 0 && <Copy k="blocksNothing" />} {lift(r)}
-                </li>
-              ))}
-            </ul>
+            <RestrictionList restrictions={status.restrictions} />
           </>
         )}
       </div>
@@ -132,5 +93,70 @@ export function AccountStatus() {
       </h2>
       {body()}
     </section>
+  );
+}
+
+/** Each restriction with its reason, its start, whether it stops anything and how it ends; shared with /verification. */
+export function RestrictionList({ restrictions }: { restrictions: readonly AccountRestriction[] }) {
+  const { t, Copy } = copy.useCopy();
+  const { timeZone } = usePreferences();
+  const lift = (r: AccountRestriction) => {
+    switch (r.lift.by) {
+      case 'staff':
+        return (
+          <>
+            <Copy k="liftStaff" /> <a href="/help">{t('contactSupport')}</a>
+          </>
+        );
+      case 'owner_after_wait':
+        return (
+          <>
+            {r.lift.availableAt ? <Copy k="liftWait" params={{ time: stamp(r.lift.availableAt, timeZone) }} /> : <Copy k="liftWaitUnset" />}{' '}
+            <a href="/uc/safe">{t('manageFreeze')}</a>
+          </>
+        );
+      case 'none':
+        return <Copy k="liftNone" />;
+      case 'owner_unlock':
+        return (
+          <>
+            {r.lift.endsAt ? (
+              <Copy k="liftUnlockAsked" params={{ time: stamp(r.lift.endsAt, timeZone) }} />
+            ) : (
+              <Copy k="liftUnlockNotAsked" />
+            )}{' '}
+            <a href="/uc/safe">{t('manageLock')}</a>
+          </>
+        );
+    }
+  };
+
+  const reason = (r: AccountRestriction) => {
+    if (r.owner)
+      return (
+        <>
+          {r.owner.text ?? t('ownerUnlisted')} {r.owner.guidance && <Copy k="ownerNext" params={{ guidance: r.owner.guidance }} />}
+        </>
+      );
+    return r.reasonCode ? <Copy k="reason" params={{ reason: t(`reason_${r.reasonCode}`) }} /> : <Copy k="noReason" />;
+  };
+  return (
+    <ul data-testid="account-status__restrictions">
+      {restrictions.map((r) => (
+        <li
+          key={`${r.kind}:${r.capability ?? ''}`}
+          data-kind={r.kind}
+          data-capability={r.capability ?? ''}
+          data-reason={r.reasonCode ?? r.owner?.code ?? ''}
+        >
+          <strong>{r.capability ? t('capabilityOff', { capability: t(`cap_${r.capability}`) }) : t(`kind_${r.kind}`)}</strong> {reason(r)}{' '}
+          {r.since && <Copy k="since" params={{ time: stamp(r.since, timeZone) }} />}{' '}
+          {r.blocks.length === 0 && (r.kind === 'trading_restricted' || r.kind === 'capability_off') && (
+            <Copy k={`blocksNothing_${r.kind}`} />
+          )}{' '}
+          {lift(r)}
+        </li>
+      ))}
+    </ul>
   );
 }

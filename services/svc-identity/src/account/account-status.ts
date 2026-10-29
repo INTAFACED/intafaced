@@ -12,6 +12,7 @@ import {
   type AccountStatus,
   type AccountStatusReason,
 } from '@intafaced/contracts/identity-account-status';
+import { KYC_CAPABILITIES, type KycCapability } from '@intafaced/contracts/identity-kyc-capabilities';
 
 /** What each restriction's guard refuses (the guard is named beside it), so the page never promises more. */
 const BLOCKS = {
@@ -35,6 +36,8 @@ const BLOCKS = {
   // Founder controls, trading area: recorded here, but svc-trade keeps its own restriction table and reads nothing of
   // this one, so it blocks nothing; the page says so rather than claim trading stops.
   trading_restricted: [],
+  // KYC capability switched off: no service outside identity reads capability states, so it blocks nothing.
+  capability_off: [],
 } as const satisfies Record<AccountRestriction['kind'], readonly AccountAction[]>;
 
 type UserRow = {
@@ -45,6 +48,9 @@ type UserRow = {
 type FreezeRow = { reason: string; since: Date; available_at: Date | null };
 type LockRow = { set_by: 'self' | 'support'; locked_at: Date; unlocks_at: Date | null };
 type TradingRow = { restricted: true };
+type CapabilityRow = { capability: KycCapability; reason_code: string; at: Date };
+/** The owner's capability reason list: code to words and next step (`IDENTITY_KYC_CAPABILITY_REASONS`). */
+export type CapabilityReasons = ReadonlyMap<string, { reason: string; guidance: string }>;
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
@@ -53,11 +59,12 @@ export class AccountStatusDesk {
     private readonly sql: Sql,
     /** The owner's wait before a self-freeze may be lifted, in seconds; undefined when unpublished (a lift refuses). */
     private readonly selfFreezeLiftWaitSeconds: number | undefined,
+    private readonly capabilityReasons: CapabilityReasons = new Map(),
   ) {}
 
   async read(userId: string): Promise<AccountStatus | null> {
     const wait = this.selfFreezeLiftWaitSeconds ?? null;
-    const [[user], [freeze], [lock], [trading]] = await Promise.all([
+    const [[user], [freeze], [lock], [trading], capabilities] = await Promise.all([
       // A customer-closed account carries no staff code: the closure flow's finalisation is its code and its time.
       this.sql<UserRow[]>`
         SELECT status, closed_reason,
@@ -71,6 +78,7 @@ export class AccountStatusDesk {
         WHERE user_id = ${userId} AND state = 'locked' AND (unlocks_at IS NULL OR unlocks_at > now())`,
       // `updated_at` moves on every write, even a repeat, so it is not when the restriction began: no start is shown.
       this.sql<TradingRow[]>`SELECT restricted FROM trading_restrictions WHERE user_id = ${userId} AND restricted`,
+      this.sql<CapabilityRow[]>`SELECT capability, reason_code, at FROM kyc_capabilities WHERE user_id = ${userId} AND state = 'inactive'`,
     ]);
     if (!user) return null;
     const restrictions: AccountRestriction[] = [];
@@ -81,9 +89,19 @@ export class AccountStatusDesk {
         since: user.closed_reason ? null : iso(user.customer_closed_at),
         blocks: [...BLOCKS.closed],
         lift: { by: 'staff' },
+        capability: null,
+        owner: null,
       });
     if (user.status === 'frozen')
-      restrictions.push({ kind: 'staff_freeze', reasonCode: null, since: null, blocks: [...BLOCKS.staff_freeze], lift: { by: 'staff' } });
+      restrictions.push({
+        kind: 'staff_freeze',
+        reasonCode: null,
+        since: null,
+        blocks: [...BLOCKS.staff_freeze],
+        lift: { by: 'staff' },
+        capability: null,
+        owner: null,
+      });
     if (freeze)
       restrictions.push({
         kind: 'self_freeze',
@@ -91,6 +109,8 @@ export class AccountStatusDesk {
         since: iso(freeze.since),
         blocks: [...BLOCKS.self_freeze],
         lift: { by: 'owner_after_wait', availableAt: iso(freeze.available_at) },
+        capability: null,
+        owner: null,
       });
     if (lock)
       restrictions.push({
@@ -99,6 +119,8 @@ export class AccountStatusDesk {
         since: iso(lock.locked_at),
         blocks: [...BLOCKS.security_lock],
         lift: { by: 'owner_unlock', endsAt: iso(lock.unlocks_at) },
+        capability: null,
+        owner: null,
       });
     if (trading)
       restrictions.push({
@@ -107,7 +129,22 @@ export class AccountStatusDesk {
         since: null,
         blocks: [...BLOCKS.trading_restricted],
         lift: { by: 'staff' },
+        capability: null,
+        owner: null,
       });
+    // In the contract's capability order, so the list reads the same every time.
+    for (const row of [...capabilities].sort((a, b) => KYC_CAPABILITIES.indexOf(a.capability) - KYC_CAPABILITIES.indexOf(b.capability))) {
+      const listed = this.capabilityReasons.get(row.reason_code);
+      restrictions.push({
+        kind: 'capability_off',
+        reasonCode: null,
+        since: iso(row.at),
+        blocks: [...BLOCKS.capability_off],
+        lift: { by: 'none' },
+        capability: row.capability,
+        owner: { code: row.reason_code, text: listed?.reason ?? null, guidance: listed?.guidance ?? null },
+      });
+    }
     const first = restrictions[0];
     const cannot = ACCOUNT_ACTIONS.flatMap((action) => {
       const by = restrictions.find((r) => r.blocks.includes(action));

@@ -8,6 +8,7 @@ import { verificationCopy as copy } from './verification-copy';
 import { VerificationLadder } from './VerificationLadder';
 import { VerificationCases } from './VerificationCases';
 import { VerificationCapabilities } from './VerificationCapabilities';
+import { VerificationRestrictions } from './VerificationRestrictions';
 import { VerificationAttempts } from './VerificationAttempts';
 import { KYC_LADDER_LEVELS } from '@intafaced/contracts/identity-kyc-levels';
 import {
@@ -638,6 +639,7 @@ export function Verification() {
         ) : (
           <>
             <VerificationCapabilities recordsKey={casesKey} />
+            <VerificationRestrictions recordsKey={casesKey} />
             <VerificationCases
               recordsKey={casesKey}
               offered={offeredTiers}
