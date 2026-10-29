@@ -547,9 +547,12 @@ test(`${J} #7: a restriction on another screen gives its reason in plain words a
   const refused = page.getByTestId('verification__capability-refused');
   await expect(refused).toHaveAttribute('data-code', 'kyc.capability_inactive');
   await expect(refused).toContainText(
-    'This level was refused because it grants a capability compliance switched off. The service opened no request. Switched off on your account:',
+    'This level was refused because it grants a capability compliance switched off. The service opened no request.',
   );
-  const why = refused.locator('li[data-kind="capability_off"][data-capability="trade_crypto"]');
+  // The heading names the list it introduces, so it sits only above a list that has entries.
+  const list = refused.getByRole('list', { name: 'Switched off on your account:' });
+  await expect(list).toHaveCount(1);
+  const why = list.locator('li[data-kind="capability_off"][data-capability="trade_crypto"]');
   await expect(why).toHaveCount(1);
   await expect(why).toContainText('Trade crypto switched off');
   await expect(why).toContainText('TEST: this was switched off after a compliance review.');
