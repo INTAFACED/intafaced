@@ -761,6 +761,17 @@ test(`${J} #7 draws what the money was worth over time: a moment with no price i
     const byHand = total(held, 'USDT') + (total(held, 'BTC') * toUnits(ended[4])) / ONE;
     expect(toUnits(p.usd), `the moment ${p.at}`).toBe(byHand);
   }
+  // The line is the service's own answer, read back over the same range: the start is a real zero (nothing missing), and
+  // every moment before the live end matches.
+  const told = await (await bank()).query('portfolio.valueOverTime', { from: before.points[0].at });
+  expect(told.interval).toBe(before.interval);
+  expect(told.points[0]).toMatchObject({ at: before.points[0].at, valueUsd: expect.any(String), missing: [] });
+  expect(toUnits(told.points[0].valueUsd)).toBe(0n);
+  for (const p of before.points.slice(0, -1)) {
+    const same = told.points.find((q) => q.at === p.at);
+    expect(same, `the service has the moment ${p.at}`).toBeTruthy();
+    expect(toUnits(same.valueUsd), `the moment ${p.at}`).toBe(toUnits(p.usd));
+  }
 
   // TEST XAU arrives, which has no market here: from then on the moment cannot be priced, so it is missing and named, never zero.
   expect(fund(who.email, 'XAU', '1').tx).toBeTruthy();
@@ -771,6 +782,14 @@ test(`${J} #7 draws what the money was worth over time: a moment with no price i
   expect(after.missing).toBe(after.points.filter((p) => p.usd === 'missing').length);
   expect(after.missing).toBeGreaterThan(0);
   expect(after.missingCoins).toEqual(['XAU']);
+  // The service says the same: those moments have no value (null, never zero) and name XAU's missing price.
+  const toldAfter = await (await bank()).query('portfolio.valueOverTime', { from: after.points[0].at });
+  const gaps = toldAfter.points.filter((q) => q.valueUsd === null);
+  expect(gaps.length).toBeGreaterThan(0);
+  for (const q of gaps) expect(q.missing).toEqual([{ assetId: 'XAU', reason: 'no_price' }]);
+  for (const p of after.points.filter((p) => p.usd === 'missing').slice(0, -1)) {
+    expect(toldAfter.points.find((q) => q.at === p.at)?.valueUsd, `the moment ${p.at}`).toBeNull();
+  }
   await expect(card.locator('[data-label="value-missing"]')).toContainText('no price for XAU at that time');
   // The moments before it arrived keep their figures; none of the missing ones is a zero.
   const firstMissing = after.points.findIndex((p) => p.usd === 'missing');
