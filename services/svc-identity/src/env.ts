@@ -161,6 +161,17 @@ const schema = serviceEnvSchema
        */
       API_KEY_SIGNING_ENC_KEY: z.string().optional().default(''),
       /**
+       * The owner's request-signing timestamp window, whole seconds from 1 to 3600 (DV-auth-01): how far a signed
+       * request's time may be from the server's, either way. Blank = unset: every signed request refuses
+       * `auth.request_window_unset` and the published policy shows the window as not set.
+       */
+      IDENTITY_REQUEST_SIGN_WINDOW_SECONDS: z.string().optional().default(''),
+      /**
+       * The owner's `API_KEY_SIGNING_OPTIONAL` (DV-auth-01): `true` lets a key that places orders turn signing off,
+       * with a fresh factor. Blank (or anything else): signing stays required on such a key.
+       */
+      API_KEY_SIGNING_OPTIONAL: z.string().optional().default(''),
+      /**
        * svc-ledger base URL for the ONE money path this service has: the
        * affiliate / IB commission fan-out (§0.6 — identity stores no balances).
        *
