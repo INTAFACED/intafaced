@@ -11,13 +11,27 @@ export type PendingBlocker = 'indexer' | 'wallet' | 'chain';
 export type PendingPage =
   'poolNew' | 'poolDetail' | 'positionDetail' | 'tokenDetail' | 'blockDetail' | 'txDetail' | 'addressDetail' | 'validatorDetail';
 
+/** The wallet room's sections, each at its own path so Back returns to the section the person left. */
+export const WALLET_SECTIONS = {
+  overview: '/wallet',
+  activity: '/wallet/activity',
+  send: '/wallet/send',
+  receive: '/wallet/receive',
+  scan: '/wallet/scan',
+  approvals: '/wallet/approvals',
+  sessionKeys: '/wallet/session-keys',
+  accounts: '/wallet/accounts',
+  safety: '/wallet/safety',
+} as const;
+export type WalletSection = keyof typeof WALLET_SECTIONS;
+
 export interface Web3Route {
   path: string;
   room: Web3Room;
   /** An existing tab of the room (`SUBNAV`); the tab room renders it. */
   tab?: string;
   /** The wallet room, opened on this section. */
-  wallet?: 'overview' | 'activity';
+  wallet?: WalletSection;
   pending?: { page: PendingPage; blocker: PendingBlocker; param?: { name: string; shape: RegExp } };
 }
 
@@ -44,8 +58,7 @@ export const WEB3_ROUTES: readonly Web3Route[] = [
     pending: { page: 'tokenDetail', blocker: 'indexer', param: { name: 'address', shape: address } },
   },
   { path: '/dex/venue', room: 'dex', tab: 'venue' },
-  { path: '/wallet', room: 'wallet', wallet: 'overview' },
-  { path: '/wallet/activity', room: 'wallet', wallet: 'activity' },
+  ...(Object.entries(WALLET_SECTIONS) as [WalletSection, string][]).map(([wallet, path]) => ({ path, room: 'wallet' as const, wallet })),
   { path: '/chain', room: 'chain', tab: 'status' },
   { path: '/chain/blocks', room: 'chain', tab: 'blocks' },
   {
