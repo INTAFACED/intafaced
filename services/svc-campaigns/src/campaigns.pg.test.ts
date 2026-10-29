@@ -147,7 +147,7 @@ if (!db) {
     it('a campaign time zone left blank by the builder refuses activation; only the platform zone is accepted', async () => {
       const s = service();
       const c = await s.create({ definition: full({ timeZone: null }), actor: A });
-      expect(c.timeZone).toBeNull();
+      expect(c).toMatchObject({ timeZone: null, timeZoneBlank: true });
       expect((await s.validate({ id: c.id })).missing.map((m) => m.code)).toEqual(['campaigns.timezone_unset']);
       expect(await code(s.transition({ id: c.id, action: 'submit', revision: 1, actor: A }))).toBe('campaigns.timezone_unset');
       expect(await code(s.update({ id: c.id, revision: 1, definition: full({ timeZone: 'Europe/Berlin' }), actor: A }))).toBe(
@@ -398,6 +398,15 @@ if (!db) {
       expect((await service().join({ campaignId: c.id, accountId: ME })).created).toBe(false);
       expect(await code(service().join({ campaignId: c.id, accountId: 'account-late' }))).toBe('campaign.not_active');
       expect((await service().catalogue(ME)).campaigns).toEqual([]);
+    });
+
+    it('a paused campaign cannot be archived either; one campaign reads by id at any age', async () => {
+      const s = service();
+      const c = await live();
+      await s.transition({ id: c.id, action: 'pause', revision: 1, actor: A });
+      expect(await code(s.transition({ id: c.id, action: 'archive', revision: 1, actor: A }))).toBe('campaign.archive_active');
+      expect((await s.getForOps({ id: c.id })).state).toBe('paused');
+      expect(await code(s.getForOps({ id: 'cmp_missing' }))).toBe('campaign.unknown');
     });
 
     it('a scheduled campaign cannot be archived (customers already see it); it can be ended before it starts', async () => {

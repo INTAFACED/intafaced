@@ -61,6 +61,11 @@ function Overview({ rows }: { rows: readonly Campaign[] }) {
           </div>
         ))}
       </dl>
+      {rows.length >= 200 && (
+        <p className="dk-muted" data-testid="campaigns-overview-capped">
+          Counted over the newest 200 campaigns, the most svc-campaigns lists at once; older ones open by their link.
+        </p>
+      )}
       {rows.length === 0 && (
         <p className="dk-muted" data-testid="campaigns-overview-empty">
           No campaign exists yet. Start one with the builder; it stays a draft until a second founder approves it.

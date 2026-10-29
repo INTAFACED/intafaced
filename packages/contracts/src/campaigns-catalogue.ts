@@ -238,6 +238,8 @@ export const campaignSchema = z.object({
   endsAt: iso.nullable(),
   /** The time zone the windows are read in (the platform zone, an owner value); null while it or the campaign's is blank. */
   timeZone: z.string().nullable(),
+  /** True while the builder has left the campaign's own time zone blank (activation refuses `campaigns.timezone_unset`). */
+  timeZoneBlank: z.boolean().default(false),
   windows: campaignWindowsSchema,
   participation: participationRulesSchema.nullable(),
   budget: campaignBudgetSchema.nullable(),

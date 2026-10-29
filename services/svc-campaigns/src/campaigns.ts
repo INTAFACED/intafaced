@@ -237,6 +237,7 @@ function toCampaign(r: CampaignRow, timeZone: string | null, now: Date): Campaig
     startsAt: r.starts_at ? iso(r.starts_at) : null,
     endsAt: r.ends_at ? iso(r.ends_at) : null,
     timeZone: r.time_zone_blank ? null : timeZone,
+    timeZoneBlank: r.time_zone_blank,
     windows: {
       weekdays: r.weekdays,
       hours: r.hours_from && r.hours_to ? { from: r.hours_from, to: r.hours_to } : null,
@@ -330,7 +331,7 @@ const MOVES: Record<CampaignAction, { from: readonly CampaignState[]; to: Campai
   resume: { from: ['paused'], to: 'active' },
   end: { from: ['scheduled', 'active', 'paused'], to: 'ended' },
   close: { from: ['ended'], to: 'closed' },
-  archive: { from: ['draft', 'pending_approval', 'approved', 'paused', 'ended', 'closed'], to: 'archived' },
+  archive: { from: ['draft', 'pending_approval', 'approved', 'ended', 'closed'], to: 'archived' },
 };
 
 type Definition = {
@@ -612,9 +613,9 @@ export class CampaignService {
         }
         return toCampaign(row, timeZone, now);
       }
-      // A scheduled campaign is live to customers already (the catalogue lists it): it is ended, never archived away.
-      if (input.action === 'archive' && (current === 'active' || current === 'scheduled')) {
-        throw new CampaignsError('campaign.archive_active', 'An active or scheduled campaign cannot be archived; end it first');
+      // A scheduled or paused campaign is in the catalogue too, and its customers' rewards read it: it is ended first.
+      if (input.action === 'archive' && (current === 'active' || current === 'scheduled' || current === 'paused')) {
+        throw new CampaignsError('campaign.archive_active', 'An active, paused or scheduled campaign cannot be archived; end it first');
       }
       if (input.action === 'activate' && (current === 'draft' || current === 'pending_approval')) {
         refuseGate(gateOf(row, timeZone));
@@ -654,6 +655,13 @@ export class CampaignService {
       await audit(tx, input.actor, `campaign.${input.action}`, input.id, { from: current, to, revision: row.revision });
       return toCampaign(out!, timeZone, now);
     });
+  }
+
+  /** One campaign as operators see it, at any age; the list is the newest 200. */
+  async getForOps(input: { id: string }): Promise<Campaign> {
+    const [row] = await this.sql<CampaignRow[]>`SELECT * FROM campaigns.campaign_rows WHERE id = ${input.id}`;
+    if (!row) throw new CampaignsError('campaign.unknown', 'No such campaign');
+    return toCampaign(row, this.timeZone(), this.now());
   }
 
   async listForOps(): Promise<Campaign[]> {

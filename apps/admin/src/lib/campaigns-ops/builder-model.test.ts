@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Campaign } from '@intafaced/contracts/campaigns-catalogue';
-import { blankSentence, definitionOf, instantIn, localIn, overviewOf, parseRegions, refusalSentence, resumeStep } from './builder-model';
+import { blankSentence, definitionOf, overviewOf, parseRegions, refusalSentence, resumeStep } from './builder-model';
 
 const draft = (over: Partial<Campaign> = {}): Campaign => ({
   id: 'cmp_1',
@@ -12,6 +12,7 @@ const draft = (over: Partial<Campaign> = {}): Campaign => ({
   startsAt: null,
   endsAt: null,
   timeZone: 'UTC',
+  timeZoneBlank: false,
   windows: { weekdays: null, hours: null },
   participation: null,
   budget: null,
@@ -53,7 +54,6 @@ describe('campaign builder model', () => {
     );
     expect(d).toMatchObject({
       name: 'TEST',
-      timeZone: 'UTC',
       rules: 'r',
       budget: { asset: 'USDT', limit: '10' },
       tasks,
@@ -70,6 +70,7 @@ describe('campaign builder model', () => {
       { label: 'Campaigns', count: 3 },
       { label: 'Drafts', count: 1 },
       { label: 'Waiting for approval', count: 1 },
+      { label: 'Approved, not live yet', count: 0 },
       { label: 'Live or scheduled', count: 1 },
       { label: 'Ended', count: 0 },
     ]);
@@ -92,13 +93,8 @@ describe('campaign builder model', () => {
     expect(refusalSentence('campaign.unknown', asked, 'a')).toBeNull();
   });
 
-  it('reads typed times in the campaign time zone and back', () => {
-    expect(instantIn('2026-11-01T00:00', 'UTC')).toBe('2026-11-01T00:00:00.000Z');
-    expect(instantIn('2026-11-01T00:00', 'Europe/Berlin')).toBe('2026-10-31T23:00:00.000Z');
-    expect(instantIn('2026-07-01T00:00', 'Europe/Berlin')).toBe('2026-06-30T22:00:00.000Z');
-    expect(instantIn('', 'UTC')).toBeNull();
-    expect(instantIn('soon', 'UTC')).toBeUndefined();
-    expect(localIn('2026-10-31T23:00:00.000Z', 'Europe/Berlin')).toBe('2026-11-01T00:00');
-    expect(localIn(null, 'UTC')).toBe('');
+  it('a time zone the builder left blank goes back blank; any other is the platform zone', () => {
+    expect(definitionOf(draft({ timeZone: null, timeZoneBlank: true })).timeZone).toBeNull();
+    expect(definitionOf(draft({ timeZone: null })).timeZone).toBeUndefined();
   });
 });

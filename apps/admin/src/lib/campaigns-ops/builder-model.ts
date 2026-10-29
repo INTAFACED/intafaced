@@ -149,7 +149,9 @@ export function definitionOf(c: Campaign): CampaignDefinitionInput {
     rules: c.rules,
     startsAt: c.startsAt,
     endsAt: c.endsAt,
-    timeZone: c.timeZone,
+    // Left blank by the builder: still blank. Otherwise absent, which reads the platform zone, so a save while the
+    // platform zone is unset does not turn a campaign that reads it into one with a blank zone of its own.
+    timeZone: c.timeZoneBlank ? null : undefined,
     weekdays: c.windows.weekdays,
     hours: c.windows.hours,
     participation: c.participation,
@@ -177,7 +179,8 @@ export function overviewOf(rows: readonly Campaign[]): { label: string; count: n
   return [
     { label: 'Campaigns', count: rows.length },
     { label: 'Drafts', count: count(['draft']) },
-    { label: 'Waiting for approval', count: count(['pending_approval', 'approved']) },
+    { label: 'Waiting for approval', count: count(['pending_approval']) },
+    { label: 'Approved, not live yet', count: count(['approved']) },
     { label: 'Live or scheduled', count: count(['scheduled', 'active', 'paused']) },
     { label: 'Ended', count: count(['ended', 'closed']) },
   ];
@@ -195,37 +198,4 @@ export function parseRegions(raw: string): { ok: true; regions: string[] } | { o
     if (!regions.includes(code)) regions.push(code);
   }
   return { ok: true, regions };
-}
-
-/** How far a time zone is ahead of UTC at an instant, in milliseconds. */
-function offsetAt(ms: number, timeZone: string): number {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone,
-    hourCycle: 'h23',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).formatToParts(new Date(ms));
-  const n = (type: string) => Number(parts.find((p) => p.type === type)?.value);
-  return Date.UTC(n('year'), n('month') - 1, n('day'), n('hour'), n('minute'), n('second')) - Math.floor(ms / 1000) * 1000;
-}
-
-/** A `datetime-local` value typed in a time zone, as an instant; blank is null, an unreadable value undefined. */
-export function instantIn(value: string, timeZone: string): string | null | undefined {
-  if (!value.trim()) return null;
-  const wall = Date.parse(`${value.length === 16 ? `${value}:00` : value}Z`);
-  if (!Number.isFinite(wall)) return undefined;
-  let ms = wall - offsetAt(wall, timeZone);
-  ms = wall - offsetAt(ms, timeZone);
-  return new Date(ms).toISOString();
-}
-
-/** An instant as the `datetime-local` value it reads in a time zone; blank stays blank. */
-export function localIn(iso: string | null, timeZone: string): string {
-  if (!iso) return '';
-  const ms = Date.parse(iso);
-  return new Date(ms + offsetAt(ms, timeZone)).toISOString().slice(0, 16);
 }

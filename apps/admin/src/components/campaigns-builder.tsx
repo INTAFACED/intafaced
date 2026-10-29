@@ -12,6 +12,7 @@ import {
   type ParticipationRules,
 } from '@intafaced/contracts/campaigns-catalogue';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
+import { isoToZonedInput, zonedInputToIso } from '@/lib/time-zone';
 import { fetchCampaignDetail, postCampaignChange } from '@/lib/campaigns-ops/builder-browser';
 import {
   BUILDER_STEPS,
@@ -21,8 +22,6 @@ import {
   STEP_LABEL,
   blankSentence,
   definitionOf,
-  instantIn,
-  localIn,
   parseRegions,
   refusalSentence,
   resumeStep,
@@ -96,9 +95,9 @@ const fieldsOf = (c: Campaign | null, platform: string | null): Fields => ({
   // A compliance list is asked for: a new rule set lists the regions that cannot take part, blank until typed.
   regionScope: c?.participation?.regionScope ?? 'listed',
   regions: c?.participation?.restrictedRegions?.join(', ') ?? '',
-  startsAt: localIn(c?.startsAt ?? null, shownZone(c, platform)),
-  endsAt: localIn(c?.endsAt ?? null, shownZone(c, platform)),
-  timeZone: c?.timeZone ?? '',
+  startsAt: c?.startsAt ? isoToZonedInput(c.startsAt, shownZone(c, platform)) : '',
+  endsAt: c?.endsAt ? isoToZonedInput(c.endsAt, shownZone(c, platform)) : '',
+  timeZone: c && !c.timeZoneBlank ? (c.timeZone ?? '') : '',
   weekdays: c?.windows.weekdays ?? [],
   hoursFrom: c?.windows.hours?.from ?? '',
   hoursTo: c?.windows.hours?.to ?? '',
@@ -151,15 +150,17 @@ function patchFor(step: BuilderStep, f: Fields): Partial<CampaignDefinitionInput
     case 'time': {
       const typed = f.startsAt.trim() || f.endsAt.trim();
       if (typed && !f.timeZone) return 'Pick the time zone first: the start and end are read in it.';
-      const startsAt = f.timeZone ? instantIn(f.startsAt, f.timeZone) : null;
-      const endsAt = f.timeZone ? instantIn(f.endsAt, f.timeZone) : null;
-      if (startsAt === undefined || endsAt === undefined) return 'A start or end time could not be read.';
+      // A time that is not one in the zone (30 February, or one a clock change skips) refuses; it is never moved.
+      const at = (typed: string) => (typed.trim() ? zonedInputToIso(typed, f.timeZone) : undefined);
+      const startsAt = at(f.startsAt);
+      const endsAt = at(f.endsAt);
+      if (startsAt === null || endsAt === null) return `A start or end time is not a time in ${f.timeZone}.`;
       if ((f.hoursFrom === '') !== (f.hoursTo === '')) return 'Daily hours need both a from and a to time, or neither.';
       const asset = f.asset.trim().toUpperCase();
       // Blank stays blank: the gate names a blank budget or limit, and svc-campaigns checks every amount.
       return {
-        startsAt,
-        endsAt,
+        startsAt: startsAt ?? null,
+        endsAt: endsAt ?? null,
         timeZone: f.timeZone || null,
         weekdays: f.weekdays.length > 0 ? [...f.weekdays].sort((a, b) => a - b) : null,
         hours: f.hoursFrom ? { from: f.hoursFrom, to: f.hoursTo } : null,
@@ -277,19 +278,27 @@ export function CampaignBuilder({
   useEffect(() => setReady(true), []);
   const set = (patch: Partial<Fields>) => setFields((f) => ({ ...f, ...patch }));
 
-  const reload = useCallback(
-    async (id: string) => {
-      const next = await fetchCampaignDetail(id);
-      setView(next);
-      const read = next?.campaign.kind === 'ok' ? next.campaign.data : null;
-      if (read) {
-        setCampaign(read);
-        setFields(fieldsOf(read, platformTimeZone));
-      }
-      return next;
-    },
-    [platformTimeZone],
-  );
+  /**
+   * Reads the campaign and its gate again. What the founder typed stays: the fields are read from the store only when the
+   * builder opens. A read that fails keeps the last one on screen and says so.
+   */
+  const reload = useCallback(async (id: string) => {
+    const next = await fetchCampaignDetail(id);
+    if (!next) {
+      setOutcome({
+        kind: 'refused',
+        title: 'svc-campaigns could not be read again',
+        body: 'What is shown is from the last read. The check and the state may be out of date.',
+        lines: [],
+        next: 'Try again in a moment.',
+        code: null,
+      });
+      return null;
+    }
+    setView(next);
+    if (next.campaign.kind === 'ok' && next.campaign.data) setCampaign(next.campaign.data);
+    return next;
+  }, []);
 
   const editable = campaign === null || campaign.state === 'draft';
 
@@ -314,8 +323,9 @@ export function CampaignBuilder({
           definition: { name: fields.name.trim(), type: fields.type, rules: fields.rules, timeZone: null },
         });
     if (!answer.ok) {
-      setOutcome(refusedFrom(answer, campaign, me));
+      // Read again first, so the refusal is what stays on screen even when that read fails.
       if (campaign) await reload(campaign.id);
+      setOutcome(refusedFrom(answer, campaign, me));
       return null;
     }
     setCampaign(answer.campaign);

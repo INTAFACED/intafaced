@@ -11,7 +11,7 @@ import {
   type CampaignDefinitionInput,
 } from '@intafaced/contracts/campaigns-catalogue';
 import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type PartLabels } from '@/lib/desk/part';
+import { partFrom, type Part, type PartLabels } from '@/lib/desk/part';
 import { explainRefusal } from '@/lib/desk/refusal-copy';
 import type { CampaignDeskReply, CampaignDetailView, CampaignsDeskView } from './builder-model';
 
@@ -44,19 +44,20 @@ export async function loadCampaignsDesk(ctx: FounderCallContext): Promise<Campai
   };
 }
 
-/** One campaign from the operator list, with the gate's answer for its stored revision and the platform time zone. */
+/** One campaign by id (at any age), with the gate's answer for its stored revision and the platform time zone. */
 export async function loadCampaignDetail(ctx: FounderCallContext, id: string): Promise<CampaignDetailView> {
-  const [list, gate, calendar] = await Promise.all([
-    founderCall(ctx, 'campaigns', 'ops.campaigns.list', 'GET', undefined, readList),
+  const [got, gate, platformTimeZone] = await Promise.all([
+    founderCall(ctx, 'campaigns', 'ops.campaigns.get', 'GET', { id }, readCampaign),
     founderCall(ctx, 'campaigns', 'ops.campaigns.validate', 'GET', { id }, readGate),
-    founderCall(ctx, 'campaigns', 'ops.campaigns.calendar', 'GET', undefined, readCalendar),
+    loadPlatformTimeZone(ctx),
   ]);
-  const campaign = partFrom(list, (rows) => rows.find((r) => r.id === id) ?? null, CAMPAIGNS);
+  const unknown = got.kind === 'refused' && got.refusal.code === 'campaign.unknown';
+  const campaign: Part<Campaign | null> = unknown ? { kind: 'ok', data: null } : partFrom(got, (d) => d, CAMPAIGNS);
   return {
     asOf: new Date().toISOString(),
     campaign,
-    gate: campaign.kind === 'ok' && campaign.data === null ? null : partFrom(gate, (d) => d, CAMPAIGNS),
-    platformTimeZone: calendar.kind === 'ok' ? calendar.data.timeZone : null,
+    gate: unknown ? null : partFrom(gate, (d) => d, CAMPAIGNS),
+    platformTimeZone,
   };
 }
 

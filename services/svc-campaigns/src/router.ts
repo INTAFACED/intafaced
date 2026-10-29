@@ -276,6 +276,17 @@ export function createCampaignsRouter(drops: DropService, campaigns: CampaignSer
             mapError(err);
           }
         }),
+        /** One campaign by id, at any age (the list is the newest 200). */
+        get: opsProcedure
+          .input(campaignGetInputSchema)
+          .output(campaignSchema)
+          .query(async ({ input }) => {
+            try {
+              return await campaigns.getForOps(input);
+            } catch (err) {
+              mapError(err);
+            }
+          }),
         calendar: opsProcedure.output(campaignCalendarSchema).query(async () => {
           try {
             return await campaigns.calendar();

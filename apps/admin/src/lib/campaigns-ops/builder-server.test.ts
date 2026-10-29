@@ -22,6 +22,7 @@ const campaign = {
   startsAt: '2026-10-25T00:00:00.000Z',
   endsAt: '2026-11-25T00:00:00.000Z',
   timeZone: 'UTC',
+  timeZoneBlank: false,
   windows: { weekdays: null, hours: null },
   participation: { exclusions: [], regionScope: 'platform', restrictedRegions: null },
   budget: { asset: 'USDT', limit: '1000', left: '1000' },
@@ -63,17 +64,23 @@ describe('campaigns desk', () => {
     expect((await loadCampaignsDesk(ctx)).campaigns.kind).toBe('failed');
   });
 
-  it('one campaign comes with the gate for its stored revision; an unknown id has no gate', async () => {
+  it('one campaign by id comes with the gate for its stored revision and the platform zone; an unknown id has no gate', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async (url: string) =>
-        url.includes('validate') ? ok({ missing: [{ code: 'campaigns.budget_unset', field: 'budget' }] }) : ok([campaign]),
-      ),
+      vi.fn(async (url: string) => {
+        if (url.includes('validate')) return ok({ missing: [{ code: 'campaigns.budget_unset', field: 'budget' }] });
+        if (url.includes('calendar')) return ok({ timeZone: 'UTC', entries: [] });
+        if (url.includes('cmp_other')) return err(404, 'No such campaign [campaign.unknown]', 'NOT_FOUND');
+        return ok(campaign);
+      }),
     );
     const view = await loadCampaignDetail(ctx, 'cmp_1');
     expect(view.campaign).toEqual({ kind: 'ok', data: campaign });
     expect(view.gate).toEqual({ kind: 'ok', data: { missing: [{ code: 'campaigns.budget_unset', field: 'budget' }] } });
-    expect((await loadCampaignDetail(ctx, 'cmp_other')).gate).toBeNull();
+    expect(view.platformTimeZone).toBe('UTC');
+    const other = await loadCampaignDetail(ctx, 'cmp_other');
+    expect(other.campaign).toEqual({ kind: 'ok', data: null });
+    expect(other.gate).toBeNull();
   });
 
   it('a refused move carries the service sentence and its code; the forbidden self-approval included', async () => {
