@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { addCondition, addGroup, conditionText, emptyRule, groupAt, placeName, removeAt, setCondition, setOp } from './rule-tree';
+import {
+  addCondition,
+  addGroup,
+  conditionText,
+  emptyRule,
+  groupAt,
+  placeAfterRemove,
+  placeName,
+  removeAt,
+  setCondition,
+  setOp,
+} from './rule-tree';
 
 describe('campaign rule tree editing', () => {
   it('nests each new group inside the group being built, never empty', () => {
@@ -36,6 +47,22 @@ describe('campaign rule tree editing', () => {
     expect(removeAt(set, [])).toBe(set);
     // A place that no longer names a group reads the outer group.
     expect(groupAt(set, [5])).toBe(set);
+  });
+
+  it('keeps where new parts go on the tree after a removal, and never adds through a place that names a condition', () => {
+    // A removed group that held the place hands it to its parent; an earlier sibling moves it back one; others leave it.
+    expect(placeAfterRemove([0], [0])).toEqual([]);
+    expect(placeAfterRemove([1, 0], [1])).toEqual([]);
+    expect(placeAfterRemove([2, 1], [0])).toEqual([1, 1]);
+    expect(placeAfterRemove([1, 2], [1, 0])).toEqual([1, 1]);
+    expect(placeAfterRemove([0], [1])).toEqual([0]);
+    expect(placeAfterRemove([0, 1], [1, 0])).toEqual([0, 1]);
+    // [0] is a condition now: adds go to the outer group instead of failing.
+    const tree = addCondition(emptyRule(), []);
+    expect(addCondition(tree, [0]).parts).toHaveLength(2);
+    const g = addGroup(tree, [0], 'or');
+    expect(g.place).toEqual([1]);
+    expect(groupAt(g.tree, g.place).op).toBe('or');
   });
 
   it('says each condition in words', () => {

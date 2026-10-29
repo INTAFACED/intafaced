@@ -126,6 +126,16 @@ describe('campaign builder model', () => {
     expect(latestRevision(changed)).toBe(4);
     expect(baseDefinition(changed)).toBe(definition);
     expect(editedView(changed)).toMatchObject({ revision: 3, rules: 'next', timeZoneBlank: true, budget: { limit: '120', left: '90' } });
+    // The Tasks tab shows the change's steps too, so saving it never puts the live steps back over them.
+    const steps = {
+      steps: [{ title: 'TEST trade once', event: 'trade.fill' as const, market: null, side: null, count: 1, streakDays: null }],
+      claimWindowSeconds: 604_800,
+      holdSeconds: null,
+      lock: null,
+      kycGate: 'none' as const,
+    };
+    const withTasks = draft({ ...changed, pendingChange: { ...changed.pendingChange!, definition: { ...definition, tasks: steps } } });
+    expect(editedView(withTasks).tasks).toEqual(steps);
     expect(refusalSentence('campaigns.second_person_required', changed, 'a')).toBe(
       'You wrote this revision, so another founder must approve it.',
     );

@@ -24,6 +24,30 @@ export function groupAt(tree: RuleGroup, place: Place): RuleGroup {
   return node;
 }
 
+/** The place itself while it names a group in the tree, else the outer group's. */
+function groupPlace(tree: RuleGroup, place: Place): Place {
+  let node: RuleGroup = tree;
+  for (const i of place) {
+    const next = node.parts[i];
+    if (!next || next.kind !== 'group') return [];
+    node = next;
+  }
+  return place;
+}
+
+/**
+ * Where new parts go once the part at `removed` is gone: its parent group when the removed part held that place, the
+ * same group one index earlier when an earlier sibling on its way was removed, else unchanged.
+ */
+export function placeAfterRemove(building: Place, removed: Place): Place {
+  if (removed.length === 0 || building.length < removed.length) return building;
+  const depth = removed.length - 1;
+  for (let i = 0; i < depth; i += 1) if (building[i] !== removed[i]) return building;
+  if (building[depth] === removed[depth]) return removed.slice(0, -1);
+  if (building[depth]! > removed[depth]!) return [...building.slice(0, depth), building[depth]! - 1, ...building.slice(depth + 1)];
+  return building;
+}
+
 function replaceAt(tree: RuleGroup, place: Place, make: (node: RuleNode) => RuleNode | null): RuleGroup {
   if (place.length === 0) return make(tree) as RuleGroup;
   const [head, ...rest] = place;
@@ -38,8 +62,12 @@ function replaceAt(tree: RuleGroup, place: Place, make: (node: RuleNode) => Rule
   return { ...tree, parts };
 }
 
-/** Adds a group (with one condition, so it is never empty) inside the group at `place`; returns the new group's place. */
-export function addGroup(tree: RuleGroup, place: Place, op: 'and' | 'or'): { tree: RuleGroup; place: Place } {
+/**
+ * Adds a group (with one condition, so it is never empty) inside the group at `wanted` (the outer group when the place no
+ * longer names one); returns the new group's place.
+ */
+export function addGroup(tree: RuleGroup, wanted: Place, op: 'and' | 'or'): { tree: RuleGroup; place: Place } {
+  const place = groupPlace(tree, wanted);
   const target = groupAt(tree, place);
   const at = [...place, target.parts.length];
   const next = replaceAt(tree, place, (node) => ({
@@ -49,9 +77,12 @@ export function addGroup(tree: RuleGroup, place: Place, op: 'and' | 'or'): { tre
   return { tree: next, place: at };
 }
 
-/** Adds a condition to the group at `place`. */
+/** Adds a condition to the group at `place` (the outer group when the place no longer names one). */
 export function addCondition(tree: RuleGroup, place: Place): RuleGroup {
-  return replaceAt(tree, place, (node) => ({ ...(node as RuleGroup), parts: [...(node as RuleGroup).parts, NEW_CONDITION] }));
+  return replaceAt(tree, groupPlace(tree, place), (node) => ({
+    ...(node as RuleGroup),
+    parts: [...(node as RuleGroup).parts, NEW_CONDITION],
+  }));
 }
 
 /** Replaces the condition at `place`. */

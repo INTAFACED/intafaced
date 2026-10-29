@@ -24,7 +24,7 @@ import type { ParticipantSource } from './participants.js';
 import type { PayoutSaga } from './payouts.js';
 import type { MarketNames } from './markets.js';
 import { NO_STREAK, streakOf } from './streaks.js';
-import { evaluateFormula, parseFormula, readsNames } from './formula.js';
+import { evaluateFormula, namesRead, parseFormula } from './formula.js';
 
 /**
  * Task campaigns (CM-tasks-quests-01): progress from verified bus events, the claim window, the verification gate and
@@ -118,20 +118,22 @@ export interface FillEvent {
   /** The fill's quote amount, fee and quantity, which an earning rule's formula may read. */
   quoteAmount?: string;
   feeAmount?: string;
+  /** The asset the fee is charged in; it need not be the market's quote asset. */
+  feeAsset?: string;
   qty?: string;
 }
 
 /**
  * One event an earning rule may answer (CM-rewards-hub-05): its trigger, its own id (the business key of what it earns),
- * whose it is, when, the asset its amounts are in (null when unknown), and the names its formula reads.
+ * whose it is, when, and the names its formula reads with the asset each is in (null when unknown).
  */
 export interface EarningEvent {
   trigger: EarningTrigger;
   eventId: string;
   userId: string;
   at: string;
-  asset: string | null;
   values: Readonly<Record<string, string>>;
+  assets: Readonly<Record<string, string | null>>;
 }
 
 /** The period an earning intent is keyed by: the rule's name and the event's id, so an event earns once per rule. */
@@ -317,13 +319,14 @@ export class TaskService {
         eventId: fill.fillId,
         userId: fill.userId,
         at: fill.ts,
-        asset: null,
         values: { amount: fill.quoteAmount ?? '0', fee: fill.feeAmount ?? '0', qty: fill.qty ?? '0' },
+        assets: { fee: fill.feeAsset ?? null },
       },
-      // A fill's amounts are in its market's quote asset, named only when a rule reads them.
-      async () => {
-        const name = await symbolOf(true);
-        return name ? (name.split('/')[1] ?? null) : null;
+      // The amount is in the market's quote asset and the quantity in its base asset, named only when a rule reads them.
+      async (name) => {
+        if (name === 'fee') return fill.feeAsset ?? null;
+        const symbol = await symbolOf(true);
+        return symbol ? (symbol.split('/')[name === 'qty' ? 0 : 1] ?? null) : null;
       },
     );
     return moved + earned + (await this.countLockFill(fill, at, symbolOf));
@@ -332,14 +335,17 @@ export class TaskService {
   /**
    * An event against every running campaign the account joined before it that has an earning rule for its trigger
    * (CM-rewards-hub-05). Each rule whose condition holds gives one reward intent, keyed by the rule and the event, so the
-   * same event delivered twice earns once. The incentive is the formula's answer, in the campaign's reward asset; a
-   * formula that reads the event's amounts earns only when the event is in that asset (otherwise the units would not
-   * match). What is written never goes past the budget limit less what the campaign's intents hold, nor past the per
+   * same event delivered twice earns once. The incentive is the formula's answer, in the campaign's reward asset; a rule
+   * that reads one of the event's amounts (in its formula or its condition) earns only when that amount is in the reward
+   * asset, as the minimum and the incentive are written in it (otherwise the units would not match). What is written never goes past the budget limit less what the campaign's intents hold, nor past the per
    * person limit (the campaign's reward amount) less what the account already holds from it; with no room, nothing is
    * written. Then the saga posts it under its own key. A paused campaign earns nothing new (ENGINE T-4). With the ledger
    * not connected nothing is written: the event comes again only by redelivery, so it is logged by the caller.
    */
-  async onEarningEvent(event: EarningEvent, assetOf: () => Promise<string | null> = async () => event.asset): Promise<number> {
+  async onEarningEvent(
+    event: EarningEvent,
+    assetOf: (name: string) => Promise<string | null> = async (name) => event.assets[name] ?? null,
+  ): Promise<number> {
     const at = new Date(event.at);
     if (Number.isNaN(at.getTime()) || !this.saga) return 0;
     const rows = await this.sql<(TaskCampaignRow & { account_id: string; earning: EarningRule[] })[]>`
@@ -358,13 +364,22 @@ export class TaskService {
     const names = EARNING_TRIGGERS[event.trigger].names;
     const values: Record<string, bigint> = {};
     for (const name of names) values[name] = parseAmount(event.values[name] ?? '0');
-    let asset: Promise<string | null> | null = null;
+    const assets = new Map<string, Promise<string | null>>();
+    const inRewardAsset = async (read: Set<string>, rewardAsset: string | null) => {
+      for (const name of read) {
+        if (!assets.has(name)) assets.set(name, assetOf(name));
+        if ((await assets.get(name)) !== rewardAsset) return false;
+      }
+      return true;
+    };
     let earned = 0;
     for (const row of live) {
       for (const rule of row.earning.filter((r) => r.trigger === event.trigger)) {
         if (rule.minAmount !== null && values.amount! < parseAmount(rule.minAmount)) continue;
         const formula = parseFormula(rule.formula, names);
-        if (readsNames(formula) && (await (asset ??= assetOf())) !== row.reward_asset) continue;
+        const read = namesRead(formula);
+        if (rule.minAmount !== null) read.add('amount');
+        if (!(await inRewardAsset(read, row.reward_asset))) continue;
         const amount = evaluateFormula(formula, values);
         if (amount <= 0n) continue;
         const key = rewardKeyOf(row.id, row.account_id, earningPeriodOf(rule.name, event.eventId));

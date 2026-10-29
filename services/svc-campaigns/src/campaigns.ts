@@ -754,13 +754,7 @@ export class CampaignService {
     }
     if (d.type !== row.type) throw new CampaignsError('campaign.type_locked', 'A live campaign keeps its type');
     await this.checkCampaignRule(tx, d);
-    const [drawn] = await tx<{ budget_drawn: string }[]>`SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${row.id}`;
-    if (d.budgetLimit && parseAmount18(d.budgetLimit) < parseAmount18(drawn?.budget_drawn ?? '0')) {
-      throw new CampaignsError('campaigns.budget_below_drawn', `Rewards already draw ${decimalOf(drawn!.budget_drawn)} of this budget`);
-    }
-    const [other] = await tx<{ id: string }[]>`
-      SELECT id FROM campaigns.campaigns WHERE lower(name) = lower(${d.name}) AND state <> 'archived' AND id <> ${row.id}`;
-    if (other) throw new CampaignsError('campaign.name_taken', 'Another campaign already uses this name');
+    await this.checkChange(tx, row, d);
     const definition = tx.json(inputOf(d) as unknown as postgres.JSONValue);
     const [out] = await tx<ChangeRow[]>`
       INSERT INTO campaigns.campaign_changes (campaign_id, revision, definition, state, created_by)
@@ -771,6 +765,20 @@ export class CampaignService {
     await audit(tx, input.actor, 'campaign.change', row.id, { revision: out!.revision, live: row.revision });
     const [read] = await tx<CampaignRow[]>`SELECT * FROM campaigns.campaign_rows WHERE id = ${row.id}`;
     return toCampaign(read!, this.timeZone(), this.now(), out!);
+  }
+
+  /**
+   * What a change must still meet when it is written and again when it goes live, since rewards draw and names are taken
+   * in between: its budget is not below what the campaign's rewards already draw, and no other campaign has its name.
+   */
+  private async checkChange(tx: Sql, row: CampaignRow, d: Definition): Promise<void> {
+    const [drawn] = await tx<{ budget_drawn: string }[]>`SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${row.id}`;
+    if (d.budgetLimit && parseAmount18(d.budgetLimit) < parseAmount18(drawn?.budget_drawn ?? '0')) {
+      throw new CampaignsError('campaigns.budget_below_drawn', `Rewards already draw ${decimalOf(drawn!.budget_drawn)} of this budget`);
+    }
+    const [other] = await tx<{ id: string }[]>`
+      SELECT id FROM campaigns.campaigns WHERE lower(name) = lower(${d.name}) AND state <> 'archived' AND id <> ${row.id}`;
+    if (other) throw new CampaignsError('campaign.name_taken', 'Another campaign already uses this name');
   }
 
   /**
@@ -805,17 +813,27 @@ export class CampaignService {
     if (open.state !== 'pending_approval') {
       throw new CampaignsError('campaign.invalid_transition', `Revision ${open.revision} has not been sent for approval`);
     }
+    // The campaign's creator never approves it (a CHECK on the live row), so a change the other founder wrote is rewritten
+    // by the creator and approved by the other.
     if (actor === open.created_by || actor === open.submitted_by || actor === row.created_by) {
       throw new CampaignsError('campaigns.second_person_required', 'A second person approves; the one who wrote or asked for it cannot');
     }
+    // The campaign may have ended, been archived or passed its end time since the change was asked for: only a running one
+    // takes it, so an approval never brings an ended campaign back.
+    const state = effectiveState(row, now);
+    if (!REVISABLE.includes(state)) {
+      throw new CampaignsError('campaign.invalid_transition', `A campaign that is ${state} takes no change`);
+    }
     refuseGate(gateOf(merged, timeZone));
+    if (d.endsAt && d.endsAt <= now) throw new CampaignsError('campaign.invalid_transition', 'The campaign’s end time has passed');
+    await this.checkChange(tx, row, d);
     await tx`
       UPDATE campaigns.campaigns SET name = ${d.name}, rules = ${d.rules}, starts_at = ${d.startsAt}, ends_at = ${d.endsAt},
         weekdays = ${d.weekdays}, hours_from = ${d.hoursFrom}, hours_to = ${d.hoursTo},
         participation = ${d.participation ? tx.json(d.participation) : null}, budget_asset = ${d.budgetAsset},
         budget_limit = ${d.budgetLimit}, reward_asset = ${d.rewardAsset}, reward_amount = ${d.rewardAmount},
         tasks = ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, time_zone_blank = ${d.timeZoneBlank},
-            earning = ${tx.json(d.earning as unknown as postgres.JSONValue)},
+        earning = ${tx.json(d.earning as unknown as postgres.JSONValue)},
         revision = ${open.revision}, submitted_by = ${open.submitted_by}, approved_by = ${actor},
         approved_revision = ${open.revision}, updated_at = now()
       WHERE id = ${row.id}`;

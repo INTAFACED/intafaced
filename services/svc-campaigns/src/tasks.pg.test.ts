@@ -973,6 +973,37 @@ if (!db) {
       await reconciles(parseAmount('100'));
     });
 
+    it('reads each name in its own asset: a fee charged in BTC, a quantity in BTC or a deposit in another coin earns nothing in USDT', async () => {
+      await earnFees('100');
+      await fundPot('TEST-earn-6', '100');
+      const c = await earning({
+        earning: [
+          { name: 'TEST fee', trigger: 'trade.fill.settled', minAmount: null, formula: 'fee * 2' },
+          { name: 'TEST qty', trigger: 'trade.fill.settled', minAmount: null, formula: 'qty * 10' },
+          { name: 'TEST big deposit', trigger: 'pay.deposit_credit.posted', minAmount: '100', formula: '5' },
+        ],
+      });
+      // BTC/USDT: the quantity is in BTC, and so is this fee; neither is a USDT figure.
+      expect(await tasks.onFill(fill(ME, { quoteAmount: '250', feeAmount: '0.001', feeAsset: 'BTC', qty: '0.01' }))).toBe(0);
+      // The same fill with its fee charged in USDT earns from the fee rule only.
+      expect(await tasks.onFill(fill(ME, { quoteAmount: '250', feeAmount: '0.25', feeAsset: 'USDT', qty: '0.01' }))).toBe(1);
+      // The minimum is a USDT figure: 100 of another coin does not meet it; 100 USDT does.
+      const deposit = (eventId: string, asset: string) => ({
+        trigger: 'pay.deposit_credit.posted' as const,
+        eventId,
+        userId: ME,
+        at: new Date().toISOString(),
+        values: { amount: '100' },
+        assets: { amount: asset },
+      });
+      expect(await tasks.onEarningEvent(deposit('dep-doge', 'DOGE'))).toBe(0);
+      expect(await tasks.onEarningEvent(deposit('dep-usdt', 'USDT'))).toBe(1);
+      const rows = await db!.sql<{ amount: string }[]>`
+        SELECT amount::text AS amount FROM campaigns.reward_intents WHERE campaign_id = ${c.id} ORDER BY amount`;
+      expect(rows.map((r) => r.amount)).toEqual(['0.500000000000000000', '5.000000000000000000']);
+      await reconciles(parseAmount('100'));
+    });
+
     it('a deposit earns by its own id; a lost ledger reply leaves the reward for the reconciler, posted once', async () => {
       await earnFees('100');
       await fundPot('TEST-earn-5', '100');
@@ -985,8 +1016,8 @@ if (!db) {
         eventId: 'dep-1',
         userId: ME,
         at: new Date().toISOString(),
-        asset: 'USDT',
         values: { amount: '50' },
+        assets: { amount: 'USDT' },
       };
       expect(await tasks.onEarningEvent(deposit)).toBe(1);
       expect(await tasks.onEarningEvent(deposit)).toBe(0);

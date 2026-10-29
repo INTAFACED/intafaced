@@ -144,9 +144,12 @@ export function evaluateFormula(f: Formula, values: Readonly<Record<string, bigi
   return out > 0n ? out : 0n;
 }
 
-/** Whether a formula reads any of its trigger's names (a fixed incentive reads none). */
-export function readsNames(f: Formula): boolean {
-  if (f.kind === 'name') return true;
-  if (f.kind === 'number') return false;
-  return readsNames(f.left) || readsNames(f.right);
+/** The trigger's names a formula reads (a fixed incentive reads none). */
+export function namesRead(f: Formula, into: Set<string> = new Set()): Set<string> {
+  if (f.kind === 'name') into.add(f.name);
+  else if (f.kind !== 'number') {
+    namesRead(f.left, into);
+    namesRead(f.right, into);
+  }
+  return into;
 }

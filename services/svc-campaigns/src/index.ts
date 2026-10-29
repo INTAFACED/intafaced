@@ -124,13 +124,14 @@ async function attachBus(): Promise<void> {
     await connected.subscribe(
       'payDepositCreditPosted',
       async (deposit) => {
+        if (!saga) app.log.warn({ depositId: deposit.depositId }, 'earning skipped: campaigns.reward_saga_unwired');
         await tasks.onEarningEvent({
           trigger: 'pay.deposit_credit.posted',
           eventId: deposit.depositId,
           userId: deposit.userId,
           at: deposit.creditedAt,
-          asset: deposit.assetId,
           values: { amount: deposit.amount },
+          assets: { amount: deposit.assetId },
         });
       },
       { durable: 'campaigns-earn-deposit-credited' },
@@ -169,7 +170,10 @@ if (!participantsWired) {
   app.log.warn('IDENTITY_URL or INTERNAL_SERVICE_SECRET is unset: campaigns with exclusions or a region list read unread');
 }
 if (!markets) app.log.warn('TRADE_URL is unset: a task step that names a market counts no fill');
-if (!saga) app.log.warn('LEDGER_URL or INTERNAL_SERVICE_SECRET is unset: every claim refuses campaigns.reward_saga_unwired');
+if (!saga)
+  app.log.warn(
+    'LEDGER_URL or INTERNAL_SERVICE_SECRET is unset: every claim refuses campaigns.reward_saga_unwired and no earning rule pays',
+  );
 app.log.info({ port: env.HTTP_PORT, participants: participantsWired, ledger: Boolean(saga) }, 'svc-campaigns ready');
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {

@@ -162,6 +162,7 @@ export function editedView(c: Campaign): Campaign {
     participation: d.participation ?? null,
     budget: d.budget ? { asset: d.budget.asset, limit: amount(d.budget.limit), left: c.budget?.left ?? amount(d.budget.limit) } : null,
     reward: d.reward ? { asset: d.reward.asset, amount: amount(d.reward.amount) } : null,
+    tasks: d.tasks ?? null,
     earning: d.earning ?? [],
   };
 }

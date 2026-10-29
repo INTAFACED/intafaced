@@ -465,6 +465,24 @@ if (!db) {
       expect(await code(s.transition({ id: c.id, action: 'archive', revision: 5, actor: A }))).toBe('campaign.archive_active');
     });
 
+    it('a change goes live only on a running campaign, and only if its name is still free when it is approved', async () => {
+      const s = service();
+      const c = await live();
+      await s.update({ id: c.id, revision: 1, definition: full({ rules: 'TEST v2' }), actor: A });
+      await s.transition({ id: c.id, action: 'submit', revision: 2, actor: A });
+      // Ended while the change waited: approving it would bring the campaign back, so it refuses.
+      await s.transition({ id: c.id, action: 'end', revision: 1, actor: A });
+      expect(await code(s.transition({ id: c.id, action: 'approve', revision: 2, actor: B }))).toBe('campaign.invalid_transition');
+      expect((await s.listForOps()).find((x) => x.id === c.id)).toMatchObject({ state: 'ended', rules: 'TEST rules', revision: 1 });
+
+      const d = await live({ name: 'TEST other' });
+      await s.update({ id: d.id, revision: 1, definition: full({ name: 'TEST renamed' }), actor: A });
+      await s.transition({ id: d.id, action: 'submit', revision: 2, actor: A });
+      // Another campaign takes the name before the approval.
+      await s.create({ definition: full({ name: 'TEST renamed' }), actor: A });
+      expect(await code(s.transition({ id: d.id, action: 'approve', revision: 2, actor: B }))).toBe('campaign.name_taken');
+    });
+
     it('a campaign that ended or waits for its first approval is not edited', async () => {
       const s = service();
       const c = await s.create({ definition: full(), actor: A });

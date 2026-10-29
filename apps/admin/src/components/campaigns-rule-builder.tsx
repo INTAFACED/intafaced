@@ -18,6 +18,7 @@ import {
   emptyRule,
   groupAt,
   placeName,
+  placeAfterRemove,
   removeAt,
   setCondition,
   setOp,
@@ -139,12 +140,14 @@ function GroupView({
   building,
   onBuildHere,
   onChange,
+  onRemove,
 }: {
   group: RuleGroup;
   place: Place;
   building: Place;
   onBuildHere: (place: Place) => void;
   onChange: (tree: (t: RuleGroup) => RuleGroup) => void;
+  onRemove: (place: Place) => void;
 }) {
   const name = placeName(place) || 'outer';
   const here = building.join('.') === place.join('.');
@@ -154,7 +157,7 @@ function GroupView({
         const at = [...place, i];
         return part.kind === 'group' ? (
           <li key={placeName(at)}>
-            <GroupView group={part} place={at} building={building} onBuildHere={onBuildHere} onChange={onChange} />
+            <GroupView group={part} place={at} building={building} onBuildHere={onBuildHere} onChange={onChange} onRemove={onRemove} />
           </li>
         ) : (
           <ConditionEditor
@@ -162,7 +165,7 @@ function GroupView({
             condition={part}
             name={placeName(at)}
             onChange={(c) => onChange((t) => setCondition(t, at, c))}
-            onRemove={() => onChange((t) => removeAt(t, at))}
+            onRemove={() => onRemove(at)}
           />
         );
       })}
@@ -189,7 +192,7 @@ function GroupView({
             Add to group {name}
           </button>
         )}{' '}
-        <button type="button" className="adm-btn" onClick={() => onChange((t) => removeAt(t, place))}>
+        <button type="button" className="adm-btn" onClick={() => onRemove(place)}>
           Remove group {name}
         </button>
       </p>
@@ -223,6 +226,11 @@ export function RuleBuilder({
     setTree(edit);
     setResult(null);
     setSaved(null);
+  };
+  // A removed part shifts the places after it, so where new parts go follows the tree.
+  const remove = (place: Place) => {
+    change((t) => removeAt(t, place));
+    setBuilding((b) => placeAfterRemove(b, place));
   };
 
   const tryIt = async () => {
@@ -264,7 +272,7 @@ export function RuleBuilder({
         <p className="dk-muted">
           The outer group needs all of its parts (AND). New groups and conditions go into the group marked as being built.
         </p>
-        <GroupView group={tree} place={[]} building={building} onBuildHere={setBuilding} onChange={change} />
+        <GroupView group={tree} place={[]} building={building} onBuildHere={setBuilding} onChange={change} onRemove={remove} />
         <div className="dk-row">
           <button type="button" className="adm-btn" onClick={() => change((t) => addCondition(t, building))}>
             Add a condition
