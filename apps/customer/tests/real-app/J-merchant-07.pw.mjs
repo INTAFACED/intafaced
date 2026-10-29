@@ -210,7 +210,8 @@ test(`${J} #2 reads funds moving from clearing to available: funds wait until av
   const answer = await asked;
   expect(answer.status()).toBe(412);
   expect(JSON.stringify(await answer.json())).toContain('"code":"pay.payout_clearing_pending"');
-  await expect(review.getByTestId('failure')).toContainText('This money is still clearing, so it isn’t available to pay out yet.');
+  const said = review.getByRole('status').filter({ hasText: 'The request was refused' });
+  await expect(said).toContainText('This money is still clearing, so it isn’t available to pay out yet.');
   expect(refused).toEqual(['412 merchantControl.approvals.request']);
   // By the API, with the owner's "Confirm it's you" payout token (a plain session may do neither): asking for the payout
   // and sending it are both refused the same way.
