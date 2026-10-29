@@ -2,12 +2,14 @@
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { RefusalView } from '@/lib/desk/refusal-copy';
 import type { SupportMergePreview } from '@intafaced/contracts';
+import type { SupportMacroApplied } from '@intafaced/contracts/support-macros';
 import { readMergePreview } from './merge';
 import type { SupportActionRequest } from './model';
 import { EMPTY_QUERY, queueQueryString, type QueueQuery } from './queue-query';
 import type {
   SupportKbView,
   SupportLifecycleView,
+  SupportMacrosView,
   SupportCustomerView,
   SupportPropertiesView,
   SupportRatingSummaryView,
@@ -305,6 +307,7 @@ const ACTIONS: readonly string[] = [
   'view_save',
   'unclaim',
   'assign',
+  'signature_set',
 ];
 
 /** Strict reader: anything that is not exactly a known answer is "outcome not known", never a success. */
@@ -396,3 +399,38 @@ export async function fetchMergePreview(sourceId: string, survivorId: string, si
 
 export type MergePreviewReply =
   { readonly ok: true; readonly preview: SupportMergePreview } | { readonly ok: false; readonly refusal: RefusalView | null };
+
+/** The desk's macros and the agent's own signature. Null when they could not be read: never drawn as "no macros". */
+export async function fetchMacros(signal?: AbortSignal): Promise<SupportMacrosView | null> {
+  try {
+    const res = await fetch('/api/support?view=macros', { cache: 'no-store', credentials: 'same-origin', ...(signal ? { signal } : {}) });
+    if (!res.ok) return null;
+    const body: unknown = await res.json();
+    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.macros) && isRecord(body.signature)
+      ? (body as unknown as SupportMacrosView)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export type MacroApplyReply =
+  { readonly ok: true; readonly applied: SupportMacroApplied } | { readonly ok: false; readonly refusal: RefusalView | null };
+
+/** One macro filled from one request. svc-support writes nothing: the text only goes into the agent's draft. */
+export async function fetchMacroApply(ticketId: string, macroId: string): Promise<MacroApplyReply> {
+  try {
+    const res = await fetch(`/api/support?view=macro&id=${encodeURIComponent(ticketId)}&macro=${encodeURIComponent(macroId)}`, {
+      cache: 'no-store',
+      credentials: 'same-origin',
+    });
+    const body: unknown = await res.json().catch(() => null);
+    if (res.ok && isRecord(body) && body.ok === true && isRecord(body.applied) && typeof body.applied.text === 'string') {
+      return { ok: true, applied: body.applied as unknown as SupportMacroApplied };
+    }
+    const read = readClaimReply(body);
+    return { ok: false, refusal: read.ok ? null : read.refusal };
+  } catch {
+    return { ok: false, refusal: null };
+  }
+}
