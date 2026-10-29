@@ -2,15 +2,15 @@ import { test, expect } from '@playwright/test';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { signIn, signUp } from './desk.mjs';
 import { asDesk, deskPeople } from './help-centre.mjs';
-import { api } from './stack.mjs';
+import { api, tool } from './stack.mjs';
 
 // J-support-public-10, in the running app (docs/roadmap/journeys.json): work the support queue and answer customers. Tests
 // titled "J-support-public-10 #<n>" prove a whole step. The agent works in the founder console (apps/admin) as the stack's
 // founder A, the support lead; founder B is a second agent (help-centre.mjs appoints both). A TEST customer sends the
 // requests through its own support API, and reads the answers in the customer app.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #4, #10: no "claim next", no workspace address per request, no unclaim or reassign in the console (SP-tickets-09).
-// - #5: no customer card (SP-tickets-09). #7: no macros or signatures (SP-desk-02). #8: no stale-reply guard (SP-tickets-09).
+// - #7: no macros or signatures (SP-desk-02).
+// A refusal is matched by its one typed code, and the record is read again after it to show nothing changed.
 // #2's blank view cap clause needs the cap blank; the stack sets owner values as TEST, so it is checked where the cap is unset.
 const J = 'J-support-public-10';
 const RUN = Date.now().toString(36);
@@ -59,6 +59,16 @@ async function openQueue(page, key = 'a') {
   await expect(queue, 'the desk lists the queue (founder console sign-in carries support:ops)').toBeVisible(UNBUILT);
   return queue;
 }
+
+/** A desk call that must be refused: its one typed code (svc-support's error message is the code itself). */
+async function refusedWith(who, kind, procedure, input) {
+  const res = await asDesk(who, kind, procedure, input);
+  expect(res.json?.result?.data, `${procedure} must be refused: ${res.text.slice(0, 300)}`).toBeUndefined();
+  return res.json?.error?.message;
+}
+
+/** The request's trail as svc-support keeps it. */
+const trail = (ticketId) => desk('lead', 'query', 'events', { ticketId, limit: 500 });
 
 /** The queue row of the request with this subject. */
 const rowOf = (queue, subject) => queue.getByRole('row').filter({ hasText: subject });
@@ -164,16 +174,22 @@ test(`${J} #4 claiming the next request opens its workspace at its own address; 
 }) => {
   await request(`TEST claim next ${RUN}`);
   await openQueue(page);
-  await page.getByRole('button', { name: 'Claim the next request' }).click(UNBUILT);
+  await page.getByRole('button', { name: 'Claim the next request' }).click();
   await expect(page).toHaveURL(new RegExp(`^${ADMIN}/(admin/)?support/[0-9a-f-]{36}$`));
   const ticketId = page.url().split('/').pop();
   const { lead } = await deskPeople();
-  expect((await desk('lead', 'query', 'get', { ticketId })).assigneeId).toBe(lead);
+  // The workspace open at that address is the claimed request, held by this agent.
+  const claimed = await desk('lead', 'query', 'get', { ticketId });
+  expect(claimed.assigneeId).toBe(lead);
+  const workspace = page.getByRole('region', { name: 'Ticket', exact: true });
+  await expect(workspace).toContainText(claimed.subject);
+  await expect(workspace.getByTestId('ticket-holder')).toHaveAttribute('data-user-id', lead);
 
-  // The second agent cannot take it over, and it stays with the first.
-  const stolen = await asDesk('agent', 'mutation', 'claim', { ticketId });
-  expect(stolen.status).not.toBe(200);
+  // The second agent's claim of it is refused by its code; it stays with the first and the trail gains nothing.
+  const before = await trail(ticketId);
+  expect(await refusedWith('agent', 'mutation', 'claim', { ticketId })).toBe('support.claim.already_claimed');
   expect((await desk('lead', 'query', 'get', { ticketId })).assigneeId).toBe(lead);
+  expect(await trail(ticketId)).toEqual(before);
 });
 
 test(`${J} #5 the customer card shows the account state, never "active" when identity can't be read, and the related order or "none"`, async ({
@@ -183,9 +199,27 @@ test(`${J} #5 the customer card shows the account state, never "active" when ide
   const queue = await openQueue(page);
   const workspace = await openRequest(page, queue, ticket);
   const card = workspace.getByRole('region', { name: 'Customer' });
-  await expect(card).toBeVisible(UNBUILT);
-  await expect(card.getByTestId('customer-account-state')).toHaveText(/^(active|restricted|frozen|closed|unread)$/i);
+  await expect(card).toBeVisible();
+  // The state shown is the one svc-support reads from identity for this request's customer.
+  const read = await desk('lead', 'query', 'accountState', { ticketId: ticket.id });
+  expect(read.status, JSON.stringify(read)).toBe('read');
+  expect(read.state.userId).toBe(ticket.userId);
+  await expect(card.getByTestId('customer-account-state')).toHaveText(read.state.status);
+  // The request names no order, so the related order is "none".
   await expect(card.getByTestId('customer-related-order')).toHaveText('none');
+
+  // With identity unreachable the card says "unread", never "active".
+  test.setTimeout(240_000);
+  try {
+    tool('local-test-stack.mjs', 'stop', 'identity');
+    const dark = await desk('lead', 'query', 'accountState', { ticketId: ticket.id });
+    expect(dark).toEqual({ status: 'unread', reason: 'plane_dark' });
+    await card.getByRole('button', { name: 'Read again' }).click();
+    await expect(card.getByTestId('customer-account-state')).toHaveText('unread');
+    await expect(card.getByTestId('customer-account-state')).toHaveAttribute('data-code', 'plane_dark');
+  } finally {
+    tool('local-test-stack.mjs', 'start', '--only', 'identity');
+  }
 });
 
 test(`${J} #6 priority, type and labels save with one audit row each; a label with a space is refused with a typed reason`, async ({
@@ -257,11 +291,19 @@ test(`${J} #8 sending after another agent changed the status is refused as stale
   await page.getByRole('region', { name: 'Ticket actions' }).getByLabel('Your reply').fill(`TEST stale reply ${RUN}`);
   // Meanwhile the other agent moves the request on.
   await desk('agent', 'mutation', 'setStatus', { ticketId: ticket.id, status: 'on_hold', note: `TEST ${J} #8` });
+  const before = await trail(ticket.id);
   const outcome = await sendReply(workspace);
-  await expect(outcome).toContainText(/changed since you opened it/i, UNBUILT);
-  await expect(outcome).toContainText('on_hold');
+  await expect(outcome).toHaveAttribute('data-code', 'support.stale_ticket');
+  // The refusal lists the new event: the other agent's status change.
+  const change = before.at(-1);
+  expect([change.kind, change.toStatus]).toEqual(['status_changed', 'on_hold']);
+  await expect(outcome.getByTestId('reply-stale-rows')).toContainText(
+    `#${change.sequence} status_changed from ${change.fromStatus} to on_hold`,
+  );
+  // Nothing was written: no reply, and the trail is as it was.
   const comments = await desk('lead', 'query', 'listComments', { ticketId: ticket.id, limit: 50 });
   expect(comments.some((row) => row.body.includes(`TEST stale reply ${RUN}`))).toBe(false);
+  expect(await trail(ticket.id)).toEqual(before);
   // After reading the new events the agent sends again, and it goes through once.
   await page.getByRole('button', { name: 'I have read the changes' }).click();
   await expect(await sendReply(workspace)).toContainText('Done');
@@ -306,12 +348,20 @@ test(`${J} #10 the assignee unclaims one request and a lead reassigns another, e
   const queue = await openQueue(page);
   const workspace = await openRequest(page, queue, mineToDrop);
   await claim(workspace);
-  // Only the assignee may unclaim: the other agent is refused and the request stays with the lead.
-  const notHeld = await asDesk('agent', 'mutation', 'unclaim', { ticketId: mineToDrop.id, idempotencyKey: `${J}:${RUN}:not-held` });
-  expect(notHeld.status).not.toBe(200);
+  const notes = async (ticketId, note) => (await trail(ticketId)).filter((e) => e.note === note);
+  // Only the assignee may unclaim: the other agent is refused by its code, the request stays with the lead, the trail is as it was.
+  const held = await trail(mineToDrop.id);
+  expect(await refusedWith('agent', 'mutation', 'unclaim', { ticketId: mineToDrop.id, idempotencyKey: `${J}:${RUN}:not-held` })).toBe(
+    'support.release.not_assignee',
+  );
   expect(await assignee(mineToDrop.id)).toBe(lead);
-  await workspace.getByRole('button', { name: 'Unclaim' }).click(UNBUILT);
+  expect(await trail(mineToDrop.id)).toEqual(held);
+  await workspace.getByRole('button', { name: 'Unclaim' }).click();
+  await expect(page.getByTestId('owner-outcome')).toContainText('Done');
   await expect.poll(() => assignee(mineToDrop.id)).toBeNull();
+  await expect(page.getByTestId('ticket-holder')).toHaveText('Nobody: it is in the queue.');
+  // One audit row, in svc-support's trail and in the history shown.
+  expect(await notes(mineToDrop.id, 'unclaim')).toHaveLength(1);
   await expect(
     workspace
       .getByRole('region', { name: 'Ticket history' })
@@ -323,20 +373,28 @@ test(`${J} #10 the assignee unclaims one request and a lead reassigns another, e
   const other = await openRequest(page, queue, toReassign);
   await other.getByLabel('Assign to').selectOption(agent);
   await other.getByRole('button', { name: 'Reassign' }).click();
+  await expect(page.getByTestId('owner-outcome')).toContainText('Done');
   await expect.poll(() => assignee(toReassign.id)).toBe(agent);
+  // The new assignee shows, and one audit row names them.
+  await expect(page.getByTestId('ticket-holder')).toHaveAttribute('data-user-id', agent);
+  expect(await notes(toReassign.id, `assign:${agent}`)).toHaveLength(1);
   await expect(
     other
       .getByRole('region', { name: 'Ticket history' })
       .getByRole('row')
-      .filter({ hasText: /assign/i }),
+      .filter({ hasText: `assign:${agent}` }),
   ).toHaveCount(1);
-  const notLead = await asDesk('agent', 'mutation', 'assign', {
-    ticketId: toReassign.id,
-    assigneeId: lead,
-    idempotencyKey: `${J}:${RUN}:not-lead`,
-  });
-  expect(notLead.status).not.toBe(200);
+  // Only a lead reassigns to someone else: the agent is refused by its code, and nothing changes.
+  const given = await trail(toReassign.id);
+  expect(
+    await refusedWith('agent', 'mutation', 'assign', {
+      ticketId: toReassign.id,
+      assigneeId: lead,
+      idempotencyKey: `${J}:${RUN}:not-lead`,
+    }),
+  ).toBe('support.not_lead');
   expect(await assignee(toReassign.id)).toBe(agent);
+  expect(await trail(toReassign.id)).toEqual(given);
 });
 
 test(`${J} #11 a general help request is resolved and reopens when the customer replies`, async ({ page }) => {

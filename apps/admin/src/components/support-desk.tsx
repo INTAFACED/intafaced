@@ -1,15 +1,17 @@
 'use client';
 
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Chip } from '@/components/chip';
 import { shortId } from '@/lib/desk/desk-model';
 import type { Part } from '@/lib/desk/part';
-import { fetchQueue, fetchTicket, fetchTicketExtras, postClaim, type ClaimReply } from '@/lib/support/browser';
+import { fetchQueue, fetchTicket, fetchTicketExtras, postClaim, postClaimNext, type ClaimReply } from '@/lib/support/browser';
 import { claimGate, formatAge, queueMetrics, type ClaimGate } from '@/lib/support/model';
 import type { QueueRead, SupportQueueView, SupportTicketView, TicketDetail, TicketExtrasView } from '@/lib/support/types';
 import { Failed } from './support-action-parts';
 import { SupportBulkBar } from './support-bulk-bar';
 import { TicketActions } from './support-ticket-actions';
+import { CustomerCard } from './support-customer-card';
+import { TicketOwner } from './support-ticket-owner';
 import { RatingsSummary } from './support-ratings-summary';
 import { TicketExtras } from './support-ticket-extras';
 import { TicketFiles } from './support-ticket-files';
@@ -81,6 +83,11 @@ export interface DeskViewProps {
   readonly onClose: () => void;
   readonly onArm: (v: boolean) => void;
   readonly onClaim: () => void;
+  /** Claim whichever request the queue ranks first, and open it at its own address. */
+  readonly onClaimNext: () => void;
+  readonly claimingNext: boolean;
+  /** svc-support's answer to the last "claim the next request"; null before one. */
+  readonly nextReply: ClaimReply | null;
   /** The ticked requests for a bulk change. Absent when the page offers no bulk bar. */
   readonly bulk?: {
     readonly selected: ReadonlySet<string>;
@@ -147,7 +154,7 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
         {p.arming ? (
           <div className="adm-callout" data-tone="warn">
             <strong>Claim this ticket?</strong>
-            <p>It becomes yours. svc-support has no release or reassign, so it stays yours from this console.</p>
+            <p>It becomes yours until you unclaim it or a lead gives it to someone else.</p>
             <div className="dk-row">
               <button type="button" className="adm-btn" data-tone="primary" onClick={p.onClaim} disabled={!gate.ok}>
                 {p.busy ? 'Claiming…' : 'Yes, claim it'}
@@ -170,6 +177,7 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
             className="adm-callout"
             role={p.reply.ok ? 'status' : 'alert'}
             data-testid="claim-reply"
+            data-code={p.reply.ok ? undefined : (p.reply.refusal.code ?? undefined)}
             data-tone={p.reply.ok ? 'ok' : p.reply.refusal.changed === 'unknown' ? 'warn' : 'danger'}
           >
             {p.reply.ok ? (
@@ -191,6 +199,9 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
           </div>
         )}
       </div>
+
+      <TicketOwner key={`owner:${t.id}`} ticket={t} events={detail.events} userId={p.userId} onDone={p.onActionDone} />
+      <CustomerCard key={`customer:${t.id}`} ticketId={t.id} />
 
       <h4>Conversation</h4>
       {detail.comments.kind === 'failed' ? (
@@ -226,7 +237,7 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
       <TicketLifecycle key={`lifecycle:${t.id}`} ticket={t} />
       <TicketProperties key={`properties:${t.id}`} ticket={t} onDone={p.onActionDone} />
       <TicketMerge key={`merge:${t.id}`} ticket={t} onDone={p.onActionDone} />
-      <TicketActions ticket={t} onDone={p.onActionDone} />
+      <TicketActions key={`actions:${t.id}`} ticket={t} events={detail.events} userId={p.userId} onDone={p.onActionDone} />
     </>
   );
 }
@@ -278,8 +289,24 @@ export function SupportDeskView(p: DeskViewProps) {
         <button type="button" className="adm-btn" onClick={p.onRefresh} disabled={p.loadingQueue}>
           {p.loadingQueue ? 'Reading…' : 'Refresh'}
         </button>
+        <button type="button" className="adm-btn" data-tone="primary" onClick={p.onClaimNext} disabled={p.claimingNext}>
+          {p.claimingNext ? 'Claiming…' : 'Claim the next request'}
+        </button>
         <span className="dk-asof">{q ? `As of ${formatAsOf(q.asOf)} (when this console read svc-support)` : 'No read yet'}</span>
       </div>
+      {p.nextReply && !p.nextReply.ok && (
+        <div
+          className="adm-callout"
+          role="alert"
+          data-testid="claim-next-reply"
+          data-code={p.nextReply.refusal.code ?? undefined}
+          data-tone={p.nextReply.refusal.changed === 'unknown' ? 'warn' : 'danger'}
+        >
+          <strong>{p.nextReply.refusal.title}</strong>
+          <p>{p.nextReply.refusal.body}</p>
+          <p>{p.nextReply.refusal.next}</p>
+        </div>
+      )}
       {q && p.filters}
       {!q && <p className="dk-why">svc-support could not be read. Nothing is shown rather than a guess.</p>}
       {q && q.queue.kind === 'failed' && <Failed name="Support queue" part={q.queue} />}
@@ -359,7 +386,24 @@ export function SupportDeskView(p: DeskViewProps) {
   );
 }
 
-export function SupportDesk({ initial, userId, children }: { initial: SupportQueueView | null; userId: string; children?: ReactNode }) {
+/** The desk's address with one request open, or with none: `/support/<id>` beside `/support`, keeping the queue's query. */
+function deskAddress(ticketId: string | null): string {
+  const base = window.location.pathname.replace(/\/support(\/[^/]*)?$/, '/support');
+  return `${base}${ticketId ? `/${ticketId}` : ''}${window.location.search}`;
+}
+
+export function SupportDesk({
+  initial,
+  userId,
+  openTicketId,
+  children,
+}: {
+  initial: SupportQueueView | null;
+  userId: string;
+  /** The request named by the address, opened on arrival. */
+  openTicketId?: string;
+  children?: ReactNode;
+}) {
   const [queue, setQueue] = useState<SupportQueueView | null>(initial);
   const [ticket, setTicket] = useState<SupportTicketView | null>(null);
   const [ticketId, setTicketId] = useState<string | null>(null);
@@ -371,6 +415,8 @@ export function SupportDesk({ initial, userId, children }: { initial: SupportQue
   const [busy, setBusy] = useState(false);
   const [reply, setReply] = useState<ClaimReply | null>(null);
   const [ticked, setTicked] = useState<ReadonlySet<string>>(new Set());
+  const [claimingNext, setClaimingNext] = useState(false);
+  const [nextReply, setNextReply] = useState<ClaimReply | null>(null);
   const lock = useRef(false);
   const queueSeq = useRef(0);
   const ticketSeq = useRef(0);
@@ -411,6 +457,42 @@ export function SupportDesk({ initial, userId, children }: { initial: SupportQue
     }
   }, []);
 
+  const open = useCallback(
+    (id: string) => {
+      setTicketId(id);
+      setTicket(null);
+      setExtras(null);
+      setReply(null);
+      setArming(false);
+      void loadOne(id);
+      void loadExtras(id);
+    },
+    [loadOne, loadExtras],
+  );
+
+  useEffect(() => {
+    if (openTicketId) open(openTicketId);
+  }, [openTicketId, open]);
+
+  async function claimNext() {
+    if (lock.current) return;
+    lock.current = true;
+    setClaimingNext(true);
+    setNextReply(null);
+    try {
+      const result = await postClaimNext();
+      setNextReply(result);
+      if (result.ok) {
+        window.history.pushState(null, '', deskAddress(result.ticketId));
+        open(result.ticketId);
+      }
+      await reloadQueue();
+    } finally {
+      lock.current = false;
+      setClaimingNext(false);
+    }
+  }
+
   async function claim() {
     if (lock.current || !ticketId) return;
     lock.current = true;
@@ -440,15 +522,11 @@ export function SupportDesk({ initial, userId, children }: { initial: SupportQue
       reply={reply}
       onRefresh={() => void reloadQueue()}
       onOpen={(id) => {
-        setTicketId(id);
-        setTicket(null);
-        setExtras(null);
-        setReply(null);
-        setArming(false);
-        void loadOne(id);
-        void loadExtras(id);
+        window.history.pushState(null, '', deskAddress(id));
+        open(id);
       }}
       onClose={() => {
+        window.history.pushState(null, '', deskAddress(null));
         ticketSeq.current += 1;
         extrasSeq.current += 1;
         setTicketId(null);
@@ -459,6 +537,9 @@ export function SupportDesk({ initial, userId, children }: { initial: SupportQue
       }}
       onArm={setArming}
       onClaim={() => void claim()}
+      onClaimNext={() => void claimNext()}
+      claimingNext={claimingNext}
+      nextReply={nextReply}
       bulk={{
         selected: ticked,
         onToggle: (id) =>

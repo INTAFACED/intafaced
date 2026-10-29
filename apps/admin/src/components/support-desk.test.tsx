@@ -105,6 +105,9 @@ const base: DeskViewProps = {
   onClose: () => undefined,
   onArm: () => undefined,
   onClaim: () => undefined,
+  onClaimNext: () => undefined,
+  claimingNext: false,
+  nextReply: null,
 };
 const render = (over: Partial<DeskViewProps> = {}) => renderToStaticMarkup(<SupportDeskView {...base} {...over} />);
 
@@ -197,7 +200,7 @@ describe('a ticket', () => {
   it('an unowned ticket can be claimed, after a second click that says there is no release', () => {
     expect(open()).toContain('Claim this ticket');
     const armed = open({ arming: true });
-    expect(armed).toContain('svc-support has no release or reassign');
+    expect(armed).toContain('until you unclaim it or a lead gives it to someone else');
     expect(armed).toContain('Yes, claim it');
   });
   it('a ticket someone else owns cannot be claimed, and says why', () => {
@@ -245,5 +248,19 @@ describe('a ticket', () => {
       },
     });
     expect(no).toContain('This ticket is already claimed');
+  });
+});
+
+describe('claim the next request', () => {
+  it('is on the queue page, and a refusal shows its code', () => {
+    expect(render()).toContain('Claim the next request');
+    const refused = render({
+      nextReply: {
+        ok: false,
+        refusal: { title: 'No request is waiting to be claimed', body: 'b', next: 'n', code: 'support.claim.queue_empty', changed: 'no' },
+      },
+    });
+    expect(refused).toContain('data-code="support.claim.queue_empty"');
+    expect(refused).toContain('No request is waiting to be claimed');
   });
 });

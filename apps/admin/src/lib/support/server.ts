@@ -1,5 +1,7 @@
 import 'server-only';
+import { createHash } from 'node:crypto';
 import {
+  supportAccountGroundingSchema,
   supportCaseFileSchema,
   supportCommentSchema,
   supportKbArticleSchema,
@@ -26,6 +28,7 @@ import { readStaffMember, readStaffPolicy, readStaffRoster } from './staff';
 import type {
   SupportKbView,
   SupportLifecycleView,
+  SupportCustomerView,
   SupportPropertiesView,
   SupportRatingSummaryView,
   SupportBulkPolicyView,
@@ -194,6 +197,16 @@ export async function loadTicketProperties(
   return { asOf: now.toISOString(), properties: partFrom(result, (p) => p, LABELS) };
 }
 
+/**
+ * The customer card's account state, read through svc-support (which takes the account from the request, never from
+ * the caller, and writes the read to the request's history). A refusal or an unreachable service is the part's
+ * failure, shown as unread: never a guessed state.
+ */
+export async function loadCustomerCard(ctx: FounderCallContext, ticketId: string, now: Date = new Date()): Promise<SupportCustomerView> {
+  const result = await founderCall(ctx, 'support', 'accountState', 'GET', { ticketId }, parseWith(supportAccountGroundingSchema));
+  return { asOf: now.toISOString(), account: partFrom(result, (a) => a, LABELS) };
+}
+
 /** Who a ticket waits on and the request it follows. Its own read, so a refusal here never hides the ticket. */
 export async function loadTicketLifecycle(
   ctx: FounderCallContext,
@@ -262,6 +275,14 @@ export async function loadBulkPolicy(ctx: FounderCallContext, now: Date = new Da
 }
 
 /**
+ * A reply's business key: the request, the trail row the agent read and the text. Sent again after an unknown outcome it
+ * is the same key, so svc-support answers the stored reply and writes no second one; a different reply is a new key.
+ */
+export function replyKey(ticketId: string, expectedSequence: number, body: string): string {
+  return `admin-reply:${ticketId}:${expectedSequence}:${createHash('sha256').update(body).digest('hex').slice(0, 32)}`;
+}
+
+/**
  * One desk write, as the signed-in founder. svc-support takes the operator id from the verified session, so a reply,
  * a status change or an escalation is recorded against the person at the keyboard.
  */
@@ -273,8 +294,43 @@ export function runSupportAction(ctx: FounderCallContext, request: SupportAction
         'support',
         'comment',
         'POST',
-        { ticketId: request.ticketId, body: request.body },
+        {
+          ticketId: request.ticketId,
+          body: request.body,
+          ...(request.expectedSequence === undefined
+            ? {}
+            : {
+                expectedSequence: request.expectedSequence,
+                clientRequestId: replyKey(request.ticketId, request.expectedSequence, request.body),
+              }),
+        },
         parseWith(supportCommentSchema),
+      );
+    case 'claim_next':
+      return founderCall(ctx, 'support', 'claimNext', 'POST', undefined, parseWith(supportTicketSchema));
+    // The business key is the request and the trail row the person read: the same click sent twice is one change, and
+    // the next unclaim or reassign (after the trail has moved on) is a new one.
+    case 'unclaim':
+      return founderCall(
+        ctx,
+        'support',
+        'unclaim',
+        'POST',
+        { ticketId: request.ticketId, idempotencyKey: `admin-unclaim:${request.ticketId}:${request.expectedSequence}` },
+        parseWith(supportTicketSchema),
+      );
+    case 'assign':
+      return founderCall(
+        ctx,
+        'support',
+        'assign',
+        'POST',
+        {
+          ticketId: request.ticketId,
+          assigneeId: request.assigneeId,
+          idempotencyKey: `admin-assign:${request.ticketId}:${request.assigneeId}:${request.expectedSequence}`,
+        },
+        parseWith(supportTicketSchema),
       );
     case 'status':
       return founderCall(
@@ -282,7 +338,12 @@ export function runSupportAction(ctx: FounderCallContext, request: SupportAction
         'support',
         'setStatus',
         'POST',
-        { ticketId: request.ticketId, status: request.status, ...(request.note ? { note: request.note } : {}) },
+        {
+          ticketId: request.ticketId,
+          status: request.status,
+          ...(request.note ? { note: request.note } : {}),
+          ...(request.expectedSequence === undefined ? {} : { expectedSequence: request.expectedSequence }),
+        },
         parseWith(supportTicketSchema),
       );
     case 'escalate':
