@@ -20,6 +20,7 @@ import {
   identityErrorCode,
   isIdentityKeyVerdict,
   presentedScopeShapeOk,
+  REQUEST_UNSIGNED,
   requestSignShapeOk,
   type ApiKeyRefusal,
 } from './api-key-refusal.js';
@@ -439,7 +440,7 @@ export async function exchangePrincipal(
     }
     const exchanged = outcome.exchanged;
     if (exchanged.requireSignature && !requestSign) {
-      return refuse(API_KEY_DENIED);
+      return refuse(REQUEST_UNSIGNED);
     }
     if (!ipAllowlistSatisfied(exchanged.requireNonEmptyIpAllowlist === true, exchanged.ipAllowlist)) {
       return refuse(API_KEY_DENIED);

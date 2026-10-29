@@ -657,6 +657,7 @@ export type TradeErrorCode =
   | 'trade.iceberg_display_not_smaller'
   /** REST iceberg door: peak is not a positive lot-multiple strictly below the order, or the order is not a limit in a PLACE lifecycle. */
   | 'trade.iceberg_display_invalid'
+  | 'trade.iceberg_symbol_cap'
   | 'trade.stop_trigger_invalid'
   /** Option without a caller strike — trade does not invent a mark. */
   | 'trade.missing_strike'

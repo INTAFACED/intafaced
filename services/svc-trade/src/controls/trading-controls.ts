@@ -386,7 +386,8 @@ export class TradingControls implements TradingAdmissionPort {
           // the caller, so restart/retry cannot turn the same intent into a new grant.
           let refusal: 'auth.account_frozen' | 'trade.account_restricted' | 'auth.credential_denied' = 'auth.credential_denied';
           if (decision.status === 'cancelled' && decision.code === 'auth.account_frozen') refusal = 'auth.account_frozen';
-          else if (restricted) refusal = 'trade.account_restricted';
+          else if (restricted || (decision.status === 'cancelled' && decision.code === 'trade.account_restricted'))
+            refusal = 'trade.account_restricted';
           return { admission, refusal };
         },
         { isolation: 'read committed' },

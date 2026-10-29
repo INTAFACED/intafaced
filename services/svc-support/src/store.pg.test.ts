@@ -1,8 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import postgres from 'postgres';
-import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
+import { assertTestDatabase, createTestDatabase, postgresAvailable, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { PostgresSupportStore } from './store.js';
 
@@ -11,53 +10,43 @@ import { PostgresSupportStore } from './store.js';
  * property. Memory cannot prove two workers racing the same row.
  */
 
-const URL = process.env.TEST_DATABASE_URL_SUPPORT ?? 'postgres://svc_support:svc_support@localhost:5433/intafaced_test';
+const ADMIN_URL = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test';
 const here = dirname(fileURLToPath(import.meta.url));
-const MIGRATION = readFileSync(join(here, '..', 'drizzle', '0000_support_init.sql'), 'utf8');
-const MIGRATION_0001 = readFileSync(join(here, '..', 'drizzle', '0001_support_audit_and_case_file.sql'), 'utf8');
-const MIGRATION_0002 = readFileSync(join(here, '..', 'drizzle', '0002_support_lifecycle_full.sql'), 'utf8');
-const MIGRATION_0003 = readFileSync(join(here, '..', 'drizzle', '0003_kb_articles.sql'), 'utf8');
-const MIGRATION_0004 = readFileSync(join(here, '..', 'drizzle', '0004_kb_article_versions.sql'), 'utf8');
-const MIGRATION_0005 = readFileSync(join(here, '..', 'drizzle', '0005_support_audit_delete_refused.sql'), 'utf8');
-const MIGRATION_0009 = readFileSync(join(here, '..', 'drizzle', '0009_support_ratings.sql'), 'utf8');
-const MIGRATION_0010 = readFileSync(join(here, '..', 'drizzle', '0010_support_attachments.sql'), 'utf8');
-const MIGRATION_0011 = readFileSync(join(here, '..', 'drizzle', '0011_kb_topic_and_feedback.sql'), 'utf8');
-const MIGRATION_0022 = readFileSync(join(here, '..', 'drizzle', '0022_kb_article_audience.sql'), 'utf8');
-const MIGRATION_0032 = readFileSync(join(here, '..', 'drizzle', '0032_kb_library.sql'), 'utf8');
-const MIGRATION_0014 = readFileSync(join(here, '..', 'drizzle', '0014_ticket_phishing_report.sql'), 'utf8');
+const migrationsDir = join(here, '..', 'drizzle');
+const migration = (file: string) => readFileSync(join(migrationsDir, file), 'utf8');
+const MIGRATION_0003 = migration('0003_kb_articles.sql');
+const MIGRATION_0004 = migration('0004_kb_article_versions.sql');
+// This suite's own schema, applied unswallowed in this order. It is a chosen subset, not every migration: the published
+// KB block below replays 0003 and 0004 and rewrites rows that later migrations make immutable.
+const MIGRATIONS = [
+  '0000_support_init.sql',
+  '0001_support_audit_and_case_file.sql',
+  '0002_support_lifecycle_full.sql',
+  '0003_kb_articles.sql',
+  '0004_kb_article_versions.sql',
+  '0005_support_audit_delete_refused.sql',
+  '0009_support_ratings.sql',
+  '0010_support_attachments.sql',
+  '0011_kb_topic_and_feedback.sql',
+  '0014_ticket_phishing_report.sql',
+  '0022_kb_article_audience.sql',
+  '0032_kb_library.sql',
+].map(migration);
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const OP_A = '33333333-3333-4333-8333-333333333333';
 const OP_B = '44444444-4444-4444-8444-444444444444';
 
-const available = await postgresAvailable(URL);
-const sql = available ? postgres(URL, { max: 4, onnotice: () => undefined }) : null;
-
-if (available && sql) {
-  await assertTestDatabase(sql, 'svc-support store.pg.test');
-  // Ensure schema exists for fresh CI databases (role owns support schema).
-  await sql.unsafe(`CREATE SCHEMA IF NOT EXISTS support`).catch(() => undefined);
-  await sql.unsafe(MIGRATION).catch(() => undefined);
-  // 0001 is applied without swallowing its error, unlike 0000 above. If the
-  // audit trail and case-file tables cannot be created, the tests below would
-  // otherwise report the append-only trigger as absent by silently exercising a
-  // table that is not there — a green run proving nothing.
-  await sql.unsafe(MIGRATION_0001);
-  await sql.unsafe(MIGRATION_0002);
-  await sql.unsafe(MIGRATION_0003);
-  await sql.unsafe(MIGRATION_0004);
-  await sql.unsafe(MIGRATION_0005);
-  await sql.unsafe(MIGRATION_0009);
-  await sql.unsafe(MIGRATION_0010);
-  await sql.unsafe(MIGRATION_0011);
-  await sql.unsafe(MIGRATION_0014);
-  await sql.unsafe(MIGRATION_0022);
-  await sql.unsafe(MIGRATION_0032);
-}
+// A per-run database (#6713): on the shared intafaced_test, other files' migration replays and truncates ran under this
+// file's tests.
+const available = await postgresAvailable(ADMIN_URL);
+const db: TestDatabase | null = available ? await createTestDatabase({ service: 'support', url: ADMIN_URL, migrations: MIGRATIONS }) : null;
+const sql = db?.sql ?? null;
+if (sql) await assertTestDatabase(sql, 'svc-support store.pg.test');
 
 afterAll(async () => {
-  if (sql) await sql.end({ timeout: 5 });
-});
+  await db?.drop();
+}, 30_000);
 
 describe.skipIf(!available)('PostgresSupportStore — durable desk', () => {
   const store = () => new PostgresSupportStore(sql!);

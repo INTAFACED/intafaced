@@ -4,7 +4,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ApiResult } from '../../../shared/api';
-import type { DeskStatus, RfqQuote, RoomApi } from '../rooms/api';
+import type { DeskStatus, OtcMakers, RfqQuote, RoomApi } from '../rooms/api';
 import { ROOM_INTERVALS, usePrivateRead, usePublicRead } from '../rooms/read';
 import { roomWords, type Words } from '../rooms/refusals';
 import { forgetId, readIds, rememberId } from '../rooms/store';
@@ -13,6 +13,11 @@ import { lifecycleOf, sameQuote, type ReadQuote } from './model';
 
 export function useDeskStatus(api: RoomApi): Loadable<DeskStatus> {
   return usePrivateRead<DeskStatus>('otc-desk-status', (signal) => api.deskStatus(signal), ROOM_INTERVALS.deskStatus);
+}
+
+/** The owner's provider list (CB-otc-01); blank is an honest "No providers set", never a sample provider. */
+export function useOtcMakers(api: RoomApi): Loadable<OtcMakers> {
+  return usePrivateRead<OtcMakers>('otc-makers', (signal) => api.otcMakers(signal), ROOM_INTERVALS.deskStatus);
 }
 
 export interface PairOption {

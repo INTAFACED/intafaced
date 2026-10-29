@@ -31,6 +31,15 @@ export const algoPolicySchema = z.object({
 });
 export type AlgoPolicy = z.infer<typeof algoPolicySchema>;
 
+/** `otc.makers.list` (CB-otc-01): the owner's provider list and pick cap, or the honest empty state. */
+export const otcMakersSchema = z.object({
+  published: z.boolean(),
+  makers: z.array(z.object({ id: z.string(), name: z.string(), route: z.enum(['platform', 'outside']) })),
+  selectCap: z.number().int().nullable(),
+  emptyLabel: z.string().nullable(),
+});
+export type OtcMakers = z.infer<typeof otcMakersSchema>;
+
 export const deskStatusSchema = z.object({
   published: z.boolean(),
   statusLine: z.string(),
@@ -88,6 +97,18 @@ export const batchItemSchema = z.object({
 export type BatchItem = z.infer<typeof batchItemSchema>;
 export const batchSchema = z.object({ results: z.array(batchItemSchema) });
 
+/** The order door's answer to one iceberg: the order id, its status and the display size the service stored. */
+export const icebergAnswerSchema = z.object({ id: z.string(), status: z.string(), displayQty: z.string().optional() });
+
+export interface IcebergOrder {
+  symbol: string;
+  side: 'buy' | 'sell';
+  amount: string;
+  price: string;
+  displayQty: string;
+  clientOrderId: string;
+}
+
 export interface CreateTwapInput {
   symbol: string;
   side: 'buy' | 'sell';
@@ -130,7 +151,8 @@ export function createRoomApi(api: ApiClient) {
     algoAction: (action: 'pause' | 'resume' | 'cancel', algoId: string) =>
       api.mutate('trade', `algo.${action}`, { algoId }, algoParentSchema),
     deskStatus: (signal?: AbortSignal) => api.query('trade', 'otc.deskStatus', undefined, deskStatusSchema, { signal }),
-    rfqQuote: (input: { side: 'buy' | 'sell'; baseAsset: string; quoteAsset: string; qty: string; makerId?: string }) =>
+    otcMakers: (signal?: AbortSignal) => api.query('trade', 'otc.makers.list', undefined, otcMakersSchema, { signal }),
+    rfqQuote: (input: { side: 'buy' | 'sell'; baseAsset: string; quoteAsset: string; qty: string; makerIds: string[]; makerId?: string }) =>
       api.mutate('trade', 'rfq.quote', input, otcQuoteSchema),
     rfqGet: (quoteId: string, signal?: AbortSignal) => api.query('trade', 'rfq.get', { quoteId }, otcQuoteSchema, { signal }),
     /** `assertedPrice` can only cause a refusal (last look is forbidden); it never sets the fill price. */
@@ -148,6 +170,15 @@ export function createRoomApi(api: ApiClient) {
     greeks: (input: GreeksInput, signal?: AbortSignal) =>
       api.rest('/greeks/what-if', greeksSchema, { method: 'POST', body: input, signal }),
     placeBatch: (orders: BatchOrder[]) => api.rest('/orders/batch', batchSchema, { method: 'POST', body: { orders } }),
+    /** One of the account's orders by its request id; `trade.order_not_found` when no order was made with it. */
+    orderByClientId: (clientOrderId: string, symbol: string) =>
+      api.rest(
+        `/orders/by-client-id/${encodeURIComponent(clientOrderId)}`,
+        icebergAnswerSchema.extend({ executionOutcome: z.unknown().nullable().optional() }),
+        { query: { symbol } },
+      ),
+    placeIceberg: (order: IcebergOrder) =>
+      api.rest('/orders', icebergAnswerSchema, { method: 'POST', body: { ...order, type: 'limit', timeInForce: 'GTC' } }),
   };
 }
 export type RoomApi = ReturnType<typeof createRoomApi>;
