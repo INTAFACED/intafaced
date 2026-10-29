@@ -70,9 +70,17 @@
       "types": "./dist/identity-kyc-attempts.d.ts",
       "default": "./dist/identity-kyc-attempts.js"
     },
+    "./identity-account-status": {
+      "types": "./dist/identity-account-status.d.ts",
+      "default": "./dist/identity-account-status.js"
+    },
     "./identity-kyc-profile": {
       "types": "./dist/identity-kyc-profile.d.ts",
       "default": "./dist/identity-kyc-profile.js"
+    },
+    "./identity-kyc-poa": {
+      "types": "./dist/identity-kyc-poa.d.ts",
+      "default": "./dist/identity-kyc-poa.js"
     },
     "./identity-kyc-capabilities": {
       "types": "./dist/identity-kyc-capabilities.d.ts",

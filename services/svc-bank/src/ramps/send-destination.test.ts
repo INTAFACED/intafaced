@@ -62,7 +62,7 @@ function book(clock: { now: Date }, hours = '24') {
 }
 
 /** Saved and approved 25 hours ago: past a 24-hour cooling-off. */
-async function readyEntry(over: Partial<typeof entry> = {}, hours = '24') {
+async function readyEntry(over: Partial<typeof entry & { tag: string }> = {}, hours = '24') {
   const clock = { now: new Date(Date.now() - 25 * HOUR) };
   const made = book(clock, hours);
   const saved = await made.service.saveDestination({ ...entry, ...over });

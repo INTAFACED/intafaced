@@ -1,0 +1,434 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Trading API",
+    "version": "v1",
+    "description": "Every trading REST route. x-scope is the permission an API key needs; a route with x-anonymous true also answers without a key. x-cost is what one call takes from the rate-limit bucket. Amounts are decimal strings. No server is listed: the owner has not set the hosts (see /developers/hosts)."
+  },
+  "tags": [{ "name": "general" }, { "name": "spot" }, { "name": "derivatives" }, { "name": "funding" }, { "name": "accounts" }],
+  "components": {
+    "securitySchemes": { "apiKey": { "type": "http", "scheme": "bearer", "description": "An API key, sent as a bearer token" } }
+  },
+  "paths": {
+    "/api/v1/time": {
+      "get": {
+        "operationId": "fetchTime",
+        "summary": "Server time in Unix milliseconds",
+        "tags": ["general"],
+        "security": [{}, { "apiKey": [] }],
+        "x-scope": "trade:read",
+        "x-anonymous": true,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/capabilities": {
+      "get": {
+        "operationId": "fetchCapabilities",
+        "summary": "The live inventory of routes, their refusals and the rate limit notes",
+        "tags": ["general"],
+        "security": [{}, { "apiKey": [] }],
+        "x-scope": "trade:read",
+        "x-anonymous": true,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/markets": {
+      "get": {
+        "operationId": "fetchMarkets",
+        "summary": "Listed markets",
+        "tags": ["spot"],
+        "security": [{}, { "apiKey": [] }],
+        "x-scope": "trade:read",
+        "x-anonymous": true,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/ticker/{symbol}": {
+      "get": {
+        "operationId": "fetchTicker",
+        "summary": "Best bid, ask and last trade of one market",
+        "tags": ["spot"],
+        "parameters": [{ "name": "symbol", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "security": [{}, { "apiKey": [] }],
+        "x-scope": "trade:read",
+        "x-anonymous": true,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/tickers": {
+      "get": {
+        "operationId": "fetchTickers",
+        "summary": "Tickers of every market with a book",
+        "tags": ["spot"],
+        "security": [{}, { "apiKey": [] }],
+        "x-scope": "trade:read",
+        "x-anonymous": true,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/orderbook/{symbol}": {
+      "get": {
+        "operationId": "fetchOrderBook",
+        "summary": "Order book depth of one market",
+        "tags": ["spot"],
+        "parameters": [{ "name": "symbol", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "security": [{}, { "apiKey": [] }],
+        "x-scope": "trade:read",
+        "x-anonymous": true,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/ohlcv/{symbol}": {
+      "get": {
+        "operationId": "fetchOHLCV",
+        "summary": "Candles built from real fills",
+        "tags": ["spot"],
+        "parameters": [{ "name": "symbol", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "security": [{}, { "apiKey": [] }],
+        "x-scope": "trade:read",
+        "x-anonymous": true,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/trades/{symbol}": {
+      "get": {
+        "operationId": "fetchTrades",
+        "summary": "Public trade tape of one market",
+        "tags": ["spot"],
+        "parameters": [{ "name": "symbol", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "security": [{}, { "apiKey": [] }],
+        "x-scope": "trade:read",
+        "x-anonymous": true,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/market-halt/{symbol}": {
+      "get": {
+        "operationId": "fetchMarketHalt",
+        "summary": "Whether one market is halted",
+        "tags": ["spot"],
+        "parameters": [{ "name": "symbol", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "security": [{}, { "apiKey": [] }],
+        "x-scope": "trade:read",
+        "x-anonymous": true,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/market-lifecycle/{symbol}": {
+      "get": {
+        "operationId": "fetchMarketLifecycle",
+        "summary": "Listing state of one market",
+        "tags": ["spot"],
+        "parameters": [{ "name": "symbol", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "security": [{}, { "apiKey": [] }],
+        "x-scope": "trade:read",
+        "x-anonymous": true,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/charts/owner-values": {
+      "get": {
+        "operationId": "fetchChartOwnerValues",
+        "summary": "Chart limits the owner has set; a blank one is null",
+        "tags": ["spot"],
+        "security": [{}, { "apiKey": [] }],
+        "x-scope": "trade:read",
+        "x-anonymous": true,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/orders": {
+      "post": {
+        "operationId": "createOrder",
+        "summary": "Place an order",
+        "tags": ["spot"],
+        "security": [{ "apiKey": [] }],
+        "x-scope": "trade:write",
+        "x-anonymous": false,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (AuthenticationError, auth.required)" },
+          "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      },
+      "delete": {
+        "operationId": "cancelAllOrders",
+        "summary": "Cancel open orders",
+        "tags": ["spot"],
+        "security": [{ "apiKey": [] }],
+        "x-scope": "trade:write",
+        "x-anonymous": false,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (AuthenticationError, auth.required)" },
+          "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/orders/{id}": {
+      "delete": {
+        "operationId": "cancelOrder",
+        "summary": "Cancel one open order",
+        "tags": ["spot"],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "security": [{ "apiKey": [] }],
+        "x-scope": "trade:write",
+        "x-anonymous": false,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (AuthenticationError, auth.required)" },
+          "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      },
+      "get": {
+        "operationId": "fetchOrder",
+        "summary": "One order",
+        "tags": ["spot"],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "security": [{ "apiKey": [] }],
+        "x-scope": "trade:read",
+        "x-anonymous": false,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (AuthenticationError, auth.required)" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/orders/open": {
+      "get": {
+        "operationId": "fetchOpenOrders",
+        "summary": "Open orders",
+        "tags": ["spot"],
+        "security": [{ "apiKey": [] }],
+        "x-scope": "trade:read",
+        "x-anonymous": false,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (AuthenticationError, auth.required)" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/orders/closed": {
+      "get": {
+        "operationId": "fetchClosedOrders",
+        "summary": "Closed orders",
+        "tags": ["spot"],
+        "security": [{ "apiKey": [] }],
+        "x-scope": "trade:read",
+        "x-anonymous": false,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (AuthenticationError, auth.required)" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/funding-rate/{symbol}": {
+      "get": {
+        "operationId": "fetchFundingRate",
+        "summary": "Published funding rate of one futures market",
+        "tags": ["derivatives"],
+        "parameters": [{ "name": "symbol", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "security": [{}, { "apiKey": [] }],
+        "x-scope": "trade:read",
+        "x-anonymous": true,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" },
+          "501": { "description": "Refused: trade.funding_rate_spot_market, trade.funding_rate_unavailable" }
+        }
+      }
+    },
+    "/api/v1/futures/order-types": {
+      "get": {
+        "operationId": "fetchFuturesOrderTypes",
+        "summary": "Order types, time in force and flags per futures market",
+        "tags": ["derivatives"],
+        "security": [{}, { "apiKey": [] }],
+        "x-scope": "trade:read",
+        "x-anonymous": true,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/positions": {
+      "get": {
+        "operationId": "fetchPositions",
+        "summary": "Open positions",
+        "tags": ["derivatives"],
+        "security": [{ "apiKey": [] }],
+        "x-scope": "trade:read",
+        "x-anonymous": false,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (AuthenticationError, auth.required)" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/positions/leverage": {
+      "post": {
+        "operationId": "setLeverage",
+        "summary": "Change the leverage of an isolated position",
+        "tags": ["derivatives"],
+        "security": [{ "apiKey": [] }],
+        "x-scope": "trade:write",
+        "x-anonymous": false,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "400": { "description": "Refused: trade.leverage_too_high, trade.leverage_would_liquidate, trade.insufficient_margin" },
+          "401": { "description": "No credential, or one that did not verify (AuthenticationError, auth.required)" },
+          "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/positions/margin-mode": {
+      "post": {
+        "operationId": "setMarginMode",
+        "summary": "Mounted only to refuse: margin mode is chosen when a position opens",
+        "tags": ["derivatives"],
+        "security": [{ "apiKey": [] }],
+        "x-scope": "trade:write",
+        "x-anonymous": false,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (AuthenticationError, auth.required)" },
+          "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" },
+          "501": { "description": "Refused: trade.margin_mode_unsupported" }
+        }
+      }
+    },
+    "/api/v1/account/balance": {
+      "get": {
+        "operationId": "fetchBalance",
+        "summary": "Account balances",
+        "tags": ["accounts"],
+        "security": [{ "apiKey": [] }],
+        "x-scope": "trade:read",
+        "x-anonymous": false,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (AuthenticationError, auth.required)" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/account/fees": {
+      "get": {
+        "operationId": "fetchTradingFees",
+        "summary": "Maker and taker fee rates",
+        "tags": ["accounts"],
+        "security": [{ "apiKey": [] }],
+        "x-scope": "trade:read",
+        "x-anonymous": false,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (AuthenticationError, auth.required)" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/account/trades": {
+      "get": {
+        "operationId": "fetchMyTrades",
+        "summary": "The account’s own fills",
+        "tags": ["accounts"],
+        "security": [{ "apiKey": [] }],
+        "x-scope": "trade:read",
+        "x-anonymous": false,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (AuthenticationError, auth.required)" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    }
+  }
+}

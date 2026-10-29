@@ -21,7 +21,7 @@ import { CampaignService, zonedClock } from './campaigns.js';
 import { CampaignsError } from './codes.js';
 import { PayoutSaga, REWARD_REASON, answerOf } from './payouts.js';
 import { createMarketNames, type MarketNames } from './markets.js';
-import { TaskService, LOCK_FILL_GRACE_SECONDS, meetsGate, rewardKeyOf, stepMatches, type FillEvent } from './tasks.js';
+import { TaskService, LOCK_FILL_GRACE_SECONDS, earningPeriodOf, meetsGate, rewardKeyOf, stepMatches, type FillEvent } from './tasks.js';
 
 /**
  * Task campaigns and the reward saga against real Postgres and the in-memory reference ledger (CM-tasks-quests-01,
@@ -900,6 +900,131 @@ if (!db) {
         code: 'campaigns.bonus_scope_unset',
         field: 'bonusScope',
       });
+    });
+
+    // ── Earning rules (CM-rewards-hub-05, J-campaigns-16 #6) ──
+
+    const EARN = {
+      name: 'TEST one percent',
+      trigger: 'trade.fill.settled',
+      minAmount: '10',
+      formula: 'amount * 0.01',
+    } as const;
+    /** An earning campaign: no task steps, budget 100 TEST USDT, a per person limit of 10. */
+    const earning = (over: Partial<CampaignDefinitionInput> = {}) => joined({ tasks: null, earning: [EARN], ...over });
+
+    it('a fill earns one reward per rule, once, even when it is delivered twice; the ledger agrees', async () => {
+      await earnFees('100');
+      await fundPot('TEST-earn-1', '100');
+      const c = await earning();
+      const once = fill(ME, { quoteAmount: '250', feeAmount: '0.25', qty: '0.01' });
+      expect(await tasks.onFill(once)).toBe(1);
+      expect(await tasks.onFill(once)).toBe(0);
+      const rows = await db!.sql<{ reward_key: string; amount: string; state: string }[]>`
+        SELECT reward_key, amount::text AS amount, state FROM campaigns.reward_intents WHERE campaign_id = ${c.id}`;
+      expect(rows).toEqual([
+        { reward_key: rewardKeyOf(c.id, ME, earningPeriodOf(EARN.name, once.fillId)), amount: '2.500000000000000000', state: 'posted' },
+      ]);
+      expect(await free(ME)).toBe(parseAmount('2.5'));
+      await reconciles(parseAmount('100'));
+    });
+
+    it('below the condition, in another asset, or by someone who did not join, a fill earns nothing', async () => {
+      await earnFees('100');
+      await fundPot('TEST-earn-2', '100');
+      const c = await earning();
+      expect(await tasks.onFill(fill(ME, { quoteAmount: '9.99' }))).toBe(0);
+      // ETH/USDT is still USDT; a market whose quote is not the reward asset never earns from an amount formula.
+      const BTC_EUR = '0b6f6a8e-4d1c-4f7a-9a31-5c2e7d9b1a03';
+      expect(await tasks.onFill(fill(ME, { marketId: BTC_EUR, quoteAmount: '500' }))).toBe(0);
+      expect(await tasks.onFill(fill(YOU, { quoteAmount: '500' }))).toBe(0);
+      expect(await tasks.onFill(fill(ME, { marketId: ETH_USDT, quoteAmount: '100' }))).toBe(1);
+      const [n] = await db!.sql<{ n: number }[]>`SELECT count(*)::int AS n FROM campaigns.reward_intents WHERE campaign_id = ${c.id}`;
+      expect(n!.n).toBe(1);
+      await reconciles(parseAmount('100'));
+    });
+
+    it('never pays past the per person limit or the budget: the last reward is cut to the room left, then none', async () => {
+      await earnFees('100');
+      await fundPot('TEST-earn-3', '100');
+      await earning({ budget: { asset: 'USDT', limit: '12' }, reward: { asset: 'USDT', amount: '10' } });
+      people.set(YOU, person(YOU));
+      const c2 = (await campaigns().listForOps())[0]!;
+      await campaigns().join({ campaignId: c2.id, accountId: YOU });
+      // 6 + 6 hits my limit of 10 (the second is cut to 4); a third earns nothing.
+      for (let i = 0; i < 3; i += 1) await tasks.onFill(fill(ME, { quoteAmount: '600' }));
+      expect(await free(ME)).toBe(parseAmount('10'));
+      // The budget of 12 leaves 2 for you, however much you trade.
+      await tasks.onFill(fill(YOU, { quoteAmount: '600' }));
+      await tasks.onFill(fill(YOU, { quoteAmount: '600' }));
+      expect(await free(YOU)).toBe(parseAmount('2'));
+      await reconciles(parseAmount('100'));
+    });
+
+    it('a paused campaign earns nothing new; a fixed incentive pays its number whatever the market', async () => {
+      await earnFees('100');
+      await fundPot('TEST-earn-4', '100');
+      const c = await earning({ earning: [{ ...EARN, minAmount: null, formula: '1.5' }] });
+      const BTC_EUR = '0b6f6a8e-4d1c-4f7a-9a31-5c2e7d9b1a03';
+      expect(await tasks.onFill(fill(ME, { marketId: BTC_EUR, quoteAmount: '1' }))).toBe(1);
+      await campaigns().transition({ id: c.id, action: 'pause', revision: 1, actor: A });
+      expect(await tasks.onFill(fill(ME, { quoteAmount: '1' }))).toBe(0);
+      expect(await free(ME)).toBe(parseAmount('1.5'));
+      await reconciles(parseAmount('100'));
+    });
+
+    it('reads each name in its own asset: a fee charged in BTC, a quantity in BTC or a deposit in another coin earns nothing in USDT', async () => {
+      await earnFees('100');
+      await fundPot('TEST-earn-6', '100');
+      const c = await earning({
+        earning: [
+          { name: 'TEST fee', trigger: 'trade.fill.settled', minAmount: null, formula: 'fee * 2' },
+          { name: 'TEST qty', trigger: 'trade.fill.settled', minAmount: null, formula: 'qty * 10' },
+          { name: 'TEST big deposit', trigger: 'pay.deposit_credit.posted', minAmount: '100', formula: '5' },
+        ],
+      });
+      // BTC/USDT: the quantity is in BTC, and so is this fee; neither is a USDT figure.
+      expect(await tasks.onFill(fill(ME, { quoteAmount: '250', feeAmount: '0.001', feeAsset: 'BTC', qty: '0.01' }))).toBe(0);
+      // The same fill with its fee charged in USDT earns from the fee rule only.
+      expect(await tasks.onFill(fill(ME, { quoteAmount: '250', feeAmount: '0.25', feeAsset: 'USDT', qty: '0.01' }))).toBe(1);
+      // The minimum is a USDT figure: 100 of another coin does not meet it; 100 USDT does.
+      const deposit = (eventId: string, asset: string) => ({
+        trigger: 'pay.deposit_credit.posted' as const,
+        eventId,
+        userId: ME,
+        at: new Date().toISOString(),
+        values: { amount: '100' },
+        assets: { amount: asset },
+      });
+      expect(await tasks.onEarningEvent(deposit('dep-doge', 'DOGE'))).toBe(0);
+      expect(await tasks.onEarningEvent(deposit('dep-usdt', 'USDT'))).toBe(1);
+      const rows = await db!.sql<{ amount: string }[]>`
+        SELECT amount::text AS amount FROM campaigns.reward_intents WHERE campaign_id = ${c.id} ORDER BY amount`;
+      expect(rows.map((r) => r.amount)).toEqual(['0.500000000000000000', '5.000000000000000000']);
+      await reconciles(parseAmount('100'));
+    });
+
+    it('a deposit earns by its own id; a lost ledger reply leaves the reward for the reconciler, posted once', async () => {
+      await earnFees('100');
+      await fundPot('TEST-earn-5', '100');
+      await earning({
+        earning: [{ name: 'TEST deposit', trigger: 'pay.deposit_credit.posted', minAmount: null, formula: 'min(amount, 3)' }],
+      });
+      wire.mode.next = 'lose-reply';
+      const deposit = {
+        trigger: 'pay.deposit_credit.posted' as const,
+        eventId: 'dep-1',
+        userId: ME,
+        at: new Date().toISOString(),
+        values: { amount: '50' },
+        assets: { amount: 'USDT' },
+      };
+      expect(await tasks.onEarningEvent(deposit)).toBe(1);
+      expect(await tasks.onEarningEvent(deposit)).toBe(0);
+      await new Promise((r) => setTimeout(r, 1100));
+      await saga.reconcile();
+      expect(await free(ME)).toBe(parseAmount('3'));
+      await reconciles(parseAmount('100'));
     });
   });
 }

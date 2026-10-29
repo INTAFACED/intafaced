@@ -3,6 +3,7 @@ import { parseKycRejectReasons, relayKycCaseEvents } from './kyc/cases.js';
 import { parseKycCapabilitiesByLevel } from './kyc/capabilities.js';
 import { parseKycAttemptLimit } from './kyc/attempts.js';
 import { KycProfileDesk, parseKycDocumentTypes, parseKycUploadCaps } from './kyc/profile.js';
+import { KycPoaDesk, parseKycPoaMaxAgeDays, parseKycPoaTypes } from './kyc/proof-of-address.js';
 import { readFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -97,6 +98,8 @@ import { createServerTimeRouter } from './server-time-router.js';
 import { createTotpLifecycleRouter } from './totp-lifecycle-router.js';
 import { createSelfFreezeLiftRouter } from './self-freeze-lift-router.js';
 import { createSecurityLockRouter } from './security-lock-router.js';
+import { createAccountStatusRouter } from './account/account-status-router.js';
+import { AccountStatusDesk } from './account/account-status.js';
 import { createMfaResetRouter } from './mfa-reset-router.js';
 import { createSupportRecoveryRouter } from './support-recovery-router.js';
 import { createRecoveryKeysRouter } from './recovery-keys-router.js';
@@ -467,11 +470,19 @@ const ledger = env.LEDGER_URL ? createLedgerClient(env.LEDGER_URL, env.INTERNAL_
  */
 const vault = bootKycVault(sql, env.IDENTITY_KYC_DOC_KEY);
 // Guided verification (I-kyc-compliance-08): drafts sealed under the same key; the photo goes to the vault.
+const kycUploadCaps = parseKycUploadCaps(env);
 const kycProfile = new KycProfileDesk(sql, parseKycDocKey(env.IDENTITY_KYC_DOC_KEY), {
   documentTypes: parseKycDocumentTypes(env.IDENTITY_KYC_DOCUMENT_TYPES_BY_COUNTRY),
-  uploadCaps: parseKycUploadCaps(env),
+  uploadCaps: kycUploadCaps,
   vault: vault?.kycDocs,
   submit: (input) => auth.submitKyc(input),
+});
+// Proof of address (I-kyc-compliance-11): the owner's rule and lists; the file goes to the vault under the same caps.
+const kycPoa = new KycPoaDesk(sql, {
+  maxAgeDays: parseKycPoaMaxAgeDays(env.IDENTITY_KYC_POA_MAX_AGE_DAYS),
+  types: parseKycPoaTypes(env.IDENTITY_KYC_POA_TYPES_BY_COUNTRY),
+  uploadCaps: kycUploadCaps,
+  vault: vault?.kycDocs,
 });
 // Staff-edited customer details (J-ops-console-04 #9) are encrypted under the same key; unset, every details door refuses.
 const customerDetails = new CustomerDetailsDesk(sql, founderControls, parseKycDocKey(env.IDENTITY_KYC_DOC_KEY));
@@ -617,6 +628,7 @@ export const appRouter = mergeRouters(
     kycRejectReasons: parseKycRejectReasons(env.IDENTITY_KYC_REJECT_REASONS),
     kycCapabilityReasons: parseKycRejectReasons(env.IDENTITY_KYC_CAPABILITY_REASONS, 'IDENTITY_KYC_CAPABILITY_REASONS'),
     kycProfile,
+    kycPoa,
     social,
     referral,
     share,
@@ -712,6 +724,7 @@ export const appRouter = mergeRouters(
   createServerTimeRouter(),
   createSelfFreezeLiftRouter(selfFreezeLift, securityStepUp),
   createSecurityLockRouter(securityLock, securityStepUp),
+  createAccountStatusRouter(new AccountStatusDesk(sql, env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS)),
   createMfaResetRouter(auth),
   createSupportRecoveryRouter(() => auth.supportRecoveryDeps()),
   createTrustedDevicesRouter(auth, securityStepUp),

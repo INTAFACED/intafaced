@@ -18,7 +18,10 @@ function pair() {
 const keys = new Map(['svc-agents', 'svc-trade'].map((svc) => [svc, pair()]));
 const keyring = parseKeyring(JSON.stringify({ keys: [...keys].map(([svc, k]) => ({ kid: `${svc}.a`, svc, use: 's2s', x: k.x })) }));
 const signer = (svc: ServiceName) => createServiceSigner({ service: svc, kid: `${svc}.a`, privateKey: keys.get(svc)!.privateKey, keyring });
-const newVerifier = () => createServiceVerifier({ self: 'svc-academy', keyring });
+// Boot second 0: most tests sign a call before they make its verifier, and a verifier refuses calls signed before the
+// second it was made, so a call signed at x.999 s failed as `stale` once the clock ticked (#6085). That refusal has its
+// own test in service-keys.test.ts.
+const newVerifier = () => createServiceVerifier({ self: 'svc-academy', keyring, bootSecond: 0 });
 
 const URL_ = new URL('http://svc-academy.internal/internal/curriculum?lang=en');
 const BODY = JSON.stringify({ q: 1 });

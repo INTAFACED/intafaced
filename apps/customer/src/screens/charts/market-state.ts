@@ -9,6 +9,7 @@ import { useMemo } from 'react';
 import { z } from 'zod';
 import { useDataEnv, useSource } from '../../data/hooks';
 import type { Loadable } from '../../data/types';
+import { readServerClock } from '../../shared/server-clock';
 import { STATE_POLL_MS, type BookHaltView, type LifecycleView } from './data-status';
 
 export { STATE_POLL_MS };
@@ -20,7 +21,6 @@ const lifecycleSchema = z
   .object({ state: z.string(), effectiveAt: z.string().nullish(), evidenceRefs: z.array(z.string()).nullish() })
   .passthrough();
 const haltSchema = z.object({ halted: z.boolean(), venueHalted: z.boolean() }).passthrough();
-const clockSchema = z.object({ serverTime: z.number() }).passthrough();
 const tapeSchema = z.array(z.object({ timestamp: z.number() }).passthrough());
 
 type Raw<T> = { ok: true; data: T } | { ok: false; reason: string; code?: string; status?: number };
@@ -89,11 +89,8 @@ export function useServerClock(): Loadable<number> {
         env.poller.source<number>(
           'chart-server-clock',
           async (signal) => {
-            const sent = Date.now();
-            const res = (await env.api.rest('/time', clockSchema, { signal })) as Raw<z.infer<typeof clockSchema>>;
-            const received = Date.now();
-            if (!res.ok) return res;
-            return { ok: true, data: res.data.serverTime - Math.round((sent + received) / 2) };
+            const res = await readServerClock(env.api, { signal });
+            return res.ok ? { ok: true, data: res.data.offsetMs } : res;
           },
           { intervalMs: CLOCK_POLL_MS },
         ),
