@@ -2,14 +2,15 @@ import net from 'node:net';
 
 /**
  * A TEST rig for the local stack: it dials the pool's miner door (svc-mining-pool `stratum-door.ts`) at the address the
- * mining room shows, authorizes with the account id and worker name the room copies, takes the pool's job, finds a
+ * mining room shows, authorizes with the account id and worker name the room copies and the miner secret the room
+ * issues (`secret`; none sends no password), takes the pool's job, finds a
  * nonce for it with the TEST proof-of-work parameters the job names, and submits one share. LOCAL TEST only.
  *
  * `pow` is svc-mining-pool's built `dist/pow.js`. `start` seeds the nonce search, so the same start finds the same work
  * (which the pool refuses as `mining.share_duplicate`); `invalid` sends a nonce that misses the target instead.
  * Resolves `{ ok: true, nonce, jobId }` or `{ ok: false, code, nonce? }` with the pool's typed code.
  */
-export async function rigShare({ host, port, login, pow, start, invalid, timeoutMs = 15_000 }) {
+export async function rigShare({ host, port, login, pow, start, invalid, secret, timeoutMs = 15_000 }) {
   const socket = net.connect({ host, port });
   socket.setEncoding('utf8');
   const inbox = [];
@@ -60,7 +61,7 @@ export async function rigShare({ host, port, login, pow, start, invalid, timeout
   try {
     await new Promise((resolve, reject) => socket.once('connect', resolve).once('error', reject));
     await call(1, 'mining.subscribe', []);
-    const authorized = await call(2, 'mining.authorize', [login]);
+    const authorized = await call(2, 'mining.authorize', secret === undefined ? [login] : [login, secret]);
     if (authorized.error) return { ok: false, code: authorized.error.code };
     const job = await next((message) => message.method === 'mining.notify');
     const [jobId, headerHex, dimension, targetBits, testnet] = job.params;

@@ -12,7 +12,7 @@ const published = {
 };
 
 describe('pool connection', () => {
-  it('returns the stored lines and the signed account id, and offers no credential', () => {
+  it('returns the stored lines and the signed account id, and no secret', () => {
     const connection = readPoolConnection(published, ALICE);
     expect(connection).toEqual({
       host: 'pool.test',
@@ -20,10 +20,10 @@ describe('pool connection', () => {
       secureUrl: 'stratum+ssl://pool.test:3999',
       accountId: ALICE,
       workerNamePattern: 'TEST.{worker}',
-      credentialOffered: false,
-      credentialReason: 'mining.credential_not_issued',
     });
+    // The miner secret is issued on its own procedure and shown once; the connection read never carries it.
     expect(connection).not.toHaveProperty('password');
+    expect(connection).not.toHaveProperty('secret');
     expect(readPoolConnection({ ...published, MINING_ACCOUNT_ID: BOB }, ALICE).accountId).toBe(ALICE);
     expect(readPoolConnection(published, BOB).accountId).toBe(BOB);
   });

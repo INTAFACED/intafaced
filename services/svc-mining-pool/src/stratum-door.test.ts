@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   parseRigUser,
@@ -9,6 +10,7 @@ import {
 } from './stratum-door.js';
 
 const ALICE = '11111111-1111-4111-8111-111111111111';
+const SECRET = `msk_${'A'.repeat(43)}`;
 const TERMS: NodeJS.ProcessEnv = {
   MINING_STRATUM_LISTEN_PORT: '3999',
   MINING_STRATUM_WINDOW_SECONDS: '604800',
@@ -69,14 +71,17 @@ describe('miner door terms and user names', () => {
 describe('miner door session without a database', () => {
   const session = (env: NodeJS.ProcessEnv, clock = { at: 0 }) => {
     const sent: unknown[] = [];
-    const deps = { sql: null as never, env, terms: readStratumTerms(TERMS), now: () => clock.at } satisfies StratumDoorDeps;
+    // The credential read is the only query authorize makes before the job; this stands in for it with ALICE's secret.
+    const hash = createHash('sha256').update(SECRET).digest('hex');
+    const sql = (() => Promise.resolve([{ secret_hash: hash }])) as never;
+    const deps = { sql, env, terms: readStratumTerms(TERMS), now: () => clock.at } satisfies StratumDoorDeps;
     return { sent, handle: stratumSession(deps, (line) => sent.push(JSON.parse(line))) };
   };
 
   it('when a window ends, renew sends each authorized rig the new window job, and nothing before it ends', async () => {
     const clock = { at: 0 };
     const { sent, handle } = session({ MINING_POW_DIMENSION: '8', MINING_POW_TARGET_BITS: '8', MINING_POW_TESTNET: 'true' }, clock);
-    await handle(JSON.stringify({ id: 1, method: 'mining.authorize', params: [`${ALICE}.Rig-A`] }));
+    await handle(JSON.stringify({ id: 1, method: 'mining.authorize', params: [`${ALICE}.Rig-A`, SECRET] }));
     expect(sent).toHaveLength(2);
     clock.at = 604800 * 1000 - 1;
     handle.renew();
@@ -90,7 +95,7 @@ describe('miner door session without a database', () => {
 
   it('blank proof-of-work parameters refuse authorize with mining.pow_spec_unset and send no job', async () => {
     const { sent, handle } = session({});
-    await handle(JSON.stringify({ id: 1, method: 'mining.authorize', params: [`${ALICE}.Rig-A`] }));
+    await handle(JSON.stringify({ id: 1, method: 'mining.authorize', params: [`${ALICE}.Rig-A`, SECRET] }));
     expect(sent).toEqual([{ id: 1, result: null, error: { code: 'mining.pow_spec_unset', message: expect.any(String) } }]);
   });
 

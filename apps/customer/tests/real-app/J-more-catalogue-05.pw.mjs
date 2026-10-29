@@ -289,7 +289,42 @@ test(`${J} #5 connects the rig Rig-A and submits a first accepted share: one wor
   };
   const pool = await copy('pool address');
   const login = `${await copy('account id')}.${await copy('worker name')}`;
-  const rig = (...args) => tool('local-test-stack.mjs', 'mining-share', who.email, '--pool', pool, ...args);
+  const account = login.slice(0, login.indexOf('.'));
+
+  // The room issues the account's miner secret and shows it once, to copy; a reload only says when it was issued.
+  const secretPanel = page.getByRole('region', { name: 'Miner secret' });
+  await expect(secretPanel.getByTestId('mining-miner-secret-issued')).toHaveAttribute('data-state', 'none');
+  await secretPanel.getByRole('button', { name: 'Issue a miner secret' }).click();
+  await expect(secretPanel.getByText('Copy it now: it is shown only this once.')).toBeVisible();
+  await secretPanel.getByRole('button', { name: 'Copy miner secret' }).click();
+  const secret = await page.evaluate(() => navigator.clipboard.readText());
+  expect(secret).toMatch(/^msk_[A-Za-z0-9_-]{43}$/);
+  await expect(secretPanel.getByTestId('mining-miner-secret')).toHaveText(secret);
+  await page.reload();
+  await expect(page.getByRole('region', { name: 'Miner secret' }).getByTestId('mining-miner-secret-issued')).toHaveAttribute(
+    'data-state',
+    'issued',
+  );
+  await expect(page.getByTestId('mining-miner-secret')).toHaveCount(0);
+  await expect(page.getByText(secret)).toHaveCount(0);
+  run.write({ secret });
+
+  // A stranger who has only the account id (no secret, or a wrong one) is refused by the door's code before it touches
+  // the account: no worker, no share, and the owner's mode change for that rig still goes through.
+  const stranger = (...args) => tool('local-test-stack.mjs', 'mining-share', who.email, '--pool', pool, '--login', login, ...args);
+  expect(stranger('--share', `jmc05-${tag}-stranger`)).toMatch(/^refused mining\.stratum_secret_invalid: /);
+  expect(stranger('--share', `jmc05-${tag}-stranger`, '--secret', `msk_${'A'.repeat(43)}`)).toMatch(
+    /^refused mining\.stratum_secret_invalid: /,
+  );
+  expect(await poolRoster(who)).toEqual([]);
+  await page.goto('/mining/workers');
+  for (const mode of ['Solo', 'Pooled']) {
+    await page.getByRole('textbox', { name: 'Rig name', exact: true }).fill('Rig-A');
+    await page.getByRole('group', { name: 'Mode for this rig' }).getByRole('radio', { name: mode, exact: true }).check();
+    await page.getByRole('button', { name: 'Save mode' }).click();
+    await expect(page.getByTestId('mining-mode-status')).toHaveText(`${mode} saved for Rig-A`);
+  }
+  const rig = (...args) => tool('local-test-stack.mjs', 'mining-share', who.email, '--pool', pool, '--secret', secret, ...args);
 
   // The rig connects to that address and its first share is accepted: exactly one worker, Rig-A, at weight 1.
   expect(rig('--login', login, '--share', `jmc05-${tag}-first`)).toMatch(
@@ -308,7 +343,6 @@ test(`${J} #5 connects the rig Rig-A and submits a first accepted share: one wor
   expect(await poolRoster(who)).toEqual([['Rig-A', '1']]);
 
   // A share sent with the account id alone, no worker name, goes to the worker named default.
-  const account = login.slice(0, login.indexOf('.'));
   expect(rig('--login', account, '--share', `jmc05-${tag}-unnamed`)).toMatch(/^accepted TEST share /);
   expect(await poolRoster(who)).toEqual([
     ['Rig-A', '1'],
@@ -326,13 +360,13 @@ test(`${J} #6 opens /mining/workers and sets a minimum difficulty: the list with
   page,
 }) => {
   test.setTimeout(180_000);
-  const { who, tag } = run.read();
+  const { who, tag, secret } = run.read();
   // Twenty more rigs, so the roster runs past one page of twenty.
   for (let n = 1; n <= 20; n += 1) {
     const rig = `Rig-${String(n).padStart(2, '0')}`;
-    expect(tool('local-test-stack.mjs', 'mining-share', who.email, '--worker', rig, '--share', `jmc05-${tag}-${rig}`)).toContain(
-      'accepted TEST share',
-    );
+    expect(
+      tool('local-test-stack.mjs', 'mining-share', who.email, '--secret', secret, '--worker', rig, '--share', `jmc05-${tag}-${rig}`),
+    ).toContain('accepted TEST share');
   }
   await openMining(page, '/mining/workers');
   await expect(page.getByRole('heading', { name: 'Mining workers', level: 1 })).toBeVisible();
@@ -394,7 +428,7 @@ async function pooledWeight(page) {
   return String(weights.reduce((sum, weight) => sum + BigInt(weight), 0n));
 }
 
-const share = (...args) => tool('local-test-stack.mjs', 'mining-share', run.read().who.email, ...args);
+const share = (...args) => tool('local-test-stack.mjs', 'mining-share', run.read().who.email, '--secret', run.read().secret, ...args);
 
 test(`${J} #7 starts solo mining, or submits a share that fails validation: solo alongside pooled; an invalid share is refused by the proof-of-work check and a testnet flag is labelled`, async ({
   page,

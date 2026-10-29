@@ -3,7 +3,8 @@ import { createServer, type Server, type Socket } from 'node:net';
 import type { Sql } from 'postgres';
 import { publishedText, publishedInt, publishedPort, STRATUM_ASSET_PATTERN, WORKER_PATTERN_MAX } from './env.js';
 import { MiningError } from './errors.js';
-import { POW_SPEC_UNSET, powHeader, publishedPowSpec } from './pow.js';
+import { requireMinerSecret } from './miner-credential.js';
+import { POW_INVALID, POW_SPEC_UNSET, powHeader, publishedPowSpec } from './pow.js';
 import { ingestRigShare } from './submit-share.js';
 import { DEFAULT_WORKER, WORKER_NAME, WORKER_NAME_INVALID } from './window-store.js';
 
@@ -12,18 +13,22 @@ import { DEFAULT_WORKER, WORKER_NAME, WORKER_NAME_INVALID } from './window-store
  *
  * One JSON object per line, in and out (at most `LINE_MAX` bytes a line).
  * - `{"id":1,"method":"mining.subscribe","params":[]}` answers `{"id":1,"result":[["mining.notify","<session>"]],"error":null}`.
- * - `{"id":2,"method":"mining.authorize","params":["<account id>.<worker name>"]}` names the account (the signed-in
- *   account's own id, which the room copies) and the rig (the worker name the room copies, built from the published
- *   pattern; no worker name is the default worker). It answers `true`, then the pool sends the job:
+ * - `{"id":2,"method":"mining.authorize","params":["<account id>.<worker name>","<miner secret>"]}` names the account
+ *   (the signed-in account's own id, which the room copies), the rig (the worker name the room copies, built from the
+ *   published pattern; no worker name is the default worker) and the account's miner secret (issued in the room and
+ *   shown once). A missing, unissued or wrong secret is refused `mining.stratum_secret_invalid` before any account
+ *   state is touched: the connection writes no share or rejection row and takes no worker lock. It answers `true`,
+ *   then the pool sends the job:
  *   `{"id":null,"method":"mining.notify","params":["<job id>","<header hex>",<dimension>,<target bits>,<testnet>]}`.
  *   The header is the pool's own for this window, account and rig; the rig never chooses it.
  * - `{"id":3,"method":"mining.submit","params":["<account id>.<worker name>","<job id>","<nonce>"]}` hands one share to
  *   the same checked ingest the service door uses: the pool checks the work itself and weighs it 1. It answers `true`,
  *   or `"error":{"code":"<typed code>","message":"…"}` (`mining.pow_invalid`, `mining.share_duplicate`,
- *   `mining.job_stale`, …), and a refused share keeps nothing.
+ *   `mining.job_stale`, …), and a refused share keeps nothing. After `INVALID_SHARES_MAX` shares on one connection fail
+ *   the proof-of-work check, the door sends `mining.stratum_invalid_limit` and closes the connection.
  *
  * The door only takes work the pool can check: with no published proof-of-work parameters it refuses `mining.authorize`
- * with `mining.pow_spec_unset`. No password is asked or stored (the room offers no mining credential). Shares earn no
+ * with `mining.pow_spec_unset`. Only the miner secret's SHA-256 is stored (`miner-credential.ts`). Shares earn no
  * credit while the parameters are testnet (`mining.testnet_no_credit` at payout). The door opens only when its listen
  * port, window length and asset are all published; otherwise it stays closed and says so by `mining.stratum_unset`.
  */
@@ -34,11 +39,18 @@ export const STRATUM_UNAUTHORIZED = 'mining.stratum_unauthorized';
 export const STRATUM_METHOD_UNKNOWN = 'mining.stratum_method_unknown';
 export const ACCOUNT_INVALID = 'mining.account_invalid';
 export const JOB_STALE = 'mining.job_stale';
+export const STRATUM_INVALID_LIMIT = 'mining.stratum_invalid_limit';
 
 /** One line of the protocol, in bytes. A longer line closes the connection. */
 export const LINE_MAX = 4_096;
 /** Lines one connection may have waiting; past this the door stops reading it until they are handled. */
 export const PENDING_MAX = 16;
+/**
+ * Shares one connection may send that fail the proof-of-work check, each one rejection row; at this count the door
+ * refuses `mining.stratum_invalid_limit` and closes the connection. A protocol bound like `LINE_MAX`, not an account
+ * limit.
+ */
+export const INVALID_SHARES_MAX = 32;
 export const WINDOW_SECONDS_MIN = 60;
 export const WINDOW_SECONDS_MAX = 2_678_400;
 const ACCOUNT = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -119,9 +131,11 @@ function refusal(error: unknown): { code: string; message: string } {
   return { code, message: 'The share was not kept' };
 }
 
-/** One rig connection: its own authorized users and their current jobs. */
-export function stratumSession(deps: StratumDoorDeps, send: (line: string) => void) {
+/** One rig connection: its own authorized users and their current jobs. `close` ends the connection. */
+export function stratumSession(deps: StratumDoorDeps, send: (line: string) => void, close: () => void = () => {}) {
   const now = deps.now ?? Date.now;
+  let invalid = 0;
+  let closed = false;
   const session = createHash('sha256').update(`${now()}:${Math.random()}`).digest('hex').slice(0, 16);
   const rigs = new Map<string, Rig & { jobId: string }>();
 
@@ -142,6 +156,7 @@ export function stratumSession(deps: StratumDoorDeps, send: (line: string) => vo
   };
 
   const handle = async function handle(line: string): Promise<void> {
+    if (closed) return;
     let request: { id: unknown; method: unknown; params: unknown };
     try {
       request = JSON.parse(line) as typeof request;
@@ -161,6 +176,7 @@ export function stratumSession(deps: StratumDoorDeps, send: (line: string) => vo
       }
       if (method === 'mining.authorize') {
         const rig = parseRigUser(params[0], deps.env);
+        await requireMinerSecret(deps.sql, rig.minerId, params[1]);
         if (!publishedPowSpec(deps.env)) throw new MiningError('Proof-of-work parameters are not published', POW_SPEC_UNSET);
         reply({ id, result: true, error: null });
         notify({ ...rig, user: params[0] as string });
@@ -175,13 +191,25 @@ export function stratumSession(deps: StratumDoorDeps, send: (line: string) => vo
           if (rig.jobId !== current) notify(rig);
           return;
         }
-        await ingestRigShare(deps.sql, deps.env, {
-          windowId: rig.jobId,
-          assetId: deps.terms.assetId,
-          minerId: rig.minerId,
-          workerName: rig.workerName,
-          powNonce: params[2],
-        });
+        try {
+          await ingestRigShare(deps.sql, deps.env, {
+            windowId: rig.jobId,
+            assetId: deps.terms.assetId,
+            minerId: rig.minerId,
+            workerName: rig.workerName,
+            powNonce: params[2],
+          });
+        } catch (error) {
+          if (!(error instanceof MiningError && error.code === POW_INVALID)) throw error;
+          invalid += 1;
+          reply({ id, result: null, error: refusal(error) });
+          if (invalid >= INVALID_SHARES_MAX) {
+            closed = true;
+            reply({ id: null, result: null, error: { code: STRATUM_INVALID_LIMIT, message: 'Too many shares failed the check' } });
+            close();
+          }
+          return;
+        }
         reply({ id, result: true, error: null });
         return;
       }
@@ -201,9 +229,13 @@ export function startStratumDoor(deps: StratumDoorDeps, host: string): Server {
   const now = deps.now ?? Date.now;
   const server = createServer((socket: Socket) => {
     socket.setEncoding('utf8');
-    const handle = stratumSession(deps, (line) => {
-      if (!socket.destroyed) socket.write(`${line}\n`);
-    });
+    const handle = stratumSession(
+      deps,
+      (line) => {
+        if (!socket.destroyed) socket.write(`${line}\n`);
+      },
+      () => socket.end(),
+    );
     let buffered = '';
     let queue = Promise.resolve();
     let pending = 0;

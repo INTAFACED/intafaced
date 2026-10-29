@@ -6,6 +6,7 @@ import { canonicalMoney, canonicalWeight, weightToBigInt } from './decimal.js';
 import { MiningError } from './errors.js';
 import { decodeCursor, decodePayoutCursor, encodeCursor, encodePayoutCursor } from './list-limit.js';
 import { miningPayoutIdempotencyKey } from './ledger.js';
+import { issueMinerSecret, minerSecretStatus, type IssuedMinerSecret, type MinerSecretStatus } from './miner-credential.js';
 import { planPplns } from './pplns.js';
 import { workerIdOf } from './window-store.js';
 
@@ -250,6 +251,14 @@ export class MiningReadStore {
       await tx`UPDATE mining_pool.workers SET mode = ${mode} WHERE id = ${worker.id}`;
       return { id: worker.id, name, mode };
     });
+  }
+
+  async minerSecretStatus(userId: string): Promise<MinerSecretStatus> {
+    return minerSecretStatus(this.db(), userId);
+  }
+
+  async issueMinerSecret(userId: string): Promise<IssuedMinerSecret> {
+    return issueMinerSecret(this.db(), userId);
   }
 
   async listWorkers(limit: number, cursor: string | null): Promise<WorkerPage> {

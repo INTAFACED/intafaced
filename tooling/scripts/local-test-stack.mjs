@@ -2171,7 +2171,8 @@ async function miningPow() {
 // One TEST share from a TEST rig through the pool's miner door, at the address the mining room shows. The door's window
 // has no published reward or fee, so the share is stored and nothing is ever paid for it. The rig logs in as the
 // account's own id and the published worker name for --worker (what the room copies); no --worker is the default
-// worker. --pool and --login dial and log in with values copied from the room instead.
+// worker. --pool and --login dial and log in with values copied from the room instead. --secret is the miner secret the
+// room issues; without the account's current one the door refuses by name (mining.stratum_secret_invalid).
 async function cmdMiningShare(rawArgs) {
   const args = [...rawArgs];
   const take = (flag) => {
@@ -2186,13 +2187,14 @@ async function cmdMiningShare(rawArgs) {
   const label = take('--share');
   const pool = take('--pool');
   const login = take('--login');
+  const secret = take('--secret');
   const invalidAt = args.indexOf('--invalid-pow');
   const invalidPow = invalidAt !== -1;
   if (invalidPow) args.splice(invalidAt, 1);
   const [who] = args;
   if (!who || !label)
     fail(
-      'usage: node tooling/scripts/local-test-stack.mjs mining-share <email-or-userId> --share <label> [--worker <rig name>] [--pool <host:port>] [--login <account id>.<worker name>] [--invalid-pow]',
+      'usage: node tooling/scripts/local-test-stack.mjs mining-share <email-or-userId> --share <label> [--worker <rig name>] [--pool <host:port>] [--login <account id>.<worker name>] [--secret <miner secret>] [--invalid-pow]',
       2,
     );
   if (!/^[A-Za-z0-9-]{4,64}$/.test(label)) fail('--share must be 4-64 letters, digits or dashes', 2);
@@ -2201,6 +2203,7 @@ async function cmdMiningShare(rawArgs) {
   if (login !== undefined && !/^[0-9a-f-]{36}(\.[A-Za-z0-9_.{}-]{1,80})?$/.test(login))
     fail('--login must be <account id>[.<worker name>]', 2);
   if (login !== undefined && worker !== undefined) fail('--login already names the worker; drop --worker', 2);
+  if (secret !== undefined && !/^[A-Za-z0-9_-]{1,100}$/.test(secret)) fail('--secret must be the miner secret the room shows', 2);
 
   if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
   const marker = readJson(P.marker);
@@ -2245,6 +2248,7 @@ async function cmdMiningShare(rawArgs) {
       pow,
       start,
       invalid: invalidPow,
+      secret,
     });
   } catch (err) {
     fail(`the TEST rig could not reach the pool's miner door at ${host}:${port}: ${err.message}`);
@@ -2258,6 +2262,11 @@ async function cmdMiningShare(rawArgs) {
   // A share whose work misses the target is refused by name and stored nowhere but the pool's rejection log.
   if (invalidPow && result.code === 'mining.pow_invalid') {
     console.log(`refused mining.pow_invalid: TEST share ${shareId} (${powNote}); nothing was kept`);
+    return;
+  }
+  // A rig without the account's current miner secret is refused by name before the door touches the account.
+  if (result.code === 'mining.stratum_secret_invalid') {
+    console.log(`refused mining.stratum_secret_invalid: the miner secret is missing or wrong, so TEST share ${shareId} was not sent`);
     return;
   }
   if (result.code === 'mining.pow_spec_unset') {

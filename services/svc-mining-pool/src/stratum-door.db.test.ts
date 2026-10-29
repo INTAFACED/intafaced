@@ -1,11 +1,13 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { connect, type AddressInfo, type Server, type Socket } from 'node:net';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { runEpochPayoutTick } from './epoch-jobs.js';
+import { issueMinerSecret } from './miner-credential.js';
 import { failingPow, grindPow, type PowSpec } from './pow.js';
 import { MiningReadStore } from './reads.js';
-import { startStratumDoor, stratumWindowId } from './stratum-door.js';
+import { INVALID_SHARES_MAX, startStratumDoor, stratumWindowId } from './stratum-door.js';
 
 const ALICE = '11111111-1111-4111-8111-111111111111';
 const SPEC: PowSpec = { dimension: 8, targetBits: 8, testnet: true };
@@ -64,6 +66,7 @@ describe('miner door on a real socket', () => {
   let server: Server;
   let port: number;
   let clock = Date.UTC(2026, 9, 29);
+  let secret = '';
 
   beforeAll(async () => {
     vi.stubEnv('INTAFACED_SCREENING_FAIL_CLOSED', 'off');
@@ -77,6 +80,7 @@ describe('miner door on a real socket', () => {
         migration('0002_mining_reads.sql'),
         migration('0003_share_workers.sql'),
         migration('0004_pow_solo.sql'),
+        migration('0005_miner_credentials.sql'),
       ],
     });
   });
@@ -89,6 +93,7 @@ describe('miner door on a real socket', () => {
   beforeEach(async () => {
     await db.truncateAll();
     clock = Date.UTC(2026, 9, 29);
+    secret = (await issueMinerSecret(db.sql, ALICE)).secret;
     server = startStratumDoor(
       { sql: db.sql, env: ENV, terms: { port: 0, windowSeconds: 604800, assetId: 'TEST' }, now: () => clock },
       '127.0.0.1',
@@ -110,7 +115,7 @@ describe('miner door on a real socket', () => {
     expect(await roster()).toEqual([]);
     const { socket, call, next } = await rig(port);
     expect(await call(1, 'mining.subscribe', [])).toMatchObject({ id: 1, result: [['mining.notify', expect.any(String)]], error: null });
-    expect(await call(2, 'mining.authorize', [`${ALICE}.TEST.Rig-A`])).toEqual({ id: 2, result: true, error: null });
+    expect(await call(2, 'mining.authorize', [`${ALICE}.TEST.Rig-A`, secret])).toEqual({ id: 2, result: true, error: null });
     const job = await next();
     const windowId = stratumWindowId(604800, clock);
     expect(job).toMatchObject({
@@ -143,7 +148,7 @@ describe('miner door on a real socket', () => {
 
   it('no worker name is the default worker; a user this connection did not authorize is refused', async () => {
     const { socket, call, next } = await rig(port);
-    expect(await call(1, 'mining.authorize', [ALICE])).toEqual({ id: 1, result: true, error: null });
+    expect(await call(1, 'mining.authorize', [ALICE, secret])).toEqual({ id: 1, result: true, error: null });
     const job = await next();
     const nonce = grindPow(SPEC, Buffer.from(job.params![1] as string, 'hex'));
     expect(await call(2, 'mining.submit', [`${ALICE}.TEST.Rig-B`, job.params![0], nonce])).toMatchObject({
@@ -156,7 +161,7 @@ describe('miner door on a real socket', () => {
 
   it('a share for a job past its window is mining.job_stale, keeps nothing, and the rig gets the new job', async () => {
     const { socket, call, next } = await rig(port);
-    await call(1, 'mining.authorize', [`${ALICE}.TEST.Rig-A`]);
+    await call(1, 'mining.authorize', [`${ALICE}.TEST.Rig-A`, secret]);
     const job = await next();
     const nonce = grindPow(SPEC, Buffer.from(job.params![1] as string, 'hex'));
     clock += 604800 * 1000;
@@ -171,6 +176,72 @@ describe('miner door on a real socket', () => {
     socket.destroy();
   });
 
+  it('a stranger with only the account id is refused mining.stratum_secret_invalid, touches nothing, and the owner can still change mode', async () => {
+    const BOB = '22222222-2222-4222-8222-222222222222';
+    const bobSecret = (await issueMinerSecret(db.sql, BOB)).secret;
+    const { socket, call } = await rig(port);
+    const refused = { result: null, error: { code: 'mining.stratum_secret_invalid', message: expect.any(String) } };
+    // No secret, a wrong secret, another account's secret: one code, which never says which.
+    expect(await call(1, 'mining.authorize', [`${ALICE}.TEST.Rig-A`])).toEqual({ id: 1, ...refused });
+    expect(await call(2, 'mining.authorize', [`${ALICE}.TEST.Rig-A`, `msk_${'B'.repeat(43)}`])).toEqual({ id: 2, ...refused });
+    expect(await call(3, 'mining.authorize', [`${ALICE}.TEST.Rig-A`, bobSecret])).toEqual({ id: 3, ...refused });
+    expect(await call(4, 'mining.authorize', [`${ALICE}.TEST.Rig-A`, secret.slice(0, -1)])).toEqual({ id: 4, ...refused });
+    // An account with no secret issued is refused the same way.
+    const CAROL = '33333333-3333-4333-8333-333333333333';
+    expect(await call(5, 'mining.authorize', [CAROL, secret])).toEqual({ id: 5, ...refused });
+    // Not authorized, so a share (valid or not) is refused before ingest and writes no row.
+    expect(await call(6, 'mining.submit', [`${ALICE}.TEST.Rig-A`, stratumWindowId(604800, clock), '0'])).toMatchObject({
+      error: { code: 'mining.stratum_unauthorized' },
+    });
+    expect(await shares()).toEqual([]);
+    expect(await db.sql`SELECT 1 FROM mining_pool.share_rejections`).toHaveLength(0);
+    expect(await db.sql`SELECT 1 FROM mining_pool.workers`).toHaveLength(0);
+    // The owner's mode change is not held by the stranger's connection.
+    expect(await new MiningReadStore(db.sql, null).setWorkerMode(ALICE, 'Rig-A', 'solo')).toEqual({
+      id: `worker:${ALICE}:Rig-A`,
+      name: 'Rig-A',
+      mode: 'solo',
+    });
+    socket.destroy();
+  });
+
+  it('issuing a new secret retires the old one', async () => {
+    const old = secret;
+    const fresh = (await issueMinerSecret(db.sql, ALICE)).secret;
+    expect(fresh).not.toBe(old);
+    const { socket, call, next } = await rig(port);
+    expect(await call(1, 'mining.authorize', [ALICE, old])).toMatchObject({ error: { code: 'mining.stratum_secret_invalid' } });
+    expect(await call(2, 'mining.authorize', [ALICE, fresh])).toEqual({ id: 2, result: true, error: null });
+    expect((await next()).method).toBe('mining.notify');
+    // Only the secret's SHA-256 is stored.
+    expect(await db.sql`SELECT secret_hash FROM mining_pool.miner_credentials WHERE account_id = ${ALICE}`).toEqual([
+      { secret_hash: createHash('sha256').update(fresh).digest('hex') },
+    ]);
+    socket.destroy();
+  });
+
+  it(`after ${INVALID_SHARES_MAX} shares fail the check, the door refuses mining.stratum_invalid_limit and closes the connection`, async () => {
+    const { socket, call, next } = await rig(port);
+    await call(1, 'mining.authorize', [`${ALICE}.TEST.Rig-A`, secret]);
+    const job = await next();
+    const header = Buffer.from(job.params![1] as string, 'hex');
+    const closed = new Promise<void>((resolve) => socket.once('close', () => resolve()));
+    let start = 0;
+    for (let n = 1; n <= INVALID_SHARES_MAX; n += 1) {
+      const nonce = failingPow(SPEC, header, start);
+      start = Number.parseInt(nonce, 16) + 1;
+      expect(await call(n + 1, 'mining.submit', [`${ALICE}.TEST.Rig-A`, job.params![0], nonce])).toEqual({
+        id: n + 1,
+        result: null,
+        error: { code: 'mining.pow_invalid', message: expect.any(String) },
+      });
+    }
+    expect(await next()).toEqual({ id: null, result: null, error: { code: 'mining.stratum_invalid_limit', message: expect.any(String) } });
+    await closed;
+    expect(await db.sql`SELECT 1 FROM mining_pool.share_rejections`).toHaveLength(INVALID_SHARES_MAX);
+    expect(await shares()).toEqual([]);
+  });
+
   it('a line past the limit closes the connection, also when it follows a complete line in the same write', async () => {
     for (const write of ['x'.repeat(5_000), `\n${'x'.repeat(5_000)}`]) {
       const { socket } = await rig(port);
@@ -183,7 +254,7 @@ describe('miner door on a real socket', () => {
 
   it('the payout tick leaves the door window rigs are mining in alone, and settles it only once its time is over', async () => {
     const { socket, call, next } = await rig(port);
-    await call(1, 'mining.authorize', [`${ALICE}.TEST.Rig-A`]);
+    await call(1, 'mining.authorize', [`${ALICE}.TEST.Rig-A`, secret]);
     const job = await next();
     const windowId = job.params![0] as string;
     const nonce = grindPow(SPEC, Buffer.from(job.params![1] as string, 'hex'));
