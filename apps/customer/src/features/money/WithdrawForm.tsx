@@ -44,11 +44,19 @@ type Outcome =
  * read may follow a withdrawal svc-pay recorded, so it is never shown as "nothing is held".
  */
 const definite = (failure: Failed) =>
-  failure.status !== undefined &&
-  failure.status < 500 &&
-  failure.reason !== 'uncertain' &&
-  failure.reason !== 'invalid_response' &&
-  !MAY_BE_HELD.has(failure.code ?? '');
+  (failure.status === 503 && GUARD_REFUSAL.test(failure.code ?? '')) ||
+  (failure.status !== undefined &&
+    failure.status < 500 &&
+    failure.reason !== 'uncertain' &&
+    failure.reason !== 'invalid_response' &&
+    !MAY_BE_HELD.has(failure.code ?? ''));
+
+/**
+ * svc-pay's guards answer inside the claim's own transaction, before its row is written, so a guard refusal rolls the claim
+ * back: nothing is claimed or held. One that could not decide (no screening list, say) is svc-pay's 503 with its own
+ * `pay.guard_*` code, still a definite no; a 503 without that code may come from anywhere and stays uncertain.
+ */
+const GUARD_REFUSAL = /^pay\.guard_/;
 
 /**
  * svc-pay answers that leave a claimed withdrawal behind, possibly with its hold: an outcome it does not know yet, or a fee the

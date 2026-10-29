@@ -416,6 +416,38 @@ describe('sending crypto out (J-wallet-05)', () => {
     expect(outcome).not.toContain('nothing is held');
   });
 
+  it('says nothing is held when a guard of svc-pay could not decide: its 503 carries its own code, and the claim rolled back', async () => {
+    mint.mockResolvedValue({ ok: true, data: { accessToken: 'one-use', expiresAt: '2026-10-23T05:10:00Z' } });
+    mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('25') });
+    mutate.mockResolvedValueOnce({ ...refusal('pay.guard_screening_unavailable', 503), reason: 'uncertain' });
+    await mount();
+    await type('Saved address', ROW.destinationId);
+    await type('Amount', '25');
+    await press('Get the fee');
+    await press('Confirm and send');
+    await confirmWithCode();
+    const outcome = document.querySelector('[data-testid="withdraw-outcome"]')!.textContent;
+    expect(outcome).toContain('Not sent');
+    expect(outcome).toContain('no sanctions screening service is connected');
+    expect(outcome).toContain('Nothing was sent and nothing is held.');
+    expect(sessionStorage.length).toBe(0);
+  });
+
+  it('never says nothing is held on a 503 without a guard code: it may come from anywhere', async () => {
+    mint.mockResolvedValue({ ok: true, data: { accessToken: 'one-use', expiresAt: '2026-10-23T05:10:00Z' } });
+    mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('25') });
+    mutate.mockResolvedValueOnce({ ok: false, reason: 'uncertain', status: 503, message: 'service unavailable' });
+    await mount();
+    await type('Saved address', ROW.destinationId);
+    await type('Amount', '25');
+    await press('Get the fee');
+    await press('Confirm and send');
+    await confirmWithCode();
+    const outcome = document.querySelector('[data-testid="withdraw-outcome"]')!.textContent;
+    expect(outcome).toContain('Answer not received');
+    expect(outcome).not.toContain('nothing is held');
+  });
+
   it('lets the reference go on a definite first refusal, so nothing is kept in the tab', async () => {
     mint.mockResolvedValue({ ok: true, data: { accessToken: 'one-use', expiresAt: '2026-10-23T05:10:00Z' } });
     mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('25') });

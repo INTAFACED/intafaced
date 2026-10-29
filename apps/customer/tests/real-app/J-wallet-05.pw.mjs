@@ -360,6 +360,7 @@ test(`${J} #2 picks the saved address or pastes one: a mistyped address is refus
     expect(refused?.error?.data?.cause?.code, JSON.stringify(refused).slice(0, 400)).toBe('pay.guard_screening_unavailable');
     const outcome = page.getByTestId('withdraw-outcome');
     await expect(outcome).toContainText('Not sent');
+    await expect(outcome).toContainText('Nothing was sent: no sanctions screening service is connected, and every send needs one.');
     await expect(outcome).toContainText('Nothing was sent and nothing is held. Your available balance is 300 USDT.');
     expect(toUnits(await api.available('USDT'))).toBe(toUnits('300'));
     expect(await api.withdrawals()).toEqual([]);
@@ -493,7 +494,11 @@ test(`${J} #7 confirms with a fresh step-up while no signer is connected: refuse
   await expect(page.getByTestId('withdraw-review')).toContainText('Leaves your balance26.5 USDT');
   await confirmSend(page).click();
   await expect(page.getByRole('dialog', { name: 'Confirm it’s you' })).toContainText('Sending money out needs a fresh confirmation.');
+  const answered = page.waitForResponse((res) => res.url().includes('/api/pay/trpc/withdrawal.create'));
   await confirmItsMe(page);
+  // svc-pay refuses with the one typed code for a network with no signer.
+  const refused = await (await answered).json();
+  expect(refused?.error?.data?.cause?.code, JSON.stringify(refused).slice(0, 400)).toBe('pay.wallet_withdraw_unavailable');
 
   const outcome = page.getByTestId('withdraw-outcome');
   await expect(outcome).toContainText('Not sent');
@@ -591,9 +596,9 @@ test(`${J} #4 two withdrawals sent at once that together pass the 24-hour limit:
     await readyToConfirm(page, each);
     await readyToConfirm(other, each);
     const answers = [page, other].map((tab) => tab.waitForResponse((res) => res.url().includes('/api/pay/trpc/withdrawal.create')));
-    // Each tab passes its own step-up first, one after the other: a code from an earlier 30-second step than one already
-    // used is refused, so the two can't verify in either order. Each send then waits in its browser until both are made,
-    // and the two go to svc-pay together.
+    // Each tab passes its own step-up, one after the other: a code from an earlier 30-second step than one already used is
+    // refused, so the two can't verify in either order. Each send then waits in its browser until both are made, and the two
+    // go to svc-pay together.
     const isCreate = (url) => url.href.includes('/api/pay/trpc/withdrawal.create');
     let release;
     const bothMade = new Promise((resolve) => (release = resolve));
@@ -605,10 +610,13 @@ test(`${J} #4 two withdrawals sent at once that together pass the 24-hour limit:
         await route.continue();
       });
     }
+    // Both codes are typed first (the second waits for the next step), so neither send is held for long once it is made.
     for (const tab of [page, other]) {
       await stepUp(tab)
         .getByLabel('Authenticator code or recovery code')
         .fill(await freshCode());
+    }
+    for (const tab of [page, other]) {
       const sent = tab.waitForRequest((req) => isCreate(new URL(req.url())));
       await stepUp(tab).getByRole('button', { name: 'Confirm' }).click();
       await sent;

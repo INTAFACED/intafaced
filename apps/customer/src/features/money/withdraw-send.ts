@@ -139,6 +139,7 @@ export function above(value: string, limit: string): boolean {
  */
 export const SEND_REFUSAL_KEYS = {
   'pay.wallet_withdraw_unavailable': 'sNoSigner',
+  'pay.guard_screening_unavailable': 'sScreening',
   'pay.withdrawal_destination_not_saved': 'sNotSaved',
   'pay.withdrawal_destination_network_mismatch': 'sOtherNetwork',
   'pay.withdrawal_destination_unapproved': 'sUnapproved',
