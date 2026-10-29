@@ -13,7 +13,7 @@ const unconfigured = () =>
 /**
  * `navMetrics.searchMiss`: the customer app's header search found nothing. Public (a signed-out search counts too), and
  * its only input is the kind, held strict, so nothing about the person or the words can reach the count.
- * `navMetrics.searchMisses`: the founders' read, per UTC day over a window they name, marked as a lower bound.
+ * `navMetrics.searchMisses`: the founders' read, per UTC day over a window they name, marked approximate.
  */
 export function navMetricsRouter(store: NavMetricStore | undefined, now: () => Date = () => new Date()) {
   return router({
@@ -33,8 +33,8 @@ export function navMetricsRouter(store: NavMetricStore | undefined, now: () => D
           from: z.string(),
           to: z.string(),
           days: z.array(z.object({ day: z.string(), count: z.number().int().nonnegative() })),
-          /** Sent once with no retry: a lost count stays lost. */
-          lowerBound: z.literal(true),
+          /** Sent once with no retry (a lost count stays lost) to a public write anyone can call: neither floor nor ceiling. */
+          approximate: z.literal(true),
         }),
       )
       .query(async ({ input }) => {
@@ -42,7 +42,7 @@ export function navMetricsRouter(store: NavMetricStore | undefined, now: () => D
           throw new TRPCError({ code: 'PRECONDITION_FAILED', message: `${NAV_METRICS_WINDOW_UNSET} — name how many days to read` });
         if (!store) throw unconfigured();
         const { from, to } = windowDays(now(), input.days);
-        return { kind: 'search_miss' as const, from, to, days: await store.read('search_miss', from, to), lowerBound: true as const };
+        return { kind: 'search_miss' as const, from, to, days: await store.read('search_miss', from, to), approximate: true as const };
       }),
   });
 }

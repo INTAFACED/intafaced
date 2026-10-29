@@ -2,8 +2,8 @@
 -- Reversal: 0036_notify_nav_metric_counts.down.sql
 --
 -- One row per kind and UTC day: how many times the customer app reported it. No account id, no query text and no per-event
--- row are stored, so a count can never say who searched or for what. The app sends each count once with no retry, so a
--- count is a lower bound.
+-- row are stored, so a count can never say who searched or for what. A count is approximate: the app sends each count once
+-- with no retry (a lost one stays lost), and the write is public (anyone can add to it).
 CREATE TABLE IF NOT EXISTS notify.nav_metric_counts (
   kind text NOT NULL CHECK (kind IN ('search_miss')),
   day date NOT NULL,

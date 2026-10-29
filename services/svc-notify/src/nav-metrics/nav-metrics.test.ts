@@ -55,7 +55,7 @@ describe('navigation counts: header search misses (HM-navigation-04)', () => {
     expect(await store.read('search_miss', '2000-01-01', '2100-01-01')).toEqual([]);
   });
 
-  it('lets founders read a window they name, marked a lower bound, and refuses a blank window', async () => {
+  it('lets founders read a window they name, marked approximate, and refuses a blank window', async () => {
     const store = new MemoryNavMetricStore();
     await store.count('search_miss', new Date('2026-10-20T10:00:00Z'));
     await store.count('search_miss', new Date('2026-10-27T10:00:00Z'));
@@ -65,7 +65,7 @@ describe('navigation counts: header search misses (HM-navigation-04)', () => {
       from: '2026-10-21',
       to: '2026-10-27',
       days: [{ day: '2026-10-27', count: 1 }],
-      lowerBound: true,
+      approximate: true,
     });
     await expect(desk.searchMisses({})).rejects.toThrow('notify.nav_metrics_window_unset');
   });

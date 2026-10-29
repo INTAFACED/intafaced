@@ -1,8 +1,8 @@
 /**
  * Navigation metric counts (HM-navigation-04's search-miss counter, received here for the founders' metrics desk of
  * HM-desks-02). A count is a number per kind and UTC day and nothing else: no account id, no query text, no per-event row,
- * so it can never say who searched or for what. The customer app sends each count once and never retries, so a count is
- * a lower bound, and every read says so.
+ * so it can never say who searched or for what. A count is approximate, and every read says so: the customer app sends
+ * each count once and never retries, so a lost one stays lost, and the write is public, so anyone can add to it.
  */
 import type { Sql } from 'postgres';
 
