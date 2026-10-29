@@ -11,10 +11,17 @@ import { generateToken, hashToken } from './passwords.js';
  *   presses Freeze my account, which calls `freezeLink.redeem`.
  * - Its first use runs the same freeze as `auth.selfFreeze` (one open freeze, every session and API key revoked, in one
  *   transaction) and stores what it did on the link. A second use changes nothing and shows that stored result.
- * - A link has no lifetime of its own: nothing here invents one. Freezing is the safe side, and the mailbox that holds
- *   the link is the one the notice warned.
- * - An unknown token, or a link of a closed account, is one refusal (`identity.freeze_link_invalid`).
- * - A failed mint sends the notice without the link. The notice itself matters more than the shortcut in it.
+ * - A link has no lifetime of its own: nothing here invents one. Freezing is the safe side. It works only while the
+ *   address it was mailed to is still the account's address, so a mailbox the owner moved away from cannot use it. The
+ *   one exception is the notice of an address change, which goes to the old address so its owner can stop that change.
+ * - When a freeze is already open, the link keeps that freeze (one open freeze per account) and still ends every session
+ *   and API key: the person said the change was not theirs, and a session made while frozen must not survive that.
+ * - A second use returns the stored first result and says whether the account is still frozen now, so a freeze lifted
+ *   since never reads as holding.
+ * - An unknown token, a link of a closed account, or one whose address is no longer the account's is one refusal
+ *   (`identity.freeze_link_invalid`).
+ * - A failed mint sends the notice without the link, and logs it. The notice itself matters more than the shortcut.
+ *   A relay retry of a notice mints a new link each attempt; each one works once.
  */
 
 /** The notices about a change to the account's security. Each one carries a freeze link. */
@@ -58,6 +65,8 @@ export async function applySelfFreeze(tx: Sql, userId: string, reason: SelfFreez
   return { id: made[0]!.id, reason, since: made[0]!.since, changed: true };
 }
 
+const addressHash = (email: string) => hashToken(email.trim().toLowerCase());
+
 /** The account a notice is about: the id the sender passed, else the account whose proved address it goes to. */
 async function noticeAccount(sql: Sql, message: { readonly userId?: string; readonly email: string }): Promise<string | null> {
   const rows = message.userId
@@ -76,46 +85,85 @@ export async function mintFreezeLink(
   if (!userId) return null;
   const token = generateToken(32);
   await sql`
-    INSERT INTO self_freeze_links (user_id, token_hash, purpose)
-    VALUES (${userId}, ${hashToken(token)}, ${message.purpose ?? 'password-reset'})`;
+    INSERT INTO self_freeze_links (user_id, token_hash, email_hash, purpose)
+    VALUES (${userId}, ${hashToken(token)}, ${addressHash(message.email)}, ${message.purpose ?? 'password-reset'})`;
   return token;
 }
 
 /** The same mail port, with a freeze link added to each security notice. */
-export function withFreezeLink(mail: PasswordResetMail, sql: Sql): PasswordResetMail {
+export function withFreezeLink(
+  mail: PasswordResetMail,
+  sql: Sql,
+  log: { warn(obj: Record<string, unknown>, msg: string): void },
+): PasswordResetMail {
   return {
     async send(message) {
       if (!FREEZE_LINK_PURPOSES.has(message.purpose ?? 'password-reset')) return mail.send(message);
-      const freezeToken = await mintFreezeLink(sql, message).catch(() => null);
+      const freezeToken = await mintFreezeLink(sql, message).catch((err: unknown) => {
+        log.warn({ purpose: message.purpose, err: err instanceof Error ? err.message : String(err) }, 'auth.freeze_link_mint_failed');
+        return null;
+      });
       return mail.send(freezeToken ? { ...message, freezeToken } : message);
     },
   };
 }
 
-export type FreezeLinkResult = { userId: string; since: Date; firstUse: boolean; changed: boolean };
+export type FreezeLinkResult = {
+  userId: string;
+  since: Date;
+  firstUse: boolean;
+  /** A new freeze was opened, or a session or API key was ended, by this use. */
+  changed: boolean;
+  /** Whether the account is frozen by its owner right now. */
+  frozenNow: boolean;
+};
 
 /**
- * Uses a link. The first use freezes (or finds the freeze already open) and stores its result on the link; any later use
- * returns that stored result and changes nothing. Idempotent on (userId, open freeze id).
+ * Uses a link. The first use freezes (or keeps the freeze already open), ends every session and API key, and stores its
+ * result on the link; any later use returns that stored result, changes nothing, and says whether it still holds.
+ * Idempotent on (userId, open freeze id).
  */
 export async function redeemFreezeLink(sql: Sql, input: { token: string }): Promise<FreezeLinkResult> {
   const token = input.token.trim();
   if (token.length === 0 || token.length > 200) throw new FreezeLinkError(FREEZE_LINK_INVALID);
   const presented = hashToken(token);
   return transaction(sql, async (tx) => {
-    const links = await tx<Array<{ id: string; user_id: string; used_at: Date | null; frozen_since: Date | null }>>`
-        SELECT id, user_id, used_at, frozen_since FROM self_freeze_links WHERE token_hash = ${presented} FOR UPDATE`;
+    const links = await tx<
+      Array<{
+        id: string;
+        user_id: string;
+        purpose: string;
+        email_hash: string;
+        used_at: Date | null;
+        freeze_id: string | null;
+        frozen_since: Date | null;
+      }>
+    >`SELECT id, user_id, purpose, email_hash, used_at, freeze_id, frozen_since FROM self_freeze_links WHERE token_hash = ${presented} FOR UPDATE`;
     const link = links[0];
     if (!link) throw new FreezeLinkError(FREEZE_LINK_INVALID);
+    // The status and address are read under the user lock, so a closure or an address change that commits first is seen.
+    const users = await tx<Array<{ status: string; email: string }>>`
+      SELECT status, email::text AS email FROM users WHERE id = ${link.user_id} FOR UPDATE`;
+    const user = users[0];
+    const addressMoved = link.purpose !== 'email-change-notice' && addressHash(user?.email ?? '') !== link.email_hash;
+    if (!user || user.status === 'closed' || addressMoved) throw new FreezeLinkError(FREEZE_LINK_INVALID);
     if (link.used_at && link.frozen_since) {
-      return { userId: link.user_id, since: link.frozen_since, firstUse: false, changed: false };
+      const still = await tx`SELECT 1 FROM account_self_freezes WHERE id = ${link.freeze_id} AND state = 'frozen'`;
+      return { userId: link.user_id, since: link.frozen_since, firstUse: false, changed: false, frozenNow: still.length > 0 };
     }
-    const users = await tx<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${link.user_id}`;
-    if (!users[0] || users[0].status === 'closed') throw new FreezeLinkError(FREEZE_LINK_INVALID);
     const freeze = await applySelfFreeze(tx, link.user_id, FREEZE_LINK_REASON);
+    let changed = freeze.changed;
+    if (!changed) {
+      // The freeze was already open: a session or key made while it held still ends now.
+      const sessions = await tx`UPDATE sessions SET revoked = true WHERE user_id = ${link.user_id} AND revoked = false RETURNING id`;
+      const keys = await tx`
+        UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'account_freeze'
+        WHERE user_id = ${link.user_id} AND revoked = false RETURNING id`;
+      changed = sessions.length + keys.length > 0;
+    }
     await tx`
-        UPDATE self_freeze_links SET used_at = now(), freeze_id = ${freeze.id}, frozen_since = ${freeze.since}
-        WHERE id = ${link.id}`;
-    return { userId: link.user_id, since: freeze.since, firstUse: true, changed: freeze.changed };
+      UPDATE self_freeze_links SET used_at = now(), freeze_id = ${freeze.id}, frozen_since = ${freeze.since}
+      WHERE id = ${link.id}`;
+    return { userId: link.user_id, since: freeze.since, firstUse: true, changed, frozenNow: true };
   });
 }

@@ -19,7 +19,7 @@ export function createFreezeLinkRouter(auth: Pick<AuthService, 'redeemFreezeLink
         .mutation(async ({ input }) => {
           try {
             const done = await auth.redeemFreezeLink({ token: input.token });
-            return { frozen: true as const, since: done.since.toISOString(), firstUse: done.firstUse };
+            return { frozen: true as const, since: done.since.toISOString(), firstUse: done.firstUse, frozenNow: done.frozenNow };
           } catch (err) {
             if (err instanceof FreezeLinkError) {
               throw new TRPCError({ code: 'UNAUTHORIZED', message: `${userCopy(err.code)} [${err.code}]`, cause: err });

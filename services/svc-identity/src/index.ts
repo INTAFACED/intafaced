@@ -380,7 +380,9 @@ const transportMail = openIdentityMail({
 // Mails to an account's own address carry the anti-phishing code its owner set.
 const antiPhishingMailKey = antiPhishingKey(parseTotpSecretKey(env.IDENTITY_TOTP_SECRET_KEY));
 // Security notices carry a one-time freeze link (freeze-link.ts); the anti-phishing code goes on last.
-const mail = transportMail && withAntiPhishingCode(withFreezeLink(transportMail, sql), sql, antiPhishingMailKey);
+const mail =
+  transportMail &&
+  withAntiPhishingCode(withFreezeLink(transportMail, sql, { warn: (obj, msg) => app.log.warn(obj, msg) }), sql, antiPhishingMailKey);
 auth.usePasswordResetMail(mail);
 const kycCapabilityMap = parseKycCapabilitiesByLevel(env.IDENTITY_KYC_CAPABILITIES_BY_LEVEL);
 auth.useKycCapabilities(kycCapabilityMap);
