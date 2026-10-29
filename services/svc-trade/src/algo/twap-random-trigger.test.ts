@@ -3,7 +3,8 @@ import { parseAmount } from '@intafaced/ledger-client';
 import { TradeError } from '../spot/types.js';
 import { presentScheduleHonesty, SCHEDULER_FLAG_OFF } from './present.js';
 import { MAX_ALGO_SEED, planTwapSlices } from './schedule.js';
-import { TwapEngine, triggerReached, type TwapEnginePorts } from './twap-engine.js';
+import { TRIGGER_EXPIRED_HALT, TwapEngine, triggerReached, type TwapEngineOptions, type TwapEnginePorts } from './twap-engine.js';
+import type { TwapParent } from './types.js';
 import type { AlgoQuotedMark, CreateTwapInput } from './types.js';
 
 const LOT = parseAmount('0.0001');
@@ -57,7 +58,7 @@ describe('random TWAP slice sizes fixed by a seed', () => {
   });
 });
 
-function makeEngine(markPrice: { value: string | null; stale?: boolean }) {
+function makeEngine(markPrice: { value: string | null; stale?: boolean }, options: TwapEngineOptions = {}) {
   let t = 1_700_000_000_000;
   const placed: number[] = [];
   const ports: TwapEnginePorts = {
@@ -74,7 +75,7 @@ function makeEngine(markPrice: { value: string | null; stale?: boolean }) {
         ? null
         : { marketId, price: parseAmount(markPrice.value), asOf: new Date(markPrice.stale ? t - 3_600_000 : t), quality: 'mid' },
   };
-  return { engine: new TwapEngine(ports), placed, advance: (ms: number) => (t += ms), now: () => new Date(t) };
+  return { engine: new TwapEngine(ports, options), placed, advance: (ms: number) => (t += ms), now: () => new Date(t) };
 }
 
 const input = (over: Partial<CreateTwapInput> = {}): CreateTwapInput => ({
@@ -162,5 +163,57 @@ describe('a TWAP that waits for its trigger price', () => {
       ),
     ).toBe('trade.algo_invalid_schedule');
     expect(refusal(() => engine.create(USER, input({ triggerPrice: 0n, triggerAbove: true }), LOT))).toBe('trade.algo_invalid_schedule');
+  });
+});
+
+describe('a waiting schedule ends, and its saves land in order', () => {
+  it('halts as expired once it has waited longer than the longest schedule, placing nothing', async () => {
+    const mark = { value: '50' as string | null };
+    const { engine, placed, advance } = makeEngine(mark, { maxDurationMs: 600_000 });
+    const parent = engine.create(USER, input({ triggerPrice: parseAmount('100'), triggerAbove: true }), LOT);
+    advance(600_000);
+    expect(await engine.tick(parent.id)).toEqual({ kind: 'idle', reason: 'awaiting_trigger' });
+    advance(1);
+    expect(await engine.tick(parent.id)).toEqual({ kind: 'idle', reason: 'halted' });
+    const halted = engine.get(parent.id)!;
+    expect(halted.status).toBe('halted');
+    expect(halted.haltReason).toBe(TRIGGER_EXPIRED_HALT);
+    expect(halted.triggeredAt).toBeNull();
+    // Reaching the price afterwards starts nothing.
+    mark.value = '100';
+    advance(1_000);
+    await engine.tick(parent.id);
+    expect(placed).toEqual([]);
+    expect(engine.get(parent.id)!.children).toHaveLength(0);
+  });
+
+  it('a slow first save cannot be overtaken by a later one for the same schedule', async () => {
+    const stored: TwapParent[] = [];
+    let release: () => void = () => {};
+    const firstSave = new Promise<void>((resolve) => (release = resolve));
+    let calls = 0;
+    const { engine, advance } = makeEngine(
+      { value: '100' },
+      {
+        onChange: async (parent) => {
+          calls += 1;
+          if (calls === 1) await firstSave;
+          stored.push(parent);
+        },
+      },
+    );
+    const parent = engine.create(USER, input({ triggerPrice: parseAmount('100'), triggerAbove: true }), LOT);
+    advance(1_000);
+    await engine.tick(parent.id);
+    engine.pause(USER, parent.id);
+    // Nothing written while the first save hangs: the later ones wait behind it.
+    await new Promise((r) => setTimeout(r, 10));
+    expect(stored).toHaveLength(0);
+    release();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(stored.length).toBeGreaterThan(1);
+    // The store's last write is the newest state.
+    expect(stored.at(-1)!.status).toBe('paused');
+    expect(stored.at(-1)!.triggeredAt).not.toBeNull();
   });
 });

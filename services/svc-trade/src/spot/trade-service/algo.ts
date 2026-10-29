@@ -123,8 +123,16 @@ export async function createTwap(
 
   if (input.randomSeed !== undefined) createInput = { ...createInput, randomSeed: input.randomSeed };
   if (input.triggerPrice !== undefined) {
-    // The side of the mid the trigger sits on fixes its direction: above waits for the mark to rise to it.
-    createInput = { ...createInput, triggerPrice: input.triggerPrice, triggerAbove: input.triggerPrice > (bid + ask) / 2n };
+    // The mark the scheduler reads is this same mid (`markFor`). The side of it the trigger sits on fixes its direction:
+    // above waits for the mark to rise to it. A trigger at the mid is already reached, so it is refused, not started.
+    const mid = (bid + ask) / 2n;
+    if (input.triggerPrice === mid) {
+      throw new TradeError(
+        `${market.symbol}: the trigger price equals the current mark — leave it blank to start now`,
+        'trade.algo_invalid_schedule',
+      );
+    }
+    createInput = { ...createInput, triggerPrice: input.triggerPrice, triggerAbove: input.triggerPrice > mid };
   }
 
   if (kind === 'vwap') {

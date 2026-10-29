@@ -2,7 +2,7 @@
  * Create a TWAP / VWAP / POV schedule. The preview is the all-in view before anything is sent. When the slice scheduler is
  * off the room says so and does not make the call (a schedule created now would sit active and place nothing).
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Badge, Button, Checkbox, Field, Input, KeyValue, SegmentedControl, fmtAmount, fmtPrice, type Loadable } from '../rooms/ui';
 import { useNow, useRoomApi } from '../rooms/read';
 import { rememberId } from '../rooms/store';
@@ -108,6 +108,8 @@ export function AlgoForm({
   const [review, setReview] = useState(false);
   const [duplicate, setDuplicate] = useState(false);
   const [sizes, setSizes] = useState<SizesRead>({ state: 'off' });
+  // Each review asks afresh; an answer to an earlier ask is dropped, so the list always matches the numbers sent.
+  const sizesAsk = useRef(0);
   const set = <K extends keyof AlgoFormValues>(key: K, value: AlgoFormValues[K]) => setForm((f) => ({ ...f, [key]: value }));
 
   // A schedule cannot be edited, so "create new with these numbers" starts a new intent with a new id.
@@ -165,6 +167,7 @@ export function AlgoForm({
   const sizesBlock = seed !== null && sizes.state !== 'ready';
 
   async function openReview() {
+    const ask = ++sizesAsk.current;
     setReview(true);
     if (seed === null || !market) {
       setSizes({ state: 'off' });
@@ -178,6 +181,7 @@ export function AlgoForm({
       sliceIntervalMs: intervalMs!,
       randomSeed: seed,
     });
+    if (ask !== sizesAsk.current) return;
     setSizes(answer.ok ? { state: 'ready', sizes: answer.data.sliceQtys } : { state: 'refused', code: answer.code });
   }
 
@@ -249,7 +253,9 @@ export function AlgoForm({
           hint: t('Upper estimate at the taker rate'),
         },
         { label: t('Held now'), value: t('Nothing'), hint: t('Each slice holds funds only when it is placed') },
-        { label: t('Ends about'), value: when(plan.endsAt) },
+        trigger !== null
+          ? { label: t('Ends about'), value: t('After the trigger price is reached') }
+          : { label: t('Ends about'), value: when(plan.endsAt) },
         { label: t('Request id'), value: clientAlgoId, mono: true },
         ...(trigger !== null ? [{ label: t('Trigger price'), value: fmtPrice(trigger, market?.tickSize) }] : []),
       ]
@@ -417,7 +423,10 @@ export function AlgoForm({
         busy={writer.busy}
         confirmDisabled={sizesBlock}
         onConfirm={() => void send()}
-        onCancel={() => setReview(false)}
+        onCancel={() => {
+          sizesAsk.current += 1;
+          setReview(false);
+        }}
       >
         {seed === null ? null : sizes.state === 'ready' ? (
           <ol aria-label={t('Slice sizes')} className="m-0 flex list-decimal flex-col gap-1 ps-5 text-sm text-fg">

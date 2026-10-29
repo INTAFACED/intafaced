@@ -141,6 +141,7 @@ function makeTwapTrade(
         limitPrice?: Amount | null;
         clientAlgoId?: string;
         kind?: string;
+        randomSeed?: number;
       },
     ): Promise<TwapParent> {
       if (!algoEnabled) {
@@ -171,6 +172,7 @@ function makeTwapTrade(
         limitPrice: input.limitPrice ?? null,
         subAccountId: null,
         clientAlgoId: input.clientAlgoId,
+        randomSeed: input.randomSeed ?? null,
       };
       const parent = engine.create(p.userId, createInput, LOT);
       const plan = engine.planOf(parent.id) ?? [];
@@ -183,6 +185,14 @@ function makeTwapTrade(
     async algoPlan(p: Principal, parentId: string) {
       await trade.getAlgo(p, parentId);
       return engine.planOf(parentId) ?? [];
+    },
+    // The engine's own plan path, as TradeService.previewTwapSizes calls it.
+    async previewTwapSizes(
+      _p: Principal,
+      input: { symbol: string; totalQty: Amount; durationMs: number; sliceIntervalMs: number; randomSeed?: number },
+    ) {
+      if (input.symbol !== SYMBOL) throw new TradeError(`market ${input.symbol} not found`, 'trade.market_not_found');
+      return engine.previewTwapPlan(input, LOT);
     },
     async algoProgress(p: Principal, parentId: string) {
       const parent = await trade.getAlgo(p, parentId);
@@ -550,4 +560,46 @@ describe('D26-P1-T4 public doors — TWAP children pause overdue no fake fills',
       await app.close();
     },
   );
+});
+
+describe('random slice sizes on the mounted doors', () => {
+  const schedule = { symbol: SYMBOL, totalQty: '0.03', durationMs: 300_000, sliceIntervalMs: 30_000 };
+
+  it('the preview for a seed is the plan the created schedule stores, and another seed differs', async () => {
+    const harness = makeTwapTrade();
+    const app = await mount(harness.trade);
+    const preview = await get(app, 'algo.previewTwapSizes', { ...schedule, randomSeed: 2310 });
+    expect(preview.statusCode).toBe(200);
+    const sizes = preview.body.result?.data?.sliceQtys as string[];
+    expect(sizes).toHaveLength(10);
+    expect(new Set(sizes).size).toBeGreaterThan(1);
+    expect(sizes.reduce((a, q) => a + parseAmount(q), 0n)).toBe(parseAmount('0.03'));
+
+    const created = await post(app, 'algo.createTwap', { ...schedule, side: 'buy', randomSeed: 2310, clientAlgoId: 'door-random-2310' });
+    expect(created.statusCode).toBe(200);
+    const id = created.body.result?.data?.id as string;
+    const read = await get(app, 'algo.get', { algoId: id });
+    expect(read.body.result?.data?.plannedSliceQtys).toEqual(sizes);
+    expect(read.body.result?.data?.randomSeed).toBe(2310);
+
+    const other = await get(app, 'algo.previewTwapSizes', { ...schedule, randomSeed: 2311 });
+    expect(other.body.result?.data?.sliceQtys).not.toEqual(sizes);
+    const even = await get(app, 'algo.previewTwapSizes', schedule);
+    expect(new Set(even.body.result?.data?.sliceQtys as string[]).size).toBe(1);
+    await app.close();
+  });
+
+  it('refuses a seed out of range, an unknown market, a session without trade:read and an anonymous caller', async () => {
+    const harness = makeTwapTrade();
+    const app = await mount(harness.trade);
+    const big = await get(app, 'algo.previewTwapSizes', { ...schedule, randomSeed: 4_294_967_296 });
+    expect(big.statusCode).toBe(400);
+    const missing = await get(app, 'algo.previewTwapSizes', { ...schedule, symbol: 'NOPE/USDT', randomSeed: 1 });
+    expect(missing.body.error?.data?.cause?.code).toBe('trade.market_not_found');
+    const noScope = await get(app, 'algo.previewTwapSizes', { ...schedule, randomSeed: 1 }, signedHeaders(principal({ scopes: [] })));
+    expect(noScope.statusCode).toBe(403);
+    const anon = await get(app, 'algo.previewTwapSizes', { ...schedule, randomSeed: 1 }, { 'x-intafaced-region': 'DE' });
+    expect(anon.statusCode).toBe(401);
+    await app.close();
+  });
 });

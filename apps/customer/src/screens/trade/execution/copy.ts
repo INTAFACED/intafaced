@@ -359,6 +359,7 @@ const messages = {
   'Trigger price': 'Trigger price',
   'Waiting for the trigger price': 'Waiting for the trigger price',
   'Triggered at': 'Trigger reached {when}',
+  'After the trigger price is reached': 'After the trigger price is reached',
 } as const;
 
 export const execCopy = defineCopy('trade.execution', messages);

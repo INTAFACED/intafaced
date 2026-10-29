@@ -32,6 +32,9 @@ import { awaitingTrigger } from './types.js';
 /** haltReason when cancel partially failed — resume refused until re-cancel. */
 export const CANCEL_INCOMPLETE_HALT = 'cancel_incomplete';
 
+/** haltReason when a trigger price was not reached within the engine's longest schedule life — nothing was placed. */
+export const TRIGGER_EXPIRED_HALT = 'trigger_expired';
+
 export interface PlaceChildRequest {
   readonly parentId: string;
   readonly sliceIndex: number;
@@ -116,6 +119,8 @@ export class TwapEngine {
   private readonly maxDurationMs: number;
   private readonly minSliceIntervalMs: number;
   private readonly onChange: ((parent: TwapParent, plan: readonly Amount[]) => void | Promise<void>) | null;
+  /** The last save started per parent: each save waits for the one before, so the store keeps the newest state. */
+  private readonly saves = new Map<string, Promise<void>>();
 
   constructor(
     private readonly ports: TwapEnginePorts,
@@ -153,13 +158,26 @@ export class TwapEngine {
   }
 
   /** Validate and freeze a proposal without publishing an unadmitted strategy. */
-  prepare(userId: string, input: CreateTwapInput, lotSize: Amount): { parent: TwapParent; plan: readonly Amount[] } {
-    if (input.durationMs > this.maxDurationMs) {
+  /** The TWAP slice sizes `prepare` would plan for these numbers, under the same schedule bounds. Stores nothing. */
+  previewTwapPlan(
+    input: { totalQty: Amount; durationMs: number; sliceIntervalMs: number; randomSeed?: number | null },
+    lotSize: Amount,
+  ): readonly Amount[] {
+    this.assertScheduleBounds(input.durationMs, input.sliceIntervalMs);
+    return planTwapSlices({ ...input, lotSize, randomSeed: input.randomSeed ?? null }).slices;
+  }
+
+  private assertScheduleBounds(durationMs: number, sliceIntervalMs: number): void {
+    if (durationMs > this.maxDurationMs) {
       throw new TradeError(`algo duration exceeds max ${this.maxDurationMs}ms`, 'trade.algo_invalid_schedule');
     }
-    if (input.sliceIntervalMs < this.minSliceIntervalMs) {
+    if (sliceIntervalMs < this.minSliceIntervalMs) {
       throw new TradeError(`algo sliceIntervalMs below min ${this.minSliceIntervalMs}ms`, 'trade.algo_invalid_schedule');
     }
+  }
+
+  prepare(userId: string, input: CreateTwapInput, lotSize: Amount): { parent: TwapParent; plan: readonly Amount[] } {
+    this.assertScheduleBounds(input.durationMs, input.sliceIntervalMs);
 
     const clientAlgoId = typeof input.clientAlgoId === 'string' ? input.clientAlgoId.trim() : '';
     if (!clientAlgoId) {
@@ -386,6 +404,11 @@ export class TwapEngine {
     const now = this.ports.now();
     let working = parent;
     if (awaitingTrigger(parent)) {
+      // A trigger never reached does not keep the schedule alive past the longest life a schedule may have.
+      if (now.getTime() - parent.createdAt.getTime() > this.maxDurationMs) {
+        this.replace(parentId, { ...parent, status: 'halted', haltReason: TRIGGER_EXPIRED_HALT });
+        return { kind: 'idle', reason: 'halted' };
+      }
       // Nothing is placed until an accepted mark reaches the trigger. A blank or stale mark never starts it.
       const mark = await this.ports.markFor(parent.marketId);
       if (!mark || !acceptableForAlgo(mark, now, this.markPolicy).ok || !triggerReached(parent, mark.price)) {
@@ -617,10 +640,18 @@ export class TwapEngine {
   }
 
   private emitChange(parent: TwapParent): Promise<void> {
-    if (!this.onChange) return Promise.resolve();
+    const onChange = this.onChange;
+    if (!onChange) return Promise.resolve();
     const plan = this.plans.get(parent.id) ?? [];
-    const write = Promise.resolve(this.onChange(parent, plan)).catch(() => {
-      // Persistence failures must not invent progress; next tick retries save.
+    // Saves of one parent run in order: two state changes on one tick must not land newest-first in the store.
+    const write = (this.saves.get(parent.id) ?? Promise.resolve())
+      .then(() => onChange(parent, plan))
+      .catch(() => {
+        // Persistence failures must not invent progress; next tick retries save.
+      });
+    this.saves.set(parent.id, write);
+    void write.then(() => {
+      if (this.saves.get(parent.id) === write) this.saves.delete(parent.id);
     });
     return write;
   }

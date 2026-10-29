@@ -75,14 +75,14 @@ import { type AuthAttribution } from './auth-attribution.js';
 import {
   SqlTwapParentStore,
   TwapEngine,
-  planTwapSlices,
   type AlgoProgressView,
   type AlgoQuotedMark,
   type TwapParent,
   type TwapParentStore,
 } from '../algo/index.js';
 import { DEFAULT_ALGO_MARK_POLICY, type AlgoMarkPolicy } from '../algo/mark-gate.js';
-import { assertQty } from './risk.js';
+import { assertSmallestSliceTradable } from '../algo/create-gate.js';
+import { assertQty, assertSpotSurface, assertTradable } from './risk.js';
 import type { TwapParentRecord } from '../algo/parent-store.js';
 import { hydrateAlgoIfMissing, persistAlgoMutation } from '../algo/hydrate-on-mutate.js';
 import type { MarketLifecyclePort } from '../market-lifecycle.js';
@@ -1766,8 +1766,13 @@ export class TradeService {
   ): Promise<readonly Amount[]> {
     requireScope(principal, 'trade:read');
     const market = await this.requireMarket({ symbol: input.symbol });
+    // The same market and schedule checks a create runs before it plans, so a preview never shows sizes a create refuses.
+    assertSpotSurface(market, 'TWAP');
+    assertTradable(market);
     assertQty(market, input.totalQty);
-    return planTwapSlices({ ...input, lotSize: market.lotSize, randomSeed: input.randomSeed ?? null }).slices;
+    const slices = this.algo.previewTwapPlan(input, market.lotSize);
+    if (input.randomSeed != null) assertSmallestSliceTradable(market, slices);
+    return slices;
   }
 
   /** Owner recovery restores only the immutable admitted proposal. Each child
