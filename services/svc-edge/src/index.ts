@@ -25,6 +25,8 @@ import { httpMatchingApprovalRead, httpMatchingControl, registerMatchingOperator
 import { readMatchingUrl, registerMatchingVenueHaltGuard } from './matching-venue-halt.js';
 import { markAuthOutcome, registerMetrics } from './metrics.js';
 import { createQuotaStore, decideGateway, sandboxOf } from './gateway-plane.js';
+import { apiKeyRefusalBody } from './api-key-refusal.js';
+import { markProxied, registerReplyEnvelope, REQUEST_ID_HEADER, REQUEST_ID_OPTIONS } from './reply-envelope.js';
 import { exchangePrincipal } from './principal-exchange.js';
 import { upstreamBody } from './proxy-body.js';
 import { forwardUpstreamResponseHeaders, prepareUpstreamRequestHeaders, refuseCookieCsrf } from './refresh-cookie-proxy.js';
@@ -77,6 +79,8 @@ const app = Fastify({
   // Explicit body budget — see EDGE_BODY_LIMIT_BYTES. Refuses with 413 before
   // principal exchange or upstream work, so an oversized body is not free CPU.
   bodyLimit: env.EDGE_BODY_LIMIT_BYTES,
+  // The request id is ours: a random UUID per request, never one the caller sent (`reply-envelope.ts`).
+  ...REQUEST_ID_OPTIONS,
   // Unset means "believe the socket, never the header". See EDGE_TRUST_PROXY in
   // env.ts: this is what decides whether `req.ip` — and therefore the throttle's
   // key — identifies a caller or identifies our own load balancer.
@@ -143,6 +147,11 @@ app.log[cors.configured ? 'info' : corsEnforced ? 'error' : 'warn'](
  * sends a 404, a 503 or a 502 — so the browser can read our refusals instead of
  * reporting them all as the same opaque CORS error.
  */
+// The one hook before CORS. It records the arrival time and, on the way out, stamps `x-request-id`,
+// `x-server-received` and `x-server-sent` and completes `/api/*` error bodies. It never answers a request,
+// so the ordering argument above still holds: CORS is the first hook that can send anything.
+registerReplyEnvelope(app);
+
 registerCors(app, cors);
 
 /**
@@ -441,6 +450,15 @@ await app.register(async (api) => {
         .send({ error: userCopy('edge.authority_unavailable'), code: 'edge.authority_unavailable' });
     }
 
+    // A presented API key that could not be opened is refused here and forwarded nowhere. A key has no
+    // refresh path, so anonymous forwarding only told the bot "authentication required", the same words as
+    // sending no key (`api-key-refusal.ts`).
+    if (exchanged.apiKeyRefusal) {
+      req.log.info({ code: exchanged.apiKeyRefusal.code, path: url.pathname }, 'edge: api key refused');
+      markAuthOutcome(req, 'refused');
+      return reply.code(exchanged.apiKeyRefusal.status).send(apiKeyRefusalBody(exchanged.apiKeyRefusal));
+    }
+
     // A refused token is logged and the request continues as ANONYMOUS. The
     // service decides — `protectedProcedure` answers UNAUTHORIZED with the right
     // status, and a `publicProcedure` still works, which is what lets a caller
@@ -477,7 +495,6 @@ await app.register(async (api) => {
           limit: env.EDGE_RATE_LIMIT_MAX,
           resetSeconds,
           bucket: EDGE_API_KEY_RATE_BUCKET,
-          requestId: String(req.id),
         });
       }
       return reply.code(gate.status).send(gate.body);
@@ -499,7 +516,8 @@ await app.register(async (api) => {
     const upstreamHeaders = signProxyHeaders(edgeS2s, target.upstream.module, {
       method: req.method,
       url: upstreamUrl,
-      headers: prepareUpstreamRequestHeaders(url.pathname, exchanged.headers),
+      // The edge's request id replaces any the caller sent, so a service log line and the reply name the same call.
+      headers: { ...prepareUpstreamRequestHeaders(url.pathname, exchanged.headers), [REQUEST_ID_HEADER]: String(req.id) },
       body,
     });
 
@@ -548,6 +566,9 @@ await app.register(async (api) => {
         for (const [name, value] of Object.entries(forwarded)) {
           sent = sent.header(name, value);
         }
+        // Only now is the body the service's: the envelope adds `requestId` to an error and changes nothing else.
+        // Every refusal above this line is the edge's own and gets the full edge body.
+        markProxied(req);
         return sent.send(text);
       },
     );

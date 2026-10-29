@@ -8,7 +8,7 @@ import {
   type ServiceAuthMode,
   type ServiceName,
 } from '@intafaced/contracts';
-import { exchangeApiKeyForAccessToken } from './principal-exchange.js';
+import { exchangeApiKeyOutcome } from './principal-exchange.js';
 import type { RequestSignMaterial } from './api-key-request-sign.js';
 import type { EdgeS2s } from './s2s.js';
 
@@ -67,7 +67,7 @@ const requestSign: RequestSignMaterial = {
 
 async function exchange(s2s?: EdgeS2s, material?: RequestSignMaterial): Promise<Sent> {
   const { sent, fetchStub } = recorder();
-  await exchangeApiKeyForAccessToken('ifc_test', 'http://identity.test', fetchStub, null, null, null, null, material, SECRET, s2s);
+  await exchangeApiKeyOutcome('ifc_test', 'http://identity.test', fetchStub, null, null, null, null, material, SECRET, s2s);
   expect(sent).toHaveLength(1);
   return sent[0]!;
 }
