@@ -47,6 +47,10 @@ export async function createTwap(
     /** `twap` (default), `vwap` (lookback candles), `pov` (live tape × participationBps). */
     kind?: string;
     participationBps?: number;
+    /** TWAP only: random slice sizes fixed by this seed. */
+    randomSeed?: number;
+    /** TWAP only: the schedule starts when the mark reaches this price. */
+    triggerPrice?: Amount;
   },
 ): Promise<TwapParent> {
   requireScope(principal, 'trade:write');
@@ -116,6 +120,12 @@ export async function createTwap(
     clientAlgoId: input.clientAlgoId,
     kind,
   };
+
+  if (input.randomSeed !== undefined) createInput = { ...createInput, randomSeed: input.randomSeed };
+  if (input.triggerPrice !== undefined) {
+    // The side of the mid the trigger sits on fixes its direction: above waits for the mark to rise to it.
+    createInput = { ...createInput, triggerPrice: input.triggerPrice, triggerAbove: input.triggerPrice > (bid + ask) / 2n };
+  }
 
   if (kind === 'vwap') {
     const tf = timeframeForSliceInterval(input.sliceIntervalMs);
@@ -205,6 +215,8 @@ export async function recoverAdmittedAlgo(svc: TradeServiceInternal, userId: str
     startedAt: new Date(String(wire.parent.startedAt)),
     nextDueAt: new Date(String(wire.parent.nextDueAt)),
     projectedEndsAt: new Date(String(wire.parent.projectedEndsAt)),
+    triggerPrice: wire.parent.triggerPrice == null ? null : parseAmount(String(wire.parent.triggerPrice)),
+    triggeredAt: null,
     pausedAt: null,
     children: [],
     misses: [],

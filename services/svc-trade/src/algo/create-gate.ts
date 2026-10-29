@@ -101,7 +101,8 @@ function firstSliceQty(input: CreateTwapInput, lotSize: Amount, povVolume: Amoun
       durationMs: input.durationMs,
       sliceIntervalMs: input.sliceIntervalMs,
       lotSize,
-    }).slices[0]!;
+      randomSeed: input.randomSeed ?? null,
+    }).slices.reduce((max, q) => (q > max ? q : max), 0n);
   }
   if (kind === 'vwap') {
     if (vwapLookbackImmature(input.volumeProfile)) {

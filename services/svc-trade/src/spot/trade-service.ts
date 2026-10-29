@@ -75,12 +75,14 @@ import { type AuthAttribution } from './auth-attribution.js';
 import {
   SqlTwapParentStore,
   TwapEngine,
+  planTwapSlices,
   type AlgoProgressView,
   type AlgoQuotedMark,
   type TwapParent,
   type TwapParentStore,
 } from '../algo/index.js';
 import { DEFAULT_ALGO_MARK_POLICY, type AlgoMarkPolicy } from '../algo/mark-gate.js';
+import { assertQty } from './risk.js';
 import type { TwapParentRecord } from '../algo/parent-store.js';
 import { hydrateAlgoIfMissing, persistAlgoMutation } from '../algo/hydrate-on-mutate.js';
 import type { MarketLifecyclePort } from '../market-lifecycle.js';
@@ -1739,6 +1741,8 @@ export class TradeService {
       /** `twap` (default), `vwap` (lookback candles), `pov` (live tape × participationBps). */
       kind?: string;
       participationBps?: number;
+      randomSeed?: number;
+      triggerPrice?: Amount;
     },
   ): Promise<TwapParent> {
     return twap.createTwap(this.internal, principal, input);
@@ -1747,6 +1751,23 @@ export class TradeService {
   async getAlgo(principal: Principal, parentId: string): Promise<TwapParent> {
     requireScope(principal, 'trade:read');
     return hydrateAlgoIfMissing(this.algo, this.algoStore, principal.userId, parentId);
+  }
+
+  /** The owner's planned slice sizes, as stored with the parent. */
+  async algoPlan(principal: Principal, parentId: string): Promise<readonly Amount[]> {
+    await this.getAlgo(principal, parentId);
+    return this.algo.planOf(parentId) ?? [];
+  }
+
+  /** The TWAP slice sizes a create would plan on this market's lot. Reads the market only; writes nothing. */
+  async previewTwapSizes(
+    principal: Principal,
+    input: { symbol: string; totalQty: Amount; durationMs: number; sliceIntervalMs: number; randomSeed?: number },
+  ): Promise<readonly Amount[]> {
+    requireScope(principal, 'trade:read');
+    const market = await this.requireMarket({ symbol: input.symbol });
+    assertQty(market, input.totalQty);
+    return planTwapSlices({ ...input, lotSize: market.lotSize, randomSeed: input.randomSeed ?? null }).slices;
   }
 
   /** Owner recovery restores only the immutable admitted proposal. Each child

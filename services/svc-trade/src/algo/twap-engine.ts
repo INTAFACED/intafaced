@@ -12,6 +12,7 @@ import type {
   CreateTwapInput,
   TwapParent,
 } from './types.js';
+import { awaitingTrigger } from './types.js';
 
 /**
  * TWAP engine (D-S-04 v1) — schedule that emits child orders.
@@ -90,12 +91,21 @@ export type SliceTickResult =
   | { readonly kind: 'placed'; readonly child: AlgoChildRef }
   | { readonly kind: 'miss'; readonly miss: AlgoMiss }
   | { readonly kind: 'halted'; readonly reason: string; readonly code: AlgoMissCode }
-  | { readonly kind: 'idle'; readonly reason: 'paused' | 'cancelled' | 'completed' | 'halted' | 'ahead_of_schedule' }
+  | {
+      readonly kind: 'idle';
+      readonly reason: 'paused' | 'cancelled' | 'completed' | 'halted' | 'ahead_of_schedule' | 'awaiting_trigger';
+    }
   | { readonly kind: 'completed' };
 
 /** Projected end from an event instant + remaining slice count (ADR formula). */
 export function projectTwapEndsAt(fromMs: number, remainingSlices: number, sliceIntervalMs: number): Date {
   return new Date(fromMs + remainingSlices * sliceIntervalMs);
+}
+
+/** Whether a mark has reached a parent's trigger, on the side the trigger lay at create. */
+export function triggerReached(parent: Pick<TwapParent, 'triggerPrice' | 'triggerAbove'>, mark: Amount): boolean {
+  if (parent.triggerPrice == null) return true;
+  return parent.triggerAbove ? mark >= parent.triggerPrice : mark <= parent.triggerPrice;
 }
 
 export class TwapEngine {
@@ -160,6 +170,12 @@ export class TwapEngine {
     }
 
     const kind = input.kind ?? 'twap';
+    if (kind !== 'twap' && (input.randomSeed !== undefined || input.triggerPrice !== undefined)) {
+      throw new TradeError('random sizes and a trigger price are TWAP options', 'trade.algo_invalid_schedule');
+    }
+    if (input.triggerPrice !== undefined && (input.triggerPrice <= 0n || input.triggerAbove === undefined)) {
+      throw new TradeError('a trigger price must be strictly positive and read against the mark at create', 'trade.algo_invalid_schedule');
+    }
     let slices: readonly Amount[];
     let participationBps: number | null = null;
 
@@ -169,6 +185,7 @@ export class TwapEngine {
         durationMs: input.durationMs,
         sliceIntervalMs: input.sliceIntervalMs,
         lotSize,
+        randomSeed: input.randomSeed ?? null,
       }).slices;
     } else if (kind === 'vwap') {
       const profile = input.volumeProfile;
@@ -227,6 +244,10 @@ export class TwapEngine {
       nextSliceIndex: 0,
       children: [],
       misses: [],
+      randomSeed: input.randomSeed ?? null,
+      triggerPrice: input.triggerPrice ?? null,
+      triggerAbove: input.triggerAbove ?? null,
+      triggeredAt: null,
     };
 
     return { parent, plan: slices };
@@ -267,8 +288,10 @@ export class TwapEngine {
     const now = this.ports.now();
     const remaining = plan.length - parent.nextSliceIndex;
     const projectedEndsAt = projectTwapEndsAt(now.getTime(), remaining, parent.sliceIntervalMs);
-    const spanMs = projectedEndsAt.getTime() - parent.startedAt.getTime();
-    if (spanMs > 2 * parent.durationMs) {
+    // The schedule's span runs from its real start: the trigger instant when it had one. A parent still waiting for
+    // its trigger has not started, so a pause cannot have stretched it.
+    const spanMs = projectedEndsAt.getTime() - (parent.triggeredAt ?? parent.startedAt).getTime();
+    if (!awaitingTrigger(parent) && spanMs > 2 * parent.durationMs) {
       throw new TradeError(
         `resume would more than double original duration (projected end ${projectedEndsAt.toISOString()}, started ${parent.startedAt.toISOString()}, durationMs ${parent.durationMs})`,
         'trade.algo_resume_extends_too_far',
@@ -281,7 +304,7 @@ export class TwapEngine {
       pausedAt: null,
       nextDueAt: now,
       projectedEndsAt,
-      scheduleStretchReason: 'user_pause',
+      scheduleStretchReason: awaitingTrigger(parent) ? parent.scheduleStretchReason : 'user_pause',
     });
   }
 
@@ -361,22 +384,37 @@ export class TwapEngine {
     }
 
     const now = this.ports.now();
+    let working = parent;
+    if (awaitingTrigger(parent)) {
+      // Nothing is placed until an accepted mark reaches the trigger. A blank or stale mark never starts it.
+      const mark = await this.ports.markFor(parent.marketId);
+      if (!mark || !acceptableForAlgo(mark, now, this.markPolicy).ok || !triggerReached(parent, mark.price)) {
+        return { kind: 'idle', reason: 'awaiting_trigger' };
+      }
+      // Reached: the schedule starts now, its slices one interval apart from this instant.
+      working = this.replace(parentId, {
+        ...parent,
+        triggeredAt: now,
+        nextDueAt: now,
+        projectedEndsAt: projectTwapEndsAt(now.getTime(), plan.length - parent.nextSliceIndex, parent.sliceIntervalMs),
+      });
+    }
+
     // ADR 2026-08-08: due time is nextDueAt (re-spaced), never startedAt+index*interval.
-    if (now.getTime() < parent.nextDueAt.getTime()) {
+    if (now.getTime() < working.nextDueAt.getTime()) {
       return { kind: 'idle', reason: 'ahead_of_schedule' };
     }
 
     // Tick outage: active parent was overdue by more than one interval with no
     // user pause. Record distinguishable stretch, then place at most one slice
     // and re-space from this instant (same spacing rule as resume).
-    let working = parent;
-    const overdueBy = now.getTime() - parent.nextDueAt.getTime();
-    if (overdueBy > parent.sliceIntervalMs) {
-      const remaining = plan.length - parent.nextSliceIndex;
+    const overdueBy = now.getTime() - working.nextDueAt.getTime();
+    if (overdueBy > working.sliceIntervalMs) {
+      const remaining = plan.length - working.nextSliceIndex;
       working = this.replace(parentId, {
-        ...parent,
+        ...working,
         scheduleStretchReason: 'tick_outage' satisfies AlgoScheduleStretchReason,
-        projectedEndsAt: projectTwapEndsAt(now.getTime(), remaining, parent.sliceIntervalMs),
+        projectedEndsAt: projectTwapEndsAt(now.getTime(), remaining, working.sliceIntervalMs),
         // nextDueAt stays ≤ now so this tick may place; re-spaced after event.
       });
     }

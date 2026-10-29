@@ -180,6 +180,10 @@ function makeTwapTrade(
     async getAlgo(p: Principal, parentId: string): Promise<TwapParent> {
       return hydrateAlgoIfMissing(engine, store, p.userId, parentId);
     },
+    async algoPlan(p: Principal, parentId: string) {
+      await trade.getAlgo(p, parentId);
+      return engine.planOf(parentId) ?? [];
+    },
     async algoProgress(p: Principal, parentId: string) {
       const parent = await trade.getAlgo(p, parentId);
       // Progress is ONLY real fills. This façade has no fill book — never
@@ -396,6 +400,10 @@ describe('D26-P1-T4 public doors — TWAP children pause overdue no fake fills',
         const got = engine.get(parentId);
         if (!got || got.userId !== p.userId) throw new TradeError('nf', 'trade.algo_not_found');
         return got;
+      },
+      async algoPlan(p: Principal, parentId: string) {
+        await doorTrade.getAlgo(p, parentId);
+        return engine.planOf(parentId) ?? [];
       },
       async algoProgress(p: Principal, parentId: string) {
         const got = await doorTrade.getAlgo(p, parentId);
