@@ -4,6 +4,7 @@ import {
   MAX_SLICES,
   algoClientId,
   buildLadder,
+  CREATE_BLOCKER_CODE,
   createBlocker,
   defaultIntervalMs,
   findGroup,
@@ -47,6 +48,11 @@ describe('create blocker', () => {
 
   it('an unread policy or creating switched off blocks too; a closed market blocks only once the scheduler runs', () => {
     expect(createBlocker(null, true)).toBe('Scheduler unknown');
+    // Each blocker names the service's own refusal code; an unread policy was answered nothing, so names none.
+    expect(CREATE_BLOCKER_CODE['Scheduler off block']).toBe('trade.algo_jobs_disabled');
+    expect(CREATE_BLOCKER_CODE['Create off block']).toBe('trade.algo_disabled');
+    expect(CREATE_BLOCKER_CODE['Market closed block']).toBe('trade.market_closed');
+    expect(CREATE_BLOCKER_CODE['Scheduler unknown']).toBeUndefined();
     expect(createBlocker({ createEnabled: false, jobsEnabled: true }, true)).toBe('Create off block');
     expect(createBlocker({ createEnabled: true, jobsEnabled: false }, false)).toBe('Scheduler off block');
     expect(createBlocker({ createEnabled: true, jobsEnabled: true }, false)).toBe('Market closed block');

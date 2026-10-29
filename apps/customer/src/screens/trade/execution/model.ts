@@ -30,6 +30,14 @@ export function createBlocker(
   return marketOpen ? null : 'Market closed block';
 }
 
+/** The typed refusal the service answers for each blocker; an unread policy has none, since nothing was answered. */
+export const CREATE_BLOCKER_CODE: Record<CreateBlocker, string | undefined> = {
+  'Scheduler unknown': undefined,
+  'Create off block': 'trade.algo_disabled',
+  'Scheduler off block': 'trade.algo_jobs_disabled',
+  'Market closed block': 'trade.market_closed',
+};
+
 /* ------------------------------------------------------------------ client ids */
 
 /** A short random token that names one intent. It is made once per intent, so a re-send reuses the same ids. */

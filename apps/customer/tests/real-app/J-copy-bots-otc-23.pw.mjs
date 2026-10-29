@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { api, bestPrices, fund, journeyState, signOutBrowser, times, tool, toUnits } from './stack.mjs';
-import { fundedTrader, signIn, signUp } from './desk.mjs';
+import { free, fundedTrader, held, signIn, signUp } from './desk.mjs';
 import { tableIn } from './tables.mjs';
 
 // J-copy-bots-otc-23, in the running app (docs/roadmap/journeys.json): work a large order slowly with TWAP, chase or
@@ -84,8 +84,39 @@ test(`${J} #1 opens Execution: five tabs render, and a blocked tab names its dep
   await expect(caps.getByText(/venue submit port/).first()).toBeVisible();
 });
 
+/** The service's typed refusal code, from a tRPC error body. */
+const codeOf = (body) => body?.error?.data?.cause?.code;
+
+/** The account's schedules as the service lists them. */
+async function algoRows(who) {
+  const { status, body } = await (
+    await api(who)
+  ).get(`/api/trade/trpc/algo.list?input=${encodeURIComponent(JSON.stringify({ limit: 20 }))}`);
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body.result.data.rows;
+}
+
+/** USDT and BTC on the ledger, free and held, so a refusal can show nothing moved or was held. */
+async function funds(who) {
+  const balances = await (await api(who)).balances();
+  return Object.fromEntries(['USDT', 'BTC'].map((asset) => [asset, { free: free(balances, asset), held: held(balances, asset) }]));
+}
+
+/** Restarts trade with the slice scheduler off (or back on), as the stack's TEST switch sets it. */
+function algoJobs(on) {
+  const before = process.env.LOCAL_STACK_TRADE_ALGO_JOBS;
+  if (on) delete process.env.LOCAL_STACK_TRADE_ALGO_JOBS;
+  else process.env.LOCAL_STACK_TRADE_ALGO_JOBS = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'trade');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_TRADE_ALGO_JOBS;
+    else process.env.LOCAL_STACK_TRADE_ALGO_JOBS = before;
+  }
+}
+
 test(`${J} #2 creates a TWAP below the owner's tier: refused as tier insufficient, and no parent row is written`, async ({ page }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(300_000);
   // Verified at basic, funded; the TEST bot verification level is full.
   const basic = await signUp(page, 'jeb');
   await page.goto('/verification');
@@ -98,20 +129,54 @@ test(`${J} #2 creates a TWAP below the owner's tier: refused as tier insufficien
   fund(basic.email, 'USDT', '1000');
   await signOutBrowser(page.context());
   await signIn(page, basic);
+  const basicBefore = await funds(basic);
   await page.goto('/execution');
   await fillSchedule(page, { total: '0.002', seconds: 120, every: 30 });
   const answer = page.waitForResponse((res) => res.url().includes('algo.createTwap'));
   await page.getByRole('button', { name: 'Review schedule' }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Create schedule' }).click();
-  expect((await answer).status()).toBe(403);
+  const refused = await answer;
+  expect(refused.status()).toBe(403);
+  expect(codeOf(await refused.json())).toBe('trade.bots_verification_insufficient');
   await expect(page.getByText('trade.bots_verification_insufficient', { exact: true })).toBeVisible();
 
-  // Nothing was written: the service lists no schedule for this account.
-  const { status, body } = await (
-    await api(basic)
-  ).get(`/api/trade/trpc/algo.list?input=${encodeURIComponent(JSON.stringify({ limit: 20 }))}`);
-  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
-  expect(body.result.data.rows).toHaveLength(0);
+  // Nothing was written or held: the service lists no schedule for this account, and the ledger is as it was.
+  expect(await algoRows(basic)).toHaveLength(0);
+  expect(await funds(basic)).toEqual(basicBefore);
+
+  // With the slice scheduler off, the same create is refused before a row is written: a schedule would sit and place
+  // nothing. The trader from #1 is verified at the bot level, so only the scheduler stands in the way.
+  const trader = state('trader');
+  const rowsBefore = (await algoRows(trader)).map((row) => row.id);
+  const traderBefore = await funds(trader);
+  algoJobs(false);
+  try {
+    await signOutBrowser(page.context());
+    await signIn(page, trader);
+    await page.goto('/execution');
+    await expect(page.getByText('Scheduler off: new schedules will not slice')).toBeVisible();
+    await fillSchedule(page, { total: '0.002', seconds: 120, every: 30 });
+    await expect(form(page).locator('[data-code="trade.algo_jobs_disabled"]')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Review schedule' })).toBeDisabled();
+
+    // The service refuses the create itself, not only the form.
+    const { status, body } = await (
+      await api(trader)
+    ).post('/api/trade/trpc/algo.createTwap', {
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      totalQty: '0.002',
+      durationMs: 120_000,
+      sliceIntervalMs: 30_000,
+      clientAlgoId: `j23-jobs-off-${state('tag')}`,
+    });
+    expect(status, JSON.stringify(body).slice(0, 300)).toBe(400);
+    expect(codeOf(body)).toBe('trade.algo_jobs_disabled');
+    expect((await algoRows(trader)).map((row) => row.id)).toEqual(rowsBefore);
+    expect(await funds(trader)).toEqual(traderBefore);
+  } finally {
+    algoJobs(true);
+  }
 });
 
 test(`${J} #3 creates a TWAP with random sizes, a fixed seed and a trigger price: sizes sum to the total, the same seed gives the same sizes, and it waits`, async ({
@@ -148,10 +213,13 @@ test(`${J} #3 creates a TWAP with random sizes, a fixed seed and a trigger price
   run.write({ triggered: id });
 });
 
+/** Every slice the service recorded (placed children and misses), as times in ms, oldest first. */
+const sliceTimes = (parent) => [...parent.children, ...parent.misses].map((slice) => Date.parse(slice.time)).sort((a, b) => a - b);
+
 test(`${J} #4 reviews, confirms and watches a TWAP run: partial fills; pause stops new children, resume re-spaces overdue slices`, async ({
   page,
 }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(300_000);
   const trader = state('trader');
   await signIn(page, trader);
   await page.goto('/execution');
@@ -159,25 +227,52 @@ test(`${J} #4 reviews, confirms and watches a TWAP run: partial fills; pause sto
   const id = await confirmSchedule(page);
   run.write({ running: id });
 
-  // A child goes to the book and fills: the parent is active with part of its total filled.
+  // A child goes to the book and fills: the parent is active with part, not all, of its total filled.
   await expect.poll(async () => toUnits((await parentOf(trader, id)).filledQty ?? '0'), { timeout: 60_000 }).toBeGreaterThan(0n);
+  const partial = await parentOf(trader, id);
+  expect(partial.status).toBe('active');
+  expect(partial.totalQty).toBe('0.002');
+  expect(toUnits(partial.filledQty)).toBeGreaterThan(0n);
+  expect(toUnits(partial.filledQty)).toBeLessThan(toUnits(partial.totalQty));
   const list = schedules(page);
   await expect(list.getByText('Active')).toBeVisible();
 
   await list.getByRole('button', { name: `Pause ${id}` }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Pause schedule' }).click();
   await expect(list.getByRole('button', { name: `Resume ${id}` })).toBeVisible({ timeout: 10_000 });
-  const pausedChildren = (await parentOf(trader, id)).children.length;
-  // Two intervals pass with no new child.
+  const paused = await parentOf(trader, id);
+  expect(paused.status).toBe('paused');
+  // Two intervals pass with no new child and no missed slice.
   await page.waitForTimeout(31_000);
-  expect((await parentOf(trader, id)).children.length).toBe(pausedChildren);
+  const stillPaused = await parentOf(trader, id);
+  expect(stillPaused.children).toEqual(paused.children);
+  expect(stillPaused.misses).toEqual(paused.misses);
 
+  const resumed = page.waitForResponse((res) => res.url().includes('algo.resume') && res.request().method() === 'POST');
   await list.getByRole('button', { name: `Resume ${id}` }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Resume schedule' }).click();
+  const answer = await resumed;
+  expect(answer.status(), (await answer.text()).slice(0, 300)).toBe(200);
+  const back = (await answer.json()).result.data;
   await expect(list.getByRole('button', { name: `Pause ${id}` })).toBeVisible({ timeout: 10_000 });
-  // The overdue slices are spread over the rest of the schedule, and the room says why it was stretched.
+
+  // The service re-spaced from the resume instant: the remaining slices run one interval apart from now, so the end
+  // moved later than it stood before the pause, and the reason is the pause.
+  const resumedAt = Date.parse(back.nextDueAt);
+  const remaining = back.slicesPlanned - back.nextSliceIndex;
+  expect(back.status).toBe('active');
+  expect(back.scheduleStretchReason).toBe('user_pause');
+  expect(back.nextSliceIndex).toBe(paused.nextSliceIndex);
+  expect(Date.parse(back.projectedEndsAt)).toBe(resumedAt + remaining * back.sliceIntervalMs);
+  expect(Date.parse(back.projectedEndsAt)).toBeGreaterThan(Date.parse(paused.projectedEndsAt));
   await expect(detail(page).getByText(/The schedule was paused, so its end moved later/)).toBeVisible({ timeout: 15_000 });
-  await expect.poll(async () => (await parentOf(trader, id)).children.length, { timeout: 45_000 }).toBeGreaterThan(pausedChildren);
+
+  // No burst: the overdue slices are not caught up at once. The two slices after resume are a full interval apart.
+  await expect
+    .poll(async () => sliceTimes(await parentOf(trader, id)).filter((t) => t >= resumedAt).length, { timeout: 60_000 })
+    .toBeGreaterThanOrEqual(2);
+  const after = sliceTimes(await parentOf(trader, id)).filter((t) => t >= resumedAt);
+  for (let i = 1; i < after.length; i++) expect(after[i] - after[i - 1]).toBeGreaterThanOrEqual(back.sliceIntervalMs);
 });
 
 test(`${J} #5 places a chase limit order with a maximum distance: re-priced with the book inside the distance, stopped beyond it, blank refused`, async ({

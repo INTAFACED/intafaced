@@ -101,7 +101,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     TRADE_BOTS_VERIFICATION_LEVEL: testValue('TRADE_BOTS_VERIFICATION_LEVEL'),
     // LOCAL TEST, not an owner decision: the TWAP slice scheduler runs, so a schedule places its children on TEST money
     // (J-copy-bots-otc-23 #4). Production leaves it off until the owner turns it on (services/svc-trade/src/env.ts).
-    TRADE_ALGO_JOBS_ENABLED: 'on',
+    // LOCAL_STACK_TRADE_ALGO_JOBS=off restarts trade with it off, so #2 sees the scheduler-off refusal.
+    TRADE_ALGO_JOBS_ENABLED: process.env.LOCAL_STACK_TRADE_ALGO_JOBS === 'off' ? 'off' : 'on',
     // LOCAL TEST, not an owner decision: the copy driver places each copy as the follower, so J-copy-bots-otc-01 #8
     // sees a first copied trade on TEST money. Production leaves it off until the owner turns copy placing on.
     TRADE_COPY_PLACE_MIRROR: 'on',

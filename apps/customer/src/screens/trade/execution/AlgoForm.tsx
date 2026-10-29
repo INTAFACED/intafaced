@@ -12,6 +12,7 @@ import { execCopy } from './copy';
 import { useLast, type ExecMarket } from './data';
 import {
   DURATION_PRESETS,
+  CREATE_BLOCKER_CODE,
   algoClientId,
   createBlocker,
   defaultIntervalMs,
@@ -325,7 +326,7 @@ export function AlgoForm({
 
       {plan ? <KeyValue density="dense" aria-label={t('Preview')} items={rows.slice(4, 11)} /> : null}
       {general ? <Why>{problemWord(general)}</Why> : null}
-      {blocker ? <Why>{blocker}</Why> : null}
+      {blockerKey && blocker ? <Why code={CREATE_BLOCKER_CODE[blockerKey]}>{blocker}</Why> : null}
       {!writer.signedIn ? <Why>{t('Sign in to create')}</Why> : null}
       {duplicate ? (
         <div className="flex flex-wrap items-center gap-3 text-sm text-fg">
