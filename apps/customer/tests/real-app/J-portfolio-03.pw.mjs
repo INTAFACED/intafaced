@@ -27,6 +27,43 @@ function account() {
 const priceAt = (decimal, percent) => fromUnits(((toUnits(decimal) * BigInt(percent)) / 100n / 10n ** 16n) * 10n ** 16n);
 const total = (balances, asset) => toUnits(balances[asset]?.total ?? '0');
 
+/** A decimal string rounded half-up to `places`, in units (fills are never negative). */
+const roundedUnits = (decimal, places) => {
+  const step = 10n ** BigInt(18 - places);
+  return ((toUnits(decimal) + step / 2n) / step) * step;
+};
+const number = (text) => text.replace(/,/g, '').match(/\d+(\.\d+)?/)?.[0] ?? '';
+
+/**
+ * What is wrong with one Activity trade row (cells: time, what, price, total, fee) against the service's fill, by the
+ * room's own rules: a fill's price is on the market's tick, so it shows exactly; the total has the quote's fixed places
+ * (6 for dollar coins, 8 for others), half-up; the fee has up to 8 places, half-up, and a non-zero fee never reads as zero;
+ * an all-zero fee reads "Zero fee" and no fee reads "—". Returns "" when the row shows the fill.
+ */
+function rowMismatch(fill, cells) {
+  if (!cells) return `fill ${fill.id}: no row`;
+  const [, , price, total, fee] = cells;
+  const quote = fill.symbol.split('/')[1] ?? '';
+  const quotePlaces = ['USDT', 'USDC', 'USD'].includes(quote) ? 6 : 8;
+  const shownPrice = number(price);
+  if (!shownPrice || toUnits(shownPrice) !== toUnits(fill.price)) return `fill ${fill.id}: price "${price}", service ${fill.price}`;
+  const shownTotal = number(total);
+  if (
+    (shownTotal.split('.')[1] ?? '').length !== quotePlaces ||
+    toUnits(shownTotal) !== roundedUnits(fill.cost, quotePlaces) ||
+    !total.includes(quote)
+  )
+    return `fill ${fill.id}: total "${total}", service ${fill.cost} ${quote}`;
+  if (fill.fee === null) return fee.trim() === '—' ? '' : `fill ${fill.id}: fee "${fee}", service has none`;
+  if (/^0+(\.0+)?$/.test(fill.fee.cost)) return fee.includes('Zero fee') ? '' : `fill ${fill.id}: fee "${fee}", service 0`;
+  const eight = roundedUnits(fill.fee.cost, 8);
+  const want = eight === 0n ? toUnits(fill.fee.cost) : eight;
+  const shownFee = number(fee);
+  if (!shownFee || toUnits(shownFee) !== want || !fee.includes(fill.fee.currency))
+    return `fill ${fill.id}: fee "${fee}", service ${fill.fee.cost} ${fill.fee.currency}`;
+  return '';
+}
+
 /** "24 Oct, 23:35" in the browser's zone, as the activity list writes a time this year. */
 function local(iso) {
   const text = new Intl.DateTimeFormat('en-GB', {
@@ -339,6 +376,7 @@ test(`${J} #5 opens Trades: one row per trade with price, total and fee, and par
 }) => {
   const who = account();
   const { partial } = run.read();
+  if (!partial) throw new Error(`${J} #3 recorded no partly filled sale, so this step has no order to group fills under`);
   await signIn(page, who);
   const fills = (await (await api(who)).get('/api/v1/account/trades?limit=100')).body;
   const ofSale = fills.filter((f) => f.order === partial);
@@ -346,11 +384,18 @@ test(`${J} #5 opens Trades: one row per trade with price, total and fee, and par
   const table = activity(page).locator('table[data-testid="dk-table"]');
   // Each fill is a row with its price, total and fee.
   await expect(table.locator('tbody tr[data-fill]')).toHaveCount(fills.length);
-  for (const fill of fills) {
-    const row = table.locator(`tbody tr[data-fill="${fill.id}"]`);
-    await expect(row.locator('td').nth(2)).not.toHaveText('');
-    await expect(row).toContainText(fill.fee.currency);
-  }
+  // Each row shows the price, total and fee the service recorded for that fill, read in one pass and retried until the
+  // rows settle.
+  await expect
+    .poll(async () => {
+      const shown = Object.fromEntries(
+        await table
+          .locator('tbody tr[data-fill]')
+          .evaluateAll((trs) => trs.map((tr) => [tr.getAttribute('data-fill'), [...tr.querySelectorAll('td')].map((td) => td.innerText)])),
+      );
+      return fills.map((fill) => rowMismatch(fill, shown[fill.id])).filter(Boolean);
+    })
+    .toEqual([]);
   // The sale's fills sit together under one order row that names the order type.
   const order = table.locator(`tbody tr[data-order="${partial}"]`);
   await expect(order).toHaveCount(1);
