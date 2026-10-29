@@ -212,6 +212,10 @@ if (!available) {
       const theirs = await as(stranger);
       expect(await theirs.users.resolveHandle({ handle: 'shy_person' })).toMatchObject({ found: true, userId: me.userId });
 
+      // Someone who saved them while they were findable can still remove them later.
+      const friend = await signUp('old_friend');
+      await new SavedRecipientService(db.sql).add(friend.userId, 'shy_person', 'Shy', 'save:shy_person:friend');
+
       expect(await mine.handle.setDiscoverable({ discoverable: false })).toMatchObject({ discoverable: false });
       expect(await theirs.users.resolveHandle({ handle: 'shy_person' })).toEqual({ found: false });
       expect(await theirs.users.resolveHandle({ handle: 'shy_person' })).toEqual(
@@ -222,6 +226,21 @@ if (!available) {
       await expect(new SavedRecipientService(db.sql).add(stranger.userId, 'shy_person', 'Shy', 'save:shy_person:1')).rejects.toMatchObject({
         code: 'identity.recipient_unknown',
       });
+
+      // Removing them by handle is the same miss too, unless they were saved before going hidden.
+      const saved = new SavedRecipientService(db.sql);
+      const miss = (p: Promise<unknown>) =>
+        p.then(
+          () => {
+            throw new Error('expected a refusal');
+          },
+          (err: { code?: string; message: string }) => ({ code: err.code, message: err.message }),
+        );
+      const removeHidden = await miss(saved.remove(stranger.userId, 'shy_person', 'unsave:shy_person:1'));
+      const removeUnknown = await miss(saved.remove(stranger.userId, 'nobody_at_all', 'unsave:nobody_at_all:1'));
+      expect(removeHidden).toMatchObject({ code: 'identity.recipient_unknown' });
+      expect(removeHidden).toEqual(removeUnknown);
+      expect(await saved.remove(friend.userId, 'shy_person', 'unsave:shy_person:friend')).toEqual({ removed: true, handle: 'shy_person' });
 
       // The business payee directory gives the same miss.
       expect(await sqlBusinessDirectory(db.sql).findActiveByHandle('shy_person')).toBeNull();

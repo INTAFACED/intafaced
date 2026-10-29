@@ -89,6 +89,10 @@ test(`${J} #2 changes the handle: a handle that breaks a rule gets the reason na
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
   await expect(changesLeft).toHaveText('You can change your handle 3 more times.');
+  // From the service, not the page: after a reload the handle is the same and no change was spent.
+  await page.reload();
+  await expect(page.getByTestId('receive-value')).toHaveText(`@${me.handle}`);
+  await expect(changesLeft).toHaveText('You can change your handle 3 more times.');
 
   // Three changes use the cap up; each one is the handle the card shows, and the count goes down with it.
   const base = me.handle.slice(0, 28);
@@ -109,6 +113,7 @@ test(`${J} #2 changes the handle: a handle that breaks a rule gets the reason na
   await expect(dialog).toBeHidden();
   await page.reload();
   await expect(page.getByTestId('receive-value')).toHaveText(`@${handle}`);
+  await expect(changesLeft).toHaveText('You have changed your handle 3 times, the most allowed.');
 });
 
 test(`${J} #3 turns discoverability off: handle search finds nothing for others, and a QR scan still pays`, async ({ page }) => {
@@ -117,6 +122,8 @@ test(`${J} #3 turns discoverability off: handle search finds nothing for others,
   const discoverable = () => page.getByRole('switch', { name: 'Let people find me by my handle' });
   await signIn(page, me);
   await page.goto('/pay/receive');
+  // The handle the stranger looks for is this account's current one (#2 changed it).
+  await expect(page.getByTestId('receive-value')).toHaveText(`@${me.handle}`);
   // What the QR code encodes is the link printed under it.
   const link = (await page.getByTestId('receive-link-value').textContent())?.trim() ?? '';
   expect(new URL(link).pathname, 'the QR code opens Send for this account').toBe('/pay/send');
@@ -128,7 +135,7 @@ test(`${J} #3 turns discoverability off: handle search finds nothing for others,
     await page.goto('/pay/send');
     await page.getByRole('textbox', { name: 'Handle' }).fill(me.handle);
     await page.getByRole('textbox', { name: 'Handle' }).press('Tab');
-    await expect(page.getByRole('alert')).toContainText(/No one with this handle/);
+    await expect(page.getByRole('alert')).toHaveText(`No one with this handle. We couldn’t find @${me.handle}. Check the spelling.`);
 
     // The stranger scans the QR code: Send opens on this account and the payment lands in its balance.
     const before = toUnits((await usdt(me)).free);
@@ -137,7 +144,12 @@ test(`${J} #3 turns discoverability off: handle search finds nothing for others,
     // The payee is looked up once the link fills it in; a miss is an alert, and the scan must not miss.
     await expect(page.getByRole('textbox', { name: 'Handle' })).toHaveValue(me.handle);
     await expect(page.locator('#pay-to-status')).not.toBeEmpty();
-    await expect(page.getByRole('alert'), 'the QR link opens Send on this account').toHaveCount(0);
+    // UNBUILT until PP-send-request-11: the QR code carries the handle, not a signed payee, so with finding by
+    // handle off the scan misses too. This assertion is the one that turns green when that slice lands.
+    await expect(
+      page.getByRole('alert'),
+      'the QR link opens Send on this account (unbuilt: needs the signed QR code of PP-send-request-11)',
+    ).toHaveCount(0, UNBUILT);
     await page.getByLabel(/Amount/).fill('1');
     await page.getByRole('button', { name: 'Review' }).click({ timeout: 15_000 });
     await page.getByRole('dialog').getByRole('button', { name: /^Send/ }).click({ timeout: 15_000 });

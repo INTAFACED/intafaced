@@ -1,3 +1,4 @@
+// hand-declared-ok: svc-identity's handle.get, handle.change and handle.setDiscoverable answers have no schema in packages/contracts.
 /**
  * The caller's own handle settings (PP-send-request-03): change the handle under a lifetime cap the owner publishes,
  * and choose whether people can find the account by its handle. svc-identity `handle.get`, `handle.change` and
