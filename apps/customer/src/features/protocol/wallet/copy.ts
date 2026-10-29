@@ -243,6 +243,7 @@ const en = {
   groupSave: 'Save group',
   groupCancel: 'Cancel',
   groupSaved: 'Saved the group {name}.',
+  groupRemoved: 'Removed the group {name}.',
   groupBack: 'Back to the address book',
   groupTitle: 'Wallet group',
   groupMissing: 'There is no such group for this wallet.',

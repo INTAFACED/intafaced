@@ -21,7 +21,8 @@ export function WalletGroupPanel({ groupId }: { groupId: string }) {
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    if (!address) return;
+    // No wallet shows no group: what a disconnected wallet's group held never stays on screen.
+    if (!address) return setRead({ kind: 'opening' });
     if (!valid) return setRead({ kind: 'closed', failure: null });
     let live = true;
     setRead({ kind: 'opening' });

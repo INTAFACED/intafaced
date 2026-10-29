@@ -47,6 +47,14 @@ describe('address book wire (v1)', () => {
     expect(protocolAddressBookListOutputSchema.parse({ owner, contacts: [contact], groups: [group] }).groups[0]!.name).toBe('TEST group');
   });
 
+  it('counts a label in characters, as the service and the database do, not in UTF-16 units', () => {
+    const emoji = String.fromCodePoint(0x1f600).repeat(40);
+    const contact = { id: uuid, address: owner, label: emoji, createdAt: now, updatedAt: now };
+    expect(protocolAddressBookListOutputSchema.safeParse({ owner, contacts: [contact], groups: [] }).success).toBe(true);
+    const long = { ...contact, label: 'x'.repeat(65) };
+    expect(protocolAddressBookListOutputSchema.safeParse({ owner, contacts: [long], groups: [] }).success).toBe(false);
+  });
+
   it('names every refusal in its own area, one way', () => {
     const all = [...PROTOCOL_WALLET_SESSION_REFUSALS, ...PROTOCOL_ADDRESS_BOOK_REFUSALS];
     expect(new Set(all).size).toBe(all.length);

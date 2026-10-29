@@ -132,6 +132,17 @@ describe('address book: contacts', () => {
     expect(await add('Again', FRIEND.toLowerCase())).toBe('protocol.contact_duplicate');
   });
 
+  it('keeps a label of 64 characters that are not all in one UTF-16 unit, and reads it back', async () => {
+    const caller = build();
+    const session = await sessionFor(caller);
+    const emoji = String.fromCodePoint(0x1f600).repeat(64);
+    expect((await caller.addressBook.addContact({ session, label: emoji, address: FRIEND })).label).toBe(emoji);
+    expect((await caller.addressBook.list({ session })).contacts[0]!.label).toBe(emoji);
+    expect(await code(caller.addressBook.addContact({ session, label: `${emoji}x`, address: SECOND }))).toBe(
+      'protocol.contact_label_invalid',
+    );
+  });
+
   it('refuses past the owner’s maximum, and refuses when the maximum is blank', async () => {
     const caller = build({ maxContacts: 1 });
     const session = await sessionFor(caller);

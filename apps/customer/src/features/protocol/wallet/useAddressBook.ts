@@ -62,8 +62,9 @@ type BookCode = typeof BOOK_CODES extends Set<infer C> ? C : never;
 export function bookMessage(t: T, failure: BookFailure): string {
   if (failure.kind === 'no_wallet') return t('needsWallet');
   if (failure.kind === 'rejected') return t('bookRejected');
+  if (failure.kind === 'wallet') return failure.reason === 'chain_mismatch' ? t('signWrongNetwork') : t('bookFailed');
   const code = failure.code;
-  if (code === undefined) return failure.message || t('bookFailed');
+  if (code === undefined) return t('bookFailed');
   if (code === REGION_BLOCKED_CODE) return t('permitRefused_region');
   if (code === 'protocol.wallet_session_unset') return t('bookUnset');
   if (code === 'protocol.wallet_session_origin_unlisted') return t('bookOriginUnlisted');

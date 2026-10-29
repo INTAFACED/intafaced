@@ -151,8 +151,10 @@ export class PostgresAddressBookStore implements AddressBookStore {
       const [row] = await tx<Array<{ id: string }>>`
         INSERT INTO protocol.wallet_groups (owner_address, name) VALUES (${who}, ${group.name}) RETURNING id`;
       if (!row) throw new Error('protocol.wallet_groups insert returned no row');
-      for (const address of group.members)
-        await tx`INSERT INTO protocol.wallet_group_members (group_id, address) VALUES (${row.id}, ${address})`;
+      // One statement for every member, so the owner's lock is held for one round trip.
+      await tx`
+        INSERT INTO protocol.wallet_group_members (group_id, address)
+        SELECT ${row.id}::uuid, member FROM unnest(${[...group.members]}::text[]) AS member`;
       return { kind: 'created', id: row.id } as const;
     });
     if (created.kind !== 'created') return created;

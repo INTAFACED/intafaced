@@ -52,6 +52,15 @@ export const WALLET_GROUP_NAME_MAX = 64;
 export const WALLET_GROUP_MEMBERS_MAX = 256;
 
 const address = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
+/**
+ * Text of 1 to `max` characters counted as code points, the way the service and the database CHECK (`char_length`)
+ * count them. zod's `.max` counts UTF-16 units, so an emoji label the service stored would fail its own read.
+ */
+const codePoints = (max: number) =>
+  z
+    .string()
+    .min(1)
+    .refine((text) => [...text].length <= max, { message: `at most ${max} characters` });
 const id = z.string().uuid();
 const isoTime = z.string().datetime();
 const session = z.string().min(1).max(2048);
@@ -90,7 +99,7 @@ export const protocolContactSchema = z.object({
   id,
   /** Checksummed. */
   address,
-  label: z.string().min(1).max(ADDRESS_BOOK_LABEL_MAX),
+  label: codePoints(ADDRESS_BOOK_LABEL_MAX),
   createdAt: isoTime,
   updatedAt: isoTime,
 });
@@ -107,7 +116,7 @@ export const protocolWalletGroupMemberSchema = z.object({
 });
 export const protocolWalletGroupSchema = z.object({
   id,
-  name: z.string().min(1).max(WALLET_GROUP_NAME_MAX),
+  name: codePoints(WALLET_GROUP_NAME_MAX),
   members: z.array(protocolWalletGroupMemberSchema),
   createdAt: isoTime,
   updatedAt: isoTime,

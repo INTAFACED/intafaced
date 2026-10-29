@@ -40,6 +40,7 @@ export function createAddressBookApi(api: ApiClient) {
     createGroup: (session: string, input: { name: string; members: string[] }) =>
       call('addressBook.createGroup', { session, ...input }, protocolWalletGroupSchema),
     group: (session: string, id: string) => call('addressBook.group', { session, id }, protocolWalletGroupSchema),
+    removeGroup: (session: string, id: string) => call('addressBook.removeGroup', { session, id }, protocolAddressBookRemovedOutputSchema),
   };
 }
 export type AddressBookApi = ReturnType<typeof createAddressBookApi>;
@@ -55,7 +56,11 @@ const opening = new Map<string, Promise<SessionResult>>();
 const MARGIN_MS = 60_000;
 
 export type SessionResult =
-  { ok: true; token: string } | { ok: false; kind: 'rejected' } | { ok: false; kind: 'refused'; code: string | undefined; message: string };
+  | { ok: true; token: string }
+  | { ok: false; kind: 'rejected' }
+  /** The wallet could not sign: on another network, timed out, switched account or answered nothing. */
+  | { ok: false; kind: 'wallet'; reason: 'chain_mismatch' | 'other' }
+  | { ok: false; kind: 'refused'; code: string | undefined; message: string };
 
 export function forgetWalletSession(address: string): void {
   sessions.delete(address.toLowerCase());
@@ -93,7 +98,11 @@ export function walletSession(
     const signed = await runSignRequest(wallet.provider, wallet.address, { kind: 'message', message: challenge.data.message });
     if (signed.status === 'rejected') return { ok: false, kind: 'rejected' };
     if (signed.status !== 'signed')
-      return { ok: false, kind: 'refused', code: undefined, message: signed.status === 'failed' ? signed.message : '' };
+      return {
+        ok: false,
+        kind: 'wallet',
+        reason: signed.status === 'failed' && signed.reason === 'chain_mismatch' ? 'chain_mismatch' : 'other',
+      };
     const opened = await api.open({ challenge: challenge.data.challenge, signature: signed.signature });
     if (!opened.ok) return refused(opened);
     sessions.set(key, { token: opened.data.session, expiresAt: Date.parse(opened.data.expiresAt) });

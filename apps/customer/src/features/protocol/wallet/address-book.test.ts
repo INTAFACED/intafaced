@@ -115,8 +115,10 @@ describe('address book words and routes', () => {
     expect(refused('protocol.contact_label_invalid')).toMatch(/1 to 64 characters/);
     expect(refused('protocol.something_new')).toBe(t('bookFailed'));
     expect(refused('edge.geo_blocked')).toBe(t('permitRefused_region'));
-    // A wallet-side failure (wrong network, timeout) has no code and its own plain words.
-    expect(refused(undefined, 'Your wallet is on another network.')).toBe('Your wallet is on another network.');
+    // A wallet-side failure has its own words; a refusal with no code shows no prose of anyone's.
+    expect(bookMessage(t, { ok: false, kind: 'wallet', reason: 'chain_mismatch' })).toBe(t('signWrongNetwork'));
+    expect(bookMessage(t, { ok: false, kind: 'wallet', reason: 'other' })).toBe(t('bookFailed'));
+    expect(refused(undefined, 'raw transport text')).toBe(t('bookFailed'));
   });
 
   it('opens the address book at its own path and a group under it', () => {

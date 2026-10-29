@@ -26,19 +26,26 @@ export function AddressBookPanel() {
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [grouping, setGrouping] = useState(false);
+  const [removing, setRemoving] = useState<string | null>(null);
   const turn = useRef(0);
+  // The wallet the page shows now: a call that returns after the wallet changed leaves the new wallet's book alone.
+  const current = useRef(address);
+  current.current = address;
 
   // Words are chosen as the page renders: `t` is a new function on every render, so no effect or callback holds it.
   const fail = (failure: BookFailure) => bookMessage(t, failure);
 
-  /** Reads the book; opens the session first when there is none. */
-  const load = useCallback(async () => {
-    const mine = ++turn.current;
-    setBook({ kind: 'opening' });
-    const read = await run((api, session) => api.list(session));
-    if (mine !== turn.current) return;
-    setBook(read.ok ? { kind: 'ready', book: read.data } : { kind: 'closed', failure: read });
-  }, [run]);
+  /** Reads the book; opens the session first when there is none. A quiet re-read keeps the tables on screen meanwhile. */
+  const load = useCallback(
+    async (quiet = false) => {
+      const mine = ++turn.current;
+      if (!quiet) setBook({ kind: 'opening' });
+      const read = await run((api, session) => api.list(session));
+      if (mine !== turn.current) return;
+      setBook(read.ok ? { kind: 'ready', book: read.data } : { kind: 'closed', failure: read });
+    },
+    [run],
+  );
 
   useEffect(() => {
     // The book is this wallet's: a new or changed wallet reads its own, and no wallet shows none.
@@ -58,24 +65,35 @@ export function AddressBookPanel() {
     if (!ADDRESS.test(contactAddress.trim())) return setProblem(t('bookRefused_contact_address_invalid'));
     setProblem(null);
     setSaving(true);
+    const forWallet = address;
     try {
       const added = await run((api, session) => api.addContact(session, { label: text, address: contactAddress.trim() }));
+      if (current.current !== forWallet) return;
       if (!added.ok) return setProblem(fail(added));
       setLabel('');
       setContactAddress('');
       setNotice(t('addSaved', { label: added.data.label }));
-      await load();
+      await load(true);
     } finally {
       setSaving(false);
     }
   };
 
-  const remove = async (id: string, name: string) => {
+  const remove = async (kind: 'contact' | 'group', id: string, name: string) => {
+    if (removing) return;
     setNotice(null);
-    const removed = await run((api, session) => api.removeContact(session, id));
-    if (!removed.ok) return setProblem(fail(removed));
-    setNotice(t('contactRemoved', { label: name }));
-    await load();
+    setRemoving(id);
+    const forWallet = address;
+    try {
+      const removed = await run((api, session) => (kind === 'contact' ? api.removeContact(session, id) : api.removeGroup(session, id)));
+      if (current.current !== forWallet) return;
+      if (!removed.ok) return setProblem(fail(removed));
+      setProblem(null);
+      setNotice(kind === 'contact' ? t('contactRemoved', { label: name }) : t('groupRemoved', { name }));
+      await load(true);
+    } finally {
+      setRemoving(null);
+    }
   };
 
   const ready = book.kind === 'ready' ? book.book : null;
@@ -134,7 +152,7 @@ export function AddressBookPanel() {
                 <td>{contact.label}</td>
                 <td className="numeric">{contact.address}</td>
                 <td>
-                  <Button variant="ghost" onClick={() => void remove(contact.id, contact.label)}>
+                  <Button variant="ghost" disabled={removing !== null} onClick={() => void remove('contact', contact.id, contact.label)}>
                     {t('contactRemove')}
                   </Button>
                 </td>
@@ -154,7 +172,7 @@ export function AddressBookPanel() {
         <Button variant="secondary" disabled={!ready} onClick={() => setGrouping(true)}>
           {t('groupNew')}
         </Button>
-        <DataTable label={t('groupsTitle')} headers={[t('hdr_name'), t('hdr_members')]}>
+        <DataTable label={t('groupsTitle')} headers={[t('hdr_name'), t('hdr_members'), t('hdr_actions')]}>
           {ready && ready.groups.length > 0 ? (
             ready.groups.map((group) => (
               <tr key={group.id}>
@@ -162,11 +180,16 @@ export function AddressBookPanel() {
                   <a href={walletGroupPath(group.id)}>{group.name}</a>
                 </td>
                 <td>{group.members.map((m) => (m.self ? t('groupThisWallet') : (m.label ?? m.address))).join(', ')}</td>
+                <td>
+                  <Button variant="ghost" disabled={removing !== null} onClick={() => void remove('group', group.id, group.name)}>
+                    {t('contactRemove')}
+                  </Button>
+                </td>
               </tr>
             ))
           ) : (
             <tr>
-              <td colSpan={2}>
+              <td colSpan={3}>
                 <EmptyState title={ready ? t('groupsEmpty') : address ? t('bookLoading') : t('needsWallet')} />
               </td>
             </tr>
@@ -180,7 +203,7 @@ export function AddressBookPanel() {
           onSaved={(name) => {
             setGrouping(false);
             setNotice(t('groupSaved', { name }));
-            void load();
+            void load(true);
           }}
           run={run}
         />
