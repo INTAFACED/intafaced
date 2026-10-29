@@ -6,6 +6,7 @@ import { useSession } from '../../features/session/session';
 import { stamp } from '../money/time';
 import { centreCopy } from './centre-copy';
 import { notifyCopy } from './copy';
+import { TestFigureTag } from './NotificationRow';
 import { NotifyNav } from './NotifyNav';
 import { deliveries, type Delivery, type Notification } from './notify-api';
 import { describe } from './notify-view';
@@ -107,6 +108,7 @@ function Row({
             {words.body ? `${words.body} · ` : ''}
             <span lang="zxx">{stamp(item.createdAt, zone)}</span>
           </span>
+          <TestFigureTag item={item} />
         </span>
         <button type="button" className="nf-link nf-linkbutton" aria-expanded={open} onClick={() => void toggle()}>
           {copy.t(open ? 'hideDelivery' : 'showDelivery')}
